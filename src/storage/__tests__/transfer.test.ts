@@ -1,10 +1,11 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { TRANSFER_STATE } from '../../core/constants.ts';
+import { MSG, TRANSFER_STATE } from '../../core/constants.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
   resetState();
@@ -101,5 +102,72 @@ describe('transfer module exports', () => {
   it('imports initTransfer without error', async () => {
     const mod = await import('../transfer.ts');
     expect(typeof mod.initTransfer).toBe('function');
+  });
+});
+
+describe('host outgoing transfer routing', () => {
+  it('stops sending chunks to a peer that disconnects after FILE_START', async () => {
+    const { broadcastFile } = await import('../transfer.ts');
+    const currentConn = {
+      open: true,
+      peer: 'peer-current',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    const staleConn = {
+      open: true,
+      peer: 'peer-stale',
+      send: vi.fn((msg: Record<string, unknown>) => {
+        if (msg.type !== MSG.FILE_START) return;
+        setState('network.connectedPeers', [
+          {
+            id: 'peer-current',
+            status: 'connected',
+            conn: currentConn,
+            isDataTarget: true,
+            connectionType: 'local',
+            joinOrder: 1,
+          },
+        ]);
+        setState('network.activeHostConnByPeerId', new Map([['peer-current', currentConn]]));
+      }),
+    } as unknown as DataConnection;
+
+    setState('playlist.currentTrackIndex', 0);
+    setState('network.connectedPeers', [
+      {
+        id: 'peer-current',
+        status: 'connected',
+        conn: currentConn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 1,
+      },
+      {
+        id: 'peer-stale',
+        status: 'connected',
+        conn: staleConn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 2,
+      },
+    ]);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map([
+        ['peer-current', currentConn],
+        ['peer-stale', staleConn],
+      ]),
+    );
+
+    await broadcastFile(new File(['abc'], 'song.mp3', { type: 'audio/mpeg' }), 1);
+
+    expect(staleConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+    expect(staleConn.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_CHUNK }),
+    );
+    expect(currentConn.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_CHUNK }),
+    );
+    expect(currentConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
   });
 });

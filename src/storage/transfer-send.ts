@@ -20,6 +20,19 @@ const _activeUnicasts = new Map<string, SessionScope>();
 /** Broadcast-level scope for cancellation */
 let _broadcastScope: SessionScope | null = null;
 
+const BROADCAST_BACKPRESSURE_LIMIT = 512 * 1024;
+const BROADCAST_BACKPRESSURE_TIMEOUT = 5_000;
+const UNICAST_BACKPRESSURE_LIMIT = 64 * 1024;
+const UNICAST_BACKPRESSURE_TIMEOUT = 30_000;
+
+function isPeerConnectionCurrent(peerId: string, conn: DataConnection): boolean {
+  const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
+  if (!peer || peer.conn !== conn) return false;
+
+  const activeConn = getState('network.activeHostConnByPeerId').get(peerId);
+  return !activeConn || activeConn === conn;
+}
+
 // ─── Broadcast Debounce ──────────────────────────────────────────────
 
 const BROADCAST_DEBOUNCE_KEY = 'broadcast-debounce';
@@ -177,10 +190,17 @@ export async function broadcastFile(
         if (timedOutPeers.has(p.id)) return;
         const conn = p.conn as DataConnection;
         if (!conn?.open) return;
-        const BACKPRESSURE_TIMEOUT = 30_000;
+        if (!isPeerConnectionCurrent(p.id, conn)) {
+          timedOutPeers.add(p.id);
+          return;
+        }
         const backpressureStart = Date.now();
-        while (conn.dataChannel && conn.dataChannel.bufferedAmount > 512 * 1024) {
-          if (Date.now() - backpressureStart > BACKPRESSURE_TIMEOUT) {
+        while (conn.dataChannel && conn.dataChannel.bufferedAmount > BROADCAST_BACKPRESSURE_LIMIT) {
+          if (!conn.open || !isPeerConnectionCurrent(p.id, conn)) {
+            timedOutPeers.add(p.id);
+            return;
+          }
+          if (Date.now() - backpressureStart > BROADCAST_BACKPRESSURE_TIMEOUT) {
             log.warn(
               `[Transfer] Backpressure timeout for peer ${p.label || p.id} — excluding from remaining transfer`,
             );
@@ -281,12 +301,14 @@ export async function unicastFile(
     for (let i = startChunkIndex; i < total; i++) {
       // Abort if: peer-level cancel, connection closed, or track changed
       if (scope.aborted || !conn.open) return;
+      if (!isPeerConnectionCurrent(unicastKey, conn)) return;
       if (getState('playlist.currentTrackIndex') !== currentTrackIndex) return;
 
       // Backpressure (return on timeout — connection is likely dead)
       const startWait = Date.now();
-      while (conn.dataChannel && conn.dataChannel.bufferedAmount > 64 * 1024) {
-        if (Date.now() - startWait > 30000) {
+      while (conn.dataChannel && conn.dataChannel.bufferedAmount > UNICAST_BACKPRESSURE_LIMIT) {
+        if (!conn.open || !isPeerConnectionCurrent(unicastKey, conn)) return;
+        if (Date.now() - startWait > UNICAST_BACKPRESSURE_TIMEOUT) {
           log.warn('[Unicast] Backpressure timeout');
           return;
         }
@@ -339,6 +361,13 @@ export async function unicastFile(
  * _broadcastScope) and unicastFile loops (via _activeUnicasts) check
  * their scope each iteration and exit on the next tick.
  */
+export function cancelOutgoingFileTransferForPeer(peerId: string): void {
+  const scope = _activeUnicasts.get(peerId);
+  if (!scope) return;
+  scope.dispose();
+  _activeUnicasts.delete(peerId);
+}
+
 export function cancelOutgoingFileTransfers(): void {
   if (_broadcastScope) {
     _broadcastScope.dispose();

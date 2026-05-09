@@ -12,6 +12,9 @@ import { getState } from '../core/state.ts';
 import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
+  cancelOutgoingFileTransferForPeer as cancelOutgoingFileTransferForPeerInternal,
+} from './transfer-send.ts';
+import {
   handleFilePrepare,
   handleFileStart,
   handleFileResume,
@@ -28,6 +31,7 @@ export {
   broadcastFileDebounced,
   cancelPendingBroadcast,
   unicastFile,
+  cancelOutgoingFileTransferForPeer,
   cancelOutgoingFileTransfers,
 } from './transfer-send.ts';
 export { cancelIncomingFileTransfer, fetchDemoFromServer } from './transfer-receive.ts';
@@ -64,6 +68,10 @@ export function initTransfer(): void {
     if (!code) {
       clearReceiveState();
     }
+  });
+
+  bus.on('network:peer-disconnected', (peerId: string) => {
+    cancelOutgoingFileTransferForPeerInternal(peerId);
   });
 
   log.info('[Transfer] Handlers registered');

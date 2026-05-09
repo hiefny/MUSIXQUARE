@@ -46,11 +46,13 @@ type OutgoingSignal =
       audioTrackCount?: number;
     }
   | { type: 'media-answer'; to: 'host'; callId: string; sdp: RTCSessionDescriptionInit }
-  | { type: 'media-close'; to: string | 'host'; callId: string };
+  | { type: 'media-close'; to: string | 'host'; callId: string }
+  | { type: 'keepalive' };
 
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
 const DATA_CONNECTION_DISCONNECTED_GRACE_MS = 15_000;
+const SIGNALING_KEEPALIVE_INTERVAL_MS = 25_000;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -519,6 +521,31 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     socket.send(JSON.stringify(message));
   }
 
+  private startSocketKeepAlive(socket: WebSocket, timerName: string): void {
+    setManagedTimer(
+      timerName,
+      () => {
+        if (this.destroyed || socket.readyState !== WebSocket.OPEN) {
+          clearManagedTimer(timerName);
+          return;
+        }
+        try {
+          socket.send(JSON.stringify({ type: 'keepalive' } satisfies OutgoingSignal));
+        } catch {
+          clearManagedTimer(timerName);
+        }
+      },
+      SIGNALING_KEEPALIVE_INTERVAL_MS,
+      { interval: true },
+    );
+  }
+
+  private isDataConnectionAlive(conn: CloudflareDataConnection | undefined): boolean {
+    if (!conn?.open) return false;
+    const state = conn.peerConnection?.connectionState;
+    return state !== 'closed' && state !== 'failed';
+  }
+
   private sendRoomPassword(): void {
     if (!this.hostRoomId) return;
     const socket = this.hostSocket;
@@ -546,10 +573,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
 
     this.hostSocket = socket;
+    const keepAliveTimerName = `cloudflare-signaling-keepalive-host-${this.id}`;
+    socket.addEventListener('open', () => this.startSocketKeepAlive(socket, keepAliveTimerName));
     socket.addEventListener('message', (event) => {
       this.handleHostMessage(event.data).catch((error) => this.emit('error', error));
     });
     socket.addEventListener('close', () => {
+      clearManagedTimer(keepAliveTimerName);
       if (this.destroyed) return;
       if (this.hostSocket === socket) {
         this.open = false;
@@ -576,9 +606,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
 
     this.roomSockets.set(roomId, socket);
+    const keepAliveTimerName = `cloudflare-signaling-keepalive-guest-${roomId}`;
     socket.addEventListener('open', () => {
       try {
         socket.send(JSON.stringify({ type: 'guest-auth', password: roomPassword || '' }));
+        this.startSocketKeepAlive(socket, keepAliveTimerName);
       } catch (error) {
         conn.emit('error', error);
       }
@@ -589,6 +621,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       );
     });
     socket.addEventListener('close', () => {
+      clearManagedTimer(keepAliveTimerName);
       if (this.destroyed) return;
       if (this.roomSockets.get(roomId) === socket) {
         this.roomSockets.delete(roomId);
@@ -637,7 +670,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-left') {
-      this.connections.get(message.peerId)?.close();
+      const conn = this.connections.get(message.peerId);
+      if (this.isDataConnectionAlive(conn)) {
+        log.info(
+          `[Transport] Ignoring signaling peer-left for ${message.peerId}; data channel is still alive`,
+        );
+        return;
+      }
+      conn?.close();
       for (const [callId, mediaConn] of this.mediaCalls) {
         if (mediaConn.peer === message.peerId) {
           mediaConn.closeFromRemote();
@@ -685,6 +725,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-left') {
+      if (this.isDataConnectionAlive(conn)) {
+        log.info('[Transport] Ignoring signaling peer-left for host; data channel is still alive');
+        return;
+      }
       conn.close();
     }
   }

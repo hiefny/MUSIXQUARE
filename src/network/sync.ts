@@ -471,7 +471,7 @@ export function initSync(): void {
 // throttle timers for many seconds when the tab is backgrounded, so an open
 // WebRTC channel gets a longer grace window before cleanup.
 
-const HEARTBEAT_STALE_THRESHOLD = 45_000;
+const HEARTBEAT_STALE_THRESHOLD = 30_000;
 const HEARTBEAT_FORCE_CLEANUP_THRESHOLD = 120_000;
 const HEARTBEAT_CHECK_INTERVAL = 10_000;
 

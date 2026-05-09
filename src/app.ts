@@ -196,8 +196,21 @@ function initWakeLock(): void {
   log.info('[App] Wake Lock initialized (native API)');
 }
 
-// ── Global Error Handlers ──
+// Audio gesture recovery
+function initAudioGestureRecovery(): void {
+  const resumeIfNeeded = () => {
+    if (!isAudioReady()) return;
+    const ctx = getAudioContext();
+    if (ctx.state === 'running') return;
+    bus.emit('audio:activate');
+  };
 
+  document.addEventListener('pointerdown', resumeIfNeeded, { passive: true });
+  document.addEventListener('touchstart', resumeIfNeeded, { passive: true });
+  document.addEventListener('keydown', resumeIfNeeded);
+}
+
+// Global error handlers
 // addEventListener (not `window.onerror = ...`) so we don't clobber any
 // host-injected handler the embedding wrapper (e.g. a WebView bridge)
 // might have installed before our bootstrap ran.
@@ -422,6 +435,7 @@ function bootstrap(): void {
   // 11. Keyboard shortcuts, Wake Lock & Cleanup
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
+  safeInit('AudioGestureRecovery', initAudioGestureRecovery);
   safeInit('PageLifecycle', () =>
     initPageLifecycleHandlers({
       getRole: () => getState('network.appRole'),

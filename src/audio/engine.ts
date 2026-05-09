@@ -465,6 +465,10 @@ async function _doInitAudio(): Promise<void> {
         ctx.removeEventListener('statechange', _ctxStateChangeHandler);
     }
     const handler = () => {
+      if (ctx.state === 'running') {
+        bus.emit('audio:activated');
+        return;
+      }
       if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
         log.info(`[Audio] AudioContext ${ctx.state} — auto-resuming`);
         ctx.resume().catch((e) => log.debug('[Audio] Auto-resume failed', e));
@@ -605,7 +609,13 @@ bus.on('audio:connect-surround', (playerNode, channelIdx) => {
 bus.on('audio:activate', async () => {
   try {
     await initAudio();
-    log.info('[Audio] Activated via user interaction');
+    const ctx = getAudioContext();
+    if (ctx.state === 'running') {
+      bus.emit('audio:activated');
+      log.info('[Audio] Activated via user interaction');
+    } else {
+      log.debug(`[Audio] Activation requested but context is ${ctx.state}`);
+    }
   } catch (e) {
     log.warn('[Audio] Activation failed:', e);
   }

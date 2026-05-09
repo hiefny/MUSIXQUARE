@@ -792,6 +792,14 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       log.debug(`[Guest] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
       play(target);
       setPendingPlayTime(undefined);
+      setManagedTimer(
+        'playback-finalize-host-sync',
+        () => bus.emit('sync:request-immediate-ping'),
+        250,
+      );
+    } else if (hostConn?.open) {
+      log.info('[Guest] No pending play time after download, requesting host sync');
+      bus.emit('sync:request-immediate-ping');
     }
 
     // Force sync handled by sync.ts state:appState listener (1s delayed reset)

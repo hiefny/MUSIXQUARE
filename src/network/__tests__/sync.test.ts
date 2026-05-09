@@ -9,16 +9,19 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { getTotalSyncOffsetMs, handleAutoSync, initSync } from '../sync.ts';
+import { setCurrentAudioBuffer } from '../../player/_state.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
   clearAllManagedTimers();
   resetState();
+  setCurrentAudioBuffer(null);
   bus.clear();
 });
 
 afterEach(() => {
   clearAllManagedTimers();
+  setCurrentAudioBuffer(null);
   vi.useRealTimers();
 });
 
@@ -80,6 +83,25 @@ describe('SYNC_PING playback snapshot', () => {
         appState: APP_STATE.PAUSED,
         position: 0,
         trackIndex: 2,
+      }),
+    );
+  });
+});
+
+describe('audio activation bootstrap', () => {
+  it('requests a fresh host sync when a guest unlocks audio with a decoded buffer', () => {
+    initSync();
+    const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;
+    setState('network.hostConn', conn as DataConnection);
+    setCurrentAudioBuffer({ duration: 30 } as AudioBuffer);
+
+    bus.emit('audio:activated');
+
+    expect(conn.send).toHaveBeenCalledTimes(1);
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.SYNC_PING,
+        pingId: 1,
       }),
     );
   });

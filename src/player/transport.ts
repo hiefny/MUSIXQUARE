@@ -22,6 +22,7 @@ import { getHostNow } from '../network/shared-clock.ts';
 
 /** Schedule playback slightly in the future so the message arrives before play time */
 const SCHEDULE_AHEAD_MS = 200;
+type InternalPlayResult = 'played' | 'noop' | 'deferred';
 
 import {
   getPlayerNode,
@@ -386,14 +387,16 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
     15000,
   );
 
+  let result: InternalPlayResult = 'noop';
   try {
-    await _internalPlay(offset, scheduleDelay);
+    result = await _internalPlay(offset, scheduleDelay);
   } finally {
     clearManagedTimer('navigator-lock-watchdog');
     setManagedTimer(
       'playback-unlock-delay',
       () => {
         setPlayLocked(false);
+        if (result === 'deferred') return;
         // Consume queued play request (e.g. sync correction that arrived during lock)
         const pendingTime = getPendingPlayTime();
         if (pendingTime !== undefined) {
@@ -407,7 +410,7 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
   }
 }
 
-async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
+async function _internalPlay(offset: number, scheduleDelay = 0): Promise<InternalPlayResult> {
   setPendingPlayTime(undefined);
   // Snapshot the load token at entry. If the play()-level watchdog fires
   // (or another path bumps the token, e.g. track switch), every await
@@ -419,7 +422,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   const currentState = getState('appState');
   if (currentState === APP_STATE.PLAYING_YOUTUBE) {
     log.warn('[Audio] Blocked play() call while in YouTube mode');
-    return;
+    return 'noop';
   }
 
   log.debug('[Play] Stage 2: Resuming AudioContext');
@@ -431,7 +434,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
 
   if (getLoadToken() !== myLoadToken) {
     log.warn('[Play] Aborted — load token bumped during ensureRunning');
-    return;
+    return 'noop';
   }
 
   // ── Post-await mode re-check ──────────────────────────────────────
@@ -442,7 +445,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   // state that requires a page reload.
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
     log.warn('[Audio] Aborted play() — app switched to YouTube mode during async init');
-    return;
+    return 'noop';
   }
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
@@ -457,7 +460,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     // The hint copy ("미디어를 추가해주세요.") matches the empty-list
     // placeholder shown in the playlist tab for a consistent UX.
     showToast(t('playlist.empty_hint'));
-    return;
+    return 'noop';
   }
 
   log.debug('[Play] Stage 3: Initializing audio engine');
@@ -466,18 +469,25 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   } catch (e) {
     log.error('[Audio] initAudio failed:', e);
     showToast(t('error.audio_engine_prepare'));
-    return;
+    return 'noop';
   }
 
   if (getLoadToken() !== myLoadToken) {
     log.warn('[Play] Aborted — load token bumped during initAudio');
-    return;
+    return 'noop';
   }
 
   // Re-check after second async gap (initAudio)
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
     log.warn('[Audio] Aborted play() — app switched to YouTube mode during initAudio');
-    return;
+    return 'noop';
+  }
+
+  const ctx = getAudioContext();
+  if (ctx.state !== 'running') {
+    log.warn(`[Play] AudioContext is ${ctx.state}; deferring playback until user activation`);
+    setPendingPlayTime(offset);
+    return 'deferred';
   }
 
   // 1. Get the current manual sync offset (nudge) for both audio-engine and clock
@@ -498,7 +508,6 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   // Buffer Mode playback
   if (_currentAudioBuffer) {
     stopPlayerNode();
-    const ctx = getAudioContext();
     const newNode = ctx.createBufferSource();
     newNode.buffer = _currentAudioBuffer;
     setPlayerNode(newNode);
@@ -557,6 +566,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
 
   bus.emit('visualizer:start');
   bus.emit('ui:loop-start');
+  return 'played';
 }
 
 // ─── Pause ─────────────────────────────────────────────────────────

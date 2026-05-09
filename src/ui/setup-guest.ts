@@ -185,6 +185,7 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
   setState('network.lastJoinCode', autoCode);
   updateInviteCodeUI();
   activateNoSleep();
+  bus.emit('audio:activate');
 
   try {
     selectStandardChannelButton(mode);
@@ -275,6 +276,7 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
   setState('network.lastJoinCode', code);
   updateInviteCodeUI();
   activateNoSleep();
+  bus.emit('audio:activate');
 
   try {
     selectStandardChannelButton(mode);

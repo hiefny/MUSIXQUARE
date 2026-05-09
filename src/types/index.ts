@@ -694,6 +694,7 @@ interface BaseEventMap {
   // ── Audio ─────────────────────────────────────────────────────────
   'audio:ready': [];
   'audio:activate': [];
+  'audio:activated': [];
   'audio:set-volume': [volume: number];
   'audio:volume-changed': [volume: number];
   'audio:apply-youtube-volume': [];

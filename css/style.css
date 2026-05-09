@@ -5260,6 +5260,10 @@
             right: calc(200px + var(--safe-right)) !important;
         }
 
+        #youtube-url-overlay .setup-join-area>.cscroll-track {
+            right: calc(200px + var(--safe-right) + 56px) !important;
+        }
+
         /* chat-drawer.transform creates a new containing block for the
            position:fixed track inside it, so the rule above (which targets
            viewport-anchored tracks) ends up offsetting from the drawer's
@@ -6124,7 +6128,7 @@ html:not(.ios-standalone) body {
 }
 
 #youtube-url-overlay .setup-join-area>.cscroll-track {
-    right: 28px;
+    right: 56px;
 }
 
 @media (min-width: 1280px) {

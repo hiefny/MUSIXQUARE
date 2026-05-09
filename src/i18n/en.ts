@@ -540,7 +540,7 @@ const en: Record<I18nKey, string> = {
     'Set the role for each device.<br>Play left and right audio separately<br>and feel the deep bass in woofer.',
   'setup.advanced_audio_desc_html':
     "Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.",
-  'youtube.enter_link_desc_html': 'Paste a public link or search for a video.',
+  'youtube.enter_link_desc_html': 'Only public videos or playlists can be watched.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'System Audio',

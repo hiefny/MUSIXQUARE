@@ -537,7 +537,7 @@ const ko = {
     '각 기기의 역할을 설정해 보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한 저음을 느껴보세요.',
   'setup.advanced_audio_desc_html':
     '방장의 설정에 맞추어<br>리버브, 이퀄라이저, 가상 효과 등<br>고급 효과를 시스템에 적용할 수 있어요.',
-  'youtube.enter_link_desc_html': '공개 링크를 붙여넣거나 영상을 검색해보세요.',
+  'youtube.enter_link_desc_html': '공개된 영상이나 플레이리스트만 볼 수 있어요',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': '시스템 오디오 공유',

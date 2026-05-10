@@ -544,8 +544,9 @@ export function initSetup(): void {
   // Session full (guest rejected by full host)
   bus.on('network:session-full', (msg) => {
     const message = (msg as string) || t('network.session_full');
-    showDialog({ title: t('network.cant_join'), message: String(message) });
+    showSetupOverlay();
     startGuestFlow();
+    showDialog({ title: t('network.session_full'), message: String(message) });
   });
 
   // Kicked from session (guest removed from host device list)

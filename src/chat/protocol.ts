@@ -439,7 +439,16 @@ function handleChatSystem(data: Record<string, unknown>, conn?: DataConnection):
   // guest-side guard alone doesn't cover us.
   if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
-  const text = (data.text as string) || '';
+  let text = (data.text as string) || '';
+  if (text.length > MAX_MSG_LENGTH) text = text.substring(0, MAX_MSG_LENGTH);
+
+  const i18nKey = data.i18nKey as string | undefined;
+  if (i18nKey) {
+    const i18nParams = isNoticeParams(data.i18nParams) ? data.i18nParams : undefined;
+    const localized = t(i18nKey as I18nKey, i18nParams);
+    if (localized !== i18nKey) text = localized;
+  }
+
   if (text) addSystemChatMessage(text);
 }
 

@@ -9,6 +9,7 @@
 
 import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
+import type { I18nKey } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
@@ -23,6 +24,7 @@ import {
   getAvailablePeerSlot,
   assignPeerSlot,
   releasePeerSlot,
+  broadcast,
   broadcastDeviceList,
 } from './peer-state.ts';
 import { showToast } from '../ui/toast.ts';
@@ -35,6 +37,20 @@ function maybeBroadcastRemoteGuestNotice(): void {
   if (remoteGuestNoticeShown) return;
   remoteGuestNoticeShown = true;
   broadcastSystemNotice('chat.remote_guest_detected_notice');
+}
+
+function broadcastRoomSystemMessage(
+  i18nKey: I18nKey,
+  params?: Record<string, string | number>,
+): void {
+  const text = t(i18nKey, params);
+  bus.emit('chat:system-message', text);
+  broadcast({
+    type: MSG.CHAT_SYSTEM,
+    text,
+    i18nKey,
+    ...(params ? { i18nParams: params } : {}),
+  });
 }
 
 export function handleHostIncomingConnection(conn: DataConnection): void {
@@ -249,7 +265,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     }
 
     showToast(t('toast.device_connected', { name: deviceName }));
-    bus.emit('chat:system-message', t('chat.peer_connected', { name: deviceName }));
+    broadcastRoomSystemMessage('chat.peer_connected', { name: deviceName });
 
     sendLatestPinnedNotice(conn);
 
@@ -359,7 +375,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
       showToast(t('toast.device_disconnected', { name: currentLabel }));
-      bus.emit('chat:system-message', t('chat.peer_disconnected', { name: currentLabel }));
+      broadcastRoomSystemMessage('chat.peer_disconnected', { name: currentLabel });
     }
     log.info(`[Host] ${currentLabel} disconnected`);
   });
@@ -404,7 +420,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     const sessionStarted = getState('setup.sessionStarted');
     if (sessionStarted) {
       showToast(t('toast.device_conn_error', { name: errLabel }));
-      bus.emit('chat:system-message', t('chat.peer_disconnected', { name: errLabel }));
+      broadcastRoomSystemMessage('chat.peer_disconnected', { name: errLabel });
     }
     try {
       conn.close();

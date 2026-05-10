@@ -434,7 +434,11 @@ export interface ProtocolMap {
   };
   'chat-slowmode': { seconds: number };
   'chat-filter': { on: boolean };
-  'chat-system': { text: string };
+  'chat-system': {
+    text: string;
+    i18nKey?: string;
+    i18nParams?: Record<string, string | number>;
+  };
   'request-chat-command': { command: string; args: string[] };
 
   // ── System Audio Sharing ──────────────────────────────────────

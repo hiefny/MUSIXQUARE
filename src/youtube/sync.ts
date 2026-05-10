@@ -10,6 +10,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
+import { IS_ANDROID } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
@@ -48,6 +49,7 @@ import {
   RENDEZVOUS_CALIBRATE_DELAY_MS,
   RENDEZVOUS_DRIFT_SUPPRESS_MS,
   LATENCY_EMA_RATE,
+  ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
   LATENCY_CLAMP_MAX_MS,
   LATENCY_OUTLIER_REJECT_MS,
 } from './constants.ts';
@@ -63,6 +65,11 @@ import {
  */
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 let _lastManualBroadcastAt = 0;
+
+function getEffectiveGuestPlayLatencyMs(): number {
+  const learned = getState('youtube.guestPlayLatency') ?? 0;
+  return IS_ANDROID ? Math.max(learned, ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS) : learned;
+}
 
 export function broadcastYouTubeSync(isManual = false, stateOverride?: number): void {
   const player = getYouTubePlayer();
@@ -506,7 +513,7 @@ export function guestRendezvousSync(): void {
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
 
-  const guestPlayLatency = getState('youtube.guestPlayLatency') ?? 0;
+  const guestPlayLatency = getEffectiveGuestPlayLatencyMs();
 
   // Extrapolate host's current position
   const nowHost = getHostNow();

@@ -118,6 +118,9 @@ export const RENDEZVOUS_DRIFT_SUPPRESS_MS = 2000;
 /** Learning rate for the EMA update (0.3 = 30% weight on each new sample). */
 export const LATENCY_EMA_RATE = 0.3;
 
+/** Android YouTube iframe audible output is consistently late vs. desktop/iOS. */
+export const ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS = 250;
+
 /** Clamp max — anything beyond this is unrealistic for playVideo() latency. */
 export const LATENCY_CLAMP_MAX_MS = 600;
 

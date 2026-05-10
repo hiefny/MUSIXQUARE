@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
-import { IS_ANDROID, canCaptureSystemAudio } from '../core/platform.ts';
+import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
@@ -724,8 +724,10 @@ export function initPlayerControls(): void {
     });
     ytInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
+        if (e.isComposing || e.keyCode === 229) return;
         e.preventDefault();
         bus.emit('youtube:load-from-input');
+        if (IS_IOS || IS_ANDROID) ytInput.blur();
       }
     });
     ytInput.addEventListener('paste', (e) => {

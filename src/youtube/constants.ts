@@ -95,6 +95,12 @@ export const RENDEZVOUS_SNAPSHOT_MAX_AGE_MS = 10_000;
 /** Cooldown between rendezvous calls — rapid-fire crashes the YT iframe. */
 export const RENDEZVOUS_COOLDOWN_MS = 3000;
 
+/** Retry cadence when a manual/late-join rendezvous arrives before iframe readiness. */
+export const MANUAL_RENDEZVOUS_RETRY_MS = 250;
+
+/** Maximum window to keep a deferred manual/late-join rendezvous alive. */
+export const MANUAL_RENDEZVOUS_RETRY_MAX_MS = 6000;
+
 /** Buffer-check poll interval (setManagedTimer) during the pause-and-wait phase. */
 export const RENDEZVOUS_BUFFER_CHECK_INTERVAL_MS = 50;
 

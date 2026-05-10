@@ -370,6 +370,62 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
+  describe('handleYouTubeSync - manual rendezvous readiness retry', () => {
+    it('defers a manual sync that arrives before the YouTube iframe is ready', async () => {
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      expect(handler).toBeDefined();
+      setState('network.hostConn', mockHostConn as never);
+      setState('appState', APP_STATE.IDLE);
+      getYouTubePlayerMock.mockReturnValue(null);
+
+      handler(
+        {
+          time: 42,
+          state: 1,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+          hostClock: Date.now(),
+          isManual: true,
+        },
+        mockHostConn,
+      );
+
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+
+      const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
+      setState('appState', APP_STATE.PLAYING_YOUTUBE);
+      bus.emit('youtube:player-ready');
+
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+      expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeDefined();
+      expect(player.__log.find((c) => c.op === 'seekTo')).toBeDefined();
+    });
+
+    it('clears a pending manual rendezvous retry on sync reset', async () => {
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      const { resetYouTubeSyncState } = await importSync();
+      setState('network.hostConn', mockHostConn as never);
+      setState('appState', APP_STATE.IDLE);
+      getYouTubePlayerMock.mockReturnValue(null);
+
+      handler(
+        {
+          time: 12,
+          state: 1,
+          hostClock: Date.now(),
+          isManual: true,
+        },
+        mockHostConn,
+      );
+
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+
+      resetYouTubeSyncState();
+
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+    });
+  });
+
   // 7. handleYouTubeSync during _autoSyncUntil skips drift
   describe('handleYouTubeSync — _autoSyncUntil cooldown', () => {
     it('drift correction is suppressed during the countdown window', async () => {

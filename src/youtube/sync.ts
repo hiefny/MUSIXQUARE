@@ -43,6 +43,8 @@ import {
   RENDEZVOUS_MARGIN_SEC,
   RENDEZVOUS_SNAPSHOT_MAX_AGE_MS,
   RENDEZVOUS_COOLDOWN_MS,
+  MANUAL_RENDEZVOUS_RETRY_MS,
+  MANUAL_RENDEZVOUS_RETRY_MAX_MS,
   RENDEZVOUS_BUFFER_CHECK_INTERVAL_MS,
   RENDEZVOUS_BUFFER_MAX_CHECKS,
   RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS,
@@ -213,6 +215,8 @@ interface GuestSyncRuntime {
   rendezvousInProgress: boolean;
   /** Cooldown timestamp to prevent rapid-fire rendezvous (YouTube API crash). */
   lastRendezvousAt: number;
+  /** Date.now() expiry for a manual rendezvous waiting on iframe/app readiness. */
+  pendingManualRendezvousUntil: number;
 }
 
 const _rt: GuestSyncRuntime = {
@@ -223,6 +227,7 @@ const _rt: GuestSyncRuntime = {
   lastHostSnapshot: null,
   rendezvousInProgress: false,
   lastRendezvousAt: 0,
+  pendingManualRendezvousUntil: 0,
 };
 
 export function resetAdDetection(): void {
@@ -255,15 +260,68 @@ function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: num
   };
 }
 
-// ─── Spoofing Defense Helper ──────────────────────────────────────
-//
-// All host→guest YouTube broadcasts in this file (YOUTUBE_SYNC,
-// YOUTUBE_STATE, YOUTUBE_STOP, YOUTUBE_SUB_TITLE_UPDATE,
-// YOUTUBE_PLAYLIST_INFO) flow one-way: host calls `broadcast()`
-// directly — the host's own dispatcher never receives them on the
-// legitimate path. A raw frame at host means a malicious guest sent it
-// directly; a raw frame at a guest from any conn other than hostConn means
-// a peer is spoofing host broadcasts.
+// Manual rendezvous retry helpers.
+function isManualRendezvousReady(
+  player: YouTubePlayerInstance | null,
+  currentState = getState('appState'),
+): boolean {
+  return (
+    !!player &&
+    currentState === APP_STATE.PLAYING_YOUTUBE &&
+    !!player.getCurrentTime &&
+    !!player.seekTo &&
+    !!player.pauseVideo &&
+    !!player.playVideo
+  );
+}
+
+function clearPendingManualRendezvous(): void {
+  _rt.pendingManualRendezvousUntil = 0;
+  clearManagedTimer('yt-manual-rendezvous-retry');
+}
+
+function runPendingManualRendezvous(): void {
+  if (!_rt.pendingManualRendezvousUntil) return;
+
+  const now = Date.now();
+  if (now > _rt.pendingManualRendezvousUntil) {
+    clearPendingManualRendezvous();
+    log.debug('[YouTube Sync] Pending manual rendezvous expired before iframe readiness');
+    return;
+  }
+
+  const hostConn = getState('network.hostConn') as DataConnection | null;
+  if (!hostConn || hostConn.open === false) {
+    clearPendingManualRendezvous();
+    return;
+  }
+
+  const player = getYouTubePlayer();
+  if (isManualRendezvousReady(player)) {
+    clearPendingManualRendezvous();
+    log.info('[YouTube Sync] Running deferred manual rendezvous after iframe readiness');
+    guestRendezvousSync();
+    return;
+  }
+
+  setManagedTimer(
+    'yt-manual-rendezvous-retry',
+    runPendingManualRendezvous,
+    MANUAL_RENDEZVOUS_RETRY_MS,
+  );
+}
+
+function deferManualRendezvousUntilReady(reason: string): void {
+  _rt.pendingManualRendezvousUntil = Date.now() + MANUAL_RENDEZVOUS_RETRY_MAX_MS;
+  log.debug(`[YouTube Sync] Deferring manual rendezvous until ready (${reason})`);
+  setManagedTimer(
+    'yt-manual-rendezvous-retry',
+    runPendingManualRendezvous,
+    MANUAL_RENDEZVOUS_RETRY_MS,
+  );
+}
+
+// Spoofing defense helper: only accept host broadcasts from hostConn.
 function isHostBroadcast(conn: DataConnection | undefined): boolean {
   const hostConn = getState('network.hostConn');
   return !!hostConn && conn === hostConn;
@@ -301,14 +359,16 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(hostTime, hostState, hostClock);
 
-  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) return;
+  const isManual = !!data.isManual;
+  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) {
+    if (isManual) deferManualRendezvousUntilReady('player-or-app-state-not-ready');
+    return;
+  }
 
   // Host is alive — cancel any pending guest-ENDED fallback. The 5s fallback
   // would otherwise drop the guest out of YouTube mode even though the host
   // is still broadcasting heartbeats for a freshly loaded next track.
   clearManagedTimer('yt-guest-ended-fallback');
-
-  const isManual = !!data.isManual;
 
   // Manual sync (Host clicks Sync button) ALWAYS bypasses the cooldown
   if (!isManual && Date.now() < _rt.autoSyncUntil) return;
@@ -316,6 +376,11 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   try {
     // If this is a manual sync request from the host, trigger precision rendezvous immediately
     if (isManual) {
+      if (!isManualRendezvousReady(player, currentState)) {
+        deferManualRendezvousUntilReady('player-api-not-ready');
+        return;
+      }
+      clearPendingManualRendezvous();
       log.info('[YouTube Sync] Received manual sync request — triggering precision rendezvous');
       guestRendezvousSync();
       return;
@@ -781,7 +846,9 @@ export function resetYouTubeSyncState(): void {
   _rt.lastRendezvousAt = 0;
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
+  _rt.pendingManualRendezvousUntil = 0;
   resetAdDetection();
+  clearManagedTimer('yt-manual-rendezvous-retry');
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
@@ -838,6 +905,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // PAUSE/STOP always takes priority — cancel any pending auto-sync
   if (state === 2 || state === 0 || state === -1) {
     _rt.autoSyncUntil = 0;
+    clearPendingManualRendezvous();
     clearManagedTimer('yt-clock-action');
     bus.emit('youtube:sync-loading', false);
     cancelGuestRendezvous(); // Host paused/stopped while guest was rendezvousing
@@ -1180,6 +1248,7 @@ function handleYouTubeStop(_data: Record<string, unknown>, conn?: DataConnection
   if (!isHostBroadcast(conn)) return;
 
   _rt.autoSyncUntil = 0;
+  clearPendingManualRendezvous();
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();
   clearManagedTimer('yt-clock-action');
@@ -1208,6 +1277,8 @@ export function initYouTubeSync(): void {
     _rt.autoSyncUntil = 0;
     resetAdDetection();
   });
+
+  bus.on('youtube:player-ready', runPendingManualRendezvous);
 
   log.info('[YouTube Sync] Initialized');
 }

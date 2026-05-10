@@ -2,8 +2,10 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { resetState } from '../../core/state.ts';
+import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { APP_STATE, MSG } from '../../core/constants.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -195,6 +197,79 @@ describe('YouTube Player', () => {
     it('returns null for non-YouTube URL', async () => {
       const { extractYouTubeVideoId } = await import('../search.ts');
       expect(extractYouTubeVideoId('https://example.com')).toBeNull();
+    });
+  });
+
+  describe('Late-join YouTube bootstrap', () => {
+    it('schedules a precision rendezvous sync for the newly connected guest only', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const { safeSend } = await import('../../network/peer.ts');
+      const { setManagedTimer } = await import('../../core/timers.ts');
+      const { STAGE2_RENDEZVOUS_BROADCAST_MS } = await import('../constants.ts');
+
+      setState('appState', APP_STATE.PLAYING_YOUTUBE);
+      setState('playlist.currentTrackIndex', 0);
+      setState('playlist.items', [
+        {
+          type: 'youtube',
+          videoId: 'initialVideo',
+          playlistId: null,
+          name: 'Late Join Video',
+          title: 'Late Join Video',
+        } as any,
+      ]);
+      setState('player.currentTrackMeta', { title: 'Late Join Video' } as any);
+      setState('youtube.currentSubIndex', 0);
+
+      setYouTubePlayer({
+        getCurrentTime: vi.fn(() => 42),
+        getPlayerState: vi.fn(() => 1),
+        getVideoData: vi.fn(() => ({ video_id: 'liveVideo123', title: 'Late Join Video' })),
+      } as any);
+
+      initYouTube();
+
+      const conn = { open: true, peer: 'guest-1', send: vi.fn() } as unknown as DataConnection;
+      bus.emit('network:peer-connected', conn);
+
+      expect(safeSend).toHaveBeenCalledWith(
+        conn,
+        expect.objectContaining({
+          type: MSG.YOUTUBE_PLAY,
+          videoId: 'liveVideo123',
+          autoplay: true,
+        }),
+      );
+      expect(safeSend).toHaveBeenCalledWith(
+        conn,
+        expect.objectContaining({
+          type: MSG.YOUTUBE_STATE,
+          state: 1,
+          time: 42,
+          videoId: 'liveVideo123',
+        }),
+      );
+
+      const timerCall = vi
+        .mocked(setManagedTimer)
+        .mock.calls.find(([name]) => name === 'yt-late-join-rendezvous-guest-1');
+      expect(timerCall?.[2]).toBe(STAGE2_RENDEZVOUS_BROADCAST_MS);
+
+      const fireRendezvous = timerCall?.[1] as (() => void) | undefined;
+      fireRendezvous?.();
+
+      expect(safeSend).toHaveBeenCalledWith(
+        conn,
+        expect.objectContaining({
+          type: MSG.YOUTUBE_SYNC,
+          isManual: true,
+          state: 1,
+          time: 42,
+          videoId: 'liveVideo123',
+          title: 'Late Join Video',
+        }),
+      );
     });
   });
 });

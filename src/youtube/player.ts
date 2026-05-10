@@ -56,7 +56,7 @@ import {
   fetchPlaylistSubTitles,
   cancelSubTitleFetch,
 } from './search.ts';
-import type { PlaylistItem } from '../types/index.ts';
+import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
 // ─── Sub-module imports ────────────────────────────────────────────
 
@@ -207,6 +207,48 @@ export function scheduleYtAutoSync(
 export function cancelYtAutoSync(): void {
   clearManagedTimer('yt-auto-sync');
   bus.emit('youtube:sync-loading', false);
+}
+
+function scheduleLateJoinRendezvousSync(
+  conn: DataConnection,
+  fallbackSubIndex: number,
+  fallbackVideoId: string,
+): void {
+  const peerId = conn.peer || 'unknown';
+  setManagedTimer(
+    `yt-late-join-rendezvous-${peerId}`,
+    () => {
+      if (!conn.open || getState('network.hostConn')) return;
+      if (getState('appState') !== APP_STATE.PLAYING_YOUTUBE) return;
+
+      const player = getYouTubePlayer();
+      if (!player?.getCurrentTime) return;
+
+      try {
+        const liveState = player.getPlayerState?.() ?? 1;
+        if (liveState === 2 || liveState === 0 || liveState === -1) return;
+        const currentSubIndex = getState('youtube.currentSubIndex');
+
+        safeSend(conn, {
+          type: MSG.YOUTUBE_SYNC,
+          time: player.getCurrentTime(),
+          state: 1,
+          subIndex:
+            currentSubIndex !== undefined && currentSubIndex >= 0
+              ? currentSubIndex
+              : fallbackSubIndex,
+          videoId: player.getVideoData?.()?.video_id || fallbackVideoId,
+          hostClock: getHostNow(),
+          isManual: true,
+          title: getState('player.currentTrackMeta')?.title,
+        });
+        log.debug(`[YouTube] Late-join rendezvous sync sent to ${peerId}`);
+      } catch (e) {
+        log.debug('[YouTube] late-join rendezvous sync skipped:', e);
+      }
+    },
+    STAGE2_RENDEZVOUS_BROADCAST_MS,
+  );
 }
 
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
@@ -1362,6 +1404,7 @@ export function initYouTube(): void {
           hostPlayAt: getHostNow() + YT_AUTO_SYNC_MS,
           hostClock: getHostNow(),
         });
+        scheduleLateJoinRendezvousSync(conn, subIdx, currentVideoId);
       } else {
         // Host paused — simple sync frame is fine
         safeSend(conn, {

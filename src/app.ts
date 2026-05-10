@@ -19,14 +19,15 @@ import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
 import { getState, setState, snapshot } from './core/state.ts';
-import { APP_STATE } from './core/constants.ts';
+import { APP_STATE, PLAYBACK_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
-import { setManagedTimer } from './core/timers.ts';
+import { delay, setManagedTimer } from './core/timers.ts';
 import {
   initPageLifecycleHandlers,
   markIntentionalNav,
   isIntentionalNav,
 } from './core/page-lifecycle.ts';
+import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -58,7 +59,7 @@ import { initMediaSession } from './player/media-session.ts';
 
 // ── YouTube ──
 import { initYouTube } from './youtube/player.ts';
-import { initYouTubeSync } from './youtube/sync.ts';
+import { guestRendezvousSync, initYouTubeSync } from './youtube/sync.ts';
 
 // ── Audio: Beat Detection ──
 import { initBeatDetector } from './audio/beat-detector.ts';
@@ -208,6 +209,69 @@ function initAudioGestureRecovery(): void {
   document.addEventListener('pointerdown', resumeIfNeeded, { passive: true });
   document.addEventListener('touchstart', resumeIfNeeded, { passive: true });
   document.addEventListener('keydown', resumeIfNeeded);
+}
+
+function isPlaybackTimingRiskActive(): boolean {
+  if (getState('appState') !== APP_STATE.IDLE) return true;
+  return getState('playback.lifecycle') !== PLAYBACK_STATE.IDLE;
+}
+
+async function resumeAudioForBackgroundRecovery(): Promise<void> {
+  if (!isAudioReady()) return;
+
+  const ctx = getAudioContext();
+  if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
+    await Promise.race([ctx.resume(), delay(500)]);
+  }
+
+  if (getState('appState') === APP_STATE.PLAYING_AUDIO) {
+    await applySettingsAsync();
+  }
+}
+
+async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
+  log.warn(`[App] Long background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
+
+  if (_wakeLockActive) void acquireWakeLock();
+  await resumeAudioForBackgroundRecovery();
+
+  const appState = getState('appState');
+  const hostConn = getState('network.hostConn');
+
+  if (appState === APP_STATE.PLAYING_YOUTUBE) {
+    if (hostConn?.open) {
+      guestRendezvousSync({ silent: true });
+    }
+    return;
+  }
+
+  if (appState === APP_STATE.PLAYING_AUDIO) {
+    if (hostConn?.open) {
+      bus.emit('sync:force-resync');
+    } else {
+      bus.emit('playback:refresh-current-position');
+    }
+  }
+}
+
+async function warnLongBackgroundResume(): Promise<void> {
+  const result = await showDialog({
+    title: t('dialog.background_resume_title'),
+    message: t('dialog.background_resume_message'),
+    buttonText: t('dialog.continue_using'),
+    secondaryText: t('dialog.leave_session'),
+    defaultFocus: 'primary',
+  });
+
+  if (result.action !== 'secondary') return;
+
+  try {
+    leaveSession();
+  } catch (error) {
+    log.warn('[App] leaveSession after long background failed:', error);
+  }
+  markIntentionalNav();
+  window.location.reload();
 }
 
 // Global error handlers
@@ -436,6 +500,14 @@ function bootstrap(): void {
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
   safeInit('AudioGestureRecovery', initAudioGestureRecovery);
+  safeInit('BackgroundResumeGuard', () =>
+    initBackgroundResumeGuard({
+      isAtRisk: isPlaybackTimingRiskActive,
+      recover: ({ hiddenMs }) => recoverLongBackgroundResume(hiddenMs),
+      warn: () => warnLongBackgroundResume(),
+      log,
+    }),
+  );
   safeInit('PageLifecycle', () =>
     initPageLifecycleHandlers({
       getRole: () => getState('network.appRole'),

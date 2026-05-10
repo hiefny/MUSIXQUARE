@@ -466,15 +466,22 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
  *
  * Called by the sync button handler when role=guest in YouTube mode.
  */
-export function guestRendezvousSync(): void {
+export interface GuestRendezvousOptions {
+  silent?: boolean;
+}
+
+export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
+  const notify = (message: string): void => {
+    if (!opts.silent) showToast(message);
+  };
   const player = getYouTubePlayer();
   const currentState = getState('appState');
   if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) {
-    showToast(t('toast.sync_not_ready'));
+    notify(t('toast.sync_not_ready'));
     return;
   }
   if (!player.getCurrentTime || !player.seekTo || !player.pauseVideo || !player.playVideo) {
-    showToast(t('toast.yt_rendezvous_no_data'));
+    notify(t('toast.yt_rendezvous_no_data'));
     return;
   }
 
@@ -490,7 +497,7 @@ export function guestRendezvousSync(): void {
     !_rt.lastHostSnapshot ||
     getHostNow() - _rt.lastHostSnapshot.hostClockAt > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS
   ) {
-    showToast(t('toast.yt_rendezvous_no_data'));
+    notify(t('toast.yt_rendezvous_no_data'));
     return;
   }
 
@@ -504,7 +511,7 @@ export function guestRendezvousSync(): void {
     } catch {
       /* noop */
     }
-    showToast(t('toast.yt_rendezvous_host_paused'));
+    notify(t('toast.yt_rendezvous_host_paused'));
     return;
   }
 
@@ -534,7 +541,7 @@ export function guestRendezvousSync(): void {
   // Suppress drift fighter for MARGIN + RENDEZVOUS_DRIFT_SUPPRESS_MS
   _rt.autoSyncUntil = Date.now() + RENDEZVOUS_MARGIN_SEC * 1000 + RENDEZVOUS_DRIFT_SUPPRESS_MS;
   bus.emit('youtube:sync-loading', true);
-  showToast(t('toast.yt_rendezvous_start'));
+  notify(t('toast.yt_rendezvous_start'));
 
   // Step 1: seek to target + pause (stays paused while buffer fills)
   try {
@@ -573,7 +580,7 @@ export function guestRendezvousSync(): void {
 
     if (bufferReady) {
       log.debug(`[Rendezvous] Buffer ready after ${bufferChecks} checks (state=${pState})`);
-      scheduleRendezvousPlay(playCallAtHostClock, targetPosition, snapshot);
+      scheduleRendezvousPlay(playCallAtHostClock, targetPosition, snapshot, opts);
       return;
     }
 
@@ -592,7 +599,7 @@ export function guestRendezvousSync(): void {
           log.warn('[Rendezvous] fallback playVideo threw:', e);
         }
       } else {
-        showToast(t('toast.yt_rendezvous_timeout'));
+        notify(t('toast.yt_rendezvous_timeout'));
       }
       finishRendezvous();
       return;
@@ -608,7 +615,11 @@ function scheduleRendezvousPlay(
   playCallAtHostClock: number,
   targetPosition: number,
   snapshot: HostPositionSnapshot,
+  opts: GuestRendezvousOptions = {},
 ): void {
+  const notify = (message: string): void => {
+    if (!opts.silent) showToast(message);
+  };
   const waitMs = Math.max(0, playCallAtHostClock - getHostNow());
   log.debug(`[Rendezvous] Scheduling playVideo in ${waitMs.toFixed(0)}ms`);
 
@@ -630,7 +641,7 @@ function scheduleRendezvousPlay(
         return;
       }
       bus.emit('youtube:sync-loading', false);
-      showToast(t('toast.yt_rendezvous_done'));
+      notify(t('toast.yt_rendezvous_done'));
 
       // Step 3: self-calibrate guestPlayLatency from measured drift (~800ms later)
       setManagedTimer(

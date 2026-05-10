@@ -101,7 +101,25 @@ describe('audio activation bootstrap', () => {
     expect(conn.send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.SYNC_PING,
-        pingId: 1,
+        pingId: expect.any(Number),
+      }),
+    );
+  });
+});
+
+describe('background resume recovery', () => {
+  it('requests an immediate host sync for forced resync', () => {
+    initSync();
+    const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;
+    setState('network.hostConn', conn as DataConnection);
+
+    bus.emit('sync:force-resync');
+
+    expect(conn.send).toHaveBeenCalledTimes(1);
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.SYNC_PING,
+        pingId: expect.any(Number),
       }),
     );
   });

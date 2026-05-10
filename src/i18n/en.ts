@@ -499,6 +499,11 @@ const en: Record<I18nKey, string> = {
   'dialog.return_home_msg': 'Return to the start screen?',
   'dialog.return_home_detail': 'You will be disconnected from the current session.',
   'dialog.leaving_session': 'Leaving session...',
+  'dialog.background_resume_title': 'Check playback timing',
+  'dialog.background_resume_message':
+    'The app was in the background for a long time, so playback timing may be unstable. MUSIXQUARE tried to recover, but for precise sync, fully close and reopen the browser or PWA.',
+  'dialog.continue_using': 'Keep using',
+  'dialog.leave_session': 'Leave session',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'A new version is ready. Refresh to update.',
   'dialog.reconnect_ask': 'Would you like to reconnect?',

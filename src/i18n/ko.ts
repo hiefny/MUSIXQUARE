@@ -496,6 +496,11 @@ const ko = {
   'dialog.return_home_msg': '초기 화면으로 돌아갈까요?',
   'dialog.return_home_detail': '현재 세션과 연결이 끊어져요.',
   'dialog.leaving_session': '세션 나가는 중...',
+  'dialog.background_resume_title': '재생 타이밍을 확인해 주세요',
+  'dialog.background_resume_message':
+    '앱이 오래 백그라운드에 있어 재생 타이밍이 불안정할 수 있어요. 복구를 시도했지만, 정확한 싱크가 필요하면 브라우저/PWA를 완전히 종료한 뒤 다시 열어주세요.',
+  'dialog.continue_using': '계속 사용',
+  'dialog.leave_session': '세션 나가기',
   'dialog.sw_update_title': '업데이트',
   'dialog.sw_update_msg': '새 버전이 준비되었어요. 새로고침하면 업데이트가 적용돼요.',
   'dialog.reconnect_ask': '다시 연결할까요?',

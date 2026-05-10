@@ -433,6 +433,16 @@ export function initSync(): void {
     }
   });
 
+  // Long background resume recovery: force the next valid SYNC_PONG to
+  // re-lock local-file playback even when drift is under the normal 2s
+  // correction threshold.
+  bus.on('sync:force-resync', () => {
+    const hostConn = getState('network.hostConn');
+    if (!hostConn?.open) return;
+    _needsInitialSync = true;
+    bus.emit('sync:request-immediate-ping');
+  });
+
   // Mobile browsers may keep AudioContext suspended after a hard-reset
   // reconnect. Once a user gesture unlocks it, immediately ask the host for
   // the current playback position instead of trusting any stale deferred time.

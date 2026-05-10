@@ -719,6 +719,7 @@ interface BaseEventMap {
   'player:toggle-play': [];
   'player:stop-all-media': [];
   'playback:replay-current': [delayMs?: number];
+  'playback:refresh-current-position': [];
   'player:check-ended': [];
   'player:buffer-changed': [];
 
@@ -869,6 +870,7 @@ interface BaseEventMap {
   'sync:arm-initial': [];
   'sync:close-manual': [];
   'sync:request-immediate-ping': [];
+  'sync:force-resync': [];
   // 'sync:get-position', 'sync:response' removed — no emitter exists
   'sync:latency-update': [ms: number];
 

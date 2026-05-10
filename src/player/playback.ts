@@ -546,6 +546,14 @@ export function initPlayback(): void {
     }
   });
 
+  // Long background resume recovery: rebuild the current AudioBufferSourceNode
+  // at the current logical position without surfacing a manual-sync toast.
+  bus.on('playback:refresh-current-position', () => {
+    if (!getCurrentAudioBuffer()) return;
+    if (getState('appState') !== APP_STATE.PLAYING_AUDIO) return;
+    play(getTrackPosition());
+  });
+
   // 'sync:get-position' and 'sync:response' listeners removed — no emitter exists
 
   // Disconnect playerNode from surround splitter (called when surround mode turns off)

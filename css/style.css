@@ -1059,6 +1059,7 @@
     }
 
     .track-box {
+        --track-title-bleed: 20px;
         flex-shrink: 0;
         text-align: center;
         width: 100%;
@@ -1071,10 +1072,10 @@
 
     .track-title-wrapper {
         position: relative;
-        width: 100%;
+        width: calc(100% + (var(--track-title-bleed) * 2));
         height: 32px;
         /* Fixed height to prevent control shift */
-        margin: 0 auto 6px;
+        margin: 0 calc(var(--track-title-bleed) * -1) 6px;
         overflow: hidden;
         /* Mask on the static wrapper */
         -webkit-mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);

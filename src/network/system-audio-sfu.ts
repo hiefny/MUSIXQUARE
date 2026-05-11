@@ -15,15 +15,10 @@ import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
-import {
-  claimPlaybackOwner,
-  isSystemAudioOwner,
-  releasePlaybackOwner,
-  setPlaybackIdle,
-  setSystemAudioReceiving,
-} from '../player/ownership.ts';
+import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
+import { cleanupGuestSystemAudio } from './system-audio-guest.ts';
 import {
   cleanupWindowsAudioDecoderPrimer,
   getAudioTrackStreamKey,
@@ -575,6 +570,7 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
 }
 
 function cleanupGuestSfu(updateState = true): void {
+  const shouldCleanupGuestReceiveState = guestReceiving && updateState;
   clearGuestLimitTimer();
   if (guestSourceL) {
     try {
@@ -609,14 +605,10 @@ function cleanupGuestSfu(updateState = true): void {
   guestSessionId = null;
   guestSubscriptionKey = null;
   guestConnectPromise = null;
-  if (guestReceiving && updateState) {
-    setSystemAudioReceiving(false);
-    if (isSystemAudioOwner()) {
-      releasePlaybackOwner('system-audio');
-      setPlaybackIdle();
-    }
-  }
   guestReceiving = false;
+  if (shouldCleanupGuestReceiveState) {
+    cleanupGuestSystemAudio();
+  }
 }
 
 function buildSubscriptionKey(payload: SfuReadyPayload): string {

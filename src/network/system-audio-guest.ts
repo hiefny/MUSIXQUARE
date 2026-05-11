@@ -456,7 +456,9 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
 // ─── Cleanup ──────────────────────────────────────────────────────
 
-function cleanupGuestSystemAudio(): void {
+// Shared by the PeerJS and SFU receive adapters; this module owns the
+// placeholder and previous-track metadata restoration contract.
+export function cleanupGuestSystemAudio(): void {
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
   clearReceiveWatchdog();
   if (_sourceL) {

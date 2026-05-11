@@ -4,11 +4,16 @@ import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection, TrackMeta } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
-import { registerSystemAudioGuestListeners } from '../system-audio-guest.ts';
 import {
+  cleanupGuestSystemAudio,
+  registerSystemAudioGuestListeners,
+} from '../system-audio-guest.ts';
+import {
+  claimPlaybackOwner,
   setPlaybackFilePlaying,
   setPlaybackLifecycleState,
   setPlaybackTransferState,
+  setSystemAudioReceiving,
 } from '../../player/ownership.ts';
 import { stopAllMedia } from '../../player/transport.ts';
 
@@ -128,5 +133,22 @@ describe('system audio guest receive watchdog', () => {
     expect(getState('player.currentTrackMeta')?.name).toBe('system-audio-receiving');
     expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
     expect(getState('systemAudio.isReceiving')).toBe(true);
+  });
+
+  it('restores previous meta when an active adapter-level receive cleanup runs', async () => {
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+    setPlaybackFilePlaying();
+    setState('player.currentTrackMeta', previousMeta);
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    setSystemAudioReceiving(true);
+    claimPlaybackOwner('system-audio');
+
+    cleanupGuestSystemAudio();
+
+    expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 });

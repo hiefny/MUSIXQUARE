@@ -130,6 +130,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 - `src/types/index.ts` - `StateTree.appState`, sync payload compatibility fields, and mapped `state:appState` events remain until the wire wait is complete.
 
 Do not treat this list as a mandate to remove every legacy reference. The remaining references fall into either source-of-truth writes, cross-version compatibility, or deliberately strict legacy command gates.
+`src/player/__tests__/appstate-holdouts.test.ts` pins the production holdout list so new legacy `appState` readers cannot appear unnoticed.
 
 ## Sub-Phase Roadmap
 

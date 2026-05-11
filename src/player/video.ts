@@ -11,6 +11,7 @@
 import { bus } from '../core/events.ts';
 import type { PlaybackModeValue } from '../core/constants.ts';
 import {
+  isPlaybackModeValue,
   isPlaybackPlaying,
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
@@ -85,10 +86,6 @@ export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {
 }
 
 // Body-class sync driven by decomposed playback mode.
-
-function isPlaybackModeValue(value: unknown): value is PlaybackModeValue {
-  return value === null || value === 'file' || value === 'youtube' || value === 'system-audio';
-}
 
 function updateBodyModeClass(mode: PlaybackModeValue): void {
   const body = document.body;

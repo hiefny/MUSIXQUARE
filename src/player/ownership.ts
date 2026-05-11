@@ -77,6 +77,14 @@ export interface PlaybackReleaseOptions {
   force?: boolean;
 }
 
+export function isPlaybackModeValue(value: unknown): value is PlaybackModeValue {
+  return value === null || value === 'file' || value === 'youtube' || value === 'system-audio';
+}
+
+export function isPlaybackActivityValue(value: unknown): value is PlaybackActivityValue {
+  return value === 'idle' || value === 'paused' || value === 'playing' || value === 'pending';
+}
+
 const OWNER_MODE_ACTIVITY: Record<Exclude<PlaybackOwner, 'none'>, PlaybackModeActivity> = {
   file: { mode: 'file', activity: 'playing' },
   youtube: { mode: 'youtube', activity: 'playing' },

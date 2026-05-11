@@ -1,15 +1,13 @@
 import { bus, type BusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import {
-  type PlaybackActivityValue,
-  type PlaybackModeValue,
-} from '../core/constants.ts';
+  isPlaybackActivityValue,
+  isPlaybackModeValue,
+  type PlaybackModeActivity,
+} from '../player/ownership.ts';
 
 export type Unsubscribe = () => void;
-export interface PlaybackModeActivitySnapshot {
-  mode: PlaybackModeValue;
-  activity: PlaybackActivityValue;
-}
+export type PlaybackModeActivitySnapshot = PlaybackModeActivity;
 export type PlaybackModeActivityHandler = (
   next: PlaybackModeActivitySnapshot,
   prev: PlaybackModeActivitySnapshot,
@@ -17,14 +15,6 @@ export type PlaybackModeActivityHandler = (
 
 export interface PlaybackModeActivitySubscribeOptions {
   immediate?: boolean;
-}
-
-function isPlaybackModeValue(value: unknown): value is PlaybackModeValue {
-  return value === null || value === 'file' || value === 'youtube' || value === 'system-audio';
-}
-
-function isPlaybackActivityValue(value: unknown): value is PlaybackActivityValue {
-  return value === 'idle' || value === 'paused' || value === 'playing' || value === 'pending';
 }
 
 export function getPlaybackModeActivitySnapshot(): PlaybackModeActivitySnapshot {

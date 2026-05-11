@@ -35,6 +35,8 @@ import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
 import {
   getPlaybackModeActivity,
+  isPlaybackActivityValue,
+  isPlaybackModeValue,
   isPlaybackPendingFile,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
@@ -116,14 +118,6 @@ export function getSyncPongPlaybackState(): SyncPongPlaybackState {
     mode: playback.mode,
     activity: playback.activity,
   };
-}
-
-function isPlaybackModeValue(value: unknown): value is PlaybackModeValue {
-  return value === null || value === 'file' || value === 'youtube' || value === 'system-audio';
-}
-
-function isPlaybackActivityValue(value: unknown): value is PlaybackActivityValue {
-  return value === 'idle' || value === 'paused' || value === 'playing' || value === 'pending';
 }
 
 export function isSyncPongPlayingFile(data: Record<string, unknown>): boolean {

@@ -11,15 +11,12 @@ import { getState } from '../core/state.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime } from './transport.ts';
 import {
+  isPlaybackActivityValue,
   isPlaybackIdle,
   isPlaybackModeYouTube,
   isPlaybackPlayingFile,
 } from './ownership.ts';
 import type { PlaylistItem } from '../types/index.ts';
-
-function isPlaybackActivityValue(value: unknown): value is PlaybackActivityValue {
-  return value === 'idle' || value === 'paused' || value === 'playing' || value === 'pending';
-}
 
 function mediaSessionStateFromActivity(
   activity: PlaybackActivityValue,

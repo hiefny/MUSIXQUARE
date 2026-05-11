@@ -168,12 +168,14 @@ export function deriveAppStateFromModeActivity(
   mode: PlaybackModeValue,
   activity: PlaybackActivityValue,
 ): AppStateValue {
+  if (activity === 'idle') return APP_STATE.IDLE;
+
   if (mode === 'file') {
     return activity === 'playing' ? APP_STATE.PLAYING_AUDIO : APP_STATE.PAUSED;
   }
 
   if (mode === 'youtube') {
-    return activity === 'idle' ? APP_STATE.IDLE : APP_STATE.PLAYING_YOUTUBE;
+    return APP_STATE.PLAYING_YOUTUBE;
   }
 
   if (mode === 'system-audio') {

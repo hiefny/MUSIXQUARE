@@ -322,11 +322,14 @@ describe('playback ownership view', () => {
 
   it('projects mode/activity back to the legacy appState compatibility enum', () => {
     expect(deriveAppStateFromModeActivity(null, 'idle')).toBe(APP_STATE.IDLE);
+    expect(deriveAppStateFromModeActivity('file', 'idle')).toBe(APP_STATE.IDLE);
     expect(deriveAppStateFromModeActivity('file', 'playing')).toBe(APP_STATE.PLAYING_AUDIO);
     expect(deriveAppStateFromModeActivity('file', 'paused')).toBe(APP_STATE.PAUSED);
     expect(deriveAppStateFromModeActivity('file', 'pending')).toBe(APP_STATE.PAUSED);
+    expect(deriveAppStateFromModeActivity('youtube', 'idle')).toBe(APP_STATE.IDLE);
     expect(deriveAppStateFromModeActivity('youtube', 'playing')).toBe(APP_STATE.PLAYING_YOUTUBE);
     expect(deriveAppStateFromModeActivity('youtube', 'paused')).toBe(APP_STATE.PLAYING_YOUTUBE);
+    expect(deriveAppStateFromModeActivity('system-audio', 'idle')).toBe(APP_STATE.IDLE);
     expect(deriveAppStateFromModeActivity('system-audio', 'playing')).toBe(
       APP_STATE.PLAYING_SYSTEM_AUDIO,
     );

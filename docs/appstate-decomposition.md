@@ -299,7 +299,7 @@ Feature flags for 5d-3/4 and 5f live in `src/core/feature-flags.ts`. Defaults pr
    Currently derived for both file lifecycle (`DOWNLOADING`/`AWAITING_PRELOAD`) and system-audio placeholder receive. If UX justifies it, this could split into `loading`, `buffering`, or `connecting`. YAGNI for the migration itself; revisit only if a real UX need surfaces.
 
 3. **Conversion utilities**
-   `ownership.ts` now exposes `deriveModeActivityFromAppState(appState)` and `deriveAppStateFromModeActivity(mode, activity)` as the 5f compatibility projection helpers. They intentionally preserve legacy gaps: file `pending` projects to `PAUSED`, while system-audio `pending` projects to `IDLE`.
+   `ownership.ts` now exposes `deriveModeActivityFromAppState(appState)` and `deriveAppStateFromModeActivity(mode, activity)` as the 5f compatibility projection helpers. They intentionally preserve legacy gaps: `idle` always projects to `IDLE`, file `pending` projects to `PAUSED`, and system-audio `pending` projects to `IDLE`.
 
 4. **What about future modes (podcast, voice-chat)?**
    Decomposition unblocks them, but does not implement them. Each new mode would add one value to `PlaybackMode` and write claim/release semantics in `ownership.ts`. No state-tree changes should be required after Phase 5.

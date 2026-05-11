@@ -35,7 +35,7 @@ import {
   type TransferStateValue,
 } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { batchSetState, getState, setState } from '../core/state.ts';
 import type { TrackMeta } from '../types/index.ts';
 
 export type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
@@ -153,6 +153,18 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
+function modeActivityForLifecycle(lifecycle: PlaybackStateValue): PlaybackModeActivity {
+  if (lifecycle === PLAYBACK_STATE.IDLE) return { mode: null, activity: 'idle' };
+  if (lifecycle === PLAYBACK_STATE.PLAYING) return OWNER_MODE_ACTIVITY.file;
+  if (lifecycle === PLAYBACK_STATE.PAUSED) return { mode: 'file', activity: 'paused' };
+  return { mode: 'file', activity: 'pending' };
+}
+
+function modeActivityForFilePipeline(lifecycle: PlaybackStateValue): PlaybackModeActivity {
+  if (lifecycle === PLAYBACK_STATE.PAUSED) return { mode: 'file', activity: 'paused' };
+  return { mode: 'file', activity: 'pending' };
+}
+
 // Reconcile the primary mode/activity slots with derived ownership signals
 // that still live outside the two-axis playback state.
 function deriveModeActivityFromSources(sources: {
@@ -185,23 +197,16 @@ function deriveModeActivityFromSources(sources: {
     };
   }
 
-  if (sources.mode === 'file' || sources.hasFilePipeline) {
-    if (
-      sources.activity === 'playing' ||
-      (sources.mode === 'file' && sources.lifecycle === PLAYBACK_STATE.PLAYING)
-    ) {
-      return OWNER_MODE_ACTIVITY.file;
-    }
-
-    if (sources.activity === 'paused' || sources.lifecycle === PLAYBACK_STATE.PAUSED) {
-      return { mode: 'file', activity: 'paused' };
-    }
-
-    if (sources.activity === 'pending' || sources.hasFilePipeline) {
-      return { mode: 'file', activity: 'pending' };
-    }
+  if (sources.mode === 'file') {
+    if (sources.activity === 'playing') return OWNER_MODE_ACTIVITY.file;
+    if (sources.activity === 'paused') return { mode: 'file', activity: 'paused' };
+    if (sources.activity === 'pending') return { mode: 'file', activity: 'pending' };
 
     return { mode: 'file', activity: 'idle' };
+  }
+
+  if (sources.hasFilePipeline) {
+    return modeActivityForFilePipeline(sources.lifecycle);
   }
 
   return { mode: null, activity: 'idle' };
@@ -295,8 +300,10 @@ function getFreshPlaybackModeActivitySnapshot(): PlaybackModeActivity {
 }
 
 function writePlaybackModeActivity(modeActivity: PlaybackModeActivity): void {
-  setState('playback.mode', modeActivity.mode);
-  setState('playback.activity', modeActivity.activity);
+  batchSetState({
+    'playback.mode': modeActivity.mode,
+    'playback.activity': modeActivity.activity,
+  });
 }
 
 function assertPlaybackModeActivitySynced(expected: PlaybackModeActivity): void {
@@ -323,7 +330,12 @@ export function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
 }
 
 export function setPlaybackLifecycleState(lifecycle: PlaybackStateValue): PlaybackOwnership {
-  setState('playback.lifecycle', lifecycle);
+  const modeActivity = modeActivityForLifecycle(lifecycle);
+  batchSetState({
+    'playback.lifecycle': lifecycle,
+    'playback.mode': modeActivity.mode,
+    'playback.activity': modeActivity.activity,
+  });
   return syncPlaybackModeActivityFromOwnership();
 }
 
@@ -483,7 +495,14 @@ function setPlaybackModeActivity(modeActivity: PlaybackModeActivity): PlaybackOw
 }
 
 export function setPlaybackIdle(): PlaybackOwnership {
-  return setPlaybackModeActivity({ mode: null, activity: 'idle' });
+  batchSetState({
+    'playback.lifecycle': PLAYBACK_STATE.IDLE,
+    'playback.loadSource': null,
+    'transfer.state': TRANSFER_STATE.IDLE,
+    'playback.mode': null,
+    'playback.activity': 'idle',
+  });
+  return syncPlaybackModeActivityFromOwnership();
 }
 
 export function setPlaybackFilePlaying(): PlaybackOwnership {

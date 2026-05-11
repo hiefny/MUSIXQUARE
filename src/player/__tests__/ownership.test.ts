@@ -238,6 +238,46 @@ describe('playback ownership view', () => {
     expectPlaybackModeActivitySlots('system-audio', 'playing');
   });
 
+  it('keeps file pause and resume writes stable across stale lifecycle sources', () => {
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    expectPlaybackModeActivitySlots('file', 'playing');
+
+    setPlaybackFilePaused();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PLAYING);
+    expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'paused' });
+
+    setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+    expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'paused' });
+
+    setPlaybackFilePlaying();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PAUSED);
+    expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'playing' });
+
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'playing' });
+  });
+
+  it('clears stale file pipeline sources when semantic idle is requested', () => {
+    setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    expect(getPlaybackOwnership()).toMatchObject({
+      mode: 'file',
+      activity: 'playing',
+      hasFilePipeline: true,
+    });
+
+    setPlaybackIdle();
+
+    expect(getPlaybackModeActivity()).toEqual({ mode: null, activity: 'idle' });
+    expect(getPlaybackOwnership()).toMatchObject({
+      mode: null,
+      activity: 'idle',
+      hasFilePipeline: false,
+    });
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
+  });
+
   it('updates track metadata through the ownership write helper', () => {
     setPlaybackTrackMeta(createFileTrackMeta('track.mp3'));
 

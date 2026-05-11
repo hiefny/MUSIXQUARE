@@ -8,6 +8,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
+import { isFeatureFlagEnabled } from '../core/feature-flags.ts';
 import {
   MSG,
   APP_STATE,
@@ -136,7 +137,38 @@ export function isSyncPongPlayingFile(data: Record<string, unknown>): boolean {
     return data.mode === 'file' && data.activity === 'playing';
   }
 
-  return data.appState === APP_STATE.PLAYING_AUDIO;
+  return (
+    isFeatureFlagEnabled('syncPongLegacyAppStateAccept') &&
+    data.appState === APP_STATE.PLAYING_AUDIO
+  );
+}
+
+function createSyncPongPayload({
+  pingId,
+  hostTime,
+  position,
+  playbackState,
+}: {
+  pingId: unknown;
+  hostTime: number;
+  position: number;
+  playbackState: SyncPongPlaybackState;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    type: MSG.SYNC_PONG,
+    pingId,
+    hostTime,
+    position,
+    mode: playbackState.mode,
+    activity: playbackState.activity,
+    trackIndex: getState('playlist.currentTrackIndex'),
+  };
+
+  if (isFeatureFlagEnabled('syncPongLegacyAppStateEmit')) {
+    payload.appState = playbackState.appState;
+  }
+
+  return payload;
 }
 
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
@@ -159,39 +191,30 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   // 2. Reply with SYNC_PONG including host time + playback state
   if (!conn?.open) return;
   const hostTime = Date.now(); // Capture BEFORE async import
-  const lifecycle = getState('playback.lifecycle');
-  const isFilePlaying = isAppStatePlayingAudio() && lifecycle === PLAYBACK_STATE.PLAYING;
   const playbackState = getSyncPongPlaybackState();
+  const isFilePlaying = playbackState.mode === 'file' && playbackState.activity === 'playing';
 
   if (isFilePlaying) {
     if (conn.open) {
       try {
-        conn.send({
-          type: MSG.SYNC_PONG,
+        conn.send(createSyncPongPayload({
           pingId: data.pingId,
           hostTime,
           position: getTrackPosition(),
-          appState: playbackState.appState,
-          mode: playbackState.mode,
-          activity: playbackState.activity,
-          trackIndex: getState('playlist.currentTrackIndex'),
-        });
+          playbackState,
+        }));
       } catch {
         /* closed */
       }
     }
   } else {
     try {
-      conn.send({
-        type: MSG.SYNC_PONG,
+      conn.send(createSyncPongPayload({
         pingId: data.pingId,
         hostTime,
         position: 0,
-        appState: playbackState.appState,
-        mode: playbackState.mode,
-        activity: playbackState.activity,
-        trackIndex: getState('playlist.currentTrackIndex'),
-      });
+        playbackState,
+      }));
     } catch {
       /* closed */
     }

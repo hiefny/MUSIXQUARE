@@ -200,6 +200,11 @@ Each sub-step lands as its own commit. Tests must pass after each. Invariant ass
 
 **Step 5d-1: dual emit. DONE.** Host sends both `appState` (legacy) and `mode` + `activity` in `SYNC_PONG` payloads. Guest accepts either, preferring the new fields when present. `SYNC_PING` remains unchanged.
 
+Compatibility switches are in place in `src/core/feature-flags.ts`:
+
+- `syncPongLegacyAppStateEmit` defaults to `true`; 5d-3 flips this off after the release wait.
+- `syncPongLegacyAppStateAccept` defaults to `true`; 5d-4 flips this off after the second release wait.
+
 **Step 5d-2: wait two production releases.** After at least two production releases on 5d-1, the guest-side legacy path becomes unused for any peer that has updated.
 
 **Step 5d-3: drop the legacy emit.** Host stops sending `appState`. Guest's legacy accept path stays for compatibility with old hosts.
@@ -274,7 +279,7 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 | 5f | Flip feature flag off. `appState` returns to source-of-truth. |
 | 5g | Restore `state.appState` field in state tree default. |
 
-The feature flag mechanism for 5d-3/4 and 5f does not exist today; it needs to be added in 5d-1 along with the dual-emit. Suggested location: `src/core/feature-flags.ts` (new file), keyed by string for runtime override.
+Feature flags for 5d-3/4 and 5f live in `src/core/feature-flags.ts`. Defaults preserve current production behavior; Vite env overrides are reserved for controlled preview builds and rollback switches.
 
 ## Open Questions
 

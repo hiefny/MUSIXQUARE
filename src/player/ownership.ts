@@ -11,9 +11,10 @@
  *                      Includes domain-specific signals (file lifecycle/
  *                      transfer activity for 'file'; placeholder/isReceiving
  *                      for 'system-audio'). Use for cross-mode safety gates.
- *   UI displays      - subscribe to `state:appState` and render from the
- *                      pushed value. Click handlers may still poll; labels,
- *                      icons, and badges should be reactive.
+ *   UI displays      - subscribe to `state:playback.mode` /
+ *                      `state:playback.activity` and render from the pushed
+ *                      value. Click handlers may still poll; labels, icons,
+ *                      and badges should be reactive.
  *
  * The two coincide for YouTube (there is no pending state) but diverge for
  * file and system-audio. `owner` and `mode` may also intentionally diverge:

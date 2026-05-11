@@ -4,9 +4,9 @@
 
 ## Status
 
-- 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`. Zero production callers yet, by design.
+- 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`, and production readers now consume the narrower mode/activity helper surface where their question matches that contract.
 - 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
-- 5c (reader migration): **IN PROGRESS**. Shadow-slot sync, helper surface, and the body-class reader have landed; broader playback/protocol readers remain on legacy predicates.
+- 5c (reader migration): **IN PROGRESS**. UI display readers, media-session, sync replay gates, YouTube runtime guards, and several audio/system-capture readers have landed; central transport/playback compatibility readers remain on legacy predicates by design.
 - 5d (wire protocol compat): **IN PROGRESS**. 5d-1 dual emit/accept has landed; release-cycle waits and legacy field removal remain proposed/gated.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
 

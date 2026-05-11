@@ -347,7 +347,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
 
   // Record the host snapshot BEFORE the PLAYING_YOUTUBE guard. Late-join
   // bootstrap frames arrive while the guest is still inside
-  // loadYouTubeVideo (appState !== PLAYING_YOUTUBE), so dropping the frame
+  // loadYouTubeVideo (not yet in YouTube playback mode), so dropping the frame
   // here leaves lastHostSnapshot null and the user hits "No host playback
   // data" when trying to rendezvous — especially when joining while the
   // host is on the 2nd/3rd sub-video and the next heartbeat is seconds
@@ -876,7 +876,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
 
   // Record the host snapshot BEFORE the PLAYING_YOUTUBE guard. Late-join
   // bootstrap YOUTUBE_STATE arrives while the guest is still loading the
-  // iframe (appState !== PLAYING_YOUTUBE), and without a saved snapshot
+  // iframe (not yet in YouTube playback mode), and without a saved snapshot
   // the guest is stuck on "No host playback data" when they try to
   // rendezvous. Snapshot is pure data — no side effects pre-guard, and
   // every action-scheduling branch below still runs under the guard.

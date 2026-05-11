@@ -90,7 +90,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 
 ### Phase 1: Playback Domain Residuals
 
-- Replace remaining raw playback-domain appState polls in `playback.ts`, `playlist.ts`, and YouTube bridge code with `ownership.ts` predicates.
+- Replace remaining raw playback-domain appState polls in `playback.ts` and `playlist.ts` with `ownership.ts` predicates where the caller is asking a mode/activity question. YouTube runtime mode guards are already migrated; its queue/indexing idle checks stay strict legacy `IDLE`.
 - Preserve protocol payloads and stored snapshots.
 
 ### Phase 2: Gating Site Rename

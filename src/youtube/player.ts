@@ -19,7 +19,7 @@ import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/tim
 import { setAppState } from '../player/transport.ts';
 import {
   isAppStateIdle,
-  isAppStatePlayingYouTube,
+  isPlaybackModeYouTube,
   setPlaybackTrackMeta,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
@@ -226,7 +226,7 @@ function scheduleLateJoinRendezvousSync(
     `yt-late-join-rendezvous-${peerId}`,
     () => {
       if (!conn.open || getState('network.hostConn')) return;
-      if (!isAppStatePlayingYouTube()) return;
+      if (!isPlaybackModeYouTube()) return;
 
       const player = getYouTubePlayer();
       if (!player?.getCurrentTime) return;
@@ -265,7 +265,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   setYtScope(null);
   setYtLoadInProgress(false);
   setCachedYtDuration(0); // Reset duration cache
-  const wasInYouTube = isAppStatePlayingYouTube();
+  const wasInYouTube = isPlaybackModeYouTube();
   // Preservation: do not reset sub-index to -1 if we are or will be in YouTube mode.
   // This prevents clobbering the sub-index 0 set during the indexing callback.
   if (
@@ -1380,7 +1380,7 @@ export function initYouTube(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    if (!isAppStatePlayingYouTube()) return;
+    if (!isPlaybackModeYouTube()) return;
 
     const playlist = getState('playlist.items') || [];
     const currentTrackIndex = getState('playlist.currentTrackIndex');

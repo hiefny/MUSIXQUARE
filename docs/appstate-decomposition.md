@@ -6,7 +6,8 @@
 
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`. Zero production callers yet, by design.
 - 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
-- 5c onward: **proposed**. No production readers have moved to the new slots yet.
+- 5c (reader migration): **IN PROGRESS**. Shadow-slot sync, helper surface, and the body-class reader have landed; broader playback/protocol readers remain on legacy predicates.
+- 5d onward: **proposed**.
 
 ## Motivation
 
@@ -146,12 +147,17 @@ Wire `state:playback.mode` and `state:playback.activity` bus events. Existing `s
 
 Order, lowest-risk first:
 
+0. **Shadow-slot sync hardening (0.5 day)**
+   - Keep `state.playback.mode/activity` synchronized from every legacy signal that contributes to `getPlaybackOwnership()`: `appState`, `playback.lifecycle`, `transfer.state`, `player.currentTrackMeta`, and `systemAudio.isReceiving`.
+   - This must land before any production reader trusts the new slots. File pending and system-audio pending are not purely appState-derived.
+
 1. **New mode/activity helper surface (0.5 day)**
-   - Add helpers whose names match the new contract, for example `isPlaybackModeYouTube()`, `isPlaybackPlayingAudio()`, `isPlaybackPaused()`, and `getPlaybackModeActivitySnapshot()`.
+   - Add helpers whose names match the new contract, for example `isPlaybackModeYouTube()`, `isPlaybackPlayingFile()`, `isPlaybackPaused()`, and `getPlaybackModeActivitySnapshot()`.
    - Keep `isAppState*()` strict until `appState` removal. Those names currently mean "read the legacy enum"; changing their implementation underneath would violate [state-patterns.md](state-patterns.md).
 
 2. **UI consumers (1 day)**
    - Migrate display logic that asks a mode/activity question to the new helper surface.
+   - `src/player/video.ts::updateBodyModeClass` is already migrated to `state:playback.mode`.
    - Leave protocol, snapshot, and compatibility bridge code on `isAppState*()` or raw snapshots until their dedicated phases.
 
 3. **`is*Owner()` helpers (0.5 day)**
@@ -166,7 +172,7 @@ Order, lowest-risk first:
    - `src/storage/transfer-receive.ts`, `src/network/system-audio-guest.ts`, and `system-audio-sfu.ts`. These are mostly on `is*Owner()` predicates after earlier phases; flip implementation underneath them only after tests cover the pending/placeholder windows.
 
 6. **Body-class sync (0.5 day)**
-   - `src/player/video.ts::updateBodyModeClass`. Subscribe to `state:playback.mode` instead of `state:appState`. Logic simplifies to `body.classList.toggle('mode-youtube', mode === 'youtube')` and same for system-audio.
+   - `src/player/video.ts::updateBodyModeClass` is done: it subscribes to `state:playback.mode` instead of `state:appState`.
 
 Each sub-step lands as its own commit. Tests must pass after each. Invariant assertion from 5b stays on.
 

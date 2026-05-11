@@ -34,6 +34,7 @@ import {
   type PlaybackStateValue,
   type TransferStateValue,
 } from '../core/constants.ts';
+import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import type { TrackMeta } from '../types/index.ts';
 
@@ -247,6 +248,13 @@ export function getPlaybackModeActivity(): PlaybackModeActivity {
   };
 }
 
+export function getPlaybackModeActivitySnapshot(): PlaybackModeActivity {
+  return {
+    mode: getState('playback.mode'),
+    activity: getState('playback.activity'),
+  };
+}
+
 function writePlaybackModeActivity(modeActivity: PlaybackModeActivity): void {
   setState('playback.mode', modeActivity.mode);
   setState('playback.activity', modeActivity.activity);
@@ -265,11 +273,25 @@ function assertPlaybackModeActivitySynced(expected: PlaybackModeActivity): void 
   }
 }
 
-function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
+export function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
   const ownership = getPlaybackOwnership();
   writePlaybackModeActivity({ mode: ownership.mode, activity: ownership.activity });
   assertPlaybackModeActivitySynced(ownership);
   return ownership;
+}
+
+// Shadow-slot bridge for Phase 5. Until readers move fully to mode/activity,
+// legacy source events remain the canonical triggers for keeping the new slots fresh.
+for (const event of [
+  'state:appState',
+  'state:playback.lifecycle',
+  'state:transfer.state',
+  'state:player.currentTrackMeta',
+  'state:systemAudio.isReceiving',
+] as const) {
+  bus.on(event, () => {
+    syncPlaybackModeActivityFromOwnership();
+  });
 }
 
 // Read: appState-strict predicates
@@ -297,6 +319,51 @@ export function isAppStatePlayingSystemAudio(): boolean {
 export function isAppStateIdleOrPaused(): boolean {
   const appState = getState('appState');
   return appState === APP_STATE.IDLE || appState === APP_STATE.PAUSED;
+}
+
+// Read: mode/activity predicates (new decomposed playback contract)
+
+export function isPlaybackModeFile(): boolean {
+  return getState('playback.mode') === 'file';
+}
+
+export function isPlaybackModeYouTube(): boolean {
+  return getState('playback.mode') === 'youtube';
+}
+
+export function isPlaybackModeSystemAudio(): boolean {
+  return getState('playback.mode') === 'system-audio';
+}
+
+export function isPlaybackIdle(): boolean {
+  return getState('playback.activity') === 'idle';
+}
+
+export function isPlaybackPaused(): boolean {
+  return getState('playback.activity') === 'paused';
+}
+
+export function isPlaybackPending(): boolean {
+  return getState('playback.activity') === 'pending';
+}
+
+export function isPlaybackPlaying(): boolean {
+  return getState('playback.activity') === 'playing';
+}
+
+export function isPlaybackPlayingFile(): boolean {
+  const playback = getPlaybackModeActivitySnapshot();
+  return playback.mode === 'file' && playback.activity === 'playing';
+}
+
+export function isPlaybackPlayingYouTube(): boolean {
+  const playback = getPlaybackModeActivitySnapshot();
+  return playback.mode === 'youtube' && playback.activity === 'playing';
+}
+
+export function isPlaybackPlayingSystemAudio(): boolean {
+  const playback = getPlaybackModeActivitySnapshot();
+  return playback.mode === 'system-audio' && playback.activity === 'playing';
 }
 
 // Read: owner predicates (broad semantic)

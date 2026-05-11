@@ -9,9 +9,8 @@
  */
 
 import { bus } from '../core/events.ts';
-import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
-import type { AppStateValue } from '../core/constants.ts';
+import type { AppStateValue, PlaybackModeValue } from '../core/constants.ts';
 import { isAppStateIdleOrPaused, setPlaybackAppState } from './ownership.ts';
 
 // ─── Upload-time guard: reject video files ────────────────────────
@@ -77,29 +76,33 @@ export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {
   }
 
   const newState: AppStateValue = isAppStateIdleOrPaused() ? APP_STATE.PAUSED : targetState;
-  // YouTube forces its target state so body.mode-youtube keeps applying even when paused.
+  // YouTube forces its target state so playback.mode keeps applying even when paused.
   const finalState: AppStateValue = mode === 'youtube' ? targetState : newState;
   setPlaybackAppState(finalState);
 }
 
-// ─── Body-class sync driven by appState ───────────────────────────
+// Body-class sync driven by decomposed playback mode.
 
-function updateBodyModeClass(appState: string): void {
+function isPlaybackModeValue(value: unknown): value is PlaybackModeValue {
+  return value === null || value === 'file' || value === 'youtube' || value === 'system-audio';
+}
+
+function updateBodyModeClass(mode: PlaybackModeValue): void {
   const body = document.body;
 
-  const wantYouTube = appState === APP_STATE.PLAYING_YOUTUBE;
+  const wantYouTube = mode === 'youtube';
   if (body.classList.contains('mode-youtube') !== wantYouTube) {
     body.classList.toggle('mode-youtube', wantYouTube);
   }
 
-  const wantSysAudio = appState === APP_STATE.PLAYING_SYSTEM_AUDIO;
+  const wantSysAudio = mode === 'system-audio';
   if (body.classList.contains('mode-system-audio') !== wantSysAudio) {
     body.classList.toggle('mode-system-audio', wantSysAudio);
   }
 
   const ytContainer = document.getElementById('youtube-player-container');
   if (ytContainer) {
-    if (appState === APP_STATE.PLAYING_YOUTUBE) {
+    if (mode === 'youtube') {
       ytContainer.style.display = 'block';
       ytContainer.style.opacity = '1';
       ytContainer.style.pointerEvents = 'auto';
@@ -111,6 +114,7 @@ function updateBodyModeClass(appState: string): void {
   }
 }
 
-bus.on('state:appState', () => {
-  updateBodyModeClass(getState('appState'));
+bus.on('state:playback.mode', (mode) => {
+  if (!isPlaybackModeValue(mode)) return;
+  updateBodyModeClass(mode);
 });

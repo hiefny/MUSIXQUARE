@@ -16,7 +16,9 @@
  *                      icons, and badges should be reactive.
  *
  * The two coincide for YouTube (there is no pending state) but diverge for
- * file and system-audio. Pick the one whose semantic matches your check.
+ * file and system-audio. `owner` and `mode` may also intentionally diverge:
+ * PAUSED has no active owner, but still derives `mode: 'file'` as the legacy
+ * file-playback pause shadow. Pick the semantic that matches your check.
  *
  * Write helpers are intentionally small: they only encode ownership claims/
  * releases, and callers still perform media-engine setup/teardown themselves.
@@ -142,6 +144,9 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
+// Phase 5 migration boundary. No production callers yet by design; this
+// adapter lets future refactors consume mode/activity before the global state
+// tree is split. See docs/state-patterns.md.
 function deriveModeActivity(ownership: {
   owner: PlaybackOwner;
   appState: AppStateValue;
@@ -163,6 +168,8 @@ function deriveModeActivity(ownership: {
     return { mode: 'youtube', activity: 'playing' };
   }
 
+  // YouTube pause is represented by YouTube's own player state, not APP_STATE.PAUSED.
+  // In this legacy appState model, PAUSED means the local-file pipeline is paused.
   if (ownership.appState === APP_STATE.PAUSED || ownership.lifecycle === PLAYBACK_STATE.PAUSED) {
     return { mode: 'file', activity: 'paused' };
   }

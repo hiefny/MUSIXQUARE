@@ -6,7 +6,7 @@
 
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`, and production readers now consume the narrower mode/activity helper surface where their question matches that contract.
 - 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
-- 5c (reader migration): **IN PROGRESS**. UI display readers, media-session, sync replay gates, YouTube runtime guards, and several audio/system-capture readers have landed; central transport/playback compatibility readers remain on legacy predicates by design.
+- 5c (reader migration): **DONE for raw readers**. Production raw legacy readers are now limited to `ownership.ts` and `types/index.ts`. Compatibility consumers that still need the legacy enum read it through `getPlaybackOwnership().appState` and are pinned by test.
 - 5d (wire protocol compat): **IN PROGRESS**. 5d-1 dual emit/accept has landed; release-cycle waits and legacy field removal remain proposed/gated.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
 
@@ -79,7 +79,7 @@ Long-term, it may be useful to describe all playback-facing fields under one log
 **Dual-write before cutover, every step reversible.**
 
 1. New slots are added and written as a side effect of existing writes. Nothing reads them yet.
-2. Readers migrate one domain at a time. Old readers continue to use `appState`.
+2. Readers migrate one domain at a time. Compatibility readers that still need the legacy enum use `getPlaybackOwnership().appState`.
 3. Wire protocol carries both fields for at least two production releases before dropping legacy emit.
 4. Source-of-truth flips only after every production reader is on the new slots.
 5. Legacy `appState` is removed last, or kept indefinitely as an exported getter if external consumers might exist.
@@ -109,6 +109,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 **Important readers and intentional legacy holdouts**:
 
+- `src/player/ownership.ts` - the single bridge that reads/writes legacy `appState` and derives `playback.mode/activity`.
 - `src/player/transport.ts` - owns legacy enum transitions via `setPlaybackAppState`; strict legacy reads now go through `getPlaybackOwnership().appState`.
 - `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
 - `src/audio/beat-detector.ts` - keeps a module-local file-playing cache from `playback.mode/activity`, with buffer-change refresh for silent track switches.
@@ -126,7 +127,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 **Initial state and types**:
 
-- `src/core/state.ts` - `appState: APP_STATE.IDLE` remains in the initial state until 5g.
+- `src/core/state.ts` - `appState: APP_STATE.IDLE` remains in the initial state until 5g, but does not read the value after initialization.
 - `src/types/index.ts` - `StateTree.appState`, sync payload compatibility fields, and mapped `state:appState` events remain until the wire wait is complete.
 
 Do not treat this list as a mandate to remove every legacy reference. The remaining references fall into either source-of-truth writes, cross-version compatibility, or deliberately strict legacy command gates.
@@ -273,7 +274,7 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 ## Verification Gates (Every Sub-Phase)
 
 - `npm run typecheck` returns clean.
-- `npm test` all green. Current checkpoint after 5d safety-belt work: 784 tests across 55 files.
+- `npm test` all green. Current checkpoint after raw-reader migration: 800 tests across 59 files.
 - `npm run lint` returns clean.
 - `npm run build` succeeds.
 - Manual cross-version smoke: host on previous version with guest on new version, and host on new version with guest on previous version. Critical for 5d.

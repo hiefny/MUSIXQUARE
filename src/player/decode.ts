@@ -838,8 +838,6 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       bus.emit('sync:request-immediate-ping');
     }
 
-    // Force sync handled by sync.ts state:appState listener (1s delayed reset)
-
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {
     log.error('[Guest] Decoding failed', err);

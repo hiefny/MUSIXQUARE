@@ -741,7 +741,7 @@ export function stopPlayback(): void {
 
   if (isAppStatePlayingYouTube()) {
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
-    // from triggering playlist:next-track (its guard checks appState !== PLAYING_YOUTUBE)
+    // from triggering playlist:next-track (its guard checks YouTube playback mode).
     setAppState(APP_STATE.IDLE);
     bus.emit('youtube:stop-playback');
     bus.emit('youtube:stop-mode');

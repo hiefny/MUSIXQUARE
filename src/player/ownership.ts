@@ -148,9 +148,44 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
-// Phase 5 migration boundary. No production callers yet by design; this
-// adapter lets future refactors consume mode/activity before the global state
-// tree is split. See docs/state-patterns.md.
+export function deriveModeActivityFromAppState(appState: AppStateValue): PlaybackModeActivity {
+  switch (appState) {
+    case APP_STATE.PLAYING_AUDIO:
+      return { mode: 'file', activity: 'playing' };
+    case APP_STATE.PAUSED:
+      return { mode: 'file', activity: 'paused' };
+    case APP_STATE.PLAYING_YOUTUBE:
+      return { mode: 'youtube', activity: 'playing' };
+    case APP_STATE.PLAYING_SYSTEM_AUDIO:
+      return { mode: 'system-audio', activity: 'playing' };
+    case APP_STATE.IDLE:
+    default:
+      return { mode: null, activity: 'idle' };
+  }
+}
+
+export function deriveAppStateFromModeActivity(
+  mode: PlaybackModeValue,
+  activity: PlaybackActivityValue,
+): AppStateValue {
+  if (mode === 'file') {
+    return activity === 'playing' ? APP_STATE.PLAYING_AUDIO : APP_STATE.PAUSED;
+  }
+
+  if (mode === 'youtube') {
+    return activity === 'idle' ? APP_STATE.IDLE : APP_STATE.PLAYING_YOUTUBE;
+  }
+
+  if (mode === 'system-audio') {
+    return activity === 'playing' ? APP_STATE.PLAYING_SYSTEM_AUDIO : APP_STATE.IDLE;
+  }
+
+  return APP_STATE.IDLE;
+}
+
+// Phase 5 migration boundary. Production callers should consume the narrower
+// mode/activity helpers when their question matches that contract, while this
+// adapter keeps broad ownership and legacy compatibility data available.
 function deriveModeActivity(ownership: {
   owner: PlaybackOwner;
   appState: AppStateValue;
@@ -169,13 +204,13 @@ function deriveModeActivity(ownership: {
   }
 
   if (ownership.owner === 'youtube') {
-    return { mode: 'youtube', activity: 'playing' };
+    return deriveModeActivityFromAppState(APP_STATE.PLAYING_YOUTUBE);
   }
 
   // YouTube pause is represented by YouTube's own player state, not APP_STATE.PAUSED.
   // In this legacy appState model, PAUSED means the local-file pipeline is paused.
   if (ownership.appState === APP_STATE.PAUSED || ownership.lifecycle === PLAYBACK_STATE.PAUSED) {
-    return { mode: 'file', activity: 'paused' };
+    return deriveModeActivityFromAppState(APP_STATE.PAUSED);
   }
 
   if (ownership.owner === 'file') {
@@ -183,7 +218,7 @@ function deriveModeActivity(ownership: {
       ownership.appState === APP_STATE.PLAYING_AUDIO ||
       ownership.lifecycle === PLAYBACK_STATE.PLAYING
     ) {
-      return { mode: 'file', activity: 'playing' };
+      return deriveModeActivityFromAppState(APP_STATE.PLAYING_AUDIO);
     }
 
     if (ownership.hasFilePipeline) {

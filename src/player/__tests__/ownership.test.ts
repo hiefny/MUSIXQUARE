@@ -6,6 +6,8 @@ import {
   createFileTrackMeta,
   createSystemAudioTrackMeta,
   createYouTubeTrackMeta,
+  deriveAppStateFromModeActivity,
+  deriveModeActivityFromAppState,
   getPlaybackModeActivity,
   getPlaybackModeActivitySnapshot,
   getPlaybackOwnership,
@@ -293,6 +295,42 @@ describe('playback ownership view', () => {
       videoId: 'abc',
       playlistId: null,
     });
+  });
+
+  it('projects legacy appState into mode/activity for compatibility reads', () => {
+    expect(deriveModeActivityFromAppState(APP_STATE.IDLE)).toEqual({
+      mode: null,
+      activity: 'idle',
+    });
+    expect(deriveModeActivityFromAppState(APP_STATE.PLAYING_AUDIO)).toEqual({
+      mode: 'file',
+      activity: 'playing',
+    });
+    expect(deriveModeActivityFromAppState(APP_STATE.PAUSED)).toEqual({
+      mode: 'file',
+      activity: 'paused',
+    });
+    expect(deriveModeActivityFromAppState(APP_STATE.PLAYING_YOUTUBE)).toEqual({
+      mode: 'youtube',
+      activity: 'playing',
+    });
+    expect(deriveModeActivityFromAppState(APP_STATE.PLAYING_SYSTEM_AUDIO)).toEqual({
+      mode: 'system-audio',
+      activity: 'playing',
+    });
+  });
+
+  it('projects mode/activity back to the legacy appState compatibility enum', () => {
+    expect(deriveAppStateFromModeActivity(null, 'idle')).toBe(APP_STATE.IDLE);
+    expect(deriveAppStateFromModeActivity('file', 'playing')).toBe(APP_STATE.PLAYING_AUDIO);
+    expect(deriveAppStateFromModeActivity('file', 'paused')).toBe(APP_STATE.PAUSED);
+    expect(deriveAppStateFromModeActivity('file', 'pending')).toBe(APP_STATE.PAUSED);
+    expect(deriveAppStateFromModeActivity('youtube', 'playing')).toBe(APP_STATE.PLAYING_YOUTUBE);
+    expect(deriveAppStateFromModeActivity('youtube', 'paused')).toBe(APP_STATE.PLAYING_YOUTUBE);
+    expect(deriveAppStateFromModeActivity('system-audio', 'playing')).toBe(
+      APP_STATE.PLAYING_SYSTEM_AUDIO,
+    );
+    expect(deriveAppStateFromModeActivity('system-audio', 'pending')).toBe(APP_STATE.IDLE);
   });
 
   it('routes playback app state changes through ownership claims', () => {

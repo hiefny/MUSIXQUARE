@@ -18,8 +18,8 @@
  * Key design decisions:
  *   - Real core/timers.ts so `setManagedTimer` / `getManagedTimer` work
  *     under `vi.useFakeTimers()` and behave identically to production.
- *   - Real core/state.ts so `setState('appState', PLAYING_YOUTUBE)` unblocks
- *     the guards at the top of handleYouTubeSync / handleYouTubeState.
+ *   - Real playback ownership writes so YouTube mode/activity shadow slots
+ *     unblock the guards at the top of handleYouTubeSync / handleYouTubeState.
  *   - Real core/events.ts (bus) so emits from sync.ts don't error out.
  *   - Mocked `_state.ts::getYouTubePlayer` swapped per test via `.mockReturnValue`.
  *   - Mocked `network/shared-clock.ts::getHostNow` that returns `Date.now()` so
@@ -32,7 +32,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { APP_STATE, MSG } from '../../core/constants.ts';
+import { APP_STATE, MSG, type AppStateValue } from '../../core/constants.ts';
+import { setPlaybackAppState } from '../../player/ownership.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
@@ -138,7 +139,7 @@ vi.mock('../../player/transport.ts', () => ({
   fmtTime: vi.fn(
     (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`,
   ),
-  setAppState: vi.fn((s: string) => setState('appState', s)),
+  setAppState: vi.fn((s: string) => setPlaybackAppState(s as AppStateValue)),
 }));
 
 vi.mock('../../ui/toast.ts', () => ({
@@ -171,7 +172,7 @@ beforeEach(async () => {
   getYouTubePlayerMock.mockReset();
   getYouTubePlayerMock.mockReturnValue(null);
 
-  setState('appState', APP_STATE.PLAYING_YOUTUBE);
+  setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
 
   // Initialize sync module so registerHandlers captures handlers.
   const syncMod = await import('../sync.ts');
@@ -375,7 +376,7 @@ describe('YouTube Sync — Regression Integration', () => {
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
       expect(handler).toBeDefined();
       setState('network.hostConn', mockHostConn as never);
-      setState('appState', APP_STATE.IDLE);
+      setPlaybackAppState(APP_STATE.IDLE);
       getYouTubePlayerMock.mockReturnValue(null);
 
       handler(
@@ -393,7 +394,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
 
       const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
-      setState('appState', APP_STATE.PLAYING_YOUTUBE);
+      setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
       bus.emit('youtube:player-ready');
 
       expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
@@ -405,7 +406,7 @@ describe('YouTube Sync — Regression Integration', () => {
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
       const { resetYouTubeSyncState } = await importSync();
       setState('network.hostConn', mockHostConn as never);
-      setState('appState', APP_STATE.IDLE);
+      setPlaybackAppState(APP_STATE.IDLE);
       getYouTubePlayerMock.mockReturnValue(null);
 
       handler(

@@ -15,7 +15,7 @@ import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/tim
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
 import {
-  isAppStatePlayingYouTube,
+  isPlaybackModeYouTube,
   updatePlaybackTrackMeta,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
@@ -269,7 +269,7 @@ function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: num
 function isManualRendezvousReady(player: YouTubePlayerInstance | null): boolean {
   return (
     !!player &&
-    isAppStatePlayingYouTube() &&
+    isPlaybackModeYouTube() &&
     !!player.getCurrentTime &&
     !!player.seekTo &&
     !!player.pauseVideo &&
@@ -361,7 +361,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   updateHostSnapshot(hostTime, hostState, hostClock);
 
   const isManual = !!data.isManual;
-  if (!player || !isAppStatePlayingYouTube() || !player.getCurrentTime) {
+  if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) {
     if (isManual) deferManualRendezvousUntilReady('player-or-app-state-not-ready');
     return;
   }
@@ -538,7 +538,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
     if (!opts.silent) showToast(message);
   };
   const player = getYouTubePlayer();
-  if (!player || !isAppStatePlayingYouTube()) {
+  if (!player || !isPlaybackModeYouTube()) {
     notify(t('toast.sync_not_ready'));
     return;
   }
@@ -892,7 +892,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(time, state, hostClock);
 
-  if (!player || !isAppStatePlayingYouTube()) return;
+  if (!player || !isPlaybackModeYouTube()) return;
 
   // Host sent a new command — cancel the guest ENDED fallback timer.
   // (Guest defers IDLE transition on video end to wait for this message.)
@@ -1247,7 +1247,7 @@ function handleYouTubeStop(_data: Record<string, unknown>, conn?: DataConnection
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-guest-ended-fallback');
   bus.emit('youtube:sync-loading', false);
-  if (isAppStatePlayingYouTube()) {
+  if (isPlaybackModeYouTube()) {
     bus.emit('youtube:stop-mode');
     bus.emit('player:stop-all-media');
   }

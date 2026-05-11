@@ -107,13 +107,14 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 - `src/network/sync.ts` local replay/initial-sync arm gates use `playback.mode/activity`; only the wire-visible compatibility fields still use legacy `appState`.
 - `SYNC_PING` does not carry playback state and should remain unchanged unless a separate protocol need appears.
 
-**Intentional legacy readers that should remain for now**:
+**Important readers and intentional legacy holdouts**:
 
 - `src/player/transport.ts` - owns the legacy enum transitions and still needs strict appState gates until 5f.
 - `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
 - `src/audio/beat-detector.ts` - keeps a module-local appState cache by design, with buffer-change refresh for silent track switches.
 - `src/player/playlist.ts` - remaining idle checks guard historical async decode races where appState's legacy `IDLE` shadow is the intended signal.
-- `src/youtube/*` - YouTube runtime guards still use strict YouTube appState because YouTube pause/play is represented by iframe state, not `APP_STATE.PAUSED`.
+- `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode; pause/play still comes from iframe player state, not `APP_STATE.PAUSED`.
+- `src/youtube/player.ts` and `src/youtube/iframe.ts` - remaining runtime guards intentionally use strict YouTube appState until their iframe/session ownership paths are migrated.
 - `src/player/video.ts` - central appState-to-mode write bridge; body-class rendering already subscribes to `state:playback.mode`.
 - `src/chat/commands.ts` - debug/status output may keep legacy appState until 5g, optionally alongside mode/activity.
 
@@ -168,6 +169,7 @@ Order, lowest-risk first:
    - `src/ui/seekbar.ts` uses playback mode/activity for seek availability, system-audio zero display, and file rAF interpolation gates.
    - `src/ui/settings.ts` uses playback mode for system-audio channel/effects UI gates.
    - `src/ui/tabs.ts` and `src/ui/setup.ts` use playback mode helpers for YouTube display/cleanup gates.
+   - `src/youtube/sync.ts` uses playback mode for guest sync, manual rendezvous, and stop-frame guards while leaving iframe pause/play semantics untouched.
    - `src/ui/playlist-view.ts` uses playback mode/activity as its playback-state refresh trigger instead of `state:appState`.
    - Leave protocol, snapshot, and compatibility bridge code on `isAppState*()` or raw snapshots until their dedicated phases.
 

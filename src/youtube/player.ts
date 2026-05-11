@@ -18,7 +18,7 @@ import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
 import {
-  getPlaybackOwnership,
+  getPlaybackLegacyAppState,
   isPlaybackModeYouTube,
   setPlaybackTrackMeta,
   updatePlaybackTrackTitle,
@@ -52,7 +52,7 @@ export function getPendingAutoSyncOnReady(): boolean {
 }
 
 function isLegacyIdle(): boolean {
-  return getPlaybackOwnership().appState === APP_STATE.IDLE;
+  return getPlaybackLegacyAppState() === APP_STATE.IDLE;
 }
 
 import { registerHandlers } from '../network/protocol.ts';

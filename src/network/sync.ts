@@ -37,7 +37,7 @@ import { showToast } from '../ui/toast.ts';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
 import {
-  getPlaybackOwnership,
+  getPlaybackLegacyAppState,
   getPlaybackModeActivity,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
@@ -95,7 +95,7 @@ export function handleAutoSync(): void {
 // ─── Protocol Handlers ──────────────────────────────────────────────
 
 export function getSyncPongPlaybackState(): SyncPongPlaybackState {
-  const appState = getPlaybackOwnership().appState;
+  const appState = getPlaybackLegacyAppState();
   const lifecycle = getState('playback.lifecycle');
   const playback = getPlaybackModeActivity();
 
@@ -171,6 +171,17 @@ function createSyncPongPayload({
   return payload;
 }
 
+function getSafeSyncPongPosition(isFilePlaying: boolean): number {
+  if (!isFilePlaying) return 0;
+
+  try {
+    return getTrackPosition();
+  } catch (error) {
+    log.debug('[Sync] Failed to read track position for SYNC_PONG:', error);
+    return 0;
+  }
+}
+
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
   // 1. Liveness update (from old handleHeartbeat)
   try {
@@ -193,6 +204,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   const hostTime = Date.now(); // Capture BEFORE async import
   const playbackState = getSyncPongPlaybackState();
   const isFilePlaying = playbackState.mode === 'file' && playbackState.activity === 'playing';
+  const position = getSafeSyncPongPosition(isFilePlaying);
 
   if (isFilePlaying) {
     if (conn.open) {
@@ -200,7 +212,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
         conn.send(createSyncPongPayload({
           pingId: data.pingId,
           hostTime,
-          position: getTrackPosition(),
+          position,
           playbackState,
         }));
       } catch {
@@ -209,12 +221,12 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
     }
   } else {
     try {
-      conn.send(createSyncPongPayload({
-        pingId: data.pingId,
-        hostTime,
-        position: 0,
-        playbackState,
-      }));
+        conn.send(createSyncPongPayload({
+          pingId: data.pingId,
+          hostTime,
+          position,
+          playbackState,
+        }));
     } catch {
       /* closed */
     }

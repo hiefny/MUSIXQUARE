@@ -278,6 +278,10 @@ export function getPlaybackOwnership(): PlaybackOwnership {
   };
 }
 
+export function getPlaybackLegacyAppState(): AppStateValue {
+  return getPlaybackOwnership().appState;
+}
+
 export function getPlaybackModeActivity(): PlaybackModeActivity {
   const ownership = getPlaybackOwnership();
   return {

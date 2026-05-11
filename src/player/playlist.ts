@@ -33,7 +33,7 @@ import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import {
-  getPlaybackOwnership,
+  getPlaybackLegacyAppState,
   isYouTubeOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
@@ -55,7 +55,7 @@ let _shuffleOrder: number[] = [];
 let _shufflePosition = 0;
 
 function isLegacyIdle(): boolean {
-  return getPlaybackOwnership().appState === APP_STATE.IDLE;
+  return getPlaybackLegacyAppState() === APP_STATE.IDLE;
 }
 
 function generateShuffleOrder(): void {

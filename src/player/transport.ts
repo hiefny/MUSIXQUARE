@@ -17,6 +17,7 @@ import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
 import {
   getPlaybackOwnership,
+  getPlaybackLegacyAppState,
   isExternalOwner,
   isSystemAudioOwner,
   isYouTubeOwner,
@@ -78,7 +79,7 @@ export function setAppState(newState: AppStateValue): void {
 }
 
 function getLegacyAppState(): AppStateValue {
-  return getPlaybackOwnership().appState;
+  return getPlaybackLegacyAppState();
 }
 
 function isLegacyIdle(): boolean {

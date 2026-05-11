@@ -7,7 +7,7 @@ import { bus } from '../../core/events.ts';
 import { APP_STATE, MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
-import { handleData } from '../protocol.ts';
+import { handleData, resetInboundRateLimit } from '../protocol.ts';
 import {
   getSyncPongPlaybackState,
   getTotalSyncOffsetMs,
@@ -32,6 +32,7 @@ beforeEach(() => {
   resetClockState();
   setCurrentAudioBuffer(null);
   bus.clear();
+  resetInboundRateLimit('guest-1');
 });
 
 afterEach(() => {
@@ -88,7 +89,7 @@ describe('SYNC_PING playback snapshot', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
     setState('playlist.currentTrackIndex', 2);
 
-    const conn = { peer: 'guest-1', open: true, send: vi.fn() } as DataConnection;
+    const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
     await handleData({ type: MSG.SYNC_PING, pingId: 7 }, conn);
 
     expect(conn.send).toHaveBeenCalledTimes(1);
@@ -110,8 +111,14 @@ describe('SYNC_PING playback snapshot', () => {
     setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
     setState('playlist.currentTrackIndex', 3);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
-    const conn = { peer: 'guest-1', open: true, send: vi.fn() } as DataConnection;
+    expect(getSyncPongPlaybackState()).toMatchObject({
+      mode: 'file',
+      activity: 'playing',
+    });
+
+    const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
     await handleData({ type: MSG.SYNC_PING, pingId: 8 }, conn);
 
     expect(conn.send).toHaveBeenCalledWith(
@@ -120,6 +127,7 @@ describe('SYNC_PING playback snapshot', () => {
         pingId: 8,
         mode: 'file',
         activity: 'playing',
+        position: 0,
         trackIndex: 3,
       }),
     );

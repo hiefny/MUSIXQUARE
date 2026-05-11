@@ -6,7 +6,7 @@
 
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`, and production readers now consume the narrower mode/activity helper surface where their question matches that contract.
 - 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
-- 5c (reader migration): **DONE for raw readers**. Production raw legacy readers are now limited to `ownership.ts` and `types/index.ts`. Compatibility consumers that still need the legacy enum read it through `getPlaybackOwnership().appState` and are pinned by test.
+- 5c (reader migration): **DONE for raw readers**. Production raw legacy readers are now limited to `ownership.ts` and `types/index.ts`. Compatibility consumers that still need the legacy enum read it through `getPlaybackLegacyAppState()` and are pinned by test.
 - 5d (wire protocol compat): **DONE**. `SYNC_PONG` defaults to mode/activity only; legacy `appState` emit/accept remain available only through rollback env flags.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
 
@@ -79,7 +79,7 @@ Long-term, it may be useful to describe all playback-facing fields under one log
 **Dual-write before cutover, every step reversible.**
 
 1. New slots are added and written as a side effect of existing writes. Nothing reads them yet.
-2. Readers migrate one domain at a time. Compatibility readers that still need the legacy enum use `getPlaybackOwnership().appState`.
+2. Readers migrate one domain at a time. Compatibility readers that still need the legacy enum use `getPlaybackLegacyAppState()`.
 3. Wire protocol carries both fields for at least two production releases before dropping legacy emit.
 4. Source-of-truth flips only after every production reader is on the new slots.
 5. Legacy `appState` is removed last, or kept indefinitely as an exported getter if external consumers might exist.
@@ -110,12 +110,12 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 **Important readers and intentional legacy holdouts**:
 
 - `src/player/ownership.ts` - the single bridge that reads/writes legacy `appState` and derives `playback.mode/activity`.
-- `src/player/transport.ts` - owns legacy enum transitions via `setPlaybackAppState`; strict legacy reads now go through `getPlaybackOwnership().appState`.
+- `src/player/transport.ts` - owns legacy enum transitions via `setPlaybackAppState`; strict legacy reads now go through `getPlaybackLegacyAppState()`.
 - `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
 - `src/audio/beat-detector.ts` - keeps a module-local file-playing cache from `playback.mode/activity`, with buffer-change refresh for silent track switches.
-- `src/player/playlist.ts` - historical idle checks guard async decode races where the legacy `IDLE` shadow is the intended signal, but read it through `getPlaybackOwnership().appState`.
+- `src/player/playlist.ts` - historical idle checks guard async decode races where the legacy `IDLE` shadow is the intended signal, but read it through `getPlaybackLegacyAppState()`.
 - `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode; pause/play still comes from iframe player state, not `APP_STATE.PAUSED`.
-- `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; queue/indexing idle checks still use strict legacy `IDLE` via `getPlaybackOwnership().appState`.
+- `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; queue/indexing idle checks still use strict legacy `IDLE` via `getPlaybackLegacyAppState()`.
 - `src/youtube/iframe.ts` - iframe create/ready/state/UI guards use playback mode, with indexing exceptions and `IDLE` fallback writes kept unchanged.
 - `src/player/video.ts` - media-engine mode changes now gate from playback activity and write through `setPlaybackAppState`; body-class rendering subscribes to `state:playback.mode`.
 - `src/chat/commands.ts` - debug/status output reads legacy appState through `getPlaybackOwnership()` alongside mode/activity; it no longer reads the global slot directly.
@@ -131,7 +131,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 - `src/types/index.ts` - `StateTree.appState`, sync payload compatibility fields, and mapped `state:appState` events remain until the wire wait is complete.
 
 Do not treat this list as a mandate to remove every legacy reference. The remaining references fall into either source-of-truth writes, cross-version compatibility, or deliberately strict legacy command gates.
-`src/player/__tests__/appstate-holdouts.test.ts` pins both the raw production holdout list and the narrower `getPlaybackOwnership().appState` compatibility consumers, so new legacy reads cannot appear unnoticed.
+`src/player/__tests__/appstate-holdouts.test.ts` pins both the raw production holdout list and the narrower `getPlaybackLegacyAppState()` compatibility consumers, so new legacy reads cannot appear unnoticed.
 
 ## Sub-Phase Roadmap
 
@@ -174,7 +174,7 @@ Order, lowest-risk first:
    - `src/ui/tabs.ts` and `src/ui/setup.ts` use playback mode helpers for YouTube display/cleanup gates.
    - `src/player/video.ts` uses playback activity for media-engine mode transition gating.
    - `src/youtube/sync.ts` uses playback mode for guest sync, manual rendezvous, and stop-frame guards while leaving iframe pause/play semantics untouched.
-   - `src/youtube/player.ts` uses playback mode for late-join bootstrap and stop-mode guards; its queue/indexing idle checks still use the legacy IDLE value, but read it through `getPlaybackOwnership().appState`.
+   - `src/youtube/player.ts` uses playback mode for late-join bootstrap and stop-mode guards; its queue/indexing idle checks still use the legacy IDLE value, but read it through `getPlaybackLegacyAppState()`.
    - `src/youtube/iframe.ts` uses playback mode for iframe create/ready/state/update guards; indexing exceptions and guest-ended IDLE fallback writes stay legacy by design.
    - `src/ui/playlist-view.ts` uses playback mode/activity as its playback-state refresh trigger instead of `state:appState`.
    - Leave protocol, snapshot, and compatibility bridge code on `isAppState*()` or raw snapshots until their dedicated phases.
@@ -185,11 +185,11 @@ Order, lowest-risk first:
    - Remove that reconciliation once tests and any remaining bootstrap code stop mutating legacy source fields directly.
 
 4. **Playback domain (1 day)**
-   - `src/player/transport.ts` still owns legacy playback-domain transitions, but its strict legacy checks now read through `getPlaybackOwnership().appState`.
+   - `src/player/transport.ts` still owns legacy playback-domain transitions, but its strict legacy checks now read through `getPlaybackLegacyAppState()`.
    - First pass done for YouTube mode questions in `playlist.ts`, `playback.ts`, and the silent YouTube handoff in `transport.ts`.
-   - `src/player/playlist.ts` historical idle guards still use strict legacy IDLE semantics for async decode races, but read through `getPlaybackOwnership().appState`.
+   - `src/player/playlist.ts` historical idle guards still use strict legacy IDLE semantics for async decode races, but read through `getPlaybackLegacyAppState()`.
    - `src/player/playback.ts` uses playback-playing file helpers for seek/restart paths that only apply to active local file playback.
-   - `src/player/playback.ts` late-join bootstrap reads legacy wire state through `getPlaybackOwnership().appState`; it no longer reads the global `appState` slot directly.
+   - `src/player/playback.ts` late-join bootstrap reads legacy wire state through `getPlaybackLegacyAppState()`; it no longer reads the global `appState` slot directly.
    - Any site that reads `ownership.appState` directly should be checked and migrated to `ownership.mode` / `ownership.activity` only when that site truly wants the new semantic.
 
 5. **Network/protocol gating (1 day)**

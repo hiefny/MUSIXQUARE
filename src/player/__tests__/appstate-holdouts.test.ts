@@ -22,6 +22,8 @@ const ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES = new Map<string, string>([
   ['src/youtube/player.ts', 'Queue/indexing idle checks intentionally stay strict legacy IDLE.'],
 ]);
 
+const LEGACY_APPSTATE_COMPAT_HELPER = 'getPlaybackLegacyAppState';
+
 function listProductionTypeScriptFiles(dir: string): string[] {
   const entries = readdirSync(dir);
   const files: string[] = [];
@@ -67,7 +69,7 @@ describe('legacy appState holdouts', () => {
     const actual = listProductionTypeScriptFiles(SRC_ROOT)
       .filter((file) => {
         const content = readFileSync(file, 'utf8');
-        return content.includes('getPlaybackOwnership') && content.includes('appState');
+        return content.includes(LEGACY_APPSTATE_COMPAT_HELPER);
       })
       .map(toRepoPath)
       .filter((file) => file !== 'src/player/ownership.ts')

@@ -34,8 +34,7 @@ describe('sync feature flags', () => {
     playerState.setCurrentAudioBuffer(null);
   });
 
-  it('can disable legacy appState emission in SYNC_PONG payloads', async () => {
-    vi.stubEnv('VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT', 'false');
+  it('omits legacy appState from SYNC_PONG payloads by default', async () => {
     const { state, constants, ownership, protocol, sync } = await loadFreshSyncModules();
 
     sync.initSync();
@@ -56,8 +55,7 @@ describe('sync feature flags', () => {
     expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
   });
 
-  it('can disable legacy appState accept while still accepting decomposed playback fields', async () => {
-    vi.stubEnv('VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT', 'false');
+  it('rejects legacy-only appState sync by default while accepting decomposed playback fields', async () => {
     const { constants, sync } = await loadFreshSyncModules();
 
     expect(sync.isSyncPongPlayingFile({ appState: constants.APP_STATE.PLAYING_AUDIO })).toBe(false);
@@ -68,5 +66,27 @@ describe('sync feature flags', () => {
         activity: 'playing',
       }),
     ).toBe(true);
+  });
+
+  it('can re-enable legacy sync emit and accept as rollback switches', async () => {
+    vi.stubEnv('VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT', 'true');
+    vi.stubEnv('VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT', 'true');
+    const { state, constants, ownership, protocol, sync } = await loadFreshSyncModules();
+
+    sync.initSync();
+    ownership.setPlaybackAppState(constants.APP_STATE.PLAYING_AUDIO);
+    state.setState('playback.lifecycle', constants.PLAYBACK_STATE.PLAYING);
+
+    const conn = { peer: 'guest-1', open: true, send: vi.fn() };
+    await protocol.handleData({ type: constants.MSG.SYNC_PING, pingId: 92 }, conn as never);
+
+    expect(conn.send.mock.calls[0][0]).toMatchObject({
+      type: constants.MSG.SYNC_PONG,
+      pingId: 92,
+      appState: constants.APP_STATE.PLAYING_AUDIO,
+      mode: 'file',
+      activity: 'playing',
+    });
+    expect(sync.isSyncPongPlayingFile({ appState: constants.APP_STATE.PLAYING_AUDIO })).toBe(true);
   });
 });

@@ -7,7 +7,7 @@
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`, and production readers now consume the narrower mode/activity helper surface where their question matches that contract.
 - 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
 - 5c (reader migration): **DONE for raw readers**. Production raw legacy readers are now limited to `ownership.ts` and `types/index.ts`. Compatibility consumers that still need the legacy enum read it through `getPlaybackOwnership().appState` and are pinned by test.
-- 5d (wire protocol compat): **IN PROGRESS**. 5d-1 dual emit/accept has landed; release-cycle waits and legacy field removal remain proposed/gated.
+- 5d (wire protocol compat): **DONE**. `SYNC_PONG` defaults to mode/activity only; legacy `appState` emit/accept remain available only through rollback env flags.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
 
 ## Motivation
@@ -102,8 +102,8 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 **Wire protocol and cross-version compatibility**:
 
-- `src/network/sync.ts::handleSyncPing` - `SYNC_PONG` payloads include `mode` and `activity`; legacy `appState` is still emitted while `syncPongLegacyAppStateEmit` is enabled.
-- `src/network/sync.ts::isSyncPongPlayingFile` - guest reads `mode/activity` first and falls back to legacy `appState` while `syncPongLegacyAppStateAccept` is enabled.
+- `src/network/sync.ts::handleSyncPing` - `SYNC_PONG` payloads include `mode` and `activity`; legacy `appState` is emitted only when the rollback flag `syncPongLegacyAppStateEmit` is enabled.
+- `src/network/sync.ts::isSyncPongPlayingFile` - guest reads `mode/activity`; legacy-only `appState` accept is available only when the rollback flag `syncPongLegacyAppStateAccept` is enabled.
 - `src/network/sync.ts` local replay/initial-sync arm gates use `playback.mode/activity`; wire-visible legacy `appState` is read through `getPlaybackOwnership()`, not directly from the global slot.
 - `SYNC_PING` does not carry playback state and should remain unchanged unless a separate protocol need appears.
 
@@ -212,20 +212,20 @@ Each sub-step lands as its own commit. Tests must pass after each. Invariant ass
 
 `network/sync.ts` is the only network surface that carries `appState`. The protocol is between this app's host and guest instances on potentially different versions.
 
-**Step 5d-1: dual emit. DONE.** Host sends both `appState` (legacy) and `mode` + `activity` in `SYNC_PONG` payloads. Guest accepts either, preferring the new fields when present. `SYNC_PING` remains unchanged.
+**Step 5d-1: dual emit. DONE.** Host sent both `appState` (legacy) and `mode` + `activity` in `SYNC_PONG` payloads. Guest accepted either, preferring the new fields when present. `SYNC_PING` remains unchanged.
 
 Compatibility switches are in place in `src/core/feature-flags.ts`:
 
-- `syncPongLegacyAppStateEmit` defaults to `true`; 5d-3 flips this off after the release wait.
-- `syncPongLegacyAppStateAccept` defaults to `true`; 5d-4 flips this off after the second release wait.
+- `syncPongLegacyAppStateEmit` defaults to `false`; setting `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT=true` is the rollback path.
+- `syncPongLegacyAppStateAccept` defaults to `false`; setting `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT=true` is the rollback path.
 
-**Step 5d-2: wait two production releases.** After at least two production releases on 5d-1, the guest-side legacy path becomes unused for any peer that has updated.
+**Step 5d-2: wait two production releases. SKIPPED BY WORKTREE DECISION.** The compatibility code remains behind env rollback switches.
 
-**Step 5d-3: drop the legacy emit.** Host stops sending `appState`. Guest's legacy accept path stays for compatibility with old hosts.
+**Step 5d-3: drop the legacy emit. DONE.** Host stops sending `appState` by default. The env rollback switch can temporarily re-enable it.
 
-**Step 5d-4: drop the legacy accept path.** After three production releases on 5d-3, guests no longer accept the legacy field. End-of-life for `appState` on the wire.
+**Step 5d-4: drop the legacy accept path. DONE.** Guests no longer accept legacy-only `appState` by default. The env rollback switch can temporarily re-enable it.
 
-The two-release wait between 5d-1 and 5d-3 is non-negotiable. The user base contains people who join sessions across version boundaries (host on app v1.4, guest on app v1.5). A single-commit cutover would break those sessions.
+The original two-release wait between 5d-1 and 5d-3 protected cross-version sessions. This worktree intentionally cut over without that wait; keep the rollback env flags until the new protocol has settled.
 
 ### 5e - System-Capture Snapshot (0.5 day)
 
@@ -264,7 +264,7 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 
 | Risk | Likelihood | Severity | Mitigation |
 | --- | --- | --- | --- |
-| Wire protocol break (host new, guest old) | High without care | High | 5d's release waits. Dual-emit phase is mandatory. |
+| Wire protocol break (host new, guest old) | Medium after cutover | High | Legacy emit/accept rollback flags remain available. |
 | Invariant drift between `appState` and `(mode, activity)` during 5b-5f | Medium | High | DEV-only assertion in ownership write helpers. Comprehensive transition tests in 5b. |
 | `system-capture` restore picks wrong mode after 5e | Low | Medium | Explicit restore matrix for file/youtube/system-audio x playing/paused/idle. |
 | UI displays stale during mid-migration commit | Low | Low | Per-commit test gate. Body-class sync lands in a single commit. |
@@ -287,8 +287,8 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 | 5b | Revert single commit. New slots become orphaned but unused. |
 | 5c | Per-domain revert. Each sub-step is one commit. |
 | 5d-1 | Revert; host returns to legacy-only emit. Guest still accepts legacy. |
-| 5d-3 | Re-enable legacy emit (one-line feature flag). |
-| 5d-4 | Re-enable legacy accept path (one-line feature flag). |
+| 5d-3 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT=true`. |
+| 5d-4 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT=true`. |
 | 5e | Revert snapshot shape change. |
 | 5f | Flip feature flag off. `appState` returns to source-of-truth. |
 | 5g | Restore `state.appState` field in state tree default. |
@@ -315,14 +315,14 @@ Feature flags for 5d-3/4 and 5f live in `src/core/feature-flags.ts`. Defaults pr
 | --- | --- | --- |
 | 5b | 1 day | none |
 | 5c | 3-5 days (across commits) | none |
-| 5d-1 | 1 day | 2 releases before 5d-3 |
-| 5d-3 | 0.5 day | 3 releases before 5d-4 |
-| 5d-4 | 0.5 day | none |
+| 5d-1 | done | none |
+| 5d-3 | done | none |
+| 5d-4 | done | none |
 | 5e | 0.5 day | none |
 | 5f | 0.5 day | 1 release |
 | 5g | 0.5 day (optional) | none |
 
-**Total**: 7-9 days active dev, 6-10 weeks calendar (release-cadence gated).
+**Total**: 7-9 days active dev originally estimated; release-cadence waits are now bypassed in this worktree and guarded by rollback flags.
 
 ## Anti-Goals
 

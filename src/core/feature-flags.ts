@@ -1,13 +1,13 @@
 /**
  * Central feature flags for staged compatibility migrations.
  *
- * Defaults must preserve production behavior. Override via Vite env only for
- * controlled preview builds or one-release rollback switches.
+ * Defaults describe the current migration posture. Override via Vite env only
+ * for controlled preview builds or rollback switches.
  */
 
 const FEATURE_FLAG_DEFAULTS = Object.freeze({
-  syncPongLegacyAppStateEmit: true,
-  syncPongLegacyAppStateAccept: true,
+  syncPongLegacyAppStateEmit: false,
+  syncPongLegacyAppStateAccept: false,
   appStateSourceOfTruthFlip: false,
 } as const);
 

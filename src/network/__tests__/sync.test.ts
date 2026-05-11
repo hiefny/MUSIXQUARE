@@ -96,16 +96,16 @@ describe('SYNC_PING playback snapshot', () => {
       expect.objectContaining({
         type: MSG.SYNC_PONG,
         pingId: 7,
-        appState: APP_STATE.PAUSED,
         mode: 'file',
         activity: 'paused',
         position: 0,
         trackIndex: 2,
       }),
     );
+    expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
   });
 
-  it('dual-emits decomposed playback fields for audible file playback', async () => {
+  it('emits decomposed playback fields for audible file playback', async () => {
     initSync();
     setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
@@ -118,12 +118,12 @@ describe('SYNC_PING playback snapshot', () => {
       expect.objectContaining({
         type: MSG.SYNC_PONG,
         pingId: 8,
-        appState: APP_STATE.PLAYING_AUDIO,
         mode: 'file',
         activity: 'playing',
         trackIndex: 3,
       }),
     );
+    expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
   });
 
   it('prefers decomposed mode/activity when deciding whether a sync pong is file playback', () => {
@@ -144,8 +144,8 @@ describe('SYNC_PING playback snapshot', () => {
     ).toBe(true);
   });
 
-  it('falls back to legacy appState when decomposed sync fields are absent', () => {
-    expect(isSyncPongPlayingFile({ appState: APP_STATE.PLAYING_AUDIO })).toBe(true);
+  it('rejects legacy-only appState when decomposed sync fields are absent', () => {
+    expect(isSyncPongPlayingFile({ appState: APP_STATE.PLAYING_AUDIO })).toBe(false);
     expect(isSyncPongPlayingFile({ appState: APP_STATE.PAUSED })).toBe(false);
   });
 

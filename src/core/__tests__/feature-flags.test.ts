@@ -6,9 +6,9 @@ describe('feature flags', () => {
     vi.unstubAllEnvs();
   });
 
-  it('keeps compatibility migration flags on by default', () => {
-    expect(isFeatureFlagEnabled('syncPongLegacyAppStateEmit')).toBe(true);
-    expect(isFeatureFlagEnabled('syncPongLegacyAppStateAccept')).toBe(true);
+  it('keeps legacy sync appState compatibility off by default', () => {
+    expect(isFeatureFlagEnabled('syncPongLegacyAppStateEmit')).toBe(false);
+    expect(isFeatureFlagEnabled('syncPongLegacyAppStateAccept')).toBe(false);
   });
 
   it('keeps the appState source-of-truth flip disabled by default', () => {
@@ -17,8 +17,8 @@ describe('feature flags', () => {
 
   it('exposes immutable default values for diagnostics', () => {
     expect(getFeatureFlagDefaults()).toMatchObject({
-      syncPongLegacyAppStateEmit: true,
-      syncPongLegacyAppStateAccept: true,
+      syncPongLegacyAppStateEmit: false,
+      syncPongLegacyAppStateAccept: false,
       appStateSourceOfTruthFlip: false,
     });
     expect(Object.isFrozen(getFeatureFlagDefaults())).toBe(true);
@@ -44,7 +44,18 @@ describe('feature flags', () => {
 
     const flags = await import('../feature-flags.ts');
 
-    expect(flags.isFeatureFlagEnabled('syncPongLegacyAppStateEmit')).toBe(true);
+    expect(flags.isFeatureFlagEnabled('syncPongLegacyAppStateEmit')).toBe(false);
     expect(flags.isFeatureFlagEnabled('appStateSourceOfTruthFlip')).toBe(false);
+  });
+
+  it('can re-enable legacy sync compatibility as a rollback switch', async () => {
+    vi.stubEnv('VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT', 'true');
+    vi.stubEnv('VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT', 'on');
+    vi.resetModules();
+
+    const flags = await import('../feature-flags.ts');
+
+    expect(flags.isFeatureFlagEnabled('syncPongLegacyAppStateEmit')).toBe(true);
+    expect(flags.isFeatureFlagEnabled('syncPongLegacyAppStateAccept')).toBe(true);
   });
 });

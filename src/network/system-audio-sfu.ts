@@ -571,6 +571,10 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
 
 function cleanupGuestSfu(updateState = true): void {
   const shouldCleanupGuestReceiveState = guestReceiving && updateState;
+  const pc = guestPc;
+  guestPc = null;
+  guestReceiving = false;
+
   clearGuestLimitTimer();
   if (guestSourceL) {
     try {
@@ -597,15 +601,13 @@ function cleanupGuestSfu(updateState = true): void {
     guestMerger = null;
   }
   cleanupGuestDecoderPrimers();
-  if (guestPc) {
-    guestPc.close();
-    guestPc = null;
+  if (pc) {
+    pc.close();
   }
 
   guestSessionId = null;
   guestSubscriptionKey = null;
   guestConnectPromise = null;
-  guestReceiving = false;
   if (shouldCleanupGuestReceiveState) {
     cleanupGuestSystemAudio();
   }

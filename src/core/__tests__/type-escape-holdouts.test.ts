@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SRC_ROOT = join(process.cwd(), 'src');
-const TYPE_ESCAPE_PATTERN = /\bas any\b|@ts-ignore|@ts-expect-error/;
+const TYPE_ESCAPE_PATTERN = /\bas any\b|@ts-ignore|@ts-expect-error|\bany\[\]|<any(?:[,\]>])/;
 
 function listProductionTypeScriptFiles(dir: string): string[] {
   const entries = readdirSync(dir);

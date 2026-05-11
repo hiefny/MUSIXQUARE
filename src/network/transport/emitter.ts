@@ -1,4 +1,4 @@
-type Listener = (...args: any[]) => void;
+type Listener = (...args: never[]) => void;
 
 export class TinyEmitter {
   private readonly listeners = new Map<string, Set<Listener>>();
@@ -20,7 +20,7 @@ export class TinyEmitter {
     const callbacks = this.listeners.get(event);
     if (!callbacks) return;
     for (const callback of [...callbacks]) {
-      callback(...args);
+      (callback as (...payload: unknown[]) => void)(...args);
     }
   }
 

@@ -640,9 +640,9 @@ type IsLeaf<T> = T extends
   | boolean
   | null
   | undefined
-  | Array<any>
-  | Map<any, any>
-  | Set<any>
+  | Array<unknown>
+  | Map<unknown, unknown>
+  | Set<unknown>
   | Blob
   | DataConnection
   | ReturnType<typeof setTimeout>

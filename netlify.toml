@@ -52,22 +52,26 @@
   from = "/designsystem"
   to = "/designsystem/index.html"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/designsystem/"
   to = "/designsystem/index.html"
   status = 200
+  force = true
 
 # History: serve /history and /history/ as the static index
 [[redirects]]
   from = "/history"
   to = "/history/index.html"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/history/"
   to = "/history/index.html"
   status = 200
+  force = true
 
 # Landing → About: permanent redirect for external links scraped before rename
 [[redirects]]

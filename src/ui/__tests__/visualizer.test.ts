@@ -46,14 +46,22 @@ vi.mock('../../core/events.ts', () => {
 });
 
 vi.mock('../../core/state.ts', () => {
-  let state: Record<string, unknown> = { appState: 'IDLE' };
+  let state: Record<string, unknown> = {
+    appState: 'IDLE',
+    'playback.mode': null,
+    'playback.activity': 'idle',
+  };
   return {
     getState: vi.fn((path: string) => state[path]),
     setState: vi.fn((path: string, value: unknown) => {
       state[path] = value;
     }),
     resetState: vi.fn(() => {
-      state = { appState: 'IDLE' };
+      state = {
+        appState: 'IDLE',
+        'playback.mode': null,
+        'playback.activity': 'idle',
+      };
     }),
   };
 });
@@ -240,10 +248,11 @@ describe('Visualizer', () => {
   });
 
   describe('Module Exports', () => {
-    it('applies the initial paused appState through the visualizer subscription', async () => {
+    it('applies the initial paused playback activity through the visualizer subscription', async () => {
       const { setState } = await import('../../core/state.ts');
       const { clearManagedTimer } = await import('../../core/timers.ts');
-      setState('appState', 'PAUSED');
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'paused');
 
       const restingCanvas = document.createElement('canvas');
       restingCanvas.id = 'visualizerCanvas';

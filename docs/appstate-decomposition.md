@@ -161,9 +161,11 @@ Order, lowest-risk first:
    - `src/player/video.ts::updateBodyModeClass` is already migrated to `state:playback.mode`.
    - `src/player/media-session.ts` OS `playbackState` display is already migrated to `state:playback.activity`; media button command handlers still use legacy predicates by design.
    - `src/ui/_state-hooks.ts` exposes mode/activity subscriptions; `src/ui/player-controls.ts` uses them for tab-title marquee, play-icon/media-source rendering, and YouTube play-state refinements.
+   - `src/ui/visualizer.ts` uses playback activity for pause/playing/idle rendering, while its draw loop skips YouTube through playback mode.
    - `src/ui/seekbar.ts` uses playback mode/activity for seek availability, system-audio zero display, and file rAF interpolation gates.
    - `src/ui/settings.ts` uses playback mode for system-audio channel/effects UI gates.
    - `src/ui/tabs.ts` and `src/ui/setup.ts` use playback mode helpers for YouTube display/cleanup gates.
+   - `src/ui/playlist-view.ts` uses playback mode/activity as its playback-state refresh trigger instead of `state:appState`.
    - Leave protocol, snapshot, and compatibility bridge code on `isAppState*()` or raw snapshots until their dedicated phases.
 
 3. **`is*Owner()` helpers (0.5 day)**
@@ -174,6 +176,7 @@ Order, lowest-risk first:
 4. **Playback domain (1 day)**
    - `src/player/transport.ts`, `playback.ts`, and `playlist.ts`. These mostly read via predicates after Phase 1, so the change should be contract-level rather than behavioral.
    - First pass done for YouTube mode questions in `playlist.ts`, `playback.ts`, and the silent YouTube handoff in `transport.ts`.
+   - `src/player/playback.ts` uses playback-playing file helpers for seek/restart paths that only apply to active local file playback.
    - Any site that reads `ownership.appState` directly should be checked and migrated to `ownership.mode` / `ownership.activity` only when that site truly wants the new semantic.
 
 5. **Network/protocol gating (1 day)**
@@ -182,6 +185,12 @@ Order, lowest-risk first:
 
 6. **Body-class sync (0.5 day)**
    - `src/player/video.ts::updateBodyModeClass` is done: it subscribes to `state:playback.mode` instead of `state:appState`.
+
+7. **Audio graph mutation gates (0.5 day)**
+   - `src/audio/channel.ts` is done: surround routing refreshes active playback through playback mode/activity helpers instead of legacy appState checks.
+
+8. **Bootstrap/background gates (0.5 day)**
+   - `src/app.ts` is done for keyboard play/stop gating and long-background recovery decisions that ask whether playback is currently file, YouTube, or idle.
 
 Each sub-step lands as its own commit. Tests must pass after each. Invariant assertion from 5b stays on.
 

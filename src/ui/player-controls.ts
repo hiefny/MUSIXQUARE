@@ -883,7 +883,7 @@ export function initPlayerControls(): void {
     }
   });
 
-  // Play/Pause visual state — derived from appState + YouTube play event
+  // Play/Pause visual state — derived from playback activity + YouTube play event
   function updatePlayIcon(playing: boolean): void {
     const btn = document.getElementById('play-btn');
     const icon = btn?.querySelector('path');
@@ -948,7 +948,7 @@ export function initPlayerControls(): void {
     }
   }, { immediate: true });
 
-  // YouTube pause/play doesn't change appState — still need this event
+  // YouTube pause/play doesn't change playback activity — still need this event
   _busScope.on('ui:update-play-state', (playing) => {
     if (isPlaybackModeYouTube()) {
       updatePlayIcon(playing);
@@ -1091,7 +1091,7 @@ export function initPlayerControls(): void {
     }
   }, { immediate: true });
 
-  // YouTube pause/play doesn't change appState — handle via play-state event
+  // YouTube pause/play doesn't change playback activity — handle via play-state event
   _busScope.on('ui:update-play-state', (playing) => {
     if (!isPlaybackModeYouTube()) return;
     if (playing) {

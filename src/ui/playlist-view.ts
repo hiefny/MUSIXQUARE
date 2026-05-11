@@ -16,6 +16,7 @@ import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { setSubItemsLoadError } from '../youtube/_state.ts';
+import { scopePlaybackModeActivity } from './_state-hooks.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
@@ -301,7 +302,7 @@ export function initPlaylistView(): void {
   _busScope.on('state:playlist.currentTrackIndex', debouncedUpdate);
   _busScope.on('state:youtube.currentSubIndex', debouncedUpdate);
   _busScope.on('state:youtube.subItemsMap', debouncedUpdate);
-  _busScope.on('state:appState', debouncedUpdate);
+  scopePlaybackModeActivity(_busScope, debouncedUpdate);
   _busScope.on('state:network.connectionType', debouncedUpdate);
 
   _busScope.on('ui:playlist-tab-opened', () => {

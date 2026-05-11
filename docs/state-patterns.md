@@ -103,15 +103,15 @@ Click handlers may still poll using Pattern 1. The rule is:
 
 - Normalize `beat-detector`, `channel`, and `system-capture`.
 - `beat-detector` keeps a module-local appState cache fed by `state:appState`, with explicit freshness refresh on buffer-change paths.
-- `channel` uses strict predicates at graph mutation time.
+- `channel` uses playback mode/activity predicates at graph mutation time when the question is "is there active playback to refresh?".
 - `system-capture` is the explicit snapshot exception: it keeps pre-capture `playback.mode/activity` restore data and must not read live predicates during restore, because restore must answer "what was playing before capture started?", not "what is playing now?".
 
 ### Phase 4: UI Subscription Model
 
 - Introduce `src/ui/_state-hooks.ts`.
-- Use a scoped `subscribeAppState()` helper for display-only UI state.
+- Use scoped UI state hooks for display-only UI state: `scopeAppState()` only for legacy enum displays, and `scopePlaybackModeActivity()` for mode/activity displays or refresh triggers.
 - Keep click handlers polling fresh state via Pattern 1.
-- Start with `player-controls` and `visualizer`, the highest-value UI consumers.
+- `player-controls`, `visualizer`, and playlist refresh triggers now consume playback mode/activity for display and playback-activity rendering.
 
 ### Phase 5: Mode/Activity Decomposition Adapter
 

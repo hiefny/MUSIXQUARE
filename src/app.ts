@@ -19,7 +19,6 @@ import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
 import { getState, setState, snapshot } from './core/state.ts';
-import { PLAYBACK_STATE } from './core/constants.ts';
 import { BlobURLManager } from './core/blob-manager.ts';
 import { delay, setManagedTimer } from './core/timers.ts';
 import {
@@ -34,9 +33,9 @@ import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
 import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
 import {
-  isAppStateIdle,
-  isAppStatePlayingAudio,
-  isAppStatePlayingYouTube,
+  isPlaybackIdle,
+  isPlaybackPlayingFile,
+  isPlaybackPlayingYouTube,
 } from './player/ownership.ts';
 
 // ── Network ──
@@ -134,7 +133,7 @@ function initKeyboardShortcuts(): void {
     // Don't intercept modifier key combos (Ctrl+S, Cmd+P, etc.)
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-    const isPlaying = isAppStatePlayingAudio() || isAppStatePlayingYouTube();
+    const isPlaying = isPlaybackPlayingFile() || isPlaybackPlayingYouTube();
 
     if (e.key === ' ' || e.code === 'Space') {
       e.preventDefault();
@@ -189,7 +188,7 @@ function initWakeLock(): void {
           .resume()
           .then(() => {
             log.info('[App] AudioContext resumed successfully');
-            if (isAppStatePlayingAudio()) {
+            if (isPlaybackPlayingFile()) {
               applySettingsAsync();
             }
           })
@@ -218,8 +217,7 @@ function initAudioGestureRecovery(): void {
 }
 
 function isPlaybackTimingRiskActive(): boolean {
-  if (!isAppStateIdle()) return true;
-  return getState('playback.lifecycle') !== PLAYBACK_STATE.IDLE;
+  return !isPlaybackIdle();
 }
 
 async function resumeAudioForBackgroundRecovery(): Promise<void> {
@@ -230,7 +228,7 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
     await Promise.race([ctx.resume(), delay(500)]);
   }
 
-  if (isAppStatePlayingAudio()) {
+  if (isPlaybackPlayingFile()) {
     await applySettingsAsync();
   }
 }
@@ -243,14 +241,14 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
 
   const hostConn = getState('network.hostConn');
 
-  if (isAppStatePlayingYouTube()) {
+  if (isPlaybackPlayingYouTube()) {
     if (hostConn?.open) {
       guestRendezvousSync({ silent: true });
     }
     return;
   }
 
-  if (isAppStatePlayingAudio()) {
+  if (isPlaybackPlayingFile()) {
     if (hostConn?.open) {
       bus.emit('sync:force-resync');
     } else {

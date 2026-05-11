@@ -6,11 +6,10 @@
 
 import { log } from '../core/log.ts';
 import { createBusScope } from '../core/events.ts';
-import { APP_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
-import { scopeAppState } from './_state-hooks.ts';
-import { isAppStatePaused, isAppStatePlayingYouTube } from '../player/ownership.ts';
+import { scopePlaybackModeActivity } from './_state-hooks.ts';
+import { isPlaybackModeYouTube, isPlaybackPaused } from '../player/ownership.ts';
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -315,7 +314,7 @@ export function startVisualizer(): void {
 
   function draw(): void {
     // YouTube mode: analyser isn't connected or canvas is CSS-hidden, skip draw
-    if (isAppStatePlayingYouTube()) {
+    if (isPlaybackModeYouTube()) {
       _animationId = null;
       return;
     }
@@ -492,7 +491,7 @@ function startSpectrumVisualizer(): void {
   refreshThemeCache();
 
   function draw(): void {
-    if (isAppStatePlayingYouTube()) {
+    if (isPlaybackModeYouTube()) {
       _animationId = null;
       return;
     }
@@ -613,7 +612,7 @@ export function initVisualizer(): void {
 
   // Listen for check events from tab switch
   _busScope.on('ui:visualizer-check', () => {
-    if (isAppStatePaused()) {
+    if (isPlaybackPaused()) {
       if (!_isHoldingPauseFrame) fadeVisualizerOut();
     } else if (!_animationId) {
       startVisualizer();
@@ -621,8 +620,8 @@ export function initVisualizer(): void {
   });
 
   // Listen for playback state changes
-  scopeAppState(_busScope, (currentState) => {
-    if (currentState === APP_STATE.PAUSED && _holdNextPauseFrame) {
+  scopePlaybackModeActivity(_busScope, (playback) => {
+    if (playback.activity === 'paused' && _holdNextPauseFrame) {
       // PAUSED is a deliberate user action — freeze immediately so the
       // last frame stays visible until they press play again.
       if (_animationId) {
@@ -632,13 +631,9 @@ export function initVisualizer(): void {
       clearManagedTimer('viz-silence-poll');
       _holdNextPauseFrame = false;
       _isHoldingPauseFrame = true;
-    } else if (currentState === APP_STATE.PAUSED) {
+    } else if (playback.activity === 'paused') {
       fadeVisualizerOut();
-    } else if (
-      currentState === APP_STATE.PLAYING_AUDIO ||
-      currentState === APP_STATE.PLAYING_YOUTUBE ||
-      currentState === APP_STATE.PLAYING_SYSTEM_AUDIO
-    ) {
+    } else if (playback.activity === 'playing') {
       // Cancel any pending silence-stop poll from a previous IDLE pass
       // — we're playing again, the loop should keep running.
       clearManagedTimer('viz-silence-poll');

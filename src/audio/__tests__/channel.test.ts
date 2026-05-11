@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resetState, getState } from '../../core/state.ts';
+import { resetState, getState, setState } from '../../core/state.ts';
+import { bus } from '../../core/events.ts';
 
 // Mock ensureSurroundNodes — Tone.js constructors hang in jsdom (no real AudioContext)
 vi.mock('../engine.ts', async (importOriginal) => {
@@ -105,6 +106,28 @@ describe('toggleSurroundMode', () => {
       /* Tone.js */
     }
     expect(getState('audio.isSurroundMode')).toBe(false);
+  });
+
+  it('refreshes the active graph when file playback is currently playing', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    const emitSpy = vi.spyOn(bus, 'emit');
+
+    toggleSurroundMode(true);
+
+    expect(emitSpy).toHaveBeenCalledWith('audio:surround-toggled');
+    emitSpy.mockRestore();
+  });
+
+  it('does not refresh the active graph while system audio is only pending', () => {
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'pending');
+    const emitSpy = vi.spyOn(bus, 'emit');
+
+    toggleSurroundMode(true);
+
+    expect(emitSpy).not.toHaveBeenCalledWith('audio:surround-toggled');
+    emitSpy.mockRestore();
   });
 });
 

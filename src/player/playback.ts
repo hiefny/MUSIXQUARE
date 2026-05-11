@@ -43,7 +43,7 @@ import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from '
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
-  isAppStatePlayingAudio,
+  isPlaybackPlayingFile,
   isSystemAudioOwner,
   isYouTubeOwner,
   setPlaybackTrackMeta,
@@ -462,7 +462,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  if (isAppStatePlayingAudio()) {
+  if (isPlaybackPlayingFile()) {
     play(time);
     broadcast({
       type: MSG.PLAY,
@@ -540,7 +540,7 @@ export function initPlayback(): void {
   // at the current logical position without surfacing a manual-sync toast.
   bus.on('playback:refresh-current-position', () => {
     if (!getCurrentAudioBuffer()) return;
-    if (!isAppStatePlayingAudio()) return;
+    if (!isPlaybackPlayingFile()) return;
     play(getTrackPosition());
   });
 
@@ -560,7 +560,7 @@ export function initPlayback(): void {
 
   // Surround mode toggled during playback: restart at current position
   bus.on('audio:surround-toggled', () => {
-    if (isAppStatePlayingAudio()) {
+    if (isPlaybackPlayingFile()) {
       play(getTrackPosition());
     }
   });

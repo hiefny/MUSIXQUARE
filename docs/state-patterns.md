@@ -90,7 +90,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 
 ### Phase 1: Playback Domain Residuals
 
-- Replace remaining raw playback-domain appState polls in `playback.ts` and `playlist.ts` with `ownership.ts` predicates where the caller is asking a mode/activity question. YouTube runtime mode guards are already migrated; its queue/indexing idle checks stay strict legacy `IDLE`.
+- Replace remaining raw playback-domain appState polls with `ownership.ts` predicates or adapter reads. `playback.ts`, `playlist.ts`, and YouTube runtime mode guards are migrated; queue/indexing idle checks stay strict legacy `IDLE` through `getPlaybackOwnership().appState`.
 - Preserve protocol payloads and stored snapshots.
 
 ### Phase 2: Gating Site Rename
@@ -102,7 +102,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 ### Phase 3: Audio Domain Contract
 
 - Normalize `beat-detector`, `channel`, and `system-capture`.
-- `beat-detector` keeps a module-local appState cache fed by `state:appState`, with explicit freshness refresh on buffer-change paths.
+- `beat-detector` keeps a module-local file-playing cache fed by `state:playback.mode` and `state:playback.activity`, with explicit freshness refresh on buffer-change paths.
 - `channel` uses playback mode/activity predicates at graph mutation time when the question is "is there active playback to refresh?".
 - `system-capture` is the explicit snapshot exception: it keeps pre-capture `playback.mode/activity` restore data and must not read live predicates during restore, because restore must answer "what was playing before capture started?", not "what is playing now?".
 

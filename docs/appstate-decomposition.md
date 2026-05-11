@@ -111,10 +111,10 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 - `src/player/transport.ts` - owns the legacy enum transitions and still needs strict appState gates until 5f.
 - `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
-- `src/audio/beat-detector.ts` - keeps a module-local appState cache by design, with buffer-change refresh for silent track switches.
-- `src/player/playlist.ts` - remaining idle checks guard historical async decode races where appState's legacy `IDLE` shadow is the intended signal.
+- `src/audio/beat-detector.ts` - keeps a module-local file-playing cache from `playback.mode/activity`, with buffer-change refresh for silent track switches.
+- `src/player/playlist.ts` - historical idle checks guard async decode races where the legacy `IDLE` shadow is the intended signal, but read it through `getPlaybackOwnership().appState`.
 - `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode; pause/play still comes from iframe player state, not `APP_STATE.PAUSED`.
-- `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; idle checks intentionally stay on strict legacy `IDLE` because they preserve queue/indexing behavior.
+- `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; queue/indexing idle checks still use strict legacy `IDLE` via `getPlaybackOwnership().appState`.
 - `src/youtube/iframe.ts` - iframe create/ready/state/UI guards use playback mode, with indexing exceptions and `IDLE` fallback writes kept unchanged.
 - `src/player/video.ts` - media-engine mode changes now gate from playback activity and write through `setPlaybackAppState`; body-class rendering subscribes to `state:playback.mode`.
 - `src/chat/commands.ts` - debug/status output reads legacy appState through `getPlaybackOwnership()` alongside mode/activity; it no longer reads the global slot directly.
@@ -184,8 +184,9 @@ Order, lowest-risk first:
    - Remove that reconciliation once tests and any remaining bootstrap code stop mutating legacy source fields directly.
 
 4. **Playback domain (1 day)**
-   - `src/player/transport.ts` and `playlist.ts` still own the remaining strict legacy playback-domain checks. These mostly read via predicates after Phase 1, so the change should be contract-level rather than behavioral.
+   - `src/player/transport.ts` still owns the remaining strict legacy playback-domain transition checks. These mostly read via predicates after Phase 1, so the change should be contract-level rather than behavioral.
    - First pass done for YouTube mode questions in `playlist.ts`, `playback.ts`, and the silent YouTube handoff in `transport.ts`.
+   - `src/player/playlist.ts` historical idle guards still use strict legacy IDLE semantics for async decode races, but read through `getPlaybackOwnership().appState`.
    - `src/player/playback.ts` uses playback-playing file helpers for seek/restart paths that only apply to active local file playback.
    - `src/player/playback.ts` late-join bootstrap reads legacy wire state through `getPlaybackOwnership().appState`; it no longer reads the global `appState` slot directly.
    - Any site that reads `ownership.appState` directly should be checked and migrated to `ownership.mode` / `ownership.activity` only when that site truly wants the new semantic.
@@ -199,6 +200,7 @@ Order, lowest-risk first:
 
 7. **Audio graph mutation gates (0.5 day)**
    - `src/audio/channel.ts` is done: surround routing refreshes active playback through playback mode/activity helpers instead of legacy appState checks.
+   - `src/audio/beat-detector.ts` is done: BPM analysis follows playback mode/activity events and still refreshes on buffer swaps for silent file transitions.
 
 8. **Bootstrap/background gates (0.5 day)**
    - `src/app.ts` is done for keyboard play/stop gating and long-background recovery decisions that ask whether playback is currently file, YouTube, or idle.

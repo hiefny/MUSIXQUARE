@@ -214,6 +214,12 @@ let _state: StateTree = createInitialState();
 let _isBatching = false;
 let _batchedPaths: string[] = [];
 
+type StateEventName = `state:${StatePath}`;
+
+function emitStateChange(path: StatePath, value: unknown): void {
+  bus.emit(`state:${path}` as StateEventName, value, path);
+}
+
 // ─── Accessors ─────────────────────────────────────────────────────
 
 /**
@@ -270,7 +276,7 @@ export function setState<P extends StatePath>(path: P, value: StatePathValue<P>)
 
   if (!_isBatching) {
     // Safe: P extends StatePath ⊂ keyof StateEvents ⊂ keyof EventMap
-    (bus as any).emit(`state:${path}`, value, path);
+    emitStateChange(path, value);
   }
 }
 
@@ -323,7 +329,7 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
     if (!seen.has(path)) {
       seen.add(path);
       // Safe: path is a StatePath string from setState calls
-      (bus as any).emit(`state:${path}`, getState(path as StatePath), path);
+      emitStateChange(path as StatePath, getState(path as StatePath));
     }
   }
 }

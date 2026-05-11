@@ -31,7 +31,11 @@ import { guestRendezvousSync, broadcastYouTubeSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
-import { getAppStateSnapshot, scopeAppState } from './_state-hooks.ts';
+import {
+  getPlaybackModeActivitySnapshot,
+  scopeAppState,
+  scopePlaybackModeActivity,
+} from './_state-hooks.ts';
 import {
   isAppStatePlayingSystemAudio,
   isAppStatePlayingYouTube,
@@ -1008,14 +1012,14 @@ export function initPlayerControls(): void {
     setManagedTimer(
       'tab-title-marquee',
       () => {
-        const state = getAppStateSnapshot();
-        if (state === APP_STATE.IDLE) {
+        const playback = getPlaybackModeActivitySnapshot();
+        if (playback.activity === 'idle' || playback.activity === 'pending') {
           stopTabTitleMarquee();
           return;
         }
 
         const name = _tabTitleTrack || 'MUSIXQUARE';
-        if (state === APP_STATE.PAUSED) {
+        if (playback.activity === 'paused') {
           stopTabTitleMarquee();
           document.title = `${name} | MUSIXQUARE`;
           return;
@@ -1080,12 +1084,8 @@ export function initPlayerControls(): void {
     }
   });
 
-  scopeAppState(_busScope, (state) => {
-    if (
-      state === APP_STATE.PLAYING_AUDIO ||
-      state === APP_STATE.PLAYING_YOUTUBE ||
-      state === APP_STATE.PLAYING_SYSTEM_AUDIO
-    ) {
+  scopePlaybackModeActivity(_busScope, (playback) => {
+    if (playback.activity === 'playing') {
       startTabTitleMarquee();
     } else {
       stopTabTitleMarquee();

@@ -159,6 +159,7 @@ Order, lowest-risk first:
    - Migrate display logic that asks a mode/activity question to the new helper surface.
    - `src/player/video.ts::updateBodyModeClass` is already migrated to `state:playback.mode`.
    - `src/player/media-session.ts` OS `playbackState` display is already migrated to `state:playback.activity`; media button command handlers still use legacy predicates by design.
+   - `src/ui/_state-hooks.ts` exposes mode/activity subscriptions; `src/ui/player-controls.ts` uses them for tab-title marquee display.
    - Leave protocol, snapshot, and compatibility bridge code on `isAppState*()` or raw snapshots until their dedicated phases.
 
 3. **`is*Owner()` helpers (0.5 day)**

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { MSG } from '../../core/constants.ts';
 import { detectConnectionType } from '../peer-state.ts';
 import {
   forceStereoSdp,
@@ -11,12 +12,21 @@ import {
   isRemoteGuest,
   isTrustedSystemAudioMediaCall,
 } from '../peer.ts';
+import type { AnyProtocolMsg, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
   resetState();
   bus.clear();
 });
+
+function makeConnection(overrides: Partial<DataConnection>): DataConnection {
+  return overrides as DataConnection;
+}
+
+function makeMessage(): AnyProtocolMsg {
+  return { type: MSG.SYSTEM_AUDIO_START };
+}
 
 function makeIceStats(
   pairs: Array<{
@@ -72,22 +82,22 @@ function makeIceStats(
 
 describe('safeSend', () => {
   it('returns false for null connection', () => {
-    expect(safeSend(null, { type: 'PING' } as any)).toBe(false);
+    expect(safeSend(null, makeMessage())).toBe(false);
   });
 
   it('returns false for undefined connection', () => {
-    expect(safeSend(undefined, { type: 'PING' } as any)).toBe(false);
+    expect(safeSend(undefined, makeMessage())).toBe(false);
   });
 
   it('returns false when conn.open is false', () => {
-    const conn = { open: false, send: vi.fn() } as any;
-    expect(safeSend(conn, { type: 'PING' } as any)).toBe(false);
+    const conn = makeConnection({ open: false, send: vi.fn() });
+    expect(safeSend(conn, makeMessage())).toBe(false);
     expect(conn.send).not.toHaveBeenCalled();
   });
 
   it('returns true and calls send when conn.open is true', () => {
-    const conn = { open: true, send: vi.fn() } as any;
-    const msg = { type: 'PING' } as any;
+    const conn = makeConnection({ open: true, send: vi.fn() });
+    const msg = makeMessage();
     expect(safeSend(conn, msg)).toBe(true);
     expect(conn.send).toHaveBeenCalledWith(msg);
   });
@@ -115,10 +125,10 @@ describe('detectConnectionType', () => {
     const stats = makeIceStats([
       { id: 'pair-host', localType: 'host', remoteType: 'host', selected: true },
     ]);
-    const conn = {
+    const conn = makeConnection({
       open: true,
       peerConnection: { getStats: vi.fn().mockResolvedValue(stats) },
-    } as any;
+    });
 
     await expect(detectConnectionType(conn)).resolves.toBe('local');
   });
@@ -129,10 +139,10 @@ describe('detectConnectionType', () => {
       { id: 'pair-relay', localType: 'relay', remoteType: 'srflx', selected: true },
       { id: 'pair-host', localType: 'host', remoteType: 'host' },
     ]);
-    const conn = {
+    const conn = makeConnection({
       open: true,
       peerConnection: { getStats: vi.fn().mockResolvedValue(stats) },
-    } as any;
+    });
 
     const result = detectConnectionType(conn);
     await vi.advanceTimersByTimeAsync(2500);
@@ -191,7 +201,7 @@ describe('forceStereoSdp', () => {
 
 describe('isTrustedSystemAudioMediaCall', () => {
   it('accepts system-audio media calls from the connected host peer', () => {
-    setState('network.hostConn', { peer: 'host-123' } as any);
+    setState('network.hostConn', makeConnection({ peer: 'host-123' }));
 
     expect(
       isTrustedSystemAudioMediaCall({
@@ -202,7 +212,7 @@ describe('isTrustedSystemAudioMediaCall', () => {
   });
 
   it('rejects system-audio media calls from non-host peers', () => {
-    setState('network.hostConn', { peer: 'host-123' } as any);
+    setState('network.hostConn', makeConnection({ peer: 'host-123' }));
 
     expect(
       isTrustedSystemAudioMediaCall({
@@ -222,7 +232,7 @@ describe('isTrustedSystemAudioMediaCall', () => {
   });
 
   it('rejects non-system-audio media calls', () => {
-    setState('network.hostConn', { peer: 'host-123' } as any);
+    setState('network.hostConn', makeConnection({ peer: 'host-123' }));
 
     expect(
       isTrustedSystemAudioMediaCall({

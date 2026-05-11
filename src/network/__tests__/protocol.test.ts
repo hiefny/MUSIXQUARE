@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { MSG } from '../../core/constants.ts';
 import {
   validateMessage,
   registerHandlers,
@@ -11,6 +12,7 @@ import {
   hasHandler,
   verifyOperator,
 } from '../protocol.ts';
+import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.ts';
 
 beforeEach(() => {
   resetState();
@@ -18,6 +20,26 @@ beforeEach(() => {
 });
 
 // ─── validateMessage ──────────────────────────────────────────────────
+
+function makeConnection(peer: string): DataConnection {
+  return { peer } as DataConnection;
+}
+
+function makeConnectedPeer(id: string, isOp: boolean): ConnectedPeer {
+  return {
+    id,
+    slot: 0,
+    label: id,
+    conn: null,
+    isOp,
+    preloadedIndexes: new Set<number>(),
+    status: 'connected',
+    isDataTarget: true,
+    joinOrder: 0,
+    connectionType: 'unknown',
+    lastHeartbeat: 0,
+  };
+}
 
 describe('validateMessage', () => {
   it('returns true for a valid object with a type property', () => {
@@ -91,61 +113,61 @@ describe('registerHandlers', () => {
   it('registers handlers without throwing', () => {
     expect(() => {
       registerHandlers({
-        PLAY: () => {},
-        PAUSE: () => {},
-      } as any);
+        [MSG.PLAY]: () => {},
+        [MSG.PAUSE]: () => {},
+      });
     }).not.toThrow();
   });
 
   it('registers a single handler via registerHandler', () => {
     expect(() => {
-      registerHandler('PLAY' as any, () => {});
+      registerHandler(MSG.PLAY, () => {});
     }).not.toThrow();
   });
 
   it('hasHandler returns true after registration', () => {
-    const uniqueType = ('TEST_HAS_HANDLER_' + Date.now()) as any;
+    const uniqueType = ('test-has-handler-' + Date.now()) as MsgType;
     registerHandler(uniqueType, () => {});
     expect(hasHandler(uniqueType)).toBe(true);
   });
 
   it('hasHandler returns false for unregistered type', () => {
-    expect(hasHandler('NEVER_REGISTERED_TYPE_XYZ' as any)).toBe(false);
+    expect(hasHandler('never-registered-type-xyz' as MsgType)).toBe(false);
   });
 });
 
 describe('verifyOperator', () => {
   it('returns false when connection is null', () => {
-    expect(verifyOperator(null as any)).toBe(false);
+    expect(verifyOperator(null as unknown as DataConnection)).toBe(false);
   });
 
   it('returns false when connection is undefined', () => {
-    expect(verifyOperator(undefined as any)).toBe(false);
+    expect(verifyOperator(undefined as unknown as DataConnection)).toBe(false);
   });
 
   it('returns false when conn.peer is empty', () => {
-    const conn = { peer: '' } as any;
+    const conn = makeConnection('');
     expect(verifyOperator(conn)).toBe(false);
   });
 
   it('returns false when no operator in connectedPeers', () => {
-    const conn = { peer: 'peer-123' } as any;
+    const conn = makeConnection('peer-123');
     // Default connectedPeers is empty, so no match
     expect(verifyOperator(conn)).toBe(false);
   });
 
   it('returns false when peer is found but isOp is false', () => {
-    const conn = { peer: 'peer-456' } as any;
+    const conn = makeConnection('peer-456');
     // Manually set state to include a non-operator peer
     const peers = getState('network.connectedPeers');
-    peers.push({ id: 'peer-456', isOp: false } as any);
+    peers.push(makeConnectedPeer('peer-456', false));
     expect(verifyOperator(conn)).toBe(false);
   });
 
   it('returns true when peer is found and isOp is true', () => {
-    const conn = { peer: 'peer-789' } as any;
+    const conn = makeConnection('peer-789');
     const peers = getState('network.connectedPeers');
-    peers.push({ id: 'peer-789', isOp: true } as any);
+    peers.push(makeConnectedPeer('peer-789', true));
     expect(verifyOperator(conn)).toBe(true);
   });
 });

@@ -6,6 +6,7 @@ import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
+import type { DataConnection } from '../../types/index.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
@@ -25,6 +26,10 @@ afterEach(() => {
   clearAllManagedTimers();
   bus.clear();
 });
+
+function makeConnection(peer: string): DataConnection {
+  return { peer, open: true } as DataConnection;
+}
 
 describe('getRoleLabelByChannelMode', () => {
   it('returns Original for mode 0', () => {
@@ -117,7 +122,7 @@ describe('updateRoleBadge', () => {
 
   it('marks a connected remote guest with the remote class', () => {
     const badge = renderBadge();
-    setState('network.hostConn', { peer: 'host-1', open: true } as any);
+    setState('network.hostConn', makeConnection('host-1'));
     setState('network.myDeviceLabel', 'GUEST 1');
     setState('network.connectionType', 'remote');
 
@@ -131,7 +136,7 @@ describe('updateRoleBadge', () => {
   it('keeps a connected local guest blue by clearing the remote class', () => {
     const badge = renderBadge();
     badge.classList.add('remote');
-    setState('network.hostConn', { peer: 'host-1', open: true } as any);
+    setState('network.hostConn', makeConnection('host-1'));
     setState('network.myDeviceLabel', 'GUEST 1');
     setState('network.connectionType', 'local');
 

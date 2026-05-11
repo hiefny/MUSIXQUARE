@@ -145,9 +145,8 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
-// Phase 5 migration boundary. Production callers should consume the narrower
-// mode/activity helpers when their question matches that contract, while this
-// adapter keeps the broad ownership view available.
+// Reconcile the primary mode/activity slots with derived ownership signals
+// that still live outside the two-axis playback state.
 function deriveModeActivityFromSources(sources: {
   mode: PlaybackMode;
   activity: PlaybackActivity;
@@ -330,8 +329,8 @@ export function setSystemAudioReceiving(isReceiving: boolean): PlaybackOwnership
   return syncPlaybackModeActivityFromOwnership();
 }
 
-// Shadow-slot bridge for Phase 5. Domain source events keep mode/activity fresh
-// when older setup/test paths still write lifecycle or metadata directly.
+// Domain source events keep mode/activity fresh when setup/test paths write
+// lifecycle or metadata directly.
 for (const event of [
   'state:playback.lifecycle',
   'state:transfer.state',

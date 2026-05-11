@@ -2,7 +2,7 @@
  * MUSIXQUARE — Playback Lifecycle State Machine
  *
  * Guest-side track lifecycle. See `.workshop/design/playback-state-machine.md`
- * for the design doc, transition table, and migration plan.
+ * for the design doc and transition table.
  *
  * Contract:
  *   - All reads of `playback.lifecycle` are OK anywhere.
@@ -18,9 +18,8 @@
  *     handlers that call transition() — this file only decides which state
  *     is next and applies pending-data field updates.
  *
- * Phase 4 complete (2026-04-29): the legacy flags `transfer.waitingForPreload`
- * and `transfer.skipIncomingFile` are gone. Receive-side guards derive from
- * this state machine via `shouldSkipIncomingFile()` in transfer-receive.ts.
+ * Receive-side guards derive from this state machine via
+ * `shouldSkipIncomingFile()` in transfer-receive.ts.
  */
 
 import { log } from '../core/log.ts';

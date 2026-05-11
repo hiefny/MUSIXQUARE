@@ -92,8 +92,8 @@ function createInitialState(): StateTree {
       currentSessionId: 0,
       activeBroadcastSession: null,
       lastReceivedCountSnapshot: 0,
-      // Phase 4: waitingForPreload + skipIncomingFile removed; both derived
-      // from playback.lifecycle now (see transfer-receive.ts shouldSkipIncomingFile).
+      // waitingForPreload + skipIncomingFile are derived from playback.lifecycle
+      // now (see transfer-receive.ts shouldSkipIncomingFile).
       staleChunkBurstStart: 0,
       staleChunkBurstCount: 0,
     },
@@ -183,8 +183,8 @@ function createInitialState(): StateTree {
     recovery: {
       pending: false,
       retryCount: 0,
-      // Phase 4: pendingFileName + pendingFileIndex moved to
-      // playback.pendingRecoveryTarget (atomic { index, name }).
+      // pendingFileName + pendingFileIndex live as playback.pendingRecoveryTarget
+      // (atomic { index, name }).
     },
 
     systemAudio: {

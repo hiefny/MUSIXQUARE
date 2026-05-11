@@ -685,8 +685,7 @@ export function clearPreviousTrackState(reason = ''): void {
   // Stop timers
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('prepareWatchdog');
-  // Note: stale-audio-recovery timer was deleted in Phase 4. Left a
-  // clearManagedTimer here would be a no-op, so we drop it.
+  // Stale-audio recovery is lifecycle-driven; no separate timer needs clearing.
 
   // Redundant sync: only reset timers and name tracking, keep audio buffer intact
   if (reason === 'redundant-sync') return;

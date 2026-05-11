@@ -201,7 +201,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     return;
   }
 
-  // Stale-audio guard (Phase 4: 5s recovery timer DELETED).
+  // Stale-audio recovery is handled by lifecycle guards, not a separate timer.
   //
   // Previously this block armed a 5s timer that issued REQUEST_CURRENT_FILE
   // if meta.name != expected when PLAY arrived. That timer's original
@@ -737,8 +737,8 @@ export function initPlayback(): void {
       function onWatchdogFire(): void {
         if (disposed) return;
         cleanup();
-        // Phase 4: lifecycle drives the check. If we've left AWAITING_PRELOAD
-        // the blob arrived or got superseded — no recovery needed.
+        // Lifecycle drives the check. If we've left AWAITING_PRELOAD, the blob
+        // arrived or got superseded — no recovery needed.
         if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return;
         log.warn('[Preload] Preloaded blob not available — stall timeout');
         // shouldSkipIncomingFile() will return false once host's response
@@ -759,7 +759,7 @@ export function initPlayback(): void {
 
       // Clear watchdog when we transition out of AWAITING_PRELOAD (blob
       // arrived → DECODING, superseded → DOWNLOADING, etc.).
-      // Phase 4: subscribe to lifecycle instead of the legacy flag.
+      // Subscribe to lifecycle so watchdog cleanup follows the source of truth.
       const _unsubWatchdog = bus.on('state:playback.lifecycle', (val: unknown) => {
         if (val !== PLAYBACK_STATE.AWAITING_PRELOAD) cleanup();
       });

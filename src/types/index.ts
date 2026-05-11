@@ -489,8 +489,8 @@ export interface StateTree {
     activeBroadcastSession: number | null;
     lastReceivedCountSnapshot: number;
     /**
-     * Phase 4 removed `waitingForPreload` and `skipIncomingFile` from this
-     * slice. Both are derived from `playback.lifecycle` now (see
+     * `waitingForPreload` and `skipIncomingFile` are derived from
+     * `playback.lifecycle` now (see
      * `shouldSkipIncomingFile()` in transfer-receive.ts).
      */
     /** Timestamp (ms) when a burst of stale-session chunks started arriving. 0 = no burst. */
@@ -582,9 +582,8 @@ export interface StateTree {
     pending: boolean;
     retryCount: number;
     /**
-     * Phase 4 removed `pendingFileName` + `pendingFileIndex` from this slice.
-     * Consumers now read `playback.pendingRecoveryTarget` (single atomic
-     * { index, name } object).
+     * Consumers read `playback.pendingRecoveryTarget` as a single atomic
+     * { index, name } object instead of split pending file fields.
      */
   };
   systemAudio: { isReceiving: boolean };
@@ -593,9 +592,8 @@ export interface StateTree {
    * Every transition MUST go through `src/player/lifecycle.ts::transition()`.
    * See `.workshop/design/playback-state-machine.md` for the full table.
    *
-   * Phase 4 complete (2026-04-29): `transfer.waitingForPreload` and
-   * `transfer.skipIncomingFile` are gone — both are derived from this
-   * field now. New flags here would just resurrect the same divergence
+   * `transfer.waitingForPreload` and `transfer.skipIncomingFile` are derived
+   * from this field now. New flags here would just resurrect the same divergence
    * problem; if you're tempted to add one, ask whether it can instead
    * be a derived helper that reads lifecycle + loadSource.
    */

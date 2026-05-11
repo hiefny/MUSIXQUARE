@@ -61,10 +61,9 @@ const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
 // ─── Skip-Incoming Derivation ────────────────────────────────────────
 //
-// Replaces the legacy `transfer.skipIncomingFile` flag (Phase 4 of the
-// playback-state-machine migration). Computes the same boolean from
+// Computes the old skip-incoming decision from
 // primary state: lifecycle, playback mode/activity, transfer.meta, and
-// files.currentFileBlob, instead of being mutated from 9 different modules. The flag-based
+// files.currentFileBlob, instead of a mutable cross-module flag. The flag-based
 // version produced the bug class fixed in 61a1c2b: a sticky `true` from
 // a prior preload-consume survived a rapid track switch and silently
 // dropped every chunk for the new track until chunkWatchdog (12s)

@@ -15,6 +15,8 @@ import {
   isExternalOwner,
   isFileOwner,
   isPlaybackIdle,
+  isPlaybackLegacyIdle,
+  isPlaybackLegacyIdleModeActivity,
   isPlaybackModeSystemAudio,
   isPlaybackModeYouTube,
   isPlaybackPaused,
@@ -334,6 +336,26 @@ describe('playback ownership view', () => {
       APP_STATE.PLAYING_SYSTEM_AUDIO,
     );
     expect(deriveAppStateFromModeActivity('system-audio', 'pending')).toBe(APP_STATE.IDLE);
+  });
+
+  it('preserves legacy IDLE semantics as a narrow predicate', () => {
+    expect(isPlaybackLegacyIdleModeActivity({ mode: null, activity: 'idle' })).toBe(true);
+    expect(isPlaybackLegacyIdleModeActivity({ mode: 'file', activity: 'idle' })).toBe(true);
+    expect(isPlaybackLegacyIdleModeActivity({ mode: 'file', activity: 'pending' })).toBe(false);
+    expect(isPlaybackLegacyIdleModeActivity({ mode: 'file', activity: 'paused' })).toBe(false);
+    expect(isPlaybackLegacyIdleModeActivity({ mode: 'youtube', activity: 'playing' })).toBe(false);
+    expect(isPlaybackLegacyIdleModeActivity({ mode: 'system-audio', activity: 'pending' })).toBe(
+      true,
+    );
+    expect(isPlaybackLegacyIdleModeActivity({ mode: 'system-audio', activity: 'playing' })).toBe(
+      false,
+    );
+
+    setPlaybackSystemAudioPlaying();
+    expect(isPlaybackLegacyIdle()).toBe(false);
+
+    setState('playback.activity', 'pending');
+    expect(isPlaybackLegacyIdle()).toBe(true);
   });
 
   it('routes playback app state changes through ownership claims', () => {

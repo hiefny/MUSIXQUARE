@@ -6,11 +6,11 @@
 
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`, and production readers now consume the narrower mode/activity helper surface where their question matches that contract.
 - 5b (dual write): **DONE**. `state.playback.mode/activity` were introduced as shadow slots and are now the primary playback state.
-- 5c (reader migration): **DONE for raw readers**. Production code no longer reads or writes the old `state.appState` slot. Compatibility consumers that still need the legacy enum read it through `getPlaybackLegacyAppState()` and are pinned by test.
+- 5c (reader migration): **DONE for raw readers**. Production code no longer reads or writes the old `state.appState` slot, and no production caller reads the full legacy enum projection. The remaining strict-IDLE compatibility sites use `isPlaybackLegacyIdle()` and are pinned by test.
 - 5d (wire protocol compat): **DONE**. `SYNC_PONG` now carries mode/activity only; legacy `appState` emit/accept paths and their feature flags have been removed.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
 - 5f (source-of-truth flip): **DONE**. Ownership writes `playback.mode/activity` first and always derives the compatibility `appState` shadow from them.
-- 5g (`state.appState` removal): **DONE**. The global state tree no longer stores `appState`; the old enum survives only as a derived compatibility view for remaining in-process callers.
+- 5g (`state.appState` removal): **DONE**. The global state tree no longer stores `appState`; the old enum survives only as an ownership-bound compatibility projection for tests and legacy adapter signatures.
 
 ## Motivation
 
@@ -81,10 +81,10 @@ The old `state.appState` slot is gone. Legacy `appState` is now an exported comp
 **Dual-write before cutover, then remove the legacy slot.**
 
 1. New slots were added and written as a side effect of existing writes.
-2. Readers migrated one domain at a time. Compatibility readers that still need the legacy enum use `getPlaybackLegacyAppState()`.
+2. Readers migrated one domain at a time. Production readers use mode/activity helpers; strict old-IDLE holdouts use `isPlaybackLegacyIdle()`.
 3. Wire protocol carries mode/activity only.
 4. Source-of-truth flipped only after production readers were on the new slots.
-5. Legacy `state.appState` was removed last; a derived compatibility getter remains for holdouts.
+5. Legacy `state.appState` was removed last; the full derived compatibility getter remains inside ownership for tests and adapter signatures, while production holdouts use narrower predicates.
 
 ## Concrete Survey of Today's State
 
@@ -116,9 +116,9 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 - `src/player/transport.ts` - keeps the legacy `setAppState()` compatibility wrapper, while its own playback writes use semantic mode/activity helpers.
 - `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
 - `src/audio/beat-detector.ts` - keeps a module-local file-playing cache from `playback.mode/activity`, with buffer-change refresh for silent track switches.
-- `src/player/playlist.ts` - historical idle checks guard async decode races where the legacy `IDLE` shadow is the intended signal, but read it through `getPlaybackLegacyAppState()`.
+- `src/player/playlist.ts` - historical idle checks guard async decode races where the legacy `IDLE` shadow is the intended signal, but read it through `isPlaybackLegacyIdle()`.
 - `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode; pause/play still comes from iframe player state, not `APP_STATE.PAUSED`.
-- `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; queue/indexing idle checks still use strict legacy `IDLE` via `getPlaybackLegacyAppState()`.
+- `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; queue/indexing idle checks still use strict legacy `IDLE` via `isPlaybackLegacyIdle()`.
 - `src/youtube/iframe.ts` - iframe create/ready/state/UI guards use playback mode, with indexing exceptions and `IDLE` fallback writes kept unchanged.
 - `src/player/video.ts` - media-engine mode changes now gate from playback activity and write through semantic playback helpers; body-class rendering subscribes to `state:playback.mode`.
 - `src/chat/commands.ts` - debug/status output now reports playback mode/activity directly.
@@ -134,7 +134,7 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 - `src/types/index.ts` - `StateTree.appState`, mapped `state:appState` events, and `SYNC_PONG.appState` are removed.
 
 Do not treat this list as a mandate to remove every legacy reference. The remaining references fall into cross-version compatibility or deliberately strict legacy command gates.
-`src/player/__tests__/appstate-holdouts.test.ts` bans raw production slot/event access and pins the narrower `getPlaybackLegacyAppState()` compatibility consumers, so new legacy reads cannot appear unnoticed.
+`src/player/__tests__/appstate-holdouts.test.ts` bans raw production slot/event access and pins full legacy enum projection consumers to zero, so new legacy reads cannot appear unnoticed.
 
 ## Sub-Phase Roadmap
 
@@ -164,7 +164,7 @@ Order, lowest-risk first:
 
 1. **New mode/activity helper surface (0.5 day)**
    - Add helpers whose names match the new contract, for example `isPlaybackModeYouTube()`, `isPlaybackPlayingFile()`, `isPlaybackPaused()`, and `getPlaybackModeActivitySnapshot()`.
-   - The strict `isAppState*()` helper surface has been removed. Remaining legacy enum consumers use `getPlaybackLegacyAppState()` so their compatibility dependency is explicit.
+   - The strict `isAppState*()` helper surface has been removed. Remaining strict-IDLE consumers use `isPlaybackLegacyIdle()` so their compatibility dependency is explicit without reintroducing enum reads.
 
 2. **UI consumers (1 day)**
    - Migrate display logic that asks a mode/activity question to the new helper surface.
@@ -177,10 +177,10 @@ Order, lowest-risk first:
    - `src/ui/tabs.ts` and `src/ui/setup.ts` use playback mode helpers for YouTube display/cleanup gates.
    - `src/player/video.ts` uses playback activity for media-engine mode transition gating.
    - `src/youtube/sync.ts` uses playback mode for guest sync, manual rendezvous, and stop-frame guards while leaving iframe pause/play semantics untouched.
-   - `src/youtube/player.ts` uses playback mode for late-join bootstrap and stop-mode guards; its queue/indexing idle checks still use the legacy IDLE value, but read it through `getPlaybackLegacyAppState()`.
+   - `src/youtube/player.ts` uses playback mode for late-join bootstrap and stop-mode guards; its queue/indexing idle checks still use the legacy IDLE value through `isPlaybackLegacyIdle()`.
    - `src/youtube/iframe.ts` uses playback mode for iframe create/ready/state/update guards; indexing exceptions and guest-ended IDLE fallback writes stay legacy by design.
    - `src/ui/playlist-view.ts` uses playback mode/activity as its playback-state refresh trigger instead of `state:appState`.
-   - Leave protocol, snapshot, and compatibility bridge code on `getPlaybackLegacyAppState()` or raw snapshots until their dedicated phases.
+   - Leave protocol, snapshot, and compatibility bridge code on explicit compatibility helpers until their dedicated phases.
 
 3. **`is*Owner()` helpers (0.5 day)**
    - Re-point to compute from `(mode, activity)` plus the surviving signals (file lifecycle, system-audio placeholder/receiving).
@@ -190,10 +190,10 @@ Order, lowest-risk first:
 4. **Playback domain (1 day)**
    - `src/player/transport.ts` keeps the legacy `setAppState()` compatibility wrapper, but its internal playback writes use semantic mode/activity helpers.
    - First pass done for YouTube mode questions in `playlist.ts`, `playback.ts`, and the silent YouTube handoff in `transport.ts`.
-   - `src/player/playlist.ts` historical idle guards still use strict legacy IDLE semantics for async decode races, but read through `getPlaybackLegacyAppState()`.
+   - `src/player/playlist.ts` historical idle guards still use strict legacy IDLE semantics for async decode races, but read through `isPlaybackLegacyIdle()`.
    - `src/player/playback.ts` uses playback-playing file helpers for seek/restart paths that only apply to active local file playback.
    - `src/player/playback.ts` late-join bootstrap reads playback mode/activity directly; file `PLAY`/`PAUSE` bootstrap messages no longer include the legacy `state` payload.
-   - `PlaybackOwnership.appState` has been removed; callers either use `ownership.mode/activity` or the explicit `getPlaybackLegacyAppState()` compatibility getter.
+   - `PlaybackOwnership.appState` has been removed; production callers use `ownership.mode/activity` or narrower compatibility predicates.
 
 5. **Network/protocol gating (1 day)**
    - `src/storage/transfer-receive.ts`, `src/network/system-audio-guest.ts`, and `system-audio-sfu.ts`. These are mostly on `is*Owner()` predicates after earlier phases; flip implementation underneath them only after tests cover the pending/placeholder windows.
@@ -255,9 +255,9 @@ DONE. `appState` became a write-derived compatibility view of `(mode, activity)`
 
 DONE. `state.appState` has been dropped from the state tree. `APP_STATE` and `AppStateValue` stay exported from `core/constants.ts` for compatibility callers, legacy test fixtures, and helper signatures such as `setPlaybackAppState()`.
 
-`getPlaybackLegacyAppState()` now derives the old enum from `playback.mode/activity` rather than reading global state. This keeps status/debug compatibility without restoring a second source of truth.
+`getPlaybackLegacyAppState()` now derives the old enum from `playback.mode/activity` rather than reading global state. Production code no longer consumes that full enum projection; it remains for compatibility tests and legacy adapter signatures.
 
-After the remaining in-process legacy enum consumers are removed, `APP_STATE`, `AppStateValue`, and the compatibility projection helpers can be deleted as a final cleanup.
+After the remaining legacy adapter signatures are removed, `APP_STATE`, `AppStateValue`, and the compatibility projection helpers can be deleted as a final cleanup.
 
 ## Risk Register
 

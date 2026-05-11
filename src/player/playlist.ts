@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, DEMO_FILE_NAME, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
+import { MSG, DEMO_FILE_NAME, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
@@ -33,7 +33,7 @@ import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import {
-  getPlaybackLegacyAppState,
+  isPlaybackLegacyIdle,
   isYouTubeOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
@@ -55,7 +55,7 @@ let _shuffleOrder: number[] = [];
 let _shufflePosition = 0;
 
 function isLegacyIdle(): boolean {
-  return getPlaybackLegacyAppState() === APP_STATE.IDLE;
+  return isPlaybackLegacyIdle();
 }
 
 function generateShuffleOrder(): void {

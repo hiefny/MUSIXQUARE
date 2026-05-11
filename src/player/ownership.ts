@@ -6,9 +6,10 @@
  *   mode/activity    - primary playback contract. Use the playback mode and
  *                      activity helpers when callers ask what is active or
  *                      which playback surface owns the UI/engine.
- *   legacy appState  - compatibility snapshot exposed through
- *                      getPlaybackLegacyAppState() for the few remaining
- *                      bridges that still need the old enum value.
+ *   legacy appState  - compatibility projection kept inside this module.
+ *                      Production callers should prefer mode/activity or the
+ *                      narrower `isPlaybackLegacyIdle()` predicate when they
+ *                      must preserve old IDLE semantics.
  *   is<X>Owner()     - broad ownership semantic from getPlaybackOwnership().
  *                      Includes domain-specific signals (file lifecycle/
  *                      transfer activity for 'file'; placeholder/isReceiving
@@ -288,7 +289,8 @@ export function getPlaybackOwnership(): PlaybackOwnership {
 }
 
 // Phase 5 compatibility bridge. New production code should prefer mode/activity
-// helpers; this exists only for legacy enum consumers that cannot yet be removed.
+// helpers; this remains for tests and legacy adapter signatures that still
+// speak the old enum at their boundary.
 export function getPlaybackLegacyAppState(): AppStateValue {
   const playback = getPlaybackOwnership();
   return deriveAppStateFromModeActivity(playback.mode, playback.activity);
@@ -300,6 +302,18 @@ export function getPlaybackModeActivity(): PlaybackModeActivity {
     mode: ownership.mode,
     activity: ownership.activity,
   };
+}
+
+export function isPlaybackLegacyIdleModeActivity(playback: PlaybackModeActivity): boolean {
+  return (
+    playback.activity === 'idle' ||
+    playback.mode === null ||
+    (playback.mode === 'system-audio' && playback.activity !== 'playing')
+  );
+}
+
+export function isPlaybackLegacyIdle(): boolean {
+  return isPlaybackLegacyIdleModeActivity(getPlaybackModeActivity());
 }
 
 export function getPlaybackModeActivitySnapshot(): PlaybackModeActivity {

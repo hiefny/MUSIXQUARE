@@ -14,10 +14,10 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import {
-  getPlaybackLegacyAppState,
+  isPlaybackLegacyIdle,
   isPlaybackModeYouTube,
   setPlaybackIdle,
   setPlaybackTrackMeta,
@@ -52,7 +52,7 @@ export function getPendingAutoSyncOnReady(): boolean {
 }
 
 function isLegacyIdle(): boolean {
-  return getPlaybackLegacyAppState() === APP_STATE.IDLE;
+  return isPlaybackLegacyIdle();
 }
 
 import { registerHandlers } from '../network/protocol.ts';

@@ -17,8 +17,10 @@ import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
 import {
   getPlaybackOwnership,
-  getPlaybackLegacyAppState,
+  getPlaybackModeActivity,
   isExternalOwner,
+  isPlaybackLegacyIdle,
+  isPlaybackLegacyIdleModeActivity,
   isSystemAudioOwner,
   isYouTubeOwner,
   setPlaybackFilePaused,
@@ -99,25 +101,27 @@ export function setAppState(newState: AppStateValue): void {
   }
 }
 
-function getLegacyAppState(): AppStateValue {
-  return getPlaybackLegacyAppState();
-}
-
 function isLegacyIdle(): boolean {
-  return getLegacyAppState() === APP_STATE.IDLE;
+  return isPlaybackLegacyIdle();
 }
 
 function isLegacyIdleOrPaused(): boolean {
-  const appState = getLegacyAppState();
-  return appState === APP_STATE.IDLE || appState === APP_STATE.PAUSED;
+  const playback = getPlaybackModeActivity();
+  return (
+    isPlaybackLegacyIdleModeActivity(playback) ||
+    (playback.mode === 'file' &&
+      (playback.activity === 'paused' || playback.activity === 'pending'))
+  );
 }
 
 function isLegacyPlayingAudio(): boolean {
-  return getLegacyAppState() === APP_STATE.PLAYING_AUDIO;
+  const playback = getPlaybackModeActivity();
+  return playback.mode === 'file' && playback.activity === 'playing';
 }
 
 function isLegacyPlayingSystemAudio(): boolean {
-  return getLegacyAppState() === APP_STATE.PLAYING_SYSTEM_AUDIO;
+  const playback = getPlaybackModeActivity();
+  return playback.mode === 'system-audio' && playback.activity === 'playing';
 }
 
 // ─── Track Position ────────────────────────────────────────────────

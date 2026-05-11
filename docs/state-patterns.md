@@ -16,7 +16,7 @@ The goal is not to remove every poll. The goal is to make every poll intentional
 
 ### Pattern 1: Legacy App State Compatibility Read
 
-Use `getPlaybackLegacyAppState()` from `src/player/ownership.ts` only when a caller still needs the old enum value at the exact moment of a decision. New code should first ask whether it really wants `playback.mode/activity` instead.
+Production code should not add new `getPlaybackLegacyAppState()` calls. Use `playback.mode/activity` helpers for semantic questions, and use `isPlaybackLegacyIdle()` only when a caller must preserve the old enum's exact `IDLE` behavior.
 
 Good fits:
 
@@ -25,8 +25,8 @@ Good fits:
 
 Examples:
 
-- `getPlaybackLegacyAppState() === APP_STATE.IDLE`
-- `getPlaybackLegacyAppState() === APP_STATE.PLAYING_YOUTUBE`
+- `isPlaybackLegacyIdle()` when the caller truly needs old `APP_STATE.IDLE` compatibility
+- `getPlaybackModeActivity().mode === 'youtube'`
 
 ### Pattern 2: Broad Ownership Poll
 
@@ -83,12 +83,12 @@ Click handlers may still poll using Pattern 1. The rule is:
 
 ### Phase 1: Playback Domain Residuals
 
-- Replace remaining raw playback-domain appState polls with `ownership.ts` predicates or adapter reads. `playback.ts` and YouTube runtime mode guards are migrated; queue/indexing idle checks in `playlist.ts` and YouTube stay strict legacy `IDLE` through `getPlaybackLegacyAppState()`.
+- Replace remaining raw playback-domain appState polls with `ownership.ts` predicates or adapter reads. `playback.ts` and YouTube runtime mode guards are migrated; queue/indexing idle checks in `playlist.ts` and YouTube stay strict legacy `IDLE` through `isPlaybackLegacyIdle()`.
 - File `PLAY`/`PAUSE` protocol payloads no longer carry the legacy `appState` enum; receivers derive behavior from existing payload fields and local playback mode/activity.
 
 ### Phase 2: Gating Site Rename
 
-- Replace low-risk one-shot appState gates with playback mode/activity helpers or, only for true compatibility holdouts, `getPlaybackLegacyAppState()`.
+- Replace low-risk one-shot appState gates with playback mode/activity helpers or, only for true compatibility IDLE holdouts, `isPlaybackLegacyIdle()`.
 - Leave protocol payload comparisons untouched.
 - Leave state snapshot capture untouched when the snapshot is forwarded or stored.
 
@@ -111,9 +111,9 @@ Click handlers may still poll using Pattern 1. The rule is:
 - Replace the legacy global state slot with the playback domain state:
   - `mode`: `file | youtube | system-audio | null`
   - `activity`: `idle | paused | playing | pending`
-- `state.appState` has been removed. `getPlaybackLegacyAppState()` derives the old enum for compatibility consumers only.
+- `state.appState` has been removed. `getPlaybackLegacyAppState()` derives the old enum inside the ownership compatibility boundary only.
 - `owner` and `mode` are not guaranteed to match. Example: PAUSED has no active owner but derives `mode: file` because legacy `APP_STATE.PAUSED` only represents the local-file pause shadow; YouTube pause lives in the YouTube player state instead.
-- `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question. Keep `getPlaybackLegacyAppState()` only for legacy enum compatibility inside the app.
+- `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question. Keep legacy projection calls inside the ownership boundary.
 - The full decomposition roadmap (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document is the migration plan; this one remains the read/write contract reference.
 
 ## Verification Gate

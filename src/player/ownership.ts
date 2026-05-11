@@ -54,7 +54,6 @@ export interface PlaybackOwnership {
   owner: PlaybackOwner;
   mode: PlaybackMode;
   activity: PlaybackActivity;
-  appState: AppStateValue;
   lifecycle: PlaybackStateValue;
   transferState: TransferStateValue;
   currentTrackMeta: TrackMeta | null;
@@ -262,8 +261,6 @@ export function getPlaybackOwnership(): PlaybackOwnership {
     isSystemAudioPlaceholder,
     hasFilePipeline: filePipeline,
   });
-  const appState = deriveAppStateFromModeActivity(modeActivity.mode, modeActivity.activity);
-
   let owner: PlaybackOwner = 'none';
   if (modeActivity.mode === 'system-audio' && modeActivity.activity !== 'idle') {
     owner = 'system-audio';
@@ -280,7 +277,6 @@ export function getPlaybackOwnership(): PlaybackOwnership {
     owner,
     mode: modeActivity.mode,
     activity: modeActivity.activity,
-    appState,
     lifecycle,
     transferState,
     currentTrackMeta,
@@ -294,7 +290,8 @@ export function getPlaybackOwnership(): PlaybackOwnership {
 // Phase 5 compatibility bridge. New production code should prefer mode/activity
 // helpers; this exists only for legacy enum consumers that cannot yet be removed.
 export function getPlaybackLegacyAppState(): AppStateValue {
-  return getPlaybackOwnership().appState;
+  const playback = getPlaybackOwnership();
+  return deriveAppStateFromModeActivity(playback.mode, playback.activity);
 }
 
 export function getPlaybackModeActivity(): PlaybackModeActivity {

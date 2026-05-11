@@ -120,7 +120,7 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 - `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; queue/indexing idle checks still use strict legacy `IDLE` via `getPlaybackLegacyAppState()`.
 - `src/youtube/iframe.ts` - iframe create/ready/state/UI guards use playback mode, with indexing exceptions and `IDLE` fallback writes kept unchanged.
 - `src/player/video.ts` - media-engine mode changes now gate from playback activity and write through `setPlaybackAppState`; body-class rendering subscribes to `state:playback.mode`.
-- `src/chat/commands.ts` - debug/status output reads legacy appState through `getPlaybackOwnership()` alongside mode/activity; it no longer reads the global slot directly.
+- `src/chat/commands.ts` - debug/status output reads legacy appState through `getPlaybackLegacyAppState()` alongside mode/activity; it no longer reads the global slot directly.
 
 **Mode/activity snapshots**:
 
@@ -192,7 +192,7 @@ Order, lowest-risk first:
    - `src/player/playlist.ts` historical idle guards still use strict legacy IDLE semantics for async decode races, but read through `getPlaybackLegacyAppState()`.
    - `src/player/playback.ts` uses playback-playing file helpers for seek/restart paths that only apply to active local file playback.
    - `src/player/playback.ts` late-join bootstrap reads legacy wire state through `getPlaybackLegacyAppState()`; it no longer reads the global `appState` slot directly.
-   - Any site that reads `ownership.appState` directly should be checked and migrated to `ownership.mode` / `ownership.activity` only when that site truly wants the new semantic.
+   - `PlaybackOwnership.appState` has been removed; callers either use `ownership.mode/activity` or the explicit `getPlaybackLegacyAppState()` compatibility getter.
 
 5. **Network/protocol gating (1 day)**
    - `src/storage/transfer-receive.ts`, `src/network/system-audio-guest.ts`, and `system-audio-sfu.ts`. These are mostly on `is*Owner()` predicates after earlier phases; flip implementation underneath them only after tests cover the pending/placeholder windows.
@@ -254,7 +254,7 @@ DONE. `appState` became a write-derived compatibility view of `(mode, activity)`
 
 DONE. `state.appState` has been dropped from the state tree. `APP_STATE` and `AppStateValue` stay exported from `core/constants.ts` for compatibility callers, protocol rollback tests, and helper signatures such as `setPlaybackAppState()`.
 
-`getPlaybackLegacyAppState()` and `PlaybackOwnership.appState` now derive the old enum from `playback.mode/activity` rather than reading global state. This keeps status/debug/protocol compatibility without restoring a second source of truth.
+`getPlaybackLegacyAppState()` now derives the old enum from `playback.mode/activity` rather than reading global state. This keeps status/debug compatibility without restoring a second source of truth.
 
 After the remaining in-process legacy enum consumers are removed, `APP_STATE`, `AppStateValue`, and the compatibility projection helpers can be deleted as a final cleanup.
 

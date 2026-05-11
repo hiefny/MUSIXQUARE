@@ -160,12 +160,12 @@ describe('playback ownership view', () => {
       owner: 'system-audio',
       mode: 'system-audio',
       activity: 'playing',
-      appState: APP_STATE.PLAYING_SYSTEM_AUDIO,
       currentTrackMeta: {
         name: 'system-audio',
         title: 'System Audio Sharing',
       },
     });
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PLAYING_SYSTEM_AUDIO);
     expectPlaybackModeActivitySlots('system-audio', 'playing');
   });
 
@@ -179,9 +179,9 @@ describe('playback ownership view', () => {
       owner: 'system-audio',
       mode: 'system-audio',
       activity: 'pending',
-      appState: APP_STATE.IDLE,
       isSystemAudioPlaceholder: true,
     });
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
     expectPlaybackModeActivitySlots('system-audio', 'pending');
   });
 
@@ -201,9 +201,9 @@ describe('playback ownership view', () => {
       owner: 'none',
       mode: null,
       activity: 'idle',
-      appState: APP_STATE.IDLE,
       currentTrackMeta: null,
     });
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
     expectPlaybackModeActivitySlots(null, 'idle');
   });
 
@@ -338,8 +338,8 @@ describe('playback ownership view', () => {
       owner: 'file',
       mode: 'file',
       activity: 'playing',
-      appState: APP_STATE.PLAYING_AUDIO,
     });
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PLAYING_AUDIO);
     expectPlaybackModeActivitySlots('file', 'playing');
 
     setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
@@ -347,9 +347,9 @@ describe('playback ownership view', () => {
       owner: 'youtube',
       mode: 'youtube',
       activity: 'playing',
-      appState: APP_STATE.PLAYING_YOUTUBE,
       isExternalOwner: true,
     });
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PLAYING_YOUTUBE);
     expectPlaybackModeActivitySlots('youtube', 'playing');
 
     setPlaybackAppState(APP_STATE.PAUSED);
@@ -357,8 +357,8 @@ describe('playback ownership view', () => {
       owner: 'none',
       mode: 'file',
       activity: 'paused',
-      appState: APP_STATE.PAUSED,
     });
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
     expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'paused' });
     expectPlaybackModeActivitySlots('file', 'paused');
   });

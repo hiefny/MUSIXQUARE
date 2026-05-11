@@ -23,6 +23,7 @@ import {
   resetClockState,
 } from '../shared-clock.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
+import { setPlaybackAppState } from '../../player/ownership.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -83,7 +84,7 @@ describe('handleAutoSync', () => {
 describe('SYNC_PING playback snapshot', () => {
   it('does not advertise PLAYING_AUDIO while host is decoded but waiting to start', async () => {
     initSync();
-    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
     setState('playlist.currentTrackIndex', 2);
 
@@ -106,7 +107,7 @@ describe('SYNC_PING playback snapshot', () => {
 
   it('dual-emits decomposed playback fields for audible file playback', async () => {
     initSync();
-    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
     setState('playlist.currentTrackIndex', 3);
 
@@ -149,7 +150,7 @@ describe('SYNC_PING playback snapshot', () => {
   });
 
   it('exposes the paused file shadow for silent file transition pongs', () => {
-    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
 
     expect(getSyncPongPlaybackState()).toEqual({
@@ -160,7 +161,7 @@ describe('SYNC_PING playback snapshot', () => {
   });
 
   it('does not let a stale file lifecycle advertise new wire-visible playback', () => {
-    setState('appState', APP_STATE.IDLE);
+    setPlaybackAppState(APP_STATE.IDLE);
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
 
     expect(getSyncPongPlaybackState()).toEqual({

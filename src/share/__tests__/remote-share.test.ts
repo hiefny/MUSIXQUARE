@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { APP_STATE, DEMO_FILE_NAME, MSG } from '../../core/constants.ts';
+import { setPlaybackAppState } from '../../player/ownership.ts';
 import type { DataConnection, RemoteFileSharePayload } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -118,7 +119,7 @@ describe('remote file share policy', () => {
 
   it('accepts the active remote descriptor while currently in YouTube playback', async () => {
     const { handleData } = await import('../../network/protocol.ts');
-    setState('appState', APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
 
     await handleData({ type: MSG.REMOTE_FILE_SHARE, ...descriptor() }, conn);
 

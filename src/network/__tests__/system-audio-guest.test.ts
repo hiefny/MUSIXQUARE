@@ -5,6 +5,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection, TrackMeta } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { registerSystemAudioGuestListeners } from '../system-audio-guest.ts';
+import { setPlaybackAppState } from '../../player/ownership.ts';
 import { stopAllMedia } from '../../player/transport.ts';
 
 const timerMocks = vi.hoisted(() => {
@@ -72,7 +73,7 @@ describe('system audio guest receive watchdog', () => {
 
   it('restores previous meta if SYSTEM_AUDIO_START never produces a stream', async () => {
     const previousMeta: TrackMeta = { type: 'youtube', name: 'previous-track' };
-    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     setState('player.currentTrackMeta', previousMeta);
 
     await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);

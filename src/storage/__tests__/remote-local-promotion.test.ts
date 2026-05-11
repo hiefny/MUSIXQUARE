@@ -8,6 +8,7 @@ import {
   PLAYBACK_STATE,
   TRANSFER_STATE,
 } from '../../core/constants.ts';
+import { setPlaybackAppState } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../storage.ts', () => ({
@@ -110,7 +111,7 @@ describe('remote-share to local direct transfer promotion', () => {
   it('accepts demo FILE_PREPARE while leaving YouTube mode', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 
-    setState('appState', APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
     setState('network.connectionType', 'local');
     setState('playlist.items', [
       {

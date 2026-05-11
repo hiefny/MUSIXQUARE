@@ -8,14 +8,10 @@ import {
   createYouTubeTrackMeta,
   deriveAppStateFromModeActivity,
   deriveModeActivityFromAppState,
+  getPlaybackLegacyAppState,
   getPlaybackModeActivity,
   getPlaybackModeActivitySnapshot,
   getPlaybackOwnership,
-  isAppStateIdle,
-  isAppStatePaused,
-  isAppStatePlayingAudio,
-  isAppStatePlayingSystemAudio,
-  isAppStatePlayingYouTube,
   isExternalOwner,
   isFileOwner,
   isPlaybackIdle,
@@ -74,21 +70,20 @@ describe('playback ownership view', () => {
     });
     expect(isExternalOwner()).toBe(true);
     expect(isYouTubeOwner()).toBe(true);
-    expect(isAppStatePlayingYouTube()).toBe(true);
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PLAYING_YOUTUBE);
     expect(isPlaybackModeYouTube()).toBe(true);
     expect(isPlaybackPlayingYouTube()).toBe(true);
     expectPlaybackModeActivitySlots('youtube', 'playing');
   });
 
-  it('exposes appState-specific playback predicates', () => {
-    expect(isAppStateIdle()).toBe(true);
+  it('exposes the legacy appState compatibility snapshot', () => {
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
 
     setState('appState', APP_STATE.PLAYING_AUDIO);
-    expect(isAppStatePlayingAudio()).toBe(true);
-    expect(isAppStateIdle()).toBe(false);
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PLAYING_AUDIO);
 
     setState('appState', APP_STATE.PAUSED);
-    expect(isAppStatePaused()).toBe(true);
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
     expect(isFileOwner()).toBe(false);
     expect(isPlaybackPaused()).toBe(true);
     expectPlaybackModeActivitySlots('file', 'paused');
@@ -103,7 +98,7 @@ describe('playback ownership view', () => {
       activity: 'playing',
       isExternalOwner: true,
     });
-    expect(isAppStatePlayingSystemAudio()).toBe(true);
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PLAYING_SYSTEM_AUDIO);
     expect(isSystemAudioOwner()).toBe(true);
     expect(isPlaybackModeSystemAudio()).toBe(true);
     expect(isPlaybackPlayingSystemAudio()).toBe(true);
@@ -125,7 +120,7 @@ describe('playback ownership view', () => {
       isSystemAudioPlaceholder: true,
       isExternalOwner: true,
     });
-    expect(isAppStatePlayingSystemAudio()).toBe(false);
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
     expect(isSystemAudioOwner()).toBe(true);
     expect(isPlaybackModeSystemAudio()).toBe(true);
     expect(isPlaybackPending()).toBe(true);

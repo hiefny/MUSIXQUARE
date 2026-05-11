@@ -14,26 +14,20 @@ The goal is not to remove every poll. The goal is to make every poll intentional
 
 ## Contracts
 
-### Pattern 1: Strict App State Poll
+### Pattern 1: Legacy App State Compatibility Read
 
-Use `isAppState*()` from `src/player/ownership.ts` when a caller needs the current enum value at the exact moment of a decision.
+Use `getPlaybackLegacyAppState()` from `src/player/ownership.ts` only when a caller still needs the old enum value at the exact moment of a decision. New code should first ask whether it really wants `playback.mode/activity` instead.
 
 Good fits:
 
-- click handlers
-- timer/rAF guards
 - protocol payload decisions
-- one-shot command gating
 - compatibility bridges that still expose legacy `appState`
+- queue/indexing holdouts that intentionally require strict legacy `IDLE` semantics
 
 Examples:
 
-- `isAppStatePlayingAudio()`
-- `isAppStatePlayingYouTube()`
-- `isAppStatePlayingSystemAudio()`
-- `isAppStateIdle()`
-- `isAppStatePaused()`
-- `isAppStateIdleOrPaused()`
+- `getPlaybackLegacyAppState() === APP_STATE.IDLE`
+- `getPlaybackLegacyAppState() === APP_STATE.PLAYING_YOUTUBE`
 
 ### Pattern 2: Broad Ownership Poll
 
@@ -74,8 +68,8 @@ Click handlers may still poll using Pattern 1. The rule is:
 
 | Bucket | Target | Pattern | Scope |
 | --- | --- | --- | --- |
-| A | rAF/timer immediate freshness reads | Pattern 1 | `seekbar`, `visualizer`, sync timers |
-| B | one-shot event handler gates | Pattern 1 or 2 | `app.ts`, chat, settings, setup |
+| A | rAF/timer immediate freshness reads | Pattern 2 or mode/activity poll | `seekbar`, `visualizer`, sync timers |
+| B | one-shot event handler gates | Pattern 2 or mode/activity poll | `app.ts`, chat, settings, setup |
 | C | UI render and labels | Pattern 3 | `player-controls`, selected visualizer reactions |
 | D | audio bridges | one pattern per module | `beat-detector`, `channel`, `system-capture` |
 | E | playback-domain residuals | Pattern 1 or 2 | `playback`, `playlist`, YouTube bridge code |
@@ -95,7 +89,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 
 ### Phase 2: Gating Site Rename
 
-- Replace low-risk one-shot appState gates with strict `isAppState*()` helpers.
+- Replace low-risk one-shot appState gates with playback mode/activity helpers or, only for true compatibility holdouts, `getPlaybackLegacyAppState()`.
 - Leave protocol payload comparisons untouched.
 - Leave state snapshot capture untouched when the snapshot is forwarded or stored.
 
@@ -122,7 +116,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 - Use it as the migration boundary for future state-tree decomposition.
 - This phase proves the shape without changing wire protocol or storage schema.
 - `owner` and `mode` are not guaranteed to match. Example: PAUSED has no active owner but derives `mode: file` because legacy `APP_STATE.PAUSED` only represents the local-file pause shadow; YouTube pause lives in the YouTube player state instead.
-- `state.playback.mode/activity` are shadow slots during 5b/5c. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers only when the caller is asking a mode/activity question. Keep `isAppState*()` for legacy enum compatibility and wire/protocol decisions.
+- `state.playback.mode/activity` are the primary contract after 5f. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question. Keep `getPlaybackLegacyAppState()` only for legacy enum compatibility and rollbackable protocol decisions.
 - The full decomposition roadmap (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document is the migration plan; this one remains the read/write contract reference.
 
 ## Verification Gate

@@ -162,7 +162,7 @@ Order, lowest-risk first:
 
 1. **New mode/activity helper surface (0.5 day)**
    - Add helpers whose names match the new contract, for example `isPlaybackModeYouTube()`, `isPlaybackPlayingFile()`, `isPlaybackPaused()`, and `getPlaybackModeActivitySnapshot()`.
-   - Keep `isAppState*()` strict until `appState` removal. Those names currently mean "read the legacy enum"; changing their implementation underneath would violate [state-patterns.md](state-patterns.md).
+   - The strict `isAppState*()` helper surface has been removed. Remaining legacy enum consumers use `getPlaybackLegacyAppState()` so their compatibility dependency is explicit.
 
 2. **UI consumers (1 day)**
    - Migrate display logic that asks a mode/activity question to the new helper surface.
@@ -178,7 +178,7 @@ Order, lowest-risk first:
    - `src/youtube/player.ts` uses playback mode for late-join bootstrap and stop-mode guards; its queue/indexing idle checks still use the legacy IDLE value, but read it through `getPlaybackLegacyAppState()`.
    - `src/youtube/iframe.ts` uses playback mode for iframe create/ready/state/update guards; indexing exceptions and guest-ended IDLE fallback writes stay legacy by design.
    - `src/ui/playlist-view.ts` uses playback mode/activity as its playback-state refresh trigger instead of `state:appState`.
-   - Leave protocol, snapshot, and compatibility bridge code on `isAppState*()` or raw snapshots until their dedicated phases.
+   - Leave protocol, snapshot, and compatibility bridge code on `getPlaybackLegacyAppState()` or raw snapshots until their dedicated phases.
 
 3. **`is*Owner()` helpers (0.5 day)**
    - Re-point to compute from `(mode, activity)` plus the surviving signals (file lifecycle, system-audio placeholder/receiving).

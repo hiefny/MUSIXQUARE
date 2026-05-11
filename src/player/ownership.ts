@@ -3,10 +3,12 @@
  *
  * Playback state consumption contract:
  *
- *   isAppState<X>()  - strict appState comparison. Use when callers care
- *                      only about the discrete `appState` enum value at
- *                      decision time (click handlers, timers, protocol
- *                      payload choices).
+ *   mode/activity    - primary playback contract. Use the playback mode and
+ *                      activity helpers when callers ask what is active or
+ *                      which playback surface owns the UI/engine.
+ *   legacy appState  - compatibility snapshot exposed through
+ *                      getPlaybackLegacyAppState() for the few remaining
+ *                      bridges that still need the old enum value.
  *   is<X>Owner()     - broad ownership semantic from getPlaybackOwnership().
  *                      Includes domain-specific signals (file lifecycle/
  *                      transfer activity for 'file'; placeholder/isReceiving
@@ -283,6 +285,8 @@ export function getPlaybackOwnership(): PlaybackOwnership {
   };
 }
 
+// Phase 5 compatibility bridge. New production code should prefer mode/activity
+// helpers; this exists only for legacy enum consumers that cannot yet be removed.
 export function getPlaybackLegacyAppState(): AppStateValue {
   return getPlaybackOwnership().appState;
 }
@@ -377,33 +381,6 @@ for (const event of [
   bus.on(event, () => {
     syncPlaybackModeActivityFromOwnership();
   });
-}
-
-// Read: appState-strict predicates
-
-export function isAppStateIdle(): boolean {
-  return getState('appState') === APP_STATE.IDLE;
-}
-
-export function isAppStatePaused(): boolean {
-  return getState('appState') === APP_STATE.PAUSED;
-}
-
-export function isAppStatePlayingAudio(): boolean {
-  return getState('appState') === APP_STATE.PLAYING_AUDIO;
-}
-
-export function isAppStatePlayingYouTube(): boolean {
-  return getState('appState') === APP_STATE.PLAYING_YOUTUBE;
-}
-
-export function isAppStatePlayingSystemAudio(): boolean {
-  return getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO;
-}
-
-export function isAppStateIdleOrPaused(): boolean {
-  const appState = getState('appState');
-  return appState === APP_STATE.IDLE || appState === APP_STATE.PAUSED;
 }
 
 // Read: mode/activity predicates (new decomposed playback contract)

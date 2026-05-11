@@ -38,8 +38,7 @@ import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
 import {
   getPlaybackModeActivity,
-  isAppStateIdleOrPaused,
-  isAppStatePlayingAudio,
+  isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 
 let _syncPingCounter = 0;
@@ -88,7 +87,7 @@ export function handleAutoSync(): void {
   // startedAt from the new (zero) offset. Without this, "Reset" just
   // changes the displayed value while the audio remains desynced, and
   // the only recovery is a host seek or pause+play.
-  if (isAppStateIdleOrPaused()) return;
+  if (!isPlaybackPlayingFile()) return;
   play(getTrackPosition());
 }
 
@@ -268,7 +267,7 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;
 
-  if (!isAppStatePlayingAudio()) {
+  if (!isPlaybackPlayingFile()) {
     const lifecycle = getState('playback.lifecycle');
     if (
       lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
@@ -473,18 +472,21 @@ export function initSync(): void {
   };
 
   // Playback state transitions: arm on IDLE/PAUSED → PLAYING, disarm on pause/stop
-  bus.on('state:appState', () => {
-    const isPlaying = isAppStatePlayingAudio();
+  const syncInitialArmFromPlayback = () => {
+    const isPlaying = isPlaybackPlayingFile();
     if (isPlaying && !_wasPlaying) {
       armInitialSync();
     }
     if (!isPlaying) {
+      clearManagedTimer('initial-sync-arm');
       _needsInitialSync = false;
     }
     _wasPlaying = isPlaying;
-  });
+  };
+  bus.on('state:playback.mode', syncInitialArmFromPlayback);
+  bus.on('state:playback.activity', syncInitialArmFromPlayback);
 
-  // Host seek/play while already PLAYING (appState doesn't change)
+  // Host seek/play while already playing (mode/activity may not change)
   bus.on('sync:arm-initial', armInitialSync);
 
   // Clean up sync state when session ends

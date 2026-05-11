@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { APP_STATE, MSG, PLAYBACK_STATE } from '../../core/constants.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import {
@@ -172,6 +172,20 @@ describe('SYNC_PING playback snapshot', () => {
 });
 
 describe('audio activation bootstrap', () => {
+  it('arms and cancels initial sync from playback mode/activity transitions', () => {
+    vi.useFakeTimers();
+    initSync();
+
+    setState('playback.mode', 'file');
+    expect(getManagedTimer('initial-sync-arm')).toBeNull();
+
+    setState('playback.activity', 'playing');
+    expect(getManagedTimer('initial-sync-arm')).not.toBeNull();
+
+    setState('playback.activity', 'paused');
+    expect(getManagedTimer('initial-sync-arm')).toBeNull();
+  });
+
   it('requests a fresh host sync when a guest unlocks audio with a decoded buffer', () => {
     initSync();
     const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;

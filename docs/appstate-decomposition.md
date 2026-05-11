@@ -104,6 +104,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 - `src/network/sync.ts::handleSyncPing` - `SYNC_PONG` payloads include `mode` and `activity`; legacy `appState` is still emitted while `syncPongLegacyAppStateEmit` is enabled.
 - `src/network/sync.ts::isSyncPongPlayingFile` - guest reads `mode/activity` first and falls back to legacy `appState` while `syncPongLegacyAppStateAccept` is enabled.
+- `src/network/sync.ts` local replay/initial-sync arm gates use `playback.mode/activity`; only the wire-visible compatibility fields still use legacy `appState`.
 - `SYNC_PING` does not carry playback state and should remain unchanged unless a separate protocol need appears.
 
 **Intentional legacy readers that should remain for now**:

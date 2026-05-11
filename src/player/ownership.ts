@@ -29,10 +29,8 @@
  */
 
 import {
-  APP_STATE,
   PLAYBACK_STATE,
   TRANSFER_STATE,
-  type AppStateValue,
   type PlaybackActivityValue,
   type PlaybackModeValue,
   type PlaybackStateValue,
@@ -45,6 +43,12 @@ import type { TrackMeta } from '../types/index.ts';
 export type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
 export type PlaybackMode = PlaybackModeValue;
 export type PlaybackActivity = PlaybackActivityValue;
+export type LegacyAppStateValue =
+  | 'IDLE'
+  | 'PAUSED'
+  | 'PLAYING_AUDIO'
+  | 'PLAYING_YOUTUBE'
+  | 'PLAYING_SYSTEM_AUDIO';
 
 export interface PlaybackModeActivity {
   mode: PlaybackMode;
@@ -78,15 +82,23 @@ export interface PlaybackClaimOptions {
 
 export interface PlaybackReleaseOptions {
   currentTrackMeta?: TrackMeta | null;
-  nextAppState?: AppStateValue;
+  nextAppState?: LegacyAppStateValue;
   force?: boolean;
 }
 
-const OWNER_APP_STATE: Record<Exclude<PlaybackOwner, 'none'>, AppStateValue> = {
-  file: APP_STATE.PLAYING_AUDIO,
-  youtube: APP_STATE.PLAYING_YOUTUBE,
-  'system-audio': APP_STATE.PLAYING_SYSTEM_AUDIO,
+const OWNER_MODE_ACTIVITY: Record<Exclude<PlaybackOwner, 'none'>, PlaybackModeActivity> = {
+  file: { mode: 'file', activity: 'playing' },
+  youtube: { mode: 'youtube', activity: 'playing' },
+  'system-audio': { mode: 'system-audio', activity: 'playing' },
 };
+
+const LEGACY_APP_STATE = {
+  IDLE: 'IDLE',
+  PAUSED: 'PAUSED',
+  PLAYING_AUDIO: 'PLAYING_AUDIO',
+  PLAYING_YOUTUBE: 'PLAYING_YOUTUBE',
+  PLAYING_SYSTEM_AUDIO: 'PLAYING_SYSTEM_AUDIO',
+} as const satisfies Record<string, LegacyAppStateValue>;
 
 export function isSystemAudioPlaceholderMeta(meta: TrackMeta | null): boolean {
   return meta?.systemAudioPlaceholder === true;
@@ -150,17 +162,17 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
-export function deriveModeActivityFromAppState(appState: AppStateValue): PlaybackModeActivity {
+export function deriveModeActivityFromAppState(appState: LegacyAppStateValue): PlaybackModeActivity {
   switch (appState) {
-    case APP_STATE.PLAYING_AUDIO:
+    case LEGACY_APP_STATE.PLAYING_AUDIO:
       return { mode: 'file', activity: 'playing' };
-    case APP_STATE.PAUSED:
+    case LEGACY_APP_STATE.PAUSED:
       return { mode: 'file', activity: 'paused' };
-    case APP_STATE.PLAYING_YOUTUBE:
+    case LEGACY_APP_STATE.PLAYING_YOUTUBE:
       return { mode: 'youtube', activity: 'playing' };
-    case APP_STATE.PLAYING_SYSTEM_AUDIO:
+    case LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO:
       return { mode: 'system-audio', activity: 'playing' };
-    case APP_STATE.IDLE:
+    case LEGACY_APP_STATE.IDLE:
     default:
       return { mode: null, activity: 'idle' };
   }
@@ -169,22 +181,24 @@ export function deriveModeActivityFromAppState(appState: AppStateValue): Playbac
 export function deriveAppStateFromModeActivity(
   mode: PlaybackModeValue,
   activity: PlaybackActivityValue,
-): AppStateValue {
-  if (activity === 'idle') return APP_STATE.IDLE;
+): LegacyAppStateValue {
+  if (activity === 'idle') return LEGACY_APP_STATE.IDLE;
 
   if (mode === 'file') {
-    return activity === 'playing' ? APP_STATE.PLAYING_AUDIO : APP_STATE.PAUSED;
+    return activity === 'playing' ? LEGACY_APP_STATE.PLAYING_AUDIO : LEGACY_APP_STATE.PAUSED;
   }
 
   if (mode === 'youtube') {
-    return APP_STATE.PLAYING_YOUTUBE;
+    return LEGACY_APP_STATE.PLAYING_YOUTUBE;
   }
 
   if (mode === 'system-audio') {
-    return activity === 'playing' ? APP_STATE.PLAYING_SYSTEM_AUDIO : APP_STATE.IDLE;
+    return activity === 'playing'
+      ? LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO
+      : LEGACY_APP_STATE.IDLE;
   }
 
-  return APP_STATE.IDLE;
+  return LEGACY_APP_STATE.IDLE;
 }
 
 // Phase 5 migration boundary. Production callers should consume the narrower
@@ -225,11 +239,11 @@ function deriveModeActivityFromSources(sources: {
       sources.activity === 'playing' ||
       (sources.mode === 'file' && sources.lifecycle === PLAYBACK_STATE.PLAYING)
     ) {
-      return deriveModeActivityFromAppState(APP_STATE.PLAYING_AUDIO);
+      return OWNER_MODE_ACTIVITY.file;
     }
 
     if (sources.activity === 'paused' || sources.lifecycle === PLAYBACK_STATE.PAUSED) {
-      return deriveModeActivityFromAppState(APP_STATE.PAUSED);
+      return { mode: 'file', activity: 'paused' };
     }
 
     if (sources.activity === 'pending' || sources.hasFilePipeline) {
@@ -291,7 +305,7 @@ export function getPlaybackOwnership(): PlaybackOwnership {
 // Phase 5 compatibility bridge. New production code should prefer mode/activity
 // helpers; this remains for tests and legacy adapter signatures that still
 // speak the old enum at their boundary.
-export function getPlaybackLegacyAppState(): AppStateValue {
+export function getPlaybackLegacyAppState(): LegacyAppStateValue {
   const playback = getPlaybackOwnership();
   return deriveAppStateFromModeActivity(playback.mode, playback.activity);
 }
@@ -520,8 +534,7 @@ export function claimPlaybackOwner(
   options: PlaybackClaimOptions = {},
 ): PlaybackOwnership {
   if (!options.pending) {
-    const modeActivity = deriveModeActivityFromAppState(OWNER_APP_STATE[owner]);
-    writePlaybackModeActivity(modeActivity);
+    writePlaybackModeActivity(OWNER_MODE_ACTIVITY[owner]);
   }
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
@@ -529,7 +542,7 @@ export function claimPlaybackOwner(
   return syncPlaybackModeActivityFromOwnership();
 }
 
-export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership {
+export function setPlaybackAppState(appState: LegacyAppStateValue): PlaybackOwnership {
   const modeActivity = deriveModeActivityFromAppState(appState);
   return setPlaybackModeActivity(modeActivity);
 }
@@ -544,6 +557,8 @@ export function releasePlaybackOwner(
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
   }
-  const modeActivity = deriveModeActivityFromAppState(options.nextAppState ?? APP_STATE.IDLE);
+  const modeActivity = deriveModeActivityFromAppState(
+    options.nextAppState ?? LEGACY_APP_STATE.IDLE,
+  );
   return setPlaybackModeActivity(modeActivity);
 }

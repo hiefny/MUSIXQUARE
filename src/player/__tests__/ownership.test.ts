@@ -15,6 +15,7 @@ import {
   isAppStatePlayingSystemAudio,
   isAppStatePlayingYouTube,
   isExternalOwner,
+  isFileOwner,
   isPlaybackIdle,
   isPlaybackModeSystemAudio,
   isPlaybackModeYouTube,
@@ -25,6 +26,7 @@ import {
   isPlaybackPlayingYouTube,
   isSystemAudioOwner,
   isSystemAudioPlaceholderMeta,
+  isYouTubeOwner,
   releasePlaybackOwner,
   setPlaybackAppState,
   setPlaybackTrackMeta,
@@ -66,6 +68,7 @@ describe('playback ownership view', () => {
       isExternalOwner: true,
     });
     expect(isExternalOwner()).toBe(true);
+    expect(isYouTubeOwner()).toBe(true);
     expect(isAppStatePlayingYouTube()).toBe(true);
     expect(isPlaybackModeYouTube()).toBe(true);
     expect(isPlaybackPlayingYouTube()).toBe(true);
@@ -81,6 +84,7 @@ describe('playback ownership view', () => {
 
     setState('appState', APP_STATE.PAUSED);
     expect(isAppStatePaused()).toBe(true);
+    expect(isFileOwner()).toBe(false);
     expect(isPlaybackPaused()).toBe(true);
     expectPlaybackModeActivitySlots('file', 'paused');
   });
@@ -125,6 +129,7 @@ describe('playback ownership view', () => {
 
   it('treats active file lifecycle or transfer work as file ownership', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    expect(isFileOwner()).toBe(true);
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'file',
       mode: 'file',

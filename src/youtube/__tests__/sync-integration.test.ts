@@ -32,8 +32,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { APP_STATE, MSG } from '../../core/constants.ts';
-import { setPlaybackAppState } from '../../player/ownership.ts';
+import { MSG } from '../../core/constants.ts';
+import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
@@ -171,7 +171,7 @@ beforeEach(async () => {
   getYouTubePlayerMock.mockReset();
   getYouTubePlayerMock.mockReturnValue(null);
 
-  setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+  setPlaybackYouTubePlaying();
 
   // Initialize sync module so registerHandlers captures handlers.
   const syncMod = await import('../sync.ts');
@@ -375,7 +375,7 @@ describe('YouTube Sync — Regression Integration', () => {
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
       expect(handler).toBeDefined();
       setState('network.hostConn', mockHostConn as never);
-      setPlaybackAppState(APP_STATE.IDLE);
+      setPlaybackIdle();
       getYouTubePlayerMock.mockReturnValue(null);
 
       handler(
@@ -393,7 +393,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
 
       const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
-      setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+      setPlaybackYouTubePlaying();
       bus.emit('youtube:player-ready');
 
       expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
@@ -405,7 +405,7 @@ describe('YouTube Sync — Regression Integration', () => {
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
       const { resetYouTubeSyncState } = await importSync();
       setState('network.hostConn', mockHostConn as never);
-      setPlaybackAppState(APP_STATE.IDLE);
+      setPlaybackIdle();
       getYouTubePlayerMock.mockReturnValue(null);
 
       handler(

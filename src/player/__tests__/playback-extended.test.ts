@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { APP_STATE, MSG } from '../../core/constants.ts';
+import { MSG } from '../../core/constants.ts';
 import {
   getCurrentAudioBuffer,
   getLoadToken,
@@ -15,10 +15,12 @@ import {
 import { initPlayback } from '../playback.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
 import {
-  getPlaybackLegacyAppState,
   isExternalOwner,
   isSystemAudioOwner,
-  setPlaybackAppState,
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackSystemAudioPlaying,
+  setPlaybackYouTubePlaying,
 } from '../ownership.ts';
 import { broadcast } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
@@ -86,9 +88,10 @@ describe('stopPlayerNode', () => {
 
 describe('stopAllMedia', () => {
   it('resets appState to IDLE', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     stopAllMedia();
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 
   it('requests visualizer fade-out instead of frame hold', () => {
@@ -104,7 +107,7 @@ describe('stopAllMedia', () => {
   });
 
   it('broadcasts PAUSE with reason=transition for silent track-change path', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
 
     stopAllMedia({ silent: true });
 
@@ -114,15 +117,16 @@ describe('stopAllMedia', () => {
   });
 
   it('clears YouTube mode during a silent audio takeover', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackYouTubePlaying();
 
     stopAllMedia({ silent: true });
 
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 
   it('broadcasts PAUSE with reason=stop for explicit terminal stops', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
 
     stopAllMedia();
 
@@ -165,23 +169,25 @@ describe('pause', () => {
   it('holds the current visualizer frame for an explicit pause', () => {
     const hold = vi.fn();
     bus.on('visualizer:hold-frame', hold);
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
 
     pause();
 
     expect(hold).toHaveBeenCalledTimes(1);
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
   });
 
   it('does not hold the visualizer for programmatic rendezvous pauses', () => {
     const hold = vi.fn();
     bus.on('visualizer:hold-frame', hold);
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
 
     pause(0, { holdVisualizer: false });
 
     expect(hold).not.toHaveBeenCalled();
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
   });
 });
 
@@ -215,7 +221,7 @@ describe('late-join playback bootstrap', () => {
 
   it('sends file PLAY bootstrap without legacy appState payload', () => {
     initPlayback();
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     setState('playlist.currentTrackIndex', 0);
     setState('playlist.items', [{ name: 'song.mp3' }]);
 
@@ -233,7 +239,7 @@ describe('late-join playback bootstrap', () => {
 
   it('sends file PAUSE bootstrap with pause reason but no legacy appState payload', () => {
     initPlayback();
-    setPlaybackAppState(APP_STATE.PAUSED);
+    setPlaybackFilePaused();
     setState('playlist.currentTrackIndex', 1);
     setState('player.pausedAt', 42);
 
@@ -252,7 +258,7 @@ describe('late-join playback bootstrap', () => {
 
   it('sends system audio bootstrap without file playback payloads', () => {
     initPlayback();
-    setPlaybackAppState(APP_STATE.PLAYING_SYSTEM_AUDIO);
+    setPlaybackSystemAudioPlaying();
 
     const send = emitPeerConnected();
 

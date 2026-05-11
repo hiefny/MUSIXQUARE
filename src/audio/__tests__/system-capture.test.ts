@@ -3,10 +3,9 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { APP_STATE } from '../../core/constants.ts';
 import { getState, resetState } from '../../core/state.ts';
 import type { TrackMeta } from '../../types/index.ts';
-import { getPlaybackLegacyAppState, setPlaybackAppState } from '../../player/ownership.ts';
+import { setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
 import { restorePreSystemAudioPlaybackState } from '../system-capture.ts';
 
 type Snapshot = Parameters<typeof restorePreSystemAudioPlaybackState>[0];
@@ -74,7 +73,6 @@ describe('restorePreSystemAudioPlaybackState', () => {
 
     expect(getState('player.pausedAt')).toBe(12);
     expect(getState('player.currentTrackMeta')).toBe(meta);
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
     expect(getState('playback.mode')).toBe('file');
     expect(getState('playback.activity')).toBe('paused');
     expect(document.querySelector('.ch-opt[data-ch="-1"]')?.classList.contains('active')).toBe(
@@ -115,7 +113,6 @@ describe('restorePreSystemAudioPlaybackState', () => {
       }),
     );
 
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
     expect(getState('playback.mode')).toBe('file');
     expect(getState('playback.activity')).toBe('paused');
   });
@@ -128,7 +125,6 @@ describe('restorePreSystemAudioPlaybackState', () => {
       }),
     );
 
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
     expect(getState('playback.mode')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
   });
@@ -140,17 +136,15 @@ describe('restorePreSystemAudioPlaybackState', () => {
       }),
     );
 
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
     expect(getState('playback.mode')).toBe('file');
     expect(getState('playback.activity')).toBe('paused');
   });
 
   it('restores idle snapshots to idle', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_SYSTEM_AUDIO);
+    setPlaybackSystemAudioPlaying();
 
     restorePreSystemAudioPlaybackState(makeSnapshot());
 
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
     expect(getState('playback.mode')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
   });

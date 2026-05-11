@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { APP_STATE, MSG, PLAYBACK_STATE } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import { handleData, resetInboundRateLimit } from '../protocol.ts';
@@ -23,7 +23,7 @@ import {
   resetClockState,
 } from '../shared-clock.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
-import { setPlaybackAppState } from '../../player/ownership.ts';
+import { setPlaybackFilePlaying, setPlaybackIdle } from '../../player/ownership.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -85,7 +85,7 @@ describe('handleAutoSync', () => {
 describe('SYNC_PING playback snapshot', () => {
   it('does not advertise PLAYING_AUDIO while host is decoded but waiting to start', async () => {
     initSync();
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
     setState('playlist.currentTrackIndex', 2);
 
@@ -108,7 +108,7 @@ describe('SYNC_PING playback snapshot', () => {
 
   it('emits decomposed playback fields for audible file playback', async () => {
     initSync();
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
     setState('playlist.currentTrackIndex', 3);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
@@ -137,7 +137,7 @@ describe('SYNC_PING playback snapshot', () => {
   it('prefers decomposed mode/activity when deciding whether a sync pong is file playback', () => {
     expect(
       isSyncPongPlayingFile({
-        appState: APP_STATE.PLAYING_AUDIO,
+        appState: 'PLAYING_AUDIO',
         mode: 'youtube',
         activity: 'playing',
       }),
@@ -145,7 +145,7 @@ describe('SYNC_PING playback snapshot', () => {
 
     expect(
       isSyncPongPlayingFile({
-        appState: APP_STATE.PAUSED,
+        appState: 'PAUSED',
         mode: 'file',
         activity: 'playing',
       }),
@@ -153,12 +153,12 @@ describe('SYNC_PING playback snapshot', () => {
   });
 
   it('rejects legacy-only appState when decomposed sync fields are absent', () => {
-    expect(isSyncPongPlayingFile({ appState: APP_STATE.PLAYING_AUDIO })).toBe(false);
-    expect(isSyncPongPlayingFile({ appState: APP_STATE.PAUSED })).toBe(false);
+    expect(isSyncPongPlayingFile({ appState: 'PLAYING_AUDIO' })).toBe(false);
+    expect(isSyncPongPlayingFile({ appState: 'PAUSED' })).toBe(false);
   });
 
   it('exposes the paused file shadow for silent file transition pongs', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
 
     expect(getSyncPongPlaybackState()).toEqual({
@@ -168,7 +168,7 @@ describe('SYNC_PING playback snapshot', () => {
   });
 
   it('does not let a stale file lifecycle advertise new wire-visible playback', () => {
-    setPlaybackAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
 
     expect(getSyncPongPlaybackState()).toEqual({

@@ -12,11 +12,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   PLAYBACK_STATE,
   LOAD_SOURCE,
-  APP_STATE,
   type PlaybackStateValue,
 } from '../../core/constants.ts';
 import { getState, setState, resetState } from '../../core/state.ts';
-import { setPlaybackAppState } from '../ownership.ts';
+import {
+  setPlaybackFilePlaying,
+  setPlaybackSystemAudioPlaying,
+  setPlaybackYouTubePlaying,
+} from '../ownership.ts';
 import { transition, peekTransition, __testing, type PlaybackEvent } from '../lifecycle.ts';
 
 const { resolve } = __testing;
@@ -36,7 +39,7 @@ function step(from: PlaybackStateValue, ev: PlaybackEvent) {
 beforeEach(() => {
   resetState();
   // Default to PLAYING_AUDIO mode so lifecycle transitions aren't gated.
-  setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+  setPlaybackFilePlaying();
 });
 
 // ─── FROM IDLE ─────────────────────────────────────────────────────
@@ -603,7 +606,7 @@ describe('transition() state tree integration', () => {
   });
 
   it('is a no-op when appState is PLAYING_YOUTUBE', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackYouTubePlaying();
     forceState(PLAYBACK_STATE.IDLE);
     const result = transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3' });
     expect(result).toBe(PLAYBACK_STATE.IDLE);
@@ -611,7 +614,7 @@ describe('transition() state tree integration', () => {
   });
 
   it('is a no-op when appState is PLAYING_SYSTEM_AUDIO', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_SYSTEM_AUDIO);
+    setPlaybackSystemAudioPlaying();
     forceState(PLAYBACK_STATE.IDLE);
     const result = transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3' });
     expect(result).toBe(PLAYBACK_STATE.IDLE);

@@ -2,11 +2,10 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { APP_STATE } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import { setPlaybackAppState } from '../../player/ownership.ts';
+import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
@@ -153,7 +152,7 @@ describe('initPlayerControls playback mode rendering', () => {
 
   it('renders the current playback mode immediately and stays reactive afterward', () => {
     renderPlaybackControls();
-    setPlaybackAppState(APP_STATE.PLAYING_SYSTEM_AUDIO);
+    setPlaybackSystemAudioPlaying();
 
     initPlayerControls();
 
@@ -164,7 +163,7 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
     expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop');
 
-    setPlaybackAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
 
     expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
     expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media');

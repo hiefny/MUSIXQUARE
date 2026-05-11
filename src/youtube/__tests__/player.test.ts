@@ -4,8 +4,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { APP_STATE, MSG } from '../../core/constants.ts';
-import { setPlaybackAppState } from '../../player/ownership.ts';
+import { MSG } from '../../core/constants.ts';
+import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
@@ -210,7 +210,7 @@ describe('YouTube Player', () => {
       const { setManagedTimer } = await import('../../core/timers.ts');
       const { STAGE2_RENDEZVOUS_BROADCAST_MS } = await import('../constants.ts');
 
-      setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+      setPlaybackYouTubePlaying();
       setState('playlist.currentTrackIndex', 0);
       setState('playlist.items', [
         {

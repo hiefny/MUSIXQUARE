@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { APP_STATE, MSG } from '../../core/constants.ts';
+import { MSG } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection, TrackMeta } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { registerSystemAudioGuestListeners } from '../system-audio-guest.ts';
-import { getPlaybackLegacyAppState, setPlaybackAppState } from '../../player/ownership.ts';
+import { setPlaybackFilePlaying } from '../../player/ownership.ts';
 import { stopAllMedia } from '../../player/transport.ts';
 
 const timerMocks = vi.hoisted(() => {
@@ -73,7 +73,7 @@ describe('system audio guest receive watchdog', () => {
 
   it('restores previous meta if SYSTEM_AUDIO_START never produces a stream', async () => {
     const previousMeta: TrackMeta = { type: 'youtube', name: 'previous-track' };
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     setState('player.currentTrackMeta', previousMeta);
 
     await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
@@ -86,7 +86,8 @@ describe('system audio guest receive watchdog', () => {
 
     expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
     expect(getState('systemAudio.isReceiving')).toBe(false);
-    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 
   it('clears the watchdog once a stream is marked as receiving', async () => {

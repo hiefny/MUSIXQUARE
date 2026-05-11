@@ -4,8 +4,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { APP_STATE } from '../../core/constants.ts';
-import { setPlaybackAppState } from '../ownership.ts';
+import {
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackIdle,
+  setPlaybackYouTubePlaying,
+} from '../ownership.ts';
 
 // Mock transport.ts to avoid Tone.js
 vi.mock('../transport.ts', () => ({
@@ -121,14 +125,14 @@ describe('initMediaSession', () => {
   });
 
   it('play handler calls togglePlay when paused with valid track', () => {
-    setPlaybackAppState(APP_STATE.PAUSED);
+    setPlaybackFilePaused();
     setState('playlist.currentTrackIndex', 0);
     _handlers['play']();
     expect(togglePlay).toHaveBeenCalled();
   });
 
   it('play handler delegates to YouTube mode even though YouTube has its own pause state', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackYouTubePlaying();
     _handlers['play']();
     expect(togglePlay).toHaveBeenCalled();
   });
@@ -136,7 +140,7 @@ describe('initMediaSession', () => {
   it('play handler emits playlist:play-track when idle with valid track', () => {
     const fn = vi.fn();
     bus.on('playlist:play-track', fn);
-    setPlaybackAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
     setState('playlist.currentTrackIndex', 2);
     _handlers['play']();
     expect(fn).toHaveBeenCalledWith(2);
@@ -148,26 +152,26 @@ describe('initMediaSession', () => {
   it('play handler still works for non-operator guests', () => {
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
-    setPlaybackAppState(APP_STATE.PAUSED);
+    setPlaybackFilePaused();
     setState('playlist.currentTrackIndex', 0);
     _handlers['play']();
     expect(togglePlay).toHaveBeenCalled();
   });
 
   it('pause handler calls togglePlay when playing', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     _handlers['pause']();
     expect(togglePlay).toHaveBeenCalled();
   });
 
   it('pause handler delegates to YouTube mode', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackYouTubePlaying();
     _handlers['pause']();
     expect(togglePlay).toHaveBeenCalled();
   });
 
   it('pause handler does nothing when already paused', () => {
-    setPlaybackAppState(APP_STATE.PAUSED);
+    setPlaybackFilePaused();
     _handlers['pause']();
     expect(togglePlay).not.toHaveBeenCalled();
   });
@@ -219,13 +223,13 @@ describe('initMediaSession', () => {
   });
 
   it('syncs OS playback state from playback activity', () => {
-    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     expect(navigator.mediaSession.playbackState).toBe('playing');
 
-    setPlaybackAppState(APP_STATE.PAUSED);
+    setPlaybackFilePaused();
     expect(navigator.mediaSession.playbackState).toBe('paused');
 
-    setPlaybackAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
     expect(navigator.mediaSession.playbackState).toBe('none');
   });
 });

@@ -11,15 +11,15 @@ describe('feature flags', () => {
     expect(isFeatureFlagEnabled('syncPongLegacyAppStateAccept')).toBe(false);
   });
 
-  it('keeps the appState source-of-truth flip disabled by default', () => {
-    expect(isFeatureFlagEnabled('appStateSourceOfTruthFlip')).toBe(false);
+  it('keeps the appState source-of-truth flip enabled by default', () => {
+    expect(isFeatureFlagEnabled('appStateSourceOfTruthFlip')).toBe(true);
   });
 
   it('exposes immutable default values for diagnostics', () => {
     expect(getFeatureFlagDefaults()).toMatchObject({
       syncPongLegacyAppStateEmit: false,
       syncPongLegacyAppStateAccept: false,
-      appStateSourceOfTruthFlip: false,
+      appStateSourceOfTruthFlip: true,
     });
     expect(Object.isFrozen(getFeatureFlagDefaults())).toBe(true);
   });
@@ -45,7 +45,7 @@ describe('feature flags', () => {
     const flags = await import('../feature-flags.ts');
 
     expect(flags.isFeatureFlagEnabled('syncPongLegacyAppStateEmit')).toBe(false);
-    expect(flags.isFeatureFlagEnabled('appStateSourceOfTruthFlip')).toBe(false);
+    expect(flags.isFeatureFlagEnabled('appStateSourceOfTruthFlip')).toBe(true);
   });
 
   it('can re-enable legacy sync compatibility as a rollback switch', async () => {

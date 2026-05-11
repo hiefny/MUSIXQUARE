@@ -36,6 +36,7 @@ import {
   type TransferStateValue,
 } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
+import { isFeatureFlagEnabled } from '../core/feature-flags.ts';
 import { getState, setState } from '../core/state.ts';
 import type { TrackMeta } from '../types/index.ts';
 
@@ -209,12 +210,6 @@ function deriveModeActivity(ownership: {
     return deriveModeActivityFromAppState(APP_STATE.PLAYING_YOUTUBE);
   }
 
-  // YouTube pause is represented by YouTube's own player state, not APP_STATE.PAUSED.
-  // In this legacy appState model, PAUSED means the local-file pipeline is paused.
-  if (ownership.appState === APP_STATE.PAUSED || ownership.lifecycle === PLAYBACK_STATE.PAUSED) {
-    return deriveModeActivityFromAppState(APP_STATE.PAUSED);
-  }
-
   if (ownership.owner === 'file') {
     if (
       ownership.appState === APP_STATE.PLAYING_AUDIO ||
@@ -223,9 +218,19 @@ function deriveModeActivity(ownership: {
       return deriveModeActivityFromAppState(APP_STATE.PLAYING_AUDIO);
     }
 
+    if (ownership.lifecycle === PLAYBACK_STATE.PAUSED) {
+      return deriveModeActivityFromAppState(APP_STATE.PAUSED);
+    }
+
     if (ownership.hasFilePipeline) {
       return { mode: 'file', activity: 'pending' };
     }
+  }
+
+  // YouTube pause is represented by YouTube's own player state, not APP_STATE.PAUSED.
+  // In this legacy appState model, PAUSED means the local-file pipeline is paused.
+  if (ownership.appState === APP_STATE.PAUSED) {
+    return deriveModeActivityFromAppState(APP_STATE.PAUSED);
   }
 
   return { mode: null, activity: 'idle' };
@@ -316,6 +321,11 @@ function writePlaybackModeActivity(modeActivity: PlaybackModeActivity): void {
   setState('playback.activity', modeActivity.activity);
 }
 
+function syncLegacyAppStateFromModeActivity(modeActivity: PlaybackModeActivity): void {
+  if (!isFeatureFlagEnabled('appStateSourceOfTruthFlip')) return;
+  setState('appState', deriveAppStateFromModeActivity(modeActivity.mode, modeActivity.activity));
+}
+
 function assertPlaybackModeActivitySynced(expected: PlaybackModeActivity): void {
   if (!import.meta.env?.DEV) return;
 
@@ -331,9 +341,13 @@ function assertPlaybackModeActivitySynced(expected: PlaybackModeActivity): void 
 
 export function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
   const ownership = getPlaybackOwnership();
-  writePlaybackModeActivity({ mode: ownership.mode, activity: ownership.activity });
-  assertPlaybackModeActivitySynced(ownership);
-  return ownership;
+  const modeActivity = { mode: ownership.mode, activity: ownership.activity };
+  writePlaybackModeActivity(modeActivity);
+  syncLegacyAppStateFromModeActivity(modeActivity);
+
+  const syncedOwnership = getPlaybackOwnership();
+  assertPlaybackModeActivitySynced(syncedOwnership);
+  return syncedOwnership;
 }
 
 export function setPlaybackLifecycleState(lifecycle: PlaybackStateValue): PlaybackOwnership {
@@ -494,7 +508,12 @@ export function claimPlaybackOwner(
   options: PlaybackClaimOptions = {},
 ): PlaybackOwnership {
   if (!options.pending) {
-    setState('appState', OWNER_APP_STATE[owner]);
+    const modeActivity = deriveModeActivityFromAppState(OWNER_APP_STATE[owner]);
+    writePlaybackModeActivity(modeActivity);
+    syncLegacyAppStateFromModeActivity(modeActivity);
+    if (!isFeatureFlagEnabled('appStateSourceOfTruthFlip')) {
+      setState('appState', OWNER_APP_STATE[owner]);
+    }
   }
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
@@ -503,7 +522,12 @@ export function claimPlaybackOwner(
 }
 
 export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership {
-  setState('appState', appState);
+  const modeActivity = deriveModeActivityFromAppState(appState);
+  writePlaybackModeActivity(modeActivity);
+  syncLegacyAppStateFromModeActivity(modeActivity);
+  if (!isFeatureFlagEnabled('appStateSourceOfTruthFlip')) {
+    setState('appState', appState);
+  }
   return syncPlaybackModeActivityFromOwnership();
 }
 
@@ -517,6 +541,11 @@ export function releasePlaybackOwner(
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
   }
-  setState('appState', options.nextAppState ?? APP_STATE.IDLE);
+  const modeActivity = deriveModeActivityFromAppState(options.nextAppState ?? APP_STATE.IDLE);
+  writePlaybackModeActivity(modeActivity);
+  syncLegacyAppStateFromModeActivity(modeActivity);
+  if (!isFeatureFlagEnabled('appStateSourceOfTruthFlip')) {
+    setState('appState', options.nextAppState ?? APP_STATE.IDLE);
+  }
   return syncPlaybackModeActivityFromOwnership();
 }

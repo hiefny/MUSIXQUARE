@@ -134,7 +134,9 @@ describe('remote-share to local direct transfer promotion', () => {
       conn,
     );
 
-    expect(getState('appState')).toBe(APP_STATE.IDLE);
+    expect(getState('appState')).toBe(APP_STATE.PAUSED);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('pending');
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(getState('playlist.currentTrackIndex')).toBe(0);
   });

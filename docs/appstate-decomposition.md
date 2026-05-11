@@ -9,6 +9,7 @@
 - 5c (reader migration): **DONE for raw readers**. Production raw legacy readers are now limited to `ownership.ts` and `types/index.ts`. Compatibility consumers that still need the legacy enum read it through `getPlaybackLegacyAppState()` and are pinned by test.
 - 5d (wire protocol compat): **DONE**. `SYNC_PONG` defaults to mode/activity only; legacy `appState` emit/accept remain available only through rollback env flags.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
+- 5f (source-of-truth flip): **DONE**. Ownership writes `playback.mode/activity` first and derives the compatibility `appState` shadow while `appStateSourceOfTruthFlip` defaults on.
 
 ## Motivation
 
@@ -243,14 +244,15 @@ Restore path keeps the previous UX contract: YouTube returns through the room-wi
 
 The Phase 3 doctrine still holds: this snapshot captures "what was playing before capture started", not "what is playing now". The migration preserves that semantic; only the field names change.
 
-### 5f - Source-of-Truth Flip (0.5 day, gated)
+### 5f - Source-of-Truth Flip (0.5 day)
 
-Once 5c and 5e land and 5d has reached at least 5d-3, flip `appState` to be a write-derived view of `(mode, activity)`. The flip itself is small:
+DONE. `appState` is now a write-derived compatibility view of `(mode, activity)`:
 
 - `ownership.ts` writes `mode` and `activity` first, then derives `appState` from them.
-- The DEV-only invariant assertion from 5b becomes redundant; remove it.
+- Lifecycle-derived pending states keep their semantic priority over the derived legacy `PAUSED` shadow, so file `DOWNLOADING` / `READY` / `FAILED` do not collapse into `paused`.
+- `appStateSourceOfTruthFlip` defaults to `true`; setting `VITE_MUSIXQUARE_APPSTATE_SOURCE_OF_TRUTH_FLIP=false` is the rollback path.
 
-This step is gated behind a feature flag for one release. Rollback is flipping the flag off.
+The DEV-only invariant assertion from 5b remains useful until 5g removes the legacy shadow entirely.
 
 ### 5g - `appState` Removal (Optional, 0.5 day)
 
@@ -265,7 +267,7 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 | Risk | Likelihood | Severity | Mitigation |
 | --- | --- | --- | --- |
 | Wire protocol break (host new, guest old) | Medium after cutover | High | Legacy emit/accept rollback flags remain available. |
-| Invariant drift between `appState` and `(mode, activity)` during 5b-5f | Medium | High | DEV-only assertion in ownership write helpers. Comprehensive transition tests in 5b. |
+| Invariant drift between `appState` and `(mode, activity)` before 5g | Low | High | DEV-only assertion in ownership write helpers. Comprehensive transition tests in 5b/5f. |
 | `system-capture` restore picks wrong mode after 5e | Low | Medium | Explicit restore matrix for file/youtube/system-audio x playing/paused/idle. |
 | UI displays stale during mid-migration commit | Low | Low | Per-commit test gate. Body-class sync lands in a single commit. |
 | Adapter's `PAUSED => mode: 'file'` assumption breaks post-decomposition | N/A | N/A | The assumption is encoded in legacy appState only. Once mode/activity are primary, "youtube paused" gets its own valid representation. Remove the special-case branch in `deriveModeActivity` when 5f lands. |
@@ -278,7 +280,7 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 - `npm run lint` returns clean.
 - `npm run build` succeeds.
 - Manual cross-version smoke: host on previous version with guest on new version, and host on new version with guest on previous version. Critical for 5d.
-- DEV invariant assertion stays on between 5b and 5f.
+- DEV invariant assertion stays on until 5g removes the legacy shadow.
 
 ## Rollback Strategy
 
@@ -290,10 +292,10 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 | 5d-3 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT=true`. |
 | 5d-4 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT=true`. |
 | 5e | Revert snapshot shape change. |
-| 5f | Flip feature flag off. `appState` returns to source-of-truth. |
+| 5f | Set `VITE_MUSIXQUARE_APPSTATE_SOURCE_OF_TRUTH_FLIP=false`. |
 | 5g | Restore `state.appState` field in state tree default. |
 
-Feature flags for 5d-3/4 and 5f live in `src/core/feature-flags.ts`. Defaults preserve current production behavior; Vite env overrides are reserved for controlled preview builds and rollback switches.
+Feature flags for 5d-3/4 and 5f live in `src/core/feature-flags.ts`. Defaults now follow the decomposed playback model; Vite env overrides are reserved for controlled preview builds and rollback switches.
 
 ## Open Questions
 
@@ -319,7 +321,7 @@ Feature flags for 5d-3/4 and 5f live in `src/core/feature-flags.ts`. Defaults pr
 | 5d-3 | done | none |
 | 5d-4 | done | none |
 | 5e | 0.5 day | none |
-| 5f | 0.5 day | 1 release |
+| 5f | done | none |
 | 5g | 0.5 day (optional) | none |
 
 **Total**: 7-9 days active dev originally estimated; release-cadence waits are now bypassed in this worktree and guarded by rollback flags.

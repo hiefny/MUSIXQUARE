@@ -8,7 +8,7 @@
 const FEATURE_FLAG_DEFAULTS = Object.freeze({
   syncPongLegacyAppStateEmit: false,
   syncPongLegacyAppStateAccept: false,
-  appStateSourceOfTruthFlip: false,
+  appStateSourceOfTruthFlip: true,
 } as const);
 
 export type FeatureFlagName = keyof typeof FEATURE_FLAG_DEFAULTS;

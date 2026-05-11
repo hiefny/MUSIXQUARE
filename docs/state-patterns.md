@@ -1,6 +1,6 @@
 # Playback State Consumption Plan
 
-MUSIXQUARE no longer exports legacy `APP_STATE` from core, and the global state tree no longer stores `state.appState`. The remaining legacy surface is a narrow `isPlaybackLegacyIdle()` predicate for historical strict-IDLE semantics. This document defines the contract for how modules consume playback state during and after the ownership refactor.
+MUSIXQUARE no longer exports legacy `APP_STATE` from core, and the global state tree no longer stores `state.appState`. The remaining compatibility surface is a narrow `isPlaybackIdleCompat()` predicate for historical strict-IDLE semantics. This document defines the contract for how modules consume playback state during and after the ownership refactor.
 
 ## Core Problem
 
@@ -14,9 +14,9 @@ The goal is not to remove every poll. The goal is to make every poll intentional
 
 ## Contracts
 
-### Pattern 1: Legacy IDLE Compatibility Read
+### Pattern 1: IDLE Compatibility Read
 
-Use `playback.mode/activity` helpers for semantic questions, and use `isPlaybackLegacyIdle()` only when a caller must preserve the old enum's exact `IDLE` behavior.
+Use `playback.mode/activity` helpers for semantic questions, and use `isPlaybackIdleCompat()` only when a caller must preserve the old enum's exact `IDLE` behavior.
 
 Good fits:
 
@@ -24,7 +24,7 @@ Good fits:
 
 Examples:
 
-- `isPlaybackLegacyIdle()` when the caller truly needs old `APP_STATE.IDLE` compatibility
+- `isPlaybackIdleCompat()` when the caller truly needs old `APP_STATE.IDLE` compatibility
 - `getPlaybackModeActivity().mode === 'youtube'`
 
 ### Pattern 2: Broad Ownership Poll
@@ -77,17 +77,17 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
 ### Phase 0: Contract Documentation
 
 - Add this document.
-- Keep `ownership.ts` header explicit about mode/activity, strict legacy IDLE, broad ownership, and UI subscription.
+- Keep `ownership.ts` header explicit about mode/activity, strict IDLE compatibility, broad ownership, and UI subscription.
 - No behavior change.
 
 ### Phase 1: Playback Domain Residuals
 
-- Replace remaining raw playback-domain appState polls with `ownership.ts` predicates or adapter reads. `playback.ts` and YouTube runtime mode guards are migrated; queue/indexing idle checks in `playlist.ts` and YouTube stay strict legacy `IDLE` through `isPlaybackLegacyIdle()`.
+- Replace remaining raw playback-domain appState polls with `ownership.ts` predicates or adapter reads. `playback.ts` and YouTube runtime mode guards are migrated; queue/indexing idle checks in `playlist.ts` and YouTube stay strict compatibility `IDLE` through `isPlaybackIdleCompat()`.
 - File `PLAY`/`PAUSE` protocol payloads no longer carry the legacy `appState` enum; receivers derive behavior from existing payload fields and local playback mode/activity.
 
 ### Phase 2: Gating Site Rename
 
-- Replace low-risk one-shot appState gates with playback mode/activity helpers or, only for true compatibility IDLE holdouts, `isPlaybackLegacyIdle()`.
+- Replace low-risk one-shot appState gates with playback mode/activity helpers or, only for true compatibility IDLE holdouts, `isPlaybackIdleCompat()`.
 - Leave protocol payload comparisons untouched.
 - Leave state snapshot capture untouched when the snapshot is forwarded or stored.
 

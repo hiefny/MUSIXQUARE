@@ -17,7 +17,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import {
-  isPlaybackLegacyIdle,
+  isPlaybackIdleCompat,
   isPlaybackModeYouTube,
   setPlaybackIdle,
   setPlaybackTrackMeta,
@@ -51,8 +51,8 @@ export function getPendingAutoSyncOnReady(): boolean {
   return _pendingAutoSyncOnReady;
 }
 
-function isLegacyIdle(): boolean {
-  return isPlaybackLegacyIdle();
+function isCompatIdle(): boolean {
+  return isPlaybackIdleCompat();
 }
 
 import { registerHandlers } from '../network/protocol.ts';
@@ -275,7 +275,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   // This prevents clobbering the sub-index 0 set during the indexing callback.
   if (
     !wasInYouTube &&
-    !isLegacyIdle() &&
+    !isCompatIdle() &&
     !isYtIndexing() &&
     !isYtLoadInProgress()
   ) {
@@ -1046,7 +1046,7 @@ export function initYouTube(): void {
     // adding a YouTube link jumped playback to it instead of queuing.
     // isYtIndexing keeps its original behavior (mid-index re-add path).
     const playlistWasEmpty = playlist.length === 0;
-    const isIdle = (isLegacyIdle() && playlistWasEmpty) || isYtIndexing();
+    const isIdle = (isCompatIdle() && playlistWasEmpty) || isYtIndexing();
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
@@ -1194,8 +1194,8 @@ export function initYouTube(): void {
     // common from YouTube share links) hit this path — previously the
     // playlist silently overrode the currently playing local file.
     const subMap = getState('youtube.subItemsMap') || {};
-    const appIsIdle = isLegacyIdle();
-    if (playlistId && !subMap[playlistId]?.ids?.length && appIsIdle) {
+    const playbackIsIdle = isCompatIdle();
+    if (playlistId && !subMap[playlistId]?.ids?.length && playbackIsIdle) {
       log.info(
         `[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`,
       );

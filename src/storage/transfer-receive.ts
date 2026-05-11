@@ -466,11 +466,8 @@ export async function handleFilePrepare(
     }
   }
 
-  // Phase 4: lifecycle is authoritative. If we were AWAITING_PRELOAD, the
-  // transition() call later in this handler supersedes us correctly. The
-  // legacy flag is still dual-written in other paths during migration, so
-  // we defensively clear it if set (harmless once the flag is deleted in
-  // Phase 4.3).
+  // Lifecycle is authoritative. If we were AWAITING_PRELOAD, the transition()
+  // call later in this handler supersedes us correctly.
   if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
     log.debug('[file-prepare] AWAITING_PRELOAD → will be superseded below');
   }

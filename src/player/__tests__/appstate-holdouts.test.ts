@@ -11,12 +11,12 @@ const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>();
 
 const LEGACY_APPSTATE_PROJECTION_PATTERN =
   /\b(getPlaybackLegacyAppState|setPlaybackAppState|deriveModeActivityFromAppState|deriveAppStateFromModeActivity|LegacyAppStateValue)\b/;
-const LEGACY_IDLE_COMPAT_HELPER = 'isPlaybackLegacyIdle';
+const IDLE_COMPAT_HELPER = 'isPlaybackIdleCompat';
 
-const ALLOWED_LEGACY_IDLE_COMPAT_FILES = new Map<string, string>([
+const ALLOWED_IDLE_COMPAT_FILES = new Map<string, string>([
   ['src/player/playlist.ts', 'Historical idle guards preserve async decode race behavior.'],
   ['src/player/transport.ts', 'Stop/pause guards preserve old IDLE compatibility semantics.'],
-  ['src/youtube/player.ts', 'Queue/indexing idle checks intentionally stay strict legacy IDLE.'],
+  ['src/youtube/player.ts', 'Queue/indexing idle checks intentionally stay strict compat IDLE.'],
 ]);
 
 function listProductionTypeScriptFiles(dir: string): string[] {
@@ -79,23 +79,23 @@ describe('legacy appState holdouts', () => {
     expect(actual).toEqual([]);
   });
 
-  it('keeps legacy IDLE compatibility predicate consumers documented', () => {
+  it('keeps IDLE compatibility predicate consumers documented', () => {
     const actual = listProductionTypeScriptFiles(SRC_ROOT)
       .filter((file) => {
         const content = readFileSync(file, 'utf8');
-        return content.includes(LEGACY_IDLE_COMPAT_HELPER);
+        return content.includes(IDLE_COMPAT_HELPER);
       })
       .map(toRepoPath)
       .filter((file) => file !== 'src/player/ownership.ts')
       .sort();
 
-    const expected = [...ALLOWED_LEGACY_IDLE_COMPAT_FILES.keys()].sort();
+    const expected = [...ALLOWED_IDLE_COMPAT_FILES.keys()].sort();
 
     expect(actual).toEqual(expected);
 
     for (const file of expected) {
       expect(existsSync(join(process.cwd(), file))).toBe(true);
-      expect(ALLOWED_LEGACY_IDLE_COMPAT_FILES.get(file)).toBeTruthy();
+      expect(ALLOWED_IDLE_COMPAT_FILES.get(file)).toBeTruthy();
     }
   });
 });

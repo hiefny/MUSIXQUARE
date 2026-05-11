@@ -12,8 +12,8 @@ import {
   isExternalOwner,
   isFileOwner,
   isPlaybackIdle,
-  isPlaybackLegacyIdle,
-  isPlaybackLegacyIdleModeActivity,
+  isPlaybackIdleCompat,
+  isPlaybackIdleCompatModeActivity,
   isPlaybackModeSystemAudio,
   isPlaybackModeYouTube,
   isPlaybackPending,
@@ -273,24 +273,24 @@ describe('playback ownership view', () => {
     });
   });
 
-  it('preserves legacy IDLE semantics as a narrow predicate', () => {
-    expect(isPlaybackLegacyIdleModeActivity({ mode: null, activity: 'idle' })).toBe(true);
-    expect(isPlaybackLegacyIdleModeActivity({ mode: 'file', activity: 'idle' })).toBe(true);
-    expect(isPlaybackLegacyIdleModeActivity({ mode: 'file', activity: 'pending' })).toBe(false);
-    expect(isPlaybackLegacyIdleModeActivity({ mode: 'file', activity: 'paused' })).toBe(false);
-    expect(isPlaybackLegacyIdleModeActivity({ mode: 'youtube', activity: 'playing' })).toBe(false);
-    expect(isPlaybackLegacyIdleModeActivity({ mode: 'system-audio', activity: 'pending' })).toBe(
+  it('preserves compatibility IDLE semantics as a narrow predicate', () => {
+    expect(isPlaybackIdleCompatModeActivity({ mode: null, activity: 'idle' })).toBe(true);
+    expect(isPlaybackIdleCompatModeActivity({ mode: 'file', activity: 'idle' })).toBe(true);
+    expect(isPlaybackIdleCompatModeActivity({ mode: 'file', activity: 'pending' })).toBe(false);
+    expect(isPlaybackIdleCompatModeActivity({ mode: 'file', activity: 'paused' })).toBe(false);
+    expect(isPlaybackIdleCompatModeActivity({ mode: 'youtube', activity: 'playing' })).toBe(false);
+    expect(isPlaybackIdleCompatModeActivity({ mode: 'system-audio', activity: 'pending' })).toBe(
       true,
     );
-    expect(isPlaybackLegacyIdleModeActivity({ mode: 'system-audio', activity: 'playing' })).toBe(
+    expect(isPlaybackIdleCompatModeActivity({ mode: 'system-audio', activity: 'playing' })).toBe(
       false,
     );
 
     setPlaybackSystemAudioPlaying();
-    expect(isPlaybackLegacyIdle()).toBe(false);
+    expect(isPlaybackIdleCompat()).toBe(false);
 
     setState('playback.activity', 'pending');
-    expect(isPlaybackLegacyIdle()).toBe(true);
+    expect(isPlaybackIdleCompat()).toBe(true);
   });
 
   it('writes playback mode/activity through semantic helpers', () => {

@@ -6,7 +6,7 @@
  *   mode/activity    - primary playback contract. Use the playback mode and
  *                      activity helpers when callers ask what is active or
  *                      which playback surface owns the UI/engine.
- *   legacy IDLE      - narrow compatibility predicate for callers that must
+ *   IDLE compat      - narrow compatibility predicate for callers that must
  *                      preserve the old enum's exact `IDLE` behavior.
  *   is<X>Owner()     - broad ownership semantic from getPlaybackOwnership().
  *                      Includes domain-specific signals (file lifecycle/
@@ -19,8 +19,8 @@
  *
  * The two coincide for YouTube (there is no pending state) but diverge for
  * file and system-audio. `owner` and `mode` may also intentionally diverge:
- * PAUSED has no active owner, but still derives `mode: 'file'` as the legacy
- * file-playback pause shadow. Pick the semantic that matches your check.
+ * Paused local-file playback has no active owner, but still records
+ * `mode: 'file'`. Pick the semantic that matches your check.
  *
  * Write helpers are intentionally small: they only encode ownership claims/
  * releases, and callers still perform media-engine setup/teardown themselves.
@@ -254,7 +254,7 @@ export function getPlaybackModeActivity(): PlaybackModeActivity {
   };
 }
 
-export function isPlaybackLegacyIdleModeActivity(playback: PlaybackModeActivity): boolean {
+export function isPlaybackIdleCompatModeActivity(playback: PlaybackModeActivity): boolean {
   return (
     playback.activity === 'idle' ||
     playback.mode === null ||
@@ -262,8 +262,8 @@ export function isPlaybackLegacyIdleModeActivity(playback: PlaybackModeActivity)
   );
 }
 
-export function isPlaybackLegacyIdle(): boolean {
-  return isPlaybackLegacyIdleModeActivity(getPlaybackModeActivity());
+export function isPlaybackIdleCompat(): boolean {
+  return isPlaybackIdleCompatModeActivity(getPlaybackModeActivity());
 }
 
 export function getPlaybackModeActivitySnapshot(): PlaybackModeActivity {
@@ -280,8 +280,8 @@ function getFreshPlaybackModeActivitySnapshot(): PlaybackModeActivity {
     return snapshot;
   }
 
-  // Transitional safety for test/bootstrap paths that still mutate legacy
-  // source fields directly or clear the bus bridge before setting them.
+  // Transitional safety for test/bootstrap paths that still mutate source
+  // fields directly or clear the bus bridge before setting them.
   writePlaybackModeActivity({ mode: ownership.mode, activity: ownership.activity });
   assertPlaybackModeActivitySynced(ownership);
   return { mode: ownership.mode, activity: ownership.activity };

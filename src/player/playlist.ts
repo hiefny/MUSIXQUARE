@@ -33,7 +33,7 @@ import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import {
-  isPlaybackLegacyIdle,
+  isPlaybackIdleCompat,
   isYouTubeOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
@@ -54,8 +54,8 @@ import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 let _shuffleOrder: number[] = [];
 let _shufflePosition = 0;
 
-function isLegacyIdle(): boolean {
-  return isPlaybackLegacyIdle();
+function isQueueIdle(): boolean {
+  return isPlaybackIdleCompat();
 }
 
 function generateShuffleOrder(): void {
@@ -759,7 +759,7 @@ export function playPrevTrack(): void {
       } else {
         // At start of shuffle pass, no repeat-all → restart current, same as
         // sequential behaviour at first track.
-        if (isLegacyIdle()) {
+        if (isQueueIdle()) {
           playTrack(Math.max(0, currentTrackIndex));
         } else {
           play(0);
@@ -783,7 +783,7 @@ export function playPrevTrack(): void {
       // In IDLE state (after track ended + stopAllMedia), play(0) silently fails
       // because no media source is available, but broadcast still fires → host-guest desync.
       // Use playTrack to reload the file instead.
-      if (isLegacyIdle()) {
+      if (isQueueIdle()) {
         // currentTrackIndex can be -1 after handleEndOfPlaylist. Clamp so
         // playTrack doesn't no-op-return on the out-of-range guard.
         playTrack(Math.max(0, currentTrackIndex));
@@ -1202,7 +1202,7 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
   // the last uploaded track — so clicking "next" immediately overflows the
   // playlist boundary into handleEndOfPlaylist (currentTrackIndex = -1).
   const currentIndex = getState('playlist.currentTrackIndex');
-  if (isLegacyIdle() && currentIndex < 0) {
+  if (isQueueIdle() && currentIndex < 0) {
     playTrack(playlist.length - addedCount);
   } else {
     // Already playing — preload next track for guests (covers end-of-playlist + file add case)

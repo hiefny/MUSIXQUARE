@@ -18,8 +18,8 @@ import {
   getPlaybackOwnership,
   getPlaybackModeActivity,
   isExternalOwner,
-  isPlaybackLegacyIdle,
-  isPlaybackLegacyIdleModeActivity,
+  isPlaybackIdleCompat,
+  isPlaybackIdleCompatModeActivity,
   isSystemAudioOwner,
   isYouTubeOwner,
   setPlaybackFilePaused,
@@ -71,27 +71,27 @@ export function fmtTime(s: number): string {
   return `${m}:${ss}`;
 }
 
-// ─── App State Helper ─────────────────────────────────────────────
+// ─── Playback Mode Helpers ────────────────────────────────────────
 
-function isLegacyIdle(): boolean {
-  return isPlaybackLegacyIdle();
+function isCompatIdle(): boolean {
+  return isPlaybackIdleCompat();
 }
 
-function isLegacyIdleOrPaused(): boolean {
+function isFileTransportInactive(): boolean {
   const playback = getPlaybackModeActivity();
   return (
-    isPlaybackLegacyIdleModeActivity(playback) ||
+    isPlaybackIdleCompatModeActivity(playback) ||
     (playback.mode === 'file' &&
       (playback.activity === 'paused' || playback.activity === 'pending'))
   );
 }
 
-function isLegacyPlayingAudio(): boolean {
+function isFilePlaybackPlaying(): boolean {
   const playback = getPlaybackModeActivity();
   return playback.mode === 'file' && playback.activity === 'playing';
 }
 
-function isLegacyPlayingSystemAudio(): boolean {
+function isSystemAudioPlaying(): boolean {
   const playback = getPlaybackModeActivity();
   return playback.mode === 'system-audio' && playback.activity === 'playing';
 }
@@ -116,7 +116,7 @@ export function getTrackPosition(): number {
     return ytPos;
   }
 
-  if (isLegacyIdleOrPaused()) return pausedAt;
+  if (isFileTransportInactive()) return pausedAt;
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
   const duration =
@@ -284,7 +284,7 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   }
 
   // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
-  if (!opts?.silent && !isLegacyIdle()) {
+  if (!opts?.silent && !isCompatIdle()) {
     setPlaybackIdle();
   }
 
@@ -366,7 +366,7 @@ export function seekTo(time: number): void {
 
   // Host: playing → seek + broadcast
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  if (isLegacyPlayingAudio()) {
+  if (isFilePlaybackPlaying()) {
     play(time);
     broadcast({
       type: MSG.PLAY,
@@ -407,7 +407,7 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
         incrementLoadToken();
         // Reset playback to IDLE to prevent stuck "playing" UI.
-        if (!isLegacyIdle()) {
+        if (!isCompatIdle()) {
           setPlaybackIdle();
         }
       }
@@ -553,7 +553,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 
     newNode.addEventListener('ended', () => {
       if (myLoadToken !== getLoadToken()) return;
-      if (isLegacyPlayingAudio()) {
+      if (isFilePlaybackPlaying()) {
         handleEnded();
       }
     });
@@ -598,7 +598,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 // ─── Pause ─────────────────────────────────────────────────────────
 
 export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }): void {
-  if (isLegacyIdleOrPaused()) return;
+  if (isFileTransportInactive()) return;
 
   let pausePos: number;
   if (typeof forcedTime === 'number' && Number.isFinite(forcedTime) && forcedTime >= 0) {
@@ -638,7 +638,7 @@ export function handleEnded(): void {
 
   const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
-  if (isLegacyIdleOrPaused()) return;
+  if (isFileTransportInactive()) return;
   if (isExternalOwner()) return;
 
   const curr = getTrackPosition();
@@ -676,7 +676,7 @@ export function togglePlay(): void {
   // System audio: ignore play/pause toggle (use "공유 중지" button instead)
   if (isSystemAudioOwner()) return;
 
-  const isActuallyPlaying = isLegacyPlayingAudio();
+  const isActuallyPlaying = isFilePlaybackPlaying();
   const pausedAt = getState('player.pausedAt') || 0;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const playlistItems = getState('playlist.items') || [];
@@ -746,9 +746,9 @@ export function stopPlayback(): void {
     return;
   }
 
-  if (isLegacyIdle()) return; // Nothing to stop
+  if (isCompatIdle()) return; // Nothing to stop
 
-  if (isLegacyPlayingSystemAudio()) {
+  if (isSystemAudioPlaying()) {
     stopSystemAudioCapture();
     return;
   }
@@ -791,7 +791,7 @@ export function skipTime(sec: number): void {
     showToast(t('toast.auto_play_canceled'));
   }
 
-  if (isLegacyIdle()) return;
+  if (isCompatIdle()) return;
   if (isSystemAudioOwner()) return; // No skip on live stream
   if (isYouTubeOwner()) {
     bus.emit('youtube:skip-time', sec);
@@ -808,7 +808,7 @@ export function skipTime(sec: number): void {
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
 
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const isPlaying = isLegacyPlayingAudio();
+  const isPlaying = isFilePlaybackPlaying();
 
   if (isPlaying) {
     play(target);
@@ -849,7 +849,7 @@ export function adjustSync(val: number): void {
   setState('sync.localOffset', localOffset + val);
   bus.emit('sync:display-update');
 
-  if (isLegacyIdleOrPaused()) {
+  if (isFileTransportInactive()) {
     // Paused: localOffset is stored and applied on next play(pausedAt) via
     // startedAt. Don't modify pausedAt — it would cancel out the offset.
     return;
@@ -862,8 +862,8 @@ export function adjustSync(val: number): void {
   setManagedTimer(
     'sync-nudge-replay',
     () => {
-      // Re-check app state at fire time — user may have paused during the burst.
-      if (isLegacyIdleOrPaused()) return;
+      // Re-check playback state at fire time — user may have paused during the burst.
+      if (isFileTransportInactive()) return;
       play(getTrackPosition());
     },
     NUDGE_REPLAY_DEBOUNCE_MS,

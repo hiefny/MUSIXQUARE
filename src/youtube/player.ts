@@ -18,6 +18,7 @@ import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
 import {
+  isPlaybackIdle,
   isYouTubePlaybackActive,
   setPlaybackTrackMeta,
   updatePlaybackTrackTitle,
@@ -1190,7 +1191,7 @@ export function initYouTube(): void {
     // common from YouTube share links) hit this path — previously the
     // playlist silently overrode the currently playing local file.
     const subMap = getState('youtube.subItemsMap') || {};
-    const appIsIdle = getState('appState') === APP_STATE.IDLE;
+    const appIsIdle = isPlaybackIdle();
     if (playlistId && !subMap[playlistId]?.ids?.length && appIsIdle) {
       log.info(
         `[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`,

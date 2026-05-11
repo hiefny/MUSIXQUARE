@@ -20,8 +20,9 @@ import {
   getPlaybackOwnership,
   isFilePlaybackBlockedByExternalMode,
   isPlaybackIdle,
-  setPlaybackAppState,
+  isSystemAudioPlaybackActive,
   isYouTubePlaybackActive,
+  setPlaybackAppState,
 } from './ownership.ts';
 import { isIdleOrPaused } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
@@ -737,15 +738,14 @@ export function stopPlayback(): void {
     return;
   }
 
-  const currentState = getState('appState');
   if (isPlaybackIdle()) return; // Nothing to stop
 
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (isSystemAudioPlaybackActive()) {
     stopSystemAudioCapture();
     return;
   }
 
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubePlaybackActive()) {
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
     // from triggering playlist:next-track (its guard checks appState !== PLAYING_YOUTUBE)
     setAppState(APP_STATE.IDLE);

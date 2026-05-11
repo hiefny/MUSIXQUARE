@@ -133,7 +133,7 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 - `src/types/index.ts` - `StateTree.appState`, mapped `state:appState` events, and `SYNC_PONG.appState` are removed.
 
 Do not treat this list as a mandate to remove every legacy reference. The remaining references are deliberately strict legacy command gates.
-`src/player/__tests__/appstate-holdouts.test.ts` bans raw production slot/event access and pins full legacy enum projection consumers to zero, so new legacy reads cannot appear unnoticed.
+`src/player/__tests__/playback-state-contract.test.ts` bans raw production slot/event access and pins full legacy enum projection consumers to zero, so new legacy reads cannot appear unnoticed.
 
 ## Sub-Phase Roadmap
 
@@ -273,7 +273,7 @@ The old full enum projection helpers and compatibility setter have also been del
 - `npm run lint` returns clean.
 - `npm run build` succeeds.
 - Manual cross-version smoke: host on previous version with guest on new version, and host on new version with guest on previous version. Critical for 5d.
-- No production code may call `getState('appState')`, `setState('appState')`, subscribe to `state:appState`, or reintroduce full legacy enum projection helpers; this is pinned by `appstate-holdouts.test.ts`.
+- No production code may call `getState('appState')`, `setState('appState')`, subscribe to `state:appState`, or reintroduce full legacy enum projection helpers; this is pinned by `playback-state-contract.test.ts`.
 
 ## Rollback Strategy
 

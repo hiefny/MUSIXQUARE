@@ -1,4 +1,4 @@
-# Playback State Consumption Plan
+# Playback State Consumption Contract
 
 MUSIXQUARE no longer exports legacy `APP_STATE` from core, and the global state tree no longer stores `state.appState`. The remaining compatibility surface is a narrow `isPlaybackIdleCompat()` predicate for historical strict-IDLE semantics. This document defines the contract for how modules consume playback state during and after the ownership refactor.
 
@@ -62,7 +62,7 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
 - command execution uses fresh poll
 - display rendering uses subscription
 
-## Current Buckets
+## Consumption Buckets
 
 | Bucket | Target | Pattern | Scope |
 | --- | --- | --- | --- |
@@ -72,40 +72,36 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
 | D | audio bridges | one pattern per module | `beat-detector`, `channel`, `system-capture` |
 | E | playback-domain residuals | Pattern 1 or 2 | `playback`, `playlist`, YouTube bridge code |
 
-## Phase Plan
+## Migration Summary
 
-### Phase 0: Contract Documentation
+### Contract Documentation
 
-- Add this document.
 - Keep `ownership.ts` header explicit about mode/activity, strict IDLE compatibility, broad ownership, and UI subscription.
-- No behavior change.
 
-### Phase 1: Playback Domain Residuals
+### Playback Domain Residuals
 
 - Replace remaining raw playback-domain appState polls with `ownership.ts` predicates or adapter reads. `playback.ts` and YouTube runtime mode guards are migrated; queue/indexing idle checks in `playlist.ts` and YouTube stay strict compatibility `IDLE` through `isPlaybackIdleCompat()`.
 - File `PLAY`/`PAUSE` protocol payloads no longer carry the legacy `appState` enum; receivers derive behavior from existing payload fields and local playback mode/activity.
 
-### Phase 2: Gating Site Rename
+### Gating Sites
 
 - Replace low-risk one-shot appState gates with playback mode/activity helpers or, only for true compatibility IDLE holdouts, `isPlaybackIdleCompat()`.
-- Leave protocol payload comparisons untouched.
-- Leave state snapshot capture untouched when the snapshot is forwarded or stored.
 
-### Phase 3: Audio Domain Contract
+### Audio Domain Contract
 
 - Normalize `beat-detector`, `channel`, and `system-capture`.
 - `beat-detector` keeps a module-local file-playing cache fed by `state:playback.mode` and `state:playback.activity`, with explicit freshness refresh on buffer-change paths.
 - `channel` uses playback mode/activity predicates at graph mutation time when the question is "is there active playback to refresh?".
 - `system-capture` is the explicit snapshot exception: it keeps pre-capture `playback.mode/activity` restore data and must not read live predicates during restore, because restore must answer "what was playing before capture started?", not "what is playing now?".
 
-### Phase 4: UI Subscription Model
+### UI Subscription Model
 
 - Introduce `src/ui/_state-hooks.ts`.
 - Use scoped UI state hooks for display-only UI state: `scopePlaybackModeActivity()` for mode/activity displays or refresh triggers.
 - Keep click handlers polling fresh state via Pattern 1.
 - `player-controls`, `visualizer`, and playlist refresh triggers now consume playback mode/activity for display and playback-activity rendering.
 
-### Phase 5: Mode/Activity Decomposition
+### Mode/Activity Decomposition
 
 - Replace the legacy global state slot with the playback domain state:
   - `mode`: `file | youtube | system-audio | null`
@@ -117,7 +113,7 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
 
 ## Verification Gate
 
-Each phase should keep these green:
+Playback-state changes should keep these green:
 
 - `npm run typecheck`
 - targeted tests near changed modules

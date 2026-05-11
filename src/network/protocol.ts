@@ -9,7 +9,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
-import type { DataConnection, ProtocolMsg } from '../types/index.ts';
+import type { AnyProtocolMsg, DataConnection, ProtocolMsg } from '../types/index.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -245,8 +245,20 @@ export function resetInboundRateLimit(peerId: string): void {
 
 // ─── Handler Registry ───────────────────────────────────────────────
 
-type MessageHandler = (data: ProtocolMsg<any>, conn: DataConnection) => void | Promise<void>;
+type TypedMessageHandler<T extends MsgType> = (
+  data: ProtocolMsg<T>,
+  conn: DataConnection,
+) => void | Promise<void>;
+type MessageHandler = (data: AnyProtocolMsg, conn: DataConnection) => void | Promise<void>;
+type MessageHandlerMap = { [T in MsgType]?: TypedMessageHandler<T> };
 const _handlers = new Map<string, MessageHandler>();
+
+function setHandler(type: MsgType, handler: MessageHandler): void {
+  if (_handlers.has(type)) {
+    log.warn(`[Protocol] Overwriting handler for: ${type}`);
+  }
+  _handlers.set(type, handler);
+}
 
 /**
  * Register a handler for a specific message type.
@@ -254,23 +266,20 @@ const _handlers = new Map<string, MessageHandler>();
  */
 export function registerHandler<T extends MsgType>(
   type: T,
-  handler: (data: ProtocolMsg<T>, conn: DataConnection) => void | Promise<void>,
+  handler: TypedMessageHandler<T>,
 ): void {
-  if (_handlers.has(type)) {
-    log.warn(`[Protocol] Overwriting handler for: ${type}`);
-  }
-  _handlers.set(type, handler as MessageHandler);
+  setHandler(type, handler as MessageHandler);
 }
 
 /**
  * Register multiple handlers at once.
  * Each handler receives a typed payload matching its message type key.
  */
-export function registerHandlers(handlers: {
-  [T in MsgType]?: (data: ProtocolMsg<T>, conn: DataConnection) => void | Promise<void>;
-}): void {
-  for (const [type, handler] of Object.entries(handlers)) {
-    if (handler) registerHandler(type as MsgType, handler as MessageHandler);
+export function registerHandlers(handlers: MessageHandlerMap): void {
+  for (const [type, handler] of Object.entries(handlers) as Array<
+    [MsgType, MessageHandler | undefined]
+  >) {
+    if (handler) setHandler(type, handler);
   }
 }
 
@@ -310,7 +319,7 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   const handler = _handlers.get(msgType);
   if (handler) {
     try {
-      await handler(msg as ProtocolMsg<any>, conn);
+      await handler(msg as AnyProtocolMsg, conn);
     } catch (e) {
       log.error(`Error handling ${msgType}:`, e);
     }

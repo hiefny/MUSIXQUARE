@@ -66,7 +66,7 @@ import {
   DURATION_CACHE_EPSILON,
 } from './constants.ts';
 
-import type { YTNamespace } from './_state.ts';
+import type { YTNamespace, YTPlayerConfig } from './_state.ts';
 declare const YT: YTNamespace;
 
 function resetYouTubePlayerHost(container: HTMLElement): void {
@@ -448,7 +448,7 @@ function createYouTubePlayer(
     }
   }
 
-  const playerVars: Record<string, any> = {
+  const playerVars: Record<string, string | number> = {
     autoplay: autoplay ? 1 : 0,
     controls: 0,
     rel: 0,
@@ -464,7 +464,7 @@ function createYouTubePlayer(
     if (needsScrape || indexing) playerVars.autoplay = 0;
   }
 
-  const playerOptions: Record<string, any> = {
+  const playerOptions: YTPlayerConfig = {
     width: '100%',
     height: '100%',
     playerVars,

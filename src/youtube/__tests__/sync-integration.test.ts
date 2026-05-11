@@ -62,7 +62,7 @@ const capturedHandlers: Record<
   (data: Record<string, unknown>, conn?: unknown) => void
 > = {};
 vi.mock('../../network/protocol.ts', () => ({
-  registerHandlers: vi.fn((handlers: Record<string, any>) => {
+  registerHandlers: vi.fn((handlers: Record<string, unknown>) => {
     for (const [type, h] of Object.entries(handlers)) {
       if (typeof h === 'function')
         capturedHandlers[type] = h as (data: Record<string, unknown>, conn?: unknown) => void;

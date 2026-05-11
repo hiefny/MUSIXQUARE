@@ -149,6 +149,7 @@ Order, lowest-risk first:
 
 0. **Shadow-slot sync hardening (0.5 day)**
    - Keep `state.playback.mode/activity` synchronized from every legacy signal that contributes to `getPlaybackOwnership()`: `appState`, `playback.lifecycle`, `transfer.state`, `player.currentTrackMeta`, and `systemAudio.isReceiving`.
+   - Production writers for `playback.lifecycle`, `transfer.state`, and `systemAudio.isReceiving` now go through ownership helper functions that sync the shadow slots immediately; the bus bridge remains a compatibility backstop.
    - This must land before any production reader trusts the new slots. File pending and system-audio pending are not purely appState-derived.
 
 1. **New mode/activity helper surface (0.5 day)**

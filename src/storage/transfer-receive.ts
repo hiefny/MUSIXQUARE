@@ -42,6 +42,7 @@ import {
   isExternalOwner,
   isSystemAudioOwner,
   setPlaybackAppState,
+  setPlaybackTransferState,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import {
@@ -506,7 +507,7 @@ export async function handleFilePrepare(
     nextExpectedChunk = 0;
     setState('transfer.staleChunkBurstStart', 0);
     setState('transfer.staleChunkBurstCount', 0);
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     // Arm chunk watchdog from NOW so the 12s timer counts from FILE_PREPARE,
     // not from the last chunk of the previous (defunct) session.
     startChunkWatchdog();
@@ -861,7 +862,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   setState('transfer.receivedCount', 0);
   setState('transfer.meta', data as Partial<FileMeta>);
-  setState('transfer.state', TRANSFER_STATE.RECEIVING);
+  setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
   // Reset stale-burst tracking — a valid FILE_START means we're back on track
   setState('transfer.staleChunkBurstStart', 0);
   setState('transfer.staleChunkBurstCount', 0);
@@ -927,7 +928,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   nextExpectedChunk = startChunk;
   setState('transfer.meta', data as Partial<FileMeta>);
-  setState('transfer.state', TRANSFER_STATE.RECEIVING);
+  setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
 
   startChunkWatchdog();
 
@@ -1037,7 +1038,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
         size: CHUNK_SIZE,
       });
       setState('files.currentTrack', { name: chunkName });
-      setState('transfer.state', TRANSFER_STATE.RECEIVING);
+      setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
       if (data.total) {
         setState('transfer.meta', {
           name: chunkName,
@@ -1155,7 +1156,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
         mime: (data.mime as string) || '',
       };
       setState('transfer.meta', recoveredMeta);
-      setState('transfer.state', TRANSFER_STATE.RECEIVING);
+      setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
 
       const fname = (recoveredMeta.name as string) || '';
       if (fname) {
@@ -1238,7 +1239,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
     receivedCount >= total &&
     getState('transfer.state') !== TRANSFER_STATE.PROCESSING
   ) {
-    setState('transfer.state', TRANSFER_STATE.PROCESSING);
+    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
     setState('recovery.retryCount', 0);
 
     // Clean up reorder buffer for this session to prevent memory leak
@@ -1431,7 +1432,7 @@ export function cancelIncomingFileTransfer(reason: string): void {
   _pendingEarlyChunks.length = 0;
   nextExpectedChunk = 0;
 
-  setState('transfer.state', TRANSFER_STATE.IDLE);
+  setPlaybackTransferState(TRANSFER_STATE.IDLE);
   setState('transfer.receivedCount', 0);
   setState('transfer.meta', {});
 

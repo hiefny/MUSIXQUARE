@@ -29,6 +29,9 @@ import {
   isYouTubeOwner,
   releasePlaybackOwner,
   setPlaybackAppState,
+  setPlaybackLifecycleState,
+  setPlaybackTransferState,
+  setSystemAudioReceiving,
   setPlaybackTrackMeta,
   updatePlaybackTrackMeta,
   updatePlaybackTrackTitle,
@@ -227,6 +230,18 @@ describe('playback ownership view', () => {
       isSystemAudioPlaceholder: true,
     });
     expectPlaybackModeActivitySlots('system-audio', 'pending');
+  });
+
+  it('dual-writes lifecycle, transfer, and system-audio source helpers into playback slots', () => {
+    setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
+    expectPlaybackModeActivitySlots('file', 'pending');
+
+    setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+    expectPlaybackModeActivitySlots('file', 'paused');
+
+    resetState();
+    setSystemAudioReceiving(true);
+    expectPlaybackModeActivitySlots('system-audio', 'playing');
   });
 
   it('updates track metadata through the ownership write helper', () => {

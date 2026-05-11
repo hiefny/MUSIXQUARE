@@ -31,7 +31,7 @@ import {
   type PlaybackStateValue,
   type LoadSourceValue,
 } from '../core/constants.ts';
-import { isExternalOwner } from './ownership.ts';
+import { isExternalOwner, setPlaybackLifecycleState } from './ownership.ts';
 
 // ─── Event Types ───────────────────────────────────────────────────
 //
@@ -478,7 +478,7 @@ export function transition(ev: PlaybackEvent): PlaybackStateValue {
   }
 
   // Actual transition.
-  setState('playback.lifecycle', result.next);
+  setPlaybackLifecycleState(result.next);
   if (result.loadSource !== undefined) {
     setState('playback.loadSource', result.loadSource);
   }

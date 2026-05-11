@@ -17,6 +17,7 @@ import {
   isAppStatePaused,
   isAppStatePlayingAudio,
   isExternalOwner,
+  setPlaybackTransferState,
   setPlaybackTrackMeta,
 } from './ownership.ts';
 import { setEngineMode } from './video.ts';
@@ -565,7 +566,7 @@ export async function loadPreloadedTrack(
     // Reset transfer guards — transfer.state must be READY so next preload loader shows.
     // shouldSkipIncomingFile() returns true via the PRELOAD_PROMOTED loadSource
     // branch (lifecycle is READY/PLAYING after this), so no flag needed.
-    setState('transfer.state', 'READY');
+    setPlaybackTransferState(TRANSFER_STATE.READY);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
@@ -747,7 +748,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
   // async decode finishes.
   if (isExternalOwner()) {
     log.debug('[Guest] finalizeGuestFile aborted - external playback mode active');
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     showLoader(false);
     return;
   }
@@ -762,7 +763,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
     if (isExternalOwner()) {
       log.debug('[Guest] Stale finalize (post-audio-init), aborting');
-      setState('transfer.state', TRANSFER_STATE.IDLE);
+      setPlaybackTransferState(TRANSFER_STATE.IDLE);
       setPendingPlayTime(undefined);
       return;
     }
@@ -779,7 +780,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     }
     if (isExternalOwner()) {
       log.debug('[Guest] Stale finalize (external mode after decode), aborting');
-      setState('transfer.state', TRANSFER_STATE.IDLE);
+      setPlaybackTransferState(TRANSFER_STATE.IDLE);
       setPendingPlayTime(undefined);
       return;
     }
@@ -803,7 +804,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     BlobURLManager.confirm();
 
     // Reset guards
-    setState('transfer.state', TRANSFER_STATE.READY);
+    setPlaybackTransferState(TRANSFER_STATE.READY);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
 
@@ -851,7 +852,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     showToast(timedOut ? t('error.decode_timeout', { name }) : t('error.audio_decode_fail'));
 
     // Reset transfer state so recovery can start fresh (prevents infinite loop)
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
 
     // Per-track decode failure counter. The first non-timeout failure may be

@@ -280,6 +280,21 @@ export function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
   return ownership;
 }
 
+export function setPlaybackLifecycleState(lifecycle: PlaybackStateValue): PlaybackOwnership {
+  setState('playback.lifecycle', lifecycle);
+  return syncPlaybackModeActivityFromOwnership();
+}
+
+export function setPlaybackTransferState(transferState: TransferStateValue): PlaybackOwnership {
+  setState('transfer.state', transferState);
+  return syncPlaybackModeActivityFromOwnership();
+}
+
+export function setSystemAudioReceiving(isReceiving: boolean): PlaybackOwnership {
+  setState('systemAudio.isReceiving', isReceiving);
+  return syncPlaybackModeActivityFromOwnership();
+}
+
 // Shadow-slot bridge for Phase 5. Until readers move fully to mode/activity,
 // legacy source events remain the canonical triggers for keeping the new slots fresh.
 for (const event of [

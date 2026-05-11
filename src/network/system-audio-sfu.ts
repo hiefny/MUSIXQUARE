@@ -8,7 +8,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
@@ -19,6 +19,7 @@ import {
   claimPlaybackOwner,
   isAppStatePlayingSystemAudio,
   releasePlaybackOwner,
+  setSystemAudioReceiving,
 } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
@@ -565,7 +566,7 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
   if (!guestReceiving) {
     guestReceiving = true;
     startGuestLimitTimer();
-    setState('systemAudio.isReceiving', true);
+    setSystemAudioReceiving(true);
     claimPlaybackOwner('system-audio');
     bus.emit('visualizer:start');
     log.info('[SysAudioSFU] Remote system audio connected through Cloudflare SFU');
@@ -608,7 +609,7 @@ function cleanupGuestSfu(updateState = true): void {
   guestSubscriptionKey = null;
   guestConnectPromise = null;
   if (guestReceiving && updateState) {
-    setState('systemAudio.isReceiving', false);
+    setSystemAudioReceiving(false);
     if (isAppStatePlayingSystemAudio()) {
       releasePlaybackOwner('system-audio', { nextAppState: APP_STATE.IDLE });
     }

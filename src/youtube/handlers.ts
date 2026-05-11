@@ -16,7 +16,11 @@ import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
-import { createYouTubeTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
+import {
+  createYouTubeTrackMeta,
+  setPlaybackTrackMeta,
+  setPlaybackTransferState,
+} from '../player/ownership.ts';
 import { showLoader } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -248,7 +252,7 @@ function cancelInFlightTransfer(): void {
     log.debug('[YouTube] Cancelling in-flight file transfer for YouTube switch');
     // shouldSkipIncomingFile() returns true via the appState=PLAYING_YOUTUBE
     // check (set by handleYouTubePlay before this helper runs), so no flag.
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');

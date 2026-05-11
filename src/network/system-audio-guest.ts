@@ -7,7 +7,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
@@ -20,6 +20,7 @@ import {
   isAppStatePlayingSystemAudio,
   isSystemAudioPlaceholderMeta,
   releasePlaybackOwner,
+  setSystemAudioReceiving,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
@@ -409,7 +410,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     // Update state once at least one stream is connected
     if (!getState('systemAudio.isReceiving')) {
       clearReceiveWatchdog();
-      setState('systemAudio.isReceiving', true);
+      setSystemAudioReceiving(true);
       claimPlaybackOwner('system-audio');
       bus.emit('visualizer:start');
       log.info(`[SysAudioGuest] System audio connected to graph (${channel})`);
@@ -536,7 +537,7 @@ function cleanupGuestSystemAudio(): void {
   _gotStereo = false;
   _gotSynced = false;
 
-  setState('systemAudio.isReceiving', false);
+  setSystemAudioReceiving(false);
   setPlaybackTrackMeta(_prevTrackMeta ?? null);
   _prevTrackMeta = null;
   if (isAppStatePlayingSystemAudio() || wasSystemAudioPlaceholder) {

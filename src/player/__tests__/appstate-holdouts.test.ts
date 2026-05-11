@@ -44,6 +44,13 @@ function toRepoPath(path: string): string {
 }
 
 describe('legacy appState holdouts', () => {
+  it('keeps legacy APP_STATE out of core constants exports', () => {
+    const constants = readFileSync(join(SRC_ROOT, 'core/constants.ts'), 'utf8');
+
+    expect(constants).not.toContain('export const APP_STATE');
+    expect(constants).not.toContain('export type AppStateValue');
+  });
+
   it('keeps production code free of raw legacy appState state-slot access', () => {
     const files = listProductionTypeScriptFiles(SRC_ROOT);
     const actual = files

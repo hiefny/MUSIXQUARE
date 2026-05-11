@@ -2,16 +2,6 @@
  * MUSIXQUARE — Constants
  */
 
-// ─── App State ─────────────────────────────────────────────────────
-export const APP_STATE = {
-  IDLE: 'IDLE',
-  PAUSED: 'PAUSED',
-  PLAYING_AUDIO: 'PLAYING_AUDIO',
-  PLAYING_YOUTUBE: 'PLAYING_YOUTUBE',
-  PLAYING_SYSTEM_AUDIO: 'PLAYING_SYSTEM_AUDIO',
-} as const;
-
-export type AppStateValue = (typeof APP_STATE)[keyof typeof APP_STATE];
 export type PlaybackModeValue = 'file' | 'youtube' | 'system-audio' | null;
 export type PlaybackActivityValue = 'idle' | 'paused' | 'playing' | 'pending';
 
@@ -26,7 +16,7 @@ export const TRANSFER_STATE = {
 export type TransferStateValue = (typeof TRANSFER_STATE)[keyof typeof TRANSFER_STATE];
 
 // ─── Playback Lifecycle State ──────────────────────────────────────
-// Guest-side track lifecycle. Orthogonal to APP_STATE (mode); this describes
+// Guest-side track lifecycle. Orthogonal to playback mode/activity; this describes
 // WHAT PHASE within the local-file/video mode we're in. For YouTube and
 // system-audio modes this stays at IDLE (they have their own lifecycle paths).
 //

@@ -1,6 +1,6 @@
 # Playback State Consumption Plan
 
-MUSIXQUARE still exposes legacy `APP_STATE` values for compatibility, but the global state tree no longer stores `state.appState`. This document defines the contract for how modules consume playback state during and after the ownership refactor.
+MUSIXQUARE no longer exports legacy `APP_STATE` from core, and the global state tree no longer stores `state.appState`. A small legacy projection remains inside `ownership.ts` for compatibility-boundary tests and historical semantics. This document defines the contract for how modules consume playback state during and after the ownership refactor.
 
 ## Core Problem
 

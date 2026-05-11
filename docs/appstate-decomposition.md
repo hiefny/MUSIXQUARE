@@ -14,7 +14,7 @@
 
 ## Motivation
 
-`src/core/constants.ts:6` defines the current enum:
+Historically `src/core/constants.ts` exposed this enum:
 
 ```ts
 export const APP_STATE = {
@@ -26,7 +26,7 @@ export const APP_STATE = {
 } as const;
 ```
 
-Five values overload two orthogonal axes:
+Those five values overloaded two orthogonal axes:
 
 | current value | mode | activity |
 | --- | --- | --- |
@@ -253,11 +253,11 @@ DONE. `appState` became a write-derived compatibility view of `(mode, activity)`
 
 ### 5g - `appState` Removal
 
-DONE. `state.appState` has been dropped from the state tree. `APP_STATE` and `AppStateValue` stay exported from `core/constants.ts` for compatibility callers, legacy test fixtures, and helper signatures such as `setPlaybackAppState()`.
+DONE. `state.appState` has been dropped from the state tree, and `APP_STATE` / `AppStateValue` have been removed from `core/constants.ts`. The legacy string union now lives only inside `ownership.ts` as `LegacyAppStateValue` for compatibility projection tests and adapter signatures such as `setPlaybackAppState()`.
 
 `getPlaybackLegacyAppState()` now derives the old enum from `playback.mode/activity` rather than reading global state. Production code no longer consumes that full enum projection; it remains for compatibility tests and legacy adapter signatures.
 
-After the remaining legacy adapter signatures are removed, `APP_STATE`, `AppStateValue`, and the compatibility projection helpers can be deleted as a final cleanup.
+After the remaining legacy adapter signatures are removed, `LegacyAppStateValue` and the compatibility projection helpers can be deleted as a final cleanup.
 
 ## Risk Register
 

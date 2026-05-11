@@ -17,7 +17,7 @@ import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
 import {
   claimPlaybackOwner,
-  isAppStatePlayingSystemAudio,
+  isSystemAudioOwner,
   releasePlaybackOwner,
   setSystemAudioReceiving,
 } from '../player/ownership.ts';
@@ -610,7 +610,7 @@ function cleanupGuestSfu(updateState = true): void {
   guestConnectPromise = null;
   if (guestReceiving && updateState) {
     setSystemAudioReceiving(false);
-    if (isAppStatePlayingSystemAudio()) {
+    if (isSystemAudioOwner()) {
       releasePlaybackOwner('system-audio', { nextAppState: APP_STATE.IDLE });
     }
   }

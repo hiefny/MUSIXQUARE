@@ -175,6 +175,7 @@ Order, lowest-risk first:
 
 5. **Network/protocol gating (1 day)**
    - `src/storage/transfer-receive.ts`, `src/network/system-audio-guest.ts`, and `system-audio-sfu.ts`. These are mostly on `is*Owner()` predicates after earlier phases; flip implementation underneath them only after tests cover the pending/placeholder windows.
+   - First pass done for YouTube/system-audio owner gates in transfer receive, recovery, and system-audio cleanup paths.
 
 6. **Body-class sync (0.5 day)**
    - `src/player/video.ts::updateBodyModeClass` is done: it subscribes to `state:playback.mode` instead of `state:appState`.

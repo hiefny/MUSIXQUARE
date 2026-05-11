@@ -17,7 +17,7 @@ import { stopAllMedia } from '../player/transport.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
-  isAppStatePlayingSystemAudio,
+  isSystemAudioOwner,
   isSystemAudioPlaceholderMeta,
   releasePlaybackOwner,
   setSystemAudioReceiving,
@@ -540,7 +540,7 @@ function cleanupGuestSystemAudio(): void {
   setSystemAudioReceiving(false);
   setPlaybackTrackMeta(_prevTrackMeta ?? null);
   _prevTrackMeta = null;
-  if (isAppStatePlayingSystemAudio() || wasSystemAudioPlaceholder) {
+  if (isSystemAudioOwner() || wasSystemAudioPlaceholder) {
     releasePlaybackOwner('system-audio', {
       force: wasSystemAudioPlaceholder,
       nextAppState: APP_STATE.IDLE,

@@ -38,9 +38,9 @@ import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import {
   createFileTrackMeta,
-  isAppStatePlayingYouTube,
   isExternalOwner,
   isSystemAudioOwner,
+  isYouTubeOwner,
   setPlaybackAppState,
   setPlaybackTransferState,
   setPlaybackTrackMeta,
@@ -380,7 +380,7 @@ export async function handleFilePrepare(
   // cross-mode switch: remote guests fetch the bundled demo over HTTP after
   // FILE_PREPARE. Accept that one and tear YouTube down before driving the
   // file lifecycle.
-  if (isAppStatePlayingYouTube()) {
+  if (isYouTubeOwner()) {
     if (data.name !== DEMO_FILE_NAME) {
       log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
       return;
@@ -389,7 +389,7 @@ export async function handleFilePrepare(
     const pendingSetAt = getPendingPlayTimeSetAt();
     log.debug('[Transfer] Accepting demo FILE_PREPARE during YouTube mode');
     bus.emit('player:stop-all-media');
-    if (isAppStatePlayingYouTube()) {
+    if (isYouTubeOwner()) {
       setPlaybackAppState(APP_STATE.IDLE);
     }
     if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
@@ -743,7 +743,7 @@ export async function handleFilePrepare(
     }
 
     // Stop YouTube mode for incoming local file
-    if (isAppStatePlayingYouTube()) {
+    if (isYouTubeOwner()) {
       log.debug('[file-prepare] Stopping YouTube mode for incoming local file');
       bus.emit('youtube:stop-mode');
     }

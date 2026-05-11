@@ -110,7 +110,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 **Intentional legacy readers that should remain for now**:
 
 - `src/player/transport.ts` - owns the legacy enum transitions and still needs strict appState gates until 5f.
-- `src/player/media-session.ts` - OS media button command handlers intentionally use strict appState predicates; OS `playbackState` display already uses `playback.activity`.
+- `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
 - `src/audio/beat-detector.ts` - keeps a module-local appState cache by design, with buffer-change refresh for silent track switches.
 - `src/player/playlist.ts` - remaining idle checks guard historical async decode races where appState's legacy `IDLE` shadow is the intended signal.
 - `src/youtube/*` - YouTube runtime guards still use strict YouTube appState because YouTube pause/play is represented by iframe state, not `APP_STATE.PAUSED`.
@@ -162,7 +162,7 @@ Order, lowest-risk first:
 2. **UI consumers (1 day)**
    - Migrate display logic that asks a mode/activity question to the new helper surface.
    - `src/player/video.ts::updateBodyModeClass` is already migrated to `state:playback.mode`.
-   - `src/player/media-session.ts` OS `playbackState` display is already migrated to `state:playback.activity`; media button command handlers still use legacy predicates by design.
+   - `src/player/media-session.ts` OS `playbackState` display and media button command handlers are migrated to playback mode/activity, while YouTube play/pause still delegates to the iframe's own state.
    - `src/ui/_state-hooks.ts` exposes mode/activity subscriptions; `src/ui/player-controls.ts` uses them for tab-title marquee, play-icon/media-source rendering, and YouTube play-state refinements.
    - `src/ui/visualizer.ts` uses playback activity for pause/playing/idle rendering, while its draw loop skips YouTube through playback mode.
    - `src/ui/seekbar.ts` uses playback mode/activity for seek availability, system-audio zero display, and file rAF interpolation gates.

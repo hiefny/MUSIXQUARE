@@ -11,10 +11,9 @@ import { getState } from '../core/state.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime } from './transport.ts';
 import {
-  isAppStateIdle,
-  isAppStateIdleOrPaused,
-  isAppStatePlayingAudio,
-  isAppStatePlayingYouTube,
+  isPlaybackIdle,
+  isPlaybackModeYouTube,
+  isPlaybackPlayingFile,
 } from './ownership.ts';
 import type { PlaylistItem } from '../types/index.ts';
 
@@ -87,12 +86,12 @@ export function initMediaSession(): void {
   };
 
   navigator.mediaSession.setActionHandler('play', () => {
-    if (isAppStatePlayingYouTube()) {
+    if (isPlaybackModeYouTube()) {
       togglePlay();
       return;
     }
     const currentTrackIndex = getState('playlist.currentTrackIndex');
-    if (isAppStateIdle()) {
+    if (isPlaybackIdle()) {
       // Try to play from current playlist position instead of blocking
       if (currentTrackIndex >= 0) {
         bus.emit('playlist:play-track', currentTrackIndex);
@@ -103,14 +102,14 @@ export function initMediaSession(): void {
     // even while playbackState='playing', and a togglePlay here would pause
     // the music after the user pressed play. Mirrors the 'pause' handler
     // below which guards the symmetric case.
-    if (isAppStatePlayingAudio()) return;
+    if (isPlaybackPlayingFile()) return;
     if (currentTrackIndex >= 0) {
       togglePlay();
     }
   });
 
   navigator.mediaSession.setActionHandler('pause', () => {
-    if (!isAppStateIdleOrPaused()) togglePlay();
+    if (isPlaybackPlayingFile() || isPlaybackModeYouTube()) togglePlay();
   });
 
   navigator.mediaSession.setActionHandler('previoustrack', () => {
@@ -151,7 +150,7 @@ export function initMediaSession(): void {
   // Update lock screen metadata when YouTube sub-video changes (playlist auto-advance)
   bus.on('state:youtube.currentSubIndex', () => {
     const meta = getState('player.currentTrackMeta');
-    if (meta && isAppStatePlayingYouTube()) {
+    if (meta && isPlaybackModeYouTube()) {
       updateMediaSessionMetadata(meta);
     }
   });

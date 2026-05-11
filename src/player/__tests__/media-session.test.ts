@@ -121,8 +121,14 @@ describe('initMediaSession', () => {
   });
 
   it('play handler calls togglePlay when paused with valid track', () => {
-    setState('appState', APP_STATE.PAUSED);
+    setPlaybackAppState(APP_STATE.PAUSED);
     setState('playlist.currentTrackIndex', 0);
+    _handlers['play']();
+    expect(togglePlay).toHaveBeenCalled();
+  });
+
+  it('play handler delegates to YouTube mode even though YouTube has its own pause state', () => {
+    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
     _handlers['play']();
     expect(togglePlay).toHaveBeenCalled();
   });
@@ -130,7 +136,7 @@ describe('initMediaSession', () => {
   it('play handler emits playlist:play-track when idle with valid track', () => {
     const fn = vi.fn();
     bus.on('playlist:play-track', fn);
-    setState('appState', APP_STATE.IDLE);
+    setPlaybackAppState(APP_STATE.IDLE);
     setState('playlist.currentTrackIndex', 2);
     _handlers['play']();
     expect(fn).toHaveBeenCalledWith(2);
@@ -142,20 +148,26 @@ describe('initMediaSession', () => {
   it('play handler still works for non-operator guests', () => {
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
-    setState('appState', APP_STATE.PAUSED);
+    setPlaybackAppState(APP_STATE.PAUSED);
     setState('playlist.currentTrackIndex', 0);
     _handlers['play']();
     expect(togglePlay).toHaveBeenCalled();
   });
 
   it('pause handler calls togglePlay when playing', () => {
-    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    _handlers['pause']();
+    expect(togglePlay).toHaveBeenCalled();
+  });
+
+  it('pause handler delegates to YouTube mode', () => {
+    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
     _handlers['pause']();
     expect(togglePlay).toHaveBeenCalled();
   });
 
   it('pause handler does nothing when already paused', () => {
-    setState('appState', APP_STATE.PAUSED);
+    setPlaybackAppState(APP_STATE.PAUSED);
     _handlers['pause']();
     expect(togglePlay).not.toHaveBeenCalled();
   });

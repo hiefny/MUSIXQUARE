@@ -10,8 +10,10 @@ import {
   createYouTubeTrackMeta,
   getPlaybackOwnership,
   isFilePlaybackBlockedByExternalMode,
+  isPlaybackAppState,
   isSystemAudioPlaceholderMeta,
   isSystemAudioSessionActive,
+  isYouTubePlaybackActive,
   releasePlaybackOwner,
   setPlaybackAppState,
   setPlaybackTrackMeta,
@@ -40,6 +42,8 @@ describe('playback ownership view', () => {
       isExternalOwner: true,
     });
     expect(isFilePlaybackBlockedByExternalMode()).toBe(true);
+    expect(isPlaybackAppState(APP_STATE.PLAYING_YOUTUBE)).toBe(true);
+    expect(isYouTubePlaybackActive()).toBe(true);
     expect(canStartFilePlayback()).toBe(false);
   });
 

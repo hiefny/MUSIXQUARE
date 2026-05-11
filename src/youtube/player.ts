@@ -17,7 +17,11 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
-import { setPlaybackTrackMeta, updatePlaybackTrackTitle } from '../player/ownership.ts';
+import {
+  isYouTubePlaybackActive,
+  setPlaybackTrackMeta,
+  updatePlaybackTrackTitle,
+} from '../player/ownership.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -221,7 +225,7 @@ function scheduleLateJoinRendezvousSync(
     `yt-late-join-rendezvous-${peerId}`,
     () => {
       if (!conn.open || getState('network.hostConn')) return;
-      if (getState('appState') !== APP_STATE.PLAYING_YOUTUBE) return;
+      if (!isYouTubePlaybackActive()) return;
 
       const player = getYouTubePlayer();
       if (!player?.getCurrentTime) return;
@@ -1377,8 +1381,7 @@ export function initYouTube(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    const currentState = getState('appState');
-    if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
+    if (!isYouTubePlaybackActive()) return;
 
     const playlist = getState('playlist.items') || [];
     const currentTrackIndex = getState('playlist.currentTrackIndex');

@@ -9,12 +9,16 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
-import { updatePlaybackTrackMeta, updatePlaybackTrackTitle } from '../player/ownership.ts';
+import {
+  isYouTubePlaybackActive,
+  updatePlaybackTrackMeta,
+  updatePlaybackTrackTitle,
+} from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
@@ -262,13 +266,10 @@ function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: num
 }
 
 // Manual rendezvous retry helpers.
-function isManualRendezvousReady(
-  player: YouTubePlayerInstance | null,
-  currentState = getState('appState'),
-): boolean {
+function isManualRendezvousReady(player: YouTubePlayerInstance | null): boolean {
   return (
     !!player &&
-    currentState === APP_STATE.PLAYING_YOUTUBE &&
+    isYouTubePlaybackActive() &&
     !!player.getCurrentTime &&
     !!player.seekTo &&
     !!player.pauseVideo &&
@@ -343,7 +344,6 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   if (!isHostBroadcast(conn)) return;
 
   const player = getYouTubePlayer();
-  const currentState = getState('appState');
 
   // Record the host snapshot BEFORE the PLAYING_YOUTUBE guard. Late-join
   // bootstrap frames arrive while the guest is still inside
@@ -361,7 +361,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   updateHostSnapshot(hostTime, hostState, hostClock);
 
   const isManual = !!data.isManual;
-  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) {
+  if (!player || !isYouTubePlaybackActive() || !player.getCurrentTime) {
     if (isManual) deferManualRendezvousUntilReady('player-or-app-state-not-ready');
     return;
   }
@@ -377,7 +377,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   try {
     // If this is a manual sync request from the host, trigger precision rendezvous immediately
     if (isManual) {
-      if (!isManualRendezvousReady(player, currentState)) {
+      if (!isManualRendezvousReady(player)) {
         deferManualRendezvousUntilReady('player-api-not-ready');
         return;
       }
@@ -538,8 +538,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
     if (!opts.silent) showToast(message);
   };
   const player = getYouTubePlayer();
-  const currentState = getState('appState');
-  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) {
+  if (!player || !isYouTubePlaybackActive()) {
     notify(t('toast.sync_not_ready'));
     return;
   }
@@ -865,7 +864,6 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   if (!isHostBroadcast(conn)) return;
 
   const player = getYouTubePlayer();
-  const currentState = getState('appState');
 
   // Validate state first so the pre-guard snapshot update below has a
   // finite value. Number(undefined) → NaN, and `NaN === 1/2/0/-1` is
@@ -894,7 +892,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(time, state, hostClock);
 
-  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
+  if (!player || !isYouTubePlaybackActive()) return;
 
   // Host sent a new command — cancel the guest ENDED fallback timer.
   // (Guest defers IDLE transition on video end to wait for this message.)
@@ -1249,8 +1247,7 @@ function handleYouTubeStop(_data: Record<string, unknown>, conn?: DataConnection
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-guest-ended-fallback');
   bus.emit('youtube:sync-loading', false);
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubePlaybackActive()) {
     bus.emit('youtube:stop-mode');
     bus.emit('player:stop-all-media');
   }

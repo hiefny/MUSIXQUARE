@@ -157,6 +157,14 @@ export function canStartFilePlayback(): boolean {
   return !isFilePlaybackBlockedByExternalMode();
 }
 
+export function isPlaybackAppState(appState: AppStateValue): boolean {
+  return getPlaybackOwnership().appState === appState;
+}
+
+export function isYouTubePlaybackActive(): boolean {
+  return isPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+}
+
 export function setPlaybackTrackMeta(currentTrackMeta: TrackMeta | null): PlaybackOwnership {
   setState('player.currentTrackMeta', currentTrackMeta);
   return getPlaybackOwnership();

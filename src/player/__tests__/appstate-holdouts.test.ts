@@ -21,7 +21,6 @@ const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>([
   ['src/player/transport.ts', 'Central legacy appState transition owner until source-of-truth flip.'],
   ['src/player/video.ts', 'Central media-engine mode bridge writes legacy appState.'],
   ['src/types/index.ts', 'State tree and EventMap keep appState types until removal phase.'],
-  ['src/ui/_state-hooks.ts', 'Legacy UI appState hook remains as compatibility surface.'],
   ['src/youtube/player.ts', 'Queue/indexing idle checks intentionally stay strict legacy IDLE.'],
 ]);
 

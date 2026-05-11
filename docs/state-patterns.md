@@ -109,7 +109,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 ### Phase 4: UI Subscription Model
 
 - Introduce `src/ui/_state-hooks.ts`.
-- Use scoped UI state hooks for display-only UI state: `scopeAppState()` only for legacy enum displays, and `scopePlaybackModeActivity()` for mode/activity displays or refresh triggers.
+- Use scoped UI state hooks for display-only UI state: `scopePlaybackModeActivity()` for mode/activity displays or refresh triggers.
 - Keep click handlers polling fresh state via Pattern 1.
 - `player-controls`, `visualizer`, and playlist refresh triggers now consume playback mode/activity for display and playback-activity rendering.
 

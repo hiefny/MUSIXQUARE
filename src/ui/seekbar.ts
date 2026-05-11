@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
-import { isIdleOrPaused } from '../player/video.ts';
+import { isAppStateIdleOrPaused, isAppStatePlayingAudio } from '../player/ownership.ts';
 
 // ─── Seek Bar Input Events ──────────────────────────────────────
 
@@ -181,8 +181,7 @@ function initSeekBarBusHandlers(): void {
     setManagedTimer(
       'time-update-loop',
       () => {
-        const currentState = getState('appState');
-        if (isIdleOrPaused(currentState)) {
+        if (isAppStateIdleOrPaused()) {
           clearManagedTimer('time-update-loop');
           _stopSeekRaf();
           return;
@@ -205,7 +204,7 @@ function initSeekBarBusHandlers(): void {
         //    until the next 250ms tick collapses it again. Treat 0 as
         //    transient and let the existing anchor (set by _startSeekRaf
         //    or by the previous valid tick) keep advancing via dt.
-        if (currentState === APP_STATE.PLAYING_AUDIO) {
+        if (isAppStatePlayingAudio()) {
           const pos = getTrackPosition();
           if (pos > 0 && Number.isFinite(pos)) {
             _rafAnchorTime = pos;

@@ -18,7 +18,6 @@ vi.mock('../video.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../video.ts')>();
   return {
     ...actual,
-    isIdleOrPaused: actual.isIdleOrPaused,
   };
 });
 

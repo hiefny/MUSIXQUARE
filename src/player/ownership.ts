@@ -187,6 +187,11 @@ export function isAppStatePlayingSystemAudio(): boolean {
   return getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO;
 }
 
+export function isAppStateIdleOrPaused(): boolean {
+  const appState = getState('appState');
+  return appState === APP_STATE.IDLE || appState === APP_STATE.PAUSED;
+}
+
 // ─── Read: owner predicates (broad semantic) ───────────────────────
 
 export function isFileOwner(): boolean {
@@ -248,17 +253,8 @@ export function claimPlaybackOwner(
 }
 
 export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership {
-  switch (appState) {
-    case APP_STATE.PLAYING_AUDIO:
-      return claimPlaybackOwner('file');
-    case APP_STATE.PLAYING_YOUTUBE:
-      return claimPlaybackOwner('youtube');
-    case APP_STATE.PLAYING_SYSTEM_AUDIO:
-      return claimPlaybackOwner('system-audio');
-    default:
-      setState('appState', appState);
-      return getPlaybackOwnership();
-  }
+  setState('appState', appState);
+  return getPlaybackOwnership();
 }
 
 export function releasePlaybackOwner(

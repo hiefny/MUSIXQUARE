@@ -12,13 +12,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import type { AppStateValue } from '../core/constants.ts';
-import { setPlaybackAppState } from './ownership.ts';
-
-// ─── State predicates ─────────────────────────────────────────────
-
-export function isIdleOrPaused(state: string): boolean {
-  return state === APP_STATE.IDLE || state === APP_STATE.PAUSED;
-}
+import { isAppStateIdleOrPaused, setPlaybackAppState } from './ownership.ts';
 
 // ─── Upload-time guard: reject video files ────────────────────────
 
@@ -82,8 +76,7 @@ export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {
       targetState = APP_STATE.IDLE;
   }
 
-  const currentState = getState('appState');
-  const newState: AppStateValue = isIdleOrPaused(currentState) ? APP_STATE.PAUSED : targetState;
+  const newState: AppStateValue = isAppStateIdleOrPaused() ? APP_STATE.PAUSED : targetState;
   // YouTube forces its target state so body.mode-youtube keeps applying even when paused.
   const finalState: AppStateValue = mode === 'youtube' ? targetState : newState;
   setPlaybackAppState(finalState);

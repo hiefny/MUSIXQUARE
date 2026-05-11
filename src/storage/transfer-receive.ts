@@ -38,8 +38,8 @@ import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import {
   createFileTrackMeta,
-  getPlaybackOwnership,
   isAppStatePlayingYouTube,
+  isExternalOwner,
   isSystemAudioOwner,
   setPlaybackAppState,
   setPlaybackTrackMeta,
@@ -75,7 +75,7 @@ const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 function shouldSkipIncomingFile(incomingName?: string): boolean {
   // External owners have their own state paths, so stale file frames are
   // dropped before lifecycle/transfer heuristics get a chance to accept them.
-  if (getPlaybackOwnership().isExternalOwner) return true;
+  if (isExternalOwner()) return true;
 
   // Remote guests use encrypted remote-share instead of direct file chunks;
   // orchestrator gates isDataTarget=false so stale direct frames are dropped.

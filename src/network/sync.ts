@@ -14,7 +14,6 @@ import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
 import { play, getTrackPosition, adjustSync } from '../player/transport.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
-import { isIdleOrPaused } from '../player/video.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import {
@@ -28,7 +27,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
-import { isAppStatePlayingAudio } from '../player/ownership.ts';
+import { isAppStateIdleOrPaused, isAppStatePlayingAudio } from '../player/ownership.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
@@ -70,7 +69,7 @@ export function handleAutoSync(): void {
   // startedAt from the new (zero) offset. Without this, "Reset" just
   // changes the displayed value while the audio remains desynced, and
   // the only recovery is a host seek or pause+play.
-  if (isIdleOrPaused(getState('appState'))) return;
+  if (isAppStateIdleOrPaused()) return;
   play(getTrackPosition());
 }
 

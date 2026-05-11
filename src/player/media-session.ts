@@ -10,7 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime } from './transport.ts';
-import { isIdleOrPaused } from './video.ts';
+import { isAppStateIdleOrPaused } from './ownership.ts';
 import type { PlaylistItem } from '../types/index.ts';
 
 // ─── Metadata Update ───────────────────────────────────────────────
@@ -94,8 +94,7 @@ export function initMediaSession(): void {
   });
 
   navigator.mediaSession.setActionHandler('pause', () => {
-    const currentState = getState('appState');
-    if (!isIdleOrPaused(currentState)) togglePlay();
+    if (!isAppStateIdleOrPaused()) togglePlay();
   });
 
   navigator.mediaSession.setActionHandler('previoustrack', () => {

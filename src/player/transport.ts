@@ -18,6 +18,7 @@ import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-cap
 import {
   getPlaybackOwnership,
   isAppStateIdle,
+  isAppStateIdleOrPaused,
   isAppStatePlayingAudio,
   isAppStatePlayingSystemAudio,
   isAppStatePlayingYouTube,
@@ -26,7 +27,6 @@ import {
   isYouTubeOwner,
   setPlaybackAppState,
 } from './ownership.ts';
-import { isIdleOrPaused } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -88,7 +88,6 @@ let _offsetResetQueued = false;
 
 export function getTrackPosition(): number {
   const ownership = getPlaybackOwnership();
-  const currentState = ownership.appState;
   const pausedAt = getState('player.pausedAt') || 0;
 
   // System audio: no meaningful position (live stream)
@@ -103,7 +102,7 @@ export function getTrackPosition(): number {
     return ytPos;
   }
 
-  if (isIdleOrPaused(currentState)) return pausedAt;
+  if (isAppStateIdleOrPaused()) return pausedAt;
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
   const duration =
@@ -343,19 +342,17 @@ export function seekTo(time: number): void {
   }
 
   // YouTube mode
-  const ownership = getPlaybackOwnership();
-  const currentState = ownership.appState;
-  if (ownership.owner === 'youtube') {
+  if (isYouTubeOwner()) {
     bus.emit('youtube:seek-to', time);
     return;
   }
 
   // System audio: no seek (live stream)
-  if (ownership.owner === 'system-audio') return;
+  if (isSystemAudioOwner()) return;
 
   // Host: playing → seek + broadcast
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  if (currentState === APP_STATE.PLAYING_AUDIO) {
+  if (isAppStatePlayingAudio()) {
     play(time);
     broadcast({
       type: MSG.PLAY,
@@ -587,7 +584,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 // ─── Pause ─────────────────────────────────────────────────────────
 
 export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }): void {
-  if (isIdleOrPaused(getState('appState'))) return;
+  if (isAppStateIdleOrPaused()) return;
 
   let pausePos: number;
   if (typeof forcedTime === 'number' && Number.isFinite(forcedTime) && forcedTime >= 0) {
@@ -617,8 +614,6 @@ export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
 
-  const ownership = getPlaybackOwnership();
-  const currentState = ownership.appState;
   const _currentAudioBuffer = getCurrentAudioBuffer();
 
   const hasBufferDuration = !!(
@@ -629,8 +624,8 @@ export function handleEnded(): void {
 
   const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
-  if (isIdleOrPaused(currentState)) return;
-  if (ownership.isExternalOwner) return;
+  if (isAppStateIdleOrPaused()) return;
+  if (isExternalOwner()) return;
 
   const curr = getTrackPosition();
   const isSeeking = getState('player.isSeeking');
@@ -840,8 +835,7 @@ export function adjustSync(val: number): void {
   setState('sync.localOffset', localOffset + val);
   bus.emit('sync:display-update');
 
-  const currentState = getState('appState');
-  if (isIdleOrPaused(currentState)) {
+  if (isAppStateIdleOrPaused()) {
     // Paused: localOffset is stored and applied on next play(pausedAt) via
     // startedAt. Don't modify pausedAt — it would cancel out the offset.
     return;
@@ -855,7 +849,7 @@ export function adjustSync(val: number): void {
     'sync-nudge-replay',
     () => {
       // Re-check app state at fire time — user may have paused during the burst.
-      if (isIdleOrPaused(getState('appState'))) return;
+      if (isAppStateIdleOrPaused()) return;
       play(getTrackPosition());
     },
     NUDGE_REPLAY_DEBOUNCE_MS,

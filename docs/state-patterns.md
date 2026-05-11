@@ -104,7 +104,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 - Normalize `beat-detector`, `channel`, and `system-capture`.
 - `beat-detector` keeps a module-local appState cache fed by `state:appState`, with explicit freshness refresh on buffer-change paths.
 - `channel` uses strict predicates at graph mutation time.
-- `system-capture` keeps the pre-capture snapshot as data but uses helpers for restore decisions.
+- `system-capture` is the explicit exception: it keeps the pre-capture `appState` snapshot as restore data and may compare that stored snapshot directly. Do not replace that snapshot with live predicates, because restore must answer "what was playing before capture started?", not "what is playing now?".
 
 ### Phase 4: UI Subscription Model
 

@@ -1,18 +1,29 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { APP_STATE } from '../../core/constants.ts';
+import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
   getInviteCode,
+  initPlayerControls,
   updateRoleBadge,
 } from '../player-controls.ts';
 
 beforeEach(() => {
   resetState();
+  bus.clear();
+  clearAllManagedTimers();
   document.body.innerHTML = '';
+});
+
+afterEach(() => {
+  clearAllManagedTimers();
+  bus.clear();
 });
 
 describe('getRoleLabelByChannelMode', () => {
@@ -128,5 +139,34 @@ describe('updateRoleBadge', () => {
 
     expect(badge.classList.contains('connected')).toBe(true);
     expect(badge.classList.contains('remote')).toBe(false);
+  });
+});
+
+describe('initPlayerControls appState rendering', () => {
+  function renderPlaybackControls(): void {
+    document.body.innerHTML = `
+      <button id="play-btn"><svg><path d=""></path></svg></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+    `;
+  }
+
+  it('renders the current appState immediately and stays reactive afterward', () => {
+    renderPlaybackControls();
+    setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
+
+    initPlayerControls();
+
+    const icon = document.querySelector('#play-btn path');
+    const mediaBtn = document.getElementById('btn-media-source');
+    const mediaLabel = mediaBtn?.querySelector('span');
+
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop');
+
+    setState('appState', APP_STATE.IDLE);
+
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media');
+    expect(mediaBtn?.classList.contains('sys-audio-guest')).toBe(false);
   });
 });

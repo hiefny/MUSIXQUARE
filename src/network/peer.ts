@@ -23,6 +23,7 @@ import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
 import { createTransportPeer, type TransportPeerOptions } from './transport/index.ts';
+import { setPlaybackAppState } from '../player/ownership.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -698,12 +699,10 @@ export function leaveSession(): void {
     'player.pausedAt': 0,
     // YouTube
     'youtube.subItemsMap': {},
-    // App state
-    appState: APP_STATE.IDLE,
   });
 
   // ── 8. Reset UI ──
-  setState('appState', APP_STATE.IDLE);
+  setPlaybackAppState(APP_STATE.IDLE);
 
   // Delayed reset: allow async close handlers to read the flag first
   setManagedTimer(

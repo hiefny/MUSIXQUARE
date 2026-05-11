@@ -20,7 +20,6 @@ Use `getPlaybackLegacyAppState()` from `src/player/ownership.ts` only when a cal
 
 Good fits:
 
-- protocol payload decisions
 - compatibility bridges that still expose legacy `appState`
 - queue/indexing holdouts that intentionally require strict legacy `IDLE` semantics
 
@@ -114,7 +113,7 @@ Click handlers may still poll using Pattern 1. The rule is:
   - `activity`: `idle | paused | playing | pending`
 - `state.appState` has been removed. `getPlaybackLegacyAppState()` derives the old enum for compatibility consumers only.
 - `owner` and `mode` are not guaranteed to match. Example: PAUSED has no active owner but derives `mode: file` because legacy `APP_STATE.PAUSED` only represents the local-file pause shadow; YouTube pause lives in the YouTube player state instead.
-- `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question. Keep `getPlaybackLegacyAppState()` only for legacy enum compatibility and rollbackable protocol decisions.
+- `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question. Keep `getPlaybackLegacyAppState()` only for legacy enum compatibility inside the app.
 - The full decomposition roadmap (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document is the migration plan; this one remains the read/write contract reference.
 
 ## Verification Gate

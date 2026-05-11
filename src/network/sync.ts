@@ -8,13 +8,10 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { isFeatureFlagEnabled } from '../core/feature-flags.ts';
 import {
   MSG,
-  APP_STATE,
   PLAYBACK_STATE,
   RESERVED_NAMES,
-  type AppStateValue,
   type PlaybackActivityValue,
   type PlaybackModeValue,
 } from '../core/constants.ts';
@@ -37,7 +34,6 @@ import { showToast } from '../ui/toast.ts';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
 import {
-  getPlaybackLegacyAppState,
   getPlaybackModeActivity,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
@@ -47,7 +43,6 @@ let _needsInitialSync = false;
 let _wasPlaying = false;
 
 interface SyncPongPlaybackState {
-  appState: AppStateValue;
   mode: PlaybackModeValue;
   activity: PlaybackActivityValue;
 }
@@ -95,30 +90,28 @@ export function handleAutoSync(): void {
 // ─── Protocol Handlers ──────────────────────────────────────────────
 
 export function getSyncPongPlaybackState(): SyncPongPlaybackState {
-  const appState = getPlaybackLegacyAppState();
   const lifecycle = getState('playback.lifecycle');
   const playback = getPlaybackModeActivity();
 
   // During host track switches, stopAllMedia({ silent: true }) intentionally
-  // leaves appState as PLAYING_AUDIO to avoid UI flicker while the new file
-  // decodes and waits for autoPlayTimer. That is not audible playback, so both
-  // the legacy and decomposed wire views advertise the paused file shadow.
-  if (appState === APP_STATE.PLAYING_AUDIO) {
+  // leaves playback.mode/activity at file/playing to avoid UI flicker while
+  // the new file decodes and waits for autoPlayTimer. That is not audible
+  // playback, so the wire view advertises the paused file shadow.
+  if (playback.mode === 'file' && playback.activity === 'playing') {
     if (lifecycle === PLAYBACK_STATE.PLAYING) {
-      return { appState, mode: 'file', activity: 'playing' };
+      return { mode: 'file', activity: 'playing' };
     }
 
-    return { appState: APP_STATE.PAUSED, mode: 'file', activity: 'paused' };
+    return { mode: 'file', activity: 'paused' };
   }
 
   // Do not let a stale file lifecycle create a new wire-visible "playing"
-  // state that the legacy appState contract would not have advertised.
-  if (playback.mode === 'file' && playback.activity === 'playing') {
-    return { appState, mode: 'file', activity: 'pending' };
+  // state.
+  if (playback.mode === 'file' && playback.activity === 'pending') {
+    return { mode: 'file', activity: 'pending' };
   }
 
   return {
-    appState,
     mode: playback.mode,
     activity: playback.activity,
   };
@@ -137,10 +130,7 @@ export function isSyncPongPlayingFile(data: Record<string, unknown>): boolean {
     return data.mode === 'file' && data.activity === 'playing';
   }
 
-  return (
-    isFeatureFlagEnabled('syncPongLegacyAppStateAccept') &&
-    data.appState === APP_STATE.PLAYING_AUDIO
-  );
+  return false;
 }
 
 function createSyncPongPayload({
@@ -163,10 +153,6 @@ function createSyncPongPayload({
     activity: playbackState.activity,
     trackIndex: getState('playlist.currentTrackIndex'),
   };
-
-  if (isFeatureFlagEnabled('syncPongLegacyAppStateEmit')) {
-    payload.appState = playbackState.appState;
-  }
 
   return payload;
 }

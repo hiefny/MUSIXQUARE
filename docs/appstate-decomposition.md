@@ -7,10 +7,10 @@
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`, and production readers now consume the narrower mode/activity helper surface where their question matches that contract.
 - 5b (dual write): **DONE**. `state.playback.mode/activity` were introduced as shadow slots and are now the primary playback state.
 - 5c (reader migration): **DONE for raw readers**. Production code no longer reads or writes the old `state.appState` slot. Compatibility consumers that still need the legacy enum read it through `getPlaybackLegacyAppState()` and are pinned by test.
-- 5d (wire protocol compat): **DONE**. `SYNC_PONG` defaults to mode/activity only; legacy `appState` emit/accept remain available only through rollback env flags.
+- 5d (wire protocol compat): **DONE**. `SYNC_PONG` now carries mode/activity only; legacy `appState` emit/accept paths and their feature flags have been removed.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
 - 5f (source-of-truth flip): **DONE**. Ownership writes `playback.mode/activity` first and always derives the compatibility `appState` shadow from them.
-- 5g (`state.appState` removal): **DONE**. The global state tree no longer stores `appState`; the old enum survives only as a derived compatibility view and rollbackable sync payload field.
+- 5g (`state.appState` removal): **DONE**. The global state tree no longer stores `appState`; the old enum survives only as a derived compatibility view for remaining in-process callers.
 
 ## Motivation
 
@@ -82,7 +82,7 @@ The old `state.appState` slot is gone. Legacy `appState` is now an exported comp
 
 1. New slots were added and written as a side effect of existing writes.
 2. Readers migrated one domain at a time. Compatibility readers that still need the legacy enum use `getPlaybackLegacyAppState()`.
-3. Wire protocol carries mode/activity by default; legacy emit/accept survives only behind rollback flags.
+3. Wire protocol carries mode/activity only.
 4. Source-of-truth flipped only after production readers were on the new slots.
 5. Legacy `state.appState` was removed last; a derived compatibility getter remains for holdouts.
 
@@ -104,9 +104,9 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 
 **Wire protocol and cross-version compatibility**:
 
-- `src/network/sync.ts::handleSyncPing` - `SYNC_PONG` payloads include `mode` and `activity`; legacy `appState` is emitted only when the rollback flag `syncPongLegacyAppStateEmit` is enabled.
-- `src/network/sync.ts::isSyncPongPlayingFile` - guest reads `mode/activity`; legacy-only `appState` accept is available only when the rollback flag `syncPongLegacyAppStateAccept` is enabled.
-- `src/network/sync.ts` local replay/initial-sync arm gates use `playback.mode/activity`; wire-visible legacy `appState` is read through `getPlaybackOwnership()`, not directly from the global slot.
+- `src/network/sync.ts::handleSyncPing` - `SYNC_PONG` payloads include `mode` and `activity`; legacy `appState` is no longer emitted.
+- `src/network/sync.ts::isSyncPongPlayingFile` - guest reads `mode/activity` and rejects legacy-only `appState` payloads.
+- `src/network/sync.ts` local replay/initial-sync arm gates use `playback.mode/activity`.
 - `SYNC_PING` does not carry playback state and should remain unchanged unless a separate protocol need appears.
 
 **Important readers and intentional legacy holdouts**:
@@ -130,7 +130,7 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 **Initial state and types**:
 
 - `src/core/state.ts` - no longer initializes `appState`; playback starts from `playback.mode = null` and `playback.activity = 'idle'`.
-- `src/types/index.ts` - `StateTree.appState` and mapped `state:appState` events are removed. Sync payload compatibility fields remain behind rollback flags.
+- `src/types/index.ts` - `StateTree.appState`, mapped `state:appState` events, and `SYNC_PONG.appState` are removed.
 
 Do not treat this list as a mandate to remove every legacy reference. The remaining references fall into cross-version compatibility or deliberately strict legacy command gates.
 `src/player/__tests__/appstate-holdouts.test.ts` bans raw production slot/event access and pins the narrower `getPlaybackLegacyAppState()` compatibility consumers, so new legacy reads cannot appear unnoticed.
@@ -212,22 +212,17 @@ Each sub-step lands as its own commit. Tests must pass after each. Invariant ass
 
 ### 5d - Wire Protocol Compat (2 days work + release-cycle waits)
 
-`network/sync.ts` is the only network surface that carries `appState`. The protocol is between this app's host and guest instances on potentially different versions.
+`network/sync.ts` was the only network surface that carried `appState`. The protocol is between this app's host and guest instances on potentially different versions.
 
 **Step 5d-1: dual emit. DONE.** Host sent both `appState` (legacy) and `mode` + `activity` in `SYNC_PONG` payloads. Guest accepted either, preferring the new fields when present. `SYNC_PING` remains unchanged.
 
-Compatibility switches are in place in `src/core/feature-flags.ts`:
+**Step 5d-2: wait two production releases. SKIPPED BY WORKTREE DECISION.** The worktree intentionally cut over without a production release gap.
 
-- `syncPongLegacyAppStateEmit` defaults to `false`; setting `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT=true` is the rollback path.
-- `syncPongLegacyAppStateAccept` defaults to `false`; setting `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT=true` is the rollback path.
+**Step 5d-3: drop the legacy emit. DONE.** Host no longer sends `appState`.
 
-**Step 5d-2: wait two production releases. SKIPPED BY WORKTREE DECISION.** The compatibility code remains behind env rollback switches.
+**Step 5d-4: drop the legacy accept path. DONE.** Guests no longer accept legacy-only `appState`.
 
-**Step 5d-3: drop the legacy emit. DONE.** Host stops sending `appState` by default. The env rollback switch can temporarily re-enable it.
-
-**Step 5d-4: drop the legacy accept path. DONE.** Guests no longer accept legacy-only `appState` by default. The env rollback switch can temporarily re-enable it.
-
-The original two-release wait between 5d-1 and 5d-3 protected cross-version sessions. This worktree intentionally cut over without that wait; keep the rollback env flags until the new protocol has settled.
+The original two-release wait between 5d-1 and 5d-3 protected cross-version sessions. This worktree intentionally removed the compatibility path; rollback is now a normal commit revert, not an env switch.
 
 ### 5e - System-Capture Snapshot (0.5 day)
 
@@ -261,13 +256,13 @@ DONE. `state.appState` has been dropped from the state tree. `APP_STATE` and `Ap
 
 `getPlaybackLegacyAppState()` and `PlaybackOwnership.appState` now derive the old enum from `playback.mode/activity` rather than reading global state. This keeps status/debug/protocol compatibility without restoring a second source of truth.
 
-After the remaining legacy enum consumers and sync rollback flags are removed, `APP_STATE`, `AppStateValue`, and the compatibility projection helpers can be deleted as a final cleanup.
+After the remaining in-process legacy enum consumers are removed, `APP_STATE`, `AppStateValue`, and the compatibility projection helpers can be deleted as a final cleanup.
 
 ## Risk Register
 
 | Risk | Likelihood | Severity | Mitigation |
 | --- | --- | --- | --- |
-| Wire protocol break (host new, guest old) | Medium after cutover | High | Legacy emit/accept rollback flags remain available. |
+| Wire protocol break (host new, guest old) | Medium after cutover | High | This worktree intentionally removed legacy SYNC_PONG compatibility. Revert the 5d cleanup commit if cross-version sessions matter again. |
 | Invariant drift between derived `appState` and `(mode, activity)` | Low | Medium | Legacy enum is now derived from mode/activity at read time; transition tests cover projection gaps. |
 | `system-capture` restore picks wrong mode after 5e | Low | Medium | Explicit restore matrix for file/youtube/system-audio x playing/paused/idle. |
 | UI displays stale during mid-migration commit | Low | Low | Per-commit test gate. Body-class sync lands in a single commit. |
@@ -290,13 +285,13 @@ After the remaining legacy enum consumers and sync rollback flags are removed, `
 | 5b | Revert single commit. New slots become orphaned but unused. |
 | 5c | Per-domain revert. Each sub-step is one commit. |
 | 5d-1 | Revert; host returns to legacy-only emit. Guest still accepts legacy. |
-| 5d-3 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT=true`. |
-| 5d-4 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT=true`. |
+| 5d-3 | Revert the legacy emit removal commit. |
+| 5d-4 | Revert the legacy accept removal commit. |
 | 5e | Revert snapshot shape change. |
 | 5f | Revert the source-of-truth flip commit. |
 | 5g | Restore `state.appState` in `StateTree` and `createInitialState()`, then reintroduce the old ownership bridge. |
 
-Feature flags for 5d-3/4 live in `src/core/feature-flags.ts`. Defaults follow the decomposed playback model; Vite env overrides are reserved for controlled preview builds and rollback switches.
+The temporary feature flag module has been removed because no migration flags remain.
 
 ## Open Questions
 
@@ -325,7 +320,7 @@ Feature flags for 5d-3/4 live in `src/core/feature-flags.ts`. Defaults follow th
 | 5f | done | none |
 | 5g | 0.5 day (optional) | none |
 
-**Total**: 7-9 days active dev originally estimated; release-cadence waits are now bypassed in this worktree and guarded by rollback flags.
+**Total**: 7-9 days active dev originally estimated; release-cadence waits were bypassed in this worktree.
 
 ## Anti-Goals
 
@@ -335,7 +330,7 @@ This document does not cover:
 - `transfer.state` FSM redesign. Same.
 - New playback modes (podcast streaming, file recording, etc.). Those become easy after Phase 5 lands, but their design lives elsewhere.
 - UI redesign. Display logic stays as-is; only the source slot names change underneath.
-- Wire protocol breaking changes beyond the `appState` field. `SYNC_PONG` schema otherwise stays identical; `SYNC_PING` remains unchanged.
+- Wire protocol breaking changes beyond the removed `SYNC_PONG.appState` field. `SYNC_PING` remains unchanged.
 - Moving `player.currentTrackMeta`, `player.startedAt`, or `player.pausedAt` into `playback`. That would be a separate state-tree layout migration.
 
 ## When to Start

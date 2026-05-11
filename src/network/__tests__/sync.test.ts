@@ -162,7 +162,6 @@ describe('SYNC_PING playback snapshot', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
 
     expect(getSyncPongPlaybackState()).toEqual({
-      appState: APP_STATE.PAUSED,
       mode: 'file',
       activity: 'paused',
     });
@@ -173,7 +172,6 @@ describe('SYNC_PING playback snapshot', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
 
     expect(getSyncPongPlaybackState()).toEqual({
-      appState: APP_STATE.PAUSED,
       mode: 'file',
       activity: 'pending',
     });

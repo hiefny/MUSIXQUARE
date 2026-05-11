@@ -394,9 +394,8 @@ export interface ProtocolMap {
     pingId: number;
     hostTime: number;
     position: number;
-    appState: string;
-    mode?: PlaybackModeValue;
-    activity?: PlaybackActivityValue;
+    mode: PlaybackModeValue;
+    activity: PlaybackActivityValue;
     trackIndex: number;
   };
 

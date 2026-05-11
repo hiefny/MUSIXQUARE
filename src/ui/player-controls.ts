@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
@@ -33,12 +33,11 @@ import { initSeekBar } from './seekbar.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import {
   getPlaybackModeActivitySnapshot,
-  scopeAppState,
   scopePlaybackModeActivity,
 } from './_state-hooks.ts';
 import {
-  isAppStatePlayingSystemAudio,
-  isAppStatePlayingYouTube,
+  isPlaybackModeSystemAudio,
+  isPlaybackModeYouTube,
 } from '../player/ownership.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -423,14 +422,14 @@ function openFileSelector(): void {
 function handleMainSyncBtn(): void {
 
   // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
-  if (isAppStatePlayingSystemAudio()) {
+  if (isPlaybackModeSystemAudio()) {
     showToast(t('toast.sync_not_in_system_audio'));
     return;
   }
 
   // YouTube mode: both host and guest paths funnel into the rendezvous
   // mechanism — the host's role is just to fire the trigger broadcast.
-  if (isAppStatePlayingYouTube()) {
+  if (isPlaybackModeYouTube()) {
     const hostConn = getState('network.hostConn');
     if (hostConn) {
       // Guest path — self-heal rendezvous against the cached host snapshot
@@ -681,7 +680,7 @@ export function initPlayerControls(): void {
   });
   $on('btn-sync', 'click', () => handleMainSyncBtn());
   $on('btn-media-source', 'click', () => {
-    if (isAppStatePlayingSystemAudio()) {
+    if (isPlaybackModeSystemAudio()) {
       if (getState('network.hostConn')) {
         showToast(t('toast.host_only_media'));
         return;
@@ -898,10 +897,10 @@ export function initPlayerControls(): void {
     }
   }
 
-  scopeAppState(_busScope, (state) => {
-    let playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
-    if (state === APP_STATE.PLAYING_YOUTUBE) {
-      // appState transitions to PLAYING_YOUTUBE the moment iframe creation
+  scopePlaybackModeActivity(_busScope, (playback) => {
+    let playing = playback.activity === 'playing' && playback.mode !== null;
+    if (playback.mode === 'youtube') {
+      // The playback mode transitions to youtube the moment iframe creation
       // starts (setEngineMode in iframe.ts), well before the video actually
       // plays — assuming "playing" here would briefly show the pause icon
       // over a silent loading iframe. Defer to the iframe's real PlayerState
@@ -913,7 +912,7 @@ export function initPlayerControls(): void {
     updatePlayIcon(playing);
 
     // Clear YouTube sync spinner when leaving YouTube mode
-    if (state !== APP_STATE.PLAYING_YOUTUBE) {
+    if (playback.mode !== 'youtube') {
       const playBtn = document.getElementById('play-btn');
       if (playBtn) playBtn.classList.remove('yt-syncing');
     }
@@ -923,7 +922,7 @@ export function initPlayerControls(): void {
     const mediaBtnLabel = mediaBtn?.querySelector('span');
     const isGuest = !!getState('network.hostConn');
     if (mediaBtnLabel) {
-      if (state === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      if (playback.mode === 'system-audio') {
         if (isGuest) {
           // Guest: keep original label + color (opacity already set by hostConn listener)
           if (mediaBtn) mediaBtn.classList.add('sys-audio-guest');
@@ -951,7 +950,7 @@ export function initPlayerControls(): void {
 
   // YouTube pause/play doesn't change appState — still need this event
   _busScope.on('ui:update-play-state', (playing) => {
-    if (isAppStatePlayingYouTube()) {
+    if (isPlaybackModeYouTube()) {
       updatePlayIcon(playing);
     }
   });
@@ -1094,7 +1093,7 @@ export function initPlayerControls(): void {
 
   // YouTube pause/play doesn't change appState — handle via play-state event
   _busScope.on('ui:update-play-state', (playing) => {
-    if (!isAppStatePlayingYouTube()) return;
+    if (!isPlaybackModeYouTube()) return;
     if (playing) {
       startTabTitleMarquee();
     } else {

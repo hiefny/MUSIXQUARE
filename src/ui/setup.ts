@@ -14,7 +14,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { isAppStatePlayingYouTube } from '../player/ownership.ts';
+import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { onCompactLandscapeChange } from '../core/platform.ts';
 import { showToast, showLoader } from './toast.ts';
@@ -472,7 +472,7 @@ export function initSetup(): void {
       bus.emit('setup:guest-join-failure', err);
     } else if (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') {
       // Clean up YouTube mode immediately — host is gone, no YOUTUBE_STOP will arrive
-      if (isAppStatePlayingYouTube()) {
+      if (isPlaybackModeYouTube()) {
         bus.emit('youtube:stop-mode');
       }
       // Post-connection disconnect: show dialog + re-enable join

@@ -6,7 +6,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { isAppStatePlayingYouTube } from '../player/ownership.ts';
+import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { animateTransition } from './dom.ts';
 
@@ -47,7 +47,7 @@ export function switchTab(tabId: string): void {
       setManagedTimer(
         'tab-play-check',
         () => {
-          if (isAppStatePlayingYouTube()) {
+          if (isPlaybackModeYouTube()) {
             bus.emit('youtube:refresh-display');
           }
           bus.emit('ui:visualizer-check');

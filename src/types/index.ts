@@ -2,11 +2,10 @@
  * MUSIXQUARE — Shared Type Definitions
  */
 
-// NOTE: AppState / TransferState live in core/constants.ts (APP_STATE, TRANSFER_STATE).
+// NOTE: TransferState and other shared value constants live in core/constants.ts.
 //       Removed duplicate const enums that were never imported.
 
 import type {
-  AppStateValue,
   TransferStateValue,
   MsgType,
   PlaybackStateValue,
@@ -233,14 +232,12 @@ export interface ProtocolMap {
     time: number;
     index: number;
     name?: string | null;
-    state?: AppStateValue;
     timestamp?: number;
     hostPlayAt?: number;
   };
   pause: {
     time: number;
     index?: number;
-    state?: AppStateValue;
     timestamp?: number;
     endOfPlaylist?: boolean;
     reason?: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';

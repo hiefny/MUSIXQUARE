@@ -14,7 +14,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
@@ -43,7 +43,7 @@ import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from '
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
-  getPlaybackLegacyAppState,
+  getPlaybackModeActivity,
   isPlaybackPlayingFile,
   isSystemAudioOwner,
   isYouTubeOwner,
@@ -817,7 +817,13 @@ export function initPlayback(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    const currentState = getPlaybackLegacyAppState();
+    const playback = getPlaybackModeActivity();
+    const isFilePlaying = playback.mode === 'file' && playback.activity === 'playing';
+    const isFilePauseLike =
+      playback.mode === 'file' && (playback.activity === 'paused' || playback.activity === 'pending');
+    const isSystemAudioPlaying =
+      playback.mode === 'system-audio' && playback.activity === 'playing';
+    const isYouTubeActive = playback.mode === 'youtube' && playback.activity !== 'idle';
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const playlist = getState('playlist.items') || [];
 
@@ -826,9 +832,9 @@ export function initPlayback(): void {
       const nowPos = getTrackPosition();
 
       // System audio: send start message instead of PLAY/PAUSE (media call handled by system-audio-host)
-      if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      if (isSystemAudioPlaying) {
         conn.send({ type: MSG.SYSTEM_AUDIO_START });
-      } else if (currentState === APP_STATE.PLAYING_AUDIO) {
+      } else if (isFilePlaying) {
         const item = (playlist[currentTrackIndex] as unknown as Record<string, unknown>) || {};
         const itemName = (item.name || (item.file as File | undefined)?.name || null) as
           | string
@@ -840,18 +846,16 @@ export function initPlayback(): void {
           time: nowPos,
           index: currentTrackIndex,
           name: itemName,
-          state: currentState,
           timestamp: Date.now(),
         });
-      } else if (!isYouTubeOwner()) {
+      } else if (!isYouTubeActive) {
         // IDLE or PAUSED: Send pause to sync position
         conn.send({
           type: MSG.PAUSE,
           time: nowPos,
           index: currentTrackIndex,
-          state: currentState,
           timestamp: Date.now(),
-          reason: currentState === APP_STATE.PAUSED ? 'pause' : 'stop',
+          reason: isFilePauseLike ? 'pause' : 'stop',
         });
       }
       // YouTube state is handled by youtube/player.ts bootstrap

@@ -83,8 +83,8 @@ Click handlers may still poll using Pattern 1. The rule is:
 
 ### Phase 1: Playback Domain Residuals
 
-- Replace remaining raw playback-domain appState polls with `ownership.ts` predicates or adapter reads. `playback.ts`, `playlist.ts`, and YouTube runtime mode guards are migrated; queue/indexing idle checks stay strict legacy `IDLE` through `getPlaybackLegacyAppState()`.
-- Preserve protocol payloads and stored snapshots.
+- Replace remaining raw playback-domain appState polls with `ownership.ts` predicates or adapter reads. `playback.ts` and YouTube runtime mode guards are migrated; queue/indexing idle checks in `playlist.ts` and YouTube stay strict legacy `IDLE` through `getPlaybackLegacyAppState()`.
+- File `PLAY`/`PAUSE` protocol payloads no longer carry the legacy `appState` enum; receivers derive behavior from existing payload fields and local playback mode/activity.
 
 ### Phase 2: Gating Site Rename
 

@@ -213,7 +213,7 @@ describe('late-join playback bootstrap', () => {
     return send;
   }
 
-  it('sends legacy PLAY state from the ownership adapter', () => {
+  it('sends file PLAY bootstrap without legacy appState payload', () => {
     initPlayback();
     setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     setState('playlist.currentTrackIndex', 0);
@@ -226,12 +226,12 @@ describe('late-join playback bootstrap', () => {
         type: MSG.PLAY,
         index: 0,
         name: 'song.mp3',
-        state: APP_STATE.PLAYING_AUDIO,
       }),
     );
+    expect(send.mock.calls[0]?.[0]).not.toHaveProperty('state');
   });
 
-  it('sends legacy PAUSE state and pause reason from the ownership adapter', () => {
+  it('sends file PAUSE bootstrap with pause reason but no legacy appState payload', () => {
     initPlayback();
     setPlaybackAppState(APP_STATE.PAUSED);
     setState('playlist.currentTrackIndex', 1);
@@ -244,10 +244,10 @@ describe('late-join playback bootstrap', () => {
         type: MSG.PAUSE,
         index: 1,
         reason: 'pause',
-        state: APP_STATE.PAUSED,
         time: 42,
       }),
     );
+    expect(send.mock.calls[0]?.[0]).not.toHaveProperty('state');
   });
 
   it('sends system audio bootstrap without file playback payloads', () => {

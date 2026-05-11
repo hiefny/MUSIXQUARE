@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { APP_STATE } from '../../core/constants.ts';
+import { setPlaybackAppState } from '../ownership.ts';
 
 // Mock transport.ts to avoid Tone.js
 vi.mock('../transport.ts', () => ({
@@ -31,6 +32,7 @@ const _handlers: Record<string, (details?: Record<string, unknown>) => void> = {
 Object.defineProperty(navigator, 'mediaSession', {
   value: {
     metadata: null,
+    playbackState: 'none',
     setActionHandler: vi.fn((action: string, handler: () => void) => {
       _handlers[action] = handler;
     }),
@@ -61,6 +63,7 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   navigator.mediaSession.metadata = null;
+  navigator.mediaSession.playbackState = 'none';
 });
 
 describe('updateMediaSessionMetadata', () => {
@@ -201,5 +204,16 @@ describe('initMediaSession', () => {
     setState('player.currentTrackMeta', item);
     expect(navigator.mediaSession.metadata).not.toBeNull();
     expect(navigator.mediaSession.metadata!.title).toBe('Bus Track');
+  });
+
+  it('syncs OS playback state from playback activity', () => {
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    expect(navigator.mediaSession.playbackState).toBe('playing');
+
+    setPlaybackAppState(APP_STATE.PAUSED);
+    expect(navigator.mediaSession.playbackState).toBe('paused');
+
+    setPlaybackAppState(APP_STATE.IDLE);
+    expect(navigator.mediaSession.playbackState).toBe('none');
   });
 });

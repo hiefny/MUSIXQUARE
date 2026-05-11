@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { APP_STATE } from '../core/constants.ts';
+import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime } from './transport.ts';
 import {
   isAppStateIdle,
@@ -17,6 +17,18 @@ import {
   isAppStatePlayingYouTube,
 } from './ownership.ts';
 import type { PlaylistItem } from '../types/index.ts';
+
+function isPlaybackActivityValue(value: unknown): value is PlaybackActivityValue {
+  return value === 'idle' || value === 'paused' || value === 'playing' || value === 'pending';
+}
+
+function mediaSessionStateFromActivity(
+  activity: PlaybackActivityValue,
+): MediaSessionPlaybackState {
+  if (activity === 'playing') return 'playing';
+  if (activity === 'paused') return 'paused';
+  return 'none';
+}
 
 // ─── Metadata Update ───────────────────────────────────────────────
 
@@ -145,7 +157,7 @@ export function initMediaSession(): void {
   });
 
   // !! CRITICAL — DO NOT REMOVE
-  // Sync playbackState with app state. This explicitly tells the OS
+  // Sync playbackState with playback activity. This explicitly tells the OS
   // that media is playing, which has a crucial side effect on iOS PWA:
   // iOS keeps the AudioContext alive in the background when
   // playbackState === 'playing', enabling background audio playback.
@@ -153,11 +165,10 @@ export function initMediaSession(): void {
   // the background or the screen turns off, killing audio immediately.
   // (Tone.js / Web Audio apps need this because the browser can't
   // infer playback state from an <audio> element.)
-  bus.on('state:appState', () => {
+  bus.on('state:playback.activity', (activity) => {
     if (!('mediaSession' in navigator)) return;
-    const state = getState('appState');
-    navigator.mediaSession.playbackState =
-      state === APP_STATE.IDLE ? 'none' : state === APP_STATE.PAUSED ? 'paused' : 'playing';
+    if (!isPlaybackActivityValue(activity)) return;
+    navigator.mediaSession.playbackState = mediaSessionStateFromActivity(activity);
   });
 
   log.info('[MediaSession] Initialized');

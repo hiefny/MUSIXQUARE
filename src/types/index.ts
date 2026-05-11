@@ -589,7 +589,7 @@ export interface StateTree {
   };
   systemAudio: { isReceiving: boolean };
   /**
-   * Guest-side track playback lifecycle. Orthogonal to `appState` (mode).
+   * Guest-side track playback lifecycle. Orthogonal to playback mode/activity.
    * Every transition MUST go through `src/player/lifecycle.ts::transition()`.
    * See `.workshop/design/playback-state-machine.md` for the full table.
    *
@@ -823,8 +823,8 @@ interface BaseEventMap {
   'youtube:preview': [url: string];
   'youtube:load-from-input': [];
   'youtube:load-from-chat': [url: string];
-  // opts.silent: caller is mid-transition to another mode and will set
-  // appState shortly — skip the IDLE bounce so the body class doesn't flash.
+  // opts.silent: caller is mid-transition to another mode and will claim
+  // playback shortly, so skip the IDLE bounce and avoid a body-class flash.
   'youtube:stop-mode': [opts?: { silent?: boolean }];
   'youtube:refresh-display': [];
   'youtube:set-volume': [volumePercent: number];

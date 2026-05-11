@@ -6,9 +6,6 @@ import {
   createFileTrackMeta,
   createSystemAudioTrackMeta,
   createYouTubeTrackMeta,
-  deriveAppStateFromModeActivity,
-  deriveModeActivityFromAppState,
-  getPlaybackLegacyAppState,
   getPlaybackModeActivity,
   getPlaybackModeActivitySnapshot,
   getPlaybackOwnership,
@@ -19,16 +16,13 @@ import {
   isPlaybackLegacyIdleModeActivity,
   isPlaybackModeSystemAudio,
   isPlaybackModeYouTube,
-  isPlaybackPaused,
   isPlaybackPending,
-  isPlaybackPlayingFile,
   isPlaybackPlayingSystemAudio,
   isPlaybackPlayingYouTube,
   isSystemAudioOwner,
   isSystemAudioPlaceholderMeta,
   isYouTubeOwner,
   releasePlaybackOwner,
-  setPlaybackAppState,
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
   setPlaybackIdle,
@@ -41,14 +35,6 @@ import {
   updatePlaybackTrackMeta,
   updatePlaybackTrackTitle,
 } from '../ownership.ts';
-
-const LEGACY_APP_STATE = {
-  IDLE: 'IDLE',
-  PAUSED: 'PAUSED',
-  PLAYING_AUDIO: 'PLAYING_AUDIO',
-  PLAYING_YOUTUBE: 'PLAYING_YOUTUBE',
-  PLAYING_SYSTEM_AUDIO: 'PLAYING_SYSTEM_AUDIO',
-} as const;
 
 beforeEach(() => {
   resetState();
@@ -75,7 +61,7 @@ describe('playback ownership view', () => {
   });
 
   it('treats YouTube as an external owner', () => {
-    setPlaybackAppState(LEGACY_APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackYouTubePlaying();
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'youtube',
@@ -85,27 +71,13 @@ describe('playback ownership view', () => {
     });
     expect(isExternalOwner()).toBe(true);
     expect(isYouTubeOwner()).toBe(true);
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_YOUTUBE);
     expect(isPlaybackModeYouTube()).toBe(true);
     expect(isPlaybackPlayingYouTube()).toBe(true);
     expectPlaybackModeActivitySlots('youtube', 'playing');
   });
 
-  it('exposes the legacy appState compatibility snapshot', () => {
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.IDLE);
-
-    setPlaybackAppState(LEGACY_APP_STATE.PLAYING_AUDIO);
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_AUDIO);
-
-    setPlaybackAppState(LEGACY_APP_STATE.PAUSED);
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PAUSED);
-    expect(isFileOwner()).toBe(false);
-    expect(isPlaybackPaused()).toBe(true);
-    expectPlaybackModeActivitySlots('file', 'paused');
-  });
-
-  it('treats system audio app state as an external owner', () => {
-    setPlaybackAppState(LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO);
+  it('treats system audio playback as an external owner', () => {
+    setPlaybackSystemAudioPlaying();
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'system-audio',
@@ -113,7 +85,6 @@ describe('playback ownership view', () => {
       activity: 'playing',
       isExternalOwner: true,
     });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO);
     expect(isSystemAudioOwner()).toBe(true);
     expect(isPlaybackModeSystemAudio()).toBe(true);
     expect(isPlaybackPlayingSystemAudio()).toBe(true);
@@ -135,7 +106,6 @@ describe('playback ownership view', () => {
       isSystemAudioPlaceholder: true,
       isExternalOwner: true,
     });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.IDLE);
     expect(isSystemAudioOwner()).toBe(true);
     expect(isPlaybackModeSystemAudio()).toBe(true);
     expect(isPlaybackPending()).toBe(true);
@@ -180,11 +150,10 @@ describe('playback ownership view', () => {
         title: 'System Audio Sharing',
       },
     });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO);
     expectPlaybackModeActivitySlots('system-audio', 'playing');
   });
 
-  it('claims pending system-audio ownership without changing appState', () => {
+  it('claims pending system-audio ownership through placeholder mode/activity', () => {
     claimPlaybackOwner('system-audio', {
       pending: true,
       currentTrackMeta: createSystemAudioTrackMeta('receiving'),
@@ -196,20 +165,18 @@ describe('playback ownership view', () => {
       activity: 'pending',
       isSystemAudioPlaceholder: true,
     });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.IDLE);
     expectPlaybackModeActivitySlots('system-audio', 'pending');
   });
 
   it('releases only the requested owner unless forced', () => {
-    setPlaybackAppState(LEGACY_APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackYouTubePlaying();
     const before = getPlaybackOwnership();
 
-    releasePlaybackOwner('system-audio', { nextAppState: LEGACY_APP_STATE.IDLE });
+    releasePlaybackOwner('system-audio');
     expect(getPlaybackOwnership()).toEqual(before);
 
     releasePlaybackOwner('system-audio', {
       force: true,
-      nextAppState: LEGACY_APP_STATE.IDLE,
       currentTrackMeta: null,
     });
     expect(getPlaybackOwnership()).toMatchObject({
@@ -218,7 +185,6 @@ describe('playback ownership view', () => {
       activity: 'idle',
       currentTrackMeta: null,
     });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.IDLE);
     expectPlaybackModeActivitySlots(null, 'idle');
   });
 
@@ -307,51 +273,6 @@ describe('playback ownership view', () => {
     });
   });
 
-  it('projects legacy appState into mode/activity for compatibility reads', () => {
-    expect(deriveModeActivityFromAppState(LEGACY_APP_STATE.IDLE)).toEqual({
-      mode: null,
-      activity: 'idle',
-    });
-    expect(deriveModeActivityFromAppState(LEGACY_APP_STATE.PLAYING_AUDIO)).toEqual({
-      mode: 'file',
-      activity: 'playing',
-    });
-    expect(deriveModeActivityFromAppState(LEGACY_APP_STATE.PAUSED)).toEqual({
-      mode: 'file',
-      activity: 'paused',
-    });
-    expect(deriveModeActivityFromAppState(LEGACY_APP_STATE.PLAYING_YOUTUBE)).toEqual({
-      mode: 'youtube',
-      activity: 'playing',
-    });
-    expect(deriveModeActivityFromAppState(LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO)).toEqual({
-      mode: 'system-audio',
-      activity: 'playing',
-    });
-  });
-
-  it('projects mode/activity back to the legacy appState compatibility enum', () => {
-    expect(deriveAppStateFromModeActivity(null, 'idle')).toBe(LEGACY_APP_STATE.IDLE);
-    expect(deriveAppStateFromModeActivity('file', 'idle')).toBe(LEGACY_APP_STATE.IDLE);
-    expect(deriveAppStateFromModeActivity('file', 'playing')).toBe(
-      LEGACY_APP_STATE.PLAYING_AUDIO,
-    );
-    expect(deriveAppStateFromModeActivity('file', 'paused')).toBe(LEGACY_APP_STATE.PAUSED);
-    expect(deriveAppStateFromModeActivity('file', 'pending')).toBe(LEGACY_APP_STATE.PAUSED);
-    expect(deriveAppStateFromModeActivity('youtube', 'idle')).toBe(LEGACY_APP_STATE.IDLE);
-    expect(deriveAppStateFromModeActivity('youtube', 'playing')).toBe(
-      LEGACY_APP_STATE.PLAYING_YOUTUBE,
-    );
-    expect(deriveAppStateFromModeActivity('youtube', 'paused')).toBe(
-      LEGACY_APP_STATE.PLAYING_YOUTUBE,
-    );
-    expect(deriveAppStateFromModeActivity('system-audio', 'idle')).toBe(LEGACY_APP_STATE.IDLE);
-    expect(deriveAppStateFromModeActivity('system-audio', 'playing')).toBe(
-      LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO,
-    );
-    expect(deriveAppStateFromModeActivity('system-audio', 'pending')).toBe(LEGACY_APP_STATE.IDLE);
-  });
-
   it('preserves legacy IDLE semantics as a narrow predicate', () => {
     expect(isPlaybackLegacyIdleModeActivity({ mode: null, activity: 'idle' })).toBe(true);
     expect(isPlaybackLegacyIdleModeActivity({ mode: 'file', activity: 'idle' })).toBe(true);
@@ -372,57 +293,20 @@ describe('playback ownership view', () => {
     expect(isPlaybackLegacyIdle()).toBe(true);
   });
 
-  it('routes playback app state changes through ownership claims', () => {
-    setPlaybackAppState(LEGACY_APP_STATE.PLAYING_AUDIO);
-    expect(isPlaybackPlayingFile()).toBe(true);
-    expect(getPlaybackOwnership()).toMatchObject({
-      owner: 'file',
-      mode: 'file',
-      activity: 'playing',
-    });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_AUDIO);
-    expectPlaybackModeActivitySlots('file', 'playing');
-
-    setPlaybackAppState(LEGACY_APP_STATE.PLAYING_YOUTUBE);
-    expect(getPlaybackOwnership()).toMatchObject({
-      owner: 'youtube',
-      mode: 'youtube',
-      activity: 'playing',
-      isExternalOwner: true,
-    });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_YOUTUBE);
-    expectPlaybackModeActivitySlots('youtube', 'playing');
-
-    setPlaybackAppState(LEGACY_APP_STATE.PAUSED);
-    expect(getPlaybackOwnership()).toMatchObject({
-      owner: 'none',
-      mode: 'file',
-      activity: 'paused',
-    });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PAUSED);
-    expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'paused' });
-    expectPlaybackModeActivitySlots('file', 'paused');
-  });
-
   it('writes playback mode/activity through semantic helpers', () => {
     setPlaybackFilePlaying();
     expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'playing' });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_AUDIO);
 
     setPlaybackFilePaused();
     expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'paused' });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PAUSED);
 
     setPlaybackYouTubePlaying();
     expect(getPlaybackModeActivity()).toEqual({ mode: 'youtube', activity: 'playing' });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_YOUTUBE);
 
     setPlaybackSystemAudioPlaying();
     expect(getPlaybackModeActivity()).toEqual({ mode: 'system-audio', activity: 'playing' });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO);
 
     setPlaybackIdle();
     expect(getPlaybackModeActivity()).toEqual({ mode: null, activity: 'idle' });
-    expect(getPlaybackLegacyAppState()).toBe(LEGACY_APP_STATE.IDLE);
   });
 });

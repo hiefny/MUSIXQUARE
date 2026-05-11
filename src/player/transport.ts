@@ -276,9 +276,9 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   setPlayPreloadedInProgress(false);
 
   // silent=true usually suppresses the IDLE flash while another audio track
-  // is taking over. YouTube is the exception: leaving appState at
-  // PLAYING_YOUTUBE blocks file lifecycle transitions and play(), so clear
-  // the mode after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
+  // is taking over. YouTube is the exception: leaving playback mode at
+  // YouTube blocks file lifecycle transitions and play(), so clear the mode
+  // after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
   if (opts?.silent && wasInYouTube && isYouTubeOwner()) {
     setPlaybackIdle();
   }
@@ -406,7 +406,7 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         // next await checkpoint instead of overwriting the post-watchdog IDLE
         // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
         incrementLoadToken();
-        // Reset appState to IDLE to prevent stuck "playing" UI
+        // Reset playback to IDLE to prevent stuck "playing" UI.
         if (!isLegacyIdle()) {
           setPlaybackIdle();
         }

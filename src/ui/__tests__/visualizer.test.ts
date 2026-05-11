@@ -47,7 +47,6 @@ vi.mock('../../core/events.ts', () => {
 
 vi.mock('../../core/state.ts', () => {
   let state: Record<string, unknown> = {
-    appState: 'IDLE',
     'playback.mode': null,
     'playback.activity': 'idle',
   };
@@ -58,7 +57,6 @@ vi.mock('../../core/state.ts', () => {
     }),
     resetState: vi.fn(() => {
       state = {
-        appState: 'IDLE',
         'playback.mode': null,
         'playback.activity': 'idle',
       };

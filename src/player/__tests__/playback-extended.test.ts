@@ -87,7 +87,7 @@ describe('stopPlayerNode', () => {
 // ─── stopAllMedia ────────────────────────────────────────────────────
 
 describe('stopAllMedia', () => {
-  it('resets appState to IDLE', () => {
+  it('resets playback mode/activity to idle', () => {
     setPlaybackFilePlaying();
     stopAllMedia();
     expect(getState('playback.mode')).toBeNull();
@@ -219,7 +219,7 @@ describe('late-join playback bootstrap', () => {
     return send;
   }
 
-  it('sends file PLAY bootstrap without legacy appState payload', () => {
+  it('sends file PLAY bootstrap without legacy state payload', () => {
     initPlayback();
     setPlaybackFilePlaying();
     setState('playlist.currentTrackIndex', 0);
@@ -237,7 +237,7 @@ describe('late-join playback bootstrap', () => {
     expect(send.mock.calls[0]?.[0]).not.toHaveProperty('state');
   });
 
-  it('sends file PAUSE bootstrap with pause reason but no legacy appState payload', () => {
+  it('sends file PAUSE bootstrap with pause reason but no legacy state payload', () => {
     initPlayback();
     setPlaybackFilePaused();
     setState('playlist.currentTrackIndex', 1);

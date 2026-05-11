@@ -1196,9 +1196,9 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
   // Auto-play first added file if nothing is playing AND no track has been
   // selected yet. The `currentIndex < 0` guard prevents a race when multiple
   // files are uploaded sequentially: playTrack(0) sets currentTrackIndex = 0
-  // synchronously (line 228), but its async audio decode keeps appState as
-  // IDLE until decode + play() complete. Without the guard, each subsequent
-  // upload also sees IDLE and calls playTrack(N), overwriting the index to
+  // synchronously, but its async audio decode keeps playback idle until
+  // decode + play() complete. Without the guard, each subsequent upload also
+  // sees idle and calls playTrack(N), overwriting the index to
   // the last uploaded track — so clicking "next" immediately overflows the
   // playlist boundary into handleEndOfPlaylist (currentTrackIndex = -1).
   const currentIndex = getState('playlist.currentTrackIndex');
@@ -1297,10 +1297,8 @@ export function initPlaylist(): void {
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const isCurrentTrack = index === currentTrackIndex;
     // Snapshot the removed track BEFORE splice — we need its type later to
-    // decide whether to tear down the YouTube iframe. Using appState here
-    // would miss the PAUSED-YouTube case (a YT track that's loaded into
-    // the iframe but currently paused), since appState wouldn't be
-    // PLAYING_YOUTUBE at that moment. Track type is the unambiguous signal:
+    // decide whether to tear down the YouTube iframe. Using playback mode here
+    // would miss paused/indexed YouTube cases; track type is the unambiguous signal:
     // if the active track is type='youtube', the iframe is mounted, full
     // stop. stopAllMedia / playTrack only touch audio nodes — the YouTube
     // iframe is owned by the youtube module, so without an explicit

@@ -6,10 +6,8 @@
  *   mode/activity    - primary playback contract. Use the playback mode and
  *                      activity helpers when callers ask what is active or
  *                      which playback surface owns the UI/engine.
- *   legacy appState  - compatibility projection kept inside this module.
- *                      Production callers should prefer mode/activity or the
- *                      narrower `isPlaybackLegacyIdle()` predicate when they
- *                      must preserve old IDLE semantics.
+ *   legacy IDLE      - narrow compatibility predicate for callers that must
+ *                      preserve the old enum's exact `IDLE` behavior.
  *   is<X>Owner()     - broad ownership semantic from getPlaybackOwnership().
  *                      Includes domain-specific signals (file lifecycle/
  *                      transfer activity for 'file'; placeholder/isReceiving
@@ -43,12 +41,6 @@ import type { TrackMeta } from '../types/index.ts';
 export type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
 export type PlaybackMode = PlaybackModeValue;
 export type PlaybackActivity = PlaybackActivityValue;
-export type LegacyAppStateValue =
-  | 'IDLE'
-  | 'PAUSED'
-  | 'PLAYING_AUDIO'
-  | 'PLAYING_YOUTUBE'
-  | 'PLAYING_SYSTEM_AUDIO';
 
 export interface PlaybackModeActivity {
   mode: PlaybackMode;
@@ -71,18 +63,17 @@ export interface PlaybackOwnership {
 export interface PlaybackClaimOptions {
   currentTrackMeta?: TrackMeta | null;
   /**
-   * `pending: true` skips the appState change but still updates currentTrackMeta
-   * (when provided). Used for the system-audio guest placeholder: the host has
-   * signalled SYSTEM_AUDIO_START but the WebRTC stream hasn't fired yet, so
-   * appState stays at its prior value while the placeholder meta marks the
-   * pending ownership.
+   * `pending: true` skips the direct mode/activity claim but still updates
+   * currentTrackMeta (when provided). Used for the system-audio guest
+   * placeholder: the host has signalled SYSTEM_AUDIO_START but the WebRTC
+   * stream hasn't fired yet, so placeholder meta marks pending ownership until
+   * the stream arrives.
    */
   pending?: boolean;
 }
 
 export interface PlaybackReleaseOptions {
   currentTrackMeta?: TrackMeta | null;
-  nextAppState?: LegacyAppStateValue;
   force?: boolean;
 }
 
@@ -91,14 +82,6 @@ const OWNER_MODE_ACTIVITY: Record<Exclude<PlaybackOwner, 'none'>, PlaybackModeAc
   youtube: { mode: 'youtube', activity: 'playing' },
   'system-audio': { mode: 'system-audio', activity: 'playing' },
 };
-
-const LEGACY_APP_STATE = {
-  IDLE: 'IDLE',
-  PAUSED: 'PAUSED',
-  PLAYING_AUDIO: 'PLAYING_AUDIO',
-  PLAYING_YOUTUBE: 'PLAYING_YOUTUBE',
-  PLAYING_SYSTEM_AUDIO: 'PLAYING_SYSTEM_AUDIO',
-} as const satisfies Record<string, LegacyAppStateValue>;
 
 export function isSystemAudioPlaceholderMeta(meta: TrackMeta | null): boolean {
   return meta?.systemAudioPlaceholder === true;
@@ -162,48 +145,9 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
-export function deriveModeActivityFromAppState(appState: LegacyAppStateValue): PlaybackModeActivity {
-  switch (appState) {
-    case LEGACY_APP_STATE.PLAYING_AUDIO:
-      return { mode: 'file', activity: 'playing' };
-    case LEGACY_APP_STATE.PAUSED:
-      return { mode: 'file', activity: 'paused' };
-    case LEGACY_APP_STATE.PLAYING_YOUTUBE:
-      return { mode: 'youtube', activity: 'playing' };
-    case LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO:
-      return { mode: 'system-audio', activity: 'playing' };
-    case LEGACY_APP_STATE.IDLE:
-    default:
-      return { mode: null, activity: 'idle' };
-  }
-}
-
-export function deriveAppStateFromModeActivity(
-  mode: PlaybackModeValue,
-  activity: PlaybackActivityValue,
-): LegacyAppStateValue {
-  if (activity === 'idle') return LEGACY_APP_STATE.IDLE;
-
-  if (mode === 'file') {
-    return activity === 'playing' ? LEGACY_APP_STATE.PLAYING_AUDIO : LEGACY_APP_STATE.PAUSED;
-  }
-
-  if (mode === 'youtube') {
-    return LEGACY_APP_STATE.PLAYING_YOUTUBE;
-  }
-
-  if (mode === 'system-audio') {
-    return activity === 'playing'
-      ? LEGACY_APP_STATE.PLAYING_SYSTEM_AUDIO
-      : LEGACY_APP_STATE.IDLE;
-  }
-
-  return LEGACY_APP_STATE.IDLE;
-}
-
 // Phase 5 migration boundary. Production callers should consume the narrower
 // mode/activity helpers when their question matches that contract, while this
-// adapter keeps broad ownership and legacy compatibility data available.
+// adapter keeps the broad ownership view available.
 function deriveModeActivityFromSources(sources: {
   mode: PlaybackMode;
   activity: PlaybackActivity;
@@ -300,14 +244,6 @@ export function getPlaybackOwnership(): PlaybackOwnership {
     hasFilePipeline: filePipeline,
     isExternalOwner: owner === 'youtube' || owner === 'system-audio',
   };
-}
-
-// Phase 5 compatibility bridge. New production code should prefer mode/activity
-// helpers; this remains for tests and legacy adapter signatures that still
-// speak the old enum at their boundary.
-export function getPlaybackLegacyAppState(): LegacyAppStateValue {
-  const playback = getPlaybackOwnership();
-  return deriveAppStateFromModeActivity(playback.mode, playback.activity);
 }
 
 export function getPlaybackModeActivity(): PlaybackModeActivity {
@@ -542,11 +478,6 @@ export function claimPlaybackOwner(
   return syncPlaybackModeActivityFromOwnership();
 }
 
-export function setPlaybackAppState(appState: LegacyAppStateValue): PlaybackOwnership {
-  const modeActivity = deriveModeActivityFromAppState(appState);
-  return setPlaybackModeActivity(modeActivity);
-}
-
 export function releasePlaybackOwner(
   owner: Exclude<PlaybackOwner, 'none'>,
   options: PlaybackReleaseOptions = {},
@@ -557,8 +488,5 @@ export function releasePlaybackOwner(
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
   }
-  const modeActivity = deriveModeActivityFromAppState(
-    options.nextAppState ?? LEGACY_APP_STATE.IDLE,
-  );
-  return setPlaybackModeActivity(modeActivity);
+  return setPlaybackModeActivity({ mode: null, activity: 'idle' });
 }

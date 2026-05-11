@@ -1,6 +1,6 @@
 # Playback State Consumption Plan
 
-MUSIXQUARE no longer exports legacy `APP_STATE` from core, and the global state tree no longer stores `state.appState`. A small legacy projection remains inside `ownership.ts` for compatibility-boundary tests and historical semantics. This document defines the contract for how modules consume playback state during and after the ownership refactor.
+MUSIXQUARE no longer exports legacy `APP_STATE` from core, and the global state tree no longer stores `state.appState`. The remaining legacy surface is a narrow `isPlaybackLegacyIdle()` predicate for historical strict-IDLE semantics. This document defines the contract for how modules consume playback state during and after the ownership refactor.
 
 ## Core Problem
 
@@ -14,13 +14,12 @@ The goal is not to remove every poll. The goal is to make every poll intentional
 
 ## Contracts
 
-### Pattern 1: Legacy App State Compatibility Read
+### Pattern 1: Legacy IDLE Compatibility Read
 
-Production code should not add new `getPlaybackLegacyAppState()` calls. Use `playback.mode/activity` helpers for semantic questions, and use `isPlaybackLegacyIdle()` only when a caller must preserve the old enum's exact `IDLE` behavior.
+Use `playback.mode/activity` helpers for semantic questions, and use `isPlaybackLegacyIdle()` only when a caller must preserve the old enum's exact `IDLE` behavior.
 
 Good fits:
 
-- compatibility bridges that still expose legacy `appState`
 - queue/indexing holdouts that intentionally require strict legacy `IDLE` semantics
 
 Examples:
@@ -58,7 +57,7 @@ Good fits:
 - mode badges
 - visualizer start/stop display reactions
 
-Click handlers may still poll using Pattern 1. The rule is:
+Click handlers may still poll using Pattern 1 or 2. The rule is:
 
 - command execution uses fresh poll
 - display rendering uses subscription
@@ -78,7 +77,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 ### Phase 0: Contract Documentation
 
 - Add this document.
-- Keep `ownership.ts` header explicit about strict app state vs broad ownership vs UI subscription.
+- Keep `ownership.ts` header explicit about mode/activity, strict legacy IDLE, broad ownership, and UI subscription.
 - No behavior change.
 
 ### Phase 1: Playback Domain Residuals
@@ -111,9 +110,9 @@ Click handlers may still poll using Pattern 1. The rule is:
 - Replace the legacy global state slot with the playback domain state:
   - `mode`: `file | youtube | system-audio | null`
   - `activity`: `idle | paused | playing | pending`
-- `state.appState` has been removed. `getPlaybackLegacyAppState()` derives the old enum inside the ownership compatibility boundary only.
-- `owner` and `mode` are not guaranteed to match. Example: PAUSED has no active owner but derives `mode: file` because legacy `APP_STATE.PAUSED` only represents the local-file pause shadow; YouTube pause lives in the YouTube player state instead.
-- `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question. Keep legacy projection calls inside the ownership boundary.
+- `state.appState` has been removed, and the old full enum projection helpers are gone.
+- `owner` and `mode` are not guaranteed to match. Example: paused local-file playback has no active owner but still records `mode: file`; YouTube pause lives in the YouTube player state instead.
+- `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question.
 - The full decomposition roadmap (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document is the migration plan; this one remains the read/write contract reference.
 
 ## Verification Gate

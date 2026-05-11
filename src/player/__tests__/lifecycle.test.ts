@@ -605,7 +605,7 @@ describe('transition() state tree integration', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
   });
 
-  it('is a no-op when appState is PLAYING_YOUTUBE', () => {
+  it('is a no-op when YouTube owns playback', () => {
     setPlaybackYouTubePlaying();
     forceState(PLAYBACK_STATE.IDLE);
     const result = transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3' });
@@ -613,7 +613,7 @@ describe('transition() state tree integration', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
   });
 
-  it('is a no-op when appState is PLAYING_SYSTEM_AUDIO', () => {
+  it('is a no-op when system audio owns playback', () => {
     setPlaybackSystemAudioPlaying();
     forceState(PLAYBACK_STATE.IDLE);
     const result = transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3' });

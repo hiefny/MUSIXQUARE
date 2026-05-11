@@ -9,9 +9,8 @@ const LEGACY_APPSTATE_PATTERN =
 
 const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>();
 
-const ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES = new Map<string, string>();
-
-const LEGACY_APPSTATE_COMPAT_HELPER = 'getPlaybackLegacyAppState';
+const LEGACY_APPSTATE_PROJECTION_PATTERN =
+  /\b(getPlaybackLegacyAppState|setPlaybackAppState|deriveModeActivityFromAppState|deriveAppStateFromModeActivity|LegacyAppStateValue)\b/;
 const LEGACY_IDLE_COMPAT_HELPER = 'isPlaybackLegacyIdle';
 
 const ALLOWED_LEGACY_IDLE_COMPAT_FILES = new Map<string, string>([
@@ -68,24 +67,16 @@ describe('legacy appState holdouts', () => {
     }
   });
 
-  it('keeps full legacy appState projection out of production consumers', () => {
+  it('keeps full legacy appState projection helpers out of production code', () => {
     const actual = listProductionTypeScriptFiles(SRC_ROOT)
       .filter((file) => {
         const content = readFileSync(file, 'utf8');
-        return content.includes(LEGACY_APPSTATE_COMPAT_HELPER);
+        return LEGACY_APPSTATE_PROJECTION_PATTERN.test(content);
       })
       .map(toRepoPath)
-      .filter((file) => file !== 'src/player/ownership.ts')
       .sort();
 
-    const expected = [...ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES.keys()].sort();
-
-    expect(actual).toEqual(expected);
-
-    for (const file of expected) {
-      expect(existsSync(join(process.cwd(), file))).toBe(true);
-      expect(ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES.get(file)).toBeTruthy();
-    }
+    expect(actual).toEqual([]);
   });
 
   it('keeps legacy IDLE compatibility predicate consumers documented', () => {

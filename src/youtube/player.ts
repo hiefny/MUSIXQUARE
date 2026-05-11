@@ -283,14 +283,14 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   }
   _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any
 
-  // Only leave YouTube mode (set appState to IDLE) when we're actually
+  // Only leave YouTube mode when we're actually
   // leaving — avoids spurious transitions from stopAllMedia→stopYouTubeMode
   // inside loadYouTubeVideo which would kill the guest's YouTube player
   // right after YOUTUBE_PLAY.
   //
-  // opts.silent: caller is about to set a non-IDLE appState immediately
+  // opts.silent: caller is about to claim a non-idle playback mode immediately
   // (e.g. stopAllMedia({silent:true}) inside YT→Local track switch — the
-  // host's _internalPlay flips to PLAYING_AUDIO right after). Skipping the
+  // host's _internalPlay claims file playback right after). Skipping the
   // IDLE bounce here keeps body.mode-youtube → body.mode-audio in lockstep
   // with the audio takeover and prevents the brief blank-mode UI flash.
   if (wasInYouTube && !opts?.silent) {
@@ -1040,9 +1040,9 @@ export function initYouTube(): void {
     }
 
     // Auto-play only when this YouTube entry really IS the first track —
-    // i.e. the playlist was empty before this add. The previous condition
-    // (appState === IDLE) misfired when the user had already loaded local
-    // tracks but hadn't pressed play yet: appState was still IDLE, so
+    // i.e. the playlist was empty before this add. The previous idle-only
+    // condition misfired when the user had already loaded local tracks but
+    // hadn't pressed play yet, so
     // adding a YouTube link jumped playback to it instead of queuing.
     // isYtIndexing keeps its original behavior (mid-index re-add path).
     const playlistWasEmpty = playlist.length === 0;

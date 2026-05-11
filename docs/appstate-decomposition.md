@@ -8,6 +8,7 @@
 - 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
 - 5c (reader migration): **IN PROGRESS**. Shadow-slot sync, helper surface, and the body-class reader have landed; broader playback/protocol readers remain on legacy predicates.
 - 5d (wire protocol compat): **IN PROGRESS**. 5d-1 dual emit/accept has landed; release-cycle waits and legacy field removal remain proposed/gated.
+- 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
 
 ## Motivation
 
@@ -107,9 +108,8 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 **Snapshot** (in-memory only, not stored):
 
-- `src/audio/system-capture.ts:43` - `_preSysAudioState.appState: string`.
-- `src/audio/system-capture.ts:137` - written from `getState('appState')` on capture start.
-- Used during `stopSystemAudioCapture` to decide restore target.
+- `src/audio/system-capture.ts::_preSysAudioState.playback` - stores `mode` and `activity`.
+- `src/audio/system-capture.ts::restorePreSystemAudioPlaybackState` - restores YouTube through the room command path, maps prior file/system active playback to the existing paused fallback, and intentionally leaves pending work idle after capture stops.
 
 **Initial state default**:
 
@@ -198,17 +198,17 @@ The two-release wait between 5d-1 and 5d-3 is non-negotiable. The user base cont
 
 ### 5e - System-Capture Snapshot (0.5 day)
 
-`src/audio/system-capture.ts` snapshots `appState` for restore-on-stop. Migrate to:
+DONE. `src/audio/system-capture.ts` snapshots mode/activity for restore-on-stop:
 
 ```ts
+const playback = getPlaybackModeActivitySnapshot();
 _preSysAudioState = {
-  mode: getState('playback.mode'),
-  activity: getState('playback.activity'),
+  playback,
   // ... rest of snapshot unchanged
 };
 ```
 
-Restore path picks the corresponding `claimPlaybackOwner(mode)` or stays IDLE. Snapshot is in-memory only, so no stored-data migration. Test the meaningful combinations end-to-end: file paused/playing, YouTube playing, system-audio playing, and idle.
+Restore path keeps the previous UX contract: YouTube returns through the room-wide YouTube command path, file/system active playback returns to the existing paused fallback, idle stays idle, and pending file work is not revived after capture stops. Snapshot is in-memory only, so no stored-data migration. Covered by `src/audio/__tests__/system-capture.test.ts`.
 
 The Phase 3 doctrine still holds: this snapshot captures "what was playing before capture started", not "what is playing now". The migration preserves that semantic; only the field names change.
 

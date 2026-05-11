@@ -12,6 +12,16 @@ const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>([
   ['src/types/index.ts', 'State tree and EventMap keep appState types until removal phase.'],
 ]);
 
+const ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES = new Map<string, string>([
+  ['src/chat/commands.ts', 'Debug status prints legacy appState alongside mode/activity.'],
+  ['src/network/sync.ts', 'Wire compatibility emits and accepts legacy appState.'],
+  ['src/player/decode.ts', 'Track cleanup preserves strict PLAYING_AUDIO/PAUSED reset semantics.'],
+  ['src/player/playback.ts', 'Late-join bootstrap still carries legacy protocol state.'],
+  ['src/player/playlist.ts', 'Historical idle guards preserve async decode race behavior.'],
+  ['src/player/transport.ts', 'Central legacy transition owner keeps strict enum guards local.'],
+  ['src/youtube/player.ts', 'Queue/indexing idle checks intentionally stay strict legacy IDLE.'],
+]);
+
 function listProductionTypeScriptFiles(dir: string): string[] {
   const entries = readdirSync(dir);
   const files: string[] = [];
@@ -37,7 +47,8 @@ function toRepoPath(path: string): string {
 
 describe('legacy appState holdouts', () => {
   it('keeps production legacy appState readers inside the documented boundary', () => {
-    const actual = listProductionTypeScriptFiles(SRC_ROOT)
+    const files = listProductionTypeScriptFiles(SRC_ROOT);
+    const actual = files
       .filter((file) => LEGACY_APPSTATE_PATTERN.test(readFileSync(file, 'utf8')))
       .map(toRepoPath)
       .sort();
@@ -49,6 +60,26 @@ describe('legacy appState holdouts', () => {
     for (const file of expected) {
       expect(existsSync(join(process.cwd(), file))).toBe(true);
       expect(ALLOWED_LEGACY_APPSTATE_FILES.get(file)).toBeTruthy();
+    }
+  });
+
+  it('keeps ownership appState compatibility consumers documented', () => {
+    const actual = listProductionTypeScriptFiles(SRC_ROOT)
+      .filter((file) => {
+        const content = readFileSync(file, 'utf8');
+        return content.includes('getPlaybackOwnership') && content.includes('appState');
+      })
+      .map(toRepoPath)
+      .filter((file) => file !== 'src/player/ownership.ts')
+      .sort();
+
+    const expected = [...ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES.keys()].sort();
+
+    expect(actual).toEqual(expected);
+
+    for (const file of expected) {
+      expect(existsSync(join(process.cwd(), file))).toBe(true);
+      expect(ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES.get(file)).toBeTruthy();
     }
   });
 });

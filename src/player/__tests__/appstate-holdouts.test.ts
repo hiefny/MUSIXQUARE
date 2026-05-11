@@ -18,7 +18,6 @@ const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>([
   ['src/player/playback.ts', 'Late-join bootstrap still carries legacy protocol state.'],
   ['src/player/playlist.ts', 'Historical idle guards protect async decode and previous-track races.'],
   ['src/player/transport.ts', 'Central legacy appState transition owner until source-of-truth flip.'],
-  ['src/player/video.ts', 'Central media-engine mode bridge writes legacy appState.'],
   ['src/types/index.ts', 'State tree and EventMap keep appState types until removal phase.'],
   ['src/youtube/player.ts', 'Queue/indexing idle checks intentionally stay strict legacy IDLE.'],
 ]);

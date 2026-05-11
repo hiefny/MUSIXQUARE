@@ -116,7 +116,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 - `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode; pause/play still comes from iframe player state, not `APP_STATE.PAUSED`.
 - `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; idle checks intentionally stay on strict legacy `IDLE` because they preserve queue/indexing behavior.
 - `src/youtube/iframe.ts` - iframe create/ready/state/UI guards use playback mode, with indexing exceptions and `IDLE` fallback writes kept unchanged.
-- `src/player/video.ts` - central appState-to-mode write bridge; body-class rendering already subscribes to `state:playback.mode`.
+- `src/player/video.ts` - media-engine mode changes now gate from playback activity and write through `setPlaybackAppState`; body-class rendering subscribes to `state:playback.mode`.
 - `src/chat/commands.ts` - debug/status output reads legacy appState through `getPlaybackOwnership()` alongside mode/activity; it no longer reads the global slot directly.
 
 **Mode/activity snapshots**:
@@ -171,6 +171,7 @@ Order, lowest-risk first:
    - `src/ui/seekbar.ts` uses playback mode/activity for seek availability, system-audio zero display, and file rAF interpolation gates.
    - `src/ui/settings.ts` uses playback mode for system-audio channel/effects UI gates.
    - `src/ui/tabs.ts` and `src/ui/setup.ts` use playback mode helpers for YouTube display/cleanup gates.
+   - `src/player/video.ts` uses playback activity for media-engine mode transition gating.
    - `src/youtube/sync.ts` uses playback mode for guest sync, manual rendezvous, and stop-frame guards while leaving iframe pause/play semantics untouched.
    - `src/youtube/player.ts` uses playback mode for late-join bootstrap and stop-mode guards; its queue/indexing idle checks stay legacy by design.
    - `src/youtube/iframe.ts` uses playback mode for iframe create/ready/state/update guards; indexing exceptions and guest-ended IDLE fallback writes stay legacy by design.

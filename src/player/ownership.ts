@@ -162,6 +162,26 @@ export function setPlaybackTrackMeta(currentTrackMeta: TrackMeta | null): Playba
   return getPlaybackOwnership();
 }
 
+export function updatePlaybackTrackMeta(
+  updater: (currentTrackMeta: TrackMeta | null) => TrackMeta | null,
+): PlaybackOwnership {
+  const currentTrackMeta = getState('player.currentTrackMeta') as TrackMeta | null;
+  const nextTrackMeta = updater(currentTrackMeta);
+  if (nextTrackMeta === currentTrackMeta) return getPlaybackOwnership();
+  return setPlaybackTrackMeta(nextTrackMeta);
+}
+
+export function updatePlaybackTrackTitle(
+  title: string,
+  fallbackTrackMeta: TrackMeta | null = null,
+): PlaybackOwnership {
+  return updatePlaybackTrackMeta((currentTrackMeta) => {
+    const trackMeta = currentTrackMeta ?? fallbackTrackMeta;
+    if (!trackMeta || trackMeta.title === title) return trackMeta;
+    return { ...trackMeta, title };
+  });
+}
+
 export function claimPlaybackOwner(
   owner: Exclude<PlaybackOwner, 'none'>,
   options: PlaybackClaimOptions = {},

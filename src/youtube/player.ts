@@ -17,7 +17,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
-import { setPlaybackTrackMeta } from '../player/ownership.ts';
+import { setPlaybackTrackMeta, updatePlaybackTrackTitle } from '../player/ownership.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -1272,8 +1272,7 @@ export function initYouTube(): void {
       // Pre-emptive title update for instant UI feedback
       const cachedTitle = subMap[currentTrack.playlistId as string]?.titles?.[subIdx];
       if (cachedTitle) {
-        const meta = getState('player.currentTrackMeta');
-        if (meta) setPlaybackTrackMeta({ ...meta, title: cachedTitle });
+        updatePlaybackTrackTitle(cachedTitle);
       }
 
       // Prioritize fetching title for the newly selected index (if missing)

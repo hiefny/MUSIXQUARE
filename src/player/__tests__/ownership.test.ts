@@ -15,6 +15,8 @@ import {
   releasePlaybackOwner,
   setPlaybackAppState,
   setPlaybackTrackMeta,
+  updatePlaybackTrackMeta,
+  updatePlaybackTrackTitle,
 } from '../ownership.ts';
 
 beforeEach(() => {
@@ -133,6 +135,27 @@ describe('playback ownership view', () => {
     expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
       name: 'track.mp3',
       title: 'Track',
+    });
+  });
+
+  it('updates track metadata through the ownership write helper', () => {
+    setPlaybackTrackMeta(createFileTrackMeta('track.mp3'));
+
+    updatePlaybackTrackMeta((meta) => (meta ? { ...meta, artist: 'Artist' } : meta));
+
+    expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
+      name: 'track.mp3',
+      artist: 'Artist',
+    });
+  });
+
+  it('updates track titles with an optional fallback meta', () => {
+    updatePlaybackTrackTitle('Fetched Title', createYouTubeTrackMeta({ name: 'Loading' }));
+
+    expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
+      type: 'youtube',
+      name: 'Loading',
+      title: 'Fetched Title',
     });
   });
 

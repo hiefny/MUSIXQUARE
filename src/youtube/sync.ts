@@ -14,7 +14,7 @@ import { IS_ANDROID } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
-import { setPlaybackTrackMeta } from '../player/ownership.ts';
+import { updatePlaybackTrackMeta, updatePlaybackTrackTitle } from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
@@ -390,10 +390,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
     // Apply title from host to maintain metadata sync (fixes "No Media" for late joiners)
     const hostTitle = data.title as string | undefined;
     if (hostTitle) {
-      const currentMeta = getState('player.currentTrackMeta');
-      if (currentMeta && currentMeta.title !== hostTitle) {
-        setPlaybackTrackMeta({ ...currentMeta, title: hostTitle });
-      }
+      updatePlaybackTrackTitle(hostTitle);
     }
 
     // ── Host ad detection ──
@@ -943,10 +940,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     // Apply title from host to maintain metadata sync (fixes "No Media" during loading)
     const hostTitle = data.title as string | undefined;
     if (hostTitle) {
-      const currentMeta = getState('player.currentTrackMeta');
-      if (currentMeta && currentMeta.title !== hostTitle) {
-        setPlaybackTrackMeta({ ...currentMeta, title: hostTitle });
-      }
+      updatePlaybackTrackTitle(hostTitle);
     }
 
     // Video ID sync — fixes Mix playlists where sub-index = different video
@@ -1206,7 +1200,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>, conn?: DataConnecti
   const currentItem = playlist[currentTrackIndex];
   const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
-    setPlaybackTrackMeta({ ...currentItem, title: title });
+    updatePlaybackTrackMeta(() => ({ ...currentItem, title: title }));
   }
 }
 

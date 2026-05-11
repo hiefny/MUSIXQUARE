@@ -17,7 +17,7 @@ import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setAppState } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
-import { setPlaybackTrackMeta } from '../player/ownership.ts';
+import { updatePlaybackTrackTitle } from '../player/ownership.ts';
 import {
   getYouTubePlayer,
   setYouTubePlayer,
@@ -1039,10 +1039,7 @@ function updateYouTubeUI(): void {
     // call is a no-op when nothing changed (same-ref check inside).
     if (!getState('network.hostConn')) {
       const vTitle = player.getVideoData?.()?.title;
-      const meta = getState('player.currentTrackMeta');
-      if (vTitle && meta && meta.title !== vTitle) {
-        setPlaybackTrackMeta({ ...meta, title: vTitle });
-      }
+      if (vTitle) updatePlaybackTrackTitle(vTitle);
     }
 
     // ── Unavailable-video heuristic (host-only) ────────────────────
@@ -1167,8 +1164,7 @@ function updateYouTubeUI(): void {
         const subMap = getState('youtube.subItemsMap') || {};
         const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
         if (cachedTitle) {
-          const currentMeta = getState('player.currentTrackMeta') || currentTrack;
-          setPlaybackTrackMeta({ ...currentMeta, title: cachedTitle });
+          updatePlaybackTrackTitle(cachedTitle, currentTrack);
           _ifr.lastVideoTitle = cachedTitle;
         }
       }
@@ -1190,10 +1186,7 @@ function updateYouTubeUI(): void {
       const vData = player.getVideoData();
       if (vData?.title && vData.title !== _ifr.lastVideoTitle) {
         _ifr.lastVideoTitle = vData.title;
-        const currentMeta = getState('player.currentTrackMeta');
-        if (currentMeta) {
-          setPlaybackTrackMeta({ ...currentMeta, title: vData.title });
-        }
+        updatePlaybackTrackTitle(vData.title);
       }
       currentVideoId = vData?.video_id || '';
 

@@ -9,7 +9,7 @@
 - 5c (reader migration): **DONE for raw readers**. Production raw legacy readers are now limited to `ownership.ts` and `types/index.ts`. Compatibility consumers that still need the legacy enum read it through `getPlaybackLegacyAppState()` and are pinned by test.
 - 5d (wire protocol compat): **DONE**. `SYNC_PONG` defaults to mode/activity only; legacy `appState` emit/accept remain available only through rollback env flags.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
-- 5f (source-of-truth flip): **DONE**. Ownership writes `playback.mode/activity` first and derives the compatibility `appState` shadow while `appStateSourceOfTruthFlip` defaults on.
+- 5f (source-of-truth flip): **DONE**. Ownership writes `playback.mode/activity` first and always derives the compatibility `appState` shadow from them.
 
 ## Motivation
 
@@ -250,7 +250,7 @@ DONE. `appState` is now a write-derived compatibility view of `(mode, activity)`
 
 - `ownership.ts` writes `mode` and `activity` first, then derives `appState` from them.
 - Lifecycle-derived pending states keep their semantic priority over the derived legacy `PAUSED` shadow, so file `DOWNLOADING` / `READY` / `FAILED` do not collapse into `paused`.
-- `appStateSourceOfTruthFlip` defaults to `true`; setting `VITE_MUSIXQUARE_APPSTATE_SOURCE_OF_TRUTH_FLIP=false` is the rollback path.
+- The temporary `appStateSourceOfTruthFlip` rollback flag has been removed; the flip is now the only write path.
 
 The DEV-only invariant assertion from 5b remains useful until 5g removes the legacy shadow entirely.
 
@@ -292,7 +292,7 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 | 5d-3 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT=true`. |
 | 5d-4 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT=true`. |
 | 5e | Revert snapshot shape change. |
-| 5f | Set `VITE_MUSIXQUARE_APPSTATE_SOURCE_OF_TRUTH_FLIP=false`. |
+| 5f | Revert the source-of-truth flip commit. |
 | 5g | Restore `state.appState` field in state tree default. |
 
 Feature flags for 5d-3/4 and 5f live in `src/core/feature-flags.ts`. Defaults now follow the decomposed playback model; Vite env overrides are reserved for controlled preview builds and rollback switches.

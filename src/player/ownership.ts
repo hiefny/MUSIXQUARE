@@ -38,7 +38,6 @@ import {
   type TransferStateValue,
 } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
-import { isFeatureFlagEnabled } from '../core/feature-flags.ts';
 import { getState, setState } from '../core/state.ts';
 import type { TrackMeta } from '../types/index.ts';
 
@@ -326,7 +325,6 @@ function writePlaybackModeActivity(modeActivity: PlaybackModeActivity): void {
 }
 
 function syncLegacyAppStateFromModeActivity(modeActivity: PlaybackModeActivity): void {
-  if (!isFeatureFlagEnabled('appStateSourceOfTruthFlip')) return;
   setState('appState', deriveAppStateFromModeActivity(modeActivity.mode, modeActivity.activity));
 }
 
@@ -488,9 +486,6 @@ export function claimPlaybackOwner(
     const modeActivity = deriveModeActivityFromAppState(OWNER_APP_STATE[owner]);
     writePlaybackModeActivity(modeActivity);
     syncLegacyAppStateFromModeActivity(modeActivity);
-    if (!isFeatureFlagEnabled('appStateSourceOfTruthFlip')) {
-      setState('appState', OWNER_APP_STATE[owner]);
-    }
   }
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
@@ -502,9 +497,6 @@ export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership 
   const modeActivity = deriveModeActivityFromAppState(appState);
   writePlaybackModeActivity(modeActivity);
   syncLegacyAppStateFromModeActivity(modeActivity);
-  if (!isFeatureFlagEnabled('appStateSourceOfTruthFlip')) {
-    setState('appState', appState);
-  }
   return syncPlaybackModeActivityFromOwnership();
 }
 
@@ -521,8 +513,5 @@ export function releasePlaybackOwner(
   const modeActivity = deriveModeActivityFromAppState(options.nextAppState ?? APP_STATE.IDLE);
   writePlaybackModeActivity(modeActivity);
   syncLegacyAppStateFromModeActivity(modeActivity);
-  if (!isFeatureFlagEnabled('appStateSourceOfTruthFlip')) {
-    setState('appState', options.nextAppState ?? APP_STATE.IDLE);
-  }
   return syncPlaybackModeActivityFromOwnership();
 }

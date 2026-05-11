@@ -8,7 +8,6 @@
 const FEATURE_FLAG_DEFAULTS = Object.freeze({
   syncPongLegacyAppStateEmit: false,
   syncPongLegacyAppStateAccept: false,
-  appStateSourceOfTruthFlip: true,
 } as const);
 
 export type FeatureFlagName = keyof typeof FEATURE_FLAG_DEFAULTS;
@@ -16,7 +15,6 @@ export type FeatureFlagName = keyof typeof FEATURE_FLAG_DEFAULTS;
 const ENV_OVERRIDES: Partial<Record<FeatureFlagName, string | boolean | undefined>> = {
   syncPongLegacyAppStateEmit: import.meta.env.VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_EMIT,
   syncPongLegacyAppStateAccept: import.meta.env.VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT,
-  appStateSourceOfTruthFlip: import.meta.env.VITE_MUSIXQUARE_APPSTATE_SOURCE_OF_TRUTH_FLIP,
 };
 
 function parseBooleanOverride(value: string | boolean | undefined): boolean | null {

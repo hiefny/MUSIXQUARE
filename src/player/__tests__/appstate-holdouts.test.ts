@@ -16,7 +16,6 @@ const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>([
   ['src/player/playlist.ts', 'Historical idle guards protect async decode and previous-track races.'],
   ['src/player/transport.ts', 'Central legacy appState transition owner until source-of-truth flip.'],
   ['src/types/index.ts', 'State tree and EventMap keep appState types until removal phase.'],
-  ['src/youtube/player.ts', 'Queue/indexing idle checks intentionally stay strict legacy IDLE.'],
 ]);
 
 function listProductionTypeScriptFiles(dir: string): string[] {

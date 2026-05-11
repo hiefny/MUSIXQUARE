@@ -18,7 +18,7 @@ import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
 import {
-  isAppStateIdle,
+  getPlaybackOwnership,
   isPlaybackModeYouTube,
   setPlaybackTrackMeta,
   updatePlaybackTrackTitle,
@@ -50,6 +50,11 @@ export function setPendingAutoSyncOnReady(v: boolean): void {
 export function getPendingAutoSyncOnReady(): boolean {
   return _pendingAutoSyncOnReady;
 }
+
+function isLegacyIdle(): boolean {
+  return getPlaybackOwnership().appState === APP_STATE.IDLE;
+}
+
 import { registerHandlers } from '../network/protocol.ts';
 import {
   fetchYouTubePreview,
@@ -270,7 +275,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   // This prevents clobbering the sub-index 0 set during the indexing callback.
   if (
     !wasInYouTube &&
-    !isAppStateIdle() &&
+    !isLegacyIdle() &&
     !isYtIndexing() &&
     !isYtLoadInProgress()
   ) {
@@ -1041,7 +1046,7 @@ export function initYouTube(): void {
     // adding a YouTube link jumped playback to it instead of queuing.
     // isYtIndexing keeps its original behavior (mid-index re-add path).
     const playlistWasEmpty = playlist.length === 0;
-    const isIdle = (isAppStateIdle() && playlistWasEmpty) || isYtIndexing();
+    const isIdle = (isLegacyIdle() && playlistWasEmpty) || isYtIndexing();
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
@@ -1189,7 +1194,7 @@ export function initYouTube(): void {
     // common from YouTube share links) hit this path — previously the
     // playlist silently overrode the currently playing local file.
     const subMap = getState('youtube.subItemsMap') || {};
-    const appIsIdle = isAppStateIdle();
+    const appIsIdle = isLegacyIdle();
     if (playlistId && !subMap[playlistId]?.ids?.length && appIsIdle) {
       log.info(
         `[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`,

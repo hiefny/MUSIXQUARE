@@ -5,11 +5,11 @@
  * controlled preview builds or one-release rollback switches.
  */
 
-const FEATURE_FLAG_DEFAULTS = {
+const FEATURE_FLAG_DEFAULTS = Object.freeze({
   syncPongLegacyAppStateEmit: true,
   syncPongLegacyAppStateAccept: true,
   appStateSourceOfTruthFlip: false,
-} as const;
+} as const);
 
 export type FeatureFlagName = keyof typeof FEATURE_FLAG_DEFAULTS;
 

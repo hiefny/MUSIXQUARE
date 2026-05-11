@@ -26,7 +26,7 @@ import type { DataConnection } from '../types/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
-import { isSystemAudioSessionActive, setPlaybackTrackMeta } from '../player/ownership.ts';
+import { isSystemAudioOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -1058,7 +1058,7 @@ function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): 
 function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
-  if (isSystemAudioSessionActive()) {
+  if (isSystemAudioOwner()) {
     log.debug('[Preload] Ignoring PLAY_PRELOADED - system audio mode active');
     return;
   }

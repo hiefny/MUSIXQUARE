@@ -43,9 +43,9 @@ import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from '
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
-  isFilePlaybackActive,
-  isSystemAudioSessionActive,
-  isYouTubePlaybackActive,
+  isAppStatePlayingAudio,
+  isAppStatePlayingYouTube,
+  isSystemAudioOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
 
@@ -101,7 +101,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   // Ignore PLAY during system audio mode (live stream, not file-based).
   // The helper also covers the guest's pending placeholder window between
   // SYSTEM_AUDIO_START and the first WebRTC stream.
-  if (isSystemAudioSessionActive()) return;
+  if (isSystemAudioOwner()) return;
 
   // Host's MSG.PLAY is authoritative — cancel any pending deferred replay
   // from a prior FILE_PREPARE(autoPlayDelayMs) so we don't double-start.
@@ -344,9 +344,9 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   if (!hostConn || conn !== hostConn) return;
 
   // Ignore PAUSE during system audio mode
-  if (isSystemAudioSessionActive()) return;
+  if (isSystemAudioOwner()) return;
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
-  if (isYouTubePlaybackActive()) return;
+  if (isAppStatePlayingYouTube()) return;
 
   const time = Number(data.time) || 0;
   const endOfPlaylist = !!data.endOfPlaylist;
@@ -463,7 +463,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  if (isFilePlaybackActive()) {
+  if (isAppStatePlayingAudio()) {
     play(time);
     broadcast({
       type: MSG.PLAY,
@@ -541,7 +541,7 @@ export function initPlayback(): void {
   // at the current logical position without surfacing a manual-sync toast.
   bus.on('playback:refresh-current-position', () => {
     if (!getCurrentAudioBuffer()) return;
-    if (!isFilePlaybackActive()) return;
+    if (!isAppStatePlayingAudio()) return;
     play(getTrackPosition());
   });
 
@@ -561,7 +561,7 @@ export function initPlayback(): void {
 
   // Surround mode toggled during playback: restart at current position
   bus.on('audio:surround-toggled', () => {
-    if (isFilePlaybackActive()) {
+    if (isAppStatePlayingAudio()) {
       play(getTrackPosition());
     }
   });

@@ -31,7 +31,7 @@ import {
   type PlaybackStateValue,
   type LoadSourceValue,
 } from '../core/constants.ts';
-import { isFilePlaybackBlockedByExternalMode } from './ownership.ts';
+import { isExternalOwner } from './ownership.ts';
 
 // ─── Event Types ───────────────────────────────────────────────────
 //
@@ -456,7 +456,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
  * is a no-op. Those modes own their own state paths.
  */
 export function transition(ev: PlaybackEvent): PlaybackStateValue {
-  if (isFilePlaybackBlockedByExternalMode()) {
+  if (isExternalOwner()) {
     // No-op in other modes. Caller is responsible for not trying to drive
     // playback lifecycle from YouTube/system-audio handlers anyway — this is
     // belt-and-suspenders.

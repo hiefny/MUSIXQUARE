@@ -18,8 +18,8 @@ import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
 import {
-  isPlaybackIdle,
-  isYouTubePlaybackActive,
+  isAppStateIdle,
+  isAppStatePlayingYouTube,
   setPlaybackTrackMeta,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
@@ -226,7 +226,7 @@ function scheduleLateJoinRendezvousSync(
     `yt-late-join-rendezvous-${peerId}`,
     () => {
       if (!conn.open || getState('network.hostConn')) return;
-      if (!isYouTubePlaybackActive()) return;
+      if (!isAppStatePlayingYouTube()) return;
 
       const player = getYouTubePlayer();
       if (!player?.getCurrentTime) return;
@@ -1191,7 +1191,7 @@ export function initYouTube(): void {
     // common from YouTube share links) hit this path — previously the
     // playlist silently overrode the currently playing local file.
     const subMap = getState('youtube.subItemsMap') || {};
-    const appIsIdle = isPlaybackIdle();
+    const appIsIdle = isAppStateIdle();
     if (playlistId && !subMap[playlistId]?.ids?.length && appIsIdle) {
       log.info(
         `[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`,
@@ -1382,7 +1382,7 @@ export function initYouTube(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    if (!isYouTubePlaybackActive()) return;
+    if (!isAppStatePlayingYouTube()) return;
 
     const playlist = getState('playlist.items') || [];
     const currentTrackIndex = getState('playlist.currentTrackIndex');

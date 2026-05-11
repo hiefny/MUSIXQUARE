@@ -13,7 +13,6 @@ import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import type { AppStateValue } from '../core/constants.ts';
 import { setPlaybackAppState } from './ownership.ts';
-export { isSystemAudioSessionActive, isFilePlaybackBlockedByExternalMode } from './ownership.ts';
 
 // ─── State predicates ─────────────────────────────────────────────
 

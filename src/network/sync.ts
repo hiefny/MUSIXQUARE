@@ -28,7 +28,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
-import { isFilePlaybackActive } from '../player/ownership.ts';
+import { isAppStatePlayingAudio } from '../player/ownership.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
@@ -98,7 +98,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   const hostTime = Date.now(); // Capture BEFORE async import
   const appState = getState('appState');
   const lifecycle = getState('playback.lifecycle');
-  const isFilePlaying = isFilePlaybackActive() && lifecycle === PLAYBACK_STATE.PLAYING;
+  const isFilePlaying = isAppStatePlayingAudio() && lifecycle === PLAYBACK_STATE.PLAYING;
 
   if (isFilePlaying) {
     if (conn.open) {
@@ -121,7 +121,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
     // decodes and waits for autoPlayTimer. That is not audible playback.
     // Advertising PLAYING_AUDIO here makes guests bootstrap at host position
     // 0, then drift-correct back to 0 until the host really starts.
-    const syncAppState = isFilePlaybackActive() ? APP_STATE.PAUSED : appState;
+    const syncAppState = isAppStatePlayingAudio() ? APP_STATE.PAUSED : appState;
     try {
       conn.send({
         type: MSG.SYNC_PONG,
@@ -185,7 +185,7 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;
 
-  if (!isFilePlaybackActive()) {
+  if (!isAppStatePlayingAudio()) {
     const lifecycle = getState('playback.lifecycle');
     if (
       lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
@@ -391,7 +391,7 @@ export function initSync(): void {
 
   // Playback state transitions: arm on IDLE/PAUSED → PLAYING, disarm on pause/stop
   bus.on('state:appState', () => {
-    const isPlaying = isFilePlaybackActive();
+    const isPlaying = isAppStatePlayingAudio();
     if (isPlaying && !_wasPlaying) {
       armInitialSync();
     }

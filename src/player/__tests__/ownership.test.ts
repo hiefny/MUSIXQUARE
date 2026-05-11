@@ -2,22 +2,19 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { APP_STATE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { resetState, setState } from '../../core/state.ts';
 import {
-  canStartFilePlayback,
-  claimPendingSystemAudioPlayback,
   claimPlaybackOwner,
   createFileTrackMeta,
   createSystemAudioTrackMeta,
   createYouTubeTrackMeta,
   getPlaybackOwnership,
-  isFilePlaybackActive,
-  isFilePlaybackBlockedByExternalMode,
-  isPlaybackIdle,
-  isPlaybackAppState,
-  isPlaybackPaused,
+  isAppStateIdle,
+  isAppStatePaused,
+  isAppStatePlayingAudio,
+  isAppStatePlayingSystemAudio,
+  isAppStatePlayingYouTube,
+  isExternalOwner,
+  isSystemAudioOwner,
   isSystemAudioPlaceholderMeta,
-  isSystemAudioPlaybackActive,
-  isSystemAudioSessionActive,
-  isYouTubePlaybackActive,
   releasePlaybackOwner,
   setPlaybackAppState,
   setPlaybackTrackMeta,
@@ -45,21 +42,19 @@ describe('playback ownership view', () => {
       owner: 'youtube',
       isExternalOwner: true,
     });
-    expect(isFilePlaybackBlockedByExternalMode()).toBe(true);
-    expect(isPlaybackAppState(APP_STATE.PLAYING_YOUTUBE)).toBe(true);
-    expect(isYouTubePlaybackActive()).toBe(true);
-    expect(canStartFilePlayback()).toBe(false);
+    expect(isExternalOwner()).toBe(true);
+    expect(isAppStatePlayingYouTube()).toBe(true);
   });
 
   it('exposes appState-specific playback predicates', () => {
-    expect(isPlaybackIdle()).toBe(true);
+    expect(isAppStateIdle()).toBe(true);
 
     setState('appState', APP_STATE.PLAYING_AUDIO);
-    expect(isFilePlaybackActive()).toBe(true);
-    expect(isPlaybackIdle()).toBe(false);
+    expect(isAppStatePlayingAudio()).toBe(true);
+    expect(isAppStateIdle()).toBe(false);
 
     setState('appState', APP_STATE.PAUSED);
-    expect(isPlaybackPaused()).toBe(true);
+    expect(isAppStatePaused()).toBe(true);
   });
 
   it('treats system audio app state as an external owner', () => {
@@ -69,8 +64,8 @@ describe('playback ownership view', () => {
       owner: 'system-audio',
       isExternalOwner: true,
     });
-    expect(isSystemAudioPlaybackActive()).toBe(true);
-    expect(isSystemAudioSessionActive()).toBe(true);
+    expect(isAppStatePlayingSystemAudio()).toBe(true);
+    expect(isSystemAudioOwner()).toBe(true);
   });
 
   it('treats the guest system-audio placeholder as ownership', () => {
@@ -86,7 +81,8 @@ describe('playback ownership view', () => {
       isSystemAudioPlaceholder: true,
       isExternalOwner: true,
     });
-    expect(isSystemAudioPlaybackActive()).toBe(false);
+    expect(isAppStatePlayingSystemAudio()).toBe(false);
+    expect(isSystemAudioOwner()).toBe(true);
   });
 
   it('treats active file lifecycle or transfer work as file ownership', () => {
@@ -122,7 +118,10 @@ describe('playback ownership view', () => {
   });
 
   it('claims pending system-audio ownership without changing appState', () => {
-    claimPendingSystemAudioPlayback();
+    claimPlaybackOwner('system-audio', {
+      pending: true,
+      currentTrackMeta: createSystemAudioTrackMeta('receiving'),
+    });
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'system-audio',

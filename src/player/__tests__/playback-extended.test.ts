@@ -12,7 +12,7 @@ import {
   setPendingPlayTime,
 } from '../_state.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
-import { isFilePlaybackBlockedByExternalMode, isSystemAudioSessionActive } from '../ownership.ts';
+import { isExternalOwner, isSystemAudioOwner } from '../ownership.ts';
 import { broadcast } from '../../network/peer.ts';
 
 vi.mock('../../network/peer.ts', () => ({
@@ -148,8 +148,8 @@ describe('external playback mode guards', () => {
       systemAudioPlaceholder: true,
     });
 
-    expect(isSystemAudioSessionActive()).toBe(true);
-    expect(isFilePlaybackBlockedByExternalMode()).toBe(true);
+    expect(isSystemAudioOwner()).toBe(true);
+    expect(isExternalOwner()).toBe(true);
   });
 });
 

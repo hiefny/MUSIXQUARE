@@ -27,7 +27,7 @@ import type { DataConnection } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
-  isYouTubePlaybackActive,
+  isAppStatePlayingYouTube,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 
@@ -167,7 +167,7 @@ async function handleRequestCurrentFile(
   if (!conn || !conn.open) return;
 
   // If Host is in YouTube mode, no local file to serve
-  if (isYouTubePlaybackActive()) {
+  if (isAppStatePlayingYouTube()) {
     try {
       conn.send({ type: MSG.FILE_WAIT, message: 'Host is playing YouTube' });
     } catch {

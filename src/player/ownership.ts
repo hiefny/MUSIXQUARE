@@ -1,11 +1,20 @@
 /**
  * Playback ownership view and narrow write helpers.
  *
- * The read side centralizes the answer to "who owns playback right now?"
- * while the legacy state still lives across appState, currentTrackMeta,
- * playback.lifecycle, transfer.state, and media-specific slices. The write
- * helpers are intentionally small: they only encode ownership claims/releases,
- * and callers still perform media-engine setup/teardown themselves.
+ * Two layers of predicates, distinguished by name prefix:
+ *
+ *   isAppState<X>()  — strict appState comparison. Use when callers care
+ *                      only about the discrete `appState` enum value.
+ *   is<X>Owner()     — broad ownership semantic from getPlaybackOwnership().
+ *                      Includes domain-specific signals (file lifecycle/
+ *                      transfer activity for 'file'; placeholder /
+ *                      isReceiving for 'system-audio').
+ *
+ * The two coincide for YouTube (there is no pending state) but diverge for
+ * file and system-audio. Pick the one whose semantic matches your check.
+ *
+ * Write helpers are intentionally small: they only encode ownership claims/
+ * releases, and callers still perform media-engine setup/teardown themselves.
  */
 
 import {
@@ -35,9 +44,18 @@ export interface PlaybackOwnership {
 
 export interface PlaybackClaimOptions {
   currentTrackMeta?: TrackMeta | null;
+  /**
+   * `pending: true` skips the appState change but still updates currentTrackMeta
+   * (when provided). Used for the system-audio guest placeholder: the host has
+   * signalled SYSTEM_AUDIO_START but the WebRTC stream hasn't fired yet, so
+   * appState stays at its prior value while the placeholder meta marks the
+   * pending ownership.
+   */
+  pending?: boolean;
 }
 
-export interface PlaybackReleaseOptions extends PlaybackClaimOptions {
+export interface PlaybackReleaseOptions {
+  currentTrackMeta?: TrackMeta | null;
   nextAppState?: AppStateValue;
   force?: boolean;
 }
@@ -110,6 +128,8 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
+// ─── Read: full ownership view ─────────────────────────────────────
+
 export function getPlaybackOwnership(): PlaybackOwnership {
   const appState = getState('appState');
   const lifecycle = getState('playback.lifecycle');
@@ -145,41 +165,47 @@ export function getPlaybackOwnership(): PlaybackOwnership {
   };
 }
 
-export function isSystemAudioSessionActive(): boolean {
+// ─── Read: appState-strict predicates ──────────────────────────────
+
+export function isAppStateIdle(): boolean {
+  return getState('appState') === APP_STATE.IDLE;
+}
+
+export function isAppStatePaused(): boolean {
+  return getState('appState') === APP_STATE.PAUSED;
+}
+
+export function isAppStatePlayingAudio(): boolean {
+  return getState('appState') === APP_STATE.PLAYING_AUDIO;
+}
+
+export function isAppStatePlayingYouTube(): boolean {
+  return getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+}
+
+export function isAppStatePlayingSystemAudio(): boolean {
+  return getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO;
+}
+
+// ─── Read: owner predicates (broad semantic) ───────────────────────
+
+export function isFileOwner(): boolean {
+  return getPlaybackOwnership().owner === 'file';
+}
+
+export function isYouTubeOwner(): boolean {
+  return getPlaybackOwnership().owner === 'youtube';
+}
+
+export function isSystemAudioOwner(): boolean {
   return getPlaybackOwnership().owner === 'system-audio';
 }
 
-export function isSystemAudioPlaybackActive(): boolean {
-  return isPlaybackAppState(APP_STATE.PLAYING_SYSTEM_AUDIO);
-}
-
-export function isFilePlaybackBlockedByExternalMode(): boolean {
+export function isExternalOwner(): boolean {
   return getPlaybackOwnership().isExternalOwner;
 }
 
-export function canStartFilePlayback(): boolean {
-  return !isFilePlaybackBlockedByExternalMode();
-}
-
-export function isPlaybackAppState(appState: AppStateValue): boolean {
-  return getPlaybackOwnership().appState === appState;
-}
-
-export function isYouTubePlaybackActive(): boolean {
-  return isPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
-}
-
-export function isFilePlaybackActive(): boolean {
-  return isPlaybackAppState(APP_STATE.PLAYING_AUDIO);
-}
-
-export function isPlaybackIdle(): boolean {
-  return isPlaybackAppState(APP_STATE.IDLE);
-}
-
-export function isPlaybackPaused(): boolean {
-  return isPlaybackAppState(APP_STATE.PAUSED);
-}
+// ─── Write: track metadata ─────────────────────────────────────────
 
 export function setPlaybackTrackMeta(currentTrackMeta: TrackMeta | null): PlaybackOwnership {
   setState('player.currentTrackMeta', currentTrackMeta);
@@ -206,11 +232,15 @@ export function updatePlaybackTrackTitle(
   });
 }
 
+// ─── Write: ownership claim/release ────────────────────────────────
+
 export function claimPlaybackOwner(
   owner: Exclude<PlaybackOwner, 'none'>,
   options: PlaybackClaimOptions = {},
 ): PlaybackOwnership {
-  setState('appState', OWNER_APP_STATE[owner]);
+  if (!options.pending) {
+    setState('appState', OWNER_APP_STATE[owner]);
+  }
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
   }
@@ -229,12 +259,6 @@ export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership 
       setState('appState', appState);
       return getPlaybackOwnership();
   }
-}
-
-export function claimPendingSystemAudioPlayback(
-  currentTrackMeta = createSystemAudioTrackMeta('receiving'),
-): PlaybackOwnership {
-  return setPlaybackTrackMeta(currentTrackMeta);
 }
 
 export function releasePlaybackOwner(

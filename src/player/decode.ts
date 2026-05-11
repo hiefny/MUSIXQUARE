@@ -14,9 +14,9 @@ import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import {
-  isFilePlaybackActive,
-  isFilePlaybackBlockedByExternalMode,
-  isPlaybackPaused,
+  isAppStatePaused,
+  isAppStatePlayingAudio,
+  isExternalOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
 import { setEngineMode } from './video.ts';
@@ -171,7 +171,7 @@ export async function loadAndBroadcastFile(
       return;
     }
 
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Load] Aborted - external playback mode took ownership after decode');
       return;
     }
@@ -454,7 +454,7 @@ export async function loadPreloadedTrack(
       return;
     }
 
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Preload] Activation aborted - external playback mode active');
       finishPreloadActivation(activationOwner);
       setPendingPlayTime(undefined);
@@ -491,7 +491,7 @@ export async function loadPreloadedTrack(
       // Preserve pendingPlayTime for the new track's loader.
       return;
     }
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Preload] Activation discarded - external playback mode took ownership');
       finishPreloadActivation(activationOwner);
       setPendingPlayTime(undefined);
@@ -711,7 +711,7 @@ export function clearPreviousTrackState(reason = ''): void {
   }
 
   // Reset state to IDLE
-  if (isFilePlaybackActive() || isPlaybackPaused()) {
+  if (isAppStatePlayingAudio() || isAppStatePaused()) {
     setAppState(APP_STATE.IDLE);
   }
 
@@ -745,7 +745,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
   // Guard: if an external mode owns playback, abort the finalize path.
   // Otherwise setEngineMode('buffer') would overwrite that mode after an
   // async decode finishes.
-  if (isFilePlaybackBlockedByExternalMode()) {
+  if (isExternalOwner()) {
     log.debug('[Guest] finalizeGuestFile aborted - external playback mode active');
     setState('transfer.state', TRANSFER_STATE.IDLE);
     showLoader(false);
@@ -760,7 +760,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     await initAudio();
     if (getAudioContext().state === 'suspended') await ensureRunning();
 
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Guest] Stale finalize (post-audio-init), aborting');
       setState('transfer.state', TRANSFER_STATE.IDLE);
       setPendingPlayTime(undefined);
@@ -777,7 +777,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       log.debug('[Guest] Stale finalize (post-decode), aborting');
       return;
     }
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Guest] Stale finalize (external mode after decode), aborting');
       setState('transfer.state', TRANSFER_STATE.IDLE);
       setPendingPlayTime(undefined);

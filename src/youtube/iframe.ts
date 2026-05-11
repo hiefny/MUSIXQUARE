@@ -17,7 +17,7 @@ import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setAppState } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
-import { isYouTubePlaybackActive, updatePlaybackTrackTitle } from '../player/ownership.ts';
+import { isAppStatePlayingYouTube, updatePlaybackTrackTitle } from '../player/ownership.ts';
 import {
   getYouTubePlayer,
   setYouTubePlayer,
@@ -165,7 +165,7 @@ export function loadYouTubeVideo(
   // instead of destroying and recreating the iframe. On iOS, recreating
   // the iframe resets the user gesture — requiring a tap to play again.
   // loadVideoById/loadPlaylist on the same player preserves the gesture.
-  const isYouTubeToYouTube = player?.loadVideoById && isYouTubePlaybackActive();
+  const isYouTubeToYouTube = player?.loadVideoById && isAppStatePlayingYouTube();
 
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
@@ -324,7 +324,7 @@ function createYouTubePlayer(
   subIndex = 0,
 ): void {
   const indexing = isYtIndexing();
-  if (!isYouTubePlaybackActive() && !indexing) {
+  if (!isAppStatePlayingYouTube() && !indexing) {
     log.warn('[YouTube] createYouTubePlayer aborted - not in PLAYING_YOUTUBE state');
     setYtLoadInProgress(false);
     // Clear any stale indexing intent from an aborted new-playlist flow.
@@ -497,7 +497,7 @@ function onYouTubePlayerReady(): void {
   log.debug('[YouTube] Player ready');
 
   const indexing = isYtIndexing();
-  if (!isYouTubePlaybackActive() && !indexing) {
+  if (!isAppStatePlayingYouTube() && !indexing) {
     log.debug('[YouTube] onPlayerReady skipped - mode changed');
     return;
   }
@@ -748,7 +748,7 @@ function onYouTubePlayerError(event: { data: number }): void {
 
 function onYouTubePlayerStateChange(event: { data: number }): void {
   const indexing = isYtIndexing();
-  if (!isYouTubePlaybackActive() && !indexing) return;
+  if (!isAppStatePlayingYouTube() && !indexing) return;
 
   const player = getYouTubePlayer();
   if (!player) return; // Player destroyed during async state transition
@@ -886,7 +886,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
         () => {
           // Host never sent next track (e.g. playlist truly ended) — clean up
           clearManagedTimer('youtubeUILoop');
-          if (isYouTubePlaybackActive()) {
+          if (isAppStatePlayingYouTube()) {
             log.debug('[YouTube] Guest: no next-track from host — going IDLE');
             setAppState(APP_STATE.IDLE);
             bus.emit('youtube:stop-mode');
@@ -938,7 +938,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
 function updateYouTubeUI(): void {
   const player = getYouTubePlayer();
-  if (!player || !isYouTubePlaybackActive() || !player.getCurrentTime) return;
+  if (!player || !isAppStatePlayingYouTube() || !player.getCurrentTime) return;
 
   // Crash detection: if getCurrentTime() throws repeatedly, the iframe
   // process has died (sad face icon). YouTube API events stop firing
@@ -1344,7 +1344,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
 
 export function refreshYouTubeDisplay(): void {
   const container = document.getElementById('youtube-player-container');
-  if (!container || !isYouTubePlaybackActive()) return;
+  if (!container || !isAppStatePlayingYouTube()) return;
 
   log.debug('[YouTube] Refreshing display to prevent black screen...');
   const iframe = container.querySelector('iframe');

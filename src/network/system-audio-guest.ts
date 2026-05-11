@@ -15,10 +15,10 @@ import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import {
-  claimPendingSystemAudioPlayback,
   claimPlaybackOwner,
+  createSystemAudioTrackMeta,
+  isAppStatePlayingSystemAudio,
   isSystemAudioPlaceholderMeta,
-  isSystemAudioPlaybackActive,
   releasePlaybackOwner,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
@@ -539,7 +539,7 @@ function cleanupGuestSystemAudio(): void {
   setState('systemAudio.isReceiving', false);
   setPlaybackTrackMeta(_prevTrackMeta ?? null);
   _prevTrackMeta = null;
-  if (isSystemAudioPlaybackActive() || wasSystemAudioPlaceholder) {
+  if (isAppStatePlayingSystemAudio() || wasSystemAudioPlaceholder) {
     releasePlaybackOwner('system-audio', {
       force: wasSystemAudioPlaceholder,
       nextAppState: APP_STATE.IDLE,
@@ -576,7 +576,10 @@ export function registerSystemAudioGuestListeners(): void {
       log.info('[SysAudioGuest] Host started system audio sharing');
       _prevTrackMeta = currentMeta;
       stopAllMedia({ silent: true, cancelInFlight: true });
-      claimPendingSystemAudioPlayback();
+      claimPlaybackOwner('system-audio', {
+        pending: true,
+        currentTrackMeta: createSystemAudioTrackMeta('receiving'),
+      });
       armReceiveWatchdog();
     },
   );

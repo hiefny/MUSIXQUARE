@@ -32,7 +32,7 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
-import { isYouTubePlaybackActive, setPlaybackTrackMeta } from './ownership.ts';
+import { isAppStatePlayingYouTube, setPlaybackTrackMeta } from './ownership.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -398,7 +398,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       // Skip stopAllMedia for YouTube→YouTube transitions — loadYouTubeVideo
       // reuses the existing player instance, preserving the iOS user gesture.
       // Destroying the iframe forces a "tap to play" on mobile.
-      const isYtToYt = isYouTubePlaybackActive();
+      const isYtToYt = isAppStatePlayingYouTube();
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
 
       // Single-video broadcast: send the resolved videoId (NOT the playlist
@@ -422,7 +422,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       // idle and YouTube eventually flags the video as unplayable and
       // skips to the next one (~15s on Windows desktop).
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
-      const isAlreadyYt = isYouTubePlaybackActive();
+      const isAlreadyYt = isAppStatePlayingYouTube();
       const shouldAutoplay = !(isFirstTrackLoad && !isAlreadyYt);
 
       broadcast({

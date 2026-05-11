@@ -109,7 +109,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 **Important readers and intentional legacy holdouts**:
 
-- `src/player/transport.ts` - owns the legacy enum transitions and still needs strict appState gates until 5f.
+- `src/player/transport.ts` - owns legacy enum transitions via `setPlaybackAppState`; strict legacy reads now go through `getPlaybackOwnership().appState`.
 - `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
 - `src/audio/beat-detector.ts` - keeps a module-local file-playing cache from `playback.mode/activity`, with buffer-change refresh for silent track switches.
 - `src/player/playlist.ts` - historical idle checks guard async decode races where the legacy `IDLE` shadow is the intended signal, but read it through `getPlaybackOwnership().appState`.
@@ -184,7 +184,7 @@ Order, lowest-risk first:
    - Remove that reconciliation once tests and any remaining bootstrap code stop mutating legacy source fields directly.
 
 4. **Playback domain (1 day)**
-   - `src/player/transport.ts` still owns the remaining strict legacy playback-domain transition checks. These mostly read via predicates after Phase 1, so the change should be contract-level rather than behavioral.
+   - `src/player/transport.ts` still owns legacy playback-domain transitions, but its strict legacy checks now read through `getPlaybackOwnership().appState`.
    - First pass done for YouTube mode questions in `playlist.ts`, `playback.ts`, and the silent YouTube handoff in `transport.ts`.
    - `src/player/playlist.ts` historical idle guards still use strict legacy IDLE semantics for async decode races, but read through `getPlaybackOwnership().appState`.
    - `src/player/playback.ts` uses playback-playing file helpers for seek/restart paths that only apply to active local file playback.

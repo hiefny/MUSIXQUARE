@@ -17,10 +17,6 @@ import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
 import {
   getPlaybackOwnership,
-  isAppStateIdle,
-  isAppStateIdleOrPaused,
-  isAppStatePlayingAudio,
-  isAppStatePlayingSystemAudio,
   isExternalOwner,
   isSystemAudioOwner,
   isYouTubeOwner,
@@ -81,6 +77,27 @@ export function setAppState(newState: AppStateValue): void {
   setPlaybackAppState(newState);
 }
 
+function getLegacyAppState(): AppStateValue {
+  return getPlaybackOwnership().appState;
+}
+
+function isLegacyIdle(): boolean {
+  return getLegacyAppState() === APP_STATE.IDLE;
+}
+
+function isLegacyIdleOrPaused(): boolean {
+  const appState = getLegacyAppState();
+  return appState === APP_STATE.IDLE || appState === APP_STATE.PAUSED;
+}
+
+function isLegacyPlayingAudio(): boolean {
+  return getLegacyAppState() === APP_STATE.PLAYING_AUDIO;
+}
+
+function isLegacyPlayingSystemAudio(): boolean {
+  return getLegacyAppState() === APP_STATE.PLAYING_SYSTEM_AUDIO;
+}
+
 // ─── Track Position ────────────────────────────────────────────────
 
 let _offsetResetQueued = false;
@@ -101,7 +118,7 @@ export function getTrackPosition(): number {
     return ytPos;
   }
 
-  if (isAppStateIdleOrPaused()) return pausedAt;
+  if (isLegacyIdleOrPaused()) return pausedAt;
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
   const duration =
@@ -269,7 +286,7 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   }
 
   // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
-  if (!opts?.silent && !isAppStateIdle()) {
+  if (!opts?.silent && !isLegacyIdle()) {
     setAppState(APP_STATE.IDLE);
   }
 
@@ -351,7 +368,7 @@ export function seekTo(time: number): void {
 
   // Host: playing → seek + broadcast
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  if (isAppStatePlayingAudio()) {
+  if (isLegacyPlayingAudio()) {
     play(time);
     broadcast({
       type: MSG.PLAY,
@@ -392,7 +409,7 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
         incrementLoadToken();
         // Reset appState to IDLE to prevent stuck "playing" UI
-        if (!isAppStateIdle()) {
+        if (!isLegacyIdle()) {
           setAppState(APP_STATE.IDLE);
         }
       }
@@ -538,7 +555,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 
     newNode.addEventListener('ended', () => {
       if (myLoadToken !== getLoadToken()) return;
-      if (isAppStatePlayingAudio()) {
+      if (isLegacyPlayingAudio()) {
         handleEnded();
       }
     });
@@ -583,7 +600,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 // ─── Pause ─────────────────────────────────────────────────────────
 
 export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }): void {
-  if (isAppStateIdleOrPaused()) return;
+  if (isLegacyIdleOrPaused()) return;
 
   let pausePos: number;
   if (typeof forcedTime === 'number' && Number.isFinite(forcedTime) && forcedTime >= 0) {
@@ -623,7 +640,7 @@ export function handleEnded(): void {
 
   const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
-  if (isAppStateIdleOrPaused()) return;
+  if (isLegacyIdleOrPaused()) return;
   if (isExternalOwner()) return;
 
   const curr = getTrackPosition();
@@ -661,7 +678,7 @@ export function togglePlay(): void {
   // System audio: ignore play/pause toggle (use "공유 중지" button instead)
   if (isSystemAudioOwner()) return;
 
-  const isActuallyPlaying = isAppStatePlayingAudio();
+  const isActuallyPlaying = isLegacyPlayingAudio();
   const pausedAt = getState('player.pausedAt') || 0;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const playlistItems = getState('playlist.items') || [];
@@ -731,9 +748,9 @@ export function stopPlayback(): void {
     return;
   }
 
-  if (isAppStateIdle()) return; // Nothing to stop
+  if (isLegacyIdle()) return; // Nothing to stop
 
-  if (isAppStatePlayingSystemAudio()) {
+  if (isLegacyPlayingSystemAudio()) {
     stopSystemAudioCapture();
     return;
   }
@@ -776,7 +793,7 @@ export function skipTime(sec: number): void {
     showToast(t('toast.auto_play_canceled'));
   }
 
-  if (isAppStateIdle()) return;
+  if (isLegacyIdle()) return;
   if (isSystemAudioOwner()) return; // No skip on live stream
   if (isYouTubeOwner()) {
     bus.emit('youtube:skip-time', sec);
@@ -793,7 +810,7 @@ export function skipTime(sec: number): void {
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
 
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const isPlaying = isAppStatePlayingAudio();
+  const isPlaying = isLegacyPlayingAudio();
 
   if (isPlaying) {
     play(target);
@@ -834,7 +851,7 @@ export function adjustSync(val: number): void {
   setState('sync.localOffset', localOffset + val);
   bus.emit('sync:display-update');
 
-  if (isAppStateIdleOrPaused()) {
+  if (isLegacyIdleOrPaused()) {
     // Paused: localOffset is stored and applied on next play(pausedAt) via
     // startedAt. Don't modify pausedAt — it would cancel out the offset.
     return;
@@ -848,7 +865,7 @@ export function adjustSync(val: number): void {
     'sync-nudge-replay',
     () => {
       // Re-check app state at fire time — user may have paused during the burst.
-      if (isAppStateIdleOrPaused()) return;
+      if (isLegacyIdleOrPaused()) return;
       play(getTrackPosition());
     },
     NUDGE_REPLAY_DEBOUNCE_MS,

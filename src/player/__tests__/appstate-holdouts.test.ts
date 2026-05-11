@@ -9,7 +9,6 @@ const LEGACY_APPSTATE_PATTERN =
 
 const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>([
   ['src/player/ownership.ts', 'Single bridge between legacy appState and playback mode/activity.'],
-  ['src/player/transport.ts', 'Central legacy appState transition owner until source-of-truth flip.'],
   ['src/types/index.ts', 'State tree and EventMap keep appState types until removal phase.'],
 ]);
 

@@ -117,7 +117,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 - `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; idle checks intentionally stay on strict legacy `IDLE` because they preserve queue/indexing behavior.
 - `src/youtube/iframe.ts` - iframe create/ready/state/UI guards use playback mode, with indexing exceptions and `IDLE` fallback writes kept unchanged.
 - `src/player/video.ts` - central appState-to-mode write bridge; body-class rendering already subscribes to `state:playback.mode`.
-- `src/chat/commands.ts` - debug/status output may keep legacy appState until 5g, optionally alongside mode/activity.
+- `src/chat/commands.ts` - debug/status output reads legacy appState through `getPlaybackOwnership()` alongside mode/activity; it no longer reads the global slot directly.
 
 **Mode/activity snapshots**:
 

@@ -24,7 +24,7 @@ import { isAudioReady, getAudioContext } from '../audio/engine.ts';
 import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
-import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
+import { getPlaybackOwnership } from '../player/ownership.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { rememberPinnedNotice } from './protocol.ts';
@@ -517,8 +517,8 @@ function cmdDebug(args: string[]): void {
   );
 
   // Audio
-  const appState = getState('appState') || 'IDLE';
-  const playback = getPlaybackModeActivitySnapshot();
+  const playback = getPlaybackOwnership();
+  const appState = playback.appState || 'IDLE';
   const channelMode = getState('audio.channelMode') ?? 0;
   const channelNames: Record<number, string> = {
     0: 'Center',

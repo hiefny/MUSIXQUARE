@@ -12,30 +12,12 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import type { AppStateValue } from '../core/constants.ts';
-import type { TrackMeta } from '../types/index.ts';
+export { isSystemAudioSessionActive, isFilePlaybackBlockedByExternalMode } from './ownership.ts';
 
 // ─── State predicates ─────────────────────────────────────────────
 
 export function isIdleOrPaused(state: string): boolean {
   return state === APP_STATE.IDLE || state === APP_STATE.PAUSED;
-}
-
-export function isSystemAudioSessionActive(): boolean {
-  const appState = getState('appState');
-  if (appState === APP_STATE.PLAYING_SYSTEM_AUDIO) return true;
-  if (getState('systemAudio.isReceiving')) return true;
-
-  // SYSTEM_AUDIO_START puts guests into a placeholder state before the
-  // WebRTC media stream fires. Treat that pending window as system-audio
-  // ownership too, so late FILE_* / PLAY_PRELOADED messages cannot revive
-  // stale local-file playback underneath the live stream.
-  const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
-  return currentMeta?.systemAudioPlaceholder === true;
-}
-
-export function isFilePlaybackBlockedByExternalMode(): boolean {
-  const appState = getState('appState');
-  return appState === APP_STATE.PLAYING_YOUTUBE || isSystemAudioSessionActive();
 }
 
 // ─── Upload-time guard: reject video files ────────────────────────

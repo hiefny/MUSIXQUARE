@@ -14,6 +14,7 @@ import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
+import { isSystemAudioPlaceholderMeta } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
@@ -68,7 +69,7 @@ let _initialUnmuteWaitSeq = 0;
 
 function isSystemAudioPlaceholder(): boolean {
   const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
-  return currentMeta?.systemAudioPlaceholder === true;
+  return isSystemAudioPlaceholderMeta(currentMeta);
 }
 
 function getSystemAudioTrackMapping(

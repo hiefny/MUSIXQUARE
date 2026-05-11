@@ -12,7 +12,7 @@ import {
   setPendingPlayTime,
 } from '../_state.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
-import { isFilePlaybackBlockedByExternalMode, isSystemAudioSessionActive } from '../video.ts';
+import { isFilePlaybackBlockedByExternalMode, isSystemAudioSessionActive } from '../ownership.ts';
 import { broadcast } from '../../network/peer.ts';
 
 vi.mock('../../network/peer.ts', () => ({

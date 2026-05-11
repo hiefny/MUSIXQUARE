@@ -36,7 +36,7 @@ import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
-import { isSystemAudioSessionActive } from '../player/video.ts';
+import { getPlaybackOwnership, isSystemAudioSessionActive } from '../player/ownership.ts';
 import {
   getPendingPlayTime,
   setPendingPlayTime,
@@ -66,16 +66,9 @@ const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 // Callers that have access to the incoming message's `name` should pass
 // it so same-track replay can be detected.
 function shouldSkipIncomingFile(incomingName?: string): boolean {
-  // YouTube and system-audio modes own their own state paths;
-  // lifecycle.ts::transition() is a no-op in either, so we can't rely on
-  // lifecycle to gate file frames — appState must be checked directly.
-  // System-audio is unlikely to receive stale FILE_* frames in practice
-  // (host doesn't send while in that mode), but defense in depth: a
-  // spoofed or out-of-order frame would otherwise fall through to the
-  // (frozen) lifecycle check and possibly let chunks through.
-  const appState = getState('appState');
-  if (appState === APP_STATE.PLAYING_YOUTUBE) return true;
-  if (isSystemAudioSessionActive()) return true;
+  // External owners have their own state paths, so stale file frames are
+  // dropped before lifecycle/transfer heuristics get a chance to accept them.
+  if (getPlaybackOwnership().isExternalOwner) return true;
 
   // Remote guests use encrypted remote-share instead of direct file chunks;
   // orchestrator gates isDataTarget=false so stale direct frames are dropped.

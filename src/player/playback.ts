@@ -41,7 +41,7 @@ import { play, pause, stopAllMedia, getTrackPosition, handleEnded, skipTime } fr
 
 import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
-import { isSystemAudioSessionActive } from './video.ts';
+import { isSystemAudioSessionActive } from './ownership.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;

@@ -15,7 +15,8 @@ import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/tim
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
-import { isFilePlaybackBlockedByExternalMode, isIdleOrPaused } from './video.ts';
+import { getPlaybackOwnership, isFilePlaybackBlockedByExternalMode } from './ownership.ts';
+import { isIdleOrPaused } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -76,22 +77,23 @@ export function setAppState(newState: AppStateValue): void {
 let _offsetResetQueued = false;
 
 export function getTrackPosition(): number {
-  const currentState = getState('appState');
+  const ownership = getPlaybackOwnership();
+  const currentState = ownership.appState;
   const pausedAt = getState('player.pausedAt') || 0;
 
-  if (isIdleOrPaused(currentState)) return pausedAt;
-
   // System audio: no meaningful position (live stream)
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return 0;
+  if (ownership.owner === 'system-audio') return 0;
 
   // YouTube mode: delegated via synchronous callback
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (ownership.owner === 'youtube') {
     let ytPos = 0;
     bus.emit('youtube:get-position', (pos: number) => {
       ytPos = pos;
     });
     return ytPos;
   }
+
+  if (isIdleOrPaused(currentState)) return pausedAt;
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
   const duration =
@@ -331,14 +333,15 @@ export function seekTo(time: number): void {
   }
 
   // YouTube mode
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  const ownership = getPlaybackOwnership();
+  const currentState = ownership.appState;
+  if (ownership.owner === 'youtube') {
     bus.emit('youtube:seek-to', time);
     return;
   }
 
   // System audio: no seek (live stream)
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+  if (ownership.owner === 'system-audio') return;
 
   // Host: playing → seek + broadcast
   const currentTrackIndex = getState('playlist.currentTrackIndex');
@@ -575,7 +578,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 // ─── Pause ─────────────────────────────────────────────────────────
 
 export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }): void {
-  const currentState = getState('appState');
+  const ownership = getPlaybackOwnership();
+  const currentState = ownership.appState;
   if (isIdleOrPaused(currentState)) return;
 
   let pausePos: number;
@@ -606,7 +610,8 @@ export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
 
-  const currentState = getState('appState');
+  const ownership = getPlaybackOwnership();
+  const currentState = ownership.appState;
   const _currentAudioBuffer = getCurrentAudioBuffer();
 
   const hasBufferDuration = !!(
@@ -618,8 +623,7 @@ export function handleEnded(): void {
   const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
   if (isIdleOrPaused(currentState)) return;
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+  if (ownership.isExternalOwner) return;
 
   const curr = getTrackPosition();
   const isSeeking = getState('player.isSeeking');
@@ -646,16 +650,17 @@ export function togglePlay(): void {
 
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-  const currentState = getState('appState');
+  const ownership = getPlaybackOwnership();
+  const currentState = ownership.appState;
 
   // YouTube mode
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (ownership.owner === 'youtube') {
     bus.emit('youtube:toggle-play');
     return;
   }
 
   // System audio: ignore play/pause toggle (use "공유 중지" button instead)
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+  if (ownership.owner === 'system-audio') return;
 
   const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO;
   const pausedAt = getState('player.pausedAt') || 0;
@@ -773,10 +778,11 @@ export function skipTime(sec: number): void {
     showToast(t('toast.auto_play_canceled'));
   }
 
-  const currentState = getState('appState');
+  const ownership = getPlaybackOwnership();
+  const currentState = ownership.appState;
   if (currentState === APP_STATE.IDLE) return;
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return; // No skip on live stream
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (ownership.owner === 'system-audio') return; // No skip on live stream
+  if (ownership.owner === 'youtube') {
     bus.emit('youtube:skip-time', sec);
     return;
   }

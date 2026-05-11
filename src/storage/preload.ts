@@ -26,7 +26,7 @@ import type { DataConnection } from '../types/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
-import { isSystemAudioSessionActive } from '../player/video.ts';
+import { isSystemAudioSessionActive } from '../player/ownership.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)

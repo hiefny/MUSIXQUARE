@@ -28,10 +28,10 @@ import { getState, setState } from '../core/state.ts';
 import {
   PLAYBACK_STATE,
   LOAD_SOURCE,
-  APP_STATE,
   type PlaybackStateValue,
   type LoadSourceValue,
 } from '../core/constants.ts';
+import { isFilePlaybackBlockedByExternalMode } from './ownership.ts';
 
 // ─── Event Types ───────────────────────────────────────────────────
 //
@@ -451,14 +451,12 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
  * This function is **idempotent with respect to stay-transitions**: calling
  * it with an event that resolves to `stay` has no state-tree effect.
  *
- * **Gate: YouTube and system-audio modes.** The lifecycle machine is
- * guest-side local-file only. When appState is PLAYING_YOUTUBE or
- * PLAYING_SYSTEM_AUDIO, transition() is a no-op. Those modes own their own
- * state paths.
+ * **Gate: external playback modes.** The lifecycle machine is guest-side
+ * local-file only. When YouTube or system-audio owns playback, transition()
+ * is a no-op. Those modes own their own state paths.
  */
 export function transition(ev: PlaybackEvent): PlaybackStateValue {
-  const appState = getState('appState');
-  if (appState === APP_STATE.PLAYING_YOUTUBE || appState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (isFilePlaybackBlockedByExternalMode()) {
     // No-op in other modes. Caller is responsible for not trying to drive
     // playback lifecycle from YouTube/system-audio handlers anyway — this is
     // belt-and-suspenders.

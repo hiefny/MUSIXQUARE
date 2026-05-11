@@ -616,6 +616,18 @@ describe('transition() state tree integration', () => {
     expect(result).toBe(PLAYBACK_STATE.IDLE);
   });
 
+  it('is a no-op while system-audio placeholder owns playback', () => {
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'system-audio-receiving',
+      systemAudioPlaceholder: true,
+    });
+    forceState(PLAYBACK_STATE.IDLE);
+    const result = transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3' });
+    expect(result).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+  });
+
   it('PAUSE endOfPlaylist from PLAYING → IDLE (global rule)', () => {
     forceState(PLAYBACK_STATE.PLAYING);
     const result = transition({ type: 'PAUSE', time: 0, endOfPlaylist: true });

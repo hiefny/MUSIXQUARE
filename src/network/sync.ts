@@ -37,6 +37,7 @@ import { showToast } from '../ui/toast.ts';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
 import {
+  getPlaybackOwnership,
   getPlaybackModeActivity,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
@@ -94,7 +95,7 @@ export function handleAutoSync(): void {
 // ─── Protocol Handlers ──────────────────────────────────────────────
 
 export function getSyncPongPlaybackState(): SyncPongPlaybackState {
-  const appState = getState('appState');
+  const appState = getPlaybackOwnership().appState;
   const lifecycle = getState('playback.lifecycle');
   const playback = getPlaybackModeActivity();
 

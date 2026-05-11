@@ -165,8 +165,8 @@ Order, lowest-risk first:
 
 3. **`is*Owner()` helpers (0.5 day)**
    - Re-point to compute from `(mode, activity)` plus the surviving signals (file lifecycle, system-audio placeholder/receiving).
-   - Held back for now. Full tests caught raw placeholder/lifecycle setup paths that still need `getPlaybackOwnership()` to derive from current legacy signals even when shadow-slot listeners have been cleared in tests.
-   - `getPlaybackOwnership()` already derives both directions; this step inverts the source.
+   - Done with a transitional freshness boundary: public owner predicates read mode/activity, but first reconcile shadow slots against `getPlaybackOwnership()` when legacy direct-write/bootstrap paths leave them stale.
+   - Remove that reconciliation once tests and any remaining bootstrap code stop mutating legacy source fields directly.
 
 4. **Playback domain (1 day)**
    - `src/player/transport.ts`, `playback.ts`, and `playlist.ts`. These mostly read via predicates after Phase 1, so the change should be contract-level rather than behavioral.

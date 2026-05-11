@@ -255,6 +255,20 @@ export function getPlaybackModeActivitySnapshot(): PlaybackModeActivity {
   };
 }
 
+function getFreshPlaybackModeActivitySnapshot(): PlaybackModeActivity {
+  const snapshot = getPlaybackModeActivitySnapshot();
+  const ownership = getPlaybackOwnership();
+  if (snapshot.mode === ownership.mode && snapshot.activity === ownership.activity) {
+    return snapshot;
+  }
+
+  // Transitional safety for test/bootstrap paths that still mutate legacy
+  // source fields directly or clear the bus bridge before setting them.
+  writePlaybackModeActivity({ mode: ownership.mode, activity: ownership.activity });
+  assertPlaybackModeActivitySynced(ownership);
+  return { mode: ownership.mode, activity: ownership.activity };
+}
+
 function writePlaybackModeActivity(modeActivity: PlaybackModeActivity): void {
   setState('playback.mode', modeActivity.mode);
   setState('playback.activity', modeActivity.activity);
@@ -384,19 +398,24 @@ export function isPlaybackPlayingSystemAudio(): boolean {
 // Read: owner predicates (broad semantic)
 
 export function isFileOwner(): boolean {
-  return getPlaybackOwnership().owner === 'file';
+  const playback = getFreshPlaybackModeActivitySnapshot();
+  return (
+    playback.mode === 'file' &&
+    (playback.activity === 'playing' || playback.activity === 'pending')
+  );
 }
 
 export function isYouTubeOwner(): boolean {
-  return getPlaybackOwnership().owner === 'youtube';
+  return getFreshPlaybackModeActivitySnapshot().mode === 'youtube';
 }
 
 export function isSystemAudioOwner(): boolean {
-  return getPlaybackOwnership().owner === 'system-audio';
+  return getFreshPlaybackModeActivitySnapshot().mode === 'system-audio';
 }
 
 export function isExternalOwner(): boolean {
-  return getPlaybackOwnership().isExternalOwner;
+  const mode = getFreshPlaybackModeActivitySnapshot().mode;
+  return mode === 'youtube' || mode === 'system-audio';
 }
 
 // Write: track metadata

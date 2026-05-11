@@ -232,6 +232,16 @@ describe('playback ownership view', () => {
     expectPlaybackModeActivitySlots('system-audio', 'pending');
   });
 
+  it('freshens owner predicates when shadow mode/activity slots are stale', () => {
+    setPlaybackTrackMeta(createSystemAudioTrackMeta('receiving'));
+    setState('playback.mode', null);
+    setState('playback.activity', 'idle');
+
+    expect(isSystemAudioOwner()).toBe(true);
+    expect(isExternalOwner()).toBe(true);
+    expectPlaybackModeActivitySlots('system-audio', 'pending');
+  });
+
   it('dual-writes lifecycle, transfer, and system-audio source helpers into playback slots', () => {
     setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
     expectPlaybackModeActivitySlots('file', 'pending');

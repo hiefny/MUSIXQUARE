@@ -109,6 +109,7 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
 - `state.appState` has been removed, and the old full enum projection helpers are gone.
 - `owner` and `mode` are not guaranteed to match. Example: paused local-file playback has no active owner but still records `mode: file`; YouTube pause lives in the YouTube player state instead.
 - `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question.
+- If a caller already has a scoped playback snapshot, pass that snapshot into the matching predicate instead of re-polling state.
 - The full decomposition roadmap (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document is the migration plan; this one remains the read/write contract reference.
 
 ## Verification Gate

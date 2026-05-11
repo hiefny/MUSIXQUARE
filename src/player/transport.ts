@@ -18,6 +18,7 @@ import {
   getPlaybackOwnership,
   getPlaybackModeActivity,
   isExternalOwner,
+  isPlaybackPausedOrPendingFile,
   isPlaybackIdleCompat,
   isPlaybackIdleCompatModeActivity,
   isSystemAudioOwner,
@@ -25,6 +26,8 @@ import {
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
   setPlaybackIdle,
+  isPlaybackPlayingFile,
+  isPlaybackPlayingSystemAudio,
 } from './ownership.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -79,21 +82,15 @@ function isCompatIdle(): boolean {
 
 function isFileTransportInactive(): boolean {
   const playback = getPlaybackModeActivity();
-  return (
-    isPlaybackIdleCompatModeActivity(playback) ||
-    (playback.mode === 'file' &&
-      (playback.activity === 'paused' || playback.activity === 'pending'))
-  );
+  return isPlaybackIdleCompatModeActivity(playback) || isPlaybackPausedOrPendingFile(playback);
 }
 
 function isFilePlaybackPlaying(): boolean {
-  const playback = getPlaybackModeActivity();
-  return playback.mode === 'file' && playback.activity === 'playing';
+  return isPlaybackPlayingFile(getPlaybackModeActivity());
 }
 
 function isSystemAudioPlaying(): boolean {
-  const playback = getPlaybackModeActivity();
-  return playback.mode === 'system-audio' && playback.activity === 'playing';
+  return isPlaybackPlayingSystemAudio(getPlaybackModeActivity());
 }
 
 // ─── Track Position ────────────────────────────────────────────────

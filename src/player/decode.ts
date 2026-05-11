@@ -16,6 +16,7 @@ import { initAudio } from '../audio/engine.ts';
 import {
   getPlaybackModeActivity,
   isExternalOwner,
+  isPlaybackNonIdleFile,
   setPlaybackIdle,
   setPlaybackTransferState,
   setPlaybackTrackMeta,
@@ -712,7 +713,7 @@ export function clearPreviousTrackState(reason = ''): void {
 
   // Reset active or pending file playback to idle.
   const playback = getPlaybackModeActivity();
-  if (playback.mode === 'file' && playback.activity !== 'idle') {
+  if (isPlaybackNonIdleFile(playback)) {
     setPlaybackIdle();
   }
 

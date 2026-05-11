@@ -372,19 +372,49 @@ export function isPlaybackPlaying(): boolean {
   return getState('playback.activity') === 'playing';
 }
 
-export function isPlaybackPlayingFile(): boolean {
-  const playback = getPlaybackModeActivitySnapshot();
+export function isPlaybackPlayingFile(
+  playback: PlaybackModeActivity = getPlaybackModeActivitySnapshot(),
+): boolean {
   return playback.mode === 'file' && playback.activity === 'playing';
 }
 
-export function isPlaybackPlayingYouTube(): boolean {
-  const playback = getPlaybackModeActivitySnapshot();
+export function isPlaybackPlayingYouTube(
+  playback: PlaybackModeActivity = getPlaybackModeActivitySnapshot(),
+): boolean {
   return playback.mode === 'youtube' && playback.activity === 'playing';
 }
 
-export function isPlaybackPlayingSystemAudio(): boolean {
-  const playback = getPlaybackModeActivitySnapshot();
+export function isPlaybackPlayingSystemAudio(
+  playback: PlaybackModeActivity = getPlaybackModeActivitySnapshot(),
+): boolean {
   return playback.mode === 'system-audio' && playback.activity === 'playing';
+}
+
+export function isPlaybackPendingFile(
+  playback: PlaybackModeActivity = getPlaybackModeActivitySnapshot(),
+): boolean {
+  return playback.mode === 'file' && playback.activity === 'pending';
+}
+
+export function isPlaybackPausedOrPendingFile(
+  playback: PlaybackModeActivity = getPlaybackModeActivitySnapshot(),
+): boolean {
+  return (
+    playback.mode === 'file' &&
+    (playback.activity === 'paused' || playback.activity === 'pending')
+  );
+}
+
+export function isPlaybackNonIdleFile(
+  playback: PlaybackModeActivity = getPlaybackModeActivitySnapshot(),
+): boolean {
+  return playback.mode === 'file' && playback.activity !== 'idle';
+}
+
+export function isPlaybackActiveYouTube(
+  playback: PlaybackModeActivity = getPlaybackModeActivitySnapshot(),
+): boolean {
+  return playback.mode === 'youtube' && playback.activity !== 'idle';
 }
 
 // Read: owner predicates (broad semantic)

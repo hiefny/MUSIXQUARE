@@ -16,7 +16,11 @@ import {
   isPlaybackIdleCompatModeActivity,
   isPlaybackModeSystemAudio,
   isPlaybackModeYouTube,
+  isPlaybackNonIdleFile,
+  isPlaybackPausedOrPendingFile,
   isPlaybackPending,
+  isPlaybackPendingFile,
+  isPlaybackPlayingFile,
   isPlaybackPlayingSystemAudio,
   isPlaybackPlayingYouTube,
   isSystemAudioOwner,
@@ -308,5 +312,16 @@ describe('playback ownership view', () => {
 
     setPlaybackIdle();
     expect(getPlaybackModeActivity()).toEqual({ mode: null, activity: 'idle' });
+  });
+
+  it('evaluates mode/activity predicates against supplied snapshots', () => {
+    expect(isPlaybackPlayingFile({ mode: 'file', activity: 'playing' })).toBe(true);
+    expect(isPlaybackPlayingFile({ mode: 'file', activity: 'paused' })).toBe(false);
+    expect(isPlaybackPendingFile({ mode: 'file', activity: 'pending' })).toBe(true);
+    expect(isPlaybackPausedOrPendingFile({ mode: 'file', activity: 'paused' })).toBe(true);
+    expect(isPlaybackPausedOrPendingFile({ mode: 'file', activity: 'pending' })).toBe(true);
+    expect(isPlaybackPausedOrPendingFile({ mode: 'youtube', activity: 'paused' })).toBe(false);
+    expect(isPlaybackNonIdleFile({ mode: 'file', activity: 'paused' })).toBe(true);
+    expect(isPlaybackNonIdleFile({ mode: 'file', activity: 'idle' })).toBe(false);
   });
 });

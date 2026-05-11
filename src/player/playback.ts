@@ -44,7 +44,10 @@ import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
   getPlaybackModeActivity,
+  isPlaybackActiveYouTube,
+  isPlaybackPausedOrPendingFile,
   isPlaybackPlayingFile,
+  isPlaybackPlayingSystemAudio,
   isSystemAudioOwner,
   isYouTubeOwner,
   setPlaybackTrackMeta,
@@ -818,12 +821,10 @@ export function initPlayback(): void {
     if (hostConn) return;
 
     const playback = getPlaybackModeActivity();
-    const isFilePlaying = playback.mode === 'file' && playback.activity === 'playing';
-    const isFilePauseLike =
-      playback.mode === 'file' && (playback.activity === 'paused' || playback.activity === 'pending');
-    const isSystemAudioPlaying =
-      playback.mode === 'system-audio' && playback.activity === 'playing';
-    const isYouTubeActive = playback.mode === 'youtube' && playback.activity !== 'idle';
+    const isFilePlaying = isPlaybackPlayingFile(playback);
+    const isFilePauseLike = isPlaybackPausedOrPendingFile(playback);
+    const isSystemAudioPlaying = isPlaybackPlayingSystemAudio(playback);
+    const isYouTubeActive = isPlaybackActiveYouTube(playback);
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const playlist = getState('playlist.items') || [];
 

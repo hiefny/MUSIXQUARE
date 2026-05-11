@@ -35,6 +35,7 @@ import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
 import {
   getPlaybackModeActivity,
+  isPlaybackPendingFile,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 
@@ -97,7 +98,7 @@ export function getSyncPongPlaybackState(): SyncPongPlaybackState {
   // leaves playback.mode/activity at file/playing to avoid UI flicker while
   // the new file decodes and waits for autoPlayTimer. That is not audible
   // playback, so the wire view advertises the paused file shadow.
-  if (playback.mode === 'file' && playback.activity === 'playing') {
+  if (isPlaybackPlayingFile(playback)) {
     if (lifecycle === PLAYBACK_STATE.PLAYING) {
       return { mode: 'file', activity: 'playing' };
     }
@@ -107,7 +108,7 @@ export function getSyncPongPlaybackState(): SyncPongPlaybackState {
 
   // Do not let a stale file lifecycle create a new wire-visible "playing"
   // state.
-  if (playback.mode === 'file' && playback.activity === 'pending') {
+  if (isPlaybackPendingFile(playback)) {
     return { mode: 'file', activity: 'pending' };
   }
 
@@ -127,7 +128,7 @@ function isPlaybackActivityValue(value: unknown): value is PlaybackActivityValue
 
 export function isSyncPongPlayingFile(data: Record<string, unknown>): boolean {
   if (isPlaybackModeValue(data.mode) && isPlaybackActivityValue(data.activity)) {
-    return data.mode === 'file' && data.activity === 'playing';
+    return isPlaybackPlayingFile({ mode: data.mode, activity: data.activity });
   }
 
   return false;

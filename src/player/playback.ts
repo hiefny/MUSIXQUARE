@@ -43,6 +43,7 @@ import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from '
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
+  getPlaybackOwnership,
   isPlaybackPlayingFile,
   isSystemAudioOwner,
   isYouTubeOwner,
@@ -816,7 +817,7 @@ export function initPlayback(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    const currentState = getState('appState');
+    const currentState = getPlaybackOwnership().appState;
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const playlist = getState('playlist.items') || [];
 

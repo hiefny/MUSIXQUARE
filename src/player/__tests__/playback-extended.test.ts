@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { APP_STATE, MSG } from '../../core/constants.ts';
 import {
   getCurrentAudioBuffer,
   getLoadToken,
@@ -11,9 +12,11 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
 } from '../_state.ts';
+import { initPlayback } from '../playback.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
-import { isExternalOwner, isSystemAudioOwner } from '../ownership.ts';
+import { isExternalOwner, isSystemAudioOwner, setPlaybackAppState } from '../ownership.ts';
 import { broadcast } from '../../network/peer.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
@@ -196,5 +199,59 @@ describe('updatePlayState', () => {
     updatePlayState(false);
 
     expect(handler).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('late-join playback bootstrap', () => {
+  function emitPeerConnected(send = vi.fn()): typeof send {
+    bus.emit('network:peer-connected', { open: true, send } as unknown as DataConnection);
+    return send;
+  }
+
+  it('sends legacy PLAY state from the ownership adapter', () => {
+    initPlayback();
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [{ name: 'song.mp3' }]);
+
+    const send = emitPeerConnected();
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.PLAY,
+        index: 0,
+        name: 'song.mp3',
+        state: APP_STATE.PLAYING_AUDIO,
+      }),
+    );
+  });
+
+  it('sends legacy PAUSE state and pause reason from the ownership adapter', () => {
+    initPlayback();
+    setPlaybackAppState(APP_STATE.PAUSED);
+    setState('playlist.currentTrackIndex', 1);
+    setState('player.pausedAt', 42);
+
+    const send = emitPeerConnected();
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.PAUSE,
+        index: 1,
+        reason: 'pause',
+        state: APP_STATE.PAUSED,
+        time: 42,
+      }),
+    );
+  });
+
+  it('sends system audio bootstrap without file playback payloads', () => {
+    initPlayback();
+    setPlaybackAppState(APP_STATE.PLAYING_SYSTEM_AUDIO);
+
+    const send = emitPeerConnected();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ type: MSG.SYSTEM_AUDIO_START });
   });
 });

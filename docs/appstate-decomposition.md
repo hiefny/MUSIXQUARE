@@ -184,9 +184,10 @@ Order, lowest-risk first:
    - Remove that reconciliation once tests and any remaining bootstrap code stop mutating legacy source fields directly.
 
 4. **Playback domain (1 day)**
-   - `src/player/transport.ts`, `playback.ts`, and `playlist.ts`. These mostly read via predicates after Phase 1, so the change should be contract-level rather than behavioral.
+   - `src/player/transport.ts` and `playlist.ts` still own the remaining strict legacy playback-domain checks. These mostly read via predicates after Phase 1, so the change should be contract-level rather than behavioral.
    - First pass done for YouTube mode questions in `playlist.ts`, `playback.ts`, and the silent YouTube handoff in `transport.ts`.
    - `src/player/playback.ts` uses playback-playing file helpers for seek/restart paths that only apply to active local file playback.
+   - `src/player/playback.ts` late-join bootstrap reads legacy wire state through `getPlaybackOwnership().appState`; it no longer reads the global `appState` slot directly.
    - Any site that reads `ownership.appState` directly should be checked and migrated to `ownership.mode` / `ownership.activity` only when that site truly wants the new semantic.
 
 5. **Network/protocol gating (1 day)**

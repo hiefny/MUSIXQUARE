@@ -161,6 +161,7 @@ Order, lowest-risk first:
    - `src/player/video.ts::updateBodyModeClass` is already migrated to `state:playback.mode`.
    - `src/player/media-session.ts` OS `playbackState` display is already migrated to `state:playback.activity`; media button command handlers still use legacy predicates by design.
    - `src/ui/_state-hooks.ts` exposes mode/activity subscriptions; `src/ui/player-controls.ts` uses them for tab-title marquee, play-icon/media-source rendering, and YouTube play-state refinements.
+   - `src/ui/seekbar.ts` uses playback mode/activity for seek availability, system-audio zero display, and file rAF interpolation gates.
    - `src/ui/tabs.ts` and `src/ui/setup.ts` use playback mode helpers for YouTube display/cleanup gates.
    - Leave protocol, snapshot, and compatibility bridge code on `isAppState*()` or raw snapshots until their dedicated phases.
 

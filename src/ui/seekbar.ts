@@ -11,12 +11,26 @@ import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
-import {
-  isAppStateIdle,
-  isAppStateIdleOrPaused,
-  isAppStatePlayingAudio,
-  isAppStatePlayingSystemAudio,
-} from '../player/ownership.ts';
+import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
+
+function isSeekUnavailable(): boolean {
+  const playback = getPlaybackModeActivitySnapshot();
+  return playback.activity === 'idle' || playback.mode === 'system-audio';
+}
+
+function isSystemAudioMode(): boolean {
+  return getPlaybackModeActivitySnapshot().mode === 'system-audio';
+}
+
+function shouldStopSeekLoop(): boolean {
+  const playback = getPlaybackModeActivitySnapshot();
+  return playback.activity === 'idle' || playback.activity === 'paused';
+}
+
+function isFileActivelyPlaying(): boolean {
+  const playback = getPlaybackModeActivitySnapshot();
+  return playback.mode === 'file' && playback.activity === 'playing';
+}
 
 // ─── Seek Bar Input Events ──────────────────────────────────────
 
@@ -29,7 +43,7 @@ function initSeekBarInput(): void {
     passive: true,
   });
   slider.addEventListener('input', () => {
-    if (isAppStateIdle() || isAppStatePlayingSystemAudio()) {
+    if (isSeekUnavailable()) {
       slider.value = '0';
       return;
     }
@@ -49,7 +63,7 @@ function initSeekBarInput(): void {
 
   slider.addEventListener('change', () => {
     releaseSeek();
-    if (isAppStateIdle() || isAppStatePlayingSystemAudio()) {
+    if (isSeekUnavailable()) {
       slider.value = '0';
       return;
     }
@@ -79,7 +93,7 @@ function _seekRafLoop(now: number): void {
   // was wasted DOM work (and battery on mobile) for a static display.
   // We still need to poll so the loop can resume normal interpolation when
   // the user exits system-audio mode.
-  if (isAppStatePlayingSystemAudio()) {
+  if (isSystemAudioMode()) {
     if (!_systemAudioZerosApplied) {
       const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
       const tc = document.getElementById('time-curr');
@@ -108,7 +122,7 @@ function _seekRafLoop(now: number): void {
   // narrowing to PLAYING_AUDIO covers the only state where wall-clock
   // interpolation is correct. PAUSED / IDLE / DECODING leave the thumb
   // wherever it last was, which matches user expectation.
-  const isPlaying = isAppStatePlayingAudio();
+  const isPlaying = isFileActivelyPlaying();
   if (!isSeeking && isPlaying) {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
@@ -183,7 +197,7 @@ function initSeekBarBusHandlers(): void {
     setManagedTimer(
       'time-update-loop',
       () => {
-        if (isAppStateIdleOrPaused()) {
+        if (shouldStopSeekLoop()) {
           clearManagedTimer('time-update-loop');
           _stopSeekRaf();
           return;
@@ -206,7 +220,7 @@ function initSeekBarBusHandlers(): void {
         //    until the next 250ms tick collapses it again. Treat 0 as
         //    transient and let the existing anchor (set by _startSeekRaf
         //    or by the previous valid tick) keep advancing via dt.
-        if (isAppStatePlayingAudio()) {
+        if (isFileActivelyPlaying()) {
           const pos = getTrackPosition();
           if (pos > 0 && Number.isFinite(pos)) {
             _rafAnchorTime = pos;

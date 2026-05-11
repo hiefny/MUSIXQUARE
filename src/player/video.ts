@@ -9,9 +9,14 @@
  */
 
 import { bus } from '../core/events.ts';
-import { APP_STATE } from '../core/constants.ts';
-import type { AppStateValue, PlaybackModeValue } from '../core/constants.ts';
-import { isPlaybackPlaying, setPlaybackAppState } from './ownership.ts';
+import type { PlaybackModeValue } from '../core/constants.ts';
+import {
+  isPlaybackPlaying,
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackIdle,
+  setPlaybackYouTubePlaying,
+} from './ownership.ts';
 
 // ─── Upload-time guard: reject video files ────────────────────────
 
@@ -62,23 +67,21 @@ export function isMediaVideo(
 // ─── Engine mode switch (audio ↔ YouTube) ─────────────────────────
 
 export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {
-  let targetState: AppStateValue;
   switch (mode) {
     case 'youtube':
-      targetState = APP_STATE.PLAYING_YOUTUBE;
-      break;
+      setPlaybackYouTubePlaying();
+      return;
     case 'buffer':
     case 'audio':
-      targetState = APP_STATE.PLAYING_AUDIO;
-      break;
+      if (isPlaybackPlaying()) {
+        setPlaybackFilePlaying();
+      } else {
+        setPlaybackFilePaused();
+      }
+      return;
     default:
-      targetState = APP_STATE.IDLE;
+      setPlaybackIdle();
   }
-
-  const newState: AppStateValue = isPlaybackPlaying() ? targetState : APP_STATE.PAUSED;
-  // YouTube forces its target state so playback.mode keeps applying even when paused.
-  const finalState: AppStateValue = mode === 'youtube' ? targetState : newState;
-  setPlaybackAppState(finalState);
 }
 
 // Body-class sync driven by decomposed playback mode.

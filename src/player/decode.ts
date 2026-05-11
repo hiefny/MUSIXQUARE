@@ -9,13 +9,14 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import {
   getPlaybackModeActivity,
   isExternalOwner,
+  setPlaybackIdle,
   setPlaybackTransferState,
   setPlaybackTrackMeta,
 } from './ownership.ts';
@@ -51,7 +52,7 @@ import {
   getTrackKeyFromItem,
 } from './_state.ts';
 
-import { play, stopAllMedia, stopPlayerNode, setAppState } from './transport.ts';
+import { play, stopAllMedia, stopPlayerNode } from './transport.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -311,7 +312,7 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
     // Without an explicit stop, the play button stays enabled and the user
     // falls back into the same failure cycle on the next click.
     stopAllMedia();
-    setAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
     return;
   }
 
@@ -713,7 +714,7 @@ export function clearPreviousTrackState(reason = ''): void {
   // Reset active or pending file playback to idle.
   const playback = getPlaybackModeActivity();
   if (playback.mode === 'file' && playback.activity !== 'idle') {
-    setAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
   }
 
   // Clear preload ack tracking (immutable — replace with new Set)

@@ -304,12 +304,12 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   // PLAYING_YOUTUBE blocks file lifecycle transitions and play(), so clear
   // the mode after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
   if (opts?.silent && wasInYouTube && isYouTubeOwner()) {
-    setAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
   }
 
   // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
   if (!opts?.silent && !isLegacyIdle()) {
-    setAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
   }
 
   // Stop player node
@@ -432,7 +432,7 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         incrementLoadToken();
         // Reset appState to IDLE to prevent stuck "playing" UI
         if (!isLegacyIdle()) {
-          setAppState(APP_STATE.IDLE);
+          setPlaybackIdle();
         }
       }
     },
@@ -603,7 +603,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
 
-  setAppState(APP_STATE.PLAYING_AUDIO);
+  setPlaybackFilePlaying();
 
   if (!getState('network.hostConn')) {
     transition({
@@ -636,7 +636,7 @@ export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }):
   if (opts?.holdVisualizer ?? forcedTime === undefined) {
     bus.emit('visualizer:hold-frame');
   }
-  setAppState(APP_STATE.PAUSED);
+  setPlaybackFilePaused();
   setState('player.pausedAt', pausePos);
 
   if (!getState('network.hostConn')) {
@@ -780,7 +780,7 @@ export function stopPlayback(): void {
   if (isYouTubeOwner()) {
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
     // from triggering playlist:next-track (its guard checks YouTube playback mode).
-    setAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
     bus.emit('youtube:stop-playback');
     bus.emit('youtube:stop-mode');
     clearManagedTimer('autoPlayTimer');

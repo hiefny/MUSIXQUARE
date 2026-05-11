@@ -10,14 +10,13 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
-import { setAppState } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
-import { isPlaybackModeYouTube, updatePlaybackTrackTitle } from '../player/ownership.ts';
+import { isPlaybackModeYouTube, setPlaybackIdle, updatePlaybackTrackTitle } from '../player/ownership.ts';
 import {
   getYouTubePlayer,
   setYouTubePlayer,
@@ -888,7 +887,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
           clearManagedTimer('youtubeUILoop');
           if (isPlaybackModeYouTube()) {
             log.debug('[YouTube] Guest: no next-track from host — going IDLE');
-            setAppState(APP_STATE.IDLE);
+            setPlaybackIdle();
             bus.emit('youtube:stop-mode');
           }
         },

@@ -16,10 +16,10 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
-import { setAppState } from '../player/transport.ts';
 import {
   getPlaybackLegacyAppState,
   isPlaybackModeYouTube,
+  setPlaybackIdle,
   setPlaybackTrackMeta,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
@@ -294,7 +294,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   // IDLE bounce here keeps body.mode-youtube → body.mode-audio in lockstep
   // with the audio takeover and prevents the brief blank-mode UI flash.
   if (wasInYouTube && !opts?.silent) {
-    setAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
   }
 
   clearManagedTimer('youtubeUILoop');

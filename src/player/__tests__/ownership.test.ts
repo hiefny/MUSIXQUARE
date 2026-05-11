@@ -3,10 +3,15 @@ import { APP_STATE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.
 import { resetState, setState } from '../../core/state.ts';
 import {
   canStartFilePlayback,
+  claimPendingSystemAudioPlayback,
+  claimPlaybackOwner,
+  createSystemAudioTrackMeta,
   getPlaybackOwnership,
   isFilePlaybackBlockedByExternalMode,
   isSystemAudioPlaceholderMeta,
   isSystemAudioSessionActive,
+  releasePlaybackOwner,
+  setPlaybackTrackMeta,
 } from '../ownership.ts';
 
 beforeEach(() => {
@@ -72,6 +77,59 @@ describe('playback ownership view', () => {
       owner: 'file',
       hasFilePipeline: true,
       isExternalOwner: false,
+    });
+  });
+
+  it('claims active system-audio ownership with canonical metadata', () => {
+    claimPlaybackOwner('system-audio', {
+      currentTrackMeta: createSystemAudioTrackMeta('sharing'),
+    });
+
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'system-audio',
+      appState: APP_STATE.PLAYING_SYSTEM_AUDIO,
+      currentTrackMeta: {
+        name: 'system-audio',
+        title: 'System Audio Sharing',
+      },
+    });
+  });
+
+  it('claims pending system-audio ownership without changing appState', () => {
+    claimPendingSystemAudioPlayback();
+
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'system-audio',
+      appState: APP_STATE.IDLE,
+      isSystemAudioPlaceholder: true,
+    });
+  });
+
+  it('releases only the requested owner unless forced', () => {
+    setState('appState', APP_STATE.PLAYING_YOUTUBE);
+    const before = getPlaybackOwnership();
+
+    releasePlaybackOwner('system-audio', { nextAppState: APP_STATE.IDLE });
+    expect(getPlaybackOwnership()).toEqual(before);
+
+    releasePlaybackOwner('system-audio', {
+      force: true,
+      nextAppState: APP_STATE.IDLE,
+      currentTrackMeta: null,
+    });
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'none',
+      appState: APP_STATE.IDLE,
+      currentTrackMeta: null,
+    });
+  });
+
+  it('sets track metadata through the ownership write helper', () => {
+    setPlaybackTrackMeta({ type: 'file', name: 'track.mp3', title: 'Track' });
+
+    expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
+      name: 'track.mp3',
+      title: 'Track',
     });
   });
 });

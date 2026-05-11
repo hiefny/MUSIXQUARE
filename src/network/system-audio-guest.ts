@@ -14,7 +14,13 @@ import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
-import { isSystemAudioPlaceholderMeta } from '../player/ownership.ts';
+import {
+  claimPendingSystemAudioPlayback,
+  claimPlaybackOwner,
+  isSystemAudioPlaceholderMeta,
+  releasePlaybackOwner,
+  setPlaybackTrackMeta,
+} from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
@@ -403,7 +409,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     if (!getState('systemAudio.isReceiving')) {
       clearReceiveWatchdog();
       setState('systemAudio.isReceiving', true);
-      setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
+      claimPlaybackOwner('system-audio');
       bus.emit('visualizer:start');
       log.info(`[SysAudioGuest] System audio connected to graph (${channel})`);
     }
@@ -530,10 +536,13 @@ function cleanupGuestSystemAudio(): void {
   _gotSynced = false;
 
   setState('systemAudio.isReceiving', false);
-  setState('player.currentTrackMeta', _prevTrackMeta ?? null);
+  setPlaybackTrackMeta(_prevTrackMeta ?? null);
   _prevTrackMeta = null;
   if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO || wasSystemAudioPlaceholder) {
-    setState('appState', APP_STATE.IDLE);
+    releasePlaybackOwner('system-audio', {
+      force: wasSystemAudioPlaceholder,
+      nextAppState: APP_STATE.IDLE,
+    });
   }
 }
 
@@ -566,12 +575,7 @@ export function registerSystemAudioGuestListeners(): void {
       log.info('[SysAudioGuest] Host started system audio sharing');
       _prevTrackMeta = currentMeta;
       stopAllMedia({ silent: true, cancelInFlight: true });
-      setState('player.currentTrackMeta', {
-        type: 'file',
-        name: 'system-audio-receiving',
-        title: 'Receiving System Audio',
-        systemAudioPlaceholder: true,
-      });
+      claimPendingSystemAudioPlayback();
       armReceiveWatchdog();
     },
   );

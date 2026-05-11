@@ -14,6 +14,11 @@ import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
+import {
+  claimPlaybackOwner,
+  createSystemAudioTrackMeta,
+  setPlaybackTrackMeta,
+} from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemNotice, clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -197,11 +202,8 @@ export async function startSystemAudioCapture(): Promise<void> {
   muteLocalOutput(true);
 
   // 8. Update state
-  setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
-  setState('player.currentTrackMeta', {
-    type: 'file',
-    name: 'system-audio',
-    title: 'System Audio Sharing',
+  claimPlaybackOwner('system-audio', {
+    currentTrackMeta: createSystemAudioTrackMeta('sharing'),
   });
 
   // 9. Broadcast start + call guests with L/R streams
@@ -248,7 +250,7 @@ export function stopSystemAudioCapture(): void {
 
   if (_preSysAudioState) {
     setState('player.pausedAt', _preSysAudioState.pausedAt);
-    setState('player.currentTrackMeta', _preSysAudioState.currentTrackMeta ?? null);
+    setPlaybackTrackMeta(_preSysAudioState.currentTrackMeta ?? null);
     // Restore channel UI to previous selection
     try {
       document
@@ -290,7 +292,7 @@ export function stopSystemAudioCapture(): void {
     }
     _preSysAudioState = null;
   } else {
-    setState('player.currentTrackMeta', null);
+    setPlaybackTrackMeta(null);
     setState('appState', APP_STATE.IDLE);
   }
 

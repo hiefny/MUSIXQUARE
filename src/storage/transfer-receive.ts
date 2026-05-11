@@ -36,7 +36,11 @@ import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
-import { getPlaybackOwnership, isSystemAudioSessionActive } from '../player/ownership.ts';
+import {
+  getPlaybackOwnership,
+  isSystemAudioSessionActive,
+  setPlaybackAppState,
+} from '../player/ownership.ts';
 import {
   getPendingPlayTime,
   setPendingPlayTime,
@@ -388,7 +392,7 @@ export async function handleFilePrepare(
     log.debug('[Transfer] Accepting demo FILE_PREPARE during YouTube mode');
     bus.emit('player:stop-all-media');
     if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-      setState('appState', APP_STATE.IDLE);
+      setPlaybackAppState(APP_STATE.IDLE);
     }
     if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
   }

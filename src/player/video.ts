@@ -9,9 +9,10 @@
  */
 
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import type { AppStateValue } from '../core/constants.ts';
+import { setPlaybackAppState } from './ownership.ts';
 export { isSystemAudioSessionActive, isFilePlaybackBlockedByExternalMode } from './ownership.ts';
 
 // ─── State predicates ─────────────────────────────────────────────
@@ -86,7 +87,7 @@ export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {
   const newState: AppStateValue = isIdleOrPaused(currentState) ? APP_STATE.PAUSED : targetState;
   // YouTube forces its target state so body.mode-youtube keeps applying even when paused.
   const finalState: AppStateValue = mode === 'youtube' ? targetState : newState;
-  setState('appState', finalState);
+  setPlaybackAppState(finalState);
 }
 
 // ─── Body-class sync driven by appState ───────────────────────────

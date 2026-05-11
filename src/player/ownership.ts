@@ -139,6 +139,20 @@ export function claimPlaybackOwner(
   return getPlaybackOwnership();
 }
 
+export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership {
+  switch (appState) {
+    case APP_STATE.PLAYING_AUDIO:
+      return claimPlaybackOwner('file');
+    case APP_STATE.PLAYING_YOUTUBE:
+      return claimPlaybackOwner('youtube');
+    case APP_STATE.PLAYING_SYSTEM_AUDIO:
+      return claimPlaybackOwner('system-audio');
+    default:
+      setState('appState', appState);
+      return getPlaybackOwnership();
+  }
+}
+
 export function claimPendingSystemAudioPlayback(
   currentTrackMeta = createSystemAudioTrackMeta('receiving'),
 ): PlaybackOwnership {

@@ -11,6 +11,7 @@ import {
   isSystemAudioPlaceholderMeta,
   isSystemAudioSessionActive,
   releasePlaybackOwner,
+  setPlaybackAppState,
   setPlaybackTrackMeta,
 } from '../ownership.ts';
 
@@ -130,6 +131,26 @@ describe('playback ownership view', () => {
     expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
       name: 'track.mp3',
       title: 'Track',
+    });
+  });
+
+  it('routes playback app state changes through ownership claims', () => {
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'file',
+      appState: APP_STATE.PLAYING_AUDIO,
+    });
+
+    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'youtube',
+      appState: APP_STATE.PLAYING_YOUTUBE,
+      isExternalOwner: true,
+    });
+
+    setPlaybackAppState(APP_STATE.PAUSED);
+    expect(getPlaybackOwnership()).toMatchObject({
+      appState: APP_STATE.PAUSED,
     });
   });
 });

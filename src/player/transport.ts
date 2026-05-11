@@ -15,7 +15,11 @@ import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/tim
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
-import { getPlaybackOwnership, isFilePlaybackBlockedByExternalMode } from './ownership.ts';
+import {
+  getPlaybackOwnership,
+  isFilePlaybackBlockedByExternalMode,
+  setPlaybackAppState,
+} from './ownership.ts';
 import { isIdleOrPaused } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -69,7 +73,7 @@ export function fmtTime(s: number): string {
  * Subscribers listen via bus.on('state:appState', ...).
  */
 export function setAppState(newState: AppStateValue): void {
-  setState('appState', newState);
+  setPlaybackAppState(newState);
 }
 
 // ─── Track Position ────────────────────────────────────────────────

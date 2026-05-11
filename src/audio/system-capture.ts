@@ -17,6 +17,7 @@ import { stopAllMedia } from '../player/transport.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
+  setPlaybackAppState,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
@@ -283,17 +284,17 @@ export function stopSystemAudioCapture(): void {
           subIndex: _preSysAudioState.subIndex,
         });
       } else {
-        setState('appState', APP_STATE.PAUSED);
+        setPlaybackAppState(APP_STATE.PAUSED);
       }
     } else if (_preSysAudioState.appState !== APP_STATE.IDLE) {
-      setState('appState', APP_STATE.PAUSED);
+      setPlaybackAppState(APP_STATE.PAUSED);
     } else {
-      setState('appState', APP_STATE.IDLE);
+      setPlaybackAppState(APP_STATE.IDLE);
     }
     _preSysAudioState = null;
   } else {
     setPlaybackTrackMeta(null);
-    setState('appState', APP_STATE.IDLE);
+    setPlaybackAppState(APP_STATE.IDLE);
   }
 
   bus.emit('ui:show-toast', t('system_audio.stopped'));

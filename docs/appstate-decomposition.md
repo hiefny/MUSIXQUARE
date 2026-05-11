@@ -7,7 +7,7 @@
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`. Zero production callers yet, by design.
 - 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
 - 5c (reader migration): **IN PROGRESS**. Shadow-slot sync, helper surface, and the body-class reader have landed; broader playback/protocol readers remain on legacy predicates.
-- 5d onward: **proposed**.
+- 5d (wire protocol compat): **IN PROGRESS**. 5d-1 dual emit/accept has landed; release-cycle waits and legacy field removal remain proposed/gated.
 
 ## Motivation
 
@@ -101,9 +101,9 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 **Wire protocol**:
 
-- `src/network/sync.ts:110` and `:130` - `SYNC_PONG` payloads include an `appState` field.
-- `src/network/sync.ts:180` - `handleSyncPong` reads `data.appState as string` from the peer.
-- `SYNC_PING` does not currently carry playback state and should remain unchanged unless a separate protocol need appears.
+- `src/network/sync.ts::handleSyncPing` - `SYNC_PONG` payloads include legacy `appState` plus 5d-1 `mode` and `activity` fields.
+- `src/network/sync.ts::isSyncPongPlayingFile` - guest reads `mode/activity` first and falls back to legacy `appState` for old hosts.
+- `SYNC_PING` does not carry playback state and should remain unchanged unless a separate protocol need appears.
 
 **Snapshot** (in-memory only, not stored):
 
@@ -186,7 +186,7 @@ Each sub-step lands as its own commit. Tests must pass after each. Invariant ass
 
 `network/sync.ts` is the only network surface that carries `appState`. The protocol is between this app's host and guest instances on potentially different versions.
 
-**Step 5d-1: dual emit.** Host sends both `appState` (legacy) and `mode` + `activity` in `SYNC_PONG` payloads. Guest accepts either, preferring the new fields when present. `SYNC_PING` remains unchanged.
+**Step 5d-1: dual emit. DONE.** Host sends both `appState` (legacy) and `mode` + `activity` in `SYNC_PONG` payloads. Guest accepts either, preferring the new fields when present. `SYNC_PING` remains unchanged.
 
 **Step 5d-2: wait two production releases.** After at least two production releases on 5d-1, the guest-side legacy path becomes unused for any peer that has updated.
 

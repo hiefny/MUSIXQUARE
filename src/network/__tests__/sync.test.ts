@@ -8,7 +8,13 @@ import { APP_STATE, MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
-import { getTotalSyncOffsetMs, handleAutoSync, initSync } from '../sync.ts';
+import {
+  getSyncPongPlaybackState,
+  getTotalSyncOffsetMs,
+  handleAutoSync,
+  initSync,
+  isSyncPongPlayingFile,
+} from '../sync.ts';
 import {
   getClockOffset,
   isClockCalibrated,
@@ -90,10 +96,78 @@ describe('SYNC_PING playback snapshot', () => {
         type: MSG.SYNC_PONG,
         pingId: 7,
         appState: APP_STATE.PAUSED,
+        mode: 'file',
+        activity: 'paused',
         position: 0,
         trackIndex: 2,
       }),
     );
+  });
+
+  it('dual-emits decomposed playback fields for audible file playback', async () => {
+    initSync();
+    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playlist.currentTrackIndex', 3);
+
+    const conn = { peer: 'guest-1', open: true, send: vi.fn() } as DataConnection;
+    await handleData({ type: MSG.SYNC_PING, pingId: 8 }, conn);
+
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.SYNC_PONG,
+        pingId: 8,
+        appState: APP_STATE.PLAYING_AUDIO,
+        mode: 'file',
+        activity: 'playing',
+        trackIndex: 3,
+      }),
+    );
+  });
+
+  it('prefers decomposed mode/activity when deciding whether a sync pong is file playback', () => {
+    expect(
+      isSyncPongPlayingFile({
+        appState: APP_STATE.PLAYING_AUDIO,
+        mode: 'youtube',
+        activity: 'playing',
+      }),
+    ).toBe(false);
+
+    expect(
+      isSyncPongPlayingFile({
+        appState: APP_STATE.PAUSED,
+        mode: 'file',
+        activity: 'playing',
+      }),
+    ).toBe(true);
+  });
+
+  it('falls back to legacy appState when decomposed sync fields are absent', () => {
+    expect(isSyncPongPlayingFile({ appState: APP_STATE.PLAYING_AUDIO })).toBe(true);
+    expect(isSyncPongPlayingFile({ appState: APP_STATE.PAUSED })).toBe(false);
+  });
+
+  it('exposes the paused file shadow for silent file transition pongs', () => {
+    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+
+    expect(getSyncPongPlaybackState()).toEqual({
+      appState: APP_STATE.PAUSED,
+      mode: 'file',
+      activity: 'paused',
+    });
+  });
+
+  it('does not let a stale file lifecycle advertise new wire-visible playback', () => {
+    setState('appState', APP_STATE.IDLE);
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+
+    expect(getSyncPongPlaybackState()).toEqual({
+      appState: APP_STATE.IDLE,
+      mode: 'file',
+      activity: 'pending',
+    });
   });
 });
 

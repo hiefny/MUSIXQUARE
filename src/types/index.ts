@@ -395,6 +395,8 @@ export interface ProtocolMap {
     hostTime: number;
     position: number;
     appState: string;
+    mode?: PlaybackModeValue;
+    activity?: PlaybackActivityValue;
     trackIndex: number;
   };
 

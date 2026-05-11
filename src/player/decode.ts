@@ -191,7 +191,7 @@ export async function loadAndBroadcastFile(
     setCurrentAudioBuffer(audioBuffer);
     log.debug(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
 
-    // Lifecycle (Phase 3 dual-write): host-side decode completed → READY.
+    // Lifecycle: host-side decode completed → READY.
     // Host is also a guest-of-itself for this machine; transition() is a
     // no-op in non-audio modes (guards inside the helper).
     transition({ type: 'DECODE_SUCCESS' });
@@ -239,7 +239,7 @@ export async function loadAndBroadcastFile(
     setState('files.currentFileBlob', null);
 
     const timedOut = isDecodeTimeout(err);
-    // Lifecycle (Phase 3 dual-write): decode failed → FAILED. markTrackFailed
+    // Lifecycle: decode failed → FAILED. markTrackFailed
     // below handles the failed-set; the state machine distinguishes only
     // "decoded OK vs decode failed" here, so the timeout/error variants
     // share the same transition.
@@ -544,7 +544,7 @@ export async function loadPreloadedTrack(
       }
     }
 
-    // Lifecycle (Phase 3 dual-write): preload blob decoded → READY.
+    // Lifecycle: preload blob decoded → READY.
     transition({ type: 'DECODE_SUCCESS' });
 
     setEngineMode('buffer');
@@ -628,7 +628,7 @@ export async function loadPreloadedTrack(
     const timedOut = isDecodeTimeout(e);
     const meta = getState('transfer.meta');
     const name = (meta?.name as string) || '';
-    // Lifecycle (Phase 3 dual-write): preload decode failed → FAILED.
+    // Lifecycle: preload decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     showToast(timedOut ? t('error.decode_timeout', { name }) : t('transfer.preload_fail'));
 
@@ -790,7 +790,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     }
     setCurrentAudioBuffer(audioBuffer);
 
-    // Lifecycle (Phase 3 dual-write): main-transfer file decoded → READY.
+    // Lifecycle: main-transfer file decoded → READY.
     transition({ type: 'DECODE_SUCCESS' });
 
     setState('files.currentFileBlob', file);
@@ -845,7 +845,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     const timedOut = isDecodeTimeout(err);
     const meta = getState('transfer.meta');
     const name = (meta?.name as string) || '';
-    // Lifecycle (Phase 3 dual-write): guest main-transfer decode failed → FAILED.
+    // Lifecycle: guest main-transfer decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     showToast(timedOut ? t('error.decode_timeout', { name }) : t('error.audio_decode_fail'));
 

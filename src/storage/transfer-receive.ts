@@ -691,7 +691,7 @@ export async function handleFilePrepare(
 
   if (isResuming) {
     log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
-    // Lifecycle (Phase 3 dual-write): resume scenario — we had partial data
+    // Lifecycle: resume scenario — we had partial data
     // for this file, now the host is restarting transfer. Stay in (or enter)
     // DOWNLOADING with the recovery-resume source.
     transition({
@@ -702,7 +702,7 @@ export async function handleFilePrepare(
     });
     showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
   } else {
-    // Lifecycle (Phase 3 dual-write): fresh download — no preload match, no
+    // Lifecycle: fresh download — no preload match, no
     // resume. Transition to DOWNLOADING with fresh source.
     transition({
       type: 'FILE_PREPARE',

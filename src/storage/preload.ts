@@ -1098,7 +1098,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   if (isMatch) {
     // Preloaded file available — activate it directly via playback module
     log.debug('[Guest] Using preloaded file for track', index);
-    // Lifecycle (Phase 3 dual-write): blob is ready in memory → promote to DECODING.
+    // Lifecycle: blob is ready in memory → promote to DECODING.
     // The subsequent loadPreloadedTrack flow will emit DECODE_SUCCESS on completion.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name });
     setPendingRecoveryTarget(index, name);
@@ -1139,7 +1139,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   // finalize on its own; we just need to wait for it without panicking.
   if (isDownloadingSame) {
     log.debug('[Guest] Preload in progress — delegating to waiter (storage:use-preloaded)');
-    // Lifecycle (Phase 3 dual-write): enter AWAITING_PRELOAD. A subsequent
+    // Lifecycle: enter AWAITING_PRELOAD. A subsequent
     // PLAY arrival in this state must NOT fire stale-audio-recovery — that
     // logic is gated in playback.ts::handlePlay on the lifecycle check.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index, name });
@@ -1273,7 +1273,7 @@ export function initPreload(): void {
       // moments later, the naïve guard drops it because its session ID is now
       // behind latest. Result: guest stalls in AWAITING_PRELOAD for 10s, then
       // the watchdog triggers a 0% re-download — the exact behaviour the
-      // Phase 3 refactor was meant to kill.
+      // lifecycle contract is meant to prevent.
       //
       // So: if the "stale" session is the one we're actively awaiting, accept
       // the completion. The newer session keeps progressing in the background;
@@ -1377,7 +1377,7 @@ export function initPreload(): void {
       const pendingFileIndex = getState('playback.pendingRecoveryTarget')?.index;
       if (isAwaiting && pendingFileIndex === nextTrackIndex) {
         log.debug('[Preload] Guest was waiting for this track. Playing now.');
-        // Lifecycle (Phase 3 dual-write): the blob we were AWAITING_PRELOAD for
+        // Lifecycle: the blob we were AWAITING_PRELOAD for
         // is now assembled → promote to DECODING. No-op if we're in any other
         // state (e.g. background preload for next track while currently PLAYING).
         transition({ type: 'PRELOAD_FILE_READY', index: nextTrackIndex });

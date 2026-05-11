@@ -230,7 +230,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   }
 
   if (getCurrentAudioBuffer()) {
-    // Lifecycle (Phase 3 dual-write): we have a decoded buffer → we're in
+    // Lifecycle: we have a decoded buffer → we're in
     // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
     // transition() handles same-track seek, resume from PAUSED, restart from
     // READY — see Section 4 of the design doc.
@@ -353,7 +353,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   const endOfPlaylist = !!data.endOfPlaylist;
   const reason = typeof data.reason === 'string' ? data.reason : undefined;
 
-  // Lifecycle (Phase 3 dual-write): PAUSE is a global rule when
+  // Lifecycle: PAUSE is a global rule when
   // endOfPlaylist=true (→ IDLE from any state). Regular PAUSE routes
   // to PAUSED per Section 4.
   transition({ type: 'PAUSE', time, endOfPlaylist });

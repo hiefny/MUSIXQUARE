@@ -1229,7 +1229,7 @@ export function initPlaylist(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host handles
 
-    // Lifecycle (Phase 3 dual-write): host-local TRACK_ENDED. Drives host's
+    // Lifecycle: host-local TRACK_ENDED. Drives host's
     // parallel-observed lifecycle to IDLE. Guests learn via the subsequent
     // PAUSE broadcast, which drives their own transition.
     transition({ type: 'TRACK_ENDED' });

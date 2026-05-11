@@ -31,6 +31,11 @@ import { guestRendezvousSync, broadcastYouTubeSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
+import { getAppStateSnapshot, scopeAppState } from './_state-hooks.ts';
+import {
+  isAppStatePlayingSystemAudio,
+  isAppStatePlayingYouTube,
+} from '../player/ownership.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -412,17 +417,16 @@ function openFileSelector(): void {
 // ─── Sync Button ─────────────────────────────────────────────────
 
 function handleMainSyncBtn(): void {
-  const currentState = getState('appState');
 
   // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (isAppStatePlayingSystemAudio()) {
     showToast(t('toast.sync_not_in_system_audio'));
     return;
   }
 
   // YouTube mode: both host and guest paths funnel into the rendezvous
   // mechanism — the host's role is just to fire the trigger broadcast.
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isAppStatePlayingYouTube()) {
     const hostConn = getState('network.hostConn');
     if (hostConn) {
       // Guest path — self-heal rendezvous against the cached host snapshot
@@ -673,7 +677,7 @@ export function initPlayerControls(): void {
   });
   $on('btn-sync', 'click', () => handleMainSyncBtn());
   $on('btn-media-source', 'click', () => {
-    if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    if (isAppStatePlayingSystemAudio()) {
       if (getState('network.hostConn')) {
         showToast(t('toast.host_only_media'));
         return;
@@ -890,8 +894,7 @@ export function initPlayerControls(): void {
     }
   }
 
-  _busScope.on('state:appState', () => {
-    const state = getState('appState');
+  scopeAppState(_busScope, (state) => {
     let playing = state === APP_STATE.PLAYING_AUDIO || state === APP_STATE.PLAYING_SYSTEM_AUDIO;
     if (state === APP_STATE.PLAYING_YOUTUBE) {
       // appState transitions to PLAYING_YOUTUBE the moment iframe creation
@@ -940,11 +943,11 @@ export function initPlayerControls(): void {
         }
       }
     }
-  });
+  }, { immediate: true });
 
   // YouTube pause/play doesn't change appState — still need this event
   _busScope.on('ui:update-play-state', (playing) => {
-    if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+    if (isAppStatePlayingYouTube()) {
       updatePlayIcon(playing);
     }
   });
@@ -1005,7 +1008,7 @@ export function initPlayerControls(): void {
     setManagedTimer(
       'tab-title-marquee',
       () => {
-        const state = getState('appState');
+        const state = getAppStateSnapshot();
         if (state === APP_STATE.IDLE) {
           stopTabTitleMarquee();
           return;
@@ -1077,8 +1080,7 @@ export function initPlayerControls(): void {
     }
   });
 
-  _busScope.on('state:appState', () => {
-    const state = getState('appState');
+  scopeAppState(_busScope, (state) => {
     if (
       state === APP_STATE.PLAYING_AUDIO ||
       state === APP_STATE.PLAYING_YOUTUBE ||
@@ -1088,11 +1090,11 @@ export function initPlayerControls(): void {
     } else {
       stopTabTitleMarquee();
     }
-  });
+  }, { immediate: true });
 
   // YouTube pause/play doesn't change appState — handle via play-state event
   _busScope.on('ui:update-play-state', (playing) => {
-    if (getState('appState') !== APP_STATE.PLAYING_YOUTUBE) return;
+    if (!isAppStatePlayingYouTube()) return;
     if (playing) {
       startTabTitleMarquee();
     } else {

@@ -6,6 +6,7 @@ import {
   createFileTrackMeta,
   createSystemAudioTrackMeta,
   createYouTubeTrackMeta,
+  getPlaybackModeActivity,
   getPlaybackOwnership,
   isAppStateIdle,
   isAppStatePaused,
@@ -30,9 +31,12 @@ describe('playback ownership view', () => {
   it('defaults to no owner', () => {
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'none',
+      mode: null,
+      activity: 'idle',
       hasFilePipeline: false,
       isExternalOwner: false,
     });
+    expect(getPlaybackModeActivity()).toEqual({ mode: null, activity: 'idle' });
   });
 
   it('treats YouTube as an external owner', () => {
@@ -40,6 +44,8 @@ describe('playback ownership view', () => {
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'youtube',
+      mode: 'youtube',
+      activity: 'playing',
       isExternalOwner: true,
     });
     expect(isExternalOwner()).toBe(true);
@@ -62,6 +68,8 @@ describe('playback ownership view', () => {
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'system-audio',
+      mode: 'system-audio',
+      activity: 'playing',
       isExternalOwner: true,
     });
     expect(isAppStatePlayingSystemAudio()).toBe(true);
@@ -78,6 +86,8 @@ describe('playback ownership view', () => {
     expect(isSystemAudioPlaceholderMeta(getPlaybackOwnership().currentTrackMeta)).toBe(true);
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'system-audio',
+      mode: 'system-audio',
+      activity: 'pending',
       isSystemAudioPlaceholder: true,
       isExternalOwner: true,
     });
@@ -89,6 +99,8 @@ describe('playback ownership view', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'file',
+      mode: 'file',
+      activity: 'pending',
       hasFilePipeline: true,
       isExternalOwner: false,
     });
@@ -97,6 +109,8 @@ describe('playback ownership view', () => {
     setState('transfer.state', TRANSFER_STATE.RECEIVING);
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'file',
+      mode: 'file',
+      activity: 'pending',
       hasFilePipeline: true,
       isExternalOwner: false,
     });
@@ -109,6 +123,8 @@ describe('playback ownership view', () => {
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'system-audio',
+      mode: 'system-audio',
+      activity: 'playing',
       appState: APP_STATE.PLAYING_SYSTEM_AUDIO,
       currentTrackMeta: {
         name: 'system-audio',
@@ -125,6 +141,8 @@ describe('playback ownership view', () => {
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'system-audio',
+      mode: 'system-audio',
+      activity: 'pending',
       appState: APP_STATE.IDLE,
       isSystemAudioPlaceholder: true,
     });
@@ -144,6 +162,8 @@ describe('playback ownership view', () => {
     });
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'none',
+      mode: null,
+      activity: 'idle',
       appState: APP_STATE.IDLE,
       currentTrackMeta: null,
     });
@@ -203,19 +223,27 @@ describe('playback ownership view', () => {
     setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'file',
+      mode: 'file',
+      activity: 'playing',
       appState: APP_STATE.PLAYING_AUDIO,
     });
 
     setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'youtube',
+      mode: 'youtube',
+      activity: 'playing',
       appState: APP_STATE.PLAYING_YOUTUBE,
       isExternalOwner: true,
     });
 
     setPlaybackAppState(APP_STATE.PAUSED);
     expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'none',
+      mode: 'file',
+      activity: 'paused',
       appState: APP_STATE.PAUSED,
     });
+    expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'paused' });
   });
 });

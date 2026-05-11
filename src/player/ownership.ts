@@ -1,14 +1,19 @@
 /**
  * Playback ownership view and narrow write helpers.
  *
- * Two layers of predicates, distinguished by name prefix:
+ * Playback state consumption contract:
  *
- *   isAppState<X>()  — strict appState comparison. Use when callers care
- *                      only about the discrete `appState` enum value.
- *   is<X>Owner()     — broad ownership semantic from getPlaybackOwnership().
+ *   isAppState<X>()  - strict appState comparison. Use when callers care
+ *                      only about the discrete `appState` enum value at
+ *                      decision time (click handlers, timers, protocol
+ *                      payload choices).
+ *   is<X>Owner()     - broad ownership semantic from getPlaybackOwnership().
  *                      Includes domain-specific signals (file lifecycle/
- *                      transfer activity for 'file'; placeholder /
- *                      isReceiving for 'system-audio').
+ *                      transfer activity for 'file'; placeholder/isReceiving
+ *                      for 'system-audio'). Use for cross-mode safety gates.
+ *   UI displays      - subscribe to `state:appState` and render from the
+ *                      pushed value. Click handlers may still poll; labels,
+ *                      icons, and badges should be reactive.
  *
  * The two coincide for YouTube (there is no pending state) but diverge for
  * file and system-audio. Pick the one whose semantic matches your check.
@@ -29,9 +34,18 @@ import { getState, setState } from '../core/state.ts';
 import type { TrackMeta } from '../types/index.ts';
 
 export type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
+export type PlaybackMode = Exclude<PlaybackOwner, 'none'> | null;
+export type PlaybackActivity = 'idle' | 'paused' | 'playing' | 'pending';
+
+export interface PlaybackModeActivity {
+  mode: PlaybackMode;
+  activity: PlaybackActivity;
+}
 
 export interface PlaybackOwnership {
   owner: PlaybackOwner;
+  mode: PlaybackMode;
+  activity: PlaybackActivity;
   appState: AppStateValue;
   lifecycle: PlaybackStateValue;
   transferState: TransferStateValue;
@@ -128,7 +142,48 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
-// ─── Read: full ownership view ─────────────────────────────────────
+function deriveModeActivity(ownership: {
+  owner: PlaybackOwner;
+  appState: AppStateValue;
+  lifecycle: PlaybackStateValue;
+  isReceivingSystemAudio: boolean;
+  hasFilePipeline: boolean;
+}): PlaybackModeActivity {
+  if (ownership.owner === 'system-audio') {
+    return {
+      mode: 'system-audio',
+      activity:
+        ownership.appState === APP_STATE.PLAYING_SYSTEM_AUDIO || ownership.isReceivingSystemAudio
+          ? 'playing'
+          : 'pending',
+    };
+  }
+
+  if (ownership.owner === 'youtube') {
+    return { mode: 'youtube', activity: 'playing' };
+  }
+
+  if (ownership.appState === APP_STATE.PAUSED || ownership.lifecycle === PLAYBACK_STATE.PAUSED) {
+    return { mode: 'file', activity: 'paused' };
+  }
+
+  if (ownership.owner === 'file') {
+    if (
+      ownership.appState === APP_STATE.PLAYING_AUDIO ||
+      ownership.lifecycle === PLAYBACK_STATE.PLAYING
+    ) {
+      return { mode: 'file', activity: 'playing' };
+    }
+
+    if (ownership.hasFilePipeline) {
+      return { mode: 'file', activity: 'pending' };
+    }
+  }
+
+  return { mode: null, activity: 'idle' };
+}
+
+// Read: full ownership view
 
 export function getPlaybackOwnership(): PlaybackOwnership {
   const appState = getState('appState');
@@ -152,8 +207,18 @@ export function getPlaybackOwnership(): PlaybackOwnership {
     owner = 'file';
   }
 
+  const modeActivity = deriveModeActivity({
+    owner,
+    appState,
+    lifecycle,
+    isReceivingSystemAudio,
+    hasFilePipeline: filePipeline,
+  });
+
   return {
     owner,
+    mode: modeActivity.mode,
+    activity: modeActivity.activity,
     appState,
     lifecycle,
     transferState,
@@ -165,7 +230,15 @@ export function getPlaybackOwnership(): PlaybackOwnership {
   };
 }
 
-// ─── Read: appState-strict predicates ──────────────────────────────
+export function getPlaybackModeActivity(): PlaybackModeActivity {
+  const ownership = getPlaybackOwnership();
+  return {
+    mode: ownership.mode,
+    activity: ownership.activity,
+  };
+}
+
+// Read: appState-strict predicates
 
 export function isAppStateIdle(): boolean {
   return getState('appState') === APP_STATE.IDLE;
@@ -192,7 +265,7 @@ export function isAppStateIdleOrPaused(): boolean {
   return appState === APP_STATE.IDLE || appState === APP_STATE.PAUSED;
 }
 
-// ─── Read: owner predicates (broad semantic) ───────────────────────
+// Read: owner predicates (broad semantic)
 
 export function isFileOwner(): boolean {
   return getPlaybackOwnership().owner === 'file';
@@ -210,7 +283,7 @@ export function isExternalOwner(): boolean {
   return getPlaybackOwnership().isExternalOwner;
 }
 
-// ─── Write: track metadata ─────────────────────────────────────────
+// Write: track metadata
 
 export function setPlaybackTrackMeta(currentTrackMeta: TrackMeta | null): PlaybackOwnership {
   setState('player.currentTrackMeta', currentTrackMeta);
@@ -237,7 +310,7 @@ export function updatePlaybackTrackTitle(
   });
 }
 
-// ─── Write: ownership claim/release ────────────────────────────────
+// Write: ownership claim/release
 
 export function claimPlaybackOwner(
   owner: Exclude<PlaybackOwner, 'none'>,

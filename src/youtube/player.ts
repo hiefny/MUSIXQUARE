@@ -265,13 +265,12 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   setYtScope(null);
   setYtLoadInProgress(false);
   setCachedYtDuration(0); // Reset duration cache
-  const currentState = getState('appState');
-  const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
+  const wasInYouTube = isAppStatePlayingYouTube();
   // Preservation: do not reset sub-index to -1 if we are or will be in YouTube mode.
   // This prevents clobbering the sub-index 0 set during the indexing callback.
   if (
     !wasInYouTube &&
-    currentState !== APP_STATE.IDLE &&
+    !isAppStateIdle() &&
     !isYtIndexing() &&
     !isYtLoadInProgress()
   ) {
@@ -1035,7 +1034,6 @@ export function initYouTube(): void {
       }
     }
 
-    const currentState = getState('appState');
     // Auto-play only when this YouTube entry really IS the first track —
     // i.e. the playlist was empty before this add. The previous condition
     // (appState === IDLE) misfired when the user had already loaded local
@@ -1043,7 +1041,7 @@ export function initYouTube(): void {
     // adding a YouTube link jumped playback to it instead of queuing.
     // isYtIndexing keeps its original behavior (mid-index re-add path).
     const playlistWasEmpty = playlist.length === 0;
-    const isIdle = (currentState === APP_STATE.IDLE && playlistWasEmpty) || isYtIndexing();
+    const isIdle = (isAppStateIdle() && playlistWasEmpty) || isYtIndexing();
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);

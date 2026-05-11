@@ -10,7 +10,12 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime } from './transport.ts';
-import { isAppStateIdleOrPaused } from './ownership.ts';
+import {
+  isAppStateIdle,
+  isAppStateIdleOrPaused,
+  isAppStatePlayingAudio,
+  isAppStatePlayingYouTube,
+} from './ownership.ts';
 import type { PlaylistItem } from '../types/index.ts';
 
 // ─── Metadata Update ───────────────────────────────────────────────
@@ -70,13 +75,12 @@ export function initMediaSession(): void {
   };
 
   navigator.mediaSession.setActionHandler('play', () => {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (isAppStatePlayingYouTube()) {
       togglePlay();
       return;
     }
     const currentTrackIndex = getState('playlist.currentTrackIndex');
-    if (currentState === APP_STATE.IDLE) {
+    if (isAppStateIdle()) {
       // Try to play from current playlist position instead of blocking
       if (currentTrackIndex >= 0) {
         bus.emit('playlist:play-track', currentTrackIndex);
@@ -87,7 +91,7 @@ export function initMediaSession(): void {
     // even while playbackState='playing', and a togglePlay here would pause
     // the music after the user pressed play. Mirrors the 'pause' handler
     // below which guards the symmetric case.
-    if (currentState === APP_STATE.PLAYING_AUDIO) return;
+    if (isAppStatePlayingAudio()) return;
     if (currentTrackIndex >= 0) {
       togglePlay();
     }
@@ -135,7 +139,7 @@ export function initMediaSession(): void {
   // Update lock screen metadata when YouTube sub-video changes (playlist auto-advance)
   bus.on('state:youtube.currentSubIndex', () => {
     const meta = getState('player.currentTrackMeta');
-    if (meta && getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+    if (meta && isAppStatePlayingYouTube()) {
       updateMediaSessionMetadata(meta);
     }
   });

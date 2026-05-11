@@ -6,10 +6,11 @@
 
 import { log } from '../core/log.ts';
 import { createBusScope } from '../core/events.ts';
-import { getState } from '../core/state.ts';
 import { APP_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
+import { scopeAppState } from './_state-hooks.ts';
+import { isAppStatePaused, isAppStatePlayingYouTube } from '../player/ownership.ts';
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -313,9 +314,8 @@ export function startVisualizer(): void {
   refreshThemeCache();
 
   function draw(): void {
-    const currentState = getState('appState');
     // YouTube mode: analyser isn't connected or canvas is CSS-hidden, skip draw
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (isAppStatePlayingYouTube()) {
       _animationId = null;
       return;
     }
@@ -492,8 +492,7 @@ function startSpectrumVisualizer(): void {
   refreshThemeCache();
 
   function draw(): void {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (isAppStatePlayingYouTube()) {
       _animationId = null;
       return;
     }
@@ -614,8 +613,7 @@ export function initVisualizer(): void {
 
   // Listen for check events from tab switch
   _busScope.on('ui:visualizer-check', () => {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.PAUSED) {
+    if (isAppStatePaused()) {
       if (!_isHoldingPauseFrame) fadeVisualizerOut();
     } else if (!_animationId) {
       startVisualizer();
@@ -623,8 +621,7 @@ export function initVisualizer(): void {
   });
 
   // Listen for playback state changes
-  _busScope.on('state:appState', () => {
-    const currentState = getState('appState');
+  scopeAppState(_busScope, (currentState) => {
     if (currentState === APP_STATE.PAUSED && _holdNextPauseFrame) {
       // PAUSED is a deliberate user action — freeze immediately so the
       // last frame stays visible until they press play again.
@@ -665,7 +662,7 @@ export function initVisualizer(): void {
       if (_animationId) scheduleVisualizerSilenceStop();
       else fadeVisualizerOut();
     }
-  });
+  }, { immediate: true });
 
   // Listen for visualizer start command from playback
   _busScope.on('visualizer:start', () => {

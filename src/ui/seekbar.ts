@@ -9,10 +9,14 @@
 
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { APP_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
-import { isAppStateIdleOrPaused, isAppStatePlayingAudio } from '../player/ownership.ts';
+import {
+  isAppStateIdle,
+  isAppStateIdleOrPaused,
+  isAppStatePlayingAudio,
+  isAppStatePlayingSystemAudio,
+} from '../player/ownership.ts';
 
 // ─── Seek Bar Input Events ──────────────────────────────────────
 
@@ -25,8 +29,7 @@ function initSeekBarInput(): void {
     passive: true,
   });
   slider.addEventListener('input', () => {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    if (isAppStateIdle() || isAppStatePlayingSystemAudio()) {
       slider.value = '0';
       return;
     }
@@ -46,8 +49,7 @@ function initSeekBarInput(): void {
 
   slider.addEventListener('change', () => {
     releaseSeek();
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.IDLE || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    if (isAppStateIdle() || isAppStatePlayingSystemAudio()) {
       slider.value = '0';
       return;
     }
@@ -77,7 +79,7 @@ function _seekRafLoop(now: number): void {
   // was wasted DOM work (and battery on mobile) for a static display.
   // We still need to poll so the loop can resume normal interpolation when
   // the user exits system-audio mode.
-  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (isAppStatePlayingSystemAudio()) {
     if (!_systemAudioZerosApplied) {
       const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
       const tc = document.getElementById('time-curr');
@@ -106,7 +108,7 @@ function _seekRafLoop(now: number): void {
   // narrowing to PLAYING_AUDIO covers the only state where wall-clock
   // interpolation is correct. PAUSED / IDLE / DECODING leave the thumb
   // wherever it last was, which matches user expectation.
-  const isPlaying = getState('appState') === APP_STATE.PLAYING_AUDIO;
+  const isPlaying = isAppStatePlayingAudio();
   if (!isSeeking && isPlaying) {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');

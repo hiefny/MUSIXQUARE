@@ -454,11 +454,10 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
   clearManagedTimer('ended-advance-next');
 
   const time = Number(data.time) || 0;
-  const currentState = getState('appState');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   // YouTube seek
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isAppStatePlayingYouTube()) {
     bus.emit('youtube:seek-to', time);
     return;
   }

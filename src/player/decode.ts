@@ -13,7 +13,7 @@ import { MSG, APP_STATE, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constant
 import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
-import { setEngineMode } from './video.ts';
+import { isFilePlaybackBlockedByExternalMode, setEngineMode } from './video.ts';
 import { postCommand, cleanupStoredFile } from '../storage/storage.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
@@ -162,6 +162,11 @@ export async function loadAndBroadcastFile(
         log.warn('[Load] Token mismatch after decode. Aborting stale load.');
         showLoader(false);
       }
+      return;
+    }
+
+    if (isFilePlaybackBlockedByExternalMode()) {
+      log.debug('[Load] Aborted - external playback mode took ownership after decode');
       return;
     }
 
@@ -443,6 +448,14 @@ export async function loadPreloadedTrack(
       return;
     }
 
+    if (isFilePlaybackBlockedByExternalMode()) {
+      log.debug('[Preload] Activation aborted - external playback mode active');
+      finishPreloadActivation(activationOwner);
+      setPendingPlayTime(undefined);
+      showLoader(false);
+      return;
+    }
+
     // Dispose old buffer
     if (getCurrentAudioBuffer()) {
       setCurrentAudioBuffer(null);
@@ -470,6 +483,13 @@ export async function loadPreloadedTrack(
       log.warn('[Preload] Track changed during decode. Discarding.');
       finishPreloadActivation(activationOwner);
       // Preserve pendingPlayTime for the new track's loader.
+      return;
+    }
+    if (isFilePlaybackBlockedByExternalMode()) {
+      log.debug('[Preload] Activation discarded - external playback mode took ownership');
+      finishPreloadActivation(activationOwner);
+      setPendingPlayTime(undefined);
+      showLoader(false);
       return;
     }
 
@@ -717,14 +737,11 @@ export function clearPreviousTrackState(reason = ''): void {
 // ─── Finalize Guest File (after download) ─────────────────────────
 
 export async function finalizeGuestFile(file: File | Blob): Promise<void> {
-  // Guard: if the app has switched to YouTube mode mid-transfer, abort the
-  // finalize path. Otherwise setEngineMode('buffer') would kill the iframe
-  // and currentTrackMeta would attach the YouTube track's metadata to the
-  // file blob. (Primary defence is in handleYouTubePlay cancelling the
-  // transfer, this is a belt-and-suspenders second layer.)
-  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-    log.debug('[Guest] finalizeGuestFile aborted — app switched to YouTube mode');
-    // shouldSkipIncomingFile() returns true via the appState check.
+  // Guard: if an external mode owns playback, abort the finalize path.
+  // Otherwise setEngineMode('buffer') would overwrite that mode after an
+  // async decode finishes.
+  if (isFilePlaybackBlockedByExternalMode()) {
+    log.debug('[Guest] finalizeGuestFile aborted - external playback mode active');
     setState('transfer.state', TRANSFER_STATE.IDLE);
     showLoader(false);
     return;
@@ -738,6 +755,13 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     await initAudio();
     if (getAudioContext().state === 'suspended') await ensureRunning();
 
+    if (isFilePlaybackBlockedByExternalMode()) {
+      log.debug('[Guest] Stale finalize (post-audio-init), aborting');
+      setState('transfer.state', TRANSFER_STATE.IDLE);
+      setPendingPlayTime(undefined);
+      return;
+    }
+
     const arrayBuffer = await file.arrayBuffer();
     if (getActiveLoadSessionId() !== myLoadId) {
       log.debug('[Guest] Stale finalize (pre-decode), aborting');
@@ -746,6 +770,12 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     const audioBuffer = await decodeWithTimeout(arrayBuffer, 'guest-finalize');
     if (getActiveLoadSessionId() !== myLoadId) {
       log.debug('[Guest] Stale finalize (post-decode), aborting');
+      return;
+    }
+    if (isFilePlaybackBlockedByExternalMode()) {
+      log.debug('[Guest] Stale finalize (external mode after decode), aborting');
+      setState('transfer.state', TRANSFER_STATE.IDLE);
+      setPendingPlayTime(undefined);
       return;
     }
 

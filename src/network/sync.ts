@@ -33,6 +33,14 @@ let _syncPingCounter = 0;
 let _needsInitialSync = false;
 let _wasPlaying = false;
 
+function resetSyncClockRuntime(): void {
+  setState('sync.lastLatencyMs', 0);
+  setState('sync.latencyHistory', []);
+  resetClockState();
+  _syncPingCounter = 0;
+  _needsInitialSync = false;
+}
+
 /**
  * Get the total sync offset in milliseconds.
  */
@@ -366,6 +374,11 @@ export function initSync(): void {
     if (role !== 'host' && role !== 'guest') resetClockState();
   });
 
+  bus.on('state:network.hostConn', () => {
+    if (getState('network.appRole') !== 'guest') return;
+    resetSyncClockRuntime();
+  });
+
   // Guest: arm initial sync 1s after any play command (audio engine stable by then)
   const armInitialSync = () => {
     setManagedTimer(
@@ -396,11 +409,7 @@ export function initSync(): void {
   // Clean up sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
-      setState('sync.lastLatencyMs', 0);
-      setState('sync.latencyHistory', []);
-      resetClockState();
-      _syncPingCounter = 0;
-      _needsInitialSync = false;
+      resetSyncClockRuntime();
       _wasPlaying = false;
     }
   });

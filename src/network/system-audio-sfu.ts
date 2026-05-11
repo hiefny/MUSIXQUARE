@@ -839,6 +839,10 @@ export function registerSystemAudioSfuListeners(): void {
   });
 
   bus.on('system-audio:host-stopped', () => cleanupGuestSfu());
+  bus.on('system-audio:receive-timeout', () => {
+    if (getState('network.appRole') !== 'guest') return;
+    cleanupGuestSfu();
+  });
   bus.on('system-audio:force-stop', () => {
     cleanupHostSfu();
     cleanupGuestSfu();

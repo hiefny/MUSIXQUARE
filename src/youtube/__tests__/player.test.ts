@@ -5,7 +5,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { APP_STATE, MSG } from '../../core/constants.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
+import type { YouTubePlayerInstance } from '../_state.ts';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -217,20 +218,33 @@ describe('YouTube Player', () => {
           playlistId: null,
           name: 'Late Join Video',
           title: 'Late Join Video',
-        } as any,
-      ]);
-      setState('player.currentTrackMeta', { title: 'Late Join Video' } as any);
+        },
+      ] satisfies PlaylistItem[]);
+      setState('player.currentTrackMeta', { title: 'Late Join Video' } satisfies TrackMeta);
       setState('youtube.currentSubIndex', 0);
 
-      setYouTubePlayer({
+      const player: YouTubePlayerInstance = {
+        loadVideoById: vi.fn(),
+        loadPlaylist: vi.fn(),
+        cuePlaylist: vi.fn(),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+        stopVideo: vi.fn(),
+        destroy: vi.fn(),
+        seekTo: vi.fn(),
         getCurrentTime: vi.fn(() => 42),
+        getDuration: vi.fn(() => 0),
         getPlayerState: vi.fn(() => 1),
+        getPlaylistIndex: vi.fn(() => 0),
         getVideoData: vi.fn(() => ({ video_id: 'liveVideo123', title: 'Late Join Video' })),
-      } as any);
+        getPlaylist: vi.fn(() => []),
+        setVolume: vi.fn(),
+      };
+      setYouTubePlayer(player);
 
       initYouTube();
 
-      const conn = { open: true, peer: 'guest-1', send: vi.fn() } as unknown as DataConnection;
+      const conn = { open: true, peer: 'guest-1', send: vi.fn() } as DataConnection;
       bus.emit('network:peer-connected', conn);
 
       expect(safeSend).toHaveBeenCalledWith(
@@ -270,6 +284,63 @@ describe('YouTube Player', () => {
           title: 'Late Join Video',
         }),
       );
+    });
+  });
+
+  describe('System audio restore bootstrap', () => {
+    it('rebroadcasts YouTube playback when restoring the room after system audio', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+
+      setState('playlist.currentTrackIndex', 0);
+      setState('playlist.items', [
+        {
+          type: 'youtube',
+          videoId: 'entryVideo',
+          playlistId: 'playlist-1',
+          name: 'Playlist Track',
+          title: 'Playlist Track',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('youtube.subItemsMap', {
+        'playlist-1': {
+          ids: ['firstVideo', 'secondVideo'],
+          titles: ['First', 'Second'],
+        },
+      });
+
+      const loadSpy = vi.fn();
+      initYouTube();
+      bus.on('youtube:load', loadSpy);
+
+      bus.emit('youtube:restore-room-playback', {
+        videoId: 'entryVideo',
+        playlistId: 'playlist-1',
+        name: 'Playlist Track',
+        index: 0,
+        autoplay: true,
+        subIndex: 1,
+      });
+
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_PLAY,
+          videoId: 'secondVideo',
+          playlistId: 'playlist-1',
+          index: 0,
+          autoplay: true,
+          subIndex: 1,
+        }),
+      );
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_PLAYLIST_INFO,
+          playlistId: 'playlist-1',
+          ids: ['firstVideo', 'secondVideo'],
+          titles: ['First', 'Second'],
+        }),
+      );
+      expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', true, 1);
     });
   });
 });

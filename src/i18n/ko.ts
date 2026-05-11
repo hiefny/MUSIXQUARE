@@ -499,6 +499,8 @@ const ko = {
   'dialog.background_resume_title': '재생 타이밍을 확인해 주세요',
   'dialog.background_resume_message':
     '앱이 오래 백그라운드에 있어 재생 타이밍이 불안정할 수 있어요. 복구를 시도했지만, 정확한 싱크가 필요하면 브라우저/PWA를 완전히 종료한 뒤 다시 열어주세요.',
+  'dialog.background_resume_sync_fallback_message':
+    '백그라운드에서 동기화가 지연됐을 수 있어요. 싱크가 계속 어긋나면 방에 다시 입장해 주세요.',
   'dialog.continue_using': '계속 사용',
   'dialog.leave_session': '세션 나가기',
   'dialog.sw_update_title': '업데이트',
@@ -559,6 +561,7 @@ const ko = {
   'system_audio.host_channel_locked': '시스템 오디오 공유 중에는 역할을 변경할 수 없어요.',
   'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 참여자에게만 적용돼요',
   'system_audio.desktop_only': 'Windows 또는 Mac의 Chrome에서만 사용할 수 있어요.',
+  'system_audio.receive_failed': '시스템 오디오를 수신하지 못했어요. 공유를 다시 시작해 주세요.',
   'system_audio.remote_receive_limit':
     '원격 시스템 오디오 수신이 2시간 후 자동 종료되었어요. 계속 들으려면 방에 다시 입장해주세요.',
 

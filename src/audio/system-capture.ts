@@ -18,6 +18,7 @@ import { broadcast } from '../network/peer.ts';
 import { broadcastSystemNotice, clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasSysAudioWarned, markSysAudioWarned } from '../ui/large-room-warnings.ts';
+import type { TrackMeta } from '../types/index.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -35,8 +36,10 @@ let _stereoUpmix: GainNode | null = null;
 let _preSysAudioState: {
   appState: string;
   pausedAt: number;
-  currentTrackMeta: unknown;
+  currentTrackMeta: TrackMeta | null;
   channelMode: number;
+  trackIndex: number;
+  subIndex: number;
 } | null = null;
 
 // ─── Public API ───────────────────────────────────────────────────
@@ -129,10 +132,12 @@ export async function startSystemAudioCapture(): Promise<void> {
     pausedAt: getState('player.pausedAt'),
     currentTrackMeta: getState('player.currentTrackMeta'),
     channelMode: getState('audio.channelMode'),
+    trackIndex: getState('playlist.currentTrackIndex'),
+    subIndex: getState('youtube.currentSubIndex'),
   };
 
   // 3. Stop all current media
-  stopAllMedia({ silent: true });
+  stopAllMedia({ silent: true, cancelInFlight: true });
 
   // 3.5 UI only: show stereo button as active (actual channelMode unchanged)
   try {
@@ -256,16 +261,27 @@ export function stopSystemAudioCapture(): void {
       /* noop */
     }
 
-    // YouTube was playing → reload it (stopAllMedia destroyed the player)
+    // YouTube was playing: restore through the room-wide YouTube command path.
     if (_preSysAudioState.appState === APP_STATE.PLAYING_YOUTUBE) {
-      const meta = _preSysAudioState.currentTrackMeta as Record<string, unknown> | null;
-      if (meta) {
-        bus.emit(
-          'youtube:load',
-          (meta.videoId as string) || null,
-          (meta.playlistId as string) || null,
-          true,
-        );
+      const meta = _preSysAudioState.currentTrackMeta;
+      const playlist = getState('playlist.items') || [];
+      const item =
+        _preSysAudioState.trackIndex >= 0
+          ? playlist[_preSysAudioState.trackIndex]
+          : undefined;
+      const videoId = meta?.videoId || item?.videoId || null;
+      const playlistId = meta?.playlistId || item?.playlistId || null;
+      if (videoId || playlistId) {
+        bus.emit('youtube:restore-room-playback', {
+          videoId,
+          playlistId,
+          name: meta?.name || meta?.title || item?.name || item?.title || null,
+          index: _preSysAudioState.trackIndex,
+          autoplay: true,
+          subIndex: _preSysAudioState.subIndex,
+        });
+      } else {
+        setState('appState', APP_STATE.PAUSED);
       }
     } else if (_preSysAudioState.appState !== APP_STATE.IDLE) {
       setState('appState', APP_STATE.PAUSED);

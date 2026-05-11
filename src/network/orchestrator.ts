@@ -45,9 +45,14 @@ function evaluatePeer(peerId: string, isInitial = false): void {
   const connType = peer.connectionType;
   if (connType === 'unknown') return;
 
-  setPeerDataTarget(peerId, connType === 'local');
+  const wasDataTarget = peer.isDataTarget === true;
+  const shouldBeDataTarget = connType === 'local';
+  setPeerDataTarget(peerId, shouldBeDataTarget);
   bus.emit('orchestrator:peer-evaluated', peerId);
   if (isInitial) bus.emit('orchestrator:peer-joined', peerId);
+  if (!isInitial && shouldBeDataTarget && !wasDataTarget) {
+    bus.emit('orchestrator:peer-data-target-ready', peerId);
+  }
 }
 
 function handlePeerDisconnect(peerId: string): void {

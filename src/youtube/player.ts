@@ -17,6 +17,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
+import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
@@ -462,6 +463,60 @@ export function initYouTube(): void {
 
   // Bus event handlers from other modules
   bus.on('youtube:stop-mode', (opts) => stopYouTubeMode(opts));
+
+  bus.on('youtube:restore-room-playback', (payload) => {
+    const hostConn = getState('network.hostConn');
+    if (hostConn) return;
+
+    const playlistId = payload.playlistId ?? null;
+    const subIndex = Math.max(0, payload.subIndex ?? 0);
+    const subMap = getState('youtube.subItemsMap') || {};
+    const hostIds = playlistId ? subMap[playlistId]?.ids : undefined;
+    const titles = playlistId ? subMap[playlistId]?.titles || [] : [];
+    const videoId = (hostIds && hostIds[subIndex]) || payload.videoId || null;
+
+    if (!videoId && !playlistId) {
+      log.warn('[YouTube] restore-room-playback skipped: no videoId or playlistId');
+      return;
+    }
+
+    const index = payload.index ?? getState('playlist.currentTrackIndex');
+    const hasIndex = index >= 0;
+
+    const playlist = getState('playlist.items') || [];
+    const playlistItem = hasIndex ? playlist[index] : undefined;
+    if (hasIndex) {
+      setState('playlist.currentTrackIndex', index);
+    }
+    if (playlistItem) {
+      setState('player.currentTrackMeta', playlistItem);
+    }
+
+    const autoplay = payload.autoplay ?? true;
+    broadcast({
+      type: MSG.YOUTUBE_PLAY,
+      videoId,
+      playlistId,
+      name: payload.name || playlistItem?.name || playlistItem?.title,
+      ...(hasIndex ? { index } : {}),
+      autoplay,
+      subIndex,
+    });
+
+    if (playlistId && hostIds && hostIds.length > 0) {
+      broadcast({
+        type: MSG.YOUTUBE_PLAYLIST_INFO,
+        playlistId,
+        ids: hostIds,
+        titles,
+      });
+    }
+
+    if (getState('player.isFirstTrackLoad')) setState('player.isFirstTrackLoad', false);
+    if (autoplay) setPendingAutoSyncOnReady(true);
+    bus.emit('youtube:load', videoId || payload.videoId || null, playlistId, autoplay, subIndex);
+    schedulePreload();
+  });
 
   bus.on('youtube:load', (videoId, playlistId, autoplay, subIndex) => {
     // Deferred-playlist navigation: when a playlist row was added to the

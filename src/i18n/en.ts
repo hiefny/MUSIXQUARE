@@ -502,6 +502,8 @@ const en: Record<I18nKey, string> = {
   'dialog.background_resume_title': 'Check playback timing',
   'dialog.background_resume_message':
     'The app was in the background for a long time, so playback timing may be unstable. MUSIXQUARE tried to recover, but for precise sync, fully close and reopen the browser or PWA.',
+  'dialog.background_resume_sync_fallback_message':
+    'Sync may have been delayed while the app was in the background. If playback stays out of sync, rejoin the room.',
   'dialog.continue_using': 'Keep using',
   'dialog.leave_session': 'Leave session',
   'dialog.sw_update_title': 'Update',
@@ -562,6 +564,8 @@ const en: Record<I18nKey, string> = {
   'system_audio.host_channel_locked': 'Cannot change speaker role while sharing system audio.',
   'system_audio.effects_guest_only': 'Sharing system audio.\nEffects apply to guests only.',
   'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
+  'system_audio.receive_failed':
+    'Could not receive system audio. Ask the host to start sharing again.',
   'system_audio.remote_receive_limit':
     'Remote system audio paused after 2 hours. Rejoin the room to continue listening.',
 

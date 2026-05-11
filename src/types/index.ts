@@ -106,6 +106,10 @@ export interface PlaylistItem {
   isExpanded?: boolean;
 }
 
+export interface TrackMeta extends Partial<PlaylistItem> {
+  systemAudioPlaceholder?: boolean;
+}
+
 // ─── Storage Commands & Events ─────────────────────────────────────
 
 /** Commands accepted by `storage.ts::postCommand`. All are STORAGE_*. */
@@ -356,7 +360,7 @@ export interface ProtocolMap {
     videoId?: string | null;
     playlistId?: string | string[] | null;
     name?: string | null;
-    index: number;
+    index?: number;
     autoplay: boolean;
     subIndex?: number;
   };
@@ -471,7 +475,7 @@ export interface StateTree {
     pausedAt: number;
     isSeeking: boolean;
     isFirstTrackLoad: boolean;
-    currentTrackMeta: Partial<PlaylistItem> | null;
+    currentTrackMeta: TrackMeta | null;
     decodeFailureCount: number;
   };
   share: {
@@ -776,6 +780,16 @@ interface BaseEventMap {
     autoplay?: boolean,
     subIndex?: number,
   ];
+  'youtube:restore-room-playback': [
+    payload: {
+      videoId: string | null;
+      playlistId: string | null;
+      name?: string | null;
+      index?: number;
+      autoplay?: boolean;
+      subIndex?: number;
+    },
+  ];
   'youtube:toggle-play': [];
   // isTrackTransition=true: caller is a block-to-block YT-to-YT track switch
   // (existing player ran loadVideoById on a different video). Handler pauses
@@ -878,6 +892,7 @@ interface BaseEventMap {
   'orchestrator:peer-type-detected': [peerId: string, isInitial?: boolean];
   'orchestrator:peer-evaluated': [peerId: string];
   'orchestrator:peer-joined': [peerId: string];
+  'orchestrator:peer-data-target-ready': [peerId: string];
 
   // ── Connect ─────────────────────────────────────────────────────────
   'ui:connect-tab-opened': [];
@@ -898,6 +913,7 @@ interface BaseEventMap {
   'system-audio:force-stop': [];
   'system-audio:streams-ready': [];
   'system-audio:incoming-call': [mediaConn: unknown, channel: string];
+  'system-audio:receive-timeout': [];
   'system-audio:sfu-fallback': [reason: string];
   'system-audio:host-stopped': [];
 

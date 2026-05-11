@@ -220,31 +220,61 @@ export function resetYouTubeModuleState(): void {
 
 // ─── SubItemsMap Centralized Updaters ─────────────────────────────
 
-type SubItemsMap = Record<string, { ids: string[]; titles: string[] }>;
-const MAX_SUB_ITEMS_ENTRIES = 10; // FIFO limit — evict oldest inserted when full
+type SubItemsMap = Record<string, { ids: string[]; titles: string[]; loadError?: boolean }>;
+const MAX_SUB_ITEMS_ENTRIES = 50;
 
 function _getSubMap(): SubItemsMap {
   return getState('youtube.subItemsMap') || {};
 }
 
-/** Prune map to MAX entries, evicting the oldest inserted keys first (FIFO). */
+function _touchSubMapEntry(
+  subMap: SubItemsMap,
+  playlistId: string,
+  entry: SubItemsMap[string],
+): SubItemsMap {
+  const next = { ...subMap };
+  delete next[playlistId];
+  next[playlistId] = entry;
+  return next;
+}
+
+function _getProtectedSubMapKeys(): Set<string> {
+  const protectedKeys = new Set<string>();
+  const currentIdx = getState('playlist.currentTrackIndex');
+  const playlist = getState('playlist.items') || [];
+  const currentItem = currentIdx >= 0 ? playlist[currentIdx] : undefined;
+  const playlistId = currentItem?.playlistId;
+  if (playlistId) protectedKeys.add(playlistId);
+  return protectedKeys;
+}
+
+/** Prune map to MAX entries, evicting least-recently touched non-current keys first. */
 function _pruneSubMap(subMap: SubItemsMap): SubItemsMap {
   const keys = Object.keys(subMap);
   if (keys.length <= MAX_SUB_ITEMS_ENTRIES) return subMap;
-  // Remove oldest entries (first keys in object)
   const pruned = { ...subMap };
-  const excess = keys.length - MAX_SUB_ITEMS_ENTRIES;
-  for (let i = 0; i < excess; i++) {
-    delete pruned[keys[i]];
+  const protectedKeys = _getProtectedSubMapKeys();
+  for (const key of keys) {
+    if (Object.keys(pruned).length <= MAX_SUB_ITEMS_ENTRIES) break;
+    if (protectedKeys.has(key)) continue;
+    delete pruned[key];
   }
   return pruned;
 }
 
 /** Set playlist IDs for a YouTube playlist (preserves existing titles). */
 export function updateSubItemIds(playlistId: string, ids: string[]): void {
-  const subMap = { ..._getSubMap() };
-  subMap[playlistId] = { ids: [...ids], titles: subMap[playlistId]?.titles || [] };
-  setState('youtube.subItemsMap', _pruneSubMap(subMap));
+  const subMap = _getSubMap();
+  setState(
+    'youtube.subItemsMap',
+    _pruneSubMap(
+      _touchSubMapEntry(subMap, playlistId, {
+        ids: [...ids],
+        titles: subMap[playlistId]?.titles || [],
+        loadError: subMap[playlistId]?.loadError,
+      }),
+    ),
+  );
 }
 
 /** Update a single sub-item title by index (shallow copy — avoids deep triple spread). */
@@ -259,16 +289,35 @@ export function updateSubItemTitle(playlistId: string, subIdx: number, title: st
   newTitles[subIdx] = title;
   setState(
     'youtube.subItemsMap',
-    _pruneSubMap({ ...subMap, [playlistId]: { ...entry, titles: newTitles } }),
+    _pruneSubMap(_touchSubMapEntry(subMap, playlistId, { ...entry, titles: newTitles })),
   );
 }
 
 /** Set full sub-item data (IDs + titles) for a playlist. */
 export function setSubItemsData(playlistId: string, ids: string[], titles: string[]): void {
-  const subMap = { ..._getSubMap() };
-  subMap[playlistId] = { ids: ids || [], titles: titles || [] };
-  setState('youtube.subItemsMap', _pruneSubMap(subMap));
+  const subMap = _getSubMap();
+  setState(
+    'youtube.subItemsMap',
+    _pruneSubMap(
+      _touchSubMapEntry(subMap, playlistId, {
+        ids: ids || [],
+        titles: titles || [],
+        loadError: subMap[playlistId]?.loadError,
+      }),
+    ),
+  );
 }
+
+export function setSubItemsLoadError(playlistId: string, loadError: boolean): void {
+  const subMap = _getSubMap();
+  const entry = subMap[playlistId] || { ids: [], titles: [] };
+  const nextEntry = loadError
+    ? { ...entry, loadError: true }
+    : { ids: entry.ids || [], titles: entry.titles || [] };
+
+  setState('youtube.subItemsMap', _pruneSubMap(_touchSubMapEntry(subMap, playlistId, nextEntry)));
+}
+
 /** Update multiple sub-item titles at once (minimizes setState calls). */
 export function updateSubItemTitlesBulk(
   playlistId: string,
@@ -292,10 +341,7 @@ export function updateSubItemTitlesBulk(
   if (changed) {
     setState(
       'youtube.subItemsMap',
-      _pruneSubMap({
-        ...subMap,
-        [playlistId]: { ...entry, titles: newTitles },
-      }),
+      _pruneSubMap(_touchSubMapEntry(subMap, playlistId, { ...entry, titles: newTitles })),
     );
   }
 }

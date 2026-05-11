@@ -12,6 +12,7 @@ import {
   setPendingPlayTime,
 } from '../_state.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
+import { isFilePlaybackBlockedByExternalMode, isSystemAudioSessionActive } from '../video.ts';
 import { broadcast } from '../../network/peer.ts';
 
 vi.mock('../../network/peer.ts', () => ({
@@ -120,6 +121,35 @@ describe('stopAllMedia', () => {
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'pause', reason: 'stop' }),
     );
+  });
+
+  it('can cancel in-flight loads when taking playback ownership away', () => {
+    const before = getLoadToken();
+
+    stopAllMedia({ cancelInFlight: true });
+
+    expect(getLoadToken()).toBe(before + 1);
+  });
+
+  it('keeps the existing load token on silent track-change stops', () => {
+    const before = getLoadToken();
+
+    stopAllMedia({ silent: true });
+
+    expect(getLoadToken()).toBe(before);
+  });
+});
+
+describe('external playback mode guards', () => {
+  it('treats the system-audio receiving placeholder as system-audio ownership', () => {
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'system-audio-receiving',
+      systemAudioPlaceholder: true,
+    });
+
+    expect(isSystemAudioSessionActive()).toBe(true);
+    expect(isFilePlaybackBlockedByExternalMode()).toBe(true);
   });
 });
 

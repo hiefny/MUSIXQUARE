@@ -15,7 +15,7 @@ import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/tim
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
-import { isIdleOrPaused } from './video.ts';
+import { isFilePlaybackBlockedByExternalMode, isIdleOrPaused } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -200,8 +200,12 @@ export function stopPlayerNode(): void {
 
 // ─── Stop All Media ────────────────────────────────────────────────
 
-export function stopAllMedia(opts?: { silent?: boolean }): void {
+export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean }): void {
   const wasInYouTube = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+
+  if (opts?.cancelInFlight) {
+    incrementLoadToken();
+  }
 
   // Stop system audio if active (without recursive loop — cleanup only disconnects nodes)
   if (isSystemAudioActive()) {
@@ -419,9 +423,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   const myLoadToken = getLoadToken();
   log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
 
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
-    log.warn('[Audio] Blocked play() call while in YouTube mode');
+  if (isFilePlaybackBlockedByExternalMode()) {
+    log.warn('[Audio] Blocked play() call while an external playback mode is active');
     return 'noop';
   }
 
@@ -443,8 +446,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   // create an AudioBufferSourceNode and calls setAppState(PLAYING_AUDIO),
   // overwriting PLAYING_YOUTUBE — causing double-audio and a broken UI
   // state that requires a page reload.
-  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-    log.warn('[Audio] Aborted play() — app switched to YouTube mode during async init');
+  if (isFilePlaybackBlockedByExternalMode()) {
+    log.warn('[Audio] Aborted play() - app switched to an external mode during async init');
     return 'noop';
   }
 
@@ -478,8 +481,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   }
 
   // Re-check after second async gap (initAudio)
-  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-    log.warn('[Audio] Aborted play() — app switched to YouTube mode during initAudio');
+  if (isFilePlaybackBlockedByExternalMode()) {
+    log.warn('[Audio] Aborted play() - app switched to an external mode during initAudio');
     return 'noop';
   }
 
@@ -745,7 +748,7 @@ export function stopPlayback(): void {
     return;
   }
 
-  stopAllMedia();
+  stopAllMedia({ cancelInFlight: true });
   bus.emit('ui:seek-reset');
 
   if (!hostConn) broadcast({ type: MSG.PAUSE, time: 0, reason: 'stop' });

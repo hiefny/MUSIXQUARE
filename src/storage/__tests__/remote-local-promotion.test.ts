@@ -137,4 +137,31 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(getState('playlist.currentTrackIndex')).toBe(0);
   });
+
+  it('ignores FILE_PREPARE while a system-audio receive placeholder owns playback', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+
+    setState('network.connectionType', 'local');
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'system-audio-receiving',
+      systemAudioPlaceholder: true,
+    });
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        index: 0,
+        sessionId: 12,
+      },
+      conn,
+    );
+
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('transfer.meta')).toBeNull();
+    expect(postCommand).not.toHaveBeenCalled();
+  });
 });

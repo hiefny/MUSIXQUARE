@@ -9,18 +9,27 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { getTotalSyncOffsetMs, handleAutoSync, initSync } from '../sync.ts';
+import {
+  getClockOffset,
+  isClockCalibrated,
+  processSyncPong,
+  registerPing,
+  resetClockState,
+} from '../shared-clock.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
   clearAllManagedTimers();
   resetState();
+  resetClockState();
   setCurrentAudioBuffer(null);
   bus.clear();
 });
 
 afterEach(() => {
   clearAllManagedTimers();
+  resetClockState();
   setCurrentAudioBuffer(null);
   vi.useRealTimers();
 });
@@ -72,8 +81,8 @@ describe('SYNC_PING playback snapshot', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
     setState('playlist.currentTrackIndex', 2);
 
-    const conn = { peer: 'guest-1', open: true, send: vi.fn() };
-    await handleData({ type: MSG.SYNC_PING, pingId: 7 }, conn as any);
+    const conn = { peer: 'guest-1', open: true, send: vi.fn() } as DataConnection;
+    await handleData({ type: MSG.SYNC_PING, pingId: 7 }, conn);
 
     expect(conn.send).toHaveBeenCalledTimes(1);
     expect(conn.send).toHaveBeenCalledWith(
@@ -122,6 +131,53 @@ describe('background resume recovery', () => {
         pingId: expect.any(Number),
       }),
     );
+  });
+});
+
+describe('guest host connection clock reset', () => {
+  function calibrateClockSample(): void {
+    setState('sync.lastLatencyMs', 42);
+    setState('sync.latencyHistory', [42]);
+    registerPing(1);
+    vi.setSystemTime(1020);
+    expect(processSyncPong(1, 5020)).not.toBeNull();
+    expect(isClockCalibrated()).toBe(true);
+    expect(getClockOffset()).not.toBe(0);
+  }
+
+  function expectClockRuntimeReset(): void {
+    expect(isClockCalibrated()).toBe(false);
+    expect(getClockOffset()).toBe(0);
+    expect(getState('sync.lastLatencyMs')).toBe(0);
+    expect(getState('sync.latencyHistory')).toEqual([]);
+  }
+
+  it('clears shared clock samples when a guest hostConn closes', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+
+    initSync();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    calibrateClockSample();
+    setState('network.hostConn', null);
+
+    expectClockRuntimeReset();
+  });
+
+  it('clears shared clock samples when a guest hostConn is replaced', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+
+    initSync();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    calibrateClockSample();
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    expectClockRuntimeReset();
   });
 });
 

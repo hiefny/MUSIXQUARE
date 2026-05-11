@@ -41,6 +41,7 @@ import { play, pause, stopAllMedia, getTrackPosition, handleEnded, skipTime } fr
 
 import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
+import { isSystemAudioSessionActive } from './video.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
@@ -100,8 +101,10 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
-  // Ignore PLAY during system audio mode (live stream, not file-based)
-  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+  // Ignore PLAY during system audio mode (live stream, not file-based).
+  // The helper also covers the guest's pending placeholder window between
+  // SYSTEM_AUDIO_START and the first WebRTC stream.
+  if (isSystemAudioSessionActive()) return;
 
   // Host's MSG.PLAY is authoritative — cancel any pending deferred replay
   // from a prior FILE_PREPARE(autoPlayDelayMs) so we don't double-start.
@@ -353,7 +356,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   if (!hostConn || conn !== hostConn) return;
 
   // Ignore PAUSE during system audio mode
-  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+  if (isSystemAudioSessionActive()) return;
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
   if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
 
@@ -875,7 +878,7 @@ export function initPlayback(): void {
   // Re-evaluations from topology changes (e.g. another peer leaving) reuse
   // 'peer-evaluated' for routing only — bootstrapping the file again would
   // re-trigger 'storage:transfer-progress' on a peer that already has it.
-  bus.on('orchestrator:peer-joined', async (peerId: string) => {
+  async function bootstrapLocalPeerFile(peerId: string, reason: string): Promise<void> {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host
 
@@ -894,9 +897,7 @@ export function initPlayback(): void {
         const currentFileBlob = getState('files.currentFileBlob');
         const currentSessionId = getState('transfer.currentSessionId');
         if (currentFileBlob) {
-          log.debug(
-            `[Playback] Sending current file to late-joiner ${peer.label || peerId} (post-ICE)`,
-          );
+          log.debug(`[Playback] Sending current file to ${peer.label || peerId} (${reason})`);
           try {
             await unicastFile(conn, currentFileBlob, 0, currentSessionId);
           } catch (e: unknown) {
@@ -919,6 +920,14 @@ export function initPlayback(): void {
         }
       }
     }
+  }
+
+  bus.on('orchestrator:peer-joined', async (peerId: string) => {
+    await bootstrapLocalPeerFile(peerId, 'post-ICE');
+  });
+
+  bus.on('orchestrator:peer-data-target-ready', async (peerId: string) => {
+    await bootstrapLocalPeerFile(peerId, 'data-target-ready');
   });
 
   log.info('[Playback] Engine initialized');

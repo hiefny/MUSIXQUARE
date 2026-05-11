@@ -23,10 +23,11 @@ describe('peer routing orchestrator', () => {
     setState('network.hostConn', null);
   });
 
-  it('updates routing without late-join bootstrap when a remote peer is reclassified local', async () => {
+  it('emits data-target-ready without peer-joined when a remote peer is reclassified local', async () => {
     const { initOrchestrator } = await import('../orchestrator.ts');
     const joined = vi.fn();
     const evaluated = vi.fn();
+    const dataTargetReady = vi.fn();
 
     setState('network.connectedPeers', [
       {
@@ -42,11 +43,13 @@ describe('peer routing orchestrator', () => {
     initOrchestrator();
     bus.on('orchestrator:peer-joined', joined);
     bus.on('orchestrator:peer-evaluated', evaluated);
+    bus.on('orchestrator:peer-data-target-ready', dataTargetReady);
 
     bus.emit('orchestrator:peer-type-detected', 'peer-1', false);
 
     expect(evaluated).toHaveBeenCalledWith('peer-1');
     expect(joined).not.toHaveBeenCalled();
+    expect(dataTargetReady).toHaveBeenCalledWith('peer-1');
     expect(getState('network.connectedPeers')[0]?.isDataTarget).toBe(true);
   });
 });

@@ -10,11 +10,12 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { APP_STATE, MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { registerHandler } from './protocol.ts';
-import type { DataConnection, MediaConnection } from '../types/index.ts';
+import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
 import { forceStereoSdp } from './peer.ts';
 import {
@@ -41,6 +42,10 @@ import {
 //               acceptable. 0.4s as the starting point; revisit after real-
 //               device tests on typical home routers.
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
+const SYSTEM_AUDIO_RECEIVE_WATCHDOG = 'sys-audio-guest-receive-watchdog';
+const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 12_000;
+
+type SystemAudioTrackMapping = Record<string, 'L' | 'R'>;
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -60,6 +65,44 @@ let _gotStereo = false;
 let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
 let _initialUnmuteWaitSeq = 0;
+
+function isSystemAudioPlaceholder(): boolean {
+  const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
+  return currentMeta?.systemAudioPlaceholder === true;
+}
+
+function getSystemAudioTrackMapping(
+  metadata: MediaConnection['metadata'],
+): SystemAudioTrackMapping | null {
+  const mapping = metadata?.mapping;
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return null;
+
+  const typed: SystemAudioTrackMapping = {};
+  for (const [trackId, channel] of Object.entries(mapping)) {
+    if (channel === 'L' || channel === 'R') typed[trackId] = channel;
+  }
+  return Object.keys(typed).length > 0 ? typed : null;
+}
+
+function clearReceiveWatchdog(): void {
+  clearManagedTimer(SYSTEM_AUDIO_RECEIVE_WATCHDOG);
+}
+
+function armReceiveWatchdog(): void {
+  setManagedTimer(
+    SYSTEM_AUDIO_RECEIVE_WATCHDOG,
+    () => {
+      if (getState('systemAudio.isReceiving')) return;
+      if (!isSystemAudioPlaceholder()) return;
+
+      log.warn('[SysAudioGuest] Timed out waiting for system audio stream');
+      bus.emit('system-audio:receive-timeout');
+      cleanupGuestSystemAudio();
+      bus.emit('ui:show-toast', t('system_audio.receive_failed'));
+    },
+    SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
+  );
+}
 
 function describeAudioTracks(tracks: MediaStreamTrack[]): string {
   return (
@@ -123,7 +166,7 @@ async function waitForInitialUnmute(channel: string, tracks: MediaStreamTrack[])
 // ─── SDP Munging ──────────────────────────────────────────────────
 
 function applySdpMunge(mc: MediaConnection): void {
-  const pc = (mc as any).peerConnection as RTCPeerConnection | undefined;
+  const pc = mc.peerConnection;
   if (!pc) return;
 
   // Guest munges both local/remote to be safe
@@ -213,8 +256,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     // Pin every audio receiver to the same playout-delay target so NetEq's
     // adaptive jitter buffer doesn't drift independently per device. See the
     // SYSTEM_AUDIO_PLAYOUT_DELAY_S comment for the rationale + tuning notes.
-    // PeerJS exposes the underlying RTCPeerConnection as `peerConnection`.
-    const pc = (mediaConn as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
+    // PeerJS/Cloudflare adapters expose the underlying RTCPeerConnection here.
+    const pc = mediaConn.peerConnection;
     if (pc) {
       for (const r of pc.getReceivers()) {
         // playoutDelayHint is in the WebRTC spec but not in TS's lib.dom yet.
@@ -277,7 +320,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
         }
 
         // Use ID-to-Channel mapping from host if available (synced mode)
-        const mapping = (mediaConn.metadata as any)?.mapping;
+        const mapping = getSystemAudioTrackMapping(mediaConn.metadata);
         const connectDualTracks = (
           leftTrack: MediaStreamTrack,
           rightTrack: MediaStreamTrack,
@@ -357,6 +400,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
     // Update state once at least one stream is connected
     if (!getState('systemAudio.isReceiving')) {
+      clearReceiveWatchdog();
       setState('systemAudio.isReceiving', true);
       setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
       bus.emit('visualizer:start');
@@ -403,6 +447,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 // ─── Cleanup ──────────────────────────────────────────────────────
 
 function cleanupGuestSystemAudio(): void {
+  const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
+  clearReceiveWatchdog();
   if (_sourceL) {
     try {
       _sourceL.disconnect();
@@ -485,7 +531,7 @@ function cleanupGuestSystemAudio(): void {
   setState('systemAudio.isReceiving', false);
   setState('player.currentTrackMeta', _prevTrackMeta ?? null);
   _prevTrackMeta = null;
-  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO || wasSystemAudioPlaceholder) {
     setState('appState', APP_STATE.IDLE);
   }
 }
@@ -511,19 +557,21 @@ export function registerSystemAudioGuestListeners(): void {
     MSG.SYSTEM_AUDIO_START,
     (_data: Record<string, unknown>, conn?: DataConnection) => {
       if (!isHostBroadcast(conn)) return;
-      const currentMeta = getState('player.currentTrackMeta') as Record<string, unknown> | null;
-      if (currentMeta?.name === 'system-audio-receiving') {
+      const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
+      if (isSystemAudioPlaceholder()) {
         log.debug('[SysAudioGuest] Duplicate system audio start ignored');
         return;
       }
       log.info('[SysAudioGuest] Host started system audio sharing');
       _prevTrackMeta = currentMeta;
-      stopAllMedia({ silent: true });
+      stopAllMedia({ silent: true, cancelInFlight: true });
       setState('player.currentTrackMeta', {
         type: 'file',
         name: 'system-audio-receiving',
         title: 'Receiving System Audio',
+        systemAudioPlaceholder: true,
       });
+      armReceiveWatchdog();
     },
   );
 
@@ -541,6 +589,10 @@ export function registerSystemAudioGuestListeners(): void {
     handleIncomingCall(mediaConn as MediaConnection, channel).catch((e) =>
       log.error('[SysAudioGuest] handleIncomingCall failed:', e),
     );
+  });
+
+  bus.on('state:systemAudio.isReceiving', (value) => {
+    if (value === true) clearReceiveWatchdog();
   });
 
   bus.on('system-audio:force-stop', () => {

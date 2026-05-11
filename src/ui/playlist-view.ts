@@ -15,6 +15,7 @@ import { showDialog } from './dialog.ts';
 import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
+import { setSubItemsLoadError } from '../youtube/_state.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
@@ -42,10 +43,7 @@ function toggleExpansion(idx: number): void {
     const subMap = getState('youtube.subItemsMap') || {};
     const existing = subMap[playlistId];
     if (existing?.loadError) {
-      setState('youtube.subItemsMap', {
-        ...subMap,
-        [playlistId]: { ids: existing.ids || [], titles: existing.titles || [] },
-      });
+      setSubItemsLoadError(playlistId, false);
     }
 
     bus.emit('youtube:populate-sub-items', playlistId, idx);
@@ -59,10 +57,7 @@ function toggleExpansion(idx: number): void {
         const currentMap = getState('youtube.subItemsMap') || {};
         const entry = currentMap[playlistId];
         if (!entry || !entry.ids || entry.ids.length === 0) {
-          setState('youtube.subItemsMap', {
-            ...currentMap,
-            [playlistId]: { ids: [], titles: [], loadError: true },
-          });
+          setSubItemsLoadError(playlistId, true);
         }
       },
       SUB_ITEMS_LOAD_TIMEOUT_MS,
@@ -262,7 +257,10 @@ export function updatePlaylistUI(): void {
   });
 
   let shouldAutoScroll = false;
-  if (_lastScrolledTrackIndex !== currentTrackIndex || _lastScrolledSubIndex !== currentYouTubeSubIndex) {
+  if (
+    _lastScrolledTrackIndex !== currentTrackIndex ||
+    _lastScrolledSubIndex !== currentYouTubeSubIndex
+  ) {
     shouldAutoScroll = true;
     _lastScrolledTrackIndex = currentTrackIndex;
     _lastScrolledSubIndex = currentYouTubeSubIndex;
@@ -305,7 +303,7 @@ export function initPlaylistView(): void {
   _busScope.on('state:youtube.subItemsMap', debouncedUpdate);
   _busScope.on('state:appState', debouncedUpdate);
   _busScope.on('state:network.connectionType', debouncedUpdate);
-  
+
   _busScope.on('ui:playlist-tab-opened', () => {
     // Reset indices to force scroll on the next UI update
     _lastScrolledTrackIndex = -1;

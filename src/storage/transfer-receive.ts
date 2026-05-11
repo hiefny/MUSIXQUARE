@@ -36,6 +36,7 @@ import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
+import { isSystemAudioSessionActive } from '../player/video.ts';
 import {
   getPendingPlayTime,
   setPendingPlayTime,
@@ -74,7 +75,7 @@ function shouldSkipIncomingFile(incomingName?: string): boolean {
   // (frozen) lifecycle check and possibly let chunks through.
   const appState = getState('appState');
   if (appState === APP_STATE.PLAYING_YOUTUBE) return true;
-  if (appState === APP_STATE.PLAYING_SYSTEM_AUDIO) return true;
+  if (isSystemAudioSessionActive()) return true;
 
   // Remote guests use encrypted remote-share instead of direct file chunks;
   // orchestrator gates isDataTarget=false so stale direct frames are dropped.
@@ -374,6 +375,11 @@ export async function handleFilePrepare(
   conn?: DataConnection,
 ): Promise<void> {
   if (!isHostBroadcast(conn)) return;
+
+  if (isSystemAudioSessionActive()) {
+    log.debug('[Transfer] Ignoring FILE_PREPARE - system audio mode active');
+    return;
+  }
 
   // YouTube mode normally owns its own transport, but demo is a deliberate
   // cross-mode switch: remote guests fetch the bundled demo over HTTP after

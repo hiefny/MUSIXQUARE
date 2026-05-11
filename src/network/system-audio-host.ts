@@ -61,7 +61,7 @@ function boostAudioSenders(pc: RTCPeerConnection): void {
 }
 
 function applySdpMunge(mc: MediaConnection): void {
-  const pc = (mc as any).peerConnection as RTCPeerConnection | undefined;
+  const pc = mc.peerConnection;
   if (!pc) return;
 
   // Intercept setLocalDescription
@@ -199,6 +199,15 @@ function closeAllMediaConns(): void {
   _mediaConns.clear();
 }
 
+function sendActiveSystemAudioToPeer(peerId: string): void {
+  if (!isSystemAudioActive()) return;
+  if (getState('network.appRole') !== 'host') return;
+  if (_mediaConns.has(peerId)) return;
+  const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
+  if (peer?.conn?.open) safeSend(peer.conn, { type: MSG.SYSTEM_AUDIO_START });
+  callGuest(peerId);
+}
+
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemAudioHostListeners(): void {
@@ -229,12 +238,11 @@ export function registerSystemAudioHostListeners(): void {
 
   // ICE type resolved on initial join → if local and system audio active, call them
   bus.on('orchestrator:peer-joined', (peerId: string) => {
-    if (!isSystemAudioActive()) return;
-    if (getState('network.appRole') !== 'host') return;
-    if (_mediaConns.has(peerId)) return;
-    const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
-    if (peer?.conn?.open) safeSend(peer.conn, { type: MSG.SYSTEM_AUDIO_START });
-    callGuest(peerId);
+    sendActiveSystemAudioToPeer(peerId);
+  });
+
+  bus.on('orchestrator:peer-data-target-ready', (peerId: string) => {
+    sendActiveSystemAudioToPeer(peerId);
   });
 
   bus.on('network:peer-disconnected', (peerId: string) => {

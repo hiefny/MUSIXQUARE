@@ -49,7 +49,11 @@ import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
 import { initRemoteShare } from './share/remote-share.ts';
-import { setSyncWorker } from './network/sync-worker.ts';
+import {
+  handleSyncWorkerFailure,
+  isSyncWorkerFallbackActive,
+  setSyncWorker,
+} from './network/sync-worker.ts';
 
 // ── Player ──
 import { initPlayback } from './player/playback.ts';
@@ -255,9 +259,14 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
 }
 
 async function warnLongBackgroundResume(): Promise<void> {
+  const messageKey =
+    getState('network.hostConn') && isSyncWorkerFallbackActive('sync')
+      ? 'dialog.background_resume_sync_fallback_message'
+      : 'dialog.background_resume_message';
+
   const result = await showDialog({
     title: t('dialog.background_resume_title'),
-    message: t('dialog.background_resume_message'),
+    message: t(messageKey),
     buttonText: t('dialog.continue_using'),
     secondaryText: t('dialog.leave_session'),
     defaultFocus: 'primary',
@@ -458,12 +467,16 @@ function bootstrap(): void {
     const syncW = new Worker(new URL('./workers/sync.worker.ts', import.meta.url), {
       type: 'module',
     });
+    syncW.onerror = (ev) => {
+      log.error('[App] SyncWorker error:', ev.message || ev);
+      handleSyncWorkerFailure(ev);
+    };
     setSyncWorker(syncW);
-    syncW.onerror = (ev) => log.error('[App] SyncWorker error:', ev.message || ev);
     syncW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
     log.info('[App] SyncWorker started');
   } catch (e) {
     log.warn('[App] SyncWorker failed:', e);
+    handleSyncWorkerFailure(e);
   }
 
   // RAM-only: the transfer worker is gone. STORAGE_* commands are

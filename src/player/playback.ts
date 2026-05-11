@@ -41,7 +41,11 @@ import { play, pause, stopAllMedia, getTrackPosition, handleEnded, skipTime } fr
 
 import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
-import { isSystemAudioSessionActive, setPlaybackTrackMeta } from './ownership.ts';
+import {
+  createFileTrackMeta,
+  isSystemAudioSessionActive,
+  setPlaybackTrackMeta,
+} from './ownership.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
@@ -50,15 +54,7 @@ function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): voi
   const playlist = getState('playlist.items') || [];
   const item = playlist[index];
   const name = item?.name || fallbackName || '';
-  setPlaybackTrackMeta(
-    item ?? {
-      type: 'file',
-      title: name.replace(/\.[^/.]+$/, '') || name,
-      name,
-      videoId: null,
-      playlistId: null,
-    },
-  );
+  setPlaybackTrackMeta(item ?? createFileTrackMeta(name));
 }
 
 function getRemoteWaitSessionId(): number {
@@ -320,16 +316,7 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   // "미디어 없음" during the HTTP fetch. loadPreloadedTrack will overwrite
   // with the real playlist entry after decode.
   const item = playlist[index];
-  setState(
-    'player.currentTrackMeta',
-    item ?? {
-      type: 'file',
-      name,
-      title: name.replace(/\.[^/.]+$/, ''),
-      videoId: null,
-      playlistId: null,
-    },
-  );
+  setPlaybackTrackMeta(item ?? createFileTrackMeta(name));
 
   // Preserve host's play time so loadPreloadedTrack can seek (with age
   // compensation) once decode finishes — without this the post-fetch

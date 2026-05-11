@@ -29,7 +29,7 @@ import {
   waitForGuestConnectionType,
 } from '../network/peer.ts';
 import { transition } from '../player/lifecycle.ts';
-import { setPlaybackTrackMeta } from '../player/ownership.ts';
+import { createFileTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
 import {
   getPendingPlayTime,
   getPendingPlayTimeSetAt,
@@ -531,13 +531,7 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
   if (playlist[index]) {
     setPlaybackTrackMeta(playlist[index]);
   } else {
-    setPlaybackTrackMeta({
-      type: 'file',
-      title: name.replace(/\.[^/.]+$/, '') || name,
-      name,
-      videoId: null,
-      playlistId: null,
-    });
+    setPlaybackTrackMeta(createFileTrackMeta(name));
   }
 
   transition({ type: 'FILE_PREPARE', variant: 'preload-waiting', index, name });
@@ -654,13 +648,7 @@ async function handleRemoteFileShare(
     if (playlist[descriptor.index]) {
       setPlaybackTrackMeta(playlist[descriptor.index]);
     } else {
-      setPlaybackTrackMeta({
-        type: 'file',
-        title: descriptor.name.replace(/\.[^/.]+$/, '') || descriptor.name,
-        name: descriptor.name,
-        videoId: null,
-        playlistId: null,
-      });
+      setPlaybackTrackMeta(createFileTrackMeta(descriptor.name));
     }
     clearManagedTimer(REMOTE_WAIT_TIMER);
     transition({

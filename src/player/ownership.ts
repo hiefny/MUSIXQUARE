@@ -52,6 +52,40 @@ export function isSystemAudioPlaceholderMeta(meta: TrackMeta | null): boolean {
   return meta?.systemAudioPlaceholder === true;
 }
 
+function titleFromFileName(name: string): string {
+  return name.replace(/\.[^/.]+$/, '') || name;
+}
+
+export function createFileTrackMeta(name: string, title = titleFromFileName(name)): TrackMeta {
+  return {
+    type: 'file',
+    title,
+    name,
+    videoId: null,
+    playlistId: null,
+  };
+}
+
+export function createYouTubeTrackMeta({
+  name = '',
+  title = name,
+  videoId = null,
+  playlistId = null,
+}: {
+  name?: string;
+  title?: string;
+  videoId?: string | null;
+  playlistId?: string | null;
+}): TrackMeta {
+  return {
+    type: 'youtube',
+    name,
+    title,
+    videoId,
+    playlistId,
+  };
+}
+
 export function createSystemAudioTrackMeta(
   mode: 'sharing' | 'receiving',
   title?: string,

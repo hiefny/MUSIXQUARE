@@ -5,7 +5,9 @@ import {
   canStartFilePlayback,
   claimPendingSystemAudioPlayback,
   claimPlaybackOwner,
+  createFileTrackMeta,
   createSystemAudioTrackMeta,
+  createYouTubeTrackMeta,
   getPlaybackOwnership,
   isFilePlaybackBlockedByExternalMode,
   isSystemAudioPlaceholderMeta,
@@ -131,6 +133,26 @@ describe('playback ownership view', () => {
     expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
       name: 'track.mp3',
       title: 'Track',
+    });
+  });
+
+  it('creates canonical synthetic file track metadata', () => {
+    expect(createFileTrackMeta('demo.mp3')).toEqual({
+      type: 'file',
+      title: 'demo',
+      name: 'demo.mp3',
+      videoId: null,
+      playlistId: null,
+    });
+  });
+
+  it('creates canonical synthetic YouTube track metadata', () => {
+    expect(createYouTubeTrackMeta({ name: 'Video', videoId: 'abc', playlistId: null })).toEqual({
+      type: 'youtube',
+      name: 'Video',
+      title: 'Video',
+      videoId: 'abc',
+      playlistId: null,
     });
   });
 

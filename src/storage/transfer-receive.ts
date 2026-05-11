@@ -37,6 +37,7 @@ import type { FileMeta, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import {
+  createFileTrackMeta,
   getPlaybackOwnership,
   isSystemAudioSessionActive,
   setPlaybackAppState,
@@ -304,13 +305,7 @@ function showRemoteUnavailableUI(data: Record<string, unknown>): void {
       setState('playlist.currentTrackIndex', idx);
     }
   }
-  setPlaybackTrackMeta({
-    type: 'file',
-    title: ((data.name as string) || '').replace(/\.[^/.]+$/, ''),
-    name: (data.name as string) || '',
-    videoId: null,
-    playlistId: null,
-  });
+  setPlaybackTrackMeta(createFileTrackMeta((data.name as string) || ''));
   showLoader(false);
   showToast(t('share.remote.unavailable'));
   log.info('[Transfer] Remote guest — file transfer skipped');

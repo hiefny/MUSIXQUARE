@@ -26,7 +26,7 @@ import { isRemoteGuest } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
 import type { DataConnection } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
-import { setPlaybackTrackMeta } from '../player/ownership.ts';
+import { createFileTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
 
 // ─── Guest: Send Recovery Request ───────────────────────────────────
 
@@ -50,13 +50,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     showLoader(false);
     showToast(t('share.remote.unavailable'));
     const name = getState('playback.pendingRecoveryTarget')?.name || '';
-    setPlaybackTrackMeta({
-      type: 'file',
-      title: name.replace(/\.[^/.]+$/, ''),
-      name,
-      videoId: null,
-      playlistId: null,
-    });
+    setPlaybackTrackMeta(createFileTrackMeta(name));
     return;
   }
 

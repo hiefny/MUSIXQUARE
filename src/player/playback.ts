@@ -43,7 +43,9 @@ import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from '
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
+  isFilePlaybackActive,
   isSystemAudioSessionActive,
+  isYouTubePlaybackActive,
   setPlaybackTrackMeta,
 } from './ownership.ts';
 
@@ -344,7 +346,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // Ignore PAUSE during system audio mode
   if (isSystemAudioSessionActive()) return;
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
-  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
+  if (isYouTubePlaybackActive()) return;
 
   const time = Number(data.time) || 0;
   const endOfPlaylist = !!data.endOfPlaylist;
@@ -461,7 +463,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  if (currentState === APP_STATE.PLAYING_AUDIO) {
+  if (isFilePlaybackActive()) {
     play(time);
     broadcast({
       type: MSG.PLAY,
@@ -539,7 +541,7 @@ export function initPlayback(): void {
   // at the current logical position without surfacing a manual-sync toast.
   bus.on('playback:refresh-current-position', () => {
     if (!getCurrentAudioBuffer()) return;
-    if (getState('appState') !== APP_STATE.PLAYING_AUDIO) return;
+    if (!isFilePlaybackActive()) return;
     play(getTrackPosition());
   });
 
@@ -559,8 +561,7 @@ export function initPlayback(): void {
 
   // Surround mode toggled during playback: restart at current position
   bus.on('audio:surround-toggled', () => {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_AUDIO) {
+    if (isFilePlaybackActive()) {
       play(getTrackPosition());
     }
   });

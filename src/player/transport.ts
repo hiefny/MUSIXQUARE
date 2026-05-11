@@ -16,9 +16,12 @@ import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
 import {
+  isFilePlaybackActive,
   getPlaybackOwnership,
   isFilePlaybackBlockedByExternalMode,
+  isPlaybackIdle,
   setPlaybackAppState,
+  isYouTubePlaybackActive,
 } from './ownership.ts';
 import { isIdleOrPaused } from './video.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
@@ -207,7 +210,7 @@ export function stopPlayerNode(): void {
 // ─── Stop All Media ────────────────────────────────────────────────
 
 export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean }): void {
-  const wasInYouTube = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+  const wasInYouTube = isYouTubePlaybackActive();
 
   if (opts?.cancelInFlight) {
     incrementLoadToken();
@@ -260,12 +263,12 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   // is taking over. YouTube is the exception: leaving appState at
   // PLAYING_YOUTUBE blocks file lifecycle transitions and play(), so clear
   // the mode after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
-  if (opts?.silent && wasInYouTube && getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+  if (opts?.silent && wasInYouTube && isYouTubePlaybackActive()) {
     setAppState(APP_STATE.IDLE);
   }
 
   // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
-  if (!opts?.silent && getState('appState') !== APP_STATE.IDLE) {
+  if (!opts?.silent && !isPlaybackIdle()) {
     setAppState(APP_STATE.IDLE);
   }
 
@@ -390,7 +393,7 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
         incrementLoadToken();
         // Reset appState to IDLE to prevent stuck "playing" UI
-        if (getState('appState') !== APP_STATE.IDLE) {
+        if (!isPlaybackIdle()) {
           setAppState(APP_STATE.IDLE);
         }
       }
@@ -536,8 +539,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 
     newNode.addEventListener('ended', () => {
       if (myLoadToken !== getLoadToken()) return;
-      const state = getState('appState');
-      if (state === APP_STATE.PLAYING_AUDIO) {
+      if (isFilePlaybackActive()) {
         handleEnded();
       }
     });
@@ -655,7 +657,6 @@ export function togglePlay(): void {
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
   const ownership = getPlaybackOwnership();
-  const currentState = ownership.appState;
 
   // YouTube mode
   if (ownership.owner === 'youtube') {
@@ -666,7 +667,7 @@ export function togglePlay(): void {
   // System audio: ignore play/pause toggle (use "공유 중지" button instead)
   if (ownership.owner === 'system-audio') return;
 
-  const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO;
+  const isActuallyPlaying = isFilePlaybackActive();
   const pausedAt = getState('player.pausedAt') || 0;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const playlistItems = getState('playlist.items') || [];
@@ -737,7 +738,7 @@ export function stopPlayback(): void {
   }
 
   const currentState = getState('appState');
-  if (currentState === APP_STATE.IDLE) return; // Nothing to stop
+  if (isPlaybackIdle()) return; // Nothing to stop
 
   if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
     stopSystemAudioCapture();
@@ -783,8 +784,7 @@ export function skipTime(sec: number): void {
   }
 
   const ownership = getPlaybackOwnership();
-  const currentState = ownership.appState;
-  if (currentState === APP_STATE.IDLE) return;
+  if (isPlaybackIdle()) return;
   if (ownership.owner === 'system-audio') return; // No skip on live stream
   if (ownership.owner === 'youtube') {
     bus.emit('youtube:skip-time', sec);
@@ -801,7 +801,7 @@ export function skipTime(sec: number): void {
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
 
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const isPlaying = currentState === APP_STATE.PLAYING_AUDIO;
+  const isPlaying = isFilePlaybackActive();
 
   if (isPlaying) {
     play(target);

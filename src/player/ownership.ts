@@ -165,6 +165,18 @@ export function isYouTubePlaybackActive(): boolean {
   return isPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
 }
 
+export function isFilePlaybackActive(): boolean {
+  return isPlaybackAppState(APP_STATE.PLAYING_AUDIO);
+}
+
+export function isPlaybackIdle(): boolean {
+  return isPlaybackAppState(APP_STATE.IDLE);
+}
+
+export function isPlaybackPaused(): boolean {
+  return isPlaybackAppState(APP_STATE.PAUSED);
+}
+
 export function setPlaybackTrackMeta(currentTrackMeta: TrackMeta | null): PlaybackOwnership {
   setState('player.currentTrackMeta', currentTrackMeta);
   return getPlaybackOwnership();

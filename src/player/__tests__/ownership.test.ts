@@ -9,8 +9,11 @@ import {
   createSystemAudioTrackMeta,
   createYouTubeTrackMeta,
   getPlaybackOwnership,
+  isFilePlaybackActive,
   isFilePlaybackBlockedByExternalMode,
+  isPlaybackIdle,
   isPlaybackAppState,
+  isPlaybackPaused,
   isSystemAudioPlaceholderMeta,
   isSystemAudioSessionActive,
   isYouTubePlaybackActive,
@@ -45,6 +48,17 @@ describe('playback ownership view', () => {
     expect(isPlaybackAppState(APP_STATE.PLAYING_YOUTUBE)).toBe(true);
     expect(isYouTubePlaybackActive()).toBe(true);
     expect(canStartFilePlayback()).toBe(false);
+  });
+
+  it('exposes appState-specific playback predicates', () => {
+    expect(isPlaybackIdle()).toBe(true);
+
+    setState('appState', APP_STATE.PLAYING_AUDIO);
+    expect(isFilePlaybackActive()).toBe(true);
+    expect(isPlaybackIdle()).toBe(false);
+
+    setState('appState', APP_STATE.PAUSED);
+    expect(isPlaybackPaused()).toBe(true);
   });
 
   it('treats system audio app state as an external owner', () => {

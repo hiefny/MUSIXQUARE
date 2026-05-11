@@ -842,7 +842,7 @@ export function initPlayback(): void {
           state: currentState,
           timestamp: Date.now(),
         });
-      } else if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
+      } else if (!isYouTubeOwner()) {
         // IDLE or PAUSED: Send pause to sync position
         conn.send({
           type: MSG.PAUSE,

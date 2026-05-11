@@ -21,7 +21,6 @@ import {
   isAppStateIdleOrPaused,
   isAppStatePlayingAudio,
   isAppStatePlayingSystemAudio,
-  isAppStatePlayingYouTube,
   isExternalOwner,
   isSystemAudioOwner,
   isYouTubeOwner,
@@ -739,7 +738,7 @@ export function stopPlayback(): void {
     return;
   }
 
-  if (isAppStatePlayingYouTube()) {
+  if (isYouTubeOwner()) {
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
     // from triggering playlist:next-track (its guard checks YouTube playback mode).
     setAppState(APP_STATE.IDLE);

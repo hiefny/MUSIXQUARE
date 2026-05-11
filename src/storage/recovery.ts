@@ -13,7 +13,6 @@ import {
   CHUNK_SIZE,
   MAX_RECOVERY_RETRIES,
   RECOVERY_BACKOFF,
-  APP_STATE,
   TRANSFER_STATE,
   PLAYBACK_STATE,
 } from '../core/constants.ts';
@@ -26,7 +25,11 @@ import { isRemoteGuest } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
 import type { DataConnection } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
-import { createFileTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
+import {
+  createFileTrackMeta,
+  isYouTubePlaybackActive,
+  setPlaybackTrackMeta,
+} from '../player/ownership.ts';
 
 // ─── Guest: Send Recovery Request ───────────────────────────────────
 
@@ -164,8 +167,7 @@ async function handleRequestCurrentFile(
   if (!conn || !conn.open) return;
 
   // If Host is in YouTube mode, no local file to serve
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubePlaybackActive()) {
     try {
       conn.send({ type: MSG.FILE_WAIT, message: 'Host is playing YouTube' });
     } catch {

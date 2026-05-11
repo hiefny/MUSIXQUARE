@@ -149,6 +149,10 @@ export function isSystemAudioSessionActive(): boolean {
   return getPlaybackOwnership().owner === 'system-audio';
 }
 
+export function isSystemAudioPlaybackActive(): boolean {
+  return isPlaybackAppState(APP_STATE.PLAYING_SYSTEM_AUDIO);
+}
+
 export function isFilePlaybackBlockedByExternalMode(): boolean {
   return getPlaybackOwnership().isExternalOwner;
 }

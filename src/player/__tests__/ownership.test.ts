@@ -15,6 +15,7 @@ import {
   isPlaybackAppState,
   isPlaybackPaused,
   isSystemAudioPlaceholderMeta,
+  isSystemAudioPlaybackActive,
   isSystemAudioSessionActive,
   isYouTubePlaybackActive,
   releasePlaybackOwner,
@@ -68,6 +69,7 @@ describe('playback ownership view', () => {
       owner: 'system-audio',
       isExternalOwner: true,
     });
+    expect(isSystemAudioPlaybackActive()).toBe(true);
     expect(isSystemAudioSessionActive()).toBe(true);
   });
 
@@ -84,6 +86,7 @@ describe('playback ownership view', () => {
       isSystemAudioPlaceholder: true,
       isExternalOwner: true,
     });
+    expect(isSystemAudioPlaybackActive()).toBe(false);
   });
 
   it('treats active file lifecycle or transfer work as file ownership', () => {

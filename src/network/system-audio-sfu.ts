@@ -15,7 +15,11 @@ import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
-import { claimPlaybackOwner, releasePlaybackOwner } from '../player/ownership.ts';
+import {
+  claimPlaybackOwner,
+  isSystemAudioPlaybackActive,
+  releasePlaybackOwner,
+} from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
 import {
@@ -605,7 +609,7 @@ function cleanupGuestSfu(updateState = true): void {
   guestConnectPromise = null;
   if (guestReceiving && updateState) {
     setState('systemAudio.isReceiving', false);
-    if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+    if (isSystemAudioPlaybackActive()) {
       releasePlaybackOwner('system-audio', { nextAppState: APP_STATE.IDLE });
     }
   }

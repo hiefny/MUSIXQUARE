@@ -18,6 +18,7 @@ import {
   claimPendingSystemAudioPlayback,
   claimPlaybackOwner,
   isSystemAudioPlaceholderMeta,
+  isSystemAudioPlaybackActive,
   releasePlaybackOwner,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
@@ -538,7 +539,7 @@ function cleanupGuestSystemAudio(): void {
   setState('systemAudio.isReceiving', false);
   setPlaybackTrackMeta(_prevTrackMeta ?? null);
   _prevTrackMeta = null;
-  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO || wasSystemAudioPlaceholder) {
+  if (isSystemAudioPlaybackActive() || wasSystemAudioPlaceholder) {
     releasePlaybackOwner('system-audio', {
       force: wasSystemAudioPlaceholder,
       nextAppState: APP_STATE.IDLE,

@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
@@ -543,7 +543,6 @@ function cleanupGuestSystemAudio(): void {
   if (isSystemAudioOwner() || wasSystemAudioPlaceholder) {
     releasePlaybackOwner('system-audio', {
       force: wasSystemAudioPlaceholder,
-      nextAppState: APP_STATE.IDLE,
     });
   }
 }

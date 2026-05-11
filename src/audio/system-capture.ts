@@ -10,7 +10,6 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import {
-  APP_STATE,
   MSG,
   WARN_WHEN_MAX_SLOTS_AT_LEAST,
   type PlaybackActivityValue,
@@ -24,7 +23,8 @@ import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
   getPlaybackModeActivitySnapshot,
-  setPlaybackAppState,
+  setPlaybackFilePaused,
+  setPlaybackIdle,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
@@ -268,7 +268,7 @@ export function stopSystemAudioCapture(): void {
     _preSysAudioState = null;
   } else {
     setPlaybackTrackMeta(null);
-    setPlaybackAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
   }
 
   bus.emit('ui:show-toast', t('system_audio.stopped'));
@@ -308,15 +308,15 @@ export function restorePreSystemAudioPlaybackState(snapshot: PreSystemAudioState
         subIndex: snapshot.subIndex,
       });
     } else {
-      setPlaybackAppState(APP_STATE.PAUSED);
+      setPlaybackFilePaused();
     }
     return;
   }
 
   if (snapshot.playback.activity === 'playing' || snapshot.playback.activity === 'paused') {
-    setPlaybackAppState(APP_STATE.PAUSED);
+    setPlaybackFilePaused();
   } else {
-    setPlaybackAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
   }
 }
 

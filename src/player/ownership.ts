@@ -476,6 +476,31 @@ export function updatePlaybackTrackTitle(
 
 // Write: ownership claim/release
 
+function setPlaybackModeActivity(modeActivity: PlaybackModeActivity): PlaybackOwnership {
+  writePlaybackModeActivity(modeActivity);
+  return syncPlaybackModeActivityFromOwnership();
+}
+
+export function setPlaybackIdle(): PlaybackOwnership {
+  return setPlaybackModeActivity({ mode: null, activity: 'idle' });
+}
+
+export function setPlaybackFilePlaying(): PlaybackOwnership {
+  return setPlaybackModeActivity({ mode: 'file', activity: 'playing' });
+}
+
+export function setPlaybackFilePaused(): PlaybackOwnership {
+  return setPlaybackModeActivity({ mode: 'file', activity: 'paused' });
+}
+
+export function setPlaybackYouTubePlaying(): PlaybackOwnership {
+  return setPlaybackModeActivity({ mode: 'youtube', activity: 'playing' });
+}
+
+export function setPlaybackSystemAudioPlaying(): PlaybackOwnership {
+  return setPlaybackModeActivity({ mode: 'system-audio', activity: 'playing' });
+}
+
 export function claimPlaybackOwner(
   owner: Exclude<PlaybackOwner, 'none'>,
   options: PlaybackClaimOptions = {},
@@ -492,8 +517,7 @@ export function claimPlaybackOwner(
 
 export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership {
   const modeActivity = deriveModeActivityFromAppState(appState);
-  writePlaybackModeActivity(modeActivity);
-  return syncPlaybackModeActivityFromOwnership();
+  return setPlaybackModeActivity(modeActivity);
 }
 
 export function releasePlaybackOwner(
@@ -507,6 +531,5 @@ export function releasePlaybackOwner(
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
   }
   const modeActivity = deriveModeActivityFromAppState(options.nextAppState ?? APP_STATE.IDLE);
-  writePlaybackModeActivity(modeActivity);
-  return syncPlaybackModeActivityFromOwnership();
+  return setPlaybackModeActivity(modeActivity);
 }

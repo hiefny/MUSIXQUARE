@@ -99,6 +99,7 @@ rg -n "appState|setPlaybackAppState|claimPlaybackOwner|releasePlaybackOwner" src
 - `ownership.ts::claimPlaybackOwner` writes `playback.mode/activity`.
 - `ownership.ts::setPlaybackAppState` accepts a legacy enum, projects it to `playback.mode/activity`, and writes only those slots.
 - `ownership.ts::releasePlaybackOwner` writes the projected next mode/activity.
+- New semantic writers (`setPlaybackIdle`, `setPlaybackFilePlaying`, `setPlaybackFilePaused`, `setPlaybackYouTubePlaying`, `setPlaybackSystemAudioPlaying`) are the preferred write API for non-protocol callers.
 
 This single-writer position was the entire reason Phase 5 was feasible. Before the Phase 1-4 work, this number was much higher.
 

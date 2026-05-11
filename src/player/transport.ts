@@ -21,7 +21,11 @@ import {
   isExternalOwner,
   isSystemAudioOwner,
   isYouTubeOwner,
-  setPlaybackAppState,
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackIdle,
+  setPlaybackSystemAudioPlaying,
+  setPlaybackYouTubePlaying,
 } from './ownership.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -75,7 +79,24 @@ export function fmtTime(s: number): string {
  * setPlaybackAppState projects the enum into playback.mode/activity.
  */
 export function setAppState(newState: AppStateValue): void {
-  setPlaybackAppState(newState);
+  switch (newState) {
+    case APP_STATE.PLAYING_AUDIO:
+      setPlaybackFilePlaying();
+      break;
+    case APP_STATE.PAUSED:
+      setPlaybackFilePaused();
+      break;
+    case APP_STATE.PLAYING_YOUTUBE:
+      setPlaybackYouTubePlaying();
+      break;
+    case APP_STATE.PLAYING_SYSTEM_AUDIO:
+      setPlaybackSystemAudioPlaying();
+      break;
+    case APP_STATE.IDLE:
+    default:
+      setPlaybackIdle();
+      break;
+  }
 }
 
 function getLegacyAppState(): AppStateValue {

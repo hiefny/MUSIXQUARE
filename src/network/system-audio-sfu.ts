@@ -10,7 +10,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
@@ -611,7 +611,7 @@ function cleanupGuestSfu(updateState = true): void {
   if (guestReceiving && updateState) {
     setSystemAudioReceiving(false);
     if (isSystemAudioOwner()) {
-      releasePlaybackOwner('system-audio', { nextAppState: APP_STATE.IDLE });
+      releasePlaybackOwner('system-audio');
     }
   }
   guestReceiving = false;

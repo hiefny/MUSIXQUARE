@@ -13,7 +13,6 @@ import {
   CHUNK_SIZE,
   TRANSFER_STATE,
   WATCHDOG_TIMEOUT,
-  APP_STATE,
   DEMO_FILE_NAME,
   PLAYBACK_STATE,
   LOAD_SOURCE,
@@ -41,7 +40,7 @@ import {
   isExternalOwner,
   isSystemAudioOwner,
   isYouTubeOwner,
-  setPlaybackAppState,
+  setPlaybackIdle,
   setPlaybackTransferState,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
@@ -390,7 +389,7 @@ export async function handleFilePrepare(
     log.debug('[Transfer] Accepting demo FILE_PREPARE during YouTube mode');
     bus.emit('player:stop-all-media');
     if (isYouTubeOwner()) {
-      setPlaybackAppState(APP_STATE.IDLE);
+      setPlaybackIdle();
     }
     if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
   }

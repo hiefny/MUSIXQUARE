@@ -123,6 +123,7 @@ Click handlers may still poll using Pattern 1. The rule is:
 - This phase proves the shape without changing wire protocol or storage schema.
 - `owner` and `mode` are not guaranteed to match. Example: PAUSED has no active owner but derives `mode: file` because legacy `APP_STATE.PAUSED` only represents the local-file pause shadow; YouTube pause lives in the YouTube player state instead.
 - The adapter may have no production callers immediately after landing. That is intentional: it establishes the contract first, then later phases can migrate callers onto it without mixing behavior changes into the adapter commit.
+- The full decomposition roadmap (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document is the migration plan; this one remains the read/write contract reference.
 
 ## Verification Gate
 

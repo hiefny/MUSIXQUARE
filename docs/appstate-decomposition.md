@@ -113,7 +113,7 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 **Important readers and intentional legacy holdouts**:
 
 - `src/player/ownership.ts` - the single bridge that projects legacy enum input to `playback.mode/activity` and derives legacy enum output from those slots.
-- `src/player/transport.ts` - keeps the legacy `setAppState()` compatibility wrapper, while its own playback writes use semantic mode/activity helpers.
+- `src/player/transport.ts` - writes playback through semantic mode/activity helpers; its stop/pause guards preserve old IDLE semantics through `isPlaybackLegacyIdle()`.
 - `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
 - `src/audio/beat-detector.ts` - keeps a module-local file-playing cache from `playback.mode/activity`, with buffer-change refresh for silent track switches.
 - `src/player/playlist.ts` - historical idle checks guard async decode races where the legacy `IDLE` shadow is the intended signal, but read it through `isPlaybackLegacyIdle()`.
@@ -188,7 +188,7 @@ Order, lowest-risk first:
    - Remove that reconciliation only after lifecycle, transfer, metadata, and system-audio source signals are no longer allowed to mutate outside ownership helpers.
 
 4. **Playback domain (1 day)**
-   - `src/player/transport.ts` keeps the legacy `setAppState()` compatibility wrapper, but its internal playback writes use semantic mode/activity helpers.
+   - `src/player/transport.ts` writes playback through semantic mode/activity helpers and no longer exports the old `setAppState()` adapter.
    - First pass done for YouTube mode questions in `playlist.ts`, `playback.ts`, and the silent YouTube handoff in `transport.ts`.
    - `src/player/playlist.ts` historical idle guards still use strict legacy IDLE semantics for async decode races, but read through `isPlaybackLegacyIdle()`.
    - `src/player/playback.ts` uses playback-playing file helpers for seek/restart paths that only apply to active local file playback.

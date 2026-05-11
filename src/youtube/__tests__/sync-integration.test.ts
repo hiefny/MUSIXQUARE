@@ -32,7 +32,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { APP_STATE, MSG, type AppStateValue } from '../../core/constants.ts';
+import { APP_STATE, MSG } from '../../core/constants.ts';
 import { setPlaybackAppState } from '../../player/ownership.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
 
@@ -134,12 +134,11 @@ vi.mock('../search.ts', () => ({
   fetchPlaylistSubTitles: vi.fn(),
 }));
 
-// transport.ts — fmtTime + setAppState, both trivial
+// transport.ts — fmtTime is the only runtime helper needed here.
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: vi.fn(
     (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`,
   ),
-  setAppState: vi.fn((s: string) => setPlaybackAppState(s as AppStateValue)),
 }));
 
 vi.mock('../../ui/toast.ts', () => ({

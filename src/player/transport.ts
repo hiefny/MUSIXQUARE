@@ -9,8 +9,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
-import type { AppStateValue } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
@@ -26,8 +25,6 @@ import {
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
   setPlaybackIdle,
-  setPlaybackSystemAudioPlaying,
-  setPlaybackYouTubePlaying,
 } from './ownership.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -75,31 +72,6 @@ export function fmtTime(s: number): string {
 }
 
 // ─── App State Helper ─────────────────────────────────────────────
-
-/**
- * Central compatibility function for legacy appState callers.
- * setPlaybackAppState projects the enum into playback.mode/activity.
- */
-export function setAppState(newState: AppStateValue): void {
-  switch (newState) {
-    case APP_STATE.PLAYING_AUDIO:
-      setPlaybackFilePlaying();
-      break;
-    case APP_STATE.PAUSED:
-      setPlaybackFilePaused();
-      break;
-    case APP_STATE.PLAYING_YOUTUBE:
-      setPlaybackYouTubePlaying();
-      break;
-    case APP_STATE.PLAYING_SYSTEM_AUDIO:
-      setPlaybackSystemAudioPlaying();
-      break;
-    case APP_STATE.IDLE:
-    default:
-      setPlaybackIdle();
-      break;
-  }
-}
 
 function isLegacyIdle(): boolean {
   return isPlaybackLegacyIdle();
@@ -471,7 +443,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   // Snapshot the load token at entry. If the play()-level watchdog fires
   // (or another path bumps the token, e.g. track switch), every await
   // checkpoint below will see a mismatch and abort cleanly instead of
-  // racing with the watchdog's stopPlayerNode + setAppState(IDLE).
+  // racing with the watchdog's stopPlayerNode + semantic IDLE write.
   const myLoadToken = getLoadToken();
   log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
 
@@ -495,7 +467,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   // ── Post-await mode re-check ──────────────────────────────────────
   // While we awaited ensureRunning/initAudio, the user may have switched
   // to YouTube mode. Without this guard, _internalPlay continues to
-  // create an AudioBufferSourceNode and calls setAppState(PLAYING_AUDIO),
+  // create an AudioBufferSourceNode and mark file playback as playing,
   // overwriting PLAYING_YOUTUBE — causing double-audio and a broken UI
   // state that requires a page reload.
   if (isExternalOwner()) {

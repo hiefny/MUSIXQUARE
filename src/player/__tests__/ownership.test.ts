@@ -204,7 +204,7 @@ describe('playback ownership view', () => {
     expectPlaybackModeActivitySlots(null, 'idle');
   });
 
-  it('dual-writes placeholder metadata ownership into playback mode/activity slots', () => {
+  it('mirrors placeholder metadata ownership into playback mode/activity slots', () => {
     setPlaybackTrackMeta(createSystemAudioTrackMeta('receiving'));
 
     expect(getPlaybackOwnership()).toMatchObject({
@@ -226,7 +226,7 @@ describe('playback ownership view', () => {
     expectPlaybackModeActivitySlots('system-audio', 'pending');
   });
 
-  it('dual-writes lifecycle, transfer, and system-audio source helpers into playback slots', () => {
+  it('reconciles lifecycle, transfer, and system-audio source helpers into playback slots', () => {
     setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
     expectPlaybackModeActivitySlots('file', 'pending');
 

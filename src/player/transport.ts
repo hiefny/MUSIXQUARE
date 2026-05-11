@@ -71,8 +71,8 @@ export function fmtTime(s: number): string {
 // ─── App State Helper ─────────────────────────────────────────────
 
 /**
- * Central function: update legacy appState.
- * setPlaybackAppState also refreshes playback.mode/activity shadow slots.
+ * Central compatibility function for legacy appState callers.
+ * setPlaybackAppState projects the enum into playback.mode/activity.
  */
 export function setAppState(newState: AppStateValue): void {
   setPlaybackAppState(newState);

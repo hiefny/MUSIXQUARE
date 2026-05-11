@@ -14,7 +14,12 @@ import {
 } from '../_state.ts';
 import { initPlayback } from '../playback.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
-import { isExternalOwner, isSystemAudioOwner, setPlaybackAppState } from '../ownership.ts';
+import {
+  getPlaybackLegacyAppState,
+  isExternalOwner,
+  isSystemAudioOwner,
+  setPlaybackAppState,
+} from '../ownership.ts';
 import { broadcast } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
 
@@ -81,9 +86,9 @@ describe('stopPlayerNode', () => {
 
 describe('stopAllMedia', () => {
   it('resets appState to IDLE', () => {
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     stopAllMedia();
-    expect(getState('appState')).toBe('IDLE');
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
   });
 
   it('requests visualizer fade-out instead of frame hold', () => {
@@ -99,7 +104,7 @@ describe('stopAllMedia', () => {
   });
 
   it('broadcasts PAUSE with reason=transition for silent track-change path', () => {
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
 
     stopAllMedia({ silent: true });
 
@@ -109,15 +114,15 @@ describe('stopAllMedia', () => {
   });
 
   it('clears YouTube mode during a silent audio takeover', () => {
-    setState('appState', 'PLAYING_YOUTUBE');
+    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
 
     stopAllMedia({ silent: true });
 
-    expect(getState('appState')).toBe('IDLE');
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
   });
 
   it('broadcasts PAUSE with reason=stop for explicit terminal stops', () => {
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
 
     stopAllMedia();
 
@@ -160,23 +165,23 @@ describe('pause', () => {
   it('holds the current visualizer frame for an explicit pause', () => {
     const hold = vi.fn();
     bus.on('visualizer:hold-frame', hold);
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
 
     pause();
 
     expect(hold).toHaveBeenCalledTimes(1);
-    expect(getState('appState')).toBe('PAUSED');
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
   });
 
   it('does not hold the visualizer for programmatic rendezvous pauses', () => {
     const hold = vi.fn();
     bus.on('visualizer:hold-frame', hold);
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
 
     pause(0, { holdVisualizer: false });
 
     expect(hold).not.toHaveBeenCalled();
-    expect(getState('appState')).toBe('PAUSED');
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
   });
 });
 

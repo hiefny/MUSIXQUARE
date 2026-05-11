@@ -10,14 +10,14 @@ beforeEach(() => {
 describe('State Store', () => {
   describe('getState / setState', () => {
     it('reads initial default values', () => {
-      expect(getState('appState')).toBe('IDLE');
+      expect(getState('setup.sessionStarted')).toBe(false);
       expect(getState('audio.masterVolume')).toBe(1.0);
       expect(getState('playlist.currentTrackIndex')).toBe(-1);
     });
 
     it('sets and reads a top-level value', () => {
-      setState('appState', 'PLAYING_AUDIO');
-      expect(getState('appState')).toBe('PLAYING_AUDIO');
+      setState('setup.sessionStarted', true);
+      expect(getState('setup.sessionStarted')).toBe(true);
     });
 
     it('sets and reads nested values', () => {
@@ -43,8 +43,8 @@ describe('State Store', () => {
 
     it('does not emit when value is unchanged', () => {
       const fn = vi.fn();
-      bus.on('state:appState', fn);
-      setState('appState', 'IDLE'); // same as default
+      bus.on('state:setup.sessionStarted', fn);
+      setState('setup.sessionStarted', false); // same as default
       expect(fn).not.toHaveBeenCalled();
     });
   });
@@ -74,9 +74,9 @@ describe('State Store', () => {
 
     it('deduplicates events for same path', () => {
       const fn = vi.fn();
-      bus.on('state:appState', fn);
+      bus.on('state:player.startedAt', fn);
       // batchSetState with same path won't duplicate since it's a Record
-      batchSetState({ appState: 'PLAYING_AUDIO' });
+      batchSetState({ 'player.startedAt': 1 });
       expect(fn).toHaveBeenCalledTimes(1);
     });
   });
@@ -84,17 +84,17 @@ describe('State Store', () => {
   describe('snapshot', () => {
     it('returns current state tree', () => {
       const snap = snapshot();
-      expect(snap.appState).toBe('IDLE');
+      expect(snap.setup.sessionStarted).toBe(false);
       expect(snap.audio.masterVolume).toBe(1.0);
     });
   });
 
   describe('resetState', () => {
     it('restores all defaults', () => {
-      setState('appState', 'PAUSED');
+      setState('setup.sessionStarted', true);
       setState('audio.masterVolume', 0.1);
       resetState();
-      expect(getState('appState')).toBe('IDLE');
+      expect(getState('setup.sessionStarted')).toBe(false);
       expect(getState('audio.masterVolume')).toBe(1.0);
     });
   });

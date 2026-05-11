@@ -18,7 +18,7 @@
  * Key design decisions:
  *   - Real core/timers.ts so `setManagedTimer` / `getManagedTimer` work
  *     under `vi.useFakeTimers()` and behave identically to production.
- *   - Real playback ownership writes so YouTube mode/activity shadow slots
+ *   - Real playback ownership writes so YouTube mode/activity slots
  *     unblock the guards at the top of handleYouTubeSync / handleYouTubeState.
  *   - Real core/events.ts (bus) so emits from sync.ts don't error out.
  *   - Mocked `_state.ts::getYouTubePlayer` swapped per test via `.mockReturnValue`.

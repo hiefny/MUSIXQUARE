@@ -5,7 +5,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection, TrackMeta } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { registerSystemAudioGuestListeners } from '../system-audio-guest.ts';
-import { setPlaybackAppState } from '../../player/ownership.ts';
+import { getPlaybackLegacyAppState, setPlaybackAppState } from '../../player/ownership.ts';
 import { stopAllMedia } from '../../player/transport.ts';
 
 const timerMocks = vi.hoisted(() => {
@@ -86,7 +86,7 @@ describe('system audio guest receive watchdog', () => {
 
     expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
     expect(getState('systemAudio.isReceiving')).toBe(false);
-    expect(getState('appState')).toBe(APP_STATE.IDLE);
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
   });
 
   it('clears the watchdog once a stream is marked as receiving', async () => {

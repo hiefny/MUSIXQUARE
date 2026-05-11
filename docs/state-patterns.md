@@ -1,6 +1,6 @@
 # Playback State Consumption Plan
 
-MUSIXQUARE still exposes the legacy `appState` enum, but callers must not treat every read as the same operation. This document defines the contract for how modules consume playback state during the ownership refactor.
+MUSIXQUARE still exposes legacy `APP_STATE` values for compatibility, but the global state tree no longer stores `state.appState`. This document defines the contract for how modules consume playback state during and after the ownership refactor.
 
 ## Core Problem
 
@@ -107,16 +107,14 @@ Click handlers may still poll using Pattern 1. The rule is:
 - Keep click handlers polling fresh state via Pattern 1.
 - `player-controls`, `visualizer`, and playlist refresh triggers now consume playback mode/activity for display and playback-activity rendering.
 
-### Phase 5: Mode/Activity Decomposition Adapter
+### Phase 5: Mode/Activity Decomposition
 
-- Do not replace the global state tree in one jump.
-- Add a derived adapter in `ownership.ts`:
+- Replace the legacy global state slot with the playback domain state:
   - `mode`: `file | youtube | system-audio | null`
   - `activity`: `idle | paused | playing | pending`
-- Use it as the migration boundary for future state-tree decomposition.
-- This phase proves the shape without changing wire protocol or storage schema.
+- `state.appState` has been removed. `getPlaybackLegacyAppState()` derives the old enum for compatibility consumers only.
 - `owner` and `mode` are not guaranteed to match. Example: PAUSED has no active owner but derives `mode: file` because legacy `APP_STATE.PAUSED` only represents the local-file pause shadow; YouTube pause lives in the YouTube player state instead.
-- `state.playback.mode/activity` are the primary contract after 5f. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question. Keep `getPlaybackLegacyAppState()` only for legacy enum compatibility and rollbackable protocol decisions.
+- `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question. Keep `getPlaybackLegacyAppState()` only for legacy enum compatibility and rollbackable protocol decisions.
 - The full decomposition roadmap (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document is the migration plan; this one remains the read/write contract reference.
 
 ## Verification Gate

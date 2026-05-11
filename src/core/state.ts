@@ -7,7 +7,6 @@
 
 import { bus } from './events.ts';
 import {
-  APP_STATE,
   TRANSFER_STATE,
   PLAYBACK_STATE,
   EQ_FREQUENCIES,
@@ -50,8 +49,6 @@ function readStoredGuestPlayLatency(): number {
 
 function createInitialState(): StateTree {
   return {
-    appState: APP_STATE.IDLE,
-
     setup: {
       sessionStarted: false,
     },

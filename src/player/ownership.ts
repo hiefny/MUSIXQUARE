@@ -190,48 +190,53 @@ export function deriveAppStateFromModeActivity(
 // Phase 5 migration boundary. Production callers should consume the narrower
 // mode/activity helpers when their question matches that contract, while this
 // adapter keeps broad ownership and legacy compatibility data available.
-function deriveModeActivity(ownership: {
-  owner: PlaybackOwner;
-  appState: AppStateValue;
+function deriveModeActivityFromSources(sources: {
+  mode: PlaybackMode;
+  activity: PlaybackActivity;
   lifecycle: PlaybackStateValue;
   isReceivingSystemAudio: boolean;
+  isSystemAudioPlaceholder: boolean;
   hasFilePipeline: boolean;
 }): PlaybackModeActivity {
-  if (ownership.owner === 'system-audio') {
+  if (
+    sources.mode === 'system-audio' ||
+    sources.isReceivingSystemAudio ||
+    sources.isSystemAudioPlaceholder
+  ) {
     return {
       mode: 'system-audio',
       activity:
-        ownership.appState === APP_STATE.PLAYING_SYSTEM_AUDIO || ownership.isReceivingSystemAudio
-          ? 'playing'
-          : 'pending',
+        sources.activity === 'playing' || sources.isReceivingSystemAudio ? 'playing' : 'pending',
     };
   }
 
-  if (ownership.owner === 'youtube') {
-    return deriveModeActivityFromAppState(APP_STATE.PLAYING_YOUTUBE);
+  if (sources.mode === 'youtube') {
+    return {
+      mode: 'youtube',
+      activity:
+        sources.activity === 'idle' || sources.activity === 'pending'
+          ? 'playing'
+          : sources.activity,
+    };
   }
 
-  if (ownership.owner === 'file') {
+  if (sources.mode === 'file' || sources.hasFilePipeline) {
     if (
-      ownership.appState === APP_STATE.PLAYING_AUDIO ||
-      ownership.lifecycle === PLAYBACK_STATE.PLAYING
+      sources.activity === 'playing' ||
+      (sources.mode === 'file' && sources.lifecycle === PLAYBACK_STATE.PLAYING)
     ) {
       return deriveModeActivityFromAppState(APP_STATE.PLAYING_AUDIO);
     }
 
-    if (ownership.lifecycle === PLAYBACK_STATE.PAUSED) {
+    if (sources.activity === 'paused' || sources.lifecycle === PLAYBACK_STATE.PAUSED) {
       return deriveModeActivityFromAppState(APP_STATE.PAUSED);
     }
 
-    if (ownership.hasFilePipeline) {
+    if (sources.activity === 'pending' || sources.hasFilePipeline) {
       return { mode: 'file', activity: 'pending' };
     }
-  }
 
-  // YouTube pause is represented by YouTube's own player state, not APP_STATE.PAUSED.
-  // In this legacy appState model, PAUSED means the local-file pipeline is paused.
-  if (ownership.appState === APP_STATE.PAUSED) {
-    return deriveModeActivityFromAppState(APP_STATE.PAUSED);
+    return { mode: 'file', activity: 'idle' };
   }
 
   return { mode: null, activity: 'idle' };
@@ -240,7 +245,8 @@ function deriveModeActivity(ownership: {
 // Read: full ownership view
 
 export function getPlaybackOwnership(): PlaybackOwnership {
-  const appState = getState('appState');
+  const storedMode = getState('playback.mode');
+  const storedActivity = getState('playback.activity');
   const lifecycle = getState('playback.lifecycle');
   const transferState = getState('transfer.state');
   const currentTrackMeta = getState('player.currentTrackMeta') as TrackMeta | null;
@@ -248,26 +254,27 @@ export function getPlaybackOwnership(): PlaybackOwnership {
   const isSystemAudioPlaceholder = isSystemAudioPlaceholderMeta(currentTrackMeta);
   const filePipeline = hasFilePipeline(lifecycle, transferState);
 
-  let owner: PlaybackOwner = 'none';
-  if (
-    appState === APP_STATE.PLAYING_SYSTEM_AUDIO ||
-    isReceivingSystemAudio ||
-    isSystemAudioPlaceholder
-  ) {
-    owner = 'system-audio';
-  } else if (appState === APP_STATE.PLAYING_YOUTUBE) {
-    owner = 'youtube';
-  } else if (appState === APP_STATE.PLAYING_AUDIO || filePipeline) {
-    owner = 'file';
-  }
-
-  const modeActivity = deriveModeActivity({
-    owner,
-    appState,
+  const modeActivity = deriveModeActivityFromSources({
+    mode: storedMode,
+    activity: storedActivity,
     lifecycle,
     isReceivingSystemAudio,
+    isSystemAudioPlaceholder,
     hasFilePipeline: filePipeline,
   });
+  const appState = deriveAppStateFromModeActivity(modeActivity.mode, modeActivity.activity);
+
+  let owner: PlaybackOwner = 'none';
+  if (modeActivity.mode === 'system-audio' && modeActivity.activity !== 'idle') {
+    owner = 'system-audio';
+  } else if (modeActivity.mode === 'youtube' && modeActivity.activity !== 'idle') {
+    owner = 'youtube';
+  } else if (
+    modeActivity.mode === 'file' &&
+    (modeActivity.activity === 'playing' || modeActivity.activity === 'pending')
+  ) {
+    owner = 'file';
+  }
 
   return {
     owner,
@@ -324,10 +331,6 @@ function writePlaybackModeActivity(modeActivity: PlaybackModeActivity): void {
   setState('playback.activity', modeActivity.activity);
 }
 
-function syncLegacyAppStateFromModeActivity(modeActivity: PlaybackModeActivity): void {
-  setState('appState', deriveAppStateFromModeActivity(modeActivity.mode, modeActivity.activity));
-}
-
 function assertPlaybackModeActivitySynced(expected: PlaybackModeActivity): void {
   if (!import.meta.env?.DEV) return;
 
@@ -345,7 +348,6 @@ export function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
   const ownership = getPlaybackOwnership();
   const modeActivity = { mode: ownership.mode, activity: ownership.activity };
   writePlaybackModeActivity(modeActivity);
-  syncLegacyAppStateFromModeActivity(modeActivity);
 
   const syncedOwnership = getPlaybackOwnership();
   assertPlaybackModeActivitySynced(syncedOwnership);
@@ -367,10 +369,9 @@ export function setSystemAudioReceiving(isReceiving: boolean): PlaybackOwnership
   return syncPlaybackModeActivityFromOwnership();
 }
 
-// Shadow-slot bridge for Phase 5. Until readers move fully to mode/activity,
-// legacy source events remain the canonical triggers for keeping the new slots fresh.
+// Shadow-slot bridge for Phase 5. Domain source events keep mode/activity fresh
+// when older setup/test paths still write lifecycle or metadata directly.
 for (const event of [
-  'state:appState',
   'state:playback.lifecycle',
   'state:transfer.state',
   'state:player.currentTrackMeta',
@@ -485,7 +486,6 @@ export function claimPlaybackOwner(
   if (!options.pending) {
     const modeActivity = deriveModeActivityFromAppState(OWNER_APP_STATE[owner]);
     writePlaybackModeActivity(modeActivity);
-    syncLegacyAppStateFromModeActivity(modeActivity);
   }
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
@@ -496,7 +496,6 @@ export function claimPlaybackOwner(
 export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership {
   const modeActivity = deriveModeActivityFromAppState(appState);
   writePlaybackModeActivity(modeActivity);
-  syncLegacyAppStateFromModeActivity(modeActivity);
   return syncPlaybackModeActivityFromOwnership();
 }
 
@@ -512,6 +511,5 @@ export function releasePlaybackOwner(
   }
   const modeActivity = deriveModeActivityFromAppState(options.nextAppState ?? APP_STATE.IDLE);
   writePlaybackModeActivity(modeActivity);
-  syncLegacyAppStateFromModeActivity(modeActivity);
   return syncPlaybackModeActivityFromOwnership();
 }

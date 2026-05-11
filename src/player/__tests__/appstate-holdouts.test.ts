@@ -7,10 +7,7 @@ const SRC_ROOT = join(process.cwd(), 'src');
 const LEGACY_APPSTATE_PATTERN =
   /\bisAppState[A-Za-z0-9_]*\b|getState\('appState'\)|setState\('appState'\)|state:appState/;
 
-const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>([
-  ['src/player/ownership.ts', 'Single bridge between legacy appState and playback mode/activity.'],
-  ['src/types/index.ts', 'State tree and EventMap keep appState types until removal phase.'],
-]);
+const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>();
 
 const ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES = new Map<string, string>([
   ['src/chat/commands.ts', 'Debug status prints legacy appState alongside mode/activity.'],
@@ -48,7 +45,7 @@ function toRepoPath(path: string): string {
 }
 
 describe('legacy appState holdouts', () => {
-  it('keeps production legacy appState readers inside the documented boundary', () => {
+  it('keeps production code free of raw legacy appState state-slot access', () => {
     const files = listProductionTypeScriptFiles(SRC_ROOT);
     const actual = files
       .filter((file) => LEGACY_APPSTATE_PATTERN.test(readFileSync(file, 'utf8')))

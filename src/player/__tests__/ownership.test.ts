@@ -60,7 +60,7 @@ describe('playback ownership view', () => {
   });
 
   it('treats YouTube as an external owner', () => {
-    setState('appState', APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'youtube',
@@ -79,10 +79,10 @@ describe('playback ownership view', () => {
   it('exposes the legacy appState compatibility snapshot', () => {
     expect(getPlaybackLegacyAppState()).toBe(APP_STATE.IDLE);
 
-    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setPlaybackAppState(APP_STATE.PLAYING_AUDIO);
     expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PLAYING_AUDIO);
 
-    setState('appState', APP_STATE.PAUSED);
+    setPlaybackAppState(APP_STATE.PAUSED);
     expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
     expect(isFileOwner()).toBe(false);
     expect(isPlaybackPaused()).toBe(true);
@@ -90,7 +90,7 @@ describe('playback ownership view', () => {
   });
 
   it('treats system audio app state as an external owner', () => {
-    setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
+    setPlaybackAppState(APP_STATE.PLAYING_SYSTEM_AUDIO);
 
     expect(getPlaybackOwnership()).toMatchObject({
       owner: 'system-audio',
@@ -186,7 +186,7 @@ describe('playback ownership view', () => {
   });
 
   it('releases only the requested owner unless forced', () => {
-    setState('appState', APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
     const before = getPlaybackOwnership();
 
     releasePlaybackOwner('system-audio', { nextAppState: APP_STATE.IDLE });

@@ -8,7 +8,7 @@ import {
   PLAYBACK_STATE,
   TRANSFER_STATE,
 } from '../../core/constants.ts';
-import { setPlaybackAppState } from '../../player/ownership.ts';
+import { getPlaybackLegacyAppState, setPlaybackAppState } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../storage.ts', () => ({
@@ -134,7 +134,7 @@ describe('remote-share to local direct transfer promotion', () => {
       conn,
     );
 
-    expect(getState('appState')).toBe(APP_STATE.PAUSED);
+    expect(getPlaybackLegacyAppState()).toBe(APP_STATE.PAUSED);
     expect(getState('playback.mode')).toBe('file');
     expect(getState('playback.activity')).toBe('pending');
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);

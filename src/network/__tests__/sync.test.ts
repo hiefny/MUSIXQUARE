@@ -173,7 +173,7 @@ describe('SYNC_PING playback snapshot', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
 
     expect(getSyncPongPlaybackState()).toEqual({
-      appState: APP_STATE.IDLE,
+      appState: APP_STATE.PAUSED,
       mode: 'file',
       activity: 'pending',
     });

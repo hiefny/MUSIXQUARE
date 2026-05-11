@@ -472,7 +472,6 @@ export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 // ─── State Tree ──────────────────────────────────────────────────────
 
 export interface StateTree {
-  appState: AppStateValue;
   setup: { sessionStarted: boolean };
   player: {
     startedAt: number;
@@ -694,7 +693,7 @@ export type ShallowImmutable<T> = T extends Blob | DataConnection
           : T;
 
 // ─── State Change Events (auto-derived from StatePath) ────────────
-// Mapped type: generates 'state:appState', 'state:audio.masterVolume', etc.
+// Mapped type: generates 'state:audio.masterVolume', 'state:playback.mode', etc.
 // Typos like bus.emit('state:audio.volumee') → compile error.
 type StateEvents = {
   [P in StatePath as `state:${P}`]: [value: unknown, path: string];

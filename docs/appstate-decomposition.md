@@ -1,15 +1,16 @@
 # AppState Decomposition (Phase 5)
 
-> Companion to [state-patterns.md](state-patterns.md). That document defines the read/write contract for the current flat `appState` enum. This one is the migration plan for replacing that enum with a two-axis model (`mode` x `activity`).
+> Companion to [state-patterns.md](state-patterns.md). That document defines the read/write contract for playback state. This one records the migration from the old flat `appState` enum to the two-axis model (`mode` x `activity`).
 
 ## Status
 
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`, and production readers now consume the narrower mode/activity helper surface where their question matches that contract.
-- 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
-- 5c (reader migration): **DONE for raw readers**. Production raw legacy readers are now limited to `ownership.ts` and `types/index.ts`. Compatibility consumers that still need the legacy enum read it through `getPlaybackLegacyAppState()` and are pinned by test.
+- 5b (dual write): **DONE**. `state.playback.mode/activity` were introduced as shadow slots and are now the primary playback state.
+- 5c (reader migration): **DONE for raw readers**. Production code no longer reads or writes the old `state.appState` slot. Compatibility consumers that still need the legacy enum read it through `getPlaybackLegacyAppState()` and are pinned by test.
 - 5d (wire protocol compat): **DONE**. `SYNC_PONG` defaults to mode/activity only; legacy `appState` emit/accept remain available only through rollback env flags.
 - 5e (system-capture snapshot): **DONE**. Capture restore snapshots use `playback.mode/activity`; pending file work is intentionally not revived after capture stops.
 - 5f (source-of-truth flip): **DONE**. Ownership writes `playback.mode/activity` first and always derives the compatibility `appState` shadow from them.
+- 5g (`state.appState` removal): **DONE**. The global state tree no longer stores `appState`; the old enum survives only as a derived compatibility view and rollbackable sync payload field.
 
 ## Motivation
 
@@ -71,19 +72,19 @@ state.player = {
 
 Long-term, it may be useful to describe all playback-facing fields under one logical "playback domain", but this migration should not move `player.*` fields. Moving those fields would be a separate storage/API migration with no direct payoff for the `appState` split.
 
-`state.appState` becomes a derived view for the duration of the migration and is removed, or kept as an exported compatibility getter, at the end.
+The old `state.appState` slot is gone. Legacy `appState` is now an exported compatibility getter derived from `playback.mode/activity`.
 
 `PLAYBACK_STATE` stays untouched. It is the file-pipeline FSM and orthogonal to mode/activity.
 
 ## Migration Principle
 
-**Dual-write before cutover, every step reversible.**
+**Dual-write before cutover, then remove the legacy slot.**
 
-1. New slots are added and written as a side effect of existing writes. Nothing reads them yet.
-2. Readers migrate one domain at a time. Compatibility readers that still need the legacy enum use `getPlaybackLegacyAppState()`.
-3. Wire protocol carries both fields for at least two production releases before dropping legacy emit.
-4. Source-of-truth flips only after every production reader is on the new slots.
-5. Legacy `appState` is removed last, or kept indefinitely as an exported getter if external consumers might exist.
+1. New slots were added and written as a side effect of existing writes.
+2. Readers migrated one domain at a time. Compatibility readers that still need the legacy enum use `getPlaybackLegacyAppState()`.
+3. Wire protocol carries mode/activity by default; legacy emit/accept survives only behind rollback flags.
+4. Source-of-truth flipped only after production readers were on the new slots.
+5. Legacy `state.appState` was removed last; a derived compatibility getter remains for holdouts.
 
 ## Concrete Survey of Today's State
 
@@ -93,13 +94,13 @@ Refresh this survey before each new sub-phase with:
 rg -n "appState|setPlaybackAppState|claimPlaybackOwner|releasePlaybackOwner" src
 ```
 
-**Writers**: 3 direct writes, all inside `src/player/ownership.ts`.
+**Writers**: no direct `state.appState` writes remain.
 
-- `ownership.ts::claimPlaybackOwner` writes `OWNER_APP_STATE[owner]`.
-- `ownership.ts::setPlaybackAppState` writes the passed value.
-- `ownership.ts::releasePlaybackOwner` writes `nextAppState ?? IDLE`.
+- `ownership.ts::claimPlaybackOwner` writes `playback.mode/activity`.
+- `ownership.ts::setPlaybackAppState` accepts a legacy enum, projects it to `playback.mode/activity`, and writes only those slots.
+- `ownership.ts::releasePlaybackOwner` writes the projected next mode/activity.
 
-This single-writer position is the entire reason Phase 5 is feasible. Before the Phase 1-4 work, this number was much higher.
+This single-writer position was the entire reason Phase 5 was feasible. Before the Phase 1-4 work, this number was much higher.
 
 **Wire protocol and cross-version compatibility**:
 
@@ -110,7 +111,7 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 **Important readers and intentional legacy holdouts**:
 
-- `src/player/ownership.ts` - the single bridge that reads/writes legacy `appState` and derives `playback.mode/activity`.
+- `src/player/ownership.ts` - the single bridge that projects legacy enum input to `playback.mode/activity` and derives legacy enum output from those slots.
 - `src/player/transport.ts` - owns legacy enum transitions via `setPlaybackAppState`; strict legacy reads now go through `getPlaybackLegacyAppState()`.
 - `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
 - `src/audio/beat-detector.ts` - keeps a module-local file-playing cache from `playback.mode/activity`, with buffer-change refresh for silent track switches.
@@ -128,21 +129,21 @@ This single-writer position is the entire reason Phase 5 is feasible. Before the
 
 **Initial state and types**:
 
-- `src/core/state.ts` - `appState: APP_STATE.IDLE` remains in the initial state until 5g, but does not read the value after initialization.
-- `src/types/index.ts` - `StateTree.appState`, sync payload compatibility fields, and mapped `state:appState` events remain until the wire wait is complete.
+- `src/core/state.ts` - no longer initializes `appState`; playback starts from `playback.mode = null` and `playback.activity = 'idle'`.
+- `src/types/index.ts` - `StateTree.appState` and mapped `state:appState` events are removed. Sync payload compatibility fields remain behind rollback flags.
 
-Do not treat this list as a mandate to remove every legacy reference. The remaining references fall into either source-of-truth writes, cross-version compatibility, or deliberately strict legacy command gates.
-`src/player/__tests__/appstate-holdouts.test.ts` pins both the raw production holdout list and the narrower `getPlaybackLegacyAppState()` compatibility consumers, so new legacy reads cannot appear unnoticed.
+Do not treat this list as a mandate to remove every legacy reference. The remaining references fall into cross-version compatibility or deliberately strict legacy command gates.
+`src/player/__tests__/appstate-holdouts.test.ts` bans raw production slot/event access and pins the narrower `getPlaybackLegacyAppState()` compatibility consumers, so new legacy reads cannot appear unnoticed.
 
 ## Sub-Phase Roadmap
 
 ### 5b - Dual Write (1 day)
 
-Add `state.playback.mode` and `state.playback.activity` to the state tree, defaulting to `null` and `'idle'`. Inside `ownership.ts::claimPlaybackOwner`, `setPlaybackAppState`, `releasePlaybackOwner`, and `setPlaybackTrackMeta`, write the new slots alongside the existing legacy state writes. `setPlaybackTrackMeta` is included because the system-audio guest placeholder can establish pending ownership before `appState` changes.
+Add `state.playback.mode` and `state.playback.activity` to the state tree, defaulting to `null` and `'idle'`. Inside `ownership.ts::claimPlaybackOwner`, `setPlaybackAppState`, `releasePlaybackOwner`, and `setPlaybackTrackMeta`, write the new slots alongside the existing legacy state writes. `setPlaybackTrackMeta` is included because the system-audio guest placeholder can establish pending ownership before the legacy compatibility value changes.
 
-Wire `state:playback.mode` and `state:playback.activity` bus events. Existing `state:appState` continues to fire unchanged.
+Wire `state:playback.mode` and `state:playback.activity` bus events. The old `state:appState` event was removed in 5g.
 
-**Invariant**: `deriveModeActivity()` applied to `appState` must equal `(mode, activity)` after every ownership transition. Add a DEV-only assertion in the ownership write helpers, not in `core/state.ts`. Keeping the assertion in `ownership.ts` avoids a core-to-player dependency and catches drift at the single writer boundary.
+**Invariant**: `deriveAppStateFromModeActivity()` is the only compatibility projection after 5g. During dual-write, the DEV assertion lived in ownership helpers rather than `core/state.ts` to avoid a core-to-player dependency.
 
 **Verification gate**:
 
@@ -155,10 +156,10 @@ Wire `state:playback.mode` and `state:playback.activity` bus events. Existing `s
 
 Order, lowest-risk first:
 
-0. **Shadow-slot sync hardening (0.5 day)**
-   - Keep `state.playback.mode/activity` synchronized from every legacy signal that contributes to `getPlaybackOwnership()`: `appState`, `playback.lifecycle`, `transfer.state`, `player.currentTrackMeta`, and `systemAudio.isReceiving`.
-   - Production writers for `playback.lifecycle`, `transfer.state`, and `systemAudio.isReceiving` now go through ownership helper functions that sync the shadow slots immediately; the bus bridge remains a compatibility backstop.
-   - This must land before any production reader trusts the new slots. File pending and system-audio pending are not purely appState-derived.
+0. **Mode/activity sync hardening (0.5 day)**
+   - Keep `state.playback.mode/activity` synchronized from every source signal that contributes to `getPlaybackOwnership()`: `playback.lifecycle`, `transfer.state`, `player.currentTrackMeta`, and `systemAudio.isReceiving`.
+   - Production writers for `playback.lifecycle`, `transfer.state`, and `systemAudio.isReceiving` now go through ownership helper functions that sync the primary slots immediately; the bus bridge remains a compatibility backstop.
+   - This landed before production readers trusted the new slots. File pending and system-audio pending were never purely appState-derived.
 
 1. **New mode/activity helper surface (0.5 day)**
    - Add helpers whose names match the new contract, for example `isPlaybackModeYouTube()`, `isPlaybackPlayingFile()`, `isPlaybackPaused()`, and `getPlaybackModeActivitySnapshot()`.
@@ -182,8 +183,8 @@ Order, lowest-risk first:
 
 3. **`is*Owner()` helpers (0.5 day)**
    - Re-point to compute from `(mode, activity)` plus the surviving signals (file lifecycle, system-audio placeholder/receiving).
-   - Done with a transitional freshness boundary: public owner predicates read mode/activity, but first reconcile shadow slots against `getPlaybackOwnership()` when legacy direct-write/bootstrap paths leave them stale.
-   - Remove that reconciliation once tests and any remaining bootstrap code stop mutating legacy source fields directly.
+   - Done with a transitional freshness boundary: public owner predicates read mode/activity, but first reconcile stored slots against `getPlaybackOwnership()` when lifecycle/bootstrap paths leave them stale.
+   - Remove that reconciliation only after lifecycle, transfer, metadata, and system-audio source signals are no longer allowed to mutate outside ownership helpers.
 
 4. **Playback domain (1 day)**
    - `src/player/transport.ts` still owns legacy playback-domain transitions, but its strict legacy checks now read through `getPlaybackLegacyAppState()`.
@@ -246,41 +247,41 @@ The Phase 3 doctrine still holds: this snapshot captures "what was playing befor
 
 ### 5f - Source-of-Truth Flip (0.5 day)
 
-DONE. `appState` is now a write-derived compatibility view of `(mode, activity)`:
+DONE. `appState` became a write-derived compatibility view of `(mode, activity)`:
 
 - `ownership.ts` writes `mode` and `activity` first, then derives `appState` from them.
 - Lifecycle-derived pending states keep their semantic priority over the derived legacy `PAUSED` shadow, so file `DOWNLOADING` / `READY` / `FAILED` do not collapse into `paused`.
 - The temporary `appStateSourceOfTruthFlip` rollback flag has been removed; the flip is now the only write path.
 
-The DEV-only invariant assertion from 5b remains useful until 5g removes the legacy shadow entirely.
+5g later removed the stored legacy shadow entirely.
 
-### 5g - `appState` Removal (Optional, 0.5 day)
+### 5g - `appState` Removal
 
-Drop `state.appState` from the state tree. `APP_STATE` enum stays as an exported constant in `core/constants.ts` for any code that still references the values for comparison. `AppStateValue` type stays for `network/sync.ts` legacy accept path until 5d-4.
+DONE. `state.appState` has been dropped from the state tree. `APP_STATE` and `AppStateValue` stay exported from `core/constants.ts` for compatibility callers, protocol rollback tests, and helper signatures such as `setPlaybackAppState()`.
 
-After 5d-4, even `APP_STATE` and `AppStateValue` can be removed.
+`getPlaybackLegacyAppState()` and `PlaybackOwnership.appState` now derive the old enum from `playback.mode/activity` rather than reading global state. This keeps status/debug/protocol compatibility without restoring a second source of truth.
 
-Whether to do 5g depends on whether `appState` carries any value beyond the new model. Likely answer: no, but the cost of removal is small and the cost of leaving it is also small. Defer indefinitely if no signal arrives.
+After the remaining legacy enum consumers and sync rollback flags are removed, `APP_STATE`, `AppStateValue`, and the compatibility projection helpers can be deleted as a final cleanup.
 
 ## Risk Register
 
 | Risk | Likelihood | Severity | Mitigation |
 | --- | --- | --- | --- |
 | Wire protocol break (host new, guest old) | Medium after cutover | High | Legacy emit/accept rollback flags remain available. |
-| Invariant drift between `appState` and `(mode, activity)` before 5g | Low | High | DEV-only assertion in ownership write helpers. Comprehensive transition tests in 5b/5f. |
+| Invariant drift between derived `appState` and `(mode, activity)` | Low | Medium | Legacy enum is now derived from mode/activity at read time; transition tests cover projection gaps. |
 | `system-capture` restore picks wrong mode after 5e | Low | Medium | Explicit restore matrix for file/youtube/system-audio x playing/paused/idle. |
 | UI displays stale during mid-migration commit | Low | Low | Per-commit test gate. Body-class sync lands in a single commit. |
-| Adapter's `PAUSED => mode: 'file'` assumption breaks post-decomposition | N/A | N/A | The assumption is encoded in legacy appState only. Once mode/activity are primary, "youtube paused" gets its own valid representation. Remove the special-case branch in `deriveModeActivity` when 5f lands. |
-| External tooling/log analytics that grep `appState` from console logs | Low | Low | If `appState` is removed in 5g, document the rename. Internal debug logs only. |
+| Adapter's `PAUSED => mode: 'file'` assumption leaks back into primary state | Low | Medium | The assumption is confined to `deriveModeActivityFromAppState()` and legacy compatibility setters. Primary state can represent future YouTube pause independently. |
+| External tooling/log analytics that grep `appState` from console logs | Low | Low | Internal debug logs may still print the derived compatibility value next to mode/activity. |
 
 ## Verification Gates (Every Sub-Phase)
 
 - `npm run typecheck` returns clean.
-- `npm test` all green. Current checkpoint after raw-reader migration: 800 tests across 59 files.
+- `npm test` all green.
 - `npm run lint` returns clean.
 - `npm run build` succeeds.
 - Manual cross-version smoke: host on previous version with guest on new version, and host on new version with guest on previous version. Critical for 5d.
-- DEV invariant assertion stays on until 5g removes the legacy shadow.
+- No production code may call `getState('appState')`, `setState('appState')`, or subscribe to `state:appState`; this is pinned by `appstate-holdouts.test.ts`.
 
 ## Rollback Strategy
 
@@ -293,9 +294,9 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 | 5d-4 | Set `VITE_MUSIXQUARE_SYNC_PONG_LEGACY_APPSTATE_ACCEPT=true`. |
 | 5e | Revert snapshot shape change. |
 | 5f | Revert the source-of-truth flip commit. |
-| 5g | Restore `state.appState` field in state tree default. |
+| 5g | Restore `state.appState` in `StateTree` and `createInitialState()`, then reintroduce the old ownership bridge. |
 
-Feature flags for 5d-3/4 and 5f live in `src/core/feature-flags.ts`. Defaults now follow the decomposed playback model; Vite env overrides are reserved for controlled preview builds and rollback switches.
+Feature flags for 5d-3/4 live in `src/core/feature-flags.ts`. Defaults follow the decomposed playback model; Vite env overrides are reserved for controlled preview builds and rollback switches.
 
 ## Open Questions
 

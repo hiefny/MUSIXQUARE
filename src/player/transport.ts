@@ -74,8 +74,8 @@ export function fmtTime(s: number): string {
 // ─── App State Helper ─────────────────────────────────────────────
 
 /**
- * Central function: update appState.
- * Subscribers listen via bus.on('state:appState', ...).
+ * Central function: update legacy appState.
+ * setPlaybackAppState also refreshes playback.mode/activity shadow slots.
  */
 export function setAppState(newState: AppStateValue): void {
   setPlaybackAppState(newState);

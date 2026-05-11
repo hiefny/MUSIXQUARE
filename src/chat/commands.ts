@@ -24,7 +24,7 @@ import { isAudioReady, getAudioContext } from '../audio/engine.ts';
 import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
-import { getPlaybackLegacyAppState, getPlaybackOwnership } from '../player/ownership.ts';
+import { getPlaybackOwnership } from '../player/ownership.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { rememberPinnedNotice } from './protocol.ts';
@@ -518,7 +518,6 @@ function cmdDebug(args: string[]): void {
 
   // Audio
   const playback = getPlaybackOwnership();
-  const appState = getPlaybackLegacyAppState();
   const channelMode = getState('audio.channelMode') ?? 0;
   const channelNames: Record<number, string> = {
     0: 'Center',
@@ -533,7 +532,7 @@ function cmdDebug(args: string[]): void {
   const vbass = getState('audio.virtualBass') ?? 0;
   const volume = getState('audio.masterVolume') ?? 1;
   lines.push(
-    `[Audio] state:${appState} | mode:${playback.mode ?? 'none'}/${playback.activity} | ch:${chName} | vol:${Math.round(volume * 100)}%`,
+    `[Audio] mode:${playback.mode ?? 'none'}/${playback.activity} | ch:${chName} | vol:${Math.round(volume * 100)}%`,
   );
   lines.push(
     `[FX] EQ:${eqActive ? 'ON' : 'off'} | reverb:${reverbMix > 0 ? `${Math.round(reverbMix * 100)}%` : 'off'} | vbass:${vbass > 0 ? 'ON' : 'off'}`,

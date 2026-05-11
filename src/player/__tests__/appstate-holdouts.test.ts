@@ -10,8 +10,6 @@ const LEGACY_APPSTATE_PATTERN =
 const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>();
 
 const ALLOWED_OWNERSHIP_APPSTATE_CONSUMER_FILES = new Map<string, string>([
-  ['src/chat/commands.ts', 'Debug status prints legacy appState alongside mode/activity.'],
-  ['src/player/decode.ts', 'Track cleanup preserves strict PLAYING_AUDIO/PAUSED reset semantics.'],
   ['src/player/playback.ts', 'Late-join bootstrap still carries legacy protocol state.'],
   ['src/player/playlist.ts', 'Historical idle guards preserve async decode race behavior.'],
   ['src/player/transport.ts', 'Central legacy transition owner keeps strict enum guards local.'],

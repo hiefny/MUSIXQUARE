@@ -14,7 +14,7 @@ import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import {
-  getPlaybackLegacyAppState,
+  getPlaybackModeActivity,
   isExternalOwner,
   setPlaybackTransferState,
   setPlaybackTrackMeta,
@@ -710,9 +710,9 @@ export function clearPreviousTrackState(reason = ''): void {
     setPendingPlayTime(undefined);
   }
 
-  // Reset state to IDLE
-  const appState = getPlaybackLegacyAppState();
-  if (appState === APP_STATE.PLAYING_AUDIO || appState === APP_STATE.PAUSED) {
+  // Reset active or pending file playback to idle.
+  const playback = getPlaybackModeActivity();
+  if (playback.mode === 'file' && playback.activity !== 'idle') {
     setAppState(APP_STATE.IDLE);
   }
 

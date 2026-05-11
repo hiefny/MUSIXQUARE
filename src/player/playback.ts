@@ -44,8 +44,8 @@ import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
   isAppStatePlayingAudio,
-  isAppStatePlayingYouTube,
   isSystemAudioOwner,
+  isYouTubeOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
 
@@ -346,7 +346,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // Ignore PAUSE during system audio mode
   if (isSystemAudioOwner()) return;
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
-  if (isAppStatePlayingYouTube()) return;
+  if (isYouTubeOwner()) return;
 
   const time = Number(data.time) || 0;
   const endOfPlaylist = !!data.endOfPlaylist;
@@ -457,7 +457,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   // YouTube seek
-  if (isAppStatePlayingYouTube()) {
+  if (isYouTubeOwner()) {
     bus.emit('youtube:seek-to', time);
     return;
   }

@@ -32,7 +32,11 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
-import { isAppStateIdle, isAppStatePlayingYouTube, setPlaybackTrackMeta } from './ownership.ts';
+import {
+  isAppStateIdle,
+  isYouTubeOwner,
+  setPlaybackTrackMeta,
+} from './ownership.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -398,7 +402,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       // Skip stopAllMedia for YouTube→YouTube transitions — loadYouTubeVideo
       // reuses the existing player instance, preserving the iOS user gesture.
       // Destroying the iframe forces a "tap to play" on mobile.
-      const isYtToYt = isAppStatePlayingYouTube();
+      const isYtToYt = isYouTubeOwner();
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
 
       // Single-video broadcast: send the resolved videoId (NOT the playlist
@@ -422,7 +426,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       // idle and YouTube eventually flags the video as unplayable and
       // skips to the next one (~15s on Windows desktop).
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
-      const isAlreadyYt = isAppStatePlayingYouTube();
+      const isAlreadyYt = isYouTubeOwner();
       const shouldAutoplay = !(isFirstTrackLoad && !isAlreadyYt);
 
       broadcast({
@@ -595,7 +599,7 @@ export function playNextTrack(): void {
   // In both cases the user/system expects us to actually advance, not
   // sit on the same track — matching Spotify / Apple Music behaviour.
 
-  if (isAppStatePlayingYouTube()) {
+  if (isYouTubeOwner()) {
     let handled = false;
     bus.emit('youtube:try-next-internal', (success: boolean) => {
       handled = success;
@@ -702,7 +706,7 @@ export function playPrevTrack(): void {
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   // YouTube mode
-  if (isAppStatePlayingYouTube()) {
+  if (isYouTubeOwner()) {
     let handled = false;
     bus.emit('youtube:try-prev-internal', (success: boolean) => {
       handled = success;

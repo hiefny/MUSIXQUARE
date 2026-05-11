@@ -212,7 +212,7 @@ export function stopPlayerNode(): void {
 // ─── Stop All Media ────────────────────────────────────────────────
 
 export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean }): void {
-  const wasInYouTube = isAppStatePlayingYouTube();
+  const wasInYouTube = isYouTubeOwner();
 
   if (opts?.cancelInFlight) {
     incrementLoadToken();
@@ -265,7 +265,7 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   // is taking over. YouTube is the exception: leaving appState at
   // PLAYING_YOUTUBE blocks file lifecycle transitions and play(), so clear
   // the mode after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
-  if (opts?.silent && wasInYouTube && isAppStatePlayingYouTube()) {
+  if (opts?.silent && wasInYouTube && isYouTubeOwner()) {
     setAppState(APP_STATE.IDLE);
   }
 

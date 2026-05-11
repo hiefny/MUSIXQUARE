@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { APP_STATE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import {
   claimPlaybackOwner,
   createFileTrackMeta,
@@ -27,6 +27,11 @@ beforeEach(() => {
   resetState();
 });
 
+function expectPlaybackModeActivitySlots(mode: string | null, activity: string): void {
+  expect(getState('playback.mode')).toBe(mode);
+  expect(getState('playback.activity')).toBe(activity);
+}
+
 describe('playback ownership view', () => {
   it('defaults to no owner', () => {
     expect(getPlaybackOwnership()).toMatchObject({
@@ -37,6 +42,7 @@ describe('playback ownership view', () => {
       isExternalOwner: false,
     });
     expect(getPlaybackModeActivity()).toEqual({ mode: null, activity: 'idle' });
+    expectPlaybackModeActivitySlots(null, 'idle');
   });
 
   it('treats YouTube as an external owner', () => {
@@ -131,6 +137,7 @@ describe('playback ownership view', () => {
         title: 'System Audio Sharing',
       },
     });
+    expectPlaybackModeActivitySlots('system-audio', 'playing');
   });
 
   it('claims pending system-audio ownership without changing appState', () => {
@@ -146,6 +153,7 @@ describe('playback ownership view', () => {
       appState: APP_STATE.IDLE,
       isSystemAudioPlaceholder: true,
     });
+    expectPlaybackModeActivitySlots('system-audio', 'pending');
   });
 
   it('releases only the requested owner unless forced', () => {
@@ -167,6 +175,7 @@ describe('playback ownership view', () => {
       appState: APP_STATE.IDLE,
       currentTrackMeta: null,
     });
+    expectPlaybackModeActivitySlots(null, 'idle');
   });
 
   it('sets track metadata through the ownership write helper', () => {
@@ -176,6 +185,19 @@ describe('playback ownership view', () => {
       name: 'track.mp3',
       title: 'Track',
     });
+    expectPlaybackModeActivitySlots(null, 'idle');
+  });
+
+  it('dual-writes placeholder metadata ownership into playback mode/activity slots', () => {
+    setPlaybackTrackMeta(createSystemAudioTrackMeta('receiving'));
+
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'system-audio',
+      mode: 'system-audio',
+      activity: 'pending',
+      isSystemAudioPlaceholder: true,
+    });
+    expectPlaybackModeActivitySlots('system-audio', 'pending');
   });
 
   it('updates track metadata through the ownership write helper', () => {
@@ -227,6 +249,7 @@ describe('playback ownership view', () => {
       activity: 'playing',
       appState: APP_STATE.PLAYING_AUDIO,
     });
+    expectPlaybackModeActivitySlots('file', 'playing');
 
     setPlaybackAppState(APP_STATE.PLAYING_YOUTUBE);
     expect(getPlaybackOwnership()).toMatchObject({
@@ -236,6 +259,7 @@ describe('playback ownership view', () => {
       appState: APP_STATE.PLAYING_YOUTUBE,
       isExternalOwner: true,
     });
+    expectPlaybackModeActivitySlots('youtube', 'playing');
 
     setPlaybackAppState(APP_STATE.PAUSED);
     expect(getPlaybackOwnership()).toMatchObject({
@@ -245,5 +269,6 @@ describe('playback ownership view', () => {
       appState: APP_STATE.PAUSED,
     });
     expect(getPlaybackModeActivity()).toEqual({ mode: 'file', activity: 'paused' });
+    expectPlaybackModeActivitySlots('file', 'paused');
   });
 });

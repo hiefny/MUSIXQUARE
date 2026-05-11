@@ -29,6 +29,8 @@ import {
   PLAYBACK_STATE,
   TRANSFER_STATE,
   type AppStateValue,
+  type PlaybackActivityValue,
+  type PlaybackModeValue,
   type PlaybackStateValue,
   type TransferStateValue,
 } from '../core/constants.ts';
@@ -36,8 +38,8 @@ import { getState, setState } from '../core/state.ts';
 import type { TrackMeta } from '../types/index.ts';
 
 export type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
-export type PlaybackMode = Exclude<PlaybackOwner, 'none'> | null;
-export type PlaybackActivity = 'idle' | 'paused' | 'playing' | 'pending';
+export type PlaybackMode = PlaybackModeValue;
+export type PlaybackActivity = PlaybackActivityValue;
 
 export interface PlaybackModeActivity {
   mode: PlaybackMode;
@@ -245,6 +247,31 @@ export function getPlaybackModeActivity(): PlaybackModeActivity {
   };
 }
 
+function writePlaybackModeActivity(modeActivity: PlaybackModeActivity): void {
+  setState('playback.mode', modeActivity.mode);
+  setState('playback.activity', modeActivity.activity);
+}
+
+function assertPlaybackModeActivitySynced(expected: PlaybackModeActivity): void {
+  if (!import.meta.env?.DEV) return;
+
+  const actualMode = getState('playback.mode');
+  const actualActivity = getState('playback.activity');
+  if (actualMode !== expected.mode || actualActivity !== expected.activity) {
+    throw new Error(
+      `Playback mode/activity drift: expected ${expected.mode ?? 'null'}/${expected.activity}, ` +
+        `got ${actualMode ?? 'null'}/${actualActivity}`,
+    );
+  }
+}
+
+function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
+  const ownership = getPlaybackOwnership();
+  writePlaybackModeActivity({ mode: ownership.mode, activity: ownership.activity });
+  assertPlaybackModeActivitySynced(ownership);
+  return ownership;
+}
+
 // Read: appState-strict predicates
 
 export function isAppStateIdle(): boolean {
@@ -294,7 +321,7 @@ export function isExternalOwner(): boolean {
 
 export function setPlaybackTrackMeta(currentTrackMeta: TrackMeta | null): PlaybackOwnership {
   setState('player.currentTrackMeta', currentTrackMeta);
-  return getPlaybackOwnership();
+  return syncPlaybackModeActivityFromOwnership();
 }
 
 export function updatePlaybackTrackMeta(
@@ -302,7 +329,7 @@ export function updatePlaybackTrackMeta(
 ): PlaybackOwnership {
   const currentTrackMeta = getState('player.currentTrackMeta') as TrackMeta | null;
   const nextTrackMeta = updater(currentTrackMeta);
-  if (nextTrackMeta === currentTrackMeta) return getPlaybackOwnership();
+  if (nextTrackMeta === currentTrackMeta) return syncPlaybackModeActivityFromOwnership();
   return setPlaybackTrackMeta(nextTrackMeta);
 }
 
@@ -329,12 +356,12 @@ export function claimPlaybackOwner(
   if ('currentTrackMeta' in options) {
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
   }
-  return getPlaybackOwnership();
+  return syncPlaybackModeActivityFromOwnership();
 }
 
 export function setPlaybackAppState(appState: AppStateValue): PlaybackOwnership {
   setState('appState', appState);
-  return getPlaybackOwnership();
+  return syncPlaybackModeActivityFromOwnership();
 }
 
 export function releasePlaybackOwner(
@@ -348,5 +375,5 @@ export function releasePlaybackOwner(
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
   }
   setState('appState', options.nextAppState ?? APP_STATE.IDLE);
-  return getPlaybackOwnership();
+  return syncPlaybackModeActivityFromOwnership();
 }

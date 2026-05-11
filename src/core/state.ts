@@ -195,6 +195,8 @@ function createInitialState(): StateTree {
     },
 
     playback: {
+      mode: null,
+      activity: 'idle',
       lifecycle: PLAYBACK_STATE.IDLE,
       loadSource: null,
       pendingPlayTime: undefined,

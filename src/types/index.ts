@@ -11,6 +11,8 @@ import type {
   MsgType,
   PlaybackStateValue,
   LoadSourceValue,
+  PlaybackModeValue,
+  PlaybackActivityValue,
 } from '../core/constants.ts';
 
 // ─── Peer / Network ────────────────────────────────────────────────
@@ -601,6 +603,8 @@ export interface StateTree {
    * be a derived helper that reads lifecycle + loadSource.
    */
   playback: {
+    mode: PlaybackModeValue;
+    activity: PlaybackActivityValue;
     lifecycle: PlaybackStateValue;
     loadSource: LoadSourceValue | null;
     pendingPlayTime: number | undefined;

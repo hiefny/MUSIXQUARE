@@ -12,6 +12,8 @@ export const APP_STATE = {
 } as const;
 
 export type AppStateValue = (typeof APP_STATE)[keyof typeof APP_STATE];
+export type PlaybackModeValue = 'file' | 'youtube' | 'system-audio' | null;
+export type PlaybackActivityValue = 'idle' | 'paused' | 'playing' | 'pending';
 
 // ─── Transfer State ────────────────────────────────────────────────
 export const TRANSFER_STATE = {

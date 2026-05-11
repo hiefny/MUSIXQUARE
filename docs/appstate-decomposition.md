@@ -5,7 +5,8 @@
 ## Status
 
 - 5a (adapter): **DONE**. `getPlaybackOwnership()` returns derived `mode` and `activity`. Zero production callers yet, by design.
-- 5b onward: **proposed**. Not started.
+- 5b (dual write): **DONE**. `state.playback.mode/activity` exist as shadow slots and are kept in sync by ownership write helpers.
+- 5c onward: **proposed**. No production readers have moved to the new slots yet.
 
 ## Motivation
 
@@ -128,7 +129,7 @@ Every other reader has already been migrated to `isAppState*()` / `is*Owner()` p
 
 ### 5b - Dual Write (1 day)
 
-Add `state.playback.mode` and `state.playback.activity` to the state tree, defaulting to `null` and `'idle'`. Inside `ownership.ts::claimPlaybackOwner`, `setPlaybackAppState`, and `releasePlaybackOwner`, write the new slots alongside the existing `setState('appState', X)`.
+Add `state.playback.mode` and `state.playback.activity` to the state tree, defaulting to `null` and `'idle'`. Inside `ownership.ts::claimPlaybackOwner`, `setPlaybackAppState`, `releasePlaybackOwner`, and `setPlaybackTrackMeta`, write the new slots alongside the existing legacy state writes. `setPlaybackTrackMeta` is included because the system-audio guest placeholder can establish pending ownership before `appState` changes.
 
 Wire `state:playback.mode` and `state:playback.activity` bus events. Existing `state:appState` continues to fire unchanged.
 
@@ -136,7 +137,7 @@ Wire `state:playback.mode` and `state:playback.activity` bus events. Existing `s
 
 **Verification gate**:
 
-- Existing tests continue to pass (756 baseline).
+- Existing tests continue to pass.
 - Add tests that toggle each transition path and assert both `appState` and `(mode, activity)` are consistent.
 
 **Reversible by**: revert single commit. No callers depend on the new slots.

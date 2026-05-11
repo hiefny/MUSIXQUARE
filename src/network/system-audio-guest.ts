@@ -20,6 +20,7 @@ import {
   isSystemAudioOwner,
   isSystemAudioPlaceholderMeta,
   releasePlaybackOwner,
+  setPlaybackIdle,
   setSystemAudioReceiving,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
@@ -544,6 +545,7 @@ function cleanupGuestSystemAudio(): void {
     releasePlaybackOwner('system-audio', {
       force: wasSystemAudioPlaceholder,
     });
+    setPlaybackIdle();
   }
 }
 

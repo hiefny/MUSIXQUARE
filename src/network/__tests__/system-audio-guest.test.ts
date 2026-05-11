@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { MSG } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection, TrackMeta } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { registerSystemAudioGuestListeners } from '../system-audio-guest.ts';
-import { setPlaybackFilePlaying } from '../../player/ownership.ts';
+import {
+  setPlaybackFilePlaying,
+  setPlaybackLifecycleState,
+  setPlaybackTransferState,
+} from '../../player/ownership.ts';
 import { stopAllMedia } from '../../player/transport.ts';
 
 const timerMocks = vi.hoisted(() => {
@@ -86,6 +90,25 @@ describe('system audio guest receive watchdog', () => {
 
     expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
     expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('clears stale file pipeline sources when placeholder receive falls back', async () => {
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+    setState('player.currentTrackMeta', previousMeta);
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    setPlaybackTransferState(TRANSFER_STATE.READY);
+    setPlaybackFilePlaying();
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+    timerMocks.timers.get(watchdogName)?.();
+
+    expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
     expect(getState('playback.mode')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
   });

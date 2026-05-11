@@ -19,6 +19,7 @@ import {
   claimPlaybackOwner,
   isSystemAudioOwner,
   releasePlaybackOwner,
+  setPlaybackIdle,
   setSystemAudioReceiving,
 } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
@@ -612,6 +613,7 @@ function cleanupGuestSfu(updateState = true): void {
     setSystemAudioReceiving(false);
     if (isSystemAudioOwner()) {
       releasePlaybackOwner('system-audio');
+      setPlaybackIdle();
     }
   }
   guestReceiving = false;

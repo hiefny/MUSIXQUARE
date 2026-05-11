@@ -31,7 +31,10 @@ export function subscribePlaybackModeActivity(
   let prev = getPlaybackModeActivitySnapshot();
   if (options.immediate) handler(prev, prev);
 
-  const notify = (next: PlaybackModeActivitySnapshot): void => {
+  const notifyCurrent = (): void => {
+    const next = getPlaybackModeActivitySnapshot();
+    if (next.mode === prev.mode && next.activity === prev.activity) return;
+
     const typedPrev = prev;
     prev = next;
     handler(next, typedPrev);
@@ -39,11 +42,11 @@ export function subscribePlaybackModeActivity(
 
   const unsubscribeMode = bus.on('state:playback.mode', (mode) => {
     if (!isPlaybackModeValue(mode)) return;
-    notify({ ...prev, mode });
+    notifyCurrent();
   });
   const unsubscribeActivity = bus.on('state:playback.activity', (activity) => {
     if (!isPlaybackActivityValue(activity)) return;
-    notify({ ...prev, activity });
+    notifyCurrent();
   });
 
   return () => {
@@ -60,7 +63,10 @@ export function scopePlaybackModeActivity(
   let prev = getPlaybackModeActivitySnapshot();
   if (options.immediate) handler(prev, prev);
 
-  const notify = (next: PlaybackModeActivitySnapshot): void => {
+  const notifyCurrent = (): void => {
+    const next = getPlaybackModeActivitySnapshot();
+    if (next.mode === prev.mode && next.activity === prev.activity) return;
+
     const typedPrev = prev;
     prev = next;
     handler(next, typedPrev);
@@ -68,10 +74,10 @@ export function scopePlaybackModeActivity(
 
   scope.on('state:playback.mode', (mode) => {
     if (!isPlaybackModeValue(mode)) return;
-    notify({ ...prev, mode });
+    notifyCurrent();
   });
   scope.on('state:playback.activity', (activity) => {
     if (!isPlaybackActivityValue(activity)) return;
-    notify({ ...prev, activity });
+    notifyCurrent();
   });
 }

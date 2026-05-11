@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus, createBusScope } from '../../core/events.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { batchSetState, resetState, setState } from '../../core/state.ts';
 import {
   getPlaybackModeActivitySnapshot,
   scopePlaybackModeActivity,
@@ -57,6 +57,23 @@ describe('ui playback mode/activity hooks', () => {
     scope.dispose();
     setState('playback.activity', 'playing');
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the final playback snapshot once for batched mode/activity writes', () => {
+    const handler = vi.fn();
+
+    subscribePlaybackModeActivity(handler);
+
+    batchSetState({
+      'playback.mode': 'file',
+      'playback.activity': 'playing',
+    });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenLastCalledWith(
+      { mode: 'file', activity: 'playing' },
+      { mode: null, activity: 'idle' },
+    );
   });
 
   it('ignores malformed playback mode/activity bus payloads', () => {

@@ -12,7 +12,6 @@ const ALLOWED_LEGACY_APPSTATE_FILES = new Map<string, string>([
     'src/audio/beat-detector.ts',
     'Module-local cache intentionally follows state:appState for BPM analysis freshness.',
   ],
-  ['src/player/decode.ts', 'Terminal file cleanup still clears strict PLAYING_AUDIO/PAUSED state.'],
   ['src/player/ownership.ts', 'Single bridge between legacy appState and playback mode/activity.'],
   ['src/player/playback.ts', 'Late-join bootstrap still carries legacy protocol state.'],
   ['src/player/playlist.ts', 'Historical idle guards protect async decode and previous-track races.'],

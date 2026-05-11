@@ -14,9 +14,8 @@ import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
 import {
-  isAppStatePaused,
-  isAppStatePlayingAudio,
   isExternalOwner,
+  getPlaybackOwnership,
   setPlaybackTransferState,
   setPlaybackTrackMeta,
 } from './ownership.ts';
@@ -712,7 +711,8 @@ export function clearPreviousTrackState(reason = ''): void {
   }
 
   // Reset state to IDLE
-  if (isAppStatePlayingAudio() || isAppStatePaused()) {
+  const appState = getPlaybackOwnership().appState;
+  if (appState === APP_STATE.PLAYING_AUDIO || appState === APP_STATE.PAUSED) {
     setAppState(APP_STATE.IDLE);
   }
 

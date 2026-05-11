@@ -17,6 +17,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, APP_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { setAppState } from '../player/transport.ts';
+import { setPlaybackTrackMeta } from '../player/ownership.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -489,7 +490,7 @@ export function initYouTube(): void {
       setState('playlist.currentTrackIndex', index);
     }
     if (playlistItem) {
-      setState('player.currentTrackMeta', playlistItem);
+      setPlaybackTrackMeta(playlistItem);
     }
 
     const autoplay = payload.autoplay ?? true;
@@ -1041,7 +1042,7 @@ export function initYouTube(): void {
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
-      setState('player.currentTrackMeta', newTrack);
+      setPlaybackTrackMeta(newTrack);
       setYouTubeSubIndex(0); // Moved back inside: only for new active tracks
 
       // Load YouTube with autoplay=FALSE for sync coordination.
@@ -1101,7 +1102,7 @@ export function initYouTube(): void {
           // land at newIndex > currentTrackIndex; blindly writing here would
           // clobber the playing track's title with the queued track's title.
           if (getState('playlist.currentTrackIndex') === newIndex) {
-            setState('player.currentTrackMeta', updated[newIndex]);
+            setPlaybackTrackMeta(updated[newIndex]);
           }
 
           // Broadcast updated title to peers (Host only)
@@ -1272,7 +1273,7 @@ export function initYouTube(): void {
       const cachedTitle = subMap[currentTrack.playlistId as string]?.titles?.[subIdx];
       if (cachedTitle) {
         const meta = getState('player.currentTrackMeta');
-        if (meta) setState('player.currentTrackMeta', { ...meta, title: cachedTitle });
+        if (meta) setPlaybackTrackMeta({ ...meta, title: cachedTitle });
       }
 
       // Prioritize fetching title for the newly selected index (if missing)

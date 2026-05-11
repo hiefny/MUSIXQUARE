@@ -17,6 +17,7 @@ import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setAppState } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
+import { setPlaybackTrackMeta } from '../player/ownership.ts';
 import {
   getYouTubePlayer,
   setYouTubePlayer,
@@ -1040,7 +1041,7 @@ function updateYouTubeUI(): void {
       const vTitle = player.getVideoData?.()?.title;
       const meta = getState('player.currentTrackMeta');
       if (vTitle && meta && meta.title !== vTitle) {
-        setState('player.currentTrackMeta', { ...meta, title: vTitle });
+        setPlaybackTrackMeta({ ...meta, title: vTitle });
       }
     }
 
@@ -1167,7 +1168,7 @@ function updateYouTubeUI(): void {
         const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
         if (cachedTitle) {
           const currentMeta = getState('player.currentTrackMeta') || currentTrack;
-          setState('player.currentTrackMeta', { ...currentMeta, title: cachedTitle });
+          setPlaybackTrackMeta({ ...currentMeta, title: cachedTitle });
           _ifr.lastVideoTitle = cachedTitle;
         }
       }
@@ -1191,7 +1192,7 @@ function updateYouTubeUI(): void {
         _ifr.lastVideoTitle = vData.title;
         const currentMeta = getState('player.currentTrackMeta');
         if (currentMeta) {
-          setState('player.currentTrackMeta', { ...currentMeta, title: vData.title });
+          setPlaybackTrackMeta({ ...currentMeta, title: vData.title });
         }
       }
       currentVideoId = vData?.video_id || '';

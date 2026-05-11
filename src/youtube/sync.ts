@@ -14,6 +14,7 @@ import { IS_ANDROID } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
+import { setPlaybackTrackMeta } from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
@@ -391,7 +392,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
     if (hostTitle) {
       const currentMeta = getState('player.currentTrackMeta');
       if (currentMeta && currentMeta.title !== hostTitle) {
-        setState('player.currentTrackMeta', { ...currentMeta, title: hostTitle });
+        setPlaybackTrackMeta({ ...currentMeta, title: hostTitle });
       }
     }
 
@@ -944,7 +945,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     if (hostTitle) {
       const currentMeta = getState('player.currentTrackMeta');
       if (currentMeta && currentMeta.title !== hostTitle) {
-        setState('player.currentTrackMeta', { ...currentMeta, title: hostTitle });
+        setPlaybackTrackMeta({ ...currentMeta, title: hostTitle });
       }
     }
 
@@ -1205,7 +1206,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>, conn?: DataConnecti
   const currentItem = playlist[currentTrackIndex];
   const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
-    setState('player.currentTrackMeta', { ...currentItem, title: title });
+    setPlaybackTrackMeta({ ...currentItem, title: title });
   }
 }
 

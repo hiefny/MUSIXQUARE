@@ -41,7 +41,7 @@ import { play, pause, stopAllMedia, getTrackPosition, handleEnded, skipTime } fr
 
 import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
-import { isSystemAudioSessionActive } from './ownership.ts';
+import { isSystemAudioSessionActive, setPlaybackTrackMeta } from './ownership.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
@@ -50,8 +50,7 @@ function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): voi
   const playlist = getState('playlist.items') || [];
   const item = playlist[index];
   const name = item?.name || fallbackName || '';
-  setState(
-    'player.currentTrackMeta',
+  setPlaybackTrackMeta(
     item ?? {
       type: 'file',
       title: name.replace(/\.[^/.]+$/, '') || name,
@@ -380,7 +379,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // the stale track meta so title/indicator mirror the host's reset.
   if (endOfPlaylist) {
     log.debug('[Guest] Host signalled end of playlist — clearing track meta');
-    setState('player.currentTrackMeta', null);
+    setPlaybackTrackMeta(null);
     // Mirror host's deselected state so operator guest's togglePlay
     // also redirects to playTrack(0) instead of resuming stale audio.
     setState('playlist.currentTrackIndex', -1);

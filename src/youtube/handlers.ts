@@ -16,6 +16,7 @@ import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
+import { setPlaybackTrackMeta } from '../player/ownership.ts';
 import { showLoader } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -67,9 +68,9 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
   const playlist = getState('playlist.items') || [];
   const playlistItem = index !== undefined && index >= 0 ? playlist[index] : undefined;
   if (playlistItem) {
-    setState('player.currentTrackMeta', playlistItem);
+    setPlaybackTrackMeta(playlistItem);
   } else if (name || videoId) {
-    setState('player.currentTrackMeta', {
+    setPlaybackTrackMeta({
       type: 'youtube',
       name: name || '',
       title: name || '',

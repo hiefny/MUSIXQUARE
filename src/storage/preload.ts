@@ -26,7 +26,7 @@ import type { DataConnection } from '../types/index.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
-import { isSystemAudioSessionActive } from '../player/ownership.ts';
+import { isSystemAudioSessionActive, setPlaybackTrackMeta } from '../player/ownership.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -1084,7 +1084,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   // Update metadata for UI title display
   const playlist = getState('playlist.items') || [];
   if (playlist[index]) {
-    setState('player.currentTrackMeta', playlist[index]);
+    setPlaybackTrackMeta(playlist[index]);
   }
 
   // Check if preloaded blob matches requested track

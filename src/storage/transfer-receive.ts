@@ -40,6 +40,7 @@ import {
   getPlaybackOwnership,
   isSystemAudioSessionActive,
   setPlaybackAppState,
+  setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import {
   getPendingPlayTime,
@@ -303,7 +304,7 @@ function showRemoteUnavailableUI(data: Record<string, unknown>): void {
       setState('playlist.currentTrackIndex', idx);
     }
   }
-  setState('player.currentTrackMeta', {
+  setPlaybackTrackMeta({
     type: 'file',
     title: ((data.name as string) || '').replace(/\.[^/.]+$/, ''),
     name: (data.name as string) || '',
@@ -647,7 +648,7 @@ export async function handleFilePrepare(
         const playlist = getState('playlist.items') || [];
         const trackEntry = playlist[data.index as number];
         if (trackEntry) {
-          setState('player.currentTrackMeta', trackEntry);
+          setPlaybackTrackMeta(trackEntry);
         }
       }
 
@@ -740,7 +741,7 @@ export async function handleFilePrepare(
       const playlist = getState('playlist.items') || [];
       const trackEntry = playlist[data.index as number];
       if (trackEntry) {
-        setState('player.currentTrackMeta', trackEntry);
+        setPlaybackTrackMeta(trackEntry);
       }
     }
 

@@ -32,6 +32,7 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
+import { setPlaybackTrackMeta } from './ownership.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -347,7 +348,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   if (index === nextTrackIndex && nextFileBlob && !hostConn) {
     log.debug('[Host] Using Preloaded Track:', index);
     setState('playlist.currentTrackIndex', index);
-    setState('player.currentTrackMeta', playlist[index]);
+    setPlaybackTrackMeta(playlist[index]);
 
     // Advance session ID for recovery
     const nextMeta = getState('preload.meta');
@@ -383,7 +384,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   setState('playlist.currentTrackIndex', index);
 
   const item = playlist[index];
-  setState('player.currentTrackMeta', item);
+  setPlaybackTrackMeta(item);
 
   // YouTube
   if (item.type === 'youtube') {
@@ -559,7 +560,7 @@ function handleEndOfPlaylist(reason: string): void {
   log.debug(`[Host] End of playlist: ${reason}. Resetting to deselected state.`);
   stopAllMedia();
   setCurrentAudioBuffer(null);
-  setState('player.currentTrackMeta', null);
+  setPlaybackTrackMeta(null);
   setState('playlist.currentTrackIndex', -1);
   setState('player.pausedAt', 0);
   // Host's own lifecycle: mirror the broadcast PAUSE{endOfPlaylist:true} so
@@ -882,7 +883,7 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
     // display reverts to "미디어 없음" instead of lingering on the last
     // played track. clearPreviousTrackState doesn't touch player.currentTrackMeta,
     // so we clear it explicitly here.
-    setState('player.currentTrackMeta', null);
+    setPlaybackTrackMeta(null);
   }
 
   // Sync current track index from host (late-join bootstrap)
@@ -1331,7 +1332,7 @@ export function initPlaylist(): void {
       // handleEndOfPlaylist cleanup for the same reason.
       setCurrentAudioBuffer(null);
       setState('playlist.currentTrackIndex', -1);
-      setState('player.currentTrackMeta', null);
+      setPlaybackTrackMeta(null);
       setState('files.currentFileBlob', null);
       setState('transfer.meta', {});
       // Soft-disable the play button to match the boot state. Click still

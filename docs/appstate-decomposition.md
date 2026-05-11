@@ -86,45 +86,47 @@ Long-term, it may be useful to describe all playback-facing fields under one log
 
 ## Concrete Survey of Today's State
 
-Before any migration step, this is what depends on `appState`. Line numbers were captured around `ec18221`; refresh them before implementation with:
+Refresh this survey before each new sub-phase with:
 
 ```powershell
 rg -n "appState|setPlaybackAppState|claimPlaybackOwner|releasePlaybackOwner" src
 ```
 
-**Writers** (post-Phase-4): 3 direct writes, all inside `src/player/ownership.ts`.
+**Writers**: 3 direct writes, all inside `src/player/ownership.ts`.
 
-- `ownership.ts:327` - `claimPlaybackOwner` writes `OWNER_APP_STATE[owner]`.
-- `ownership.ts:336` - `setPlaybackAppState` writes the passed value.
-- `ownership.ts:350` - `releasePlaybackOwner` writes `nextAppState ?? IDLE`.
+- `ownership.ts::claimPlaybackOwner` writes `OWNER_APP_STATE[owner]`.
+- `ownership.ts::setPlaybackAppState` writes the passed value.
+- `ownership.ts::releasePlaybackOwner` writes `nextAppState ?? IDLE`.
 
 This single-writer position is the entire reason Phase 5 is feasible. Before the Phase 1-4 work, this number was much higher.
 
-**Wire protocol**:
+**Wire protocol and cross-version compatibility**:
 
-- `src/network/sync.ts::handleSyncPing` - `SYNC_PONG` payloads include legacy `appState` plus 5d-1 `mode` and `activity` fields.
-- `src/network/sync.ts::isSyncPongPlayingFile` - guest reads `mode/activity` first and falls back to legacy `appState` for old hosts.
+- `src/network/sync.ts::handleSyncPing` - `SYNC_PONG` payloads include `mode` and `activity`; legacy `appState` is still emitted while `syncPongLegacyAppStateEmit` is enabled.
+- `src/network/sync.ts::isSyncPongPlayingFile` - guest reads `mode/activity` first and falls back to legacy `appState` while `syncPongLegacyAppStateAccept` is enabled.
 - `SYNC_PING` does not carry playback state and should remain unchanged unless a separate protocol need appears.
 
-**Snapshot** (in-memory only, not stored):
+**Intentional legacy readers that should remain for now**:
 
-- `src/audio/system-capture.ts::_preSysAudioState.playback` - stores `mode` and `activity`.
+- `src/player/transport.ts` - owns the legacy enum transitions and still needs strict appState gates until 5f.
+- `src/player/media-session.ts` - OS media button command handlers intentionally use strict appState predicates; OS `playbackState` display already uses `playback.activity`.
+- `src/audio/beat-detector.ts` - keeps a module-local appState cache by design, with buffer-change refresh for silent track switches.
+- `src/player/playlist.ts` - remaining idle checks guard historical async decode races where appState's legacy `IDLE` shadow is the intended signal.
+- `src/youtube/*` - YouTube runtime guards still use strict YouTube appState because YouTube pause/play is represented by iframe state, not `APP_STATE.PAUSED`.
+- `src/player/video.ts` - central appState-to-mode write bridge; body-class rendering already subscribes to `state:playback.mode`.
+- `src/chat/commands.ts` - debug/status output may keep legacy appState until 5g, optionally alongside mode/activity.
+
+**Mode/activity snapshots**:
+
+- `src/audio/system-capture.ts::_preSysAudioState.playback` - stores mode/activity for restore-on-stop.
 - `src/audio/system-capture.ts::restorePreSystemAudioPlaybackState` - restores YouTube through the room command path, maps prior file/system active playback to the existing paused fallback, and intentionally leaves pending work idle after capture stops.
 
-**Initial state default**:
+**Initial state and types**:
 
-- `src/core/state.ts:53` - `appState: APP_STATE.IDLE`.
+- `src/core/state.ts` - `appState: APP_STATE.IDLE` remains in the initial state until 5g.
+- `src/types/index.ts` - `StateTree.appState`, sync payload compatibility fields, and mapped `state:appState` events remain until the wire wait is complete.
 
-**Type definitions**:
-
-- `src/types/index.ts:395` - sync payload type.
-- `src/types/index.ts:471` - state tree type.
-
-**Body-class sync**:
-
-- `src/player/video.ts:87` - `updateBodyModeClass(appState: string)` toggles `body.mode-youtube` and `body.mode-system-audio` from `state:appState`. It renders directly from the enum value.
-
-Every other reader has already been migrated to `isAppState*()` / `is*Owner()` predicates via Phases 1-4.
+Do not treat this list as a mandate to remove every legacy reference. The remaining references fall into either source-of-truth writes, cross-version compatibility, or deliberately strict legacy command gates.
 
 ## Sub-Phase Roadmap
 
@@ -260,7 +262,7 @@ Whether to do 5g depends on whether `appState` carries any value beyond the new 
 ## Verification Gates (Every Sub-Phase)
 
 - `npm run typecheck` returns clean.
-- `npm test` all green. Baseline at Phase 5 start: 756 tests across 52 files.
+- `npm test` all green. Current checkpoint after 5d safety-belt work: 784 tests across 55 files.
 - `npm run lint` returns clean.
 - `npm run build` succeeds.
 - Manual cross-version smoke: host on previous version with guest on new version, and host on new version with guest on previous version. Critical for 5d.

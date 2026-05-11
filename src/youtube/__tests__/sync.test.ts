@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -55,8 +56,7 @@ describe('YouTube Sync', () => {
         getCurrentTime: () => 10,
         getPlayerState: () => 1,
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setState('network.hostConn', { open: true } as any);
+      setState('network.hostConn', { open: true } as DataConnection);
 
       const { broadcastYouTubeSync } = await import('../sync.ts');
       const { broadcast } = await import('../../network/peer.ts');

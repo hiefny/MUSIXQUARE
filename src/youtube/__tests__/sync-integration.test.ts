@@ -220,13 +220,14 @@ describe('YouTube Sync — Regression Integration', () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
 
       // videoId override marks this as a transition → Path B
       scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
 
       // Stage 1 only at this point — Stage 2 fires after STAGE2_RENDEZVOUS_BROADCAST_MS.
       expect(broadcast).toHaveBeenCalledTimes(1);
-      const msg = (broadcast as any).mock.calls[0][0];
+      const msg = broadcastMock.mock.calls[0][0];
       expect(msg.type).toBe(MSG.YOUTUBE_STATE);
       expect(msg.state).toBe(1);
       expect(msg.time).toBe(10);
@@ -239,9 +240,10 @@ describe('YouTube Sync — Regression Integration', () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
 
       scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
-      (broadcast as any).mockClear(); // drop Stage 1
+      broadcastMock.mockClear(); // drop Stage 1
 
       vi.advanceTimersByTime(1999);
       expect(broadcast).not.toHaveBeenCalled();
@@ -251,13 +253,14 @@ describe('YouTube Sync — Regression Integration', () => {
       installPlayer({ __state: 1, __currentTime: 10 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
 
       scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
-      (broadcast as any).mockClear(); // drop Stage 1
+      broadcastMock.mockClear(); // drop Stage 1
 
       vi.advanceTimersByTime(2000);
       expect(broadcast).toHaveBeenCalled();
-      const stage2 = (broadcast as any).mock.calls[0][0];
+      const stage2 = broadcastMock.mock.calls[0][0];
       expect(stage2.type).toBe(MSG.YOUTUBE_SYNC);
       expect(stage2.isManual).toBe(true);
     });
@@ -266,18 +269,19 @@ describe('YouTube Sync — Regression Integration', () => {
       const player = installPlayer({ __state: 2 });
       const { scheduleYtAutoSync } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
 
       scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
       vi.advanceTimersByTime(500);
       scheduleYtAutoSync(20, { videoId: 'NEW_VID' });
-      (broadcast as any).mockClear(); // drop Stage 1s
+      broadcastMock.mockClear(); // drop Stage 1s
 
       vi.advanceTimersByTime(2500); // well past Stage 2 deadline for the second schedule
 
       // Stage 2 (YOUTUBE_SYNC) should fire exactly once — the first schedule's
       // Stage 2 timer is canceled via clearManagedTimer('yt-auto-sync').
-      const stage2Calls = (broadcast as any).mock.calls.filter(
-        (c: any[]) => c[0]?.type === MSG.YOUTUBE_SYNC,
+      const stage2Calls = broadcastMock.mock.calls.filter(
+        (c) => c[0]?.type === MSG.YOUTUBE_SYNC,
       );
       expect(stage2Calls).toHaveLength(1);
 

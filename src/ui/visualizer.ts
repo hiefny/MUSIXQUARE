@@ -19,6 +19,20 @@ const MAX_VISUALIZER_RETRIES = 20;
 let _resizeListenerAdded = false;
 let _vizMode: 'circular' | 'spectrum' = 'circular';
 
+function readPersistedVisualizerMode(): 'circular' | 'spectrum' {
+  try {
+    return localStorage.getItem('musixquare-viz-mode') === 'spectrum' ? 'spectrum' : 'circular';
+  } catch {
+    return 'circular';
+  }
+}
+
+function applyVisualizerMode(mode: 'circular' | 'spectrum'): void {
+  _vizMode = mode;
+  document.body.classList.toggle('viz-spectrum', mode === 'spectrum');
+  document.body.classList.toggle('viz-circular', mode === 'circular');
+}
+
 // ─── Spectrum constants ─────────────────────────────────────────
 const MIN_FREQ = 20;
 const MAX_FREQ = 20000;
@@ -573,6 +587,7 @@ export function initVisualizer(): void {
 
   refreshThemeCache();
   _initThemeListeners();
+  applyVisualizerMode(readPersistedVisualizerMode());
 
   // Always use startVisualizer — it retries if analyser isn't ready yet,
   // and renders silence naturally as idle circles when no audio plays.
@@ -674,9 +689,7 @@ export function initVisualizer(): void {
 
   // Visualizer mode switch
   _busScope.on('visualizer:set-type', (mode: 'circular' | 'spectrum') => {
-    _vizMode = mode;
-    document.body.classList.toggle('viz-spectrum', mode === 'spectrum');
-    document.body.classList.toggle('viz-circular', mode === 'circular');
+    applyVisualizerMode(mode);
 
     if (_animationId) {
       cancelAnimationFrame(_animationId);
@@ -688,6 +701,7 @@ export function initVisualizer(): void {
       analyser.smoothingTimeConstant = mode === 'spectrum' ? 0.8 : 0.3;
     }
 
+    drawRestingVisualizerFrame();
     startVisualizer();
   });
 

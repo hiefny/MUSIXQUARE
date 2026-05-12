@@ -80,6 +80,7 @@ vi.mock('../../core/constants.ts', async (importOriginal) => {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  localStorage.clear();
   document.documentElement.setAttribute('data-theme', 'dark');
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
@@ -246,6 +247,74 @@ describe('Visualizer', () => {
   });
 
   describe('Module Exports', () => {
+    it('hydrates persisted spectrum mode before drawing the initial resting frame', async () => {
+      vi.resetModules();
+      localStorage.setItem('musixquare-viz-mode', 'spectrum');
+
+      const restingCanvas = document.createElement('canvas');
+      restingCanvas.id = 'visualizerCanvas';
+      document.body.appendChild(restingCanvas);
+
+      const ctx = {
+        setTransform: vi.fn(),
+        scale: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+
+      expect(document.body.classList.contains('viz-spectrum')).toBe(true);
+      expect(document.body.classList.contains('viz-circular')).toBe(false);
+      expect(ctx.lineTo).toHaveBeenCalled();
+      expect(ctx.arc).not.toHaveBeenCalled();
+    });
+
+    it('redraws a spectrum resting frame when the saved mode is restored after init', async () => {
+      vi.resetModules();
+
+      const restingCanvas = document.createElement('canvas');
+      restingCanvas.id = 'visualizerCanvas';
+      document.body.appendChild(restingCanvas);
+
+      const ctx = {
+        setTransform: vi.fn(),
+        scale: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+
+      const [{ bus }, mod] = await Promise.all([
+        import('../../core/events.ts'),
+        import('../visualizer.ts'),
+      ]);
+      mod.initVisualizer();
+      vi.mocked(ctx.arc).mockClear();
+      vi.mocked(ctx.lineTo).mockClear();
+
+      bus.emit('visualizer:set-type', 'spectrum');
+
+      expect(document.body.classList.contains('viz-spectrum')).toBe(true);
+      expect(document.body.classList.contains('viz-circular')).toBe(false);
+      expect(ctx.lineTo).toHaveBeenCalled();
+      expect(ctx.arc).not.toHaveBeenCalled();
+    });
+
     it('applies the initial paused playback activity through the visualizer subscription', async () => {
       const { setState } = await import('../../core/state.ts');
       const { clearManagedTimer } = await import('../../core/timers.ts');

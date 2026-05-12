@@ -9,11 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  PLAYBACK_STATE,
-  LOAD_SOURCE,
-  type PlaybackStateValue,
-} from '../../core/constants.ts';
+import { PLAYBACK_STATE, LOAD_SOURCE, type PlaybackStateValue } from '../../core/constants.ts';
 import { getState, setState, resetState } from '../../core/state.ts';
 import {
   setPlaybackFilePlaying,

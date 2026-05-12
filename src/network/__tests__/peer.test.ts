@@ -6,12 +6,7 @@ import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { detectConnectionType } from '../peer-state.ts';
-import {
-  forceStereoSdp,
-  safeSend,
-  isRemoteGuest,
-  isTrustedSystemAudioMediaCall,
-} from '../peer.ts';
+import { forceStereoSdp, safeSend, isRemoteGuest, isTrustedSystemAudioMediaCall } from '../peer.ts';
 import type { AnyProtocolMsg, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
@@ -184,12 +179,9 @@ describe('forceStereoSdp', () => {
   });
 
   it('adds an fmtp line when opus has none', () => {
-    const sdp = [
-      'v=0',
-      'm=audio 9 UDP/TLS/RTP/SAVPF 111',
-      'a=rtpmap:111 opus/48000/2',
-      '',
-    ].join('\r\n');
+    const sdp = ['v=0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=rtpmap:111 opus/48000/2', ''].join(
+      '\r\n',
+    );
 
     const result = forceStereoSdp(sdp);
 

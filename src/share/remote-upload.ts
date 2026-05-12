@@ -18,7 +18,7 @@ export async function uploadRemoteFile(
 ): Promise<RemoteFileSharePayload> {
   // Backward-compat: callers used to pass onUploadProgress directly as the 4th arg.
   const opts: UploadRemoteFileOptions =
-    typeof options === 'function' ? { onUploadProgress: options } : options ?? {};
+    typeof options === 'function' ? { onUploadProgress: options } : (options ?? {});
   const { onUploadProgress, signal } = opts;
 
   if (file.size > REMOTE_SHARE_MAX_BYTES) {

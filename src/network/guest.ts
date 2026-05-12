@@ -41,7 +41,9 @@ function applyGuestDetectedConnectionType(type: ConnectionType, source: string):
     if (getState('network.connectionType') !== hostType) {
       setState('network.connectionType', hostType);
     }
-    log.info(`[Peer] ${source} detected ${type}, but host reports ${hostType}; keeping host routing`);
+    log.info(
+      `[Peer] ${source} detected ${type}, but host reports ${hostType}; keeping host routing`,
+    );
     emitConnectionTypeChanged();
     return false;
   }

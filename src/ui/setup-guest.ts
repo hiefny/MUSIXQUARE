@@ -387,7 +387,8 @@ export async function promptForRoomPassword(
       autocomplete: 'one-time-code',
       splitEvery: 4,
       separator: '-',
-      validator: (value) => (/^\d{8}$/.test(value.trim()) ? null : t('connect.room_password_invalid')),
+      validator: (value) =>
+        /^\d{8}$/.test(value.trim()) ? null : t('connect.room_password_invalid'),
     },
     buttonText: t('common.ok'),
     secondaryText: t('common.cancel'),

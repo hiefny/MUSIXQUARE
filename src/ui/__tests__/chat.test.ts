@@ -217,7 +217,9 @@ describe('Chat Module', () => {
     ])('renders malicious markup as inert text: %s', async (payload) => {
       const root = await renderParsedContent(payload);
 
-      expect(root.querySelector('script,img,svg,iframe,object,embed,link,style,foreignObject,math,meta')).toBeNull();
+      expect(
+        root.querySelector('script,img,svg,iframe,object,embed,link,style,foreignObject,math,meta'),
+      ).toBeNull();
       expectNoEventHandlerAttributes(root);
       expect(root.textContent).toContain(payload);
     });
@@ -231,7 +233,9 @@ describe('Chat Module', () => {
       expect(button).not.toBeNull();
       expect(button?.getAttribute('onpointerenter')).toBeNull();
       expect(root.querySelector('.chat-timestamp')?.getAttribute('data-seek')).toBe('42');
-      expect(root.querySelector('script,img,iframe,object,embed,link,style,foreignObject,math,meta')).toBeNull();
+      expect(
+        root.querySelector('script,img,iframe,object,embed,link,style,foreignObject,math,meta'),
+      ).toBeNull();
       expectNoEventHandlerAttributes(root);
     });
   });

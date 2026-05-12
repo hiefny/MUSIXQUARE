@@ -129,9 +129,7 @@ function callGuest(guestPeerId: string): void {
         _mediaConns.delete(guestPeerId);
       });
 
-      log.info(
-        `[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: original stereo stream`,
-      );
+      log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: original stereo stream`);
       return;
     }
 
@@ -262,7 +260,9 @@ export function registerSystemAudioHostListeners(): void {
     if (getState('network.appRole') !== 'host') return;
     if (_remoteDirectFallbackEnabled) return;
     _remoteDirectFallbackEnabled = true;
-    log.warn(`[SysAudioHost] SFU unavailable; falling back to direct remote media calls: ${reason}`);
+    log.warn(
+      `[SysAudioHost] SFU unavailable; falling back to direct remote media calls: ${reason}`,
+    );
     callRemoteGuestsForFallback();
   });
 

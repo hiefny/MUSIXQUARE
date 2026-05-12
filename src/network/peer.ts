@@ -12,11 +12,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from '../ui/dialog.ts';
-import {
-  DEFAULT_MAX_GUEST_SLOTS,
-  TRANSFER_STATE,
-  PLAYBACK_STATE,
-} from '../core/constants.ts';
+import { DEFAULT_MAX_GUEST_SLOTS, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers, clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
@@ -107,12 +103,7 @@ function getSystemAudioCallChannel(
  */
 export function forceStereoSdp(sdp: string): string {
   let modified = sdp;
-  const stereoParams = [
-    'stereo=1',
-    'sprop-stereo=1',
-    'maxaveragebitrate=128000',
-    'useinbandfec=1',
-  ];
+  const stereoParams = ['stereo=1', 'sprop-stereo=1', 'maxaveragebitrate=128000', 'useinbandfec=1'];
 
   // 1. Find opus payload types
   const opusPTs: string[] = [];
@@ -132,10 +123,7 @@ export function forceStereoSdp(sdp: string): string {
         .split(';')
         .map((param) => param.trim())
         .filter(Boolean)
-        .filter(
-          (param) =>
-            !/^(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=/i.test(param),
-        );
+        .filter((param) => !/^(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=/i.test(param));
 
       return `a=fmtp:${pt} ${[...preservedParams, ...stereoParams].join('; ')}`;
     });
@@ -323,11 +311,7 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
       return;
     }
 
-    setManagedTimer(
-      'peer-open-timeout',
-      () => onError(new Error('PEER_OPEN_TIMEOUT')),
-      15000,
-    );
+    setManagedTimer('peer-open-timeout', () => onError(new Error('PEER_OPEN_TIMEOUT')), 15000);
   });
 
   setState('network.myId', id);
@@ -547,7 +531,11 @@ function setupPeerEvents(): void {
         return;
       }
 
-      bus.emit('system-audio:incoming-call', mediaConn, getSystemAudioCallChannel(type, mc.metadata));
+      bus.emit(
+        'system-audio:incoming-call',
+        mediaConn,
+        getSystemAudioCallChannel(type, mc.metadata),
+      );
       return;
     }
 

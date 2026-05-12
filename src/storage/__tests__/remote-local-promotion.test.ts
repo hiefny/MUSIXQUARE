@@ -168,9 +168,8 @@ describe('remote-share to local direct transfer promotion', () => {
 
   it('preserves a queued host PLAY when FILE_PREPARE resets receive state for the same track', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
-    const { getPendingPlayTime, getPendingPlayTimeSetAt, setPendingPlayTime } = await import(
-      '../../player/_state.ts'
-    );
+    const { getPendingPlayTime, getPendingPlayTimeSetAt, setPendingPlayTime } =
+      await import('../../player/_state.ts');
 
     setState('network.connectionType', 'local');
     setState('playlist.currentTrackIndex', 2);

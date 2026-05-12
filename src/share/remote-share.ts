@@ -22,12 +22,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { sendSystemNotice } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import {
-  broadcast,
-  isRemoteGuest,
-  safeSend,
-  waitForGuestConnectionType,
-} from '../network/peer.ts';
+import { broadcast, isRemoteGuest, safeSend, waitForGuestConnectionType } from '../network/peer.ts';
 import { transition } from '../player/lifecycle.ts';
 import { createFileTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
 import {
@@ -205,10 +200,7 @@ function friendlyErrorMessage(error: unknown): string {
   ) {
     return t('share.remote.auth_failed');
   }
-  if (
-    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_413' ||
-    raw === 'REMOTE_SHARE_COMPLETE_HTTP_413'
-  ) {
+  if (raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_413' || raw === 'REMOTE_SHARE_COMPLETE_HTTP_413') {
     return t('share.remote.too_large');
   }
   if (raw.startsWith('REMOTE_SHARE_DOWNLOAD_HTTP_404')) return t('share.remote.expired');
@@ -259,9 +251,7 @@ function maybeNotifyRemoteUploadFailure(
 
   if (now - _lastUploadFailureNoticeAt < 60_000) return;
   _lastUploadFailureNoticeAt = now;
-  const key = limited
-    ? 'chat.remote_upload_limited_notice'
-    : 'chat.remote_upload_failed_notice';
+  const key = limited ? 'chat.remote_upload_limited_notice' : 'chat.remote_upload_failed_notice';
   for (const conn of targets) {
     sendSystemNotice(conn, key);
   }
@@ -364,7 +354,9 @@ export async function shareRemoteFileIfNeeded(
   if (!targetConn && !hasRemoteTargets()) return;
 
   const index =
-    options?.index !== undefined ? options.index : (getState('playlist.currentTrackIndex') as number);
+    options?.index !== undefined
+      ? options.index
+      : (getState('playlist.currentTrackIndex') as number);
   if (!Number.isFinite(index) || index < 0) return;
 
   const roomId = currentRemoteShareRoomId();
@@ -427,7 +419,9 @@ export async function shareRemoteFileIfNeeded(
         return;
       }
       if (!isHostActiveFile(file, index)) {
-        log.debug('[RemoteShare] Active upload completed for stale track; descriptor not broadcast');
+        log.debug(
+          '[RemoteShare] Active upload completed for stale track; descriptor not broadcast',
+        );
         return;
       }
     }
@@ -543,12 +537,7 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
     () => {
       const readyBlob = getState('preload.nextFileBlob');
       const readyMeta = getState('preload.meta');
-      if (
-        readyBlob &&
-        readyMeta &&
-        Number(readyMeta.index) === index &&
-        readyMeta.name === name
-      ) {
+      if (readyBlob && readyMeta && Number(readyMeta.index) === index && readyMeta.name === name) {
         return;
       }
       log.warn('[RemoteShare] Wait timed out before descriptor/download completed');
@@ -564,8 +553,7 @@ function isCurrentRemoteFileLoaded(descriptor: RemoteFileSharePayload): boolean 
   const meta = getState('transfer.meta');
   if (!currentBlob || !meta) return false;
   const metaSessionId = Number(meta.sessionId);
-  const sessionMatches =
-    !Number.isFinite(metaSessionId) || metaSessionId === descriptor.sessionId;
+  const sessionMatches = !Number.isFinite(metaSessionId) || metaSessionId === descriptor.sessionId;
   return (
     Number(meta.index) === descriptor.index &&
     meta.name === descriptor.name &&
@@ -574,7 +562,11 @@ function isCurrentRemoteFileLoaded(descriptor: RemoteFileSharePayload): boolean 
   );
 }
 
-function isPreloadedRemoteFile(descriptor: RemoteFileSharePayload, blob: Blob, meta: unknown): boolean {
+function isPreloadedRemoteFile(
+  descriptor: RemoteFileSharePayload,
+  blob: Blob,
+  meta: unknown,
+): boolean {
   const preloadMeta = meta as Record<string, unknown> | null;
   if (!preloadMeta) return false;
   const metaSessionId = Number(preloadMeta.sessionId);
@@ -775,10 +767,7 @@ async function handleRemoteFileShare(
   }
 }
 
-function handleRemoteFileUnavailable(
-  data: Record<string, unknown>,
-  conn?: DataConnection,
-): void {
+function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
   if (!isRemoteGuest() && getState('network.connectionType') !== 'unknown') return;

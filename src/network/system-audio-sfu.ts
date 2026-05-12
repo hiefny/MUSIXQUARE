@@ -146,13 +146,17 @@ function clearGuestLimitTimer(): void {
 function startGuestLimitTimer(): void {
   if (guestLimitTimerActive) return;
   guestLimitTimerActive = true;
-  setManagedTimer(REMOTE_GUEST_SFU_LIMIT_TIMER, () => {
-    guestLimitTimerActive = false;
-    guestLimitBlockedHostConn = getState('network.hostConn');
-    log.info('[SysAudioSFU] Remote guest receive limit reached; pausing SFU until rejoin');
-    bus.emit('ui:show-toast', t('system_audio.remote_receive_limit'));
-    cleanupGuestSfu();
-  }, REMOTE_GUEST_SFU_LIMIT_MS);
+  setManagedTimer(
+    REMOTE_GUEST_SFU_LIMIT_TIMER,
+    () => {
+      guestLimitTimerActive = false;
+      guestLimitBlockedHostConn = getState('network.hostConn');
+      log.info('[SysAudioSFU] Remote guest receive limit reached; pausing SFU until rejoin');
+      bus.emit('ui:show-toast', t('system_audio.remote_receive_limit'));
+      cleanupGuestSfu();
+    },
+    REMOTE_GUEST_SFU_LIMIT_MS,
+  );
 }
 
 function isGuestLimitedForHost(hostConn: DataConnection | null): boolean {

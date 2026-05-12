@@ -11,10 +11,7 @@ vi.mock('../../core/session.ts', async (importOriginal) => {
   };
 });
 
-import {
-  ensureNamedFile,
-  postCommand,
-} from '../storage.ts';
+import { ensureNamedFile, postCommand } from '../storage.ts';
 
 beforeEach(() => {
   resetState();
@@ -69,4 +66,3 @@ describe('postCommand', () => {
     postCommand({} as never);
   });
 });
-

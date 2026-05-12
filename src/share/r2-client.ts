@@ -237,13 +237,10 @@ export async function uploadEncryptedBlob(
     xhr.onload = () => {
       detachAbort?.();
       if (xhr.status >= 200 && xhr.status < 300) {
-        void completeDirectUpload(endpoint, session, meta, signal).then(
-          (body) => {
-            onProgress?.(1);
-            resolve(body);
-          },
-          reject,
-        );
+        void completeDirectUpload(endpoint, session, meta, signal).then((body) => {
+          onProgress?.(1);
+          resolve(body);
+        }, reject);
         return;
       }
       reject(new Error(`REMOTE_SHARE_DIRECT_UPLOAD_HTTP_${xhr.status}`));

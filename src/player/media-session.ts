@@ -18,9 +18,7 @@ import {
 } from './ownership.ts';
 import type { PlaylistItem } from '../types/index.ts';
 
-function mediaSessionStateFromActivity(
-  activity: PlaybackActivityValue,
-): MediaSessionPlaybackState {
+function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSessionPlaybackState {
   if (activity === 'playing') return 'playing';
   if (activity === 'paused') return 'paused';
   // 'pending' covers transient windows the user perceives as "about to resume":

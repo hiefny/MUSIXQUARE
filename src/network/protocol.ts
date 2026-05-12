@@ -264,10 +264,7 @@ function setHandler(type: MsgType, handler: MessageHandler): void {
  * Register a handler for a specific message type.
  * Can be called from any module during initialization.
  */
-export function registerHandler<T extends MsgType>(
-  type: T,
-  handler: TypedMessageHandler<T>,
-): void {
+export function registerHandler<T extends MsgType>(type: T, handler: TypedMessageHandler<T>): void {
   setHandler(type, handler as MessageHandler);
 }
 
@@ -324,7 +321,6 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
       log.error(`Error handling ${msgType}:`, e);
     }
   }
-
 }
 
 // ─── Operator Verification ──────────────────────────────────────────

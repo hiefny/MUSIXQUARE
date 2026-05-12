@@ -51,16 +51,13 @@ export function postCommand(payload: StorageCommand): void {
 
   const cmd = payload.command;
 
-  if (
-    cmd !== 'STORAGE_RESET' &&
-    cmd !== 'STORAGE_RESET_SESSION' &&
-    cmd !== 'STORAGE_CLEANUP'
-  ) {
+  if (cmd !== 'STORAGE_RESET' && cmd !== 'STORAGE_RESET_SESSION' && cmd !== 'STORAGE_CLEANUP') {
     if (!payload.filename) log.warn(`[Storage] Missing filename in ${cmd}`);
 
     payload.sessionId = validateSessionId(payload.sessionId ?? 0);
 
-    const isCriticalOp = cmd === 'STORAGE_START' || cmd === 'STORAGE_WRITE' || cmd === 'STORAGE_END';
+    const isCriticalOp =
+      cmd === 'STORAGE_START' || cmd === 'STORAGE_WRITE' || cmd === 'STORAGE_END';
     if (isCriticalOp && !payload.sessionId) {
       log.error(`[Storage] Blocked ${cmd}: invalid sessionId`, payload);
       return;

@@ -13,10 +13,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import {
-  isPlaybackPlayingFile,
-  isPlaybackPlayingSystemAudio,
-} from '../player/ownership.ts';
+import { isPlaybackPlayingFile, isPlaybackPlayingSystemAudio } from '../player/ownership.ts';
 import {
   getMasterGain,
   getToneMerge,

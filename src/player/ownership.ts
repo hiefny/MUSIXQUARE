@@ -149,7 +149,10 @@ export function createSystemAudioTrackMeta(
   };
 }
 
-function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferStateValue): boolean {
+function hasFilePipeline(
+  lifecycle: PlaybackStateValue,
+  transferState: TransferStateValue,
+): boolean {
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
@@ -428,8 +431,7 @@ export function isPlaybackPausedOrPendingFile(
   playback: PlaybackModeActivity = getPlaybackModeActivitySnapshot(),
 ): boolean {
   return (
-    playback.mode === 'file' &&
-    (playback.activity === 'paused' || playback.activity === 'pending')
+    playback.mode === 'file' && (playback.activity === 'paused' || playback.activity === 'pending')
   );
 }
 
@@ -450,8 +452,7 @@ export function isPlaybackActiveYouTube(
 export function isFileOwner(): boolean {
   const playback = getFreshPlaybackModeActivitySnapshot();
   return (
-    playback.mode === 'file' &&
-    (playback.activity === 'playing' || playback.activity === 'pending')
+    playback.mode === 'file' && (playback.activity === 'playing' || playback.activity === 'pending')
   );
 }
 

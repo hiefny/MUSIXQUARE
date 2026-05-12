@@ -192,7 +192,8 @@ const en: Record<I18nKey, string> = {
   'connect.room_password_pending': 'Waiting for 8 digits',
   'connect.room_password_on': 'Password applied',
   'connect.room_password_invalid': 'Enter 8 digits',
-  'connect.room_password_enabled': 'Anyone who tries to join this room will now be asked for the password',
+  'connect.room_password_enabled':
+    'Anyone who tries to join this room will now be asked for the password',
   'connect.room_password_disabled': 'People no longer need to enter a password when joining',
 
   // ─── Setup ───────────────────────────────────────────────────────
@@ -514,7 +515,8 @@ const en: Record<I18nKey, string> = {
   'dialog.room_password_title': 'Enter Room Password',
   'dialog.room_password_msg': 'A password is required to join this room.',
   'dialog.room_password_retry_msg': 'That password did not match. Try again.',
-  'dialog.room_password_timeout_msg': 'The connection timed out. Re-enter the password to try again.',
+  'dialog.room_password_timeout_msg':
+    'The connection timed out. Re-enter the password to try again.',
   'dialog.room_password_placeholder': '8-digit password',
   'dialog.session_lost_msg':
     'The app went to sleep or lost connection, so other devices have already dropped. Restart to begin a new session.',

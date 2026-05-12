@@ -11,9 +11,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import {
-  cancelOutgoingFileTransferForPeer as cancelOutgoingFileTransferForPeerInternal,
-} from './transfer-send.ts';
+import { cancelOutgoingFileTransferForPeer as cancelOutgoingFileTransferForPeerInternal } from './transfer-send.ts';
 import {
   handleFilePrepare,
   handleFileStart,

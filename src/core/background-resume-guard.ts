@@ -36,8 +36,7 @@ export function initBackgroundResumeGuard(
   const controller = new AbortController();
   const opts = { signal: controller.signal };
   const getNow = deps.getNow ?? (() => Date.now());
-  const getVisibilityState =
-    deps.getVisibilityState ?? (() => document.visibilityState);
+  const getVisibilityState = deps.getVisibilityState ?? (() => document.visibilityState);
   const thresholdMs = deps.longHiddenMs ?? DEFAULT_LONG_BACKGROUND_RESUME_MS;
 
   let hiddenAt: number | null = getVisibilityState() === 'hidden' ? getNow() : null;

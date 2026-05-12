@@ -434,7 +434,7 @@ export function initChat(): void {
 
   const chatMessages = document.getElementById('chat-messages');
   const scrollDownBtn = document.getElementById('btn-chat-scroll-down');
-  
+
   if (chatMessages && scrollDownBtn) {
     // `passive: true` is the modern default for scroll listeners but we
     // mark it explicitly — Safari ≤ 11 still required the hint, and the

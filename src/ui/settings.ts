@@ -525,10 +525,7 @@ export function initSettings(): void {
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach((el) => {
     el.addEventListener('click', () => {
       // Host: block channel change during system audio sharing
-      if (
-        !getState('network.hostConn') &&
-        isPlaybackModeSystemAudio()
-      ) {
+      if (!getState('network.hostConn') && isPlaybackModeSystemAudio()) {
         showToast(t('system_audio.host_channel_locked'));
         return;
       }

@@ -1029,7 +1029,6 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   if (preloadMeta && (preloadMeta.sessionId as number) === sid) {
     showLoader(false);
   }
-
 }
 
 function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): void {
@@ -1209,7 +1208,6 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
       jitter,
     );
   }
-
 }
 
 // ─── Debug: Memory Stats ────────────────────────────────────────────
@@ -1294,8 +1292,7 @@ export function initPreload(): void {
       const sessionForFile = getState('preload.sessionState').get(sessionId);
       const lifecycle = getState('playback.lifecycle');
       const recoveryTarget = getState('playback.pendingRecoveryTarget');
-      const awaitedName =
-        lifecycle === 'AWAITING_PRELOAD' ? (recoveryTarget?.name ?? '') : '';
+      const awaitedName = lifecycle === 'AWAITING_PRELOAD' ? (recoveryTarget?.name ?? '') : '';
       const pendingIdx = recoveryTarget?.index ?? -1;
       const isOurAwaitTarget =
         lifecycle === 'AWAITING_PRELOAD' && !!filename && !!awaitedName && filename === awaitedName;

@@ -111,7 +111,10 @@ describe('remote file share policy', () => {
   it('ignores demo descriptors because remote guests use the HTTP demo path', async () => {
     const { handleData } = await import('../../network/protocol.ts');
 
-    await handleData({ type: MSG.REMOTE_FILE_SHARE, ...descriptor({ name: DEMO_FILE_NAME }) }, conn);
+    await handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ name: DEMO_FILE_NAME }) },
+      conn,
+    );
 
     expect(mocks.downloadRemoteFile).not.toHaveBeenCalled();
     expect(mocks.transition).not.toHaveBeenCalled();

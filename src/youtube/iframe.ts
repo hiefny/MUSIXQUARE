@@ -16,7 +16,11 @@ import { broadcast } from '../network/peer.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
-import { isPlaybackModeYouTube, setPlaybackIdle, updatePlaybackTrackTitle } from '../player/ownership.ts';
+import {
+  isPlaybackModeYouTube,
+  setPlaybackIdle,
+  updatePlaybackTrackTitle,
+} from '../player/ownership.ts';
 import {
   getYouTubePlayer,
   setYouTubePlayer,

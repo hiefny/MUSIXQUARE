@@ -273,12 +273,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   const wasInYouTube = isPlaybackModeYouTube();
   // Preservation: do not reset sub-index to -1 if we are or will be in YouTube mode.
   // This prevents clobbering the sub-index 0 set during the indexing callback.
-  if (
-    !wasInYouTube &&
-    !isCompatIdle() &&
-    !isYtIndexing() &&
-    !isYtLoadInProgress()
-  ) {
+  if (!wasInYouTube && !isCompatIdle() && !isYtIndexing() && !isYtLoadInProgress()) {
     setYouTubeSubIndex(-1);
   }
   _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any

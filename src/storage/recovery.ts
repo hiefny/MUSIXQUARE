@@ -137,8 +137,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       // setPendingRecoveryTarget() guarantees target is null OR a valid pair, so
       // optional-chain returns either a non-negative index or undefined.
       const freshIndex =
-        getState('playback.pendingRecoveryTarget')?.index ??
-        getState('playlist.currentTrackIndex');
+        getState('playback.pendingRecoveryTarget')?.index ?? getState('playlist.currentTrackIndex');
 
       try {
         freshConn.send({

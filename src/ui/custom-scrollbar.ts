@@ -105,9 +105,7 @@ function updateLayout(state: ScrollbarState): void {
       state.transformBlock = findFixedContainingBlock(container);
       state.transformBlockResolved = true;
     }
-    const ancestorTop = state.transformBlock
-      ? state.transformBlock.getBoundingClientRect().top
-      : 0;
+    const ancestorTop = state.transformBlock ? state.transformBlock.getBoundingClientRect().top : 0;
     track.style.top = `${containerRect.top - ancestorTop}px`;
     track.style.height = `${visibleHeight}px`;
   }

@@ -178,7 +178,10 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         });
       };
       const focusByLength = (digits: string) => {
-        const index = Math.min(inputs.length - 1, Math.floor(Math.max(0, digits.length - 1) / splitEvery));
+        const index = Math.min(
+          inputs.length - 1,
+          Math.floor(Math.max(0, digits.length - 1) / splitEvery),
+        );
         inputs[index]?.focus();
       };
 
@@ -211,7 +214,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         });
         input.addEventListener('paste', (e) => {
           e.preventDefault();
-          const digits = (e.clipboardData?.getData('text/plain') || '').replace(/\D+/g, '').slice(0, maxLen);
+          const digits = (e.clipboardData?.getData('text/plain') || '')
+            .replace(/\D+/g, '')
+            .slice(0, maxLen);
           distributeDigits(digits);
           focusByLength(digits);
           input.dispatchEvent(new Event('input', { bubbles: true }));

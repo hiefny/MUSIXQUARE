@@ -80,7 +80,12 @@ export function ramStart(
 
   if (!isPreload) {
     // If keepExisting + same filename + same session → resume.
-    if (keepExisting && mainSlot && mainSlot.filename === filename && mainSlot.sessionId === sessionId) {
+    if (
+      keepExisting &&
+      mainSlot &&
+      mainSlot.filename === filename &&
+      mainSlot.sessionId === sessionId
+    ) {
       return { ok: true };
     }
     mainSlot = makeSlot(filename, isPreload, sessionId, chunkSize);
@@ -241,11 +246,7 @@ export function ramReadBlob(filename: string, isPreload: boolean): Blob | null {
   return slot?.finalizedBlob ?? null;
 }
 
-function findSlotForRead(
-  filename: string,
-  isPreload: boolean,
-  sessionId?: number,
-): RamSlot | null {
+function findSlotForRead(filename: string, isPreload: boolean, sessionId?: number): RamSlot | null {
   if (!isPreload) {
     if (mainSlot && mainSlot.filename === filename) return mainSlot;
     return null;

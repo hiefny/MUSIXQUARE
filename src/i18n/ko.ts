@@ -485,7 +485,8 @@ const ko = {
   'error.server_disconnected': '서버와의 연결이 끊어졌어요.',
   'error.session_id_unavailable': '세션 ID를 사용할 수 없어요. 다시 시도해 주세요.',
   'error.webrtc_failed': 'WebRTC 연결에 실패했어요. 브라우저 설정을 확인해 주세요.',
-  'error.browser_unsupported': '실시간 연결을 지원하지 않는 브라우저예요. 최신 Chrome이나 Safari로 시도해 주세요.',
+  'error.browser_unsupported':
+    '실시간 연결을 지원하지 않는 브라우저예요. 최신 Chrome이나 Safari로 시도해 주세요.',
   'error.ssl_required': 'HTTPS 보안 연결이 필요해요.',
   'error.room_password_required': '이 방은 암호가 필요해요.',
   'error.room_password_invalid': '방 암호가 맞지 않아요.',

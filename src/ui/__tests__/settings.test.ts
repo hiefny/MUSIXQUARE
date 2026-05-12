@@ -145,6 +145,8 @@ describe('initSettings playback mode guards', () => {
     document.querySelector<HTMLElement>('#grid-standard .ch-opt[data-ch="-1"]')?.click();
 
     expect(setChannel).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith('Cannot change speaker role while sharing system audio.');
+    expect(showToast).toHaveBeenCalledWith(
+      'Cannot change speaker role while sharing system audio.',
+    );
   });
 });

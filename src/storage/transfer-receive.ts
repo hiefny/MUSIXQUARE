@@ -21,11 +21,7 @@ import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postCommand, cleanupStoredFile } from './storage.ts';
 import { t } from '../i18n/index.ts';
-import {
-  sendToHost,
-  isRemoteGuest,
-  waitForGuestConnectionType,
-} from '../network/peer.ts';
+import { sendToHost, isRemoteGuest, waitForGuestConnectionType } from '../network/peer.ts';
 import {
   cancelRemoteShareWait,
   prepareRemoteShareWait,
@@ -742,8 +738,7 @@ export async function handleFilePrepare(
   const receivedCount = getState('transfer.receivedCount');
   const prevTarget = getState('playback.pendingRecoveryTarget');
   const isSameFile =
-    meta?.name === data.name ||
-    (prevTarget !== null && prevTarget.index === data.index);
+    meta?.name === data.name || (prevTarget !== null && prevTarget.index === data.index);
 
   // Store pending file info (after reading old values above)
   setPendingRecoveryTarget(data.index as number | undefined, data.name as string | undefined);
@@ -835,7 +830,6 @@ export async function handleFilePrepare(
     },
     prepareTimeout,
   );
-
 }
 
 export function handleFileStart(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -1001,7 +995,6 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
       }
     }
   }
-
 }
 
 // Network entry for FILE_CHUNK. Gates the host-broadcast auth check, then

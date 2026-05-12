@@ -713,9 +713,7 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
           .filter(([, v]) => typeof v === 'number')
           .sort((a, b) => (b[1] as number) - (a[1] as number));
         if (entries.length > 0) {
-          const parts = entries.map(
-            ([k, v]) => `${k}:${((v as number) / 1048576).toFixed(1)}MB`,
-          );
+          const parts = entries.map(([k, v]) => `${k}:${((v as number) / 1048576).toFixed(1)}MB`);
           lines.push(`          breakdown: ${parts.join(' | ')}`);
         }
       } else {
@@ -783,9 +781,7 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     // is the cumulative decode count for the session and should match the
     // number of distinct tracks loaded.
     const bufStats = liveAudioBufferCount();
-    lines.push(
-      `        live AudioBuffers:${bufStats.live} (everSeen:${bufStats.everSeen})`,
-    );
+    lines.push(`        live AudioBuffers:${bufStats.live} (everSeen:${bufStats.everSeen})`);
   } catch {
     /* ignore */
   }
@@ -882,9 +878,7 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
   // ── Network ──
   try {
     const peers = (getState('network.connectedPeers') || []) as ConnectedPeer[];
-    const openPeers = peers.filter(
-      (p) => (p.conn as { open?: boolean } | undefined)?.open,
-    ).length;
+    const openPeers = peers.filter((p) => (p.conn as { open?: boolean } | undefined)?.open).length;
     const hostConn = getState('network.hostConn') as { open?: boolean } | null;
     lines.push(
       `[Network] hostConn:${hostConn?.open ? 'open' : hostConn ? 'closed' : 'none'} | peers:${peers.length}(${openPeers} open)`,

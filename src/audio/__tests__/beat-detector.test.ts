@@ -47,7 +47,10 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
-  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+  vi.stubGlobal(
+    'requestAnimationFrame',
+    vi.fn(() => 1),
+  );
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
   mockGetCurrentAudioBuffer.mockReturnValue(createBuffer());
   clearBeatDetector();

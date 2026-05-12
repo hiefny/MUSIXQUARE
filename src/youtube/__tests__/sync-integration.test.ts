@@ -57,10 +57,8 @@ vi.mock('../../network/peer.ts', () => ({
 // handleYouTubeSync / handleYouTubeState directly (they're not exported).
 // Handlers accept an optional `conn` second arg — handleYouTubeState's
 // hostConn guard requires the test to pass the mocked hostConn.
-const capturedHandlers: Record<
-  string,
-  (data: Record<string, unknown>, conn?: unknown) => void
-> = {};
+const capturedHandlers: Record<string, (data: Record<string, unknown>, conn?: unknown) => void> =
+  {};
 vi.mock('../../network/protocol.ts', () => ({
   registerHandlers: vi.fn((handlers: Record<string, unknown>) => {
     for (const [type, h] of Object.entries(handlers)) {
@@ -280,9 +278,7 @@ describe('YouTube Sync — Regression Integration', () => {
 
       // Stage 2 (YOUTUBE_SYNC) should fire exactly once — the first schedule's
       // Stage 2 timer is canceled via clearManagedTimer('yt-auto-sync').
-      const stage2Calls = broadcastMock.mock.calls.filter(
-        (c) => c[0]?.type === MSG.YOUTUBE_SYNC,
-      );
+      const stage2Calls = broadcastMock.mock.calls.filter((c) => c[0]?.type === MSG.YOUTUBE_SYNC);
       expect(stage2Calls).toHaveLength(1);
 
       // Final seek target must be 20, not 10 — "last action wins"

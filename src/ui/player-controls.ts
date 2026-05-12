@@ -31,14 +31,8 @@ import { guestRendezvousSync, broadcastYouTubeSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
-import {
-  getPlaybackModeActivitySnapshot,
-  scopePlaybackModeActivity,
-} from './_state-hooks.ts';
-import {
-  isPlaybackModeSystemAudio,
-  isPlaybackModeYouTube,
-} from '../player/ownership.ts';
+import { getPlaybackModeActivitySnapshot, scopePlaybackModeActivity } from './_state-hooks.ts';
+import { isPlaybackModeSystemAudio, isPlaybackModeYouTube } from '../player/ownership.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -420,7 +414,6 @@ function openFileSelector(): void {
 // ─── Sync Button ─────────────────────────────────────────────────
 
 function handleMainSyncBtn(): void {
-
   // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
   if (isPlaybackModeSystemAudio()) {
     showToast(t('toast.sync_not_in_system_audio'));
@@ -897,56 +890,60 @@ export function initPlayerControls(): void {
     }
   }
 
-  scopePlaybackModeActivity(_busScope, (playback) => {
-    let playing = playback.activity === 'playing' && playback.mode !== null;
-    if (playback.mode === 'youtube') {
-      // The playback mode transitions to youtube the moment iframe creation
-      // starts (setEngineMode in iframe.ts), well before the video actually
-      // plays — assuming "playing" here would briefly show the pause icon
-      // over a silent loading iframe. Defer to the iframe's real PlayerState
-      // (1 = PLAYING). ui:update-play-state below refines this once YT
-      // emits its first PLAYING/PAUSED transition.
-      const ytPlayer = getYouTubePlayer();
-      playing = ytPlayer?.getPlayerState?.() === 1;
-    }
-    updatePlayIcon(playing);
+  scopePlaybackModeActivity(
+    _busScope,
+    (playback) => {
+      let playing = playback.activity === 'playing' && playback.mode !== null;
+      if (playback.mode === 'youtube') {
+        // The playback mode transitions to youtube the moment iframe creation
+        // starts (setEngineMode in iframe.ts), well before the video actually
+        // plays — assuming "playing" here would briefly show the pause icon
+        // over a silent loading iframe. Defer to the iframe's real PlayerState
+        // (1 = PLAYING). ui:update-play-state below refines this once YT
+        // emits its first PLAYING/PAUSED transition.
+        const ytPlayer = getYouTubePlayer();
+        playing = ytPlayer?.getPlayerState?.() === 1;
+      }
+      updatePlayIcon(playing);
 
-    // Clear YouTube sync spinner when leaving YouTube mode
-    if (playback.mode !== 'youtube') {
-      const playBtn = document.getElementById('play-btn');
-      if (playBtn) playBtn.classList.remove('yt-syncing');
-    }
+      // Clear YouTube sync spinner when leaving YouTube mode
+      if (playback.mode !== 'youtube') {
+        const playBtn = document.getElementById('play-btn');
+        if (playBtn) playBtn.classList.remove('yt-syncing');
+      }
 
-    // System audio: host gets "공유 중지", guest keeps "미디어 재생" (dimmed)
-    const mediaBtn = document.getElementById('btn-media-source');
-    const mediaBtnLabel = mediaBtn?.querySelector('span');
-    const isGuest = !!getState('network.hostConn');
-    if (mediaBtnLabel) {
-      if (playback.mode === 'system-audio') {
-        if (isGuest) {
-          // Guest: keep original label + color (opacity already set by hostConn listener)
-          if (mediaBtn) mediaBtn.classList.add('sys-audio-guest');
+      // System audio: host gets "공유 중지", guest keeps "미디어 재생" (dimmed)
+      const mediaBtn = document.getElementById('btn-media-source');
+      const mediaBtnLabel = mediaBtn?.querySelector('span');
+      const isGuest = !!getState('network.hostConn');
+      if (mediaBtnLabel) {
+        if (playback.mode === 'system-audio') {
+          if (isGuest) {
+            // Guest: keep original label + color (opacity already set by hostConn listener)
+            if (mediaBtn) mediaBtn.classList.add('sys-audio-guest');
+          } else {
+            // Host: show stop button. Keep data-i18n in sync so the
+            // language-switch retranslation picks the right key instead of
+            // treating this node as untranslated.
+            mediaBtnLabel.textContent = t('system_audio.stop');
+            mediaBtnLabel.setAttribute('data-i18n', 'system_audio.stop');
+          }
         } else {
-          // Host: show stop button. Keep data-i18n in sync so the
-          // language-switch retranslation picks the right key instead of
-          // treating this node as untranslated.
-          mediaBtnLabel.textContent = t('system_audio.stop');
-          mediaBtnLabel.setAttribute('data-i18n', 'system_audio.stop');
-        }
-      } else {
-        const currentKey = mediaBtnLabel.getAttribute('data-i18n');
-        if (!currentKey || currentKey === 'system_audio.stop') {
-          mediaBtnLabel.textContent = t('player.play_media');
-          mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
-        }
-        if (mediaBtn) {
-          // Restore host opacity only — guest stays dimmed via hostConn listener
-          if (!getState('network.hostConn')) mediaBtn.style.opacity = '';
-          mediaBtn.classList.remove('sys-audio-guest');
+          const currentKey = mediaBtnLabel.getAttribute('data-i18n');
+          if (!currentKey || currentKey === 'system_audio.stop') {
+            mediaBtnLabel.textContent = t('player.play_media');
+            mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
+          }
+          if (mediaBtn) {
+            // Restore host opacity only — guest stays dimmed via hostConn listener
+            if (!getState('network.hostConn')) mediaBtn.style.opacity = '';
+            mediaBtn.classList.remove('sys-audio-guest');
+          }
         }
       }
-    }
-  }, { immediate: true });
+    },
+    { immediate: true },
+  );
 
   // YouTube pause/play doesn't change playback activity — still need this event
   _busScope.on('ui:update-play-state', (playing) => {
@@ -1083,13 +1080,17 @@ export function initPlayerControls(): void {
     }
   });
 
-  scopePlaybackModeActivity(_busScope, (playback) => {
-    if (playback.activity === 'playing') {
-      startTabTitleMarquee();
-    } else {
-      stopTabTitleMarquee();
-    }
-  }, { immediate: true });
+  scopePlaybackModeActivity(
+    _busScope,
+    (playback) => {
+      if (playback.activity === 'playing') {
+        startTabTitleMarquee();
+      } else {
+        stopTabTitleMarquee();
+      }
+    },
+    { immediate: true },
+  );
 
   // YouTube pause/play doesn't change playback activity — handle via play-state event
   _busScope.on('ui:update-play-state', (playing) => {

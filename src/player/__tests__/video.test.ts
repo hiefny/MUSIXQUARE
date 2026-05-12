@@ -55,7 +55,12 @@ describe('body class sink (playback.mode matrix)', () => {
     { mode: null, youtubeClass: false, systemAudioClass: false, ytContainerVisible: false },
     { mode: 'file', youtubeClass: false, systemAudioClass: false, ytContainerVisible: false },
     { mode: 'youtube', youtubeClass: true, systemAudioClass: false, ytContainerVisible: true },
-    { mode: 'system-audio', youtubeClass: false, systemAudioClass: true, ytContainerVisible: false },
+    {
+      mode: 'system-audio',
+      youtubeClass: false,
+      systemAudioClass: true,
+      ytContainerVisible: false,
+    },
   ];
 
   for (const { mode, youtubeClass, systemAudioClass, ytContainerVisible } of MATRIX) {

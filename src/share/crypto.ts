@@ -41,11 +41,10 @@ export function base64ToBytes(value: string): Uint8Array {
 }
 
 export async function encryptFile(file: Blob): Promise<RemoteEncryptionResult> {
-  const key = await crypto.subtle.generateKey(
-    { name: AES_ALGO, length: AES_BITS },
-    true,
-    ['encrypt', 'decrypt'],
-  );
+  const key = await crypto.subtle.generateKey({ name: AES_ALGO, length: AES_BITS }, true, [
+    'encrypt',
+    'decrypt',
+  ]);
   const iv = new Uint8Array(new ArrayBuffer(IV_BYTES));
   crypto.getRandomValues(iv);
   const rawKey = new Uint8Array(await crypto.subtle.exportKey('raw', key));
@@ -69,9 +68,13 @@ export async function decryptToFile(
 ): Promise<File> {
   const keyBytes = base64ToBytes(keyB64);
   const iv = base64ToBytes(ivB64);
-  const key = await crypto.subtle.importKey('raw', copyToArrayBuffer(keyBytes), { name: AES_ALGO }, false, [
-    'decrypt',
-  ]);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    copyToArrayBuffer(keyBytes),
+    { name: AES_ALGO },
+    false,
+    ['decrypt'],
+  );
   const plain = await crypto.subtle.decrypt(
     { name: AES_ALGO, iv: copyToArrayBuffer(iv) },
     key,

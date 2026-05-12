@@ -190,24 +190,28 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   if (isFilePlaying) {
     if (conn.open) {
       try {
-        conn.send(createSyncPongPayload({
-          pingId: data.pingId,
-          hostTime,
-          position,
-          playbackState,
-        }));
+        conn.send(
+          createSyncPongPayload({
+            pingId: data.pingId,
+            hostTime,
+            position,
+            playbackState,
+          }),
+        );
       } catch {
         /* closed */
       }
     }
   } else {
     try {
-        conn.send(createSyncPongPayload({
+      conn.send(
+        createSyncPongPayload({
           pingId: data.pingId,
           hostTime,
           position,
           playbackState,
-        }));
+        }),
+      );
     } catch {
       /* closed */
     }

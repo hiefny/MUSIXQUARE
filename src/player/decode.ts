@@ -369,9 +369,7 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
       'decode-fail-advance',
       () => {
         if (getLoadToken() !== advanceToken) {
-          log.debug(
-            '[Decode] Skipping auto-advance — load token bumped (user action superseded)',
-          );
+          log.debug('[Decode] Skipping auto-advance — load token bumped (user action superseded)');
           return;
         }
         // Dynamic import to avoid a static cycle with playlist.ts
@@ -520,9 +518,7 @@ export async function loadPreloadedTrack(
       cleanupStoredFile(prevTrackName, false);
       cleanupStoredFile(prevTrackName, true);
     } else {
-      log.info(
-        `[Preload] Track rotate skip (prev=${prevTrackName ?? 'null'}, new=${newName})`,
-      );
+      log.info(`[Preload] Track rotate skip (prev=${prevTrackName ?? 'null'}, new=${newName})`);
     }
     if (newName) {
       setState('files.currentTrack', { name: newName });

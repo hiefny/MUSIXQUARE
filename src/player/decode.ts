@@ -836,14 +836,6 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       play(target);
       setPendingPlayTime(undefined);
       bus.emit('sync:arm-initial');
-      setManagedTimer(
-        'playback-finalize-host-sync',
-        () => bus.emit('sync:request-immediate-ping'),
-        250,
-      );
-    } else if (hostConn?.open) {
-      log.info('[Guest] No pending play time after download, requesting host sync');
-      bus.emit('sync:request-immediate-ping');
     }
 
     bus.emit('ui:play-btn-state', true);

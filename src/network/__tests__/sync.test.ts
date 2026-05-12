@@ -185,23 +185,6 @@ describe('audio activation bootstrap', () => {
     setState('playback.activity', 'paused');
     expect(getManagedTimer('initial-sync-arm')).toBeNull();
   });
-
-  it('requests a fresh host sync when a guest unlocks audio with a decoded buffer', () => {
-    initSync();
-    const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;
-    setState('network.hostConn', conn as DataConnection);
-    setCurrentAudioBuffer({ duration: 30 } as AudioBuffer);
-
-    bus.emit('audio:activated');
-
-    expect(conn.send).toHaveBeenCalledTimes(1);
-    expect(conn.send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: MSG.SYNC_PING,
-        pingId: expect.any(Number),
-      }),
-    );
-  });
 });
 
 describe('background resume recovery', () => {

@@ -529,16 +529,6 @@ export function initSync(): void {
     bus.emit('sync:request-immediate-ping');
   });
 
-  // Mobile browsers may keep AudioContext suspended after a hard-reset
-  // reconnect. Once a user gesture unlocks it, immediately ask the host for
-  // the current playback position instead of trusting any stale deferred time.
-  bus.on('audio:activated', () => {
-    const hostConn = getState('network.hostConn');
-    if (!hostConn?.open || !getCurrentAudioBuffer()) return;
-    _needsInitialSync = true;
-    bus.emit('sync:request-immediate-ping');
-  });
-
   bus.on('sync:close-manual', () => {
     const overlay = document.getElementById('manual-sync-overlay');
     if (overlay) overlay.classList.remove('show');

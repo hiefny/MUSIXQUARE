@@ -203,20 +203,7 @@ function initWakeLock(): void {
   log.info('[App] Wake Lock initialized (native API)');
 }
 
-// Audio gesture recovery
-function initAudioGestureRecovery(): void {
-  const resumeIfNeeded = () => {
-    if (!isAudioReady()) return;
-    const ctx = getAudioContext();
-    if (ctx.state === 'running') return;
-    bus.emit('audio:activate');
-  };
-
-  document.addEventListener('pointerdown', resumeIfNeeded, { passive: true });
-  document.addEventListener('touchstart', resumeIfNeeded, { passive: true });
-  document.addEventListener('keydown', resumeIfNeeded);
-}
-
+// Background resume recovery
 function isPlaybackTimingRiskActive(): boolean {
   return !isPlaybackIdle();
 }
@@ -512,7 +499,6 @@ function bootstrap(): void {
   // 11. Keyboard shortcuts, Wake Lock & Cleanup
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
-  safeInit('AudioGestureRecovery', initAudioGestureRecovery);
   safeInit('BackgroundResumeGuard', () =>
     initBackgroundResumeGuard({
       isAtRisk: isPlaybackTimingRiskActive,

@@ -232,4 +232,15 @@ describe('initMediaSession', () => {
     setPlaybackIdle();
     expect(navigator.mediaSession.playbackState).toBe('none');
   });
+
+  it("maps pending activity to 'paused' to keep iOS AudioContext alive", () => {
+    // 'pending' covers transient windows (file preload/decode, system-audio
+    // placeholder receive) where the guest expects playback to resume.
+    // Mapping pending to 'none' would let iOS suspend AudioContext while the
+    // screen is locked mid-preload, killing audio when playback actually
+    // starts. The hint must stay 'paused' (not 'none') for that window.
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'pending');
+    expect(navigator.mediaSession.playbackState).toBe('paused');
+  });
 });

@@ -23,6 +23,13 @@ function mediaSessionStateFromActivity(
 ): MediaSessionPlaybackState {
   if (activity === 'playing') return 'playing';
   if (activity === 'paused') return 'paused';
+  // 'pending' covers transient windows the user perceives as "about to resume":
+  // file lifecycle DOWNLOADING/AWAITING_PRELOAD/DECODING, and the system-audio
+  // guest placeholder before the WebRTC stream arrives. Mapping these to
+  // 'paused' (not 'none') keeps iOS's AudioContext-alive hint on so a guest
+  // mid-preload with the screen locked doesn't lose audio when playback
+  // resumes. 'none' is reserved for the truly idle case.
+  if (activity === 'pending') return 'paused';
   return 'none';
 }
 

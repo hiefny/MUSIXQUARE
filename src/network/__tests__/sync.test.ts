@@ -221,6 +221,46 @@ describe('audio activation bootstrap', () => {
 });
 
 describe('background resume recovery', () => {
+  it('backs off periodic guest sync pings when the host stops answering', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-09T00:00:01.000Z'));
+    initSync();
+    const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn as DataConnection);
+
+    bus.emit('worker:timer-tick', 'sync');
+    expect(conn.send).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-05-09T00:00:12.000Z'));
+    bus.emit('worker:timer-tick', 'sync');
+    expect(conn.send).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(new Date('2026-05-09T00:00:13.000Z'));
+    bus.emit('worker:timer-tick', 'sync');
+    expect(conn.send).toHaveBeenCalledTimes(2);
+
+    bus.emit('sync:request-immediate-ping');
+    expect(conn.send).toHaveBeenCalledTimes(3);
+  });
+
+  it('skips guest sync pings when the data channel send buffer is backed up', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-09T00:00:01.000Z'));
+    initSync();
+    const conn = {
+      open: true,
+      send: vi.fn(),
+      dataChannel: { bufferedAmount: 80 * 1024 } as RTCDataChannel,
+    } as Partial<DataConnection>;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn as DataConnection);
+
+    bus.emit('worker:timer-tick', 'sync');
+
+    expect(conn.send).not.toHaveBeenCalled();
+  });
+
   it('requests an immediate host sync for forced resync', () => {
     initSync();
     const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;

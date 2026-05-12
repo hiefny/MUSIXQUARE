@@ -16,6 +16,14 @@ function createPeer(): CloudflareSignalingPeer {
   });
 }
 
+function createHostPeer(): CloudflareSignalingPeer {
+  return new CloudflareSignalingPeer('123456', {
+    provider: 'cloudflare',
+    signalingUrl: 'wss://signal.example.test/api/rooms',
+    config: { iceServers: [] },
+  });
+}
+
 type FakeSocketListener = (event: { data?: unknown }) => void;
 
 class FakeWebSocket {
@@ -163,6 +171,65 @@ describe('CloudflareSignalingPeer signaling lifecycle', () => {
 
     peer.reconnect();
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('keeps a live guest data channel when only the signaling socket errors', () => {
+    installFakeWebSocket();
+    const peer = createPeer();
+    const conn = peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+    const onError = vi.fn();
+    const onDisconnected = vi.fn();
+    conn.on('error', onError);
+    peer.on('disconnected', onDisconnected);
+
+    (conn as TransportDataConnection).open = true;
+    (conn as TransportDataConnection).peerConnection = {
+      connectionState: 'connected',
+    } as RTCPeerConnection;
+
+    socket.dispatch('error');
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(onDisconnected).toHaveBeenCalledTimes(1);
+    expect(conn.open).toBe(true);
+    expect(privateMaps(peer).roomSockets.has('123456')).toBe(false);
+    expect(privateMaps(peer).connections.has('123456')).toBe(true);
+  });
+
+  it('surfaces guest signaling socket errors before the data channel opens', () => {
+    installFakeWebSocket();
+    const peer = createPeer();
+    const conn = peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+    const onError = vi.fn();
+    conn.on('error', onError);
+
+    socket.dispatch('error');
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats host signaling socket errors after open as reconnectable signaling loss', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    const onError = vi.fn();
+    const onDisconnected = vi.fn();
+    peer.on('error', onError);
+    peer.on('disconnected', onDisconnected);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await Promise.resolve();
+    socket.dispatch('error');
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(onDisconnected).toHaveBeenCalledTimes(1);
+    expect(peer.disconnected).toBe(true);
   });
 
   it('does not close an open data channel just because RTCPeerConnection stays disconnected', async () => {

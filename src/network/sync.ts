@@ -44,6 +44,13 @@ import {
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
 let _wasPlaying = false;
+let _firstUnansweredSyncPingAt = 0;
+let _lastSyncPingSentAt = 0;
+let _lastSyncPongReceivedAt = 0;
+
+const SYNC_PONG_STALE_MS = 10_000;
+const SYNC_PING_BACKOFF_MS = 10_000;
+const SYNC_PING_BUFFERED_AMOUNT_LIMIT = 64 * 1024;
 
 interface SyncPongPlaybackState {
   mode: PlaybackModeValue;
@@ -56,6 +63,42 @@ function resetSyncClockRuntime(): void {
   resetClockState();
   _syncPingCounter = 0;
   _needsInitialSync = false;
+  _firstUnansweredSyncPingAt = 0;
+  _lastSyncPingSentAt = 0;
+  _lastSyncPongReceivedAt = 0;
+}
+
+function getBufferedAmount(conn: DataConnection): number {
+  const value = conn.dataChannel?.bufferedAmount;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function shouldBackOffPeriodicSyncPing(now: number): boolean {
+  const lastReplyReference = _lastSyncPongReceivedAt || _firstUnansweredSyncPingAt;
+  if (!lastReplyReference || now - lastReplyReference <= SYNC_PONG_STALE_MS) return false;
+  return now - _lastSyncPingSentAt < SYNC_PING_BACKOFF_MS;
+}
+
+function sendSyncPing(reason: 'periodic' | 'immediate'): void {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn?.open) return;
+
+  const now = Date.now();
+  if (reason === 'periodic' && shouldBackOffPeriodicSyncPing(now)) return;
+  if (getBufferedAmount(hostConn) > SYNC_PING_BUFFERED_AMOUNT_LIMIT) return;
+
+  const pingId = ++_syncPingCounter;
+  registerPing(pingId);
+  try {
+    hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: now });
+  } catch {
+    /* noop */
+  } finally {
+    _lastSyncPingSentAt = now;
+    if (!_lastSyncPongReceivedAt && !_firstUnansweredSyncPingAt) {
+      _firstUnansweredSyncPingAt = now;
+    }
+  }
 }
 
 /**
@@ -190,24 +233,28 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   if (isFilePlaying) {
     if (conn.open) {
       try {
-        conn.send(createSyncPongPayload({
-          pingId: data.pingId,
-          hostTime,
-          position,
-          playbackState,
-        }));
+        conn.send(
+          createSyncPongPayload({
+            pingId: data.pingId,
+            hostTime,
+            position,
+            playbackState,
+          }),
+        );
       } catch {
         /* closed */
       }
     }
   } else {
     try {
-        conn.send(createSyncPongPayload({
+      conn.send(
+        createSyncPongPayload({
           pingId: data.pingId,
           hostTime,
           position,
           playbackState,
-        }));
+        }),
+      );
     } catch {
       /* closed */
     }
@@ -233,6 +280,8 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   // 1. Clock offset calculation (from shared-clock processSyncPong)
   const result = processSyncPong(pingId, hostTime);
   if (!result) return;
+  _lastSyncPongReceivedAt = Date.now();
+  _firstUnansweredSyncPingAt = 0;
 
   // 2. Latency history update (from old handlePongLatency)
   const ms = result.rtt;
@@ -508,15 +557,7 @@ export function initSync(): void {
   // AFTER the host's MSG.PLAY had already fired would wait up to 1s
   // before bootstrap fires.
   bus.on('sync:request-immediate-ping', () => {
-    const hostConn = getState('network.hostConn');
-    if (!hostConn || !hostConn.open) return;
-    const pingId = ++_syncPingCounter;
-    registerPing(pingId);
-    try {
-      hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
-    } catch {
-      /* noop */
-    }
+    sendSyncPing('immediate');
   });
 
   // Long background resume recovery: force the next valid SYNC_PONG to
@@ -549,17 +590,8 @@ export function initSync(): void {
 
   // Worker tick handler: Guest sends unified SYNC_PING to host
   bus.on('worker:timer-tick', (id) => {
-    const hostConn = getState('network.hostConn');
-    if (!hostConn || !hostConn.open) return;
-
     if (id === 'sync') {
-      const pingId = ++_syncPingCounter;
-      registerPing(pingId);
-      try {
-        hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
-      } catch {
-        /* noop */
-      }
+      sendSyncPing('periodic');
     }
   });
 

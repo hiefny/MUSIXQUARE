@@ -19,6 +19,10 @@ function send(ws, message) {
   }
 }
 
+function isKeepalive(message) {
+  return message && message.type === 'keepalive';
+}
+
 function closeWithError(ws, errorType, message) {
   send(ws, { type: 'error', errorType, message });
   try {
@@ -203,9 +207,14 @@ export class MusixquareRoom {
   }
 
   handleGuestMessage(peerId, raw) {
-    if (!this.host) return;
     const message = this.parse(raw);
     if (!message) return;
+    if (isKeepalive(message)) {
+      const guest = this.guests.get(peerId);
+      if (guest) send(guest, { type: 'keepalive' });
+      return;
+    }
+    if (!this.host) return;
     if (message.to !== 'host') return;
     const { to: _to, ...rest } = message;
     send(this.host, { ...rest, from: peerId });
@@ -213,6 +222,10 @@ export class MusixquareRoom {
 
   handleHostMessage(raw) {
     const message = this.parse(raw);
+    if (isKeepalive(message)) {
+      if (this.host) send(this.host, { type: 'keepalive' });
+      return;
+    }
     if (message?.type === 'room-password-set') {
       const password = typeof message.password === 'string' ? message.password : '';
       this.roomPassword = /^\d{8}$/.test(password) ? password : '';

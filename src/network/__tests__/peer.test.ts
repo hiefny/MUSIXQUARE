@@ -5,13 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
-import { detectConnectionType } from '../peer-state.ts';
-import {
-  forceStereoSdp,
-  safeSend,
-  isRemoteGuest,
-  isTrustedSystemAudioMediaCall,
-} from '../peer.ts';
+import { detectConnectionType, isDataConnectionUsable } from '../peer-state.ts';
+import { forceStereoSdp, safeSend, isRemoteGuest, isTrustedSystemAudioMediaCall } from '../peer.ts';
 import type { AnyProtocolMsg, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
@@ -120,6 +115,28 @@ describe('isRemoteGuest', () => {
   });
 });
 
+describe('isDataConnectionUsable', () => {
+  it('accepts an open connection without transport internals exposed', () => {
+    expect(isDataConnectionUsable(makeConnection({ open: true }))).toBe(true);
+  });
+
+  it('rejects failed peer connections and closed data channels', () => {
+    expect(
+      isDataConnectionUsable(
+        makeConnection({ open: true, peerConnection: { connectionState: 'failed' } }),
+      ),
+    ).toBe(false);
+    expect(
+      isDataConnectionUsable(
+        makeConnection({
+          open: true,
+          dataChannel: { readyState: 'closed' } as RTCDataChannel,
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
 describe('detectConnectionType', () => {
   it('classifies the selected host-host ICE pair as local', async () => {
     const stats = makeIceStats([
@@ -184,12 +201,9 @@ describe('forceStereoSdp', () => {
   });
 
   it('adds an fmtp line when opus has none', () => {
-    const sdp = [
-      'v=0',
-      'm=audio 9 UDP/TLS/RTP/SAVPF 111',
-      'a=rtpmap:111 opus/48000/2',
-      '',
-    ].join('\r\n');
+    const sdp = ['v=0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=rtpmap:111 opus/48000/2', ''].join(
+      '\r\n',
+    );
 
     const result = forceStereoSdp(sdp);
 

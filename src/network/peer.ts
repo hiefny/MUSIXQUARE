@@ -14,7 +14,6 @@ import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from '../ui/dialog.ts';
 import {
   DEFAULT_MAX_GUEST_SLOTS,
-  APP_STATE,
   TRANSFER_STATE,
   PLAYBACK_STATE,
 } from '../core/constants.ts';
@@ -23,6 +22,7 @@ import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
 import { createTransportPeer, type TransportPeerOptions } from './transport/index.ts';
+import { setPlaybackIdle } from '../player/ownership.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -698,12 +698,10 @@ export function leaveSession(): void {
     'player.pausedAt': 0,
     // YouTube
     'youtube.subItemsMap': {},
-    // App state
-    appState: APP_STATE.IDLE,
   });
 
   // ── 8. Reset UI ──
-  setState('appState', APP_STATE.IDLE);
+  setPlaybackIdle();
 
   // Delayed reset: allow async close handlers to read the flag first
   setManagedTimer(

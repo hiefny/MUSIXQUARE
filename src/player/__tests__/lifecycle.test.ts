@@ -12,10 +12,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   PLAYBACK_STATE,
   LOAD_SOURCE,
-  APP_STATE,
   type PlaybackStateValue,
 } from '../../core/constants.ts';
 import { getState, setState, resetState } from '../../core/state.ts';
+import {
+  setPlaybackFilePlaying,
+  setPlaybackSystemAudioPlaying,
+  setPlaybackYouTubePlaying,
+} from '../ownership.ts';
 import { transition, peekTransition, __testing, type PlaybackEvent } from '../lifecycle.ts';
 
 const { resolve } = __testing;
@@ -35,7 +39,7 @@ function step(from: PlaybackStateValue, ev: PlaybackEvent) {
 beforeEach(() => {
   resetState();
   // Default to PLAYING_AUDIO mode so lifecycle transitions aren't gated.
-  setState('appState', APP_STATE.PLAYING_AUDIO);
+  setPlaybackFilePlaying();
 });
 
 // ─── FROM IDLE ─────────────────────────────────────────────────────
@@ -601,19 +605,31 @@ describe('transition() state tree integration', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
   });
 
-  it('is a no-op when appState is PLAYING_YOUTUBE', () => {
-    setState('appState', APP_STATE.PLAYING_YOUTUBE);
+  it('is a no-op when YouTube owns playback', () => {
+    setPlaybackYouTubePlaying();
     forceState(PLAYBACK_STATE.IDLE);
     const result = transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3' });
     expect(result).toBe(PLAYBACK_STATE.IDLE);
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
   });
 
-  it('is a no-op when appState is PLAYING_SYSTEM_AUDIO', () => {
-    setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
+  it('is a no-op when system audio owns playback', () => {
+    setPlaybackSystemAudioPlaying();
     forceState(PLAYBACK_STATE.IDLE);
     const result = transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3' });
     expect(result).toBe(PLAYBACK_STATE.IDLE);
+  });
+
+  it('is a no-op while system-audio placeholder owns playback', () => {
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'system-audio-receiving',
+      systemAudioPlaceholder: true,
+    });
+    forceState(PLAYBACK_STATE.IDLE);
+    const result = transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 0, name: 'a.mp3' });
+    expect(result).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
   });
 
   it('PAUSE endOfPlaylist from PLAYING → IDLE (global rule)', () => {

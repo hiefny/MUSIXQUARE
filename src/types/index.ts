@@ -2,15 +2,16 @@
  * MUSIXQUARE — Shared Type Definitions
  */
 
-// NOTE: AppState / TransferState live in core/constants.ts (APP_STATE, TRANSFER_STATE).
+// NOTE: TransferState and other shared value constants live in core/constants.ts.
 //       Removed duplicate const enums that were never imported.
 
 import type {
-  AppStateValue,
   TransferStateValue,
   MsgType,
   PlaybackStateValue,
   LoadSourceValue,
+  PlaybackModeValue,
+  PlaybackActivityValue,
 } from '../core/constants.ts';
 
 // ─── Peer / Network ────────────────────────────────────────────────
@@ -231,14 +232,12 @@ export interface ProtocolMap {
     time: number;
     index: number;
     name?: string | null;
-    state?: AppStateValue;
     timestamp?: number;
     hostPlayAt?: number;
   };
   pause: {
     time: number;
     index?: number;
-    state?: AppStateValue;
     timestamp?: number;
     endOfPlaylist?: boolean;
     reason?: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';
@@ -392,7 +391,8 @@ export interface ProtocolMap {
     pingId: number;
     hostTime: number;
     position: number;
-    appState: string;
+    mode: PlaybackModeValue;
+    activity: PlaybackActivityValue;
     trackIndex: number;
   };
 
@@ -468,7 +468,6 @@ export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
 // ─── State Tree ──────────────────────────────────────────────────────
 
 export interface StateTree {
-  appState: AppStateValue;
   setup: { sessionStarted: boolean };
   player: {
     startedAt: number;
@@ -490,8 +489,8 @@ export interface StateTree {
     activeBroadcastSession: number | null;
     lastReceivedCountSnapshot: number;
     /**
-     * Phase 4 removed `waitingForPreload` and `skipIncomingFile` from this
-     * slice. Both are derived from `playback.lifecycle` now (see
+     * `waitingForPreload` and `skipIncomingFile` are derived from
+     * `playback.lifecycle` now (see
      * `shouldSkipIncomingFile()` in transfer-receive.ts).
      */
     /** Timestamp (ms) when a burst of stale-session chunks started arriving. 0 = no burst. */
@@ -583,24 +582,24 @@ export interface StateTree {
     pending: boolean;
     retryCount: number;
     /**
-     * Phase 4 removed `pendingFileName` + `pendingFileIndex` from this slice.
-     * Consumers now read `playback.pendingRecoveryTarget` (single atomic
-     * { index, name } object).
+     * Consumers read `playback.pendingRecoveryTarget` as a single atomic
+     * { index, name } object instead of split pending file fields.
      */
   };
   systemAudio: { isReceiving: boolean };
   /**
-   * Guest-side track playback lifecycle. Orthogonal to `appState` (mode).
+   * Guest-side track playback lifecycle. Orthogonal to playback mode/activity.
    * Every transition MUST go through `src/player/lifecycle.ts::transition()`.
    * See `.workshop/design/playback-state-machine.md` for the full table.
    *
-   * Phase 4 complete (2026-04-29): `transfer.waitingForPreload` and
-   * `transfer.skipIncomingFile` are gone — both are derived from this
-   * field now. New flags here would just resurrect the same divergence
+   * `transfer.waitingForPreload` and `transfer.skipIncomingFile` are derived
+   * from this field now. New flags here would just resurrect the same divergence
    * problem; if you're tempted to add one, ask whether it can instead
    * be a derived helper that reads lifecycle + loadSource.
    */
   playback: {
+    mode: PlaybackModeValue;
+    activity: PlaybackActivityValue;
     lifecycle: PlaybackStateValue;
     loadSource: LoadSourceValue | null;
     pendingPlayTime: number | undefined;
@@ -641,9 +640,9 @@ type IsLeaf<T> = T extends
   | boolean
   | null
   | undefined
-  | Array<any>
-  | Map<any, any>
-  | Set<any>
+  | Array<unknown>
+  | Map<unknown, unknown>
+  | Set<unknown>
   | Blob
   | DataConnection
   | ReturnType<typeof setTimeout>
@@ -688,7 +687,7 @@ export type ShallowImmutable<T> = T extends Blob | DataConnection
           : T;
 
 // ─── State Change Events (auto-derived from StatePath) ────────────
-// Mapped type: generates 'state:appState', 'state:audio.masterVolume', etc.
+// Mapped type: generates 'state:audio.masterVolume', 'state:playback.mode', etc.
 // Typos like bus.emit('state:audio.volumee') → compile error.
 type StateEvents = {
   [P in StatePath as `state:${P}`]: [value: unknown, path: string];
@@ -822,8 +821,8 @@ interface BaseEventMap {
   'youtube:preview': [url: string];
   'youtube:load-from-input': [];
   'youtube:load-from-chat': [url: string];
-  // opts.silent: caller is mid-transition to another mode and will set
-  // appState shortly — skip the IDLE bounce so the body class doesn't flash.
+  // opts.silent: caller is mid-transition to another mode and will claim
+  // playback shortly, so skip the IDLE bounce and avoid a body-class flash.
   'youtube:stop-mode': [opts?: { silent?: boolean }];
   'youtube:refresh-display': [];
   'youtube:set-volume': [volumePercent: number];

@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, DEMO_FILE_NAME, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
+import { MSG, DEMO_FILE_NAME, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
@@ -32,6 +32,11 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
+import {
+  isPlaybackIdleCompat,
+  isYouTubeOwner,
+  setPlaybackTrackMeta,
+} from './ownership.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -48,6 +53,10 @@ import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 
 let _shuffleOrder: number[] = [];
 let _shufflePosition = 0;
+
+function isQueueIdle(): boolean {
+  return isPlaybackIdleCompat();
+}
 
 function generateShuffleOrder(): void {
   const playlist = getState('playlist.items') || [];
@@ -347,7 +356,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   if (index === nextTrackIndex && nextFileBlob && !hostConn) {
     log.debug('[Host] Using Preloaded Track:', index);
     setState('playlist.currentTrackIndex', index);
-    setState('player.currentTrackMeta', playlist[index]);
+    setPlaybackTrackMeta(playlist[index]);
 
     // Advance session ID for recovery
     const nextMeta = getState('preload.meta');
@@ -383,7 +392,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   setState('playlist.currentTrackIndex', index);
 
   const item = playlist[index];
-  setState('player.currentTrackMeta', item);
+  setPlaybackTrackMeta(item);
 
   // YouTube
   if (item.type === 'youtube') {
@@ -397,7 +406,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       // Skip stopAllMedia for YouTube→YouTube transitions — loadYouTubeVideo
       // reuses the existing player instance, preserving the iOS user gesture.
       // Destroying the iframe forces a "tap to play" on mobile.
-      const isYtToYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+      const isYtToYt = isYouTubeOwner();
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
 
       // Single-video broadcast: send the resolved videoId (NOT the playlist
@@ -421,7 +430,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       // idle and YouTube eventually flags the video as unplayable and
       // skips to the next one (~15s on Windows desktop).
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
-      const isAlreadyYt = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+      const isAlreadyYt = isYouTubeOwner();
       const shouldAutoplay = !(isFirstTrackLoad && !isAlreadyYt);
 
       broadcast({
@@ -559,7 +568,7 @@ function handleEndOfPlaylist(reason: string): void {
   log.debug(`[Host] End of playlist: ${reason}. Resetting to deselected state.`);
   stopAllMedia();
   setCurrentAudioBuffer(null);
-  setState('player.currentTrackMeta', null);
+  setPlaybackTrackMeta(null);
   setState('playlist.currentTrackIndex', -1);
   setState('player.pausedAt', 0);
   // Host's own lifecycle: mirror the broadcast PAUSE{endOfPlaylist:true} so
@@ -582,7 +591,6 @@ export function playNextTrack(): void {
   }
 
   // Host: YouTube internal navigation
-  const currentState = getState('appState');
   const repeatMode = getState('playlist.repeatMode') || 0;
 
   // NOTE on repeat-one: we intentionally do NOT short-circuit to "replay
@@ -595,7 +603,7 @@ export function playNextTrack(): void {
   // In both cases the user/system expects us to actually advance, not
   // sit on the same track — matching Spotify / Apple Music behaviour.
 
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubeOwner()) {
     let handled = false;
     bus.emit('youtube:try-next-internal', (success: boolean) => {
       handled = success;
@@ -699,11 +707,10 @@ export function playPrevTrack(): void {
     return;
   }
 
-  const currentState = getState('appState');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   // YouTube mode
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubeOwner()) {
     let handled = false;
     bus.emit('youtube:try-prev-internal', (success: boolean) => {
       handled = success;
@@ -752,8 +759,7 @@ export function playPrevTrack(): void {
       } else {
         // At start of shuffle pass, no repeat-all → restart current, same as
         // sequential behaviour at first track.
-        const appState = getState('appState');
-        if (appState === APP_STATE.IDLE) {
+        if (isQueueIdle()) {
           playTrack(Math.max(0, currentTrackIndex));
         } else {
           play(0);
@@ -777,8 +783,7 @@ export function playPrevTrack(): void {
       // In IDLE state (after track ended + stopAllMedia), play(0) silently fails
       // because no media source is available, but broadcast still fires → host-guest desync.
       // Use playTrack to reload the file instead.
-      const appState = getState('appState');
-      if (appState === APP_STATE.IDLE) {
+      if (isQueueIdle()) {
         // currentTrackIndex can be -1 after handleEndOfPlaylist. Clamp so
         // playTrack doesn't no-op-return on the out-of-range guard.
         playTrack(Math.max(0, currentTrackIndex));
@@ -882,7 +887,7 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
     // display reverts to "미디어 없음" instead of lingering on the last
     // played track. clearPreviousTrackState doesn't touch player.currentTrackMeta,
     // so we clear it explicitly here.
-    setState('player.currentTrackMeta', null);
+    setPlaybackTrackMeta(null);
   }
 
   // Sync current track index from host (late-join bootstrap)
@@ -1191,14 +1196,13 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
   // Auto-play first added file if nothing is playing AND no track has been
   // selected yet. The `currentIndex < 0` guard prevents a race when multiple
   // files are uploaded sequentially: playTrack(0) sets currentTrackIndex = 0
-  // synchronously (line 228), but its async audio decode keeps appState as
-  // IDLE until decode + play() complete. Without the guard, each subsequent
-  // upload also sees IDLE and calls playTrack(N), overwriting the index to
+  // synchronously, but its async audio decode keeps playback idle until
+  // decode + play() complete. Without the guard, each subsequent upload also
+  // sees idle and calls playTrack(N), overwriting the index to
   // the last uploaded track — so clicking "next" immediately overflows the
   // playlist boundary into handleEndOfPlaylist (currentTrackIndex = -1).
-  const currentState = getState('appState');
   const currentIndex = getState('playlist.currentTrackIndex');
-  if (currentState === APP_STATE.IDLE && currentIndex < 0) {
+  if (isQueueIdle() && currentIndex < 0) {
     playTrack(playlist.length - addedCount);
   } else {
     // Already playing — preload next track for guests (covers end-of-playlist + file add case)
@@ -1225,7 +1229,7 @@ export function initPlaylist(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host handles
 
-    // Lifecycle (Phase 3 dual-write): host-local TRACK_ENDED. Drives host's
+    // Lifecycle: host-local TRACK_ENDED. Drives host's
     // parallel-observed lifecycle to IDLE. Guests learn via the subsequent
     // PAUSE broadcast, which drives their own transition.
     transition({ type: 'TRACK_ENDED' });
@@ -1293,10 +1297,8 @@ export function initPlaylist(): void {
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const isCurrentTrack = index === currentTrackIndex;
     // Snapshot the removed track BEFORE splice — we need its type later to
-    // decide whether to tear down the YouTube iframe. Using appState here
-    // would miss the PAUSED-YouTube case (a YT track that's loaded into
-    // the iframe but currently paused), since appState wouldn't be
-    // PLAYING_YOUTUBE at that moment. Track type is the unambiguous signal:
+    // decide whether to tear down the YouTube iframe. Using playback mode here
+    // would miss paused/indexed YouTube cases; track type is the unambiguous signal:
     // if the active track is type='youtube', the iframe is mounted, full
     // stop. stopAllMedia / playTrack only touch audio nodes — the YouTube
     // iframe is owned by the youtube module, so without an explicit
@@ -1331,7 +1333,7 @@ export function initPlaylist(): void {
       // handleEndOfPlaylist cleanup for the same reason.
       setCurrentAudioBuffer(null);
       setState('playlist.currentTrackIndex', -1);
-      setState('player.currentTrackMeta', null);
+      setPlaybackTrackMeta(null);
       setState('files.currentFileBlob', null);
       setState('transfer.meta', {});
       // Soft-disable the play button to match the boot state. Click still

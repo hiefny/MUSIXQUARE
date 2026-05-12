@@ -13,7 +13,10 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { APP_STATE } from '../core/constants.ts';
+import {
+  isPlaybackPlayingFile,
+  isPlaybackPlayingSystemAudio,
+} from '../player/ownership.ts';
 import {
   getMasterGain,
   getToneMerge,
@@ -166,8 +169,7 @@ export function toggleSurroundMode(enabled: boolean): void {
   }
 
   // Instant refresh: restart playback at current position if currently playing
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (isPlaybackPlayingFile() || isPlaybackPlayingSystemAudio()) {
     bus.emit('audio:surround-toggled');
   }
 }

@@ -4,7 +4,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { APP_STATE } from '../../core/constants.ts';
+import {
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackIdle,
+  setPlaybackYouTubePlaying,
+} from '../ownership.ts';
 
 // Mock transport.ts to avoid Tone.js
 vi.mock('../transport.ts', () => ({
@@ -18,7 +23,6 @@ vi.mock('../video.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../video.ts')>();
   return {
     ...actual,
-    isIdleOrPaused: actual.isIdleOrPaused,
   };
 });
 
@@ -32,6 +36,7 @@ const _handlers: Record<string, (details?: Record<string, unknown>) => void> = {
 Object.defineProperty(navigator, 'mediaSession', {
   value: {
     metadata: null,
+    playbackState: 'none',
     setActionHandler: vi.fn((action: string, handler: () => void) => {
       _handlers[action] = handler;
     }),
@@ -62,6 +67,7 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   navigator.mediaSession.metadata = null;
+  navigator.mediaSession.playbackState = 'none';
 });
 
 describe('updateMediaSessionMetadata', () => {
@@ -119,8 +125,14 @@ describe('initMediaSession', () => {
   });
 
   it('play handler calls togglePlay when paused with valid track', () => {
-    setState('appState', APP_STATE.PAUSED);
+    setPlaybackFilePaused();
     setState('playlist.currentTrackIndex', 0);
+    _handlers['play']();
+    expect(togglePlay).toHaveBeenCalled();
+  });
+
+  it('play handler delegates to YouTube mode even though YouTube has its own pause state', () => {
+    setPlaybackYouTubePlaying();
     _handlers['play']();
     expect(togglePlay).toHaveBeenCalled();
   });
@@ -128,7 +140,7 @@ describe('initMediaSession', () => {
   it('play handler emits playlist:play-track when idle with valid track', () => {
     const fn = vi.fn();
     bus.on('playlist:play-track', fn);
-    setState('appState', APP_STATE.IDLE);
+    setPlaybackIdle();
     setState('playlist.currentTrackIndex', 2);
     _handlers['play']();
     expect(fn).toHaveBeenCalledWith(2);
@@ -140,20 +152,26 @@ describe('initMediaSession', () => {
   it('play handler still works for non-operator guests', () => {
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
-    setState('appState', APP_STATE.PAUSED);
+    setPlaybackFilePaused();
     setState('playlist.currentTrackIndex', 0);
     _handlers['play']();
     expect(togglePlay).toHaveBeenCalled();
   });
 
   it('pause handler calls togglePlay when playing', () => {
-    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
+    _handlers['pause']();
+    expect(togglePlay).toHaveBeenCalled();
+  });
+
+  it('pause handler delegates to YouTube mode', () => {
+    setPlaybackYouTubePlaying();
     _handlers['pause']();
     expect(togglePlay).toHaveBeenCalled();
   });
 
   it('pause handler does nothing when already paused', () => {
-    setState('appState', APP_STATE.PAUSED);
+    setPlaybackFilePaused();
     _handlers['pause']();
     expect(togglePlay).not.toHaveBeenCalled();
   });
@@ -202,5 +220,16 @@ describe('initMediaSession', () => {
     setState('player.currentTrackMeta', item);
     expect(navigator.mediaSession.metadata).not.toBeNull();
     expect(navigator.mediaSession.metadata!.title).toBe('Bus Track');
+  });
+
+  it('syncs OS playback state from playback activity', () => {
+    setPlaybackFilePlaying();
+    expect(navigator.mediaSession.playbackState).toBe('playing');
+
+    setPlaybackFilePaused();
+    expect(navigator.mediaSession.playbackState).toBe('paused');
+
+    setPlaybackIdle();
+    expect(navigator.mediaSession.playbackState).toBe('none');
   });
 });

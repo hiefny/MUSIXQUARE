@@ -9,11 +9,19 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
-import { isFilePlaybackBlockedByExternalMode, setEngineMode } from './video.ts';
+import {
+  getPlaybackModeActivity,
+  isExternalOwner,
+  isPlaybackNonIdleFile,
+  setPlaybackIdle,
+  setPlaybackTransferState,
+  setPlaybackTrackMeta,
+} from './ownership.ts';
+import { setEngineMode } from './video.ts';
 import { postCommand, cleanupStoredFile } from '../storage/storage.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
@@ -45,7 +53,7 @@ import {
   getTrackKeyFromItem,
 } from './_state.ts';
 
-import { play, stopAllMedia, stopPlayerNode, setAppState } from './transport.ts';
+import { play, stopAllMedia, stopPlayerNode } from './transport.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -165,7 +173,7 @@ export async function loadAndBroadcastFile(
       return;
     }
 
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Load] Aborted - external playback mode took ownership after decode');
       return;
     }
@@ -184,7 +192,7 @@ export async function loadAndBroadcastFile(
     setCurrentAudioBuffer(audioBuffer);
     log.debug(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
 
-    // Lifecycle (Phase 3 dual-write): host-side decode completed → READY.
+    // Lifecycle: host-side decode completed → READY.
     // Host is also a guest-of-itself for this machine; transition() is a
     // no-op in non-audio modes (guards inside the helper).
     transition({ type: 'DECODE_SUCCESS' });
@@ -232,7 +240,7 @@ export async function loadAndBroadcastFile(
     setState('files.currentFileBlob', null);
 
     const timedOut = isDecodeTimeout(err);
-    // Lifecycle (Phase 3 dual-write): decode failed → FAILED. markTrackFailed
+    // Lifecycle: decode failed → FAILED. markTrackFailed
     // below handles the failed-set; the state machine distinguishes only
     // "decoded OK vs decode failed" here, so the timeout/error variants
     // share the same transition.
@@ -305,7 +313,7 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
     // Without an explicit stop, the play button stays enabled and the user
     // falls back into the same failure cycle on the next click.
     stopAllMedia();
-    setAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
     return;
   }
 
@@ -448,7 +456,7 @@ export async function loadPreloadedTrack(
       return;
     }
 
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Preload] Activation aborted - external playback mode active');
       finishPreloadActivation(activationOwner);
       setPendingPlayTime(undefined);
@@ -485,7 +493,7 @@ export async function loadPreloadedTrack(
       // Preserve pendingPlayTime for the new track's loader.
       return;
     }
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Preload] Activation discarded - external playback mode took ownership');
       finishPreloadActivation(activationOwner);
       setPendingPlayTime(undefined);
@@ -533,11 +541,11 @@ export async function loadPreloadedTrack(
     if (hostConn) {
       const playlist = getState('playlist.items') || [];
       if (playlist[targetIndex]) {
-        setState('player.currentTrackMeta', playlist[targetIndex]);
+        setPlaybackTrackMeta(playlist[targetIndex]);
       }
     }
 
-    // Lifecycle (Phase 3 dual-write): preload blob decoded → READY.
+    // Lifecycle: preload blob decoded → READY.
     transition({ type: 'DECODE_SUCCESS' });
 
     setEngineMode('buffer');
@@ -559,7 +567,7 @@ export async function loadPreloadedTrack(
     // Reset transfer guards — transfer.state must be READY so next preload loader shows.
     // shouldSkipIncomingFile() returns true via the PRELOAD_PROMOTED loadSource
     // branch (lifecycle is READY/PLAYING after this), so no flag needed.
-    setState('transfer.state', 'READY');
+    setPlaybackTransferState(TRANSFER_STATE.READY);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadWatchdog');
@@ -621,7 +629,7 @@ export async function loadPreloadedTrack(
     const timedOut = isDecodeTimeout(e);
     const meta = getState('transfer.meta');
     const name = (meta?.name as string) || '';
-    // Lifecycle (Phase 3 dual-write): preload decode failed → FAILED.
+    // Lifecycle: preload decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     showToast(timedOut ? t('error.decode_timeout', { name }) : t('transfer.preload_fail'));
 
@@ -678,8 +686,7 @@ export function clearPreviousTrackState(reason = ''): void {
   // Stop timers
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('prepareWatchdog');
-  // Note: stale-audio-recovery timer was deleted in Phase 4. Left a
-  // clearManagedTimer here would be a no-op, so we drop it.
+  // Stale-audio recovery is lifecycle-driven; no separate timer needs clearing.
 
   // Redundant sync: only reset timers and name tracking, keep audio buffer intact
   if (reason === 'redundant-sync') return;
@@ -704,10 +711,10 @@ export function clearPreviousTrackState(reason = ''): void {
     setPendingPlayTime(undefined);
   }
 
-  // Reset state to IDLE
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_AUDIO || currentState === APP_STATE.PAUSED) {
-    setAppState(APP_STATE.IDLE);
+  // Reset active or pending file playback to idle.
+  const playback = getPlaybackModeActivity();
+  if (isPlaybackNonIdleFile(playback)) {
+    setPlaybackIdle();
   }
 
   // Clear preload ack tracking (immutable — replace with new Set)
@@ -740,9 +747,9 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
   // Guard: if an external mode owns playback, abort the finalize path.
   // Otherwise setEngineMode('buffer') would overwrite that mode after an
   // async decode finishes.
-  if (isFilePlaybackBlockedByExternalMode()) {
+  if (isExternalOwner()) {
     log.debug('[Guest] finalizeGuestFile aborted - external playback mode active');
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     showLoader(false);
     return;
   }
@@ -755,9 +762,9 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     await initAudio();
     if (getAudioContext().state === 'suspended') await ensureRunning();
 
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Guest] Stale finalize (post-audio-init), aborting');
-      setState('transfer.state', TRANSFER_STATE.IDLE);
+      setPlaybackTransferState(TRANSFER_STATE.IDLE);
       setPendingPlayTime(undefined);
       return;
     }
@@ -772,9 +779,9 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       log.debug('[Guest] Stale finalize (post-decode), aborting');
       return;
     }
-    if (isFilePlaybackBlockedByExternalMode()) {
+    if (isExternalOwner()) {
       log.debug('[Guest] Stale finalize (external mode after decode), aborting');
-      setState('transfer.state', TRANSFER_STATE.IDLE);
+      setPlaybackTransferState(TRANSFER_STATE.IDLE);
       setPendingPlayTime(undefined);
       return;
     }
@@ -784,7 +791,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     }
     setCurrentAudioBuffer(audioBuffer);
 
-    // Lifecycle (Phase 3 dual-write): main-transfer file decoded → READY.
+    // Lifecycle: main-transfer file decoded → READY.
     transition({ type: 'DECODE_SUCCESS' });
 
     setState('files.currentFileBlob', file);
@@ -798,7 +805,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     BlobURLManager.confirm();
 
     // Reset guards
-    setState('transfer.state', TRANSFER_STATE.READY);
+    setPlaybackTransferState(TRANSFER_STATE.READY);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
 
@@ -808,7 +815,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       const playlist = getState('playlist.items') || [];
       const idx = getState('playlist.currentTrackIndex');
       if (playlist[idx]) {
-        setState('player.currentTrackMeta', playlist[idx]);
+        setPlaybackTrackMeta(playlist[idx]);
       }
     }
 
@@ -832,8 +839,6 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       bus.emit('sync:request-immediate-ping');
     }
 
-    // Force sync handled by sync.ts state:appState listener (1s delayed reset)
-
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {
     log.error('[Guest] Decoding failed', err);
@@ -841,12 +846,12 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     const timedOut = isDecodeTimeout(err);
     const meta = getState('transfer.meta');
     const name = (meta?.name as string) || '';
-    // Lifecycle (Phase 3 dual-write): guest main-transfer decode failed → FAILED.
+    // Lifecycle: guest main-transfer decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     showToast(timedOut ? t('error.decode_timeout', { name }) : t('error.audio_decode_fail'));
 
     // Reset transfer state so recovery can start fresh (prevents infinite loop)
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
 
     // Per-track decode failure counter. The first non-timeout failure may be

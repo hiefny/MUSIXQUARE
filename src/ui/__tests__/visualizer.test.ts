@@ -46,20 +46,31 @@ vi.mock('../../core/events.ts', () => {
 });
 
 vi.mock('../../core/state.ts', () => {
-  let state: Record<string, unknown> = { appState: 'IDLE' };
+  let state: Record<string, unknown> = {
+    'playback.mode': null,
+    'playback.activity': 'idle',
+  };
   return {
     getState: vi.fn((path: string) => state[path]),
     setState: vi.fn((path: string, value: unknown) => {
       state[path] = value;
     }),
     resetState: vi.fn(() => {
-      state = { appState: 'IDLE' };
+      state = {
+        'playback.mode': null,
+        'playback.activity': 'idle',
+      };
     }),
   };
 });
 
 vi.mock('../../audio/engine.ts', () => ({
   getAnalyser: vi.fn(() => null),
+}));
+
+vi.mock('../../core/timers.ts', () => ({
+  setManagedTimer: vi.fn(),
+  clearManagedTimer: vi.fn(),
 }));
 
 vi.mock('../../core/constants.ts', async (importOriginal) => {
@@ -70,6 +81,14 @@ vi.mock('../../core/constants.ts', async (importOriginal) => {
 beforeEach(() => {
   vi.useFakeTimers();
   document.documentElement.setAttribute('data-theme', 'dark');
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: vi.fn(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
 
   // Create the canvas and wrapper elements
   const wrapper = document.createElement('div');
@@ -227,6 +246,37 @@ describe('Visualizer', () => {
   });
 
   describe('Module Exports', () => {
+    it('applies the initial paused playback activity through the visualizer subscription', async () => {
+      const { setState } = await import('../../core/state.ts');
+      const { clearManagedTimer } = await import('../../core/timers.ts');
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'paused');
+
+      const restingCanvas = document.createElement('canvas');
+      restingCanvas.id = 'visualizerCanvas';
+      document.body.appendChild(restingCanvas);
+
+      const ctx = {
+        setTransform: vi.fn(),
+        scale: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+
+      expect(ctx.arc).toHaveBeenCalled();
+      expect(clearManagedTimer).toHaveBeenCalledWith('viz-silence-poll');
+    });
+
     it('imports initVisualizer without error', async () => {
       const mod = await import('../visualizer.ts');
       expect(typeof mod.initVisualizer).toBe('function');

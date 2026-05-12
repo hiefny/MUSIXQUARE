@@ -17,7 +17,7 @@ type EventArgs<K extends EventKey> = EventMap[K];
 
 type TypedListener<K extends EventKey> = (...args: EventArgs<K>) => void;
 
-type AnyListener = (...args: any[]) => void;
+type AnyListener = (...args: unknown[]) => void;
 
 class EventBusImpl {
   private _listeners = new Map<string, Set<AnyListener>>();

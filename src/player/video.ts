@@ -9,34 +9,15 @@
  */
 
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
-import { APP_STATE } from '../core/constants.ts';
-import type { AppStateValue } from '../core/constants.ts';
-import type { TrackMeta } from '../types/index.ts';
-
-// ─── State predicates ─────────────────────────────────────────────
-
-export function isIdleOrPaused(state: string): boolean {
-  return state === APP_STATE.IDLE || state === APP_STATE.PAUSED;
-}
-
-export function isSystemAudioSessionActive(): boolean {
-  const appState = getState('appState');
-  if (appState === APP_STATE.PLAYING_SYSTEM_AUDIO) return true;
-  if (getState('systemAudio.isReceiving')) return true;
-
-  // SYSTEM_AUDIO_START puts guests into a placeholder state before the
-  // WebRTC media stream fires. Treat that pending window as system-audio
-  // ownership too, so late FILE_* / PLAY_PRELOADED messages cannot revive
-  // stale local-file playback underneath the live stream.
-  const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
-  return currentMeta?.systemAudioPlaceholder === true;
-}
-
-export function isFilePlaybackBlockedByExternalMode(): boolean {
-  const appState = getState('appState');
-  return appState === APP_STATE.PLAYING_YOUTUBE || isSystemAudioSessionActive();
-}
+import type { PlaybackModeValue } from '../core/constants.ts';
+import {
+  isPlaybackModeValue,
+  isPlaybackPlaying,
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackIdle,
+  setPlaybackYouTubePlaying,
+} from './ownership.ts';
 
 // ─── Upload-time guard: reject video files ────────────────────────
 
@@ -87,44 +68,41 @@ export function isMediaVideo(
 // ─── Engine mode switch (audio ↔ YouTube) ─────────────────────────
 
 export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {
-  let targetState: AppStateValue;
   switch (mode) {
     case 'youtube':
-      targetState = APP_STATE.PLAYING_YOUTUBE;
-      break;
+      setPlaybackYouTubePlaying();
+      return;
     case 'buffer':
     case 'audio':
-      targetState = APP_STATE.PLAYING_AUDIO;
-      break;
+      if (isPlaybackPlaying()) {
+        setPlaybackFilePlaying();
+      } else {
+        setPlaybackFilePaused();
+      }
+      return;
     default:
-      targetState = APP_STATE.IDLE;
+      setPlaybackIdle();
   }
-
-  const currentState = getState('appState');
-  const newState: AppStateValue = isIdleOrPaused(currentState) ? APP_STATE.PAUSED : targetState;
-  // YouTube forces its target state so body.mode-youtube keeps applying even when paused.
-  const finalState: AppStateValue = mode === 'youtube' ? targetState : newState;
-  setState('appState', finalState);
 }
 
-// ─── Body-class sync driven by appState ───────────────────────────
+// Body-class sync driven by decomposed playback mode.
 
-function updateBodyModeClass(appState: string): void {
+function updateBodyModeClass(mode: PlaybackModeValue): void {
   const body = document.body;
 
-  const wantYouTube = appState === APP_STATE.PLAYING_YOUTUBE;
+  const wantYouTube = mode === 'youtube';
   if (body.classList.contains('mode-youtube') !== wantYouTube) {
     body.classList.toggle('mode-youtube', wantYouTube);
   }
 
-  const wantSysAudio = appState === APP_STATE.PLAYING_SYSTEM_AUDIO;
+  const wantSysAudio = mode === 'system-audio';
   if (body.classList.contains('mode-system-audio') !== wantSysAudio) {
     body.classList.toggle('mode-system-audio', wantSysAudio);
   }
 
   const ytContainer = document.getElementById('youtube-player-container');
   if (ytContainer) {
-    if (appState === APP_STATE.PLAYING_YOUTUBE) {
+    if (mode === 'youtube') {
       ytContainer.style.display = 'block';
       ytContainer.style.opacity = '1';
       ytContainer.style.pointerEvents = 'auto';
@@ -136,6 +114,7 @@ function updateBodyModeClass(appState: string): void {
   }
 }
 
-bus.on('state:appState', () => {
-  updateBodyModeClass(getState('appState'));
+bus.on('state:playback.mode', (mode) => {
+  if (!isPlaybackModeValue(mode)) return;
+  updateBodyModeClass(mode);
 });

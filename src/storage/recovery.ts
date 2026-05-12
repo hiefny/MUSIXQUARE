@@ -13,7 +13,6 @@ import {
   CHUNK_SIZE,
   MAX_RECOVERY_RETRIES,
   RECOVERY_BACKOFF,
-  APP_STATE,
   TRANSFER_STATE,
   PLAYBACK_STATE,
 } from '../core/constants.ts';
@@ -26,6 +25,12 @@ import { isRemoteGuest } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
 import type { DataConnection } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
+import {
+  createFileTrackMeta,
+  isYouTubeOwner,
+  setPlaybackTransferState,
+  setPlaybackTrackMeta,
+} from '../player/ownership.ts';
 
 // ─── Guest: Send Recovery Request ───────────────────────────────────
 
@@ -45,17 +50,11 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       log.debug('[Recovery] Remote-share wait active - suppressing direct recovery UI');
       return;
     }
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     showLoader(false);
     showToast(t('share.remote.unavailable'));
     const name = getState('playback.pendingRecoveryTarget')?.name || '';
-    setState('player.currentTrackMeta', {
-      type: 'file',
-      title: name.replace(/\.[^/.]+$/, ''),
-      name,
-      videoId: null,
-      playlistId: null,
-    });
+    setPlaybackTrackMeta(createFileTrackMeta(name));
     return;
   }
 
@@ -69,7 +68,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   if (retryCount >= MAX_RECOVERY_RETRIES) {
     log.error(`[Recovery] Max retries (${MAX_RECOVERY_RETRIES}) exceeded. Giving up.`);
     clearManagedTimer('chunkWatchdog');
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     setState('recovery.pending', false);
     setState('recovery.retryCount', 0);
     showLoader(false);
@@ -169,8 +168,7 @@ async function handleRequestCurrentFile(
   if (!conn || !conn.open) return;
 
   // If Host is in YouTube mode, no local file to serve
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubeOwner()) {
     try {
       conn.send({ type: MSG.FILE_WAIT, message: 'Host is playing YouTube' });
     } catch {

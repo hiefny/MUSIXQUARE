@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { APP_STATE } from '../core/constants.ts';
+import { isPlaybackModeSystemAudio } from '../player/ownership.ts';
 import { setLanguageMode, t } from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
 import { showToast } from './toast.ts';
@@ -164,7 +164,7 @@ const _GUEST_ONLY_TOAST_COOLDOWN_MS = 5000;
 let _guestOnlyToastLastAt = 0;
 function _notifyGuestOnlyEffects(): boolean {
   if (getState('network.hostConn')) return false; // this client is a guest
-  if (getState('appState') !== APP_STATE.PLAYING_SYSTEM_AUDIO) return false;
+  if (!isPlaybackModeSystemAudio()) return false;
   const now = Date.now();
   if (now - _guestOnlyToastLastAt > _GUEST_ONLY_TOAST_COOLDOWN_MS) {
     _guestOnlyToastLastAt = now;
@@ -527,7 +527,7 @@ export function initSettings(): void {
       // Host: block channel change during system audio sharing
       if (
         !getState('network.hostConn') &&
-        getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO
+        isPlaybackModeSystemAudio()
       ) {
         showToast(t('system_audio.host_channel_locked'));
         return;

@@ -1,19 +1,35 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
+import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
+import type { DataConnection } from '../../types/index.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
   getInviteCode,
+  initPlayerControls,
   updateRoleBadge,
 } from '../player-controls.ts';
 
 beforeEach(() => {
   resetState();
+  bus.clear();
+  clearAllManagedTimers();
   document.body.innerHTML = '';
 });
+
+afterEach(() => {
+  clearAllManagedTimers();
+  bus.clear();
+});
+
+function makeConnection(peer: string): DataConnection {
+  return { peer, open: true } as DataConnection;
+}
 
 describe('getRoleLabelByChannelMode', () => {
   it('returns Original for mode 0', () => {
@@ -106,7 +122,7 @@ describe('updateRoleBadge', () => {
 
   it('marks a connected remote guest with the remote class', () => {
     const badge = renderBadge();
-    setState('network.hostConn', { peer: 'host-1', open: true } as any);
+    setState('network.hostConn', makeConnection('host-1'));
     setState('network.myDeviceLabel', 'GUEST 1');
     setState('network.connectionType', 'remote');
 
@@ -120,7 +136,7 @@ describe('updateRoleBadge', () => {
   it('keeps a connected local guest blue by clearing the remote class', () => {
     const badge = renderBadge();
     badge.classList.add('remote');
-    setState('network.hostConn', { peer: 'host-1', open: true } as any);
+    setState('network.hostConn', makeConnection('host-1'));
     setState('network.myDeviceLabel', 'GUEST 1');
     setState('network.connectionType', 'local');
 
@@ -128,5 +144,48 @@ describe('updateRoleBadge', () => {
 
     expect(badge.classList.contains('connected')).toBe(true);
     expect(badge.classList.contains('remote')).toBe(false);
+  });
+});
+
+describe('initPlayerControls playback mode rendering', () => {
+  function renderPlaybackControls(): void {
+    document.body.innerHTML = `
+      <button id="play-btn"><svg><path d=""></path></svg></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+    `;
+  }
+
+  it('renders the current playback mode immediately and stays reactive afterward', () => {
+    renderPlaybackControls();
+    setPlaybackSystemAudioPlaying();
+
+    initPlayerControls();
+
+    const icon = document.querySelector('#play-btn path');
+    const mediaBtn = document.getElementById('btn-media-source');
+    const mediaLabel = mediaBtn?.querySelector('span');
+
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop');
+
+    setPlaybackIdle();
+
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media');
+    expect(mediaBtn?.classList.contains('sys-audio-guest')).toBe(false);
+  });
+
+  it('uses playback mode for YouTube play-state events', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+
+    const icon = document.querySelector('#play-btn path');
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+
+    bus.emit('ui:update-play-state', true);
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
   });
 });

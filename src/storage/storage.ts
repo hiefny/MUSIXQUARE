@@ -18,12 +18,13 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { TRANSFER_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { INSTANCE_ID, validateSessionId } from '../core/session.ts';
 import type { StorageCommand, StorageEvent } from '../types/index.ts';
 import { showLoader } from '../ui/toast.ts';
+import { setPlaybackTransferState } from '../player/ownership.ts';
 import {
   ramStart,
   ramWrite,
@@ -399,7 +400,7 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
               transferState === TRANSFER_STATE.PROCESSING
             ) {
               log.warn(`[Storage] Start/lock failed — resetting stuck ${transferState} state`);
-              setState('transfer.state', TRANSFER_STATE.IDLE);
+              setPlaybackTransferState(TRANSFER_STATE.IDLE);
               showLoader(false);
             }
           }
@@ -429,7 +430,7 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
             const transferState = getState('transfer.state');
             if (transferState === TRANSFER_STATE.PROCESSING) {
               log.warn('[Storage] STORAGE_END dropped — resetting stuck PROCESSING state');
-              setState('transfer.state', TRANSFER_STATE.IDLE);
+              setPlaybackTransferState(TRANSFER_STATE.IDLE);
               showLoader(false);
             }
           }

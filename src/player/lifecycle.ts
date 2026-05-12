@@ -2,7 +2,7 @@
  * MUSIXQUARE — Playback Lifecycle State Machine
  *
  * Guest-side track lifecycle. See `.workshop/design/playback-state-machine.md`
- * for the design doc, transition table, and migration plan.
+ * for the design doc and transition table.
  *
  * Contract:
  *   - All reads of `playback.lifecycle` are OK anywhere.
@@ -18,9 +18,8 @@
  *     handlers that call transition() — this file only decides which state
  *     is next and applies pending-data field updates.
  *
- * Phase 4 complete (2026-04-29): the legacy flags `transfer.waitingForPreload`
- * and `transfer.skipIncomingFile` are gone. Receive-side guards derive from
- * this state machine via `shouldSkipIncomingFile()` in transfer-receive.ts.
+ * Receive-side guards derive from this state machine via
+ * `shouldSkipIncomingFile()` in transfer-receive.ts.
  */
 
 import { log } from '../core/log.ts';
@@ -28,10 +27,10 @@ import { getState, setState } from '../core/state.ts';
 import {
   PLAYBACK_STATE,
   LOAD_SOURCE,
-  APP_STATE,
   type PlaybackStateValue,
   type LoadSourceValue,
 } from '../core/constants.ts';
+import { isExternalOwner, setPlaybackLifecycleState } from './ownership.ts';
 
 // ─── Event Types ───────────────────────────────────────────────────
 //
@@ -451,14 +450,12 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
  * This function is **idempotent with respect to stay-transitions**: calling
  * it with an event that resolves to `stay` has no state-tree effect.
  *
- * **Gate: YouTube and system-audio modes.** The lifecycle machine is
- * guest-side local-file only. When appState is PLAYING_YOUTUBE or
- * PLAYING_SYSTEM_AUDIO, transition() is a no-op. Those modes own their own
- * state paths.
+ * **Gate: external playback modes.** The lifecycle machine is guest-side
+ * local-file only. When YouTube or system-audio owns playback, transition()
+ * is a no-op. Those modes own their own state paths.
  */
 export function transition(ev: PlaybackEvent): PlaybackStateValue {
-  const appState = getState('appState');
-  if (appState === APP_STATE.PLAYING_YOUTUBE || appState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (isExternalOwner()) {
     // No-op in other modes. Caller is responsible for not trying to drive
     // playback lifecycle from YouTube/system-audio handlers anyway — this is
     // belt-and-suspenders.
@@ -480,7 +477,7 @@ export function transition(ev: PlaybackEvent): PlaybackStateValue {
   }
 
   // Actual transition.
-  setState('playback.lifecycle', result.next);
+  setPlaybackLifecycleState(result.next);
   if (result.loadSource !== undefined) {
     setState('playback.loadSource', result.loadSource);
   }

@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { MSG } from '../../core/constants.ts';
 import {
   getCurrentAudioBuffer,
   getLoadToken,
@@ -11,9 +12,18 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
 } from '../_state.ts';
+import { initPlayback } from '../playback.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
-import { isFilePlaybackBlockedByExternalMode, isSystemAudioSessionActive } from '../video.ts';
+import {
+  isExternalOwner,
+  isSystemAudioOwner,
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackSystemAudioPlaying,
+  setPlaybackYouTubePlaying,
+} from '../ownership.ts';
 import { broadcast } from '../../network/peer.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
@@ -77,10 +87,11 @@ describe('stopPlayerNode', () => {
 // ─── stopAllMedia ────────────────────────────────────────────────────
 
 describe('stopAllMedia', () => {
-  it('resets appState to IDLE', () => {
-    setState('appState', 'PLAYING_AUDIO');
+  it('resets playback mode/activity to idle', () => {
+    setPlaybackFilePlaying();
     stopAllMedia();
-    expect(getState('appState')).toBe('IDLE');
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 
   it('requests visualizer fade-out instead of frame hold', () => {
@@ -96,7 +107,7 @@ describe('stopAllMedia', () => {
   });
 
   it('broadcasts PAUSE with reason=transition for silent track-change path', () => {
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackFilePlaying();
 
     stopAllMedia({ silent: true });
 
@@ -106,15 +117,16 @@ describe('stopAllMedia', () => {
   });
 
   it('clears YouTube mode during a silent audio takeover', () => {
-    setState('appState', 'PLAYING_YOUTUBE');
+    setPlaybackYouTubePlaying();
 
     stopAllMedia({ silent: true });
 
-    expect(getState('appState')).toBe('IDLE');
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 
   it('broadcasts PAUSE with reason=stop for explicit terminal stops', () => {
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackFilePlaying();
 
     stopAllMedia();
 
@@ -148,8 +160,8 @@ describe('external playback mode guards', () => {
       systemAudioPlaceholder: true,
     });
 
-    expect(isSystemAudioSessionActive()).toBe(true);
-    expect(isFilePlaybackBlockedByExternalMode()).toBe(true);
+    expect(isSystemAudioOwner()).toBe(true);
+    expect(isExternalOwner()).toBe(true);
   });
 });
 
@@ -157,23 +169,25 @@ describe('pause', () => {
   it('holds the current visualizer frame for an explicit pause', () => {
     const hold = vi.fn();
     bus.on('visualizer:hold-frame', hold);
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackFilePlaying();
 
     pause();
 
     expect(hold).toHaveBeenCalledTimes(1);
-    expect(getState('appState')).toBe('PAUSED');
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
   });
 
   it('does not hold the visualizer for programmatic rendezvous pauses', () => {
     const hold = vi.fn();
     bus.on('visualizer:hold-frame', hold);
-    setState('appState', 'PLAYING_AUDIO');
+    setPlaybackFilePlaying();
 
     pause(0, { holdVisualizer: false });
 
     expect(hold).not.toHaveBeenCalled();
-    expect(getState('appState')).toBe('PAUSED');
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
   });
 });
 
@@ -196,5 +210,59 @@ describe('updatePlayState', () => {
     updatePlayState(false);
 
     expect(handler).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('late-join playback bootstrap', () => {
+  function emitPeerConnected(send = vi.fn()): typeof send {
+    bus.emit('network:peer-connected', { open: true, send } as unknown as DataConnection);
+    return send;
+  }
+
+  it('sends file PLAY bootstrap without legacy state payload', () => {
+    initPlayback();
+    setPlaybackFilePlaying();
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [{ name: 'song.mp3' }]);
+
+    const send = emitPeerConnected();
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.PLAY,
+        index: 0,
+        name: 'song.mp3',
+      }),
+    );
+    expect(send.mock.calls[0]?.[0]).not.toHaveProperty('state');
+  });
+
+  it('sends file PAUSE bootstrap with pause reason but no legacy state payload', () => {
+    initPlayback();
+    setPlaybackFilePaused();
+    setState('playlist.currentTrackIndex', 1);
+    setState('player.pausedAt', 42);
+
+    const send = emitPeerConnected();
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.PAUSE,
+        index: 1,
+        reason: 'pause',
+        time: 42,
+      }),
+    );
+    expect(send.mock.calls[0]?.[0]).not.toHaveProperty('state');
+  });
+
+  it('sends system audio bootstrap without file playback payloads', () => {
+    initPlayback();
+    setPlaybackSystemAudioPlaying();
+
+    const send = emitPeerConnected();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ type: MSG.SYSTEM_AUDIO_START });
   });
 });

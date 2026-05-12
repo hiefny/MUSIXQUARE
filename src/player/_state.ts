@@ -12,10 +12,9 @@ import type { PlaylistItem } from '../types/index.ts';
 // ─── Module State ──────────────────────────────────────────────────
 //
 // pendingPlayTime, pendingPlayTimeSetAt, and failedTrackKeys live in the
-// state tree (Phase 4-B). The accessor functions below now wrap state
-// reads/writes — kept as functions so all existing callers stay
-// untouched and the immutable-update rule for Sets is enforced in one
-// place (markTrackFailed).
+// state tree. The accessor functions below wrap state reads/writes so callers
+// stay stable and the immutable-update rule for Sets is enforced in one place
+// (markTrackFailed).
 
 let _playerNode: AudioBufferSourceNode | null = null;
 let _currentAudioBuffer: AudioBuffer | null = null;
@@ -146,8 +145,8 @@ export function getPendingPlayTimeAge(): number {
 //
 // Why a helper instead of inlining the conditional at each call site:
 // without it, every set site has to repeat the same validation, and
-// future call sites are likely to forget. The Phase 4-C migration
-// originally inlined `(data.index ?? -1)` defaults, which leaked the
+// future call sites are likely to forget. An earlier migration inlined
+// `(data.index ?? -1)` defaults, which leaked the
 // -1 sentinel into reads and forced every consumer to add `>= 0`
 // guards. This consolidates the contract.
 

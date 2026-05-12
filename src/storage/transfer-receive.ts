@@ -13,7 +13,6 @@ import {
   CHUNK_SIZE,
   TRANSFER_STATE,
   WATCHDOG_TIMEOUT,
-  APP_STATE,
   DEMO_FILE_NAME,
   PLAYBACK_STATE,
   LOAD_SOURCE,
@@ -36,7 +35,15 @@ import { isArrayBuffer } from './transfer-shared.ts';
 import type { FileMeta, DataConnection } from '../types/index.ts';
 import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
-import { isSystemAudioSessionActive } from '../player/video.ts';
+import {
+  createFileTrackMeta,
+  isExternalOwner,
+  isSystemAudioOwner,
+  isYouTubeOwner,
+  setPlaybackIdle,
+  setPlaybackTransferState,
+  setPlaybackTrackMeta,
+} from '../player/ownership.ts';
 import {
   getPendingPlayTime,
   setPendingPlayTime,
@@ -54,10 +61,9 @@ const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
 // ─── Skip-Incoming Derivation ────────────────────────────────────────
 //
-// Replaces the legacy `transfer.skipIncomingFile` flag (Phase 4 of the
-// playback-state-machine migration). Computes the same boolean from
-// primary state — lifecycle, appState, transfer.meta, files.currentFileBlob
-// — instead of being mutated from 9 different modules. The flag-based
+// Computes the old skip-incoming decision from
+// primary state: lifecycle, playback mode/activity, transfer.meta, and
+// files.currentFileBlob, instead of a mutable cross-module flag. The flag-based
 // version produced the bug class fixed in 61a1c2b: a sticky `true` from
 // a prior preload-consume survived a rapid track switch and silently
 // dropped every chunk for the new track until chunkWatchdog (12s)
@@ -66,16 +72,9 @@ const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 // Callers that have access to the incoming message's `name` should pass
 // it so same-track replay can be detected.
 function shouldSkipIncomingFile(incomingName?: string): boolean {
-  // YouTube and system-audio modes own their own state paths;
-  // lifecycle.ts::transition() is a no-op in either, so we can't rely on
-  // lifecycle to gate file frames — appState must be checked directly.
-  // System-audio is unlikely to receive stale FILE_* frames in practice
-  // (host doesn't send while in that mode), but defense in depth: a
-  // spoofed or out-of-order frame would otherwise fall through to the
-  // (frozen) lifecycle check and possibly let chunks through.
-  const appState = getState('appState');
-  if (appState === APP_STATE.PLAYING_YOUTUBE) return true;
-  if (isSystemAudioSessionActive()) return true;
+  // External owners have their own state paths, so stale file frames are
+  // dropped before lifecycle/transfer heuristics get a chance to accept them.
+  if (isExternalOwner()) return true;
 
   // Remote guests use encrypted remote-share instead of direct file chunks;
   // orchestrator gates isDataTarget=false so stale direct frames are dropped.
@@ -306,13 +305,7 @@ function showRemoteUnavailableUI(data: Record<string, unknown>): void {
       setState('playlist.currentTrackIndex', idx);
     }
   }
-  setState('player.currentTrackMeta', {
-    type: 'file',
-    title: ((data.name as string) || '').replace(/\.[^/.]+$/, ''),
-    name: (data.name as string) || '',
-    videoId: null,
-    playlistId: null,
-  });
+  setPlaybackTrackMeta(createFileTrackMeta((data.name as string) || ''));
   showLoader(false);
   showToast(t('share.remote.unavailable'));
   log.info('[Transfer] Remote guest — file transfer skipped');
@@ -376,7 +369,7 @@ export async function handleFilePrepare(
 ): Promise<void> {
   if (!isHostBroadcast(conn)) return;
 
-  if (isSystemAudioSessionActive()) {
+  if (isSystemAudioOwner()) {
     log.debug('[Transfer] Ignoring FILE_PREPARE - system audio mode active');
     return;
   }
@@ -385,7 +378,7 @@ export async function handleFilePrepare(
   // cross-mode switch: remote guests fetch the bundled demo over HTTP after
   // FILE_PREPARE. Accept that one and tear YouTube down before driving the
   // file lifecycle.
-  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubeOwner()) {
     if (data.name !== DEMO_FILE_NAME) {
       log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
       return;
@@ -394,8 +387,8 @@ export async function handleFilePrepare(
     const pendingSetAt = getPendingPlayTimeSetAt();
     log.debug('[Transfer] Accepting demo FILE_PREPARE during YouTube mode');
     bus.emit('player:stop-all-media');
-    if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-      setState('appState', APP_STATE.IDLE);
+    if (isYouTubeOwner()) {
+      setPlaybackIdle();
     }
     if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
   }
@@ -472,11 +465,8 @@ export async function handleFilePrepare(
     }
   }
 
-  // Phase 4: lifecycle is authoritative. If we were AWAITING_PRELOAD, the
-  // transition() call later in this handler supersedes us correctly. The
-  // legacy flag is still dual-written in other paths during migration, so
-  // we defensively clear it if set (harmless once the flag is deleted in
-  // Phase 4.3).
+  // Lifecycle is authoritative. If we were AWAITING_PRELOAD, the transition()
+  // call later in this handler supersedes us correctly.
   if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
     log.debug('[file-prepare] AWAITING_PRELOAD → will be superseded below');
   }
@@ -512,7 +502,7 @@ export async function handleFilePrepare(
     nextExpectedChunk = 0;
     setState('transfer.staleChunkBurstStart', 0);
     setState('transfer.staleChunkBurstCount', 0);
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     // Arm chunk watchdog from NOW so the 12s timer counts from FILE_PREPARE,
     // not from the last chunk of the previous (defunct) session.
     startChunkWatchdog();
@@ -650,7 +640,7 @@ export async function handleFilePrepare(
         const playlist = getState('playlist.items') || [];
         const trackEntry = playlist[data.index as number];
         if (trackEntry) {
-          setState('player.currentTrackMeta', trackEntry);
+          setPlaybackTrackMeta(trackEntry);
         }
       }
 
@@ -701,7 +691,7 @@ export async function handleFilePrepare(
 
   if (isResuming) {
     log.debug(`[file-prepare] Same file in progress (${receivedCount} chunks), skipping reset`);
-    // Lifecycle (Phase 3 dual-write): resume scenario — we had partial data
+    // Lifecycle: resume scenario — we had partial data
     // for this file, now the host is restarting transfer. Stay in (or enter)
     // DOWNLOADING with the recovery-resume source.
     transition({
@@ -712,7 +702,7 @@ export async function handleFilePrepare(
     });
     showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
   } else {
-    // Lifecycle (Phase 3 dual-write): fresh download — no preload match, no
+    // Lifecycle: fresh download — no preload match, no
     // resume. Transition to DOWNLOADING with fresh source.
     transition({
       type: 'FILE_PREPARE',
@@ -743,13 +733,12 @@ export async function handleFilePrepare(
       const playlist = getState('playlist.items') || [];
       const trackEntry = playlist[data.index as number];
       if (trackEntry) {
-        setState('player.currentTrackMeta', trackEntry);
+        setPlaybackTrackMeta(trackEntry);
       }
     }
 
     // Stop YouTube mode for incoming local file
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (isYouTubeOwner()) {
       log.debug('[file-prepare] Stopping YouTube mode for incoming local file');
       bus.emit('youtube:stop-mode');
     }
@@ -868,7 +857,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   setState('transfer.receivedCount', 0);
   setState('transfer.meta', data as Partial<FileMeta>);
-  setState('transfer.state', TRANSFER_STATE.RECEIVING);
+  setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
   // Reset stale-burst tracking — a valid FILE_START means we're back on track
   setState('transfer.staleChunkBurstStart', 0);
   setState('transfer.staleChunkBurstCount', 0);
@@ -934,7 +923,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   nextExpectedChunk = startChunk;
   setState('transfer.meta', data as Partial<FileMeta>);
-  setState('transfer.state', TRANSFER_STATE.RECEIVING);
+  setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
 
   startChunkWatchdog();
 
@@ -1044,7 +1033,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
         size: CHUNK_SIZE,
       });
       setState('files.currentTrack', { name: chunkName });
-      setState('transfer.state', TRANSFER_STATE.RECEIVING);
+      setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
       if (data.total) {
         setState('transfer.meta', {
           name: chunkName,
@@ -1162,7 +1151,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
         mime: (data.mime as string) || '',
       };
       setState('transfer.meta', recoveredMeta);
-      setState('transfer.state', TRANSFER_STATE.RECEIVING);
+      setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
 
       const fname = (recoveredMeta.name as string) || '';
       if (fname) {
@@ -1245,7 +1234,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
     receivedCount >= total &&
     getState('transfer.state') !== TRANSFER_STATE.PROCESSING
   ) {
-    setState('transfer.state', TRANSFER_STATE.PROCESSING);
+    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
     setState('recovery.retryCount', 0);
 
     // Clean up reorder buffer for this session to prevent memory leak
@@ -1438,7 +1427,7 @@ export function cancelIncomingFileTransfer(reason: string): void {
   _pendingEarlyChunks.length = 0;
   nextExpectedChunk = 0;
 
-  setState('transfer.state', TRANSFER_STATE.IDLE);
+  setPlaybackTransferState(TRANSFER_STATE.IDLE);
   setState('transfer.receivedCount', 0);
   setState('transfer.meta', {});
 

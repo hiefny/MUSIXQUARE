@@ -14,7 +14,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
@@ -41,7 +41,17 @@ import { play, pause, stopAllMedia, getTrackPosition, handleEnded, skipTime } fr
 
 import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
-import { isSystemAudioSessionActive } from './video.ts';
+import {
+  createFileTrackMeta,
+  getPlaybackModeActivity,
+  isPlaybackActiveYouTube,
+  isPlaybackPausedOrPendingFile,
+  isPlaybackPlayingFile,
+  isPlaybackPlayingSystemAudio,
+  isSystemAudioOwner,
+  isYouTubeOwner,
+  setPlaybackTrackMeta,
+} from './ownership.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
@@ -50,16 +60,7 @@ function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): voi
   const playlist = getState('playlist.items') || [];
   const item = playlist[index];
   const name = item?.name || fallbackName || '';
-  setState(
-    'player.currentTrackMeta',
-    item ?? {
-      type: 'file',
-      title: name.replace(/\.[^/.]+$/, '') || name,
-      name,
-      videoId: null,
-      playlistId: null,
-    },
-  );
+  setPlaybackTrackMeta(item ?? createFileTrackMeta(name));
 }
 
 function getRemoteWaitSessionId(): number {
@@ -104,7 +105,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   // Ignore PLAY during system audio mode (live stream, not file-based).
   // The helper also covers the guest's pending placeholder window between
   // SYSTEM_AUDIO_START and the first WebRTC stream.
-  if (isSystemAudioSessionActive()) return;
+  if (isSystemAudioOwner()) return;
 
   // Host's MSG.PLAY is authoritative — cancel any pending deferred replay
   // from a prior FILE_PREPARE(autoPlayDelayMs) so we don't double-start.
@@ -203,7 +204,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     return;
   }
 
-  // Stale-audio guard (Phase 4: 5s recovery timer DELETED).
+  // Stale-audio recovery is handled by lifecycle guards, not a separate timer.
   //
   // Previously this block armed a 5s timer that issued REQUEST_CURRENT_FILE
   // if meta.name != expected when PLAY arrived. That timer's original
@@ -232,7 +233,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   }
 
   if (getCurrentAudioBuffer()) {
-    // Lifecycle (Phase 3 dual-write): we have a decoded buffer → we're in
+    // Lifecycle: we have a decoded buffer → we're in
     // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
     // transition() handles same-track seek, resume from PAUSED, restart from
     // READY — see Section 4 of the design doc.
@@ -321,16 +322,7 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   // "미디어 없음" during the HTTP fetch. loadPreloadedTrack will overwrite
   // with the real playlist entry after decode.
   const item = playlist[index];
-  setState(
-    'player.currentTrackMeta',
-    item ?? {
-      type: 'file',
-      name,
-      title: name.replace(/\.[^/.]+$/, ''),
-      videoId: null,
-      playlistId: null,
-    },
-  );
+  setPlaybackTrackMeta(item ?? createFileTrackMeta(name));
 
   // Preserve host's play time so loadPreloadedTrack can seek (with age
   // compensation) once decode finishes — without this the post-fetch
@@ -356,15 +348,15 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   if (!hostConn || conn !== hostConn) return;
 
   // Ignore PAUSE during system audio mode
-  if (isSystemAudioSessionActive()) return;
+  if (isSystemAudioOwner()) return;
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
-  if (getState('appState') === APP_STATE.PLAYING_YOUTUBE) return;
+  if (isYouTubeOwner()) return;
 
   const time = Number(data.time) || 0;
   const endOfPlaylist = !!data.endOfPlaylist;
   const reason = typeof data.reason === 'string' ? data.reason : undefined;
 
-  // Lifecycle (Phase 3 dual-write): PAUSE is a global rule when
+  // Lifecycle: PAUSE is a global rule when
   // endOfPlaylist=true (→ IDLE from any state). Regular PAUSE routes
   // to PAUSED per Section 4.
   transition({ type: 'PAUSE', time, endOfPlaylist });
@@ -380,7 +372,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // the stale track meta so title/indicator mirror the host's reset.
   if (endOfPlaylist) {
     log.debug('[Guest] Host signalled end of playlist — clearing track meta');
-    setState('player.currentTrackMeta', null);
+    setPlaybackTrackMeta(null);
     // Mirror host's deselected state so operator guest's togglePlay
     // also redirects to playTrack(0) instead of resuming stale audio.
     setState('playlist.currentTrackIndex', -1);
@@ -466,16 +458,15 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
   clearManagedTimer('ended-advance-next');
 
   const time = Number(data.time) || 0;
-  const currentState = getState('appState');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
 
   // YouTube seek
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubeOwner()) {
     bus.emit('youtube:seek-to', time);
     return;
   }
 
-  if (currentState === APP_STATE.PLAYING_AUDIO) {
+  if (isPlaybackPlayingFile()) {
     play(time);
     broadcast({
       type: MSG.PLAY,
@@ -553,7 +544,7 @@ export function initPlayback(): void {
   // at the current logical position without surfacing a manual-sync toast.
   bus.on('playback:refresh-current-position', () => {
     if (!getCurrentAudioBuffer()) return;
-    if (getState('appState') !== APP_STATE.PLAYING_AUDIO) return;
+    if (!isPlaybackPlayingFile()) return;
     play(getTrackPosition());
   });
 
@@ -573,8 +564,7 @@ export function initPlayback(): void {
 
   // Surround mode toggled during playback: restart at current position
   bus.on('audio:surround-toggled', () => {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_AUDIO) {
+    if (isPlaybackPlayingFile()) {
       play(getTrackPosition());
     }
   });
@@ -750,8 +740,8 @@ export function initPlayback(): void {
       function onWatchdogFire(): void {
         if (disposed) return;
         cleanup();
-        // Phase 4: lifecycle drives the check. If we've left AWAITING_PRELOAD
-        // the blob arrived or got superseded — no recovery needed.
+        // Lifecycle drives the check. If we've left AWAITING_PRELOAD, the blob
+        // arrived or got superseded — no recovery needed.
         if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return;
         log.warn('[Preload] Preloaded blob not available — stall timeout');
         // shouldSkipIncomingFile() will return false once host's response
@@ -772,7 +762,7 @@ export function initPlayback(): void {
 
       // Clear watchdog when we transition out of AWAITING_PRELOAD (blob
       // arrived → DECODING, superseded → DOWNLOADING, etc.).
-      // Phase 4: subscribe to lifecycle instead of the legacy flag.
+      // Subscribe to lifecycle so watchdog cleanup follows the source of truth.
       const _unsubWatchdog = bus.on('state:playback.lifecycle', (val: unknown) => {
         if (val !== PLAYBACK_STATE.AWAITING_PRELOAD) cleanup();
       });
@@ -830,7 +820,11 @@ export function initPlayback(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    const currentState = getState('appState');
+    const playback = getPlaybackModeActivity();
+    const isFilePlaying = isPlaybackPlayingFile(playback);
+    const isFilePauseLike = isPlaybackPausedOrPendingFile(playback);
+    const isSystemAudioPlaying = isPlaybackPlayingSystemAudio(playback);
+    const isYouTubeActive = isPlaybackActiveYouTube(playback);
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const playlist = getState('playlist.items') || [];
 
@@ -839,9 +833,9 @@ export function initPlayback(): void {
       const nowPos = getTrackPosition();
 
       // System audio: send start message instead of PLAY/PAUSE (media call handled by system-audio-host)
-      if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+      if (isSystemAudioPlaying) {
         conn.send({ type: MSG.SYSTEM_AUDIO_START });
-      } else if (currentState === APP_STATE.PLAYING_AUDIO) {
+      } else if (isFilePlaying) {
         const item = (playlist[currentTrackIndex] as unknown as Record<string, unknown>) || {};
         const itemName = (item.name || (item.file as File | undefined)?.name || null) as
           | string
@@ -853,18 +847,16 @@ export function initPlayback(): void {
           time: nowPos,
           index: currentTrackIndex,
           name: itemName,
-          state: currentState,
           timestamp: Date.now(),
         });
-      } else if (currentState !== APP_STATE.PLAYING_YOUTUBE) {
+      } else if (!isYouTubeActive) {
         // IDLE or PAUSED: Send pause to sync position
         conn.send({
           type: MSG.PAUSE,
           time: nowPos,
           index: currentTrackIndex,
-          state: currentState,
           timestamp: Date.now(),
-          reason: currentState === APP_STATE.PAUSED ? 'pause' : 'stop',
+          reason: isFilePauseLike ? 'pause' : 'stop',
         });
       }
       // YouTube state is handled by youtube/player.ts bootstrap

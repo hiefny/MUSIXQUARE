@@ -1,0 +1,151 @@
+/**
+ * @vitest-environment jsdom
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { bus } from '../../core/events.ts';
+import { getState, resetState } from '../../core/state.ts';
+import type { TrackMeta } from '../../types/index.ts';
+import { setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
+import { restorePreSystemAudioPlaybackState } from '../system-capture.ts';
+
+type Snapshot = Parameters<typeof restorePreSystemAudioPlaybackState>[0];
+
+function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
+  const { playback: playbackOverride, ...rest } = overrides;
+  return {
+    pausedAt: 0,
+    currentTrackMeta: null,
+    channelMode: 0,
+    trackIndex: -1,
+    subIndex: 0,
+    ...rest,
+    playback: {
+      mode: playbackOverride?.mode ?? null,
+      activity: playbackOverride?.activity ?? 'idle',
+    },
+  };
+}
+
+function fileMeta(name = 'song.mp3'): TrackMeta {
+  return {
+    type: 'file',
+    name,
+    title: name,
+    videoId: null,
+    playlistId: null,
+  };
+}
+
+function youtubeMeta(): TrackMeta {
+  return {
+    type: 'youtube',
+    name: 'Video',
+    title: 'Video',
+    videoId: 'video-1',
+    playlistId: null,
+  };
+}
+
+beforeEach(() => {
+  resetState();
+  bus.clear();
+  document.body.innerHTML = `
+    <div id="grid-standard">
+      <button class="ch-opt active" data-ch="0"></button>
+      <button class="ch-opt" data-ch="-1"></button>
+      <button class="ch-opt" data-ch="1"></button>
+    </div>
+  `;
+});
+
+describe('restorePreSystemAudioPlaybackState', () => {
+  it('restores prior file playback as a paused file shadow', () => {
+    const meta = fileMeta();
+
+    restorePreSystemAudioPlaybackState(
+      makeSnapshot({
+        playback: { mode: 'file', activity: 'playing' },
+        pausedAt: 12,
+        currentTrackMeta: meta,
+        channelMode: -1,
+      }),
+    );
+
+    expect(getState('player.pausedAt')).toBe(12);
+    expect(getState('player.currentTrackMeta')).toBe(meta);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+    expect(document.querySelector('.ch-opt[data-ch="-1"]')?.classList.contains('active')).toBe(
+      true,
+    );
+  });
+
+  it('restores prior YouTube playback through the room command path', () => {
+    const restore = vi.fn();
+    const meta = youtubeMeta();
+    bus.on('youtube:restore-room-playback', restore);
+
+    restorePreSystemAudioPlaybackState(
+      makeSnapshot({
+        playback: { mode: 'youtube', activity: 'playing' },
+        currentTrackMeta: meta,
+        trackIndex: 2,
+        subIndex: 4,
+      }),
+    );
+
+    expect(getState('player.currentTrackMeta')).toBe(meta);
+    expect(restore).toHaveBeenCalledWith({
+      videoId: 'video-1',
+      playlistId: null,
+      name: 'Video',
+      index: 2,
+      autoplay: true,
+      subIndex: 4,
+    });
+  });
+
+  it('falls back to paused when a YouTube snapshot has no restorable id', () => {
+    restorePreSystemAudioPlaybackState(
+      makeSnapshot({
+        playback: { mode: 'youtube', activity: 'playing' },
+        currentTrackMeta: { type: 'youtube', name: 'Unknown', videoId: null, playlistId: null },
+      }),
+    );
+
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it('does not revive a pending file pipeline after capture stops', () => {
+    restorePreSystemAudioPlaybackState(
+      makeSnapshot({
+        playback: { mode: 'file', activity: 'pending' },
+        currentTrackMeta: fileMeta('pending.mp3'),
+      }),
+    );
+
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('maps a previous system-audio owner to the existing paused fallback', () => {
+    restorePreSystemAudioPlaybackState(
+      makeSnapshot({
+        playback: { mode: 'system-audio', activity: 'playing' },
+      }),
+    );
+
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it('restores idle snapshots to idle', () => {
+    setPlaybackSystemAudioPlaying();
+
+    restorePreSystemAudioPlaybackState(makeSnapshot());
+
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+  });
+});

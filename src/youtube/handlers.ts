@@ -16,6 +16,11 @@ import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
+import {
+  createYouTubeTrackMeta,
+  setPlaybackTrackMeta,
+  setPlaybackTransferState,
+} from '../player/ownership.ts';
 import { showLoader } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -67,15 +72,15 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
   const playlist = getState('playlist.items') || [];
   const playlistItem = index !== undefined && index >= 0 ? playlist[index] : undefined;
   if (playlistItem) {
-    setState('player.currentTrackMeta', playlistItem);
+    setPlaybackTrackMeta(playlistItem);
   } else if (name || videoId) {
-    setState('player.currentTrackMeta', {
-      type: 'youtube',
-      name: name || '',
-      title: name || '',
-      videoId: videoId || null,
-      playlistId: playlistId || null,
-    });
+    setPlaybackTrackMeta(
+      createYouTubeTrackMeta({
+        name: name || '',
+        videoId: videoId || null,
+        playlistId: playlistId || null,
+      }),
+    );
   }
 
   let finalVideoId = videoId;
@@ -245,9 +250,9 @@ function cancelInFlightTransfer(): void {
   const transferState = getState('transfer.state');
   if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
     log.debug('[YouTube] Cancelling in-flight file transfer for YouTube switch');
-    // shouldSkipIncomingFile() returns true via the appState=PLAYING_YOUTUBE
-    // check (set by handleYouTubePlay before this helper runs), so no flag.
-    setState('transfer.state', TRANSFER_STATE.IDLE);
+    // shouldSkipIncomingFile() returns true via YouTube ownership
+    // (set by handleYouTubePlay before this helper runs), so no flag.
+    setPlaybackTransferState(TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');

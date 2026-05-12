@@ -9,11 +9,16 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
+import {
+  isPlaybackModeYouTube,
+  updatePlaybackTrackMeta,
+  updatePlaybackTrackTitle,
+} from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
@@ -261,13 +266,10 @@ function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: num
 }
 
 // Manual rendezvous retry helpers.
-function isManualRendezvousReady(
-  player: YouTubePlayerInstance | null,
-  currentState = getState('appState'),
-): boolean {
+function isManualRendezvousReady(player: YouTubePlayerInstance | null): boolean {
   return (
     !!player &&
-    currentState === APP_STATE.PLAYING_YOUTUBE &&
+    isPlaybackModeYouTube() &&
     !!player.getCurrentTime &&
     !!player.seekTo &&
     !!player.pauseVideo &&
@@ -342,11 +344,10 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   if (!isHostBroadcast(conn)) return;
 
   const player = getYouTubePlayer();
-  const currentState = getState('appState');
 
-  // Record the host snapshot BEFORE the PLAYING_YOUTUBE guard. Late-join
+  // Record the host snapshot BEFORE the YouTube-mode guard. Late-join
   // bootstrap frames arrive while the guest is still inside
-  // loadYouTubeVideo (appState !== PLAYING_YOUTUBE), so dropping the frame
+  // loadYouTubeVideo (not yet in YouTube playback mode), so dropping the frame
   // here leaves lastHostSnapshot null and the user hits "No host playback
   // data" when trying to rendezvous — especially when joining while the
   // host is on the 2nd/3rd sub-video and the next heartbeat is seconds
@@ -360,7 +361,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   updateHostSnapshot(hostTime, hostState, hostClock);
 
   const isManual = !!data.isManual;
-  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE || !player.getCurrentTime) {
+  if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) {
     if (isManual) deferManualRendezvousUntilReady('player-or-app-state-not-ready');
     return;
   }
@@ -376,7 +377,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   try {
     // If this is a manual sync request from the host, trigger precision rendezvous immediately
     if (isManual) {
-      if (!isManualRendezvousReady(player, currentState)) {
+      if (!isManualRendezvousReady(player)) {
         deferManualRendezvousUntilReady('player-api-not-ready');
         return;
       }
@@ -389,10 +390,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
     // Apply title from host to maintain metadata sync (fixes "No Media" for late joiners)
     const hostTitle = data.title as string | undefined;
     if (hostTitle) {
-      const currentMeta = getState('player.currentTrackMeta');
-      if (currentMeta && currentMeta.title !== hostTitle) {
-        setState('player.currentTrackMeta', { ...currentMeta, title: hostTitle });
-      }
+      updatePlaybackTrackTitle(hostTitle);
     }
 
     // ── Host ad detection ──
@@ -540,8 +538,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
     if (!opts.silent) showToast(message);
   };
   const player = getYouTubePlayer();
-  const currentState = getState('appState');
-  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) {
+  if (!player || !isPlaybackModeYouTube()) {
     notify(t('toast.sync_not_ready'));
     return;
   }
@@ -867,7 +864,6 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   if (!isHostBroadcast(conn)) return;
 
   const player = getYouTubePlayer();
-  const currentState = getState('appState');
 
   // Validate state first so the pre-guard snapshot update below has a
   // finite value. Number(undefined) → NaN, and `NaN === 1/2/0/-1` is
@@ -878,9 +874,9 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     return;
   }
 
-  // Record the host snapshot BEFORE the PLAYING_YOUTUBE guard. Late-join
+  // Record the host snapshot BEFORE the YouTube-mode guard. Late-join
   // bootstrap YOUTUBE_STATE arrives while the guest is still loading the
-  // iframe (appState !== PLAYING_YOUTUBE), and without a saved snapshot
+  // iframe (not yet in YouTube playback mode), and without a saved snapshot
   // the guest is stuck on "No host playback data" when they try to
   // rendezvous. Snapshot is pure data — no side effects pre-guard, and
   // every action-scheduling branch below still runs under the guard.
@@ -896,7 +892,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(time, state, hostClock);
 
-  if (!player || currentState !== APP_STATE.PLAYING_YOUTUBE) return;
+  if (!player || !isPlaybackModeYouTube()) return;
 
   // Host sent a new command — cancel the guest ENDED fallback timer.
   // (Guest defers IDLE transition on video end to wait for this message.)
@@ -942,10 +938,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     // Apply title from host to maintain metadata sync (fixes "No Media" during loading)
     const hostTitle = data.title as string | undefined;
     if (hostTitle) {
-      const currentMeta = getState('player.currentTrackMeta');
-      if (currentMeta && currentMeta.title !== hostTitle) {
-        setState('player.currentTrackMeta', { ...currentMeta, title: hostTitle });
-      }
+      updatePlaybackTrackTitle(hostTitle);
     }
 
     // Video ID sync — fixes Mix playlists where sub-index = different video
@@ -1205,7 +1198,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>, conn?: DataConnecti
   const currentItem = playlist[currentTrackIndex];
   const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
-    setState('player.currentTrackMeta', { ...currentItem, title: title });
+    updatePlaybackTrackMeta(() => ({ ...currentItem, title: title }));
   }
 }
 
@@ -1254,8 +1247,7 @@ function handleYouTubeStop(_data: Record<string, unknown>, conn?: DataConnection
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-guest-ended-fallback');
   bus.emit('youtube:sync-loading', false);
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isPlaybackModeYouTube()) {
     bus.emit('youtube:stop-mode');
     bus.emit('player:stop-all-media');
   }

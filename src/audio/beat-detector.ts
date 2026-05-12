@@ -6,7 +6,7 @@
  * audio clock via requestAnimationFrame.
  *
  * Integration:
- *   - Listens to state:appState for play/pause/stop transitions
+ *   - Listens to playback mode/activity for play/pause/stop transitions
  *   - Reads AudioBuffer from player/_state.ts
  *   - Uses audioCtx.currentTime + player.startedAt for beat grid alignment
  */
@@ -15,9 +15,9 @@ import { log } from '../core/log.ts';
 import { analyzeFullBuffer } from 'realtime-bpm-analyzer';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { APP_STATE } from '../core/constants.ts';
 import { getCurrentTime } from './context.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { isPlaybackPlayingFile } from '../player/ownership.ts';
 
 // ─── Module State ────────────────────────────────────────────────
 
@@ -27,6 +27,15 @@ let _beatDuration = 0; // seconds per beat
 let _animId: number | null = null;
 let _lastBeatIdx = -1;
 let _analysedBuffer: AudioBuffer | null = null; // avoid re-analysis of same buffer
+let _cachedIsFilePlaying = isPlaybackPlayingFile();
+
+function refreshCachedPlaybackState(): void {
+  _cachedIsFilePlaying = isPlaybackPlayingFile();
+}
+
+function isCachedFilePlaying(): boolean {
+  return _cachedIsFilePlaying;
+}
 
 // ─── Public Getters ──────────────────────────────────────────────
 
@@ -43,11 +52,11 @@ export function setPartyMode(on: boolean): void {
   _partyMode = on;
   if (on && !wasOn) {
     // Lazy analysis: party just turned on. If a track is already playing, kick
-    // off BPM analysis now (the regular state:appState entry point skipped it
-    // while party was off). _analysedBuffer cache survives toggles, so the
-    // same track only ever incurs the analysis cost once.
-    const state = getState('appState') as string;
-    if (state === APP_STATE.PLAYING_AUDIO) {
+    // off BPM analysis now (the regular playback-state entry point skipped it
+    // while party was off). _analysedBuffer cache survives toggles, so the same
+    // track only ever incurs the analysis cost once.
+    refreshCachedPlaybackState();
+    if (isCachedFilePlaying()) {
       void analyzeAndStart();
     }
   } else if (!on && wasOn) {
@@ -62,24 +71,29 @@ export function setPartyMode(on: boolean): void {
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initBeatDetector(): void {
-  bus.on('state:appState', (value) => {
-    const state = value as string;
-    if (state === APP_STATE.PLAYING_AUDIO) {
+  const handlePlaybackStateChange = () => {
+    refreshCachedPlaybackState();
+    if (isCachedFilePlaying()) {
       void analyzeAndStart();
-    } else {
-      // Non-playing state: stop loop AND release buffer memory
-      clearBeatDetector();
+      return;
     }
-  });
+
+    // Non-playing or non-file state: stop loop AND release buffer memory.
+    clearBeatDetector();
+  };
+
+  bus.on('state:playback.mode', handlePlaybackStateChange);
+  bus.on('state:playback.activity', handlePlaybackStateChange);
 
   // Track ended: full reset to release AudioBuffer memory
   bus.on('player:ended', clearBeatDetector);
 
-  // Handle track change: when stopAllMedia({ silent: true }) keeps appState as PLAYING,
-  // state:appState won't fire again. Listen for buffer swaps to re-analyze BPM.
+  // Handle track change: when stopAllMedia({ silent: true }) keeps playback
+  // activity as playing, playback-state events won't fire again. Listen for
+  // buffer swaps to re-analyze BPM.
   bus.on('player:buffer-changed', () => {
-    const state = getState('appState') as string;
-    if (state === APP_STATE.PLAYING_AUDIO) {
+    refreshCachedPlaybackState();
+    if (isCachedFilePlaying()) {
       void analyzeAndStart();
     }
   });
@@ -301,8 +315,7 @@ export function clearBeatDetector(): void {
 function tick(): void {
   _animId = requestAnimationFrame(tick);
 
-  const state = getState('appState');
-  if (state !== APP_STATE.PLAYING_AUDIO) {
+  if (!isCachedFilePlaying()) {
     _lastBeatIdx = -1;
     return;
   }

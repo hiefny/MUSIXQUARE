@@ -29,6 +29,7 @@ import {
   waitForGuestConnectionType,
 } from '../network/peer.ts';
 import { transition } from '../player/lifecycle.ts';
+import { createFileTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
 import {
   getPendingPlayTime,
   getPendingPlayTimeSetAt,
@@ -528,15 +529,9 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
 
   const playlist = getState('playlist.items') || [];
   if (playlist[index]) {
-    setState('player.currentTrackMeta', playlist[index]);
+    setPlaybackTrackMeta(playlist[index]);
   } else {
-    setState('player.currentTrackMeta', {
-      type: 'file',
-      title: name.replace(/\.[^/.]+$/, '') || name,
-      name,
-      videoId: null,
-      playlistId: null,
-    });
+    setPlaybackTrackMeta(createFileTrackMeta(name));
   }
 
   transition({ type: 'FILE_PREPARE', variant: 'preload-waiting', index, name });
@@ -651,15 +646,9 @@ async function handleRemoteFileShare(
     setState('transfer.meta', preservedMeta);
     const playlist = getState('playlist.items') || [];
     if (playlist[descriptor.index]) {
-      setState('player.currentTrackMeta', playlist[descriptor.index]);
+      setPlaybackTrackMeta(playlist[descriptor.index]);
     } else {
-      setState('player.currentTrackMeta', {
-        type: 'file',
-        title: descriptor.name.replace(/\.[^/.]+$/, '') || descriptor.name,
-        name: descriptor.name,
-        videoId: null,
-        playlistId: null,
-      });
+      setPlaybackTrackMeta(createFileTrackMeta(descriptor.name));
     }
     clearManagedTimer(REMOTE_WAIT_TIMER);
     transition({

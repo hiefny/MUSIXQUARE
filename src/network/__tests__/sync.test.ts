@@ -4,11 +4,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { APP_STATE, MSG, PLAYBACK_STATE } from '../../core/constants.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
-import { handleData } from '../protocol.ts';
-import { getTotalSyncOffsetMs, handleAutoSync, initSync } from '../sync.ts';
+import { handleData, resetInboundRateLimit } from '../protocol.ts';
+import {
+  getSyncPongPlaybackState,
+  getTotalSyncOffsetMs,
+  handleAutoSync,
+  initSync,
+  isSyncPongPlayingFile,
+} from '../sync.ts';
 import {
   getClockOffset,
   isClockCalibrated,
@@ -17,6 +23,7 @@ import {
   resetClockState,
 } from '../shared-clock.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
+import { setPlaybackFilePlaying, setPlaybackIdle } from '../../player/ownership.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -25,6 +32,7 @@ beforeEach(() => {
   resetClockState();
   setCurrentAudioBuffer(null);
   bus.clear();
+  resetInboundRateLimit('guest-1');
 });
 
 afterEach(() => {
@@ -77,11 +85,11 @@ describe('handleAutoSync', () => {
 describe('SYNC_PING playback snapshot', () => {
   it('does not advertise PLAYING_AUDIO while host is decoded but waiting to start', async () => {
     initSync();
-    setState('appState', APP_STATE.PLAYING_AUDIO);
+    setPlaybackFilePlaying();
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
     setState('playlist.currentTrackIndex', 2);
 
-    const conn = { peer: 'guest-1', open: true, send: vi.fn() } as DataConnection;
+    const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
     await handleData({ type: MSG.SYNC_PING, pingId: 7 }, conn);
 
     expect(conn.send).toHaveBeenCalledTimes(1);
@@ -89,15 +97,102 @@ describe('SYNC_PING playback snapshot', () => {
       expect.objectContaining({
         type: MSG.SYNC_PONG,
         pingId: 7,
-        appState: APP_STATE.PAUSED,
+        mode: 'file',
+        activity: 'paused',
         position: 0,
         trackIndex: 2,
       }),
     );
+    expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
+  });
+
+  it('emits decomposed playback fields for audible file playback', async () => {
+    initSync();
+    setPlaybackFilePlaying();
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playlist.currentTrackIndex', 3);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    expect(getSyncPongPlaybackState()).toMatchObject({
+      mode: 'file',
+      activity: 'playing',
+    });
+
+    const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
+    await handleData({ type: MSG.SYNC_PING, pingId: 8 }, conn);
+
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.SYNC_PONG,
+        pingId: 8,
+        mode: 'file',
+        activity: 'playing',
+        position: 0,
+        trackIndex: 3,
+      }),
+    );
+    expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
+  });
+
+  it('prefers decomposed mode/activity when deciding whether a sync pong is file playback', () => {
+    expect(
+      isSyncPongPlayingFile({
+        appState: 'PLAYING_AUDIO',
+        mode: 'youtube',
+        activity: 'playing',
+      }),
+    ).toBe(false);
+
+    expect(
+      isSyncPongPlayingFile({
+        appState: 'PAUSED',
+        mode: 'file',
+        activity: 'playing',
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects legacy-only appState when decomposed sync fields are absent', () => {
+    expect(isSyncPongPlayingFile({ appState: 'PLAYING_AUDIO' })).toBe(false);
+    expect(isSyncPongPlayingFile({ appState: 'PAUSED' })).toBe(false);
+  });
+
+  it('exposes the paused file shadow for silent file transition pongs', () => {
+    setPlaybackFilePlaying();
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+
+    expect(getSyncPongPlaybackState()).toEqual({
+      mode: 'file',
+      activity: 'paused',
+    });
+  });
+
+  it('does not let a stale file lifecycle advertise new wire-visible playback', () => {
+    setPlaybackIdle();
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+
+    expect(getSyncPongPlaybackState()).toEqual({
+      mode: 'file',
+      activity: 'pending',
+    });
   });
 });
 
 describe('audio activation bootstrap', () => {
+  it('arms and cancels initial sync from playback mode/activity transitions', () => {
+    vi.useFakeTimers();
+    initSync();
+
+    setState('playback.mode', 'file');
+    expect(getManagedTimer('initial-sync-arm')).toBeNull();
+
+    setState('playback.activity', 'playing');
+    expect(getManagedTimer('initial-sync-arm')).not.toBeNull();
+
+    setState('playback.activity', 'paused');
+    expect(getManagedTimer('initial-sync-arm')).toBeNull();
+  });
+
   it('requests a fresh host sync when a guest unlocks audio with a decoded buffer', () => {
     initSync();
     const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;

@@ -14,9 +14,15 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
-import { setAppState } from '../player/transport.ts';
+import {
+  isPlaybackIdleCompat,
+  isPlaybackModeYouTube,
+  setPlaybackIdle,
+  setPlaybackTrackMeta,
+  updatePlaybackTrackTitle,
+} from '../player/ownership.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -44,6 +50,11 @@ export function setPendingAutoSyncOnReady(v: boolean): void {
 export function getPendingAutoSyncOnReady(): boolean {
   return _pendingAutoSyncOnReady;
 }
+
+function isCompatIdle(): boolean {
+  return isPlaybackIdleCompat();
+}
+
 import { registerHandlers } from '../network/protocol.ts';
 import {
   fetchYouTubePreview,
@@ -220,7 +231,7 @@ function scheduleLateJoinRendezvousSync(
     `yt-late-join-rendezvous-${peerId}`,
     () => {
       if (!conn.open || getState('network.hostConn')) return;
-      if (getState('appState') !== APP_STATE.PLAYING_YOUTUBE) return;
+      if (!isPlaybackModeYouTube()) return;
 
       const player = getYouTubePlayer();
       if (!player?.getCurrentTime) return;
@@ -259,13 +270,12 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   setYtScope(null);
   setYtLoadInProgress(false);
   setCachedYtDuration(0); // Reset duration cache
-  const currentState = getState('appState');
-  const wasInYouTube = currentState === APP_STATE.PLAYING_YOUTUBE;
+  const wasInYouTube = isPlaybackModeYouTube();
   // Preservation: do not reset sub-index to -1 if we are or will be in YouTube mode.
   // This prevents clobbering the sub-index 0 set during the indexing callback.
   if (
     !wasInYouTube &&
-    currentState !== APP_STATE.IDLE &&
+    !isCompatIdle() &&
     !isYtIndexing() &&
     !isYtLoadInProgress()
   ) {
@@ -273,18 +283,18 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   }
   _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any
 
-  // Only leave YouTube mode (set appState to IDLE) when we're actually
+  // Only leave YouTube mode when we're actually
   // leaving — avoids spurious transitions from stopAllMedia→stopYouTubeMode
   // inside loadYouTubeVideo which would kill the guest's YouTube player
   // right after YOUTUBE_PLAY.
   //
-  // opts.silent: caller is about to set a non-IDLE appState immediately
+  // opts.silent: caller is about to claim a non-idle playback mode immediately
   // (e.g. stopAllMedia({silent:true}) inside YT→Local track switch — the
-  // host's _internalPlay flips to PLAYING_AUDIO right after). Skipping the
+  // host's _internalPlay claims file playback right after). Skipping the
   // IDLE bounce here keeps body.mode-youtube → body.mode-audio in lockstep
   // with the audio takeover and prevents the brief blank-mode UI flash.
   if (wasInYouTube && !opts?.silent) {
-    setAppState(APP_STATE.IDLE);
+    setPlaybackIdle();
   }
 
   clearManagedTimer('youtubeUILoop');
@@ -489,7 +499,7 @@ export function initYouTube(): void {
       setState('playlist.currentTrackIndex', index);
     }
     if (playlistItem) {
-      setState('player.currentTrackMeta', playlistItem);
+      setPlaybackTrackMeta(playlistItem);
     }
 
     const autoplay = payload.autoplay ?? true;
@@ -1029,19 +1039,18 @@ export function initYouTube(): void {
       }
     }
 
-    const currentState = getState('appState');
     // Auto-play only when this YouTube entry really IS the first track —
-    // i.e. the playlist was empty before this add. The previous condition
-    // (appState === IDLE) misfired when the user had already loaded local
-    // tracks but hadn't pressed play yet: appState was still IDLE, so
+    // i.e. the playlist was empty before this add. The previous idle-only
+    // condition misfired when the user had already loaded local tracks but
+    // hadn't pressed play yet, so
     // adding a YouTube link jumped playback to it instead of queuing.
     // isYtIndexing keeps its original behavior (mid-index re-add path).
     const playlistWasEmpty = playlist.length === 0;
-    const isIdle = (currentState === APP_STATE.IDLE && playlistWasEmpty) || isYtIndexing();
+    const isIdle = (isCompatIdle() && playlistWasEmpty) || isYtIndexing();
 
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
-      setState('player.currentTrackMeta', newTrack);
+      setPlaybackTrackMeta(newTrack);
       setYouTubeSubIndex(0); // Moved back inside: only for new active tracks
 
       // Load YouTube with autoplay=FALSE for sync coordination.
@@ -1101,7 +1110,7 @@ export function initYouTube(): void {
           // land at newIndex > currentTrackIndex; blindly writing here would
           // clobber the playing track's title with the queued track's title.
           if (getState('playlist.currentTrackIndex') === newIndex) {
-            setState('player.currentTrackMeta', updated[newIndex]);
+            setPlaybackTrackMeta(updated[newIndex]);
           }
 
           // Broadcast updated title to peers (Host only)
@@ -1185,8 +1194,8 @@ export function initYouTube(): void {
     // common from YouTube share links) hit this path — previously the
     // playlist silently overrode the currently playing local file.
     const subMap = getState('youtube.subItemsMap') || {};
-    const appIsIdle = getState('appState') === APP_STATE.IDLE;
-    if (playlistId && !subMap[playlistId]?.ids?.length && appIsIdle) {
+    const playbackIsIdle = isCompatIdle();
+    if (playlistId && !subMap[playlistId]?.ids?.length && playbackIsIdle) {
       log.info(
         `[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`,
       );
@@ -1271,8 +1280,7 @@ export function initYouTube(): void {
       // Pre-emptive title update for instant UI feedback
       const cachedTitle = subMap[currentTrack.playlistId as string]?.titles?.[subIdx];
       if (cachedTitle) {
-        const meta = getState('player.currentTrackMeta');
-        if (meta) setState('player.currentTrackMeta', { ...meta, title: cachedTitle });
+        updatePlaybackTrackTitle(cachedTitle);
       }
 
       // Prioritize fetching title for the newly selected index (if missing)
@@ -1377,8 +1385,7 @@ export function initYouTube(): void {
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
 
-    const currentState = getState('appState');
-    if (currentState !== APP_STATE.PLAYING_YOUTUBE) return;
+    if (!isPlaybackModeYouTube()) return;
 
     const playlist = getState('playlist.items') || [];
     const currentTrackIndex = getState('playlist.currentTrackIndex');

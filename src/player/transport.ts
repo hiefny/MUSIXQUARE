@@ -9,13 +9,26 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE } from '../core/constants.ts';
-import type { AppStateValue } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
-import { isFilePlaybackBlockedByExternalMode, isIdleOrPaused } from './video.ts';
+import {
+  getPlaybackOwnership,
+  getPlaybackModeActivity,
+  isExternalOwner,
+  isPlaybackPausedOrPendingFile,
+  isPlaybackIdleCompat,
+  isPlaybackIdleCompatModeActivity,
+  isSystemAudioOwner,
+  isYouTubeOwner,
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackIdle,
+  isPlaybackPlayingFile,
+  isPlaybackPlayingSystemAudio,
+} from './ownership.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -61,14 +74,23 @@ export function fmtTime(s: number): string {
   return `${m}:${ss}`;
 }
 
-// ─── App State Helper ─────────────────────────────────────────────
+// ─── Playback Mode Helpers ────────────────────────────────────────
 
-/**
- * Central function: update appState.
- * Subscribers listen via bus.on('state:appState', ...).
- */
-export function setAppState(newState: AppStateValue): void {
-  setState('appState', newState);
+function isCompatIdle(): boolean {
+  return isPlaybackIdleCompat();
+}
+
+function isFileTransportInactive(): boolean {
+  const playback = getPlaybackModeActivity();
+  return isPlaybackIdleCompatModeActivity(playback) || isPlaybackPausedOrPendingFile(playback);
+}
+
+function isFilePlaybackPlaying(): boolean {
+  return isPlaybackPlayingFile(getPlaybackModeActivity());
+}
+
+function isSystemAudioPlaying(): boolean {
+  return isPlaybackPlayingSystemAudio(getPlaybackModeActivity());
 }
 
 // ─── Track Position ────────────────────────────────────────────────
@@ -76,22 +98,22 @@ export function setAppState(newState: AppStateValue): void {
 let _offsetResetQueued = false;
 
 export function getTrackPosition(): number {
-  const currentState = getState('appState');
+  const ownership = getPlaybackOwnership();
   const pausedAt = getState('player.pausedAt') || 0;
 
-  if (isIdleOrPaused(currentState)) return pausedAt;
-
   // System audio: no meaningful position (live stream)
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return 0;
+  if (ownership.owner === 'system-audio') return 0;
 
   // YouTube mode: delegated via synchronous callback
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (ownership.owner === 'youtube') {
     let ytPos = 0;
     bus.emit('youtube:get-position', (pos: number) => {
       ytPos = pos;
     });
     return ytPos;
   }
+
+  if (isFileTransportInactive()) return pausedAt;
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
   const duration =
@@ -201,7 +223,7 @@ export function stopPlayerNode(): void {
 // ─── Stop All Media ────────────────────────────────────────────────
 
 export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean }): void {
-  const wasInYouTube = getState('appState') === APP_STATE.PLAYING_YOUTUBE;
+  const wasInYouTube = isYouTubeOwner();
 
   if (opts?.cancelInFlight) {
     incrementLoadToken();
@@ -251,16 +273,16 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   setPlayPreloadedInProgress(false);
 
   // silent=true usually suppresses the IDLE flash while another audio track
-  // is taking over. YouTube is the exception: leaving appState at
-  // PLAYING_YOUTUBE blocks file lifecycle transitions and play(), so clear
-  // the mode after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
-  if (opts?.silent && wasInYouTube && getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
-    setAppState(APP_STATE.IDLE);
+  // is taking over. YouTube is the exception: leaving playback mode at
+  // YouTube blocks file lifecycle transitions and play(), so clear the mode
+  // after stopYouTubeMode has had a chance to broadcast YOUTUBE_STOP.
+  if (opts?.silent && wasInYouTube && isYouTubeOwner()) {
+    setPlaybackIdle();
   }
 
   // silent=true: suppress IDLE flash when play() will immediately follow (e.g. track change)
-  if (!opts?.silent && getState('appState') !== APP_STATE.IDLE) {
-    setAppState(APP_STATE.IDLE);
+  if (!opts?.silent && !isCompatIdle()) {
+    setPlaybackIdle();
   }
 
   // Stop player node
@@ -331,18 +353,17 @@ export function seekTo(time: number): void {
   }
 
   // YouTube mode
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubeOwner()) {
     bus.emit('youtube:seek-to', time);
     return;
   }
 
   // System audio: no seek (live stream)
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+  if (isSystemAudioOwner()) return;
 
   // Host: playing → seek + broadcast
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  if (currentState === APP_STATE.PLAYING_AUDIO) {
+  if (isFilePlaybackPlaying()) {
     play(time);
     broadcast({
       type: MSG.PLAY,
@@ -382,9 +403,9 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         // next await checkpoint instead of overwriting the post-watchdog IDLE
         // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
         incrementLoadToken();
-        // Reset appState to IDLE to prevent stuck "playing" UI
-        if (getState('appState') !== APP_STATE.IDLE) {
-          setAppState(APP_STATE.IDLE);
+        // Reset playback to IDLE to prevent stuck "playing" UI.
+        if (!isCompatIdle()) {
+          setPlaybackIdle();
         }
       }
     },
@@ -419,11 +440,11 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   // Snapshot the load token at entry. If the play()-level watchdog fires
   // (or another path bumps the token, e.g. track switch), every await
   // checkpoint below will see a mismatch and abort cleanly instead of
-  // racing with the watchdog's stopPlayerNode + setAppState(IDLE).
+  // racing with the watchdog's stopPlayerNode + semantic IDLE write.
   const myLoadToken = getLoadToken();
   log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
 
-  if (isFilePlaybackBlockedByExternalMode()) {
+  if (isExternalOwner()) {
     log.warn('[Audio] Blocked play() call while an external playback mode is active');
     return 'noop';
   }
@@ -443,10 +464,10 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   // ── Post-await mode re-check ──────────────────────────────────────
   // While we awaited ensureRunning/initAudio, the user may have switched
   // to YouTube mode. Without this guard, _internalPlay continues to
-  // create an AudioBufferSourceNode and calls setAppState(PLAYING_AUDIO),
+  // create an AudioBufferSourceNode and mark file playback as playing,
   // overwriting PLAYING_YOUTUBE — causing double-audio and a broken UI
   // state that requires a page reload.
-  if (isFilePlaybackBlockedByExternalMode()) {
+  if (isExternalOwner()) {
     log.warn('[Audio] Aborted play() - app switched to an external mode during async init');
     return 'noop';
   }
@@ -481,7 +502,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   }
 
   // Re-check after second async gap (initAudio)
-  if (isFilePlaybackBlockedByExternalMode()) {
+  if (isExternalOwner()) {
     log.warn('[Audio] Aborted play() - app switched to an external mode during initAudio');
     return 'noop';
   }
@@ -529,8 +550,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 
     newNode.addEventListener('ended', () => {
       if (myLoadToken !== getLoadToken()) return;
-      const state = getState('appState');
-      if (state === APP_STATE.PLAYING_AUDIO) {
+      if (isFilePlaybackPlaying()) {
         handleEnded();
       }
     });
@@ -556,7 +576,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
   setState('player.pausedAt', safeOffset);
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
 
-  setAppState(APP_STATE.PLAYING_AUDIO);
+  setPlaybackFilePlaying();
 
   if (!getState('network.hostConn')) {
     transition({
@@ -575,8 +595,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 // ─── Pause ─────────────────────────────────────────────────────────
 
 export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }): void {
-  const currentState = getState('appState');
-  if (isIdleOrPaused(currentState)) return;
+  if (isFileTransportInactive()) return;
 
   let pausePos: number;
   if (typeof forcedTime === 'number' && Number.isFinite(forcedTime) && forcedTime >= 0) {
@@ -590,7 +609,7 @@ export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }):
   if (opts?.holdVisualizer ?? forcedTime === undefined) {
     bus.emit('visualizer:hold-frame');
   }
-  setAppState(APP_STATE.PAUSED);
+  setPlaybackFilePaused();
   setState('player.pausedAt', pausePos);
 
   if (!getState('network.hostConn')) {
@@ -606,7 +625,6 @@ export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
 
-  const currentState = getState('appState');
   const _currentAudioBuffer = getCurrentAudioBuffer();
 
   const hasBufferDuration = !!(
@@ -617,9 +635,8 @@ export function handleEnded(): void {
 
   const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
-  if (isIdleOrPaused(currentState)) return;
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) return;
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+  if (isFileTransportInactive()) return;
+  if (isExternalOwner()) return;
 
   const curr = getTrackPosition();
   const isSeeking = getState('player.isSeeking');
@@ -646,18 +663,17 @@ export function togglePlay(): void {
 
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-  const currentState = getState('appState');
 
   // YouTube mode
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubeOwner()) {
     bus.emit('youtube:toggle-play');
     return;
   }
 
   // System audio: ignore play/pause toggle (use "공유 중지" button instead)
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return;
+  if (isSystemAudioOwner()) return;
 
-  const isActuallyPlaying = currentState === APP_STATE.PLAYING_AUDIO;
+  const isActuallyPlaying = isFilePlaybackPlaying();
   const pausedAt = getState('player.pausedAt') || 0;
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const playlistItems = getState('playlist.items') || [];
@@ -727,18 +743,17 @@ export function stopPlayback(): void {
     return;
   }
 
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.IDLE) return; // Nothing to stop
+  if (isCompatIdle()) return; // Nothing to stop
 
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) {
+  if (isSystemAudioPlaying()) {
     stopSystemAudioCapture();
     return;
   }
 
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isYouTubeOwner()) {
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
-    // from triggering playlist:next-track (its guard checks appState !== PLAYING_YOUTUBE)
-    setAppState(APP_STATE.IDLE);
+    // from triggering playlist:next-track (its guard checks YouTube playback mode).
+    setPlaybackIdle();
     bus.emit('youtube:stop-playback');
     bus.emit('youtube:stop-mode');
     clearManagedTimer('autoPlayTimer');
@@ -773,10 +788,9 @@ export function skipTime(sec: number): void {
     showToast(t('toast.auto_play_canceled'));
   }
 
-  const currentState = getState('appState');
-  if (currentState === APP_STATE.IDLE) return;
-  if (currentState === APP_STATE.PLAYING_SYSTEM_AUDIO) return; // No skip on live stream
-  if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+  if (isCompatIdle()) return;
+  if (isSystemAudioOwner()) return; // No skip on live stream
+  if (isYouTubeOwner()) {
     bus.emit('youtube:skip-time', sec);
     return;
   }
@@ -791,7 +805,7 @@ export function skipTime(sec: number): void {
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
 
   const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const isPlaying = currentState === APP_STATE.PLAYING_AUDIO;
+  const isPlaying = isFilePlaybackPlaying();
 
   if (isPlaying) {
     play(target);
@@ -832,8 +846,7 @@ export function adjustSync(val: number): void {
   setState('sync.localOffset', localOffset + val);
   bus.emit('sync:display-update');
 
-  const currentState = getState('appState');
-  if (isIdleOrPaused(currentState)) {
+  if (isFileTransportInactive()) {
     // Paused: localOffset is stored and applied on next play(pausedAt) via
     // startedAt. Don't modify pausedAt — it would cancel out the offset.
     return;
@@ -846,8 +859,8 @@ export function adjustSync(val: number): void {
   setManagedTimer(
     'sync-nudge-replay',
     () => {
-      // Re-check app state at fire time — user may have paused during the burst.
-      if (isIdleOrPaused(getState('appState'))) return;
+      // Re-check playback state at fire time — user may have paused during the burst.
+      if (isFileTransportInactive()) return;
       play(getTrackPosition());
     },
     NUDGE_REPLAY_DEBOUNCE_MS,

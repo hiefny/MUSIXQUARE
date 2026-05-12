@@ -7,13 +7,23 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { getState } from '../core/state.ts';
+import { MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
+import {
+  claimPlaybackOwner,
+  createSystemAudioTrackMeta,
+  isSystemAudioOwner,
+  isSystemAudioPlaceholderMeta,
+  releasePlaybackOwner,
+  setPlaybackIdle,
+  setSystemAudioReceiving,
+  setPlaybackTrackMeta,
+} from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
@@ -68,7 +78,7 @@ let _initialUnmuteWaitSeq = 0;
 
 function isSystemAudioPlaceholder(): boolean {
   const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
-  return currentMeta?.systemAudioPlaceholder === true;
+  return isSystemAudioPlaceholderMeta(currentMeta);
 }
 
 function getSystemAudioTrackMapping(
@@ -401,8 +411,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     // Update state once at least one stream is connected
     if (!getState('systemAudio.isReceiving')) {
       clearReceiveWatchdog();
-      setState('systemAudio.isReceiving', true);
-      setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
+      setSystemAudioReceiving(true);
+      claimPlaybackOwner('system-audio');
       bus.emit('visualizer:start');
       log.info(`[SysAudioGuest] System audio connected to graph (${channel})`);
     }
@@ -446,7 +456,9 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
 // ─── Cleanup ──────────────────────────────────────────────────────
 
-function cleanupGuestSystemAudio(): void {
+// Shared by the PeerJS and SFU receive adapters; this module owns the
+// placeholder and previous-track metadata restoration contract.
+export function cleanupGuestSystemAudio(): void {
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
   clearReceiveWatchdog();
   if (_sourceL) {
@@ -528,11 +540,14 @@ function cleanupGuestSystemAudio(): void {
   _gotStereo = false;
   _gotSynced = false;
 
-  setState('systemAudio.isReceiving', false);
-  setState('player.currentTrackMeta', _prevTrackMeta ?? null);
+  setSystemAudioReceiving(false);
+  setPlaybackTrackMeta(_prevTrackMeta ?? null);
   _prevTrackMeta = null;
-  if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO || wasSystemAudioPlaceholder) {
-    setState('appState', APP_STATE.IDLE);
+  if (isSystemAudioOwner() || wasSystemAudioPlaceholder) {
+    releasePlaybackOwner('system-audio', {
+      force: wasSystemAudioPlaceholder,
+    });
+    setPlaybackIdle();
   }
 }
 
@@ -565,11 +580,9 @@ export function registerSystemAudioGuestListeners(): void {
       log.info('[SysAudioGuest] Host started system audio sharing');
       _prevTrackMeta = currentMeta;
       stopAllMedia({ silent: true, cancelInFlight: true });
-      setState('player.currentTrackMeta', {
-        type: 'file',
-        name: 'system-audio-receiving',
-        title: 'Receiving System Audio',
-        systemAudioPlaceholder: true,
+      claimPlaybackOwner('system-audio', {
+        pending: true,
+        currentTrackMeta: createSystemAudioTrackMeta('receiving'),
       });
       armReceiveWatchdog();
     },

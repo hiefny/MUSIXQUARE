@@ -8,13 +8,18 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, APP_STATE, PLAYBACK_STATE, RESERVED_NAMES } from '../core/constants.ts';
+import {
+  MSG,
+  PLAYBACK_STATE,
+  RESERVED_NAMES,
+  type PlaybackActivityValue,
+  type PlaybackModeValue,
+} from '../core/constants.ts';
 import type { ConnectedPeer, DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
 import { play, getTrackPosition, adjustSync } from '../player/transport.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
-import { isIdleOrPaused } from '../player/video.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import {
@@ -28,10 +33,22 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
+import {
+  getPlaybackModeActivity,
+  isPlaybackActivityValue,
+  isPlaybackModeValue,
+  isPlaybackPendingFile,
+  isPlaybackPlayingFile,
+} from '../player/ownership.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
 let _wasPlaying = false;
+
+interface SyncPongPlaybackState {
+  mode: PlaybackModeValue;
+  activity: PlaybackActivityValue;
+}
 
 function resetSyncClockRuntime(): void {
   setState('sync.lastLatencyMs', 0);
@@ -69,11 +86,82 @@ export function handleAutoSync(): void {
   // startedAt from the new (zero) offset. Without this, "Reset" just
   // changes the displayed value while the audio remains desynced, and
   // the only recovery is a host seek or pause+play.
-  if (isIdleOrPaused(getState('appState'))) return;
+  if (!isPlaybackPlayingFile()) return;
   play(getTrackPosition());
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
+
+export function getSyncPongPlaybackState(): SyncPongPlaybackState {
+  const lifecycle = getState('playback.lifecycle');
+  const playback = getPlaybackModeActivity();
+
+  // During host track switches, stopAllMedia({ silent: true }) intentionally
+  // leaves playback.mode/activity at file/playing to avoid UI flicker while
+  // the new file decodes and waits for autoPlayTimer. That is not audible
+  // playback, so the wire view advertises the paused file shadow.
+  if (isPlaybackPlayingFile(playback)) {
+    if (lifecycle === PLAYBACK_STATE.PLAYING) {
+      return { mode: 'file', activity: 'playing' };
+    }
+
+    return { mode: 'file', activity: 'paused' };
+  }
+
+  // Do not let a stale file lifecycle create a new wire-visible "playing"
+  // state.
+  if (isPlaybackPendingFile(playback)) {
+    return { mode: 'file', activity: 'pending' };
+  }
+
+  return {
+    mode: playback.mode,
+    activity: playback.activity,
+  };
+}
+
+export function isSyncPongPlayingFile(data: Record<string, unknown>): boolean {
+  if (isPlaybackModeValue(data.mode) && isPlaybackActivityValue(data.activity)) {
+    return isPlaybackPlayingFile({ mode: data.mode, activity: data.activity });
+  }
+
+  return false;
+}
+
+function createSyncPongPayload({
+  pingId,
+  hostTime,
+  position,
+  playbackState,
+}: {
+  pingId: unknown;
+  hostTime: number;
+  position: number;
+  playbackState: SyncPongPlaybackState;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    type: MSG.SYNC_PONG,
+    pingId,
+    hostTime,
+    position,
+    mode: playbackState.mode,
+    activity: playbackState.activity,
+    trackIndex: getState('playlist.currentTrackIndex'),
+  };
+
+  return payload;
+}
+
+function getSafeSyncPongPosition(isFilePlaying: boolean): number {
+  if (!isFilePlaying) return 0;
+
+  try {
+    return getTrackPosition();
+  } catch (error) {
+    log.debug('[Sync] Failed to read track position for SYNC_PONG:', error);
+    return 0;
+  }
+}
 
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
   // 1. Liveness update (from old handleHeartbeat)
@@ -95,42 +183,31 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   // 2. Reply with SYNC_PONG including host time + playback state
   if (!conn?.open) return;
   const hostTime = Date.now(); // Capture BEFORE async import
-  const appState = getState('appState');
-  const lifecycle = getState('playback.lifecycle');
-  const isFilePlaying =
-    appState === APP_STATE.PLAYING_AUDIO && lifecycle === PLAYBACK_STATE.PLAYING;
+  const playbackState = getSyncPongPlaybackState();
+  const isFilePlaying = playbackState.mode === 'file' && playbackState.activity === 'playing';
+  const position = getSafeSyncPongPosition(isFilePlaying);
 
   if (isFilePlaying) {
     if (conn.open) {
       try {
-        conn.send({
-          type: MSG.SYNC_PONG,
+        conn.send(createSyncPongPayload({
           pingId: data.pingId,
           hostTime,
-          position: getTrackPosition(),
-          appState,
-          trackIndex: getState('playlist.currentTrackIndex'),
-        });
+          position,
+          playbackState,
+        }));
       } catch {
         /* closed */
       }
     }
   } else {
-    // During host track switches, stopAllMedia({ silent: true }) intentionally
-    // leaves appState as PLAYING_AUDIO to avoid UI flicker while the new file
-    // decodes and waits for autoPlayTimer. That is not audible playback.
-    // Advertising PLAYING_AUDIO here makes guests bootstrap at host position
-    // 0, then drift-correct back to 0 until the host really starts.
-    const syncAppState = appState === APP_STATE.PLAYING_AUDIO ? APP_STATE.PAUSED : appState;
     try {
-      conn.send({
-        type: MSG.SYNC_PONG,
-        pingId: data.pingId,
-        hostTime,
-        position: 0,
-        appState: syncAppState,
-        trackIndex: getState('playlist.currentTrackIndex'),
-      });
+        conn.send(createSyncPongPayload({
+          pingId: data.pingId,
+          hostTime,
+          position,
+          playbackState,
+        }));
     } catch {
       /* closed */
     }
@@ -178,15 +255,13 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   //       cleared. Without bootstrap, the guest sits at 0:00 until the
   //       host pauses/seeks/re-plays — exactly the "first remote download
   //       won't auto-play" symptom.
-  const hostAppState = data.appState as string;
-  if (hostAppState !== APP_STATE.PLAYING_AUDIO) return;
+  if (!isSyncPongPlayingFile(data)) return;
   if (!Number.isFinite(position)) return;
 
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;
 
-  const appState = getState('appState');
-  if (appState !== APP_STATE.PLAYING_AUDIO) {
+  if (!isPlaybackPlayingFile()) {
     const lifecycle = getState('playback.lifecycle');
     if (
       lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
@@ -391,19 +466,21 @@ export function initSync(): void {
   };
 
   // Playback state transitions: arm on IDLE/PAUSED → PLAYING, disarm on pause/stop
-  bus.on('state:appState', () => {
-    const s = getState('appState');
-    const isPlaying = s === APP_STATE.PLAYING_AUDIO;
+  const syncInitialArmFromPlayback = () => {
+    const isPlaying = isPlaybackPlayingFile();
     if (isPlaying && !_wasPlaying) {
       armInitialSync();
     }
     if (!isPlaying) {
+      clearManagedTimer('initial-sync-arm');
       _needsInitialSync = false;
     }
     _wasPlaying = isPlaying;
-  });
+  };
+  bus.on('state:playback.mode', syncInitialArmFromPlayback);
+  bus.on('state:playback.activity', syncInitialArmFromPlayback);
 
-  // Host seek/play while already PLAYING (appState doesn't change)
+  // Host seek/play while already playing (mode/activity may not change)
   bus.on('sync:arm-initial', armInitialSync);
 
   // Clean up sync state when session ends

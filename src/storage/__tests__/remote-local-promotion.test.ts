@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import {
-  APP_STATE,
   DEMO_FILE_NAME,
   LOAD_SOURCE,
   PLAYBACK_STATE,
   TRANSFER_STATE,
 } from '../../core/constants.ts';
+import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../storage.ts', () => ({
@@ -110,7 +110,7 @@ describe('remote-share to local direct transfer promotion', () => {
   it('accepts demo FILE_PREPARE while leaving YouTube mode', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 
-    setState('appState', APP_STATE.PLAYING_YOUTUBE);
+    setPlaybackYouTubePlaying();
     setState('network.connectionType', 'local');
     setState('playlist.items', [
       {
@@ -133,7 +133,8 @@ describe('remote-share to local direct transfer promotion', () => {
       conn,
     );
 
-    expect(getState('appState')).toBe(APP_STATE.IDLE);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('pending');
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(getState('playlist.currentTrackIndex')).toBe(0);
   });

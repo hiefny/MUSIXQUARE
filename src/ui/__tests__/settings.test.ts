@@ -2,16 +2,26 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { bus } from '../../core/events.ts';
+import { resetState, setState } from '../../core/state.ts';
+import { showToast } from '../toast.ts';
 
 // Mock player-controls.ts (transitive dep)
 vi.mock('../player-controls.ts', () => ({
   getStandardRolePreset: vi.fn(() => ({})),
 }));
 
-import { setTheme, selectStandardChannelButton } from '../settings.ts';
+vi.mock('../toast.ts', () => ({
+  showToast: vi.fn(),
+}));
+
+import { initSettings, setTheme, selectStandardChannelButton } from '../settings.ts';
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  resetState();
+  bus.clear();
+  vi.mocked(showToast).mockClear();
   localStorage.clear();
   // Polyfill matchMedia for jsdom
   Object.defineProperty(window, 'matchMedia', {
@@ -121,5 +131,20 @@ describe('selectStandardChannelButton', () => {
     selectStandardChannelButton(-1);
     const stereo = document.querySelector('.ch-opt[data-ch="0"]')!;
     expect(stereo.classList.contains('active')).toBe(false);
+  });
+});
+
+describe('initSettings playback mode guards', () => {
+  it('blocks host channel changes while system audio owns playback', () => {
+    const setChannel = vi.fn();
+    bus.on('audio:set-channel-mode', setChannel);
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'playing');
+
+    initSettings();
+    document.querySelector<HTMLElement>('#grid-standard .ch-opt[data-ch="-1"]')?.click();
+
+    expect(setChannel).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('Cannot change speaker role while sharing system audio.');
   });
 });

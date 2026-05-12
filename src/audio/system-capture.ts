@@ -9,11 +9,24 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { APP_STATE, MSG, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
+import {
+  MSG,
+  WARN_WHEN_MAX_SLOTS_AT_LEAST,
+  type PlaybackActivityValue,
+  type PlaybackModeValue,
+} from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
+import {
+  claimPlaybackOwner,
+  createSystemAudioTrackMeta,
+  getPlaybackModeActivitySnapshot,
+  setPlaybackFilePaused,
+  setPlaybackIdle,
+  setPlaybackTrackMeta,
+} from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemNotice, clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -33,14 +46,20 @@ let _destR: MediaStreamAudioDestinationNode | null = null;
 // connected AudioNodes on each start/stop cycle.
 let _splitter: ChannelSplitterNode | null = null;
 let _stereoUpmix: GainNode | null = null;
-let _preSysAudioState: {
-  appState: string;
+
+interface PreSystemAudioState {
+  playback: {
+    mode: PlaybackModeValue;
+    activity: PlaybackActivityValue;
+  };
   pausedAt: number;
   currentTrackMeta: TrackMeta | null;
   channelMode: number;
   trackIndex: number;
   subIndex: number;
-} | null = null;
+}
+
+let _preSysAudioState: PreSystemAudioState | null = null;
 
 // ─── Public API ───────────────────────────────────────────────────
 
@@ -127,8 +146,9 @@ export async function startSystemAudioCapture(): Promise<void> {
   // 2. Save previous state
   // Note: `playlist.currentTrackIndex` isn't captured — `stopAllMedia({silent:true})`
   // below doesn't clobber it, so state is preserved in place and nothing to restore.
+  const playback = getPlaybackModeActivitySnapshot();
   _preSysAudioState = {
-    appState: getState('appState'),
+    playback,
     pausedAt: getState('player.pausedAt'),
     currentTrackMeta: getState('player.currentTrackMeta'),
     channelMode: getState('audio.channelMode'),
@@ -197,11 +217,8 @@ export async function startSystemAudioCapture(): Promise<void> {
   muteLocalOutput(true);
 
   // 8. Update state
-  setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
-  setState('player.currentTrackMeta', {
-    type: 'file',
-    name: 'system-audio',
-    title: 'System Audio Sharing',
+  claimPlaybackOwner('system-audio', {
+    currentTrackMeta: createSystemAudioTrackMeta('sharing'),
   });
 
   // 9. Broadcast start + call guests with L/R streams
@@ -247,55 +264,60 @@ export function stopSystemAudioCapture(): void {
   muteLocalOutput(false);
 
   if (_preSysAudioState) {
-    setState('player.pausedAt', _preSysAudioState.pausedAt);
-    setState('player.currentTrackMeta', _preSysAudioState.currentTrackMeta ?? null);
-    // Restore channel UI to previous selection
-    try {
-      document
-        .querySelectorAll('#grid-standard .ch-opt')
-        .forEach((el) => el.classList.remove('active'));
-      document
-        .querySelector(`#grid-standard .ch-opt[data-ch="${_preSysAudioState.channelMode}"]`)
-        ?.classList.add('active');
-    } catch {
-      /* noop */
-    }
-
-    // YouTube was playing: restore through the room-wide YouTube command path.
-    if (_preSysAudioState.appState === APP_STATE.PLAYING_YOUTUBE) {
-      const meta = _preSysAudioState.currentTrackMeta;
-      const playlist = getState('playlist.items') || [];
-      const item =
-        _preSysAudioState.trackIndex >= 0
-          ? playlist[_preSysAudioState.trackIndex]
-          : undefined;
-      const videoId = meta?.videoId || item?.videoId || null;
-      const playlistId = meta?.playlistId || item?.playlistId || null;
-      if (videoId || playlistId) {
-        bus.emit('youtube:restore-room-playback', {
-          videoId,
-          playlistId,
-          name: meta?.name || meta?.title || item?.name || item?.title || null,
-          index: _preSysAudioState.trackIndex,
-          autoplay: true,
-          subIndex: _preSysAudioState.subIndex,
-        });
-      } else {
-        setState('appState', APP_STATE.PAUSED);
-      }
-    } else if (_preSysAudioState.appState !== APP_STATE.IDLE) {
-      setState('appState', APP_STATE.PAUSED);
-    } else {
-      setState('appState', APP_STATE.IDLE);
-    }
+    restorePreSystemAudioPlaybackState(_preSysAudioState);
     _preSysAudioState = null;
   } else {
-    setState('player.currentTrackMeta', null);
-    setState('appState', APP_STATE.IDLE);
+    setPlaybackTrackMeta(null);
+    setPlaybackIdle();
   }
 
   bus.emit('ui:show-toast', t('system_audio.stopped'));
   log.info('[SystemAudio] Capture stopped');
+}
+
+export function restorePreSystemAudioPlaybackState(snapshot: PreSystemAudioState): void {
+  setState('player.pausedAt', snapshot.pausedAt);
+  setPlaybackTrackMeta(snapshot.currentTrackMeta ?? null);
+
+  // Restore channel UI to previous selection.
+  try {
+    document
+      .querySelectorAll('#grid-standard .ch-opt')
+      .forEach((el) => el.classList.remove('active'));
+    document
+      .querySelector(`#grid-standard .ch-opt[data-ch="${snapshot.channelMode}"]`)
+      ?.classList.add('active');
+  } catch {
+    /* noop */
+  }
+
+  // YouTube was playing: restore through the room-wide YouTube command path.
+  if (snapshot.playback.mode === 'youtube') {
+    const meta = snapshot.currentTrackMeta;
+    const playlist = getState('playlist.items') || [];
+    const item = snapshot.trackIndex >= 0 ? playlist[snapshot.trackIndex] : undefined;
+    const videoId = meta?.videoId || item?.videoId || null;
+    const playlistId = meta?.playlistId || item?.playlistId || null;
+    if (videoId || playlistId) {
+      bus.emit('youtube:restore-room-playback', {
+        videoId,
+        playlistId,
+        name: meta?.name || meta?.title || item?.name || item?.title || null,
+        index: snapshot.trackIndex,
+        autoplay: true,
+        subIndex: snapshot.subIndex,
+      });
+    } else {
+      setPlaybackFilePaused();
+    }
+    return;
+  }
+
+  if (snapshot.playback.activity === 'playing' || snapshot.playback.activity === 'paused') {
+    setPlaybackFilePaused();
+  } else {
+    setPlaybackIdle();
+  }
 }
 
 export function muteLocalOutput(mute: boolean): void {

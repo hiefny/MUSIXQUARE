@@ -7,7 +7,6 @@
 
 import { bus } from './events.ts';
 import {
-  APP_STATE,
   TRANSFER_STATE,
   PLAYBACK_STATE,
   EQ_FREQUENCIES,
@@ -50,8 +49,6 @@ function readStoredGuestPlayLatency(): number {
 
 function createInitialState(): StateTree {
   return {
-    appState: APP_STATE.IDLE,
-
     setup: {
       sessionStarted: false,
     },
@@ -95,8 +92,8 @@ function createInitialState(): StateTree {
       currentSessionId: 0,
       activeBroadcastSession: null,
       lastReceivedCountSnapshot: 0,
-      // Phase 4: waitingForPreload + skipIncomingFile removed; both derived
-      // from playback.lifecycle now (see transfer-receive.ts shouldSkipIncomingFile).
+      // waitingForPreload + skipIncomingFile are derived from playback.lifecycle
+      // now (see transfer-receive.ts shouldSkipIncomingFile).
       staleChunkBurstStart: 0,
       staleChunkBurstCount: 0,
     },
@@ -186,8 +183,8 @@ function createInitialState(): StateTree {
     recovery: {
       pending: false,
       retryCount: 0,
-      // Phase 4: pendingFileName + pendingFileIndex moved to
-      // playback.pendingRecoveryTarget (atomic { index, name }).
+      // pendingFileName + pendingFileIndex live as playback.pendingRecoveryTarget
+      // (atomic { index, name }).
     },
 
     systemAudio: {
@@ -195,6 +192,8 @@ function createInitialState(): StateTree {
     },
 
     playback: {
+      mode: null,
+      activity: 'idle',
       lifecycle: PLAYBACK_STATE.IDLE,
       loadSource: null,
       pendingPlayTime: undefined,
@@ -211,6 +210,12 @@ function createInitialState(): StateTree {
 let _state: StateTree = createInitialState();
 let _isBatching = false;
 let _batchedPaths: string[] = [];
+
+type StateEventName = `state:${StatePath}`;
+
+function emitStateChange(path: StatePath, value: unknown): void {
+  bus.emit(`state:${path}` as StateEventName, value, path);
+}
 
 // ─── Accessors ─────────────────────────────────────────────────────
 
@@ -268,7 +273,7 @@ export function setState<P extends StatePath>(path: P, value: StatePathValue<P>)
 
   if (!_isBatching) {
     // Safe: P extends StatePath ⊂ keyof StateEvents ⊂ keyof EventMap
-    (bus as any).emit(`state:${path}`, value, path);
+    emitStateChange(path, value);
   }
 }
 
@@ -321,7 +326,7 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
     if (!seen.has(path)) {
       seen.add(path);
       // Safe: path is a StatePath string from setState calls
-      (bus as any).emit(`state:${path}`, getState(path as StatePath), path);
+      emitStateChange(path as StatePath, getState(path as StatePath));
     }
   }
 }

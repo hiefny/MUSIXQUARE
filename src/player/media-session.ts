@@ -8,10 +8,23 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { APP_STATE } from '../core/constants.ts';
+import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime } from './transport.ts';
-import { isIdleOrPaused } from './video.ts';
+import {
+  isPlaybackActivityValue,
+  isPlaybackIdle,
+  isPlaybackModeYouTube,
+  isPlaybackPlayingFile,
+} from './ownership.ts';
 import type { PlaylistItem } from '../types/index.ts';
+
+function mediaSessionStateFromActivity(
+  activity: PlaybackActivityValue,
+): MediaSessionPlaybackState {
+  if (activity === 'playing') return 'playing';
+  if (activity === 'paused') return 'paused';
+  return 'none';
+}
 
 // ─── Metadata Update ───────────────────────────────────────────────
 
@@ -70,13 +83,12 @@ export function initMediaSession(): void {
   };
 
   navigator.mediaSession.setActionHandler('play', () => {
-    const currentState = getState('appState');
-    if (currentState === APP_STATE.PLAYING_YOUTUBE) {
+    if (isPlaybackModeYouTube()) {
       togglePlay();
       return;
     }
     const currentTrackIndex = getState('playlist.currentTrackIndex');
-    if (currentState === APP_STATE.IDLE) {
+    if (isPlaybackIdle()) {
       // Try to play from current playlist position instead of blocking
       if (currentTrackIndex >= 0) {
         bus.emit('playlist:play-track', currentTrackIndex);
@@ -87,15 +99,14 @@ export function initMediaSession(): void {
     // even while playbackState='playing', and a togglePlay here would pause
     // the music after the user pressed play. Mirrors the 'pause' handler
     // below which guards the symmetric case.
-    if (currentState === APP_STATE.PLAYING_AUDIO) return;
+    if (isPlaybackPlayingFile()) return;
     if (currentTrackIndex >= 0) {
       togglePlay();
     }
   });
 
   navigator.mediaSession.setActionHandler('pause', () => {
-    const currentState = getState('appState');
-    if (!isIdleOrPaused(currentState)) togglePlay();
+    if (isPlaybackPlayingFile() || isPlaybackModeYouTube()) togglePlay();
   });
 
   navigator.mediaSession.setActionHandler('previoustrack', () => {
@@ -136,13 +147,13 @@ export function initMediaSession(): void {
   // Update lock screen metadata when YouTube sub-video changes (playlist auto-advance)
   bus.on('state:youtube.currentSubIndex', () => {
     const meta = getState('player.currentTrackMeta');
-    if (meta && getState('appState') === APP_STATE.PLAYING_YOUTUBE) {
+    if (meta && isPlaybackModeYouTube()) {
       updateMediaSessionMetadata(meta);
     }
   });
 
   // !! CRITICAL — DO NOT REMOVE
-  // Sync playbackState with app state. This explicitly tells the OS
+  // Sync playbackState with playback activity. This explicitly tells the OS
   // that media is playing, which has a crucial side effect on iOS PWA:
   // iOS keeps the AudioContext alive in the background when
   // playbackState === 'playing', enabling background audio playback.
@@ -150,11 +161,10 @@ export function initMediaSession(): void {
   // the background or the screen turns off, killing audio immediately.
   // (Tone.js / Web Audio apps need this because the browser can't
   // infer playback state from an <audio> element.)
-  bus.on('state:appState', () => {
+  bus.on('state:playback.activity', (activity) => {
     if (!('mediaSession' in navigator)) return;
-    const state = getState('appState');
-    navigator.mediaSession.playbackState =
-      state === APP_STATE.IDLE ? 'none' : state === APP_STATE.PAUSED ? 'paused' : 'playing';
+    if (!isPlaybackActivityValue(activity)) return;
+    navigator.mediaSession.playbackState = mediaSessionStateFromActivity(activity);
   });
 
   log.info('[MediaSession] Initialized');

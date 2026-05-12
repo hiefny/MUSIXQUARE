@@ -8,15 +8,17 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { APP_STATE, MSG } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
+import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
+import { cleanupGuestSystemAudio } from './system-audio-guest.ts';
 import {
   cleanupWindowsAudioDecoderPrimer,
   getAudioTrackStreamKey,
@@ -560,14 +562,19 @@ async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Pro
   if (!guestReceiving) {
     guestReceiving = true;
     startGuestLimitTimer();
-    setState('systemAudio.isReceiving', true);
-    setState('appState', APP_STATE.PLAYING_SYSTEM_AUDIO);
+    setSystemAudioReceiving(true);
+    claimPlaybackOwner('system-audio');
     bus.emit('visualizer:start');
     log.info('[SysAudioSFU] Remote system audio connected through Cloudflare SFU');
   }
 }
 
 function cleanupGuestSfu(updateState = true): void {
+  const shouldCleanupGuestReceiveState = guestReceiving && updateState;
+  const pc = guestPc;
+  guestPc = null;
+  guestReceiving = false;
+
   clearGuestLimitTimer();
   if (guestSourceL) {
     try {
@@ -594,21 +601,16 @@ function cleanupGuestSfu(updateState = true): void {
     guestMerger = null;
   }
   cleanupGuestDecoderPrimers();
-  if (guestPc) {
-    guestPc.close();
-    guestPc = null;
+  if (pc) {
+    pc.close();
   }
 
   guestSessionId = null;
   guestSubscriptionKey = null;
   guestConnectPromise = null;
-  if (guestReceiving && updateState) {
-    setState('systemAudio.isReceiving', false);
-    if (getState('appState') === APP_STATE.PLAYING_SYSTEM_AUDIO) {
-      setState('appState', APP_STATE.IDLE);
-    }
+  if (shouldCleanupGuestReceiveState) {
+    cleanupGuestSystemAudio();
   }
-  guestReceiving = false;
 }
 
 function buildSubscriptionKey(payload: SfuReadyPayload): string {

@@ -504,6 +504,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     return;
   }
 
+  const ctx = getAudioContext();
 
   // 1. Get the current manual sync offset (nudge) for both audio-engine and clock
   const localOffset = getState('sync.localOffset') || 0;
@@ -523,3 +524,341 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   // Buffer Mode playback
   if (_currentAudioBuffer) {
     stopPlayerNode();
+    const newNode = ctx.createBufferSource();
+    newNode.buffer = _currentAudioBuffer;
+    setPlayerNode(newNode);
+
+    const isSurroundMode = getState('audio.isSurroundMode');
+    const surroundChannelIndex = getState('audio.surroundChannelIndex');
+
+    if (isSurroundMode) {
+      bus.emit('audio:connect-surround', newNode, surroundChannelIndex);
+      log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
+    } else {
+      const widener = getWidener();
+      if (widener) newNode.connect(widener.input);
+      log.debug('[BufferMode] Playing in Stereo');
+    }
+
+    newNode.addEventListener('ended', () => {
+      if (myLoadToken !== getLoadToken()) return;
+      if (isFilePlaybackPlaying()) {
+        handleEnded();
+      }
+    });
+
+    // Determine the exact audio-context time to start
+    const startWhen = scheduleDelay > 0 ? ctx.currentTime + scheduleDelay : 0;
+
+    // Apply manual nudge to the audible start position
+    const nudgeOffset = safeOffset + localOffset;
+    let finalStartPos = nudgeOffset;
+    if (duration > 0) {
+      finalStartPos = Math.max(0, Math.min(duration - 0.001, nudgeOffset));
+    }
+
+    newNode.start(startWhen, finalStartPos);
+  }
+
+  // Update timing
+  // startedAt = wall-clock time when playback would have started from 0:00
+  //   = now - playbackPosition + syncCorrection
+  const startedAt = getCurrentTime() + scheduleDelay - safeOffset + localOffset;
+  setState('player.startedAt', startedAt);
+  setState('player.pausedAt', safeOffset);
+  log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
+
+  setPlaybackFilePlaying();
+
+  if (!getState('network.hostConn')) {
+    transition({
+      type: 'PLAY',
+      time: safeOffset,
+      index: getState('playlist.currentTrackIndex'),
+      sameTrack: true,
+    });
+  }
+
+  bus.emit('visualizer:start');
+  bus.emit('ui:loop-start');
+}
+
+// ─── Pause ─────────────────────────────────────────────────────────
+
+export function pause(
+  forcedTime?: number,
+  opts?: { holdVisualizer?: boolean; showToast?: boolean },
+): void {
+  if (isFileTransportInactive()) return;
+
+  let pausePos: number;
+  if (typeof forcedTime === 'number' && Number.isFinite(forcedTime) && forcedTime >= 0) {
+    pausePos = forcedTime;
+  } else {
+    pausePos = getTrackPosition();
+  }
+
+  stopPlayerNode();
+
+  if (opts?.holdVisualizer ?? forcedTime === undefined) {
+    bus.emit('visualizer:hold-frame');
+  }
+  setPlaybackFilePaused();
+  setState('player.pausedAt', pausePos);
+
+  if (!getState('network.hostConn')) {
+    transition({ type: 'PAUSE', time: pausePos, endOfPlaylist: false });
+  }
+
+  if (opts?.showToast ?? true) {
+    showToast(t('common.pause'));
+  }
+}
+
+// ─── Handle Track Ended ────────────────────────────────────────────
+
+export function handleEnded(): void {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return; // Guests don't handle track-end
+
+  const _currentAudioBuffer = getCurrentAudioBuffer();
+
+  const hasBufferDuration = !!(
+    _currentAudioBuffer &&
+    Number.isFinite(_currentAudioBuffer.duration) &&
+    _currentAudioBuffer.duration > 0.1
+  );
+
+  const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
+  if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
+  if (isFileTransportInactive()) return;
+  if (isExternalOwner()) return;
+
+  const curr = getTrackPosition();
+  const isSeeking = getState('player.isSeeking');
+  if (isSeeking) {
+    log.debug('[handleEnded] Ignoring end signal while seeking');
+    return;
+  }
+
+  if (curr >= duration - 0.05) {
+    log.debug(`Track ended at ${curr.toFixed(2)}s / ${duration.toFixed(2)}s`);
+    stopAllMedia();
+    setState('player.pausedAt', 0);
+    bus.emit('ui:seek-reset');
+
+    // Auto-advance via playlist module
+    bus.emit('player:ended');
+  }
+}
+
+// ─── Toggle Play ───────────────────────────────────────────────────
+
+export function togglePlay(): void {
+  if (isGuestBlocked()) return;
+
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
+
+  // YouTube mode
+  if (isYouTubeOwner()) {
+    bus.emit('youtube:toggle-play');
+    return;
+  }
+
+  // System audio: ignore play/pause toggle (use "공유 중지" button instead)
+  if (isSystemAudioOwner()) return;
+
+  const isActuallyPlaying = isFilePlaybackPlaying();
+  const pausedAt = getState('player.pausedAt') || 0;
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const playlistItems = getState('playlist.items') || [];
+
+  // Deselected state (e.g. after end-of-playlist reset): no track is selected
+  // but the playlist is non-empty. Pressing play should restart from track 0
+  // rather than silently resuming the stale audio buffer with "미디어 없음"
+  // still showing in the title.
+  if (!isActuallyPlaying && currentTrackIndex === -1 && playlistItems.length > 0) {
+    if (!hostConn) {
+      void import('./playlist.ts').then((mod) => mod.playTrack(0));
+    } else if (isOperator) {
+      sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, index: 0 });
+    }
+    return;
+  }
+
+  // Cancel pending auto-play (with user feedback)
+  if (!hostConn && getManagedTimer('autoPlayTimer')) {
+    clearManagedTimer('autoPlayTimer');
+    showToast(t('toast.auto_play_canceled'));
+  }
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
+
+  if (isActuallyPlaying) {
+    if (!hostConn) {
+      pause();
+      broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt'), reason: 'pause' });
+    } else if (isOperator) {
+      sendToHost({ type: MSG.REQUEST_PAUSE });
+    }
+  } else {
+    if (!hostConn) {
+      play(pausedAt);
+      broadcast({
+        type: MSG.PLAY,
+        time: pausedAt,
+        index: currentTrackIndex,
+        hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      });
+    } else if (isOperator) {
+      sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt });
+    }
+  }
+}
+
+// ─── Stop Playback ─────────────────────────────────────────────────
+
+export function stopPlayback(): void {
+  if (isGuestBlocked()) return;
+
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
+  if (hostConn && isOperator) {
+    try {
+      hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 });
+    } catch (e) {
+      log.debug('[Transport] send REQUEST_SEEK:', e);
+    }
+    try {
+      hostConn.send({ type: MSG.REQUEST_PAUSE });
+    } catch (e) {
+      log.debug('[Transport] send REQUEST_PAUSE:', e);
+    }
+    showToast(t('toast.stop_sent'));
+    return;
+  }
+
+  if (isCompatIdle()) return; // Nothing to stop
+
+  if (isSystemAudioPlaying()) {
+    stopSystemAudioCapture();
+    return;
+  }
+
+  if (isYouTubeOwner()) {
+    // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
+    // from triggering playlist:next-track (its guard checks YouTube playback mode).
+    setPlaybackIdle();
+    bus.emit('youtube:stop-playback');
+    bus.emit('youtube:stop-mode');
+    clearManagedTimer('autoPlayTimer');
+    clearManagedTimer('ended-advance-retry');
+    clearManagedTimer('ended-advance-next');
+    setState('player.pausedAt', 0);
+    return;
+  }
+
+  stopAllMedia({ cancelInFlight: true });
+  bus.emit('ui:seek-reset');
+
+  if (!hostConn) broadcast({ type: MSG.PAUSE, time: 0, reason: 'stop' });
+  showToast(t('common.stop'));
+}
+
+// ─── Skip Time ─────────────────────────────────────────────────────
+
+export function skipTime(sec: number): void {
+  if (isGuestBlocked()) return;
+
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
+  if (hostConn && isOperator) {
+    sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec });
+    return;
+  }
+
+  // Cancel pending auto-play on manual interaction (Host only)
+  if (!hostConn && getManagedTimer('autoPlayTimer')) {
+    clearManagedTimer('autoPlayTimer');
+    showToast(t('toast.auto_play_canceled'));
+  }
+
+  if (isCompatIdle()) return;
+  if (isSystemAudioOwner()) return; // No skip on live stream
+  if (isYouTubeOwner()) {
+    bus.emit('youtube:skip-time', sec);
+    return;
+  }
+
+  const _currentAudioBuffer = getCurrentAudioBuffer();
+  const current = getTrackPosition();
+  let target = current + sec;
+  const rawBufDur = _currentAudioBuffer?.duration;
+  const duration = rawBufDur != null && Number.isFinite(rawBufDur) && rawBufDur > 0 ? rawBufDur : 0;
+
+  if (target < 0) target = 0;
+  if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
+
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const isPlaying = isFilePlaybackPlaying();
+
+  if (isPlaying) {
+    play(target);
+    broadcast({
+      type: MSG.PLAY,
+      time: target,
+      index: currentTrackIndex,
+      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+    });
+  } else {
+    setState('player.pausedAt', target);
+    broadcast({ type: MSG.PAUSE, time: target, reason: 'seek' });
+  }
+}
+
+// ─── Adjust Sync ───────────────────────────────────────────────────
+
+/**
+ * How long to wait after the last nudge click before re-playing the audio.
+ *
+ * Why debounce: each nudge bumps sync.localOffset synchronously (so the
+ * displayed value reacts instantly), but we also need to restart the
+ * AudioBufferSourceNode so the actual audio jumps to the new offset
+ * position. If the user mashes the button, a naïve "call play() per click"
+ * runs into the play-lock queue — and that queue captures getTrackPosition()
+ * at CLICK TIME. By the time the lock releases (100-300ms later) the
+ * captured position is stale; playing from it drops the audio behind
+ * wall-clock by the elapsed amount. Symptom: "reset doesn't line up".
+ *
+ * Instead, every click just updates localOffset + resets a 60ms timer.
+ * The final timer firing reads a FRESH getTrackPosition() and calls
+ * play() once. One node re-creation per burst, always at the right spot.
+ */
+const NUDGE_REPLAY_DEBOUNCE_MS = 60;
+
+export function adjustSync(val: number): void {
+  const localOffset = getState('sync.localOffset') || 0;
+  setState('sync.localOffset', localOffset + val);
+  bus.emit('sync:display-update');
+
+  if (isFileTransportInactive()) {
+    // Paused: localOffset is stored and applied on next play(pausedAt) via
+    // startedAt. Don't modify pausedAt — it would cancel out the offset.
+    return;
+  }
+
+  // Debounce: coalesce bursts of rapid clicks into one re-play. getTrackPosition
+  // is read inside the timer so it reflects the offset accumulated across the
+  // entire burst, not just the first click.
+  clearManagedTimer('sync-nudge-replay');
+  setManagedTimer(
+    'sync-nudge-replay',
+    () => {
+      // Re-check playback state at fire time — user may have paused during the burst.
+      if (isFileTransportInactive()) return;
+      play(getTrackPosition());
+    },
+    NUDGE_REPLAY_DEBOUNCE_MS,
+  );
+}

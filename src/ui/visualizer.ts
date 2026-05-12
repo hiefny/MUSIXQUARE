@@ -46,6 +46,7 @@ const LOG_GAMMA = 1.0; // neutral log-scale spacing
 const BASS_SMOOTH = 0.8;
 const HIGH_SMOOTH = 0.8;
 const VIZ_SETTLE_MS = 180;
+const SPECTRUM_START_WARMUP_FRAMES = 2;
 
 type SpectrumPoint = { x: number; y: number };
 
@@ -65,6 +66,7 @@ interface SpectrumFrame {
 
 let _lastCircularFrame: CircularFrame | null = null;
 let _lastSpectrumFrame: SpectrumFrame | null = null;
+let _visualizerRunToken = 0;
 
 // ─── (Frame throttle removed — runs at display's native refresh rate) ───
 
@@ -158,6 +160,7 @@ let _holdNextPauseFrame = false;
 let _isHoldingPauseFrame = false;
 
 function cancelVisualizerAnimation(): void {
+  _visualizerRunToken++;
   if (_animationId) {
     cancelAnimationFrame(_animationId);
     _animationId = null;
@@ -304,6 +307,7 @@ function fadeVisualizerOut(): void {
 
 function settleVisualizerToRest(): void {
   cancelVisualizerAnimation();
+  const runToken = _visualizerRunToken;
 
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   const ctx = canvas?.getContext('2d');
@@ -324,6 +328,8 @@ function settleVisualizerToRest(): void {
     const start = performance.now();
 
     const draw = (now: number): void => {
+      if (runToken !== _visualizerRunToken) return;
+
       const eased = easeOutCubic((now - start) / VIZ_SETTLE_MS);
       const points = source.points.map((p) => {
         const xRange = Math.max(1, source.width - 2 * source.padX);
@@ -361,6 +367,8 @@ function settleVisualizerToRest(): void {
     const start = performance.now();
 
     const draw = (now: number): void => {
+      if (runToken !== _visualizerRunToken) return;
+
       const eased = easeOutCubic((now - start) / VIZ_SETTLE_MS);
       const quiet = 1 - eased;
       const frame = {
@@ -399,6 +407,8 @@ export function startVisualizer(): void {
   _holdNextPauseFrame = false;
   _isHoldingPauseFrame = false;
   cancelVisualizerAnimation();
+  const runToken = _visualizerRunToken;
+  clearLastVisualizerFrames();
 
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   if (!canvas) return;
@@ -445,6 +455,8 @@ export function startVisualizer(): void {
   refreshThemeCache();
 
   function draw(): void {
+    if (runToken !== _visualizerRunToken) return;
+
     // YouTube mode: analyser isn't connected or canvas is CSS-hidden, skip draw
     if (isPlaybackModeYouTube()) {
       _animationId = null;
@@ -563,6 +575,8 @@ function startSpectrumVisualizer(): void {
   _holdNextPauseFrame = false;
   _isHoldingPauseFrame = false;
   cancelVisualizerAnimation();
+  const runToken = _visualizerRunToken;
+  clearLastVisualizerFrames();
 
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   if (!canvas) return;
@@ -581,7 +595,8 @@ function startSpectrumVisualizer(): void {
   }
   _visualizerRetryCount = 0;
 
-  analyser.smoothingTimeConstant = 0.8;
+  const targetSmoothingTimeConstant = 0.8;
+  analyser.smoothingTimeConstant = 0;
   const bufferLength = analyser.frequencyBinCount;
   const freqData = new Float32Array(bufferLength);
   const sampleRate = analyser.context.sampleRate;
@@ -595,8 +610,11 @@ function startSpectrumVisualizer(): void {
   const padX = 4;
   const padY = 8;
   refreshThemeCache();
+  let warmupFrames = SPECTRUM_START_WARMUP_FRAMES;
 
   function draw(): void {
+    if (runToken !== _visualizerRunToken) return;
+
     if (isPlaybackModeYouTube()) {
       _animationId = null;
       return;
@@ -615,6 +633,17 @@ function startSpectrumVisualizer(): void {
       ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, logicalW, logicalH);
       drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
+
+      if (warmupFrames > 0) {
+        warmupFrames--;
+        drawSpectrumRestingLine(ctx, logicalW, logicalH, padX, padY);
+        clearLastVisualizerFrames();
+        if (warmupFrames === 0) {
+          analyser!.smoothingTimeConstant = targetSmoothingTimeConstant;
+        }
+        _animationId = requestAnimationFrame(draw);
+        return;
+      }
 
       const points: { x: number; y: number }[] = [];
       for (let i = 1; i < bufferLength; i += Math.max(1, Math.floor(i / 64))) {

@@ -399,6 +399,69 @@ describe('Visualizer', () => {
       expect(ctx.arc).toHaveBeenCalled();
     });
 
+    it('keeps spectrum at rest while warming up a fresh analyser start', async () => {
+      vi.resetModules();
+      localStorage.setItem('musixquare-viz-mode', 'spectrum');
+
+      const { setState } = await import('../../core/state.ts');
+      const { getAnalyser } = await import('../../audio/engine.ts');
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+
+      const restingCanvas = document.createElement('canvas');
+      restingCanvas.id = 'visualizerCanvas';
+      document.body.appendChild(restingCanvas);
+
+      const ctx = {
+        setTransform: vi.fn(),
+        scale: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        lineTo: vi.fn(),
+        moveTo: vi.fn(),
+        quadraticCurveTo: vi.fn(),
+        closePath: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+
+      const analyser = {
+        context: { sampleRate: 48000 },
+        frequencyBinCount: 64,
+        smoothingTimeConstant: 0.8,
+        getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-20)),
+      } as unknown as AnalyserNode;
+      vi.mocked(getAnalyser).mockReturnValue(analyser);
+
+      const rafCallbacks: FrameRequestCallback[] = [];
+      const requestAnimationFrameMock = vi.fn((cb: FrameRequestCallback) => {
+        rafCallbacks.push(cb);
+        return rafCallbacks.length;
+      });
+      vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+
+      expect(ctx.fill).not.toHaveBeenCalled();
+      expect(analyser.smoothingTimeConstant).toBe(0);
+
+      for (const cb of [...rafCallbacks]) {
+        cb(performance.now() + 16);
+      }
+
+      expect(ctx.fill).not.toHaveBeenCalled();
+      expect(analyser.smoothingTimeConstant).toBe(0.8);
+
+      rafCallbacks.at(-1)?.(performance.now() + 32);
+
+      expect(ctx.fill).toHaveBeenCalled();
+    });
+
     it('imports initVisualizer without error', async () => {
       const mod = await import('../visualizer.ts');
       expect(typeof mod.initVisualizer).toBe('function');

@@ -243,4 +243,52 @@ describe('initMediaSession', () => {
     setState('playback.activity', 'pending');
     expect(navigator.mediaSession.playbackState).toBe('paused');
   });
+
+  // External sink contract: mode × activity matrix.
+  //
+  // Each row pins the expected OS playback hint for one (mode, activity)
+  // combination. The mapping is deliberate per row: an automated migration
+  // that introduces a new value or changes a row's output must update the
+  // table here, not silently drift through a default branch. The mediaSession
+  // 'pending' regression (initially mapped to 'none', causing iOS to suspend
+  // AudioContext mid-preload) is the canonical case this guards against.
+  describe('mediaSession.playbackState (mode × activity matrix)', () => {
+    type Row = {
+      mode: 'file' | 'youtube' | 'system-audio' | null;
+      activity: 'idle' | 'paused' | 'playing' | 'pending';
+      expected: 'none' | 'paused' | 'playing';
+    };
+
+    const MATRIX: Row[] = [
+      // mode = null
+      { mode: null, activity: 'idle', expected: 'none' },
+      { mode: null, activity: 'paused', expected: 'paused' },
+      { mode: null, activity: 'playing', expected: 'playing' },
+      { mode: null, activity: 'pending', expected: 'paused' },
+      // mode = 'file'
+      { mode: 'file', activity: 'idle', expected: 'none' },
+      { mode: 'file', activity: 'paused', expected: 'paused' },
+      { mode: 'file', activity: 'playing', expected: 'playing' },
+      { mode: 'file', activity: 'pending', expected: 'paused' },
+      // mode = 'youtube' (pending coerced away by deriveModeActivity in
+      // production, but the sink itself must still produce a sensible value)
+      { mode: 'youtube', activity: 'idle', expected: 'none' },
+      { mode: 'youtube', activity: 'paused', expected: 'paused' },
+      { mode: 'youtube', activity: 'playing', expected: 'playing' },
+      { mode: 'youtube', activity: 'pending', expected: 'paused' },
+      // mode = 'system-audio'
+      { mode: 'system-audio', activity: 'idle', expected: 'none' },
+      { mode: 'system-audio', activity: 'paused', expected: 'paused' },
+      { mode: 'system-audio', activity: 'playing', expected: 'playing' },
+      { mode: 'system-audio', activity: 'pending', expected: 'paused' },
+    ];
+
+    for (const { mode, activity, expected } of MATRIX) {
+      it(`(${mode ?? 'null'}, ${activity}) -> '${expected}'`, () => {
+        setState('playback.mode', mode);
+        setState('playback.activity', activity);
+        expect(navigator.mediaSession.playbackState).toBe(expected);
+      });
+    }
+  });
 });

@@ -23,7 +23,16 @@ import {
   resetClockState,
 } from '../shared-clock.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
-import { setPlaybackFilePlaying, setPlaybackIdle } from '../../player/ownership.ts';
+import {
+  createSystemAudioTrackMeta,
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackIdle,
+  setPlaybackLifecycleState,
+  setPlaybackSystemAudioPlaying,
+  setPlaybackTrackMeta,
+  setPlaybackYouTubePlaying,
+} from '../../player/ownership.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -321,5 +330,118 @@ describe('host heartbeat monitor', () => {
     expect(getState('network.connectedPeers')).toEqual([]);
     expect(getState('network.activeHostConnByPeerId').has('guest-1')).toBe(false);
     expect(conn.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+// External sink contract: SYNC_PONG playback state matrix.
+//
+// Production state always passes through ownership writers, which normalize
+// (mode, activity) via deriveModeActivityFromSources before any sink reads
+// it. The matrix below enumerates the realistic production scenarios. Each
+// row uses an ownership writer (or a source-event mutation that the bus
+// bridge reconciles) so the resulting state matches what real users hit.
+//
+// A new playback mode/activity introduced by a future migration must add a
+// row here; one that falls through to a wrong wire shape would let guests
+// treat a non-playing host as playing (or vice versa). The file silent
+// track-switch row guards the carve-out documented in
+// network/sync.ts::getSyncPongPlaybackState.
+describe('SYNC_PONG playback state (production scenario matrix)', () => {
+  type Scenario = {
+    label: string;
+    setup: () => void;
+    wire: { mode: string | null; activity: string };
+    fileAcceptedByReceiver: boolean;
+  };
+
+  const SCENARIOS: Scenario[] = [
+    {
+      label: 'idle (fresh boot, nothing claimed)',
+      setup: () => setPlaybackIdle(),
+      wire: { mode: null, activity: 'idle' },
+      fileAcceptedByReceiver: false,
+    },
+    {
+      label: 'file playing with lifecycle PLAYING (audible)',
+      setup: () => {
+        setPlaybackFilePlaying();
+        setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+      },
+      wire: { mode: 'file', activity: 'playing' },
+      fileAcceptedByReceiver: true,
+    },
+    {
+      label: 'file playing during silent track switch (lifecycle DECODING)',
+      setup: () => {
+        // stopAllMedia({silent:true}) keeps mode/activity at file/playing
+        // while a new track decodes; the wire must show paused so late-join
+        // guests do not bootstrap to a stale position.
+        setPlaybackFilePlaying();
+        setPlaybackLifecycleState(PLAYBACK_STATE.DECODING);
+        // The lifecycle write above flips activity to 'pending' via the
+        // ownership bus bridge. Reclaim file/playing afterwards to mirror
+        // the production sequence (claim first, lifecycle moves through
+        // DECODING while activity stays 'playing').
+        setPlaybackFilePlaying();
+      },
+      wire: { mode: 'file', activity: 'paused' },
+      fileAcceptedByReceiver: false,
+    },
+    {
+      label: 'file paused',
+      setup: () => setPlaybackFilePaused(),
+      wire: { mode: 'file', activity: 'paused' },
+      fileAcceptedByReceiver: false,
+    },
+    {
+      label: 'file pending (guest mid-download)',
+      setup: () => setPlaybackLifecycleState(PLAYBACK_STATE.DOWNLOADING),
+      wire: { mode: 'file', activity: 'pending' },
+      fileAcceptedByReceiver: false,
+    },
+    {
+      label: 'youtube playing',
+      setup: () => setPlaybackYouTubePlaying(),
+      wire: { mode: 'youtube', activity: 'playing' },
+      fileAcceptedByReceiver: false,
+    },
+    {
+      label: 'system-audio playing (host sharing or guest receiving)',
+      setup: () => setPlaybackSystemAudioPlaying(),
+      wire: { mode: 'system-audio', activity: 'playing' },
+      fileAcceptedByReceiver: false,
+    },
+    {
+      label: 'system-audio placeholder (host signalled start, guest stream not yet arrived)',
+      setup: () => {
+        setPlaybackTrackMeta(createSystemAudioTrackMeta('receiving'));
+      },
+      wire: { mode: 'system-audio', activity: 'pending' },
+      fileAcceptedByReceiver: false,
+    },
+  ];
+
+  for (const scenario of SCENARIOS) {
+    it(`${scenario.label} -> wire { mode: ${scenario.wire.mode ?? 'null'}, activity: ${scenario.wire.activity} }`, () => {
+      scenario.setup();
+
+      const wire = getSyncPongPlaybackState();
+      expect(wire.mode).toBe(scenario.wire.mode);
+      expect(wire.activity).toBe(scenario.wire.activity);
+    });
+  }
+
+  it('isSyncPongPlayingFile accepts only the audible file-playing wire shape', () => {
+    // The receiving guard must accept only the deliberate file/playing wire
+    // shape and reject every other scenario from the matrix.
+    for (const scenario of SCENARIOS) {
+      const result = isSyncPongPlayingFile(scenario.wire);
+      expect(result).toBe(scenario.fileAcceptedByReceiver);
+    }
+
+    // Legacy payloads without mode/activity must also be rejected.
+    expect(isSyncPongPlayingFile({})).toBe(false);
+    expect(isSyncPongPlayingFile({ mode: 'file' })).toBe(false);
+    expect(isSyncPongPlayingFile({ activity: 'playing' })).toBe(false);
   });
 });

@@ -153,6 +153,14 @@ function hasFilePipeline(lifecycle: PlaybackStateValue, transferState: TransferS
   return lifecycle !== PLAYBACK_STATE.IDLE || transferState !== TRANSFER_STATE.IDLE;
 }
 
+// `playback.lifecycle` (PLAYBACK_STATE) is the local-file pipeline FSM only:
+// DOWNLOADING / AWAITING_PRELOAD / DECODING / READY / PLAYING / PAUSED / FAILED.
+// YouTube and system-audio playback do NOT write to `playback.lifecycle`; they
+// drive their own surfaces (iframe player state, capture stream events). So any
+// non-IDLE lifecycle value implies `mode: 'file'` by construction — the two
+// helpers below intentionally hard-code that mapping rather than inspect the
+// current mode. If a future playback mode starts writing to this FSM, audit
+// these functions first.
 function modeActivityForLifecycle(lifecycle: PlaybackStateValue): PlaybackModeActivity {
   if (lifecycle === PLAYBACK_STATE.IDLE) return { mode: null, activity: 'idle' };
   if (lifecycle === PLAYBACK_STATE.PLAYING) return OWNER_MODE_ACTIVITY.file;

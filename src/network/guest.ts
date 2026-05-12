@@ -17,7 +17,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
 import type { DataConnection, DeviceInfo } from '../types/index.ts';
 
-import { getPeer, detectConnectionType, isDataConnectionUsable } from './peer-state.ts';
+import { getPeer, detectConnectionType } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
 import { showToast } from '../ui/toast.ts';
 
@@ -41,9 +41,7 @@ function applyGuestDetectedConnectionType(type: ConnectionType, source: string):
     if (getState('network.connectionType') !== hostType) {
       setState('network.connectionType', hostType);
     }
-    log.info(
-      `[Peer] ${source} detected ${type}, but host reports ${hostType}; keeping host routing`,
-    );
+    log.info(`[Peer] ${source} detected ${type}, but host reports ${hostType}; keeping host routing`);
     emitConnectionTypeChanged();
     return false;
   }
@@ -248,14 +246,6 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     });
 
     conn.on('error', (err: unknown) => {
-      if (getState('network.hostConn') === conn && isDataConnectionUsable(conn)) {
-        log.warn(
-          '[Join] Host connection error while transport is still open; waiting for close',
-          err,
-        );
-        return;
-      }
-
       log.error('[Join] Host connection error', err);
       if (getState('network.hostConn') === conn) {
         setState('network.hostConn', null);

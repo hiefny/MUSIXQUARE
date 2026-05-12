@@ -15,7 +15,7 @@ import {
   type PlaybackActivityValue,
   type PlaybackModeValue,
 } from '../core/constants.ts';
-import type { ConnectedPeer, DataConnection } from '../types/index.ts';
+import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
 import { play, getTrackPosition, adjustSync } from '../player/transport.ts';
@@ -44,13 +44,6 @@ import {
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
 let _wasPlaying = false;
-let _firstUnansweredSyncPingAt = 0;
-let _lastSyncPingSentAt = 0;
-let _lastSyncPongReceivedAt = 0;
-
-const SYNC_PONG_STALE_MS = 10_000;
-const SYNC_PING_BACKOFF_MS = 10_000;
-const SYNC_PING_BUFFERED_AMOUNT_LIMIT = 64 * 1024;
 
 interface SyncPongPlaybackState {
   mode: PlaybackModeValue;
@@ -63,42 +56,6 @@ function resetSyncClockRuntime(): void {
   resetClockState();
   _syncPingCounter = 0;
   _needsInitialSync = false;
-  _firstUnansweredSyncPingAt = 0;
-  _lastSyncPingSentAt = 0;
-  _lastSyncPongReceivedAt = 0;
-}
-
-function getBufferedAmount(conn: DataConnection): number {
-  const value = conn.dataChannel?.bufferedAmount;
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-function shouldBackOffPeriodicSyncPing(now: number): boolean {
-  const lastReplyReference = _lastSyncPongReceivedAt || _firstUnansweredSyncPingAt;
-  if (!lastReplyReference || now - lastReplyReference <= SYNC_PONG_STALE_MS) return false;
-  return now - _lastSyncPingSentAt < SYNC_PING_BACKOFF_MS;
-}
-
-function sendSyncPing(reason: 'periodic' | 'immediate'): void {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn?.open) return;
-
-  const now = Date.now();
-  if (reason === 'periodic' && shouldBackOffPeriodicSyncPing(now)) return;
-  if (getBufferedAmount(hostConn) > SYNC_PING_BUFFERED_AMOUNT_LIMIT) return;
-
-  const pingId = ++_syncPingCounter;
-  registerPing(pingId);
-  try {
-    hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: now });
-  } catch {
-    /* noop */
-  } finally {
-    _lastSyncPingSentAt = now;
-    if (!_lastSyncPongReceivedAt && !_firstUnansweredSyncPingAt) {
-      _firstUnansweredSyncPingAt = now;
-    }
-  }
 }
 
 /**
@@ -233,28 +190,24 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   if (isFilePlaying) {
     if (conn.open) {
       try {
-        conn.send(
-          createSyncPongPayload({
-            pingId: data.pingId,
-            hostTime,
-            position,
-            playbackState,
-          }),
-        );
+        conn.send(createSyncPongPayload({
+          pingId: data.pingId,
+          hostTime,
+          position,
+          playbackState,
+        }));
       } catch {
         /* closed */
       }
     }
   } else {
     try {
-      conn.send(
-        createSyncPongPayload({
+        conn.send(createSyncPongPayload({
           pingId: data.pingId,
           hostTime,
           position,
           playbackState,
-        }),
-      );
+        }));
     } catch {
       /* closed */
     }
@@ -280,8 +233,6 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   // 1. Clock offset calculation (from shared-clock processSyncPong)
   const result = processSyncPong(pingId, hostTime);
   if (!result) return;
-  _lastSyncPongReceivedAt = Date.now();
-  _firstUnansweredSyncPingAt = 0;
 
   // 2. Latency history update (from old handlePongLatency)
   const ms = result.rtt;
@@ -557,7 +508,15 @@ export function initSync(): void {
   // AFTER the host's MSG.PLAY had already fired would wait up to 1s
   // before bootstrap fires.
   bus.on('sync:request-immediate-ping', () => {
-    sendSyncPing('immediate');
+    const hostConn = getState('network.hostConn');
+    if (!hostConn || !hostConn.open) return;
+    const pingId = ++_syncPingCounter;
+    registerPing(pingId);
+    try {
+      hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
+    } catch {
+      /* noop */
+    }
   });
 
   // Long background resume recovery: force the next valid SYNC_PONG to
@@ -590,8 +549,17 @@ export function initSync(): void {
 
   // Worker tick handler: Guest sends unified SYNC_PING to host
   bus.on('worker:timer-tick', (id) => {
+    const hostConn = getState('network.hostConn');
+    if (!hostConn || !hostConn.open) return;
+
     if (id === 'sync') {
-      sendSyncPing('periodic');
+      const pingId = ++_syncPingCounter;
+      registerPing(pingId);
+      try {
+        hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
+      } catch {
+        /* noop */
+      }
     }
   });
 
@@ -605,21 +573,11 @@ export function initSync(): void {
 }
 
 // ─── Host: Heartbeat Monitor ──────────────────────────────────────
-// Checks for peers whose app-level heartbeat stopped. Mobile browsers can
-// throttle timers for many seconds when the tab is backgrounded, so an open
-// WebRTC channel gets a longer grace window before cleanup.
+// Checks every 5s for peers whose lastHeartbeat is older than threshold.
+// Marks them as disconnected and cleans up.
 
-const HEARTBEAT_STALE_THRESHOLD = 30_000;
-const HEARTBEAT_FORCE_CLEANUP_THRESHOLD = 120_000;
-const HEARTBEAT_CHECK_INTERVAL = 10_000;
-
-function isPeerTransportDead(peer: ConnectedPeer): boolean {
-  const conn = peer.conn as DataConnection | null;
-  if (!conn?.open) return true;
-
-  const state = conn.peerConnection?.connectionState;
-  return state === 'closed' || state === 'failed';
-}
+const HEARTBEAT_STALE_THRESHOLD = 8000; // 8s without heartbeat = stale
+const HEARTBEAT_CHECK_INTERVAL = 5000; // check every 5s
 
 function startHeartbeatMonitor(): void {
   stopHeartbeatMonitor();
@@ -642,26 +600,19 @@ function startHeartbeatMonitor(): void {
       for (const p of connectedPeers) {
         if (p.status !== 'connected') continue;
         const elapsed = now - ((p.lastHeartbeat as number) || 0);
-        if (elapsed <= HEARTBEAT_STALE_THRESHOLD) continue;
-
-        const transportDead = isPeerTransportDead(p);
-        if (!transportDead && elapsed < HEARTBEAT_FORCE_CLEANUP_THRESHOLD) {
-          log.debug(
-            `[Heartbeat] Peer ${p.label || p.id} heartbeat stale (${(elapsed / 1000).toFixed(1)}s), but transport is still open`,
+        if (elapsed > HEARTBEAT_STALE_THRESHOLD) {
+          log.warn(
+            `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,
           );
-          continue;
-        }
-        log.warn(
-          `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,
-        );
-        stalePeerIds.push(p.id);
+          stalePeerIds.push(p.id);
 
-        // Try to close the stale connection
-        try {
-          const conn = p.conn as DataConnection;
-          if (conn) conn.close();
-        } catch {
-          /* noop */
+          // Try to close the stale connection
+          try {
+            const conn = p.conn as DataConnection;
+            if (conn) conn.close();
+          } catch {
+            /* noop */
+          }
         }
       }
 

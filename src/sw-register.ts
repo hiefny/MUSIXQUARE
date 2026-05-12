@@ -16,14 +16,6 @@ const SW_COOLDOWN_MS = 30_000; // suppress update dialog for 30s after a SW relo
 
 let _swReloading = false;
 
-function reloadForServiceWorkerUpdate(): void {
-  if (_swReloading) return;
-  _swReloading = true;
-  sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
-  markIntentionalNav();
-  window.location.reload();
-}
-
 export function registerServiceWorker(): void {
   if (!('serviceWorker' in navigator)) {
     log.info('[SW] Service Worker not supported');
@@ -37,23 +29,18 @@ export function registerServiceWorker(): void {
 
   const doRegister = async () => {
     const swUrl = new URL('service-worker.js', window.location.href);
-    let hadController = Boolean(navigator.serviceWorker.controller);
 
     try {
       const reg = await navigator.serviceWorker.register(swUrl, { scope: './' });
       log.info('[SW] Registered:', reg.scope);
 
-      // Listen for controller changes — reload only when an already-controlled
-      // page switches to another controller. A first-time `clients.claim()`
-      // should not bounce the setup screen back to the app entrance.
+      // Listen for controller changes — reload only once
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!hadController) {
-          hadController = true;
-          log.debug('[SW] Controller claimed page for the first time — skipping reload');
-          return;
-        }
-
-        reloadForServiceWorkerUpdate();
+        if (_swReloading) return;
+        _swReloading = true;
+        sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
+        markIntentionalNav();
+        window.location.reload();
       });
 
       reg.addEventListener('updatefound', () => {
@@ -84,7 +71,12 @@ export function registerServiceWorker(): void {
               // Activate + reload only if user clicked OK
               if (result && result.action === 'ok') {
                 if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                reloadForServiceWorkerUpdate();
+                if (!_swReloading) {
+                  _swReloading = true;
+                  sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
+                  markIntentionalNav();
+                  window.location.reload();
+                }
               }
             } catch {
               // Dialog dismissed or failed — do NOT activate the waiting worker.

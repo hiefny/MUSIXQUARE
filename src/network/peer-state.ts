@@ -30,16 +30,6 @@ export function setPeer(p: PeerInstance | null): void {
   peer = p;
 }
 
-export function isDataConnectionUsable(conn: DataConnection | null | undefined): boolean {
-  if (!conn?.open) return false;
-
-  const pcState = conn.peerConnection?.connectionState;
-  if (pcState === 'closed' || pcState === 'failed') return false;
-
-  const channelState = conn.dataChannel?.readyState;
-  return !channelState || channelState === 'open';
-}
-
 // ─── ICE Connection Type Detection ──────────────────────────────────
 
 const ICE_POLL_INTERVAL_MS = 200;

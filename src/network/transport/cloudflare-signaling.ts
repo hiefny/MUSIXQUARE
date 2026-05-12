@@ -11,7 +11,6 @@ import type {
 
 type SignalingMessage =
   | { type: 'peer-open'; peerId: string; roomId: string }
-  | { type: 'keepalive' }
   | { type: 'error'; errorType?: string; message?: string }
   | {
       type: 'signal-offer';
@@ -47,13 +46,10 @@ type OutgoingSignal =
       audioTrackCount?: number;
     }
   | { type: 'media-answer'; to: 'host'; callId: string; sdp: RTCSessionDescriptionInit }
-  | { type: 'media-close'; to: string | 'host'; callId: string }
-  | { type: 'keepalive' };
+  | { type: 'media-close'; to: string | 'host'; callId: string };
 
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
-const DATA_CONNECTION_DISCONNECTED_GRACE_MS = 15_000;
-const SIGNALING_KEEPALIVE_INTERVAL_MS = 25_000;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -125,14 +121,12 @@ class CloudflareDataConnection extends TinyEmitter implements TransportDataConne
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   private closed = false;
-  private readonly disconnectedTimerName: string;
 
   constructor(
     readonly peer: string,
     readonly metadata?: unknown,
   ) {
     super();
-    this.disconnectedTimerName = `cloudflare-data-disconnected-${peer}-${randomBase64Url(8)}`;
   }
 
   attach(pc: RTCPeerConnection, channel: RTCDataChannel): void {
@@ -150,16 +144,13 @@ class CloudflareDataConnection extends TinyEmitter implements TransportDataConne
     channel.addEventListener('error', (event) => this.emit('error', event));
 
     pc.addEventListener('connectionstatechange', () => {
-      if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
-        this.clearDisconnectedGrace();
+      if (
+        pc.connectionState === 'closed' ||
+        pc.connectionState === 'failed' ||
+        pc.connectionState === 'disconnected'
+      ) {
         this.markClosed();
-        return;
       }
-      if (pc.connectionState === 'disconnected') {
-        this.scheduleDisconnectedGrace();
-        return;
-      }
-      this.clearDisconnectedGrace();
     });
 
     if (channel.readyState === 'open') queueMicrotask(() => this.markOpen());
@@ -198,39 +189,10 @@ class CloudflareDataConnection extends TinyEmitter implements TransportDataConne
 
   private markClosed(): void {
     if (this.closed) return;
-    this.clearDisconnectedGrace();
     this.closed = true;
     this.open = false;
     this.emit('close');
     this.clear();
-  }
-
-  private scheduleDisconnectedGrace(): void {
-    if (this.closed) return;
-    setManagedTimer(
-      this.disconnectedTimerName,
-      () => {
-        const state = this.peerConnection?.connectionState;
-        if (
-          state === 'disconnected' &&
-          this.dataChannel &&
-          this.dataChannel.readyState === 'open'
-        ) {
-          log.info(
-            `[Transport] Peer ${this.peer} RTCPeerConnection is disconnected, but data channel is still open — keeping connection alive`,
-          );
-          return;
-        }
-        if (state === 'disconnected' || state === 'failed' || state === 'closed') {
-          this.markClosed();
-        }
-      },
-      DATA_CONNECTION_DISCONNECTED_GRACE_MS,
-    );
-  }
-
-  private clearDisconnectedGrace(): void {
-    clearManagedTimer(this.disconnectedTimerName);
   }
 }
 
@@ -243,12 +205,10 @@ class CloudflareMediaConnection extends TinyEmitter implements TransportMediaCon
   private remoteStreamTimerActive = false;
   private readonly localSenders: RTCRtpSender[] = [];
   private trackListener: ((event: RTCTrackEvent) => void) | null = null;
-  private answerHandler:
-    | ((mediaConn: CloudflareMediaConnection, stream?: MediaStream) => Promise<void>)
-    | null = null;
-  private closeHandler:
-    | ((mediaConn: CloudflareMediaConnection, notifyRemote: boolean) => void)
-    | null = null;
+  private answerHandler: ((mediaConn: CloudflareMediaConnection, stream?: MediaStream) => Promise<void>) | null =
+    null;
+  private closeHandler: ((mediaConn: CloudflareMediaConnection, notifyRemote: boolean) => void) | null =
+    null;
 
   constructor(
     readonly peer: string,
@@ -364,14 +324,10 @@ class CloudflareMediaConnection extends TinyEmitter implements TransportMediaCon
 
     if (this.remoteStreamTimerActive) return;
     this.remoteStreamTimerActive = true;
-    setManagedTimer(
-      this.remoteStreamTimerName(),
-      () => {
-        this.remoteStreamTimerActive = false;
-        this.emitRemoteStream();
-      },
-      180,
-    );
+    setManagedTimer(this.remoteStreamTimerName(), () => {
+      this.remoteStreamTimerActive = false;
+      this.emitRemoteStream();
+    }, 180);
   }
 
   private emitRemoteStream(): void {
@@ -423,7 +379,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   connect(roomId: string, options?: TransportConnectOptions): TransportDataConnection {
     if (this.destroyed) throw createTransportError('disconnected', 'PEER_DESTROYED');
-    this.connections.get(roomId)?.close();
     const conn = new CloudflareDataConnection(roomId, options?.metadata);
     const roomPassword =
       typeof options?.roomPassword === 'string' ? options.roomPassword.trim() : '';
@@ -470,14 +425,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.openHostSocket();
       return;
     }
-    for (const [roomId, conn] of this.connections) {
-      const socket = this.roomSockets.get(roomId);
-      if (
-        !socket ||
-        socket.readyState === WebSocket.CLOSED ||
-        socket.readyState === WebSocket.CLOSING
-      ) {
-        this.openGuestSocket(roomId, conn, conn.metadata, this.roomPasswords.get(roomId) || '');
+    for (const [roomId, socket] of this.roomSockets) {
+      if (socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
+        const conn = this.connections.get(roomId);
+        if (conn) this.openGuestSocket(roomId, conn, conn.metadata, this.roomPasswords.get(roomId) || '');
       }
     }
   }
@@ -543,53 +494,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     socket.send(JSON.stringify(message));
   }
 
-  private startSocketKeepAlive(socket: WebSocket, timerName: string): void {
-    setManagedTimer(
-      timerName,
-      () => {
-        if (this.destroyed || socket.readyState !== WebSocket.OPEN) {
-          clearManagedTimer(timerName);
-          return;
-        }
-        try {
-          socket.send(JSON.stringify({ type: 'keepalive' } satisfies OutgoingSignal));
-        } catch {
-          clearManagedTimer(timerName);
-        }
-      },
-      SIGNALING_KEEPALIVE_INTERVAL_MS,
-      { interval: true },
-    );
-  }
-
-  private handleSignalingSocketError(
-    socket: WebSocket,
-    options: {
-      label: string;
-      isEstablished: () => boolean;
-      emitPreOpenError: (event: Event) => void;
-    },
-    event: Event,
-  ): void {
-    if (!options.isEstablished()) {
-      options.emitPreOpenError(event);
-      return;
-    }
-
-    log.warn(`[Transport] ${options.label} signaling socket error; preserving data channel`, event);
-    try {
-      socket.close();
-    } catch {
-      /* noop */
-    }
-  }
-
-  private isDataConnectionAlive(conn: CloudflareDataConnection | undefined): boolean {
-    if (!conn?.open) return false;
-    const state = conn.peerConnection?.connectionState;
-    return state !== 'closed' && state !== 'failed';
-  }
-
   private sendRoomPassword(): void {
     if (!this.hostRoomId) return;
     const socket = this.hostSocket;
@@ -604,32 +508,23 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private openHostSocket(): void {
     if (!this.hostRoomId || !this.id || this.destroyed) return;
     const existing = this.hostSocket;
-    if (
-      existing &&
-      existing.readyState !== WebSocket.CLOSED &&
-      existing.readyState !== WebSocket.CLOSING
-    ) {
+    if (existing && existing.readyState !== WebSocket.CLOSED && existing.readyState !== WebSocket.CLOSING) {
       return;
     }
 
     let socket: WebSocket;
     try {
-      socket = new WebSocket(
-        this.buildSocketUrl(this.hostRoomId, 'host', this.id, this.hostSecret),
-      );
+      socket = new WebSocket(this.buildSocketUrl(this.hostRoomId, 'host', this.id, this.hostSecret));
     } catch (error) {
       this.emit('error', error);
       return;
     }
 
     this.hostSocket = socket;
-    const keepAliveTimerName = `cloudflare-signaling-keepalive-host-${this.id}`;
-    socket.addEventListener('open', () => this.startSocketKeepAlive(socket, keepAliveTimerName));
     socket.addEventListener('message', (event) => {
       this.handleHostMessage(event.data).catch((error) => this.emit('error', error));
     });
     socket.addEventListener('close', () => {
-      clearManagedTimer(keepAliveTimerName);
       if (this.destroyed) return;
       if (this.hostSocket === socket) {
         this.open = false;
@@ -637,17 +532,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         this.emit('disconnected');
       }
     });
-    socket.addEventListener('error', (event) =>
-      this.handleSignalingSocketError(
-        socket,
-        {
-          label: 'Host',
-          isEstablished: () => this.open,
-          emitPreOpenError: (error) => this.emit('error', error),
-        },
-        event,
-      ),
-    );
+    socket.addEventListener('error', (event) => this.emit('error', event));
   }
 
   private openGuestSocket(
@@ -666,28 +551,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
 
     this.roomSockets.set(roomId, socket);
-    const keepAliveTimerName = `cloudflare-signaling-keepalive-guest-${roomId}`;
-    const cleanupGuestSocket = (): void => {
-      clearManagedTimer(keepAliveTimerName);
-      if (this.roomSockets.get(roomId) === socket) {
-        this.roomSockets.delete(roomId);
-      }
-      if (this.connections.get(roomId) === conn) {
-        this.connections.delete(roomId);
-      }
-      if (socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) {
-        try {
-          socket.close();
-        } catch {
-          /* noop */
-        }
-      }
-    };
-    conn.on('close', cleanupGuestSocket);
     socket.addEventListener('open', () => {
       try {
         socket.send(JSON.stringify({ type: 'guest-auth', password: roomPassword || '' }));
-        this.startSocketKeepAlive(socket, keepAliveTimerName);
       } catch (error) {
         conn.emit('error', error);
       }
@@ -698,7 +564,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       );
     });
     socket.addEventListener('close', () => {
-      clearManagedTimer(keepAliveTimerName);
       if (this.destroyed) return;
       if (this.roomSockets.get(roomId) === socket) {
         this.roomSockets.delete(roomId);
@@ -708,17 +573,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         }
       }
     });
-    socket.addEventListener('error', (event) =>
-      this.handleSignalingSocketError(
-        socket,
-        {
-          label: 'Guest',
-          isEstablished: () => this.isDataConnectionAlive(conn),
-          emitPreOpenError: (error) => conn.emit('error', error),
-        },
-        event,
-      ),
-    );
+    socket.addEventListener('error', (event) => conn.emit('error', event));
   }
 
   private async parseSignal(raw: unknown): Promise<SignalingMessage> {
@@ -728,7 +583,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private async handleHostMessage(raw: unknown): Promise<void> {
     const message = await this.parseSignal(raw);
-    if (message.type === 'keepalive') return;
     if (message.type === 'peer-open') {
       this.open = true;
       this.disconnected = false;
@@ -737,13 +591,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'error') {
-      this.emit(
-        'error',
-        createTransportError(
-          message.errorType ?? 'server-error',
-          message.message ?? 'SIGNALING_ERROR',
-        ),
-      );
+      this.emit('error', createTransportError(message.errorType ?? 'server-error', message.message ?? 'SIGNALING_ERROR'));
       return;
     }
     if (message.type === 'signal-offer') {
@@ -764,14 +612,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-left') {
-      const conn = this.connections.get(message.peerId);
-      if (this.isDataConnectionAlive(conn)) {
-        log.info(
-          `[Transport] Ignoring signaling peer-left for ${message.peerId}; data channel is still alive`,
-        );
-        return;
-      }
-      conn?.close();
+      this.connections.get(message.peerId)?.close();
       for (const [callId, mediaConn] of this.mediaCalls) {
         if (mediaConn.peer === message.peerId) {
           mediaConn.closeFromRemote();
@@ -789,7 +630,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     raw: unknown,
   ): Promise<void> {
     const message = await this.parseSignal(raw);
-    if (message.type === 'keepalive') return;
     if (message.type === 'peer-open') {
       this.disconnected = false;
       await this.startGuestOffer(roomId, socket, conn, metadata);
@@ -798,10 +638,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'error') {
       conn.emit(
         'error',
-        createTransportError(
-          message.errorType ?? 'server-error',
-          message.message ?? 'SIGNALING_ERROR',
-        ),
+        createTransportError(message.errorType ?? 'server-error', message.message ?? 'SIGNALING_ERROR'),
       );
       return;
     }
@@ -823,10 +660,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-left') {
-      if (this.isDataConnectionAlive(conn)) {
-        log.info('[Transport] Ignoring signaling peer-left for host; data channel is still alive');
-        return;
-      }
       conn.close();
     }
   }
@@ -975,7 +808,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.emit('call', mediaConn);
   }
 
-  private async handleMediaAnswer(callId: string, sdp: RTCSessionDescriptionInit): Promise<void> {
+  private async handleMediaAnswer(
+    callId: string,
+    sdp: RTCSessionDescriptionInit,
+  ): Promise<void> {
     const mediaConn = this.mediaCalls.get(callId);
     const pc = mediaConn?.peerConnection;
     if (!mediaConn || !pc) return;

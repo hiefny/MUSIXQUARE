@@ -1,12 +1,12 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
+import type { DataConnection } from '../../types/index.ts';
 import { handleData, resetInboundRateLimit } from '../protocol.ts';
 import {
   getSyncPongPlaybackState,
@@ -50,22 +50,6 @@ afterEach(() => {
   setCurrentAudioBuffer(null);
   vi.useRealTimers();
 });
-
-function makeConnectedPeer(conn: Partial<DataConnection>, lastHeartbeat: number): ConnectedPeer {
-  return {
-    id: 'guest-1',
-    slot: 1,
-    label: 'GUEST',
-    conn: conn as DataConnection,
-    isOp: false,
-    preloadedIndexes: new Set(),
-    status: 'connected',
-    isDataTarget: true,
-    joinOrder: 1,
-    connectionType: 'remote',
-    lastHeartbeat,
-  };
-}
 
 describe('getTotalSyncOffsetMs', () => {
   it('returns 0 initially', () => {
@@ -221,46 +205,6 @@ describe('audio activation bootstrap', () => {
 });
 
 describe('background resume recovery', () => {
-  it('backs off periodic guest sync pings when the host stops answering', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-09T00:00:01.000Z'));
-    initSync();
-    const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', conn as DataConnection);
-
-    bus.emit('worker:timer-tick', 'sync');
-    expect(conn.send).toHaveBeenCalledTimes(1);
-
-    vi.setSystemTime(new Date('2026-05-09T00:00:12.000Z'));
-    bus.emit('worker:timer-tick', 'sync');
-    expect(conn.send).toHaveBeenCalledTimes(2);
-
-    vi.setSystemTime(new Date('2026-05-09T00:00:13.000Z'));
-    bus.emit('worker:timer-tick', 'sync');
-    expect(conn.send).toHaveBeenCalledTimes(2);
-
-    bus.emit('sync:request-immediate-ping');
-    expect(conn.send).toHaveBeenCalledTimes(3);
-  });
-
-  it('skips guest sync pings when the data channel send buffer is backed up', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-09T00:00:01.000Z'));
-    initSync();
-    const conn = {
-      open: true,
-      send: vi.fn(),
-      dataChannel: { bufferedAmount: 80 * 1024 } as RTCDataChannel,
-    } as Partial<DataConnection>;
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', conn as DataConnection);
-
-    bus.emit('worker:timer-tick', 'sync');
-
-    expect(conn.send).not.toHaveBeenCalled();
-  });
-
   it('requests an immediate host sync for forced resync', () => {
     initSync();
     const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;
@@ -322,54 +266,6 @@ describe('guest host connection clock reset', () => {
     setState('network.hostConn', { open: true } as DataConnection);
 
     expectClockRuntimeReset();
-  });
-});
-
-describe('host heartbeat monitor', () => {
-  it('keeps a heartbeat-stale peer while the transport is still open', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-09T00:00:00.000Z'));
-
-    const conn = {
-      peer: 'guest-1',
-      open: true,
-      close: vi.fn(),
-      send: vi.fn(),
-      peerConnection: { connectionState: 'connected' },
-    } as Partial<DataConnection>;
-    const peer = makeConnectedPeer(conn, Date.now() - 46_000);
-    setState('network.connectedPeers', [peer]);
-    setState('network.activeHostConnByPeerId', new Map([['guest-1', conn as DataConnection]]));
-
-    initSync();
-    setState('setup.sessionStarted', true);
-    vi.advanceTimersByTime(10_000);
-
-    expect(getState('network.connectedPeers')).toEqual([peer]);
-    expect(conn.close).not.toHaveBeenCalled();
-  });
-
-  it('cleans up a heartbeat-stale peer when the transport has failed', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-09T00:00:00.000Z'));
-
-    const conn = {
-      peer: 'guest-1',
-      open: true,
-      close: vi.fn(),
-      send: vi.fn(),
-      peerConnection: { connectionState: 'failed' },
-    } as Partial<DataConnection>;
-    setState('network.connectedPeers', [makeConnectedPeer(conn, Date.now() - 46_000)]);
-    setState('network.activeHostConnByPeerId', new Map([['guest-1', conn as DataConnection]]));
-
-    initSync();
-    setState('setup.sessionStarted', true);
-    vi.advanceTimersByTime(10_000);
-
-    expect(getState('network.connectedPeers')).toEqual([]);
-    expect(getState('network.activeHostConnByPeerId').has('guest-1')).toBe(false);
-    expect(conn.close).toHaveBeenCalledTimes(1);
   });
 });
 

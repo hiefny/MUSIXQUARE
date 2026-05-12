@@ -22,7 +22,6 @@ import {
   getPeer,
   getPeerLabelBySlot,
   getAvailablePeerSlot,
-  isDataConnectionUsable,
   assignPeerSlot,
   releasePeerSlot,
   broadcast,
@@ -382,14 +381,6 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   });
 
   conn.on('error', (err: unknown) => {
-    if (
-      getState('network.activeHostConnByPeerId').get(peerId) === conn &&
-      isDataConnectionUsable(conn)
-    ) {
-      log.warn('[Host] Connection error while transport is still open; waiting for close', err);
-      return;
-    }
-
     log.error('[Host] Connection error:', err);
 
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {

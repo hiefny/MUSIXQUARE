@@ -40,7 +40,7 @@ const MIN_DB = -100;
 const MAX_DB = 0;
 const SLOPE_DB_PER_OCTAVE = 4.5;
 const SLOPE_REF_FREQ = 1000;
-const LOG_GAMMA = 1.3; // compress low frequencies on log scale
+const LOG_GAMMA = 1.0; // neutral log-scale spacing
 
 // ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
 const BASS_SMOOTH = 0.8;

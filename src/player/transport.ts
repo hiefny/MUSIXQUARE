@@ -594,8 +594,12 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 
 // ─── Pause ─────────────────────────────────────────────────────────
 
-export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }): void {
-  if (isFileTransportInactive()) return;
+export function pause(
+  forcedTime?: number,
+  opts?: { holdVisualizer?: boolean; force?: boolean; showToast?: boolean },
+): void {
+  const hasPlayerNode = !!getPlayerNode();
+  if (isFileTransportInactive() && !(opts?.force && hasPlayerNode)) return;
 
   let pausePos: number;
   if (typeof forcedTime === 'number' && Number.isFinite(forcedTime) && forcedTime >= 0) {
@@ -616,7 +620,9 @@ export function pause(forcedTime?: number, opts?: { holdVisualizer?: boolean }):
     transition({ type: 'PAUSE', time: pausePos, endOfPlaylist: false });
   }
 
-  showToast(t('common.pause'));
+  if (opts?.showToast ?? true) {
+    showToast(t('common.pause'));
+  }
 }
 
 // ─── Handle Track Ended ────────────────────────────────────────────

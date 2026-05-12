@@ -156,6 +156,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         return { stay: true }; // preload machinery can progress alongside IDLE lifecycle
       case 'FILE_END':
       case 'DECODE_SUCCESS':
+      case 'TRACK_ENDED':
         // Stale messages buffered in dataChannel from a transfer the receiver
         // already disengaged from (e.g. host endOfPlaylist or rapid track-change
         // race). Harmless on idle state; the next FILE_PREPARE will re-engage

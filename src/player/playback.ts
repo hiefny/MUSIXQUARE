@@ -382,7 +382,8 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
     return;
   }
 
-  pause(time, { holdVisualizer: reason === undefined || reason === 'pause' });
+  const isUserPause = reason === undefined || reason === 'pause';
+  pause(time, { holdVisualizer: isUserPause, force: true, showToast: isUserPause });
 }
 
 function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection): void {

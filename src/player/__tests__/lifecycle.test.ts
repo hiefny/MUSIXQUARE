@@ -158,6 +158,10 @@ describe('lifecycle: from IDLE', () => {
   it('FILE_END in IDLE is absorbed (stale dataChannel buffered message)', () => {
     expect(step(FROM, { type: 'FILE_END' })).toEqual({ stay: true });
   });
+
+  it('TRACK_ENDED in IDLE is absorbed (end signal after stop cleanup)', () => {
+    expect(step(FROM, { type: 'TRACK_ENDED' })).toEqual({ stay: true });
+  });
 });
 
 // ─── FROM DOWNLOADING ──────────────────────────────────────────────

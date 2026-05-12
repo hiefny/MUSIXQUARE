@@ -11,6 +11,7 @@ import {
   incrementLoadToken,
   getPendingPlayTime,
   setPendingPlayTime,
+  setPlayerNode,
 } from '../_state.ts';
 import { initPlayback } from '../playback.ts';
 import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
@@ -188,6 +189,24 @@ describe('pause', () => {
     expect(hold).not.toHaveBeenCalled();
     expect(getState('playback.mode')).toBe('file');
     expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it('force-stops a stale player node after state already moved to paused', () => {
+    const stop = vi.fn();
+    const disconnect = vi.fn();
+    setPlaybackFilePaused();
+    setPlayerNode({
+      stop,
+      disconnect,
+      onended: vi.fn(),
+      buffer: {} as AudioBuffer,
+    } as unknown as AudioBufferSourceNode);
+
+    pause(12, { force: true, holdVisualizer: false, showToast: false });
+
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(getState('player.pausedAt')).toBe(12);
   });
 });
 

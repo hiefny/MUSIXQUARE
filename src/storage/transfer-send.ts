@@ -10,7 +10,7 @@ import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { delay, setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { filterEligiblePeers, canSendFileTo, broadcast } from '../network/peer.ts';
 import { SessionScope } from '../core/session-scope.ts';
-import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
+import type { DataConnection, AnyProtocolMsg, ConnectedPeer } from '../types/index.ts';
 
 // ─── Send-side Module State ──────────────────────────────────────────
 
@@ -31,6 +31,22 @@ function isPeerConnectionCurrent(peerId: string, conn: DataConnection): boolean 
 
   const activeConn = getState('network.activeHostConnByPeerId').get(peerId);
   return !activeConn || activeConn === conn;
+}
+
+function isBulkTransferWritablePeer(peer: ConnectedPeer): boolean {
+  const conn = peer.conn as DataConnection | null;
+  if (!conn?.open) return false;
+
+  const dataChannelState = conn.dataChannel?.readyState;
+  if (dataChannelState && dataChannelState !== 'open') return false;
+
+  const pcState = conn.peerConnection?.connectionState;
+  if (pcState === 'closed' || pcState === 'failed' || pcState === 'disconnected') return false;
+
+  const iceState = conn.peerConnection?.iceConnectionState;
+  if (iceState === 'closed' || iceState === 'failed' || iceState === 'disconnected') return false;
+
+  return isPeerConnectionCurrent(peer.id, conn);
 }
 
 // ─── Broadcast Debounce ──────────────────────────────────────────────
@@ -143,7 +159,7 @@ export async function broadcastFile(
     sessionId,
   };
 
-  const eligiblePeers = filterEligiblePeers();
+  const eligiblePeers = filterEligiblePeers().filter(isBulkTransferWritablePeer);
 
   // 12-13: Clean up activeBroadcastSession on early return to avoid resource leak
   if (eligiblePeers.length === 0) {
@@ -190,13 +206,13 @@ export async function broadcastFile(
         if (timedOutPeers.has(p.id)) return;
         const conn = p.conn as DataConnection;
         if (!conn?.open) return;
-        if (!isPeerConnectionCurrent(p.id, conn)) {
+        if (!isBulkTransferWritablePeer(p)) {
           timedOutPeers.add(p.id);
           return;
         }
         const backpressureStart = Date.now();
         while (conn.dataChannel && conn.dataChannel.bufferedAmount > BROADCAST_BACKPRESSURE_LIMIT) {
-          if (!conn.open || !isPeerConnectionCurrent(p.id, conn)) {
+          if (!isBulkTransferWritablePeer(p)) {
             timedOutPeers.add(p.id);
             return;
           }

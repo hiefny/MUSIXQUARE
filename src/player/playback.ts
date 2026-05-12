@@ -56,6 +56,10 @@ import {
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
 
+function requestPostPlayResync(delayMs = 250): void {
+  setManagedTimer('playback-post-play-resync', () => bus.emit('sync:force-resync'), delayMs);
+}
+
 function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): void {
   const playlist = getState('playlist.items') || [];
   const item = playlist[index];
@@ -252,6 +256,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
         const compensatedTime = time + waitMs / 1000;
         // Web Audio hardware-timed start — sub-ms precision (no setTimeout jitter)
         play(compensatedTime, waitMs / 1000);
+        requestPostPlayResync(waitMs + 250);
         log.debug(
           `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, WebAudio)`,
         );
@@ -259,11 +264,13 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       } else {
         log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
         play(time);
+        requestPostPlayResync();
         bus.emit('sync:arm-initial');
       }
     } else {
       // Legacy: no hostPlayAt field — play immediately
       play(time);
+      requestPostPlayResync();
       bus.emit('sync:arm-initial');
     }
   } else {

@@ -603,6 +603,11 @@ export async function loadPreloadedTrack(
       );
       play(target);
       setPendingPlayTime(undefined);
+      setManagedTimer(
+        'playback-preload-host-sync',
+        () => bus.emit('sync:force-resync'),
+        250,
+      );
     } else {
       log.info('[Preload] No pending play time, requesting initial sync from host');
       // First-load case: a remote-share download finished but no MSG.PLAY
@@ -611,7 +616,7 @@ export async function loadPreloadedTrack(
       // SYNC_PONG's bootstrap path can start playback at the host's
       // current position — otherwise we wait up to 1s for the next worker
       // tick and the user perceives a stuck-at-0:00 first track.
-      bus.emit('sync:request-immediate-ping');
+      bus.emit('sync:force-resync');
     }
 
     finishPreloadActivation(activationOwner);
@@ -831,12 +836,12 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       setPendingPlayTime(undefined);
       setManagedTimer(
         'playback-finalize-host-sync',
-        () => bus.emit('sync:request-immediate-ping'),
+        () => bus.emit('sync:force-resync'),
         250,
       );
     } else if (hostConn?.open) {
       log.info('[Guest] No pending play time after download, requesting host sync');
-      bus.emit('sync:request-immediate-ping');
+      bus.emit('sync:force-resync');
     }
 
     bus.emit('ui:play-btn-state', true);

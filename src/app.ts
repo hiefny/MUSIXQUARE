@@ -14,7 +14,6 @@
  */
 
 // ── Core ──
-import NoSleep from 'nosleep.js';
 import { log } from './core/log.ts';
 import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
@@ -151,70 +150,25 @@ function initKeyboardShortcuts(): void {
   log.info('[App] Keyboard shortcuts registered');
 }
 
-// ── Wake Lock / NoSleep fallback ──
+// ── Wake Lock (native API) ──
+// Best-effort only. Session liveness still comes from heartbeat/sync recovery.
 // Enabled once when a session starts, never disabled.
 // Re-acquired automatically when tab becomes visible again.
-// NoSleep is the primary keep-awake path for iOS/WebView; native Wake Lock
-// remains as a best-effort companion on browsers that support it reliably.
 
-type NativeWakeLock = {
-  request: (type: 'screen') => Promise<unknown>;
-};
-
-const _nativeWakeLock =
-  'wakeLock' in navigator ? (navigator.wakeLock as NativeWakeLock | undefined) : undefined;
-
-function hideNativeWakeLockFromNoSleep(): void {
-  try {
-    delete (navigator as unknown as Record<string, unknown>).wakeLock;
-  } catch (err) {
-    log.debug('[App] Unable to hide native Wake Lock from NoSleep fallback:', err);
-  }
-
-  const navigatorPrototype = Object.getPrototypeOf(navigator) as Record<string, unknown> | null;
-  if (!navigatorPrototype || !Object.prototype.hasOwnProperty.call(navigatorPrototype, 'wakeLock')) {
-    return;
-  }
-
-  try {
-    delete navigatorPrototype.wakeLock;
-  } catch (err) {
-    log.debug('[App] Unable to hide prototype Wake Lock from NoSleep fallback:', err);
-  }
-}
-
-hideNativeWakeLockFromNoSleep();
-
-const _noSleep = new NoSleep();
 let _wakeLockActive = false;
 
-async function enableNoSleepFallback(): Promise<void> {
-  if (_noSleep.isEnabled) return;
+async function acquireWakeLock(): Promise<void> {
+  if (!('wakeLock' in navigator)) return;
   try {
-    await _noSleep.enable();
-    log.debug('[App] NoSleep fallback enabled');
-  } catch (err) {
-    log.warn('[App] NoSleep fallback failed:', err);
-  }
-}
-
-async function acquireNativeWakeLock(): Promise<void> {
-  if (!_nativeWakeLock) return;
-  try {
-    await _nativeWakeLock.request('screen');
+    await navigator.wakeLock.request('screen');
     log.debug('[App] Wake Lock acquired');
   } catch (err) {
     log.warn('[App] Wake Lock request failed:', err);
   }
 }
 
-async function acquireWakeLock(): Promise<void> {
-  await enableNoSleepFallback();
-  await acquireNativeWakeLock();
-}
-
 export function activateNoSleep(): void {
-  if (_wakeLockActive && _noSleep.isEnabled) return;
+  if (_wakeLockActive) return;
   _wakeLockActive = true;
   void acquireWakeLock();
 }
@@ -246,7 +200,7 @@ function initWakeLock(): void {
     }
   });
 
-  log.info('[App] Wake Lock initialized (NoSleep fallback + native API)');
+  log.info('[App] Wake Lock initialized (native API)');
 }
 
 // Audio gesture recovery

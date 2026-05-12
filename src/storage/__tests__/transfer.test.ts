@@ -170,4 +170,56 @@ describe('host outgoing transfer routing', () => {
     );
     expect(currentConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
   });
+
+  it('skips disconnected peer connections before bulk file broadcast starts', async () => {
+    const { broadcastFile } = await import('../transfer.ts');
+    const liveConn = {
+      open: true,
+      peer: 'peer-live',
+      send: vi.fn(),
+      peerConnection: { connectionState: 'connected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    const disconnectedConn = {
+      open: true,
+      peer: 'peer-disconnected',
+      send: vi.fn(),
+      peerConnection: { connectionState: 'disconnected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 1024 * 1024 },
+    } as unknown as DataConnection;
+
+    setState('playlist.currentTrackIndex', 0);
+    setState('network.connectedPeers', [
+      {
+        id: 'peer-live',
+        status: 'connected',
+        conn: liveConn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 1,
+      },
+      {
+        id: 'peer-disconnected',
+        status: 'connected',
+        conn: disconnectedConn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 2,
+      },
+    ]);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map([
+        ['peer-live', liveConn],
+        ['peer-disconnected', disconnectedConn],
+      ]),
+    );
+
+    await broadcastFile(new File(['abc'], 'song.mp3', { type: 'audio/mpeg' }), 1);
+
+    expect(disconnectedConn.send).not.toHaveBeenCalled();
+    expect(liveConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+    expect(liveConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_CHUNK }));
+    expect(liveConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
+  });
 });

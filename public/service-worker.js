@@ -39,7 +39,8 @@
 // v111: bump-only — trigger the SW update dialog on existing clients to repro the "refresh button not clickable" report
 // v112: invalidate cached /.netlify/functions/* responses (TURN credential endpoint) after the get-turn-config + isCacheableRequest hardening
 // v113: bypass cross-origin requests entirely — opaque responses from the runtime cache were rendering as broken-image icons for the YouTube paste preview thumbnail (i.ytimg.com) on prod WebView/Safari paths, while dev (no SW) worked fine
-const CACHE_VERSION = "v113";
+// v114: invalidate cached app shell after playback ownership/state migration hardening
+const CACHE_VERSION = "v114";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

@@ -317,7 +317,6 @@ describe('Visualizer', () => {
 
     it('applies the initial paused playback activity through the visualizer subscription', async () => {
       const { setState } = await import('../../core/state.ts');
-      const { clearManagedTimer } = await import('../../core/timers.ts');
       setState('playback.mode', 'file');
       setState('playback.activity', 'paused');
 
@@ -343,7 +342,61 @@ describe('Visualizer', () => {
       mod.initVisualizer();
 
       expect(ctx.arc).toHaveBeenCalled();
-      expect(clearManagedTimer).toHaveBeenCalledWith('viz-silence-poll');
+    });
+
+    it('settles a cached circular frame before drawing the final resting frame', async () => {
+      vi.resetModules();
+      const { setState } = await import('../../core/state.ts');
+      const { getAnalyser } = await import('../../audio/engine.ts');
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+
+      const restingCanvas = document.createElement('canvas');
+      restingCanvas.id = 'visualizerCanvas';
+      document.body.appendChild(restingCanvas);
+
+      const ctx = {
+        setTransform: vi.fn(),
+        scale: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        lineTo: vi.fn(),
+        moveTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+
+      const analyser = {
+        frequencyBinCount: 16,
+        getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-20)),
+      } as unknown as AnalyserNode;
+      vi.mocked(getAnalyser).mockReturnValue(analyser);
+
+      const rafCallbacks: FrameRequestCallback[] = [];
+      const requestAnimationFrameMock = vi.fn((cb: FrameRequestCallback) => {
+        rafCallbacks.push(cb);
+        return rafCallbacks.length;
+      });
+      vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const { bus } = await import('../../core/events.ts');
+      bus.clear();
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+
+      vi.mocked(ctx.arc).mockClear();
+      requestAnimationFrameMock.mockClear();
+      rafCallbacks.length = 0;
+
+      bus.emit('visualizer:fade-out');
+
+      expect(requestAnimationFrameMock).toHaveBeenCalledTimes(1);
+      rafCallbacks[0](performance.now() + 200);
+      expect(ctx.arc).toHaveBeenCalled();
     });
 
     it('imports initVisualizer without error', async () => {

@@ -45,6 +45,26 @@ const LOG_GAMMA = 1.3; // compress low frequencies on log scale
 // ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
 const BASS_SMOOTH = 0.8;
 const HIGH_SMOOTH = 0.8;
+const VIZ_SETTLE_MS = 180;
+
+type SpectrumPoint = { x: number; y: number };
+
+interface CircularFrame {
+  bassPunch: number;
+  bassOpacity: number;
+  highPunch: number;
+}
+
+interface SpectrumFrame {
+  points: SpectrumPoint[];
+  width: number;
+  height: number;
+  padX: number;
+  padY: number;
+}
+
+let _lastCircularFrame: CircularFrame | null = null;
+let _lastSpectrumFrame: SpectrumFrame | null = null;
 
 // ─── (Frame throttle removed — runs at display's native refresh rate) ───
 
@@ -133,25 +153,113 @@ function syncCanvasSize(
   }
 }
 
-// ─── Silence-aware fade-out stop ────────────────────────────────
-
-// On IDLE the rAF loop keeps running until the analyser has been
-// near-silent for a sustained window. This handles long reverb tails
-// (settings.default_5s and beyond) cleanly — the visual stops when
-// the audio actually stops, not after an arbitrary timer.
-// Follow the audio all the way down. -100 dB is the analyser's float
-// floor — frequency data only stays at -100 when the source is truly
-// silent (or disconnected), so anything brushing above it is still
-// audible to careful listeners and the visualizer should keep tracking
-// it. 1000ms sustained absorbs brief gaps in long reverb washes;
-// 30s cap is a safety net for stuck/disconnected analysers.
-const VIZ_SILENCE_THRESHOLD_DB = -100;
-const VIZ_SILENCE_SUSTAINED_MS = 1000;
-const VIZ_SILENCE_MAX_CAP_MS = 30_000;
-const VIZ_SILENCE_POLL_MS = 100;
-let _silenceFirstSeenAt = 0;
+// ─── Resting settle animation ─────────────────────────────────────
 let _holdNextPauseFrame = false;
 let _isHoldingPauseFrame = false;
+
+function cancelVisualizerAnimation(): void {
+  if (_animationId) {
+    cancelAnimationFrame(_animationId);
+    _animationId = null;
+  }
+}
+
+function clearLastVisualizerFrames(): void {
+  _lastCircularFrame = null;
+  _lastSpectrumFrame = null;
+}
+
+function easeOutCubic(t: number): number {
+  const clamped = Math.max(0, Math.min(1, t));
+  return 1 - Math.pow(1 - clamped, 3);
+}
+
+function drawCircularVisualizerFrame(
+  ctx: CanvasRenderingContext2D,
+  logicalSize: number,
+  frame: CircularFrame,
+): void {
+  const scale = logicalSize / 240;
+  const centerX = logicalSize / 2;
+  const centerY = logicalSize / 2;
+  const twoPi = 2 * Math.PI;
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, logicalSize, logicalSize);
+  ctx.shadowBlur = 0;
+
+  const bassRadius = (55 + frame.bassPunch * 200) * scale;
+  ctx.fillStyle = _cachedIsLight
+    ? `rgba(66, 129, 241, ${frame.bassOpacity})`
+    : `hsla(218, 86%, 60%, ${frame.bassOpacity})`;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, bassRadius, 0, twoPi);
+  ctx.fill();
+
+  const highRadius = (40 + frame.highPunch * 130) * scale;
+  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, highRadius, 0, twoPi);
+  ctx.fill();
+}
+
+function drawSpectrumRestingLine(
+  ctx: CanvasRenderingContext2D,
+  logicalW: number,
+  logicalH: number,
+  padX: number,
+  padY: number,
+): void {
+  const restY = dbToY(MIN_DB, logicalH, padY);
+  ctx.strokeStyle = 'rgba(59, 130, 246, 0.38)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(padX, restY);
+  ctx.lineTo(logicalW - padX, restY);
+  ctx.stroke();
+}
+
+function drawSpectrumCurve(
+  ctx: CanvasRenderingContext2D,
+  points: SpectrumPoint[],
+  logicalH: number,
+  padX: number,
+  padY: number,
+  isLight: boolean,
+): void {
+  if (points.length < 2) return;
+
+  ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
+  const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
+  grad.addColorStop(0, isLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)');
+  grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(padX, logicalH - padY);
+  ctx.lineTo(padX, points[0].y);
+  for (let i = 0; i < points.length - 1; i++) {
+    const mx = (points[i].x + points[i + 1].x) / 2;
+    const my = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+  }
+  const last = points[points.length - 1];
+  ctx.lineTo(last.x, last.y);
+  ctx.lineTo(last.x, logicalH - padY);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(59, 130, 246, 0.9)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(padX, points[0].y);
+  for (let i = 0; i < points.length - 1; i++) {
+    const mx = (points[i].x + points[i + 1].x) / 2;
+    const my = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+  }
+  ctx.lineTo(last.x, last.y);
+  ctx.stroke();
+}
 
 function drawRestingVisualizerFrame(): void {
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
@@ -172,94 +280,111 @@ function drawRestingVisualizerFrame(): void {
   if (_vizMode === 'spectrum') {
     const padX = 4;
     const padY = 8;
-    const restY = dbToY(MIN_DB, logicalH, padY);
     drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
-    ctx.strokeStyle = 'rgba(59, 130, 246, 0.38)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(padX, restY);
-    ctx.lineTo(logicalW - padX, restY);
-    ctx.stroke();
+    drawSpectrumRestingLine(ctx, logicalW, logicalH, padX, padY);
+    clearLastVisualizerFrames();
     return;
   }
 
   const logicalSize = Math.min(logicalW, logicalH);
-  const scale = logicalSize / 240;
-  const centerX = logicalSize / 2;
-  const centerY = logicalSize / 2;
-  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 0.25)' : 'hsla(218, 86%, 60%, 0.25)';
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, 55 * scale, 0, 2 * Math.PI);
-  ctx.fill();
-
-  ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, 40 * scale, 0, 2 * Math.PI);
-  ctx.fill();
-}
-
-function stopVisualizerAtRest(): void {
-  if (_animationId) {
-    cancelAnimationFrame(_animationId);
-    _animationId = null;
-  }
-  clearManagedTimer('viz-silence-poll');
-  _silenceFirstSeenAt = 0;
-  drawRestingVisualizerFrame();
+  drawCircularVisualizerFrame(ctx, logicalSize, {
+    bassPunch: 0,
+    bassOpacity: 0.25,
+    highPunch: 0,
+  });
+  clearLastVisualizerFrames();
 }
 
 function fadeVisualizerOut(): void {
-  stopVisualizerAtRest();
+  settleVisualizerToRest();
   // Keep the event-facing name for compatibility with transport/playback.
-  // The UX now settles to the minimum visualizer frame instead of erasing
-  // the canvas, so silence never leaves a blank hole in the player.
-  _silenceFirstSeenAt = 0;
   _holdNextPauseFrame = false;
   _isHoldingPauseFrame = false;
 }
 
-function scheduleVisualizerSilenceStop(): void {
-  _silenceFirstSeenAt = 0;
-  const pollStart = performance.now();
-  const poll = (): void => {
-    // User resumed playback in the meantime — startVisualizer cleared
-    // the timer already, but be defensive.
-    if (!_animationId) return;
+function settleVisualizerToRest(): void {
+  cancelVisualizerAnimation();
 
-    const analyser = getEngineAnalyser();
-    if (!analyser) {
-      stopVisualizerAtRest();
-      return;
-    }
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  const ctx = canvas?.getContext('2d');
+  if (!canvas || !ctx) return;
 
-    const data = new Float32Array(analyser.frequencyBinCount);
-    analyser.getFloatFrequencyData(data);
-    let max = -Infinity;
-    for (let i = 0; i < data.length; i++) {
-      const v = data[i];
-      if (v > max) max = v;
-    }
-    const isSilent = !isFinite(max) || max < VIZ_SILENCE_THRESHOLD_DB;
-    const now = performance.now();
+  refreshThemeCache();
+  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+  syncCanvasSize(canvas, ctx, wrapper);
+  const dpr = window.devicePixelRatio || 1;
+  const logicalW = canvas.width / dpr;
+  const logicalH = canvas.height / dpr;
 
-    if (isSilent) {
-      if (!_silenceFirstSeenAt) _silenceFirstSeenAt = now;
-      if (now - _silenceFirstSeenAt >= VIZ_SILENCE_SUSTAINED_MS) {
-        stopVisualizerAtRest();
+  if (_vizMode === 'spectrum' && _lastSpectrumFrame?.points.length) {
+    const source = _lastSpectrumFrame;
+    const padX = 4;
+    const padY = 8;
+    const restY = dbToY(MIN_DB, logicalH, padY);
+    const start = performance.now();
+
+    const draw = (now: number): void => {
+      const eased = easeOutCubic((now - start) / VIZ_SETTLE_MS);
+      const points = source.points.map((p) => {
+        const xRange = Math.max(1, source.width - 2 * source.padX);
+        const yRange = Math.max(1, source.height - 2 * source.padY);
+        const xNorm = Math.max(0, Math.min(1, (p.x - source.padX) / xRange));
+        const yNorm = Math.max(0, Math.min(1, (p.y - source.padY) / yRange));
+        const x = padX + xNorm * (logicalW - 2 * padX);
+        const startY = padY + yNorm * (logicalH - 2 * padY);
+        return { x, y: startY + (restY - startY) * eased };
+      });
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, logicalW, logicalH);
+      ctx.shadowBlur = 0;
+      drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
+      drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
+      _lastSpectrumFrame = { points, width: logicalW, height: logicalH, padX, padY };
+      _lastCircularFrame = null;
+
+      if (eased >= 1) {
+        _animationId = null;
+        drawRestingVisualizerFrame();
         return;
       }
-    } else {
-      _silenceFirstSeenAt = 0;
-    }
+      _animationId = requestAnimationFrame(draw);
+    };
 
-    if (now - pollStart >= VIZ_SILENCE_MAX_CAP_MS) {
-      stopVisualizerAtRest();
-      return;
-    }
+    _animationId = requestAnimationFrame(draw);
+    return;
+  }
 
-    setManagedTimer('viz-silence-poll', poll, VIZ_SILENCE_POLL_MS);
-  };
-  setManagedTimer('viz-silence-poll', poll, VIZ_SILENCE_POLL_MS);
+  if (_vizMode === 'circular' && _lastCircularFrame) {
+    const source = _lastCircularFrame;
+    const logicalSize = Math.min(logicalW, logicalH);
+    const start = performance.now();
+
+    const draw = (now: number): void => {
+      const eased = easeOutCubic((now - start) / VIZ_SETTLE_MS);
+      const quiet = 1 - eased;
+      const frame = {
+        bassPunch: source.bassPunch * quiet,
+        bassOpacity: source.bassOpacity + (0.25 - source.bassOpacity) * eased,
+        highPunch: source.highPunch * quiet,
+      };
+      drawCircularVisualizerFrame(ctx, logicalSize, frame);
+      _lastCircularFrame = frame;
+      _lastSpectrumFrame = null;
+
+      if (eased >= 1) {
+        _animationId = null;
+        drawRestingVisualizerFrame();
+        return;
+      }
+      _animationId = requestAnimationFrame(draw);
+    };
+
+    _animationId = requestAnimationFrame(draw);
+    return;
+  }
+
+  drawRestingVisualizerFrame();
 }
 
 // ─── Start Active Visualizer ─────────────────────────────────────
@@ -271,14 +396,9 @@ export function startVisualizer(): void {
   }
 
   clearManagedTimer('viz-retry');
-  clearManagedTimer('viz-silence-poll');
-  _silenceFirstSeenAt = 0;
   _holdNextPauseFrame = false;
   _isHoldingPauseFrame = false;
-  if (_animationId) {
-    cancelAnimationFrame(_animationId);
-    _animationId = null;
-  }
+  cancelVisualizerAnimation();
 
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   if (!canvas) return;
@@ -314,8 +434,6 @@ export function startVisualizer(): void {
   let logicalSize = syncCanvasSize(canvas, ctx, wrapper);
 
   // Pre-compute constants outside draw loop
-  let scale = logicalSize / 240;
-  const twoPi = 2 * Math.PI;
   const highStart = Math.floor(bufferLength * 0.7);
   const highEnd = bufferLength;
   let highCountVal = highEnd - highStart;
@@ -338,15 +456,11 @@ export function startVisualizer(): void {
     const curSize = canvas!.width / (window.devicePixelRatio || 1);
     if (curSize !== logicalSize) {
       logicalSize = curSize;
-      scale = logicalSize / 240;
     }
 
     try {
       analyser!.getFloatFrequencyData(_freqData);
       const dbData = _freqData;
-
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.clearRect(0, 0, logicalSize, logicalSize);
 
       // Bass: 0~260Hz (12 bins)
       let bassSum = 0;
@@ -378,28 +492,11 @@ export function startVisualizer(): void {
       let highPunch = smoothedHigh / 255;
       if (!isFinite(highPunch)) highPunch = 0;
 
-      const centerX = logicalSize / 2;
-      const centerY = logicalSize / 2;
-
-      ctx.shadowBlur = 0;
-
-      // Circle 1: Bass
-      ctx.globalCompositeOperation = 'source-over';
-      const bassRadius = (55 + bassPunch * 200) * scale;
       const bassOpacity = Math.min(0.75, 0.25 + bassPunchOpacity * 0.75);
-      ctx.fillStyle = _cachedIsLight
-        ? `rgba(66, 129, 241, ${bassOpacity})`
-        : `hsla(218, 86%, 60%, ${bassOpacity})`;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, bassRadius, 0, twoPi);
-      ctx.fill();
-
-      // Circle 2: High
-      const highRadius = (40 + highPunch * 130) * scale;
-      ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, highRadius, 0, twoPi);
-      ctx.fill();
+      const frame = { bassPunch, bassOpacity, highPunch };
+      drawCircularVisualizerFrame(ctx, logicalSize, frame);
+      _lastCircularFrame = frame;
+      _lastSpectrumFrame = null;
 
       _animationId = requestAnimationFrame(draw);
     } catch (e) {
@@ -463,14 +560,9 @@ function drawSpectrumGrid(
 
 function startSpectrumVisualizer(): void {
   clearManagedTimer('viz-retry');
-  clearManagedTimer('viz-silence-poll');
-  _silenceFirstSeenAt = 0;
   _holdNextPauseFrame = false;
   _isHoldingPauseFrame = false;
-  if (_animationId) {
-    cancelAnimationFrame(_animationId);
-    _animationId = null;
-  }
+  cancelVisualizerAnimation();
 
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   if (!canvas) return;
@@ -535,39 +627,17 @@ function startSpectrumVisualizer(): void {
       }
 
       if (points.length >= 2) {
-        ctx.globalCompositeOperation = _cachedIsLight ? 'source-over' : 'lighter';
-        const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
-        grad.addColorStop(
-          0,
-          _cachedIsLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)',
-        );
-        grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.moveTo(padX, logicalH - padY);
-        ctx.lineTo(padX, points[0].y);
-        for (let i = 0; i < points.length - 1; i++) {
-          const mx = (points[i].x + points[i + 1].x) / 2;
-          const my = (points[i].y + points[i + 1].y) / 2;
-          ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-        }
-        const last = points[points.length - 1];
-        ctx.lineTo(last.x, last.y);
-        ctx.lineTo(last.x, logicalH - padY);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = 'rgba(59, 130, 246, 0.9)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(padX, points[0].y);
-        for (let i = 0; i < points.length - 1; i++) {
-          const mx = (points[i].x + points[i + 1].x) / 2;
-          const my = (points[i].y + points[i + 1].y) / 2;
-          ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-        }
-        ctx.lineTo(last.x, last.y);
-        ctx.stroke();
+        drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
+        _lastSpectrumFrame = {
+          points: points.map((p) => ({ x: p.x, y: p.y })),
+          width: logicalW,
+          height: logicalH,
+          padX,
+          padY,
+        };
+        _lastCircularFrame = null;
+      } else {
+        _lastSpectrumFrame = null;
       }
       _animationId = requestAnimationFrame(draw);
     } catch (e) {
@@ -635,44 +705,32 @@ export function initVisualizer(): void {
   });
 
   // Listen for playback state changes
-  scopePlaybackModeActivity(_busScope, (playback) => {
-    if (playback.activity === 'paused' && _holdNextPauseFrame) {
-      // PAUSED is a deliberate user action — freeze immediately so the
-      // last frame stays visible until they press play again.
-      if (_animationId) {
-        cancelAnimationFrame(_animationId);
-        _animationId = null;
+  scopePlaybackModeActivity(
+    _busScope,
+    (playback) => {
+      if (playback.activity === 'paused' && _holdNextPauseFrame) {
+        // PAUSED is a deliberate user action — freeze immediately so the
+        // last frame stays visible until they press play again.
+        cancelVisualizerAnimation();
+        _holdNextPauseFrame = false;
+        _isHoldingPauseFrame = true;
+      } else if (playback.activity === 'paused') {
+        fadeVisualizerOut();
+      } else if (playback.activity === 'playing') {
+        // Cancel any pending settle from a previous pause/idle pass.
+        _holdNextPauseFrame = false;
+        _isHoldingPauseFrame = false;
+        // Only spin up the rAF loop when there's actually audio to visualize.
+        // Previously this branch fired for IDLE too — wasting frames during
+        // landing/setup since the analyser had nothing to report.
+        startVisualizer();
+      } else {
+        // IDLE / unknown: quickly settle into the resting frame.
+        fadeVisualizerOut();
       }
-      clearManagedTimer('viz-silence-poll');
-      _holdNextPauseFrame = false;
-      _isHoldingPauseFrame = true;
-    } else if (playback.activity === 'paused') {
-      fadeVisualizerOut();
-    } else if (playback.activity === 'playing') {
-      // Cancel any pending silence-stop poll from a previous IDLE pass
-      // — we're playing again, the loop should keep running.
-      clearManagedTimer('viz-silence-poll');
-      _silenceFirstSeenAt = 0;
-      _holdNextPauseFrame = false;
-      _isHoldingPauseFrame = false;
-      // Only spin up the rAF loop when there's actually audio to visualize.
-      // Previously this branch fired for IDLE too — wasting frames during
-      // landing/setup since the analyser had nothing to report.
-      startVisualizer();
-    } else {
-      // IDLE / unknown — keep the rAF loop running until the analyser
-      // actually goes silent, then stop. A fixed 800ms timeout was the
-      // first try, but reverb tails can ring out for 10+ seconds and
-      // cutting the visual at 800ms while audio keeps playing looks
-      // worse than the original stuck-frame bug. Poll the analyser
-      // and only stop once the spectrum has been near-silent for a
-      // sustained window. Hard 30s cap as a safety net (analyser
-      // can stay non-zero forever if the source was disconnected
-      // without the data buffer being cleared).
-      if (_animationId) scheduleVisualizerSilenceStop();
-      else fadeVisualizerOut();
-    }
-  }, { immediate: true });
+    },
+    { immediate: true },
+  );
 
   // Listen for visualizer start command from playback
   _busScope.on('visualizer:start', () => {
@@ -691,10 +749,7 @@ export function initVisualizer(): void {
   _busScope.on('visualizer:set-type', (mode: 'circular' | 'spectrum') => {
     applyVisualizerMode(mode);
 
-    if (_animationId) {
-      cancelAnimationFrame(_animationId);
-      _animationId = null;
-    }
+    cancelVisualizerAnimation();
 
     const analyser = getAnalyser();
     if (analyser) {

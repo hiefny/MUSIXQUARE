@@ -165,4 +165,43 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('transfer.meta')).toBeNull();
     expect(postCommand).not.toHaveBeenCalled();
   });
+
+  it('preserves a queued host PLAY when FILE_PREPARE resets receive state for the same track', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { getPendingPlayTime, getPendingPlayTimeSetAt, setPendingPlayTime } = await import(
+      '../../player/_state.ts'
+    );
+
+    setState('network.connectionType', 'local');
+    setState('playlist.currentTrackIndex', 2);
+    setState('playlist.items', [
+      { type: 'file', name: 'a.mp3', title: 'A', videoId: null, playlistId: null },
+      { type: 'file', name: 'b.mp3', title: 'B', videoId: null, playlistId: null },
+      { type: 'file', name: 'song.mp3', title: 'Song', videoId: null, playlistId: null },
+    ]);
+    setPendingPlayTime(37, 123456);
+
+    bus.on('player:stop-all-media', () => setPendingPlayTime(undefined));
+    bus.on('storage:clear-previous-track', () => setPendingPlayTime(undefined));
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        index: 2,
+        size: 1024,
+        sessionId: 13,
+      },
+      conn,
+    );
+
+    expect(getPendingPlayTime()).toBe(37);
+    expect(getPendingPlayTimeSetAt()).toBe(123456);
+    expect(getState('transfer.meta')).toMatchObject({
+      name: 'song.mp3',
+      index: 2,
+      sessionId: 13,
+    });
+  });
 });

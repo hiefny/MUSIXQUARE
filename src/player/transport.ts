@@ -596,10 +596,9 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<Interna
 
 export function pause(
   forcedTime?: number,
-  opts?: { holdVisualizer?: boolean; force?: boolean; showToast?: boolean },
+  opts?: { holdVisualizer?: boolean; showToast?: boolean },
 ): void {
-  const hasPlayerNode = !!getPlayerNode();
-  if (isFileTransportInactive() && !(opts?.force && hasPlayerNode)) return;
+  if (isFileTransportInactive()) return;
 
   let pausePos: number;
   if (typeof forcedTime === 'number' && Number.isFinite(forcedTime) && forcedTime >= 0) {

@@ -24,6 +24,7 @@ import {
   setPlaybackYouTubePlaying,
 } from '../ownership.ts';
 import { broadcast } from '../../network/peer.ts';
+import { handleData } from '../../network/protocol.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../../network/peer.ts', () => ({
@@ -191,10 +192,12 @@ describe('pause', () => {
     expect(getState('playback.activity')).toBe('paused');
   });
 
-  it('force-stops a stale player node after state already moved to paused', () => {
+  it('stops a remote pause before applying the paused lifecycle state', async () => {
     const stop = vi.fn();
     const disconnect = vi.fn();
-    setPlaybackFilePaused();
+    const conn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', conn);
+    setPlaybackFilePlaying();
     setPlayerNode({
       stop,
       disconnect,
@@ -202,11 +205,13 @@ describe('pause', () => {
       buffer: {} as AudioBuffer,
     } as unknown as AudioBufferSourceNode);
 
-    pause(12, { force: true, holdVisualizer: false, showToast: false });
+    initPlayback();
+    await handleData({ type: MSG.PAUSE, time: 12, reason: 'stop' }, conn);
 
     expect(disconnect).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledTimes(1);
     expect(getState('player.pausedAt')).toBe(12);
+    expect(getState('playback.activity')).toBe('paused');
   });
 });
 

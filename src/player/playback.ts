@@ -56,10 +56,6 @@ import {
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
 
-function requestPostPlayResync(delayMs = 250): void {
-  setManagedTimer('playback-post-play-resync', () => bus.emit('sync:force-resync'), delayMs);
-}
-
 function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): void {
   const playlist = getState('playlist.items') || [];
   const item = playlist[index];
@@ -256,7 +252,6 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
         const compensatedTime = time + waitMs / 1000;
         // Web Audio hardware-timed start — sub-ms precision (no setTimeout jitter)
         play(compensatedTime, waitMs / 1000);
-        requestPostPlayResync(waitMs + 250);
         log.debug(
           `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, WebAudio)`,
         );
@@ -264,13 +259,11 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       } else {
         log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
         play(time);
-        requestPostPlayResync();
         bus.emit('sync:arm-initial');
       }
     } else {
       // Legacy: no hostPlayAt field — play immediately
       play(time);
-      requestPostPlayResync();
       bus.emit('sync:arm-initial');
     }
   } else {
@@ -363,11 +356,6 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   const endOfPlaylist = !!data.endOfPlaylist;
   const reason = typeof data.reason === 'string' ? data.reason : undefined;
 
-  // Lifecycle: PAUSE is a global rule when
-  // endOfPlaylist=true (→ IDLE from any state). Regular PAUSE routes
-  // to PAUSED per Section 4.
-  transition({ type: 'PAUSE', time, endOfPlaylist });
-
   // If host pauses, cancel any deferred play that was waiting for a
   // download/preload to finish. Otherwise, a guest who completes their
   // download while the host is paused will erroneously auto-start playback.
@@ -390,7 +378,15 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   }
 
   const isUserPause = reason === undefined || reason === 'pause';
-  pause(time, { holdVisualizer: isUserPause, force: true, showToast: isUserPause });
+  // Stop the concrete WebAudio node before moving semantic state to PAUSED.
+  // pause() intentionally no-ops once file ownership is already paused, so
+  // doing the lifecycle transition first can leave audio audible while the UI
+  // looks stopped.
+  pause(time, { holdVisualizer: isUserPause, showToast: isUserPause });
+
+  // Lifecycle: regular PAUSE routes to PAUSED per Section 4 after the
+  // transport has been stopped. endOfPlaylist=true returned above.
+  transition({ type: 'PAUSE', time, endOfPlaylist });
 }
 
 function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection): void {

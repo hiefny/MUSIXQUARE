@@ -59,6 +59,60 @@ let lastChunkTime = 0;
 let _demoFetchPromise: Promise<void> | null = null;
 const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
+type PendingPlaySnapshot = {
+  time: number;
+  setAt: number;
+  trackIndex: number;
+  targetIndex?: number;
+  targetName?: string;
+  transferName?: string;
+};
+
+function capturePendingPlaySnapshot(): PendingPlaySnapshot | null {
+  const time = getPendingPlayTime();
+  if (time === undefined) return null;
+
+  const target = getState('playback.pendingRecoveryTarget');
+  const meta = getState('transfer.meta');
+  return {
+    time,
+    setAt: getPendingPlayTimeSetAt(),
+    trackIndex: getState('playlist.currentTrackIndex'),
+    targetIndex: target?.index,
+    targetName: target?.name,
+    transferName: typeof meta?.name === 'string' ? meta.name : undefined,
+  };
+}
+
+function shouldRestorePendingPlay(
+  snapshot: PendingPlaySnapshot,
+  data: Record<string, unknown>,
+): boolean {
+  const incomingIndex = typeof data.index === 'number' ? data.index : undefined;
+  const incomingName = typeof data.name === 'string' ? data.name : undefined;
+
+  if (incomingIndex !== undefined) {
+    return snapshot.trackIndex === incomingIndex || snapshot.targetIndex === incomingIndex;
+  }
+
+  return !!(
+    incomingName &&
+    (snapshot.targetName === incomingName || snapshot.transferName === incomingName)
+  );
+}
+
+function restorePendingPlaySnapshot(
+  snapshot: PendingPlaySnapshot | null,
+  data: Record<string, unknown>,
+  reason: string,
+): void {
+  if (!snapshot) return;
+  if (getPendingPlayTime() !== undefined) return;
+  if (!shouldRestorePendingPlay(snapshot, data)) return;
+  setPendingPlayTime(snapshot.time, snapshot.setAt);
+  log.debug(`[Transfer] Restored pending play time after ${reason}`);
+}
+
 // ─── Skip-Incoming Derivation ────────────────────────────────────────
 //
 // Computes the old skip-incoming decision from
@@ -529,6 +583,8 @@ export async function handleFilePrepare(
     setState('preload.nextTrackIndex', -1);
   }
 
+  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+
   if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
     showToast(t('transfer.preload_done'));
@@ -543,6 +599,8 @@ export async function handleFilePrepare(
     // FILE_PREPARE where blob already assembled → promote straight to DECODING
     // via the preload-promoted path. shouldSkipIncomingFile() returns true
     // automatically once lifecycle is DECODING with PRELOAD_PROMOTED loadSource.
+    restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'preload-match stopAllMedia');
+
     transition({
       type: 'FILE_PREPARE',
       variant: 'preload-match',
@@ -646,6 +704,8 @@ export async function handleFilePrepare(
 
       // Preload Watchdog: If preloading fails to complete, recover.
       // Use same connection-aware timeout as chunk watchdog (60s remote, 30s local).
+      restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'preload-waiting stopAllMedia');
+
       const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
       setManagedTimer(
         'preloadWatchdog',
@@ -745,6 +805,7 @@ export async function handleFilePrepare(
 
     showLoader(true, t('transfer.preparing_name', { name: data.name as string }));
   }
+  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'file-prepare reset');
 
   // Prepare watchdog with jitter recovery
   const prepareTimeout = getState('network.connectionType') === 'remote' ? 60000 : 15000;

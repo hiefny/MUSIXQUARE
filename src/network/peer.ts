@@ -293,42 +293,55 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
   setupPeerEvents();
 
   // Wait for open (or fail fast on error)
-  const id = await new Promise<string>((resolve, reject) => {
-    let settled = false;
-    const cleanup = () => {
-      clearManagedTimer('peer-open-timeout');
-      newPeer.off('open', onOpen);
-      newPeer.off('error', onError);
-    };
-    const onOpen = (id: string) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(id);
-    };
-    const onError = (err: unknown) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(err);
-    };
-    newPeer.on('open', onOpen);
-    newPeer.on('error', onError);
+  let id: string;
+  try {
+    id = await new Promise<string>((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        clearManagedTimer('peer-open-timeout');
+        newPeer.off('open', onOpen);
+        newPeer.off('error', onError);
+      };
+      const onOpen = (id: string) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(id);
+      };
+      const onError = (err: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      };
+      newPeer.on('open', onOpen);
+      newPeer.on('error', onError);
 
-    // Cloudflare guest peers can be locally ready before initNetwork attaches
-    // this waiter. PeerJS normally opens asynchronously, but the transport
-    // facade must tolerate either timing so setup never waits forever.
-    if (newPeer.open && newPeer.id) {
-      onOpen(newPeer.id);
-      return;
+      // Cloudflare guest peers can be locally ready before initNetwork attaches
+      // this waiter. PeerJS normally opens asynchronously, but the transport
+      // facade must tolerate either timing so setup never waits forever.
+      if (newPeer.open && newPeer.id) {
+        onOpen(newPeer.id);
+        return;
+      }
+
+      setManagedTimer(
+        'peer-open-timeout',
+        () => onError(new Error('PEER_OPEN_TIMEOUT')),
+        15000,
+      );
+    });
+  } catch (error) {
+    if (getPeer() === newPeer) {
+      try {
+        newPeer.destroy();
+      } catch {
+        /* noop */
+      }
+      setPeer(null);
     }
-
-    setManagedTimer(
-      'peer-open-timeout',
-      () => onError(new Error('PEER_OPEN_TIMEOUT')),
-      15000,
-    );
-  });
+    throw error;
+  }
 
   setState('network.myId', id);
   log.info('[Network] Peer opened:', id);
@@ -375,14 +388,13 @@ export async function createHostSessionWithShortCode(maxAttempts = 12): Promise<
 // before calling reconnect() — if a prior attempt already succeeded (or
 // the user left the session), we bail and reset the counter.
 //
-// Backoff total: 1+2+4+8+15 = 30s across 5 attempts. After that we give up
-// and let the existing 5s grace dialog (peer.on('disconnected') below)
-// surface the failure to the user IF data channels are also dead. If data
-// channels are still alive, we silently degrade: existing playback works,
-// just no new joins.
+// Backoff total: 1+2+4+8+15 = 30s for the fast lane, then a slow 30s
+// retry loop while the session remains alive. Do not permanently give up:
+// existing data channels can survive signaling loss, but new/rejoining
+// guests need the host to eventually reclaim the signaling room.
 let _reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+const SLOW_RECONNECT_AFTER_ATTEMPTS = 5;
+const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 
 function attemptPeerReconnect(): void {
   const peer = getPeer();
@@ -397,18 +409,13 @@ function attemptPeerReconnect(): void {
     _reconnectAttempts = 0;
     return;
   }
-  if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    log.warn(
-      `[Transport] Gave up on signaling reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts — new peers can't join until session restart`,
-    );
-    return;
-  }
-
-  const delay = RECONNECT_BACKOFF_MS[_reconnectAttempts] ?? 15000;
+  const delay =
+    RECONNECT_BACKOFF_MS[Math.min(_reconnectAttempts, RECONNECT_BACKOFF_MS.length - 1)] ?? 30000;
   _reconnectAttempts++;
-  log.info(
-    `[Transport] Scheduling signaling reconnect attempt ${_reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`,
-  );
+  if (_reconnectAttempts === SLOW_RECONNECT_AFTER_ATTEMPTS + 1) {
+    log.warn('[Transport] Signaling reconnect entering slow retry loop');
+  }
+  log.info(`[Transport] Scheduling signaling reconnect attempt ${_reconnectAttempts} in ${delay}ms`);
 
   setManagedTimer(
     'peer-signaling-reconnect',
@@ -499,6 +506,13 @@ function setupPeerEvents(): void {
         const currentPeer = getPeer();
         if (!currentPeer || !currentPeer.disconnected) return; // signaling recovered
 
+        if (!getState('setup.sessionStarted') || getState('network.isConnecting')) {
+          log.info(
+            '[Transport] Signaling disconnected during setup/reconnect — letting join flow handle it',
+          );
+          return;
+        }
+
         // Skip the dialog if we still have a working channel — the session
         // is functional even without signaling (no new peers can join, but
         // sync/playback for existing peers continues normally).
@@ -520,6 +534,10 @@ function setupPeerEvents(): void {
             );
             return;
           }
+          log.info(
+            '[Transport] Guest signaling disconnected after hostConn closed — letting hostConn error UI handle it',
+          );
+          return;
         }
 
         showDialog({

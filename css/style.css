@@ -4934,13 +4934,14 @@
     --demo-shell-gap: 24px;
     --demo-panel-start-offset: 0px;
     --demo-panel-target: 560px;
-    --demo-visual-min: 112px;
+    --demo-visual-min: 88px;
     --demo-visual-height: clamp(
       var(--demo-visual-min),
       calc(var(--app-height, 100dvh) - var(--demo-panel-target)),
       240px
     );
-    --demo-step-nav-reserve: 132px;
+    --demo-step-nav-bottom: calc(clamp(12px, 3.8vw, 22px) + var(--safe-bottom));
+    --demo-step-nav-reserve: clamp(52px, 12.5vw, 56px);
     --demo-shell-pad-top: calc(14px + var(--safe-top));
     --demo-shell-pad-bottom: calc(16px + var(--safe-bottom));
     --demo-control-inset: clamp(18px, 6vw, 28px);
@@ -4952,7 +4953,7 @@
     box-sizing: border-box;
     padding: var(--demo-shell-pad-top) 14px var(--demo-shell-pad-bottom);
     display: grid;
-    grid-template-rows: var(--demo-visual-height) minmax(0, 1fr);
+    grid-template-rows: var(--demo-visual-height) minmax(0, 1fr) var(--demo-step-nav-reserve);
     gap: var(--demo-shell-gap);
     background: var(--bg);
   }
@@ -4968,6 +4969,8 @@
       var(--demo-shell-pad-top) + var(--demo-visual-height) + var(--demo-panel-start-offset)
     );
     background: var(--surface-1);
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
     pointer-events: none;
   }
 
@@ -5089,8 +5092,8 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    padding: var(--demo-control-pad-top) var(--demo-control-inset)
-      calc(var(--demo-step-nav-reserve) + var(--safe-bottom));
+    padding: var(--demo-control-pad-top) var(--demo-control-inset) clamp(18px, 5vw, 28px);
+    scroll-padding-bottom: clamp(18px, 5vw, 28px);
     overflow: auto;
   }
 
@@ -5284,19 +5287,19 @@
   }
 
   .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
-    min-height: 92px;
+    min-height: 112px;
     height: auto;
-    padding: 14px 10px;
+    padding: 18px 12px;
     flex-direction: column;
     justify-content: center;
-    gap: 8px;
+    gap: 10px;
     border-radius: var(--radius-m);
-    font-size: 13.5px;
+    font-size: 14px;
   }
 
   .demo-effects-content .demo-large-actions .ch-opt.demo-choice svg {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
   }
 
   .demo-track-list {
@@ -5351,7 +5354,7 @@
   .demo-step-nav {
     --demo-step-nav-inset: clamp(14px, 4.5vw, 24px);
     --demo-step-gap: clamp(6px, 2vw, 8px);
-    --demo-step-dot-size: clamp(44px, 12.5vw, 48px);
+    --demo-step-dot-size: clamp(52px, 12.5vw, 56px);
     --demo-step-pill-size: clamp(
       100px,
       calc(
@@ -5366,7 +5369,7 @@
     z-index: 3;
     left: var(--demo-step-nav-inset);
     right: var(--demo-step-nav-inset);
-    bottom: calc(clamp(12px, 3.8vw, 22px) + var(--safe-bottom));
+    bottom: var(--demo-step-nav-bottom);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -5651,14 +5654,14 @@
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
-      min-height: clamp(92px, 14vh, 118px);
-      padding: clamp(14px, 2vh, 18px) 10px;
-      gap: clamp(8px, 1.2vh, 10px);
+      min-height: clamp(104px, 14vh, 124px);
+      padding: clamp(16px, 2vh, 20px) 12px;
+      gap: clamp(9px, 1.2vh, 11px);
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice svg {
-      width: clamp(28px, 4vh, 34px);
-      height: clamp(28px, 4vh, 34px);
+      width: clamp(30px, 4vh, 36px);
+      height: clamp(30px, 4vh, 36px);
     }
 
     .demo-track-row {
@@ -5725,9 +5728,9 @@
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
-      min-height: 84px;
-      padding: 12px 8px;
-      font-size: 12.5px;
+      min-height: 104px;
+      padding: 16px 10px;
+      font-size: 13.5px;
     }
 
     .demo-track-title {

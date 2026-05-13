@@ -639,7 +639,7 @@
     width: 6px;
     height: 6px;
     background: var(--text-muted);
-    border-radius: 50%;
+    border-radius: 999px;
     opacity: 0.5;
     transition: background 0.2s;
   }
@@ -5212,9 +5212,7 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
     min-height: 52px;
-    border-radius: 20px;
-    overflow: hidden;
-    background: var(--surface-2);
+    background: transparent;
   }
 
   .demo-role-segmented button {
@@ -5243,7 +5241,7 @@
 
   .demo-role-segmented button[aria-pressed='true'] {
     color: var(--primary);
-    background: rgba(var(--primary-rgb), 0.08);
+    background: transparent;
   }
 
   .demo-role-segmented svg {
@@ -5318,12 +5316,7 @@
     grid-template-columns: 42px minmax(0, 1fr);
     align-items: center;
     min-height: 42px;
-    border-top: 1px solid var(--divider);
     color: var(--text-main);
-  }
-
-  .demo-track-row:last-child {
-    border-bottom: 1px solid var(--divider);
   }
 
   .demo-track-row span {
@@ -5364,22 +5357,42 @@
   }
 
   .demo-step-nav {
+    --demo-step-nav-inset: clamp(14px, 4.5vw, 24px);
+    --demo-step-gap: clamp(6px, 2vw, 8px);
+    --demo-step-dot-size: clamp(44px, 12.5vw, 48px);
+    --demo-step-pill-size: clamp(
+      100px,
+      calc(
+        100vw - var(--demo-step-nav-inset) - var(--demo-step-nav-inset) -
+          var(--demo-step-dot-size) - var(--demo-step-dot-size) - var(--demo-step-dot-size) -
+          var(--demo-step-gap) - var(--demo-step-gap) - var(--demo-step-gap)
+      ),
+      184px
+    );
+
     position: fixed;
     z-index: 3;
-    left: clamp(14px, 4.5vw, 24px);
-    right: clamp(14px, 4.5vw, 24px);
+    left: var(--demo-step-nav-inset);
+    right: var(--demo-step-nav-inset);
     bottom: calc(clamp(12px, 3.8vw, 22px) + var(--safe-bottom));
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    max-width: 520px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--demo-step-gap);
+    max-width: 420px;
     margin-inline: auto;
     pointer-events: auto;
   }
 
   .demo-step-nav button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 var(--demo-step-dot-size);
     min-width: 0;
-    min-height: 54px;
+    height: var(--demo-step-dot-size);
+    min-height: var(--demo-step-dot-size);
     border: 1px solid rgba(128, 128, 128, 0.14);
     border-radius: 999px;
     background: rgba(128, 128, 128, 0.16);
@@ -5391,20 +5404,81 @@
     font-weight: 700;
     letter-spacing: 0;
     line-height: 1.2;
-    padding: 0 12px;
+    padding: 0;
     white-space: nowrap;
+    overflow: hidden;
     cursor: pointer;
     transition:
       background 0.2s,
       border-color 0.2s,
       color 0.2s,
+      flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1),
       transform 0.2s;
   }
 
+  .demo-step-nav button:not(.demo-step-next)::before {
+    content: attr(data-demo-step);
+    display: block;
+    flex: 0 0 auto;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1;
+    opacity: 1;
+    transition: opacity 0.16s ease;
+  }
+
+  .demo-step-nav button span {
+    display: block;
+    min-width: 0;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition:
+      max-width 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.16s ease;
+  }
+
   .demo-step-nav button.active {
+    flex-basis: var(--demo-step-pill-size);
+    padding: 0 clamp(12px, 4vw, 18px);
     background: rgba(var(--primary-rgb), 0.18);
     border-color: rgba(var(--primary-rgb), 0.26);
     color: var(--primary);
+  }
+
+  .demo-step-nav button.active:not(.demo-step-next)::before,
+  .demo-step-nav button.is-collapsing:not(.demo-step-next)::before {
+    opacity: 0;
+  }
+
+  .demo-step-nav button.active span {
+    max-width: 160px;
+    opacity: 1;
+  }
+
+  .demo-step-nav button.is-collapsing {
+    border-radius: 999px;
+  }
+
+  .demo-step-nav button.is-collapsing span {
+    max-width: 0;
+    opacity: 0;
+  }
+
+  .demo-step-next svg {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    fill: currentColor;
+    opacity: 1;
+    transition:
+      width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.14s ease;
+  }
+
+  .demo-step-next.is-final svg {
+    display: none;
   }
 
   .demo-step-nav button:active {
@@ -5601,18 +5675,20 @@
     }
 
     .demo-step-nav {
+      --demo-step-dot-size: clamp(46px, 6.4vh, 54px);
+      --demo-step-pill-size: clamp(176px, 25vw, 224px);
+
       position: absolute;
       gap: var(--demo-nav-gap);
       left: clamp(20px, 3vw, 40px);
       right: clamp(20px, 3vw, 40px);
       top: auto;
       bottom: clamp(18px, 3vh, 32px);
-      max-width: min(560px, calc(100% - 40px));
+      max-width: min(480px, calc(100% - 40px));
       transform: none;
     }
 
-    .demo-step-nav button {
-      min-height: clamp(52px, 6.4vh, 58px);
+    .demo-step-nav button.active {
       font-size: clamp(13px, 1vw, 15px);
     }
   }

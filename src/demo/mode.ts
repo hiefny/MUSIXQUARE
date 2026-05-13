@@ -67,6 +67,7 @@ const WARM_EQ = [5, 3, 0, -2, -3];
 const MOBILE_QUERY = '(max-width: 1279px)';
 const DEMO_OVERLAY_FADE_MS = 340;
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
+const DEMO_STEP_COLLAPSE_MS = 320;
 const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
 const SYNC_ICON_PATH =
   'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z';
@@ -86,6 +87,7 @@ let _demoStep = 1;
 let _demoTrackIndex = 0;
 let _demoLoadToken = 0;
 let _pendingDemoPlay: PendingDemoPlay | null = null;
+const _demoStepCollapseTimers = new WeakMap<HTMLElement, number>();
 const _demoBlobCache = new Map<string, Blob>();
 const _demoPreloadInFlight = new Map<string, Promise<Blob>>();
 
@@ -498,8 +500,33 @@ function syncDemoStep(step = _demoStep): void {
   });
   document.querySelectorAll<HTMLElement>('[data-demo-step]').forEach((btn) => {
     const active = btn.dataset.demoStep === String(_demoStep);
+    const wasActive = btn.classList.contains('active');
+    const collapseTimer = _demoStepCollapseTimers.get(btn);
+    if (collapseTimer) window.clearTimeout(collapseTimer);
+
+    if (wasActive && !active) {
+      btn.classList.add('is-collapsing');
+      _demoStepCollapseTimers.set(
+        btn,
+        window.setTimeout(() => {
+          btn.classList.remove('is-collapsing');
+          _demoStepCollapseTimers.delete(btn);
+        }, DEMO_STEP_COLLAPSE_MS),
+      );
+    } else {
+      btn.classList.remove('is-collapsing');
+      _demoStepCollapseTimers.delete(btn);
+    }
+
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll<HTMLElement>('[data-demo-next]').forEach((btn) => {
+    const isFinal = _demoStep >= 4;
+    btn.classList.toggle('active', isFinal);
+    btn.classList.toggle('is-final', isFinal);
+    btn.setAttribute('aria-label', t(isFinal ? 'demo.step_finish' : 'common.next'));
+    btn.setAttribute('title', t(isFinal ? 'demo.step_finish' : 'common.next'));
   });
   bus.emit('ui:scrollbar-relayout');
 }
@@ -665,6 +692,14 @@ function requestDemoExit(): void {
   showToast(t('demo.try_later_toast'));
 }
 
+function advanceDemoStep(): void {
+  if (_demoStep >= 4) {
+    bus.emit('demo:request-exit');
+    return;
+  }
+  syncDemoStep(_demoStep + 1);
+}
+
 function getPlacementToastKey(mode: number): Parameters<typeof t>[0] {
   if (mode === -1) return 'role.left_placement';
   if (mode === 1) return 'role.right_placement';
@@ -794,6 +829,9 @@ function bindDemoDom(): void {
   });
   document.querySelectorAll<HTMLElement>('[data-demo-play]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:toggle-play'));
+  });
+  document.querySelectorAll<HTMLElement>('[data-demo-next]').forEach((btn) => {
+    btn.addEventListener('click', () => advanceDemoStep());
   });
   document.querySelectorAll<HTMLElement>('[data-demo-step]').forEach((btn) => {
     btn.addEventListener('click', () => syncDemoStep(Number(btn.dataset.demoStep)));

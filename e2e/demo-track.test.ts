@@ -97,13 +97,18 @@ test.describe('Linelight demo mode', () => {
     expect(playButtonThemeStyles.background).not.toBe('rgb(0, 122, 255)');
     await expect(page.locator('#demo-mini-seek')).toHaveCount(0);
     await expect(page.locator('[data-demo-step="1"]')).toContainText('1. Connect devices');
-    await expect(page.locator('[data-demo-step="4"]')).toContainText('4. Exit demo');
+    await expect(page.locator('[data-demo-step="4"]')).toHaveCount(0);
+    await expect(page.locator('[data-demo-next] svg')).toBeVisible();
     const portraitNavLayout = await page.evaluate(() => {
       const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
       const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
       const nav = document.querySelector('.demo-step-nav')!.getBoundingClientRect();
-      const button = document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect();
-      const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
+      const activeButton = document
+        .querySelector('.demo-step-nav button.active')!
+        .getBoundingClientRect();
+      const inactiveButton = document
+        .querySelector('[data-demo-step="2"]')!
+        .getBoundingClientRect();
       const bottomNavStyles = getComputedStyle(document.querySelector('.bottom-nav')!);
       return {
         visualTop: visual.top,
@@ -111,8 +116,9 @@ test.describe('Linelight demo mode', () => {
         controlsTop: controls.top,
         navTop: nav.top,
         navBottom: nav.bottom,
-        buttonHeight: button.height,
-        columnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
+        activeButtonWidth: activeButton.width,
+        inactiveButtonWidth: inactiveButton.width,
+        buttonHeight: inactiveButton.height,
         bottomNavOpacity: bottomNavStyles.opacity,
         bottomNavPointerEvents: bottomNavStyles.pointerEvents,
         viewportHeight: window.innerHeight,
@@ -123,8 +129,10 @@ test.describe('Linelight demo mode', () => {
     );
     expect(portraitNavLayout.navTop).toBeGreaterThan(portraitNavLayout.controlsTop);
     expect(portraitNavLayout.navBottom).toBeLessThanOrEqual(portraitNavLayout.viewportHeight);
-    expect(portraitNavLayout.buttonHeight).toBeGreaterThanOrEqual(52);
-    expect(portraitNavLayout.columnCount).toBe(2);
+    expect(portraitNavLayout.buttonHeight).toBeGreaterThanOrEqual(46);
+    expect(portraitNavLayout.activeButtonWidth).toBeGreaterThan(
+      portraitNavLayout.inactiveButtonWidth * 2,
+    );
     expect(portraitNavLayout.bottomNavOpacity).toBe('0');
     expect(portraitNavLayout.bottomNavPointerEvents).toBe('none');
     await expect(page.locator('[data-demo-panel="1"]')).toHaveClass(/active/);
@@ -156,8 +164,11 @@ test.describe('Linelight demo mode', () => {
     expect(effectLayout.flexDirection).toBe('column');
     expect(effectLayout.height).toBeGreaterThanOrEqual(100);
     expect(effectLayout.copyBelowButtons).toBe(true);
-    await page.locator('[data-demo-step="4"]').click();
+    await page.locator('[data-demo-next]').click();
     await expect(page.locator('.demo-track-row')).toHaveCount(4);
+    await expect(page.locator('[data-demo-next]')).toHaveClass(/is-final/);
+    await expect(page.locator('[data-demo-next] svg')).toBeHidden();
+    await expect(page.locator('[data-demo-next]')).toContainText('4. Exit demo');
     await expect(page.locator('[data-demo-track-index="0"]')).toHaveClass(/active/);
     await expect(page.locator('[data-demo-track-index="0"] strong')).toHaveText(
       'Linelight OST - Adventure',
@@ -241,7 +252,12 @@ test.describe('Linelight demo mode', () => {
       const spectrum = document
         .querySelector('#demo-visualizer-slot .vinyl-wrapper')!
         .getBoundingClientRect();
-      const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
+      const activeButton = document
+        .querySelector('.demo-step-nav button.active')!
+        .getBoundingClientRect();
+      const inactiveButton = document
+        .querySelector('[data-demo-step="1"]')!
+        .getBoundingClientRect();
       const probe = document.createElement('span');
       document.body.append(probe);
       probe.style.color = 'var(--surface-1)';
@@ -259,9 +275,9 @@ test.describe('Linelight demo mode', () => {
         navTop: nav.top,
         navRight: nav.right,
         navBottom: nav.bottom,
-        navButtonHeight: document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect()
-          .height,
-        navColumnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
+        activeButtonWidth: activeButton.width,
+        inactiveButtonWidth: inactiveButton.width,
+        navButtonHeight: inactiveButton.height,
         controlsBackground: getComputedStyle(document.querySelector('.demo-control-stage')!)
           .backgroundColor,
         surface1,
@@ -275,19 +291,34 @@ test.describe('Linelight demo mode', () => {
     expect(compactDashboard.navRight).toBeLessThanOrEqual(compactDashboard.visualRight + 1);
     expect(compactDashboard.navBottom).toBeLessThanOrEqual(compactDashboard.visualBottom + 1);
     expect(compactDashboard.visualBottom - compactDashboard.navBottom).toBeLessThanOrEqual(32);
-    expect(compactDashboard.navButtonHeight).toBeGreaterThanOrEqual(52);
-    expect(compactDashboard.navColumnCount).toBe(2);
+    expect(compactDashboard.navButtonHeight).toBeGreaterThanOrEqual(46);
+    expect(compactDashboard.activeButtonWidth).toBeGreaterThan(
+      compactDashboard.inactiveButtonWidth * 2,
+    );
     expect(compactDashboard.controlsBackground).toBe(compactDashboard.surface1);
     expect(Math.abs(compactDashboard.spectrumCenter - compactDashboard.visualCenter)).toBeLessThan(
       2,
     );
 
     await page.setViewportSize({ width: 1024, height: 768 });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
+          const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
+          return controls.left >= visual.right - 1;
+        }),
+      )
+      .toBe(true);
     const roomyLandscape = await page.evaluate(() => {
       const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
       const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
-      const navButton = document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect();
-      const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
+      const inactiveButton = document
+        .querySelector('[data-demo-step="1"]')!
+        .getBoundingClientRect();
+      const activeButton = document
+        .querySelector('.demo-step-nav button.active')!
+        .getBoundingClientRect();
       const spectrum = document
         .querySelector('#demo-visualizer-slot .vinyl-wrapper')!
         .getBoundingClientRect();
@@ -297,8 +328,9 @@ test.describe('Linelight demo mode', () => {
         spectrumHeight: spectrum.height,
         visualCenter: visual.top + visual.height / 2,
         spectrumBottomGap: visual.bottom - spectrum.bottom,
-        navButtonHeight: navButton.height,
-        navColumnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
+        navButtonHeight: inactiveButton.height,
+        activeButtonWidth: activeButton.width,
+        inactiveButtonWidth: inactiveButton.width,
         viewportCenter: window.innerHeight / 2,
       };
     });
@@ -309,8 +341,10 @@ test.describe('Linelight demo mode', () => {
     expect(roomyLandscape.spectrumBottomGap).toBeGreaterThan(120);
     expect(roomyLandscape.spectrumHeight).toBeGreaterThan(320);
     expect(roomyLandscape.spectrumHeight).toBeLessThanOrEqual(380);
-    expect(roomyLandscape.navButtonHeight).toBeGreaterThanOrEqual(52);
-    expect(roomyLandscape.navColumnCount).toBe(2);
+    expect(roomyLandscape.navButtonHeight).toBeGreaterThanOrEqual(46);
+    expect(roomyLandscape.activeButtonWidth).toBeGreaterThan(
+      roomyLandscape.inactiveButtonWidth * 2,
+    );
   });
 
   test('first visit decline stores prompt choice after host setup', async ({ page }) => {
@@ -372,7 +406,7 @@ test.describe('Linelight demo mode', () => {
         .poll(() => readState(pair.guestPage, 'demo.reverbOn'), { timeout: 10_000 })
         .toBe(true);
 
-      await pair.hostPage.locator('[data-demo-step="4"]').click();
+      await pair.hostPage.locator('[data-demo-next]').click();
       await pair.hostPage.locator('[data-demo-exit]').click();
       await expect(pair.guestPage.locator('body')).not.toHaveClass(/mode-demo/, {
         timeout: 10_000,
@@ -400,7 +434,12 @@ test.describe('Linelight demo mode', () => {
       const spectrum = document
         .querySelector('#demo-visualizer-slot .vinyl-wrapper')!
         .getBoundingClientRect();
-      const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
+      const activeButton = document
+        .querySelector('.demo-step-nav button.active')!
+        .getBoundingClientRect();
+      const inactiveButton = document
+        .querySelector('[data-demo-step="2"]')!
+        .getBoundingClientRect();
       const probe = document.createElement('span');
       document.body.append(probe);
       probe.style.color = 'var(--surface-1)';
@@ -417,9 +456,9 @@ test.describe('Linelight demo mode', () => {
         navTop: nav.top,
         navRight: nav.right,
         navBottom: nav.bottom,
-        navButtonHeight: document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect()
-          .height,
-        navColumnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
+        activeButtonWidth: activeButton.width,
+        inactiveButtonWidth: inactiveButton.width,
+        navButtonHeight: inactiveButton.height,
         controlsBackground: getComputedStyle(document.querySelector('.demo-control-stage')!)
           .backgroundColor,
         surface1,
@@ -439,8 +478,8 @@ test.describe('Linelight demo mode', () => {
     expect(desktopLayout.spectrumBottomGap).toBeGreaterThan(180);
     expect(desktopLayout.spectrumHeight).toBeGreaterThan(400);
     expect(desktopLayout.spectrumHeight).toBeLessThanOrEqual(440);
-    expect(desktopLayout.navButtonHeight).toBeGreaterThanOrEqual(52);
-    expect(desktopLayout.navColumnCount).toBe(2);
+    expect(desktopLayout.navButtonHeight).toBeGreaterThanOrEqual(46);
+    expect(desktopLayout.activeButtonWidth).toBeGreaterThan(desktopLayout.inactiveButtonWidth * 2);
     expect(desktopLayout.controlsBackground).toBe(desktopLayout.surface1);
     expect(desktopLayout.qrSize).toBeGreaterThanOrEqual(260);
 
@@ -450,7 +489,9 @@ test.describe('Linelight demo mode', () => {
       .evaluate((button) => button.getBoundingClientRect().height);
     expect(desktopEffectSize).toBeGreaterThanOrEqual(140);
 
-    await page.locator('[data-demo-step="4"]').click();
+    await page.locator('[data-demo-next]').click();
+    await expect(page.locator('[data-demo-next]')).toHaveClass(/is-final/);
+    await expect(page.locator('[data-demo-next] svg')).toBeHidden();
     await expect(page.locator('[data-demo-info] svg path')).toHaveAttribute('d', INFO_ICON_PATH);
     await expect(page.locator('[data-demo-exit] svg path')).toHaveAttribute('d', EXIT_ICON_PATH);
     const desktopFinishActions = await page.evaluate(() => {
@@ -478,7 +519,7 @@ test.describe('Linelight demo mode', () => {
     const popup = await popupPromise;
     await expect.poll(() => popup.url()).toBe(INFO_URL);
 
-    await page.locator('[data-demo-exit]').click();
+    await page.locator('[data-demo-next]').click();
     await expect(page.locator('#demo-overlay')).toHaveClass(/exiting/);
     await waitForToast(page, 'You can try it anytime from the Help tab.');
     await expect(page.locator('body')).not.toHaveClass(/mode-demo/);

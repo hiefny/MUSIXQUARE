@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { MSG } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { loadDemoFile } from '../player/decode.ts';
 import {
@@ -15,15 +16,17 @@ import {
   setPlaybackFilePaused,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
-import { pause, play, stopAllMedia } from '../player/transport.ts';
+import { getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
 import { applySettingsAsync } from '../audio/effects.ts';
+import { getHostNow } from '../network/shared-clock.ts';
+import { broadcast, safeSend } from '../network/peer.ts';
+import { registerHandlers } from '../network/protocol.ts';
 import { hideSetupOverlay } from '../ui/setup-shared.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { updateOverlayOpenClass } from '../ui/dom.ts';
 import type { TrackMeta } from '../types/index.ts';
 import {
-  DEMO_TRACK,
   DEMO_TRACKS,
   createDemoTrackMeta,
   getDemoTrackByIndex,
@@ -31,6 +34,7 @@ import {
   type DemoTrack,
 } from './tracks.ts';
 import { hasAppUseRecord, hasSeenDemoPrompt, markAppUsed, markDemoPromptSeen } from './storage.ts';
+import type { DataConnection } from '../types/index.ts';
 
 type DemoSnapshot = {
   channelMode: number;
@@ -53,10 +57,17 @@ type DemoSnapshot = {
   visualizerMode: 'circular' | 'spectrum';
 };
 
+type PendingDemoPlay = {
+  index: number;
+  time: number;
+  hostPlayAt: number;
+};
+
 const WARM_EQ = [5, 3, 0, -2, -3];
 const MOBILE_QUERY = '(max-width: 1279px)';
 const DEMO_OVERLAY_FADE_MS = 340;
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
+const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
 const SYNC_ICON_PATH =
   'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z';
 const MEDIA_ICON_PATH =
@@ -74,6 +85,7 @@ let _suppressFirstRunPrompt = false;
 let _demoStep = 1;
 let _demoTrackIndex = 0;
 let _demoLoadToken = 0;
+let _pendingDemoPlay: PendingDemoPlay | null = null;
 const _demoBlobCache = new Map<string, Blob>();
 const _demoPreloadInFlight = new Map<string, Promise<Blob>>();
 
@@ -158,6 +170,69 @@ function restoreSnapshot(snapshot: DemoSnapshot | null): void {
 
 function getCurrentDemoTrack(): DemoTrack {
   return getDemoTrackByIndex(_demoTrackIndex);
+}
+
+function normalizeDemoTrackIndex(index: unknown): number {
+  const value = Number(index);
+  if (!Number.isInteger(value) || value < 0 || value >= DEMO_TRACKS.length) return 0;
+  return value;
+}
+
+function isDemoHost(): boolean {
+  return !getState('network.hostConn') && getState('network.appRole') === 'host';
+}
+
+function isTrustedDemoHostMessage(conn?: DataConnection): boolean {
+  const hostConn = getState('network.hostConn');
+  return !!hostConn && conn === hostConn;
+}
+
+function createDemoEnterMessage(index = _demoTrackIndex) {
+  return {
+    type: MSG.DEMO_ENTER,
+    index,
+    reverbOn: !!getState('demo.reverbOn'),
+    bassBoostOn: !!getState('demo.bassBoostOn'),
+  } as const;
+}
+
+function createDemoPlayMessage(index = _demoTrackIndex, time = 0) {
+  return {
+    type: MSG.DEMO_PLAY,
+    index,
+    time,
+    hostPlayAt: getHostNow() + DEMO_PLAY_SCHEDULE_AHEAD_MS,
+  } as const;
+}
+
+function broadcastDemoEnter(index = _demoTrackIndex): void {
+  if (!isDemoHost()) return;
+  broadcast(createDemoEnterMessage(index));
+}
+
+function broadcastDemoExit(): void {
+  if (!isDemoHost()) return;
+  broadcast({ type: MSG.DEMO_EXIT });
+}
+
+function broadcastDemoPause(time: number): void {
+  if (!isDemoHost()) return;
+  broadcast({ type: MSG.DEMO_PAUSE, time });
+}
+
+function broadcastDemoPlay(index = _demoTrackIndex, time = 0): void {
+  if (!isDemoHost()) return;
+  broadcast(createDemoPlayMessage(index, time));
+}
+
+function sendDemoBootstrap(conn: DataConnection): void {
+  if (!isDemoHost() || !getState('demo.active')) return;
+  safeSend(conn, createDemoEnterMessage(_demoTrackIndex));
+  if (isDemoPlaying()) {
+    safeSend(conn, createDemoPlayMessage(_demoTrackIndex, getTrackPosition()));
+  } else {
+    safeSend(conn, { type: MSG.DEMO_PAUSE, time: getState('player.pausedAt') || 0 });
+  }
 }
 
 function fetchDemoBlob(track: DemoTrack, reportProgress: boolean): Promise<Blob> {
@@ -255,6 +330,7 @@ function setDemoDomActive(active: boolean): void {
     }
     mountVisualizerForMobile();
     updateOverlayOpenClass();
+    scheduleDemoLayoutRefresh();
   } else {
     if (overlay) {
       overlay.classList.add('exiting');
@@ -275,6 +351,18 @@ function setDemoDomActive(active: boolean): void {
   syncDesktopDemoText(active);
   syncDemoSessionCopy();
   syncDemoStep();
+}
+
+function refreshDemoLayout(): void {
+  if (!getState('demo.active')) return;
+  bus.emit('ui:scrollbar-relayout');
+  window.dispatchEvent(new Event('resize'));
+}
+
+function scheduleDemoLayoutRefresh(): void {
+  [40, 180, 420, 720].forEach((delayMs) => {
+    setManagedTimer(`demo-layout-refresh-${delayMs}`, refreshDemoLayout, delayMs);
+  });
 }
 
 function syncDesktopDemoText(active = getState('demo.active')): void {
@@ -443,6 +531,15 @@ function syncEffectButtons(): void {
   });
 }
 
+function syncDemoEffectStateFromAudio(): void {
+  if (!getState('demo.active')) return;
+  const reverbOn = (getState('audio.reverbMix') || 0) > 0.001;
+  const bassOn = (getState('audio.virtualBass') || 0) > 0.001;
+  if (getState('demo.reverbOn') !== reverbOn) setState('demo.reverbOn', reverbOn);
+  if (getState('demo.bassBoostOn') !== bassOn) setState('demo.bassBoostOn', bassOn);
+  syncEffectButtons();
+}
+
 function isDemoPlaying(): boolean {
   const playback = getPlaybackModeActivitySnapshot();
   return getState('demo.active') && playback.mode === 'file' && playback.activity === 'playing';
@@ -455,10 +552,51 @@ function syncPlayButton(): void {
   });
 }
 
-async function enterDemoMode(): Promise<void> {
+function applyPendingDemoPlay(): void {
+  const pending = _pendingDemoPlay;
+  if (!pending || !getState('demo.active')) return;
+  if (_demoTrackIndex !== pending.index || !getCurrentAudioBuffer()) return;
+  _pendingDemoPlay = null;
+
+  const hostPlayAt = Number(pending.hostPlayAt) || 0;
+  const now = getHostNow();
+  const waitMs = Math.max(0, hostPlayAt - now);
+  if (hostPlayAt > 0 && waitMs > 0 && waitMs < 2000) {
+    void play(pending.time + waitMs / 1000, waitMs / 1000);
+  } else {
+    const elapsed = hostPlayAt > 0 ? Math.max(0, now - hostPlayAt) / 1000 : 0;
+    void play(pending.time + elapsed);
+  }
+  syncPlayButton();
+}
+
+function startDemoPlayback(time = 0): void {
+  broadcastDemoPlay(_demoTrackIndex, time);
+  void play(time);
+  syncPlayButton();
+}
+
+type EnterDemoOptions = {
+  index?: number;
+  autoplay?: boolean;
+  broadcastEntry?: boolean;
+};
+
+async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   if (getState('demo.loading')) return;
   if (getState('demo.active')) {
+    const nextIndex = normalizeDemoTrackIndex(options.index ?? _demoTrackIndex);
+    if (nextIndex !== _demoTrackIndex) {
+      setState('demo.loading', true);
+      try {
+        await loadDemoTrack(nextIndex, { autoplay: !!options.autoplay });
+      } finally {
+        setState('demo.loading', false);
+        showLoader(false);
+      }
+    }
     setDemoDomActive(true);
+    applyPendingDemoPlay();
     return;
   }
 
@@ -466,7 +604,7 @@ async function enterDemoMode(): Promise<void> {
   markAppUsed();
   _snapshot = captureSnapshot();
   _demoStep = 1;
-  _demoTrackIndex = 0;
+  _demoTrackIndex = normalizeDemoTrackIndex(options.index ?? 0);
   _demoLoadToken++;
   setVisualizerMode('spectrum');
 
@@ -474,16 +612,18 @@ async function enterDemoMode(): Promise<void> {
   setState('demo.loading', true);
   setState('demo.reverbOn', false);
   setState('demo.bassBoostOn', false);
-  setState('playlist.currentTrackIndex', 0);
+  setState('playlist.currentTrackIndex', _demoTrackIndex);
   setPlaybackTrackMeta(createDemoTrackMeta(getCurrentDemoTrack()));
   hideSetupOverlay();
   bus.emit('ui:switch-tab', 'play');
   setDemoDomActive(true);
   syncRoleButtons();
   syncEffectButtons();
+  if (options.broadcastEntry ?? true) broadcastDemoEnter(_demoTrackIndex);
 
   try {
-    await loadDemoTrack(0, { autoplay: true });
+    await loadDemoTrack(_demoTrackIndex, { autoplay: !!options.autoplay });
+    applyPendingDemoPlay();
     showToast(t('transfer.demo_loaded'));
   } catch (error: unknown) {
     log.error('[Demo] Enter failed:', error);
@@ -495,9 +635,11 @@ async function enterDemoMode(): Promise<void> {
   }
 }
 
-function exitDemoMode(): void {
+function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   if (!getState('demo.active') && !getState('demo.loading')) return;
+  if (options.broadcastExit ?? true) broadcastDemoExit();
   _demoLoadToken++;
+  _pendingDemoPlay = null;
   stopAllMedia({ cancelInFlight: true });
   setCurrentAudioBuffer(null);
   setState('demo.active', false);
@@ -560,18 +702,23 @@ function toggleDemoPlay(): void {
   if (!getState('demo.active')) return;
   if (isDemoPlaying()) {
     pause(undefined, { showToast: false });
+    broadcastDemoPause(getState('player.pausedAt') || 0);
     syncPlayButton();
     return;
   }
   const offset = getState('player.pausedAt') || 0;
-  void play(offset);
+  startDemoPlayback(offset);
 }
 
 function playNextDemoTrack(): void {
   if (!getState('demo.active') || getState('demo.loading')) return;
   const nextIndex = getNextDemoTrackIndex(_demoTrackIndex);
   setState('demo.loading', true);
-  void loadDemoTrack(nextIndex, { autoplay: true })
+  broadcastDemoEnter(nextIndex);
+  void loadDemoTrack(nextIndex, { autoplay: false })
+    .then(() => {
+      startDemoPlayback(0);
+    })
     .catch((error: unknown) => {
       log.warn('[Demo] Failed to advance demo track', error);
       showToast(`${t('transfer.demo_load_fail')} ${(error as Error).message || ''}`.trim());
@@ -580,6 +727,45 @@ function playNextDemoTrack(): void {
       setState('demo.loading', false);
       showLoader(false);
     });
+}
+
+function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isTrustedDemoHostMessage(conn)) return;
+  const index = normalizeDemoTrackIndex(data.index);
+  setState('demo.reverbOn', !!data.reverbOn);
+  setState('demo.bassBoostOn', !!data.bassBoostOn);
+  syncEffectButtons();
+  void enterDemoMode({ index, autoplay: false, broadcastEntry: false });
+}
+
+function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isTrustedDemoHostMessage(conn)) return;
+  const index = normalizeDemoTrackIndex(data.index);
+  _pendingDemoPlay = {
+    index,
+    time: Math.max(0, Number(data.time) || 0),
+    hostPlayAt: Number(data.hostPlayAt) || 0,
+  };
+
+  if (!getState('demo.active') || _demoTrackIndex !== index || !getCurrentAudioBuffer()) {
+    void enterDemoMode({ index, autoplay: false, broadcastEntry: false });
+    return;
+  }
+  applyPendingDemoPlay();
+}
+
+function handleDemoPauseMessage(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isTrustedDemoHostMessage(conn)) return;
+  _pendingDemoPlay = null;
+  const time = Math.max(0, Number(data.time) || 0);
+  if (!getState('demo.active')) return;
+  pause(time, { showToast: false });
+  syncPlayButton();
+}
+
+function handleDemoExitMessage(_data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isTrustedDemoHostMessage(conn)) return;
+  exitDemoMode({ broadcastExit: false });
 }
 
 function bindDemoDom(): void {
@@ -641,10 +827,23 @@ function maybeShowFirstRunPrompt(): void {
 export function initDemoMode(): void {
   _busScope.dispose();
   bindDemoDom();
+  registerHandlers({
+    [MSG.DEMO_ENTER]: handleDemoEnterMessage,
+    [MSG.DEMO_PLAY]: handleDemoPlayMessage,
+    [MSG.DEMO_PAUSE]: handleDemoPauseMessage,
+    [MSG.DEMO_EXIT]: handleDemoExitMessage,
+  });
   _suppressFirstRunPrompt = hasAppUseRecord();
 
   _busScope.on('demo:enter', () => {
-    void enterDemoMode();
+    void enterDemoMode({ index: 0, autoplay: false, broadcastEntry: true }).then(() => {
+      if (!getState('demo.active')) return;
+      if (getState('network.hostConn')) {
+        void play(0);
+      } else {
+        startDemoPlayback(0);
+      }
+    });
   });
   _busScope.on('demo:exit', () => exitDemoMode());
   _busScope.on('demo:request-exit', () => requestDemoExit());
@@ -656,6 +855,8 @@ export function initDemoMode(): void {
   _busScope.on('state:audio.channelMode', () => syncRoleButtons());
   _busScope.on('state:demo.reverbOn', () => syncEffectButtons());
   _busScope.on('state:demo.bassBoostOn', () => syncEffectButtons());
+  _busScope.on('state:audio.reverbMix', () => syncDemoEffectStateFromAudio());
+  _busScope.on('state:audio.virtualBass', () => syncDemoEffectStateFromAudio());
   _busScope.on('state:playback.activity', () => syncPlayButton());
   _busScope.on('player:ended', () => {
     if (!getState('demo.active')) return;
@@ -668,6 +869,7 @@ export function initDemoMode(): void {
     syncDemoSessionCopy();
   });
   _busScope.on('network:device-list-update', () => syncDemoSessionCopy());
+  _busScope.on('network:peer-connected', (conn) => sendDemoBootstrap(conn as DataConnection));
   _busScope.on('state:network.connectedPeers', () => syncDemoSessionCopy());
   _busScope.on('state:network.sessionCode', () => syncDemoSessionCopy());
   _busScope.on('state:network.lastJoinCode', () => syncDemoSessionCopy());

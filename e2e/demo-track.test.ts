@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { waitForToast } from './helpers/wait.ts';
+import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
+import { cleanupContexts, createHostGuestContexts } from './helpers/context-factory.ts';
+import { readState, waitForToast } from './helpers/wait.ts';
 
 const DEMO_URL_PATTERN = 'https://demo.musixquare.com/linelight/*.m4a';
 const INFO_URL = 'https://batzerk.bandcamp.com/album/linelight-ost';
@@ -316,6 +317,61 @@ test.describe('Linelight demo mode', () => {
     await setupHostAndStart(page);
     await page.waitForTimeout(1300);
     await expect(page.locator('#dialog-overlay.show')).toHaveCount(0);
+  });
+
+  test('host demo entry automatically brings connected guest into the demo', async ({
+    browser,
+  }) => {
+    const pair = await createHostGuestContexts(browser);
+    try {
+      await Promise.all([
+        pair.hostPage.addInitScript(() => {
+          localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
+        }),
+        pair.guestPage.addInitScript(() => {
+          localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
+        }),
+      ]);
+      await Promise.all([mockDemoTrack(pair.hostPage), mockDemoTrack(pair.guestPage)]);
+      await connectHostAndGuest(pair.hostPage, pair.guestPage);
+
+      await pair.hostPage.evaluate(() => {
+        const bus = (window as unknown as Record<string, { emit?: (...args: unknown[]) => void }>)
+          .__MUSIXQUARE_BUS__;
+        bus?.emit?.('demo:enter');
+      });
+
+      await expect(pair.hostPage.locator('#demo-overlay')).toHaveClass(/active/, {
+        timeout: 15_000,
+      });
+      await expect(pair.guestPage.locator('#demo-overlay')).toHaveClass(/active/, {
+        timeout: 15_000,
+      });
+      await expect(pair.guestPage.locator('body')).toHaveClass(/mode-demo/);
+      await expect(pair.guestPage.locator('.demo-track-title')).toContainText(
+        'Linelight OST - Adventure',
+      );
+      await expect
+        .poll(() => readState(pair.guestPage, 'demo.active'), { timeout: 15_000 })
+        .toBe(true);
+      await expect
+        .poll(() => readState(pair.guestPage, 'playlist.currentTrackIndex'), { timeout: 15_000 })
+        .toBe(0);
+
+      await pair.hostPage.locator('[data-demo-step="3"]').click();
+      await pair.hostPage.locator('[data-demo-effect="reverb"]').click();
+      await expect
+        .poll(() => readState(pair.guestPage, 'demo.reverbOn'), { timeout: 10_000 })
+        .toBe(true);
+
+      await pair.hostPage.locator('[data-demo-step="4"]').click();
+      await pair.hostPage.locator('[data-demo-exit]').click();
+      await expect(pair.guestPage.locator('body')).not.toHaveClass(/mode-demo/, {
+        timeout: 10_000,
+      });
+    } finally {
+      await cleanupContexts(pair);
+    }
   });
 
   test('desktop demo uses the same guided landscape overlay after host setup', async ({ page }) => {

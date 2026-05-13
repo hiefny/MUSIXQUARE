@@ -212,6 +212,18 @@ export interface ProtocolMap {
   'session-full': { message: string };
   'force-close-duplicate': NoPayload;
   'guest-decode-failed': { index: number };
+  'demo-enter': {
+    index: number;
+    reverbOn: boolean;
+    bassBoostOn: boolean;
+  };
+  'demo-exit': NoPayload;
+  'demo-pause': { time: number };
+  'demo-play': {
+    index: number;
+    time: number;
+    hostPlayAt: number;
+  };
 
   // ── Audio Control ────────────────────────────────────────────────
   volume: { value: number };

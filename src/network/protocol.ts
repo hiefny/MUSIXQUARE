@@ -198,6 +198,12 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   // ignores stale reports (index !== currentTrackIndex) at the handler level,
   // but the validator still requires a sane non-negative integer.
   [MSG.GUEST_DECODE_FAILED]: (d) => isNonNegInt(d.index),
+  [MSG.DEMO_ENTER]: (d) =>
+    isNonNegInt(d.index) && typeof d.reverbOn === 'boolean' && typeof d.bassBoostOn === 'boolean',
+  [MSG.DEMO_PLAY]: (d) =>
+    isNonNegInt(d.index) && isFiniteNumber(d.time) && isFiniteNumber(d.hostPlayAt),
+  [MSG.DEMO_PAUSE]: (d) => isFiniteNumber(d.time),
+  [MSG.DEMO_EXIT]: () => true,
 };
 
 // ─── Generic Inbound Rate-Limit (per peer) ──────────────────────────

@@ -87,6 +87,10 @@ export const MSG = {
   FILE_WAIT: 'file-wait',
   FORCE_CLOSE_DUPLICATE: 'force-close-duplicate',
   GUEST_DECODE_FAILED: 'guest-decode-failed',
+  DEMO_ENTER: 'demo-enter',
+  DEMO_EXIT: 'demo-exit',
+  DEMO_PAUSE: 'demo-pause',
+  DEMO_PLAY: 'demo-play',
   // GET_SYNC_TIME removed — dead code (no sender, no handler)
   // GLOBAL_RESYNC_REQUEST removed — dead code (no sender, no handler)
   PAUSE: 'pause',

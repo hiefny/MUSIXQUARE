@@ -199,7 +199,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   // but the validator still requires a sane non-negative integer.
   [MSG.GUEST_DECODE_FAILED]: (d) => isNonNegInt(d.index),
   [MSG.DEMO_ENTER]: (d) =>
-    isNonNegInt(d.index) && typeof d.reverbOn === 'boolean' && typeof d.bassBoostOn === 'boolean',
+    isNonNegInt(d.index) &&
+    typeof d.reverbOn === 'boolean' &&
+    typeof d.bassBoostOn === 'boolean' &&
+    typeof d.trebleBoostOn === 'boolean' &&
+    typeof d.surroundOn === 'boolean',
   [MSG.DEMO_PLAY]: (d) =>
     isNonNegInt(d.index) && isFiniteNumber(d.time) && isFiniteNumber(d.hostPlayAt),
   [MSG.DEMO_PAUSE]: (d) => isFiniteNumber(d.time),

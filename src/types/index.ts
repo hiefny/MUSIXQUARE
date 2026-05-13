@@ -216,6 +216,8 @@ export interface ProtocolMap {
     index: number;
     reverbOn: boolean;
     bassBoostOn: boolean;
+    trebleBoostOn: boolean;
+    surroundOn: boolean;
   };
   'demo-exit': NoPayload;
   'demo-pause': { time: number };
@@ -540,6 +542,8 @@ export interface StateTree {
     loading: boolean;
     reverbOn: boolean;
     bassBoostOn: boolean;
+    trebleBoostOn: boolean;
+    surroundOn: boolean;
   };
   sync: { localOffset: number; lastLatencyMs: number; latencyHistory: number[] };
   network: {
@@ -739,6 +743,8 @@ interface BaseEventMap {
   'demo:set-role': [mode: number];
   'demo:toggle-reverb': [];
   'demo:toggle-bass': [];
+  'demo:toggle-treble': [];
+  'demo:toggle-surround': [];
 
   // ── Beat Detection ──────────────────────────────────────────────
   'beat:pulse': [bpm: number, beatIndex: number];

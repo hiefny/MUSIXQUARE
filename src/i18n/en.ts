@@ -212,6 +212,8 @@ const en: Record<I18nKey, string> = {
   'demo.effects_title': 'Try effects',
   'demo.reverb': 'Reverb On/Off',
   'demo.bass_boost': 'Bass Boost On/Off',
+  'demo.treble_boost': 'Treble Boost On/Off',
+  'demo.surround': 'Surround On/Off',
   'demo.role_bass_short': 'Bass',
   'demo.role_center_short': 'Center',
   'demo.step_nav_label': 'Demo steps',
@@ -226,8 +228,6 @@ const en: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Only this device is playing right now.\nInvite another device now.',
   'demo.effects_step_title': 'Shape a richer sound.',
   'demo.effects_step_subtitle': 'You can fine-tune everything later in Settings.',
-  'demo.effects_support':
-    'MUSIXQUARE can apply reverb, EQ, virtual surround, virtual bass, and other sound effects across every connected device.',
   'demo.finish_step_title': 'That is the quick tour.',
   'demo.finish_step_subtitle': 'Return to the app to use every feature.',
   'demo.track_list_label': 'Demo track list',

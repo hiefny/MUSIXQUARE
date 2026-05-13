@@ -675,6 +675,23 @@
         width: calc(100% - 40px);
     }
 
+    body.mode-demo .demo-finish-content .demo-large-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+        max-width: 100%;
+        align-self: stretch;
+        gap: 8px;
+    }
+
+    body.mode-demo .demo-finish-content .demo-large-actions .rename-device-btn,
+    body.mode-demo .demo-finish-content .demo-large-actions .leave-session-btn {
+        flex: none;
+        width: 100%;
+        margin-left: 0;
+        margin-right: 0;
+    }
+
     /* Role Selection: Match the default 44px top padding of other sections */
     #youtube-settings-disabled-wrap .section-group:first-of-type .section-header-row {
         padding-top: 44px;

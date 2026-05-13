@@ -5274,37 +5274,24 @@
     gap: 10px;
   }
 
-  .demo-support-copy {
-    margin: 0;
-    color: var(--text-sub);
-    font-size: 13px;
-    line-height: 1.55;
-    font-weight: 650;
-    word-break: keep-all;
-  }
-
-  .demo-effects-content {
-    gap: 18px;
-  }
-
   .demo-effects-content .demo-large-actions {
-    gap: 12px;
+    gap: 8px;
   }
 
   .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
-    min-height: 112px;
+    min-height: 92px;
     height: auto;
-    padding: 18px 12px;
+    padding: 14px 10px;
     flex-direction: column;
     justify-content: center;
-    gap: 10px;
+    gap: 8px;
     border-radius: var(--radius-m);
-    font-size: 15px;
+    font-size: 13.5px;
   }
 
   .demo-effects-content .demo-large-actions .ch-opt.demo-choice svg {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
   }
 
   .demo-track-list {
@@ -5633,29 +5620,34 @@
       min-height: clamp(58px, 7.5vh, 72px);
     }
 
-    .demo-finish-content .demo-large-actions {
+    body.mode-demo .demo-finish-content .demo-large-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      width: 100%;
+      max-width: 100%;
+      align-self: stretch;
       gap: 8px;
     }
 
-    .demo-finish-content .demo-large-actions .rename-device-btn,
-    .demo-finish-content .demo-large-actions .leave-session-btn {
+    body.mode-demo .demo-finish-content .demo-large-actions .rename-device-btn,
+    body.mode-demo .demo-finish-content .demo-large-actions .leave-session-btn {
+      flex: none;
+      width: 100%;
+      margin-left: 0;
+      margin-right: 0;
       height: 58px;
       min-height: 58px;
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
-      min-height: clamp(112px, 18vh, 154px);
-      padding: clamp(18px, 3vh, 28px) 12px;
-      gap: clamp(10px, 1.8vh, 16px);
+      min-height: clamp(92px, 14vh, 118px);
+      padding: clamp(14px, 2vh, 18px) 10px;
+      gap: clamp(8px, 1.2vh, 10px);
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice svg {
-      width: clamp(34px, 5vh, 44px);
-      height: clamp(34px, 5vh, 44px);
-    }
-
-    .demo-support-copy {
-      font-size: clamp(13px, 1vw, 14.5px);
+      width: clamp(28px, 4vh, 34px);
+      height: clamp(28px, 4vh, 34px);
     }
 
     .demo-track-row {
@@ -5722,9 +5714,9 @@
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
-      min-height: 104px;
-      padding: 16px 10px;
-      font-size: 14px;
+      min-height: 84px;
+      padding: 12px 8px;
+      font-size: 12.5px;
     }
 
     .demo-track-title {

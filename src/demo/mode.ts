@@ -44,6 +44,7 @@ type DemoSnapshot = {
   reverbLowCut: number;
   reverbHighCut: number;
   eqValues: number[];
+  stereoWidth: number;
   virtualBass: number;
   userPreampGain: number;
   subFreq: number;
@@ -64,6 +65,7 @@ type PendingDemoPlay = {
 };
 
 const WARM_EQ = [5, 3, 0, -2, -3];
+const BRIGHT_EQ = [0, -2, 0, 4, 6];
 const MOBILE_QUERY = '(max-width: 1279px)';
 const DEMO_OVERLAY_FADE_MS = 340;
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
@@ -125,6 +127,7 @@ function captureSnapshot(): DemoSnapshot {
     reverbLowCut: getState('audio.reverbLowCut'),
     reverbHighCut: getState('audio.reverbHighCut'),
     eqValues: [...(getState('audio.eqValues') || [])],
+    stereoWidth: getState('audio.stereoWidth'),
     virtualBass: getState('audio.virtualBass'),
     userPreampGain: getState('audio.userPreampGain'),
     subFreq: getState('audio.subFreq'),
@@ -148,6 +151,7 @@ function restoreSnapshot(snapshot: DemoSnapshot | null): void {
   setState('audio.reverbLowCut', snapshot.reverbLowCut);
   setState('audio.reverbHighCut', snapshot.reverbHighCut);
   setState('audio.eqValues', [...snapshot.eqValues]);
+  setState('audio.stereoWidth', snapshot.stereoWidth);
   setState('audio.virtualBass', snapshot.virtualBass);
   setState('audio.userPreampGain', snapshot.userPreampGain);
   setState('audio.subFreq', snapshot.subFreq);
@@ -195,6 +199,8 @@ function createDemoEnterMessage(index = _demoTrackIndex) {
     index,
     reverbOn: !!getState('demo.reverbOn'),
     bassBoostOn: !!getState('demo.bassBoostOn'),
+    trebleBoostOn: !!getState('demo.trebleBoostOn'),
+    surroundOn: !!getState('demo.surroundOn'),
   } as const;
 }
 
@@ -548,6 +554,8 @@ function syncRoleButtons(): void {
 function syncEffectButtons(): void {
   const reverbOn = getState('demo.reverbOn');
   const bassOn = getState('demo.bassBoostOn');
+  const trebleOn = getState('demo.trebleBoostOn');
+  const surroundOn = getState('demo.surroundOn');
   document.querySelectorAll<HTMLElement>('[data-demo-effect="reverb"]').forEach((btn) => {
     btn.classList.toggle('active', reverbOn);
     btn.setAttribute('aria-pressed', String(reverbOn));
@@ -556,14 +564,34 @@ function syncEffectButtons(): void {
     btn.classList.toggle('active', bassOn);
     btn.setAttribute('aria-pressed', String(bassOn));
   });
+  document.querySelectorAll<HTMLElement>('[data-demo-effect="treble"]').forEach((btn) => {
+    btn.classList.toggle('active', trebleOn);
+    btn.setAttribute('aria-pressed', String(trebleOn));
+  });
+  document.querySelectorAll<HTMLElement>('[data-demo-effect="surround"]').forEach((btn) => {
+    btn.classList.toggle('active', surroundOn);
+    btn.setAttribute('aria-pressed', String(surroundOn));
+  });
+}
+
+function eqMatches(
+  values: readonly number[] | null | undefined,
+  preset: readonly number[],
+): boolean {
+  if (!Array.isArray(values) || values.length < preset.length) return false;
+  return preset.every((value, index) => Number(values[index]) === value);
 }
 
 function syncDemoEffectStateFromAudio(): void {
   if (!getState('demo.active')) return;
   const reverbOn = (getState('audio.reverbMix') || 0) > 0.001;
   const bassOn = (getState('audio.virtualBass') || 0) > 0.001;
+  const trebleOn = !bassOn && eqMatches(getState('audio.eqValues'), BRIGHT_EQ);
+  const surroundOn = (getState('audio.stereoWidth') || 1) > 1.001;
   if (getState('demo.reverbOn') !== reverbOn) setState('demo.reverbOn', reverbOn);
   if (getState('demo.bassBoostOn') !== bassOn) setState('demo.bassBoostOn', bassOn);
+  if (getState('demo.trebleBoostOn') !== trebleOn) setState('demo.trebleBoostOn', trebleOn);
+  if (getState('demo.surroundOn') !== surroundOn) setState('demo.surroundOn', surroundOn);
   syncEffectButtons();
 }
 
@@ -639,6 +667,8 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   setState('demo.loading', true);
   setState('demo.reverbOn', false);
   setState('demo.bassBoostOn', false);
+  setState('demo.trebleBoostOn', false);
+  setState('demo.surroundOn', false);
   setState('playlist.currentTrackIndex', _demoTrackIndex);
   setPlaybackTrackMeta(createDemoTrackMeta(getCurrentDemoTrack()));
   hideSetupOverlay();
@@ -673,6 +703,8 @@ function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   setState('demo.loading', false);
   setState('demo.reverbOn', false);
   setState('demo.bassBoostOn', false);
+  setState('demo.trebleBoostOn', false);
+  setState('demo.surroundOn', false);
   setDemoDomActive(false);
   restoreSnapshot(_snapshot);
   _snapshot = null;
@@ -720,16 +752,41 @@ function toggleDemoReverb(): void {
   syncEffectButtons();
 }
 
+function applyDemoEqPreset(values: number[]): void {
+  values.forEach((value, band) => bus.emit('audio:set-eq', band, value));
+}
+
 function toggleDemoBass(): void {
   const next = !getState('demo.bassBoostOn');
   setState('demo.bassBoostOn', next);
   if (next) {
-    WARM_EQ.forEach((value, band) => bus.emit('audio:set-eq', band, value));
+    setState('demo.trebleBoostOn', false);
+    applyDemoEqPreset(WARM_EQ);
     bus.emit('audio:update-effect', 'vbass', 'mix', 60, false);
   } else {
     bus.emit('audio:reset-eq');
     bus.emit('audio:update-effect', 'vbass', 'mix', 0, false);
   }
+  syncEffectButtons();
+}
+
+function toggleDemoTreble(): void {
+  const next = !getState('demo.trebleBoostOn');
+  setState('demo.trebleBoostOn', next);
+  if (next) {
+    setState('demo.bassBoostOn', false);
+    bus.emit('audio:update-effect', 'vbass', 'mix', 0, false);
+    applyDemoEqPreset(BRIGHT_EQ);
+  } else {
+    bus.emit('audio:reset-eq');
+  }
+  syncEffectButtons();
+}
+
+function toggleDemoSurround(): void {
+  const next = !getState('demo.surroundOn');
+  setState('demo.surroundOn', next);
+  bus.emit('audio:update-effect', 'stereo', 'mix', next ? 120 : 100, false);
   syncEffectButtons();
 }
 
@@ -767,10 +824,14 @@ function playNextDemoTrack(): void {
 function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isTrustedDemoHostMessage(conn)) return;
   const index = normalizeDemoTrackIndex(data.index);
-  setState('demo.reverbOn', !!data.reverbOn);
-  setState('demo.bassBoostOn', !!data.bassBoostOn);
-  syncEffectButtons();
-  void enterDemoMode({ index, autoplay: false, broadcastEntry: false });
+  void enterDemoMode({ index, autoplay: false, broadcastEntry: false }).then(() => {
+    if (!getState('demo.active')) return;
+    setState('demo.reverbOn', !!data.reverbOn);
+    setState('demo.bassBoostOn', !!data.bassBoostOn);
+    setState('demo.trebleBoostOn', !!data.trebleBoostOn);
+    setState('demo.surroundOn', !!data.surroundOn);
+    syncEffectButtons();
+  });
 }
 
 function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -820,6 +881,12 @@ function bindDemoDom(): void {
   });
   document.querySelectorAll<HTMLElement>('[data-demo-effect="bass"]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:toggle-bass'));
+  });
+  document.querySelectorAll<HTMLElement>('[data-demo-effect="treble"]').forEach((btn) => {
+    btn.addEventListener('click', () => bus.emit('demo:toggle-treble'));
+  });
+  document.querySelectorAll<HTMLElement>('[data-demo-effect="surround"]').forEach((btn) => {
+    btn.addEventListener('click', () => bus.emit('demo:toggle-surround'));
   });
   document.querySelectorAll<HTMLElement>('[data-demo-info]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:open-info'));
@@ -890,11 +957,17 @@ export function initDemoMode(): void {
   _busScope.on('demo:set-role', (mode) => setDemoRole(mode));
   _busScope.on('demo:toggle-reverb', () => toggleDemoReverb());
   _busScope.on('demo:toggle-bass', () => toggleDemoBass());
+  _busScope.on('demo:toggle-treble', () => toggleDemoTreble());
+  _busScope.on('demo:toggle-surround', () => toggleDemoSurround());
   _busScope.on('state:audio.channelMode', () => syncRoleButtons());
   _busScope.on('state:demo.reverbOn', () => syncEffectButtons());
   _busScope.on('state:demo.bassBoostOn', () => syncEffectButtons());
+  _busScope.on('state:demo.trebleBoostOn', () => syncEffectButtons());
+  _busScope.on('state:demo.surroundOn', () => syncEffectButtons());
   _busScope.on('state:audio.reverbMix', () => syncDemoEffectStateFromAudio());
   _busScope.on('state:audio.virtualBass', () => syncDemoEffectStateFromAudio());
+  _busScope.on('state:audio.eqValues', () => syncDemoEffectStateFromAudio());
+  _busScope.on('state:audio.stereoWidth', () => syncDemoEffectStateFromAudio());
   _busScope.on('state:playback.activity', () => syncPlayButton());
   _busScope.on('player:ended', () => {
     if (!getState('demo.active')) return;

@@ -209,6 +209,8 @@ const ko = {
   'demo.effects_title': '효과 체험하기',
   'demo.reverb': '리버브 ON/OFF',
   'demo.bass_boost': '저음 강화 ON/OFF',
+  'demo.treble_boost': '고음 강화 ON/OFF',
+  'demo.surround': '서라운드 ON/OFF',
   'demo.role_bass_short': '저음',
   'demo.role_center_short': '중앙',
   'demo.step_nav_label': '데모 단계',
@@ -223,8 +225,6 @@ const ko = {
   'demo.session_body_alone': '현재 혼자만 음악을 재생중이에요.\n새로운 기기를 지금 초대해보세요.',
   'demo.effects_step_title': '고급 음향을 만들어보세요.',
   'demo.effects_step_subtitle': '나중에 더 세세한 설정을 할 수 있어요.',
-  'demo.effects_support':
-    '뮤직스퀘어에서 리버브, 이퀄라이저, 가상 서라운드, 가상 베이스와 같은 음향 효과를 모든 기기에 함께 적용할 수 있어요.',
   'demo.finish_step_title': '이제 간단한 소개는 끝났어요.',
   'demo.finish_step_subtitle': '앱으로 돌아가 모든 기능을 이용해보세요.',
   'demo.track_list_label': '데모 트랙 목록',

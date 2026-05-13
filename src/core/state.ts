@@ -130,6 +130,8 @@ function createInitialState(): StateTree {
       loading: false,
       reverbOn: false,
       bassBoostOn: false,
+      trebleBoostOn: false,
+      surroundOn: false,
     },
 
     sync: {

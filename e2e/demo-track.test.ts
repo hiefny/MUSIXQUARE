@@ -144,26 +144,44 @@ test.describe('Linelight demo mode', () => {
     await expect(page.locator('[data-role-diagram="demo"]')).toBeVisible();
     await expect(page.locator('[data-demo-role="-1"]')).toBeVisible();
     await page.locator('[data-demo-step="3"]').click();
-    await expect(page.locator('.demo-support-copy')).toBeVisible();
-    await expect(page.locator('[data-demo-effect="reverb"]')).toContainText('Reverb On/Off');
-    await expect(page.locator('[data-demo-effect="bass"]')).toContainText('Bass Boost On/Off');
+    await expect(page.locator('.demo-support-copy')).toHaveCount(0);
     await expect(page.locator('[data-demo-effect="bass"]')).toBeVisible();
+    await expect(page.locator('[data-demo-effect="bass"]')).toContainText('Bass Boost On/Off');
+    await expect(page.locator('[data-demo-effect="treble"]')).toContainText('Treble Boost On/Off');
+    await expect(page.locator('[data-demo-effect="reverb"]')).toContainText('Reverb On/Off');
+    await expect(page.locator('[data-demo-effect="surround"]')).toContainText('Surround On/Off');
     const effectLayout = await page.evaluate(() => {
-      const button = document.querySelector('[data-demo-effect="bass"]')!;
-      const styles = getComputedStyle(button);
-      const copy = document.querySelector('.demo-support-copy')!.getBoundingClientRect();
+      const bass = document.querySelector('[data-demo-effect="bass"]')!;
+      const treble = document.querySelector('[data-demo-effect="treble"]')!;
+      const reverb = document.querySelector('[data-demo-effect="reverb"]')!;
       const actions = document
         .querySelector('[data-demo-panel="3"] .demo-large-actions')!
         .getBoundingClientRect();
+      const styles = getComputedStyle(bass);
+      const actionStyles = getComputedStyle(
+        document.querySelector('[data-demo-panel="3"] .demo-large-actions')!,
+      );
+      const bassRect = bass.getBoundingClientRect();
+      const trebleRect = treble.getBoundingClientRect();
+      const reverbRect = reverb.getBoundingClientRect();
       return {
+        buttonCount: document.querySelectorAll('[data-demo-effect]').length,
+        columns: actionStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
         flexDirection: styles.flexDirection,
-        height: button.getBoundingClientRect().height,
-        copyBelowButtons: copy.top >= actions.bottom,
+        height: bassRect.height,
+        sameFirstRow: Math.abs(bassRect.top - trebleRect.top) < 2,
+        secondRowBelow: reverbRect.top >= bassRect.bottom,
+        actionsHeight: actions.height,
       };
     });
+    expect(effectLayout.buttonCount).toBe(4);
+    expect(effectLayout.columns).toBe(2);
     expect(effectLayout.flexDirection).toBe('column');
-    expect(effectLayout.height).toBeGreaterThanOrEqual(100);
-    expect(effectLayout.copyBelowButtons).toBe(true);
+    expect(effectLayout.height).toBeGreaterThanOrEqual(82);
+    expect(effectLayout.height).toBeLessThanOrEqual(120);
+    expect(effectLayout.sameFirstRow).toBe(true);
+    expect(effectLayout.secondRowBelow).toBe(true);
+    expect(effectLayout.actionsHeight).toBeLessThanOrEqual(250);
     await page.locator('[data-demo-next]').click();
     await expect(page.locator('.demo-track-row')).toHaveCount(4);
     await expect(page.locator('[data-demo-next]')).toHaveClass(/is-final/);
@@ -310,6 +328,14 @@ test.describe('Linelight demo mode', () => {
         }),
       )
       .toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
+          return Math.abs(controls.top + controls.height / 2 - window.innerHeight / 2) < 24;
+        }),
+      )
+      .toBe(true);
     const roomyLandscape = await page.evaluate(() => {
       const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
       const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
@@ -405,6 +431,17 @@ test.describe('Linelight demo mode', () => {
       await expect
         .poll(() => readState(pair.guestPage, 'demo.reverbOn'), { timeout: 10_000 })
         .toBe(true);
+      await pair.hostPage.locator('[data-demo-effect="treble"]').click();
+      await expect
+        .poll(() => readState(pair.guestPage, 'demo.trebleBoostOn'), { timeout: 10_000 })
+        .toBe(true);
+      await expect
+        .poll(() => readState(pair.guestPage, 'audio.eqValues'), { timeout: 10_000 })
+        .toEqual([0, -2, 0, 4, 6]);
+      await pair.hostPage.locator('[data-demo-effect="surround"]').click();
+      await expect
+        .poll(() => readState(pair.guestPage, 'demo.surroundOn'), { timeout: 10_000 })
+        .toBe(true);
 
       await pair.hostPage.locator('[data-demo-next]').click();
       await pair.hostPage.locator('[data-demo-exit]').click();
@@ -487,29 +524,50 @@ test.describe('Linelight demo mode', () => {
     const desktopEffectSize = await page
       .locator('[data-demo-effect="bass"]')
       .evaluate((button) => button.getBoundingClientRect().height);
-    expect(desktopEffectSize).toBeGreaterThanOrEqual(140);
+    expect(desktopEffectSize).toBeGreaterThanOrEqual(90);
+    expect(desktopEffectSize).toBeLessThanOrEqual(120);
 
     await page.locator('[data-demo-next]').click();
     await expect(page.locator('[data-demo-next]')).toHaveClass(/is-final/);
     await expect(page.locator('[data-demo-next] svg')).toBeHidden();
     await expect(page.locator('[data-demo-info] svg path')).toHaveAttribute('d', INFO_ICON_PATH);
     await expect(page.locator('[data-demo-exit] svg path')).toHaveAttribute('d', EXIT_ICON_PATH);
-    const desktopFinishActions = await page.evaluate(() => {
-      const actions = document
-        .querySelector('[data-demo-panel="4"] .demo-large-actions')!
-        .getBoundingClientRect();
-      const styles = getComputedStyle(
-        document.querySelector('[data-demo-panel="4"] .demo-large-actions')!,
-      );
-      const info = document.querySelector('[data-demo-info]')!.getBoundingClientRect();
-      const exit = document.querySelector('[data-demo-exit]')!.getBoundingClientRect();
-      return {
-        gap: Number.parseFloat(styles.columnGap),
-        height: Math.max(info.height, exit.height),
-        actionsHeight: actions.height,
-      };
-    });
+    const readFinishActions = () =>
+      page.evaluate(() => {
+        const actions = document
+          .querySelector('[data-demo-panel="4"] .demo-large-actions')!
+          .getBoundingClientRect();
+        const styles = getComputedStyle(
+          document.querySelector('[data-demo-panel="4"] .demo-large-actions')!,
+        );
+        const info = document.querySelector('[data-demo-info]')!.getBoundingClientRect();
+        const exit = document.querySelector('[data-demo-exit]')!.getBoundingClientRect();
+        return {
+          gap: Number.parseFloat(styles.columnGap),
+          width: actions.width,
+          buttonGap: exit.left - info.right,
+          height: Math.max(info.height, exit.height),
+          actionsHeight: actions.height,
+        };
+      });
+
+    await page.setViewportSize({ width: 1279, height: 720 });
+    const preDesktopFinishActions = await readFinishActions();
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const desktopFinishActions = await readFinishActions();
+    expect(preDesktopFinishActions.width).toBeGreaterThanOrEqual(440);
+    expect(preDesktopFinishActions.width).toBeLessThanOrEqual(650);
+    expect(preDesktopFinishActions.buttonGap).toBeLessThanOrEqual(10);
+    expect(
+      Math.abs(desktopFinishActions.width - preDesktopFinishActions.width),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(desktopFinishActions.buttonGap - preDesktopFinishActions.buttonGap),
+    ).toBeLessThanOrEqual(1);
     expect(desktopFinishActions.gap).toBeLessThanOrEqual(8);
+    expect(desktopFinishActions.width).toBeGreaterThanOrEqual(440);
+    expect(desktopFinishActions.width).toBeLessThanOrEqual(650);
+    expect(desktopFinishActions.buttonGap).toBeLessThanOrEqual(10);
     expect(desktopFinishActions.height).toBeGreaterThanOrEqual(56);
     expect(desktopFinishActions.height).toBeLessThanOrEqual(60);
     expect(desktopFinishActions.actionsHeight).toBeLessThanOrEqual(62);

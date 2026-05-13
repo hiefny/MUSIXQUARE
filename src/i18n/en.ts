@@ -206,7 +206,7 @@ const en: Record<I18nKey, string> = {
   'demo.prompt_later': 'Not now',
   'demo.try_later_toast': 'You can try it anytime from the Help tab.',
   'demo.track_info': 'Track info',
-  'demo.exit': 'Exit experience',
+  'demo.exit': 'Quit demo',
   'demo.credit': 'Demo track',
   'demo.role_title': 'Set this device role',
   'demo.effects_title': 'Try effects',
@@ -220,7 +220,7 @@ const en: Record<I18nKey, string> = {
   'demo.step_connect': '1. Connect devices',
   'demo.step_role': '2. Set role',
   'demo.step_effects': '3. Audio effects',
-  'demo.step_finish': '4. Exit demo',
+  'demo.step_finish': '4. Quit demo',
   'demo.session_title': 'This is room {{code}}.',
   'demo.session_subtitle': 'You can invite another device anytime.',
   'demo.session_body_connected':

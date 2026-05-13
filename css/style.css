@@ -5446,7 +5446,7 @@
 
   .demo-step-nav button.active {
     flex-basis: var(--demo-step-pill-size);
-    padding: 0 clamp(12px, 4vw, 18px);
+    padding: 0 clamp(8px, 2.6vw, 14px);
     background: rgba(var(--primary-rgb), 0.18);
     border-color: rgba(var(--primary-rgb), 0.26);
     color: var(--primary);
@@ -5691,21 +5691,40 @@
     }
 
     .demo-step-nav {
-      --demo-step-dot-size: clamp(46px, 6.4vh, 54px);
-      --demo-step-pill-size: clamp(176px, 25vw, 224px);
+      --demo-step-nav-side: clamp(14px, 2.4vw, 32px);
+      --demo-step-dot-size: clamp(46px, 6.2vh, 52px);
+      --demo-step-pill-size: clamp(
+        144px,
+        calc(
+          100% - var(--demo-step-dot-size) - var(--demo-step-dot-size) - var(--demo-step-dot-size) -
+            var(--demo-nav-gap) - var(--demo-nav-gap) - var(--demo-nav-gap)
+        ),
+        196px
+      );
 
       position: absolute;
       gap: var(--demo-nav-gap);
-      left: clamp(20px, 3vw, 40px);
-      right: clamp(20px, 3vw, 40px);
+      left: calc(var(--demo-step-nav-side) + var(--safe-left));
+      right: calc(var(--demo-step-nav-side) + var(--safe-right));
       top: auto;
       bottom: clamp(18px, 3vh, 32px);
-      max-width: min(480px, calc(100% - 40px));
+      max-width: min(
+        440px,
+        calc(
+          100% - var(--demo-step-nav-side) - var(--demo-step-nav-side) - var(--safe-left) -
+            var(--safe-right)
+        )
+      );
       transform: none;
     }
 
     .demo-step-nav button.active {
       font-size: clamp(13px, 1vw, 15px);
+      padding-inline: clamp(8px, 1.4vw, 12px);
+    }
+
+    .demo-step-nav button.active span {
+      max-width: 128px;
     }
   }
 

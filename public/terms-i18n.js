@@ -32,6 +32,8 @@
         'System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution, public transmission, or other infringement of copyrighted content.',
       'section.content.p3':
         "YouTube sharing uses YouTube's official playback structure. Views and rights handling follow YouTube policies and rights-holder settings.",
+      'section.content.p4':
+        "Demo tracks, including music from Linelight OST by Brett Taylor, are provided only for in-product demo playback with permission from the rights holder. Users must not record, extract, download, redistribute, reuse, or create separate copies of these tracks.",
 
       'section.remote.title': '3. Remote Sharing',
       'section.remote.p1':
@@ -88,6 +90,8 @@
         '시스템 오디오 공유 및 파일 공유 기능은 개인적인 이용을 위한 것입니다. 저작권이 있는 콘텐츠의 무단 배포, 공개 송신, 기타 권리 침해에 대한 책임은 사용자에게 있습니다.',
       'section.content.p3':
         'YouTube 공유는 YouTube의 공식 재생 구조를 사용합니다. 조회 및 권리 처리는 YouTube 정책과 권리자 설정을 따릅니다.',
+      'section.content.p4':
+        'Brett Taylor님의 Linelight OST를 포함한 데모 트랙은 권리자의 허락을 받아 MUSIXQUARE 앱 내 데모 재생 목적으로만 제공됩니다. 사용자는 해당 트랙을 녹음, 추출, 다운로드, 재배포, 재사용하거나 별도 사본으로 만들 수 없습니다.',
 
       'section.remote.title': '3. 원격 공유',
       'section.remote.p1':

@@ -43,6 +43,9 @@ const MAX_DB = 0;
 const SLOPE_DB_PER_OCTAVE = 4.5;
 const SLOPE_REF_FREQ = 1000;
 const LOG_GAMMA = 1.0; // neutral log-scale spacing
+const LOG_MIN_FREQ = Math.log10(MIN_FREQ);
+const LOG_FREQ_RANGE = Math.log10(MAX_FREQ) - LOG_MIN_FREQ;
+const SPECTRUM_GRID_FREQS = [100, 1000, 10000] as const;
 
 // ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
 const BASS_SMOOTH = 0.8;
@@ -51,6 +54,17 @@ const VIZ_SETTLE_MS = 180;
 const SPECTRUM_START_WARMUP_FRAMES = 2;
 
 type SpectrumPoint = { x: number; y: number };
+
+interface SpectrumBinLayout {
+  bufferLength: number;
+  sampleRate: number;
+  logicalW: number;
+  padX: number;
+  indices: number[];
+  xValues: number[];
+  slopeValues: number[];
+  gridXValues: number[];
+}
 
 interface CircularFrame {
   bassPunch: number;
@@ -550,9 +564,7 @@ export function startVisualizer(): void {
 // ─── Spectrum Helpers ────────────────────────────────────────────
 
 function freqToX(freq: number, w: number, padX: number): number {
-  const logMin = Math.log10(MIN_FREQ);
-  const logMax = Math.log10(MAX_FREQ);
-  const norm = (Math.log10(freq) - logMin) / (logMax - logMin);
+  const norm = (Math.log10(freq) - LOG_MIN_FREQ) / LOG_FREQ_RANGE;
   const compressed = Math.pow(norm, LOG_GAMMA);
   return padX + compressed * (w - 2 * padX);
 }
@@ -568,6 +580,37 @@ function slopeCompensation(freq: number): number {
   return SLOPE_DB_PER_OCTAVE * Math.log2(freq / SLOPE_REF_FREQ);
 }
 
+function createSpectrumBinLayout(
+  bufferLength: number,
+  sampleRate: number,
+  logicalW: number,
+  padX: number,
+): SpectrumBinLayout {
+  const indices: number[] = [];
+  const xValues: number[] = [];
+  const slopeValues: number[] = [];
+
+  for (let i = 1; i < bufferLength; i += Math.max(1, Math.floor(i / 64))) {
+    const freq = (i * sampleRate) / (bufferLength * 2);
+    if (freq < MIN_FREQ) continue;
+    if (freq > MAX_FREQ) break;
+    indices.push(i);
+    xValues.push(freqToX(freq, logicalW, padX));
+    slopeValues.push(slopeCompensation(freq));
+  }
+
+  return {
+    bufferLength,
+    sampleRate,
+    logicalW,
+    padX,
+    indices,
+    xValues,
+    slopeValues,
+    gridXValues: SPECTRUM_GRID_FREQS.map((freq) => freqToX(freq, logicalW, padX)),
+  };
+}
+
 function drawSpectrumGrid(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -575,12 +618,12 @@ function drawSpectrumGrid(
   padX: number,
   padY: number,
   isLight: boolean,
+  gridXValues?: readonly number[],
 ): void {
-  const gridFreqs = [100, 1000, 10000];
   const alpha = isLight ? 0.06 : 0.06;
   ctx.lineWidth = 1;
-  for (const f of gridFreqs) {
-    const x = freqToX(f, w, padX);
+  const xValues = gridXValues ?? SPECTRUM_GRID_FREQS.map((freq) => freqToX(freq, w, padX));
+  for (const x of xValues) {
     const grad = ctx.createLinearGradient(0, padY, 0, h - padY);
     const col = isLight ? '0,0,0' : '255,255,255';
     grad.addColorStop(0, `rgba(${col},0)`);
@@ -641,6 +684,9 @@ function startSpectrumVisualizer(): void {
   const padY = 8;
   refreshThemeCache();
   let warmupFrames = SPECTRUM_START_WARMUP_FRAMES;
+  let binLayout = createSpectrumBinLayout(bufferLength, sampleRate, logicalW, padX);
+  const points: SpectrumPoint[] = [];
+  const lastSpectrumPoints: SpectrumPoint[] = [];
 
   function draw(): void {
     if (runToken !== _visualizerRunToken) return;
@@ -657,13 +703,16 @@ function startSpectrumVisualizer(): void {
     if (curW !== logicalW || curH !== logicalH) {
       logicalW = curW;
       logicalH = curH;
+      if (curW !== binLayout.logicalW) {
+        binLayout = createSpectrumBinLayout(bufferLength, sampleRate, logicalW, padX);
+      }
     }
 
     try {
       analyser!.getFloatFrequencyData(freqData);
       ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, logicalW, logicalH);
-      drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
+      drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight, binLayout.gridXValues);
 
       if (warmupFrames > 0) {
         warmupFrames--;
@@ -676,20 +725,25 @@ function startSpectrumVisualizer(): void {
         return;
       }
 
-      const points: { x: number; y: number }[] = [];
-      for (let i = 1; i < bufferLength; i += Math.max(1, Math.floor(i / 64))) {
-        const freq = (i * sampleRate) / (bufferLength * 2);
-        if (freq < MIN_FREQ) continue;
-        if (freq > MAX_FREQ) break;
-        const x = freqToX(freq, logicalW, padX);
-        const y = dbToY(freqData[i] + slopeCompensation(freq), logicalH, padY);
-        points.push({ x, y });
+      points.length = binLayout.indices.length;
+      for (let i = 0; i < binLayout.indices.length; i++) {
+        const point = points[i] ?? { x: 0, y: 0 };
+        point.x = binLayout.xValues[i];
+        point.y = dbToY(freqData[binLayout.indices[i]] + binLayout.slopeValues[i], logicalH, padY);
+        points[i] = point;
       }
 
       if (points.length >= 2) {
         drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
+        lastSpectrumPoints.length = points.length;
+        for (let i = 0; i < points.length; i++) {
+          const point = lastSpectrumPoints[i] ?? { x: 0, y: 0 };
+          point.x = points[i].x;
+          point.y = points[i].y;
+          lastSpectrumPoints[i] = point;
+        }
         _lastSpectrumFrame = {
-          points: points.map((p) => ({ x: p.x, y: p.y })),
+          points: lastSpectrumPoints,
           width: logicalW,
           height: logicalH,
           padX,

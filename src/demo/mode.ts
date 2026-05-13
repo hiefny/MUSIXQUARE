@@ -520,7 +520,7 @@ function syncDesktopDemoText(active = getState('demo.active')): void {
   document
     .querySelectorAll<HTMLElement>('.demo-track-artist, .demo-desktop-artist')
     .forEach((el) => {
-      el.textContent = track.artist;
+      el.textContent = `© ${track.artist}`;
     });
 
   const demoInfo = document.getElementById('demo-desktop-track-info');

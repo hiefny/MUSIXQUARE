@@ -64,9 +64,11 @@ test.describe('Linelight demo mode', () => {
       probe.style.color = 'var(--surface-1)';
       const surface1 = getComputedStyle(probe).color;
       probe.remove();
+      const pseudo = getComputedStyle(shell, '::before');
+      const panelTop = Number.parseFloat(pseudo.top);
       return {
-        panelBackground: getComputedStyle(shell, '::before').backgroundColor,
-        panelTop: Number.parseFloat(getComputedStyle(shell, '::before').top),
+        panelBackground: pseudo.backgroundColor,
+        panelTop,
         surface1,
         controlsTop: controls.top,
       };
@@ -98,6 +100,7 @@ test.describe('Linelight demo mode', () => {
     await expect(page.locator('[data-demo-step="4"]')).toContainText('4. Exit demo');
     const portraitNavLayout = await page.evaluate(() => {
       const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
+      const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
       const nav = document.querySelector('.demo-step-nav')!.getBoundingClientRect();
       const button = document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect();
       const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
@@ -105,16 +108,21 @@ test.describe('Linelight demo mode', () => {
       return {
         visualTop: visual.top,
         visualBottom: visual.bottom,
+        controlsTop: controls.top,
         navTop: nav.top,
         navBottom: nav.bottom,
         buttonHeight: button.height,
         columnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
         bottomNavOpacity: bottomNavStyles.opacity,
         bottomNavPointerEvents: bottomNavStyles.pointerEvents,
+        viewportHeight: window.innerHeight,
       };
     });
-    expect(portraitNavLayout.navTop).toBeGreaterThanOrEqual(portraitNavLayout.visualTop);
-    expect(portraitNavLayout.navBottom).toBeLessThanOrEqual(portraitNavLayout.visualBottom + 1);
+    expect(portraitNavLayout.controlsTop).toBeGreaterThanOrEqual(
+      portraitNavLayout.visualBottom - 1,
+    );
+    expect(portraitNavLayout.navTop).toBeGreaterThan(portraitNavLayout.controlsTop);
+    expect(portraitNavLayout.navBottom).toBeLessThanOrEqual(portraitNavLayout.viewportHeight);
     expect(portraitNavLayout.buttonHeight).toBeGreaterThanOrEqual(52);
     expect(portraitNavLayout.columnCount).toBe(2);
     expect(portraitNavLayout.bottomNavOpacity).toBe('0');

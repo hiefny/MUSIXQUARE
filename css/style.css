@@ -4928,13 +4928,14 @@
   .demo-mobile-shell {
     --demo-shell-gap: 24px;
     --demo-panel-start-offset: 0px;
-    --demo-panel-target: 430px;
-    --demo-visual-min: 128px;
+    --demo-panel-target: 560px;
+    --demo-visual-min: 112px;
     --demo-visual-height: clamp(
       var(--demo-visual-min),
       calc(var(--app-height, 100dvh) - var(--demo-panel-target)),
-      320px
+      240px
     );
+    --demo-step-nav-reserve: 132px;
     --demo-shell-pad-top: calc(14px + var(--safe-top));
     --demo-shell-pad-bottom: calc(16px + var(--safe-bottom));
     --demo-control-inset: clamp(18px, 6vw, 28px);
@@ -4982,7 +4983,8 @@
 
   .demo-visual-stage {
     position: relative;
-    z-index: 1;
+    z-index: 2;
+    grid-row: 1;
     min-height: 0;
     border-radius: 8px;
     overflow: hidden;
@@ -5077,11 +5079,13 @@
   .demo-control-stage {
     position: relative;
     z-index: 1;
+    grid-row: 2;
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    padding: var(--demo-control-pad-top) var(--demo-control-inset) 0;
+    padding: var(--demo-control-pad-top) var(--demo-control-inset)
+      calc(var(--demo-step-nav-reserve) + var(--safe-bottom));
     overflow: auto;
   }
 
@@ -5360,11 +5364,11 @@
   }
 
   .demo-step-nav {
-    position: absolute;
+    position: fixed;
     z-index: 3;
     left: clamp(14px, 4.5vw, 24px);
     right: clamp(14px, 4.5vw, 24px);
-    bottom: clamp(12px, 3.8vw, 22px);
+    bottom: calc(clamp(12px, 3.8vw, 22px) + var(--safe-bottom));
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
@@ -5597,6 +5601,7 @@
     }
 
     .demo-step-nav {
+      position: absolute;
       gap: var(--demo-nav-gap);
       left: clamp(20px, 3vw, 40px);
       right: clamp(20px, 3vw, 40px);
@@ -5609,26 +5614,6 @@
     .demo-step-nav button {
       min-height: clamp(52px, 6.4vh, 58px);
       font-size: clamp(13px, 1vw, 15px);
-    }
-  }
-
-  @media (min-width: 720px) and (max-height: 460px) {
-    .demo-mobile-shell {
-      --demo-shell-pad-block: 14px;
-      --demo-shell-pad-inline: clamp(14px, 2.6vmin, 24px);
-      --demo-control-inset: clamp(8px, 1.8vw, 18px);
-      --demo-control-pad-inline: clamp(34px, 5vw, 46px);
-      --demo-control-pad-block: 4px;
-      --demo-column-gap: clamp(14px, 2.4vw, 24px);
-      --demo-step-gap: 12px;
-    }
-
-    .demo-step-content {
-      gap: 12px;
-    }
-
-    .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
-      min-height: 104px;
     }
   }
 

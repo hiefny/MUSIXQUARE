@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
+import { waitForToast } from './helpers/wait.ts';
 
 const DEMO_URL_PATTERN = 'https://demo.musixquare.com/linelight/*.m4a';
 const INFO_URL = 'https://batzerk.bandcamp.com/album/linelight-ost';
@@ -36,17 +37,42 @@ test.describe('Linelight demo mode', () => {
     await setupHostAndStart(page);
 
     await page.locator('#dialog-overlay.show').waitFor({ timeout: 10_000 });
+    await expect(page.locator('#dialog-overlay.show')).toContainText('Try MUSIXQUARE');
+    await expect(page.locator('#dialog-overlay.show')).toContainText(
+      "Looks like you're new here. Want to try the basics?",
+    );
+    await expect(page.locator('#btn-dialog-ok')).toHaveText('Start');
     await page.locator('#btn-dialog-ok').click();
 
     await expect(page.locator('#demo-overlay')).toHaveClass(/active/, { timeout: 15_000 });
+    await expect(page.locator('#demo-overlay')).toHaveCSS('opacity', '1');
+    await expect(page.locator('.bottom-nav')).toHaveCSS('opacity', '0');
     await expect(page.locator('body')).toHaveClass(/viz-spectrum/);
-    await expect(page.locator('.demo-track-title')).toContainText('Linelight OST - 01 Adventure');
+    await expect(page.locator('.demo-track-title')).toContainText('Linelight OST - Adventure');
     await expect(page.locator('.demo-track-artist')).toContainText('Brett Taylor');
     await expect(page.locator('.demo-visual-stage .demo-track-header')).toBeVisible();
     await expect(page.locator('.demo-visual-stage')).toHaveCSS(
       'background-color',
       'rgba(0, 0, 0, 0)',
     );
+    const portraitPanelTheme = await page.evaluate(() => {
+      const shell = document.querySelector('.demo-mobile-shell')!;
+      const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
+      const probe = document.createElement('span');
+      document.body.append(probe);
+      probe.style.color = 'var(--surface-1)';
+      const surface1 = getComputedStyle(probe).color;
+      probe.remove();
+      return {
+        panelBackground: getComputedStyle(shell, '::before').backgroundColor,
+        panelTop: Number.parseFloat(getComputedStyle(shell, '::before').top),
+        surface1,
+        controlsTop: controls.top,
+      };
+    });
+    expect(portraitPanelTheme.panelBackground).toBe(portraitPanelTheme.surface1);
+    expect(portraitPanelTheme.panelTop).toBeGreaterThan(0);
+    expect(portraitPanelTheme.panelTop).toBeLessThanOrEqual(portraitPanelTheme.controlsTop);
     const playButtonThemeStyles = await page.evaluate(() => {
       const button = getComputedStyle(document.querySelector('.demo-play-button')!);
       const probe = document.createElement('span');
@@ -67,6 +93,31 @@ test.describe('Linelight demo mode', () => {
     expect(playButtonThemeStyles.color).toBe(playButtonThemeStyles.bg);
     expect(playButtonThemeStyles.background).not.toBe('rgb(0, 122, 255)');
     await expect(page.locator('#demo-mini-seek')).toHaveCount(0);
+    await expect(page.locator('[data-demo-step="1"]')).toContainText('1. Connect devices');
+    await expect(page.locator('[data-demo-step="4"]')).toContainText('4. Exit demo');
+    const portraitNavLayout = await page.evaluate(() => {
+      const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
+      const nav = document.querySelector('.demo-step-nav')!.getBoundingClientRect();
+      const button = document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect();
+      const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
+      const bottomNavStyles = getComputedStyle(document.querySelector('.bottom-nav')!);
+      return {
+        visualTop: visual.top,
+        visualBottom: visual.bottom,
+        navTop: nav.top,
+        navBottom: nav.bottom,
+        buttonHeight: button.height,
+        columnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
+        bottomNavOpacity: bottomNavStyles.opacity,
+        bottomNavPointerEvents: bottomNavStyles.pointerEvents,
+      };
+    });
+    expect(portraitNavLayout.navTop).toBeGreaterThanOrEqual(portraitNavLayout.visualTop);
+    expect(portraitNavLayout.navBottom).toBeLessThanOrEqual(portraitNavLayout.visualBottom + 1);
+    expect(portraitNavLayout.buttonHeight).toBeGreaterThanOrEqual(52);
+    expect(portraitNavLayout.columnCount).toBe(2);
+    expect(portraitNavLayout.bottomNavOpacity).toBe('0');
+    expect(portraitNavLayout.bottomNavPointerEvents).toBe('none');
     await expect(page.locator('[data-demo-panel="1"]')).toHaveClass(/active/);
     await expect(page.locator('#demo-session-qr svg')).toBeVisible();
     const qrSize = await page.locator('#demo-session-qr').boundingBox();
@@ -77,6 +128,8 @@ test.describe('Linelight demo mode', () => {
     await expect(page.locator('[data-demo-role="-1"]')).toBeVisible();
     await page.locator('[data-demo-step="3"]').click();
     await expect(page.locator('.demo-support-copy')).toBeVisible();
+    await expect(page.locator('[data-demo-effect="reverb"]')).toContainText('Reverb On/Off');
+    await expect(page.locator('[data-demo-effect="bass"]')).toContainText('Bass Boost On/Off');
     await expect(page.locator('[data-demo-effect="bass"]')).toBeVisible();
     const effectLayout = await page.evaluate(() => {
       const button = document.querySelector('[data-demo-effect="bass"]')!;
@@ -97,9 +150,68 @@ test.describe('Linelight demo mode', () => {
     await page.locator('[data-demo-step="4"]').click();
     await expect(page.locator('.demo-track-row')).toHaveCount(4);
     await expect(page.locator('[data-demo-track-index="0"]')).toHaveClass(/active/);
-    await expect(page.locator('.demo-track-notice')).toBeVisible();
+    await expect(page.locator('[data-demo-track-index="0"] strong')).toHaveText(
+      'Linelight OST - Adventure',
+    );
+    await expect(page.locator('[data-demo-track-index="3"] strong')).toHaveText(
+      'Linelight OST - Spring',
+    );
+    await expect(page.locator('.demo-track-notice')).toBeHidden();
     await expect(page.locator('[data-demo-info] svg')).toBeVisible();
     await expect(page.locator('[data-demo-exit] svg')).toBeVisible();
+    const portraitFinishActions = await page.evaluate(() => {
+      const actions = document
+        .querySelector('[data-demo-panel="4"] .demo-large-actions')!
+        .getBoundingClientRect();
+      const styles = getComputedStyle(
+        document.querySelector('[data-demo-panel="4"] .demo-large-actions')!,
+      );
+      const info = document.querySelector('[data-demo-info]')!.getBoundingClientRect();
+      const exit = document.querySelector('[data-demo-exit]')!.getBoundingClientRect();
+      return {
+        gap: Number.parseFloat(styles.columnGap),
+        height: Math.max(info.height, exit.height),
+        actionsHeight: actions.height,
+      };
+    });
+    expect(portraitFinishActions.gap).toBeLessThanOrEqual(8);
+    expect(portraitFinishActions.height).toBeGreaterThanOrEqual(52);
+    expect(portraitFinishActions.height).toBeLessThanOrEqual(60);
+    expect(portraitFinishActions.actionsHeight).toBeLessThanOrEqual(62);
+
+    await page.setViewportSize({ width: 390, height: 460 });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const controls = document.querySelector<HTMLElement>('.demo-control-stage')!;
+          return controls.scrollHeight > controls.clientHeight + 1;
+        }),
+      )
+      .toBe(true);
+    const tinyPortrait = await page.evaluate(() => {
+      const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
+      const controls = document.querySelector<HTMLElement>('.demo-control-stage')!;
+      const controlsRect = controls.getBoundingClientRect();
+      const track = document.querySelector<HTMLElement>('.demo-mobile-shell > .cscroll-track');
+      const thumb = document.querySelector<HTMLElement>(
+        '.demo-mobile-shell > .cscroll-track .cscroll-thumb',
+      );
+      const trackRect = track?.getBoundingClientRect();
+      return {
+        visualHeight: visual.height,
+        hasCustomScroll: controls.hasAttribute('data-custom-scroll'),
+        scrollHeight: controls.scrollHeight,
+        clientHeight: controls.clientHeight,
+        controlHeight: controlsRect.height,
+        trackHeight: trackRect?.height ?? 0,
+        thumbDisplay: thumb ? getComputedStyle(thumb).display : 'missing',
+      };
+    });
+    expect(tinyPortrait.visualHeight).toBeLessThanOrEqual(132);
+    expect(tinyPortrait.hasCustomScroll).toBe(true);
+    expect(tinyPortrait.scrollHeight).toBeGreaterThan(tinyPortrait.clientHeight);
+    expect(tinyPortrait.trackHeight).toBeCloseTo(tinyPortrait.controlHeight, 1);
+    expect(tinyPortrait.thumbDisplay).not.toBe('none');
 
     await page.setViewportSize({ width: 640, height: 390 });
     const narrowLandscape = await page.evaluate(() => {
@@ -120,25 +232,43 @@ test.describe('Linelight demo mode', () => {
       const spectrum = document
         .querySelector('#demo-visualizer-slot .vinyl-wrapper')!
         .getBoundingClientRect();
+      const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
+      const probe = document.createElement('span');
+      document.body.append(probe);
+      probe.style.color = 'var(--surface-1)';
+      const surface1 = getComputedStyle(probe).color;
+      probe.remove();
       return {
         visualTop: visual.top,
+        visualLeft: visual.left,
         visualRight: visual.right,
         visualBottom: visual.bottom,
         visualCenter: visual.top + visual.height / 2,
         controlsTop: controls.top,
         controlsLeft: controls.left,
+        navLeft: nav.left,
         navTop: nav.top,
         navRight: nav.right,
-        navButtonSize: document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect()
-          .width,
+        navBottom: nav.bottom,
+        navButtonHeight: document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect()
+          .height,
+        navColumnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
+        controlsBackground: getComputedStyle(document.querySelector('.demo-control-stage')!)
+          .backgroundColor,
+        surface1,
         spectrumCenter: spectrum.top + spectrum.height / 2,
       };
     });
     expect(compactDashboard.controlsLeft).toBeGreaterThanOrEqual(compactDashboard.visualRight - 1);
-    expect(compactDashboard.controlsTop).toBeGreaterThanOrEqual(compactDashboard.visualTop - 1);
-    expect(compactDashboard.navTop).toBeGreaterThanOrEqual(compactDashboard.visualBottom - 1);
+    expect(compactDashboard.controlsTop).toBeLessThanOrEqual(compactDashboard.visualTop);
+    expect(compactDashboard.navLeft).toBeGreaterThanOrEqual(compactDashboard.visualLeft - 1);
+    expect(compactDashboard.navTop).toBeGreaterThanOrEqual(compactDashboard.visualTop);
     expect(compactDashboard.navRight).toBeLessThanOrEqual(compactDashboard.visualRight + 1);
-    expect(compactDashboard.navButtonSize).toBeGreaterThanOrEqual(54);
+    expect(compactDashboard.navBottom).toBeLessThanOrEqual(compactDashboard.visualBottom + 1);
+    expect(compactDashboard.visualBottom - compactDashboard.navBottom).toBeLessThanOrEqual(32);
+    expect(compactDashboard.navButtonHeight).toBeGreaterThanOrEqual(52);
+    expect(compactDashboard.navColumnCount).toBe(2);
+    expect(compactDashboard.controlsBackground).toBe(compactDashboard.surface1);
     expect(Math.abs(compactDashboard.spectrumCenter - compactDashboard.visualCenter)).toBeLessThan(
       2,
     );
@@ -148,6 +278,7 @@ test.describe('Linelight demo mode', () => {
       const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
       const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
       const navButton = document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect();
+      const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
       const spectrum = document
         .querySelector('#demo-visualizer-slot .vinyl-wrapper')!
         .getBoundingClientRect();
@@ -157,7 +288,8 @@ test.describe('Linelight demo mode', () => {
         spectrumHeight: spectrum.height,
         visualCenter: visual.top + visual.height / 2,
         spectrumBottomGap: visual.bottom - spectrum.bottom,
-        navButtonSize: navButton.width,
+        navButtonHeight: navButton.height,
+        navColumnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
         viewportCenter: window.innerHeight / 2,
       };
     });
@@ -165,9 +297,11 @@ test.describe('Linelight demo mode', () => {
       24,
     );
     expect(Math.abs(roomyLandscape.spectrumCenter - roomyLandscape.visualCenter)).toBeLessThan(2);
-    expect(roomyLandscape.spectrumBottomGap).toBeGreaterThan(24);
-    expect(roomyLandscape.spectrumHeight).toBeGreaterThan(400);
-    expect(roomyLandscape.navButtonSize).toBeGreaterThanOrEqual(60);
+    expect(roomyLandscape.spectrumBottomGap).toBeGreaterThan(120);
+    expect(roomyLandscape.spectrumHeight).toBeGreaterThan(320);
+    expect(roomyLandscape.spectrumHeight).toBeLessThanOrEqual(380);
+    expect(roomyLandscape.navButtonHeight).toBeGreaterThanOrEqual(52);
+    expect(roomyLandscape.navColumnCount).toBe(2);
   });
 
   test('first visit decline stores prompt choice after host setup', async ({ page }) => {
@@ -202,31 +336,48 @@ test.describe('Linelight demo mode', () => {
       const spectrum = document
         .querySelector('#demo-visualizer-slot .vinyl-wrapper')!
         .getBoundingClientRect();
+      const navStyles = getComputedStyle(document.querySelector('.demo-step-nav')!);
+      const probe = document.createElement('span');
+      document.body.append(probe);
+      probe.style.color = 'var(--surface-1)';
+      const surface1 = getComputedStyle(probe).color;
+      probe.remove();
       return {
+        visualLeft: visual.left,
         visualRight: visual.right,
         visualBottom: visual.bottom,
+        visualTop: visual.top,
         visualCenter: visual.top + visual.height / 2,
         controlsLeft: controls.left,
         navLeft: nav.left,
         navTop: nav.top,
         navRight: nav.right,
-        navButtonSize: document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect()
-          .width,
+        navBottom: nav.bottom,
+        navButtonHeight: document.querySelector('[data-demo-step="1"]')!.getBoundingClientRect()
+          .height,
+        navColumnCount: navStyles.gridTemplateColumns.split(' ').filter(Boolean).length,
+        controlsBackground: getComputedStyle(document.querySelector('.demo-control-stage')!)
+          .backgroundColor,
+        surface1,
         qrSize: document.querySelector('#demo-session-qr')!.getBoundingClientRect().width,
-        navBottomGap: window.innerHeight - nav.bottom,
         spectrumCenter: spectrum.top + spectrum.height / 2,
         spectrumHeight: spectrum.height,
         spectrumBottomGap: visual.bottom - spectrum.bottom,
       };
     });
     expect(desktopLayout.controlsLeft).toBeGreaterThanOrEqual(desktopLayout.visualRight - 1);
-    expect(desktopLayout.navTop).toBeGreaterThanOrEqual(desktopLayout.visualBottom - 1);
+    expect(desktopLayout.navLeft).toBeGreaterThanOrEqual(desktopLayout.visualLeft - 1);
+    expect(desktopLayout.navTop).toBeGreaterThanOrEqual(desktopLayout.visualTop);
     expect(desktopLayout.navRight).toBeLessThanOrEqual(desktopLayout.visualRight + 1);
-    expect(desktopLayout.navBottomGap).toBeGreaterThan(10);
+    expect(desktopLayout.navBottom).toBeLessThanOrEqual(desktopLayout.visualBottom + 1);
+    expect(desktopLayout.visualBottom - desktopLayout.navBottom).toBeLessThanOrEqual(32);
     expect(Math.abs(desktopLayout.spectrumCenter - desktopLayout.visualCenter)).toBeLessThan(2);
-    expect(desktopLayout.spectrumBottomGap).toBeGreaterThan(80);
-    expect(desktopLayout.spectrumHeight).toBeGreaterThan(500);
-    expect(desktopLayout.navButtonSize).toBeGreaterThanOrEqual(64);
+    expect(desktopLayout.spectrumBottomGap).toBeGreaterThan(180);
+    expect(desktopLayout.spectrumHeight).toBeGreaterThan(400);
+    expect(desktopLayout.spectrumHeight).toBeLessThanOrEqual(440);
+    expect(desktopLayout.navButtonHeight).toBeGreaterThanOrEqual(52);
+    expect(desktopLayout.navColumnCount).toBe(2);
+    expect(desktopLayout.controlsBackground).toBe(desktopLayout.surface1);
     expect(desktopLayout.qrSize).toBeGreaterThanOrEqual(260);
 
     await page.locator('[data-demo-step="3"]').click();
@@ -238,6 +389,25 @@ test.describe('Linelight demo mode', () => {
     await page.locator('[data-demo-step="4"]').click();
     await expect(page.locator('[data-demo-info] svg path')).toHaveAttribute('d', INFO_ICON_PATH);
     await expect(page.locator('[data-demo-exit] svg path')).toHaveAttribute('d', EXIT_ICON_PATH);
+    const desktopFinishActions = await page.evaluate(() => {
+      const actions = document
+        .querySelector('[data-demo-panel="4"] .demo-large-actions')!
+        .getBoundingClientRect();
+      const styles = getComputedStyle(
+        document.querySelector('[data-demo-panel="4"] .demo-large-actions')!,
+      );
+      const info = document.querySelector('[data-demo-info]')!.getBoundingClientRect();
+      const exit = document.querySelector('[data-demo-exit]')!.getBoundingClientRect();
+      return {
+        gap: Number.parseFloat(styles.columnGap),
+        height: Math.max(info.height, exit.height),
+        actionsHeight: actions.height,
+      };
+    });
+    expect(desktopFinishActions.gap).toBeLessThanOrEqual(8);
+    expect(desktopFinishActions.height).toBeGreaterThanOrEqual(56);
+    expect(desktopFinishActions.height).toBeLessThanOrEqual(60);
+    expect(desktopFinishActions.actionsHeight).toBeLessThanOrEqual(62);
 
     const popupPromise = page.waitForEvent('popup');
     await page.locator('[data-demo-info]').click();
@@ -245,6 +415,8 @@ test.describe('Linelight demo mode', () => {
     await expect.poll(() => popup.url()).toBe(INFO_URL);
 
     await page.locator('[data-demo-exit]').click();
+    await expect(page.locator('#demo-overlay')).toHaveClass(/exiting/);
+    await waitForToast(page, 'You can try it anytime from the Help tab.');
     await expect(page.locator('body')).not.toHaveClass(/mode-demo/);
   });
 });

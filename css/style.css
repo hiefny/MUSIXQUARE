@@ -3061,6 +3061,17 @@
     transform: translateY(20px);
   }
 
+  body.mode-demo header,
+  body.mode-demo .bottom-nav {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    z-index: 1 !important;
+  }
+
+  body.mode-demo .bottom-nav {
+    transform: translateY(20px) !important;
+  }
+
   /* Base styles for the new split layout of setup overlay */
   #setup-desktop-brand {
     display: none;
@@ -4890,27 +4901,68 @@
     position: fixed;
     inset: 0;
     z-index: 3200;
-    display: none;
     background: var(--bg);
     color: var(--text-main);
     overflow: auto;
     overscroll-behavior: contain;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.34s ease,
+      visibility 0s linear 0.34s;
   }
 
   .demo-overlay.active {
-    display: block;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.34s ease;
+  }
+
+  .demo-overlay.active.exiting {
+    opacity: 0;
+    pointer-events: none;
   }
 
   .demo-mobile-shell {
+    --demo-shell-gap: 24px;
+    --demo-panel-start-offset: 0px;
+    --demo-panel-target: 430px;
+    --demo-visual-min: 128px;
+    --demo-visual-height: clamp(
+      var(--demo-visual-min),
+      calc(var(--app-height, 100dvh) - var(--demo-panel-target)),
+      320px
+    );
+    --demo-shell-pad-top: calc(14px + var(--safe-top));
+    --demo-shell-pad-bottom: calc(16px + var(--safe-bottom));
     --demo-control-inset: clamp(18px, 6vw, 28px);
+    --demo-control-pad-top: clamp(8px, 2.2vh, 18px);
     --demo-panel-max: 520px;
+    position: relative;
     height: var(--app-height, 100dvh);
     min-height: var(--app-height, 100dvh);
     box-sizing: border-box;
-    padding: calc(14px + var(--safe-top)) 14px calc(16px + var(--safe-bottom));
+    padding: var(--demo-shell-pad-top) 14px var(--demo-shell-pad-bottom);
     display: grid;
-    grid-template-rows: clamp(150px, 34vh, 270px) minmax(0, 1fr) auto;
-    gap: 18px;
+    grid-template-rows: var(--demo-visual-height) minmax(0, 1fr);
+    gap: var(--demo-shell-gap);
+    background: var(--bg);
+  }
+
+  .demo-mobile-shell::before {
+    content: '';
+    position: absolute;
+    z-index: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: calc(
+      var(--demo-shell-pad-top) + var(--demo-visual-height) + var(--demo-panel-start-offset)
+    );
+    background: var(--surface-1);
+    pointer-events: none;
   }
 
   .demo-track-header {
@@ -4930,6 +4982,7 @@
 
   .demo-visual-stage {
     position: relative;
+    z-index: 1;
     min-height: 0;
     border-radius: 8px;
     overflow: hidden;
@@ -5022,11 +5075,13 @@
   }
 
   .demo-control-stage {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    padding: 0 var(--demo-control-inset);
+    padding: var(--demo-control-pad-top) var(--demo-control-inset) 0;
     overflow: auto;
   }
 
@@ -5065,14 +5120,23 @@
     box-sizing: border-box;
   }
 
-  .demo-step-copy p,
+  .demo-step-copy p {
+    margin: 6px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    font-weight: 400;
+    color: var(--text-sub);
+    word-break: keep-all;
+  }
+
   .demo-step-body {
     margin: 6px 0 0;
     font-size: 14px;
     line-height: 1.55;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-sub);
     word-break: keep-all;
+    white-space: pre-line;
   }
 
   .demo-step-content {
@@ -5287,36 +5351,55 @@
     word-break: keep-all;
   }
 
+  .demo-track-notice:empty {
+    display: none;
+  }
+
   .demo-link-button {
     color: var(--primary);
   }
 
   .demo-step-nav {
-    display: flex;
-    justify-content: center;
-    gap: 12px;
-    flex: none;
+    position: absolute;
+    z-index: 3;
+    left: clamp(14px, 4.5vw, 24px);
+    right: clamp(14px, 4.5vw, 24px);
+    bottom: clamp(12px, 3.8vw, 22px);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    max-width: 520px;
+    margin-inline: auto;
+    pointer-events: auto;
   }
 
   .demo-step-nav button {
-    width: 52px;
-    height: 52px;
-    border: none;
-    border-radius: 50%;
-    background: rgba(128, 128, 128, 0.18);
+    min-width: 0;
+    min-height: 54px;
+    border: 1px solid rgba(128, 128, 128, 0.14);
+    border-radius: 999px;
+    background: rgba(128, 128, 128, 0.16);
     color: var(--text-sub);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
     font: inherit;
-    font-size: 15px;
-    font-weight: 800;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.2;
+    padding: 0 12px;
+    white-space: nowrap;
     cursor: pointer;
     transition:
       background 0.2s,
+      border-color 0.2s,
       color 0.2s,
       transform 0.2s;
   }
 
   .demo-step-nav button.active {
-    background: rgba(var(--primary-rgb), 0.24);
+    background: rgba(var(--primary-rgb), 0.18);
+    border-color: rgba(var(--primary-rgb), 0.26);
     color: var(--primary);
   }
 
@@ -5362,23 +5445,31 @@
       --demo-shell-pad-block: clamp(16px, 3.2vmin, 34px);
       --demo-shell-pad-inline: clamp(18px, 3.6vmin, 40px);
       --demo-control-inset: clamp(10px, 2.8vw, 44px);
+      --demo-control-pad-inline: clamp(40px, 5.2vw, 68px);
+      --demo-control-pad-block: clamp(4px, 4vh, 44px);
       --demo-panel-max: clamp(340px, 40vw, 640px);
       --demo-step-gap: clamp(14px, 2.6vh, 26px);
       --demo-column-gap: clamp(18px, 3vw, 44px);
       --demo-row-gap: clamp(12px, 2vh, 24px);
       --demo-nav-size: clamp(54px, min(7vw, 8vh), 70px);
       --demo-nav-gap: clamp(10px, 1.5vw, 18px);
+      --demo-visual-min: 0px;
+      --demo-visual-height: auto;
       height: auto;
       min-height: var(--app-height, 100dvh);
       grid-template-columns: minmax(320px, 1.08fr) minmax(320px, 0.92fr);
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: minmax(0, 1fr);
       align-items: stretch;
       column-gap: var(--demo-column-gap);
-      row-gap: var(--demo-row-gap);
+      row-gap: 0;
       padding: calc(var(--demo-shell-pad-block) + var(--safe-top))
         calc(var(--demo-shell-pad-inline) + var(--safe-right))
         calc(var(--demo-shell-pad-block) + var(--safe-bottom))
         calc(var(--demo-shell-pad-inline) + var(--safe-left));
+    }
+
+    .demo-mobile-shell::before {
+      display: none;
     }
 
     .demo-visual-stage {
@@ -5389,12 +5480,17 @@
 
     .demo-control-stage {
       grid-column: 2;
-      grid-row: 1 / span 2;
+      grid-row: 1;
       justify-content: center;
-      max-height: calc(
-        var(--app-height, 100dvh) - var(--demo-shell-pad-block) - var(--demo-shell-pad-block)
-      );
-      padding: clamp(4px, 4vh, 44px) var(--demo-control-inset);
+      max-height: none;
+      margin: calc(0px - var(--demo-shell-pad-block) - var(--safe-top))
+        calc(0px - var(--demo-shell-pad-inline) - var(--safe-right))
+        calc(0px - var(--demo-shell-pad-block) - var(--safe-bottom)) 0;
+      padding: calc(var(--demo-shell-pad-block) + var(--safe-top) + var(--demo-control-pad-block))
+        calc(var(--demo-control-pad-inline) + var(--safe-right))
+        calc(var(--demo-shell-pad-block) + var(--safe-bottom) + var(--demo-control-pad-block))
+        var(--demo-control-pad-inline);
+      background: var(--surface-1);
       box-sizing: border-box;
     }
 
@@ -5459,6 +5555,16 @@
       min-height: clamp(58px, 7.5vh, 72px);
     }
 
+    .demo-finish-content .demo-large-actions {
+      gap: 8px;
+    }
+
+    .demo-finish-content .demo-large-actions .rename-device-btn,
+    .demo-finish-content .demo-large-actions .leave-session-btn {
+      height: 58px;
+      min-height: 58px;
+    }
+
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
       min-height: clamp(112px, 18vh, 154px);
       padding: clamp(18px, 3vh, 28px) 12px;
@@ -5484,22 +5590,25 @@
     }
 
     body.demo-mobile.viz-spectrum .demo-visualizer-slot .vinyl-wrapper {
-      height: clamp(180px, min(72%, 58vh), 560px) !important;
+      height: clamp(170px, min(62%, 48vh), 440px) !important;
       max-height: 100% !important;
       margin: 0 !important;
       align-self: center;
     }
 
     .demo-step-nav {
-      grid-column: 1;
-      grid-row: 2;
       gap: var(--demo-nav-gap);
+      left: clamp(20px, 3vw, 40px);
+      right: clamp(20px, 3vw, 40px);
+      top: auto;
+      bottom: clamp(18px, 3vh, 32px);
+      max-width: min(560px, calc(100% - 40px));
+      transform: none;
     }
 
     .demo-step-nav button {
-      width: var(--demo-nav-size);
-      height: var(--demo-nav-size);
-      font-size: clamp(15px, 1.15vw, 18px);
+      min-height: clamp(52px, 6.4vh, 58px);
+      font-size: clamp(13px, 1vw, 15px);
     }
   }
 
@@ -5508,13 +5617,10 @@
       --demo-shell-pad-block: 14px;
       --demo-shell-pad-inline: clamp(14px, 2.6vmin, 24px);
       --demo-control-inset: clamp(8px, 1.8vw, 18px);
+      --demo-control-pad-inline: clamp(34px, 5vw, 46px);
+      --demo-control-pad-block: 4px;
       --demo-column-gap: clamp(14px, 2.4vw, 24px);
       --demo-step-gap: 12px;
-    }
-
-    .demo-control-stage {
-      padding-top: 4px;
-      padding-bottom: 4px;
     }
 
     .demo-step-content {
@@ -5530,7 +5636,10 @@
     .demo-mobile-shell {
       padding-left: 10px;
       padding-right: 10px;
-      gap: 10px;
+      --demo-control-inset: 18px;
+      --demo-shell-gap: 22px;
+      --demo-panel-start-offset: 0px;
+      gap: var(--demo-shell-gap);
     }
 
     .demo-step-copy h2 {

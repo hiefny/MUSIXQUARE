@@ -393,7 +393,7 @@
           <span data-i18n="system_audio.sharing"></span>
         </div>
         <div class="demo-desktop-track-info" id="demo-desktop-track-info" aria-hidden="true">
-          <div class="demo-desktop-title">Linelight OST - 01 Adventure</div>
+          <div class="demo-desktop-title">Linelight OST - Adventure</div>
           <div class="demo-desktop-artist">Brett Taylor</div>
         </div>
         <ul class="playlist-ul playlist-list" id="playlist-ui">
@@ -2578,13 +2578,32 @@
               </svg>
             </button>
             <div class="demo-track-copy">
-              <div class="demo-track-title">Linelight OST - 01 Adventure</div>
+              <div class="demo-track-title">Linelight OST - Adventure</div>
               <div class="demo-track-artist">Brett Taylor</div>
             </div>
           </div>
+          <div
+            class="demo-step-nav"
+            role="tablist"
+            aria-label=""
+            data-i18n-aria-label="demo.step_nav_label"
+          >
+            <button type="button" class="active" data-demo-step="1" aria-selected="true">
+              <span data-i18n="demo.step_connect"></span>
+            </button>
+            <button type="button" data-demo-step="2" aria-selected="false">
+              <span data-i18n="demo.step_role"></span>
+            </button>
+            <button type="button" data-demo-step="3" aria-selected="false">
+              <span data-i18n="demo.step_effects"></span>
+            </button>
+            <button type="button" data-demo-step="4" aria-selected="false">
+              <span data-i18n="demo.step_finish"></span>
+            </button>
+          </div>
         </section>
 
-        <section class="demo-control-stage">
+        <section class="demo-control-stage" data-custom-scroll>
           <div class="demo-step-panels">
             <article class="demo-step-panel active" data-demo-panel="1">
               <div class="demo-step-copy">
@@ -2755,19 +2774,19 @@
                 >
                   <div class="demo-track-row" data-demo-track-index="0">
                     <span>#1</span>
-                    <strong>Adventure</strong>
+                    <strong>Linelight OST - Adventure</strong>
                   </div>
                   <div class="demo-track-row" data-demo-track-index="1">
                     <span>#2</span>
-                    <strong>Lockstep Lunge</strong>
+                    <strong>Linelight OST - Lockstep Lunge</strong>
                   </div>
                   <div class="demo-track-row" data-demo-track-index="2">
                     <span>#3</span>
-                    <strong>Forgiveness Ballad</strong>
+                    <strong>Linelight OST - Forgiveness Ballad</strong>
                   </div>
                   <div class="demo-track-row" data-demo-track-index="3">
                     <span>#4</span>
-                    <strong>Spring</strong>
+                    <strong>Linelight OST - Spring</strong>
                   </div>
                 </div>
                 <p class="demo-track-notice" data-i18n="demo.track_notice"></p>
@@ -2793,18 +2812,6 @@
             </article>
           </div>
         </section>
-
-        <div
-          class="demo-step-nav"
-          role="tablist"
-          aria-label=""
-          data-i18n-aria-label="demo.step_nav_label"
-        >
-          <button type="button" class="active" data-demo-step="1" aria-selected="true">1</button>
-          <button type="button" data-demo-step="2" aria-selected="false">2</button>
-          <button type="button" data-demo-step="3" aria-selected="false">3</button>
-          <button type="button" data-demo-step="4" aria-selected="false">4</button>
-        </div>
       </div>
     </div>
 

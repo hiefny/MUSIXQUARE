@@ -18,7 +18,7 @@ export const DEMO_TRACKS: DemoTrack[] = [
   {
     id: 'linelight-adventure',
     number: 1,
-    title: 'Linelight OST - 01 Adventure',
+    title: 'Linelight OST - Adventure',
     shortTitle: 'Adventure',
     artist: 'Brett Taylor',
     fileName: 'Brett Taylor - Linelight OST - 01 Adventure.m4a',
@@ -31,7 +31,7 @@ export const DEMO_TRACKS: DemoTrack[] = [
   {
     id: 'linelight-lockstep-lunge',
     number: 2,
-    title: 'Linelight OST - 02 Lockstep Lunge',
+    title: 'Linelight OST - Lockstep Lunge',
     shortTitle: 'Lockstep Lunge',
     artist: 'Brett Taylor',
     fileName: 'Brett Taylor - Linelight OST - 02 Lockstep Lunge.m4a',
@@ -44,7 +44,7 @@ export const DEMO_TRACKS: DemoTrack[] = [
   {
     id: 'linelight-forgiveness-ballad',
     number: 3,
-    title: 'Linelight OST - 03 Forgiveness Ballad',
+    title: 'Linelight OST - Forgiveness Ballad',
     shortTitle: 'Forgiveness Ballad',
     artist: 'Brett Taylor',
     fileName: 'Brett Taylor - Linelight OST - 03 Forgiveness Ballad.m4a',
@@ -57,7 +57,7 @@ export const DEMO_TRACKS: DemoTrack[] = [
   {
     id: 'linelight-spring',
     number: 4,
-    title: 'Linelight OST - 04 Spring',
+    title: 'Linelight OST - Spring',
     shortTitle: 'Spring',
     artist: 'Brett Taylor',
     fileName: 'Brett Taylor - Linelight OST - 04 Spring.m4a',

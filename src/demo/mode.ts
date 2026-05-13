@@ -24,6 +24,7 @@ import { updateOverlayOpenClass } from '../ui/dom.ts';
 import type { TrackMeta } from '../types/index.ts';
 import {
   DEMO_TRACK,
+  DEMO_TRACKS,
   createDemoTrackMeta,
   getDemoTrackByIndex,
   getNextDemoTrackIndex,
@@ -54,6 +55,8 @@ type DemoSnapshot = {
 
 const WARM_EQ = [5, 3, 0, -2, -3];
 const MOBILE_QUERY = '(max-width: 1279px)';
+const DEMO_OVERLAY_FADE_MS = 340;
+const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
 const SYNC_ICON_PATH =
   'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z';
 const MEDIA_ICON_PATH =
@@ -239,19 +242,36 @@ function restoreVisualizer(): void {
 }
 
 function setDemoDomActive(active: boolean): void {
-  document.body.classList.toggle('mode-demo', active);
-  document.body.classList.toggle('demo-mobile', active);
+  clearManagedTimer(DEMO_OVERLAY_EXIT_TIMER);
 
   const overlay = document.getElementById('demo-overlay');
-  if (overlay) {
-    overlay.classList.toggle('active', active);
-    overlay.setAttribute('aria-hidden', String(!active));
+
+  if (active) {
+    document.body.classList.add('mode-demo', 'demo-mobile');
+    if (overlay) {
+      overlay.classList.remove('exiting');
+      overlay.classList.add('active');
+      overlay.setAttribute('aria-hidden', 'false');
+    }
+    mountVisualizerForMobile();
+    updateOverlayOpenClass();
+  } else {
+    if (overlay) {
+      overlay.classList.add('exiting');
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+    setManagedTimer(
+      DEMO_OVERLAY_EXIT_TIMER,
+      () => {
+        document.body.classList.remove('mode-demo', 'demo-mobile');
+        overlay?.classList.remove('active', 'exiting');
+        restoreVisualizer();
+        updateOverlayOpenClass();
+      },
+      DEMO_OVERLAY_FADE_MS,
+    );
   }
 
-  if (active) mountVisualizerForMobile();
-  else restoreVisualizer();
-
-  updateOverlayOpenClass();
   syncDesktopDemoText(active);
   syncDemoSessionCopy();
   syncDemoStep();
@@ -300,9 +320,12 @@ function syncDesktopDemoText(active = getState('demo.active')): void {
 
 function syncDemoTrackList(): void {
   document.querySelectorAll<HTMLElement>('[data-demo-track-index]').forEach((row) => {
-    const active = Number(row.dataset.demoTrackIndex) === _demoTrackIndex;
+    const index = Number(row.dataset.demoTrackIndex);
+    const active = index === _demoTrackIndex;
     row.classList.toggle('active', active);
     row.setAttribute('aria-current', active ? 'true' : 'false');
+    const title = row.querySelector<HTMLElement>('strong');
+    if (title && DEMO_TRACKS[index]) title.textContent = DEMO_TRACKS[index].title;
   });
 }
 
@@ -390,6 +413,7 @@ function syncDemoStep(step = _demoStep): void {
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-selected', String(active));
   });
+  bus.emit('ui:scrollbar-relayout');
 }
 
 function syncRoleButtons(): void {
@@ -487,7 +511,7 @@ function exitDemoMode(): void {
 }
 
 function openDemoInfo(): void {
-  window.open(DEMO_TRACK.infoUrl, '_blank', 'noopener');
+  window.open(getCurrentDemoTrack().infoUrl, '_blank', 'noopener');
 }
 
 function requestDemoExit(): void {
@@ -496,6 +520,7 @@ function requestDemoExit(): void {
     return;
   }
   exitDemoMode();
+  showToast(t('demo.try_later_toast'));
 }
 
 function getPlacementToastKey(mode: number): Parameters<typeof t>[0] {

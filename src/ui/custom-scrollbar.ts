@@ -67,7 +67,7 @@ function updateLayout(state: ScrollbarState): void {
   const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
   const isCompactLand = isCompactLandscape();
 
-  if (!isDesktop && !isCompactLand) {
+  if (!isDesktop && !isCompactLand && !document.body.classList.contains('mode-demo')) {
     const bottomNav = document.querySelector('.bottom-nav') as HTMLElement;
     if (bottomNav) {
       const navRect = bottomNav.getBoundingClientRect();

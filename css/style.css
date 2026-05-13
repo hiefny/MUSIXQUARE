@@ -4905,24 +4905,52 @@
     color: var(--text-main);
     overflow: auto;
     overscroll-behavior: contain;
-    opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    transition:
-      opacity 0.34s ease,
-      visibility 0s linear 0.34s;
+    transition: visibility 0s;
   }
 
-  .demo-overlay.active {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
+  .demo-overlay::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    background: #000;
+    opacity: 0;
+    pointer-events: none;
     transition: opacity 0.34s ease;
   }
 
+  .demo-overlay.active {
+    visibility: visible;
+    pointer-events: auto;
+    transition: visibility 0s;
+  }
+
+  .demo-overlay.active.entering::after {
+    animation: demo-curtain-reveal 0.34s ease forwards;
+  }
+
   .demo-overlay.active.exiting {
-    opacity: 0;
     pointer-events: none;
+  }
+
+  .demo-overlay.active.exiting::after {
+    opacity: 1;
+  }
+
+  html[data-theme='light'] .demo-overlay::after {
+    background: #fff;
+  }
+
+  @keyframes demo-curtain-reveal {
+    from {
+      opacity: 1;
+    }
+
+    to {
+      opacity: 0;
+    }
   }
 
   .demo-mobile-shell {
@@ -5432,6 +5460,12 @@
     background: rgba(var(--primary-rgb), 0.18);
     border-color: rgba(var(--primary-rgb), 0.26);
     color: var(--primary);
+  }
+
+  .demo-step-nav .demo-step-next:not(.is-final) {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
   }
 
   .demo-step-nav button.active:not(.demo-step-next)::before,

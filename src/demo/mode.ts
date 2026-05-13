@@ -68,6 +68,7 @@ const WARM_EQ = [5, 3, 0, -2, -3];
 const BRIGHT_EQ = [0, -2, 0, 4, 6];
 const MOBILE_QUERY = '(max-width: 1279px)';
 const DEMO_OVERLAY_FADE_MS = 340;
+const DEMO_OVERLAY_ENTER_TIMER = 'demo-overlay-enter';
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
 const DEMO_STEP_COLLAPSE_MS = 320;
 const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
@@ -325,6 +326,7 @@ function restoreVisualizer(): void {
 }
 
 function setDemoDomActive(active: boolean): void {
+  clearManagedTimer(DEMO_OVERLAY_ENTER_TIMER);
   clearManagedTimer(DEMO_OVERLAY_EXIT_TIMER);
 
   const overlay = document.getElementById('demo-overlay');
@@ -333,14 +335,20 @@ function setDemoDomActive(active: boolean): void {
     document.body.classList.add('mode-demo', 'demo-mobile');
     if (overlay) {
       overlay.classList.remove('exiting');
-      overlay.classList.add('active');
+      overlay.classList.add('active', 'entering');
       overlay.setAttribute('aria-hidden', 'false');
+      setManagedTimer(
+        DEMO_OVERLAY_ENTER_TIMER,
+        () => overlay.classList.remove('entering'),
+        DEMO_OVERLAY_FADE_MS,
+      );
     }
     mountVisualizerForMobile();
     updateOverlayOpenClass();
     scheduleDemoLayoutRefresh();
   } else {
     if (overlay) {
+      overlay.classList.remove('entering');
       overlay.classList.add('exiting');
       overlay.setAttribute('aria-hidden', 'true');
     }

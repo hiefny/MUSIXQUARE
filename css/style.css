@@ -3061,6 +3061,16 @@
     transform: translateY(20px);
   }
 
+  body.demo-chrome-hiding .bottom-nav {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translateY(20px) !important;
+    transition:
+      opacity 0.28s ease,
+      transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+    transition-delay: 0ms !important;
+  }
+
   body.mode-demo header,
   body.mode-demo .bottom-nav {
     opacity: 0 !important;
@@ -5654,7 +5664,7 @@
     }
 
     .demo-effects-content .demo-large-actions .ch-opt.demo-choice {
-      min-height: clamp(104px, 14vh, 124px);
+      min-height: clamp(104px, 14vh, 120px);
       padding: clamp(16px, 2vh, 20px) 12px;
       gap: clamp(9px, 1.2vh, 11px);
     }

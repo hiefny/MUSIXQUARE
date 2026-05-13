@@ -64,8 +64,10 @@ type PendingDemoPlay = {
   hostPlayAt: number;
 };
 
+const FLAT_EQ = [0, 0, 0, 0, 0];
 const WARM_EQ = [5, 3, 0, -2, -3];
 const BRIGHT_EQ = [0, -2, 0, 4, 6];
+const V_SHAPE_EQ = [5, 3, 0, 4, 6];
 const MOBILE_QUERY = '(max-width: 1279px)';
 const DEMO_OVERLAY_FADE_MS = 340;
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
@@ -91,6 +93,7 @@ let _demoLoadToken = 0;
 let _pendingDemoPlay: PendingDemoPlay | null = null;
 let _demoEnterRevealRaf = 0;
 let _demoCurtainAnimation: Animation | null = null;
+let _lastDemoStateBroadcastKey = '';
 const _demoStepCollapseTimers = new WeakMap<HTMLElement, number>();
 const _demoBlobCache = new Map<string, Blob>();
 const _demoPreloadInFlight = new Map<string, Promise<Blob>>();
@@ -206,6 +209,16 @@ function createDemoEnterMessage(index = _demoTrackIndex) {
   } as const;
 }
 
+function getDemoStateBroadcastKey(index = _demoTrackIndex): string {
+  return [
+    index,
+    getState('demo.reverbOn') ? 1 : 0,
+    getState('demo.bassBoostOn') ? 1 : 0,
+    getState('demo.trebleBoostOn') ? 1 : 0,
+    getState('demo.surroundOn') ? 1 : 0,
+  ].join(':');
+}
+
 function createDemoPlayMessage(index = _demoTrackIndex, time = 0) {
   return {
     type: MSG.DEMO_PLAY,
@@ -217,7 +230,16 @@ function createDemoPlayMessage(index = _demoTrackIndex, time = 0) {
 
 function broadcastDemoEnter(index = _demoTrackIndex): void {
   if (!isDemoHost()) return;
+  _lastDemoStateBroadcastKey = getDemoStateBroadcastKey(index);
   broadcast(createDemoEnterMessage(index));
+}
+
+function broadcastDemoStateIfChanged(): void {
+  if (!isDemoHost() || !getState('demo.active')) return;
+  const key = getDemoStateBroadcastKey();
+  if (_lastDemoStateBroadcastKey === key) return;
+  _lastDemoStateBroadcastKey = key;
+  broadcast(createDemoEnterMessage(_demoTrackIndex));
 }
 
 function broadcastDemoExit(): void {
@@ -345,6 +367,10 @@ function stopDemoCurtainAnimation(): void {
   _demoCurtainAnimation = null;
 }
 
+function setDemoChromeHiding(active: boolean): void {
+  document.body.classList.toggle('demo-chrome-hiding', active);
+}
+
 function animateDemoCurtain(
   curtain: HTMLElement,
   from: string,
@@ -417,6 +443,7 @@ function applyDemoDomActive(overlay: HTMLElement | null): void {
 }
 
 function applyDemoDomInactive(overlay: HTMLElement | null): void {
+  setDemoChromeHiding(false);
   document.body.classList.remove('mode-demo', 'demo-mobile');
   overlay?.classList.remove('active', 'entering', 'exiting');
   restoreVisualizer();
@@ -433,7 +460,11 @@ function setDemoDomActive(active: boolean, options: { afterCovered?: () => void 
     if (overlay?.classList.contains('active')) {
       applyDemoDomActive(overlay);
     } else {
-      transitionThroughDemoCurtain(() => applyDemoDomActive(overlay));
+      setDemoChromeHiding(true);
+      transitionThroughDemoCurtain(
+        () => applyDemoDomActive(overlay),
+        () => setDemoChromeHiding(false),
+      );
     }
   } else {
     const wasActive = !!overlay?.classList.contains('active');
@@ -691,17 +722,48 @@ function eqMatches(
   return preset.every((value, index) => Number(values[index]) === value);
 }
 
+function getDemoEqPreset(bassOn: boolean, trebleOn: boolean): number[] {
+  if (bassOn && trebleOn) return V_SHAPE_EQ;
+  if (bassOn) return WARM_EQ;
+  if (trebleOn) return BRIGHT_EQ;
+  return FLAT_EQ;
+}
+
+function applyDemoToneState(
+  bassOn = getState('demo.bassBoostOn'),
+  trebleOn = getState('demo.trebleBoostOn'),
+): void {
+  bus.emit('audio:update-effect', 'vbass', 'mix', bassOn ? 60 : 0, false);
+  applyDemoEqPreset(getDemoEqPreset(!!bassOn, !!trebleOn));
+}
+
 function syncDemoEffectStateFromAudio(): void {
   if (!getState('demo.active')) return;
   const reverbOn = (getState('audio.reverbMix') || 0) > 0.001;
   const bassOn = (getState('audio.virtualBass') || 0) > 0.001;
-  const trebleOn = !bassOn && eqMatches(getState('audio.eqValues'), BRIGHT_EQ);
+  const eqValues = getState('audio.eqValues');
+  const eqIsFlat = eqMatches(eqValues, FLAT_EQ);
+  const eqIsWarm = eqMatches(eqValues, WARM_EQ);
+  const eqIsBright = eqMatches(eqValues, BRIGHT_EQ);
+  const eqIsVShape = eqMatches(eqValues, V_SHAPE_EQ);
+  const trebleOn =
+    eqIsBright || eqIsVShape
+      ? true
+      : eqIsFlat || eqIsWarm
+        ? false
+        : !!getState('demo.trebleBoostOn');
   const surroundOn = (getState('audio.stereoWidth') || 1) > 1.001;
   if (getState('demo.reverbOn') !== reverbOn) setState('demo.reverbOn', reverbOn);
   if (getState('demo.bassBoostOn') !== bassOn) setState('demo.bassBoostOn', bassOn);
   if (getState('demo.trebleBoostOn') !== trebleOn) setState('demo.trebleBoostOn', trebleOn);
   if (getState('demo.surroundOn') !== surroundOn) setState('demo.surroundOn', surroundOn);
   syncEffectButtons();
+  broadcastDemoStateIfChanged();
+}
+
+function scheduleDemoEffectStateSync(): void {
+  if (!getState('demo.active')) return;
+  setManagedTimer('demo-effect-state-sync', syncDemoEffectStateFromAudio, 40);
 }
 
 function isDemoPlaying(): boolean {
@@ -806,6 +868,8 @@ function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   if (options.broadcastExit ?? true) broadcastDemoExit();
   _demoLoadToken++;
   _pendingDemoPlay = null;
+  _lastDemoStateBroadcastKey = '';
+  clearManagedTimer('demo-effect-state-sync');
   stopAllMedia({ cancelInFlight: true });
   setCurrentAudioBuffer(null);
   setState('demo.active', false);
@@ -872,27 +936,14 @@ function applyDemoEqPreset(values: number[]): void {
 function toggleDemoBass(): void {
   const next = !getState('demo.bassBoostOn');
   setState('demo.bassBoostOn', next);
-  if (next) {
-    setState('demo.trebleBoostOn', false);
-    applyDemoEqPreset(WARM_EQ);
-    bus.emit('audio:update-effect', 'vbass', 'mix', 60, false);
-  } else {
-    bus.emit('audio:reset-eq');
-    bus.emit('audio:update-effect', 'vbass', 'mix', 0, false);
-  }
+  applyDemoToneState(next, !!getState('demo.trebleBoostOn'));
   syncEffectButtons();
 }
 
 function toggleDemoTreble(): void {
   const next = !getState('demo.trebleBoostOn');
   setState('demo.trebleBoostOn', next);
-  if (next) {
-    setState('demo.bassBoostOn', false);
-    bus.emit('audio:update-effect', 'vbass', 'mix', 0, false);
-    applyDemoEqPreset(BRIGHT_EQ);
-  } else {
-    bus.emit('audio:reset-eq');
-  }
+  applyDemoToneState(!!getState('demo.bassBoostOn'), next);
   syncEffectButtons();
 }
 
@@ -1077,10 +1128,10 @@ export function initDemoMode(): void {
   _busScope.on('state:demo.bassBoostOn', () => syncEffectButtons());
   _busScope.on('state:demo.trebleBoostOn', () => syncEffectButtons());
   _busScope.on('state:demo.surroundOn', () => syncEffectButtons());
-  _busScope.on('state:audio.reverbMix', () => syncDemoEffectStateFromAudio());
-  _busScope.on('state:audio.virtualBass', () => syncDemoEffectStateFromAudio());
-  _busScope.on('state:audio.eqValues', () => syncDemoEffectStateFromAudio());
-  _busScope.on('state:audio.stereoWidth', () => syncDemoEffectStateFromAudio());
+  _busScope.on('state:audio.reverbMix', () => scheduleDemoEffectStateSync());
+  _busScope.on('state:audio.virtualBass', () => scheduleDemoEffectStateSync());
+  _busScope.on('state:audio.eqValues', () => scheduleDemoEffectStateSync());
+  _busScope.on('state:audio.stereoWidth', () => scheduleDemoEffectStateSync());
   _busScope.on('state:playback.activity', () => syncPlayButton());
   _busScope.on('player:ended', () => {
     if (!getState('demo.active')) return;

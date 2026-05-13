@@ -263,6 +263,19 @@ test.describe('Linelight demo mode', () => {
     expect(narrowLandscape.controlsTop).toBeGreaterThanOrEqual(narrowLandscape.visualBottom - 1);
 
     await page.setViewportSize({ width: 740, height: 390 });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const activeButton = document
+            .querySelector('.demo-step-nav button.active')!
+            .getBoundingClientRect();
+          const inactiveButton = document
+            .querySelector('[data-demo-step="1"]')!
+            .getBoundingClientRect();
+          return activeButton.width > inactiveButton.width * 2;
+        }),
+      )
+      .toBe(true);
     const compactDashboard = await page.evaluate(() => {
       const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
       const controls = document.querySelector('.demo-control-stage')!.getBoundingClientRect();
@@ -438,6 +451,19 @@ test.describe('Linelight demo mode', () => {
       await expect
         .poll(() => readState(pair.guestPage, 'audio.eqValues'), { timeout: 10_000 })
         .toEqual([0, -2, 0, 4, 6]);
+      await pair.hostPage.locator('[data-demo-effect="bass"]').click();
+      await expect
+        .poll(() => readState(pair.guestPage, 'demo.bassBoostOn'), { timeout: 10_000 })
+        .toBe(true);
+      await expect
+        .poll(() => readState(pair.guestPage, 'demo.trebleBoostOn'), { timeout: 10_000 })
+        .toBe(true);
+      await expect
+        .poll(() => readState(pair.guestPage, 'audio.eqValues'), { timeout: 10_000 })
+        .toEqual([5, 3, 0, 4, 6]);
+      await expect
+        .poll(() => readState(pair.guestPage, 'audio.virtualBass'), { timeout: 10_000 })
+        .toBe(0.6);
       await pair.hostPage.locator('[data-demo-effect="surround"]').click();
       await expect
         .poll(() => readState(pair.guestPage, 'demo.surroundOn'), { timeout: 10_000 })

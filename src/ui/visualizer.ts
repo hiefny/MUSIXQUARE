@@ -18,6 +18,8 @@ let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 20;
 let _resizeListenerAdded = false;
 let _vizMode: 'circular' | 'spectrum' = 'circular';
+let _isVisualizerStartCoalescing = false;
+let _visualizerLoopState: 'idle' | 'active' | 'settling' = 'idle';
 
 function readPersistedVisualizerMode(): 'circular' | 'spectrum' {
   try {
@@ -165,11 +167,21 @@ function cancelVisualizerAnimation(): void {
     cancelAnimationFrame(_animationId);
     _animationId = null;
   }
+  _visualizerLoopState = 'idle';
 }
 
 function clearLastVisualizerFrames(): void {
   _lastCircularFrame = null;
   _lastSpectrumFrame = null;
+}
+
+function claimVisualizerStart(): boolean {
+  if (_isVisualizerStartCoalescing) return false;
+  _isVisualizerStartCoalescing = true;
+  queueMicrotask(() => {
+    _isVisualizerStartCoalescing = false;
+  });
+  return true;
 }
 
 function easeOutCubic(t: number): number {
@@ -307,11 +319,15 @@ function fadeVisualizerOut(): void {
 
 function settleVisualizerToRest(): void {
   cancelVisualizerAnimation();
+  _visualizerLoopState = 'settling';
   const runToken = _visualizerRunToken;
 
   const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
   const ctx = canvas?.getContext('2d');
-  if (!canvas || !ctx) return;
+  if (!canvas || !ctx) {
+    _visualizerLoopState = 'idle';
+    return;
+  }
 
   refreshThemeCache();
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
@@ -351,6 +367,7 @@ function settleVisualizerToRest(): void {
 
       if (eased >= 1) {
         _animationId = null;
+        _visualizerLoopState = 'idle';
         drawRestingVisualizerFrame();
         return;
       }
@@ -382,6 +399,7 @@ function settleVisualizerToRest(): void {
 
       if (eased >= 1) {
         _animationId = null;
+        _visualizerLoopState = 'idle';
         drawRestingVisualizerFrame();
         return;
       }
@@ -392,12 +410,16 @@ function settleVisualizerToRest(): void {
     return;
   }
 
+  _visualizerLoopState = 'idle';
   drawRestingVisualizerFrame();
 }
 
 // ─── Start Active Visualizer ─────────────────────────────────────
 
 export function startVisualizer(): void {
+  if (_visualizerLoopState === 'active' && _animationId !== null) return;
+  if (!claimVisualizerStart()) return;
+
   if (_vizMode === 'spectrum') {
     startSpectrumVisualizer();
     return;
@@ -426,12 +448,15 @@ export function startVisualizer(): void {
         'retries',
       );
       _visualizerRetryCount = 0;
+      _visualizerLoopState = 'idle';
       return;
     }
     setManagedTimer('viz-retry', startVisualizer, 100);
+    _visualizerLoopState = 'idle';
     return;
   }
   _visualizerRetryCount = 0;
+  _visualizerLoopState = 'active';
 
   const bufferLength = analyser.frequencyBinCount;
   const _freqData = new Float32Array(bufferLength);
@@ -460,6 +485,7 @@ export function startVisualizer(): void {
     // YouTube mode: analyser isn't connected or canvas is CSS-hidden, skip draw
     if (isPlaybackModeYouTube()) {
       _animationId = null;
+      _visualizerLoopState = 'idle';
       return;
     }
 
@@ -514,6 +540,7 @@ export function startVisualizer(): void {
     } catch (e) {
       log.warn('[Visualizer] draw() error — stopping animation loop:', e);
       _animationId = null;
+      _visualizerLoopState = 'idle';
     }
   }
 
@@ -588,12 +615,15 @@ function startSpectrumVisualizer(): void {
   if (!analyser) {
     if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
       _visualizerRetryCount = 0;
+      _visualizerLoopState = 'idle';
       return;
     }
     setManagedTimer('viz-retry', startVisualizer, 100);
+    _visualizerLoopState = 'idle';
     return;
   }
   _visualizerRetryCount = 0;
+  _visualizerLoopState = 'active';
 
   const targetSmoothingTimeConstant = 0.8;
   analyser.smoothingTimeConstant = 0;
@@ -617,6 +647,7 @@ function startSpectrumVisualizer(): void {
 
     if (isPlaybackModeYouTube()) {
       _animationId = null;
+      _visualizerLoopState = 'idle';
       return;
     }
 
@@ -672,6 +703,7 @@ function startSpectrumVisualizer(): void {
     } catch (e) {
       log.warn('[Visualizer] spectrum draw() error:', e);
       _animationId = null;
+      _visualizerLoopState = 'idle';
     }
   }
   draw();

@@ -68,7 +68,6 @@ const WARM_EQ = [5, 3, 0, -2, -3];
 const BRIGHT_EQ = [0, -2, 0, 4, 6];
 const MOBILE_QUERY = '(max-width: 1279px)';
 const DEMO_OVERLAY_FADE_MS = 340;
-const DEMO_OVERLAY_ENTER_TIMER = 'demo-overlay-enter';
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
 const DEMO_STEP_COLLAPSE_MS = 320;
 const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
@@ -90,6 +89,8 @@ let _demoStep = 1;
 let _demoTrackIndex = 0;
 let _demoLoadToken = 0;
 let _pendingDemoPlay: PendingDemoPlay | null = null;
+let _demoEnterRevealRaf = 0;
+let _demoCurtainAnimation: Animation | null = null;
 const _demoStepCollapseTimers = new WeakMap<HTMLElement, number>();
 const _demoBlobCache = new Map<string, Blob>();
 const _demoPreloadInFlight = new Map<string, Promise<Blob>>();
@@ -325,43 +326,142 @@ function restoreVisualizer(): void {
   _visualizerPlaceholder = null;
 }
 
-function setDemoDomActive(active: boolean): void {
-  clearManagedTimer(DEMO_OVERLAY_ENTER_TIMER);
+function cancelDemoEnterReveal(): void {
+  if (!_demoEnterRevealRaf) return;
+  cancelAnimationFrame(_demoEnterRevealRaf);
+  _demoEnterRevealRaf = 0;
+}
+
+function getDemoCurtain(): HTMLElement | null {
+  return document.getElementById('demo-curtain');
+}
+
+function getDemoCurtainDuration(): number {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 1 : DEMO_OVERLAY_FADE_MS;
+}
+
+function stopDemoCurtainAnimation(): void {
+  _demoCurtainAnimation?.cancel();
+  _demoCurtainAnimation = null;
+}
+
+function animateDemoCurtain(
+  curtain: HTMLElement,
+  from: string,
+  to: string,
+  onFinish?: () => void,
+): void {
+  stopDemoCurtainAnimation();
+  const duration = getDemoCurtainDuration();
+  if (!curtain.animate || duration <= 1) {
+    curtain.style.opacity = to;
+    onFinish?.();
+    return;
+  }
+
+  curtain.style.opacity = from;
+  const animation = curtain.animate([{ opacity: from }, { opacity: to }], {
+    duration,
+    easing: 'ease',
+    fill: 'forwards',
+  });
+  _demoCurtainAnimation = animation;
+  animation.onfinish = () => {
+    if (_demoCurtainAnimation !== animation) return;
+    _demoCurtainAnimation = null;
+    curtain.style.opacity = to;
+    onFinish?.();
+  };
+  animation.oncancel = () => {
+    if (_demoCurtainAnimation === animation) _demoCurtainAnimation = null;
+  };
+}
+
+function revealDemoCurtain(curtain: HTMLElement, onFinish?: () => void): void {
+  cancelDemoEnterReveal();
+  _demoEnterRevealRaf = requestAnimationFrame(() => {
+    _demoEnterRevealRaf = requestAnimationFrame(() => {
+      _demoEnterRevealRaf = 0;
+      animateDemoCurtain(curtain, '1', '0', onFinish);
+    });
+  });
+}
+
+function transitionThroughDemoCurtain(onCovered: () => void, onRevealed?: () => void): void {
+  const curtain = getDemoCurtain();
+  if (!curtain) {
+    onCovered();
+    onRevealed?.();
+    return;
+  }
+
+  cancelDemoEnterReveal();
+  stopDemoCurtainAnimation();
+  const from = getComputedStyle(curtain).opacity || '0';
+  animateDemoCurtain(curtain, from, '1', () => {
+    onCovered();
+    revealDemoCurtain(curtain, onRevealed);
+  });
+}
+
+function applyDemoDomActive(overlay: HTMLElement | null): void {
+  document.body.classList.add('mode-demo', 'demo-mobile');
+  if (overlay) {
+    overlay.classList.remove('entering', 'exiting');
+    overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+  }
+  mountVisualizerForMobile();
+  updateOverlayOpenClass();
+  scheduleDemoLayoutRefresh();
+}
+
+function applyDemoDomInactive(overlay: HTMLElement | null): void {
+  document.body.classList.remove('mode-demo', 'demo-mobile');
+  overlay?.classList.remove('active', 'entering', 'exiting');
+  restoreVisualizer();
+  updateOverlayOpenClass();
+}
+
+function setDemoDomActive(active: boolean, options: { afterCovered?: () => void } = {}): void {
+  cancelDemoEnterReveal();
   clearManagedTimer(DEMO_OVERLAY_EXIT_TIMER);
 
   const overlay = document.getElementById('demo-overlay');
 
   if (active) {
-    document.body.classList.add('mode-demo', 'demo-mobile');
-    if (overlay) {
-      overlay.classList.remove('exiting');
-      overlay.classList.add('active', 'entering');
-      overlay.setAttribute('aria-hidden', 'false');
-      setManagedTimer(
-        DEMO_OVERLAY_ENTER_TIMER,
-        () => overlay.classList.remove('entering'),
-        DEMO_OVERLAY_FADE_MS,
-      );
+    if (overlay?.classList.contains('active')) {
+      applyDemoDomActive(overlay);
+    } else {
+      transitionThroughDemoCurtain(() => applyDemoDomActive(overlay));
     }
-    mountVisualizerForMobile();
-    updateOverlayOpenClass();
-    scheduleDemoLayoutRefresh();
   } else {
+    const wasActive = !!overlay?.classList.contains('active');
     if (overlay) {
       overlay.classList.remove('entering');
       overlay.classList.add('exiting');
       overlay.setAttribute('aria-hidden', 'true');
     }
-    setManagedTimer(
-      DEMO_OVERLAY_EXIT_TIMER,
-      () => {
-        document.body.classList.remove('mode-demo', 'demo-mobile');
-        overlay?.classList.remove('active', 'exiting');
-        restoreVisualizer();
-        updateOverlayOpenClass();
-      },
-      DEMO_OVERLAY_FADE_MS,
-    );
+    if (wasActive) {
+      transitionThroughDemoCurtain(() => {
+        clearManagedTimer(DEMO_OVERLAY_EXIT_TIMER);
+        options.afterCovered?.();
+        applyDemoDomInactive(overlay);
+      });
+      setManagedTimer(
+        DEMO_OVERLAY_EXIT_TIMER,
+        () => {
+          options.afterCovered?.();
+          applyDemoDomInactive(overlay);
+          const curtain = getDemoCurtain();
+          if (curtain) curtain.style.opacity = '0';
+        },
+        DEMO_OVERLAY_FADE_MS * 2 + 240,
+      );
+    } else {
+      options.afterCovered?.();
+      applyDemoDomInactive(overlay);
+    }
   }
 
   syncDesktopDemoText(active);
@@ -543,6 +643,7 @@ function syncDemoStep(step = _demoStep): void {
     btn.setAttribute('title', t(isFinal ? 'demo.step_finish' : 'common.next'));
   });
   bus.emit('ui:scrollbar-relayout');
+  window.dispatchEvent(new Event('resize'));
 }
 
 function syncRoleButtons(): void {
@@ -713,10 +814,14 @@ function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   setState('demo.bassBoostOn', false);
   setState('demo.trebleBoostOn', false);
   setState('demo.surroundOn', false);
-  setDemoDomActive(false);
-  restoreSnapshot(_snapshot);
+  const snapshot = _snapshot;
   _snapshot = null;
-  bus.emit('ui:seek-reset');
+  setDemoDomActive(false, {
+    afterCovered: () => {
+      restoreSnapshot(snapshot);
+      bus.emit('ui:seek-reset');
+    },
+  });
 }
 
 function openDemoInfo(): void {

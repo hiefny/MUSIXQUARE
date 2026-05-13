@@ -4910,15 +4910,14 @@
     transition: visibility 0s;
   }
 
-  .demo-overlay::after {
-    content: '';
+  .demo-curtain {
     position: fixed;
     inset: 0;
-    z-index: 10;
-    background: #000;
+    z-index: 4200;
+    background: var(--bg);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.34s ease;
+    will-change: opacity;
   }
 
   .demo-overlay.active {
@@ -4927,30 +4926,8 @@
     transition: visibility 0s;
   }
 
-  .demo-overlay.active.entering::after {
-    animation: demo-curtain-reveal 0.34s ease forwards;
-  }
-
   .demo-overlay.active.exiting {
     pointer-events: none;
-  }
-
-  .demo-overlay.active.exiting::after {
-    opacity: 1;
-  }
-
-  html[data-theme='light'] .demo-overlay::after {
-    background: #fff;
-  }
-
-  @keyframes demo-curtain-reveal {
-    from {
-      opacity: 1;
-    }
-
-    to {
-      opacity: 0;
-    }
   }
 
   .demo-mobile-shell {

@@ -3770,14 +3770,24 @@
   }
 
   .graphic-speaker {
+    --role-diagram-duration: 280ms;
+    --role-diagram-ease: cubic-bezier(0.22, 1, 0.36, 1);
     fill: var(--surface-1);
     stroke: var(--text-sub);
     stroke-width: 2;
     transition:
-      fill 0.3s,
-      stroke 0.3s,
-      stroke-width 0.3s;
+      fill var(--role-diagram-duration) var(--role-diagram-ease),
+      stroke var(--role-diagram-duration) var(--role-diagram-ease),
+      stroke-width var(--role-diagram-duration) var(--role-diagram-ease);
     cursor: pointer;
+  }
+
+  .graphic-speaker > * {
+    transition:
+      fill var(--role-diagram-duration) var(--role-diagram-ease),
+      stroke var(--role-diagram-duration) var(--role-diagram-ease),
+      stroke-width var(--role-diagram-duration) var(--role-diagram-ease),
+      opacity var(--role-diagram-duration) var(--role-diagram-ease);
   }
 
   .graphic-speaker:hover {
@@ -3793,7 +3803,6 @@
   .spk-driver {
     fill: var(--surface-3);
     stroke: none;
-    transition: all 0.3s;
   }
 
   .graphic-speaker.active .spk-driver {

@@ -6,6 +6,7 @@ import {
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
   getYouTubeInputIntent,
+  isYouTubeLiveUrl,
 } from '../search.ts';
 
 describe('extractYouTubeVideoId', () => {
@@ -25,6 +26,10 @@ describe('extractYouTubeVideoId', () => {
 
   it('extracts from embed URL', () => {
     expect(extractYouTubeVideoId('https://youtube.com/embed/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+  });
+
+  it('extracts from live URL', () => {
+    expect(extractYouTubeVideoId('https://youtube.com/live/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
   });
 
   it('extracts when v= is not the first query param', () => {
@@ -49,6 +54,17 @@ describe('extractYouTubeVideoId', () => {
 
   it('returns null for non-YouTube URL', () => {
     expect(extractYouTubeVideoId('https://vimeo.com/123456')).toBeNull();
+  });
+});
+
+describe('isYouTubeLiveUrl', () => {
+  it('detects /live/ links', () => {
+    expect(isYouTubeLiveUrl('https://youtube.com/live/dQw4w9WgXcQ')).toBe(true);
+    expect(isYouTubeLiveUrl('https://www.youtube.com/live/dQw4w9WgXcQ?si=abc')).toBe(true);
+  });
+
+  it('does not treat ordinary watch links as live from URL alone', () => {
+    expect(isYouTubeLiveUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(false);
   });
 });
 

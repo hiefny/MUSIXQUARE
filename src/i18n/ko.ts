@@ -228,7 +228,6 @@ const ko = {
   'demo.finish_step_title': '이제 간단한 소개는 끝났어요.',
   'demo.finish_step_subtitle': '앱으로 돌아가 모든 기능을 이용해보세요.',
   'demo.track_list_label': '데모 트랙 목록',
-  'demo.track_notice': '',
   'demo.host_only_exit': '방장만 누를 수 있어요',
   'setup.how_to_connect': '이렇게 연결해요',
   'setup.set_role': '이 기기 역할 설정하기',
@@ -381,6 +380,7 @@ const ko = {
   'youtube.search_failed': 'YouTube 검색을 사용할 수 없어요',
   'youtube.search_selected': '선택한 영상을 대기열에 추가할 수 있어요',
   'youtube.search_results': 'YouTube 검색 결과',
+  'youtube.live_sync_warning': '라이브 스트림은 정밀 동기화가 어려워요',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': '연결이 끊어졌어요',

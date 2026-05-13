@@ -100,6 +100,12 @@ export function extractYouTubeVideoId(url: string): string | null {
   return null;
 }
 
+export function isYouTubeLiveUrl(url: string): boolean {
+  return /(?:^|\/\/|www\.)youtube\.com\/live\/[a-zA-Z0-9_-]{11}(?:[/?#&]|$)/i.test(
+    String(url || ''),
+  );
+}
+
 export function extractYouTubePlaylistId(url: string): string | null {
   const match = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
   return match ? match[1] : null;

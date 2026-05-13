@@ -60,6 +60,7 @@ import {
   fetchYouTubePreview,
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
+  isYouTubeLiveUrl,
   getYouTubeInputIntent,
   getSelectedYouTubeSearchResult,
   searchYouTubeFromInput,
@@ -93,6 +94,7 @@ import {
   refreshYouTubeDisplay,
   markYtStateBroadcast,
   clearSnapshotRetries,
+  showLiveStreamSyncWarning,
 } from './iframe.ts';
 import { showLoader } from '../ui/toast.ts';
 
@@ -1176,6 +1178,10 @@ export function initYouTube(): void {
       return;
     }
 
+    if (isYouTubeLiveUrl(sourceUrl)) {
+      showLiveStreamSyncWarning();
+    }
+
     _closeYouTubeInputOverlay(input);
 
     // Index-before-Add flow for new playlists — only when IDLE. Indexing
@@ -1364,6 +1370,10 @@ export function initYouTube(): void {
     if (!videoId && !playlistId) {
       showToast(t('youtube.invalid_link'));
       return;
+    }
+
+    if (isYouTubeLiveUrl(url)) {
+      showLiveStreamSyncWarning();
     }
 
     // Close chat drawer if open

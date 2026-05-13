@@ -79,6 +79,9 @@ function resetYouTubePlayerHost(container: HTMLElement): void {
   container.replaceChildren(playerHost);
 }
 
+const LIVE_DURATION_GROWTH_MIN_SEC = 0.2;
+const LIVE_DURATION_GROWTH_FRAMES = 3;
+
 // ─── Iframe Runtime State ─────────────────────────────────────────
 // All mutable iframe-layer module state in one place. Previously scattered
 // as individual `let` bindings; grouping them exposes the full set of
@@ -115,6 +118,12 @@ interface IframeRuntime {
    *  stall guards applies (iOS gate, tab hidden, scraping). See the
    *  unavailable-video heuristic in updateYouTubeUI. */
   unavailableStuckSince: number | null;
+  /** Last duration sample used for live-stream detection. */
+  liveDurationSample: number;
+  /** Consecutive frames whose duration kept increasing while playing. */
+  liveDurationGrowthFrames: number;
+  /** Toast guard so each loaded video warns only once. */
+  liveStreamToastShown: boolean;
 }
 
 const _ifr: IframeRuntime = {
@@ -128,7 +137,49 @@ const _ifr: IframeRuntime = {
   isScrapingPlaylist: false,
   indexingPlaylistId: null,
   unavailableStuckSince: null,
+  liveDurationSample: 0,
+  liveDurationGrowthFrames: 0,
+  liveStreamToastShown: false,
 };
+
+function resetLiveStreamDetection(): void {
+  _ifr.liveDurationSample = 0;
+  _ifr.liveDurationGrowthFrames = 0;
+  _ifr.liveStreamToastShown = false;
+}
+
+function updateLiveStreamDetection(rawDuration: number, state: number): void {
+  if (_ifr.liveStreamToastShown) return;
+  if (state !== 1 || rawDuration <= 0) {
+    _ifr.liveDurationSample = rawDuration > 0 ? rawDuration : 0;
+    _ifr.liveDurationGrowthFrames = 0;
+    return;
+  }
+
+  const previous = _ifr.liveDurationSample;
+  _ifr.liveDurationSample = rawDuration;
+
+  if (previous <= 0) {
+    _ifr.liveDurationGrowthFrames = 0;
+    return;
+  }
+
+  if (rawDuration - previous >= LIVE_DURATION_GROWTH_MIN_SEC) {
+    _ifr.liveDurationGrowthFrames++;
+  } else {
+    _ifr.liveDurationGrowthFrames = 0;
+  }
+
+  if (_ifr.liveDurationGrowthFrames >= LIVE_DURATION_GROWTH_FRAMES) {
+    showLiveStreamSyncWarning();
+  }
+}
+
+export function showLiveStreamSyncWarning(): void {
+  if (_ifr.liveStreamToastShown) return;
+  _ifr.liveStreamToastShown = true;
+  showToast(t('youtube.live_sync_warning'));
+}
 
 export function markYtStateBroadcast(): void {
   _ifr.lastStateBroadcast = Date.now();
@@ -142,6 +193,7 @@ export function markYtStateBroadcast(): void {
 export function invalidateYtDurationCache(): void {
   setCachedYtDuration(0);
   _ifr.lastDurationVideoId = '';
+  resetLiveStreamDetection();
 }
 
 // ─── Load YouTube Video ────────────────────────────────────────────
@@ -223,6 +275,7 @@ export function loadYouTubeVideo(
 
   setCachedYtDuration(0); // Reset duration cache for new video
   _ifr.lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
+  resetLiveStreamDetection();
   _ifr.lastStateBroadcast = 0; // Allow immediate first broadcast for new session
   _ifr.lastBroadcastState = -1; // Reset so first state is never treated as duplicate
   const sessionId = incrementSessionId();
@@ -1025,6 +1078,10 @@ function updateYouTubeUI(): void {
       setYtIOSWatchdog(null);
     }
 
+    if (!_ifr.isScrapingPlaylist) {
+      updateLiveStreamDetection(rawDuration, state);
+    }
+
     // ── Host-side title sync (mirrors guest's handleYouTubeState path) ──
     // currentTrackMeta is initialized from the playlist row, which carries
     // the playlist's name (or the "loading…" oEmbed placeholder if the
@@ -1105,6 +1162,7 @@ function updateYouTubeUI(): void {
       const prevIdx = getCachedYtPlaylistIdx();
       setCachedYtPlaylistIdx(playlistIdx);
       setCachedYtDuration(0);
+      resetLiveStreamDetection();
       _ifr.lastVideoTitle = '';
       _ifr.lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
 
@@ -1192,6 +1250,7 @@ function updateYouTubeUI(): void {
       if (currentVideoId && currentVideoId !== _ifr.lastDurationVideoId) {
         if (_ifr.lastDurationVideoId !== '') {
           setCachedYtDuration(0);
+          resetLiveStreamDetection();
         }
         _ifr.lastDurationVideoId = currentVideoId;
       }

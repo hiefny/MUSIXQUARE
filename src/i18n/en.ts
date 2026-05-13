@@ -231,7 +231,6 @@ const en: Record<I18nKey, string> = {
   'demo.finish_step_title': 'That is the quick tour.',
   'demo.finish_step_subtitle': 'Return to the app to use every feature.',
   'demo.track_list_label': 'Demo track list',
-  'demo.track_notice': '',
   'demo.host_only_exit': 'Only the host can press this.',
   'setup.how_to_connect': 'How to connect',
   'setup.set_role': "Set this device's role",
@@ -384,6 +383,7 @@ const en: Record<I18nKey, string> = {
   'youtube.search_failed': 'YouTube search is unavailable',
   'youtube.search_selected': 'Selected video ready to add',
   'youtube.search_results': 'YouTube search results',
+  'youtube.live_sync_warning': 'Live streams are difficult to sync precisely.',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Disconnected',

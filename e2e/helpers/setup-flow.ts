@@ -15,6 +15,14 @@ async function navigateAndWaitForSetup(page: Page): Promise<void> {
   await page.waitForSelector('#btn-setup-host', { state: 'visible', timeout: 15_000 });
 }
 
+async function setChannelModeForTest(page: Page, channelMode: number): Promise<void> {
+  await page.evaluate((mode) => {
+    const bus = (window as unknown as Record<string, { emit?: (...args: unknown[]) => void }>)
+      .__MUSIXQUARE_BUS__;
+    bus?.emit?.('audio:set-channel-mode', mode);
+  }, channelMode);
+}
+
 /**
  * Complete host setup flow: create session, select channel, get code.
  * Returns the 6-digit session code.
@@ -24,13 +32,6 @@ export async function setupHost(page: Page, channelMode = 0): Promise<string> {
 
   // 1. Click "Host" button
   await page.click('#btn-setup-host');
-
-  // 2. Wait for role area and select channel
-  await page.waitForSelector('#setup-role-area', { state: 'visible', timeout: 10_000 });
-  await page.click(`#setup-role-grid .ch-opt[data-join-ch="${channelMode}"]`);
-
-  // 3. Click "Next" to proceed to code generation
-  await page.click('#btn-setup-next');
 
   // 4. Wait for code area to appear and code to be generated (not '------')
   await page.waitForSelector('#setup-code-area', { state: 'visible', timeout: 10_000 });
@@ -70,6 +71,8 @@ export async function setupHostAndStart(page: Page, channelMode = 0): Promise<st
     { timeout: 15_000 },
   );
 
+  await setChannelModeForTest(page, channelMode);
+
   return code;
 }
 
@@ -82,13 +85,6 @@ export async function setupGuest(page: Page, joinCode: string, channelMode = 0):
   // 1. Click "Guest" button
   await page.click('#btn-setup-guest');
 
-  // 2. Wait for role area and select channel
-  await page.waitForSelector('#setup-role-area', { state: 'visible', timeout: 10_000 });
-  await page.click(`#setup-role-grid .ch-opt[data-join-ch="${channelMode}"]`);
-
-  // 3. Click "Next" to proceed to join code entry
-  await page.click('#btn-setup-next');
-
   // 4. Wait for join area, fill code, confirm
   await page.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });
   await page.fill('#setup-join-code', joinCode);
@@ -99,6 +95,8 @@ export async function setupGuest(page: Page, joinCode: string, channelMode = 0):
     () => !document.getElementById('setup-overlay')?.classList.contains('active'),
     { timeout: 20_000 },
   );
+
+  await setChannelModeForTest(page, channelMode);
 }
 
 /**

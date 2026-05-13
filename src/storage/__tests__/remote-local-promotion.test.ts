@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import {
-  DEMO_FILE_NAME,
-  LOAD_SOURCE,
-  PLAYBACK_STATE,
-  TRANSFER_STATE,
-} from '../../core/constants.ts';
+import { LOAD_SOURCE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
+import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 
@@ -115,8 +111,8 @@ describe('remote-share to local direct transfer promotion', () => {
     setState('playlist.items', [
       {
         type: 'file',
-        name: DEMO_FILE_NAME,
-        title: 'demo_track',
+        name: DEMO_TRACK.fileName,
+        title: DEMO_TRACK.title,
         videoId: null,
         playlistId: null,
       },
@@ -125,8 +121,8 @@ describe('remote-share to local direct transfer promotion', () => {
     await handleFilePrepare(
       {
         type: 'file-prepare',
-        name: DEMO_FILE_NAME,
-        mime: 'audio/mpeg',
+        name: DEMO_TRACK.fileName,
+        mime: DEMO_TRACK.mime,
         index: 0,
         sessionId: 11,
       },

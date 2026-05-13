@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, TRANSFER_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
@@ -25,7 +25,7 @@ import { setEngineMode } from './video.ts';
 import { postCommand, cleanupStoredFile } from '../storage/storage.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
-import type { AnyProtocolMsg } from '../types/index.ts';
+import type { AnyProtocolMsg, TrackMeta } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
 import { broadcastSystemNotice } from '../chat/protocol.ts';
@@ -58,6 +58,7 @@ import { play, stopAllMedia, stopPlayerNode } from './transport.ts';
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
+import { isDemoTrackName } from '../demo/tracks.ts';
 
 // ─── Decode Timeout Helper ─────────────────────────────────────────
 // 10s is a generous upper bound for legitimate audio/video decoding. Normal
@@ -226,7 +227,7 @@ export async function loadAndBroadcastFile(
       // Demo is a public bundled asset: remote guests fetch it over HTTP from
       // the app server. Also sending an R2 descriptor makes the HTTP and R2
       // downloads race for the same preload slot.
-      if (file.name !== DEMO_FILE_NAME) {
+      if (!isDemoTrackName(file.name)) {
         void shareRemoteFileIfNeeded(file, sessionId);
       }
     }
@@ -282,6 +283,78 @@ export async function loadAndBroadcastFile(
 //
 // Caller must already be on host (hostConn=null) — this function does not
 // re-check, since both call sites have host-only guards.
+export async function loadDemoFile(
+  file: File,
+  meta: TrackMeta,
+  loadToken?: number,
+): Promise<void> {
+  const myLoadId = incrementLoadSessionId();
+  const myToken = loadToken ?? getLoadToken();
+
+  showLoader(true, t('transfer.demo_loading_short'));
+  stopAllMedia({ silent: true });
+  setPlaybackTrackMeta(meta);
+
+  transition({
+    type: 'FILE_PREPARE',
+    variant: 'preload-match',
+    index: 0,
+    name: file.name,
+  });
+
+  try {
+    if (!isSystemAudioActive()) {
+      await Promise.race([initAudio(), delay(2000)]);
+    }
+    if (getAudioContext().state === 'suspended') await ensureRunning();
+
+    BlobURLManager.create(file);
+
+    const arrayBuffer = await file.arrayBuffer();
+    const audioBuffer = await decodeWithTimeout(arrayBuffer, 'demo-load');
+
+    if (loadToken !== undefined && getLoadToken() !== myToken) {
+      if (myLoadId === getActiveLoadSessionId()) showLoader(false);
+      return;
+    }
+
+    if (isExternalOwner()) {
+      log.debug('[Demo] Aborted - external playback mode took ownership after decode');
+      return;
+    }
+
+    if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
+    if (myLoadId !== getActiveLoadSessionId()) return;
+
+    setCurrentAudioBuffer(audioBuffer);
+    transition({ type: 'DECODE_SUCCESS' });
+    if (audioBuffer.duration && Number.isFinite(audioBuffer.duration)) {
+      bus.emit('ui:duration-update', audioBuffer.duration);
+    }
+
+    setState('transfer.meta', {
+      name: file.name,
+      type: file.type,
+      index: 0,
+      title: meta.title,
+    });
+    setState('files.currentFileBlob', file);
+    setPlaybackTrackMeta(meta);
+    BlobURLManager.confirm();
+    bus.emit('ui:play-btn-state', true);
+  } catch (err: unknown) {
+    log.error('[Demo] Load failed', err);
+    setState('files.currentFileBlob', null);
+    transition({ type: isDecodeTimeout(err) ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
+    throw err;
+  } finally {
+    if (myLoadId === getActiveLoadSessionId()) {
+      showLoader(false);
+      setState('player.pausedAt', 0);
+    }
+  }
+}
+
 function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void {
   const playlist = getState('playlist.items') || [];
 
@@ -590,7 +663,7 @@ export async function loadPreloadedTrack(
       let target = pendingTime + age + localOffset;
 
       // Wrap target time for demo tracks to avoid seeking past the end (silence)
-      if (localMeta?.name === DEMO_FILE_NAME && audioBuffer.duration > 0) {
+      if (isDemoTrackName(localMeta?.name) && audioBuffer.duration > 0) {
         target = target % audioBuffer.duration;
       }
 

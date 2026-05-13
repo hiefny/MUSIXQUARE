@@ -17,7 +17,7 @@
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { sendSystemNotice } from '../chat/protocol.ts';
@@ -35,6 +35,7 @@ import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { uploadRemoteFile } from './remote-upload.ts';
 import { downloadRemoteFile } from './remote-download.ts';
 import { isRemoteShareConfigured } from './r2-client.ts';
+import { isDemoTrackName } from '../demo/tracks.ts';
 import type { AnyProtocolMsg, DataConnection, RemoteFileSharePayload } from '../types/index.ts';
 
 const REMOTE_WAIT_TIMER = 'remote-share-wait-timeout';
@@ -599,7 +600,7 @@ async function handleRemoteFileShare(
     return;
   }
 
-  if (descriptor.name === DEMO_FILE_NAME) {
+  if (isDemoTrackName(descriptor.name)) {
     log.debug('[RemoteShare] Ignoring demo descriptor; demo uses the HTTP fallback path');
     return;
   }

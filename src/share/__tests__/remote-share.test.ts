@@ -3,7 +3,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
-import { DEMO_FILE_NAME, MSG } from '../../core/constants.ts';
+import { MSG } from '../../core/constants.ts';
+import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, RemoteFileSharePayload } from '../../types/index.ts';
 
@@ -112,7 +113,7 @@ describe('remote file share policy', () => {
     const { handleData } = await import('../../network/protocol.ts');
 
     await handleData(
-      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ name: DEMO_FILE_NAME }) },
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ name: DEMO_TRACK.fileName }) },
       conn,
     );
 

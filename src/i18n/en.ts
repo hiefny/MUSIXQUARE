@@ -200,10 +200,44 @@ const en: Record<I18nKey, string> = {
   'setup.host_button': "I'll host",
   'setup.guest_button': 'Join a session',
   'setup.demo_button': 'Try it (Demo)',
+  'demo.prompt_title': 'Try MUSIXQUARE in 30 seconds',
+  'demo.prompt_message':
+    'A Linelight demo track is ready so you can test roles and effects without adding your own music.',
+  'demo.prompt_cta': 'Start demo',
+  'demo.prompt_later': 'Not now',
+  'demo.try_later_toast': 'You can try it anytime from the Help tab.',
+  'demo.track_info': 'Track info',
+  'demo.exit': 'Exit experience',
+  'demo.credit': 'Demo track',
+  'demo.role_title': 'Set this device role',
+  'demo.effects_title': 'Try effects',
+  'demo.reverb': 'Reverb',
+  'demo.bass_boost': 'Bass Boost',
+  'demo.role_bass_short': 'Bass',
+  'demo.role_center_short': 'Center',
+  'demo.step_nav_label': 'Demo steps',
+  'demo.session_title': 'Hi! Your room code is {{code}}.',
+  'demo.session_subtitle': 'You can invite another device anytime.',
+  'demo.session_body_connected':
+    '{{count}} devices are playing together right now. Set a role for each device to create surround sound.',
+  'demo.session_body_alone':
+    'Only this device is playing right now. Invite another device to try it.',
+  'demo.effects_step_title': 'Shape a richer sound.',
+  'demo.effects_step_subtitle': 'You can fine-tune everything later in Settings.',
+  'demo.effects_support':
+    'MUSIXQUARE can apply reverb, EQ, virtual bass, stereo widening, and other sound shaping tools across connected devices.',
+  'demo.finish_step_title': 'That is the quick tour.',
+  'demo.finish_step_subtitle': 'Return to the app to use every feature.',
+  'demo.track_list_label': 'Demo track list',
+  'demo.track_notice':
+    'These tracks are from Linelight OST by Brett Taylor. Unauthorized recording or redistribution is prohibited.',
+  'demo.host_only_exit': 'Only the host can press this.',
   'setup.how_to_connect': 'How to connect',
   'setup.set_role': "Set this device's role",
   'setup.what_sound': 'What should this device play?',
   'setup.change_later': 'You can change it later in Settings.',
+  'setup.welcome_title': 'Welcome',
+  'setup.join_session_subtitle': "You're about to join session {{code}}.",
   'setup.select_role': 'Please select a role',
   'setup.select_role_alt': 'Please select a role',
   'setup.hello_select_role': 'Hi! Please choose your role.',
@@ -528,7 +562,7 @@ const en: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul>',
   'setup.how_to_connect_html':
-    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 choose role \u2192 check code</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 choose role \u2192 enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
+    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 check code</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
   'player.play_speakers_html':
     'Each guest selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html':

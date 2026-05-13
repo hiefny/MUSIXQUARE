@@ -1,7 +1,7 @@
 /**
  * MUSIXQUARE — Setup Guest Flow
  *
- * Guest join: role selection -> code entry -> join session.
+ * Guest join: code entry -> join session.
  *
  * IMPORTANT: This file must NOT import from setup.ts (circular dependency).
  * It imports shared helpers from setup-shared.ts instead.
@@ -21,15 +21,16 @@ import {
   activateNoSleep,
   selectStandardChannelButton,
   BACK_SVG,
-  getPendingSetupRole,
   setPendingSetupRole,
   getPendingGuestRoleMode,
   setPendingGuestRoleMode,
   getPendingAutoJoinCode,
+  setupSetAutoJoinCode,
   setOnInviteLinkRoleSelected,
   setupEl,
   stopObAutoSlide,
   setupShowCodeArea,
+  setupShowAutoJoinArea,
   setupShowJoinArea,
   setupShowWelcome,
   setupShowRoleArea,
@@ -40,6 +41,7 @@ import {
 import { animateTransition } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from './dialog.ts';
+import { markAppUsed } from '../demo/storage.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -47,6 +49,7 @@ import { showDialog } from './dialog.ts';
 let _goBack: () => void = () => {};
 let _pendingPasswordJoin: { code: string; mode: number; inviteLink: boolean } | null = null;
 let _roomPasswordPromptOpen = false;
+const DEFAULT_SETUP_ROLE = 0;
 
 export function setGuestGoBack(fn: () => void): void {
   _goBack = fn;
@@ -56,6 +59,7 @@ export function setGuestGoBack(fn: () => void): void {
 setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 
 export function startGuestFlow(): void {
+  markAppUsed();
   bus.emit('audio:activate');
   _pendingPasswordJoin = null;
   _roomPasswordPromptOpen = false;
@@ -79,20 +83,27 @@ export function startGuestFlow(): void {
 
   setState('network.appRole', 'guest');
   setState('setup.sessionStarted', false);
-  setPendingSetupRole(null);
+  setPendingSetupRole(DEFAULT_SETUP_ROLE);
+  setPendingGuestRoleMode(DEFAULT_SETUP_ROLE);
 
   updateInviteCodeUI();
 
-  // Single transition for the welcome→role swap so the four DOM flips
-  // snapshot together instead of aborting each other.
+  try {
+    selectStandardChannelButton(DEFAULT_SETUP_ROLE);
+    bus.emit('audio:set-channel-mode', DEFAULT_SETUP_ROLE);
+    setupHighlightJoinRole(DEFAULT_SETUP_ROLE);
+  } catch (e) {
+    log.warn('[Setup] set default guest role failed', e);
+  }
+
   animateTransition(() => {
     setupShowCodeArea(false);
     setupShowJoinArea(false);
+    setupShowAutoJoinArea(false);
     setupShowWelcome(false);
-    setupShowRoleArea(true);
+    setupShowRoleArea(false);
   });
 
-  setupHighlightJoinRole(null);
   setupSetGuestJoinBusy(false);
 
   const sliderArea = setupEl('ob-slider-area');
@@ -101,45 +112,25 @@ export function startGuestFlow(): void {
     stopObAutoSlide();
   }
 
-  const autoCode = getPendingAutoJoinCode();
-  if (autoCode) {
-    // Invite link flow: role selection → "시작하기" (disabled until role picked)
-    // No code input step needed — code is already known from URL
-    _renderInviteLinkActions();
-  } else {
-    // Normal guest flow: role selection → "다음" → code input → "시작하기"
-    setupRenderActions(
-      [
-        { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
-        {
-          id: 'btn-setup-next',
-          text: t('common.next'),
-          kind: 'secondary',
-          onClick: () => {
-            const role = getPendingSetupRole();
-            if (role !== null) proceedToGuestCode(role);
-            else showToast(t('setup.select_role'));
-          },
-        },
-      ],
-      'horizontal-with-back',
-    );
-  }
-
   setState('network.myDeviceLabel', t('common.guest'));
   updateRoleBadge();
+
+  const autoCode = getPendingAutoJoinCode();
+  if (autoCode) {
+    setupSetAutoJoinCode(autoCode);
+    animateTransition(() => {
+      setupShowAutoJoinArea(true);
+    });
+    _renderInviteLinkActions();
+  } else {
+    proceedToGuestCode(DEFAULT_SETUP_ROLE);
+  }
 }
 
-/** Render actions for invite-link flow: small back icon + primary "시작하기"
- *  (disabled until a role is picked). The back icon does a true hard
- *  navigation to '/' so a user who landed here via /CODE (invite link or
- *  post-disconnect reconnect) and now wants to start fresh isn't stuck —
- *  common case: host has actually left and the peer-unavailable error
- *  message in setup.ts told them so. Uses the same horizontal-with-back
- *  layout as the normal host/guest code screens so the role-select area
- *  keeps a single-row action bar (mobile diagram real estate). */
+/** Render actions for invite-link flow: back icon + primary start.
+ *  The back icon does a hard navigation to '/' so a user who landed here via /CODE
+ *  can start fresh if the host is gone or they want to leave the invite flow. */
 function _renderInviteLinkActions(): void {
-  const role = getPendingSetupRole();
   setupRenderActions(
     [
       {
@@ -155,12 +146,7 @@ function _renderInviteLinkActions(): void {
         id: 'btn-setup-confirm',
         text: t('common.start'),
         kind: 'primary',
-        disabled: role === null,
-        onClick: () => {
-          const r = getPendingSetupRole();
-          if (r !== null) _handleInviteLinkJoin(r);
-          else showToast(t('setup.select_role'));
-        },
+        onClick: () => _handleInviteLinkJoin(DEFAULT_SETUP_ROLE),
       },
     ],
     'horizontal-with-back',
@@ -224,12 +210,13 @@ function proceedToGuestCode(mode: number): void {
 
   animateTransition(() => {
     setupShowRoleArea(false);
+    setupShowAutoJoinArea(false);
     setupShowJoinArea(true);
   });
 
   setupRenderActions(
     [
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
+      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
       {
         id: 'btn-setup-confirm',
         text: t('common.start'),
@@ -297,7 +284,7 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
         id: 'btn-setup-back',
         html: BACK_SVG,
         kind: 'icon-only',
-        onClick: () => startGuestFlow(),
+        onClick: () => _goBack(),
         disabled: true,
       },
       { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },
@@ -351,7 +338,7 @@ function renderPasswordRetryBusy(inviteLink: boolean): void {
               markIntentionalNav();
               window.location.href = '/';
             }
-          : () => startGuestFlow(),
+          : () => _goBack(),
         disabled: true,
       },
       { id: 'btn-setup-confirm', text: t('setup.joining'), kind: 'primary', disabled: true },

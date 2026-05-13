@@ -197,10 +197,43 @@ const ko = {
   'setup.host_button': '제가 방장할래요',
   'setup.guest_button': '모임에 참여할래요',
   'setup.demo_button': '앱 체험하기 (데모)',
+  'demo.prompt_title': '30초만에 MUSIXQUARE 체험하기',
+  'demo.prompt_message':
+    '내 음악을 추가하지 않아도 Linelight 데모 트랙으로 역할과 효과를 바로 시험해볼 수 있어요.',
+  'demo.prompt_cta': '데모 시작',
+  'demo.prompt_later': '나중에',
+  'demo.try_later_toast': '도움말 탭에서 언제든 시도해보실 수 있어요',
+  'demo.track_info': '트랙 정보',
+  'demo.exit': '체험 종료',
+  'demo.credit': '데모 트랙',
+  'demo.role_title': '이 기기 역할 설정하기',
+  'demo.effects_title': '효과 체험하기',
+  'demo.reverb': '리버브',
+  'demo.bass_boost': '베이스부스트',
+  'demo.role_bass_short': '저음',
+  'demo.role_center_short': '중앙',
+  'demo.step_nav_label': '데모 단계',
+  'demo.session_title': '안녕하세요! 현재 방 코드는 {{code}}에요',
+  'demo.session_subtitle': '새 기기를 언제든지 초대할 수 있어요',
+  'demo.session_body_connected':
+    '지금은 {{count}}대의 기기가 연결되어 동시에 음악을 재생 중이에요. 각 기기별로 역할을 지정하여 서라운드 음향을 만들어보세요.',
+  'demo.session_body_alone': '현재 혼자만 음악을 재생중이에요. 새로운 기기를 지금 초대해보세요!',
+  'demo.effects_step_title': '고급 음향을 만들어보세요.',
+  'demo.effects_step_subtitle': '나중에 더 세세한 설정을 할 수 있어요.',
+  'demo.effects_support':
+    '뮤직스퀘어는 리버브, 이퀄라이저, 가상 베이스, 스테레오 확장 같은 음향 효과를 모든 기기에 함께 적용할 수 있어요.',
+  'demo.finish_step_title': '이제 간단한 설명은 끝났어요.',
+  'demo.finish_step_subtitle': '앱으로 돌아가 모든 기능을 이용해보세요.',
+  'demo.track_list_label': '데모 트랙 목록',
+  'demo.track_notice':
+    '해당 곡들은 Brett Taylor님의 작품 Linelight의 OST입니다. 무단으로 녹음 및 배포를 금합니다.',
+  'demo.host_only_exit': '방장만 누를 수 있어요',
   'setup.how_to_connect': '이렇게 연결해요',
   'setup.set_role': '이 기기 역할 설정하기',
   'setup.what_sound': '이 기기로 어떤 소리를 낼까요?',
   'setup.change_later': '나중에 설정에서 바꿀 수 있어요.',
+  'setup.welcome_title': '환영합니다',
+  'setup.join_session_subtitle': '{{code}}번 세션에 입장하려고 해요',
   'setup.select_role': '역할을 선택해주세요',
   'setup.select_role_alt': '역할을 선택해 주세요',
   'setup.hello_select_role': '안녕하세요! 본인의 역할을 선택해주세요.',
@@ -524,7 +557,7 @@ const ko = {
   'help.local_recommended_html':
     '같은 네트워크에서 오디오 공유가 가장 안정적이에요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
   'setup.how_to_connect_html':
-    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 역할 선택 → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 역할 선택 → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정할 수 있어요</strong>.</li></ul>',
+    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>"연결"탭에서 설정할 수 있어요</strong>.</li></ul>',
   'player.play_speakers_html':
     '참여자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> L 채널 출력</li><li><strong>오른쪽 스피커:</strong> R 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html':

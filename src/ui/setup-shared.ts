@@ -163,6 +163,7 @@ export function syncDesktopLeftPanel(): void {
       id: 'setup-join-area',
       diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null,
     },
+    { id: 'setup-auto-join-area', diagram: () => null },
     {
       id: 'setup-code-area',
       diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null,
@@ -269,6 +270,17 @@ export function setupShowJoinArea(show: boolean): void {
   syncDesktopLeftPanel();
 }
 
+export function setupShowAutoJoinArea(show: boolean): void {
+  const el = setupEl('setup-auto-join-area');
+  if (el) el.style.display = show ? 'flex' : 'none';
+  syncDesktopLeftPanel();
+}
+
+export function setupSetAutoJoinCode(code: string): void {
+  const el = setupEl('setup-auto-join-subtitle');
+  if (el) el.textContent = t('setup.join_session_subtitle', { code });
+}
+
 export function setupShowRoleArea(show: boolean): void {
   const el = setupEl('setup-role-area');
   if (el) el.style.display = show ? 'flex' : 'none';
@@ -301,18 +313,9 @@ export function setupHighlightJoinRole(mode: number | null): void {
   }
 
   const speakers = document.querySelectorAll<HTMLElement>('.setup-graphic-svg .graphic-speaker');
-  speakers.forEach((el) => el.classList.remove('active'));
-
-  let targetId: string | null = null;
-  if (mode === -1) targetId = 'svg-spk-l';
-  else if (mode === 1) targetId = 'svg-spk-r';
-  else if (mode === 0) targetId = 'svg-spk-center';
-  else if (mode === 2) targetId = 'svg-spk-woofer';
-
-  if (targetId) {
-    const spk = document.getElementById(targetId);
-    if (spk) spk.classList.add('active');
-  }
+  speakers.forEach((el) => {
+    el.classList.toggle('active', Number(el.dataset.roleMode) === mode);
+  });
 }
 
 // ─── Button Rendering ────────────────────────────────────────────

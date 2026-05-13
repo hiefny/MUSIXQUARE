@@ -87,11 +87,20 @@ export function setTheme(mode: string, save = true): void {
 
 // ─── Channel Mode (Standard) ─────────────────────────────────────
 
+function syncRoleDiagrams(mode: number): void {
+  document
+    .querySelectorAll<HTMLElement>('[data-role-diagram] .graphic-speaker[data-role-mode]')
+    .forEach((el) => {
+      el.classList.toggle('active', Number(el.dataset.roleMode) === mode);
+    });
+}
+
 export function selectStandardChannelButton(mode: number): void {
   const all = document.querySelectorAll('#grid-standard .ch-opt[data-ch]');
   all.forEach((e) => e.classList.remove('active'));
   const el = document.querySelector(`#grid-standard .ch-opt[data-ch="${mode}"]`);
   if (el) el.classList.add('active');
+  syncRoleDiagrams(mode);
 
   // Sync woofer cutoff slider visibility
   const wooferCtrl = document.getElementById('woofer-cutoff-control');
@@ -532,6 +541,21 @@ export function initSettings(): void {
       setChannel(parseInt(el.dataset.ch!, 10));
     });
   });
+
+  document
+    .querySelectorAll<HTMLElement>(
+      '[data-role-diagram="settings"] .graphic-speaker[data-role-mode]',
+    )
+    .forEach((el) => {
+      el.addEventListener('click', () => {
+        if (!getState('network.hostConn') && isPlaybackModeSystemAudio()) {
+          showToast(t('system_audio.host_channel_locked'));
+          return;
+        }
+        const mode = Number(el.dataset.roleMode);
+        if (Number.isFinite(mode)) setChannel(mode);
+      });
+    });
 
   // Subwoofer cutoff
   $on('cutoff-slider', 'input', function (this: HTMLInputElement) {

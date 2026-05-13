@@ -20,13 +20,13 @@ import {
   updateInviteCodeUI,
   selectStandardChannelButton,
   BACK_SVG,
-  getPendingSetupRole,
   setPendingSetupRole,
   getHostCodeFlowId,
   incrementHostCodeFlowId,
   setupEl,
   stopObAutoSlide,
   setupShowJoinArea,
+  setupShowAutoJoinArea,
   setupShowCodeArea,
   setupShowWelcome,
   setupShowRoleArea,
@@ -36,34 +36,44 @@ import {
   hideSetupOverlay,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
+import { markAppUsed } from '../demo/storage.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
 /** goBack callback — set by the orchestrator to avoid circular imports */
 let _goBack: () => void = () => {};
+const DEFAULT_SETUP_ROLE = 0;
 
 export function setHostGoBack(fn: () => void): void {
   _goBack = fn;
 }
 
 export function startHostFlow(): void {
+  markAppUsed();
   incrementHostCodeFlowId();
   bus.emit('audio:activate');
 
   setState('network.appRole', 'host');
   setState('setup.sessionStarted', false);
-  setPendingSetupRole(null);
+  setPendingSetupRole(DEFAULT_SETUP_ROLE);
+
+  try {
+    selectStandardChannelButton(DEFAULT_SETUP_ROLE);
+    bus.emit('audio:set-channel-mode', DEFAULT_SETUP_ROLE);
+    setupHighlightJoinRole(DEFAULT_SETUP_ROLE);
+  } catch (e) {
+    log.warn(e);
+  }
 
   // Single transition for the whole welcome→role swap so the four DOM
   // flips snapshot together instead of superseding each other.
   animateTransition(() => {
     setupShowJoinArea(false);
+    setupShowAutoJoinArea(false);
     setupShowCodeArea(false);
     setupShowWelcome(false);
-    setupShowRoleArea(true);
+    setupShowRoleArea(false);
   });
-
-  setupHighlightJoinRole(null);
 
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) {
@@ -71,22 +81,7 @@ export function startHostFlow(): void {
     stopObAutoSlide();
   }
 
-  setupRenderActions(
-    [
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
-      {
-        id: 'btn-setup-next',
-        text: t('common.next'),
-        kind: 'secondary',
-        onClick: () => {
-          const role = getPendingSetupRole();
-          if (role !== null) proceedToHostCode(role);
-          else showToast(t('setup.select_role'));
-        },
-      },
-    ],
-    'horizontal-with-back',
-  );
+  void proceedToHostCode(DEFAULT_SETUP_ROLE);
 }
 
 async function proceedToHostCode(mode: number): Promise<void> {
@@ -115,7 +110,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
 
   setupRenderActions(
     [
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
+      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
       { id: 'btn-setup-confirm', text: t('common.wait'), kind: 'secondary', disabled: true },
     ],
     'horizontal-with-back',
@@ -138,7 +133,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
 
     setupRenderActions(
       [
-        { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startHostFlow() },
+        { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
         {
           id: 'btn-setup-confirm',
           text: t('common.start'),

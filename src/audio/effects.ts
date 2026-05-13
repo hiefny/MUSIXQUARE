@@ -280,10 +280,10 @@ function _broadcastOrRequestSetting(msgType: string, value: number | string): vo
   if (!hostConn) {
     broadcast({ type: msgType, value } as AnyProtocolMsg);
   } else {
-    const isOperator = getState('network.isOperator');
-    if (isOperator && hostConn.open) {
+    const canRequest = getState('network.isOperator') || getState('demo.active');
+    if (canRequest && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
-    } else if (!isOperator) {
+    } else if (!canRequest) {
       showToast(t('toast.operator_required'));
     } else {
       showToast(t('toast.connection_closing'));
@@ -296,10 +296,10 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
   if (!hostConn) {
     broadcast({ type: MSG.EQ_UPDATE, band, value });
   } else {
-    const isOperator = getState('network.isOperator');
-    if (isOperator && hostConn.open) {
+    const canRequest = getState('network.isOperator') || getState('demo.active');
+    if (canRequest && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
-    } else if (!isOperator) {
+    } else if (!canRequest) {
       showToast(t('toast.operator_required'));
     } else {
       showToast(t('toast.connection_closing'));
@@ -373,8 +373,8 @@ bus.on('audio:reset-eq', () => {
     resetEQ();
     broadcast({ type: MSG.EQ_RESET });
   } else {
-    const isOperator = getState('network.isOperator');
-    if (isOperator && hostConn.open) {
+    const canRequest = getState('network.isOperator') || getState('demo.active');
+    if (canRequest && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_EQ_RESET });
     }
   }
@@ -619,7 +619,7 @@ function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnectio
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn, data)) {
+  if (!verifyOperator(conn, data) && !getState('demo.active')) {
     log.warn(`[Effects] Rejected request-eq-reset from non-OP: ${conn?.peer}`);
     return;
   }

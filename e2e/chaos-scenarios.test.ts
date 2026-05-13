@@ -76,7 +76,6 @@ async function cleanupChaosSetup(setup: ChaosSetup): Promise<void> {
   await setup.hostContext.close().catch(() => {});
 }
 
-
 interface LateGuest {
   guestContext: BrowserContext;
   guestPage: Page;
@@ -203,10 +202,7 @@ test.describe('Mass Exodus', () => {
       await waitForState(setup.hostPage, 'appState', 'PLAYING_AUDIO');
 
       // ★ CHAOS: 2 guests drop simultaneously
-      await Promise.all([
-        setup.guestContexts[0].close(),
-        setup.guestContexts[1].close(),
-      ]);
+      await Promise.all([setup.guestContexts[0].close(), setup.guestContexts[1].close()]);
 
       // Wait for host to detect disconnects
       await waitForPeerCountAtMost(setup.hostPage, 1);
@@ -244,7 +240,9 @@ test.describe('Revolving Door', () => {
     test.setTimeout(120_000);
 
     // Host-only start
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -277,12 +275,12 @@ test.describe('Revolving Door', () => {
       await waitForPlaylistCount(g3.guestPage, 2, 30_000);
 
       // Verify host state consistency
-      const hostItems = await readState(hostPage, 'playlist.items') as unknown[];
+      const hostItems = (await readState(hostPage, 'playlist.items')) as unknown[];
       expect(hostItems.length).toBe(2);
 
       // Verify guest3 has both tracks
-      const g3Items = await g3.guestPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const g3Items = await g3.guestPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(g3Items).toBe(2);
 
@@ -352,10 +350,14 @@ test.describe('Settings Storm During Transfer', () => {
 // ═══════════════════════════════════════════════════════════════
 
 test.describe('Track Change + Late Join', () => {
-  test('late-joining guest syncs track index when host changes track mid-join', async ({ browser }) => {
+  test('late-joining guest syncs track index when host changes track mid-join', async ({
+    browser,
+  }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -417,7 +419,9 @@ test.describe('Track Change + Late Join', () => {
 // ═══════════════════════════════════════════════════════════════
 
 test.describe('Upload Barrage + Disconnect Cascade', () => {
-  test('uploads survive disconnect cascade and new guest gets full playlist', async ({ browser }) => {
+  test('uploads survive disconnect cascade and new guest gets full playlist', async ({
+    browser,
+  }) => {
     test.setTimeout(120_000);
 
     const setup = await createChaosSetup(browser, 2);
@@ -447,8 +451,8 @@ test.describe('Upload Barrage + Disconnect Cascade', () => {
       await waitForPeerCount(setup.hostPage, 0);
 
       // Host should still have 3 tracks
-      const hostCount = await setup.hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const hostCount = await setup.hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(hostCount).toBe(3);
 
@@ -539,7 +543,14 @@ test.describe('Operator + Chaos', () => {
 
       // App should not crash: appState must be a valid enum value (not undefined).
       const hostState = await readState(setup.hostPage, 'appState');
-      expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_VIDEO', 'PLAYING_YOUTUBE', 'PLAYING_SYSTEM_AUDIO']).toContain(hostState);
+      expect([
+        'IDLE',
+        'PAUSED',
+        'PLAYING_AUDIO',
+        'PLAYING_VIDEO',
+        'PLAYING_YOUTUBE',
+        'PLAYING_SYSTEM_AUDIO',
+      ]).toContain(hostState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await cleanupChaosSetup(setup);
@@ -568,14 +579,22 @@ test.describe('Mode Switch + Disconnect', () => {
       // Host opens YouTube overlay and loads video
       if (await isVisible(setup.hostPage, '#media-source-btn')) {
         await setup.hostPage.locator('#media-source-btn').click();
-        await setup.hostPage.waitForFunction(
-          () => !!document.querySelector('.media-source-overlay.active, .media-source-panel.active, #media-source-btn.active'),
-          { timeout: 5_000 },
-        ).catch(() => {}); // overlay may not have .active class
+        await setup.hostPage
+          .waitForFunction(
+            () =>
+              !!document.querySelector(
+                '.media-source-overlay.active, .media-source-panel.active, #media-source-btn.active',
+              ),
+            { timeout: 5_000 },
+          )
+          .catch(() => {}); // overlay may not have .active class
       }
       if (await isVisible(setup.hostPage, '#media-youtube-btn, .media-opt-youtube')) {
         await setup.hostPage.locator('#media-youtube-btn, .media-opt-youtube').click();
-        await setup.hostPage.locator('#youtube-url-input').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+        await setup.hostPage
+          .locator('#youtube-url-input')
+          .waitFor({ state: 'visible', timeout: 5_000 })
+          .catch(() => {});
       }
       if (await isVisible(setup.hostPage, '#youtube-url-input')) {
         await setup.hostPage.locator('#youtube-url-input').fill(YT_VIDEO);
@@ -652,10 +671,7 @@ test.describe('Chat Flood + Mass Disconnect', () => {
       await sendChatMessage(setup.guestPages[0], 'guest-flood-1');
 
       // ★ CHAOS: Guest2 and Guest3 disconnect mid-chat
-      await Promise.all([
-        setup.guestContexts[1].close(),
-        setup.guestContexts[2].close(),
-      ]);
+      await Promise.all([setup.guestContexts[1].close(), setup.guestContexts[2].close()]);
 
       // Continue chatting after disconnect
       await sendChatMessage(setup.hostPage, 'flood-post-crash-4');
@@ -666,14 +682,14 @@ test.describe('Chat Flood + Mass Disconnect', () => {
       await waitForChatMessage(setup.hostPage, 'flood-post-crash-5');
 
       // Host chat should have content (not crashed)
-      const hostChat = await setup.hostPage.evaluate(() =>
-        document.getElementById('chat-messages')?.textContent || '',
+      const hostChat = await setup.hostPage.evaluate(
+        () => document.getElementById('chat-messages')?.textContent || '',
       );
       expect(hostChat.length).toBeGreaterThan(0);
 
       // Guest1 should have received at least some messages
-      const guest1Chat = await setup.guestPages[0].evaluate(() =>
-        document.getElementById('chat-messages')?.textContent || '',
+      const guest1Chat = await setup.guestPages[0].evaluate(
+        () => document.getElementById('chat-messages')?.textContent || '',
       );
       expect(guest1Chat.length).toBeGreaterThan(0);
 
@@ -691,7 +707,9 @@ test.describe('Chat Flood + Mass Disconnect', () => {
 // ═══════════════════════════════════════════════════════════════
 
 test.describe('Playlist + Disconnect Storm', () => {
-  test('playlist manipulation during disconnect storm produces consistent final state', async ({ browser }) => {
+  test('playlist manipulation during disconnect storm produces consistent final state', async ({
+    browser,
+  }) => {
     test.setTimeout(90_000);
 
     const setup = await createChaosSetup(browser, 2);
@@ -739,8 +757,8 @@ test.describe('Playlist + Disconnect Storm', () => {
       await waitForPeerCountAtMost(setup.hostPage, 1);
 
       // Read host playlist count (should be 2 after removal)
-      const hostCount = await setup.hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const hostCount = await setup.hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
 
       // Upload another track + guest2 disconnects
@@ -751,16 +769,16 @@ test.describe('Playlist + Disconnect Storm', () => {
       await waitForPlaylistCount(setup.hostPage, hostCount + 1, 15_000);
       await waitForPeerCount(setup.hostPage, 0);
 
-      const finalHostCount = await setup.hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const finalHostCount = await setup.hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
 
       // New guest joins and sees consistent state
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForPlaylistCount(lateGuest.guestPage, finalHostCount, 30_000);
 
-      const lateGuestCount = await lateGuest.guestPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const lateGuestCount = await lateGuest.guestPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(lateGuestCount).toBe(finalHostCount);
     } finally {
@@ -775,10 +793,14 @@ test.describe('Playlist + Disconnect Storm', () => {
 // ═══════════════════════════════════════════════════════════════
 
 test.describe('Full Lifecycle Chaos', () => {
-  test('uploads, joins, disconnects, settings, chat — final guest sees correct state', async ({ browser }) => {
+  test('uploads, joins, disconnects, settings, chat — final guest sees correct state', async ({
+    browser,
+  }) => {
     test.setTimeout(180_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -883,8 +905,8 @@ test.describe('Full Lifecycle Chaos', () => {
       await waitForPlaylistCount(g4.guestPage, 4, 30_000);
 
       // ★ FINAL ASSERTIONS on Guest4
-      const g4PlaylistCount = await g4.guestPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const g4PlaylistCount = await g4.guestPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(g4PlaylistCount).toBe(4);
 
@@ -929,7 +951,9 @@ test.describe('Simultaneous Join Attempts', () => {
   test('maxGuestSlots=1 rejects second guest after first is connected', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
 
@@ -959,12 +983,15 @@ test.describe('Simultaneous Join Attempts', () => {
       // Guest2 tries to connect (should fail — SESSION_FULL)
       await guests[1].page.goto('/');
       await guests[1].page.waitForLoadState('networkidle');
-      await guests[1].page.waitForSelector('#btn-setup-guest', { state: 'visible', timeout: 15_000 });
+      await guests[1].page.waitForSelector('#btn-setup-guest', {
+        state: 'visible',
+        timeout: 15_000,
+      });
       await guests[1].page.click('#btn-setup-guest');
-      await guests[1].page.waitForSelector('#setup-role-area', { state: 'visible', timeout: 10_000 });
-      await guests[1].page.click('#setup-role-grid .ch-opt[data-join-ch="0"]');
-      await guests[1].page.click('#btn-setup-next');
-      await guests[1].page.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });
+      await guests[1].page.waitForSelector('#setup-join-area', {
+        state: 'visible',
+        timeout: 10_000,
+      });
       await guests[1].page.fill('#setup-join-code', code);
       await guests[1].page.click('#btn-setup-confirm');
 
@@ -972,7 +999,9 @@ test.describe('Simultaneous Join Attempts', () => {
       await guests[1].page.waitForFunction(
         () => {
           const overlay = document.getElementById('setup-overlay');
-          const dialog = document.querySelector('.dialog-overlay.active, .dialog-backdrop.active, .dialog-container');
+          const dialog = document.querySelector(
+            '.dialog-overlay.active, .dialog-backdrop.active, .dialog-container',
+          );
           return overlay?.classList.contains('active') || !!dialog;
         },
         { timeout: 20_000 },
@@ -981,7 +1010,7 @@ test.describe('Simultaneous Join Attempts', () => {
       // Host should still have exactly 1 peer
       const hostPeers = await hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('network.connectedPeers') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
       });
       expect(hostPeers).toBe(1);
     } finally {
@@ -999,7 +1028,9 @@ test.describe('Rapid Reconnect Cycle', () => {
   test('3 consecutive disconnect/reconnect cycles keep host usable', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -1043,7 +1074,9 @@ test.describe('Settings Chain + Late Join', () => {
   test('guest joining mid-settings-chain receives final settings state', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -1111,7 +1144,9 @@ test.describe('Settings Chain + Late Join', () => {
 // ═══════════════════════════════════════════════════════════════
 
 test.describe('Preload + Disconnect', () => {
-  test('preload continues after guest disconnect and new guest syncs correctly', async ({ browser }) => {
+  test('preload continues after guest disconnect and new guest syncs correctly', async ({
+    browser,
+  }) => {
     test.setTimeout(90_000);
 
     const setup = await createChaosSetup(browser, 1);
@@ -1174,7 +1209,7 @@ test.describe('Preload + Disconnect', () => {
         { timeout: 15_000 },
       );
 
-      const hostIdx = await readState(setup.hostPage, 'playlist.currentTrackIndex') as number;
+      const hostIdx = (await readState(setup.hostPage, 'playlist.currentTrackIndex')) as number;
       expect(hostIdx).toBe(2); // Track 3 (0-indexed)
 
       const hostState = await readState(setup.hostPage, 'appState');

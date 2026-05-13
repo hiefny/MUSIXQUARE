@@ -14,7 +14,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, PLAYBACK_STATE, DEMO_FILE_NAME } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
@@ -26,6 +26,7 @@ import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remot
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection } from '../types/index.ts';
+import { getDemoTrackForPlayback, isDemoTrackName } from '../demo/tracks.ts';
 
 import {
   getCurrentAudioBuffer,
@@ -307,12 +308,12 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
 function tryFetchDemoForRemote(index: number, dataName: string | undefined, time: number): boolean {
   const playlist = getState('playlist.items') || [];
   const name = playlist[index]?.name || dataName || '';
-  if (name !== DEMO_FILE_NAME) return false;
+  if (!isDemoTrackName(name)) return false;
 
   // Idempotency: If we already have the demo blob or are in the middle of
   // activating it, return false so heartbeats can proceed to the sync logic.
   const currentFile = getState('files.currentFileBlob') as File | null;
-  const hasDemo = currentFile?.name === DEMO_FILE_NAME;
+  const hasDemo = isDemoTrackName(currentFile?.name);
   if (hasDemo || isPlayPreloadedInProgress()) return false;
 
   log.debug('[Guest] Remote — fetching demo from server');
@@ -330,8 +331,9 @@ function tryFetchDemoForRemote(index: number, dataName: string | undefined, time
   setPendingPlayTime(time);
   // Demo variant transitions lifecycle to AWAITING_PRELOAD —
   // shouldSkipIncomingFile() returns true automatically.
-  transition({ type: 'FILE_PREPARE', variant: 'demo', index, name });
-  fetchDemoFromServer(index, time, getPendingPlayTimeSetAt()).catch((e) =>
+  const demoTrack = getDemoTrackForPlayback(index, name);
+  transition({ type: 'FILE_PREPARE', variant: 'demo', index, name: demoTrack.fileName });
+  fetchDemoFromServer(index, time, getPendingPlayTimeSetAt(), name).catch((e) =>
     log.error('[Guest] Demo fetch failed:', e),
   );
   return true;

@@ -192,4 +192,3 @@ export const RESERVED_NAMES = [
 ] as const;
 
 // ─── Misc ──────────────────────────────────────────────────────────
-export const DEMO_FILE_NAME = 'demo_track.mp3';

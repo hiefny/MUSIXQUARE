@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, DEMO_FILE_NAME, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
+import { MSG, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
@@ -34,7 +34,7 @@ import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
-import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
+import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
@@ -945,7 +945,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn, data)) {
+  if (!verifyOperator(conn, data) && !getState('demo.active')) {
     log.warn(`[Playlist] Rejected request-setting from non-OP: ${conn?.peer}`);
     return;
   }
@@ -1039,78 +1039,6 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
 }
 
 // ─── Load Demo Media ──────────────────────────────────────────────
-
-async function loadDemoMedia(): Promise<void> {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) {
-    showToast(t('toast.host_only'));
-    return;
-  }
-
-  try {
-    showLoader(true, t('transfer.demo_loading_short'));
-    updateLoader(0);
-
-    const blob: Blob = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', DEMO_FILE_NAME, true);
-      xhr.responseType = 'blob';
-
-      xhr.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          updateLoader(percent);
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(xhr.response as Blob);
-        } else {
-          reject(new Error(`HTTP Error ${xhr.status}`));
-        }
-      };
-
-      xhr.onerror = () => reject(new Error('Network Error'));
-      xhr.timeout = 15000;
-      xhr.ontimeout = () => reject(new Error('Request Timeout'));
-      xhr.send();
-    });
-
-    const file = new File([blob], DEMO_FILE_NAME, { type: 'audio/mpeg' });
-
-    const newTrack: PlaylistItem = {
-      type: 'file',
-      file,
-      name: file.name,
-      title: file.name.replace(/\.[^/.]+$/, ''),
-      videoId: null,
-      playlistId: null,
-    };
-
-    const playlist = [...(getState('playlist.items') || [])];
-    playlist.push(newTrack);
-    setState('playlist.items', playlist);
-
-    const metaList = playlist.map((item) => ({
-      type: item.type,
-      name: item.name,
-      title: item.title || item.name,
-      videoId: item.videoId || null,
-      playlistId: item.playlistId || null,
-    }));
-    broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
-
-    showToast(t('transfer.demo_loaded'));
-    showLoader(false);
-
-    playTrack(playlist.length - 1);
-  } catch (e: unknown) {
-    log.error('Demo load failed:', e);
-    showToast(`${t('transfer.demo_load_fail')} ${(e as Error).message}`);
-    showLoader(false);
-  }
-}
 
 // ─── Handle Files Selected ────────────────────────────────────────
 
@@ -1224,6 +1152,7 @@ export function initPlaylist(): void {
   bus.on('player:ended', () => {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host handles
+    if (getState('demo.active')) return;
 
     // Lifecycle: host-local TRACK_ENDED. Drives host's
     // parallel-observed lifecycle to IDLE. Guests learn via the subsequent
@@ -1269,7 +1198,7 @@ export function initPlaylist(): void {
 
   // Demo media loading
   bus.on('app:load-demo', () => {
-    loadDemoMedia();
+    bus.emit('demo:enter');
   });
 
   // File selection

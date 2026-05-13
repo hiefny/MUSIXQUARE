@@ -523,6 +523,12 @@ export interface StateTree {
     subFreq: number;
     userPreampGain: number;
   };
+  demo: {
+    active: boolean;
+    loading: boolean;
+    reverbOn: boolean;
+    bassBoostOn: boolean;
+  };
   sync: { localOffset: number; lastLatencyMs: number; latencyHistory: number[] };
   network: {
     myId: string | null;
@@ -712,6 +718,15 @@ interface BaseEventMap {
   'audio:reverb-type-change': [type: string];
   'audio:reset-eq': [];
   'audio:surround-toggled': [];
+  'demo:enter': [];
+  'demo:exit': [];
+  'demo:request-exit': [];
+  'demo:open-info': [];
+  'demo:toggle-play': [];
+  'demo:seek': [seconds: number];
+  'demo:set-role': [mode: number];
+  'demo:toggle-reverb': [];
+  'demo:toggle-bass': [];
 
   // ── Beat Detection ──────────────────────────────────────────────
   'beat:pulse': [bpm: number, beatIndex: number];

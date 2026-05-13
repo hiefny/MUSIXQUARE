@@ -7,7 +7,11 @@
  * - Session full when max guests reached
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest, setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { waitForDeviceCount, isVisible } from './helpers/wait.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
@@ -37,19 +41,20 @@ test.describe('Device Management', () => {
 
     // Check that device rows exist
     const deviceRows = await pair.hostPage.evaluate(() => {
-      const list = document.getElementById('connect-device-list') ||
-                   document.getElementById('desktop-device-list');
+      const list =
+        document.getElementById('connect-device-list') ||
+        document.getElementById('desktop-device-list');
       if (!list) return [];
-      return Array.from(list.querySelectorAll('.device-row')).map(row => ({
+      return Array.from(list.querySelectorAll('.device-row')).map((row) => ({
         name: row.querySelector('.d-name')?.textContent?.trim() || '',
         hasKickBtn: !!row.querySelector('.btn-kick-device'),
       }));
     });
 
     expect(deviceRows.length).toBeGreaterThanOrEqual(2);
-    const hostRow = deviceRows.find(r => r.name.includes('HOST'));
+    const hostRow = deviceRows.find((r) => r.name.includes('HOST'));
     expect(hostRow).toBeTruthy();
-    const guestRow = deviceRows.find(r => !r.name.includes('HOST'));
+    const guestRow = deviceRows.find((r) => !r.name.includes('HOST'));
     if (guestRow) {
       expect(guestRow.hasKickBtn).toBe(true);
     }
@@ -117,9 +122,6 @@ test.describe('Device Management', () => {
       await guest2Page.waitForLoadState('networkidle');
       await guest2Page.waitForSelector('#btn-setup-guest', { state: 'visible', timeout: 15_000 });
       await guest2Page.click('#btn-setup-guest');
-      await guest2Page.waitForSelector('#setup-role-area', { state: 'visible', timeout: 10_000 });
-      await guest2Page.click('#setup-role-grid .ch-opt[data-join-ch="0"]');
-      await guest2Page.click('#btn-setup-next');
       await guest2Page.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });
       await guest2Page.fill('#setup-join-code', code);
       await guest2Page.click('#btn-setup-confirm');
@@ -128,7 +130,9 @@ test.describe('Device Management', () => {
       await guest2Page.waitForFunction(
         () => {
           const overlay = document.getElementById('setup-overlay');
-          const dialog = document.querySelector('.dialog-overlay.active, .dialog-backdrop.active, .dialog-container');
+          const dialog = document.querySelector(
+            '.dialog-overlay.active, .dialog-backdrop.active, .dialog-container',
+          );
           return overlay?.classList.contains('active') || !!dialog;
         },
         { timeout: 20_000 },
@@ -137,8 +141,11 @@ test.describe('Device Management', () => {
       const overlayActive = await guest2Page.evaluate(() =>
         document.getElementById('setup-overlay')?.classList.contains('active'),
       );
-      const dialogVisible = await guest2Page.evaluate(() =>
-        !!document.querySelector('.dialog-overlay.active, .dialog-backdrop.active, .dialog-container'),
+      const dialogVisible = await guest2Page.evaluate(
+        () =>
+          !!document.querySelector(
+            '.dialog-overlay.active, .dialog-backdrop.active, .dialog-container',
+          ),
       );
 
       expect(overlayActive || dialogVisible).toBe(true);

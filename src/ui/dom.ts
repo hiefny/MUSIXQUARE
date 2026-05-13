@@ -119,6 +119,7 @@ interface OverlayDef {
 
 const OVERLAYS: readonly OverlayDef[] = [
   { id: 'setup-overlay', cls: 'active', fullscreen: true },
+  { id: 'demo-overlay', cls: 'active', fullscreen: true },
   { id: 'media-source-overlay', cls: 'active', fullscreen: true },
   { id: 'youtube-url-overlay', cls: 'active', fullscreen: true },
   { id: 'dialog-overlay', cls: 'show', fullscreen: false },

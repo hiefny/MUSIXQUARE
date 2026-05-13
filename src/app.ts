@@ -89,6 +89,7 @@ import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
 import { initSettings } from './ui/settings.ts';
 import { initConnect } from './ui/connect.ts';
 import { initSetup } from './ui/setup.ts';
+import { initDemoMode } from './demo/mode.ts';
 
 // ── Service Worker ──
 import { registerServiceWorker } from './sw-register.ts';
@@ -489,6 +490,7 @@ function bootstrap(): void {
   safeInit('Connect', initConnect);
   safeInit('CustomScrollbars', initAllCustomScrollbars);
   safeInit('Setup', initSetup);
+  safeInit('DemoMode', initDemoMode);
 
   // 9. Service Worker
   safeInit('ServiceWorker', registerServiceWorker);

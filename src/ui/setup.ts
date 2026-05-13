@@ -40,6 +40,7 @@ import {
   hideSetupOverlay,
   setupShowCodeArea,
   setupShowJoinArea,
+  setupShowAutoJoinArea,
   setupShowRoleArea,
   setupShowWelcome,
   setupSetGuestJoinBusy,
@@ -170,6 +171,7 @@ function initSetupOverlay(): void {
   animateTransition(() => {
     setupShowCodeArea(false);
     setupShowJoinArea(false);
+    setupShowAutoJoinArea(false);
     setupShowRoleArea(false);
     setupShowWelcome(true);
   });
@@ -295,8 +297,9 @@ export function initSetup(): void {
       'svg-spk-center': 0,
       'svg-spk-woofer': 2,
     };
-    const mode = SVG_ID_TO_MODE[item.id];
-    if (mode !== undefined) handleSetupRolePreview(mode);
+    const roleMode = item.dataset.roleMode;
+    const mode = roleMode !== undefined ? Number(roleMode) : SVG_ID_TO_MODE[item.id];
+    if (Number.isFinite(mode)) handleSetupRolePreview(mode);
   }
 
   const roleArea = document.getElementById('setup-role-area');
@@ -632,9 +635,11 @@ export {
   hideSetupOverlay,
   setupShowCodeArea,
   setupShowJoinArea,
+  setupShowAutoJoinArea,
   setupShowRoleArea,
   setupShowWelcome,
   setupSetCode,
+  setupSetAutoJoinCode,
   setupSetGuestJoinBusy,
   setupHighlightJoinRole,
   setupRenderActions,

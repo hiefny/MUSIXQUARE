@@ -125,6 +125,13 @@ function createInitialState(): StateTree {
       userPreampGain: 1.0,
     },
 
+    demo: {
+      active: false,
+      loading: false,
+      reverbOn: false,
+      bassBoostOn: false,
+    },
+
     sync: {
       localOffset: 0,
       lastLatencyMs: 0,

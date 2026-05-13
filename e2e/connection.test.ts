@@ -8,8 +8,17 @@
  * - Disconnect and reconnect scenarios
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
-import { setupHost, setupHostAndStart, setupGuest, connectHostAndGuest } from './helpers/setup-flow.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
+import {
+  setupHost,
+  setupHostAndStart,
+  setupGuest,
+  connectHostAndGuest,
+} from './helpers/setup-flow.ts';
 import { waitForDeviceCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
@@ -63,8 +72,9 @@ test.describe('Host-Guest Connection', () => {
     await waitForDeviceCount(pair.hostPage, 2);
 
     const deviceCount = await pair.hostPage.evaluate(() => {
-      const list = document.getElementById('connect-device-list') ||
-                   document.getElementById('desktop-device-list');
+      const list =
+        document.getElementById('connect-device-list') ||
+        document.getElementById('desktop-device-list');
       return list?.querySelectorAll('.device-row').length ?? 0;
     });
     expect(deviceCount).toBeGreaterThanOrEqual(2);
@@ -78,9 +88,6 @@ test.describe('Host-Guest Connection', () => {
     await pair.guestPage.waitForLoadState('networkidle');
     await pair.guestPage.waitForSelector('#btn-setup-guest', { state: 'visible', timeout: 15_000 });
     await pair.guestPage.click('#btn-setup-guest');
-    await pair.guestPage.waitForSelector('#setup-role-area', { state: 'visible', timeout: 10_000 });
-    await pair.guestPage.click('#setup-role-grid .ch-opt[data-join-ch="0"]');
-    await pair.guestPage.click('#btn-setup-next');
     await pair.guestPage.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });
     await pair.guestPage.fill('#setup-join-code', '999999');
     await pair.guestPage.click('#btn-setup-confirm');
@@ -103,9 +110,11 @@ test.describe('Host-Guest Connection', () => {
     // Both overlays should be closed
     const [hostOverlay, guestOverlay] = await Promise.all([
       pair.hostPage.evaluate(() =>
-        document.getElementById('setup-overlay')?.classList.contains('active')),
+        document.getElementById('setup-overlay')?.classList.contains('active'),
+      ),
       pair.guestPage.evaluate(() =>
-        document.getElementById('setup-overlay')?.classList.contains('active')),
+        document.getElementById('setup-overlay')?.classList.contains('active'),
+      ),
     ]);
     expect(hostOverlay).toBe(false);
     expect(guestOverlay).toBe(false);

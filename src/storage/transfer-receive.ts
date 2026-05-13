@@ -13,7 +13,6 @@ import {
   CHUNK_SIZE,
   TRANSFER_STATE,
   WATCHDOG_TIMEOUT,
-  DEMO_FILE_NAME,
   PLAYBACK_STATE,
   LOAD_SOURCE,
 } from '../core/constants.ts';
@@ -46,13 +45,14 @@ import {
   getPendingPlayTimeSetAt,
   setPendingRecoveryTarget,
 } from '../player/_state.ts';
+import { createDemoTrackMeta, getDemoTrackForPlayback, isDemoTrackName } from '../demo/tracks.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
 const fileReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let nextExpectedChunk = 0;
 let lastChunkTime = 0;
-let _demoFetchPromise: Promise<void> | null = null;
+let _demoFetchPromise: { key: string; promise: Promise<void> } | null = null;
 const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 
 type PendingPlaySnapshot = {
@@ -256,6 +256,7 @@ export async function fetchDemoFromServer(
   index: number,
   guardedPlayAt?: number,
   guardedPlaySetAt?: number,
+  demoName?: unknown,
 ): Promise<void> {
   // If connection type is unknown, wait before deciding to fetch from server.
   // This prevents local guests from hitting the HTTP demo path during bootstrap.
@@ -267,14 +268,18 @@ export async function fetchDemoFromServer(
     }
   }
 
-  if (_demoFetchPromise) return _demoFetchPromise;
+  const demoTrack = getDemoTrackForPlayback(index, demoName);
+  if (_demoFetchPromise?.key === demoTrack.id) return _demoFetchPromise.promise;
 
-  _demoFetchPromise = _doFetchDemoFromServer(index, guardedPlayAt, guardedPlaySetAt);
+  _demoFetchPromise = {
+    key: demoTrack.id,
+    promise: _doFetchDemoFromServer(index, guardedPlayAt, guardedPlaySetAt, demoName),
+  };
 
   try {
-    await _demoFetchPromise;
+    await _demoFetchPromise.promise;
   } finally {
-    _demoFetchPromise = null;
+    if (_demoFetchPromise?.key === demoTrack.id) _demoFetchPromise = null;
   }
 }
 
@@ -282,15 +287,17 @@ async function _doFetchDemoFromServer(
   index: number,
   guardedPlayAt?: number,
   guardedPlaySetAt?: number,
+  demoName?: unknown,
 ): Promise<void> {
   const guardedPlaySetAtValue = guardedPlaySetAt ?? getPendingPlayTimeSetAt();
+  const demoTrack = getDemoTrackForPlayback(index, demoName);
   showLoader(true, t('transfer.demo_loading'));
   updateLoader(0);
 
   try {
     const blob: Blob = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', DEMO_FILE_NAME, true);
+      xhr.open('GET', demoTrack.url, true);
       xhr.responseType = 'blob';
       xhr.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -311,16 +318,15 @@ async function _doFetchDemoFromServer(
       xhr.send();
     });
 
-    const file = new File([blob], DEMO_FILE_NAME, { type: 'audio/mpeg' });
+    const file = new File([blob], demoTrack.fileName, { type: demoTrack.mime });
 
     // Use the preload path for seamless playback
     setState('preload.nextFileBlob', file);
     setState('preload.meta', {
-      name: DEMO_FILE_NAME,
-      title: DEMO_FILE_NAME.replace(/\.[^/.]+$/, ''),
+      ...createDemoTrackMeta(demoTrack),
       index,
       size: file.size,
-      mime: 'audio/mpeg',
+      mime: demoTrack.mime,
     });
     showLoader(false);
 
@@ -332,7 +338,7 @@ async function _doFetchDemoFromServer(
     // THE BUG FIX: advance state machine past AWAITING_PRELOAD lock
     transition({ type: 'PRELOAD_FILE_READY', index });
 
-    bus.emit('storage:use-preloaded', index, DEMO_FILE_NAME);
+    bus.emit('storage:use-preloaded', index, demoTrack.fileName);
   } catch (e) {
     log.error('[Transfer] Demo server fetch failed:', e);
     // The translated string ends with ":" — append the error to avoid a
@@ -342,7 +348,7 @@ async function _doFetchDemoFromServer(
     // Fallback: request from host. shouldSkipIncomingFile() will return false
     // once the host's FILE_PREPARE response transitions us out of
     // AWAITING_PRELOAD via the fresh-download path.
-    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: DEMO_FILE_NAME, index });
+    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: demoTrack.fileName, index });
   }
 }
 
@@ -429,7 +435,7 @@ export async function handleFilePrepare(
   // FILE_PREPARE. Accept that one and tear YouTube down before driving the
   // file lifecycle.
   if (isYouTubeOwner()) {
-    if (data.name !== DEMO_FILE_NAME) {
+    if (!isDemoTrackName(data.name)) {
       log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
       return;
     }
@@ -474,7 +480,7 @@ export async function handleFilePrepare(
     }
 
     if (confirmedRemote) {
-      if (data.name === DEMO_FILE_NAME) {
+      if (isDemoTrackName(data.name)) {
         // Demo files go through a preload-like path (HTTP fetch +
         // storage:use-preloaded) so we enter AWAITING_PRELOAD —
         // shouldSkipIncomingFile() returns true automatically.
@@ -497,7 +503,7 @@ export async function handleFilePrepare(
           setState('playlist.currentTrackIndex', safeDemoIndex);
         }
 
-        fetchDemoFromServer(safeDemoIndex, pendingTime, pendingSetAt);
+        fetchDemoFromServer(safeDemoIndex, pendingTime, pendingSetAt, data.name);
         return;
       }
       if (shouldWaitForRemoteShare()) {

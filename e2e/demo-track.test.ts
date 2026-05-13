@@ -10,16 +10,23 @@ const INFO_ICON_PATH =
 const EXIT_ICON_PATH =
   'M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z';
 
-async function mockDemoTrack(page: Page): Promise<void> {
-  await page.route(DEMO_URL_PATTERN, (route) =>
-    route.fulfill({
+async function mockDemoTrack(
+  page: Page,
+  options: { delaySecondTrackMs?: number } = {},
+): Promise<void> {
+  await page.route(DEMO_URL_PATTERN, async (route) => {
+    const url = route.request().url();
+    if (options.delaySecondTrackMs && url.includes('/02-lockstep-lunge.m4a')) {
+      await new Promise((resolve) => setTimeout(resolve, options.delaySecondTrackMs));
+    }
+    await route.fulfill({
       path: 'public/demo_track.mp3',
       contentType: 'audio/mpeg',
       headers: {
         'cache-control': 'public, max-age=31536000, immutable',
       },
-    }),
-  );
+    });
+  });
 }
 
 test.describe('Linelight demo mode', () => {
@@ -413,7 +420,10 @@ test.describe('Linelight demo mode', () => {
           localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
         }),
       ]);
-      await Promise.all([mockDemoTrack(pair.hostPage), mockDemoTrack(pair.guestPage)]);
+      await Promise.all([
+        mockDemoTrack(pair.hostPage),
+        mockDemoTrack(pair.guestPage, { delaySecondTrackMs: 2500 }),
+      ]);
       await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
       await pair.hostPage.evaluate(() => {
@@ -438,6 +448,32 @@ test.describe('Linelight demo mode', () => {
       await expect
         .poll(() => readState(pair.guestPage, 'playlist.currentTrackIndex'), { timeout: 15_000 })
         .toBe(0);
+      await expect
+        .poll(() => readState(pair.guestPage, 'playback.activity'), { timeout: 15_000 })
+        .toBe('playing');
+
+      await pair.guestPage.locator('[data-demo-play]').click();
+      await waitForToast(pair.guestPage, 'Only the host can press this.');
+      await expect
+        .poll(() => readState(pair.guestPage, 'playback.activity'), { timeout: 10_000 })
+        .toBe('playing');
+
+      await pair.hostPage.evaluate(() => {
+        const bus = (window as unknown as Record<string, { emit?: (...args: unknown[]) => void }>)
+          .__MUSIXQUARE_BUS__;
+        bus?.emit?.('player:ended');
+      });
+      await expect
+        .poll(() => readState(pair.guestPage, 'playlist.currentTrackIndex'), { timeout: 10_000 })
+        .toBe(1);
+      await expect
+        .poll(async () => (await readState(pair.guestPage, 'playback.activity')) === 'playing', {
+          timeout: 1500,
+        })
+        .toBe(false);
+      await expect
+        .poll(() => readState(pair.guestPage, 'playback.activity'), { timeout: 10_000 })
+        .toBe('playing');
 
       await pair.hostPage.locator('[data-demo-step="3"]').click();
       await pair.hostPage.locator('[data-demo-effect="reverb"]').click();

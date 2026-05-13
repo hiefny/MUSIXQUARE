@@ -456,7 +456,7 @@ const ko = {
   'toast.playlist_ended': '마지막 곡이 끝났어요',
   'toast.operator_required': '관리자만 오디오 설정을 변경할 수 있어요',
   'toast.connection_closing': '연결 끊김, 설정이 동기화되지 않았어요',
-  'toast.host_changed_setting': '관리자가 설정을 변경했어요',
+  'toast.host_changed_setting': '설정이 변경되었어요',
   'toast.session_mismatch': '세션 불일치 감지, 파일 전송을 다시 시도할게요.',
   'toast.receiving_pct': '수신 중... {{pct}}%',
 

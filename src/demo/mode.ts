@@ -796,6 +796,13 @@ function applyPendingDemoPlay(): void {
   syncPlayButton();
 }
 
+function stopDemoPlaybackForIncomingTrack(index: number): void {
+  if (!getState('demo.active') || _demoTrackIndex === index) return;
+  pause(0, { holdVisualizer: false, showToast: false });
+  bus.emit('ui:seek-reset');
+  syncPlayButton();
+}
+
 function startDemoPlayback(time = 0): void {
   broadcastDemoPlay(_demoTrackIndex, time);
   void play(time);
@@ -956,6 +963,10 @@ function toggleDemoSurround(): void {
 
 function toggleDemoPlay(): void {
   if (!getState('demo.active')) return;
+  if (getState('network.hostConn')) {
+    showToast(t('demo.host_only_exit'));
+    return;
+  }
   if (isDemoPlaying()) {
     pause(undefined, { showToast: false });
     broadcastDemoPause(getState('player.pausedAt') || 0);
@@ -967,7 +978,7 @@ function toggleDemoPlay(): void {
 }
 
 function playNextDemoTrack(): void {
-  if (!getState('demo.active') || getState('demo.loading')) return;
+  if (!isDemoHost() || !getState('demo.active') || getState('demo.loading')) return;
   const nextIndex = getNextDemoTrackIndex(_demoTrackIndex);
   setState('demo.loading', true);
   broadcastDemoEnter(nextIndex);
@@ -988,6 +999,7 @@ function playNextDemoTrack(): void {
 function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isTrustedDemoHostMessage(conn)) return;
   const index = normalizeDemoTrackIndex(data.index);
+  stopDemoPlaybackForIncomingTrack(index);
   void enterDemoMode({ index, autoplay: false, broadcastEntry: false }).then(() => {
     if (!getState('demo.active')) return;
     setState('demo.reverbOn', !!data.reverbOn);
@@ -1001,6 +1013,7 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
 function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isTrustedDemoHostMessage(conn)) return;
   const index = normalizeDemoTrackIndex(data.index);
+  stopDemoPlaybackForIncomingTrack(index);
   _pendingDemoPlay = {
     index,
     time: Math.max(0, Number(data.time) || 0),

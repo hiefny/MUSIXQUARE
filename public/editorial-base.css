@@ -830,6 +830,12 @@ code {
 }
 
 @media (max-width: 719px) {
+  .lp-header {
+    background: var(--surface-1);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   .editorial-site-tabs {
     left: 0;
     right: 0;
@@ -912,18 +918,18 @@ code {
 
 @media (max-width: 719px) and (display-mode: standalone) {
   .editorial-site-tabs {
-    background: var(--glass-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: var(--surface-1);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 
 @media (max-width: 719px) {
   html.standalone .editorial-site-tabs,
   html.ios-standalone .editorial-site-tabs {
-    background: var(--glass-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: var(--surface-1);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 

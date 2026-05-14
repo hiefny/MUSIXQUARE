@@ -6,7 +6,7 @@
     --bg: #121212;
     --surface-1: #1a1a1a;
     /* Header, Nav, Cards */
-    --surface-2: #262626;
+    --surface-2: #1a1a1a;
     /* Inputs, Buttons */
     --surface-3: #404040;
     /* Hover, Active */
@@ -58,7 +58,7 @@
     /* Soft dynamic background */
     --surface-1: #ffffff;
     /* Pure white for depth */
-    --surface-2: #f1f3f5;
+    --surface-2: #ffffff;
     /* Header/Nav/Cards */
     --surface-3: #b7b9bb;
     /* Interactions */

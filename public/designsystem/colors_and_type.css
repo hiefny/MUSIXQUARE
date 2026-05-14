@@ -17,7 +17,7 @@
   /* ── Palette (Dark default) ───────────────────── */
   --bg:         #121212;
   --surface-1:  #1A1A1A;   /* headers, nav, cards */
-  --surface-2:  #262626;   /* inputs, buttons */
+  --surface-2:  #1A1A1A;   /* inputs, buttons */
   --surface-3:  #404040;   /* hover, active */
   --divider:    var(--surface-2);
 
@@ -104,7 +104,7 @@ html[data-theme="light"] {
   color-scheme: light;
   --bg:         #f8f9fa;
   --surface-1:  #ffffff;
-  --surface-2:  #f1f3f5;
+  --surface-2:  #ffffff;
   --surface-3:  #B7B9BB;
   --divider:    var(--surface-3);
   --text-main:  #212529;

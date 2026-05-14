@@ -1309,7 +1309,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
         position:absolute;top:0;left:0;width:100%;height:100%;
         background:rgba(0,0,0,0.6);display:flex;align-items:center;
         justify-content:center;z-index:100;cursor:pointer;
-        backdrop-filter:blur(4px);animation:fadeIn 0.3s ease-out;
+        animation:fadeIn 0.3s ease-out;
       `;
       overlay.onclick = () => {
         const player = getYouTubePlayer();

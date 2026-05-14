@@ -76,6 +76,36 @@ describe('showToast', () => {
     expect(msg.innerText).toBe('42');
   });
 
+  it('truncates long colon values and preserves file extensions', () => {
+    showToast('File read error: This is a very very very long song filename.m4a');
+    const msg = document.getElementById('toast-msg')!;
+
+    expect(msg.innerText.length).toBeLessThanOrEqual(50);
+    expect(msg.innerText).toMatch(/^File read error: /);
+    expect(msg.innerText).toContain('…');
+    expect(msg.innerText.endsWith('.m4a')).toBe(true);
+  });
+
+  it('truncates long quoted values per line', () => {
+    showToast('Decoding "This is a very very very long song filename.mp3" took too long.');
+    const msg = document.getElementById('toast-msg')!;
+
+    expect(msg.innerText.length).toBeLessThanOrEqual(50);
+    expect(msg.innerText).toContain('…');
+    expect(msg.innerText).toContain('.mp3');
+    expect(msg.innerText).toContain('took too long.');
+    expect(msg.title).toContain('This is a very very very long song filename.mp3');
+  });
+
+  it('keeps manual toast line breaks while enforcing line length', () => {
+    showToast('Remote file share failed:\nFailed because this backend error message is very long');
+    const msg = document.getElementById('toast-msg')!;
+
+    const lines = msg.innerText.split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines.every((line) => line.length <= 50)).toBe(true);
+  });
+
   it('falls back to console.info when DOM elements missing', () => {
     document.body.innerHTML = ''; // Remove toast elements
     const spy = vi.spyOn(console, 'info').mockImplementation(() => {});

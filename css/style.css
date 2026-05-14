@@ -2766,7 +2766,10 @@
     border-radius: 100px;
     font-size: 14px;
     font-weight: 600;
-    white-space: nowrap;
+    line-height: 1.45;
+    max-width: min(calc(100vw - 48px), 560px);
+    text-align: center;
+    white-space: pre-line;
   }
 
   .toast.show {

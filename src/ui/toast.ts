@@ -8,6 +8,10 @@ import { log } from '../core/log.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { suppressViewTransitions } from './dom.ts';
 
+const TOAST_MAX_LINE_CHARS = 50;
+const TOAST_DYNAMIC_VALUE_CHARS = 28;
+const ELLIPSIS = '…';
+
 // ─── Loader (Header Progress Bar) ────────────────────────────────
 
 export function updateLoader(percent: number): void {
@@ -65,18 +69,82 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
 
 // ─── Toast ───────────────────────────────────────────────────────
 
+function charCount(value: string): number {
+  return Array.from(value).length;
+}
+
+function sliceChars(value: string, start: number, end?: number): string {
+  return Array.from(value).slice(start, end).join('');
+}
+
+function truncateValue(value: string, maxChars: number): string {
+  if (charCount(value) <= maxChars) return value;
+
+  const extension = value.match(/(\.[a-z0-9]{1,8})$/i)?.[1] || '';
+  const suffixLength = charCount(extension);
+
+  if (extension && maxChars > suffixLength + 2) {
+    const headLength = maxChars - suffixLength - charCount(ELLIPSIS);
+    return `${sliceChars(value, 0, headLength)}${ELLIPSIS}${extension}`;
+  }
+
+  return `${sliceChars(value, 0, Math.max(1, maxChars - charCount(ELLIPSIS)))}${ELLIPSIS}`;
+}
+
+function truncateQuotedValues(line: string): string {
+  return line.replace(/"([^"]+)"/g, (match, value: string) => {
+    const overhead = charCount(line) - charCount(value);
+    const lineFitLimit = TOAST_MAX_LINE_CHARS - overhead;
+    const valueLimit = Math.min(TOAST_DYNAMIC_VALUE_CHARS, Math.max(8, lineFitLimit));
+    if (charCount(value) <= valueLimit) return match;
+    return `"${truncateValue(value, valueLimit)}"`;
+  });
+}
+
+function truncateColonValue(line: string): string {
+  if (charCount(line) <= TOAST_MAX_LINE_CHARS) return line;
+
+  const colonIndex = line.indexOf(': ');
+  if (colonIndex < 0) return line;
+
+  const prefix = line.slice(0, colonIndex + 2);
+  const value = line.slice(colonIndex + 2);
+  const remaining = TOAST_MAX_LINE_CHARS - charCount(prefix);
+  if (remaining < 8) return line;
+
+  return `${prefix}${truncateValue(value, remaining)}`;
+}
+
+function formatToastLine(line: string): string {
+  let formatted = truncateQuotedValues(line);
+  formatted = truncateColonValue(formatted);
+
+  if (charCount(formatted) <= TOAST_MAX_LINE_CHARS) return formatted;
+  return truncateValue(formatted, TOAST_MAX_LINE_CHARS);
+}
+
+function formatToastText(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(formatToastLine)
+    .join('\n');
+}
+
 export function showToast(msg: unknown): void {
   try {
     const t = document.getElementById('toast');
     const msgEl = document.getElementById('toast-msg');
     const text = msg === undefined || msg === null ? '' : String(msg);
+    const displayText = formatToastText(text);
 
     if (!t || !msgEl) {
-      console.info('[Toast]', text);
+      console.info('[Toast]', displayText);
       return;
     }
 
-    msgEl.innerText = text;
+    msgEl.innerText = displayText;
+    msgEl.title = displayText === text ? '' : text;
     // If `.show` is already on (back-to-back toasts), briefly remove it and
     // force a reflow so the entrance animation replays — otherwise the new
     // text swaps in mid-display without any visual cue.

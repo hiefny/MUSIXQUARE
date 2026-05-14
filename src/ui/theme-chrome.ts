@@ -18,15 +18,6 @@ const DEMO_PANEL_FALLBACK_COLORS: Record<ResolvedTheme, string> = {
   light: '#ffffff',
 };
 
-function isIosLike(): boolean {
-  const nav = navigator as Navigator & { standalone?: boolean };
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
-    nav.standalone === true
-  );
-}
-
 function normalizeTheme(theme?: string | null): ResolvedTheme {
   return theme === 'light' ? 'light' : 'dark';
 }
@@ -57,12 +48,6 @@ function setThemeColorMeta(color: string): void {
   });
 }
 
-function removeThemeColorMeta(): void {
-  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
-    meta.remove();
-  });
-}
-
 function setColorSchemeMeta(theme: ResolvedTheme): void {
   document.documentElement.style.colorScheme = theme;
   document.querySelectorAll<HTMLMetaElement>('meta[name="color-scheme"]').forEach((meta) => {
@@ -72,18 +57,12 @@ function setColorSchemeMeta(theme: ResolvedTheme): void {
 
 export function syncAppThemeChrome(theme: string | null = getCurrentTheme()): void {
   const resolved = normalizeTheme(theme);
-  document.documentElement.classList.remove('demo-chrome-split');
   setColorSchemeMeta(resolved);
   setThemeColorMeta(APP_THEME_COLORS[resolved]);
 }
 
 export function syncDemoThemeChrome(theme: string | null = getCurrentTheme()): void {
   const resolved = normalizeTheme(theme);
-  document.documentElement.classList.add('demo-chrome-split');
   setColorSchemeMeta(resolved);
-  if (isIosLike()) {
-    removeThemeColorMeta();
-    return;
-  }
   setThemeColorMeta(getCssToken('--surface-1', DEMO_PANEL_FALLBACK_COLORS[resolved]));
 }

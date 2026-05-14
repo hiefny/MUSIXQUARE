@@ -4929,17 +4929,6 @@
     transition: visibility 0s;
   }
 
-  @media (max-width: 719px) {
-    html.demo-chrome-split,
-    html.demo-chrome-split body {
-      background-color: var(--surface-1);
-    }
-
-    html.demo-chrome-split .demo-overlay {
-      background: var(--surface-1);
-    }
-  }
-
   .demo-curtain {
     position: fixed;
     inset: 0;

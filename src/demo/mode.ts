@@ -315,6 +315,7 @@ async function loadDemoTrack(index: number, options: { autoplay: boolean }): Pro
   const token = ++_demoLoadToken;
   _demoTrackIndex = index;
   setState('playlist.currentTrackIndex', index);
+  setCurrentAudioBuffer(null);
   setPlaybackTrackMeta(createDemoTrackMeta(track));
   syncDesktopDemoText();
 
@@ -839,6 +840,8 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   markDemoPromptSeen();
   markAppUsed();
   _snapshot = captureSnapshot();
+  stopAllMedia({ silent: true, cancelInFlight: true });
+  setCurrentAudioBuffer(null);
   _demoStep = 1;
   _demoTrackIndex = normalizeDemoTrackIndex(options.index ?? 0);
   _demoLoadToken++;

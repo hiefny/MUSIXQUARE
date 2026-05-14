@@ -32,11 +32,7 @@ import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
 import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
-import {
-  isPlaybackIdle,
-  isPlaybackPlayingFile,
-  isPlaybackPlayingYouTube,
-} from './player/ownership.ts';
+import { isPlaybackPlayingFile, isPlaybackPlayingYouTube } from './player/ownership.ts';
 
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
@@ -55,7 +51,6 @@ import { initRecovery } from './storage/recovery.ts';
 import { initRemoteShare } from './share/remote-share.ts';
 import {
   handleSyncWorkerFailure,
-  isSyncWorkerFallbackActive,
   setSyncWorker,
 } from './network/sync-worker.ts';
 
@@ -204,11 +199,6 @@ function initWakeLock(): void {
   log.info('[App] Wake Lock initialized (native API)');
 }
 
-// Background resume recovery
-function isPlaybackTimingRiskActive(): boolean {
-  return !isPlaybackIdle();
-}
-
 async function resumeAudioForBackgroundRecovery(): Promise<void> {
   if (!isAudioReady()) return;
 
@@ -223,7 +213,7 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
 }
 
 async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
-  log.warn(`[App] Long background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
+  log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
 
   if (_wakeLockActive) void acquireWakeLock();
   await resumeAudioForBackgroundRecovery();
@@ -247,14 +237,9 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
 }
 
 async function warnLongBackgroundResume(): Promise<void> {
-  const messageKey =
-    getState('network.hostConn') && isSyncWorkerFallbackActive('sync')
-      ? 'dialog.background_resume_sync_fallback_message'
-      : 'dialog.background_resume_message';
-
   const result = await showDialog({
     title: t('dialog.background_resume_title'),
-    message: t(messageKey),
+    message: t('dialog.background_resume_message'),
     buttonText: t('dialog.continue_using'),
     secondaryText: t('dialog.leave_session'),
     defaultFocus: 'primary',
@@ -503,7 +488,6 @@ function bootstrap(): void {
   safeInit('WakeLock', initWakeLock);
   safeInit('BackgroundResumeGuard', () =>
     initBackgroundResumeGuard({
-      isAtRisk: isPlaybackTimingRiskActive,
       recover: ({ hiddenMs }) => recoverLongBackgroundResume(hiddenMs),
       warn: () => warnLongBackgroundResume(),
       log,

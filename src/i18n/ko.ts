@@ -532,11 +532,11 @@ const ko = {
   'dialog.return_home_msg': '초기 화면으로 돌아갈까요?',
   'dialog.return_home_detail': '현재 세션과 연결이 끊어져요.',
   'dialog.leaving_session': '세션 나가는 중...',
-  'dialog.background_resume_title': '재생 타이밍을 확인해 주세요',
+  'dialog.background_resume_title': '앱이 잠시 백그라운드로 넘어갔어요',
   'dialog.background_resume_message':
-    '앱이 오래 백그라운드에 있어 재생 타이밍이 불안정할 수 있어요. 복구를 시도했지만, 정확한 싱크가 필요하면 브라우저/PWA를 완전히 종료한 뒤 다시 열어주세요.',
+    '만약 싱크가 맞지 않거나 소리가 나지 않는다면 브라우저 또는 앱을 완전히 재시작해주세요.',
   'dialog.background_resume_sync_fallback_message':
-    '백그라운드에서 동기화가 지연됐을 수 있어요. 싱크가 계속 어긋나면 방에 다시 입장해 주세요.',
+    '만약 싱크가 맞지 않거나 소리가 나지 않는다면 브라우저 또는 앱을 완전히 재시작해주세요.',
   'dialog.continue_using': '계속 사용',
   'dialog.leave_session': '세션 나가기',
   'dialog.sw_update_title': '업데이트',

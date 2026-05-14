@@ -24,14 +24,12 @@ async function flushPromises(): Promise<void> {
 describe('initBackgroundResumeGuard', () => {
   let now: number;
   let handle: BackgroundResumeGuardHandle | null;
-  let atRisk: boolean;
   let recover: ReturnType<typeof vi.fn>;
   let warn: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     now = 1_000;
     handle = null;
-    atRisk = true;
     recover = vi.fn();
     warn = vi.fn();
     setVisibility('visible');
@@ -44,7 +42,6 @@ describe('initBackgroundResumeGuard', () => {
 
   function init(longHiddenMs = DEFAULT_LONG_BACKGROUND_RESUME_MS): void {
     handle = initBackgroundResumeGuard({
-      isAtRisk: () => atRisk,
       recover,
       warn,
       getNow: () => now,
@@ -52,12 +49,13 @@ describe('initBackgroundResumeGuard', () => {
     });
   }
 
-  it('does nothing when hidden time is below the threshold', async () => {
-    init();
+  it('does nothing when hidden time is below a custom threshold', async () => {
+    const threshold = 10_000;
+    init(threshold);
 
     setVisibility('hidden');
     document.dispatchEvent(new Event('visibilitychange'));
-    now += DEFAULT_LONG_BACKGROUND_RESUME_MS - 1;
+    now += threshold - 1;
     setVisibility('visible');
     document.dispatchEvent(new Event('visibilitychange'));
     await flushPromises();
@@ -66,49 +64,32 @@ describe('initBackgroundResumeGuard', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('recovers and warns after a long hidden interval while at risk', async () => {
+  it('recovers and warns immediately after the page returns from the background', async () => {
     init();
 
     setVisibility('hidden');
     document.dispatchEvent(new Event('visibilitychange'));
-    now += DEFAULT_LONG_BACKGROUND_RESUME_MS;
     setVisibility('visible');
     document.dispatchEvent(new Event('visibilitychange'));
     await flushPromises();
 
-    expect(recover).toHaveBeenCalledWith({ hiddenMs: DEFAULT_LONG_BACKGROUND_RESUME_MS });
-    expect(warn).toHaveBeenCalledWith({ hiddenMs: DEFAULT_LONG_BACKGROUND_RESUME_MS });
+    expect(recover).toHaveBeenCalledWith({ hiddenMs: 0 });
+    expect(warn).toHaveBeenCalledWith({ hiddenMs: 0 });
   });
 
-  it('tracks hidden time even if risk appears while hidden', async () => {
-    atRisk = false;
+  it('recovers and warns after a hidden interval', async () => {
+    const hiddenMs = 2_500;
     init();
 
     setVisibility('hidden');
     document.dispatchEvent(new Event('visibilitychange'));
-    now += DEFAULT_LONG_BACKGROUND_RESUME_MS;
-    atRisk = true;
+    now += hiddenMs;
     setVisibility('visible');
     document.dispatchEvent(new Event('visibilitychange'));
     await flushPromises();
 
-    expect(recover).toHaveBeenCalledWith({ hiddenMs: DEFAULT_LONG_BACKGROUND_RESUME_MS });
-    expect(warn).toHaveBeenCalledWith({ hiddenMs: DEFAULT_LONG_BACKGROUND_RESUME_MS });
-  });
-
-  it('skips warning when risk disappears before resume', async () => {
-    init();
-
-    setVisibility('hidden');
-    document.dispatchEvent(new Event('visibilitychange'));
-    now += DEFAULT_LONG_BACKGROUND_RESUME_MS;
-    atRisk = false;
-    setVisibility('visible');
-    document.dispatchEvent(new Event('visibilitychange'));
-    await flushPromises();
-
-    expect(recover).not.toHaveBeenCalled();
-    expect(warn).not.toHaveBeenCalled();
+    expect(recover).toHaveBeenCalledWith({ hiddenMs });
+    expect(warn).toHaveBeenCalledWith({ hiddenMs });
   });
 
   it('detaches the visibility listener on dispose', async () => {
@@ -117,7 +98,7 @@ describe('initBackgroundResumeGuard', () => {
 
     setVisibility('hidden');
     document.dispatchEvent(new Event('visibilitychange'));
-    now += DEFAULT_LONG_BACKGROUND_RESUME_MS;
+    now += 2_500;
     setVisibility('visible');
     document.dispatchEvent(new Event('visibilitychange'));
     await flushPromises();

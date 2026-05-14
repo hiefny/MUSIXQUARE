@@ -481,9 +481,9 @@
   height: 64px;
   padding: 4px;
   border-radius: 100px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
+  background: var(--surface-1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
 }
@@ -519,13 +519,13 @@
 .toast {
   padding: 12px 22px;
   border-radius: 100px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #000;
+  background: var(--surface-1);
+  color: var(--text-main);
   display: inline-block;
   font-size: 13px;
   font-weight: 600;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .dialog {

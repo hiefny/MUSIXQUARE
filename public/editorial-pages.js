@@ -6,6 +6,23 @@
   var EDITORIAL_LOAD_DELAY_MS = 300;
   var updateHeaderProgress = null;
   var pendingEditorialNavigation = false;
+  var EDITORIAL_CHROME_COLOR = '#1a1a1a';
+
+  function syncEditorialThemeChrome() {
+    document.documentElement.style.colorScheme = 'dark';
+
+    var metas = document.querySelectorAll('meta[name="theme-color"]');
+    if (!metas.length) {
+      var meta = document.createElement('meta');
+      meta.name = 'theme-color';
+      document.head.appendChild(meta);
+      metas = document.querySelectorAll('meta[name="theme-color"]');
+    }
+
+    metas.forEach(function (meta) {
+      meta.setAttribute('content', EDITORIAL_CHROME_COLOR);
+    });
+  }
 
   function initStandaloneMode() {
     var root = document.documentElement;
@@ -193,6 +210,7 @@
   }
 
   function boot() {
+    syncEditorialThemeChrome();
     initStandaloneMode();
     initHairlineScale();
     initReveal();

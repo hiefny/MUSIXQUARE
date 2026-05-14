@@ -40,9 +40,9 @@
   --radius-pill: 100px;
 
   /* ── Glass / blur ─────────────────────────────── */
-  --glass-bg: rgba(38, 38, 38, 0.75);
+  --glass-bg: var(--surface-1);
   --glass-border: transparent;
-  --glass-blur: 16px;
+  --glass-blur: 0px;
 
   /* ── Scrollbar ────────────────────────────────── */
   --scrollbar-thumb: rgba(255,255,255,0.2);
@@ -110,7 +110,7 @@ html[data-theme="light"] {
   --text-main:  #212529;
   --text-sub:   #495057;
   --text-muted: #868e96;
-  --glass-bg:   rgba(255,255,255,0.85);
+  --glass-bg:   var(--surface-1);
   --glass-border: rgba(0,0,0,0.06);
   --scrollbar-thumb: rgba(0,0,0,0.2);
   --scrollbar-thumb-hover: rgba(0,0,0,0.4);

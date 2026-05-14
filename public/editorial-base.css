@@ -14,7 +14,7 @@
   --radius-s: 14px;
   --radius-m: 20px;
   --radius-l: 32px;
-  --glass-bg: rgba(38, 38, 38, 0.75);
+  --glass-bg: var(--surface-1);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-fast: 0.2s;
   --dur-base: 0.3s;
@@ -76,9 +76,9 @@ svg {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--surface-1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   z-index: 100;
   overflow: hidden;
 }
@@ -223,10 +223,10 @@ svg {
   overflow-x: auto;
   border: 0;
   border-radius: 100px;
-  background: rgba(26, 26, 26, 0.78);
+  background: var(--surface-1);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   scrollbar-width: none;
 }
 
@@ -836,7 +836,7 @@ code {
     bottom: 0;
     width: 100%;
     max-width: none;
-    background: #212121;
+    background: var(--surface-1);
     transform: translateZ(0);
   }
 
@@ -912,18 +912,18 @@ code {
 
 @media (max-width: 719px) and (display-mode: standalone) {
   .editorial-site-tabs {
-    background: var(--glass-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: var(--surface-1);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 
 @media (max-width: 719px) {
   html.standalone .editorial-site-tabs,
   html.ios-standalone .editorial-site-tabs {
-    background: var(--glass-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: var(--surface-1);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 

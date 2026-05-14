@@ -282,10 +282,10 @@ main {
 }
 
 .lp-toast>span {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: #000;
+  background: var(--surface-1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: var(--text-main);
   padding: 14px 28px;
   border-radius: 100px;
   font-size: 14px;

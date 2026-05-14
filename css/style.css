@@ -6,11 +6,11 @@
     --bg: #121212;
     --surface-1: #1a1a1a;
     /* Header, Nav, Cards */
-    --surface-2: #1a1a1a;
+    --surface-2: #262626;
     /* Inputs, Buttons */
     --surface-3: #404040;
     /* Hover, Active */
-    --divider: var(--surface-3);
+    --divider: var(--surface-2);
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
     --accent: var(--primary);

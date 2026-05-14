@@ -17,9 +17,9 @@
   /* ── Palette (Dark default) ───────────────────── */
   --bg:         #121212;
   --surface-1:  #1A1A1A;   /* headers, nav, cards */
-  --surface-2:  #1A1A1A;   /* inputs, buttons */
+  --surface-2:  #262626;   /* inputs, buttons */
   --surface-3:  #404040;   /* hover, active */
-  --divider:    var(--surface-3);
+  --divider:    var(--surface-2);
 
   --primary:    #3b82f6;   /* signature blue */
   --primary-rgb: 59, 130, 246;

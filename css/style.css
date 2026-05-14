@@ -5235,6 +5235,7 @@
   }
 
   .demo-role-segmented {
+    container: demo-role-options / inline-size;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
@@ -5257,6 +5258,7 @@
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
+    white-space: nowrap;
     transition:
       color 0.2s,
       background 0.2s;
@@ -5276,6 +5278,17 @@
     height: 19px;
     flex: none;
     fill: currentColor;
+  }
+
+  @container demo-role-options (max-width: 340px) {
+    .demo-role-segmented button {
+      gap: 0;
+      padding-inline: 4px;
+    }
+
+    .demo-role-segmented svg {
+      display: none;
+    }
   }
 
   .demo-large-actions {
@@ -5742,6 +5755,10 @@
       gap: 4px;
       padding: 0 5px;
       font-size: 12px;
+    }
+
+    .demo-role-segmented svg {
+      display: none;
     }
 
     .demo-large-actions .rename-device-btn,

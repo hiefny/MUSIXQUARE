@@ -357,7 +357,7 @@
     .settings-subtab-nav {
         display: flex !important;
         gap: 4px;
-        padding: 16px 20px;
+        padding: 16px 20px 0;
         border-bottom: 1px solid var(--divider);
         /* Deliberate prominent inset — the pill bar is a visual anchor, so
            it sits 20px in from the panel's 4px padding edge (total 24px from
@@ -367,19 +367,15 @@
 
     .subtab-pill {
         flex: 1;
-        min-height: 38px;
-        padding: 0 14px;
-        border-radius: 999px;
+        padding: 10px 0;
         font-size: 13px;
         font-weight: 600;
         color: var(--text-sub);
-        background: transparent;
+        background: none;
         border: none;
+        border-bottom: 2px solid transparent;
         cursor: pointer;
-        transition:
-            background 0.2s,
-            color 0.2s,
-            transform 0.15s;
+        transition: color 0.2s, border-color 0.2s;
         text-align: center;
     }
 
@@ -389,11 +385,7 @@
 
     .subtab-pill.active {
         color: var(--primary);
-        background: rgba(var(--primary-rgb), 0.1);
-    }
-
-    .subtab-pill:active {
-        transform: scale(0.98);
+        border-bottom-color: var(--primary);
     }
 
     /* Sub-panels: only active visible */

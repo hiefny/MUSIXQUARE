@@ -2113,7 +2113,7 @@
     color: white;
     border: none;
     padding: 0 24px;
-    border-radius: 999px;
+    border-radius: var(--radius-m);
     font-weight: 700;
     cursor: pointer;
   }
@@ -4889,8 +4889,8 @@
     flex: 1;
     height: 52px;
     border: none;
-    border-radius: 999px;
-    font-size: 15px;
+    border-radius: var(--radius-m);
+    font-size: 14px;
     font-weight: 700;
     cursor: pointer;
     transition:
@@ -4899,9 +4899,8 @@
   }
 
   .sync-reset-btn {
-    border: 1px solid var(--glass-border);
     background: var(--surface-2);
-    color: var(--text-main);
+    color: var(--text-sub);
   }
 
   .sync-reset-btn:active {
@@ -4912,8 +4911,6 @@
   .sync-done-btn {
     background: var(--primary);
     color: white;
-    font-size: 16px;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
   }
 
   .sync-done-btn:active {
@@ -6794,16 +6791,6 @@
 }
 
 /* end @layer base */
-
-/* Global button shape policy: app actions are pills by default.
-   Settings' large icon tiles keep their chunky card-like shape. */
-button {
-  border-radius: 999px !important;
-}
-
-#tab-settings .ch-opt {
-  border-radius: var(--radius-m) !important;
-}
 
 /* ─── FOUC guard ──────────────────────────────────────────────
    Replaces the inline <style id="fouc-guard"> that used to live in

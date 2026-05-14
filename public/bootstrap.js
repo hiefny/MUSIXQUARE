@@ -49,11 +49,13 @@
 
     // Match status-bar / address-bar color on first paint
     var themeColor = resolved === 'dark' ? '#212121' : '#ffffff';
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', themeColor);
+    document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) {
+      meta.setAttribute('content', themeColor);
+    });
 
-    var cs = document.querySelector('meta[name="color-scheme"]');
-    if (cs) cs.setAttribute('content', resolved);
+    document.querySelectorAll('meta[name="color-scheme"]').forEach(function (meta) {
+      meta.setAttribute('content', resolved);
+    });
   } catch (e) {
     /* localStorage / matchMedia denied — fall back to whatever default the HTML/CSS picks */
   }

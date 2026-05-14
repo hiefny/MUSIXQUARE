@@ -25,6 +25,7 @@ import { hideSetupOverlay } from '../ui/setup-shared.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { updateOverlayOpenClass } from '../ui/dom.ts';
+import { syncAppThemeChrome, syncDemoThemeChrome } from '../ui/theme-chrome.ts';
 import type { TrackMeta } from '../types/index.ts';
 import {
   DEMO_TRACKS,
@@ -432,6 +433,7 @@ function transitionThroughDemoCurtain(onCovered: () => void, onRevealed?: () => 
 
 function applyDemoDomActive(overlay: HTMLElement | null): void {
   document.body.classList.add('mode-demo', 'demo-mobile');
+  syncDemoThemeChrome();
   if (overlay) {
     overlay.classList.remove('entering', 'exiting');
     overlay.classList.add('active');
@@ -445,6 +447,7 @@ function applyDemoDomActive(overlay: HTMLElement | null): void {
 function applyDemoDomInactive(overlay: HTMLElement | null): void {
   setDemoChromeHiding(false);
   document.body.classList.remove('mode-demo', 'demo-mobile');
+  syncAppThemeChrome();
   overlay?.classList.remove('active', 'entering', 'exiting');
   restoreVisualizer();
   updateOverlayOpenClass();

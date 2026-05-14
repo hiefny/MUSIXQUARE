@@ -90,13 +90,13 @@ describe('setTheme', () => {
   it('updates meta theme-color for dark mode', () => {
     setTheme('dark');
     const meta = document.querySelector('meta[name="theme-color"]')!;
-    expect(meta.getAttribute('content')).toBe('#000000');
+    expect(meta.getAttribute('content')).toBe('#212121');
   });
 
   it('updates meta theme-color for light mode', () => {
     setTheme('light');
     const meta = document.querySelector('meta[name="theme-color"]')!;
-    expect(meta.getAttribute('content')).toBe('#f2f2f7');
+    expect(meta.getAttribute('content')).toBe('#ffffff');
   });
 
   it('resolves system theme via matchMedia', () => {

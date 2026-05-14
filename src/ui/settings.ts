@@ -12,6 +12,7 @@ import { isPlaybackModeSystemAudio } from '../player/ownership.ts';
 import { setLanguageMode, t } from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
 import { showToast } from './toast.ts';
+import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -77,12 +78,11 @@ export function setTheme(mode: string, save = true): void {
     }
   }
 
-  // Update meta tags for PWA/browser integration
-  document.documentElement.style.colorScheme = mode;
-  const themeMeta = document.querySelector('meta[name="theme-color"]');
-  if (themeMeta) themeMeta.setAttribute('content', mode === 'dark' ? '#000000' : '#f2f2f7');
-  const schemeMeta = document.querySelector('meta[name="color-scheme"]');
-  if (schemeMeta) schemeMeta.setAttribute('content', mode);
+  // Update meta tags for PWA/browser integration.
+  // Demo mode has a different visible bottom surface, so keep browser chrome
+  // matched to that panel while the overlay is active.
+  if (document.body.classList.contains('mode-demo')) syncDemoThemeChrome(mode);
+  else syncAppThemeChrome(mode);
 }
 
 // ─── Channel Mode (Standard) ─────────────────────────────────────

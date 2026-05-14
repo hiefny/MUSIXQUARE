@@ -48,7 +48,7 @@
     document.documentElement.style.colorScheme = resolved;
 
     // Match status-bar / address-bar color on first paint
-    var themeColor = resolved === 'dark' ? '#212121' : '#ffffff';
+    var themeColor = resolved === 'dark' ? '#1a1a1a' : '#ffffff';
     document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) {
       meta.setAttribute('content', themeColor);
     });

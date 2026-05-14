@@ -9,7 +9,7 @@
 type ResolvedTheme = 'dark' | 'light';
 
 const APP_THEME_COLORS: Record<ResolvedTheme, string> = {
-  dark: '#212121',
+  dark: '#1a1a1a',
   light: '#ffffff',
 };
 

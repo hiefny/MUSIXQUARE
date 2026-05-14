@@ -4,7 +4,8 @@
   color-scheme: dark;
   --bg: #121212;
   --surface: #1a1a1a;
-  --surface-2: #2a2a2a;
+  --surface-2: #202020;
+  --divider: #262626;
   --text-main: #ffffff;
   --text-sub: #c9c9c9;
   --text-muted: #8f8f8f;
@@ -38,7 +39,7 @@ a {
 .policy-header {
   height: 70px;
   padding: 0 var(--pad-x);
-  border-bottom: 1px solid var(--surface-2);
+  border-bottom: 1px solid var(--divider);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -79,7 +80,7 @@ a {
 
 .policy-hero {
   padding-bottom: 56px;
-  border-bottom: 1px solid var(--surface-2);
+  border-bottom: 1px solid var(--divider);
 }
 
 .policy-kicker {
@@ -151,7 +152,7 @@ a {
 
 .policy-doc dl > div {
   padding-top: 18px;
-  border-top: 1px solid var(--surface-2);
+  border-top: 1px solid var(--divider);
 }
 
 .policy-doc dt {
@@ -173,7 +174,7 @@ a {
 
 .policy-footer {
   padding: 30px var(--pad-x);
-  border-top: 1px solid var(--surface-2);
+  border-top: 1px solid var(--divider);
 }
 
 .policy-footer__inner {

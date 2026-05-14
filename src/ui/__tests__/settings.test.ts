@@ -16,6 +16,7 @@ vi.mock('../toast.ts', () => ({
 }));
 
 import { initSettings, setTheme, selectStandardChannelButton } from '../settings.ts';
+import { syncAppThemeChrome, syncDemoThemeChrome } from '../theme-chrome.ts';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -23,6 +24,13 @@ beforeEach(() => {
   bus.clear();
   vi.mocked(showToast).mockClear();
   localStorage.clear();
+  document.documentElement.className = '';
+  document.documentElement.removeAttribute('data-theme');
+  document.documentElement.style.cssText = '';
+  Object.defineProperty(navigator, 'userAgent', {
+    configurable: true,
+    value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+  });
   // Polyfill matchMedia for jsdom
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -51,6 +59,44 @@ beforeEach(() => {
     <meta name="theme-color" content="">
     <meta name="color-scheme" content="">
   `;
+});
+
+describe('theme chrome demo mode', () => {
+  it('uses the demo panel color outside iOS', () => {
+    document.documentElement.style.setProperty('--surface-1', '#1a1a1a');
+
+    syncDemoThemeChrome('dark');
+
+    const meta = document.querySelector('meta[name="theme-color"]')!;
+    expect(document.documentElement.classList.contains('demo-chrome-split')).toBe(true);
+    expect(meta.getAttribute('content')).toBe('#1a1a1a');
+  });
+
+  it('removes fixed theme-color on iOS so Safari can sample split demo surfaces', () => {
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+    });
+
+    syncDemoThemeChrome('dark');
+
+    expect(document.documentElement.classList.contains('demo-chrome-split')).toBe(true);
+    expect(document.querySelector('meta[name="theme-color"]')).toBeNull();
+  });
+
+  it('restores app chrome after leaving iOS demo mode', () => {
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+    });
+
+    syncDemoThemeChrome('dark');
+    syncAppThemeChrome('dark');
+
+    const meta = document.querySelector('meta[name="theme-color"]')!;
+    expect(document.documentElement.classList.contains('demo-chrome-split')).toBe(false);
+    expect(meta.getAttribute('content')).toBe('#212121');
+  });
 });
 
 describe('setTheme', () => {

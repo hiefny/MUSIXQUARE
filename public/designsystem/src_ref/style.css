@@ -5527,3 +5527,13 @@
 }
 
 /* end @layer base */
+
+/* Global button shape policy: app actions are pills by default.
+   Settings' large icon tiles keep their chunky card-like shape. */
+button {
+    border-radius: 999px !important;
+}
+
+#tab-settings .ch-opt {
+    border-radius: var(--radius-m) !important;
+}

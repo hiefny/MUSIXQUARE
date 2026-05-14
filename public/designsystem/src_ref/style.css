@@ -2014,7 +2014,7 @@
         color: white;
         border: none;
         padding: 0 24px;
-        border-radius: var(--radius-m);
+        border-radius: 999px;
         font-weight: 700;
         cursor: pointer;
     }
@@ -4554,18 +4554,19 @@
     .sync-reset-btn,
     .sync-done-btn {
         flex: 1;
-        height: 44px;
+        height: 52px;
         border: none;
-        border-radius: var(--radius-m);
-        font-size: 14px;
+        border-radius: 999px;
+        font-size: 15px;
         font-weight: 700;
         cursor: pointer;
         transition: background 0.15s, transform 0.1s;
     }
 
     .sync-reset-btn {
+        border: 1px solid var(--glass-border);
         background: var(--surface-2);
-        color: var(--text-sub);
+        color: var(--text-main);
     }
 
     .sync-reset-btn:active {
@@ -4576,6 +4577,8 @@
     .sync-done-btn {
         background: var(--primary);
         color: white;
+        font-size: 16px;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
     }
 
     .sync-done-btn:active {

@@ -836,7 +836,7 @@ code {
     bottom: 0;
     width: 100%;
     max-width: none;
-    background: #212121;
+    background: var(--surface-1);
     transform: translateZ(0);
   }
 

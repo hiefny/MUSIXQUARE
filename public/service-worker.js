@@ -40,7 +40,8 @@
 // v112: invalidate cached /.netlify/functions/* responses (TURN credential endpoint) after the get-turn-config + isCacheableRequest hardening
 // v113: bypass cross-origin requests entirely — opaque responses from the runtime cache were rendering as broken-image icons for the YouTube paste preview thumbnail (i.ytimg.com) on prod WebView/Safari paths, while dev (no SW) worked fine
 // v114: invalidate cached app shell after playback ownership/state migration hardening
-const CACHE_VERSION = "v114";
+// v115: invalidate cached editorial chrome CSS after solid surface-1 header/nav migration
+const CACHE_VERSION = "v115";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

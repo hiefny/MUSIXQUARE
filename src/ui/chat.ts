@@ -163,6 +163,8 @@ export function toggleChatDrawer(): void {
 
 // ─── Chat Drawer: Swipe-to-Dismiss ──────────────────────────────
 const SWIPE_DISMISS_THRESHOLD = 100; // px
+const CHAT_DRAWER_PULL_MAX = 22;
+const CHAT_DRAWER_PULL_RESISTANCE = 88;
 const _isDesktop = window.matchMedia('(min-width: 1280px)');
 
 function initChatSwipeToDismiss(): void {
@@ -184,7 +186,11 @@ function initChatSwipeToDismiss(): void {
 
   const moveDrag = (y: number) => {
     if (!isDragging) return;
-    deltaY = Math.max(0, y - startY);
+    const rawDeltaY = y - startY;
+    deltaY =
+      rawDeltaY >= 0
+        ? rawDeltaY
+        : -CHAT_DRAWER_PULL_MAX * (1 - Math.exp(rawDeltaY / CHAT_DRAWER_PULL_RESISTANCE));
     drawer.style.transform = `translateY(${deltaY}px)`;
   };
 

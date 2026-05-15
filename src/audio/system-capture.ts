@@ -217,6 +217,10 @@ export async function startSystemAudioCapture(): Promise<void> {
   muteLocalOutput(true);
 
   // 8. Update state
+  // System audio is a real playback experience. Once it has successfully
+  // started, later playlist clicks should behave like post-first-use actions
+  // instead of falling back to the initial "ready, press Play" cue flow.
+  setState('player.isFirstTrackLoad', false);
   claimPlaybackOwner('system-audio', {
     currentTrackMeta: createSystemAudioTrackMeta('sharing'),
   });

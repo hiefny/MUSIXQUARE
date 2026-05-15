@@ -834,7 +834,18 @@ interface BaseEventMap {
   // mirrors the youtube:sub-video-advanced flow used inside a single
   // playlist's sub-items. Default (omitted/false) is the URL-input
   // first-load path where STAGE2_RENDEZVOUS_BROADCAST_MS is enough.
-  'youtube:auto-play': [isTrackTransition?: boolean];
+  'youtube:auto-play': [
+    intent?:
+      | boolean
+      | {
+          isTrackTransition?: boolean;
+          targetTime?: number;
+          subIndex?: number;
+          videoId?: string;
+          skipSeek?: boolean;
+          rendezvousDelayMs?: number;
+        },
+  ];
   'youtube:get-position': [callback: (pos: number) => void];
   'youtube:stop-playback': [];
   'youtube:skip-time': [seconds: number];

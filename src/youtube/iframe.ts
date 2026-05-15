@@ -50,7 +50,10 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
-import { getPendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
+import {
+  consumePendingAutoSyncOnReady,
+  setPendingAutoSyncOnReady,
+} from './player.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
@@ -124,6 +127,10 @@ interface IframeRuntime {
   liveDurationGrowthFrames: number;
   /** Toast guard so each loaded video warns only once. */
   liveStreamToastShown: boolean;
+  /** Last successfully-read playback position, used if the iframe crashes. */
+  lastRecoverableTime: number;
+  /** Guest-only: run a quiet rendezvous after rebuilding a dead iframe. */
+  guestRendezvousAfterReady: boolean;
 }
 
 const _ifr: IframeRuntime = {
@@ -140,6 +147,8 @@ const _ifr: IframeRuntime = {
   liveDurationSample: 0,
   liveDurationGrowthFrames: 0,
   liveStreamToastShown: false,
+  lastRecoverableTime: 0,
+  guestRendezvousAfterReady: false,
 };
 
 function resetLiveStreamDetection(): void {
@@ -276,6 +285,8 @@ export function loadYouTubeVideo(
   setCachedYtDuration(0); // Reset duration cache for new video
   _ifr.lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
   resetLiveStreamDetection();
+  _ifr.lastRecoverableTime = 0;
+  _ifr.guestRendezvousAfterReady = false;
   _ifr.lastStateBroadcast = 0; // Allow immediate first broadcast for new session
   _ifr.lastBroadcastState = -1; // Reset so first state is never treated as duplicate
   const sessionId = incrementSessionId();
@@ -646,6 +657,16 @@ function onYouTubePlayerReady(): void {
   // input path in player.ts that wants to trigger a 1-sec rendezvous sync
   // as soon as the freshly created player instance is ready).
   bus.emit('youtube:player-ready');
+
+  if (_ifr.guestRendezvousAfterReady) {
+    _ifr.guestRendezvousAfterReady = false;
+    if (getState('network.hostConn')) {
+      const result = guestRendezvousSync({ silent: true, suppressProgressToast: true });
+      if (result.status !== 'started' && result.status !== 'completed') {
+        log.debug(`[YouTube] Guest crash recovery rendezvous deferred: ${result.status}`);
+      }
+    }
+  }
 }
 
 /**
@@ -834,9 +855,9 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       // playTrack) armed the rendezvous flag, consume it now so autoplay
       // kicks in without waiting for another 'youtube:player-ready' (which
       // only fires on brand-new player instances).
-      if (getPendingAutoSyncOnReady()) {
-        setPendingAutoSyncOnReady(false);
-        bus.emit('youtube:auto-play');
+      const pendingAutoSync = consumePendingAutoSyncOnReady();
+      if (pendingAutoSync) {
+        bus.emit('youtube:auto-play', pendingAutoSync);
       }
       return; // Don't broadcast or update UI yet
     }
@@ -849,9 +870,12 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // every block switch. Pass isTrackTransition=true so the handler
     // pauses + uses the longer TRACK_TRANSITION_RENDEZVOUS_MS instead
     // of the URL-input STAGE2 delay.
-    if (getPendingAutoSyncOnReady()) {
-      setPendingAutoSyncOnReady(false);
-      bus.emit('youtube:auto-play', true);
+    const pendingAutoSync = consumePendingAutoSyncOnReady();
+    if (pendingAutoSync) {
+      bus.emit('youtube:auto-play', {
+        ...pendingAutoSync,
+        isTrackTransition: pendingAutoSync.isTrackTransition ?? true,
+      });
     }
 
     showYouTubeSyncOverlay(false);
@@ -1002,6 +1026,9 @@ function updateYouTubeUI(): void {
   let currentTime: number;
   try {
     currentTime = player.getCurrentTime();
+    if (Number.isFinite(currentTime) && currentTime >= 0) {
+      _ifr.lastRecoverableTime = currentTime;
+    }
     _ifr.crashFailCount = 0; // Reset on success
   } catch {
     _ifr.crashFailCount++;
@@ -1041,6 +1068,9 @@ function updateYouTubeUI(): void {
           );
         }
       }
+      const recoveryTime = _ifr.lastRecoverableTime;
+      const hostConn = getState('network.hostConn');
+
       // Destroy dead player and rebuild
       try {
         player.destroy?.();
@@ -1051,9 +1081,23 @@ function updateYouTubeUI(): void {
       const container = document.getElementById('youtube-player-container');
       if (container) resetYouTubePlayerHost(container);
       showToast(t('youtube.load_fail'));
-      // Reload the same video
+      // Reload the same video. Host rebuilds through the normal pending
+      // rendezvous path so guests get a fresh room-wide sync instead of
+      // watching the host iframe autoplay by itself. Guests rebuild paused
+      // and immediately attempt a quiet one-device rendezvous once ready.
       if (videoId || playlistId) {
-        loadYouTubeVideo(videoId || null, playlistId || null, true, subIndex);
+        if (!hostConn) {
+          setPendingAutoSyncOnReady(true, {
+            targetTime: recoveryTime,
+            subIndex,
+            videoId: videoId || undefined,
+            skipSeek: false,
+          });
+          loadYouTubeVideo(videoId || null, playlistId || null, false, subIndex);
+        } else {
+          loadYouTubeVideo(videoId || null, playlistId || null, false, subIndex);
+          _ifr.guestRendezvousAfterReady = true;
+        }
       }
     }
     return;

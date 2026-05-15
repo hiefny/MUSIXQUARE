@@ -286,6 +286,37 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(seeks.length).toBeGreaterThanOrEqual(2);
       expect(seeks[seeks.length - 1].args).toEqual([20, true]);
     });
+
+    it('player-ready pending sync can resume a recovered iframe from the last known position', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 37 });
+      const { initYouTube, setPendingAutoSyncOnReady, getPendingAutoSyncOnReady } =
+        await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
+
+      initYouTube();
+      setPendingAutoSyncOnReady(true, {
+        targetTime: 37,
+        videoId: 'RECOVERED_VIDEO',
+        subIndex: 2,
+        skipSeek: false,
+      });
+
+      bus.emit('youtube:player-ready');
+
+      expect(getPendingAutoSyncOnReady()).toBe(false);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args[0] === 37)).toBe(true);
+      expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
+
+      const stage1 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];
+      expect(stage1).toMatchObject({
+        type: MSG.YOUTUBE_STATE,
+        state: 1,
+        time: 37,
+        videoId: 'RECOVERED_VIDEO',
+        subIndex: 2,
+      });
+    });
   });
 
   // 5. Host seeks during guest countdown: new handleYouTubeState supersedes prior (cd75008)

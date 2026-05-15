@@ -34,7 +34,16 @@ import {
   BROADCAST_SYNC_MIN_INTERVAL_MS,
 } from './constants.ts';
 
-// YouTube rendezvous-autoplay flag: set by any caller that loaded a track
+export interface PendingAutoSyncOptions {
+  isTrackTransition?: boolean;
+  targetTime?: number;
+  subIndex?: number;
+  videoId?: string;
+  skipSeek?: boolean;
+  rendezvousDelayMs?: number;
+}
+
+// YouTube rendezvous-autoplay intent: set by any caller that loaded a track
 // with autoplay=false but wants playback to start once the player (or its
 // async load) is ready. Consumed by two paths:
 //   1. 'youtube:player-ready' (new player instance just initialized)
@@ -44,11 +53,23 @@ import {
 // rendezvous countdown keeps host/guest aligned instead of each device
 // running its own autoplay timing.
 let _pendingAutoSyncOnReady = false;
-export function setPendingAutoSyncOnReady(v: boolean): void {
+let _pendingAutoSyncOptions: PendingAutoSyncOptions | null = null;
+export function setPendingAutoSyncOnReady(
+  v: boolean,
+  options: PendingAutoSyncOptions | null = null,
+): void {
   _pendingAutoSyncOnReady = v;
+  _pendingAutoSyncOptions = v ? options : null;
 }
 export function getPendingAutoSyncOnReady(): boolean {
   return _pendingAutoSyncOnReady;
+}
+export function consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null {
+  if (!_pendingAutoSyncOnReady) return null;
+  _pendingAutoSyncOnReady = false;
+  const options = _pendingAutoSyncOptions ?? {};
+  _pendingAutoSyncOptions = null;
+  return options;
 }
 
 function isCompatIdle(): boolean {
@@ -278,7 +299,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   if (!wasInYouTube && !isCompatIdle() && !isYtIndexing() && !isYtLoadInProgress()) {
     setYouTubeSubIndex(-1);
   }
-  _pendingAutoSyncOnReady = false; // Clear pending URL-input sync if any
+  setPendingAutoSyncOnReady(false); // Clear pending URL-input sync if any
 
   // Only leave YouTube mode when we're actually
   // leaving — avoids spurious transitions from stopAllMedia→stopYouTubeMode
@@ -667,9 +688,15 @@ export function initYouTube(): void {
     }
   });
 
-  bus.on('youtube:auto-play', (isTrackTransition?: boolean) => {
+  bus.on('youtube:auto-play', (intent?: boolean | PendingAutoSyncOptions) => {
     const player = getYouTubePlayer();
     if (!player?.playVideo) return;
+
+    const options: PendingAutoSyncOptions =
+      typeof intent === 'object' && intent !== null
+        ? intent
+        : { isTrackTransition: intent === true };
+    const isTrackTransition = options.isTrackTransition === true;
 
     if (isTrackTransition) {
       // Block-to-block YT-to-YT track switch (system-playlist navigation
@@ -680,7 +707,7 @@ export function initYouTube(): void {
       // host. Pause + 4s TRACK_TRANSITION mirrors youtube:sub-video-advanced
       // so cross-block transitions match the rendezvous UX users already
       // expect from sub-video transitions inside a single playlist.
-      const currentTime = player.getCurrentTime?.() || 0;
+      const currentTime = options.targetTime ?? player.getCurrentTime?.() ?? 0;
       try {
         player.pauseVideo?.();
       } catch {
@@ -688,8 +715,10 @@ export function initYouTube(): void {
       }
       setYtAutoplayIntent(true);
       scheduleYtAutoSync(currentTime, {
-        skipSeek: true,
-        rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
+        subIndex: options.subIndex,
+        videoId: options.videoId,
+        skipSeek: options.skipSeek ?? true,
+        rendezvousDelayMs: options.rendezvousDelayMs ?? TRACK_TRANSITION_RENDEZVOUS_MS,
       });
       return;
     }
@@ -712,7 +741,12 @@ export function initYouTube(): void {
     // unwanted BUFFERING transition on CUED players).
     // playTrack already waited ~1s (or on_ready took at least ~1s), so
     // STAGE2_RENDEZVOUS_BROADCAST_MS (2s) leaves ~3s total safe delay.
-    scheduleYtAutoSync(0, { skipSeek: true, rendezvousDelayMs: STAGE2_RENDEZVOUS_BROADCAST_MS });
+    scheduleYtAutoSync(options.targetTime ?? 0, {
+      subIndex: options.subIndex,
+      videoId: options.videoId,
+      skipSeek: options.skipSeek ?? true,
+      rendezvousDelayMs: options.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS,
+    });
   });
 
   // YouTube sub-video auto-advance inside a playlist: iframe.ts's
@@ -813,12 +847,12 @@ export function initYouTube(): void {
   // set the pending flag, kick off the 1-sec rendezvous sync now. This replaces
   // the old autoplay=true raw-play path so guests stay aligned on first load.
   bus.on('youtube:player-ready', () => {
-    if (!_pendingAutoSyncOnReady) return;
-    _pendingAutoSyncOnReady = false;
+    const pending = consumePendingAutoSyncOnReady();
+    if (!pending) return;
     // Route through youtube:auto-play so we share the same code path as
     // the post-autoPlayTimer flow in playTrack (scheduleYtAutoSync with
     // skipSeek + autoplayIntent flip).
-    bus.emit('youtube:auto-play');
+    bus.emit('youtube:auto-play', pending);
   });
 
   bus.on('youtube:get-position', (callback) => {
@@ -1052,7 +1086,7 @@ export function initYouTube(): void {
 
       // Load YouTube with autoplay=FALSE for sync coordination.
       loadYouTubeVideo(finalVideoId, finalPlaylistId, false);
-      _pendingAutoSyncOnReady = true;
+      setPendingAutoSyncOnReady(true);
       setState('playlist.currentTrackIndex', newIndex);
     } else {
       showToast(t('youtube.added_to_playlist'));

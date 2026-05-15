@@ -107,6 +107,8 @@ function resetUnread(): void {
  * transition before it had a chance to emit transitionend.
  */
 const CHAT_DRAWER_RELAYOUT_FALLBACK_MS = 400;
+let _chatTouchContainmentAC: AbortController | null = null;
+let _chatTouchStartY = 0;
 
 export function toggleChatDrawer(): void {
   const drawer = document.getElementById('chat-drawer');
@@ -238,6 +240,69 @@ function initChatSwipeToDismiss(): void {
     if (_isDesktop.matches || !_isChatDrawerOpen) return;
     if (deltaY < 5) toggleChatDrawer(); // only if no significant drag occurred
   });
+}
+
+function canScrollVertically(el: HTMLElement): boolean {
+  const style = window.getComputedStyle(el);
+  if (!/(auto|scroll|overlay)/.test(style.overflowY)) return false;
+  return el.scrollHeight > el.clientHeight + 1;
+}
+
+function getScrollableChatElement(target: EventTarget | null, drawer: HTMLElement): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+
+  let el: HTMLElement | null = target instanceof HTMLElement ? target : target.parentElement;
+  while (el && el !== drawer) {
+    if (canScrollVertically(el)) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+function shouldContainDrawerTouch(e: TouchEvent, drawer: HTMLElement): boolean {
+  if (!_isChatDrawerOpen || !drawer.classList.contains('open')) return false;
+  if (e.touches.length !== 1) return true;
+
+  const scrollable = getScrollableChatElement(e.target, drawer);
+  if (!scrollable) return true;
+
+  const deltaY = e.touches[0].clientY - _chatTouchStartY;
+  if (Math.abs(deltaY) < 1) return false;
+
+  const atTop = scrollable.scrollTop <= 0;
+  const atBottom = scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight - 1;
+  return (deltaY > 0 && atTop) || (deltaY < 0 && atBottom);
+}
+
+function initChatTouchContainment(): void {
+  _chatTouchContainmentAC?.abort();
+  _chatTouchContainmentAC = new AbortController();
+  const { signal } = _chatTouchContainmentAC;
+  const drawer = document.getElementById('chat-drawer') as HTMLElement | null;
+  const backdrop = document.getElementById('chat-backdrop');
+  if (!drawer) return;
+
+  drawer.addEventListener(
+    'touchstart',
+    (e) => {
+      _chatTouchStartY = e.touches[0]?.clientY ?? 0;
+    },
+    { passive: true, signal },
+  );
+  drawer.addEventListener(
+    'touchmove',
+    (e) => {
+      if (shouldContainDrawerTouch(e, drawer) && e.cancelable) e.preventDefault();
+    },
+    { passive: false, signal },
+  );
+  backdrop?.addEventListener(
+    'touchmove',
+    (e) => {
+      if (_isChatDrawerOpen && e.cancelable) e.preventDefault();
+    },
+    { passive: false, signal },
+  );
 }
 
 // ─── Send & Receive ──────────────────────────────────────────────
@@ -424,6 +489,7 @@ export function initChat(): void {
 
   initChatEventDelegation();
   initChatSwipeToDismiss();
+  initChatTouchContainment();
 
   // Backdrop tap to close
   const backdrop = document.getElementById('chat-backdrop');

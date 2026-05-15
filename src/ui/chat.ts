@@ -165,7 +165,37 @@ export function toggleChatDrawer(): void {
 const SWIPE_DISMISS_THRESHOLD = 100; // px
 const CHAT_DRAWER_PULL_MAX = 22;
 const CHAT_DRAWER_PULL_RESISTANCE = 88;
+const CHAT_DRAWER_STRETCH_RESET_MS = 260;
 const _isDesktop = window.matchMedia('(min-width: 1280px)');
+
+function setChatDrawerStretch(drawer: HTMLElement, baseHeight: number, pullPx: number): void {
+  clearManagedTimer('chat-drawer-stretch-reset');
+  drawer.style.maxHeight = `${baseHeight + CHAT_DRAWER_PULL_MAX}px`;
+  drawer.style.height = `${baseHeight + pullPx}px`;
+}
+
+function resetChatDrawerStretch(drawer: HTMLElement, baseHeight: number, animated: boolean): void {
+  clearManagedTimer('chat-drawer-stretch-reset');
+  if (!drawer.style.height) return;
+
+  if (!animated || baseHeight <= 0) {
+    drawer.style.height = '';
+    drawer.style.maxHeight = '';
+    return;
+  }
+
+  drawer.style.transition = `height ${CHAT_DRAWER_STRETCH_RESET_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+  drawer.style.height = `${baseHeight}px`;
+  setManagedTimer(
+    'chat-drawer-stretch-reset',
+    () => {
+      drawer.style.height = '';
+      drawer.style.maxHeight = '';
+      drawer.style.transition = '';
+    },
+    CHAT_DRAWER_STRETCH_RESET_MS,
+  );
+}
 
 function initChatSwipeToDismiss(): void {
   const header = document.querySelector('.chat-drawer-header') as HTMLElement | null;
@@ -174,12 +204,16 @@ function initChatSwipeToDismiss(): void {
 
   let startY = 0;
   let deltaY = 0;
+  let dragDistanceY = 0;
+  let baseDrawerHeight = 0;
   let isDragging = false;
 
   const startDrag = (y: number) => {
     if (_isDesktop.matches || !_isChatDrawerOpen) return;
     startY = y;
     deltaY = 0;
+    dragDistanceY = 0;
+    baseDrawerHeight = drawer.getBoundingClientRect().height;
     isDragging = true;
     drawer.style.transition = 'none';
   };
@@ -187,21 +221,32 @@ function initChatSwipeToDismiss(): void {
   const moveDrag = (y: number) => {
     if (!isDragging) return;
     const rawDeltaY = y - startY;
-    deltaY =
-      rawDeltaY >= 0
-        ? rawDeltaY
-        : -CHAT_DRAWER_PULL_MAX * (1 - Math.exp(rawDeltaY / CHAT_DRAWER_PULL_RESISTANCE));
+    dragDistanceY = Math.abs(rawDeltaY);
+    if (rawDeltaY >= 0) {
+      deltaY = rawDeltaY;
+      setChatDrawerStretch(drawer, baseDrawerHeight, 0);
+    } else {
+      deltaY = 0;
+      const pullPx =
+        CHAT_DRAWER_PULL_MAX * (1 - Math.exp(rawDeltaY / CHAT_DRAWER_PULL_RESISTANCE));
+      setChatDrawerStretch(drawer, baseDrawerHeight, pullPx);
+    }
     drawer.style.transform = `translateY(${deltaY}px)`;
   };
 
   const endDrag = () => {
     if (!isDragging) return;
     isDragging = false;
+    if (deltaY > SWIPE_DISMISS_THRESHOLD) {
+      resetChatDrawerStretch(drawer, baseDrawerHeight, false);
+      drawer.style.transition = '';
+      drawer.style.transform = '';
+      toggleChatDrawer();
+      return;
+    }
     drawer.style.transition = '';
     drawer.style.transform = '';
-    if (deltaY > SWIPE_DISMISS_THRESHOLD) {
-      toggleChatDrawer();
-    }
+    resetChatDrawerStretch(drawer, baseDrawerHeight, true);
   };
 
   // Touch events
@@ -244,7 +289,7 @@ function initChatSwipeToDismiss(): void {
   // Header click to close (tap or click without drag)
   header.addEventListener('click', () => {
     if (_isDesktop.matches || !_isChatDrawerOpen) return;
-    if (deltaY < 5) toggleChatDrawer(); // only if no significant drag occurred
+    if (dragDistanceY < 5) toggleChatDrawer(); // only if no significant drag occurred
   });
 }
 

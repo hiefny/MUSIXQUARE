@@ -682,6 +682,7 @@ export function leaveSession(): void {
     'playback.failedTrackKeys': new Set<string>(),
     // Sync
     'sync.localOffset': 0,
+    'sync.youtubeLocalOffset': 0,
     // Player
     'player.pausedAt': 0,
     // YouTube

@@ -78,6 +78,25 @@ function getEffectiveGuestPlayLatencyMs(): number {
   return IS_ANDROID ? Math.max(learned, ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS) : learned;
 }
 
+function getYouTubeManualOffsetSec(): number {
+  const offset = getState('sync.youtubeLocalOffset') || 0;
+  return Number.isFinite(offset) ? offset : 0;
+}
+
+function clampYouTubeTime(time: number, duration: number): number {
+  if (!Number.isFinite(time)) return 0;
+  if (duration > 0) return Math.max(0, Math.min(time, duration));
+  return Math.max(0, time);
+}
+
+function applyYouTubeManualOffset(
+  time: number,
+  duration: number,
+  manualOffsetSec = getYouTubeManualOffsetSec(),
+): number {
+  return clampYouTubeTime(time + manualOffsetSec, duration);
+}
+
 export function broadcastYouTubeSync(isManual = false, stateOverride?: number): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
@@ -235,6 +254,9 @@ const _rt: GuestSyncRuntime = {
   pendingManualRendezvousUntil: 0,
 };
 
+const MANUAL_OFFSET_APPLY_RETRY_MS = 250;
+let _pendingManualOffsetApplyUntil = 0;
+
 export function resetAdDetection(): void {
   _rt.lastHostSyncTime = null;
   _rt.hostTimeStaleCount = 0;
@@ -323,10 +345,46 @@ function deferManualRendezvousUntilReady(reason: string): void {
   );
 }
 
+function clearPendingManualOffsetApply(): void {
+  _pendingManualOffsetApplyUntil = 0;
+  clearManagedTimer('yt-manual-offset-apply-retry');
+}
+
+function queueManualOffsetApplyRetry(): void {
+  if (!_pendingManualOffsetApplyUntil) {
+    _pendingManualOffsetApplyUntil =
+      Date.now() + MANUAL_RENDEZVOUS_RETRY_MAX_MS + RENDEZVOUS_COOLDOWN_MS;
+  }
+
+  clearManagedTimer('yt-manual-offset-apply-retry');
+  setManagedTimer(
+    'yt-manual-offset-apply-retry',
+    runManualOffsetApplyRendezvous,
+    MANUAL_OFFSET_APPLY_RETRY_MS,
+  );
+}
+
+function runManualOffsetApplyRendezvous(): void {
+  const result = guestRendezvousSync();
+  if (result.status === 'busy') {
+    if (!_pendingManualOffsetApplyUntil) {
+      queueManualOffsetApplyRetry();
+      return;
+    }
+
+    if (Date.now() <= _pendingManualOffsetApplyUntil) {
+      queueManualOffsetApplyRetry();
+      return;
+    }
+  }
+
+  clearPendingManualOffsetApply();
+}
+
 // Spoofing defense helper: only accept host broadcasts from hostConn.
 function isHostBroadcast(conn: DataConnection | undefined): boolean {
   const hostConn = getState('network.hostConn');
-  return !!hostConn && conn === hostConn;
+  return !!hostConn?.open && conn === hostConn;
 }
 
 // ─── Handle YouTube Sync (Guest) ──────────────────────────────────
@@ -473,11 +531,9 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       setYouTubeSubIndex(hostSubIndex);
     }
 
-    // Drift correction — uses raw hostTime without the manual sync.localOffset.
-    // M3: sync.localOffset is the user's manual Bluetooth speaker compensation
-    // for local audio playback. Applying it to YouTube iframe drift correction
-    // would permanently offset the guest by whatever the user set on the slider.
-    const rawCompensatedTime = hostTime;
+    // Drift correction includes the guest's YouTube-specific manual offset.
+    // YouTube manual offset is separate from the local-file Web Audio offset.
+    const rawCompensatedTime = hostTime + getYouTubeManualOffsetSec();
     // Drift correction (skip if duration not loaded yet)
     const duration = (player.getDuration && player.getDuration()) || 0;
     if (duration > 0) {
@@ -531,27 +587,43 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
  */
 export interface GuestRendezvousOptions {
   silent?: boolean;
+  suppressProgressToast?: boolean;
+  onComplete?: () => void;
 }
 
-export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
+export type GuestRendezvousStatus = 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
+
+export interface GuestRendezvousResult {
+  status: GuestRendezvousStatus;
+}
+
+export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRendezvousResult {
   const notify = (message: string): void => {
     if (!opts.silent) showToast(message);
+  };
+  const notifyProgress = (message: string): void => {
+    if (!opts.suppressProgressToast) notify(message);
   };
   const player = getYouTubePlayer();
   if (!player || !isPlaybackModeYouTube()) {
     notify(t('toast.sync_not_ready'));
-    return;
+    return { status: 'not-ready' };
+  }
+  const hostConn = getState('network.hostConn');
+  if (!hostConn?.open) {
+    notify(t('toast.sync_not_ready'));
+    return { status: 'not-ready' };
   }
   if (!player.getCurrentTime || !player.seekTo || !player.pauseVideo || !player.playVideo) {
     notify(t('toast.yt_rendezvous_no_data'));
-    return;
+    return { status: 'no-data' };
   }
 
   // Debounce: cooldown prevents rapid-fire calls that crash YouTube iframe
   const now = Date.now();
   if (_rt.rendezvousInProgress || now - _rt.lastRendezvousAt < RENDEZVOUS_COOLDOWN_MS) {
     log.debug('[Rendezvous] Debounced — in progress or cooldown');
-    return;
+    return { status: 'busy' };
   }
 
   // Need a fresh-enough host snapshot
@@ -560,21 +632,27 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
     getHostNow() - _rt.lastHostSnapshot.hostClockAt > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS
   ) {
     notify(t('toast.yt_rendezvous_no_data'));
-    return;
+    return { status: 'no-data' };
   }
 
   const snapshot = _rt.lastHostSnapshot;
+  const manualOffsetSec = getYouTubeManualOffsetSec();
 
   // If host is paused, there's no playback to rendezvous with — just align position
   if (snapshot.hostState !== 1) {
     try {
-      player.seekTo(snapshot.hostPosition, true);
+      const duration = player.getDuration?.() || 0;
+      player.seekTo(
+        applyYouTubeManualOffset(snapshot.hostPosition, duration, manualOffsetSec),
+        true,
+      );
       player.pauseVideo();
     } catch {
       /* noop */
     }
-    notify(t('toast.yt_rendezvous_host_paused'));
-    return;
+    notifyProgress(t('toast.yt_rendezvous_host_paused'));
+    opts.onComplete?.();
+    return { status: 'completed' };
   }
 
   // Clear any lingering timers from a prior attempt
@@ -587,7 +665,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
   // Extrapolate host's current position
   const nowHost = getHostNow();
   const hostPosNow = snapshot.hostPosition + (nowHost - snapshot.hostClockAt) / 1000;
-  const targetPosition = hostPosNow + RENDEZVOUS_MARGIN_SEC;
+  const targetPosition = hostPosNow + RENDEZVOUS_MARGIN_SEC + manualOffsetSec;
 
   // Host-clock instant when host's audible playback will reach targetPosition
   const tHostReachTarget = nowHost + RENDEZVOUS_MARGIN_SEC * 1000;
@@ -603,7 +681,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
   // Suppress drift fighter for MARGIN + RENDEZVOUS_DRIFT_SUPPRESS_MS
   _rt.autoSyncUntil = Date.now() + RENDEZVOUS_MARGIN_SEC * 1000 + RENDEZVOUS_DRIFT_SUPPRESS_MS;
   bus.emit('youtube:sync-loading', true);
-  notify(t('toast.yt_rendezvous_start'));
+  notifyProgress(t('toast.yt_rendezvous_start'));
 
   // Step 1: seek to target + pause (stays paused while buffer fills)
   try {
@@ -612,7 +690,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
   } catch (e) {
     log.warn('[Rendezvous] seek/pause threw:', e);
     finishRendezvous();
-    return;
+    return { status: 'not-ready' };
   }
 
   // Step 2: buffer gate — poll player state until PAUSED (2) or CUED (5)
@@ -642,7 +720,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
 
     if (bufferReady) {
       log.debug(`[Rendezvous] Buffer ready after ${bufferChecks} checks (state=${pState})`);
-      scheduleRendezvousPlay(playCallAtHostClock, targetPosition, snapshot, opts);
+      scheduleRendezvousPlay(playCallAtHostClock, targetPosition, snapshot, manualOffsetSec, opts);
       return;
     }
 
@@ -671,16 +749,21 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): void {
   };
 
   setManagedTimer('yt-rendezvous-buffer', checkBuffer, RENDEZVOUS_BUFFER_CHECK_INTERVAL_MS);
+  return { status: 'started' };
 }
 
 function scheduleRendezvousPlay(
   playCallAtHostClock: number,
   targetPosition: number,
   snapshot: HostPositionSnapshot,
+  manualOffsetSec: number,
   opts: GuestRendezvousOptions = {},
 ): void {
   const notify = (message: string): void => {
     if (!opts.silent) showToast(message);
+  };
+  const notifyProgress = (message: string): void => {
+    if (!opts.suppressProgressToast) notify(message);
   };
   const waitMs = Math.max(0, playCallAtHostClock - getHostNow());
   log.debug(`[Rendezvous] Scheduling playVideo in ${waitMs.toFixed(0)}ms`);
@@ -703,7 +786,8 @@ function scheduleRendezvousPlay(
         return;
       }
       bus.emit('youtube:sync-loading', false);
-      notify(t('toast.yt_rendezvous_done'));
+      notifyProgress(t('toast.yt_rendezvous_done'));
+      opts.onComplete?.();
 
       // Step 3: self-calibrate guestPlayLatency from measured drift (~800ms later)
       setManagedTimer(
@@ -761,7 +845,7 @@ function scheduleRendezvousPlay(
             const hostPosNowMeasured =
               snapshot.hostPosition + (getHostNow() - snapshot.hostClockAt) / 1000;
             const driftSec = guestPos - hostPosNowMeasured; // + = guest ahead, − = guest behind
-            const driftMs = driftSec * 1000;
+            const driftMs = (driftSec - manualOffsetSec) * 1000;
 
             // Outlier rejection: drift samples larger than
             // LATENCY_OUTLIER_REJECT_MS are likely from a transitional state
@@ -844,8 +928,10 @@ export function resetYouTubeSyncState(): void {
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
+  _pendingManualOffsetApplyUntil = 0;
   resetAdDetection();
   clearManagedTimer('yt-manual-rendezvous-retry');
+  clearManagedTimer('yt-manual-offset-apply-retry');
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
@@ -1014,6 +1100,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     // SharedClock: schedule YouTube action at host-specified time
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     const duration = player.getDuration?.() || 0;
+    const manualTargetTime = applyYouTubeManualOffset(time, duration);
 
     if (hostPlayAt > 0 && isClockCalibrated()) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
@@ -1024,11 +1111,17 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         if (player.pauseVideo) player.pauseVideo();
 
         // 2. Seek to target position (while paused = in-buffer, no rebuffer)
-        if (!subIndexChanged && player.seekTo) player.seekTo(time, true);
+        if (!subIndexChanged && player.seekTo) player.seekTo(manualTargetTime, true);
 
         // 3. Update seekbar immediately
-        if (time >= 0 && duration >= 0) {
-          bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
+        if (manualTargetTime >= 0 && duration >= 0) {
+          bus.emit(
+            'ui:time-update',
+            fmtTime(manualTargetTime),
+            fmtTime(duration),
+            manualTargetTime,
+            duration,
+          );
         }
 
         // 4. Suppress drift correction during wait
@@ -1058,7 +1151,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         // Short wait (≤SHORT_WAIT_THRESHOLD_MS) — schedule with brief pause-seek-play
         // M6: clamp to [0, duration] to avoid seeking past the end which
         // triggers a premature ENDED event and track-advance on the guest.
-        const rawCompensated = time + waitMs / 1000;
+        const rawCompensated = time + waitMs / 1000 + getYouTubeManualOffsetSec();
         const compensatedTime =
           duration > 0 ? Math.max(0, Math.min(rawCompensated, duration)) : rawCompensated;
         if (compensatedTime >= 0 && duration >= 0) {
@@ -1138,8 +1231,15 @@ function executeImmediate(
   // Clear any orphaned scheduled action — this immediate command supersedes it
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
-  if (time >= 0 && duration >= 0) {
-    bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
+  const manualTargetTime = applyYouTubeManualOffset(time, duration);
+  if (manualTargetTime >= 0 && duration >= 0) {
+    bus.emit(
+      'ui:time-update',
+      fmtTime(manualTargetTime),
+      fmtTime(duration),
+      manualTargetTime,
+      duration,
+    );
   }
 
   // Suppress drift correction while YouTube buffers the seek.
@@ -1153,7 +1253,7 @@ function executeImmediate(
       // a replacement (yt-clock-action is cleared at the top of
       // handleYouTubeState, but yt-seek-play is not).
       player.pauseVideo?.();
-      player.seekTo(time, true);
+      player.seekTo(manualTargetTime, true);
       setManagedTimer(
         'yt-seek-play',
         () => {
@@ -1171,7 +1271,7 @@ function executeImmediate(
     }
   } else if (state === 2 && player.pauseVideo) {
     player.pauseVideo();
-    if (player.seekTo) player.seekTo(time, true);
+    if (player.seekTo) player.seekTo(manualTargetTime, true);
   }
 }
 
@@ -1271,6 +1371,7 @@ export function initYouTubeSync(): void {
   });
 
   bus.on('youtube:player-ready', runPendingManualRendezvous);
+  bus.on('youtube:apply-manual-sync', runManualOffsetApplyRendezvous);
 
   log.info('[YouTube Sync] Initialized');
 }

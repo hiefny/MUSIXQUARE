@@ -136,6 +136,7 @@ function createInitialState(): StateTree {
 
     sync: {
       localOffset: 0,
+      youtubeLocalOffset: 0,
       lastLatencyMs: 0,
       latencyHistory: [],
       // resyncTimer removed — managed timers registry handles this via 'global-resync' key

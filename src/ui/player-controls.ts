@@ -26,13 +26,18 @@ import {
 import { showDialog } from './dialog.ts';
 import { togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
+import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
-import { guestRendezvousSync, broadcastYouTubeSync } from '../youtube/sync.ts';
+import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { getPlaybackModeActivitySnapshot, scopePlaybackModeActivity } from './_state-hooks.ts';
-import { isPlaybackModeSystemAudio, isPlaybackModeYouTube } from '../player/ownership.ts';
+import {
+  isPlaybackModeFile,
+  isPlaybackModeSystemAudio,
+  isPlaybackModeYouTube,
+} from '../player/ownership.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -413,6 +418,31 @@ function openFileSelector(): void {
 
 // ─── Sync Button ─────────────────────────────────────────────────
 
+function openManualSyncOverlay(): void {
+  if (!canUseManualSyncPanel()) {
+    showToast(t('toast.sync_not_ready'));
+    closeManualSyncOverlay();
+    return;
+  }
+
+  bus.emit('sync:display-update');
+  const overlay = document.getElementById('manual-sync-overlay');
+  if (overlay) overlay.classList.add('show');
+}
+
+function closeManualSyncOverlay(): void {
+  const overlay = document.getElementById('manual-sync-overlay');
+  if (overlay) overlay.classList.remove('show');
+}
+
+function canUseManualSyncPanel(): boolean {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn?.open) return false;
+  if (isPlaybackModeSystemAudio()) return false;
+  if (isPlaybackModeYouTube()) return true;
+  return isPlaybackModeFile() && !!getCurrentAudioBuffer();
+}
+
 function handleMainSyncBtn(): void {
   // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
   if (isPlaybackModeSystemAudio()) {
@@ -420,36 +450,38 @@ function handleMainSyncBtn(): void {
     return;
   }
 
-  // YouTube mode: both host and guest paths funnel into the rendezvous
-  // mechanism — the host's role is just to fire the trigger broadcast.
+  const hostConn = getState('network.hostConn');
   if (isPlaybackModeYouTube()) {
-    const hostConn = getState('network.hostConn');
-    if (hostConn) {
-      // Guest path — self-heal rendezvous against the cached host snapshot
-      guestRendezvousSync();
-    } else {
-      // Host path — broadcast a manual sync. Each guest's handleYouTubeSync
-      // sees isManual=true and triggers its own guestRendezvousSync, so
-      // every guest gets the same SMPTE-style precision alignment as a
-      // guest-initiated sync. No host-local seek/play side effect — sync
-      // should align guests TO host, not change host's own playback state.
-      // (Previously this went through scheduleYtAutoSync which fired a
-      // redundant Stage 1 "snap" broadcast 2s before the rendezvous-trigger
-      // Stage 2 — guests effectively aligned twice.)
+    if (!hostConn) {
       broadcastYouTubeSync(true);
-      // Confirmation toast — without this, the button silently fires and
-      // the host has no signal that anything happened on guest screens.
       showToast(t('toast.yt_host_sync_sent'));
+      return;
     }
+    if (!hostConn.open) {
+      showToast(t('toast.sync_not_ready'));
+      return;
+    }
+
+    guestRendezvousSync({
+      suppressProgressToast: true,
+      onComplete: () => {
+        openManualSyncOverlay();
+        if (canUseManualSyncPanel()) showToast(t('toast.yt_manual_sync_prompt'));
+      },
+    });
     return;
   }
 
-  const hostConn = getState('network.hostConn');
   if (!hostConn) {
     showToast(t('toast.host_sync_not_recommended'));
+    return;
   }
-  const overlay = document.getElementById('manual-sync-overlay');
-  if (overlay) overlay.classList.add('show');
+  if (!hostConn.open) {
+    showToast(t('toast.sync_not_ready'));
+    return;
+  }
+
+  openManualSyncOverlay();
 }
 
 // ─── Logo Return to Main ─────────────────────────────────────────
@@ -1000,12 +1032,25 @@ export function initPlayerControls(): void {
   const fmtMs = (ms: number) => (ms > 0 ? `+${ms}` : `${ms}`);
 
   _busScope.on('sync:display-update', () => {
-    const localOffset = getState('sync.localOffset') || 0;
+    const localOffset = isPlaybackModeYouTube()
+      ? getState('sync.youtubeLocalOffset') || 0
+      : getState('sync.localOffset') || 0;
     const manualEl = document.getElementById('manual-sync-value');
     const autoEl = document.getElementById('auto-sync-value');
     if (manualEl) manualEl.innerText = fmtMs(Math.round(localOffset * 1000));
     if (autoEl) autoEl.innerText = fmtMs(Math.round(getClockOffset()));
   });
+
+  const closeManualSyncIfInvalid = () => {
+    const overlay = document.getElementById('manual-sync-overlay');
+    if (!overlay?.classList.contains('show')) return;
+    if (!canUseManualSyncPanel()) closeManualSyncOverlay();
+  };
+  _busScope.on('state:playback.mode', closeManualSyncIfInvalid);
+  _busScope.on('state:playback.activity', closeManualSyncIfInvalid);
+  _busScope.on('state:network.hostConn', closeManualSyncIfInvalid);
+  _busScope.on('state:network.sessionCode', closeManualSyncIfInvalid);
+  _busScope.on('player:buffer-changed', closeManualSyncIfInvalid);
 
   // YouTube time update — handled by seekbar.ts
 

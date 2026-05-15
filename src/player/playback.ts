@@ -531,7 +531,7 @@ export function initPlayback(): void {
       // Auto-sync 1s later to align with host
       const hostConn = getState('network.hostConn');
       if (hostConn?.open) {
-        setManagedTimer('playback-repeat-auto-sync', () => bus.emit('sync:auto-sync'), 1000);
+        setManagedTimer('playback-repeat-auto-sync', () => bus.emit('sync:force-resync'), 1000);
       }
     };
 

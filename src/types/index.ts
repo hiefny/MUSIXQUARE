@@ -545,7 +545,12 @@ export interface StateTree {
     trebleBoostOn: boolean;
     surroundOn: boolean;
   };
-  sync: { localOffset: number; lastLatencyMs: number; latencyHistory: number[] };
+  sync: {
+    localOffset: number;
+    youtubeLocalOffset: number;
+    lastLatencyMs: number;
+    latencyHistory: number[];
+  };
   network: {
     myId: string | null;
     myDeviceLabel: string;
@@ -850,6 +855,7 @@ interface BaseEventMap {
    */
   'youtube:player-ready': [];
   'youtube:broadcast-sync': [];
+  'youtube:apply-manual-sync': [];
   'youtube:preview': [url: string];
   'youtube:load-from-input': [];
   'youtube:load-from-chat': [url: string];

@@ -10,6 +10,7 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import {
   MSG,
+  MANUAL_SYNC_OFFSET_LIMIT_SEC,
   PLAYBACK_STATE,
   RESERVED_NAMES,
   type PlaybackActivityValue,
@@ -18,7 +19,12 @@ import {
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
-import { play, getTrackPosition, adjustSync } from '../player/transport.ts';
+import {
+  play,
+  getTrackPosition,
+  adjustSync,
+  setLocalManualSyncOffset,
+} from '../player/transport.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
@@ -36,6 +42,8 @@ import { rememberPinnedNotice } from '../chat/protocol.ts';
 import {
   getPlaybackModeActivity,
   isPlaybackActivityValue,
+  isPlaybackModeFile,
+  isPlaybackModeYouTube,
   isPlaybackModeValue,
   isPlaybackPendingFile,
   isPlaybackPlayingFile,
@@ -44,6 +52,8 @@ import {
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
 let _wasPlaying = false;
+
+const YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS = 1000;
 
 interface SyncPongPlaybackState {
   mode: PlaybackModeValue;
@@ -56,6 +66,7 @@ function resetSyncClockRuntime(): void {
   resetClockState();
   _syncPingCounter = 0;
   _needsInitialSync = false;
+  clearManagedTimer('sync-youtube-nudge-apply');
 }
 
 /**
@@ -66,12 +77,71 @@ export function getTotalSyncOffsetMs(): number {
   return Math.round(localOffset * 1000);
 }
 
+function getActiveManualOffsetPath(): 'sync.localOffset' | 'sync.youtubeLocalOffset' {
+  return isPlaybackModeYouTube() ? 'sync.youtubeLocalOffset' : 'sync.localOffset';
+}
+
+function clampManualSyncOffset(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(-MANUAL_SYNC_OFFSET_LIMIT_SEC, Math.min(MANUAL_SYNC_OFFSET_LIMIT_SEC, value));
+}
+
+function canApplyManualSyncAction(): boolean {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn?.open) return false;
+  if (isPlaybackModeYouTube()) return true;
+  return isPlaybackModeFile() && !!getCurrentAudioBuffer();
+}
+
+function rejectManualSyncAction(): void {
+  bus.emit('sync:close-manual');
+  showToast(t('toast.sync_not_ready'));
+}
+
+function scheduleYouTubeManualSyncApply(): void {
+  clearManagedTimer('sync-youtube-nudge-apply');
+
+  const hostConn = getState('network.hostConn');
+  if (!hostConn?.open || !isPlaybackModeYouTube()) return;
+
+  setManagedTimer(
+    'sync-youtube-nudge-apply',
+    () => {
+      const currentHostConn = getState('network.hostConn');
+      if (!currentHostConn?.open || !isPlaybackModeYouTube()) return;
+      bus.emit('youtube:apply-manual-sync');
+    },
+    YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS,
+  );
+}
+
+function adjustYouTubeSync(val: number): void {
+  const localOffset = getState('sync.youtubeLocalOffset') || 0;
+  setState('sync.youtubeLocalOffset', clampManualSyncOffset(localOffset + val));
+  bus.emit('sync:display-update');
+  scheduleYouTubeManualSyncApply();
+}
+
 // ─── Auto Sync ──────────────────────────────────────────────────────
 
 export function handleAutoSync(): void {
-  setState('sync.localOffset', 0);
+  const offsetPath = getActiveManualOffsetPath();
+  if (offsetPath === 'sync.localOffset') {
+    setLocalManualSyncOffset(0);
+  } else {
+    setState(offsetPath, 0);
+  }
   bus.emit('sync:display-update');
   showToast(t('toast.sync_reset'));
+  clearManagedTimer('sync-youtube-nudge-apply');
+
+  if (offsetPath === 'sync.youtubeLocalOffset') {
+    const hostConn = getState('network.hostConn');
+    if (hostConn?.open && isPlaybackModeYouTube()) {
+      bus.emit('youtube:apply-manual-sync');
+    }
+    return;
+  }
 
   // Cancel any pending nudge replay from a click burst — otherwise its
   // deferred play() could fire AFTER our reset replay and re-introduce
@@ -498,10 +568,22 @@ export function initSync(): void {
   // Bus event handlers for UI-triggered sync actions
   bus.on('sync:nudge', (ms) => {
     if (!Number.isFinite(ms)) return;
+    if (!canApplyManualSyncAction()) {
+      rejectManualSyncAction();
+      return;
+    }
+    if (isPlaybackModeYouTube()) {
+      adjustYouTubeSync(ms / 1000);
+      return;
+    }
     adjustSync(ms / 1000);
   });
 
   bus.on('sync:auto-sync', () => {
+    if (!canApplyManualSyncAction()) {
+      rejectManualSyncAction();
+      return;
+    }
     handleAutoSync();
   });
 

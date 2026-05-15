@@ -74,7 +74,7 @@ vi.mock('../../network/protocol.ts', () => ({
 // mockHostConn)` and pass it as the stateHandler's second arg. Host-side
 // scheduleYtAutoSync tests intentionally leave hostConn null so the
 // broadcast path stays active.
-const mockHostConn: unknown = { peer: 'mock-host-peer' };
+const mockHostConn: unknown = { peer: 'mock-host-peer', open: true };
 
 // getHostNow tracks Date.now() so it advances with vitest fake timers.
 vi.mock('../../network/shared-clock.ts', () => ({
@@ -354,6 +354,24 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(seeks[0].args).toEqual([14.5, true]);
     });
 
+    it('adds the YouTube manual offset to drift correction seeks', async () => {
+      const player = installPlayer({
+        __state: 1,
+        __currentTime: 10,
+        __duration: 300,
+      });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      expect(handler).toBeDefined();
+      setState('network.hostConn', mockHostConn as never);
+      setState('sync.youtubeLocalOffset', 1.25);
+
+      handler({ time: 14.5, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
+
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
+      expect(seeks).toHaveLength(1);
+      expect(seeks[0].args).toEqual([15.75, true]);
+    });
+
     it('drift ≤ 3s does NOT trigger seekTo', async () => {
       const player = installPlayer({
         __state: 1,
@@ -423,6 +441,104 @@ describe('YouTube Sync — Regression Integration', () => {
       resetYouTubeSyncState();
 
       expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+    });
+  });
+
+  describe('guestRendezvousSync completion callback', () => {
+    it('does not start without an open host connection', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 300 });
+      const { guestRendezvousSync } = await importSync();
+      setState('network.hostConn', { peer: 'mock-host-peer', open: false } as never);
+
+      const result = guestRendezvousSync({ silent: true });
+
+      expect(result.status).toBe('not-ready');
+      expect(player.__log).toEqual([]);
+    });
+
+    it('fires onComplete after a successful paused-host alignment', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      const { guestRendezvousSync } = await importSync();
+      setState('network.hostConn', mockHostConn as never);
+
+      handler(
+        {
+          time: 42,
+          state: 2,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+          hostClock: Date.now(),
+        },
+        mockHostConn,
+      );
+      player.__log.length = 0;
+
+      const onComplete = vi.fn();
+      guestRendezvousSync({ silent: true, onComplete });
+
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([42, true]);
+      expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeDefined();
+    });
+
+    it('applies the current YouTube manual offset to paused-host alignment', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      const { guestRendezvousSync } = await importSync();
+      setState('network.hostConn', mockHostConn as never);
+      setState('sync.youtubeLocalOffset', 0.4);
+
+      handler(
+        {
+          time: 42,
+          state: 2,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+          hostClock: Date.now(),
+        },
+        mockHostConn,
+      );
+      player.__log.length = 0;
+
+      const result = guestRendezvousSync({ silent: true });
+
+      expect(result.status).toBe('completed');
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([42.4, true]);
+    });
+
+    it('retries manual-offset application when rendezvous is busy', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      const { guestRendezvousSync } = await importSync();
+      setState('network.hostConn', mockHostConn as never);
+
+      handler(
+        {
+          time: 10,
+          state: 1,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+          hostClock: Date.now(),
+        },
+        mockHostConn,
+      );
+      player.__log.length = 0;
+
+      const first = guestRendezvousSync({ silent: true });
+      expect(first.status).toBe('started');
+      setState('sync.youtubeLocalOffset', 0.75);
+
+      bus.emit('youtube:apply-manual-sync');
+      expect(getManagedTimer('yt-manual-offset-apply-retry')).not.toBeNull();
+
+      vi.advanceTimersByTime(3050);
+
+      expect(getManagedTimer('yt-manual-offset-apply-retry')).toBeNull();
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
+      expect(seeks.length).toBeGreaterThanOrEqual(2);
+      expect(seeks[seeks.length - 1].args?.[0]).toBeCloseTo(15.25, 2);
+      expect(seeks[seeks.length - 1].args?.[1]).toBe(true);
     });
   });
 

@@ -443,7 +443,7 @@ const en: Record<I18nKey, string> = {
   'toast.playing_in_3s': 'Starting playback in 3 seconds...',
   'toast.hprecision_sync': 'High-precision sync: preparing audio\u2026',
   'toast.file_ready': 'Your file is ready!\nPress Play.',
-  'toast.host_sync_not_recommended': 'Sync adjustment is not recommended for the host',
+  'toast.host_sync_not_recommended': 'Adjust sync on a guest device',
   'toast.sync_not_in_system_audio': 'Sync is unavailable in system audio sharing mode',
   'toast.sync_not_ready': 'Not ready yet.\nTry again in a moment',
   'toast.host_ad': 'The host seems to be watching an ad',
@@ -455,6 +455,8 @@ const en: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data': 'No host playback data yet, try again in a moment',
   'toast.yt_rendezvous_timeout': 'Sync failed, please try again in a moment',
   'toast.yt_host_sync_sent': 'Auto-sync signal sent to guests',
+  'toast.yt_manual_sync_prompt':
+    'Automatic sync was just attempted.\nIf it still feels delayed, adjust the value now',
   'toast.playlist_ended': 'Last track has ended',
   'toast.operator_required': 'Only admin can change audio settings',
   'toast.connection_closing': 'Connection lost, setting not synced',

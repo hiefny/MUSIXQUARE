@@ -1,12 +1,15 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { setCurrentAudioBuffer } from '../../player/_state.ts';
 import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
+import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
+import { showToast } from '../toast.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
@@ -15,15 +18,28 @@ import {
   updateRoleBadge,
 } from '../player-controls.ts';
 
+vi.mock('../../youtube/sync.ts', () => ({
+  broadcastYouTubeSync: vi.fn(),
+  guestRendezvousSync: vi.fn(),
+}));
+
+vi.mock('../toast.ts', () => ({
+  showToast: vi.fn(),
+  showLoader: vi.fn(),
+}));
+
 beforeEach(() => {
   resetState();
   bus.clear();
   clearAllManagedTimers();
+  setCurrentAudioBuffer(null);
+  vi.clearAllMocks();
   document.body.innerHTML = '';
 });
 
 afterEach(() => {
   clearAllManagedTimers();
+  setCurrentAudioBuffer(null);
   bus.clear();
 });
 
@@ -187,5 +203,114 @@ describe('initPlayerControls playback mode rendering', () => {
 
     bus.emit('ui:update-play-state', true);
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+  });
+});
+
+describe('initPlayerControls sync button', () => {
+  function renderSyncControls(): void {
+    document.body.innerHTML = `
+      <button id="btn-sync"></button>
+      <button id="play-btn"><svg><path d=""></path></svg></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <div id="manual-sync-overlay"></div>
+      <span id="manual-sync-value"></span>
+      <span id="auto-sync-value"></span>
+    `;
+  }
+
+  it('runs guest YouTube rendezvous before opening the manual sync panel', () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    setState('sync.youtubeLocalOffset', 0.25);
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    const guestSync = vi.mocked(guestRendezvousSync);
+    expect(guestSync).toHaveBeenCalledTimes(1);
+    const opts = guestSync.mock.calls[0][0];
+    expect(opts?.suppressProgressToast).toBe(true);
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+
+    opts?.onComplete?.();
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    expect((document.getElementById('manual-sync-value') as HTMLElement | null)?.innerText).toBe(
+      '+250',
+    );
+    expect(showToast).toHaveBeenCalledWith(
+      'Automatic sync was just attempted.\nIf it still feels delayed, adjust the value now',
+    );
+  });
+
+  it('sends a YouTube rendezvous request when the host presses sync', () => {
+    renderSyncControls();
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(broadcastYouTubeSync).toHaveBeenCalledWith(true);
+    expect(guestRendezvousSync).not.toHaveBeenCalled();
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(showToast).toHaveBeenCalledWith('Auto-sync signal sent to guests');
+  });
+
+  it('does not treat a closed YouTube host connection as either host or guest sync', () => {
+    renderSyncControls();
+    setState('network.hostConn', { peer: 'host-1', open: false } as DataConnection);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(broadcastYouTubeSync).not.toHaveBeenCalled();
+    expect(guestRendezvousSync).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+  });
+
+  it('keeps local-file sync adjustment guest-only', () => {
+    renderSyncControls();
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(showToast).toHaveBeenCalledWith('Adjust sync on a guest device');
+  });
+
+  it('does not open the local-file manual panel before the guest has a decoded buffer', () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+  });
+
+  it('closes the local-file manual panel if the decoded buffer is cleared', () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+
+    setCurrentAudioBuffer(null);
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
   });
 });

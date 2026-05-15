@@ -14,7 +14,13 @@ import {
   setPlayerNode,
 } from '../_state.ts';
 import { initPlayback } from '../playback.ts';
-import { pause, stopPlayerNode, stopAllMedia, updatePlayState } from '../transport.ts';
+import {
+  pause,
+  setLocalManualSyncOffset,
+  stopPlayerNode,
+  stopAllMedia,
+  updatePlayState,
+} from '../transport.ts';
 import {
   isExternalOwner,
   isSystemAudioOwner,
@@ -75,6 +81,27 @@ describe('setPendingPlayTime', () => {
   it('sets and getPendingPlayTime returns the value', () => {
     setPendingPlayTime(5);
     expect(getPendingPlayTime()).toBe(5);
+  });
+});
+
+describe('setLocalManualSyncOffset', () => {
+  it('keeps the logical track position stable when changing offset during playback', () => {
+    setPlaybackFilePlaying();
+    setState('player.startedAt', 100);
+    setState('sync.localOffset', 0.25);
+
+    const next = setLocalManualSyncOffset(0.5);
+
+    expect(next).toBe(0.5);
+    expect(getState('sync.localOffset')).toBe(0.5);
+    expect(getState('player.startedAt')).toBe(100.25);
+  });
+
+  it('clamps manual file offsets to the supported nudge range', () => {
+    const next = setLocalManualSyncOffset(99);
+
+    expect(next).toBe(3);
+    expect(getState('sync.localOffset')).toBe(3);
   });
 });
 

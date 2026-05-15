@@ -441,7 +441,7 @@ const ko = {
   'toast.playing_in_3s': '3초 후 재생 시작...',
   'toast.hprecision_sync': '고정밀 동기화: 오디오를 준비하고 있어요…',
   'toast.file_ready': '파일이 준비됐어요!\n재생 버튼을 눌러 보세요.',
-  'toast.host_sync_not_recommended': '방장의 동기화 제어는 권장하지 않아요',
+  'toast.host_sync_not_recommended': '동기화 보정은 참여자 기기에서 조정해주세요',
   'toast.sync_not_in_system_audio': '시스템 오디오 공유 모드는 동기화를 사용할 수 없어요',
   'toast.sync_not_ready': '아직 준비 중이에요.\n잠시 후 다시 시도해주세요',
   'toast.host_ad': '방장이 광고를 보고 있는 것 같아요',
@@ -453,6 +453,8 @@ const ko = {
   'toast.yt_rendezvous_no_data': '방장의 재생 정보가 없어요.\n잠시 후 다시 시도해주세요',
   'toast.yt_rendezvous_timeout': '동기화에 실패했어요.\n잠시 후 다시 시도해주세요',
   'toast.yt_host_sync_sent': '자동 동기화 신호를 보냈어요',
+  'toast.yt_manual_sync_prompt':
+    '방금 자동 동기화를 시도했어요.\n여전히 지연이 있으면 지금 값을 수정해주세요',
   'toast.playlist_ended': '마지막 곡이 끝났어요',
   'toast.operator_required': '관리자만 오디오 설정을 변경할 수 있어요',
   'toast.connection_closing': '연결 끊김, 설정이 동기화되지 않았어요',

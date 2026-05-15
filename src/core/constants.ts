@@ -61,6 +61,10 @@ export const DELAY = {
   BLOB_REVOCATION: 10000, // BlobURL revocation safety delay
 } as const;
 
+/** Manual per-device sync nudge clamp. Large offsets usually mean the
+ *  panel is being used in the wrong state, and can fight drift correction. */
+export const MANUAL_SYNC_OFFSET_LIMIT_SEC = 3;
+
 // ─── Network ───────────────────────────────────────────────────────
 export const DEFAULT_MAX_GUEST_SLOTS = 3;
 export const MIN_GUEST_SLOTS = 1;

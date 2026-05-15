@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG } from '../core/constants.ts';
+import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
@@ -837,9 +837,35 @@ export function skipTime(sec: number): void {
  */
 const NUDGE_REPLAY_DEBOUNCE_MS = 60;
 
+function clampManualSyncOffset(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(-MANUAL_SYNC_OFFSET_LIMIT_SEC, Math.min(MANUAL_SYNC_OFFSET_LIMIT_SEC, value));
+}
+
+export function setLocalManualSyncOffset(nextOffset: number): number {
+  const prevOffset = getState('sync.localOffset') || 0;
+  const next = clampManualSyncOffset(nextOffset);
+  if (next === prevOffset) return next;
+
+  setState('sync.localOffset', next);
+
+  // Keep the logical track position stable when changing only the manual
+  // output offset. The fresh play() below will rebuild the audio node at the
+  // new audible offset; this prevents the UI/sync position from jumping by
+  // the same delta before that replay lands.
+  if (!isFileTransportInactive()) {
+    const startedAt = getState('player.startedAt');
+    if (typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0) {
+      setState('player.startedAt', startedAt + (next - prevOffset));
+    }
+  }
+
+  return next;
+}
+
 export function adjustSync(val: number): void {
   const localOffset = getState('sync.localOffset') || 0;
-  setState('sync.localOffset', localOffset + val);
+  setLocalManualSyncOffset(localOffset + val);
   bus.emit('sync:display-update');
 
   if (isFileTransportInactive()) {

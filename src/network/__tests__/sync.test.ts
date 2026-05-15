@@ -73,6 +73,73 @@ describe('handleAutoSync', () => {
     handleAutoSync();
     expect(getState('sync.localOffset')).toBe(0);
   });
+
+  it('resets YouTube manual offset and requests an immediate rendezvous on guests', () => {
+    const applySpy = vi.fn();
+    bus.on('youtube:apply-manual-sync', applySpy);
+    setPlaybackYouTubePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+    setState('sync.youtubeLocalOffset', 0.25);
+
+    handleAutoSync();
+
+    expect(getState('sync.youtubeLocalOffset')).toBe(0);
+    expect(applySpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('manual sync nudge routing', () => {
+  it('rejects YouTube nudges when the guest has no open host connection', () => {
+    initSync();
+    setPlaybackYouTubePlaying();
+
+    bus.emit('sync:nudge', 10);
+
+    expect(getState('sync.youtubeLocalOffset')).toBe(0);
+  });
+
+  it('rejects local-file nudges before a decoded buffer exists', () => {
+    initSync();
+    setPlaybackFilePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    bus.emit('sync:nudge', 10);
+
+    expect(getState('sync.localOffset')).toBe(0);
+  });
+
+  it('clamps YouTube manual offset changes to the supported nudge range', () => {
+    vi.useFakeTimers();
+    initSync();
+    setPlaybackYouTubePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    bus.emit('sync:nudge', 5000);
+
+    expect(getState('sync.youtubeLocalOffset')).toBe(3);
+  });
+
+  it('debounces YouTube nudges and applies them through rendezvous once', () => {
+    vi.useFakeTimers();
+    initSync();
+    const applySpy = vi.fn();
+    bus.on('youtube:apply-manual-sync', applySpy);
+    setPlaybackYouTubePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    bus.emit('sync:nudge', 10);
+    expect(getState('sync.youtubeLocalOffset')).toBeCloseTo(0.01, 4);
+    expect(applySpy).not.toHaveBeenCalled();
+
+    bus.emit('sync:nudge', 1);
+    expect(getState('sync.youtubeLocalOffset')).toBeCloseTo(0.011, 4);
+
+    vi.advanceTimersByTime(999);
+    expect(applySpy).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(applySpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('SYNC_PING playback snapshot', () => {

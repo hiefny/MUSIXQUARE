@@ -68,12 +68,14 @@ export function liveAudioBufferCount(): { live: number; everSeen: number } {
 export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
   const prev = _currentAudioBuffer;
   _currentAudioBuffer = buf;
+  if (buf !== prev) {
+    bus.emit('player:buffer-changed');
+  }
   if (buf && buf !== prev) {
     if (typeof WeakRef !== 'undefined') {
       _audioBufferRefs.push(new WeakRef(buf));
     }
     _decodedBufferTotal++;
-    bus.emit('player:buffer-changed');
   }
 }
 

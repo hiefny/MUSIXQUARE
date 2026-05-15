@@ -319,6 +319,127 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
+  describe('zero-start barrier', () => {
+    it('starts from 0 as soon as all connected guests report ready', async () => {
+      const peerConn = { peer: 'guest-1', open: true, send: vi.fn() };
+      setState('network.connectedPeers', [
+        {
+          id: 'guest-1',
+          conn: peerConn,
+          status: 'connected',
+          label: 'Guest',
+          isDataTarget: true,
+        },
+      ] as never);
+      const player = installPlayer({ __state: 2, __currentTime: 0, __videoId: 'ZERO_VIDEO' });
+      const { initYouTube } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
+
+      initYouTube();
+      bus.emit('youtube:auto-play');
+
+      const prepare = broadcastMock.mock.calls.find(
+        (c) => c[0]?.type === MSG.YOUTUBE_ZERO_START_PREPARE,
+      )?.[0];
+      expect(prepare).toMatchObject({
+        type: MSG.YOUTUBE_ZERO_START_PREPARE,
+        videoId: 'ZERO_VIDEO',
+        timeoutMs: 3000,
+      });
+      expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
+
+      const readyHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_READY];
+      expect(readyHandler).toBeDefined();
+      readyHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_READY,
+          token: prepare?.token,
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+        },
+        peerConn,
+      );
+
+      const state = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];
+      expect(state).toMatchObject({
+        type: MSG.YOUTUBE_STATE,
+        state: 1,
+        time: 0,
+        videoId: 'ZERO_VIDEO',
+        zeroStart: true,
+      });
+
+      vi.advanceTimersByTime(500);
+      expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
+    });
+
+    it('guest prepare pauses/seeks to 0 and sends ready to host', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 0.4, __videoId: 'ZERO_VIDEO' });
+      const { initYouTube } = await importPlayer();
+      const { safeSend } = await import('../../network/peer.ts');
+      const safeSendMock = vi.mocked(safeSend);
+      setState('network.hostConn', mockHostConn as never);
+
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      expect(prepareHandler).toBeDefined();
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          token: 'zero-token',
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+          timeoutMs: 3000,
+        },
+        mockHostConn,
+      );
+
+      expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
+      expect(safeSendMock).toHaveBeenCalledWith(
+        mockHostConn,
+        expect.objectContaining({
+          type: MSG.YOUTUBE_ZERO_START_READY,
+          token: 'zero-token',
+          videoId: 'ZERO_VIDEO',
+        }),
+      );
+    });
+
+    it('guest scheduled play keeps manual nudge and subtracts learned play latency', async () => {
+      const player = installPlayer({ __state: 2, __duration: 300, __videoId: 'FAKE_VIDEO' });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      expect(handler).toBeDefined();
+      setState('network.hostConn', mockHostConn as never);
+      setState('sync.youtubeLocalOffset', 0.25);
+      setState('youtube.guestPlayLatency', 200);
+
+      handler(
+        {
+          state: 1,
+          time: 0,
+          hostPlayAt: Date.now() + 500,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+          zeroStart: true,
+        },
+        mockHostConn,
+      );
+
+      expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0.25)).toBe(true);
+
+      player.__log.length = 0;
+      vi.advanceTimersByTime(299);
+      expect(player.__log.some((c) => c.op === 'playVideo')).toBe(false);
+
+      vi.advanceTimersByTime(1);
+      expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
+    });
+  });
+
   // 5. Host seeks during guest countdown: new handleYouTubeState supersedes prior (cd75008)
   describe('handleYouTubeState — host seeks during countdown (commit cd75008)', () => {
     it('second YOUTUBE_STATE during countdown replaces the first scheduled play', async () => {

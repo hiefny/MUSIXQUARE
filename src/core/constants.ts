@@ -145,6 +145,8 @@ export const MSG = {
   SESSION_FULL: 'session-full',
   YOUTUBE_PLAY: 'youtube-play',
   YOUTUBE_PLAYLIST_INFO: 'youtube-playlist-info',
+  YOUTUBE_ZERO_START_PREPARE: 'youtube-zero-start-prepare',
+  YOUTUBE_ZERO_START_READY: 'youtube-zero-start-ready',
   YOUTUBE_STATE: 'youtube-state',
   YOUTUBE_SUB_TITLE_UPDATE: 'youtube-sub-title-update',
   YOUTUBE_STOP: 'youtube-stop',

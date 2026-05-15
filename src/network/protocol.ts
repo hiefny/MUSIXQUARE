@@ -106,6 +106,19 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.videoId === undefined || d.videoId === null || typeof d.videoId === 'string') &&
     (d.index === undefined || isNonNegInt(d.index)) &&
     (d.subIndex === undefined || isNonNegInt(d.subIndex)),
+  [MSG.YOUTUBE_ZERO_START_PREPARE]: (d) =>
+    typeof d.token === 'string' &&
+    d.token.length <= 80 &&
+    isFiniteNumber(d.timeoutMs) &&
+    (d.timeoutMs as number) >= 0 &&
+    (d.timeoutMs as number) <= 5000 &&
+    (d.videoId === undefined || typeof d.videoId === 'string') &&
+    (d.subIndex === undefined || isNonNegInt(d.subIndex)),
+  [MSG.YOUTUBE_ZERO_START_READY]: (d) =>
+    typeof d.token === 'string' &&
+    d.token.length <= 80 &&
+    (d.videoId === undefined || typeof d.videoId === 'string') &&
+    (d.subIndex === undefined || isNonNegInt(d.subIndex)),
   [MSG.YOUTUBE_SYNC]: (d) =>
     isFiniteNumber(d.time) &&
     isFiniteNumber(d.state) &&

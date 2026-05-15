@@ -1101,9 +1101,12 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     const duration = player.getDuration?.() || 0;
     const manualTargetTime = applyYouTubeManualOffset(time, duration);
+    const isZeroStart = data.zeroStart === true;
 
     if (hostPlayAt > 0 && isClockCalibrated()) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
+      const playLatencyMs = isZeroStart && state === 1 ? getEffectiveGuestPlayLatencyMs() : 0;
+      const actionWaitMs = Math.max(0, waitMs - playLatencyMs);
 
       if (waitMs > SHORT_WAIT_THRESHOLD_MS && waitMs < AUTO_SYNC_MAX_WAIT_MS && state === 1) {
         // ── Auto-sync path: significant wait (>SHORT_WAIT_THRESHOLD_MS) + play command ──
@@ -1143,15 +1146,19 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             bus.emit('youtube:sync-loading', false);
             showToast(t('toast.yt_sync_done'));
           },
-          waitMs,
+          actionWaitMs,
         );
 
-        log.debug(`[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`);
+        log.debug(
+          `[YouTube State] Auto-sync: pause+seek, play in ${actionWaitMs}ms (host wait ${waitMs}ms)`,
+        );
       } else if (waitMs > 0 && waitMs <= SHORT_WAIT_THRESHOLD_MS) {
         // Short wait (≤SHORT_WAIT_THRESHOLD_MS) — schedule with brief pause-seek-play
         // M6: clamp to [0, duration] to avoid seeking past the end which
         // triggers a premature ENDED event and track-advance on the guest.
-        const rawCompensated = time + waitMs / 1000 + getYouTubeManualOffsetSec();
+        const rawCompensated = isZeroStart
+          ? manualTargetTime
+          : time + waitMs / 1000 + getYouTubeManualOffsetSec();
         const compensatedTime =
           duration > 0 ? Math.max(0, Math.min(rawCompensated, duration)) : rawCompensated;
         if (compensatedTime >= 0 && duration >= 0) {
@@ -1195,7 +1202,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
               if (p.seekTo) p.seekTo(compensatedTime, true);
             }
           },
-          waitMs,
+          actionWaitMs,
         );
       } else {
         // No wait or out of range — execute immediately

@@ -32,6 +32,9 @@ import {
   TRACK_TRANSITION_RENDEZVOUS_MS,
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
+  ZERO_START_MAX_WAIT_MS,
+  ZERO_START_PLAY_LEAD_MS,
+  ZERO_START_READY_POLL_MS,
 } from './constants.ts';
 
 export interface PendingAutoSyncOptions {
@@ -71,6 +74,27 @@ export function consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null {
   _pendingAutoSyncOptions = null;
   return options;
 }
+
+interface ZeroStartSession {
+  token: string;
+  videoId: string;
+  subIndex: number;
+  expectedPeerIds: Set<string>;
+  readyPeerIds: Set<string>;
+  started: boolean;
+}
+
+interface GuestZeroStartWait {
+  token: string;
+  videoId: string;
+  subIndex: number;
+  deadlineAt: number;
+  readySent: boolean;
+}
+
+let _zeroStartSeq = 0;
+let _zeroStartSession: ZeroStartSession | null = null;
+let _guestZeroStartWait: GuestZeroStartWait | null = null;
 
 function isCompatIdle(): boolean {
   return isPlaybackIdleCompat();
@@ -244,6 +268,241 @@ export function cancelYtAutoSync(): void {
   bus.emit('youtube:sync-loading', false);
 }
 
+function clearZeroStartSession(): void {
+  clearManagedTimer('yt-zero-start-timeout');
+  clearManagedTimer('yt-zero-start-play');
+  clearManagedTimer('yt-zero-start-stage2');
+  _zeroStartSession = null;
+}
+
+function clearGuestZeroStartWait(): void {
+  clearManagedTimer('yt-zero-start-ready-poll');
+  clearManagedTimer('yt-zero-start-guest-timeout');
+  _guestZeroStartWait = null;
+}
+
+function makeZeroStartToken(): string {
+  _zeroStartSeq = (_zeroStartSeq + 1) % 100_000;
+  return `${Date.now().toString(36)}-${_zeroStartSeq.toString(36)}`;
+}
+
+function getOpenYouTubeReadyPeerIds(): string[] {
+  return (getState('network.connectedPeers') || [])
+    .filter((peer) => peer.status === 'connected' && peer.conn?.open)
+    .map((peer) => peer.id)
+    .filter(Boolean);
+}
+
+function getCurrentYouTubeVideoId(): string {
+  try {
+    return getYouTubePlayer()?.getVideoData?.()?.video_id || '';
+  } catch {
+    return '';
+  }
+}
+
+function prepareLocalZeroStart(videoId: string): boolean {
+  const player = getYouTubePlayer();
+  if (!player?.pauseVideo || !player.seekTo) return false;
+  const currentVideoId = getCurrentYouTubeVideoId();
+  if (videoId && currentVideoId && currentVideoId !== videoId) return false;
+
+  try {
+    setYtAutoplayIntent(false);
+    player.pauseVideo();
+    player.seekTo(0, true);
+    return true;
+  } catch (e) {
+    log.debug('[YouTube ZeroStart] local prepare failed:', e);
+    return false;
+  }
+}
+
+function finishZeroStartSession(reason: string): void {
+  const session = _zeroStartSession;
+  if (!session || session.started) return;
+  session.started = true;
+  clearManagedTimer('yt-zero-start-timeout');
+
+  const player = getYouTubePlayer();
+  if (!player?.playVideo) {
+    clearZeroStartSession();
+    return;
+  }
+
+  prepareLocalZeroStart(session.videoId);
+  const hostPlayAt = getHostNow() + ZERO_START_PLAY_LEAD_MS;
+  markYtStateBroadcast();
+  broadcast({
+    type: MSG.YOUTUBE_STATE,
+    state: 1,
+    time: 0,
+    subIndex: session.subIndex,
+    videoId: session.videoId,
+    hostPlayAt,
+    hostClock: getHostNow(),
+    zeroStart: true,
+    title: player.getVideoData?.()?.title || '',
+  });
+
+  bus.emit('youtube:sync-loading', true);
+  const waitMs = Math.max(0, hostPlayAt - getHostNow());
+  setManagedTimer(
+    'yt-zero-start-play',
+    () => {
+      const p = getYouTubePlayer();
+      if (p?.playVideo) {
+        setYtAutoplayIntent(true);
+        p.playVideo();
+      }
+      bus.emit('youtube:sync-loading', false);
+    },
+    waitMs,
+  );
+
+  setManagedTimer(
+    'yt-zero-start-stage2',
+    () => {
+      markYtStateBroadcast();
+      broadcastYouTubeSync(true, 1);
+      log.debug(`[YouTube ZeroStart] Stage 2 rendezvous after ${reason}`);
+      _zeroStartSession = null;
+    },
+    waitMs + STAGE2_RENDEZVOUS_BROADCAST_MS,
+  );
+}
+
+function tryScheduleZeroStart(options: PendingAutoSyncOptions): boolean {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return false;
+
+  const targetTime = options.targetTime ?? 0;
+  if (targetTime > 0.75) return false;
+
+  const player = getYouTubePlayer();
+  if (!player?.playVideo) return false;
+
+  const videoId = (options.videoId ?? getCurrentYouTubeVideoId()) || '';
+  const subIndex = options.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
+  if (!prepareLocalZeroStart(videoId)) return false;
+
+  clearZeroStartSession();
+  const expectedPeerIds = new Set(getOpenYouTubeReadyPeerIds());
+  const session: ZeroStartSession = {
+    token: makeZeroStartToken(),
+    videoId,
+    subIndex,
+    expectedPeerIds,
+    readyPeerIds: new Set(),
+    started: false,
+  };
+  _zeroStartSession = session;
+
+  bus.emit('youtube:sync-loading', true);
+  broadcast({
+    type: MSG.YOUTUBE_ZERO_START_PREPARE,
+    token: session.token,
+    videoId: session.videoId,
+    subIndex: session.subIndex >= 0 ? session.subIndex : undefined,
+    timeoutMs: ZERO_START_MAX_WAIT_MS,
+  });
+
+  if (expectedPeerIds.size === 0) {
+    setManagedTimer('yt-zero-start-timeout', () => finishZeroStartSession('host-only'), 120);
+  } else {
+    setManagedTimer(
+      'yt-zero-start-timeout',
+      () => finishZeroStartSession('timeout'),
+      ZERO_START_MAX_WAIT_MS,
+    );
+  }
+  return true;
+}
+
+function handleYouTubeZeroStartReady(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (getState('network.hostConn')) return;
+  const session = _zeroStartSession;
+  const peerId = conn?.peer;
+  if (!session || !peerId || session.started) return;
+  if (data.token !== session.token || !session.expectedPeerIds.has(peerId)) return;
+
+  const videoId = (data.videoId as string | undefined) || '';
+  if (session.videoId && videoId && session.videoId !== videoId) return;
+
+  session.readyPeerIds.add(peerId);
+  if (session.readyPeerIds.size >= session.expectedPeerIds.size) {
+    finishZeroStartSession('all-ready');
+  }
+}
+
+function guestZeroStartReady(): boolean {
+  const wait = _guestZeroStartWait;
+  if (!wait || wait.readySent) return true;
+  const player = getYouTubePlayer();
+  if (!player?.pauseVideo || !player.seekTo || !player.getPlayerState) return false;
+
+  const currentVideoId = getCurrentYouTubeVideoId();
+  if (wait.videoId && currentVideoId && currentVideoId !== wait.videoId) return false;
+
+  try {
+    setYtAutoplayIntent(false);
+    player.pauseVideo();
+    player.seekTo(0, true);
+  } catch {
+    return false;
+  }
+
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) return false;
+  wait.readySent = true;
+  safeSend(hostConn, {
+    type: MSG.YOUTUBE_ZERO_START_READY,
+    token: wait.token,
+    videoId: wait.videoId || currentVideoId || undefined,
+    subIndex: wait.subIndex >= 0 ? wait.subIndex : undefined,
+  });
+  return true;
+}
+
+function handleYouTubeZeroStartPrepare(data: Record<string, unknown>, conn?: DataConnection): void {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn) return;
+
+  clearGuestZeroStartWait();
+  _guestZeroStartWait = {
+    token: data.token as string,
+    videoId: (data.videoId as string | undefined) || '',
+    subIndex: Number.isFinite(Number(data.subIndex)) ? Number(data.subIndex) : -1,
+    deadlineAt: Date.now() + Number(data.timeoutMs || ZERO_START_MAX_WAIT_MS),
+    readySent: false,
+  };
+
+  bus.emit('youtube:sync-loading', true);
+  if (guestZeroStartReady()) return;
+
+  setManagedTimer(
+    'yt-zero-start-ready-poll',
+    () => {
+      const wait = _guestZeroStartWait;
+      if (!wait) return;
+      if (guestZeroStartReady() || Date.now() >= wait.deadlineAt) {
+        clearManagedTimer('yt-zero-start-ready-poll');
+      }
+    },
+    ZERO_START_READY_POLL_MS,
+    { interval: true },
+  );
+  setManagedTimer(
+    'yt-zero-start-guest-timeout',
+    () => {
+      clearManagedTimer('yt-zero-start-ready-poll');
+      bus.emit('youtube:sync-loading', false);
+      _guestZeroStartWait = null;
+    },
+    Number(data.timeoutMs || ZERO_START_MAX_WAIT_MS) + ZERO_START_PLAY_LEAD_MS + 1000,
+  );
+}
+
 function scheduleLateJoinRendezvousSync(
   conn: DataConnection,
   fallbackSubIndex: number,
@@ -291,6 +550,8 @@ function scheduleLateJoinRendezvousSync(
 export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   getYtScope()?.dispose();
   setYtScope(null);
+  clearZeroStartSession();
+  clearGuestZeroStartWait();
   setYtLoadInProgress(false);
   setCachedYtDuration(0); // Reset duration cache
   const wasInYouTube = isPlaybackModeYouTube();
@@ -487,6 +748,8 @@ export function initYouTube(): void {
     [MSG.REQUEST_YOUTUBE_TOGGLE]: handleRequestYouTubeToggle,
     [MSG.REQUEST_YOUTUBE_SUB_SEEK]: handleRequestYouTubeSubSeek,
     [MSG.REQUEST_YOUTUBE_PLAYLIST_INFO]: handleRequestYouTubePlaylistInfo,
+    [MSG.YOUTUBE_ZERO_START_PREPARE]: handleYouTubeZeroStartPrepare,
+    [MSG.YOUTUBE_ZERO_START_READY]: handleYouTubeZeroStartReady,
   });
 
   // Bus event handlers from other modules
@@ -699,6 +962,8 @@ export function initYouTube(): void {
     const isTrackTransition = options.isTrackTransition === true;
 
     if (isTrackTransition) {
+      if (tryScheduleZeroStart(options)) return;
+
       // Block-to-block YT-to-YT track switch (system-playlist navigation
       // between distinct YouTube entries). autoplay=true bypassed the
       // pause-back guard in iframe.ts onStateChange, so without this branch
@@ -725,6 +990,8 @@ export function initYouTube(): void {
 
     // First-time URL-input load or pause-back path: host hasn't been
     // playing the new video yet, so STAGE2 (2s) is enough.
+    if (tryScheduleZeroStart(options)) return;
+
     //
     // Flip intent BEFORE scheduleYtAutoSync so its final playVideo()
     // doesn't get caught by onStateChange's pause-back guard (the guard

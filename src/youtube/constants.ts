@@ -30,6 +30,15 @@ export const STAGE2_RENDEZVOUS_BROADCAST_MS = 2000;
  *  guests time to loadVideoById a different video before synced play fires. */
 export const TRACK_TRANSITION_RENDEZVOUS_MS = 4000;
 
+/** Maximum time the host waits for guests to report "loaded and paused at 0". */
+export const ZERO_START_MAX_WAIT_MS = 3000;
+
+/** Short shared-clock lead after the zero-start barrier opens. */
+export const ZERO_START_PLAY_LEAD_MS = 500;
+
+/** Guest polling cadence while waiting for the iframe to become zero-start ready. */
+export const ZERO_START_READY_POLL_MS = 100;
+
 /** Host heartbeat interval (periodic YOUTUBE_SYNC drift broadcast). */
 export const HEARTBEAT_INTERVAL_MS = 3000;
 

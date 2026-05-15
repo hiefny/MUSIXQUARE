@@ -139,6 +139,12 @@ export const config = {
   // invocations on high-traffic pages.
   path: "/:code",
   excludedPath: [
+    "/about",
+    "/privacy",
+    "/terms",
+    "/history",
+    "/faq",
+    "/landing",
     "/roadmap",
     "/changelog",
     "/designsystem",

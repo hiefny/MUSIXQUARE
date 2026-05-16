@@ -51,7 +51,30 @@ function withSecurityHeaders(response, extraHeaders = {}) {
   });
 }
 
-function trustedCors(request, methods) {
+function normalizeCorsOrigin(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    return url.origin;
+  } catch {
+    return '';
+  }
+}
+
+function configuredTrustedOrigins(env) {
+  const raw = env.TRUSTED_CORS_ORIGINS || env.CORS_ALLOWED_ORIGINS || '';
+  if (typeof raw !== 'string' || !raw.trim()) return new Set();
+  return new Set(raw.split(/[\s,]+/).map(normalizeCorsOrigin).filter(Boolean));
+}
+
+function isConfiguredTrustedOrigin(origin, env) {
+  const normalizedOrigin = normalizeCorsOrigin(origin);
+  if (!normalizedOrigin) return false;
+  return configuredTrustedOrigins(env).has(normalizedOrigin);
+}
+
+function trustedCors(request, methods, env = {}) {
   const origin = request.headers.get('Origin') || '';
   const host = request.headers.get('Host') || '';
   const fetchSite = (request.headers.get('Sec-Fetch-Site') || '').toLowerCase();
@@ -62,14 +85,15 @@ function trustedCors(request, methods) {
     /^https:\/\/[^/]*\.tossmini\.com$/i,
     /^https:\/\/musixquare\.com$/i,
     /^https:\/\/[^/]*\.musixquare\.com$/i,
-    /^https:\/\/[^/]*\.workers\.dev$/i,
-    /^https:\/\/[^/]*\.pages\.dev$/i,
   ];
 
   const sameOrigin = origin && (origin === `https://${host}` || origin === `http://${host}`);
   const browserSameOrigin = fetchSite === 'same-origin';
   const isTrusted =
-    sameOrigin || browserSameOrigin || trustedPatterns.some((pattern) => pattern.test(origin));
+    sameOrigin ||
+    browserSameOrigin ||
+    trustedPatterns.some((pattern) => pattern.test(origin)) ||
+    isConfiguredTrustedOrigin(origin, env);
   const allowOrigin = isTrusted ? origin : '';
 
   return {
@@ -145,7 +169,7 @@ function getClientStatusForUpstreamError(status, reason) {
 }
 
 async function handleYoutubeSearch(request, env) {
-  const { isTrusted, headers } = trustedCors(request, 'GET, OPTIONS');
+  const { isTrusted, headers } = trustedCors(request, 'GET, OPTIONS', env);
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
@@ -287,7 +311,7 @@ function getMeteredFallbackIceServers(env) {
 }
 
 async function handleTurnConfig(request, env) {
-  const { isTrusted, headers } = trustedCors(request, 'GET, OPTIONS');
+  const { isTrusted, headers } = trustedCors(request, 'GET, OPTIONS', env);
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
@@ -362,7 +386,7 @@ function shouldSendPayloadBody(action, payload) {
 }
 
 async function handleRealtime(request, env) {
-  const { isTrusted, headers } = trustedCors(request, 'POST, OPTIONS');
+  const { isTrusted, headers } = trustedCors(request, 'POST, OPTIONS', env);
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);

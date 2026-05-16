@@ -21,3 +21,5 @@ run_worker_first = ["/*"]
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"
 CLOUDFLARE_TURN_TTL = "172800"
+# Optional comma/space-separated exact origins for trusted deploy previews.
+# TRUSTED_CORS_ORIGINS = "https://example-preview.pages.dev"

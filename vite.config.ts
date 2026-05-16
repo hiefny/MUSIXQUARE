@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import { resolve } from 'path';
 
 // Emits static workshop pages at dist root (instead of dist/.workshop/**/)
-// so Netlify can serve them without exposing dotfolder paths.
+// so the static host can serve them without exposing dotfolder paths.
 const flattenWorkshopHtml = (): Plugin => ({
   name: 'flatten-workshop-html',
   enforce: 'post',
@@ -25,7 +25,7 @@ const flattenWorkshopHtml = (): Plugin => ({
   },
 });
 
-// Lets local dev resolve public/canonical pages the same way Netlify does.
+// Lets local dev resolve public/canonical pages the same way the prod host does.
 const devPageAliases = (): Plugin => ({
   name: 'dev-page-aliases',
   apply: 'serve',

@@ -60,7 +60,6 @@ function trustedCors(request, methods) {
     /^https:\/\/[^/]*\.toss\.im$/i,
     /^https:\/\/[^/]*\.toss-internal\.com$/i,
     /^https:\/\/[^/]*\.tossmini\.com$/i,
-    /^https:\/\/musixquare\.netlify\.app$/i,
     /^https:\/\/musixquare\.com$/i,
     /^https:\/\/[^/]*\.musixquare\.com$/i,
     /^https:\/\/[^/]*\.workers\.dev$/i,
@@ -580,13 +579,10 @@ export default {
     switch (url.pathname) {
       case '/__health':
         return json({ ok: true, service: 'musixquare-app' });
-      case '/.netlify/functions/youtube-search':
       case '/api/youtube-search':
         return handleYoutubeSearch(request, env);
-      case '/.netlify/functions/get-turn-config':
       case '/api/get-turn-config':
         return handleTurnConfig(request, env);
-      case '/.netlify/functions/cloudflare-realtime':
       case '/api/cloudflare-realtime':
         return handleRealtime(request, env);
       default:

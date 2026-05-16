@@ -1,6 +1,6 @@
 # Production Hotfix And Rollback Procedure
 
-Reviewed against `public/service-worker.js` `CACHE_VERSION = "v114"` and `src/sw-register.ts` on 2026-05-12.
+Reviewed against `public/service-worker.js` `CACHE_VERSION = "v116"` and `src/sw-register.ts` on 2026-05-16.
 
 This document is the canonical production hotfix note. The older working copy in `.workshop/review` was a pre-refactor draft and should not be used as the source of truth.
 
@@ -24,7 +24,7 @@ git commit -m "fix(domain): describe the fix"
 git push origin main
 ```
 
-Netlify should build and deploy `main` automatically. After the deploy is live, verify the production URL in a fresh browser session.
+Cloudflare's GitHub integration builds and deploys `main` automatically. For an out-of-band push, run `npx wrangler deploy --config cloudflare/wrangler.app.toml`. After the deploy is live, verify the production URL in a fresh browser session.
 
 ## Client Update Behavior
 
@@ -59,7 +59,7 @@ npm run build
 ```
 
 4. Commit and push to `main`.
-5. After Netlify deploys, verify:
+5. After Cloudflare deploys, verify:
    - fresh production load
    - an already-open production tab
    - service-worker update dialog or cooldown behavior
@@ -71,7 +71,7 @@ Do not add a forced reload mechanism casually. There is no current production br
 
 If a deployment is bad:
 
-1. In Netlify, publish the previous known-good deploy if immediate rollback is needed.
+1. In the Cloudflare dashboard, roll back to the previous known-good Worker deployment if immediate rollback is needed.
 2. In git, prefer a revert commit:
 
 ```bash
@@ -94,7 +94,7 @@ Treat these separately from app hotfixes unless the app has a confirmed code-lev
 | Dependency | User symptom | Current response |
 | --- | --- | --- |
 | PeerJS-compatible signaling / Cloudflare signaling | New sessions or remote peers fail to connect. | Check the configured transport and service status. Prefer transport fallback or a small compatibility patch over broad session rewrites. |
-| TURN credential endpoint / Netlify Function | Remote peers may fall back to STUN-only and fail across restrictive NATs. | Confirm the function response and Netlify status. Do not cache TURN credentials. |
+| TURN credential endpoint / Cloudflare Worker | Remote peers may fall back to STUN-only and fail across restrictive NATs. | Confirm `/api/get-turn-config` response and Cloudflare status. Do not cache TURN credentials. |
 | YouTube IFrame API | YouTube mode fails while file playback still works. | Confirm iframe/API availability. File mode remains the fallback user path. |
 | Browser audio/WebRTC policy changes | iOS/Safari/Chrome-specific playback or connection drift. | Reproduce on the affected real device/browser. Unit tests cannot prove this class of issue. |
 

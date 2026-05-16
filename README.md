@@ -37,9 +37,9 @@ MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchron
 
 ## Environment Variables
 
-Server-only variables are configured in Netlify site environment settings.
+Server-only variables are configured as Cloudflare Worker secrets (`wrangler secret put ...`) bound to the app worker.
 
-- `YOUTUBE_API_KEY`: YouTube Data API v3 key used by `/.netlify/functions/youtube-search`.
+- `YOUTUBE_API_KEY`: YouTube Data API v3 key used by `/api/youtube-search`.
 - `YOUTUBE_SEARCH_MAX_RESULTS` (optional): Search result count, capped at 12. Default is 10.
 - `YOUTUBE_REGION_CODE` (optional): Two-letter region bias such as `KR`.
 - `YOUTUBE_RELEVANCE_LANGUAGE` (optional): Language bias such as `ko`.

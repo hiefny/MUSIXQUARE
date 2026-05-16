@@ -216,16 +216,16 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     setPeer(null);
   }
 
-  // ICE servers: STUN always, TURN via Netlify Function (Cloudflare primary, Metered fallback)
+  // ICE servers: STUN always, TURN via Cloudflare app worker (Cloudflare primary, Metered fallback)
   const iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
   ];
 
-  // Direct URLs only (no .netlify.app → .com redirect, which breaks CORS in some WebViews)
+  // Direct URLs only (avoid cross-host redirects, which break CORS in some WebViews)
   const turnEndpoints = [
-    '/.netlify/functions/get-turn-config', // same-origin (works for musixquare.com)
-    'https://musixquare.com/.netlify/functions/get-turn-config', // cross-origin (Toss WebView, etc.) — direct, no redirect
+    '/api/get-turn-config', // same-origin (works for musixquare.com)
+    'https://musixquare.com/api/get-turn-config', // cross-origin (Toss WebView, etc.) — direct, no redirect
   ];
 
   for (const url of turnEndpoints) {

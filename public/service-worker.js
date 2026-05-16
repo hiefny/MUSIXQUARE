@@ -41,7 +41,8 @@
 // v113: bypass cross-origin requests entirely — opaque responses from the runtime cache were rendering as broken-image icons for the YouTube paste preview thumbnail (i.ytimg.com) on prod WebView/Safari paths, while dev (no SW) worked fine
 // v114: invalidate cached app shell after playback ownership/state migration hardening
 // v115: invalidate cached editorial chrome CSS after solid surface-1 header/nav migration
-const CACHE_VERSION = "v115";
+// v116: invalidate cached responses for migrated /.netlify/functions/* → /api/* backend endpoints (TURN, YouTube search, Cloudflare Realtime)
+const CACHE_VERSION = "v116";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -146,7 +147,7 @@ function isCacheableRequest(request) {
   // Never cache backend functions — they return per-request data (e.g.
   // TURN credentials). CacheStorage doesn't honour Cache-Control: no-store,
   // so the only safe move is to skip them entirely from the SW pipeline.
-  if (path.startsWith('/.netlify/functions/')) return false;
+  if (path.startsWith('/api/')) return false;
 
   // Always allow the tiny built-in dummy audio used for iOS/AudioContext keep-alive.
   // (If we block all .mp3, offline mode would fail even though it's in APP_SHELL.)

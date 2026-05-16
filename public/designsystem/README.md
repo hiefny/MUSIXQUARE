@@ -10,7 +10,7 @@ file-sync, or across networks via YouTube Together.
 - Source: **github.com/hiefny/MUSIXQUARE** (MIT-compatible — see repo LICENSE)
 - Locale: Korean (primary) + English
 - Stack: TypeScript + Vite, Web Audio API, PeerJS (WebRTC), RAM-only storage
-- Deploy: Netlify (with TURN Netlify Function)
+- Deploy: Cloudflare Workers (app worker bundles static assets + TURN/YouTube/Realtime API)
 
 The product is a **single PWA** — there is no marketing site, no docs site,
 no separate mobile app. Everything runs in one responsive web shell that

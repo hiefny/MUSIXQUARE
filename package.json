@@ -30,7 +30,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@netlify/edge-functions": "^3.0.6",
     "@playwright/test": "^1.58.2",
     "@resvg/resvg-wasm": "^2.6.2",
     "@types/qrcode": "^1.5.6",

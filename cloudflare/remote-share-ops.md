@@ -38,7 +38,7 @@ Downloads do not write to KV.
   - `IP_UPLOADS_PER_WINDOW`: default 60 upload sessions per IP per hour.
   - `ROOM_UPLOADS_PER_WINDOW`: default 0, which disables room-wide limiting.
 - R2 bucket CORS allows the production origins and local dev origins.
-- Netlify CSP allows direct R2 upload connections via
+- App worker CSP allows direct R2 upload connections via
   `https://*.r2.cloudflarestorage.com`.
 
 ## Upgrade Signals

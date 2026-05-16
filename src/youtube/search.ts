@@ -23,7 +23,7 @@ import {
   OEMBED_PREVIEW_DEBOUNCE_MS,
 } from './constants.ts';
 
-const YOUTUBE_SEARCH_ENDPOINT = '/.netlify/functions/youtube-search';
+const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
 const YOUTUBE_SEARCH_CACHE_MAX = 25;
 const YOUTUBE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;

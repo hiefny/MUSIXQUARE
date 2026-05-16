@@ -168,15 +168,15 @@ function isGuestLimitedForHost(hostConn: DataConnection | null): boolean {
 
 function getRealtimeEndpoints(): string[] {
   return [
-    '/.netlify/functions/cloudflare-realtime',
-    'https://musixquare.com/.netlify/functions/cloudflare-realtime',
+    '/api/cloudflare-realtime',
+    'https://musixquare.com/api/cloudflare-realtime',
   ];
 }
 
 function getTurnConfigEndpoints(): string[] {
   return [
-    '/.netlify/functions/get-turn-config',
-    'https://musixquare.com/.netlify/functions/get-turn-config',
+    '/api/get-turn-config',
+    'https://musixquare.com/api/get-turn-config',
   ];
 }
 

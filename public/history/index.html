@@ -237,26 +237,18 @@
   <div class="section-head"><h2>Infrastructure · Today</h2><span class="phase">Current</span></div>
   <div class="phase-meta">
     <span class="phase-tag now"><span class="dot"></span>Live</span>
-    <p class="phase-sub">Two vendors, deliberately chosen. No proprietary lock-in beyond what each does best.</p>
+    <p class="phase-sub">One vendor, deliberately chosen. No proprietary lock-in beyond what it does best.</p>
   </div>
   <div class="infra-grid">
     <div class="infra-card">
       <div class="i-vendor">Cloudflare</div>
-      <div class="i-role">Signaling · TURN · SFU · Remote storage</div>
+      <div class="i-role">Hosting · Signaling · TURN · SFU · Remote storage</div>
       <div class="i-detail">
-        <strong>Durable Objects</strong> handle WebRTC signaling — ICE candidates, offers, and answers route through a persistent Worker per room.
+        A single <strong>app Worker</strong> serves the static SPA, handles invite-code OG meta rewrites, and exposes the backend API for TURN credentials, YouTube search, and Realtime session setup — SPA fallback, security headers, and immutable asset caching all live in code.
+        <strong>Durable Objects</strong> handle WebRTC signaling — ICE candidates, offers, and answers route through a hibernation-aware Worker per room.
         <strong>TURN</strong> relays traffic when direct P2P fails (Metered fallback retained).
         <strong>Realtime SFU</strong> carries remote system audio — host publishes once, remote guests subscribe.
         <strong>R2</strong> holds encrypted remote file transfers for the duration of the sharing session.
-      </div>
-    </div>
-    <div class="infra-card">
-      <div class="i-vendor">Netlify</div>
-      <div class="i-role">Hosting · Edge functions</div>
-      <div class="i-detail">
-        Static site hosting with edge-deployed functions for <strong>OG image generation</strong> (Satori + resvg-wasm, per-page) and
-        <strong>TURN credential issuance</strong> (short-lived signed credentials, not exposed client-side).
-        SPA fallback, security headers, and immutable asset caching configured via <code>netlify.toml</code>.
       </div>
     </div>
     <div class="infra-card">
@@ -307,13 +299,6 @@
       <div>
         <div class="a-title">Native mobile app for system audio</div>
         <div class="a-body">iOS and Android don't implement <code>getDisplayMedia({audio})</code>. A native app would route system audio through screen-capture APIs, at the cost of install friction.</div>
-      </div>
-      <span class="a-tag">Later</span>
-    </div>
-    <div class="ahead-item">
-      <div>
-        <div class="a-title">Infrastructure consolidation</div>
-        <div class="a-body">Netlify handles hosting and edge functions well. A future move to Cloudflare Pages / Workers would reduce vendor count, but only after Worker limits and billing alerts are fully understood.</div>
       </div>
       <span class="a-tag">Later</span>
     </div>

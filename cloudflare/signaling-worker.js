@@ -1,5 +1,8 @@
 const ROOM_PATH = /^\/api\/rooms\/([A-Za-z0-9_-]+)\/ws$/;
 const HOST_RECLAIM_GRACE_MS = 60_000;
+const GUEST_AUTH_TIMEOUT_MS = 10_000;
+const ROOM_META_KEY = 'roomMeta';
+const ATTACHMENT_VERSION = 1;
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -28,15 +31,149 @@ function closeWithError(ws, errorType, message) {
   }
 }
 
+function defaultRoomMeta() {
+  return {
+    v: 1,
+    roomSecret: null,
+    roomPassword: '',
+    hostPeerId: null,
+    hostReleaseAt: 0,
+  };
+}
+
+function normalizeRoomMeta(value) {
+  if (!value || typeof value !== 'object') return defaultRoomMeta();
+  return {
+    v: 1,
+    roomSecret: typeof value.roomSecret === 'string' && value.roomSecret ? value.roomSecret : null,
+    roomPassword: typeof value.roomPassword === 'string' ? value.roomPassword : '',
+    hostPeerId: typeof value.hostPeerId === 'string' && value.hostPeerId ? value.hostPeerId : null,
+    hostReleaseAt: Number.isFinite(value.hostReleaseAt) ? Math.max(0, value.hostReleaseAt) : 0,
+  };
+}
+
+function normalizeAttachment(value) {
+  if (!value || typeof value !== 'object' || value.v !== ATTACHMENT_VERSION) return null;
+  if (value.role !== 'host' && value.role !== 'guest') return null;
+  if (typeof value.roomId !== 'string' || !value.roomId) return null;
+  if (typeof value.peerId !== 'string' || !value.peerId) return null;
+
+  if (value.role === 'host') {
+    if (value.auth !== 'ok' || typeof value.secret !== 'string' || !value.secret) return null;
+    return {
+      v: ATTACHMENT_VERSION,
+      role: 'host',
+      roomId: value.roomId,
+      peerId: value.peerId,
+      secret: value.secret,
+      auth: 'ok',
+    };
+  }
+
+  if (value.auth === 'ok') {
+    return {
+      v: ATTACHMENT_VERSION,
+      role: 'guest',
+      roomId: value.roomId,
+      peerId: value.peerId,
+      auth: 'ok',
+    };
+  }
+
+  if (value.auth === 'pending') {
+    return {
+      v: ATTACHMENT_VERSION,
+      role: 'guest',
+      roomId: value.roomId,
+      peerId: value.peerId,
+      auth: 'pending',
+      authDeadline: Number.isFinite(value.authDeadline) ? value.authDeadline : 0,
+    };
+  }
+
+  return null;
+}
+
+function readAttachment(ws) {
+  try {
+    return normalizeAttachment(ws.deserializeAttachment?.());
+  } catch {
+    return null;
+  }
+}
+
+function closeSocket(ws, code, reason) {
+  try {
+    ws.close(code, reason);
+  } catch {
+    /* noop */
+  }
+}
+
 export class MusixquareRoom {
   constructor(state) {
     this.state = state;
-    this.roomSecret = null;
-    this.roomPassword = '';
+    this.roomMeta = null;
     this.host = null;
     this.hostPeerId = null;
     this.guests = new Map();
-    this.hostReleaseTimer = null;
+    this.pendingGuests = new Map();
+    this.rehydrateSockets();
+  }
+
+  rehydrateSockets() {
+    const sockets =
+      typeof this.state.getWebSockets === 'function' ? this.state.getWebSockets() : [];
+    for (const ws of sockets) {
+      this.indexSocket(ws);
+    }
+  }
+
+  indexSocket(ws) {
+    const attachment = readAttachment(ws);
+    if (!attachment) return;
+    if (attachment.role === 'host') {
+      this.host = ws;
+      this.hostPeerId = attachment.peerId;
+      return;
+    }
+    if (attachment.auth === 'ok') {
+      this.guests.set(attachment.peerId, ws);
+      return;
+    }
+    if (attachment.auth === 'pending') {
+      this.pendingGuests.set(attachment.peerId, ws);
+    }
+  }
+
+  async loadRoomMeta() {
+    if (!this.roomMeta) {
+      const stored = await this.state.storage.get(ROOM_META_KEY);
+      this.roomMeta = normalizeRoomMeta(stored);
+    }
+    await this.clearExpiredHostRelease();
+    return this.roomMeta;
+  }
+
+  async saveRoomMeta(meta) {
+    this.roomMeta = normalizeRoomMeta(meta);
+    await this.state.storage.put(ROOM_META_KEY, this.roomMeta);
+    return this.roomMeta;
+  }
+
+  async clearRoomMeta() {
+    return this.saveRoomMeta(defaultRoomMeta());
+  }
+
+  async clearExpiredHostRelease() {
+    const meta = this.roomMeta || defaultRoomMeta();
+    if (this.host || !meta.hostReleaseAt || meta.hostReleaseAt > Date.now()) return meta;
+    return this.clearRoomMeta();
+  }
+
+  acceptSocket(ws, attachment, tags) {
+    this.state.acceptWebSocket(ws, tags);
+    if (attachment) ws.serializeAttachment(attachment);
   }
 
   async fetch(request) {
@@ -54,152 +191,164 @@ export class MusixquareRoom {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    server.accept();
 
     if (role === 'host') {
-      this.acceptHost(server, roomId, peerId, secret);
+      await this.acceptHost(server, roomId, peerId, secret);
     } else if (role === 'guest') {
-      this.acceptGuest(server, roomId, peerId);
+      await this.acceptGuest(server, roomId, peerId);
     } else {
+      this.acceptSocket(server, null, ['role:invalid']);
       closeWithError(server, 'invalid-id', 'INVALID_ROLE');
     }
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  acceptHost(ws, roomId, peerId, secret) {
+  async acceptHost(ws, roomId, peerId, secret) {
+    const meta = await this.loadRoomMeta();
     if (!secret) {
+      this.acceptSocket(ws, null, ['role:host']);
       closeWithError(ws, 'invalid-id', 'MISSING_ROOM_SECRET');
       return;
     }
-    if (this.roomSecret && this.roomSecret !== secret) {
+    if (meta.roomSecret && meta.roomSecret !== secret) {
+      this.acceptSocket(ws, null, ['role:host']);
       closeWithError(ws, 'id-taken', 'ROOM_ALREADY_ACTIVE');
       return;
     }
 
     if (this.host && this.host !== ws) {
-      try {
-        this.host.close(1012, 'HOST_REPLACED');
-      } catch {
-        /* noop */
-      }
+      closeSocket(this.host, 1012, 'HOST_REPLACED');
     }
 
-    this.roomSecret = secret;
+    const attachment = {
+      v: ATTACHMENT_VERSION,
+      role: 'host',
+      roomId,
+      peerId,
+      secret,
+      auth: 'ok',
+    };
+    this.acceptSocket(ws, attachment, ['role:host', `peer:${peerId}`]);
     this.host = ws;
     this.hostPeerId = peerId;
-    this.clearHostReleaseTimer();
+    await this.saveRoomMeta({
+      ...meta,
+      roomSecret: secret,
+      hostPeerId: peerId,
+      hostReleaseAt: 0,
+    });
     send(ws, { type: 'peer-open', peerId: roomId, roomId });
-
-    ws.addEventListener('message', (event) => this.handleHostMessage(event.data));
-    ws.addEventListener('close', () => {
-      if (this.host === ws) this.releaseHostLater();
-    });
-    ws.addEventListener('error', () => {
-      if (this.host === ws) this.releaseHostLater();
-    });
   }
 
-  acceptGuest(ws, roomId, peerId) {
+  async acceptGuest(ws, roomId, peerId) {
+    const meta = await this.loadRoomMeta();
     if (!this.host) {
+      this.acceptSocket(ws, null, ['role:guest']);
       closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
       return;
     }
 
-    if (this.roomPassword) {
-      this.waitForGuestAuth(ws, roomId, peerId);
+    if (meta.roomPassword) {
+      this.acceptPendingGuest(ws, roomId, peerId);
       return;
     }
 
-    this.completeGuestAccept(ws, roomId, peerId);
+    this.completeGuestAccept(ws, roomId, peerId, false);
   }
 
-  waitForGuestAuth(ws, roomId, peerId) {
-    let done = false;
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      closeWithError(ws, 'room-password-auth-timeout', 'ROOM_PASSWORD_AUTH_TIMEOUT');
-    }, 10000);
-
-    const finish = (event) => {
-      if (done) return;
-      const message = this.parse(event.data);
-      if (!message || message.type !== 'guest-auth') return;
-
-      done = true;
-      clearTimeout(timer);
-      ws.removeEventListener('message', finish);
-
-      const password = typeof message.password === 'string' ? message.password : '';
-      if (!password) {
-        closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
-        return;
-      }
-      if (password !== this.roomPassword) {
-        closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
-        return;
-      }
-
-      this.completeGuestAccept(ws, roomId, peerId);
-    };
-
-    ws.addEventListener('message', finish);
-    ws.addEventListener(
-      'close',
-      () => {
-        done = true;
-        clearTimeout(timer);
-      },
-      { once: true },
-    );
-  }
-
-  completeGuestAccept(ws, roomId, peerId) {
-    const previous = this.guests.get(peerId);
-    if (previous && previous !== ws) {
-      try {
-        previous.close(1012, 'GUEST_REPLACED');
-      } catch {
-        /* noop */
-      }
+  acceptPendingGuest(ws, roomId, peerId) {
+    const previousPending = this.pendingGuests.get(peerId);
+    if (previousPending && previousPending !== ws) {
+      closeSocket(previousPending, 1012, 'GUEST_REPLACED');
     }
 
+    const attachment = {
+      v: ATTACHMENT_VERSION,
+      role: 'guest',
+      roomId,
+      peerId,
+      auth: 'pending',
+      authDeadline: Date.now() + GUEST_AUTH_TIMEOUT_MS,
+    };
+    this.acceptSocket(ws, attachment, ['role:guest', `peer:${peerId}`, 'auth:pending']);
+    this.pendingGuests.set(peerId, ws);
+  }
+
+  completeGuestAccept(ws, roomId, peerId, alreadyAccepted) {
+    const previous = this.guests.get(peerId);
+    if (previous && previous !== ws) {
+      closeSocket(previous, 1012, 'GUEST_REPLACED');
+    }
+    const previousPending = this.pendingGuests.get(peerId);
+    if (previousPending && previousPending !== ws) {
+      closeSocket(previousPending, 1012, 'GUEST_REPLACED');
+    }
+
+    const attachment = {
+      v: ATTACHMENT_VERSION,
+      role: 'guest',
+      roomId,
+      peerId,
+      auth: 'ok',
+    };
+    if (alreadyAccepted) ws.serializeAttachment(attachment);
+    else this.acceptSocket(ws, attachment, ['role:guest', `peer:${peerId}`]);
+
+    this.pendingGuests.delete(peerId);
     this.guests.set(peerId, ws);
     send(ws, { type: 'peer-open', peerId, roomId });
-
-    ws.addEventListener('message', (event) => this.handleGuestMessage(peerId, event.data));
-    ws.addEventListener('close', () => this.removeGuest(peerId, ws));
-    ws.addEventListener('error', () => this.removeGuest(peerId, ws));
   }
 
-  removeGuest(peerId, ws) {
-    if (this.guests.get(peerId) !== ws) return;
-    this.guests.delete(peerId);
-    if (this.host) send(this.host, { type: 'peer-left', peerId });
-    else if (this.guests.size === 0) this.clearRoomSecret();
+  async webSocketMessage(ws, raw) {
+    await this.loadRoomMeta();
+    const attachment = readAttachment(ws);
+    if (!attachment) return;
+
+    if (attachment.role === 'host') {
+      if (this.host !== ws) return;
+      await this.handleHostMessage(ws, raw, attachment);
+      return;
+    }
+
+    if (attachment.auth === 'pending') {
+      await this.handleGuestAuth(ws, raw, attachment);
+      return;
+    }
+
+    if (this.guests.get(attachment.peerId) !== ws) return;
+    this.handleGuestMessage(attachment.peerId, raw);
   }
 
-  releaseHostLater() {
-    this.host = null;
-    this.hostPeerId = null;
-    this.clearHostReleaseTimer();
-    this.hostReleaseTimer = setTimeout(() => {
-      if (!this.host) this.clearRoomSecret();
-    }, HOST_RECLAIM_GRACE_MS);
-  }
+  async handleGuestAuth(ws, raw, attachment) {
+    if (!this.host) {
+      this.pendingGuests.delete(attachment.peerId);
+      closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
+      return;
+    }
+    if (Date.now() > attachment.authDeadline) {
+      this.pendingGuests.delete(attachment.peerId);
+      closeWithError(ws, 'room-password-auth-timeout', 'ROOM_PASSWORD_AUTH_TIMEOUT');
+      return;
+    }
 
-  clearHostReleaseTimer() {
-    if (!this.hostReleaseTimer) return;
-    clearTimeout(this.hostReleaseTimer);
-    this.hostReleaseTimer = null;
-  }
+    const message = this.parse(raw);
+    if (!message || message.type !== 'guest-auth') return;
 
-  clearRoomSecret() {
-    this.clearHostReleaseTimer();
-    this.roomSecret = null;
-    this.roomPassword = '';
-    this.hostPeerId = null;
+    const meta = await this.loadRoomMeta();
+    const password = typeof message.password === 'string' ? message.password : '';
+    if (!password) {
+      this.pendingGuests.delete(attachment.peerId);
+      closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
+      return;
+    }
+    if (password !== meta.roomPassword) {
+      this.pendingGuests.delete(attachment.peerId);
+      closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
+      return;
+    }
+
+    this.completeGuestAccept(ws, attachment.roomId, attachment.peerId, true);
   }
 
   handleGuestMessage(peerId, raw) {
@@ -211,18 +360,72 @@ export class MusixquareRoom {
     send(this.host, { ...rest, from: peerId });
   }
 
-  handleHostMessage(raw) {
+  async handleHostMessage(ws, raw, attachment) {
     const message = this.parse(raw);
     if (message?.type === 'room-password-set') {
       const password = typeof message.password === 'string' ? message.password : '';
-      this.roomPassword = /^\d{8}$/.test(password) ? password : '';
+      const meta = await this.loadRoomMeta();
+      await this.saveRoomMeta({
+        ...meta,
+        roomPassword: /^\d{8}$/.test(password) ? password : '',
+      });
       return;
     }
     if (!message || typeof message.to !== 'string') return;
+    if (this.host !== ws) return;
     const guest = this.guests.get(message.to);
     if (!guest) return;
     const { to: _to, ...rest } = message;
-    send(guest, { ...rest, from: this.hostPeerId });
+    send(guest, { ...rest, from: attachment.peerId });
+  }
+
+  async webSocketClose(ws) {
+    const attachment = readAttachment(ws);
+    if (!attachment) return;
+
+    if (attachment.role === 'host') {
+      await this.releaseHost(ws, attachment);
+      return;
+    }
+
+    if (attachment.auth === 'pending') {
+      if (this.pendingGuests.get(attachment.peerId) === ws) {
+        this.pendingGuests.delete(attachment.peerId);
+      }
+      return;
+    }
+
+    await this.removeGuest(attachment.peerId, ws);
+  }
+
+  async webSocketError(ws) {
+    await this.webSocketClose(ws);
+  }
+
+  async releaseHost(ws, attachment) {
+    if (this.host && this.host !== ws) return;
+    const meta = await this.loadRoomMeta();
+    if (meta.roomSecret !== attachment.secret || meta.hostPeerId !== attachment.peerId) return;
+
+    this.host = null;
+    this.hostPeerId = null;
+    await this.saveRoomMeta({
+      ...meta,
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + HOST_RECLAIM_GRACE_MS,
+    });
+  }
+
+  async removeGuest(peerId, ws) {
+    if (this.guests.get(peerId) !== ws) return;
+    this.guests.delete(peerId);
+    if (this.host) {
+      send(this.host, { type: 'peer-left', peerId });
+      return;
+    }
+    if (this.guests.size === 0) {
+      await this.clearRoomMeta();
+    }
   }
 
   parse(raw) {

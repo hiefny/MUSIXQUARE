@@ -80,9 +80,9 @@ function trustedCors(request, methods, env = {}) {
   const fetchSite = (request.headers.get('Sec-Fetch-Site') || '').toLowerCase();
   const trustedPatterns = [
     /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i,
-    /^https:\/\/[^/]*\.toss\.im$/i,
-    /^https:\/\/[^/]*\.toss-internal\.com$/i,
-    /^https:\/\/[^/]*\.tossmini\.com$/i,
+    /^https:\/\/(?:[^/]+\.)?toss\.im$/i,
+    /^https:\/\/(?:[^/]+\.)?toss-internal\.com$/i,
+    /^https:\/\/(?:[^/]+\.)?tossmini\.com$/i,
     /^https:\/\/musixquare\.com$/i,
     /^https:\/\/[^/]*\.musixquare\.com$/i,
   ];

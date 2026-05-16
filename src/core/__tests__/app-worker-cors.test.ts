@@ -30,6 +30,9 @@ describe('Cloudflare app worker CORS gate', () => {
       'https://preview.musixquare.com',
       'http://localhost:3000',
       'https://musixquare.apps.tossmini.com',
+      'https://toss.im',
+      'https://toss-internal.com',
+      'https://tossmini.com',
     ];
 
     for (const origin of origins) {

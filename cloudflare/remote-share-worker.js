@@ -36,6 +36,12 @@ const DEFAULT_ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:5173',
 ]);
 
+const DEFAULT_ALLOWED_ORIGIN_PATTERNS = [
+  /^https:\/\/(?:[^/]+\.)?tossmini\.com$/i,
+  /^https:\/\/(?:[^/]+\.)?toss\.im$/i,
+  /^https:\/\/(?:[^/]+\.)?toss-internal\.com$/i,
+];
+
 function configuredAllowedOrigins(env) {
   const configured = String(env.ALLOWED_ORIGINS || '')
     .split(',')
@@ -48,7 +54,8 @@ function allowedRequestOrigin(request, env) {
   const origin = request.headers.get('origin') || '';
   if (!origin) return null;
   const allowed = configuredAllowedOrigins(env);
-  return allowed.has(origin) ? origin : null;
+  if (allowed.has(origin)) return origin;
+  return DEFAULT_ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin)) ? origin : null;
 }
 
 function corsHeaders(request, env) {

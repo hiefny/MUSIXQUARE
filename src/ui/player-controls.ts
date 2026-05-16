@@ -454,7 +454,7 @@ function handleMainSyncBtn(): void {
   if (isPlaybackModeYouTube()) {
     if (!hostConn) {
       broadcastYouTubeSync(true);
-      showToast(t('toast.yt_host_sync_sent'));
+      showToast(t('toast.host_sync_requested'));
       return;
     }
     if (!hostConn.open) {
@@ -473,7 +473,8 @@ function handleMainSyncBtn(): void {
   }
 
   if (!hostConn) {
-    showToast(t('toast.host_sync_not_recommended'));
+    bus.emit('network:broadcast', { type: MSG.SYNC_REQUEST });
+    showToast(t('toast.host_sync_requested'));
     return;
   }
   if (!hostConn.open) {
@@ -481,6 +482,12 @@ function handleMainSyncBtn(): void {
     return;
   }
 
+  if (!canUseManualSyncPanel()) {
+    openManualSyncOverlay();
+    return;
+  }
+
+  bus.emit('sync:force-resync');
   openManualSyncOverlay();
 }
 

@@ -270,6 +270,35 @@ describe('background resume recovery', () => {
       }),
     );
   });
+
+  it('accepts host sync requests and preserves the guest manual offset', async () => {
+    initSync();
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as Partial<DataConnection>;
+    setState('network.hostConn', hostConn as DataConnection);
+    setState('sync.localOffset', 0.18);
+
+    await handleData({ type: MSG.SYNC_REQUEST }, hostConn as DataConnection);
+
+    expect(getState('sync.localOffset')).toBe(0.18);
+    expect(hostConn.send).toHaveBeenCalledTimes(1);
+    expect(hostConn.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.SYNC_PING,
+        pingId: expect.any(Number),
+      }),
+    );
+  });
+
+  it('ignores sync requests that do not come from the host connection', async () => {
+    initSync();
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as Partial<DataConnection>;
+    const otherConn = { peer: 'guest-2', open: true, send: vi.fn() } as Partial<DataConnection>;
+    setState('network.hostConn', hostConn as DataConnection);
+
+    await handleData({ type: MSG.SYNC_REQUEST }, otherConn as DataConnection);
+
+    expect(hostConn.send).not.toHaveBeenCalled();
+  });
 });
 
 describe('guest host connection clock reset', () => {

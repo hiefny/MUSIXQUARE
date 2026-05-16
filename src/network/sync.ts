@@ -379,6 +379,13 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 // Registered here instead of host.ts to avoid circular dependency
 // (host.ts → protocol.ts → peer.ts → host.ts).
 
+function handleSyncRequest(_data: Record<string, unknown>, conn?: DataConnection): void {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn?.open || conn !== hostConn) return;
+
+  bus.emit('sync:force-resync');
+}
+
 function handleRequestRename(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only host processes this
@@ -512,6 +519,7 @@ export function initSync(): void {
   registerHandlers({
     [MSG.SYNC_PING]: handleSyncPing,
     [MSG.SYNC_PONG]: handleSyncPong,
+    [MSG.SYNC_REQUEST]: handleSyncRequest,
     [MSG.REQUEST_RENAME]: handleRequestRename,
     [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });

@@ -446,6 +446,7 @@ const en: Record<I18nKey, string> = {
   'toast.hprecision_sync': 'High-precision sync: preparing audio\u2026',
   'toast.file_ready': 'Your file is ready!\nPress Play.',
   'toast.host_sync_not_recommended': 'Adjust sync on a guest device',
+  'toast.host_sync_requested': 'Precision sync requested.\nAdjust manual sync on a guest device.',
   'toast.sync_not_in_system_audio': 'Sync is unavailable in system audio sharing mode',
   'toast.sync_not_ready': 'Not ready yet.\nTry again in a moment',
   'toast.host_ad': 'The host seems to be watching an ad',

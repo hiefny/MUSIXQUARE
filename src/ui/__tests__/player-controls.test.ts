@@ -3,7 +3,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { MSG } from '../../core/constants.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
 import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
@@ -256,7 +257,9 @@ describe('initPlayerControls sync button', () => {
     expect(broadcastYouTubeSync).toHaveBeenCalledWith(true);
     expect(guestRendezvousSync).not.toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith('Auto-sync signal sent to guests');
+    expect(showToast).toHaveBeenCalledWith(
+      'Precision sync requested.\nAdjust manual sync on a guest device.',
+    );
   });
 
   it('does not treat a closed YouTube host connection as either host or guest sync', () => {
@@ -273,16 +276,39 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('keeps local-file sync adjustment guest-only', () => {
+  it('broadcasts a local-file sync request when the host presses sync', () => {
     renderSyncControls();
     setState('playback.mode', 'file');
     setState('playback.activity', 'playing');
+    const broadcastSpy = vi.fn();
+    bus.on('network:broadcast', broadcastSpy);
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
+    expect(broadcastSpy).toHaveBeenCalledWith({ type: MSG.SYNC_REQUEST });
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith('Adjust sync on a guest device');
+    expect(showToast).toHaveBeenCalledWith(
+      'Precision sync requested.\nAdjust manual sync on a guest device.',
+    );
+  });
+
+  it('runs one local-file resync before opening the guest manual sync panel', () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('sync.localOffset', 0.12);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const forceResyncSpy = vi.fn();
+    bus.on('sync:force-resync', forceResyncSpy);
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(forceResyncSpy).toHaveBeenCalledTimes(1);
+    expect(getState('sync.localOffset')).toBe(0.12);
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
   });
 
   it('does not open the local-file manual panel before the guest has a decoded buffer', () => {
@@ -290,10 +316,13 @@ describe('initPlayerControls sync button', () => {
     setState('network.hostConn', makeConnection('host-1'));
     setState('playback.mode', 'file');
     setState('playback.activity', 'playing');
+    const forceResyncSpy = vi.fn();
+    bus.on('sync:force-resync', forceResyncSpy);
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
+    expect(forceResyncSpy).not.toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });

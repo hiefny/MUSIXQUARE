@@ -444,6 +444,8 @@ const ko = {
   'toast.hprecision_sync': '고정밀 동기화: 오디오를 준비하고 있어요…',
   'toast.file_ready': '파일이 준비됐어요!\n재생 버튼을 눌러 보세요.',
   'toast.host_sync_not_recommended': '동기화 보정은 참여자 기기에서 조정해주세요',
+  'toast.host_sync_requested':
+    '정밀 동기화를 요청했어요.\n수동 싱크 조절은 참여자 기기에서 시도해주세요.',
   'toast.sync_not_in_system_audio': '시스템 오디오 공유 모드는 동기화를 사용할 수 없어요',
   'toast.sync_not_ready': '아직 준비 중이에요.\n잠시 후 다시 시도해주세요',
   'toast.host_ad': '방장이 광고를 보고 있는 것 같아요',

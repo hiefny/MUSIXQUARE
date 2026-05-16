@@ -154,6 +154,7 @@ export const MSG = {
   // ── Shared Clock ───────────────────────────────────────────────
   SYNC_PING: 'sync-ping',
   SYNC_PONG: 'sync-pong',
+  SYNC_REQUEST: 'sync-request',
 
   // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',

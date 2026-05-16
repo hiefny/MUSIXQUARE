@@ -19,6 +19,8 @@ import { setEngineMode } from '../player/video.ts';
 import {
   isPlaybackModeYouTube,
   setPlaybackIdle,
+  setPlaybackYouTubePaused,
+  setPlaybackYouTubePlaying,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
 import {
@@ -50,10 +52,7 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
-import {
-  consumePendingAutoSyncOnReady,
-  setPendingAutoSyncOnReady,
-} from './player.ts';
+import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
@@ -858,6 +857,8 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       const pendingAutoSync = consumePendingAutoSyncOnReady();
       if (pendingAutoSync) {
         bus.emit('youtube:auto-play', pendingAutoSync);
+      } else {
+        setPlaybackYouTubePaused();
       }
       return; // Don't broadcast or update UI yet
     }
@@ -880,9 +881,11 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
     showYouTubeSyncOverlay(false);
     showLoader(false);
+    setPlaybackYouTubePlaying();
     bus.emit('ui:update-play-state', true);
   } else if (state === YT.PlayerState.PAUSED) {
     showLoader(false);
+    setPlaybackYouTubePaused();
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.CUED) {
     if (indexing) {

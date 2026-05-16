@@ -49,6 +49,12 @@ import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 
 let _shuffleOrder: number[] = [];
 let _shufflePosition = 0;
+const DEMO_ALLOWED_SETTING_TYPES = new Set<string>([
+  'eq',
+  MSG.VBASS,
+  MSG.STEREO_WIDTH,
+  MSG.REVERB_TYPE,
+]);
 
 function isQueueIdle(): boolean {
   return isPlaybackIdleCompat();
@@ -945,12 +951,14 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn, data) && !getState('demo.active')) {
+  const st = data.settingType as string;
+  const isOp = verifyOperator(conn, data);
+  const isDemoAllowed = getState('demo.active') && DEMO_ALLOWED_SETTING_TYPES.has(st);
+  if (!isOp && !isDemoAllowed) {
     log.warn(`[Playlist] Rejected request-setting from non-OP: ${conn?.peer}`);
     return;
   }
 
-  const st = data.settingType as string;
   const val = data.value;
   switch (st) {
     case 'repeat-mode': {
@@ -981,7 +989,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       broadcast({ type: MSG.PREAMP, value: v });
       break;
     }
-    case 'stereo': {
+    case MSG.STEREO_WIDTH: {
       const v = Number(val);
       if (!Number.isFinite(v)) break;
       setStereoWidth(v);

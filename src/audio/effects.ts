@@ -619,7 +619,7 @@ function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnectio
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  if (!verifyOperator(conn, data) && !getState('demo.active')) {
+  if (!verifyOperator(conn, data)) {
     log.warn(`[Effects] Rejected request-eq-reset from non-OP: ${conn?.peer}`);
     return;
   }

@@ -48,7 +48,7 @@ vi.mock('../../i18n/index.ts', () => ({
 
 vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
-  safeSend: vi.fn(),
+  safeSend: vi.fn(() => true),
   sendToHost: vi.fn(),
   isRemoteGuest: vi.fn(() => false),
 }));
@@ -399,6 +399,74 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
       expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
       expect(safeSendMock).toHaveBeenCalledWith(
+        mockHostConn,
+        expect.objectContaining({
+          type: MSG.YOUTUBE_ZERO_START_READY,
+          token: 'zero-token',
+          videoId: 'ZERO_VIDEO',
+        }),
+      );
+    });
+
+    it('guest ignores zero-start prepare from a closed host connection', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 0.4, __videoId: 'ZERO_VIDEO' });
+      const { initYouTube } = await importPlayer();
+      const { safeSend } = await import('../../network/peer.ts');
+      const safeSendMock = vi.mocked(safeSend);
+      const closedHostConn = { peer: 'mock-host-peer', open: false };
+      setState('network.hostConn', closedHostConn as never);
+
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      expect(prepareHandler).toBeDefined();
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          token: 'zero-token',
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+          timeoutMs: 3000,
+        },
+        closedHostConn,
+      );
+
+      expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(false);
+      expect(player.__log.some((c) => c.op === 'seekTo')).toBe(false);
+      expect(safeSendMock).not.toHaveBeenCalled();
+      expect(getManagedTimer('yt-zero-start-ready-poll')).toBeNull();
+    });
+
+    it('guest keeps polling zero-start readiness when the ready send fails', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 0.4, __videoId: 'ZERO_VIDEO' });
+      const { initYouTube } = await importPlayer();
+      const { safeSend } = await import('../../network/peer.ts');
+      const safeSendMock = vi.mocked(safeSend);
+      safeSendMock.mockReturnValueOnce(false);
+      setState('network.hostConn', mockHostConn as never);
+
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      expect(prepareHandler).toBeDefined();
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          token: 'zero-token',
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+          timeoutMs: 3000,
+        },
+        mockHostConn,
+      );
+
+      expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
+      expect(safeSendMock).toHaveBeenCalledTimes(1);
+      expect(getManagedTimer('yt-zero-start-ready-poll')).toBeDefined();
+
+      vi.advanceTimersByTime(100);
+
+      expect(safeSendMock).toHaveBeenCalledTimes(2);
+      expect(safeSendMock).toHaveBeenLastCalledWith(
         mockHostConn,
         expect.objectContaining({
           type: MSG.YOUTUBE_ZERO_START_READY,

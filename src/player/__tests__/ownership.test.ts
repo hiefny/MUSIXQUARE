@@ -35,6 +35,7 @@ import {
   setPlaybackSystemAudioPlaying,
   setPlaybackLifecycleState,
   setPlaybackTransferState,
+  setPlaybackYouTubePaused,
   setPlaybackYouTubePlaying,
   setSystemAudioReceiving,
   setPlaybackTrackMeta,
@@ -80,6 +81,21 @@ describe('playback ownership view', () => {
     expect(isPlaybackModeYouTube()).toBe(true);
     expect(isPlaybackPlayingYouTube()).toBe(true);
     expectPlaybackModeActivitySlots('youtube', 'playing');
+  });
+
+  it('preserves paused YouTube as YouTube ownership without reporting playing', () => {
+    setPlaybackYouTubePaused();
+
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'youtube',
+      mode: 'youtube',
+      activity: 'paused',
+      isExternalOwner: true,
+    });
+    expect(isYouTubeOwner()).toBe(true);
+    expect(isPlaybackModeYouTube()).toBe(true);
+    expect(isPlaybackPlayingYouTube()).toBe(false);
+    expectPlaybackModeActivitySlots('youtube', 'paused');
   });
 
   it('treats system audio playback as an external owner', () => {

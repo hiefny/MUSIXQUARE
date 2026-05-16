@@ -231,6 +231,8 @@ const en: Record<I18nKey, string> = {
   'demo.finish_step_subtitle': 'Return to the app to use every feature.',
   'demo.track_list_label': 'Demo track list',
   'demo.host_only_exit': 'Only the host can press this.',
+  'demo.external_playback_stopped':
+    'Demo mode stopped the current YouTube or system-audio playback.',
   'setup.how_to_connect': 'How to connect',
   'setup.set_role': "Set this device's role",
   'setup.what_sound': 'What should this device play?',

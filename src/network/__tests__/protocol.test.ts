@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
@@ -11,6 +11,7 @@ import {
   registerHandler,
   hasHandler,
   verifyOperator,
+  handleData,
 } from '../protocol.ts';
 import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.ts';
 
@@ -169,5 +170,59 @@ describe('verifyOperator', () => {
     const peers = getState('network.connectedPeers');
     peers.push(makeConnectedPeer('peer-789', true));
     expect(verifyOperator(conn)).toBe(true);
+  });
+});
+
+describe('REQUEST_SETTING validation', () => {
+  it('dispatches known setting types with in-range typed values', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_SETTING, handler);
+    const conn = makeConnection('peer-request-setting-valid');
+
+    const validMessages = [
+      { settingType: 'repeat-mode', value: 2 },
+      { settingType: 'shuffle-mode', value: true },
+      { settingType: 'eq', band: 4, value: -12 },
+      { settingType: MSG.PREAMP, value: -48 },
+      { settingType: MSG.STEREO_WIDTH, value: 200 },
+      { settingType: MSG.VBASS, value: 100 },
+      { settingType: MSG.REVERB, value: 100 },
+      { settingType: MSG.REVERB_TYPE, value: 'arena' },
+      { settingType: MSG.REVERB_DECAY, value: 10 },
+      { settingType: MSG.REVERB_PREDELAY, value: 0.5 },
+      { settingType: MSG.REVERB_LOWCUT, value: 100 },
+      { settingType: MSG.REVERB_HIGHCUT, value: 100 },
+    ];
+
+    for (const message of validMessages) {
+      await handleData({ type: MSG.REQUEST_SETTING, ...message }, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(validMessages.length);
+  });
+
+  it('drops unknown setting types and out-of-range values before dispatch', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_SETTING, handler);
+    const conn = makeConnection('peer-request-setting-invalid');
+
+    const invalidMessages = [
+      { settingType: 'stereo', value: 120 },
+      { settingType: 'eq', band: 5, value: 0 },
+      { settingType: 'eq', band: 0, value: 13 },
+      { settingType: MSG.STEREO_WIDTH, value: 201 },
+      { settingType: MSG.REVERB_TYPE, value: 'advanced' },
+      { settingType: MSG.REVERB_DECAY, value: 30 },
+      { settingType: MSG.REVERB_PREDELAY, value: 1 },
+      { settingType: MSG.REVERB_LOWCUT, value: -1 },
+      { settingType: 'repeat-mode', value: 3 },
+      { settingType: 'shuffle-mode', value: 'true' },
+    ];
+
+    for (const message of invalidMessages) {
+      await handleData({ type: MSG.REQUEST_SETTING, ...message }, conn);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
   });
 });

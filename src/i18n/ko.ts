@@ -229,6 +229,8 @@ const ko = {
   'demo.finish_step_subtitle': '앱으로 돌아가 모든 기능을 이용해보세요.',
   'demo.track_list_label': '데모 트랙 목록',
   'demo.host_only_exit': '방장만 누를 수 있어요',
+  'demo.external_playback_stopped':
+    '데모 모드가 현재 YouTube 또는 시스템 오디오 재생을 중지했어요.',
   'setup.how_to_connect': '이렇게 연결해요',
   'setup.set_role': '이 기기 역할 설정하기',
   'setup.what_sound': '이 기기로 어떤 소리를 낼까요?',

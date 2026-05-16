@@ -60,6 +60,41 @@ const MAX_REMOTE_SHARE_BYTES = 300 * 1024 * 1024;
 const MAX_CHUNK_BYTES = CHUNK_SIZE;
 const isBoundedChunk = (v: unknown): boolean =>
   isArrayBufferLike(v) && (v as ArrayBuffer | Uint8Array).byteLength <= MAX_CHUNK_BYTES;
+const isBoundedNumber = (v: unknown, min: number, max: number): boolean =>
+  isFiniteNumber(v) && v >= min && v <= max;
+const isReverbPreset = (v: unknown): boolean => v === 'off' || v === 'studio' || v === 'arena';
+const isRepeatMode = (v: unknown): boolean => v === 0 || v === 1 || v === 2;
+
+function isValidRequestSetting(data: Record<string, unknown>): boolean {
+  if (typeof data.settingType !== 'string') return false;
+
+  switch (data.settingType) {
+    case 'repeat-mode':
+      return isRepeatMode(data.value);
+    case 'shuffle-mode':
+      return typeof data.value === 'boolean';
+    case 'eq':
+      return isNonNegInt(data.band) && data.band < 5 && isBoundedNumber(data.value, -12, 12);
+    case MSG.PREAMP:
+      return isBoundedNumber(data.value, -48, 12);
+    case MSG.VBASS:
+    case MSG.REVERB:
+      return isBoundedNumber(data.value, 0, 100);
+    case MSG.STEREO_WIDTH:
+      return isBoundedNumber(data.value, 0, 200);
+    case MSG.REVERB_TYPE:
+      return isReverbPreset(data.value);
+    case MSG.REVERB_DECAY:
+      return isBoundedNumber(data.value, 0.1, 10);
+    case MSG.REVERB_PREDELAY:
+      return isBoundedNumber(data.value, 0, 0.5);
+    case MSG.REVERB_LOWCUT:
+    case MSG.REVERB_HIGHCUT:
+      return isBoundedNumber(data.value, 0, 100);
+    default:
+      return false;
+  }
+}
 
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
   [MSG.PLAY]: (d) => d.time === undefined || isFiniteNumber(d.time),
@@ -108,6 +143,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.subIndex === undefined || isNonNegInt(d.subIndex)),
   [MSG.YOUTUBE_ZERO_START_PREPARE]: (d) =>
     typeof d.token === 'string' &&
+    d.token.length > 0 &&
     d.token.length <= 80 &&
     isFiniteNumber(d.timeoutMs) &&
     (d.timeoutMs as number) >= 0 &&
@@ -116,6 +152,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.subIndex === undefined || isNonNegInt(d.subIndex)),
   [MSG.YOUTUBE_ZERO_START_READY]: (d) =>
     typeof d.token === 'string' &&
+    d.token.length > 0 &&
     d.token.length <= 80 &&
     (d.videoId === undefined || typeof d.videoId === 'string') &&
     (d.subIndex === undefined || isNonNegInt(d.subIndex)),
@@ -130,6 +167,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.YOUTUBE_SUB_TITLE_UPDATE]: (d) =>
     typeof d.playlistId === 'string' && isNonNegInt(d.subIdx) && typeof d.title === 'string',
   [MSG.REQUEST_YOUTUBE_SUB_SEEK]: (d) => isNonNegInt(d.subIdx),
+  [MSG.REQUEST_SETTING]: isValidRequestSetting,
 
   // File transfer — validate session IDs and indices
   [MSG.FILE_PREPARE]: (d) =>

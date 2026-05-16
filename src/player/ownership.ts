@@ -526,6 +526,10 @@ export function setPlaybackYouTubePlaying(): PlaybackOwnership {
   return setPlaybackModeActivity({ mode: 'youtube', activity: 'playing' });
 }
 
+export function setPlaybackYouTubePaused(): PlaybackOwnership {
+  return setPlaybackModeActivity({ mode: 'youtube', activity: 'paused' });
+}
+
 export function setPlaybackSystemAudioPlaying(): PlaybackOwnership {
   return setPlaybackModeActivity({ mode: 'system-audio', activity: 'playing' });
 }

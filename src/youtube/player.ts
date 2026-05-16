@@ -453,20 +453,21 @@ function guestZeroStartReady(): boolean {
   }
 
   const hostConn = getState('network.hostConn');
-  if (!hostConn) return false;
-  wait.readySent = true;
-  safeSend(hostConn, {
+  if (!hostConn?.open) return false;
+  const sent = safeSend(hostConn, {
     type: MSG.YOUTUBE_ZERO_START_READY,
     token: wait.token,
     videoId: wait.videoId || currentVideoId || undefined,
     subIndex: wait.subIndex >= 0 ? wait.subIndex : undefined,
   });
+  if (!sent) return false;
+  wait.readySent = true;
   return true;
 }
 
 function handleYouTubeZeroStartPrepare(data: Record<string, unknown>, conn?: DataConnection): void {
   const hostConn = getState('network.hostConn');
-  if (!hostConn || conn !== hostConn) return;
+  if (!hostConn?.open || conn !== hostConn) return;
 
   clearGuestZeroStartWait();
   _guestZeroStartWait = {

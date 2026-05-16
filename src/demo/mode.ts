@@ -14,6 +14,7 @@ import {
 import {
   getPlaybackModeActivitySnapshot,
   setPlaybackFilePaused,
+  setPlaybackIdle,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
@@ -36,6 +37,7 @@ import {
 } from './tracks.ts';
 import { hasAppUseRecord, hasSeenDemoPrompt, markAppUsed, markDemoPromptSeen } from './storage.ts';
 import type { DataConnection } from '../types/index.ts';
+import type { PlaybackModeActivity } from '../player/ownership.ts';
 
 type DemoSnapshot = {
   channelMode: number;
@@ -55,7 +57,7 @@ type DemoSnapshot = {
   currentAudioBuffer: AudioBuffer | null;
   pausedAt: number;
   duration: number;
-  hadFilePlayback: boolean;
+  playback: PlaybackModeActivity;
   visualizerMode: 'circular' | 'spectrum';
 };
 
@@ -74,6 +76,7 @@ const DEMO_OVERLAY_FADE_MS = 340;
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
 const DEMO_STEP_COLLAPSE_MS = 320;
 const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
+const DEMO_LAYOUT_REFRESH_DELAYS_MS = [40, 180, 420, 720] as const;
 const SYNC_ICON_PATH =
   'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z';
 const MEDIA_ICON_PATH =
@@ -98,6 +101,8 @@ let _lastDemoStateBroadcastKey = '';
 const _demoStepCollapseTimers = new WeakMap<HTMLElement, number>();
 const _demoBlobCache = new Map<string, Blob>();
 const _demoPreloadInFlight = new Map<string, Promise<Blob>>();
+const _demoBlobRequests = new Set<XMLHttpRequest>();
+let _demoBlobCacheGeneration = 0;
 
 export function shouldShowFirstRunDemoPrompt(): boolean {
   if (_suppressFirstRunPrompt || hasSeenDemoPrompt()) return false;
@@ -143,7 +148,7 @@ function captureSnapshot(): DemoSnapshot {
     currentAudioBuffer: getCurrentAudioBuffer(),
     pausedAt: getState('player.pausedAt') || 0,
     duration: getCurrentAudioBuffer()?.duration || 0,
-    hadFilePlayback: getPlaybackModeActivitySnapshot().mode === 'file',
+    playback: getPlaybackModeActivitySnapshot(),
     visualizerMode: getCurrentVisualizerMode(),
   };
 }
@@ -163,7 +168,11 @@ function restoreSnapshot(snapshot: DemoSnapshot | null): void {
   setState('audio.subFreq', snapshot.subFreq);
   setState('playlist.currentTrackIndex', snapshot.currentTrackIndex);
   setPlaybackTrackMeta(snapshot.currentTrackMeta);
-  if (snapshot.hadFilePlayback && snapshot.currentAudioBuffer && snapshot.currentFileBlob) {
+  if (
+    snapshot.playback.mode === 'file' &&
+    snapshot.currentAudioBuffer &&
+    snapshot.currentFileBlob
+  ) {
     setState('files.currentFileBlob', snapshot.currentFileBlob);
     setCurrentAudioBuffer(snapshot.currentAudioBuffer);
     setState(
@@ -175,9 +184,58 @@ function restoreSnapshot(snapshot: DemoSnapshot | null): void {
     if (snapshot.duration > 0) bus.emit('ui:duration-update', snapshot.duration);
   } else {
     setState('files.currentFileBlob', null);
+    if (snapshot.playback.mode === 'youtube' || snapshot.playback.mode === 'system-audio') {
+      setPlaybackTrackMeta(null);
+      setPlaybackIdle();
+      bus.emit('ui:play-btn-state', false);
+    }
   }
   setVisualizerMode(snapshot.visualizerMode);
   void applySettingsAsync();
+}
+
+function stopPlaybackForDemoEntry(playback: PlaybackModeActivity): void {
+  if (playback.mode === 'system-audio') {
+    bus.emit('system-audio:force-stop');
+  }
+
+  stopAllMedia({ silent: true, cancelInFlight: true });
+
+  const afterStop = getPlaybackModeActivitySnapshot();
+  if (afterStop.mode === 'system-audio') {
+    setPlaybackIdle();
+  }
+
+  if (playback.mode === 'youtube' || playback.mode === 'system-audio') {
+    showToast(t('demo.external_playback_stopped'));
+  }
+}
+
+function clearDemoLayoutRefreshTimers(): void {
+  DEMO_LAYOUT_REFRESH_DELAYS_MS.forEach((delayMs) => {
+    clearManagedTimer(`demo-layout-refresh-${delayMs}`);
+  });
+}
+
+function cancelDemoBlobRequests(): void {
+  _demoBlobCacheGeneration += 1;
+  _demoPreloadInFlight.clear();
+  _demoBlobCache.clear();
+
+  for (const xhr of _demoBlobRequests) {
+    try {
+      xhr.abort();
+    } catch {
+      /* ignore */
+    }
+  }
+  _demoBlobRequests.clear();
+}
+
+function clearDemoRuntimeWork(): void {
+  clearManagedTimer('demo-effect-state-sync');
+  clearDemoLayoutRefreshTimers();
+  cancelDemoBlobRequests();
 }
 
 function getCurrentDemoTrack(): DemoTrack {
@@ -274,28 +332,36 @@ function fetchDemoBlob(track: DemoTrack, reportProgress: boolean): Promise<Blob>
   const inFlight = _demoPreloadInFlight.get(track.id);
   if (inFlight) return inFlight;
 
+  const cacheGeneration = _demoBlobCacheGeneration;
+  let xhr: XMLHttpRequest | null = null;
   return new Promise<Blob>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', track.url, true);
-    xhr.responseType = 'blob';
-    xhr.timeout = 30000;
-    xhr.onprogress = (event) => {
+    const request = new XMLHttpRequest();
+    xhr = request;
+    _demoBlobRequests.add(request);
+    request.open('GET', track.url, true);
+    request.responseType = 'blob';
+    request.timeout = 30000;
+    request.onprogress = (event) => {
       if (!reportProgress || !event.lengthComputable) return;
       updateLoader(Math.round((event.loaded / event.total) * 100));
     };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const blob = xhr.response as Blob;
-        _demoBlobCache.set(track.id, blob);
+    request.onload = () => {
+      if (request.status >= 200 && request.status < 300) {
+        const blob = request.response as Blob;
+        if (cacheGeneration === _demoBlobCacheGeneration) {
+          _demoBlobCache.set(track.id, blob);
+        }
         resolve(blob);
       } else {
-        reject(new Error(`HTTP ${xhr.status}`));
+        reject(new Error(`HTTP ${request.status}`));
       }
     };
-    xhr.onerror = () => reject(new Error('Network Error'));
-    xhr.ontimeout = () => reject(new Error('Request Timeout'));
-    xhr.send();
+    request.onerror = () => reject(new Error('Network Error'));
+    request.ontimeout = () => reject(new Error('Request Timeout'));
+    request.onabort = () => reject(new Error('Request Aborted'));
+    request.send();
   }).finally(() => {
+    if (xhr) _demoBlobRequests.delete(xhr);
     _demoPreloadInFlight.delete(track.id);
   });
 }
@@ -307,6 +373,7 @@ function preloadDemoTrack(index: number): void {
     log.warn(`[Demo] Preload failed for ${track.id}`, error);
     throw error;
   });
+  void request.catch(() => {});
   _demoPreloadInFlight.set(track.id, request);
 }
 
@@ -511,7 +578,7 @@ function refreshDemoLayout(): void {
 }
 
 function scheduleDemoLayoutRefresh(): void {
-  [40, 180, 420, 720].forEach((delayMs) => {
+  DEMO_LAYOUT_REFRESH_DELAYS_MS.forEach((delayMs) => {
     setManagedTimer(`demo-layout-refresh-${delayMs}`, refreshDemoLayout, delayMs);
   });
 }
@@ -840,7 +907,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   markDemoPromptSeen();
   markAppUsed();
   _snapshot = captureSnapshot();
-  stopAllMedia({ silent: true, cancelInFlight: true });
+  stopPlaybackForDemoEntry(_snapshot.playback);
   setCurrentAudioBuffer(null);
   _demoStep = 1;
   _demoTrackIndex = normalizeDemoTrackIndex(options.index ?? 0);
@@ -867,6 +934,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
     applyPendingDemoPlay();
     showToast(t('transfer.demo_loaded'));
   } catch (error: unknown) {
+    if (!getState('demo.active') && !getState('demo.loading')) return;
     log.error('[Demo] Enter failed:', error);
     showToast(`${t('transfer.demo_load_fail')} ${(error as Error).message || ''}`.trim());
     exitDemoMode();
@@ -882,7 +950,6 @@ function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   _demoLoadToken++;
   _pendingDemoPlay = null;
   _lastDemoStateBroadcastKey = '';
-  clearManagedTimer('demo-effect-state-sync');
   stopAllMedia({ cancelInFlight: true });
   setCurrentAudioBuffer(null);
   setState('demo.active', false);
@@ -891,6 +958,7 @@ function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   setState('demo.bassBoostOn', false);
   setState('demo.trebleBoostOn', false);
   setState('demo.surroundOn', false);
+  clearDemoRuntimeWork();
   const snapshot = _snapshot;
   _snapshot = null;
   setDemoDomActive(false, {
@@ -993,6 +1061,7 @@ function playNextDemoTrack(): void {
       startDemoPlayback(0);
     })
     .catch((error: unknown) => {
+      if (!getState('demo.active') && !getState('demo.loading')) return;
       log.warn('[Demo] Failed to advance demo track', error);
       showToast(`${t('transfer.demo_load_fail')} ${(error as Error).message || ''}`.trim());
     })

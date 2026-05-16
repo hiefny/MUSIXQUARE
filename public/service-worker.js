@@ -42,7 +42,8 @@
 // v114: invalidate cached app shell after playback ownership/state migration hardening
 // v115: invalidate cached editorial chrome CSS after solid surface-1 header/nav migration
 // v116: invalidate cached responses for migrated /.netlify/functions/* → /api/* backend endpoints (TURN, YouTube search, Cloudflare Realtime)
-const CACHE_VERSION = "v116";
+// v117: invalidate cached app shell after production transport default moved to Cloudflare signaling
+const CACHE_VERSION = "v117";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

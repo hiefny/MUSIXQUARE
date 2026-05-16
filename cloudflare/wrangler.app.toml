@@ -1,0 +1,23 @@
+name = "musixquare-app"
+main = "app-worker.js"
+compatibility_date = "2026-05-04"
+workers_dev = true
+
+[[routes]]
+pattern = "musixquare.com"
+custom_domain = true
+
+[[routes]]
+pattern = "www.musixquare.com"
+custom_domain = true
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+html_handling = "none"
+run_worker_first = ["/*"]
+
+[vars]
+YOUTUBE_SEARCH_MAX_RESULTS = "10"
+YOUTUBE_SAFE_SEARCH = "moderate"
+CLOUDFLARE_TURN_TTL = "172800"

@@ -7,7 +7,7 @@
  * intercepts that response and rewrites the og:* / twitter:* meta so
  * the preview card reflects the invite instead:
  *
- *   og:image     → /og/invite/{code}.png   (dynamic, generated)
+ *   og:image     → /og-invite.png           (static, generated at build time)
  *   og:title     → "You're invited · Code {code} · MUSIXQUARE"
  *   og:desc      → English join prompt including the code
  *   og:url       → https://musixquare.com/{code}
@@ -28,18 +28,18 @@
 
 // Netlify's bundler auto-maps this to https://edge.netlify.com/v1/index.ts
 // via the edge-bundler import map — see build log's resolved importMapData.
-import type { Context } from "@netlify/edge-functions";
+import type { Context } from '@netlify/edge-functions';
 
 function esc(s: string): string {
   return s
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function buildMeta(code: string, origin: string) {
-  const imageUrl = `${origin}/og/invite/${code}.png`;
+  const imageUrl = `${origin}/og-invite.png`;
   const pageUrl = `${origin}/${code}`;
   const title = `Session ${code} · MUSIXQUARE`;
   const description = `Join a MUSIXQUARE session with code ${code}.`;
@@ -55,7 +55,7 @@ export default async function handler(
   const url = new URL(request.url);
 
   // Only single-segment paths. Multi-segment (e.g. /fonts/x.ttf) passes through.
-  const segments = url.pathname.split("/").filter(Boolean);
+  const segments = url.pathname.split('/').filter(Boolean);
   if (segments.length !== 1) return;
 
   const code = segments[0];
@@ -67,8 +67,8 @@ export default async function handler(
   // graceful-degradation behavior they'd have if this function didn't
   // exist at all.
   const response = await context.next();
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("text/html")) return response;
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('text/html')) return response;
 
   try {
     const html = await response.text();
@@ -113,10 +113,10 @@ export default async function handler(
       );
 
     const headers = new Headers(response.headers);
-    headers.set("Content-Type", "text/html; charset=utf-8");
-    headers.set("Cache-Control", "public, max-age=60, s-maxage=900");
-    headers.set("X-Invite-Rewrite", code);
-    headers.delete("Content-Length"); // response body byte length changed
+    headers.set('Content-Type', 'text/html; charset=utf-8');
+    headers.set('Cache-Control', 'public, max-age=60, s-maxage=900');
+    headers.set('X-Invite-Rewrite', code);
+    headers.delete('Content-Length'); // response body byte length changed
 
     return new Response(rewritten, {
       status: response.status,
@@ -127,8 +127,8 @@ export default async function handler(
     // the homepage card; the join flow still works for the actual user
     // because SPA JS reads window.location.pathname client-side.
     const headers = new Headers(response.headers);
-    headers.set("X-Invite-Rewrite-Error", err instanceof Error ? err.message : "unknown");
-    headers.delete("Content-Length");
+    headers.set('X-Invite-Rewrite-Error', err instanceof Error ? err.message : 'unknown');
+    headers.delete('Content-Length');
     return new Response(response.body, { status: response.status, headers });
   }
 }
@@ -137,27 +137,27 @@ export const config = {
   // Match single-segment paths. Handler regex filters to 6-digit codes.
   // Known static single-segment paths short-circuited here to skip
   // invocations on high-traffic pages.
-  path: "/:code",
+  path: '/:code',
   excludedPath: [
-    "/about",
-    "/privacy",
-    "/terms",
-    "/history",
-    "/faq",
-    "/landing",
-    "/roadmap",
-    "/changelog",
-    "/designsystem",
-    "/beat-lab.html",
-    "/favicon.ico",
-    "/favicon.svg",
-    "/robots.txt",
-    "/sitemap.xml",
-    "/manifest.webmanifest",
-    "/service-worker.js",
-    "/demo_track.mp3",
-    "/dummy_audio.mp3",
-    "/og-image.png",
-    "/og-resvg.wasm",
+    '/about',
+    '/privacy',
+    '/terms',
+    '/history',
+    '/faq',
+    '/landing',
+    '/roadmap',
+    '/changelog',
+    '/designsystem',
+    '/beat-lab.html',
+    '/favicon.ico',
+    '/favicon.svg',
+    '/robots.txt',
+    '/sitemap.xml',
+    '/manifest.webmanifest',
+    '/service-worker.js',
+    '/demo_track.mp3',
+    '/dummy_audio.mp3',
+    '/og-image.png',
+    '/og-resvg.wasm',
   ],
 };

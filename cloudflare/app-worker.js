@@ -487,14 +487,21 @@ async function serveInvitePage(request, env, code) {
   const response = await fetchAsset(env, request, '/index.html');
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/html')) return withSecurityHeaders(response);
+  const inviteHeaders = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    'X-Invite-Rewrite': code,
+  };
+  if (request.method === 'HEAD') {
+    return withSecurityHeaders(
+      new Response(null, { status: response.status, headers: response.headers }),
+      inviteHeaders,
+    );
+  }
   const html = rewriteInviteMeta(await response.text(), code, new URL(request.url).origin);
   return withSecurityHeaders(
     new Response(html, { status: response.status, headers: response.headers }),
-    {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=60, s-maxage=900',
-      'X-Invite-Rewrite': code,
-    },
+    inviteHeaders,
   );
 }
 
@@ -565,7 +572,7 @@ async function serveStatic(request, env) {
   }
 
   const inviteMatch = url.pathname.match(/^\/(\d{6})\/?$/);
-  if (inviteMatch && request.method === 'GET') {
+  if (inviteMatch && (request.method === 'GET' || request.method === 'HEAD')) {
     return serveInvitePage(request, env, inviteMatch[1]);
   }
 

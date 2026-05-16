@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
 
 function requestWithOrigin(origin: string): Request {
@@ -61,5 +61,72 @@ describe('Cloudflare app worker CORS gate', () => {
     );
     expect(denied.status).toBe(403);
     expect(denied.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+});
+
+describe('Cloudflare app worker invite route', () => {
+  function createAssetEnv() {
+    return {
+      ASSETS: {
+        fetch: vi.fn(async (request: Request) => {
+          const url = new URL(request.url);
+          if (url.pathname !== '/index.html') {
+            return new Response('not found', {
+              status: 404,
+              headers: { 'Content-Type': 'text/plain' },
+            });
+          }
+          return new Response(
+            [
+              '<html><head>',
+              '<meta property="og:url" content="https://musixquare.com/" />',
+              '<meta property="og:title" content="MUSIXQUARE" />',
+              '<meta property="og:description" content="Default description" />',
+              '<meta property="og:image" content="https://musixquare.com/og-image.png" />',
+              '<meta property="og:image:alt" content="MUSIXQUARE" />',
+              '<meta name="twitter:title" content="MUSIXQUARE" />',
+              '<meta name="twitter:description" content="Default description" />',
+              '<meta name="twitter:image" content="https://musixquare.com/og-image.png" />',
+              '</head><body><script type="module" src="/assets/main-test.js"></script></body></html>',
+            ].join(''),
+            {
+              status: 200,
+              headers: {
+                'Content-Type': 'text/html',
+                'Cache-Control': 'public, max-age=999',
+              },
+            },
+          );
+        }),
+      },
+    };
+  }
+
+  it('serves invite pages for GET with fresh app-shell cache semantics', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('https://musixquare.com/123456'), env);
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Invite-Rewrite')).toBe('123456');
+    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+    expect(html).toContain('Session 123456 - MUSIXQUARE');
+    expect(html).toContain('https://musixquare.com/123456');
+    expect(html).toContain('/assets/main-test.js');
+  });
+
+  it('serves invite pages for HEAD instead of falling through to static 404', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/123456', { method: 'HEAD' }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Invite-Rewrite')).toBe('123456');
+    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+    expect(await response.text()).toBe('');
   });
 });

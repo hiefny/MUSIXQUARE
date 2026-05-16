@@ -181,6 +181,11 @@ function syncModalStack(): void {
   }
 }
 
+export function syncOverlayState(): void {
+  updateOverlayOpenClass();
+  syncModalStack();
+}
+
 // ─── Observer (single watcher, both effects) ─────────────────────
 
 let _overlayObserver: MutationObserver | null = null;
@@ -201,8 +206,7 @@ export function initOverlayObservers(): void {
 
   try {
     _overlayObserver = new MutationObserver(() => {
-      updateOverlayOpenClass();
-      syncModalStack();
+      syncOverlayState();
     });
     for (const o of OVERLAYS) {
       const el = document.getElementById(o.id);
@@ -212,8 +216,7 @@ export function initOverlayObservers(): void {
     log.debug('[DOM] Overlay observer init error:', e);
   }
 
-  updateOverlayOpenClass();
-  syncModalStack();
+  syncOverlayState();
 }
 
 const _ESCAPE_HTML_RE = /[&<>"']/;

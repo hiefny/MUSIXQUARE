@@ -8,6 +8,7 @@ import { log } from '../core/log.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
+import { syncOverlayState } from './dom.ts';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -72,6 +73,7 @@ export function closeDialog(action = 'close'): void {
   if (overlay) {
     overlay.classList.remove('show');
     overlay.setAttribute('aria-hidden', 'true');
+    syncOverlayState();
   }
 
   const active = _dialogActive;
@@ -303,6 +305,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
+  syncOverlayState();
 
   const cleanup: (() => void)[] = [];
   const on = (target: EventTarget | null, type: string, handler: EventListener) => {

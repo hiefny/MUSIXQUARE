@@ -8,6 +8,7 @@ import {
   copyTextToClipboard,
   animateTransition,
   updateOverlayOpenClass,
+  syncOverlayState,
   initOverlayObservers,
   __resetModalStackForTests,
 } from '../dom.ts';
@@ -206,6 +207,19 @@ describe('initOverlayObservers — modal stack', () => {
     await flushObservers();
     document.getElementById('dialog-overlay')!.classList.add('show');
     await flushObservers();
+    expect(isInert('setup-overlay')).toBe(true);
+    expect(isInert('dialog-overlay')).toBe(false);
+    expect(isInert('hdr')).toBe(true);
+  });
+
+  it('can promote dialog over setup synchronously without waiting for the observer', async () => {
+    document.getElementById('setup-overlay')!.classList.add('active');
+    await flushObservers();
+    expect(isInert('dialog-overlay')).toBe(true);
+
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    syncOverlayState();
+
     expect(isInert('setup-overlay')).toBe(true);
     expect(isInert('dialog-overlay')).toBe(false);
     expect(isInert('hdr')).toBe(true);

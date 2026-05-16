@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  DEFAULT_LONG_BACKGROUND_RESUME_MS,
+  DEFAULT_WARN_THRESHOLD_MS,
   initBackgroundResumeGuard,
   type BackgroundResumeGuardHandle,
 } from '../background-resume-guard.ts';
@@ -19,6 +19,11 @@ function setVisibility(value: DocumentVisibilityState): void {
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+interface InitOptions {
+  recoverThresholdMs?: number;
+  warnThresholdMs?: number;
 }
 
 describe('initBackgroundResumeGuard', () => {
@@ -40,68 +45,60 @@ describe('initBackgroundResumeGuard', () => {
     setVisibility('visible');
   });
 
-  function init(longHiddenMs = DEFAULT_LONG_BACKGROUND_RESUME_MS): void {
+  function init(thresholds: InitOptions = {}): void {
     handle = initBackgroundResumeGuard({
       recover,
       warn,
       getNow: () => now,
-      longHiddenMs,
+      ...thresholds,
     });
   }
 
-  it('does nothing when hidden time is below a custom threshold', async () => {
-    const threshold = 10_000;
-    init(threshold);
-
+  async function visibilityCycle(hiddenForMs: number): Promise<void> {
     setVisibility('hidden');
     document.dispatchEvent(new Event('visibilitychange'));
-    now += threshold - 1;
+    now += hiddenForMs;
     setVisibility('visible');
     document.dispatchEvent(new Event('visibilitychange'));
     await flushPromises();
+  }
+
+  it('recovers silently for a brief tab swap (under the warn threshold)', async () => {
+    init();
+    await visibilityCycle(5_000);
+
+    expect(recover).toHaveBeenCalledWith({ hiddenMs: 5_000 });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('recovers and warns once the warn threshold is reached', async () => {
+    init();
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+
+    expect(recover).toHaveBeenCalledWith({ hiddenMs: DEFAULT_WARN_THRESHOLD_MS });
+    expect(warn).toHaveBeenCalledWith({ hiddenMs: DEFAULT_WARN_THRESHOLD_MS });
+  });
+
+  it('skips both when hidden time is below the recover threshold', async () => {
+    init({ recoverThresholdMs: 2_000, warnThresholdMs: 5_000 });
+    await visibilityCycle(1_500);
 
     expect(recover).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('recovers and warns immediately after the page returns from the background', async () => {
-    init();
+  it('runs recover but holds warn between the two thresholds', async () => {
+    init({ recoverThresholdMs: 1_000, warnThresholdMs: 10_000 });
+    await visibilityCycle(5_000);
 
-    setVisibility('hidden');
-    document.dispatchEvent(new Event('visibilitychange'));
-    setVisibility('visible');
-    document.dispatchEvent(new Event('visibilitychange'));
-    await flushPromises();
-
-    expect(recover).toHaveBeenCalledWith({ hiddenMs: 0 });
-    expect(warn).toHaveBeenCalledWith({ hiddenMs: 0 });
-  });
-
-  it('recovers and warns after a hidden interval', async () => {
-    const hiddenMs = 2_500;
-    init();
-
-    setVisibility('hidden');
-    document.dispatchEvent(new Event('visibilitychange'));
-    now += hiddenMs;
-    setVisibility('visible');
-    document.dispatchEvent(new Event('visibilitychange'));
-    await flushPromises();
-
-    expect(recover).toHaveBeenCalledWith({ hiddenMs });
-    expect(warn).toHaveBeenCalledWith({ hiddenMs });
+    expect(recover).toHaveBeenCalledWith({ hiddenMs: 5_000 });
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('detaches the visibility listener on dispose', async () => {
     init();
     handle?.dispose();
-
-    setVisibility('hidden');
-    document.dispatchEvent(new Event('visibilitychange'));
-    now += 2_500;
-    setVisibility('visible');
-    document.dispatchEvent(new Event('visibilitychange'));
-    await flushPromises();
+    await visibilityCycle(2_500);
 
     expect(recover).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();

@@ -50,6 +50,17 @@ const VALID_SCOPES = new Set<CapabilityScope>([
   'youtube-search',
   'remote-share',
 ]);
+// Bundle every paid scope into a single mint so Turnstile fires at most once
+// per ~10min session (vs once per scope). Cache key is bundle-based so any
+// scope request hits the same cache entry. Token leak surface widens by 3
+// scopes, but IP binding + 10min TTL + per-endpoint rate limits keep the
+// practical risk equivalent to the single-scope design.
+const BUNDLE_SCOPES: CapabilityScope[] = [
+  'realtime',
+  'remote-share',
+  'turn',
+  'youtube-search',
+];
 
 const configCache = new Map<string, { expiresAt: number; value: SecurityConfig }>();
 const tokenCache = new Map<string, { expiresAt: number; token: string }>();
@@ -420,7 +431,7 @@ export async function getCapabilityHeaders(
   const config = await getSecurityConfig(apiBase);
   if (!config.capabilityRequired) return {};
 
-  const cacheKey = tokenCacheKey(apiBase, normalizedScopes);
+  const cacheKey = tokenCacheKey(apiBase, BUNDLE_SCOPES);
   const cached = tokenCache.get(cacheKey);
   const nowSeconds = Date.now() / 1000;
   if (cached && cached.expiresAt > nowSeconds + TOKEN_REFRESH_SKEW_SECONDS) {
@@ -428,7 +439,11 @@ export async function getCapabilityHeaders(
   }
 
   try {
-    const token = await requestCapabilityToken(apiBase, normalizedScopes, config);
+    // Always mint the bundle even if the caller asked for a subset — see
+    // BUNDLE_SCOPES comment. normalizedScopes is kept above only as an
+    // argument-validation gate (empty -> no-op).
+    void normalizedScopes;
+    const token = await requestCapabilityToken(apiBase, BUNDLE_SCOPES, config);
     return { 'X-MXQR-Capability': token };
   } catch (error) {
     if (isCapabilityChallengeCancelled(error)) throw error;
@@ -449,7 +464,7 @@ export async function fetchWithCapability(
   const response = await fetch(input, { ...init, headers });
   if (response.status !== 401 || !capabilityHeaders['X-MXQR-Capability']) return response;
 
-  tokenCache.delete(tokenCacheKey(apiBase, scopes));
+  tokenCache.delete(tokenCacheKey(apiBase, BUNDLE_SCOPES));
   const retryHeaders = new Headers(init.headers);
   const retryCapabilityHeaders = await getCapabilityHeaders(input, scopes);
   for (const [name, value] of Object.entries(retryCapabilityHeaders)) {

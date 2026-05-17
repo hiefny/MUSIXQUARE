@@ -15,7 +15,7 @@ const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
 // challenge UI to legitimate users.
 const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
-const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search']);
+const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
 const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 const SECURITY_HEADERS = {

@@ -7,6 +7,8 @@
  * 3. https://share.musixquare.com on the production domain
  */
 
+import { getCapabilityHeaders } from '../core/capability.ts';
+
 export interface RemoteUploadResponse {
   objectId: string;
   downloadUrl?: string;
@@ -36,9 +38,17 @@ export interface RemoteUploadMeta {
 
 export type ProgressHandler = (progress: number) => void;
 
+interface RemoteShareSecurityConfig {
+  capabilityRequired: boolean;
+}
+
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
 const PROD_ENDPOINT = 'https://share.musixquare.com';
 const REMOTE_SHARE_XHR_TIMEOUT_MS = 5 * 60_000;
+const REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS = 5 * 60_000;
+let remoteShareSecurityConfigCache:
+  | { endpoint: string; expiresAt: number; value: RemoteShareSecurityConfig }
+  | null = null;
 
 function normalizeEndpoint(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -115,6 +125,47 @@ function wireAbort(
   return () => signal.removeEventListener('abort', onAbort);
 }
 
+async function getRemoteShareSecurityConfig(
+  endpoint: string,
+  signal?: AbortSignal,
+): Promise<RemoteShareSecurityConfig> {
+  if (
+    remoteShareSecurityConfigCache &&
+    remoteShareSecurityConfigCache.endpoint === endpoint &&
+    remoteShareSecurityConfigCache.expiresAt > Date.now()
+  ) {
+    return remoteShareSecurityConfigCache.value;
+  }
+
+  try {
+    const response = await fetch(`${endpoint}/security-config`, {
+      headers: { Accept: 'application/json' },
+      signal,
+    });
+    if (!response.ok) throw new Error(`REMOTE_SHARE_SECURITY_CONFIG_HTTP_${response.status}`);
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const value = { capabilityRequired: payload.capabilityRequired === true };
+    remoteShareSecurityConfigCache = {
+      endpoint,
+      expiresAt: Date.now() + REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS,
+      value,
+    };
+    return value;
+  } catch {
+    return { capabilityRequired: false };
+  }
+}
+
+async function getRemoteShareSessionHeaders(
+  endpoint: string,
+  signal?: AbortSignal,
+): Promise<Record<string, string>> {
+  const config = await getRemoteShareSecurityConfig(endpoint, signal);
+  if (!config.capabilityRequired) return {};
+  return getCapabilityHeaders(new URL('/api/capability-token', location.origin), ['remote-share']);
+}
+
 async function requestUploadSession(
   endpoint: string,
   encryptedBlob: Blob,
@@ -122,9 +173,10 @@ async function requestUploadSession(
   signal?: AbortSignal,
 ): Promise<RemoteUploadSessionResponse> {
   try {
+    const capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
     const response = await fetch(`${endpoint}/session`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...capabilityHeaders },
       body: JSON.stringify({
         roomId: meta.roomId,
         sessionId: meta.sessionId,

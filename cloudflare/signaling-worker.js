@@ -1,17 +1,80 @@
-const ROOM_PATH = /^\/api\/rooms\/([A-Za-z0-9_-]+)\/ws$/;
+const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const HOST_RECLAIM_GRACE_MS = 60_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
 const ATTACHMENT_VERSION = 1;
+const WS_RATE_LIMIT_PER_MINUTE = 120;
+const SECURITY_HEADERS = {
+  'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'no-referrer',
+};
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
+      ...SECURITY_HEADERS,
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
     },
   });
+}
+
+function isAllowedOrigin(origin, env = {}) {
+  if (!origin) return true;
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    const configured = String(env.ALLOWED_ORIGINS || env.TRUSTED_ORIGINS || '')
+      .split(/[\s,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (configured.includes(url.origin)) return true;
+    return (
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url.origin) ||
+      /^https:\/\/musixquare\.com$/i.test(url.origin) ||
+      /^https:\/\/www\.musixquare\.com$/i.test(url.origin) ||
+      /^https:\/\/(?:[^/]+\.)?toss\.im$/i.test(url.origin) ||
+      /^https:\/\/(?:[^/]+\.)?toss-internal\.com$/i.test(url.origin) ||
+      /^https:\/\/(?:[^/]+\.)?tossmini\.com$/i.test(url.origin)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isValidPeerId(peerId) {
+  return typeof peerId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(peerId);
+}
+
+function getClientIp(request) {
+  return (
+    request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown'
+  );
+}
+
+async function checkRateLimit(request, key, limit = WS_RATE_LIMIT_PER_MINUTE, windowSec = 60) {
+  if (typeof caches === 'undefined' || !caches?.default) return true;
+  const ip = getClientIp(request);
+  const window = Math.floor(Date.now() / (windowSec * 1000));
+  const cacheKey = new Request(
+    `https://ratelimit.internal/${encodeURIComponent(key)}/${encodeURIComponent(ip)}/${window}`,
+  );
+  try {
+    const current = await caches.default.match(cacheKey);
+    const count = current ? Number(await current.text()) || 0 : 0;
+    if (count >= limit) return false;
+    await caches.default.put(
+      cacheKey,
+      new Response(String(count + 1), {
+        headers: { 'Cache-Control': `public, max-age=${windowSec * 2}` },
+      }),
+    );
+  } catch {
+    /* best-effort */
+  }
+  return true;
 }
 
 function send(ws, message) {
@@ -193,7 +256,7 @@ export class MusixquareRoom {
   async fetch(request) {
     const upgrade = request.headers.get('Upgrade') || '';
     if (upgrade.toLowerCase() !== 'websocket') {
-      return json({ ok: true, service: 'musixquare-signaling' });
+      return json({ error: 'WebSocket upgrade required' }, 426);
     }
 
     const url = new URL(request.url);
@@ -201,7 +264,12 @@ export class MusixquareRoom {
     const role = url.searchParams.get('role');
     const peerId = url.searchParams.get('peerId');
     const secret = url.searchParams.get('secret') || '';
-    if (!roomId || !role || !peerId) return new Response('Bad request', { status: 400 });
+    if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
+      return json({ error: 'Bad request' }, 400);
+    }
+    if (role === 'host' && !isValidPeerId(secret)) {
+      return json({ error: 'Bad request' }, 400);
+    }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -464,7 +532,30 @@ export default {
       });
     }
 
+    const upgrade = request.headers.get('Upgrade') || '';
+    if (upgrade.toLowerCase() !== 'websocket') {
+      return json({ error: 'WebSocket upgrade required' }, 426);
+    }
+
+    if (!isAllowedOrigin(request.headers.get('Origin') || '', env)) {
+      return json({ error: 'Forbidden' }, 403);
+    }
+
+    const role = url.searchParams.get('role');
+    const peerId = url.searchParams.get('peerId');
+    const secret = url.searchParams.get('secret') || '';
     const roomId = match[1];
+    if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
+      return json({ error: 'Bad request' }, 400);
+    }
+    if (role === 'host' && !isValidPeerId(secret)) {
+      return json({ error: 'Bad request' }, 400);
+    }
+
+    if (!(await checkRateLimit(request, 'ws-open'))) {
+      return json({ error: 'Too Many Requests' }, 429);
+    }
+
     const id = env.MUSIXQUARE_ROOMS.idFromName(roomId);
     const room = env.MUSIXQUARE_ROOMS.get(id);
     return room.fetch(request);

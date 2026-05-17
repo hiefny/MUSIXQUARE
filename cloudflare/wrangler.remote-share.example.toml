@@ -16,6 +16,9 @@ ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://loca
 # npx wrangler secret put REMOTE_SHARE_SIGNING_SECRET
 # npx wrangler secret put R2_ACCESS_KEY_ID
 # npx wrangler secret put R2_SECRET_ACCESS_KEY
+# Optional hardening: use the same value as the app Worker capability secret.
+# When set, POST /session requires an app-issued remote-share capability token.
+# npx wrangler secret put MXQR_CAPABILITY_SECRET
 
 [[r2_buckets]]
 binding = "REMOTE_SHARE_BUCKET"

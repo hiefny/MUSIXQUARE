@@ -18,6 +18,8 @@
  * - IP_UPLOADS_PER_WINDOW: default 60
  * - ROOM_UPLOADS_PER_WINDOW: default 0 (disabled)
  * - ALLOWED_ORIGINS: comma-separated origins
+ * - MXQR_CAPABILITY_SECRET: when set, /session requires X-MXQR-Capability
+ * - REMOTE_SHARE_CAPABILITY_SECRET: optional override for /session capability HMAC
  */
 
 const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -27,6 +29,8 @@ const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const DEFAULT_IP_UPLOADS_PER_WINDOW = 60;
 const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 0;
 const DEFAULT_R2_BUCKET_NAME = 'musixquare-remote-share';
+const CAPABILITY_SCOPE = 'remote-share';
+const CAPABILITY_TOKEN_TTL_DEFAULT = 600;
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
@@ -41,6 +45,11 @@ const DEFAULT_ALLOWED_ORIGIN_PATTERNS = [
   /^https:\/\/(?:[^/]+\.)?toss\.im$/i,
   /^https:\/\/(?:[^/]+\.)?toss-internal\.com$/i,
 ];
+const SECURITY_HEADERS = {
+  'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'no-referrer',
+};
 
 function configuredAllowedOrigins(env) {
   const configured = String(env.ALLOWED_ORIGINS || '')
@@ -64,7 +73,7 @@ function corsHeaders(request, env) {
     'access-control-allow-origin': allowOrigin,
     'access-control-allow-methods': 'POST,GET,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,x-mxqr-name,x-mxqr-mime,x-mxqr-size,x-mxqr-cleanup-token,x-mxqr-session-token',
+      'content-type,authorization,x-mxqr-capability,x-mxqr-name,x-mxqr-mime,x-mxqr-size,x-mxqr-cleanup-token,x-mxqr-session-token',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -78,6 +87,7 @@ function originError(request, env) {
 function requiresAllowedOrigin(path) {
   return (
     path === '/session' ||
+    path === '/security-config' ||
     path === '/complete' ||
     path === '/upload' ||
     /^\/download\/[^/]+\/[^/]+$/.test(path) ||
@@ -89,6 +99,7 @@ function json(request, env, body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
+      ...SECURITY_HEADERS,
       ...corsHeaders(request, env),
       ...extraHeaders,
       'content-type': 'application/json; charset=utf-8',
@@ -111,6 +122,20 @@ function parseOptionalLimit(value, fallback) {
 function getSigningSecret(env) {
   const secret = String(env.REMOTE_SHARE_SIGNING_SECRET || '').trim();
   return secret.length >= 32 ? secret : null;
+}
+
+function getCapabilitySecret(env) {
+  return String(
+    env.REMOTE_SHARE_CAPABILITY_SECRET ||
+      env.MXQR_CAPABILITY_SECRET ||
+      env.CAPABILITY_HMAC_SECRET ||
+      env.CAPABILITY_SECRET ||
+      '',
+  ).trim();
+}
+
+function isCapabilityRequired(env) {
+  return !!getCapabilitySecret(env);
 }
 
 function getR2S3Config(env) {
@@ -144,6 +169,10 @@ function base64UrlDecode(value) {
   return bytes;
 }
 
+function base64UrlToString(value) {
+  return new TextDecoder().decode(base64UrlDecode(value));
+}
+
 async function importSigningKey(secret) {
   return crypto.subtle.importKey(
     'raw',
@@ -169,6 +198,81 @@ async function hmacBytes(keyBytes, data) {
       typeof data === 'string' ? new TextEncoder().encode(data) : data,
     ),
   );
+}
+
+async function hmacSha256(secret, value) {
+  return base64UrlEncode(await hmacBytes(new TextEncoder().encode(secret), value));
+}
+
+function constantTimeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  let diff = a.length ^ b.length;
+  const length = Math.max(a.length, b.length);
+  for (let i = 0; i < length; i += 1) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
+function getClientIp(request) {
+  return (
+    request.headers.get('cf-connecting-ip') ||
+    request.headers.get('x-forwarded-for') ||
+    'unknown'
+  );
+}
+
+async function capabilityIpHash(secret, request) {
+  return hmacSha256(secret, `ip:${getClientIp(request)}`);
+}
+
+function readCapabilityToken(request) {
+  const headerToken =
+    request.headers.get('x-mxqr-capability') || request.headers.get('X-MXQR-Capability') || '';
+  if (headerToken) return headerToken.trim();
+  const authorization = request.headers.get('authorization') || '';
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : '';
+}
+
+async function verifyCapabilityToken(token, request, env) {
+  const secret = getCapabilitySecret(env);
+  if (!secret || !token) return false;
+  const parts = token.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+
+  const expectedSignature = await hmacSha256(secret, parts[0]);
+  if (!constantTimeEqual(expectedSignature, parts[1])) return false;
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlToString(parts[0]));
+  } catch {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload?.v !== 1) return false;
+  if (!Array.isArray(payload.scopes) || !payload.scopes.includes(CAPABILITY_SCOPE)) return false;
+  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return false;
+  if (typeof payload.exp !== 'number' || payload.exp <= now) return false;
+
+  const expectedIp = await capabilityIpHash(secret, request);
+  return constantTimeEqual(String(payload.ip || ''), expectedIp);
+}
+
+async function requireSessionCapability(request, env) {
+  if (!isCapabilityRequired(env)) return null;
+  if (await verifyCapabilityToken(readCapabilityToken(request), request, env)) return null;
+  return json(request, env, { error: 'CAPABILITY_REQUIRED' }, 401);
+}
+
+function handleSecurityConfig(request, env) {
+  return json(request, env, {
+    capabilityRequired: isCapabilityRequired(env),
+    scope: CAPABILITY_SCOPE,
+    ttl: CAPABILITY_TOKEN_TTL_DEFAULT,
+  });
 }
 
 async function sha256Hex(value) {
@@ -353,6 +457,9 @@ async function handleSession(request, env) {
   const secret = getSigningSecret(env);
   if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
 
+  const capabilityError = await requireSessionCapability(request, env);
+  if (capabilityError) return capabilityError;
+
   let body;
   try {
     body = await request.json();
@@ -382,10 +489,7 @@ async function handleSession(request, env) {
     return json(request, env, { error: 'invalid upload session request' }, 400);
   }
 
-  const ip =
-    request.headers.get('cf-connecting-ip') ||
-    request.headers.get('x-forwarded-for') ||
-    'unknown';
+  const ip = getClientIp(request);
   const rateWindowSeconds = parseLimit(
     env.RATE_LIMIT_WINDOW_SECONDS,
     DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
@@ -610,10 +714,7 @@ async function handleUpload(request, env) {
   );
   if (invalidSession) return invalidSession;
 
-  const ip =
-    request.headers.get('cf-connecting-ip') ||
-    request.headers.get('x-forwarded-for') ||
-    'unknown';
+  const ip = getClientIp(request);
 
   const rateWindowSeconds = parseLimit(
     env.RATE_LIMIT_WINDOW_SECONDS,
@@ -701,6 +802,7 @@ async function handleDownload(request, env, roomId, objectId) {
 
   return new Response(object.body, {
     headers: {
+      ...SECURITY_HEADERS,
       ...corsHeaders(request, env),
       'content-type': 'application/octet-stream',
       'cache-control': 'no-store',
@@ -736,7 +838,10 @@ export default {
         const badOrigin = originError(request, env);
         if (badOrigin) return badOrigin;
       }
-      return new Response(null, { status: 204, headers: corsHeaders(request, env) });
+      return new Response(null, {
+        status: 204,
+        headers: { ...SECURITY_HEADERS, ...corsHeaders(request, env) },
+      });
     }
 
     try {
@@ -745,6 +850,9 @@ export default {
         if (badOrigin) return badOrigin;
       }
 
+      if (request.method === 'GET' && path === '/security-config') {
+        return handleSecurityConfig(request, env);
+      }
       if (request.method === 'POST' && path === '/session') {
         return handleSession(request, env);
       }

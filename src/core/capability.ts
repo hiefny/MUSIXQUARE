@@ -1,4 +1,4 @@
-export type CapabilityScope = 'turn' | 'realtime' | 'youtube-search';
+export type CapabilityScope = 'turn' | 'realtime' | 'youtube-search' | 'remote-share';
 
 interface SecurityConfig {
   capabilityRequired: boolean;
@@ -44,7 +44,12 @@ const TURNSTILE_OVERLAY_FADE_MS = 180;
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_STYLE_ID = 'mxqr-turnstile-style';
 const CAPABILITY_CHALLENGE_CANCELLED = 'CapabilityChallengeCancelled';
-const VALID_SCOPES = new Set<CapabilityScope>(['turn', 'realtime', 'youtube-search']);
+const VALID_SCOPES = new Set<CapabilityScope>([
+  'turn',
+  'realtime',
+  'youtube-search',
+  'remote-share',
+]);
 
 const configCache = new Map<string, { expiresAt: number; value: SecurityConfig }>();
 const tokenCache = new Map<string, { expiresAt: number; token: string }>();

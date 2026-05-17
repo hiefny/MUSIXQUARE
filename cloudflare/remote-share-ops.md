@@ -37,6 +37,9 @@ Downloads do not write to KV.
 - KV rate limit:
   - `IP_UPLOADS_PER_WINDOW`: default 60 upload sessions per IP per hour.
   - `ROOM_UPLOADS_PER_WINDOW`: default 0, which disables room-wide limiting.
+- Optional app-issued capability token on `POST /session` when
+  `MXQR_CAPABILITY_SECRET` or `REMOTE_SHARE_CAPABILITY_SECRET` is configured on
+  the remote-share Worker.
 - R2 bucket CORS allows the production origins and local dev origins.
 - App worker CSP allows direct R2 upload connections via
   `https://*.r2.cloudflarestorage.com`.
@@ -83,7 +86,7 @@ On higher Cloudflare zone plans, prefer a more ergonomic window:
   fast bursts.
 - KV rate limiting can be removed only if we intentionally accept weaker abuse
   resistance or replace it with another durable counter.
-- Turnstile is a later option if browser legitimacy becomes more important than
-  frictionless upload UX.
+- Capability-gated sessions reuse the app Worker's Turnstile flow only when the
+  remote-share Worker advertises that the gate is enabled.
 - Durable Objects are reserved for future room-level, strongly consistent
   counters if the simpler IP-based KV limit becomes insufficient.

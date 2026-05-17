@@ -8,6 +8,9 @@ type WorkerModule = {
     webSocketMessage(ws: FakeSocket, raw: string): Promise<void>;
     webSocketClose(ws: FakeSocket): Promise<void>;
   };
+  default: {
+    fetch(request: Request, env: Record<string, unknown>): Promise<Response>;
+  };
 };
 
 type RoomMeta = {
@@ -156,6 +159,34 @@ function wsRequest(
   } as Request;
 }
 
+function requestLike(url: string, headers: Record<string, string> = {}): Request {
+  const normalizedHeaders = new Map(
+    Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]),
+  );
+  return {
+    url,
+    headers: {
+      get(name: string): string | null {
+        return normalizedHeaders.get(name.toLowerCase()) ?? null;
+      },
+    },
+  } as Request;
+}
+
+function workerEnv(): { env: Record<string, unknown>; idFromName: ReturnType<typeof vi.fn> } {
+  const room = { fetch: vi.fn() };
+  const idFromName = vi.fn(() => 'room-object-id');
+  return {
+    env: {
+      MUSIXQUARE_ROOMS: {
+        idFromName,
+        get: vi.fn(() => room),
+      },
+    },
+    idFromName,
+  };
+}
+
 function lastServer(): FakeSocket {
   const pair = FakeWebSocketPair.pairs.at(-1);
   if (!pair) throw new Error('missing fake WebSocketPair');
@@ -208,6 +239,45 @@ afterAll(() => {
 });
 
 describe('Cloudflare signaling Worker hibernation behavior', () => {
+  it('rejects non-WebSocket room requests before Durable Object lookup', async () => {
+    const { env, idFromName } = workerEnv();
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=audit-probe'),
+      env,
+    );
+
+    expect(response.status).toBe(426);
+    expect(idFromName).not.toHaveBeenCalled();
+  });
+
+  it('rejects untrusted WebSocket origins before Durable Object lookup', async () => {
+    const { env, idFromName } = workerEnv();
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=audit-probe', {
+        Origin: 'https://evil.example',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(idFromName).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed room peers before Durable Object lookup', async () => {
+    const { env, idFromName } = workerEnv();
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=bad!peer', {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect(idFromName).not.toHaveBeenCalled();
+  });
+
   it('accepts a host with hibernation attachment and room metadata', async () => {
     const { state, host } = await createHostRoom();
 

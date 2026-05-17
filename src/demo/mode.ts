@@ -232,6 +232,11 @@ function cancelDemoBlobRequests(): void {
   _demoBlobRequests.clear();
 }
 
+// demo-overlay-exit and demo-first-run-prompt timers belong to separate
+// lifecycles (curtain animation / first-time prompt) and are cleared at
+// their own call sites. Don't fold them in here — exitDemoMode immediately
+// re-schedules demo-overlay-exit via setDemoDomActive(false).
+// (10차 audit Phase 2 finding — design intent annotation.)
 function clearDemoRuntimeWork(): void {
   clearManagedTimer('demo-effect-state-sync');
   clearDemoLayoutRefreshTimers();
@@ -676,6 +681,7 @@ function syncDemoSessionCopy(): void {
   void renderDemoQRCode(code);
 }
 
+let _demoQrGeneration = 0;
 async function renderDemoQRCode(code: string): Promise<void> {
   const container = document.getElementById('demo-session-qr');
   if (!container) return;
@@ -687,6 +693,10 @@ async function renderDemoQRCode(code: string): Promise<void> {
     return;
   }
 
+  // Token pattern parity with connect.ts:_qrGeneration — discard stale awaits
+  // when rapid session-state churn re-triggers this. (10차 Phase 5 finding.)
+  const gen = ++_demoQrGeneration;
+
   try {
     const svgString = await QRCode.toString(`MUSIXQUARE.COM/${code}`, {
       type: 'svg',
@@ -697,6 +707,7 @@ async function renderDemoQRCode(code: string): Promise<void> {
         light: '#00000000',
       },
     });
+    if (gen !== _demoQrGeneration) return;
     container.innerHTML = svgString;
     const svg = container.querySelector('svg');
     if (svg) {
@@ -1236,6 +1247,17 @@ export function initDemoMode(): void {
   _busScope.on('state:network.connectedPeers', () => syncDemoSessionCopy());
   _busScope.on('state:network.sessionCode', () => syncDemoSessionCopy());
   _busScope.on('state:network.lastJoinCode', () => syncDemoSessionCopy());
+  // Guest-side: when the host drops mid-demo, exit so the overlay / body
+  // classes / audio settings / REQUEST_SETTING fanout don't stay stuck.
+  // Broadcast=false since there's no host to receive a DEMO_EXIT anyway.
+  // Host's own demo path is unaffected — host has no hostConn so this
+  // listener only fires for guests on hostConn null transition.
+  // (10차 audit Phase 2 finding.)
+  _busScope.on('state:network.hostConn', (hc) => {
+    if (!hc && getState('demo.active')) {
+      exitDemoMode({ broadcastExit: false });
+    }
+  });
   _busScope.on('state:network.appRole', (role) => {
     if (role === 'guest') _suppressFirstRunPrompt = true;
   });

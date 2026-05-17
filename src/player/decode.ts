@@ -29,7 +29,7 @@ import type { AnyProtocolMsg, TrackMeta } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
 import { broadcastSystemNotice } from '../chat/protocol.ts';
-import { registerHandlers } from '../network/protocol.ts';
+import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -453,9 +453,20 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
 // the same advance path the host uses for its own decode failures, so the
 // whole room moves on rather than leaving the failing guest in a silent
 // recovery loop. Stale reports (host already advanced) are ignored.
-function handleGuestDecodeFailed(data: Record<string, unknown>, _conn: DataConnection): void {
+//
+// Threat model: without verifyOperator, any non-OP guest could send a raw
+// frame with index === currentTrackIndex on every track change to force
+// the host to skip every track — single-frame attack with room-wide impact.
+// Sibling parity to REQUEST_PLAY/PAUSE/SEEK/SKIP_TIME/CHAT_COMMAND which
+// all require OP. (10차 audit Phase 8 finding.)
+function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only host acts on this report
+
+  if (!verifyOperator(conn, data)) {
+    log.warn(`[Decode] Rejected guest-decode-failed from non-OP: ${conn?.peer}`);
+    return;
+  }
 
   const reportedIdx = data.index as number;
   const currentIdx = getState('playlist.currentTrackIndex');

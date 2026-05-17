@@ -246,7 +246,14 @@ function normalizeSearchResults(value: unknown): YouTubeSearchResult[] {
         videoId,
         title: typeof row.title === 'string' ? row.title : '',
         channelTitle: typeof row.channelTitle === 'string' ? row.channelTitle : '',
-        thumbnailUrl: typeof row.thumbnailUrl === 'string' ? row.thumbnailUrl : '',
+        // https:// whitelist: own /api/youtube-search returns i.ytimg.com URLs,
+        // but defense-in-depth blocks data:/javascript: if backend ever drifts.
+        // Empty string falls back to canonical mqdefault.jpg in the renderer.
+        // (10차 audit Phase 4 finding.)
+        thumbnailUrl:
+          typeof row.thumbnailUrl === 'string' && row.thumbnailUrl.startsWith('https://')
+            ? row.thumbnailUrl
+            : '',
         publishedAt: typeof row.publishedAt === 'string' ? row.publishedAt : undefined,
         url:
           typeof row.url === 'string' && row.url.includes(videoId)

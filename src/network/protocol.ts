@@ -166,6 +166,22 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
   [MSG.YOUTUBE_SUB_TITLE_UPDATE]: (d) =>
     typeof d.playlistId === 'string' && isNonNegInt(d.subIdx) && typeof d.title === 'string',
+  // Without per-element validation a compromised host (or any peer that
+  // bypasses isHostBroadcast in some future regression) could populate ids[]
+  // with attacker-controlled strings — youtube/handlers.ts:209 then calls
+  // player.loadVideoById(ids[subIdx]) with whatever's there. videoId is
+  // always 11 chars URL-safe base64 in YouTube's spec; matches search.ts
+  // search-result normalization. (10차 audit Phase 4 finding.)
+  [MSG.YOUTUBE_PLAYLIST_INFO]: (d) =>
+    typeof d.playlistId === 'string' &&
+    d.playlistId.length > 0 &&
+    d.playlistId.length <= 64 &&
+    Array.isArray(d.ids) &&
+    (d.ids as unknown[]).length <= 200 &&
+    (d.ids as unknown[]).every((x) => typeof x === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(x)) &&
+    Array.isArray(d.titles) &&
+    (d.titles as unknown[]).length === (d.ids as unknown[]).length &&
+    (d.titles as unknown[]).every((x) => typeof x === 'string' && x.length <= 200),
   [MSG.REQUEST_YOUTUBE_SUB_SEEK]: (d) => isNonNegInt(d.subIdx),
   [MSG.REQUEST_SETTING]: isValidRequestSetting,
 

@@ -89,9 +89,23 @@ function trustedCors(request, methods, env = {}) {
 
   const sameOrigin = origin && (origin === `https://${host}` || origin === `http://${host}`);
   const browserSameOrigin = fetchSite === 'same-origin';
+  // Same-origin GET fallback for older WebViews that omit both Origin and
+  // Sec-Fetch-Site (Android WebView < 76, Safari < 16.4, some Toss in-app
+  // shells). Host is always set by HTTP/1.1; if Host matches a trusted
+  // self-origin AND neither browser signal is present, treat as same-origin.
+  // CORS headers are still skipped (allowOrigin='') since same-origin
+  // responses don't need them. Closes the residual case of the 5/1 origin-
+  // gate incident. (10차 audit Phase 1 finding.)
+  const hostSelfUrl = host ? `https://${host}` : '';
+  const sameOriginInferred =
+    !origin &&
+    !fetchSite &&
+    hostSelfUrl &&
+    trustedPatterns.some((pattern) => pattern.test(hostSelfUrl));
   const isTrusted =
     sameOrigin ||
     browserSameOrigin ||
+    sameOriginInferred ||
     trustedPatterns.some((pattern) => pattern.test(origin)) ||
     isConfiguredTrustedOrigin(origin, env);
   const allowOrigin = isTrusted ? origin : '';
@@ -589,9 +603,13 @@ async function serveStatic(request, env) {
     ? await fetchAsset(env, request, assetPathname)
     : await fetchAsset(env, request);
 
+  // Allow HEAD alongside GET so link unfurlers (Slack/Discord/iMessage) that
+  // HEAD-probe before fetching don't see a broken-link 404 for SPA routes.
+  // Mirrors the GET+HEAD pairing at the invite path (76f114ed).
+  // (10차 audit Phase 1 finding.)
   if (
     response.status === 404 &&
-    request.method === 'GET' &&
+    (request.method === 'GET' || request.method === 'HEAD') &&
     (request.headers.get('Accept') || '').includes('text/html')
   ) {
     return withSecurityHeaders(await fetchAsset(env, request, '/index.html'), {

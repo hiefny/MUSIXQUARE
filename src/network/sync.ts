@@ -379,9 +379,19 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 // Registered here instead of host.ts to avoid circular dependency
 // (host.ts → protocol.ts → peer.ts → host.ts).
 
+// Guest-side cooldown to absorb host rapid-click / drag bursts and avoid
+// seek storms. Host trusted in threat model, so this is primarily UX
+// protection (60Hz pointermove → 60 seeks/s would make audio unlistenable).
+// hostConn replacement naturally clears the timestamp via the >1000ms gap.
+// (10차 audit Phase 6 finding.)
+let _lastSyncRequestAt = 0;
 function handleSyncRequest(_data: Record<string, unknown>, conn?: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn?.open || conn !== hostConn) return;
+
+  const now = Date.now();
+  if (now - _lastSyncRequestAt < 1000) return;
+  _lastSyncRequestAt = now;
 
   bus.emit('sync:force-resync');
 }

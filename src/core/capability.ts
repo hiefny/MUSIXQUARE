@@ -41,7 +41,6 @@ const SECURITY_CONFIG_CACHE_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_SECONDS = 30;
 const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
 const TURNSTILE_OVERLAY_FADE_MS = 180;
-const TURNSTILE_SPINNER_HIDE_DELAY_MS = 1_000;
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_STYLE_ID = 'mxqr-turnstile-style';
 const CAPABILITY_CHALLENGE_CANCELLED = 'CapabilityChallengeCancelled';
@@ -191,31 +190,14 @@ function ensureTurnstileStyles(): void {
   display: grid;
   place-items: center;
   min-width: min(300px, calc(100vw - 48px));
-  min-height: 92px;
-}
-.mxqr-turnstile-spinner {
-  position: absolute;
-  z-index: 0;
-  width: 28px;
-  height: 28px;
-  border: 3px solid rgba(255, 255, 255, 0.28);
-  border-top-color: rgba(255, 255, 255, 0.95);
-  border-radius: 999px;
-  animation: mxqr-turnstile-spin 0.8s linear infinite;
-  transition: opacity 140ms ease;
 }
 .mxqr-turnstile-widget {
   position: relative;
   z-index: 1;
 }
-@keyframes mxqr-turnstile-spin {
-  to { transform: rotate(360deg); }
-}
 @media (prefers-reduced-motion: reduce) {
-  #mxqr-turnstile-container,
-  .mxqr-turnstile-spinner {
+  #mxqr-turnstile-container {
     transition: none;
-    animation: none;
   }
 }
 `;
@@ -229,8 +211,6 @@ function ensureTurnstileContainer(): HTMLElement {
   }
 
   if (turnstileContainer?.isConnected && turnstileWidgetHost?.isConnected) {
-    const spinner = turnstileContainer.querySelector<HTMLElement>('.mxqr-turnstile-spinner');
-    if (spinner) spinner.style.opacity = '';
     return turnstileWidgetHost;
   }
 
@@ -256,14 +236,11 @@ function ensureTurnstileContainer(): HTMLElement {
   const frame = document.createElement('div');
   frame.className = 'mxqr-turnstile-frame';
 
-  const spinner = document.createElement('div');
-  spinner.className = 'mxqr-turnstile-spinner';
-
   const widgetHost = document.createElement('div');
   widgetHost.id = 'mxqr-turnstile-widget';
   widgetHost.className = 'mxqr-turnstile-widget';
 
-  frame.append(spinner, widgetHost);
+  frame.appendChild(widgetHost);
   container.appendChild(frame);
   document.body.appendChild(container);
 
@@ -275,17 +252,9 @@ function ensureTurnstileContainer(): HTMLElement {
 function showTurnstileOverlay(): void {
   const container = turnstileContainer;
   if (!container) return;
-  const spinner = container.querySelector<HTMLElement>('.mxqr-turnstile-spinner');
-  if (spinner) spinner.style.opacity = '';
   window.requestAnimationFrame(() => {
     container.classList.add('mxqr-turnstile-visible');
-    window.setTimeout(hideTurnstileSpinner, TURNSTILE_SPINNER_HIDE_DELAY_MS);
   });
-}
-
-function hideTurnstileSpinner(): void {
-  const spinner = turnstileContainer?.querySelector<HTMLElement>('.mxqr-turnstile-spinner');
-  if (spinner) spinner.style.opacity = '0';
 }
 
 function cleanupTurnstileWidget(): void {

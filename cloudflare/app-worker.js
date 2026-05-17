@@ -89,23 +89,16 @@ function trustedCors(request, methods, env = {}) {
 
   const sameOrigin = origin && (origin === `https://${host}` || origin === `http://${host}`);
   const browserSameOrigin = fetchSite === 'same-origin';
-  // Same-origin GET fallback for older WebViews that omit both Origin and
-  // Sec-Fetch-Site (Android WebView < 76, Safari < 16.4, some Toss in-app
-  // shells). Host is always set by HTTP/1.1; if Host matches a trusted
-  // self-origin AND neither browser signal is present, treat as same-origin.
-  // CORS headers are still skipped (allowOrigin='') since same-origin
-  // responses don't need them. Closes the residual case of the 5/1 origin-
-  // gate incident. (10차 audit Phase 1 finding.)
-  const hostSelfUrl = host ? `https://${host}` : '';
-  const sameOriginInferred =
-    !origin &&
-    !fetchSite &&
-    hostSelfUrl &&
-    trustedPatterns.some((pattern) => pattern.test(hostSelfUrl));
+  // Reverted: Host-header sameOriginInferred fallback was a regression. curl
+  // can spoof Host: musixquare.com (no Origin, no Sec-Fetch-Site) and burn
+  // /api/get-turn-config / /api/cloudflare-realtime / /api/youtube-search
+  // paid resources. Only Origin or Sec-Fetch-Site (set by real browsers, not
+  // curl) provide the same-origin proof needed for sensitive endpoints. Older
+  // WebViews that omit both signals fall back to STUN-only — accepted trade.
+  // (11차 audit Phase 0 finding — 10차 M-1 reverted.)
   const isTrusted =
     sameOrigin ||
     browserSameOrigin ||
-    sameOriginInferred ||
     trustedPatterns.some((pattern) => pattern.test(origin)) ||
     isConfiguredTrustedOrigin(origin, env);
   const allowOrigin = isTrusted ? origin : '';

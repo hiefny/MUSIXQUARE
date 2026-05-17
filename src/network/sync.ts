@@ -544,6 +544,9 @@ export function initSync(): void {
   bus.on('state:network.hostConn', () => {
     if (getState('network.appRole') !== 'guest') return;
     resetSyncClockRuntime();
+    // Clear SYNC_REQUEST cooldown so a fresh host's first sync isn't blocked
+    // by a stale timestamp from the previous session. (11차 audit H-2 boost.)
+    _lastSyncRequestAt = 0;
   });
 
   // Guest: arm initial sync 1s after any play command (audio engine stable by then)

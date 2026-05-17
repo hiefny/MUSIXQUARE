@@ -146,7 +146,7 @@ export async function loadAndBroadcastFile(
       // Don't let audio initialization block the whole activation if it hangs (e.g. autoplay blocked)
       await Promise.race([initAudio(), delay(2000)]);
     }
-    if (getAudioContext().state === 'suspended') await ensureRunning();
+    if (getAudioContext().state !== 'running') await ensureRunning();
 
     // Create blob URL eagerly for video element; actual state publication
     // of files.currentFileBlob is deferred until AFTER decode succeeds so
@@ -302,7 +302,7 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadToken?: numb
     if (!isSystemAudioActive()) {
       await Promise.race([initAudio(), delay(2000)]);
     }
-    if (getAudioContext().state === 'suspended') await ensureRunning();
+    if (getAudioContext().state !== 'running') await ensureRunning();
 
     BlobURLManager.create(file);
 
@@ -512,7 +512,7 @@ export async function loadPreloadedTrack(
   try {
     if (!isSystemAudioActive()) {
       await Promise.race([initAudio(), delay(2000)]);
-      if (getAudioContext().state === 'suspended') await ensureRunning();
+      if (getAudioContext().state !== 'running') await ensureRunning();
     }
 
     if (
@@ -841,7 +841,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
   try {
     await initAudio();
-    if (getAudioContext().state === 'suspended') await ensureRunning();
+    if (getAudioContext().state !== 'running') await ensureRunning();
 
     if (isExternalOwner()) {
       log.debug('[Guest] Stale finalize (post-audio-init), aborting');

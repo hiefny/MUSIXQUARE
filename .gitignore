@@ -29,3 +29,6 @@ test.js
 test.mjs
 test_*.mjs
 scratch/
+
+# Local-only internal docs and operational notes
+docs/private/

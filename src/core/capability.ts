@@ -177,8 +177,13 @@ function ensureTurnstileContainer(): HTMLElement {
   const container = document.createElement('div');
   container.id = 'mxqr-turnstile-container';
   container.style.position = 'fixed';
-  container.style.right = '16px';
-  container.style.bottom = '16px';
+  container.style.inset = '0';
+  container.style.display = 'flex';
+  container.style.alignItems = 'center';
+  container.style.justifyContent = 'center';
+  container.style.boxSizing = 'border-box';
+  container.style.padding = '24px';
+  container.style.background = 'rgba(6, 10, 18, 0.42)';
   container.style.zIndex = '2147483647';
   document.body.appendChild(container);
   turnstileContainer = container;

@@ -451,6 +451,14 @@ export async function getCapabilityHeaders(
   }
 }
 
+export function invalidateCapabilityToken(input: RequestInfo | URL): void {
+  // Drop the cached bundle token so the next getCapabilityHeaders() call
+  // re-mints. Use when a downstream endpoint returns 401 even though we sent
+  // a token — usually means the cached token was minted before a new scope
+  // was added to the bundle (post-deploy transient).
+  tokenCache.delete(tokenCacheKey(apiBaseFor(input), BUNDLE_SCOPES));
+}
+
 export async function fetchWithCapability(
   input: RequestInfo | URL,
   scope: CapabilityScope,

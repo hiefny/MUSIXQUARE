@@ -7,7 +7,7 @@
  * 3. https://share.musixquare.com on the production domain
  */
 
-import { getCapabilityHeaders } from '../core/capability.ts';
+import { getCapabilityHeaders, invalidateCapabilityToken } from '../core/capability.ts';
 
 export interface RemoteUploadResponse {
   objectId: string;
@@ -173,21 +173,37 @@ async function requestUploadSession(
   signal?: AbortSignal,
 ): Promise<RemoteUploadSessionResponse> {
   try {
-    const capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
-    const response = await fetch(`${endpoint}/session`, {
+    const requestBody = JSON.stringify({
+      roomId: meta.roomId,
+      sessionId: meta.sessionId,
+      index: meta.index,
+      name: meta.name,
+      mime: meta.mime || 'application/octet-stream',
+      size: meta.size,
+      encryptedSize: encryptedBlob.size,
+    });
+    const capabilityTarget = new URL('/api/capability-token', location.origin);
+    let capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
+    let response = await fetch(`${endpoint}/session`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...capabilityHeaders },
-      body: JSON.stringify({
-        roomId: meta.roomId,
-        sessionId: meta.sessionId,
-        index: meta.index,
-        name: meta.name,
-        mime: meta.mime || 'application/octet-stream',
-        size: meta.size,
-        encryptedSize: encryptedBlob.size,
-      }),
+      body: requestBody,
       signal,
     });
+
+    // Stale capability cache (e.g. a token minted before the remote-share
+    // scope was bundled into the client): invalidate and retry once. Same
+    // shape as fetchWithCapability's 401 retry path.
+    if (response.status === 401 && capabilityHeaders['X-MXQR-Capability']) {
+      invalidateCapabilityToken(capabilityTarget);
+      capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
+      response = await fetch(`${endpoint}/session`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...capabilityHeaders },
+        body: requestBody,
+        signal,
+      });
+    }
 
     if (!response.ok) {
       throw new Error(`REMOTE_SHARE_SESSION_HTTP_${response.status}`);

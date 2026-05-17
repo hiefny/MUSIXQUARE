@@ -66,7 +66,7 @@ export const DELAY = {
 export const MANUAL_SYNC_OFFSET_LIMIT_SEC = 3;
 
 // ─── Network ───────────────────────────────────────────────────────
-export const DEFAULT_MAX_GUEST_SLOTS = 3;
+export const DEFAULT_MAX_GUEST_SLOTS = 4;
 export const MIN_GUEST_SLOTS = 1;
 export const MAX_GUEST_SLOTS_LIMIT = 32;
 /** Show "this mode is recommended for small rooms" dialog only when the host

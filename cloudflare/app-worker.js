@@ -116,6 +116,71 @@ function trustedCors(request, methods, env = {}) {
   };
 }
 
+// Per-IP rate limit for sensitive endpoints (paid Cloudflare TURN/SFU /
+// YouTube quota). 13차 audit finding 1: header-based CORS is bypassable by
+// curl spoofing Origin or Sec-Fetch-Site, so paid-resource endpoints need
+// a separate defense layer. Uses Cache API (no extra binding needed) keyed
+// on CF-Connecting-IP + endpoint + window minute. Atomicity is best-effort
+// — concurrent requests within the same minute can each pass with a stale
+// count, but the worst-case overshoot is bounded by edge node concurrency
+// per IP. Adequate for paid-resource leak prevention; not for strict abuse
+// quotas.
+async function checkRateLimit(request, endpoint, limit = 60, windowSec = 60) {
+  // Graceful bypass if the runtime doesn't expose Cache API (e.g. jsdom unit
+  // tests that invoke the worker directly). Production Cloudflare workers
+  // always have `caches.default`.
+  if (typeof caches === 'undefined' || !caches?.default) return true;
+
+  const ip =
+    request.headers.get('CF-Connecting-IP') ||
+    request.headers.get('X-Forwarded-For') ||
+    'unknown';
+  const window = Math.floor(Date.now() / (windowSec * 1000));
+  // Use a synthetic cache URL so the key is opaque to upstream caches.
+  const cacheKey = new Request(
+    `https://ratelimit.internal/${encodeURIComponent(endpoint)}/${encodeURIComponent(ip)}/${window}`,
+    { method: 'GET' },
+  );
+  const cache = caches.default;
+
+  let count = 0;
+  try {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const txt = await cached.text();
+      const n = Number.parseInt(txt, 10);
+      if (Number.isFinite(n) && n >= 0) count = n;
+    }
+  } catch {
+    /* cache miss treated as 0 */
+  }
+
+  if (count >= limit) return false;
+
+  try {
+    await cache.put(
+      cacheKey,
+      new Response(String(count + 1), {
+        headers: { 'Cache-Control': `public, max-age=${windowSec * 2}` },
+      }),
+    );
+  } catch {
+    /* best-effort */
+  }
+  return true;
+}
+
+function rateLimitResponse(headers) {
+  return new Response(JSON.stringify({ error: 'Too Many Requests' }), {
+    status: 429,
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json',
+      'Retry-After': '60',
+    },
+  });
+}
+
 function clampMaxResults(raw, env) {
   const envDefault = Number.parseInt(env.YOUTUBE_SEARCH_MAX_RESULTS || '', 10);
   const fallback = Number.isFinite(envDefault) ? envDefault : DEFAULT_MAX_RESULTS;
@@ -181,6 +246,8 @@ async function handleYoutubeSearch(request, env) {
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
   if (!isTrusted) return json({ error: 'Forbidden' }, 403, headers);
+  if (!(await checkRateLimit(request, 'yt-search', 30, 60)))
+    return rateLimitResponse(headers);
 
   const apiKey = env.YOUTUBE_API_KEY || env.YOUTUBE_DATA_API_KEY || '';
   if (!apiKey) return json({ error: 'YOUTUBE_SEARCH_UNAVAILABLE' }, 503, headers);
@@ -323,6 +390,8 @@ async function handleTurnConfig(request, env) {
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
   if (!isTrusted) return json({ error: 'Forbidden' }, 403, headers);
+  if (!(await checkRateLimit(request, 'turn-config', 60, 60)))
+    return rateLimitResponse(headers);
 
   try {
     const cloudflareConfig = await getCloudflareIceServers(env);
@@ -398,6 +467,8 @@ async function handleRealtime(request, env) {
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
   if (!isTrusted) return json({ error: 'Forbidden' }, 403, headers);
+  if (!(await checkRateLimit(request, 'realtime', 30, 60)))
+    return rateLimitResponse(headers);
 
   const { appId, appSecret } = getRealtimeEnv(env);
   if (!appId || !appSecret) return json({ error: 'REALTIME_SFU_UNAVAILABLE' }, 503, headers);

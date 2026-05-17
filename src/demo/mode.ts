@@ -685,6 +685,13 @@ let _demoQrGeneration = 0;
 async function renderDemoQRCode(code: string): Promise<void> {
   const container = document.getElementById('demo-session-qr');
   if (!container) return;
+
+  // Bump generation BEFORE validating, so a later invalid-code call invalidates
+  // a pending valid-code await — without this, a stale SVG from the prior valid
+  // code could clobber the placeholder set on the subsequent invalid call.
+  // (13차 audit finding 4 — fixes 12차 L-10 partial token coverage.)
+  const gen = ++_demoQrGeneration;
+
   if (!/^\d{6}$/.test(code)) {
     const p = document.createElement('p');
     p.className = 'demo-session-qr-placeholder';
@@ -692,10 +699,6 @@ async function renderDemoQRCode(code: string): Promise<void> {
     container.replaceChildren(p);
     return;
   }
-
-  // Token pattern parity with connect.ts:_qrGeneration — discard stale awaits
-  // when rapid session-state churn re-triggers this. (10차 Phase 5 finding.)
-  const gen = ++_demoQrGeneration;
 
   try {
     const svgString = await QRCode.toString(`MUSIXQUARE.COM/${code}`, {

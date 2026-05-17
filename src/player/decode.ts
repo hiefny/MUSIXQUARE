@@ -29,7 +29,7 @@ import type { AnyProtocolMsg, TrackMeta } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
 import { broadcastSystemNotice } from '../chat/protocol.ts';
-import { registerHandlers, verifyOperator } from '../network/protocol.ts';
+import { registerHandlers } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -454,19 +454,21 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
 // whole room moves on rather than leaving the failing guest in a silent
 // recovery loop. Stale reports (host already advanced) are ignored.
 //
-// Threat model: without verifyOperator, any non-OP guest could send a raw
-// frame with index === currentTrackIndex on every track change to force
-// the host to skip every track — single-frame attack with room-wide impact.
-// Sibling parity to REQUEST_PLAY/PAUSE/SEEK/SKIP_TIME/CHAT_COMMAND which
-// all require OP. (10차 audit Phase 8 finding.)
+// This is a data-plane recovery message that any guest (including non-OP)
+// must be able to send — iOS Safari can't decode mp4-as-mp3 even though
+// host's Chrome can, and a non-OP iOS guest must still escape the FAILED
+// loop. Defense against spam is per-(peer, trackIdx) dedup: each peer can
+// report failure on a given track exactly once, cleared on track change.
+// (10차 added verifyOperator → 13차 reverted: that was wrong fix direction,
+// blocking the legitimate recovery flow it was meant to support.)
+const _reportedDecodeFailures = new Set<string>();
+
 function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only host acts on this report
 
-  if (!verifyOperator(conn, data)) {
-    log.warn(`[Decode] Rejected guest-decode-failed from non-OP: ${conn?.peer}`);
-    return;
-  }
+  const peerId = conn?.peer;
+  if (!peerId) return;
 
   const reportedIdx = data.index as number;
   const currentIdx = getState('playlist.currentTrackIndex');
@@ -478,6 +480,13 @@ function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnec
     return;
   }
 
+  const dedupKey = `${peerId}:${reportedIdx}`;
+  if (_reportedDecodeFailures.has(dedupKey)) {
+    log.debug(`[Decode] Duplicate decode-failed from ${peerId} for index ${reportedIdx}`);
+    return;
+  }
+  _reportedDecodeFailures.add(dedupKey);
+
   log.info(`[Decode] Guest reported decode failure at index ${reportedIdx}, advancing room`);
   markFailedAndAdvance(null, reportedIdx);
 }
@@ -485,6 +494,13 @@ function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnec
 export function initDecodeHandlers(): void {
   registerHandlers({
     [MSG.GUEST_DECODE_FAILED]: handleGuestDecodeFailed,
+  });
+
+  // Clear dedup set on track change — each new track starts fresh, so every
+  // peer gets one report budget per track. Also covers session reset
+  // (currentTrackIndex resets to -1 on leave).
+  bus.on('state:playlist.currentTrackIndex', () => {
+    _reportedDecodeFailures.clear();
   });
 }
 

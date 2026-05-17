@@ -218,9 +218,11 @@ function allowInferredCapabilityFallback(env) {
   const raw = String(
     env.MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK ??
       env.ALLOW_INFERRED_CAPABILITY_FALLBACK ??
-      'true',
-  ).toLowerCase();
-  return raw !== '0' && raw !== 'false' && raw !== 'no';
+      'false',
+  )
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
 function parseCapabilityTtl(env) {

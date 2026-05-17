@@ -46,7 +46,7 @@ Server-only variables are configured as Cloudflare Worker secrets (`wrangler sec
 - `MXQR_CAPABILITY_SECRET` (optional): Enables short-lived signed capability tokens for paid-resource endpoints (`/api/get-turn-config`, `/api/cloudflare-realtime`, `/api/youtube-search`).
 - `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (optional): Require Cloudflare Turnstile before minting capability tokens. Keep the secret key server-only.
 - `MXQR_CAPABILITY_TTL` (optional): Capability-token lifetime in seconds, clamped from 60 to 1800. Default is 600.
-- `MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK` (optional): Set to `false` to disable the legacy no-Origin/no-Sec-Fetch same-origin fallback used by old WebViews.
+- `MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK` (optional): Set to `true` only if you deliberately need the legacy no-Origin/no-Sec-Fetch same-origin fallback for old WebViews. Default is disabled.
 
 Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled into browser code.
 

@@ -225,9 +225,12 @@ async function requestCapabilityToken(
   if (config.turnstileSiteKey) {
     try {
       turnstileToken = await getTurnstileToken(config.turnstileSiteKey);
-    } catch {
-      /* Server may still allow same-origin-inferred fallback for old WebViews. */
+    } catch (error) {
+      if (!config.inferredFallback) throw error;
     }
+  }
+  if (config.turnstileRequired && !turnstileToken && !config.inferredFallback) {
+    throw new Error('Turnstile required');
   }
 
   const response = await fetch(`${apiBase}/api/capability-token`, {

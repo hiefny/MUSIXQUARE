@@ -146,7 +146,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     });
   });
 
-  it('keeps same-origin-inferred as a capability-token fallback only', async () => {
+  it('rejects same-origin-inferred capability fallback by default when Turnstile is configured', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       TURNSTILE_SITE_KEY: 'site-key',
@@ -166,6 +166,34 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       env,
     );
     expect(blocked.status).toBe(401);
+
+    const mint = await appWorker.fetch(
+      new Request('https://musixquare.com/api/capability-token', {
+        method: 'POST',
+        headers: {
+          Host: 'musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+        },
+        body: JSON.stringify({ scopes: ['turn'] }),
+      }),
+      env,
+    );
+
+    expect(mint.status).toBe(403);
+    expect(await mint.json()).toEqual({ error: 'TURNSTILE_REQUIRED' });
+  });
+
+  it('allows same-origin-inferred capability fallback only when explicitly enabled', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK: 'true',
+      TURNSTILE_SITE_KEY: 'site-key',
+      TURNSTILE_SECRET_KEY: 'secret-key',
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
+    const ip = '203.0.113.23';
 
     const mint = await appWorker.fetch(
       new Request('https://musixquare.com/api/capability-token', {

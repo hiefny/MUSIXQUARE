@@ -7,6 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { fetchWithCapability } from '../core/capability.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -219,7 +220,7 @@ async function loadSfuRtcConfig(): Promise<RTCConfiguration> {
 
   for (const url of getTurnConfigEndpoints()) {
     try {
-      const response = await fetch(url);
+      const response = await fetchWithCapability(url, 'turn');
       if (!response.ok) continue;
 
       const payload = (await response.json()) as TurnConfigResponse;
@@ -253,7 +254,7 @@ async function callRealtime(
 
   for (const url of getRealtimeEndpoints()) {
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithCapability(url, 'realtime', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

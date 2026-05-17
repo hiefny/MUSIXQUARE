@@ -174,16 +174,22 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   // search-result normalization. Length cap = 5000 (YouTube's own playlist
   // max), not 200 — large playlists are a first-class app feature (see
   // index-before-add flow). (10차 audit Phase 4 + 13차 finding 3 cap fix.)
-  [MSG.YOUTUBE_PLAYLIST_INFO]: (d) =>
-    typeof d.playlistId === 'string' &&
-    d.playlistId.length > 0 &&
-    d.playlistId.length <= 64 &&
-    Array.isArray(d.ids) &&
-    (d.ids as unknown[]).length <= 5000 &&
-    (d.ids as unknown[]).every((x) => typeof x === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(x)) &&
-    Array.isArray(d.titles) &&
-    (d.titles as unknown[]).length === (d.ids as unknown[]).length &&
-    (d.titles as unknown[]).every((x) => typeof x === 'string' && x.length <= 200),
+  [MSG.YOUTUBE_PLAYLIST_INFO]: (d) => {
+    const ids = d.ids;
+    const titles = d.titles;
+    return (
+      typeof d.playlistId === 'string' &&
+      d.playlistId.length > 0 &&
+      d.playlistId.length <= 64 &&
+      Array.isArray(ids) &&
+      ids.length <= 5000 &&
+      ids.every((x) => typeof x === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(x)) &&
+      Array.isArray(titles) &&
+      // Titles are lazy-filled after IDs, so partial arrays are valid.
+      titles.length <= ids.length &&
+      titles.every((x) => typeof x === 'string' && x.length <= 200)
+    );
+  },
   [MSG.REQUEST_YOUTUBE_SUB_SEEK]: (d) => isNonNegInt(d.subIdx),
   [MSG.REQUEST_SETTING]: isValidRequestSetting,
 

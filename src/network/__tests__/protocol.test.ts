@@ -173,6 +173,45 @@ describe('verifyOperator', () => {
   });
 });
 
+describe('YOUTUBE_PLAYLIST_INFO validation', () => {
+  it('allows large playlist IDs while titles are still lazy-filling', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.YOUTUBE_PLAYLIST_INFO, handler);
+    const conn = makeConnection('host-youtube-playlist-info');
+    const ids = Array.from({ length: 201 }, (_, i) => `v${String(i).padStart(10, '0')}`);
+
+    await handleData(
+      {
+        type: MSG.YOUTUBE_PLAYLIST_INFO,
+        playlistId: 'PL1234567890',
+        ids,
+        titles: ['Known title'],
+      },
+      conn,
+    );
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops playlist info when titles outgrow the matching ID list', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.YOUTUBE_PLAYLIST_INFO, handler);
+    const conn = makeConnection('host-youtube-playlist-info-invalid');
+
+    await handleData(
+      {
+        type: MSG.YOUTUBE_PLAYLIST_INFO,
+        playlistId: 'PL1234567890',
+        ids: ['v0000000000'],
+        titles: ['Known title', 'Stale extra title'],
+      },
+      conn,
+    );
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe('REQUEST_SETTING validation', () => {
   it('dispatches known setting types with in-range typed values', async () => {
     const handler = vi.fn();

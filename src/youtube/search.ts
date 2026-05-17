@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { fetchWithCapability, type CapabilityScope } from '../core/capability.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState } from '../core/state.ts';
@@ -65,6 +66,8 @@ async function fetchWithTimeout(
   url: string,
   timeoutMs = OEMBED_FETCH_TIMEOUT_MS,
   externalSignal?: AbortSignal,
+  init: RequestInit = {},
+  capabilityScope?: CapabilityScope,
 ): Promise<Response> {
   const controller = new AbortController();
   const id = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -77,7 +80,10 @@ async function fetchWithTimeout(
     } else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
   try {
-    return await fetch(url, { signal: controller.signal });
+    const requestInit = { ...init, signal: controller.signal };
+    return capabilityScope
+      ? await fetchWithCapability(url, capabilityScope, requestInit)
+      : await fetch(url, requestInit);
   } finally {
     window.clearTimeout(id);
     externalSignal?.removeEventListener('abort', onExternalAbort);
@@ -275,7 +281,13 @@ export async function fetchYouTubeSearchResults(
   if (cached) return cached;
 
   const endpoint = `${YOUTUBE_SEARCH_ENDPOINT}?q=${encodeURIComponent(normalizedQuery)}`;
-  const response = await fetchWithTimeout(endpoint, YOUTUBE_SEARCH_TIMEOUT_MS, externalSignal);
+  const response = await fetchWithTimeout(
+    endpoint,
+    YOUTUBE_SEARCH_TIMEOUT_MS,
+    externalSignal,
+    {},
+    'youtube-search',
+  );
   if (!response.ok) {
     let payload: YouTubeSearchErrorPayload = {};
     try {

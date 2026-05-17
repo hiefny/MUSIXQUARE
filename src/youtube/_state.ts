@@ -265,12 +265,13 @@ function _pruneSubMap(subMap: SubItemsMap): SubItemsMap {
 /** Set playlist IDs for a YouTube playlist (preserves existing titles). */
 export function updateSubItemIds(playlistId: string, ids: string[]): void {
   const subMap = _getSubMap();
+  const nextIds = [...ids];
   setState(
     'youtube.subItemsMap',
     _pruneSubMap(
       _touchSubMapEntry(subMap, playlistId, {
-        ids: [...ids],
-        titles: subMap[playlistId]?.titles || [],
+        ids: nextIds,
+        titles: (subMap[playlistId]?.titles || []).slice(0, nextIds.length),
         loadError: subMap[playlistId]?.loadError,
       }),
     ),
@@ -296,12 +297,13 @@ export function updateSubItemTitle(playlistId: string, subIdx: number, title: st
 /** Set full sub-item data (IDs + titles) for a playlist. */
 export function setSubItemsData(playlistId: string, ids: string[], titles: string[]): void {
   const subMap = _getSubMap();
+  const nextIds = ids || [];
   setState(
     'youtube.subItemsMap',
     _pruneSubMap(
       _touchSubMapEntry(subMap, playlistId, {
-        ids: ids || [],
-        titles: titles || [],
+        ids: nextIds,
+        titles: (titles || []).slice(0, nextIds.length),
         loadError: subMap[playlistId]?.loadError,
       }),
     ),

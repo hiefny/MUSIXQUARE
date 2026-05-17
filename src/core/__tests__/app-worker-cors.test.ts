@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function requestWithOrigin(origin: string): Request {
   return new Request('https://musixquare.com/api/get-turn-config', {
@@ -61,6 +65,159 @@ describe('Cloudflare app worker CORS gate', () => {
     );
     expect(denied.status).toBe(403);
     expect(denied.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+});
+
+describe('Cloudflare app worker sensitive endpoint rate limit', () => {
+  function installRateLimitCache() {
+    const store = new Map<string, string>();
+    vi.stubGlobal('caches', {
+      default: {
+        match: vi.fn(async (request: Request) => {
+          const value = store.get(request.url);
+          return value === undefined ? undefined : new Response(value);
+        }),
+        put: vi.fn(async (request: Request, response: Response) => {
+          store.set(request.url, await response.text());
+        }),
+      },
+    });
+  }
+
+  it('requires a capability token when capability auth is enabled', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': '203.0.113.20',
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: 'CAPABILITY_REQUIRED' });
+  });
+
+  it('mints short-lived capability tokens for trusted origins', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
+    const ip = '203.0.113.21';
+    const mint = await appWorker.fetch(
+      new Request('https://musixquare.com/api/capability-token', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+        },
+        body: JSON.stringify({ scopes: ['turn'] }),
+      }),
+      env,
+    );
+    const payload = (await mint.json()) as { token?: string };
+
+    expect(mint.status).toBe(200);
+    expect(payload.token).toMatch(/\./);
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': ip,
+          'X-MXQR-Capability': payload.token || '',
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as unknown).toMatchObject({
+      provider: 'metered-fallback',
+    });
+  });
+
+  it('keeps same-origin-inferred as a capability-token fallback only', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      TURNSTILE_SITE_KEY: 'site-key',
+      TURNSTILE_SECRET_KEY: 'secret-key',
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
+    const ip = '203.0.113.22';
+
+    const blocked = await appWorker.fetch(
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Host: 'musixquare.com',
+          'CF-Connecting-IP': ip,
+        },
+      }),
+      env,
+    );
+    expect(blocked.status).toBe(401);
+
+    const mint = await appWorker.fetch(
+      new Request('https://musixquare.com/api/capability-token', {
+        method: 'POST',
+        headers: {
+          Host: 'musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+        },
+        body: JSON.stringify({ scopes: ['turn'] }),
+      }),
+      env,
+    );
+    const payload = (await mint.json()) as { token?: string };
+
+    expect(mint.status).toBe(200);
+    expect(payload.token).toMatch(/\./);
+
+    const allowed = await appWorker.fetch(
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Host: 'musixquare.com',
+          'CF-Connecting-IP': ip,
+          'X-MXQR-Capability': payload.token || '',
+        },
+      }),
+      env,
+    );
+    expect(allowed.status).toBe(200);
+  });
+
+  it('serves rate-limit rejections with the shared security headers', async () => {
+    installRateLimitCache();
+    const env = { TURN_USER: 'turn-user', TURN_PASS: 'turn-pass' };
+    const request = () =>
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': '203.0.113.10',
+        },
+      });
+
+    for (let i = 0; i < 60; i++) {
+      expect((await appWorker.fetch(request(), env)).status).toBe(200);
+    }
+
+    const blocked = await appWorker.fetch(request(), env);
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get('Retry-After')).toBe('60');
+    expect(blocked.headers.get('Strict-Transport-Security')).toContain('max-age=');
+    expect(blocked.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
+    expect(await blocked.json()).toEqual({ error: 'Too Many Requests' });
   });
 });
 

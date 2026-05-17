@@ -7,6 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { fetchWithCapability } from '../core/capability.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
@@ -230,7 +231,7 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
 
   for (const url of turnEndpoints) {
     try {
-      const resp = await fetch(url);
+      const resp = await fetchWithCapability(url, 'turn');
       if (!resp.ok) {
         log.warn(`[Network] TURN fetch failed: ${url} → HTTP ${resp.status}`);
         continue;

@@ -8,6 +8,11 @@ const MINUTES_PER_HOUR = 60;
 const CLOUDFLARE_TURN_TTL_DEFAULT = 48 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 const CLOUDFLARE_TURN_TTL_MIN = 60;
 const CLOUDFLARE_TURN_TTL_MAX = CLOUDFLARE_TURN_TTL_DEFAULT;
+const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
+const CAPABILITY_TOKEN_TTL_MIN = 60;
+const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
+const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search']);
+const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
@@ -18,7 +23,7 @@ const SECURITY_HEADERS = {
   'Permissions-Policy':
     'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: wss://0.peerjs.com:443 https://0.peerjs.com:443 wss://*.peerjs.com https://*.peerjs.com https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com; frame-src https://www.youtube.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
+    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: wss://0.peerjs.com:443 https://0.peerjs.com:443 wss://*.peerjs.com https://*.peerjs.com https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com; frame-src https://www.youtube.com https://challenges.cloudflare.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
 };
 
 function json(body, status = 200, headers = {}) {
@@ -74,7 +79,7 @@ function isConfiguredTrustedOrigin(origin, env) {
   return configuredTrustedOrigins(env).has(normalizedOrigin);
 }
 
-function trustedCors(request, methods, env = {}) {
+function trustedCors(request, methods, env = {}, options = {}) {
   const origin = request.headers.get('Origin') || '';
   const host = request.headers.get('Host') || '';
   const fetchSite = (request.headers.get('Sec-Fetch-Site') || '').toLowerCase();
@@ -89,31 +94,41 @@ function trustedCors(request, methods, env = {}) {
 
   const sameOrigin = origin && (origin === `https://${host}` || origin === `http://${host}`);
   const browserSameOrigin = fetchSite === 'same-origin';
-  // Reverted: Host-header sameOriginInferred fallback was a regression. curl
-  // can spoof Host: musixquare.com (no Origin, no Sec-Fetch-Site) and burn
-  // /api/get-turn-config / /api/cloudflare-realtime / /api/youtube-search
-  // paid resources. Only Origin or Sec-Fetch-Site (set by real browsers, not
-  // curl) provide the same-origin proof needed for sensitive endpoints. Older
-  // WebViews that omit both signals fall back to STUN-only — accepted trade.
-  // (11차 audit Phase 0 finding — 10차 M-1 reverted.)
+  const sameOriginInferred =
+    !origin &&
+    !fetchSite &&
+    (host === 'musixquare.com' || host.endsWith('.musixquare.com') || host.startsWith('localhost'));
+  // Host-only inference is intentionally opt-in. It is too weak to authorize
+  // paid-resource endpoints directly, but it keeps a legacy WebView fallback
+  // available for minting short-lived capability tokens when explicitly allowed.
   const isTrusted =
     sameOrigin ||
     browserSameOrigin ||
+    (options.allowInferred && sameOriginInferred) ||
     trustedPatterns.some((pattern) => pattern.test(origin)) ||
     isConfiguredTrustedOrigin(origin, env);
   const allowOrigin = isTrusted ? origin : '';
 
   return {
     isTrusted,
+    sameOriginInferred,
     headers: allowOrigin
       ? {
           'Access-Control-Allow-Origin': allowOrigin,
           'Access-Control-Allow-Methods': methods,
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-MXQR-Capability',
           Vary: 'Origin',
         }
       : {},
   };
+}
+
+function getClientIp(request) {
+  return (
+    request.headers.get('CF-Connecting-IP') ||
+    request.headers.get('X-Forwarded-For') ||
+    'unknown'
+  );
 }
 
 // Per-IP rate limit for sensitive endpoints (paid Cloudflare TURN/SFU /
@@ -131,10 +146,7 @@ async function checkRateLimit(request, endpoint, limit = 60, windowSec = 60) {
   // always have `caches.default`.
   if (typeof caches === 'undefined' || !caches?.default) return true;
 
-  const ip =
-    request.headers.get('CF-Connecting-IP') ||
-    request.headers.get('X-Forwarded-For') ||
-    'unknown';
+  const ip = getClientIp(request);
   const window = Math.floor(Date.now() / (windowSec * 1000));
   // Use a synthetic cache URL so the key is opaque to upstream caches.
   const cacheKey = new Request(
@@ -171,14 +183,258 @@ async function checkRateLimit(request, endpoint, limit = 60, windowSec = 60) {
 }
 
 function rateLimitResponse(headers) {
-  return new Response(JSON.stringify({ error: 'Too Many Requests' }), {
-    status: 429,
-    headers: {
-      ...headers,
-      'Content-Type': 'application/json',
-      'Retry-After': '60',
-    },
+  return json({ error: 'Too Many Requests' }, 429, {
+    ...headers,
+    'Retry-After': '60',
   });
+}
+
+function getCapabilitySecret(env) {
+  return (
+    env.MXQR_CAPABILITY_SECRET ||
+    env.CAPABILITY_HMAC_SECRET ||
+    env.CAPABILITY_SECRET ||
+    ''
+  );
+}
+
+function isCapabilityAuthEnabled(env) {
+  return !!getCapabilitySecret(env);
+}
+
+function getTurnstileSiteKey(env) {
+  return env.TURNSTILE_SITE_KEY || env.CLOUDFLARE_TURNSTILE_SITE_KEY || '';
+}
+
+function getTurnstileSecret(env) {
+  return env.TURNSTILE_SECRET_KEY || env.CLOUDFLARE_TURNSTILE_SECRET_KEY || '';
+}
+
+function isTurnstileConfigured(env) {
+  return !!(getTurnstileSiteKey(env) && getTurnstileSecret(env));
+}
+
+function allowInferredCapabilityFallback(env) {
+  const raw = String(
+    env.MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK ??
+      env.ALLOW_INFERRED_CAPABILITY_FALLBACK ??
+      'true',
+  ).toLowerCase();
+  return raw !== '0' && raw !== 'false' && raw !== 'no';
+}
+
+function parseCapabilityTtl(env) {
+  const parsed = Number.parseInt(env.MXQR_CAPABILITY_TTL || env.CAPABILITY_TTL || '', 10);
+  if (!Number.isFinite(parsed)) return CAPABILITY_TOKEN_TTL_DEFAULT;
+  return Math.min(CAPABILITY_TOKEN_TTL_MAX, Math.max(CAPABILITY_TOKEN_TTL_MIN, parsed));
+}
+
+function parseRequestedScopes(value) {
+  if (!Array.isArray(value)) return [];
+  const scopes = [];
+  for (const scope of value) {
+    if (typeof scope === 'string' && CAPABILITY_SCOPES.has(scope) && !scopes.includes(scope)) {
+      scopes.push(scope);
+    }
+  }
+  return scopes;
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function stringToBase64Url(value) {
+  return bytesToBase64Url(new TextEncoder().encode(value));
+}
+
+function base64UrlToString(value) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function constantTimeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  let diff = a.length ^ b.length;
+  const length = Math.max(a.length, b.length);
+  for (let i = 0; i < length; i += 1) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
+async function hmacSha256(secret, value) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+async function capabilityIpHash(secret, request) {
+  return hmacSha256(secret, `ip:${getClientIp(request)}`);
+}
+
+function readCapabilityToken(request) {
+  const headerToken = request.headers.get('X-MXQR-Capability') || '';
+  if (headerToken) return headerToken.trim();
+  const authorization = request.headers.get('Authorization') || '';
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : '';
+}
+
+async function createCapabilityToken(scopes, request, env, method) {
+  const secret = getCapabilitySecret(env);
+  const ttl = parseCapabilityTtl(env);
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    v: 1,
+    scopes,
+    iat: now,
+    exp: now + ttl,
+    ip: await capabilityIpHash(secret, request),
+    method,
+  };
+  const payloadPart = stringToBase64Url(JSON.stringify(payload));
+  const signature = await hmacSha256(secret, payloadPart);
+  return {
+    token: `${payloadPart}.${signature}`,
+    expiresAt: payload.exp,
+    scopes,
+  };
+}
+
+async function verifyCapabilityToken(token, request, env, requiredScope) {
+  const secret = getCapabilitySecret(env);
+  if (!secret || !token) return false;
+  const parts = token.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+
+  const expectedSignature = await hmacSha256(secret, parts[0]);
+  if (!constantTimeEqual(expectedSignature, parts[1])) return false;
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlToString(parts[0]));
+  } catch {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload?.v !== 1) return false;
+  if (!Array.isArray(payload.scopes) || !payload.scopes.includes(requiredScope)) return false;
+  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return false;
+  if (typeof payload.exp !== 'number' || payload.exp <= now) return false;
+
+  const expectedIp = await capabilityIpHash(secret, request);
+  return constantTimeEqual(String(payload.ip || ''), expectedIp);
+}
+
+async function verifyTurnstileToken(turnstileToken, request, env) {
+  if (!isTurnstileConfigured(env) || typeof turnstileToken !== 'string' || !turnstileToken) {
+    return false;
+  }
+
+  const body = new URLSearchParams();
+  body.set('secret', getTurnstileSecret(env));
+  body.set('response', turnstileToken);
+  const ip = getClientIp(request);
+  if (ip !== 'unknown') body.set('remoteip', ip);
+
+  try {
+    const response = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
+      method: 'POST',
+      body,
+    });
+    const payload = await response.json().catch(() => ({}));
+    return !!payload.success && (!payload.action || payload.action === 'mxqr-capability');
+  } catch {
+    return false;
+  }
+}
+
+async function guardSensitiveRequest(request, env, trust, capabilityScope, rateLimitKey, rateLimit) {
+  if (!isCapabilityAuthEnabled(env)) {
+    if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, trust.headers);
+    if (!(await checkRateLimit(request, rateLimitKey, rateLimit, 60))) {
+      return rateLimitResponse(trust.headers);
+    }
+    return null;
+  }
+
+  if (!(await checkRateLimit(request, rateLimitKey, rateLimit, 60))) {
+    return rateLimitResponse(trust.headers);
+  }
+
+  const token = readCapabilityToken(request);
+  if (await verifyCapabilityToken(token, request, env, capabilityScope)) return null;
+  return json({ error: 'CAPABILITY_REQUIRED' }, 401, trust.headers);
+}
+
+async function handleSecurityConfig(request, env) {
+  const trust = trustedCors(request, 'GET, OPTIONS', env, { allowInferred: true });
+  const { headers } = trust;
+  if (request.method === 'OPTIONS')
+    return withSecurityHeaders(new Response(null, { status: 204, headers }));
+  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
+  if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
+
+  return json(
+    {
+      capabilityRequired: isCapabilityAuthEnabled(env),
+      turnstileSiteKey: getTurnstileSiteKey(env),
+      turnstileRequired: isCapabilityAuthEnabled(env) && isTurnstileConfigured(env),
+      inferredFallback: allowInferredCapabilityFallback(env),
+      ttl: parseCapabilityTtl(env),
+    },
+    200,
+    headers,
+  );
+}
+
+async function handleCapabilityToken(request, env) {
+  const trust = trustedCors(request, 'POST, OPTIONS', env, { allowInferred: true });
+  const { headers } = trust;
+  if (request.method === 'OPTIONS')
+    return withSecurityHeaders(new Response(null, { status: 204, headers }));
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
+  if (!isCapabilityAuthEnabled(env)) {
+    return json({ capabilityRequired: false }, 200, headers);
+  }
+  if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
+  if (!(await checkRateLimit(request, 'capability-token', 30, 60))) {
+    return rateLimitResponse(headers);
+  }
+
+  const body = await request.json().catch(() => null);
+  const scopes = parseRequestedScopes(body?.scopes);
+  if (scopes.length === 0) return json({ error: 'Invalid scopes' }, 400, headers);
+
+  let method = '';
+  if (isTurnstileConfigured(env) && typeof body?.turnstileToken === 'string') {
+    if (!(await verifyTurnstileToken(body.turnstileToken, request, env))) {
+      return json({ error: 'TURNSTILE_FAILED' }, 403, headers);
+    }
+    method = 'turnstile';
+  } else if (trust.sameOriginInferred && allowInferredCapabilityFallback(env)) {
+    method = 'same-origin-inferred';
+  } else if (!isTurnstileConfigured(env) && trust.isTrusted) {
+    method = 'trusted-origin';
+  } else {
+    return json({ error: 'TURNSTILE_REQUIRED' }, 403, headers);
+  }
+
+  return json(await createCapabilityToken(scopes, request, env, method), 200, headers);
 }
 
 function clampMaxResults(raw, env) {
@@ -241,13 +497,13 @@ function getClientStatusForUpstreamError(status, reason) {
 }
 
 async function handleYoutubeSearch(request, env) {
-  const { isTrusted, headers } = trustedCors(request, 'GET, OPTIONS', env);
+  const trust = trustedCors(request, 'GET, OPTIONS', env);
+  const { headers } = trust;
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
-  if (!isTrusted) return json({ error: 'Forbidden' }, 403, headers);
-  if (!(await checkRateLimit(request, 'yt-search', 30, 60)))
-    return rateLimitResponse(headers);
+  const guard = await guardSensitiveRequest(request, env, trust, 'youtube-search', 'yt-search', 30);
+  if (guard) return guard;
 
   const apiKey = env.YOUTUBE_API_KEY || env.YOUTUBE_DATA_API_KEY || '';
   if (!apiKey) return json({ error: 'YOUTUBE_SEARCH_UNAVAILABLE' }, 503, headers);
@@ -385,13 +641,13 @@ function getMeteredFallbackIceServers(env) {
 }
 
 async function handleTurnConfig(request, env) {
-  const { isTrusted, headers } = trustedCors(request, 'GET, OPTIONS', env);
+  const trust = trustedCors(request, 'GET, OPTIONS', env);
+  const { headers } = trust;
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
-  if (!isTrusted) return json({ error: 'Forbidden' }, 403, headers);
-  if (!(await checkRateLimit(request, 'turn-config', 60, 60)))
-    return rateLimitResponse(headers);
+  const guard = await guardSensitiveRequest(request, env, trust, 'turn', 'turn-config', 60);
+  if (guard) return guard;
 
   try {
     const cloudflareConfig = await getCloudflareIceServers(env);
@@ -462,13 +718,13 @@ function shouldSendPayloadBody(action, payload) {
 }
 
 async function handleRealtime(request, env) {
-  const { isTrusted, headers } = trustedCors(request, 'POST, OPTIONS', env);
+  const trust = trustedCors(request, 'POST, OPTIONS', env);
+  const { headers } = trust;
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
-  if (!isTrusted) return json({ error: 'Forbidden' }, 403, headers);
-  if (!(await checkRateLimit(request, 'realtime', 30, 60)))
-    return rateLimitResponse(headers);
+  const guard = await guardSensitiveRequest(request, env, trust, 'realtime', 'realtime', 30);
+  if (guard) return guard;
 
   const { appId, appSecret } = getRealtimeEnv(env);
   if (!appId || !appSecret) return json({ error: 'REALTIME_SFU_UNAVAILABLE' }, 503, headers);
@@ -692,6 +948,10 @@ export default {
     switch (url.pathname) {
       case '/__health':
         return json({ ok: true, service: 'musixquare-app' });
+      case '/api/security-config':
+        return handleSecurityConfig(request, env);
+      case '/api/capability-token':
+        return handleCapabilityToken(request, env);
       case '/api/youtube-search':
         return handleYoutubeSearch(request, env);
       case '/api/get-turn-config':

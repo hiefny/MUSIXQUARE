@@ -19,6 +19,7 @@ interface TurnstileOptions {
   execution: 'execute';
   appearance: 'interaction-only';
   callback: (token: string) => void;
+  'before-interactive-callback': () => void;
   'error-callback': () => void;
   'expired-callback': () => void;
 }
@@ -178,10 +179,12 @@ function ensureTurnstileStyles(): void {
   style.textContent = `
 #mxqr-turnstile-container {
   opacity: 0;
+  pointer-events: none;
   transition: opacity ${TURNSTILE_OVERLAY_FADE_MS}ms ease;
 }
 #mxqr-turnstile-container.mxqr-turnstile-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 .mxqr-turnstile-frame {
   position: relative;
@@ -228,7 +231,6 @@ function ensureTurnstileContainer(): HTMLElement {
   if (turnstileContainer?.isConnected && turnstileWidgetHost?.isConnected) {
     const spinner = turnstileContainer.querySelector<HTMLElement>('.mxqr-turnstile-spinner');
     if (spinner) spinner.style.opacity = '';
-    turnstileContainer.classList.add('mxqr-turnstile-visible');
     return turnstileWidgetHost;
   }
 
@@ -264,11 +266,21 @@ function ensureTurnstileContainer(): HTMLElement {
   frame.append(spinner, widgetHost);
   container.appendChild(frame);
   document.body.appendChild(container);
-  window.requestAnimationFrame(() => container.classList.add('mxqr-turnstile-visible'));
 
   turnstileContainer = container;
   turnstileWidgetHost = widgetHost;
   return widgetHost;
+}
+
+function showTurnstileOverlay(): void {
+  const container = turnstileContainer;
+  if (!container) return;
+  const spinner = container.querySelector<HTMLElement>('.mxqr-turnstile-spinner');
+  if (spinner) spinner.style.opacity = '';
+  window.requestAnimationFrame(() => {
+    container.classList.add('mxqr-turnstile-visible');
+    window.setTimeout(hideTurnstileSpinner, TURNSTILE_SPINNER_HIDE_DELAY_MS);
+  });
 }
 
 function hideTurnstileSpinner(): void {
@@ -365,13 +377,13 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
           execution: 'execute',
           appearance: 'interaction-only',
           callback: (token) => finish(() => resolve(token)),
+          'before-interactive-callback': showTurnstileOverlay,
           'error-callback': () =>
             finish(() => reject(new Error('Turnstile challenge failed'))),
           'expired-callback': () =>
             finish(() => reject(new Error('Turnstile challenge expired'))),
         });
         turnstile.execute(turnstileWidgetId);
-        window.setTimeout(hideTurnstileSpinner, TURNSTILE_SPINNER_HIDE_DELAY_MS);
       } catch (error) {
         finish(() => reject(error));
       }

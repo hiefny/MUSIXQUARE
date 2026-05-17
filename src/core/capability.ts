@@ -38,6 +38,7 @@ declare global {
 
 const SECURITY_CONFIG_CACHE_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_SECONDS = 30;
+const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const VALID_SCOPES = new Set<CapabilityScope>(['turn', 'realtime', 'youtube-search']);
 
@@ -171,6 +172,26 @@ function ensureTurnstileContainer(): HTMLElement {
   return container;
 }
 
+function cleanupTurnstileWidget(): void {
+  const turnstile = window.turnstile;
+  const widgetId = turnstileWidgetId;
+  const container = turnstileContainer;
+
+  if (widgetId && turnstile?.remove) {
+    try {
+      turnstile.remove(widgetId);
+    } catch {
+      /* fall through to DOM cleanup */
+    }
+  }
+
+  turnstileWidgetId = null;
+  if (container) {
+    container.remove();
+  }
+  turnstileContainer = null;
+}
+
 async function getTurnstileToken(siteKey: string): Promise<string> {
   if (!siteKey) throw new Error('Missing Turnstile site key');
   if (turnstileExecution) return turnstileExecution;
@@ -181,29 +202,41 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
     if (!turnstile) throw new Error('Turnstile unavailable');
 
     return new Promise<string>((resolve, reject) => {
-      const container = ensureTurnstileContainer();
+      let container = ensureTurnstileContainer();
       if (turnstileWidgetId) {
-        try {
-          turnstile.remove?.(turnstileWidgetId);
-        } catch {
-          /* fall through to clearing the container */
-        }
-        turnstileWidgetId = null;
-        container.textContent = '';
+        cleanupTurnstileWidget();
+        container = ensureTurnstileContainer();
       }
 
       try {
+        let settled = false;
+        const timeoutId = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          cleanupTurnstileWidget();
+          reject(new Error('Turnstile challenge timed out'));
+        }, TURNSTILE_EXECUTION_TIMEOUT_MS);
+        const finish = (callback: () => void) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeoutId);
+          cleanupTurnstileWidget();
+          callback();
+        };
         turnstileWidgetId = turnstile.render(container, {
           sitekey: siteKey,
           action: 'mxqr-capability',
           execution: 'execute',
           appearance: 'interaction-only',
-          callback: resolve,
-          'error-callback': () => reject(new Error('Turnstile challenge failed')),
-          'expired-callback': () => reject(new Error('Turnstile challenge expired')),
+          callback: (token) => finish(() => resolve(token)),
+          'error-callback': () =>
+            finish(() => reject(new Error('Turnstile challenge failed'))),
+          'expired-callback': () =>
+            finish(() => reject(new Error('Turnstile challenge expired'))),
         });
         turnstile.execute(turnstileWidgetId);
       } catch (error) {
+        cleanupTurnstileWidget();
         reject(error);
       }
     });

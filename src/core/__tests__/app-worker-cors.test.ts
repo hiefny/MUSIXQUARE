@@ -105,9 +105,59 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(await response.json()).toEqual({ error: 'CAPABILITY_REQUIRED' });
   });
 
-  it('mints short-lived capability tokens for trusted origins', async () => {
+  it('reports Turnstile as required when capability auth has no fallback', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+    };
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      capabilityRequired: true,
+      turnstileSiteKey: '',
+      turnstileRequired: true,
+      inferredFallback: false,
+    });
+  });
+
+  it('rejects spoofable trusted-origin token minting by default when Turnstile is absent', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
+    const ip = '203.0.113.24';
+
+    const mint = await appWorker.fetch(
+      new Request('https://musixquare.com/api/capability-token', {
+        method: 'POST',
+        headers: {
+          Host: 'musixquare.com',
+          'Sec-Fetch-Site': 'same-origin',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+        },
+        body: JSON.stringify({ scopes: ['turn'] }),
+      }),
+      env,
+    );
+
+    expect(mint.status).toBe(403);
+    expect(await mint.json()).toEqual({ error: 'TURNSTILE_REQUIRED' });
+  });
+
+  it('mints short-lived capability tokens for trusted origins only with explicit fallback', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
       TURN_USER: 'turn-user',
       TURN_PASS: 'turn-pass',
     };

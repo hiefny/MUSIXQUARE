@@ -70,7 +70,12 @@ function normalizeCorsOrigin(value) {
 function configuredTrustedOrigins(env) {
   const raw = env.TRUSTED_CORS_ORIGINS || env.CORS_ALLOWED_ORIGINS || '';
   if (typeof raw !== 'string' || !raw.trim()) return new Set();
-  return new Set(raw.split(/[\s,]+/).map(normalizeCorsOrigin).filter(Boolean));
+  return new Set(
+    raw
+      .split(/[\s,]+/)
+      .map(normalizeCorsOrigin)
+      .filter(Boolean),
+  );
 }
 
 function isConfiguredTrustedOrigin(origin, env) {
@@ -125,9 +130,7 @@ function trustedCors(request, methods, env = {}, options = {}) {
 
 function getClientIp(request) {
   return (
-    request.headers.get('CF-Connecting-IP') ||
-    request.headers.get('X-Forwarded-For') ||
-    'unknown'
+    request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown'
   );
 }
 
@@ -190,12 +193,7 @@ function rateLimitResponse(headers) {
 }
 
 function getCapabilitySecret(env) {
-  return (
-    env.MXQR_CAPABILITY_SECRET ||
-    env.CAPABILITY_HMAC_SECRET ||
-    env.CAPABILITY_SECRET ||
-    ''
-  );
+  return env.MXQR_CAPABILITY_SECRET || env.CAPABILITY_HMAC_SECRET || env.CAPABILITY_SECRET || '';
 }
 
 function isCapabilityAuthEnabled(env) {
@@ -218,6 +216,18 @@ function allowInferredCapabilityFallback(env) {
   const raw = String(
     env.MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK ??
       env.ALLOW_INFERRED_CAPABILITY_FALLBACK ??
+      'false',
+  )
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function allowTrustedOriginCapabilityFallback(env) {
+  const raw = String(
+    env.MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK ??
+      env.MXQR_ALLOW_HEADER_CAPABILITY_FALLBACK ??
+      env.ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK ??
       'false',
   )
     .trim()
@@ -365,7 +375,14 @@ async function verifyTurnstileToken(turnstileToken, request, env) {
   }
 }
 
-async function guardSensitiveRequest(request, env, trust, capabilityScope, rateLimitKey, rateLimit) {
+async function guardSensitiveRequest(
+  request,
+  env,
+  trust,
+  capabilityScope,
+  rateLimitKey,
+  rateLimit,
+) {
   if (!isCapabilityAuthEnabled(env)) {
     if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, trust.headers);
     if (!(await checkRateLimit(request, rateLimitKey, rateLimit, 60))) {
@@ -391,12 +408,17 @@ async function handleSecurityConfig(request, env) {
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
   if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
 
+  const turnstileConfigured = isTurnstileConfigured(env);
+  const inferredFallback = allowInferredCapabilityFallback(env);
+  const trustedOriginFallback = !turnstileConfigured && allowTrustedOriginCapabilityFallback(env);
+
   return json(
     {
       capabilityRequired: isCapabilityAuthEnabled(env),
       turnstileSiteKey: getTurnstileSiteKey(env),
-      turnstileRequired: isCapabilityAuthEnabled(env) && isTurnstileConfigured(env),
-      inferredFallback: allowInferredCapabilityFallback(env),
+      turnstileRequired:
+        isCapabilityAuthEnabled(env) && !inferredFallback && !trustedOriginFallback,
+      inferredFallback,
       ttl: parseCapabilityTtl(env),
     },
     200,
@@ -430,7 +452,11 @@ async function handleCapabilityToken(request, env) {
     method = 'turnstile';
   } else if (trust.sameOriginInferred && allowInferredCapabilityFallback(env)) {
     method = 'same-origin-inferred';
-  } else if (!isTurnstileConfigured(env) && trust.isTrusted) {
+  } else if (
+    !isTurnstileConfigured(env) &&
+    trust.isTrusted &&
+    allowTrustedOriginCapabilityFallback(env)
+  ) {
     method = 'trusted-origin';
   } else {
     return json({ error: 'TURNSTILE_REQUIRED' }, 403, headers);

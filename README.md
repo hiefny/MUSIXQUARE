@@ -44,9 +44,10 @@ Server-only variables are configured as Cloudflare Worker secrets (`wrangler sec
 - `YOUTUBE_REGION_CODE` (optional): Two-letter region bias such as `KR`.
 - `YOUTUBE_RELEVANCE_LANGUAGE` (optional): Language bias such as `ko`.
 - `MXQR_CAPABILITY_SECRET` (optional): Enables short-lived signed capability tokens for paid-resource endpoints (`/api/get-turn-config`, `/api/cloudflare-realtime`, `/api/youtube-search`).
-- `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (optional): Require Cloudflare Turnstile before minting capability tokens. Keep the secret key server-only.
+- `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`: Required when `MXQR_CAPABILITY_SECRET` is enabled unless you deliberately opt into a weaker legacy fallback. Keep the secret key server-only.
 - `MXQR_CAPABILITY_TTL` (optional): Capability-token lifetime in seconds, clamped from 60 to 1800. Default is 600.
 - `MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK` (optional): Set to `true` only if you deliberately need the legacy no-Origin/no-Sec-Fetch same-origin fallback for old WebViews. Default is disabled.
+- `MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK` (optional): Set to `true` only for a temporary deployment that cannot use Turnstile. This trusts spoofable browser headers and should not be used for paid-resource protection. Default is disabled.
 
 Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled into browser code.
 

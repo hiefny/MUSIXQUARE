@@ -29,7 +29,7 @@ import type { AnyProtocolMsg, TrackMeta } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { sendToHost } from '../network/peer.ts';
 import { broadcastSystemNotice } from '../chat/protocol.ts';
-import { registerHandlers } from '../network/protocol.ts';
+import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -455,13 +455,45 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
 // recovery loop. Stale reports (host already advanced) are ignored.
 //
 // This is a data-plane recovery message that any guest (including non-OP)
-// must be able to send — iOS Safari can't decode mp4-as-mp3 even though
-// host's Chrome can, and a non-OP iOS guest must still escape the FAILED
-// loop. Defense against spam is per-(peer, trackIdx) dedup: each peer can
-// report failure on a given track exactly once, cleared on track change.
-// (10차 added verifyOperator → 13차 reverted: that was wrong fix direction,
-// blocking the legitimate recovery flow it was meant to support.)
-const _reportedDecodeFailures = new Set<string>();
+// may send, because iOS Safari can fail to decode a file Chrome can play.
+// However, a single non-OP report must not get room-wide track control: that
+// is equivalent to a one-frame "skip current track" DoS. OP reports still
+// act immediately; non-OP reports require independent corroboration.
+const NON_OP_DECODE_FAILURE_QUORUM = 2;
+const _reportedDecodeFailures = new Map<number, Set<string>>();
+const _advancedGuestDecodeFailureTracks = new Set<number>();
+
+function getConnectedDecodeReporter(peerId: string) {
+  return getState('network.connectedPeers').find(
+    (peer) => peer.id === peerId && peer.status === 'connected',
+  );
+}
+
+function rememberDecodeFailureReport(peerId: string, trackIndex: number): Set<string> {
+  let reports = _reportedDecodeFailures.get(trackIndex);
+  if (!reports) {
+    reports = new Set<string>();
+    _reportedDecodeFailures.set(trackIndex, reports);
+  }
+  reports.add(peerId);
+  return reports;
+}
+
+function countConnectedNonOpDecodeReports(reports: Set<string>): number {
+  const peers = getState('network.connectedPeers');
+  let count = 0;
+  for (const peer of peers) {
+    if (peer.status !== 'connected' || peer.isOp || !reports.has(peer.id)) continue;
+    count += 1;
+  }
+  return count;
+}
+
+function advanceFromGuestDecodeFailure(trackIndex: number): void {
+  if (_advancedGuestDecodeFailureTracks.has(trackIndex)) return;
+  _advancedGuestDecodeFailureTracks.add(trackIndex);
+  markFailedAndAdvance(null, trackIndex);
+}
 
 function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
@@ -469,6 +501,8 @@ function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnec
 
   const peerId = conn?.peer;
   if (!peerId) return;
+  const peer = getConnectedDecodeReporter(peerId);
+  if (!peer) return;
 
   const reportedIdx = data.index as number;
   const currentIdx = getState('playlist.currentTrackIndex');
@@ -480,15 +514,29 @@ function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnec
     return;
   }
 
-  const dedupKey = `${peerId}:${reportedIdx}`;
-  if (_reportedDecodeFailures.has(dedupKey)) {
+  const existingReports = _reportedDecodeFailures.get(reportedIdx);
+  if (existingReports?.has(peerId)) {
     log.debug(`[Decode] Duplicate decode-failed from ${peerId} for index ${reportedIdx}`);
     return;
   }
-  _reportedDecodeFailures.add(dedupKey);
+  const reports = rememberDecodeFailureReport(peerId, reportedIdx);
 
-  log.info(`[Decode] Guest reported decode failure at index ${reportedIdx}, advancing room`);
-  markFailedAndAdvance(null, reportedIdx);
+  if (verifyOperator(conn, data)) {
+    log.info(`[Decode] OP reported decode failure at index ${reportedIdx}, advancing room`);
+    advanceFromGuestDecodeFailure(reportedIdx);
+    return;
+  }
+
+  const nonOpReports = countConnectedNonOpDecodeReports(reports);
+  if (nonOpReports < NON_OP_DECODE_FAILURE_QUORUM) {
+    log.warn(
+      `[Decode] Holding non-OP decode-failed for index ${reportedIdx}: ${nonOpReports}/${NON_OP_DECODE_FAILURE_QUORUM} reports`,
+    );
+    return;
+  }
+
+  log.info(`[Decode] Non-OP decode failure quorum reached at index ${reportedIdx}, advancing room`);
+  advanceFromGuestDecodeFailure(reportedIdx);
 }
 
 export function initDecodeHandlers(): void {
@@ -501,6 +549,7 @@ export function initDecodeHandlers(): void {
   // (currentTrackIndex resets to -1 on leave).
   bus.on('state:playlist.currentTrackIndex', () => {
     _reportedDecodeFailures.clear();
+    _advancedGuestDecodeFailureTracks.clear();
   });
 }
 

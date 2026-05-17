@@ -3,7 +3,6 @@ main = "remote-share-worker.js"
 compatibility_date = "2026-05-03"
 
 [vars]
-R2_ACCOUNT_ID = "01353882e4eea3a5acaa0c45e8336af4"
 R2_BUCKET_NAME = "musixquare-remote-share"
 MAX_UPLOAD_BYTES = "209715200"
 OBJECT_TTL_SECONDS = "3600"
@@ -13,11 +12,12 @@ ROOM_UPLOADS_PER_WINDOW = "0"
 ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
 
 # Required secrets, set outside this file:
+# npx wrangler secret put R2_ACCOUNT_ID --config cloudflare/wrangler.remote-share.toml
 # npx wrangler secret put REMOTE_SHARE_SIGNING_SECRET --config cloudflare/wrangler.remote-share.toml
 # npx wrangler secret put R2_ACCESS_KEY_ID --config cloudflare/wrangler.remote-share.toml
 # npx wrangler secret put R2_SECRET_ACCESS_KEY --config cloudflare/wrangler.remote-share.toml
-# Optional hardening (set to same value as app worker MXQR_CAPABILITY_SECRET to
-# require app-issued capability tokens on POST /session):
+# Required for capability gate (set to same value as app worker MXQR_CAPABILITY_SECRET
+# so app-issued tokens verify here):
 # npx wrangler secret put MXQR_CAPABILITY_SECRET --config cloudflare/wrangler.remote-share.toml
 
 [[r2_buckets]]

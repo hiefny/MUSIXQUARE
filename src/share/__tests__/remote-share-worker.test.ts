@@ -80,10 +80,23 @@ describe('remote-share Worker capability gate', () => {
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
-  it('keeps legacy session behavior when capability is not configured', async () => {
+  it('fails closed when capability secret is missing in production', async () => {
+    // Parity with app-worker.guardSensitiveRequest: a missing capability
+    // secret blocks /session with 503 unless MXQR_ALLOW_UNGUARDED_REMOTE_SHARE
+    // is explicitly set. (14차 audit F-1402.)
     const response = await workerModule.default.fetch(
       request('/session', { method: 'POST', body: 'not-json' }),
       env(),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'CAPABILITY_NOT_CONFIGURED' });
+  });
+
+  it('allows /session without capability when MXQR_ALLOW_UNGUARDED_REMOTE_SHARE is set', async () => {
+    const response = await workerModule.default.fetch(
+      request('/session', { method: 'POST', body: 'not-json' }),
+      env({ MXQR_ALLOW_UNGUARDED_REMOTE_SHARE: 'true' }),
     );
 
     expect(response.status).toBe(400);

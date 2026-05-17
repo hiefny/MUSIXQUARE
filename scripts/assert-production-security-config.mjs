@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,10 +12,12 @@ const dangerousFlags = [
   'ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK',
   'MXQR_ALLOW_UNGUARDED_PAID_APIS',
   'ALLOW_UNGUARDED_PAID_APIS',
+  'MXQR_ALLOW_UNGUARDED_REMOTE_SHARE',
+  'ALLOW_UNGUARDED_REMOTE_SHARE',
 ];
 
-const configFiles = [
-  'cloudflare/wrangler.app.toml',
+// Static env-style files we always check.
+const staticConfigFiles = [
   '.env.cloudflare-turn',
   '.env.cloudflare-turn.example',
   '.env.production',
@@ -23,6 +25,26 @@ const configFiles = [
   '.dev.vars',
   '.dev.vars.production',
 ];
+
+// Auto-discover every cloudflare/wrangler*.toml so new workers (and their
+// example files) are covered without updating this list. Prevents the
+// "added a worker, forgot to extend the guard" failure mode.
+async function discoverWranglerFiles() {
+  const dir = path.join(repoRoot, 'cloudflare');
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return [];
+    throw error;
+  }
+  return entries
+    .filter((entry) => entry.isFile() && /^wrangler.*\.toml$/i.test(entry.name))
+    .map((entry) => `cloudflare/${entry.name}`)
+    .sort();
+}
+
+const configFiles = [...staticConfigFiles, ...(await discoverWranglerFiles())];
 
 const truthyValues = new Set(['1', 'true', 'yes', 'on']);
 

@@ -6,7 +6,11 @@
  */
 
 import { log } from '../core/log.ts';
-import { fetchWithCapability, type CapabilityScope } from '../core/capability.ts';
+import {
+  fetchWithCapability,
+  isCapabilityChallengeCancelled,
+  type CapabilityScope,
+} from '../core/capability.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState } from '../core/state.ts';
@@ -458,6 +462,14 @@ export async function searchYouTubeFromInput(inputValue: string): Promise<void> 
     renderSearchResults(intent.query, results);
   } catch (e) {
     if (abort.signal.aborted) return;
+    // User-initiated Turnstile cancel is not a search failure — silently
+    // restore the idle state instead of flashing the red error toast.
+    if (isCapabilityChallengeCancelled(e)) {
+      clearSearchResults();
+      setStatus('youtube.enter_link_prompt');
+      setYouTubePrimaryButton(false);
+      return;
+    }
     log.warn('[YouTube Search] Fetch failed:', e);
     clearSearchResults();
     setStatus('youtube.search_failed', 'var(--danger, #ef4444)');

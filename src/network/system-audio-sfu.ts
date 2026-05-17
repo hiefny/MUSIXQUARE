@@ -7,7 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { fetchWithCapability } from '../core/capability.ts';
+import { fetchWithCapability, isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -231,7 +231,10 @@ async function loadSfuRtcConfig(): Promise<RTCConfiguration> {
 
       iceServers.push(...cloudflareIceServers);
       break;
-    } catch {
+    } catch (error) {
+      // User-initiated Turnstile cancel must propagate; otherwise the next
+      // capability-protected fetch in the same flow re-prompts the widget.
+      if (isCapabilityChallengeCancelled(error)) throw error;
       /* SFU can still try direct Cloudflare STUN */
     }
   }
@@ -277,6 +280,9 @@ async function callRealtime(
       lastError = new Error(message);
       if (response.status === 503) break;
     } catch (error) {
+      // User-initiated Turnstile cancel must propagate; otherwise the retry
+      // loop re-mints capability and re-prompts the widget.
+      if (isCapabilityChallengeCancelled(error)) throw error;
       lastError = error;
     }
   }

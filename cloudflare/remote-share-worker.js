@@ -18,8 +18,14 @@
  * - IP_UPLOADS_PER_WINDOW: default 60
  * - ROOM_UPLOADS_PER_WINDOW: default 0 (disabled)
  * - ALLOWED_ORIGINS: comma-separated origins
- * - MXQR_CAPABILITY_SECRET: when set, /session requires X-MXQR-Capability
+ * - MXQR_CAPABILITY_SECRET: required for /session in production. When unset
+ *     /session returns 503 CAPABILITY_NOT_CONFIGURED unless the dangerous
+ *     MXQR_ALLOW_UNGUARDED_REMOTE_SHARE override is set.
  * - REMOTE_SHARE_CAPABILITY_SECRET: optional override for /session capability HMAC
+ *
+ * Dangerous bypass flags (asserted by scripts/assert-production-security-config.mjs):
+ * - MXQR_ALLOW_UNGUARDED_REMOTE_SHARE: permit /session without capability when
+ *     no secret is configured. Local/emergency only.
  */
 
 const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -136,6 +142,15 @@ function getCapabilitySecret(env) {
 
 function isCapabilityRequired(env) {
   return !!getCapabilitySecret(env);
+}
+
+function allowUnguardedRemoteShare(env) {
+  const raw = String(
+    env.MXQR_ALLOW_UNGUARDED_REMOTE_SHARE ?? env.ALLOW_UNGUARDED_REMOTE_SHARE ?? 'false',
+  )
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
 function getR2S3Config(env) {
@@ -262,7 +277,14 @@ async function verifyCapabilityToken(token, request, env) {
 }
 
 async function requireSessionCapability(request, env) {
-  if (!isCapabilityRequired(env)) return null;
+  if (!isCapabilityRequired(env)) {
+    // Parity with app-worker.guardSensitiveRequest: a missing capability
+    // secret is a production-config error, not a license to bypass. Run-mode
+    // override is the only escape so operators don't silently ship an
+    // unguarded /session endpoint.
+    if (allowUnguardedRemoteShare(env)) return null;
+    return json(request, env, { error: 'CAPABILITY_NOT_CONFIGURED' }, 503);
+  }
   if (await verifyCapabilityToken(readCapabilityToken(request), request, env)) return null;
   return json(request, env, { error: 'CAPABILITY_REQUIRED' }, 401);
 }

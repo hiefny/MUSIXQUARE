@@ -374,13 +374,19 @@ async function createCapabilityToken(scopes, request, env, method) {
   const secret = getCapabilitySecret(env);
   const ttl = parseCapabilityTtl(env);
   const now = Math.floor(Date.now() / 1000);
+  // `method` is kept as a function argument for server-side logging hooks
+  // but intentionally NOT embedded in the token payload. Tokens are
+  // base64url-encoded (not encrypted) and any client can decode them, so
+  // leaking which fallback path issued the token (turnstile / inferred /
+  // trusted-origin) hands attackers free reconnaissance about the
+  // environment's bypass flags.
+  void method;
   const payload = {
     v: 1,
     scopes,
     iat: now,
     exp: now + ttl,
     ip: await capabilityIpHash(secret, request),
-    method,
   };
   const payloadPart = stringToBase64Url(JSON.stringify(payload));
   const signature = await hmacSha256(secret, payloadPart);

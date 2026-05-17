@@ -910,6 +910,11 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
         showLoader(false);
       }
     }
+    // Post-await re-check: 11차 H-3 listener exits demo if hostConn drops
+    // mid-load. Without this guard, setDemoDomActive(true) would force the
+    // DOM back into demo state while state.demo.active is already false.
+    // (12차 audit Phase 1 finding.)
+    if (!getState('demo.active')) return;
     setDemoDomActive(true);
     applyPendingDemoPlay();
     return;

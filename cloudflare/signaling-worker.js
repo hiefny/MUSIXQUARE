@@ -22,7 +22,10 @@ function json(data, status = 200) {
 }
 
 function isAllowedOrigin(origin, env = {}) {
-  if (!origin) return true;
+  // Browser WebSocket clients always set Origin. An empty Origin signals a
+  // non-browser tool (curl, wscat, custom scripts) — no production scenario
+  // should trust it for room signaling.
+  if (!origin) return false;
   try {
     const url = new URL(origin);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;

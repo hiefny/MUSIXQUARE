@@ -1,0 +1,4 @@
+Contact: mailto:contact@musixquare.com
+Canonical: https://musixquare.com/.well-known/security.txt
+Preferred-Languages: ko, en
+Expires: 2027-05-16T00:00:00.000Z

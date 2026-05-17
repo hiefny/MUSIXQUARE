@@ -8,41 +8,6 @@
 
 // IMPORTANT: bump this when deploying changes to app shell assets
 // so existing clients don't stay pinned to stale cached JS/CSS.
-// NOTE: Bump this when app shell assets change.
-// v7: minor robustness fixes (Tone.js load guards, theme storage guard, YouTube pause capture)
-// v9: exclude large media (mp3/wav/..) from runtime caching + demo filename hardening
-// v24: Android UI consistency fixes (doctype/typography/slider), paused-video UI fix, Host code toast
-// v25: Invite code copy toast wording + fix stylesheet cache mismatch (remove ?v= param)
-// v28: Portrait lock UX + mobile overscroll fix + media select icon bg + vBass routing fix
-// v29: Remove portrait lock, tweak UI strings/layout, improve shuffle preload, and cache Pretendard webfont assets
-// v40: Viewport fix finalized, debug overlay removed, desktop play area scroll+spacing
-// v42: Slider thumbs updated, padding adjusted, proper progress tracking for demo media
-// v44: SW install no longer fails when optional cross-origin assets (e.g., webfonts) are blocked
-// v50: Mobile/PWA scrollbar contrast + scroll container ends above bottom nav
-// v51: Remove bottom-nav drop shadow (light mode + base)
-// v52: Add third-party license files + :has() fallbacks + small a11y/theme preflight fixes
-// v55: Refine chat input area / drawer bottom positioning with safe-nav-bottom.
-// v56: iOS PWA chat drawer safe-area fix (no peek strip + reduce bottom gap)
-// v57: Responsive visualizer (160-320px), divider styling, layout centering fixes
-// v58: Height-responsive visualizer (calc-based), nav-height fix, play controls spacing
-// v59: Elastic scroll (contain), dotted help dividers, visualizer 512px calc
-// v62: Update Demo Track info translation string
-// v63: Refine Virtual Bass distortion translation (Higher = More Distortion)
-// v64: Setup panel UI polish (surface-1 depth, remove border) + Firefox slider compatibility
-// v65: Improve file transfer & preload logic (activation token, redundant clear-state guard, decode failure recovery)
-// v88: Final cleanup: timers, memory, CSS dedup, dead code
-// v89: Unified button styling (tint/glow), 'Reset' -> '초기화' (i18n), EQ value colors, YouTube preview cleanup
-// v91: Adapt APP_SHELL for Vite build — CSS/fonts/icons are now hashed in /assets/
-// v92: Filled tab bar + SEO + wake lock rollback
-// v93: EQ preset grid + host-ctrl badge + toast fixes + spacing cleanup
-// v110: OPFS rotation in loadPreloadedTrack + /debug memory file enumeration
-// v111: bump-only — trigger the SW update dialog on existing clients to repro the "refresh button not clickable" report
-// v112: invalidate cached /.netlify/functions/* responses (TURN credential endpoint) after the get-turn-config + isCacheableRequest hardening
-// v113: bypass cross-origin requests entirely — opaque responses from the runtime cache were rendering as broken-image icons for the YouTube paste preview thumbnail (i.ytimg.com) on prod WebView/Safari paths, while dev (no SW) worked fine
-// v114: invalidate cached app shell after playback ownership/state migration hardening
-// v115: invalidate cached editorial chrome CSS after solid surface-1 header/nav migration
-// v116: invalidate cached responses for migrated /.netlify/functions/* → /api/* backend endpoints (TURN, YouTube search, Cloudflare Realtime)
-// v117: invalidate cached app shell after production transport default moved to Cloudflare signaling
 const CACHE_VERSION = "v117";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;

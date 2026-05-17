@@ -39,7 +39,9 @@ declare global {
 const SECURITY_CONFIG_CACHE_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_SECONDS = 30;
 const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
+const TURNSTILE_OVERLAY_FADE_MS = 180;
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const TURNSTILE_STYLE_ID = 'mxqr-turnstile-style';
 const CAPABILITY_CHALLENGE_CANCELLED = 'CapabilityChallengeCancelled';
 const VALID_SCOPES = new Set<CapabilityScope>(['turn', 'realtime', 'youtube-search']);
 
@@ -49,7 +51,9 @@ let turnstileLoadPromise: Promise<void> | null = null;
 let turnstileExecution: Promise<string> | null = null;
 let turnstileWidgetId: string | null = null;
 let turnstileContainer: HTMLElement | null = null;
+let turnstileWidgetHost: HTMLElement | null = null;
 let turnstileCancelReject: ((error: Error) => void) | null = null;
+let turnstileCleanupTimer: number | null = null;
 let turnstileCancelGeneration = 0;
 
 function createCapabilityChallengeCancelledError(reason: string): Error {
@@ -165,14 +169,74 @@ async function loadTurnstile(): Promise<void> {
   }
 }
 
+function ensureTurnstileStyles(): void {
+  if (document.getElementById(TURNSTILE_STYLE_ID)) return;
+
+  const style = document.createElement('style');
+  style.id = TURNSTILE_STYLE_ID;
+  style.textContent = `
+#mxqr-turnstile-container {
+  opacity: 0;
+  transition: opacity ${TURNSTILE_OVERLAY_FADE_MS}ms ease;
+}
+#mxqr-turnstile-container.mxqr-turnstile-visible {
+  opacity: 1;
+}
+.mxqr-turnstile-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: min(300px, calc(100vw - 48px));
+  min-height: 92px;
+}
+.mxqr-turnstile-spinner {
+  position: absolute;
+  z-index: 0;
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.28);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  animation: mxqr-turnstile-spin 0.8s linear infinite;
+  transition: opacity 140ms ease;
+}
+.mxqr-turnstile-widget {
+  position: relative;
+  z-index: 1;
+}
+@keyframes mxqr-turnstile-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #mxqr-turnstile-container,
+  .mxqr-turnstile-spinner {
+    transition: none;
+    animation: none;
+  }
+}
+`;
+  document.head.appendChild(style);
+}
+
 function ensureTurnstileContainer(): HTMLElement {
-  if (turnstileContainer?.isConnected) return turnstileContainer;
+  if (turnstileCleanupTimer !== null) {
+    window.clearTimeout(turnstileCleanupTimer);
+    turnstileCleanupTimer = null;
+  }
+
+  if (turnstileContainer?.isConnected && turnstileWidgetHost?.isConnected) {
+    const spinner = turnstileContainer.querySelector<HTMLElement>('.mxqr-turnstile-spinner');
+    if (spinner) spinner.style.opacity = '';
+    turnstileContainer.classList.add('mxqr-turnstile-visible');
+    return turnstileWidgetHost;
+  }
 
   const existing = document.getElementById('mxqr-turnstile-container');
   if (existing) {
-    turnstileContainer = existing;
-    return turnstileContainer;
+    existing.remove();
   }
+
+  ensureTurnstileStyles();
 
   const container = document.createElement('div');
   container.id = 'mxqr-turnstile-container';
@@ -185,15 +249,41 @@ function ensureTurnstileContainer(): HTMLElement {
   container.style.padding = '24px';
   container.style.background = 'rgba(6, 10, 18, 0.42)';
   container.style.zIndex = '2147483647';
+
+  const frame = document.createElement('div');
+  frame.className = 'mxqr-turnstile-frame';
+
+  const spinner = document.createElement('div');
+  spinner.className = 'mxqr-turnstile-spinner';
+
+  const widgetHost = document.createElement('div');
+  widgetHost.id = 'mxqr-turnstile-widget';
+  widgetHost.className = 'mxqr-turnstile-widget';
+
+  frame.append(spinner, widgetHost);
+  container.appendChild(frame);
   document.body.appendChild(container);
+  window.requestAnimationFrame(() => container.classList.add('mxqr-turnstile-visible'));
+
   turnstileContainer = container;
-  return container;
+  turnstileWidgetHost = widgetHost;
+  return widgetHost;
+}
+
+function hideTurnstileSpinner(): void {
+  const spinner = turnstileContainer?.querySelector<HTMLElement>('.mxqr-turnstile-spinner');
+  if (spinner) spinner.style.opacity = '0';
 }
 
 function cleanupTurnstileWidget(): void {
   const turnstile = window.turnstile;
   const widgetId = turnstileWidgetId;
   const container = turnstileContainer;
+
+  if (turnstileCleanupTimer !== null) {
+    window.clearTimeout(turnstileCleanupTimer);
+    turnstileCleanupTimer = null;
+  }
 
   if (widgetId && turnstile?.remove) {
     try {
@@ -205,9 +295,19 @@ function cleanupTurnstileWidget(): void {
 
   turnstileWidgetId = null;
   if (container) {
-    container.remove();
+    container.classList.remove('mxqr-turnstile-visible');
+    turnstileCleanupTimer = window.setTimeout(() => {
+      if (turnstileContainer === container) {
+        turnstileContainer = null;
+        turnstileWidgetHost = null;
+      }
+      if (container.isConnected) container.remove();
+      turnstileCleanupTimer = null;
+    }, TURNSTILE_OVERLAY_FADE_MS);
+  } else {
+    turnstileWidgetHost = null;
+    turnstileCleanupTimer = null;
   }
-  turnstileContainer = null;
 }
 
 export function cancelCapabilityChallenge(reason = 'Capability challenge cancelled'): void {
@@ -270,6 +370,7 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
             finish(() => reject(new Error('Turnstile challenge expired'))),
         });
         turnstile.execute(turnstileWidgetId);
+        window.setTimeout(hideTurnstileSpinner, 350);
       } catch (error) {
         finish(() => reject(error));
       }

@@ -40,6 +40,7 @@ const SECURITY_CONFIG_CACHE_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_SECONDS = 30;
 const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const CAPABILITY_CHALLENGE_CANCELLED = 'CapabilityChallengeCancelled';
 const VALID_SCOPES = new Set<CapabilityScope>(['turn', 'realtime', 'youtube-search']);
 
 const configCache = new Map<string, { expiresAt: number; value: SecurityConfig }>();
@@ -48,6 +49,18 @@ let turnstileLoadPromise: Promise<void> | null = null;
 let turnstileExecution: Promise<string> | null = null;
 let turnstileWidgetId: string | null = null;
 let turnstileContainer: HTMLElement | null = null;
+let turnstileCancelReject: ((error: Error) => void) | null = null;
+let turnstileCancelGeneration = 0;
+
+function createCapabilityChallengeCancelledError(reason: string): Error {
+  const error = new Error(reason);
+  error.name = CAPABILITY_CHALLENGE_CANCELLED;
+  return error;
+}
+
+export function isCapabilityChallengeCancelled(error: unknown): boolean {
+  return error instanceof Error && error.name === CAPABILITY_CHALLENGE_CANCELLED;
+}
 
 function normalizeScopes(scopes: CapabilityScope[]): CapabilityScope[] {
   const result: CapabilityScope[] = [];
@@ -192,12 +205,27 @@ function cleanupTurnstileWidget(): void {
   turnstileContainer = null;
 }
 
+export function cancelCapabilityChallenge(reason = 'Capability challenge cancelled'): void {
+  turnstileCancelGeneration += 1;
+  const reject = turnstileCancelReject;
+  const error = createCapabilityChallengeCancelledError(reason);
+  if (reject) {
+    reject(error);
+    return;
+  }
+  cleanupTurnstileWidget();
+}
+
 async function getTurnstileToken(siteKey: string): Promise<string> {
   if (!siteKey) throw new Error('Missing Turnstile site key');
   if (turnstileExecution) return turnstileExecution;
 
   turnstileExecution = (async () => {
+    const cancelGeneration = turnstileCancelGeneration;
     await loadTurnstile();
+    if (cancelGeneration !== turnstileCancelGeneration) {
+      throw createCapabilityChallengeCancelledError('Capability challenge cancelled');
+    }
     const turnstile = window.turnstile;
     if (!turnstile) throw new Error('Turnstile unavailable');
 
@@ -208,21 +236,23 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
         container = ensureTurnstileContainer();
       }
 
+      let settled = false;
+      let timeoutId: number | undefined;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        turnstileCancelReject = null;
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        cleanupTurnstileWidget();
+        callback();
+      };
+
       try {
-        let settled = false;
-        const timeoutId = window.setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          cleanupTurnstileWidget();
-          reject(new Error('Turnstile challenge timed out'));
-        }, TURNSTILE_EXECUTION_TIMEOUT_MS);
-        const finish = (callback: () => void) => {
-          if (settled) return;
-          settled = true;
-          window.clearTimeout(timeoutId);
-          cleanupTurnstileWidget();
-          callback();
-        };
+        timeoutId = window.setTimeout(
+          () => finish(() => reject(new Error('Turnstile challenge timed out'))),
+          TURNSTILE_EXECUTION_TIMEOUT_MS,
+        );
+        turnstileCancelReject = (error) => finish(() => reject(error));
         turnstileWidgetId = turnstile.render(container, {
           sitekey: siteKey,
           action: 'mxqr-capability',
@@ -236,8 +266,7 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
         });
         turnstile.execute(turnstileWidgetId);
       } catch (error) {
-        cleanupTurnstileWidget();
-        reject(error);
+        finish(() => reject(error));
       }
     });
   })();
@@ -259,6 +288,7 @@ async function requestCapabilityToken(
     try {
       turnstileToken = await getTurnstileToken(config.turnstileSiteKey);
     } catch (error) {
+      if (isCapabilityChallengeCancelled(error)) throw error;
       if (!config.inferredFallback) throw error;
     }
   }
@@ -307,7 +337,8 @@ export async function getCapabilityHeaders(
   try {
     const token = await requestCapabilityToken(apiBase, normalizedScopes, config);
     return { 'X-MXQR-Capability': token };
-  } catch {
+  } catch (error) {
+    if (isCapabilityChallengeCancelled(error)) throw error;
     return {};
   }
 }

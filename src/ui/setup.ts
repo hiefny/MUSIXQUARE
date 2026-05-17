@@ -14,6 +14,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
+import { cancelCapabilityChallenge } from '../core/capability.ts';
 import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { onCompactLandscapeChange } from '../core/platform.ts';
@@ -154,6 +155,8 @@ export function triggerAppEntrance(): void {
 // ─── Init Setup Overlay ──────────────────────────────────────────
 
 function initSetupOverlay(): void {
+  cancelCapabilityChallenge('Setup flow cancelled');
+
   // Abort previous setup overlay listeners to prevent accumulation
   const prevAbort = getSetupOverlayAbort();
   if (prevAbort) prevAbort.abort();

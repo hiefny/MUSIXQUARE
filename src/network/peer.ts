@@ -7,7 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { fetchWithCapability } from '../core/capability.ts';
+import { fetchWithCapability, isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
@@ -199,6 +199,18 @@ function buildLegacyMeteredIceServers(username: string, credential: string): RTC
   ];
 }
 
+function isNetworkInitStillActive(requestedId: string | null): boolean {
+  const appRole = getState('network.appRole');
+  if (requestedId) return appRole === 'host';
+  return appRole === 'guest' && getState('network.isConnecting');
+}
+
+function assertNetworkInitStillActive(requestedId: string | null): void {
+  if (!isNetworkInitStillActive(requestedId)) {
+    throw new Error('NETWORK_INIT_CANCELLED');
+  }
+}
+
 // ─── Network Initialization ─────────────────────────────────────────
 
 /**
@@ -231,7 +243,9 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
 
   for (const url of turnEndpoints) {
     try {
+      assertNetworkInitStillActive(requestedId);
       const resp = await fetchWithCapability(url, 'turn');
+      assertNetworkInitStillActive(requestedId);
       if (!resp.ok) {
         log.warn(`[Network] TURN fetch failed: ${url} → HTTP ${resp.status}`);
         continue;
@@ -253,6 +267,8 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
 
       log.warn(`[Network] TURN fetch returned no usable ICE servers: ${url}`);
     } catch (e) {
+      if (isCapabilityChallengeCancelled(e)) throw e;
+      if (!isNetworkInitStillActive(requestedId)) throw new Error('NETWORK_INIT_CANCELLED');
       log.warn(
         `[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`,
       );
@@ -276,8 +292,19 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     },
   };
 
+  assertNetworkInitStillActive(requestedId);
   log.info(`[Network] Initializing ${transportConfig.provider} transport`);
   const newPeer = await createTransportPeer(requestedId, peerOpts);
+  try {
+    assertNetworkInitStillActive(requestedId);
+  } catch (error) {
+    try {
+      newPeer.destroy();
+    } catch {
+      /* noop */
+    }
+    throw error;
+  }
   setPeer(newPeer);
   setupPeerEvents();
 
@@ -315,6 +342,17 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
     setManagedTimer('peer-open-timeout', () => onError(new Error('PEER_OPEN_TIMEOUT')), 15000);
   });
 
+  try {
+    assertNetworkInitStillActive(requestedId);
+  } catch (error) {
+    try {
+      newPeer.destroy();
+    } catch {
+      /* noop */
+    }
+    setPeer(null);
+    throw error;
+  }
   setState('network.myId', id);
   log.info('[Network] Peer opened:', id);
   bus.emit('network:peer-ready', id);

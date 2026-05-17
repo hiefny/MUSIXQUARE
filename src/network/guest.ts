@@ -10,6 +10,7 @@
 
 import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
+import type { I18nKey } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
@@ -438,6 +439,27 @@ function handleKickDeviceMsg(_data: Record<string, unknown>, conn?: DataConnecti
   bus.emit('network:kicked-explicitly');
 }
 
+function handleOperatorToast(data: Record<string, unknown>, conn?: DataConnection): void {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn || conn !== hostConn || !getState('network.isOperator')) return;
+
+  const params =
+    data.i18nParams && typeof data.i18nParams === 'object' && !Array.isArray(data.i18nParams)
+      ? (data.i18nParams as Record<string, string | number>)
+      : undefined;
+  if (typeof data.i18nKey === 'string') {
+    const translated = t(data.i18nKey as I18nKey, params);
+    // t() returns the raw key on dictionary miss — fall through to the
+    // host-provided text fallback so OP guests on an older bundle render
+    // a readable message instead of leaking the key string.
+    if (translated !== data.i18nKey) {
+      showToast(translated);
+      return;
+    }
+  }
+  if (typeof data.text === 'string') showToast(data.text);
+}
+
 // ─── Init Guest Protocol Handlers ─────────────────────────────────
 
 export function initGuestProtocolHandlers(): void {
@@ -448,6 +470,7 @@ export function initGuestProtocolHandlers(): void {
     [MSG.FORCE_CLOSE_DUPLICATE]: handleForceCloseDuplicate,
     [MSG.OPERATOR_GRANT]: handleOperatorGrant,
     [MSG.OPERATOR_REVOKE]: handleOperatorRevoke,
+    [MSG.OPERATOR_TOAST]: handleOperatorToast,
     [MSG.KICK_DEVICE]: handleKickDeviceMsg,
   });
 

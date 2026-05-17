@@ -9,10 +9,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:checked": "npm run build && npm run guard:prod-hooks",
+    "build:checked": "npm run build && npm run guard:prod-hooks && npm run guard:prod-security",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "guard:prod-hooks": "node scripts/assert-production-build-clean.mjs",
+    "guard:prod-security": "node scripts/assert-production-security-config.mjs",
     "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

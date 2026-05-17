@@ -342,6 +342,11 @@ export interface ProtocolMap {
     }>;
   };
   'kick-device': { reason?: string };
+  'operator-toast': {
+    text: string;
+    i18nKey?: string;
+    i18nParams?: Record<string, string | number>;
+  };
   'operator-grant': NoPayload;
   'operator-revoke': NoPayload;
 

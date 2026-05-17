@@ -400,6 +400,8 @@ const en: Record<I18nKey, string> = {
   'toast.device_disconnected': '{{name}} disconnected',
   'toast.device_conn_error': '{{name}} connection error',
   'toast.device_kicked': '{{name}} has been kicked',
+  'toast.remote_decode_device_wait':
+    'A device failed to decode this track. Playback is continuing for everyone else.',
   'toast.invite_code': 'Invite code: {{code}}',
   'toast.invite_code_info': '{{count}} connected | Code {{code}}',
   'toast.added_tracks': '{{count}} track(s) added',
@@ -509,6 +511,8 @@ const en: Record<I18nKey, string> = {
   'error.audio_decode_fail': 'Audio decode failed!',
   'error.audio_memory': 'Loading audio into memory...',
   'error.decode_timeout': 'Decoding "{{name}}" took too long.\nSkipping to next track.',
+  'error.local_decode_wait':
+    "This device couldn't decode the track.\nPlease wait for the next track.",
   'error.all_tracks_failed': 'No playable tracks in the playlist.',
   'error.audio_engine_prepare': "Couldn't prepare the audio engine",
   'error.session_create_fail': "Couldn't create session",

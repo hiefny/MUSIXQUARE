@@ -4,6 +4,10 @@ import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import type { DataConnection } from '../../types/index.ts';
 
+const mocks = vi.hoisted(() => ({
+  showToast: vi.fn(),
+}));
+
 vi.mock('../../core/log.ts', () => ({
   log: {
     debug: vi.fn(),
@@ -11,6 +15,10 @@ vi.mock('../../core/log.ts', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+}));
+
+vi.mock('../../ui/toast.ts', () => ({
+  showToast: mocks.showToast,
 }));
 
 describe('guest connection type authority', () => {
@@ -50,5 +58,29 @@ describe('guest connection type authority', () => {
     );
 
     expect(getState('network.connectionType')).toBe('remote');
+  });
+
+  it('shows operator-only toasts only when they come from the host', async () => {
+    const { initGuestProtocolHandlers } = await import('../guest.ts');
+    const { handleData } = await import('../protocol.ts');
+
+    initGuestProtocolHandlers();
+    setState('network.isOperator', true);
+
+    await handleData({ type: MSG.OPERATOR_TOAST, text: 'operator notice' }, conn);
+    expect(mocks.showToast).toHaveBeenCalledWith('operator notice');
+
+    mocks.showToast.mockClear();
+    setState('network.isOperator', false);
+    await handleData({ type: MSG.OPERATOR_TOAST, text: 'operator notice' }, conn);
+    expect(mocks.showToast).not.toHaveBeenCalled();
+
+    mocks.showToast.mockClear();
+    setState('network.isOperator', true);
+    await handleData(
+      { type: MSG.OPERATOR_TOAST, text: 'operator notice' },
+      { open: true, peer: 'guest-a' } as DataConnection,
+    );
+    expect(mocks.showToast).not.toHaveBeenCalled();
   });
 });

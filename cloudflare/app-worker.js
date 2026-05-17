@@ -9,7 +9,11 @@ const CLOUDFLARE_TURN_TTL_DEFAULT = 48 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 const CLOUDFLARE_TURN_TTL_MIN = 60;
 const CLOUDFLARE_TURN_TTL_MAX = CLOUDFLARE_TURN_TTL_DEFAULT;
 const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
-const CAPABILITY_TOKEN_TTL_MIN = 60;
+// MIN intentionally clamps above the 30s client refresh skew × 4 — a 60s TTL
+// leaves only ~30s of usable cache and triggers a fresh Turnstile execution
+// every half minute, accumulating bot-score and eventually surfacing the
+// challenge UI to legitimate users.
+const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
 const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search']);
 const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
@@ -212,6 +216,58 @@ function isTurnstileConfigured(env) {
   return !!(getTurnstileSiteKey(env) && getTurnstileSecret(env));
 }
 
+function normalizeHostname(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const trimmed = value.trim().toLowerCase();
+  try {
+    const parsed = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
+    return parsed.hostname.replace(/^\*\./, '');
+  } catch {
+    return trimmed.replace(/^\*\./, '').replace(/[^a-z0-9.-]/g, '');
+  }
+}
+
+function configuredTurnstileHostnames(env) {
+  const raw = env.MXQR_TURNSTILE_ALLOWED_HOSTNAMES || env.TURNSTILE_ALLOWED_HOSTNAMES || '';
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  return raw
+    .split(/[\s,]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function hostnameMatchesRule(hostname, rule) {
+  const normalizedHostname = normalizeHostname(hostname);
+  const normalizedRule = normalizeHostname(rule);
+  if (!normalizedHostname || !normalizedRule) return false;
+  if (normalizedHostname === normalizedRule) return true;
+  return rule.trim().startsWith('*.') && normalizedHostname.endsWith(`.${normalizedRule}`);
+}
+
+function isAllowedTurnstileHostname(hostname, env) {
+  const normalized = normalizeHostname(hostname);
+  if (!normalized) return false;
+
+  const configured = configuredTurnstileHostnames(env);
+  if (configured.length > 0) {
+    return configured.some((rule) => hostnameMatchesRule(normalized, rule));
+  }
+
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === 'musixquare.com' ||
+    normalized === 'www.musixquare.com' ||
+    normalized.endsWith('.musixquare.com') ||
+    normalized === 'toss.im' ||
+    normalized.endsWith('.toss.im') ||
+    normalized === 'toss-internal.com' ||
+    normalized.endsWith('.toss-internal.com') ||
+    normalized === 'tossmini.com' ||
+    normalized.endsWith('.tossmini.com')
+  );
+}
+
 function allowInferredCapabilityFallback(env) {
   const raw = String(
     env.MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK ??
@@ -378,7 +434,11 @@ async function verifyTurnstileToken(turnstileToken, request, env) {
       body,
     });
     const payload = await response.json().catch(() => ({}));
-    return !!payload.success && (!payload.action || payload.action === 'mxqr-capability');
+    return (
+      !!payload.success &&
+      payload.action === 'mxqr-capability' &&
+      isAllowedTurnstileHostname(payload.hostname, env)
+    );
   } catch {
     return false;
   }

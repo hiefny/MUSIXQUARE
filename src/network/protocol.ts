@@ -243,6 +243,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.text === 'string' &&
     (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
     (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
+  [MSG.OPERATOR_TOAST]: (d) =>
+    typeof d.text === 'string' &&
+    d.text.length <= 300 &&
+    (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
+    (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
   [MSG.REQUEST_CHAT_COMMAND]: (d) =>
     typeof d.command === 'string' && Array.isArray(d.args) && (d.args as unknown[]).length <= 32,
 

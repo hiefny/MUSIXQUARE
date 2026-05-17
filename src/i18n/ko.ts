@@ -398,6 +398,8 @@ const ko = {
   'toast.device_disconnected': '{{name}} 연결이 끊겼어요',
   'toast.device_conn_error': '{{name}} 연결 오류',
   'toast.device_kicked': '{{name}}을(를) 내보냈어요',
+  'toast.remote_decode_device_wait':
+    '현재 디코딩에 실패한 기기가 있어요. 해당 기기를 제외하고 재생 중이에요.',
   'toast.invite_code': '초대 코드: {{code}}',
   'toast.invite_code_info': '연결된 기기 {{count}}대 | 초대 코드 {{code}}',
   'toast.added_tracks': '{{count}}곡을 추가했어요',
@@ -508,6 +510,7 @@ const ko = {
   'error.audio_decode_fail': '오디오 디코딩 실패!',
   'error.audio_memory': '오디오 메모리 로드 중...',
   'error.decode_timeout': '"{{name}}" 디코딩이 너무 오래 걸려요.\n다음 곡으로 넘어갈게요.',
+  'error.local_decode_wait': '해당 기기에서 디코딩을 실패했어요.\n다음 트랙 재생까지 기다려주세요.',
   'error.all_tracks_failed': '재생할 수 있는 트랙이 없어요.',
   'error.audio_engine_prepare': '오디오 엔진을 준비하지 못했어요',
   'error.session_create_fail': '세션을 만들지 못했어요',

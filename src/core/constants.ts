@@ -158,6 +158,7 @@ export const MSG = {
 
   // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',
+  OPERATOR_TOAST: 'operator-toast',
 
   // ── System Audio Sharing ────────────────────────────────────────
   SYSTEM_AUDIO_START: 'system-audio-start',

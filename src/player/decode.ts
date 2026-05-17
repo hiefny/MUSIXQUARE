@@ -27,7 +27,7 @@ import { broadcastFileDebounced } from '../storage/transfer.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 import type { AnyProtocolMsg, TrackMeta } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
-import { sendToHost } from '../network/peer.ts';
+import { safeSend, sendToHost } from '../network/peer.ts';
 import { broadcastSystemNotice } from '../chat/protocol.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
@@ -449,16 +449,23 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   }
 }
 
-// Host-side handler for guest's "I can't decode this track" report. Triggers
-// the same advance path the host uses for its own decode failures, so the
-// whole room moves on rather than leaving the failing guest in a silent
-// recovery loop. Stale reports (host already advanced) are ignored.
+// Host-side handler for guest's "I can't decode this track" report. OP
+// reports trigger the same advance path the host uses for its own decode
+// failures. Non-OP reports are held unless independent guests corroborate,
+// so one failing device waits locally instead of getting room-wide skip power.
+// Stale reports (host already advanced) are ignored.
 //
 // This is a data-plane recovery message that any guest (including non-OP)
 // may send, because iOS Safari can fail to decode a file Chrome can play.
 // However, a single non-OP report must not get room-wide track control: that
 // is equivalent to a one-frame "skip current track" DoS. OP reports still
 // act immediately; non-OP reports require independent corroboration.
+//
+// In a host + single-guest room the quorum is intentionally unreachable:
+// the host keeps playing while only the failing guest sees the local-wait
+// toast, and the host advances at track end (or via manual skip after the
+// operator-only toast prompt). Earlier "advance when sole non-OP fails"
+// effectively let one device act as a room-wide skipper.
 const NON_OP_DECODE_FAILURE_QUORUM = 2;
 const _reportedDecodeFailures = new Map<number, Set<string>>();
 const _advancedGuestDecodeFailureTracks = new Set<number>();
@@ -489,11 +496,17 @@ function countConnectedNonOpDecodeReports(reports: Set<string>): number {
   return count;
 }
 
-function getRequiredNonOpDecodeFailureReports(): number {
-  const connectedNonOpPeers = getState('network.connectedPeers').filter(
-    (peer) => peer.status === 'connected' && !peer.isOp,
-  );
-  return connectedNonOpPeers.length <= 1 ? 1 : NON_OP_DECODE_FAILURE_QUORUM;
+function notifyOperatorsOfHeldDecodeFailure(): void {
+  const text = t('toast.remote_decode_device_wait');
+  showToast(text);
+  for (const peer of getState('network.connectedPeers')) {
+    if (peer.status !== 'connected' || !peer.isOp) continue;
+    safeSend(peer.conn, {
+      type: MSG.OPERATOR_TOAST,
+      text,
+      i18nKey: 'toast.remote_decode_device_wait',
+    });
+  }
 }
 
 function advanceFromGuestDecodeFailure(trackIndex: number): void {
@@ -535,11 +548,12 @@ function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnec
   }
 
   const nonOpReports = countConnectedNonOpDecodeReports(reports);
-  const requiredReports = getRequiredNonOpDecodeFailureReports();
+  const requiredReports = NON_OP_DECODE_FAILURE_QUORUM;
   if (nonOpReports < requiredReports) {
     log.warn(
       `[Decode] Holding non-OP decode-failed for index ${reportedIdx}: ${nonOpReports}/${requiredReports} reports`,
     );
+    notifyOperatorsOfHeldDecodeFailure();
     return;
   }
 
@@ -990,12 +1004,8 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     log.error('[Guest] Decoding failed', err);
 
     const timedOut = isDecodeTimeout(err);
-    const meta = getState('transfer.meta');
-    const name = (meta?.name as string) || '';
     // Lifecycle: guest main-transfer decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
-    showToast(timedOut ? t('error.decode_timeout', { name }) : t('error.audio_decode_fail'));
-
     // Reset transfer state so recovery can start fresh (prevents infinite loop)
     setPlaybackTransferState(TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
@@ -1003,20 +1013,22 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     // Per-track decode failure counter. The first non-timeout failure may be
     // a rare chunk-loss case that recovery's re-fetch can fix. The second
     // (or any timeout) means the file is genuinely undecodable on this
-    // device — iOS Safari can't decode mp4-as-mp3 even though host's
-    // Chrome can. Loop-on-fail without this counter would re-fetch + re-fail
-    // until recovery exhausted (3 retries) and then silently hang in FAILED
-    // forever, with the host none the wiser. Tell host so the room advances.
+    // device — iOS Safari can't decode mp4-as-mp3 even though host's Chrome
+    // can. Tell host for OP/quorum handling, while this device stays idle and
+    // waits for the next host-selected track.
     const failureCount = (getState('player.decodeFailureCount') || 0) + 1;
     setState('player.decodeFailureCount', failureCount);
 
     if (timedOut || failureCount >= 2) {
+      showToast(t('error.local_decode_wait'));
       const failedIdx = getState('playlist.currentTrackIndex');
       if (failedIdx >= 0) {
         sendToHost({ type: MSG.GUEST_DECODE_FAILED, index: failedIdx });
       }
       return;
     }
+
+    showToast(t('error.audio_decode_fail'));
 
     // First non-timeout failure: try recovery (3 attempts + backoff) for the
     // chunk-loss case. If decode still fails after recovery completes, the

@@ -84,6 +84,58 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     });
   }
 
+  it('fails closed for paid endpoints when capability auth is not configured', async () => {
+    const env = {
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
+
+    const requests = [
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': '203.0.113.19',
+        },
+      }),
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Host: 'musixquare.com',
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Connecting-IP': '203.0.113.19',
+        },
+      }),
+    ];
+
+    for (const request of requests) {
+      const response = await appWorker.fetch(request, env);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: 'CAPABILITY_NOT_CONFIGURED' });
+    }
+  });
+
+  it('allows legacy unguarded paid endpoints only with an explicit opt-in', async () => {
+    const env = {
+      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': '203.0.113.18',
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as unknown).toMatchObject({
+      provider: 'metered-fallback',
+    });
+  });
+
   it('requires a capability token when capability auth is enabled', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
@@ -277,7 +329,11 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('serves rate-limit rejections with the shared security headers', async () => {
     installRateLimitCache();
-    const env = { TURN_USER: 'turn-user', TURN_PASS: 'turn-pass' };
+    const env = {
+      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
     const request = () =>
       new Request('https://musixquare.com/api/get-turn-config', {
         headers: {

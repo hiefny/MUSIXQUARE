@@ -489,6 +489,13 @@ function countConnectedNonOpDecodeReports(reports: Set<string>): number {
   return count;
 }
 
+function getRequiredNonOpDecodeFailureReports(): number {
+  const connectedNonOpPeers = getState('network.connectedPeers').filter(
+    (peer) => peer.status === 'connected' && !peer.isOp,
+  );
+  return connectedNonOpPeers.length <= 1 ? 1 : NON_OP_DECODE_FAILURE_QUORUM;
+}
+
 function advanceFromGuestDecodeFailure(trackIndex: number): void {
   if (_advancedGuestDecodeFailureTracks.has(trackIndex)) return;
   _advancedGuestDecodeFailureTracks.add(trackIndex);
@@ -528,9 +535,10 @@ function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnec
   }
 
   const nonOpReports = countConnectedNonOpDecodeReports(reports);
-  if (nonOpReports < NON_OP_DECODE_FAILURE_QUORUM) {
+  const requiredReports = getRequiredNonOpDecodeFailureReports();
+  if (nonOpReports < requiredReports) {
     log.warn(
-      `[Decode] Holding non-OP decode-failed for index ${reportedIdx}: ${nonOpReports}/${NON_OP_DECODE_FAILURE_QUORUM} reports`,
+      `[Decode] Holding non-OP decode-failed for index ${reportedIdx}: ${nonOpReports}/${requiredReports} reports`,
     );
     return;
   }

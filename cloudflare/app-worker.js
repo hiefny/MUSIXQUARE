@@ -235,6 +235,15 @@ function allowTrustedOriginCapabilityFallback(env) {
   return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
+function allowUnguardedPaidApis(env) {
+  const raw = String(
+    env.MXQR_ALLOW_UNGUARDED_PAID_APIS ?? env.ALLOW_UNGUARDED_PAID_APIS ?? 'false',
+  )
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 function parseCapabilityTtl(env) {
   const parsed = Number.parseInt(env.MXQR_CAPABILITY_TTL || env.CAPABILITY_TTL || '', 10);
   if (!Number.isFinite(parsed)) return CAPABILITY_TOKEN_TTL_DEFAULT;
@@ -385,6 +394,9 @@ async function guardSensitiveRequest(
 ) {
   if (!isCapabilityAuthEnabled(env)) {
     if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, trust.headers);
+    if (!allowUnguardedPaidApis(env)) {
+      return json({ error: 'CAPABILITY_NOT_CONFIGURED' }, 503, trust.headers);
+    }
     if (!(await checkRateLimit(request, rateLimitKey, rateLimit, 60))) {
       return rateLimitResponse(trust.headers);
     }

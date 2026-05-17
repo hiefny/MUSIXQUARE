@@ -23,3 +23,9 @@ YOUTUBE_SAFE_SEARCH = "moderate"
 CLOUDFLARE_TURN_TTL = "172800"
 # Optional comma/space-separated exact origins for trusted deploy previews.
 # TRUSTED_CORS_ORIGINS = "https://example-preview.pages.dev"
+# Required production secrets:
+# - MXQR_CAPABILITY_SECRET
+# - TURNSTILE_SITE_KEY
+# - TURNSTILE_SECRET_KEY
+# Local/emergency only:
+# - MXQR_ALLOW_UNGUARDED_PAID_APIS = "true"

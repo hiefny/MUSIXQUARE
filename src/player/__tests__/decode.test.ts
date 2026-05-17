@@ -117,11 +117,21 @@ describe('guest decode failure reports', () => {
     setState('playlist.currentTrackIndex', 0);
   });
 
-  it('does not let one non-operator skip the room-wide track', async () => {
+  it('lets the only non-operator report advance the room-wide track', async () => {
     const guest = makeConnectedPeer('guest-a', false);
     setState('network.connectedPeers', [guest]);
 
     await handleData({ type: MSG.GUEST_DECODE_FAILED, index: 0 }, guest.conn!);
+
+    expect(mocks.broadcastSystemNotice).toHaveBeenCalledOnce();
+  });
+
+  it('does not let one non-operator skip when another non-operator is connected', async () => {
+    const guestA = makeConnectedPeer('guest-a', false);
+    const guestB = makeConnectedPeer('guest-b', false);
+    setState('network.connectedPeers', [guestA, guestB]);
+
+    await handleData({ type: MSG.GUEST_DECODE_FAILED, index: 0 }, guestA.conn!);
 
     expect(mocks.broadcastSystemNotice).not.toHaveBeenCalled();
     expect(getState('playback.failedTrackKeys').size).toBe(0);

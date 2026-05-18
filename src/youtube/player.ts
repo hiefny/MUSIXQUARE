@@ -330,7 +330,8 @@ function finishZeroStartSession(reason: string): void {
     return;
   }
 
-  prepareLocalZeroStart(session.videoId);
+  // prepareLocalZeroStart already ran before the session was opened. Keep
+  // final launch play-only so host and guests follow the same timeline.
   const hostPlayAt = getHostNow() + ZERO_START_PLAY_LEAD_MS;
   markYtStateBroadcast();
   broadcast({

@@ -349,6 +349,8 @@ describe('YouTube Sync — Regression Integration', () => {
       });
       expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
       expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
+      const preparePauseCount = player.__log.filter((c) => c.op === 'pauseVideo').length;
+      const prepareSeekCount = player.__log.filter((c) => c.op === 'seekTo').length;
 
       const readyHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_READY];
       expect(readyHandler).toBeDefined();
@@ -361,6 +363,9 @@ describe('YouTube Sync — Regression Integration', () => {
         },
         peerConn,
       );
+
+      expect(player.__log.filter((c) => c.op === 'pauseVideo')).toHaveLength(preparePauseCount);
+      expect(player.__log.filter((c) => c.op === 'seekTo')).toHaveLength(prepareSeekCount);
 
       const state = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];
       expect(state).toMatchObject({
@@ -416,6 +421,7 @@ describe('YouTube Sync — Regression Integration', () => {
       const player = installPlayer({ __state: 2, __currentTime: 0, __videoId: 'ZERO_VIDEO' });
       const { initYouTube } = await importPlayer();
       setState('network.hostConn', mockHostConn as never);
+      setState('youtube.guestPlayLatency', 250);
 
       initYouTube();
       const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
@@ -525,7 +531,7 @@ describe('YouTube Sync — Regression Integration', () => {
       );
     });
 
-    it('guest scheduled play keeps manual nudge and subtracts learned play latency', async () => {
+    it('zero-start scheduled play keeps manual nudge without learned latency pre-roll', async () => {
       const player = installPlayer({ __state: 2, __duration: 300, __videoId: 'FAKE_VIDEO' });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
       expect(handler).toBeDefined();
@@ -549,7 +555,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0.25)).toBe(true);
 
       player.__log.length = 0;
-      vi.advanceTimersByTime(299);
+      vi.advanceTimersByTime(499);
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(false);
 
       vi.advanceTimersByTime(1);

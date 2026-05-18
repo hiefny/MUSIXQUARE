@@ -1159,8 +1159,10 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
 
     if (hostPlayAt > 0 && isClockCalibrated()) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
-      const playLatencyMs = isZeroStart && state === 1 ? getEffectiveGuestPlayLatencyMs() : 0;
-      const actionWaitMs = Math.max(0, waitMs - playLatencyMs);
+      // Zero-start is intentionally symmetric: host and guests call
+      // playVideo() at the same shared-clock instant after preparing at 0:00.
+      // The later precision rendezvous still uses learned play latency.
+      const actionWaitMs = waitMs;
       const playOnlyZeroStart = preparedZeroStart;
 
       if (waitMs > SHORT_WAIT_THRESHOLD_MS && waitMs < AUTO_SYNC_MAX_WAIT_MS && state === 1) {

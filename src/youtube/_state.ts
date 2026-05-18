@@ -35,7 +35,6 @@ export interface YouTubePlayerInstance {
   getPlaylistIndex(): number;
   getVideoData(): { video_id?: string; title?: string; author?: string };
   getPlaylist(): string[];
-  getVideoLoadedFraction?(): number;
   setVolume(volume: number): void;
 }
 

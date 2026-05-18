@@ -156,12 +156,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     d.token.length <= 80 &&
     (d.videoId === undefined || typeof d.videoId === 'string') &&
     (d.subIndex === undefined || isNonNegInt(d.subIndex)),
-  [MSG.YOUTUBE_ZERO_START_PLAYING]: (d) =>
-    typeof d.token === 'string' &&
-    d.token.length > 0 &&
-    d.token.length <= 80 &&
-    (d.videoId === undefined || typeof d.videoId === 'string') &&
-    (d.subIndex === undefined || isNonNegInt(d.subIndex)),
   [MSG.YOUTUBE_SYNC]: (d) =>
     isFiniteNumber(d.time) &&
     isFiniteNumber(d.state) &&
@@ -169,9 +163,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.YOUTUBE_STATE]: (d) =>
     isFiniteNumber(d.state) &&
     (d.time === undefined || isFiniteNumber(d.time)) &&
-    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)) &&
-    (d.zeroStartToken === undefined ||
-      (typeof d.zeroStartToken === 'string' && d.zeroStartToken.length <= 80)),
+    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
   [MSG.YOUTUBE_SUB_TITLE_UPDATE]: (d) =>
     typeof d.playlistId === 'string' && isNonNegInt(d.subIdx) && typeof d.title === 'string',
   // Without per-element validation a compromised host (or any peer that

@@ -59,8 +59,6 @@ import {
   ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
   LATENCY_CLAMP_MAX_MS,
   LATENCY_OUTLIER_REJECT_MS,
-  ZERO_START_MAX_WAIT_MS,
-  ZERO_START_PLAY_LEAD_MS,
 } from './constants.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
@@ -243,13 +241,6 @@ interface GuestSyncRuntime {
   lastRendezvousAt: number;
   /** Date.now() expiry for a manual rendezvous waiting on iframe/app readiness. */
   pendingManualRendezvousUntil: number;
-  /** Last zero-start prepare this guest confirmed. Used to avoid a second seek on launch. */
-  zeroStartReady: {
-    token: string;
-    videoId: string;
-    subIndex: number;
-    expiresAt: number;
-  } | null;
 }
 
 const _rt: GuestSyncRuntime = {
@@ -261,7 +252,6 @@ const _rt: GuestSyncRuntime = {
   rendezvousInProgress: false,
   lastRendezvousAt: 0,
   pendingManualRendezvousUntil: 0,
-  zeroStartReady: null,
 };
 
 const MANUAL_OFFSET_APPLY_RETRY_MS = 250;
@@ -358,44 +348,6 @@ function deferManualRendezvousUntilReady(reason: string): void {
 function clearPendingManualOffsetApply(): void {
   _pendingManualOffsetApplyUntil = 0;
   clearManagedTimer('yt-manual-offset-apply-retry');
-}
-
-function markZeroStartReady(data: {
-  token?: unknown;
-  videoId?: unknown;
-  subIndex?: unknown;
-}): void {
-  if (typeof data.token !== 'string' || !data.token) return;
-  _rt.zeroStartReady = {
-    token: data.token,
-    videoId: typeof data.videoId === 'string' ? data.videoId : '',
-    subIndex: Number.isFinite(Number(data.subIndex)) ? Number(data.subIndex) : -1,
-    expiresAt: Date.now() + ZERO_START_MAX_WAIT_MS + ZERO_START_PLAY_LEAD_MS + 1000,
-  };
-}
-
-function isPreparedZeroStart(
-  token: unknown,
-  hostVideoId: string,
-  subIndex: number | undefined,
-): boolean {
-  const ready = _rt.zeroStartReady;
-  if (!ready) return false;
-  if (Date.now() > ready.expiresAt) {
-    _rt.zeroStartReady = null;
-    return false;
-  }
-  if (typeof token !== 'string' || token !== ready.token) return false;
-  if (hostVideoId && ready.videoId && hostVideoId !== ready.videoId) return false;
-  if (
-    subIndex !== undefined &&
-    subIndex >= 0 &&
-    ready.subIndex >= 0 &&
-    subIndex !== ready.subIndex
-  ) {
-    return false;
-  }
-  return Math.abs(getYouTubeManualOffsetSec()) < 0.001;
 }
 
 function queueManualOffsetApplyRetry(): void {
@@ -976,7 +928,6 @@ export function resetYouTubeSyncState(): void {
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
-  _rt.zeroStartReady = null;
   _pendingManualOffsetApplyUntil = 0;
   resetAdDetection();
   clearManagedTimer('yt-manual-rendezvous-retry');
@@ -1151,17 +1102,6 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     const duration = player.getDuration?.() || 0;
     const manualTargetTime = applyYouTubeManualOffset(time, duration);
     const isZeroStart = data.zeroStart === true;
-    const zeroStartToken = data.zeroStartToken;
-    const playOnlyZeroStart =
-      isZeroStart && state === 1 && isPreparedZeroStart(zeroStartToken, hostVideoId, subIndex);
-
-    if (isZeroStart && state === 1 && typeof zeroStartToken === 'string') {
-      bus.emit('youtube:zero-start-launch', {
-        token: zeroStartToken,
-        videoId: hostVideoId,
-        subIndex: subIndex ?? -1,
-      });
-    }
 
     if (hostPlayAt > 0 && isClockCalibrated()) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
@@ -1171,12 +1111,10 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
       if (waitMs > SHORT_WAIT_THRESHOLD_MS && waitMs < AUTO_SYNC_MAX_WAIT_MS && state === 1) {
         // ── Auto-sync path: significant wait (>SHORT_WAIT_THRESHOLD_MS) + play command ──
         // 1. Pause immediately for clean sync
-        if (!playOnlyZeroStart && player.pauseVideo) player.pauseVideo();
+        if (player.pauseVideo) player.pauseVideo();
 
         // 2. Seek to target position (while paused = in-buffer, no rebuffer)
-        if (!playOnlyZeroStart && !subIndexChanged && player.seekTo) {
-          player.seekTo(manualTargetTime, true);
-        }
+        if (!subIndexChanged && player.seekTo) player.seekTo(manualTargetTime, true);
 
         // 3. Update seekbar immediately
         if (manualTargetTime >= 0 && duration >= 0) {
@@ -1241,10 +1179,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             if (state === 1 && p.playVideo) {
               // Pause-seek-play: same pattern as executeImmediate to avoid
               // seekTo+playVideo race on the YouTube iframe.
-              if (playOnlyZeroStart) {
-                setYtAutoplayIntent(true);
-                p.playVideo();
-              } else if (!subIndexChanged && p.seekTo) {
+              if (!subIndexChanged && p.seekTo) {
                 p.pauseVideo?.();
                 p.seekTo(compensatedTime, true);
                 setManagedTimer(
@@ -1271,12 +1206,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         );
       } else {
         // No wait or out of range — execute immediately
-        if (playOnlyZeroStart && player.playVideo) {
-          setYtAutoplayIntent(true);
-          player.playVideo();
-        } else {
-          executeImmediate(player, state, time, duration, subIndexChanged);
-        }
+        executeImmediate(player, state, time, duration, subIndexChanged);
       }
     } else {
       // No hostPlayAt, or clock uncalibrated (late-join, no pongs yet) — execute immediately.
@@ -1288,12 +1218,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
           '[YouTube State] SharedClock uncalibrated — ignoring hostPlayAt, executing immediately',
         );
       }
-      if (playOnlyZeroStart && player.playVideo) {
-        setYtAutoplayIntent(true);
-        player.playVideo();
-      } else {
-        executeImmediate(player, state, time, duration, subIndexChanged);
-      }
+      executeImmediate(player, state, time, duration, subIndexChanged);
     }
   } catch (e) {
     log.error('[YouTube State] Error:', e);
@@ -1449,13 +1374,11 @@ export function initYouTubeSync(): void {
   // Reset ad detection when guest reconnects (receives new YouTube session)
   bus.on('youtube:load', () => {
     _rt.autoSyncUntil = 0;
-    _rt.zeroStartReady = null;
     resetAdDetection();
   });
 
   bus.on('youtube:player-ready', runPendingManualRendezvous);
   bus.on('youtube:apply-manual-sync', runManualOffsetApplyRendezvous);
-  bus.on('youtube:zero-start-ready', markZeroStartReady);
 
   log.info('[YouTube Sync] Initialized');
 }

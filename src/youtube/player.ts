@@ -785,13 +785,14 @@ export function initYouTube(): void {
     }
 
     const autoplay = payload.autoplay ?? true;
+    const iframeAutoplay = false;
     broadcast({
       type: MSG.YOUTUBE_PLAY,
       videoId,
       playlistId,
       name: payload.name || playlistItem?.name || playlistItem?.title,
       ...(hasIndex ? { index } : {}),
-      autoplay,
+      autoplay: iframeAutoplay,
       subIndex,
     });
 
@@ -805,12 +806,27 @@ export function initYouTube(): void {
     }
 
     if (getState('player.isFirstTrackLoad')) setState('player.isFirstTrackLoad', false);
-    if (autoplay) setPendingAutoSyncOnReady(true);
-    bus.emit('youtube:load', videoId || payload.videoId || null, playlistId, autoplay, subIndex);
+    if (autoplay) {
+      setPendingAutoSyncOnReady(true, {
+        targetTime: 0,
+        subIndex,
+        videoId: videoId || payload.videoId || undefined,
+        skipSeek: true,
+      });
+    }
+    bus.emit(
+      'youtube:load',
+      videoId || payload.videoId || null,
+      playlistId,
+      iframeAutoplay,
+      subIndex,
+    );
     schedulePreload();
   });
 
   bus.on('youtube:load', (videoId, playlistId, autoplay, subIndex) => {
+    const iframeAutoplay = !!autoplay && !getPendingAutoSyncOnReady();
+
     // Deferred-playlist navigation: when a playlist row was added to the
     // queue while the iframe was busy with another track, its sub-items
     // were never indexed. Navigating into it now needs the proper indexing
@@ -845,7 +861,7 @@ export function initYouTube(): void {
           // the user can at least play that one track. The playlist row
           // stays in the queue but its sub-items list will remain empty
           // until a subsequent successful index attempt.
-          loadYouTubeVideo(videoId as string, null, autoplay as boolean, 0);
+          loadYouTubeVideo(videoId as string, null, iframeAutoplay, 0);
           return;
         }
         log.info(`[YouTube] Deferred indexing complete: ${ids.length} items for ${playlistIdStr}`);
@@ -892,7 +908,7 @@ export function initYouTube(): void {
         // Re-enter loadYouTubeVideo with playlistId=null — the cued playlist
         // is replaced with a single-video load. Sub-item navigation works
         // from here on because subItemsMap is populated.
-        loadYouTubeVideo(targetVideoId, null, autoplay as boolean, targetSubIdx);
+        loadYouTubeVideo(targetVideoId, null, iframeAutoplay, targetSubIdx);
       });
       // Trigger the iframe to cue the playlist; createYouTubePlayer's
       // (needsScrape || indexing) branch fires cuePlaylist, then onPlayerStateChange's
@@ -901,7 +917,7 @@ export function initYouTube(): void {
       return;
     }
 
-    loadYouTubeVideo(videoId as string, playlistIdStr, autoplay as boolean, subIndex ?? 0);
+    loadYouTubeVideo(videoId as string, playlistIdStr, iframeAutoplay, subIndex ?? 0);
   });
 
   bus.on('youtube:toggle-play', () => {

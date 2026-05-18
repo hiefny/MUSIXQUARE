@@ -16,6 +16,7 @@ export interface FakeYtPlayerCall {
     | 'seekTo'
     | 'stopVideo'
     | 'loadVideoById'
+    | 'cueVideoById'
     | 'nextVideo'
     | 'previousVideo'
     | 'setVolume'
@@ -39,6 +40,7 @@ export interface FakeYtPlayer {
   stopVideo: () => void;
   seekTo: (t: number, allowAhead?: boolean) => void;
   loadVideoById: (id: string) => void;
+  cueVideoById: (id: string, startSeconds?: number) => void;
   nextVideo: () => void;
   previousVideo: () => void;
   setVolume: (v: number) => void;
@@ -81,6 +83,12 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
       self.__log.push({ op: 'loadVideoById', args: [id], at: Date.now() });
       self.__videoId = id;
       self.__currentTime = 0;
+    },
+    cueVideoById(id: string, startSeconds = 0) {
+      self.__log.push({ op: 'cueVideoById', args: [id, startSeconds], at: Date.now() });
+      self.__videoId = id;
+      self.__currentTime = startSeconds;
+      self.__state = 5;
     },
     nextVideo() {
       self.__log.push({ op: 'nextVideo', at: Date.now() });

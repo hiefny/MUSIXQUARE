@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 
 export interface YouTubePlayerInstance {
   loadVideoById(videoId: string, startSeconds?: number): void;
+  cueVideoById?(videoId: string, startSeconds?: number): void;
   loadPlaylist(args: {
     list: string;
     listType: string;

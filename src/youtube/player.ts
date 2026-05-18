@@ -85,7 +85,6 @@ interface ZeroStartSession {
   expectedPeerIds: Set<string>;
   readyPeerIds: Set<string>;
   playingPeerIds: Set<string>;
-  hostReadyDeadlineAt: number;
   started: boolean;
 }
 
@@ -277,7 +276,6 @@ export function cancelYtAutoSync(): void {
 
 function clearZeroStartSession(): void {
   clearManagedTimer('yt-zero-start-timeout');
-  clearManagedTimer('yt-zero-start-host-ready');
   clearManagedTimer('yt-zero-start-play');
   clearManagedTimer('yt-zero-start-stage2');
   _zeroStartSession = null;
@@ -369,35 +367,11 @@ function prepareLocalZeroStart(videoId: string): boolean {
   }
 }
 
-function ensureHostZeroStartReady(session: ZeroStartSession, reason: string): boolean {
-  const player = getYouTubePlayer();
-  if (!player) return false;
-
-  if (isZeroStartArrestedAtStart(player)) return true;
-
-  if (!prepareLocalZeroStart(session.videoId)) return false;
-  if (isZeroStartArrestedAtStart(player)) return true;
-
-  if (!session.hostReadyDeadlineAt) {
-    session.hostReadyDeadlineAt = Date.now() + ZERO_START_MAX_WAIT_MS;
-  }
-
-  if (Date.now() > session.hostReadyDeadlineAt) {
-    log.warn(`[YouTube ZeroStart] Host 0s settle timeout after ${reason}; launching fallback`);
-    return true;
-  }
-
-  setManagedTimer(
-    'yt-zero-start-host-ready',
-    () => finishZeroStartSession(reason),
-    ZERO_START_READY_POLL_MS,
-  );
-  return false;
-}
-
 function finishZeroStartSession(reason: string): void {
   const session = _zeroStartSession;
   if (!session || session.started) return;
+  session.started = true;
+  clearManagedTimer('yt-zero-start-timeout');
 
   const player = getYouTubePlayer();
   if (!player?.playVideo) {
@@ -405,12 +379,7 @@ function finishZeroStartSession(reason: string): void {
     return;
   }
 
-  if (!ensureHostZeroStartReady(session, reason)) return;
-
-  session.started = true;
-  clearManagedTimer('yt-zero-start-timeout');
-  clearManagedTimer('yt-zero-start-host-ready');
-
+  prepareLocalZeroStart(session.videoId);
   const hostPlayAt = getHostNow() + ZERO_START_PLAY_LEAD_MS;
   markYtStateBroadcast();
   broadcast({
@@ -487,7 +456,6 @@ function tryScheduleZeroStart(options: PendingAutoSyncOptions): boolean {
     expectedPeerIds,
     readyPeerIds: new Set(),
     playingPeerIds: new Set(),
-    hostReadyDeadlineAt: 0,
     started: false,
   };
   _zeroStartSession = session;

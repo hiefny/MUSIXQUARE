@@ -1052,8 +1052,6 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     switch (url.pathname) {
-      case '/__health':
-        return json({ ok: true, service: 'musixquare-app' });
       case '/api/security-config':
         return handleSecurityConfig(request, env);
       case '/api/capability-token':

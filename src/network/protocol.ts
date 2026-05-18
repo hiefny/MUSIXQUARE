@@ -163,7 +163,8 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.YOUTUBE_STATE]: (d) =>
     isFiniteNumber(d.state) &&
     (d.time === undefined || isFiniteNumber(d.time)) &&
-    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
+    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)) &&
+    (d.zeroStartToken === undefined || typeof d.zeroStartToken === 'string'),
   [MSG.YOUTUBE_SUB_TITLE_UPDATE]: (d) =>
     typeof d.playlistId === 'string' && isNonNegInt(d.subIdx) && typeof d.title === 'string',
   // Without per-element validation a compromised host (or any peer that

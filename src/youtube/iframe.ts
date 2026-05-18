@@ -995,7 +995,11 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // scheduleYtAutoSync already broadcasts the authoritative state+hostPlayAt
   // at the start of its sequence, so suppressing these in-flight auxiliary
   // broadcasts is safe.
-  const syncInFlight = !!getManagedTimer('yt-auto-sync');
+  const syncInFlight =
+    !!getManagedTimer('yt-auto-sync') ||
+    !!getManagedTimer('yt-zero-start-timeout') ||
+    !!getManagedTimer('yt-zero-start-play') ||
+    !!getManagedTimer('yt-zero-start-stage2');
   // State-aware cooldown: only suppress if same state was broadcast within 300ms.
   // The old time-only cooldown swallowed legitimate state changes (e.g., rapid
   // pause→play within 300ms), leaving guests stuck in the old state for 3s

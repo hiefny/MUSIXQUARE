@@ -33,8 +33,8 @@ export const TRACK_TRANSITION_RENDEZVOUS_MS = 4000;
 /** Maximum time the host waits for guests to report "loaded and paused at 0". */
 export const ZERO_START_MAX_WAIT_MS = 3000;
 
-/** Short shared-clock lead after the zero-start barrier opens. */
-export const ZERO_START_PLAY_LEAD_MS = 500;
+/** Shared-clock lead after the zero-start barrier opens. */
+export const ZERO_START_PLAY_LEAD_MS = 1000;
 
 /** Guest polling cadence while waiting for the iframe to become zero-start ready. */
 export const ZERO_START_READY_POLL_MS = 100;

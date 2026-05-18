@@ -342,6 +342,7 @@ function finishZeroStartSession(reason: string): void {
     hostPlayAt,
     hostClock: getHostNow(),
     zeroStart: true,
+    zeroStartToken: session.token,
     title: player.getVideoData?.()?.title || '',
   });
 
@@ -462,6 +463,11 @@ function guestZeroStartReady(): boolean {
   });
   if (!sent) return false;
   wait.readySent = true;
+  bus.emit('youtube:zero-start-ready', {
+    token: wait.token,
+    videoId: wait.videoId || currentVideoId || '',
+    subIndex: wait.subIndex,
+  });
   return true;
 }
 

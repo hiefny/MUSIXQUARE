@@ -5,12 +5,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
+import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import {
   getCurrentAudioBuffer,
   getLoadToken,
   incrementLoadToken,
   getPendingPlayTime,
   setPendingPlayTime,
+  setCurrentAudioBuffer,
   setPlayerNode,
 } from '../_state.ts';
 import { initPlayback } from '../playback.ts';
@@ -19,6 +21,7 @@ import {
   setLocalManualSyncOffset,
   stopPlayerNode,
   stopAllMedia,
+  togglePlay,
   updatePlayState,
 } from '../transport.ts';
 import {
@@ -41,6 +44,9 @@ vi.mock('../../network/peer.ts', () => ({
 beforeEach(() => {
   resetState();
   bus.clear();
+  clearAllManagedTimers();
+  setCurrentAudioBuffer(null);
+  setPlayerNode(null);
   vi.mocked(broadcast).mockClear();
 });
 
@@ -239,6 +245,44 @@ describe('pause', () => {
     expect(stop).toHaveBeenCalledTimes(1);
     expect(getState('player.pausedAt')).toBe(12);
     expect(getState('playback.activity')).toBe('paused');
+  });
+});
+
+// ─── togglePlay end-of-track race ────────────────────────────────────
+
+describe('togglePlay end-of-track race', () => {
+  it('advances a pending natural-end transition instead of broadcasting stale play', async () => {
+    setState('playlist.items', [
+      {
+        type: 'file',
+        name: 'third.mp3',
+        title: 'Third',
+        videoId: null,
+        playlistId: null,
+      },
+      {
+        type: 'file',
+        name: 'fourth.mp3',
+        title: 'Fourth',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('player.pausedAt', 0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    setManagedTimer('ended-advance-next', () => {}, 30_000);
+
+    togglePlay();
+
+    expect(broadcast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PLAY, index: 0 }),
+    );
+
+    await vi.dynamicImportSettled();
+
+    expect(getState('playlist.currentTrackIndex')).toBe(1);
+    expect(getManagedTimer('ended-advance-next')).toBeNull();
   });
 });
 

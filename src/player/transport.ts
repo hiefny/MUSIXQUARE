@@ -687,6 +687,15 @@ export function togglePlay(): void {
     return;
   }
 
+  // A natural track end stops playback immediately, then playlist.ts advances
+  // on a short managed timer. On slower devices a file can be appended and play
+  // tapped while currentTrackIndex/currentAudioBuffer still point at the ended
+  // track. Honor the tap as "advance now" instead of replaying that stale buffer.
+  if (!hostConn && !isActuallyPlaying && getManagedTimer('ended-advance-next')) {
+    void import('./playlist.ts').then((mod) => mod.playNextTrack());
+    return;
+  }
+
   // Cancel pending auto-play (with user feedback)
   if (!hostConn && getManagedTimer('autoPlayTimer')) {
     clearManagedTimer('autoPlayTimer');

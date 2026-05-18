@@ -268,7 +268,9 @@ export async function initNetwork(requestedId: string | null = null): Promise<st
       log.warn(`[Network] TURN fetch returned no usable ICE servers: ${url}`);
     } catch (e) {
       if (isCapabilityChallengeCancelled(e)) throw e;
-      if (!isNetworkInitStillActive(requestedId)) throw new Error('NETWORK_INIT_CANCELLED');
+      if (!isNetworkInitStillActive(requestedId)) {
+        throw new Error('NETWORK_INIT_CANCELLED', { cause: e });
+      }
       log.warn(
         `[Network] TURN fetch error: ${url} → ${e instanceof Error ? e.message : String(e)}`,
       );

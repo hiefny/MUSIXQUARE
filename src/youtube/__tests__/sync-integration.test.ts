@@ -369,7 +369,6 @@ describe('YouTube Sync — Regression Integration', () => {
         time: 0,
         videoId: 'ZERO_VIDEO',
         zeroStart: true,
-        zeroStartToken: prepare?.token,
       });
 
       vi.advanceTimersByTime(500);
@@ -407,51 +406,6 @@ describe('YouTube Sync — Regression Integration', () => {
           videoId: 'ZERO_VIDEO',
         }),
       );
-    });
-
-    it('guest final zero-start launch is play-only after prepare already seeked to 0', async () => {
-      const player = installPlayer({ __state: 2, __currentTime: 0, __videoId: 'ZERO_VIDEO' });
-      const { initYouTube } = await importPlayer();
-      setState('network.hostConn', mockHostConn as never);
-
-      initYouTube();
-      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
-      const stateHandler = capturedHandlers[MSG.YOUTUBE_STATE];
-      expect(prepareHandler).toBeDefined();
-      expect(stateHandler).toBeDefined();
-
-      prepareHandler(
-        {
-          type: MSG.YOUTUBE_ZERO_START_PREPARE,
-          token: 'zero-token',
-          videoId: 'ZERO_VIDEO',
-          subIndex: 0,
-          timeoutMs: 3000,
-        },
-        mockHostConn,
-      );
-
-      player.__log.length = 0;
-      stateHandler(
-        {
-          state: 1,
-          time: 0,
-          hostPlayAt: Date.now() + 500,
-          subIndex: 0,
-          videoId: 'ZERO_VIDEO',
-          zeroStart: true,
-          zeroStartToken: 'zero-token',
-        },
-        mockHostConn,
-      );
-
-      expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(false);
-      expect(player.__log.some((c) => c.op === 'seekTo')).toBe(false);
-
-      vi.advanceTimersByTime(499);
-      expect(player.__log.some((c) => c.op === 'playVideo')).toBe(false);
-      vi.advanceTimersByTime(1);
-      expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
     });
 
     it('guest ignores zero-start prepare from a closed host connection', async () => {

@@ -376,6 +376,54 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
     });
 
+    it('waits for the host seek to actually settle at 0 before launching', async () => {
+      const peerConn = { peer: 'guest-1', open: true, send: vi.fn() };
+      setState('network.connectedPeers', [
+        {
+          id: 'guest-1',
+          conn: peerConn,
+          status: 'connected',
+          label: 'Guest',
+          isDataTarget: true,
+        },
+      ] as never);
+      const player = installPlayer({ __state: 1, __currentTime: 0.42, __videoId: 'ZERO_VIDEO' });
+      player.seekTo = (t: number, allowAhead?: boolean) => {
+        player.__log.push({ op: 'seekTo', args: [t, allowAhead], at: Date.now() });
+      };
+      const { initYouTube } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
+
+      initYouTube();
+      bus.emit('youtube:auto-play');
+
+      const prepare = broadcastMock.mock.calls.find(
+        (c) => c[0]?.type === MSG.YOUTUBE_ZERO_START_PREPARE,
+      )?.[0];
+      const readyHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_READY];
+      expect(prepare).toBeDefined();
+      expect(readyHandler).toBeDefined();
+
+      readyHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_READY,
+          token: prepare?.token,
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+        },
+        peerConn,
+      );
+
+      expect(broadcastMock.mock.calls.some((c) => c[0]?.type === MSG.YOUTUBE_STATE)).toBe(false);
+      expect(getManagedTimer('yt-zero-start-host-ready')).toBeDefined();
+
+      player.__currentTime = 0;
+      vi.advanceTimersByTime(100);
+
+      expect(broadcastMock.mock.calls.some((c) => c[0]?.type === MSG.YOUTUBE_STATE)).toBe(true);
+    });
+
     it('cancels zero-start Stage 2 when every guest confirms actual PLAYING', async () => {
       const peerConn = { peer: 'guest-1', open: true, send: vi.fn() };
       setState('network.connectedPeers', [

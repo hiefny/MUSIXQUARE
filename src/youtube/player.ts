@@ -34,6 +34,7 @@ import {
   BROADCAST_SYNC_MIN_INTERVAL_MS,
   ZERO_START_MAX_WAIT_MS,
   ZERO_START_PLAY_LEAD_MS,
+  ZERO_START_READY_EPSILON_SEC,
   ZERO_START_READY_POLL_MS,
 } from './constants.ts';
 
@@ -342,6 +343,7 @@ function finishZeroStartSession(reason: string): void {
     hostPlayAt,
     hostClock: getHostNow(),
     zeroStart: true,
+    zeroStartToken: session.token,
     title: player.getVideoData?.()?.title || '',
   });
 
@@ -452,6 +454,19 @@ function guestZeroStartReady(): boolean {
     return false;
   }
 
+  let currentTime: number;
+  let playerState: number;
+  try {
+    currentTime = player.getCurrentTime?.() ?? Number.POSITIVE_INFINITY;
+    playerState = player.getPlayerState?.() ?? -1;
+  } catch {
+    return false;
+  }
+  const isNearStart =
+    Number.isFinite(currentTime) && Math.abs(currentTime) <= ZERO_START_READY_EPSILON_SEC;
+  const isHeld = playerState !== 1;
+  if (!isNearStart || !isHeld) return false;
+
   const hostConn = getState('network.hostConn');
   if (!hostConn?.open) return false;
   const sent = safeSend(hostConn, {
@@ -462,6 +477,11 @@ function guestZeroStartReady(): boolean {
   });
   if (!sent) return false;
   wait.readySent = true;
+  bus.emit('youtube:zero-start-ready', {
+    token: wait.token,
+    videoId: wait.videoId || currentVideoId || '',
+    subIndex: wait.subIndex,
+  });
   return true;
 }
 

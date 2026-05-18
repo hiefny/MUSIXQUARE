@@ -369,10 +369,66 @@ describe('YouTube Sync — Regression Integration', () => {
         time: 0,
         videoId: 'ZERO_VIDEO',
         zeroStart: true,
+        zeroStartToken: prepare?.token,
       });
 
       vi.advanceTimersByTime(500);
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
+    });
+
+    it('cancels zero-start Stage 2 when every guest confirms actual PLAYING', async () => {
+      const peerConn = { peer: 'guest-1', open: true, send: vi.fn() };
+      setState('network.connectedPeers', [
+        {
+          id: 'guest-1',
+          conn: peerConn,
+          status: 'connected',
+          label: 'Guest',
+          isDataTarget: true,
+        },
+      ] as never);
+      installPlayer({ __state: 2, __currentTime: 0, __videoId: 'ZERO_VIDEO' });
+      const { initYouTube } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
+
+      initYouTube();
+      bus.emit('youtube:auto-play');
+
+      const prepare = broadcastMock.mock.calls.find(
+        (c) => c[0]?.type === MSG.YOUTUBE_ZERO_START_PREPARE,
+      )?.[0];
+      const readyHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_READY];
+      const playingHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PLAYING];
+      expect(prepare).toBeDefined();
+      expect(readyHandler).toBeDefined();
+      expect(playingHandler).toBeDefined();
+
+      readyHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_READY,
+          token: prepare?.token,
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+        },
+        peerConn,
+      );
+      expect(getManagedTimer('yt-zero-start-stage2')).toBeDefined();
+
+      vi.advanceTimersByTime(500);
+      playingHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PLAYING,
+          token: prepare?.token,
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+        },
+        peerConn,
+      );
+
+      expect(getManagedTimer('yt-zero-start-stage2')).toBeNull();
+      vi.advanceTimersByTime(2500);
+      expect(broadcastMock.mock.calls.some((c) => c[0]?.type === MSG.YOUTUBE_SYNC)).toBe(false);
     });
 
     it('guest prepare pauses/seeks to 0 and sends ready to host', async () => {
@@ -398,6 +454,48 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
       expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
+      expect(safeSendMock).toHaveBeenCalledWith(
+        mockHostConn,
+        expect.objectContaining({
+          type: MSG.YOUTUBE_ZERO_START_READY,
+          token: 'zero-token',
+          videoId: 'ZERO_VIDEO',
+        }),
+      );
+    });
+
+    it('guest waits for a buffered 0s hold before reporting zero-start ready', async () => {
+      const player = installPlayer({
+        __state: 1,
+        __currentTime: 0.4,
+        __loadedFraction: 0,
+        __videoId: 'ZERO_VIDEO',
+      });
+      const { initYouTube } = await importPlayer();
+      const { safeSend } = await import('../../network/peer.ts');
+      const safeSendMock = vi.mocked(safeSend);
+      setState('network.hostConn', mockHostConn as never);
+
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      expect(prepareHandler).toBeDefined();
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          token: 'zero-token',
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+          timeoutMs: 3000,
+        },
+        mockHostConn,
+      );
+
+      expect(safeSendMock).not.toHaveBeenCalled();
+      expect(getManagedTimer('yt-zero-start-ready-poll')).toBeDefined();
+
+      player.__loadedFraction = 0.01;
+      vi.advanceTimersByTime(100);
+
       expect(safeSendMock).toHaveBeenCalledWith(
         mockHostConn,
         expect.objectContaining({
@@ -474,6 +572,51 @@ describe('YouTube Sync — Regression Integration', () => {
           videoId: 'ZERO_VIDEO',
         }),
       );
+    });
+
+    it('guest final zero-start launch is play-only after buffered prepare', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 0, __videoId: 'ZERO_VIDEO' });
+      const { initYouTube } = await importPlayer();
+      setState('network.hostConn', mockHostConn as never);
+
+      initYouTube();
+      const prepareHandler = capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE];
+      const stateHandler = capturedHandlers[MSG.YOUTUBE_STATE];
+      expect(prepareHandler).toBeDefined();
+      expect(stateHandler).toBeDefined();
+
+      prepareHandler(
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          token: 'zero-token',
+          videoId: 'ZERO_VIDEO',
+          subIndex: 0,
+          timeoutMs: 3000,
+        },
+        mockHostConn,
+      );
+
+      player.__log.length = 0;
+      stateHandler(
+        {
+          state: 1,
+          time: 0,
+          hostPlayAt: Date.now() + 500,
+          subIndex: 0,
+          videoId: 'ZERO_VIDEO',
+          zeroStart: true,
+          zeroStartToken: 'zero-token',
+        },
+        mockHostConn,
+      );
+
+      expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(false);
+      expect(player.__log.some((c) => c.op === 'seekTo')).toBe(false);
+
+      vi.advanceTimersByTime(499);
+      expect(player.__log.some((c) => c.op === 'playVideo')).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
     });
 
     it('guest scheduled play keeps manual nudge and subtracts learned play latency', async () => {

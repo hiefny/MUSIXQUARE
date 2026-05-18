@@ -36,6 +36,15 @@ export const ZERO_START_MAX_WAIT_MS = 3000;
 /** Short shared-clock lead after the zero-start barrier opens. */
 export const ZERO_START_PLAY_LEAD_MS = 500;
 
+/** Guest is considered arrested at the start once it has settled near 0s. */
+export const ZERO_START_READY_EPSILON_SEC = 0.35;
+
+/** Minimum buffered media ahead of 0s before a guest may report zero-start READY. */
+export const ZERO_START_MIN_BUFFER_SEC = 1.0;
+
+/** Fallback readiness threshold when YouTube cannot report a finite duration yet. */
+export const ZERO_START_MIN_LOADED_FRACTION = 0.001;
+
 /** Guest polling cadence while waiting for the iframe to become zero-start ready. */
 export const ZERO_START_READY_POLL_MS = 100;
 

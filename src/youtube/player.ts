@@ -33,7 +33,10 @@ import {
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
   ZERO_START_MAX_WAIT_MS,
+  ZERO_START_MIN_BUFFER_SEC,
+  ZERO_START_MIN_LOADED_FRACTION,
   ZERO_START_PLAY_LEAD_MS,
+  ZERO_START_READY_EPSILON_SEC,
   ZERO_START_READY_POLL_MS,
 } from './constants.ts';
 
@@ -81,6 +84,7 @@ interface ZeroStartSession {
   subIndex: number;
   expectedPeerIds: Set<string>;
   readyPeerIds: Set<string>;
+  playingPeerIds: Set<string>;
   started: boolean;
 }
 
@@ -90,6 +94,8 @@ interface GuestZeroStartWait {
   subIndex: number;
   deadlineAt: number;
   readySent: boolean;
+  launchReceived: boolean;
+  playAckSent: boolean;
 }
 
 let _zeroStartSeq = 0;
@@ -301,6 +307,49 @@ function getCurrentYouTubeVideoId(): string {
   }
 }
 
+function hasZeroStartBuffer(player: ReturnType<typeof getYouTubePlayer>): boolean {
+  if (!player?.getVideoLoadedFraction) return true;
+
+  let loadedFraction: number;
+  try {
+    loadedFraction = player.getVideoLoadedFraction();
+  } catch {
+    return false;
+  }
+  if (!Number.isFinite(loadedFraction) || loadedFraction <= 0) return false;
+
+  let duration: number;
+  try {
+    duration = player.getDuration?.() || 0;
+  } catch {
+    duration = 0;
+  }
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return loadedFraction >= ZERO_START_MIN_LOADED_FRACTION;
+  }
+
+  const required = Math.min(duration, ZERO_START_MIN_BUFFER_SEC);
+  return loadedFraction * duration >= required;
+}
+
+function isZeroStartArrestedAtStart(player: ReturnType<typeof getYouTubePlayer>): boolean {
+  if (!player?.getCurrentTime || !player.getPlayerState) return false;
+
+  let currentTime: number;
+  let playerState: number;
+  try {
+    currentTime = player.getCurrentTime();
+    playerState = player.getPlayerState();
+  } catch {
+    return false;
+  }
+
+  const isNearStart =
+    Number.isFinite(currentTime) && Math.abs(currentTime) <= ZERO_START_READY_EPSILON_SEC;
+  const isHeld = playerState === 2 || playerState === 5;
+  return isNearStart && isHeld && hasZeroStartBuffer(player);
+}
+
 function prepareLocalZeroStart(videoId: string): boolean {
   const player = getYouTubePlayer();
   if (!player?.pauseVideo || !player.seekTo) return false;
@@ -342,6 +391,7 @@ function finishZeroStartSession(reason: string): void {
     hostPlayAt,
     hostClock: getHostNow(),
     zeroStart: true,
+    zeroStartToken: session.token,
     title: player.getVideoData?.()?.title || '',
   });
 
@@ -360,16 +410,27 @@ function finishZeroStartSession(reason: string): void {
     waitMs,
   );
 
-  setManagedTimer(
-    'yt-zero-start-stage2',
-    () => {
-      markYtStateBroadcast();
-      broadcastYouTubeSync(true, 1);
-      log.debug(`[YouTube ZeroStart] Stage 2 rendezvous after ${reason}`);
-      _zeroStartSession = null;
-    },
-    waitMs + STAGE2_RENDEZVOUS_BROADCAST_MS,
-  );
+  if (session.expectedPeerIds.size === 0) {
+    setManagedTimer(
+      'yt-zero-start-stage2',
+      () => {
+        log.debug(`[YouTube ZeroStart] Host-only launch completed after ${reason}`);
+        _zeroStartSession = null;
+      },
+      waitMs + 250,
+    );
+  } else {
+    setManagedTimer(
+      'yt-zero-start-stage2',
+      () => {
+        markYtStateBroadcast();
+        broadcastYouTubeSync(true, 1);
+        log.debug(`[YouTube ZeroStart] Stage 2 rendezvous fallback after ${reason}`);
+        _zeroStartSession = null;
+      },
+      waitMs + STAGE2_RENDEZVOUS_BROADCAST_MS,
+    );
+  }
 }
 
 function tryScheduleZeroStart(options: PendingAutoSyncOptions): boolean {
@@ -394,6 +455,7 @@ function tryScheduleZeroStart(options: PendingAutoSyncOptions): boolean {
     subIndex,
     expectedPeerIds,
     readyPeerIds: new Set(),
+    playingPeerIds: new Set(),
     started: false,
   };
   _zeroStartSession = session;
@@ -435,6 +497,24 @@ function handleYouTubeZeroStartReady(data: Record<string, unknown>, conn?: DataC
   }
 }
 
+function handleYouTubeZeroStartPlaying(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (getState('network.hostConn')) return;
+  const session = _zeroStartSession;
+  const peerId = conn?.peer;
+  if (!session || !peerId || !session.started) return;
+  if (data.token !== session.token || !session.expectedPeerIds.has(peerId)) return;
+
+  const videoId = (data.videoId as string | undefined) || '';
+  if (session.videoId && videoId && session.videoId !== videoId) return;
+
+  session.playingPeerIds.add(peerId);
+  if (session.playingPeerIds.size >= session.expectedPeerIds.size) {
+    clearManagedTimer('yt-zero-start-stage2');
+    _zeroStartSession = null;
+    log.debug('[YouTube ZeroStart] All guests confirmed PLAYING, Stage 2 cancelled');
+  }
+}
+
 function guestZeroStartReady(): boolean {
   const wait = _guestZeroStartWait;
   if (!wait || wait.readySent) return true;
@@ -444,13 +524,16 @@ function guestZeroStartReady(): boolean {
   const currentVideoId = getCurrentYouTubeVideoId();
   if (wait.videoId && currentVideoId && currentVideoId !== wait.videoId) return false;
 
-  try {
-    setYtAutoplayIntent(false);
-    player.pauseVideo();
-    player.seekTo(0, true);
-  } catch {
-    return false;
+  if (!isZeroStartArrestedAtStart(player)) {
+    try {
+      setYtAutoplayIntent(false);
+      player.pauseVideo();
+      player.seekTo(0, true);
+    } catch {
+      return false;
+    }
   }
+  if (!isZeroStartArrestedAtStart(player)) return false;
 
   const hostConn = getState('network.hostConn');
   if (!hostConn?.open) return false;
@@ -462,7 +545,48 @@ function guestZeroStartReady(): boolean {
   });
   if (!sent) return false;
   wait.readySent = true;
+  bus.emit('youtube:zero-start-ready', {
+    token: wait.token,
+    videoId: wait.videoId || currentVideoId || '',
+    subIndex: wait.subIndex,
+  });
   return true;
+}
+
+function markGuestZeroStartLaunch(data: {
+  token: string;
+  videoId: string;
+  subIndex: number;
+}): void {
+  const wait = _guestZeroStartWait;
+  if (!wait || !wait.readySent || wait.token !== data.token) return;
+  if (wait.videoId && data.videoId && wait.videoId !== data.videoId) return;
+  if (wait.subIndex >= 0 && data.subIndex >= 0 && wait.subIndex !== data.subIndex) return;
+  wait.launchReceived = true;
+  wait.playAckSent = false;
+}
+
+export function notifyGuestZeroStartPlaying(): void {
+  const wait = _guestZeroStartWait;
+  if (!wait || !wait.readySent || !wait.launchReceived || wait.playAckSent) return;
+
+  const hostConn = getState('network.hostConn');
+  if (!hostConn?.open) return;
+
+  const currentVideoId = getCurrentYouTubeVideoId();
+  if (wait.videoId && currentVideoId && wait.videoId !== currentVideoId) return;
+
+  const sent = safeSend(hostConn, {
+    type: MSG.YOUTUBE_ZERO_START_PLAYING,
+    token: wait.token,
+    videoId: wait.videoId || currentVideoId || undefined,
+    subIndex: wait.subIndex >= 0 ? wait.subIndex : undefined,
+  });
+  if (!sent) return;
+
+  wait.playAckSent = true;
+  bus.emit('youtube:sync-loading', false);
+  clearGuestZeroStartWait();
 }
 
 function handleYouTubeZeroStartPrepare(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -476,6 +600,8 @@ function handleYouTubeZeroStartPrepare(data: Record<string, unknown>, conn?: Dat
     subIndex: Number.isFinite(Number(data.subIndex)) ? Number(data.subIndex) : -1,
     deadlineAt: Date.now() + Number(data.timeoutMs || ZERO_START_MAX_WAIT_MS),
     readySent: false,
+    launchReceived: false,
+    playAckSent: false,
   };
 
   bus.emit('youtube:sync-loading', true);
@@ -751,10 +877,12 @@ export function initYouTube(): void {
     [MSG.REQUEST_YOUTUBE_PLAYLIST_INFO]: handleRequestYouTubePlaylistInfo,
     [MSG.YOUTUBE_ZERO_START_PREPARE]: handleYouTubeZeroStartPrepare,
     [MSG.YOUTUBE_ZERO_START_READY]: handleYouTubeZeroStartReady,
+    [MSG.YOUTUBE_ZERO_START_PLAYING]: handleYouTubeZeroStartPlaying,
   });
 
   // Bus event handlers from other modules
   bus.on('youtube:stop-mode', (opts) => stopYouTubeMode(opts));
+  bus.on('youtube:zero-start-launch', markGuestZeroStartLaunch);
 
   bus.on('youtube:restore-room-playback', (payload) => {
     const hostConn = getState('network.hostConn');

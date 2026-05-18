@@ -30,6 +30,7 @@ export interface FakeYtPlayer {
   __state: number;
   __currentTime: number;
   __duration: number;
+  __loadedFraction: number;
   __videoId: string;
   __playlistIdx: number;
   __playlist: string[];
@@ -46,6 +47,7 @@ export interface FakeYtPlayer {
   getPlayerState: () => number;
   getCurrentTime: () => number;
   getDuration: () => number;
+  getVideoLoadedFraction: () => number;
   getVideoData: () => { video_id: string; title?: string };
   getPlaylistIndex: () => number;
   getPlaylist: () => string[];
@@ -57,6 +59,7 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
     __state: init?.__state ?? 2, // default PAUSED
     __currentTime: init?.__currentTime ?? 0,
     __duration: init?.__duration ?? 300,
+    __loadedFraction: init?.__loadedFraction ?? 1,
     __videoId: init?.__videoId ?? 'FAKE_VIDEO',
     __playlistIdx: init?.__playlistIdx ?? 0,
     __playlist: init?.__playlist ?? [],
@@ -100,6 +103,7 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
     getPlayerState: () => self.__state,
     getCurrentTime: () => self.__currentTime,
     getDuration: () => self.__duration,
+    getVideoLoadedFraction: () => self.__loadedFraction,
     getVideoData: () => ({ video_id: self.__videoId }),
     getPlaylistIndex: () => self.__playlistIdx,
     getPlaylist: () => self.__playlist,

@@ -52,7 +52,11 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
-import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
+import {
+  consumePendingAutoSyncOnReady,
+  notifyGuestZeroStartPlaying,
+  setPendingAutoSyncOnReady,
+} from './player.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
@@ -878,6 +882,8 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
         isTrackTransition: pendingAutoSync.isTrackTransition ?? true,
       });
     }
+
+    notifyGuestZeroStartPlaying();
 
     showYouTubeSyncOverlay(false);
     showLoader(false);

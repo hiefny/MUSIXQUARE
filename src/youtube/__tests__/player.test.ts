@@ -22,7 +22,6 @@ vi.mock('../../i18n/index.ts', () => ({
 vi.mock('../../core/timers.ts', () => ({
   setManagedTimer: vi.fn(),
   clearManagedTimer: vi.fn(),
-  getManagedTimer: vi.fn(() => null),
 }));
 
 vi.mock('../../network/peer.ts', () => ({
@@ -189,106 +188,6 @@ describe('YouTube Player', () => {
     });
   });
 
-  describe('zero-start loading', () => {
-    function installVideoWrapper(): void {
-      document.body.innerHTML =
-        '<div class="video-wrapper"><div id="youtube-player-container"><div id="youtube-player"></div></div></div>';
-    }
-
-    function installYTNamespace(playerFactory: (config: Record<string, unknown>) => unknown): void {
-      const Player = vi.fn(function (_element: unknown, config: Record<string, unknown>) {
-        return playerFactory(config);
-      });
-      (window as unknown as Record<string, unknown>).YT = {
-        Player,
-        PlayerState: {
-          UNSTARTED: -1,
-          ENDED: 0,
-          PLAYING: 1,
-          PAUSED: 2,
-          BUFFERING: 3,
-          CUED: 5,
-        },
-      };
-    }
-
-    it('cues an existing YouTube player instead of native-autoplaying during synced loads', async () => {
-      const { loadYouTubeVideo } = await import('../player.ts');
-      const { setYouTubePlayer } = await import('../_state.ts');
-
-      installVideoWrapper();
-      installYTNamespace(() => null);
-      setPlaybackYouTubePlaying();
-
-      const player: YouTubePlayerInstance = {
-        loadVideoById: vi.fn(),
-        cueVideoById: vi.fn(),
-        loadPlaylist: vi.fn(),
-        cuePlaylist: vi.fn(),
-        pauseVideo: vi.fn(),
-        playVideo: vi.fn(),
-        stopVideo: vi.fn(),
-        destroy: vi.fn(),
-        seekTo: vi.fn(),
-        getCurrentTime: vi.fn(() => 0),
-        getDuration: vi.fn(() => 0),
-        getPlayerState: vi.fn(() => 2),
-        getPlaylistIndex: vi.fn(() => 0),
-        getVideoData: vi.fn(() => ({ video_id: 'old-video' })),
-        getPlaylist: vi.fn(() => []),
-        setVolume: vi.fn(),
-      };
-      setYouTubePlayer(player);
-
-      loadYouTubeVideo('next-video', null, false, 0);
-
-      expect(player.cueVideoById).toHaveBeenCalledWith('next-video', 0);
-      expect(player.loadVideoById).not.toHaveBeenCalled();
-    });
-
-    it('starts pending zero-start sync when a non-autoplay load reaches CUED', async () => {
-      const { loadYouTubeVideo, setPendingAutoSyncOnReady, getPendingAutoSyncOnReady } =
-        await import('../player.ts');
-
-      installVideoWrapper();
-      let capturedConfig: Record<string, unknown> | null = null;
-      const player: YouTubePlayerInstance = {
-        loadVideoById: vi.fn(),
-        cueVideoById: vi.fn(),
-        loadPlaylist: vi.fn(),
-        cuePlaylist: vi.fn(),
-        pauseVideo: vi.fn(),
-        playVideo: vi.fn(),
-        stopVideo: vi.fn(),
-        destroy: vi.fn(),
-        seekTo: vi.fn(),
-        getCurrentTime: vi.fn(() => 0),
-        getDuration: vi.fn(() => 0),
-        getPlayerState: vi.fn(() => 5),
-        getPlaylistIndex: vi.fn(() => 0),
-        getVideoData: vi.fn(() => ({ video_id: 'cue-video' })),
-        getPlaylist: vi.fn(() => []),
-        setVolume: vi.fn(),
-      };
-      installYTNamespace((config) => {
-        capturedConfig = config;
-        return player;
-      });
-      const autoPlay = vi.fn();
-      bus.on('youtube:auto-play', autoPlay);
-      setPendingAutoSyncOnReady(true);
-
-      loadYouTubeVideo('cue-video', null, false, 0);
-      const events = capturedConfig?.events as
-        | { onStateChange?: (event: { data: number }) => void }
-        | undefined;
-      events?.onStateChange?.({ data: 5 });
-
-      expect(autoPlay).toHaveBeenCalledWith({});
-      expect(getPendingAutoSyncOnReady()).toBe(false);
-    });
-  });
-
   describe('YouTube URL Extraction', () => {
     it('extractYouTubeVideoId from watch URL', async () => {
       const { extractYouTubeVideoId } = await import('../search.ts');
@@ -430,7 +329,7 @@ describe('YouTube Player', () => {
           videoId: 'secondVideo',
           playlistId: 'playlist-1',
           index: 0,
-          autoplay: false,
+          autoplay: true,
           subIndex: 1,
         }),
       );
@@ -442,7 +341,7 @@ describe('YouTube Player', () => {
           titles: ['First', 'Second'],
         }),
       );
-      expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', false, 1);
+      expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', true, 1);
     });
   });
 });

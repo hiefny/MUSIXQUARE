@@ -434,9 +434,6 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
       const isAlreadyYt = isYouTubeOwner();
       const shouldAutoplay = !(isFirstTrackLoad && !isAlreadyYt);
-      // Keep the iframe load itself paused. When shouldAutoplay is true, the
-      // pending YouTube sync barrier owns the actual playVideo() call.
-      const iframeAutoplay = false;
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,
@@ -444,7 +441,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         playlistId: item.playlistId ?? null,
         name: item.name || item.title,
         index,
-        autoplay: iframeAutoplay,
+        autoplay: shouldAutoplay,
       });
 
       // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
@@ -461,14 +458,15 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
 
       // shouldAutoplay computed above mirrors this branch decision: the
       // first-load + first-time-YT path waits for the user, every other
-      // path autoplays after the iframe reports ready/cued.
-      if (!shouldAutoplay) {
+      // path autoplays. The host's own iframe load uses the same flag
+      // so it stays in lockstep with the broadcast.
+      if (isFirstTrackLoad && !isAlreadyYt) {
         setState('player.isFirstTrackLoad', false);
         bus.emit(
           'youtube:load',
           item.videoId ?? null,
           item.playlistId ?? null,
-          iframeAutoplay,
+          shouldAutoplay,
           subIndex ?? 0,
         );
         showToast(t('youtube.ready'));
@@ -477,18 +475,12 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         // Arm the rendezvous flag so the YT auto-sync kicks in once the
         // player (or existing player's async load) is ready — keeps
         // host/guest aligned without an arbitrary 1-sec timer.
-        setPendingAutoSyncOnReady(true, {
-          isTrackTransition: isAlreadyYt,
-          targetTime: 0,
-          subIndex: subIndex ?? 0,
-          videoId: broadcastVideoId ?? undefined,
-          skipSeek: true,
-        });
+        setPendingAutoSyncOnReady(true);
         bus.emit(
           'youtube:load',
           item.videoId ?? null,
           item.playlistId ?? null,
-          iframeAutoplay,
+          shouldAutoplay,
           subIndex ?? 0,
         );
       }

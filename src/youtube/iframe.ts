@@ -460,11 +460,7 @@ function createYouTubePlayer(
           startSeconds: 0,
         });
       } else if (videoId) {
-        if (!autoplay && existingPlayer.cueVideoById) {
-          existingPlayer.cueVideoById(videoId, 0);
-        } else {
-          existingPlayer.loadVideoById(videoId);
-        }
+        existingPlayer.loadVideoById(videoId);
       }
       // Note: pauseVideo() removed — handled by onStateChange via _ytAutoplayIntent flag.
       // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
@@ -909,14 +905,6 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       // _ifr.isScrapingPlaylist stays true until _finishScrape runs so a
       // second CUED transition during the poll doesn't double-trigger.
       _pollScrapePlaylist(-1, 0);
-      return;
-    }
-
-    const pendingAutoSync = consumePendingAutoSyncOnReady();
-    if (pendingAutoSync) {
-      showLoader(false);
-      setPlaybackYouTubePaused();
-      bus.emit('youtube:auto-play', pendingAutoSync);
     }
     return;
   } else if (state === YT.PlayerState.ENDED) {

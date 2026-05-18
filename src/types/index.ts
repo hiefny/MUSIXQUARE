@@ -403,7 +403,6 @@ export interface ProtocolMap {
     hostClock?: number;
     title?: string;
     zeroStart?: boolean;
-    zeroStartToken?: string;
   };
   'youtube-sync': {
     time: number;
@@ -886,13 +885,6 @@ interface BaseEventMap {
   'youtube:player-ready': [];
   'youtube:broadcast-sync': [];
   'youtube:apply-manual-sync': [];
-  'youtube:zero-start-ready': [
-    data: {
-      token: string;
-      videoId: string;
-      subIndex: number;
-    },
-  ];
   'youtube:preview': [url: string];
   'youtube:load-from-input': [];
   'youtube:load-from-chat': [url: string];

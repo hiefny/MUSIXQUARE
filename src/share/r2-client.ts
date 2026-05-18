@@ -7,7 +7,11 @@
  * 3. https://share.musixquare.com on the production domain
  */
 
-import { getCapabilityHeaders, invalidateCapabilityToken } from '../core/capability.ts';
+import {
+  getCapabilityHeaders,
+  invalidateCapabilityToken,
+  isCapabilityChallengeCancelled,
+} from '../core/capability.ts';
 
 export interface RemoteUploadResponse {
   objectId: string;
@@ -234,6 +238,9 @@ async function requestUploadSession(
     };
   } catch (error) {
     if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    // User-initiated Turnstile cancel propagates with its own name so callers
+    // can treat it as a silent dismiss instead of a "network error" toast.
+    if (isCapabilityChallengeCancelled(error)) throw error;
     if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
     throw new Error('REMOTE_SHARE_SESSION_NETWORK', { cause: error });
   }

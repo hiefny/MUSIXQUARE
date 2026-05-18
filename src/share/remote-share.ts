@@ -35,6 +35,7 @@ import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { uploadRemoteFile } from './remote-upload.ts';
 import { downloadRemoteFile } from './remote-download.ts';
 import { isRemoteShareConfigured } from './r2-client.ts';
+import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { isDemoTrackName } from '../demo/tracks.ts';
 import type { AnyProtocolMsg, DataConnection, RemoteFileSharePayload } from '../types/index.ts';
 
@@ -259,7 +260,11 @@ function maybeNotifyRemoteUploadFailure(
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.message === 'REMOTE_SHARE_ABORTED';
+  if (error instanceof Error && error.message === 'REMOTE_SHARE_ABORTED') return true;
+  // Treat a Turnstile cancel the same as an abort: user-initiated dismiss,
+  // no toast, no failure notice to peers. Pairs with the cancel propagation
+  // added in r2-client.requestUploadSession (15차 audit F-1601).
+  return isCapabilityChallengeCancelled(error);
 }
 
 function resetRemoteDownloadState(message: string | null = null): void {

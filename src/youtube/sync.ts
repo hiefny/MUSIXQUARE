@@ -77,7 +77,14 @@ import {
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 let _lastManualBroadcastAt = 0;
 
-function getEffectiveGuestPlayLatencyMs(): number {
+/** Effective playVideo→audible latency for the current device.
+ *  Reads the EMA value learned from prior rendezvous calibrations and
+ *  raises it to ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS on Android. Exported
+ *  so the host-side zero-start scheduler can apply symmetric compensation:
+ *  both host and guest fire playVideo() (own_latency_ms) before the shared
+ *  clock instant so audible-start aligns across devices instead of leaving
+ *  drift = |L_host - L_guest|. */
+export function getEffectiveGuestPlayLatencyMs(): number {
   const learned = getState('youtube.guestPlayLatency') ?? 0;
   return IS_ANDROID ? Math.max(learned, ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS) : learned;
 }
@@ -1162,11 +1169,16 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
 
     if (hostPlayAt > 0 && isClockCalibrated()) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
-      // Zero-start is intentionally symmetric: host and guests call
-      // playVideo() at the same shared-clock instant after preparing at 0:00.
-      // The later precision rendezvous still uses learned play latency.
-      const actionWaitMs = waitMs;
       const playOnlyZeroStart = preparedZeroStart;
+      // Zero-start play-only: compensate this guest's playVideo→audible
+      // latency so audible launch lines up with the shared-clock instant.
+      // Host now applies the same compensation in finishZeroStartSession,
+      // so both audible at ~hostPlayAt instead of hostPlayAt + own_latency.
+      // Without this, "symmetric call" left drift = |L_host - L_guest|.
+      // Non-zero-start paths keep the unchanged wait — Stage 2 rendezvous
+      // for those still uses learned latency via guestRendezvousSync.
+      const playLatencyMs = playOnlyZeroStart ? getEffectiveGuestPlayLatencyMs() : 0;
+      const actionWaitMs = Math.max(0, waitMs - playLatencyMs);
 
       if (waitMs > SHORT_WAIT_THRESHOLD_MS && waitMs < AUTO_SYNC_MAX_WAIT_MS && state === 1) {
         // ── Auto-sync path: significant wait (>SHORT_WAIT_THRESHOLD_MS) + play command ──

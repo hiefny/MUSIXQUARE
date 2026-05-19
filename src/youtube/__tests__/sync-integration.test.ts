@@ -467,7 +467,12 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(false);
       expect(player.__log.some((c) => c.op === 'seekTo')).toBe(false);
 
-      vi.advanceTimersByTime(999);
+      // Zero-start play-only now compensates this guest's playVideo→audible
+      // latency (here mocked to 250ms), firing at hostPlayAt - 250 instead
+      // of hostPlayAt. Aligns audible launch with host (which applies the
+      // same compensation) and avoids the |L_host - L_guest| drift the
+      // previous symmetric-call approach left.
+      vi.advanceTimersByTime(749);
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(false);
       vi.advanceTimersByTime(1);
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);

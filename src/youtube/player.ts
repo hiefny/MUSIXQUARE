@@ -154,7 +154,11 @@ import {
   handleRequestYouTubeSubSeek,
   handleRequestYouTubePlaylistInfo,
 } from './handlers.ts';
-import { broadcastYouTubeSync, resetYouTubeSyncState } from './sync.ts';
+import {
+  broadcastYouTubeSync,
+  getEffectiveGuestPlayLatencyMs,
+  resetYouTubeSyncState,
+} from './sync.ts';
 import { showToast } from '../ui/toast.ts';
 
 import type { YTNamespace } from './_state.ts';
@@ -388,11 +392,19 @@ function finishZeroStartSession(reason: string): void {
   bus.emit('youtube:sync-loading', true);
   const waitMs = Math.max(0, hostPlayAt - getHostNow());
 
+  // Host compensates for its own playVideo→audible latency so audible
+  // launch aligns with guests doing the same. Without this, host audible
+  // at hostPlayAt + L_host while compensated guests audible at hostPlayAt,
+  // leaving host audibly behind. The symmetric compensation closes the
+  // gap to within each device's per-call jitter from the platform typical.
+  const hostPlayLatencyMs = getEffectiveGuestPlayLatencyMs();
+  const playFireWaitMs = Math.max(0, waitMs - hostPlayLatencyMs);
+
   // Pre-launch drift check: snap back to 0 ZERO_START_RESNAP_LEAD_MS before
   // the synchronized play. Catches devices where the prepare's deferred seek
   // landed but the player kept advancing by a small amount (e.g. brief
   // BUFFERING→PAUSED transition that re-triggered an internal play frame).
-  const resnapWait = waitMs - ZERO_START_RESNAP_LEAD_MS;
+  const resnapWait = playFireWaitMs - ZERO_START_RESNAP_LEAD_MS;
   if (resnapWait > 0) {
     setManagedTimer(
       'yt-zero-start-resnap',
@@ -411,7 +423,7 @@ function finishZeroStartSession(reason: string): void {
       }
       bus.emit('youtube:sync-loading', false);
     },
-    waitMs,
+    playFireWaitMs,
   );
 
   setManagedTimer(
@@ -429,7 +441,7 @@ function finishZeroStartSession(reason: string): void {
       log.debug(`[YouTube ZeroStart] Launch settled after ${reason} (Stage 2 skipped)`);
       _zeroStartSession = null;
     },
-    waitMs + STAGE2_RENDEZVOUS_BROADCAST_MS,
+    playFireWaitMs + STAGE2_RENDEZVOUS_BROADCAST_MS,
   );
 }
 

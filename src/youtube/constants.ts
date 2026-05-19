@@ -33,13 +33,8 @@ export const TRACK_TRANSITION_RENDEZVOUS_MS = 4000;
 /** Maximum time the host waits for guests to report "loaded and paused at 0". */
 export const ZERO_START_MAX_WAIT_MS = 3000;
 
-/** Shared-clock lead after the zero-start barrier opens. Settle time for
- *  the iframe between seekTo(0) landing and the synchronized playVideo:
- *  longer = better odds the post-seek buffer is healthy when play fires,
- *  trading off launch latency seen by the user. Comparable to the
- *  guestRendezvousSync margin (1.5s) which has been more reliable than the
- *  previous 1000ms lead in practice. */
-export const ZERO_START_PLAY_LEAD_MS = 1800;
+/** Shared-clock lead after the zero-start barrier opens. */
+export const ZERO_START_PLAY_LEAD_MS = 1000;
 
 /** Gap between pauseVideo() and the follow-up seekTo(0) during prepare.
  *  Calling them in the same event-loop turn races inside the iframe command

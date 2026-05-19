@@ -48,8 +48,28 @@ const configFiles = [...staticConfigFiles, ...(await discoverWranglerFiles())];
 
 const truthyValues = new Set(['1', 'true', 'yes', 'on']);
 
+const turnstileDisabledFlags = [
+  'MXQR_TURNSTILE_DISABLED',
+  'TURNSTILE_DISABLED',
+  'DISABLE_TURNSTILE',
+];
+
 function isTruthy(value) {
   return truthyValues.has(String(value || '').trim().replace(/^['"]|['"]$/g, '').toLowerCase());
+}
+
+function normalizeValue(value) {
+  return String(value || '').trim().replace(/^['"]|['"]$/g, '');
+}
+
+function readAssignments(lines) {
+  const assignments = new Map();
+  for (const line of lines) {
+    if (line.trimStart().startsWith('#')) continue;
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+?)\s*$/);
+    if (match) assignments.set(match[1], normalizeValue(match[2]));
+  }
+  return assignments;
 }
 
 function readAssignment(line, flag) {
@@ -58,10 +78,23 @@ function readAssignment(line, flag) {
   return match?.[1] ?? null;
 }
 
+function isAllowedTurnstileDisabledFallback(assignments, flag) {
+  if (flag !== 'MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK') return false;
+  if (!turnstileDisabledFlags.some((name) => isTruthy(assignments.get(name)))) return false;
+  return true;
+}
+
 const hits = [];
+const allowedPolicyHits = [];
+
+const envAssignments = new Map(Object.entries(process.env));
 
 for (const flag of dangerousFlags) {
   if (isTruthy(process.env[flag])) {
+    if (isAllowedTurnstileDisabledFallback(envAssignments, flag)) {
+      allowedPolicyHits.push({ source: 'environment', flag });
+      continue;
+    }
     hits.push({ source: 'environment', flag });
   }
 }
@@ -76,12 +109,17 @@ for (const file of configFiles) {
   }
 
   const lines = text.split(/\r?\n/);
+  const assignments = readAssignments(lines);
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (line.trimStart().startsWith('#')) continue;
     for (const flag of dangerousFlags) {
       const value = readAssignment(line, flag);
       if (value !== null && isTruthy(value)) {
+        if (isAllowedTurnstileDisabledFallback(assignments, flag)) {
+          allowedPolicyHits.push({ source: `${file}:${i + 1}`, flag });
+          continue;
+        }
         hits.push({ source: `${file}:${i + 1}`, flag });
       }
     }
@@ -99,4 +137,10 @@ if (hits.length > 0) {
   process.exit(1);
 }
 
-console.log('[prod-security-guard] OK: no production fallback flags enabled.');
+for (const hit of allowedPolicyHits) {
+  console.log(
+    `[prod-security-guard] Turnstile-disabled policy allows ${hit.flag} at ${hit.source}.`,
+  );
+}
+
+console.log('[prod-security-guard] OK: no unapproved production fallback flags enabled.');

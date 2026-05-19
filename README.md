@@ -41,7 +41,9 @@ Server-only variables are configured as Cloudflare Worker secrets (`wrangler sec
 
 Required production secrets include the YouTube API key, Cloudflare TURN/Realtime credentials, the capability-token signing secret, and Cloudflare Turnstile keys. Keep all API keys and signing secrets server-only.
 
-Security-sensitive backend endpoints fail closed unless capability-token protection is configured. Legacy or unguarded fallback flags are for local/emergency use only and must stay disabled in production.
+Security-sensitive backend endpoints fail closed unless capability-token protection is configured. Unguarded fallback flags are for local/emergency use only and must stay disabled in production.
+
+Turnstile can stay disabled as a product policy while traffic is low-risk, but capability tokens and per-IP rate limits must remain enabled. In that mode, only the explicit trusted-origin capability fallback is allowed.
 
 Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled into browser code.
 

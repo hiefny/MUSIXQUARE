@@ -381,7 +381,8 @@ describe('YouTube Sync — Regression Integration', () => {
         zeroStartToken: prepare?.token,
       });
 
-      vi.advanceTimersByTime(999);
+      const { ZERO_START_PLAY_LEAD_MS } = await import('../constants.ts');
+      vi.advanceTimersByTime(ZERO_START_PLAY_LEAD_MS - 1);
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(false);
 
       vi.advanceTimersByTime(1);

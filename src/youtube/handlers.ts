@@ -15,6 +15,7 @@ import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
+import { armGuestRendezvousOnReady } from './sync.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
 import {
   createYouTubeTrackMeta,
@@ -97,6 +98,15 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
       finalVideoId = knownIds[0];
       finalPlaylistId = null;
     }
+  }
+
+  // Arm the guest-initiated rendezvous-on-ready path BEFORE loadYouTubeVideo:
+  // the iframe transition can fire synchronously on fast paths and the
+  // youtube:guest-iframe-playing listener checks this flag. Setting it after
+  // would race the listener and lose the trigger on the first PLAYING event.
+  // The flag is cleared once a rendezvous fires or on resetYouTubeSyncState.
+  if (autoplay !== false && finalVideoId) {
+    armGuestRendezvousOnReady(finalVideoId);
   }
 
   // When we have a videoId, force playlistId to null so the iframe's native

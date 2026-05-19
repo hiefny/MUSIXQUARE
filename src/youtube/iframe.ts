@@ -883,6 +883,15 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     showLoader(false);
     setPlaybackYouTubePlaying();
     bus.emit('ui:update-play-state', true);
+
+    // Guest only: notify sync.ts so an armed guest-initiated rendezvous
+    // (set by handleYouTubePlay when a new track arrives from the host)
+    // can fire immediately on iframe-ready instead of waiting for the
+    // host's scheduled Stage 2 rendezvous. The listener no-ops when no
+    // rendezvous is armed, so emitting on every PLAYING is safe.
+    if (hostConn) {
+      bus.emit('youtube:guest-iframe-playing');
+    }
   } else if (state === YT.PlayerState.PAUSED) {
     showLoader(false);
     setPlaybackYouTubePaused();

@@ -871,13 +871,6 @@ interface BaseEventMap {
    * the freshly created player instance is actually usable.
    */
   'youtube:player-ready': [];
-  /**
-   * Guest-only. Emitted by iframe.ts on every guest-side PLAYING transition.
-   * sync.ts listens to fire an armed guest-initiated rendezvous as soon as
-   * the iframe is actually playing the new track (no-op when no rendezvous
-   * is armed). Replaces the host-driven Stage 2 wait for track transitions.
-   */
-  'youtube:guest-iframe-playing': [];
   'youtube:broadcast-sync': [];
   'youtube:apply-manual-sync': [];
   'youtube:preview': [url: string];

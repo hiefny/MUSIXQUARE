@@ -243,13 +243,6 @@ interface GuestSyncRuntime {
   lastRendezvousAt: number;
   /** Date.now() expiry for a manual rendezvous waiting on iframe/app readiness. */
   pendingManualRendezvousUntil: number;
-  /** Set when handleYouTubePlay receives a new track from the host. Once the
-   *  guest's iframe finishes loading and reaches PLAYING — or once a fresh
-   *  host snapshot lands afterwards — the guest fires guestRendezvousSync
-   *  immediately instead of waiting for the host's scheduled Stage 2 (~4s).
-   *  Eliminates the "play first 2-3s at position 0, then audible pause/seek
-   *  to host position" UX that the host-driven schedule produced. */
-  pendingRendezvousVideoId: string | null;
 }
 
 const _rt: GuestSyncRuntime = {
@@ -261,48 +254,7 @@ const _rt: GuestSyncRuntime = {
   rendezvousInProgress: false,
   lastRendezvousAt: 0,
   pendingManualRendezvousUntil: 0,
-  pendingRendezvousVideoId: null,
 };
-
-/** Arm the guest-initiated rendezvous-on-ready path for a new track.
- *  Called from handleYouTubePlay when the host advances to a new track.
- *  The flag is consumed (cleared) once a rendezvous successfully fires. */
-export function armGuestRendezvousOnReady(videoId: string | null): void {
-  _rt.pendingRendezvousVideoId = videoId && typeof videoId === 'string' ? videoId : null;
-  // Clear any stale snapshot from the previous track so the next snapshot
-  // (Stage 1 STATE or a heartbeat) is treated as the authoritative starting
-  // point for extrapolation. Without this, an extrapolation from the prior
-  // track's position would land somewhere meaningless on the new track.
-  _rt.lastHostSnapshot = null;
-}
-
-/** Internal: attempt the queued rendezvous. Fires only when the guest's
- *  iframe has actually loaded the new track AND a host snapshot exists.
- *  Other early-attempts are no-ops; the caller can safely call this on
- *  every iframe-ready and heartbeat-receive event. */
-function tryFireRendezvousOnReady(): void {
-  if (!_rt.pendingRendezvousVideoId) return;
-  const player = getYouTubePlayer();
-  if (!player?.getCurrentTime || !player.getVideoData) return;
-  // Iframe must be playing the new video — otherwise rendezvous would seek
-  // inside the previous video. Comparing video_id avoids the race where
-  // the guest receives the host's broadcast before loadVideoById finishes.
-  let currentVideoId = '';
-  try {
-    currentVideoId = player.getVideoData()?.video_id || '';
-  } catch {
-    return;
-  }
-  if (!currentVideoId || currentVideoId !== _rt.pendingRendezvousVideoId) return;
-  // Need a host snapshot to extrapolate target position. If none yet,
-  // bail and wait for the next sync — heartbeat (3s interval), Stage 1
-  // YOUTUBE_STATE, or Stage 2 manual will trigger another call here.
-  if (!_rt.lastHostSnapshot) return;
-
-  _rt.pendingRendezvousVideoId = null;
-  log.info('[YouTube Sync] Guest-initiated rendezvous on iframe ready');
-  guestRendezvousSync();
-}
 
 const MANUAL_OFFSET_APPLY_RETRY_MS = 250;
 let _pendingManualOffsetApplyUntil = 0;
@@ -469,14 +421,6 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   updateHostSnapshot(hostTime, hostState, hostClock);
 
   const isManual = !!data.isManual;
-  // Guest-initiated rendezvous: covers the "iframe was already PLAYING when
-  // this heartbeat landed" case. The complementary "snapshot lands while
-  // iframe is mid-load" case is handled by the youtube:guest-iframe-playing
-  // bus listener. Skip on manual frames — the explicit manual branch below
-  // runs its own guestRendezvousSync, so calling here too would just race
-  // against the cooldown.
-  if (!isManual) tryFireRendezvousOnReady();
-
   if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) {
     if (isManual) deferManualRendezvousUntilReady('player-or-app-state-not-ready');
     return;
@@ -497,40 +441,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         deferManualRendezvousUntilReady('player-api-not-ready');
         return;
       }
-
-      // Sub-video transition arriving via manual sync (host auto-advance hits
-      // broadcastYouTubeSync(true, PLAYING) right after loadVideoById). The
-      // guest's iframe is still on the old sub-video at this instant — firing
-      // guestRendezvousSync here would seek the OLD video to the NEW video's
-      // host position, audibly playing the wrong content until the next
-      // heartbeat eventually corrects via the mismatch branch below. Detect
-      // the mismatch up front, load the new video, and defer the rendezvous
-      // to the iframe-ready path via the pending flag.
-      const manualHostVideoId = (data.videoId as string) || '';
-      if (manualHostVideoId && player.getVideoData) {
-        const manualGuestVideoId = player.getVideoData()?.video_id || '';
-        if (manualGuestVideoId && manualHostVideoId !== manualGuestVideoId) {
-          log.info(
-            `[YouTube Sync Manual] Video mismatch: guest=${manualGuestVideoId}, host=${manualHostVideoId} — defer rendezvous`,
-          );
-          if (player.loadVideoById) {
-            player.loadVideoById(manualHostVideoId);
-            invalidateYtDurationCache();
-            if (hostSubIndex !== undefined && hostSubIndex !== -1) {
-              setYouTubeSubIndex(hostSubIndex);
-            }
-            _rt.pendingRendezvousVideoId = manualHostVideoId;
-          }
-          _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
-          return;
-        }
-      }
-
       clearPendingManualRendezvous();
-      // The host's manual rendezvous supersedes any pending guest-initiated
-      // one — both end up calling guestRendezvousSync with the same data,
-      // and the cooldown would otherwise just suppress the second call.
-      _rt.pendingRendezvousVideoId = null;
       log.info('[YouTube Sync] Received manual sync request — triggering precision rendezvous');
       guestRendezvousSync();
       return;
@@ -607,14 +518,6 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
           if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
           }
-          // Sub-video transition path (host auto-advance, mid-playlist seek
-          // arriving via heartbeat). Arm the guest-initiated rendezvous so
-          // tryFireRendezvousOnReady fires as soon as the new sub-video
-          // reaches PLAYING — same fast-path as the YOUTUBE_PLAY route.
-          // Keep the freshly-updated lastHostSnapshot (don't null it via
-          // armGuestRendezvousOnReady): this broadcast's hostPosition is
-          // the best starting extrapolation we have for the new sub-video.
-          _rt.pendingRendezvousVideoId = hostVideoId;
         }
         _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
         return;
@@ -1027,7 +930,6 @@ export function resetYouTubeSyncState(): void {
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
-  _rt.pendingRendezvousVideoId = null;
   _pendingManualOffsetApplyUntil = 0;
   resetAdDetection();
   clearManagedTimer('yt-manual-rendezvous-retry');
@@ -1146,13 +1048,6 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             setYouTubeSubIndex(subIndex);
           }
           subIndexChanged = true;
-          // Sub-seek Stage 1 path (host clicked a sub-video). Arm the guest-
-          // initiated rendezvous so the new sub-video's iframe-ready event
-          // fires guestRendezvousSync immediately, instead of waiting for
-          // Stage 2's TRACK_TRANSITION_RENDEZVOUS_MS timer. Keep the just-
-          // updated lastHostSnapshot — it's the best position estimate for
-          // the new sub-video we have at this moment.
-          _rt.pendingRendezvousVideoId = hostVideoId;
         }
         // Schedule a delayed play using hostPlayAt so the guest starts at
         // the same time as the host, even though the video is reloading.
@@ -1481,14 +1376,6 @@ export function initYouTubeSync(): void {
 
   bus.on('youtube:player-ready', runPendingManualRendezvous);
   bus.on('youtube:apply-manual-sync', runManualOffsetApplyRendezvous);
-
-  // Guest-initiated rendezvous on new-track ready. iframe.ts emits this
-  // whenever the guest's iframe transitions to PLAYING. We re-check on
-  // each transition because the iframe may flip BUFFERING→PLAYING multiple
-  // times while settling (allowing the rendezvous to fire once conditions
-  // align: pending flag set + iframe video_id matches + host snapshot
-  // present). The helper is a no-op when any precondition is unmet.
-  bus.on('youtube:guest-iframe-playing', tryFireRendezvousOnReady);
 
   log.info('[YouTube Sync] Initialized');
 }

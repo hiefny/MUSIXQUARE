@@ -417,9 +417,16 @@ function finishZeroStartSession(reason: string): void {
   setManagedTimer(
     'yt-zero-start-stage2',
     () => {
-      markYtStateBroadcast();
-      broadcastYouTubeSync(true, 1);
-      log.debug(`[YouTube ZeroStart] Stage 2 rendezvous after ${reason}`);
+      // Zero-start brought host + guests to a clean 0:00 launch with
+      // synchronized playVideo() at the same shared-clock instant. Firing
+      // broadcastYouTubeSync(true, 1) here — the Stage 2 precision rendezvous
+      // that scheduleYtAutoSync's Path B uses — would route every guest
+      // through guestRendezvousSync (pause + RENDEZVOUS_MARGIN_SEC lookahead
+      // seek + play with latency compensation), audibly undoing the smooth
+      // launch within ~2s of playback. The 3s heartbeat with 3s drift
+      // threshold catches any genuine long-term drift, and the pre-launch
+      // resnap already snapped any prepare-phase residual to 0.
+      log.debug(`[YouTube ZeroStart] Launch settled after ${reason} (Stage 2 skipped)`);
       _zeroStartSession = null;
     },
     waitMs + STAGE2_RENDEZVOUS_BROADCAST_MS,

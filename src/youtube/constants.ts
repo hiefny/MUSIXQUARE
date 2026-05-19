@@ -30,47 +30,6 @@ export const STAGE2_RENDEZVOUS_BROADCAST_MS = 2000;
  *  guests time to loadVideoById a different video before synced play fires. */
 export const TRACK_TRANSITION_RENDEZVOUS_MS = 4000;
 
-/** Maximum time the host waits for guests to report "loaded and paused at 0". */
-export const ZERO_START_MAX_WAIT_MS = 3000;
-
-/** Shared-clock lead after the zero-start barrier opens. */
-export const ZERO_START_PLAY_LEAD_MS = 1000;
-
-/** Desktop (non-Android) fallback for playVideo→audible latency used by the
- *  zero-start launch when this device has no learned value yet. The host
- *  rarely has a learned value (it has never been a guest in a rendezvous on
- *  this session, where the EMA is calibrated). Without this floor the host
- *  compensates 0ms while the guest compensates its learned ~100ms, leaving
- *  the audible guest about a typical YT IFrame playVideo→audible latency
- *  ahead of the host. Picked at the typical desktop Chrome figure.
- *  Rendezvous (guestRendezvousSync) intentionally does NOT use this floor —
- *  the EMA self-corrects from drift measurements, and adding a floor there
- *  blocks the EMA from converging below it. Zero-start has no such feedback
- *  loop, so a static prior is the only practical alignment. */
-export const ZERO_START_DESKTOP_PLAY_LATENCY_MS = 100;
-
-/** Gap between pauseVideo() and the follow-up seekTo(0) during prepare.
- *  Calling them in the same event-loop turn races inside the iframe command
- *  queue: if seekTo lands first the player keeps playing from 0 until
- *  pauseVideo finally takes effect, leaving the position non-zero on a
- *  device-dependent number of milliseconds. Splitting the calls lets the
- *  PAUSED transition commit first so seekTo(0) lands on a stopped player. */
-export const ZERO_START_PAUSE_SEEK_GAP_MS = 60;
-
-/** Lead time before the synchronized launch when host/guests re-check
- *  position and snap back to 0 if drift exceeds the epsilon. Last-mile
- *  safety net for the residual pauseVideo+seekTo race. */
-export const ZERO_START_RESNAP_LEAD_MS = 200;
-
-/** Drift tolerance for the pre-launch resnap check. Anything beyond this
- *  triggers a final seekTo(0). Tight enough to catch the race outcome
- *  (which lands tens of ms off 0) without churning the iframe on a player
- *  that already settled cleanly. */
-export const ZERO_START_DRIFT_EPSILON_SEC = 0.05;
-
-/** Guest polling cadence while waiting for the iframe to become zero-start ready. */
-export const ZERO_START_READY_POLL_MS = 100;
-
 /** Host heartbeat interval (periodic YOUTUBE_SYNC drift broadcast). */
 export const HEARTBEAT_INTERVAL_MS = 3000;
 

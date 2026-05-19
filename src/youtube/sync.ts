@@ -59,11 +59,6 @@ import {
   ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
   LATENCY_CLAMP_MAX_MS,
   LATENCY_OUTLIER_REJECT_MS,
-  ZERO_START_MAX_WAIT_MS,
-  ZERO_START_PLAY_LEAD_MS,
-  ZERO_START_RESNAP_LEAD_MS,
-  ZERO_START_DRIFT_EPSILON_SEC,
-  ZERO_START_DESKTOP_PLAY_LATENCY_MS,
 } from './constants.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
@@ -78,27 +73,11 @@ import {
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 let _lastManualBroadcastAt = 0;
 
-/** Effective playVideo→audible latency for the current device.
- *  Reads the EMA value learned from prior rendezvous calibrations and
- *  raises it to ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS on Android. Exported
- *  so the host-side zero-start scheduler can apply symmetric compensation:
- *  both host and guest fire playVideo() (own_latency_ms) before the shared
- *  clock instant so audible-start aligns across devices instead of leaving
- *  drift = |L_host - L_guest|.
- *
- *  `desktopFloorMs` lets the caller supply a fallback used only on
- *  non-Android devices that have no learned value yet (a host that has
- *  never been a guest in a rendezvous would otherwise compensate 0ms while
- *  the guest compensates its learned latency, putting the guest audibly
- *  ahead). Defaults to 0 so existing callers (e.g. guestRendezvousSync)
- *  retain prior behaviour — only zero-start passes a non-zero floor. */
-export function getEffectiveGuestPlayLatencyMs(desktopFloorMs = 0): number {
+/** Effective playVideo-to-audible latency for guest rendezvous calibration. */
+function getEffectiveGuestPlayLatencyMs(): number {
   const learned = getState('youtube.guestPlayLatency') ?? 0;
   if (IS_ANDROID) return Math.max(learned, ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS);
-  // Trust the EMA when present (per-device measurement); otherwise fall
-  // back to the supplied floor. Note: an EMA of exactly 0 (never updated,
-  // or clamped to 0) is treated as "no learned value" so the floor kicks in.
-  return learned > 0 ? learned : desktopFloorMs;
+  return learned;
 }
 
 function getYouTubeManualOffsetSec(): number {
@@ -264,13 +243,6 @@ interface GuestSyncRuntime {
   lastRendezvousAt: number;
   /** Date.now() expiry for a manual rendezvous waiting on iframe/app readiness. */
   pendingManualRendezvousUntil: number;
-  /** Last zero-start prepare this guest confirmed. Used to avoid a second seek on launch. */
-  zeroStartReady: {
-    token: string;
-    videoId: string;
-    subIndex: number;
-    expiresAt: number;
-  } | null;
 }
 
 const _rt: GuestSyncRuntime = {
@@ -282,7 +254,6 @@ const _rt: GuestSyncRuntime = {
   rendezvousInProgress: false,
   lastRendezvousAt: 0,
   pendingManualRendezvousUntil: 0,
-  zeroStartReady: null,
 };
 
 const MANUAL_OFFSET_APPLY_RETRY_MS = 250;
@@ -379,47 +350,6 @@ function deferManualRendezvousUntilReady(reason: string): void {
 function clearPendingManualOffsetApply(): void {
   _pendingManualOffsetApplyUntil = 0;
   clearManagedTimer('yt-manual-offset-apply-retry');
-}
-
-function markZeroStartReady(data: {
-  token?: unknown;
-  videoId?: unknown;
-  subIndex?: unknown;
-}): void {
-  if (typeof data.token !== 'string' || !data.token) return;
-  _rt.zeroStartReady = {
-    token: data.token,
-    videoId: typeof data.videoId === 'string' ? data.videoId : '',
-    subIndex: Number.isFinite(Number(data.subIndex)) ? Number(data.subIndex) : -1,
-    expiresAt: Date.now() + ZERO_START_MAX_WAIT_MS + ZERO_START_PLAY_LEAD_MS + 1000,
-  };
-}
-
-function isPreparedZeroStart(
-  token: unknown,
-  hostVideoId: string,
-  subIndex: number | undefined,
-): boolean {
-  const ready = _rt.zeroStartReady;
-  if (!ready) return false;
-  if (Date.now() > ready.expiresAt) {
-    _rt.zeroStartReady = null;
-    return false;
-  }
-  if (typeof token !== 'string' || token !== ready.token) return false;
-  if (hostVideoId && ready.videoId && hostVideoId !== ready.videoId) return false;
-  if (
-    subIndex !== undefined &&
-    subIndex >= 0 &&
-    ready.subIndex >= 0 &&
-    subIndex !== ready.subIndex
-  ) {
-    return false;
-  }
-
-  // A manual YouTube offset means the final launch target is not exactly the
-  // prepared 0:00 position, so keep the normal pause/seek path.
-  return Math.abs(getYouTubeManualOffsetSec()) < 0.001;
 }
 
 function queueManualOffsetApplyRetry(): void {
@@ -1000,7 +930,6 @@ export function resetYouTubeSyncState(): void {
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
-  _rt.zeroStartReady = null;
   _pendingManualOffsetApplyUntil = 0;
   resetAdDetection();
   clearManagedTimer('yt-manual-rendezvous-retry');
@@ -1080,7 +1009,6 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // actions. Explicit host actions (YOUTUBE_STATE) should always override.
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
-  clearManagedTimer('yt-zero-start-resnap');
 
   // M1: Cancel any in-progress guest rendezvous when a new host PLAY arrives.
   // Without this, a pending yt-rendezvous-play timer fires alongside the
@@ -1175,37 +1103,17 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     const duration = player.getDuration?.() || 0;
     const manualTargetTime = applyYouTubeManualOffset(time, duration);
-    const isZeroStart = data.zeroStart === true;
-    const preparedZeroStart =
-      isZeroStart && state === 1 && isPreparedZeroStart(data.zeroStartToken, hostVideoId, subIndex);
 
     if (hostPlayAt > 0 && isClockCalibrated()) {
       const waitMs = Math.max(0, hostPlayAt - getHostNow());
-      const playOnlyZeroStart = preparedZeroStart;
-      // Zero-start play-only: compensate this guest's playVideo→audible
-      // latency so audible launch lines up with the shared-clock instant.
-      // Host applies the same compensation in finishZeroStartSession, so
-      // both audible at ~hostPlayAt instead of hostPlayAt + own_latency.
-      // Pass ZERO_START_DESKTOP_PLAY_LATENCY_MS as the fallback floor so a
-      // device with no learned value still compensates — critical when the
-      // host has never been a guest (learned=0) but the guest has, which
-      // would otherwise put the guest audibly ahead. Non-zero-start paths
-      // keep the unchanged wait — Stage 2 rendezvous uses learned latency
-      // via guestRendezvousSync.
-      const playLatencyMs = playOnlyZeroStart
-        ? getEffectiveGuestPlayLatencyMs(ZERO_START_DESKTOP_PLAY_LATENCY_MS)
-        : 0;
-      const actionWaitMs = Math.max(0, waitMs - playLatencyMs);
 
       if (waitMs > SHORT_WAIT_THRESHOLD_MS && waitMs < AUTO_SYNC_MAX_WAIT_MS && state === 1) {
         // ── Auto-sync path: significant wait (>SHORT_WAIT_THRESHOLD_MS) + play command ──
         // 1. Pause immediately for clean sync
-        if (!playOnlyZeroStart && player.pauseVideo) player.pauseVideo();
+        if (player.pauseVideo) player.pauseVideo();
 
         // 2. Seek to target position (while paused = in-buffer, no rebuffer)
-        if (!playOnlyZeroStart && !subIndexChanged && player.seekTo) {
-          player.seekTo(manualTargetTime, true);
-        }
+        if (!subIndexChanged && player.seekTo) player.seekTo(manualTargetTime, true);
 
         // 3. Update seekbar immediately
         if (manualTargetTime >= 0 && duration >= 0) {
@@ -1225,38 +1133,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         bus.emit('youtube:sync-loading', true);
         showToast(t('toast.yt_sync_start'));
 
-        // 6. (Zero-start play-only) Pre-launch drift check: if the prepare's
-        //    deferred seek+pause race left the position non-zero, snap back
-        //    ZERO_START_RESNAP_LEAD_MS before the synchronized play so both
-        //    sides launch from a clean 0:00.
-        const resnapWait = actionWaitMs - ZERO_START_RESNAP_LEAD_MS;
-        if (playOnlyZeroStart && resnapWait > 0) {
-          setManagedTimer(
-            'yt-zero-start-resnap',
-            () => {
-              const p = getYouTubePlayer();
-              if (!p?.getCurrentTime || !p.seekTo) return;
-              try {
-                const t = p.getCurrentTime();
-                if (
-                  typeof t === 'number' &&
-                  Number.isFinite(t) &&
-                  t > ZERO_START_DRIFT_EPSILON_SEC
-                ) {
-                  log.debug(
-                    `[YouTube State] zero-start guest resnap ${t.toFixed(3)} → 0`,
-                  );
-                  p.seekTo(0, true);
-                }
-              } catch {
-                /* noop */
-              }
-            },
-            resnapWait,
-          );
-        }
-
-        // 7. Play at scheduled time
+        // 6. Play at scheduled time
         setManagedTimer(
           'yt-clock-action',
           () => {
@@ -1268,19 +1145,17 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             bus.emit('youtube:sync-loading', false);
             showToast(t('toast.yt_sync_done'));
           },
-          actionWaitMs,
+          waitMs,
         );
 
         log.debug(
-          `[YouTube State] Auto-sync: pause+seek, play in ${actionWaitMs}ms (host wait ${waitMs}ms)`,
+          `[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`,
         );
       } else if (waitMs > 0 && waitMs <= SHORT_WAIT_THRESHOLD_MS) {
         // Short wait (≤SHORT_WAIT_THRESHOLD_MS) — schedule with brief pause-seek-play
         // M6: clamp to [0, duration] to avoid seeking past the end which
         // triggers a premature ENDED event and track-advance on the guest.
-        const rawCompensated = isZeroStart
-          ? manualTargetTime
-          : time + waitMs / 1000 + getYouTubeManualOffsetSec();
+        const rawCompensated = time + waitMs / 1000 + getYouTubeManualOffsetSec();
         const compensatedTime =
           duration > 0 ? Math.max(0, Math.min(rawCompensated, duration)) : rawCompensated;
         if (compensatedTime >= 0 && duration >= 0) {
@@ -1301,10 +1176,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             if (state === 1 && p.playVideo) {
               // Pause-seek-play: same pattern as executeImmediate to avoid
               // seekTo+playVideo race on the YouTube iframe.
-              if (playOnlyZeroStart) {
-                setYtAutoplayIntent(true);
-                p.playVideo();
-              } else if (!subIndexChanged && p.seekTo) {
+              if (!subIndexChanged && p.seekTo) {
                 p.pauseVideo?.();
                 p.seekTo(compensatedTime, true);
                 setManagedTimer(
@@ -1327,16 +1199,11 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
               if (p.seekTo) p.seekTo(compensatedTime, true);
             }
           },
-          actionWaitMs,
+          waitMs,
         );
       } else {
         // No wait or out of range — execute immediately
-        if (playOnlyZeroStart && player.playVideo) {
-          setYtAutoplayIntent(true);
-          player.playVideo();
-        } else {
-          executeImmediate(player, state, time, duration, subIndexChanged);
-        }
+        executeImmediate(player, state, time, duration, subIndexChanged);
       }
     } else {
       // No hostPlayAt, or clock uncalibrated (late-join, no pongs yet) — execute immediately.
@@ -1368,7 +1235,6 @@ function executeImmediate(
   // Clear any orphaned scheduled action — this immediate command supersedes it
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
-  clearManagedTimer('yt-zero-start-resnap');
   const manualTargetTime = applyYouTubeManualOffset(time, duration);
   if (manualTargetTime >= 0 && duration >= 0) {
     bus.emit(
@@ -1505,13 +1371,11 @@ export function initYouTubeSync(): void {
   // Reset ad detection when guest reconnects (receives new YouTube session)
   bus.on('youtube:load', () => {
     _rt.autoSyncUntil = 0;
-    _rt.zeroStartReady = null;
     resetAdDetection();
   });
 
   bus.on('youtube:player-ready', runPendingManualRendezvous);
   bus.on('youtube:apply-manual-sync', runManualOffsetApplyRendezvous);
-  bus.on('youtube:zero-start-ready', markZeroStartReady);
 
   log.info('[YouTube Sync] Initialized');
 }

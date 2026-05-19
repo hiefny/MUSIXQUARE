@@ -383,17 +383,6 @@ export interface ProtocolMap {
     subIndex?: number;
   };
   'youtube-stop': NoPayload;
-  'youtube-zero-start-prepare': {
-    token: string;
-    videoId?: string;
-    subIndex?: number;
-    timeoutMs: number;
-  };
-  'youtube-zero-start-ready': {
-    token: string;
-    videoId?: string;
-    subIndex?: number;
-  };
   'youtube-state': {
     state: number;
     time: number;
@@ -402,8 +391,6 @@ export interface ProtocolMap {
     hostPlayAt?: number;
     hostClock?: number;
     title?: string;
-    zeroStart?: boolean;
-    zeroStartToken?: string;
   };
   'youtube-sync': {
     time: number;
@@ -884,13 +871,6 @@ interface BaseEventMap {
    * the freshly created player instance is actually usable.
    */
   'youtube:player-ready': [];
-  'youtube:zero-start-ready': [
-    data: {
-      token: string;
-      videoId: string;
-      subIndex: number;
-    },
-  ];
   'youtube:broadcast-sync': [];
   'youtube:apply-manual-sync': [];
   'youtube:preview': [url: string];

@@ -33,8 +33,11 @@ import {
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
   ZERO_START_MAX_WAIT_MS,
+  ZERO_START_PAUSE_SEEK_GAP_MS,
   ZERO_START_PLAY_LEAD_MS,
   ZERO_START_READY_POLL_MS,
+  ZERO_START_RESNAP_LEAD_MS,
+  ZERO_START_DRIFT_EPSILON_SEC,
 } from './constants.ts';
 
 export interface PendingAutoSyncOptions {
@@ -270,6 +273,8 @@ export function cancelYtAutoSync(): void {
 
 function clearZeroStartSession(): void {
   clearManagedTimer('yt-zero-start-timeout');
+  clearManagedTimer('yt-zero-start-seek');
+  clearManagedTimer('yt-zero-start-resnap');
   clearManagedTimer('yt-zero-start-play');
   clearManagedTimer('yt-zero-start-stage2');
   _zeroStartSession = null;
@@ -277,6 +282,7 @@ function clearZeroStartSession(): void {
 
 function clearGuestZeroStartWait(): void {
   clearManagedTimer('yt-zero-start-ready-poll');
+  clearManagedTimer('yt-zero-start-guest-seek');
   clearManagedTimer('yt-zero-start-guest-timeout');
   _guestZeroStartWait = null;
 }
@@ -310,11 +316,43 @@ function prepareLocalZeroStart(videoId: string): boolean {
   try {
     setYtAutoplayIntent(false);
     player.pauseVideo();
-    player.seekTo(0, true);
+    // Defer seekTo by one event-loop tick so pauseVideo's PAUSED transition
+    // can commit first. See ZERO_START_PAUSE_SEEK_GAP_MS for the rationale.
+    setManagedTimer(
+      'yt-zero-start-seek',
+      () => {
+        const p = getYouTubePlayer();
+        try {
+          p?.seekTo?.(0, true);
+        } catch {
+          /* noop — player may have been destroyed mid-prepare */
+        }
+      },
+      ZERO_START_PAUSE_SEEK_GAP_MS,
+    );
     return true;
   } catch (e) {
     log.debug('[YouTube ZeroStart] local prepare failed:', e);
     return false;
+  }
+}
+
+/** Final position guard right before the synchronized playVideo fires.
+ *  Reads the player's current time and snaps to 0 if drift exceeds the
+ *  epsilon — covers the residual outcome of the pauseVideo+seekTo race
+ *  on devices where seekTo landed first and the iframe kept playing for
+ *  a few ms before pauseVideo committed. */
+function resnapZeroStartIfDrifted(reason: string): void {
+  const p = getYouTubePlayer();
+  if (!p?.getCurrentTime || !p.seekTo) return;
+  try {
+    const t = p.getCurrentTime();
+    if (typeof t === 'number' && Number.isFinite(t) && t > ZERO_START_DRIFT_EPSILON_SEC) {
+      log.debug(`[YouTube ZeroStart] resnap ${reason}: ${t.toFixed(3)} → 0`);
+      p.seekTo(0, true);
+    }
+  } catch {
+    /* noop */
   }
 }
 
@@ -349,6 +387,20 @@ function finishZeroStartSession(reason: string): void {
 
   bus.emit('youtube:sync-loading', true);
   const waitMs = Math.max(0, hostPlayAt - getHostNow());
+
+  // Pre-launch drift check: snap back to 0 ZERO_START_RESNAP_LEAD_MS before
+  // the synchronized play. Catches devices where the prepare's deferred seek
+  // landed but the player kept advancing by a small amount (e.g. brief
+  // BUFFERING→PAUSED transition that re-triggered an internal play frame).
+  const resnapWait = waitMs - ZERO_START_RESNAP_LEAD_MS;
+  if (resnapWait > 0) {
+    setManagedTimer(
+      'yt-zero-start-resnap',
+      () => resnapZeroStartIfDrifted('host-pre-launch'),
+      resnapWait,
+    );
+  }
+
   setManagedTimer(
     'yt-zero-start-play',
     () => {
@@ -386,9 +438,15 @@ function tryScheduleZeroStart(options: PendingAutoSyncOptions): boolean {
 
   const videoId = (options.videoId ?? getCurrentYouTubeVideoId()) || '';
   const subIndex = options.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
+
+  // Clear any prior session's pending timers BEFORE prepareLocalZeroStart
+  // schedules its own deferred seek — otherwise clearZeroStartSession
+  // would cancel the timer we just registered. Safe to clear here: if
+  // prepareLocalZeroStart subsequently fails, the session was already
+  // either null or stale.
+  clearZeroStartSession();
   if (!prepareLocalZeroStart(videoId)) return false;
 
-  clearZeroStartSession();
   const expectedPeerIds = new Set(getOpenYouTubeReadyPeerIds());
   const session: ZeroStartSession = {
     token: makeZeroStartToken(),
@@ -449,7 +507,22 @@ function guestZeroStartReady(): boolean {
   try {
     setYtAutoplayIntent(false);
     player.pauseVideo();
-    player.seekTo(0, true);
+    // Defer seekTo by one event-loop tick (see prepareLocalZeroStart for
+    // rationale — same iframe command-queue race on guest side). The
+    // host's PREPARE→READY round trip plus the 1000ms ZERO_START_PLAY_LEAD
+    // gives the deferred seek plenty of time to commit before playVideo.
+    setManagedTimer(
+      'yt-zero-start-guest-seek',
+      () => {
+        const p = getYouTubePlayer();
+        try {
+          p?.seekTo?.(0, true);
+        } catch {
+          /* noop */
+        }
+      },
+      ZERO_START_PAUSE_SEEK_GAP_MS,
+    );
   } catch {
     return false;
   }

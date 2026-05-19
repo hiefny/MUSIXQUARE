@@ -61,6 +61,8 @@ import {
   LATENCY_OUTLIER_REJECT_MS,
   ZERO_START_MAX_WAIT_MS,
   ZERO_START_PLAY_LEAD_MS,
+  ZERO_START_RESNAP_LEAD_MS,
+  ZERO_START_DRIFT_EPSILON_SEC,
 } from './constants.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
@@ -1059,6 +1061,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // actions. Explicit host actions (YOUTUBE_STATE) should always override.
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
+  clearManagedTimer('yt-zero-start-resnap');
 
   // M1: Cancel any in-progress guest rendezvous when a new host PLAY arrives.
   // Without this, a pending yt-rendezvous-play timer fires alongside the
@@ -1193,7 +1196,38 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         bus.emit('youtube:sync-loading', true);
         showToast(t('toast.yt_sync_start'));
 
-        // 6. Play at scheduled time
+        // 6. (Zero-start play-only) Pre-launch drift check: if the prepare's
+        //    deferred seek+pause race left the position non-zero, snap back
+        //    ZERO_START_RESNAP_LEAD_MS before the synchronized play so both
+        //    sides launch from a clean 0:00.
+        const resnapWait = actionWaitMs - ZERO_START_RESNAP_LEAD_MS;
+        if (playOnlyZeroStart && resnapWait > 0) {
+          setManagedTimer(
+            'yt-zero-start-resnap',
+            () => {
+              const p = getYouTubePlayer();
+              if (!p?.getCurrentTime || !p.seekTo) return;
+              try {
+                const t = p.getCurrentTime();
+                if (
+                  typeof t === 'number' &&
+                  Number.isFinite(t) &&
+                  t > ZERO_START_DRIFT_EPSILON_SEC
+                ) {
+                  log.debug(
+                    `[YouTube State] zero-start guest resnap ${t.toFixed(3)} → 0`,
+                  );
+                  p.seekTo(0, true);
+                }
+              } catch {
+                /* noop */
+              }
+            },
+            resnapWait,
+          );
+        }
+
+        // 7. Play at scheduled time
         setManagedTimer(
           'yt-clock-action',
           () => {
@@ -1305,6 +1339,7 @@ function executeImmediate(
   // Clear any orphaned scheduled action — this immediate command supersedes it
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
+  clearManagedTimer('yt-zero-start-resnap');
   const manualTargetTime = applyYouTubeManualOffset(time, duration);
   if (manualTargetTime >= 0 && duration >= 0) {
     bus.emit(

@@ -348,6 +348,10 @@ describe('YouTube Sync — Regression Integration', () => {
         timeoutMs: 3000,
       });
       expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
+      // seekTo(0) is deferred ZERO_START_PAUSE_SEEK_GAP_MS after pauseVideo
+      // to avoid the iframe command-queue race. Advance fake time so the
+      // deferred seek lands before we assert on it.
+      vi.advanceTimersByTime(60);
       expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
       const preparePauseCount = player.__log.filter((c) => c.op === 'pauseVideo').length;
       const prepareSeekCount = player.__log.filter((c) => c.op === 'seekTo').length;
@@ -406,7 +410,8 @@ describe('YouTube Sync — Regression Integration', () => {
       );
 
       expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
-      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
+      // READY is sent before the deferred seek lands; safeSend assertion
+      // therefore passes prior to advancing fake time.
       expect(safeSendMock).toHaveBeenCalledWith(
         mockHostConn,
         expect.objectContaining({
@@ -415,6 +420,10 @@ describe('YouTube Sync — Regression Integration', () => {
           videoId: 'ZERO_VIDEO',
         }),
       );
+      // Deferred seekTo(0) — split from pauseVideo by ZERO_START_PAUSE_SEEK_GAP_MS
+      // to avoid the iframe command-queue race.
+      vi.advanceTimersByTime(60);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
     });
 
     it('guest final zero-start launch is play-only after prepare already seeked to 0', async () => {
@@ -514,11 +523,16 @@ describe('YouTube Sync — Regression Integration', () => {
       );
 
       expect(player.__log.some((c) => c.op === 'pauseVideo')).toBe(true);
-      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
       expect(safeSendMock).toHaveBeenCalledTimes(1);
       expect(getManagedTimer('yt-zero-start-ready-poll')).toBeDefined();
 
-      vi.advanceTimersByTime(100);
+      // Let the deferred seek (ZERO_START_PAUSE_SEEK_GAP_MS) land first.
+      vi.advanceTimersByTime(60);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 0)).toBe(true);
+
+      // Advance the remaining 40ms to reach the polling interval (t=100ms),
+      // which re-invokes guestZeroStartReady and retries safeSend.
+      vi.advanceTimersByTime(40);
 
       expect(safeSendMock).toHaveBeenCalledTimes(2);
       expect(safeSendMock).toHaveBeenLastCalledWith(

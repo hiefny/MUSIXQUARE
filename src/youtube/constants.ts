@@ -36,6 +36,25 @@ export const ZERO_START_MAX_WAIT_MS = 3000;
 /** Shared-clock lead after the zero-start barrier opens. */
 export const ZERO_START_PLAY_LEAD_MS = 1000;
 
+/** Gap between pauseVideo() and the follow-up seekTo(0) during prepare.
+ *  Calling them in the same event-loop turn races inside the iframe command
+ *  queue: if seekTo lands first the player keeps playing from 0 until
+ *  pauseVideo finally takes effect, leaving the position non-zero on a
+ *  device-dependent number of milliseconds. Splitting the calls lets the
+ *  PAUSED transition commit first so seekTo(0) lands on a stopped player. */
+export const ZERO_START_PAUSE_SEEK_GAP_MS = 60;
+
+/** Lead time before the synchronized launch when host/guests re-check
+ *  position and snap back to 0 if drift exceeds the epsilon. Last-mile
+ *  safety net for the residual pauseVideo+seekTo race. */
+export const ZERO_START_RESNAP_LEAD_MS = 200;
+
+/** Drift tolerance for the pre-launch resnap check. Anything beyond this
+ *  triggers a final seekTo(0). Tight enough to catch the race outcome
+ *  (which lands tens of ms off 0) without churning the iframe on a player
+ *  that already settled cleanly. */
+export const ZERO_START_DRIFT_EPSILON_SEC = 0.05;
+
 /** Guest polling cadence while waiting for the iframe to become zero-start ready. */
 export const ZERO_START_READY_POLL_MS = 100;
 

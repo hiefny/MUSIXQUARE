@@ -212,7 +212,17 @@ function getTurnstileSecret(env) {
   return env.TURNSTILE_SECRET_KEY || env.CLOUDFLARE_TURNSTILE_SECRET_KEY || '';
 }
 
+function isTurnstileDisabled(env) {
+  const raw = String(
+    env.MXQR_TURNSTILE_DISABLED ?? env.TURNSTILE_DISABLED ?? env.DISABLE_TURNSTILE ?? 'false',
+  )
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 function isTurnstileConfigured(env) {
+  if (isTurnstileDisabled(env)) return false;
   return !!(getTurnstileSiteKey(env) && getTurnstileSecret(env));
 }
 
@@ -493,7 +503,7 @@ async function handleSecurityConfig(request, env) {
   return json(
     {
       capabilityRequired: isCapabilityAuthEnabled(env),
-      turnstileSiteKey: getTurnstileSiteKey(env),
+      turnstileSiteKey: isTurnstileConfigured(env) ? getTurnstileSiteKey(env) : '',
       turnstileRequired:
         isCapabilityAuthEnabled(env) && !inferredFallback && !trustedOriginFallback,
       inferredFallback,

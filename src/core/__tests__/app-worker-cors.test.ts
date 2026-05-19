@@ -441,6 +441,75 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(allowed.status).toBe(200);
   });
 
+  it('reports Turnstile as disabled during the grace period even when keys exist', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
+      TURNSTILE_SITE_KEY: 'site-key',
+      TURNSTILE_SECRET_KEY: 'secret-key',
+    };
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      capabilityRequired: true,
+      turnstileSiteKey: '',
+      turnstileRequired: false,
+      inferredFallback: false,
+    });
+  });
+
+  it('mints trusted-origin capability tokens while Turnstile is disabled', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
+      TURNSTILE_SITE_KEY: 'site-key',
+      TURNSTILE_SECRET_KEY: 'secret-key',
+      TURN_USER: 'turn-user',
+      TURN_PASS: 'turn-pass',
+    };
+    const ip = '203.0.113.28';
+
+    const mint = await appWorker.fetch(
+      new Request('https://musixquare.com/api/capability-token', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+        },
+        body: JSON.stringify({ scopes: ['turn'] }),
+      }),
+      env,
+    );
+    const payload = (await mint.json()) as { token?: string };
+
+    expect(mint.status).toBe(200);
+    expect(payload.token).toMatch(/\./);
+
+    const allowed = await appWorker.fetch(
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': ip,
+          'X-MXQR-Capability': payload.token || '',
+        },
+      }),
+      env,
+    );
+    expect(allowed.status).toBe(200);
+  });
+
   it('serves rate-limit rejections with the shared security headers', async () => {
     installRateLimitCache();
     const env = {

@@ -497,6 +497,35 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         deferManualRendezvousUntilReady('player-api-not-ready');
         return;
       }
+
+      // Sub-video transition arriving via manual sync (host auto-advance hits
+      // broadcastYouTubeSync(true, PLAYING) right after loadVideoById). The
+      // guest's iframe is still on the old sub-video at this instant — firing
+      // guestRendezvousSync here would seek the OLD video to the NEW video's
+      // host position, audibly playing the wrong content until the next
+      // heartbeat eventually corrects via the mismatch branch below. Detect
+      // the mismatch up front, load the new video, and defer the rendezvous
+      // to the iframe-ready path via the pending flag.
+      const manualHostVideoId = (data.videoId as string) || '';
+      if (manualHostVideoId && player.getVideoData) {
+        const manualGuestVideoId = player.getVideoData()?.video_id || '';
+        if (manualGuestVideoId && manualHostVideoId !== manualGuestVideoId) {
+          log.info(
+            `[YouTube Sync Manual] Video mismatch: guest=${manualGuestVideoId}, host=${manualHostVideoId} — defer rendezvous`,
+          );
+          if (player.loadVideoById) {
+            player.loadVideoById(manualHostVideoId);
+            invalidateYtDurationCache();
+            if (hostSubIndex !== undefined && hostSubIndex !== -1) {
+              setYouTubeSubIndex(hostSubIndex);
+            }
+            _rt.pendingRendezvousVideoId = manualHostVideoId;
+          }
+          _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
+          return;
+        }
+      }
+
       clearPendingManualRendezvous();
       // The host's manual rendezvous supersedes any pending guest-initiated
       // one — both end up calling guestRendezvousSync with the same data,
@@ -578,6 +607,14 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
           if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
           }
+          // Sub-video transition path (host auto-advance, mid-playlist seek
+          // arriving via heartbeat). Arm the guest-initiated rendezvous so
+          // tryFireRendezvousOnReady fires as soon as the new sub-video
+          // reaches PLAYING — same fast-path as the YOUTUBE_PLAY route.
+          // Keep the freshly-updated lastHostSnapshot (don't null it via
+          // armGuestRendezvousOnReady): this broadcast's hostPosition is
+          // the best starting extrapolation we have for the new sub-video.
+          _rt.pendingRendezvousVideoId = hostVideoId;
         }
         _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
         return;
@@ -1109,6 +1146,13 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             setYouTubeSubIndex(subIndex);
           }
           subIndexChanged = true;
+          // Sub-seek Stage 1 path (host clicked a sub-video). Arm the guest-
+          // initiated rendezvous so the new sub-video's iframe-ready event
+          // fires guestRendezvousSync immediately, instead of waiting for
+          // Stage 2's TRACK_TRANSITION_RENDEZVOUS_MS timer. Keep the just-
+          // updated lastHostSnapshot — it's the best position estimate for
+          // the new sub-video we have at this moment.
+          _rt.pendingRendezvousVideoId = hostVideoId;
         }
         // Schedule a delayed play using hostPlayAt so the guest starts at
         // the same time as the host, even though the video is reloading.

@@ -1470,6 +1470,17 @@
     fill: var(--text-sub);
   }
 
+  .sub-playlist-host {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    /* Defensive: ensure the wrapper participates in the parent's flex
+       column normally and never shrinks below its content. Without this
+       the nested sub-playlist could be clipped on iOS Safari when many
+       sub-items are present. */
+    flex: 0 0 auto;
+  }
+
   .sub-playlist {
     list-style: none;
     padding: 0 0 8px 48px;

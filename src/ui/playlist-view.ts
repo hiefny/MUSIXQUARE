@@ -187,6 +187,15 @@ export function updatePlaylistUI(): void {
 
     // Sub-items
     if (item.playlistId && item.isExpanded) {
+      // Wrap the sub-playlist <ul> in a host <li> so it lives as a valid
+      // child of the parent <ul>. Without the wrapper iOS Safari (and
+      // some Chromium variants) treats the nested <ul> as a sibling of
+      // its track-items but with implementation-defined flex sizing,
+      // leaving the parent .tab-body's scrollHeight unable to grow to
+      // include the expanded sub-list — scroll stops where the unexpanded
+      // list ended and the bottom rows clip off-screen.
+      const subHost = document.createElement('li');
+      subHost.className = 'sub-playlist-host';
       const subUl = document.createElement('ul');
       subUl.className = 'sub-playlist';
 
@@ -253,7 +262,8 @@ export function updatePlaylistUI(): void {
         loading.textContent = t('playlist.loading_info');
         subUl.replaceChildren(loading);
       }
-      ul.appendChild(subUl);
+      subHost.appendChild(subUl);
+      ul.appendChild(subHost);
     }
   });
 

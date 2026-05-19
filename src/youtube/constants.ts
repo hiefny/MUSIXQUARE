@@ -36,6 +36,19 @@ export const ZERO_START_MAX_WAIT_MS = 3000;
 /** Shared-clock lead after the zero-start barrier opens. */
 export const ZERO_START_PLAY_LEAD_MS = 1000;
 
+/** Desktop (non-Android) fallback for playVideo→audible latency used by the
+ *  zero-start launch when this device has no learned value yet. The host
+ *  rarely has a learned value (it has never been a guest in a rendezvous on
+ *  this session, where the EMA is calibrated). Without this floor the host
+ *  compensates 0ms while the guest compensates its learned ~100ms, leaving
+ *  the audible guest about a typical YT IFrame playVideo→audible latency
+ *  ahead of the host. Picked at the typical desktop Chrome figure.
+ *  Rendezvous (guestRendezvousSync) intentionally does NOT use this floor —
+ *  the EMA self-corrects from drift measurements, and adding a floor there
+ *  blocks the EMA from converging below it. Zero-start has no such feedback
+ *  loop, so a static prior is the only practical alignment. */
+export const ZERO_START_DESKTOP_PLAY_LATENCY_MS = 100;
+
 /** Gap between pauseVideo() and the follow-up seekTo(0) during prepare.
  *  Calling them in the same event-loop turn races inside the iframe command
  *  queue: if seekTo lands first the player keeps playing from 0 until

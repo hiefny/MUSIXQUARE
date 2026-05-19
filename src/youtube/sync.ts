@@ -63,6 +63,7 @@ import {
   ZERO_START_PLAY_LEAD_MS,
   ZERO_START_RESNAP_LEAD_MS,
   ZERO_START_DRIFT_EPSILON_SEC,
+  ZERO_START_DESKTOP_PLAY_LATENCY_MS,
 } from './constants.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
@@ -83,10 +84,21 @@ let _lastManualBroadcastAt = 0;
  *  so the host-side zero-start scheduler can apply symmetric compensation:
  *  both host and guest fire playVideo() (own_latency_ms) before the shared
  *  clock instant so audible-start aligns across devices instead of leaving
- *  drift = |L_host - L_guest|. */
-export function getEffectiveGuestPlayLatencyMs(): number {
+ *  drift = |L_host - L_guest|.
+ *
+ *  `desktopFloorMs` lets the caller supply a fallback used only on
+ *  non-Android devices that have no learned value yet (a host that has
+ *  never been a guest in a rendezvous would otherwise compensate 0ms while
+ *  the guest compensates its learned latency, putting the guest audibly
+ *  ahead). Defaults to 0 so existing callers (e.g. guestRendezvousSync)
+ *  retain prior behaviour — only zero-start passes a non-zero floor. */
+export function getEffectiveGuestPlayLatencyMs(desktopFloorMs = 0): number {
   const learned = getState('youtube.guestPlayLatency') ?? 0;
-  return IS_ANDROID ? Math.max(learned, ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS) : learned;
+  if (IS_ANDROID) return Math.max(learned, ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS);
+  // Trust the EMA when present (per-device measurement); otherwise fall
+  // back to the supplied floor. Note: an EMA of exactly 0 (never updated,
+  // or clamped to 0) is treated as "no learned value" so the floor kicks in.
+  return learned > 0 ? learned : desktopFloorMs;
 }
 
 function getYouTubeManualOffsetSec(): number {
@@ -1172,12 +1184,17 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
       const playOnlyZeroStart = preparedZeroStart;
       // Zero-start play-only: compensate this guest's playVideo→audible
       // latency so audible launch lines up with the shared-clock instant.
-      // Host now applies the same compensation in finishZeroStartSession,
-      // so both audible at ~hostPlayAt instead of hostPlayAt + own_latency.
-      // Without this, "symmetric call" left drift = |L_host - L_guest|.
-      // Non-zero-start paths keep the unchanged wait — Stage 2 rendezvous
-      // for those still uses learned latency via guestRendezvousSync.
-      const playLatencyMs = playOnlyZeroStart ? getEffectiveGuestPlayLatencyMs() : 0;
+      // Host applies the same compensation in finishZeroStartSession, so
+      // both audible at ~hostPlayAt instead of hostPlayAt + own_latency.
+      // Pass ZERO_START_DESKTOP_PLAY_LATENCY_MS as the fallback floor so a
+      // device with no learned value still compensates — critical when the
+      // host has never been a guest (learned=0) but the guest has, which
+      // would otherwise put the guest audibly ahead. Non-zero-start paths
+      // keep the unchanged wait — Stage 2 rendezvous uses learned latency
+      // via guestRendezvousSync.
+      const playLatencyMs = playOnlyZeroStart
+        ? getEffectiveGuestPlayLatencyMs(ZERO_START_DESKTOP_PLAY_LATENCY_MS)
+        : 0;
       const actionWaitMs = Math.max(0, waitMs - playLatencyMs);
 
       if (waitMs > SHORT_WAIT_THRESHOLD_MS && waitMs < AUTO_SYNC_MAX_WAIT_MS && state === 1) {

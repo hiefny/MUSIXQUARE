@@ -381,8 +381,14 @@ describe('YouTube Sync — Regression Integration', () => {
         zeroStartToken: prepare?.token,
       });
 
-      const { ZERO_START_PLAY_LEAD_MS } = await import('../constants.ts');
-      vi.advanceTimersByTime(ZERO_START_PLAY_LEAD_MS - 1);
+      // Host applies symmetric latency compensation: fires playVideo
+      // ZERO_START_DESKTOP_PLAY_LATENCY_MS earlier than the shared-clock
+      // hostPlayAt so audible-start aligns with guests doing the same.
+      const { ZERO_START_PLAY_LEAD_MS, ZERO_START_DESKTOP_PLAY_LATENCY_MS } = await import(
+        '../constants.ts'
+      );
+      const playFireWaitMs = ZERO_START_PLAY_LEAD_MS - ZERO_START_DESKTOP_PLAY_LATENCY_MS;
+      vi.advanceTimersByTime(playFireWaitMs - 1);
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(false);
 
       vi.advanceTimersByTime(1);

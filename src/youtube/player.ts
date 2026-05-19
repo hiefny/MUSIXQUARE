@@ -38,6 +38,7 @@ import {
   ZERO_START_READY_POLL_MS,
   ZERO_START_RESNAP_LEAD_MS,
   ZERO_START_DRIFT_EPSILON_SEC,
+  ZERO_START_DESKTOP_PLAY_LATENCY_MS,
 } from './constants.ts';
 
 export interface PendingAutoSyncOptions {
@@ -395,9 +396,13 @@ function finishZeroStartSession(reason: string): void {
   // Host compensates for its own playVideo→audible latency so audible
   // launch aligns with guests doing the same. Without this, host audible
   // at hostPlayAt + L_host while compensated guests audible at hostPlayAt,
-  // leaving host audibly behind. The symmetric compensation closes the
-  // gap to within each device's per-call jitter from the platform typical.
-  const hostPlayLatencyMs = getEffectiveGuestPlayLatencyMs();
+  // leaving host audibly behind. Pass the desktop floor so a host that
+  // has never been a guest (learned=0) still gets a sensible compensation
+  // — without it the asymmetry rebuilds (host 0, guest ~learned) and the
+  // guest plays audibly ahead by roughly the platform typical.
+  const hostPlayLatencyMs = getEffectiveGuestPlayLatencyMs(
+    ZERO_START_DESKTOP_PLAY_LATENCY_MS,
+  );
   const playFireWaitMs = Math.max(0, waitMs - hostPlayLatencyMs);
 
   // Pre-launch drift check: snap back to 0 ZERO_START_RESNAP_LEAD_MS before

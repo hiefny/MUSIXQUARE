@@ -213,6 +213,33 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   }
 }
 
+export function broadcastYouTubeSeekRendezvous(targetTime: number, stateOverride = 1): void {
+  const player = getYouTubePlayer();
+  const hostConn = getState('network.hostConn');
+  if (!player || hostConn || !Number.isFinite(targetTime)) return;
+
+  try {
+    const duration = player.getDuration?.() || 0;
+    const time = clampYouTubeTime(targetTime, duration);
+    const videoId = player.getVideoData?.()?.video_id || '';
+
+    broadcast({
+      type: MSG.YOUTUBE_SYNC,
+      time,
+      state: stateOverride,
+      subIndex: getState('youtube.currentSubIndex') ?? -1,
+      videoId,
+      hostClock: getHostNow(),
+      isManual: true,
+      title: getState('player.currentTrackMeta')?.title,
+    });
+    _lastManualBroadcastAt = Date.now();
+    log.debug(`[YouTube] Immediate seek rendezvous: t=${time}, s=${stateOverride}`);
+  } catch (e) {
+    log.warn('[YouTube] Immediate seek rendezvous failed:', e);
+  }
+}
+
 // ─── Guest-side Sync Runtime State ────────────────────────────────
 // All mutable guest-side state in one place. Previously scattered as
 // individual module-level `let` bindings — consolidated so that
@@ -658,6 +685,8 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   }
 
   // Clear any lingering timers from a prior attempt
+  clearManagedTimer('yt-clock-action');
+  clearManagedTimer('yt-seek-play');
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');

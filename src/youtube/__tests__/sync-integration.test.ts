@@ -31,7 +31,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { MSG } from '../../core/constants.ts';
 import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
@@ -261,6 +261,31 @@ describe('YouTube Sync — Regression Integration', () => {
       const stage2 = broadcastMock.mock.calls[0][0];
       expect(stage2.type).toBe(MSG.YOUTUBE_SYNC);
       expect(stage2.isManual).toBe(true);
+    });
+
+    it('can broadcast an immediate same-video seek rendezvous from the intended target time', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 5, __duration: 300 });
+      player.getCurrentTime = vi.fn(() => 5);
+      const { scheduleYtAutoSync } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
+
+      scheduleYtAutoSync(30, { immediateRendezvous: true });
+
+      expect(player.getCurrentTime).not.toHaveBeenCalled();
+      expect(broadcastMock.mock.calls).toHaveLength(2);
+      expect(broadcastMock.mock.calls[0][0]).toMatchObject({
+        type: MSG.YOUTUBE_STATE,
+        state: 1,
+        time: 30,
+      });
+      expect(broadcastMock.mock.calls[1][0]).toMatchObject({
+        type: MSG.YOUTUBE_SYNC,
+        isManual: true,
+        state: 1,
+        time: 30,
+        videoId: 'FAKE_VIDEO',
+      });
     });
 
     it('rapid transitions debounce Stage 2 — only ONE YOUTUBE_SYNC fires', async () => {
@@ -536,6 +561,27 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(result.status).toBe('completed');
       expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([42.4, true]);
+    });
+
+    it('manual rendezvous cancels a pending rough seek-play timer', async () => {
+      installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      setState('network.hostConn', mockHostConn as never);
+      setManagedTimer('yt-seek-play', vi.fn(), 150);
+
+      handler(
+        {
+          time: 20,
+          state: 1,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+          hostClock: Date.now(),
+          isManual: true,
+        },
+        mockHostConn,
+      );
+
+      expect(getManagedTimer('yt-seek-play')).toBeNull();
     });
 
     it('retries manual-offset application when rendezvous is busy', async () => {

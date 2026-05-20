@@ -129,6 +129,7 @@ import {
 } from './handlers.ts';
 import {
   broadcastYouTubeSync,
+  broadcastYouTubeSeekRendezvous,
   resetYouTubeSyncState,
 } from './sync.ts';
 import { showToast } from '../ui/toast.ts';
@@ -172,6 +173,7 @@ export function scheduleYtAutoSync(
     skipSeek?: boolean;
     rendezvousDelayMs?: number;
     state?: number;
+    immediateRendezvous?: boolean;
   },
 ): void {
   const player = getYouTubePlayer();
@@ -239,6 +241,9 @@ export function scheduleYtAutoSync(
     },
     waitMs,
   );
+  if (overrides?.immediateRendezvous) {
+    broadcastYouTubeSeekRendezvous(targetTime, targetState);
+  }
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
@@ -897,7 +902,7 @@ export function initYouTube(): void {
         const midSync = !!getManagedTimer('yt-auto-sync');
         if (state === 1 || midSync) {
           // Playing (or mid-rendezvous) → (re)schedule auto-sync
-          scheduleYtAutoSync(target);
+          scheduleYtAutoSync(target, { immediateRendezvous: true });
         } else {
           // Actually paused by user → seek immediately, no delay
           markYtStateBroadcast();
@@ -937,7 +942,7 @@ export function initYouTube(): void {
           // Playing (or mid-sync) → (re)schedule auto-sync. scheduleYtAutoSync
           // clears any pending yt-auto-sync up-front, so the old one is
           // naturally superseded.
-          scheduleYtAutoSync(seconds);
+          scheduleYtAutoSync(seconds, { immediateRendezvous: true });
         } else {
           // Actually paused by user → seek immediately, no delay
           markYtStateBroadcast();

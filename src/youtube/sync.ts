@@ -977,8 +977,12 @@ export function tryFireRendezvousOnReady(): void {
   const pState = player.getPlayerState();
   const currentVideoId = player.getVideoData()?.video_id || '';
 
-  if (pState !== 1 || currentVideoId !== _rt.pendingRendezvousVideoId) {
-    return; // Wait until player is playing and loaded with the armed video ID
+  // Allow both PLAYING (1) and BUFFERING (3) states to initiate rendezvous early.
+  // This allows the guest to seek while paused/buffering and wait in cue, rather than
+  // waiting until the audio already starts playing.
+  const isReadyState = pState === 1 || pState === 3;
+  if (!isReadyState || currentVideoId !== _rt.pendingRendezvousVideoId) {
+    return;
   }
 
   const snapshot = _rt.lastHostSnapshot;

@@ -895,6 +895,11 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     } else {
       bus.emit('youtube:guest-iframe-playing');
     }
+  } else if (state === YT.PlayerState.BUFFERING) {
+    const hostConn = getState('network.hostConn');
+    if (hostConn) {
+      bus.emit('youtube:guest-iframe-playing');
+    }
   } else if (state === YT.PlayerState.PAUSED) {
     showLoader(false);
     setPlaybackYouTubePaused();

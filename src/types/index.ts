@@ -871,6 +871,7 @@ interface BaseEventMap {
    * the freshly created player instance is actually usable.
    */
   'youtube:player-ready': [];
+  'youtube:guest-iframe-playing': [];
   'youtube:broadcast-sync': [];
   'youtube:apply-manual-sync': [];
   'youtube:preview': [url: string];

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
@@ -22,6 +22,7 @@ vi.mock('../../i18n/index.ts', () => ({
 vi.mock('../../core/timers.ts', () => ({
   setManagedTimer: vi.fn(),
   clearManagedTimer: vi.fn(),
+  getManagedTimer: vi.fn(() => null),
 }));
 
 vi.mock('../../network/peer.ts', () => ({
@@ -101,6 +102,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   document.body.innerHTML = '';
+  delete (window as unknown as { YT?: unknown }).YT;
+  delete (window as unknown as { onYouTubeIframeAPIReady?: unknown }).onYouTubeIframeAPIReady;
 });
 
 // ─── Tests ───────────────────────────────────────────────────────────────
@@ -285,6 +288,83 @@ describe('YouTube Player', () => {
           title: 'Late Join Video',
         }),
       );
+    });
+  });
+
+  describe('Playlist scrape reuse path', () => {
+    it('resets the requested sub-index when the same playlist is loaded as a new queue item', async () => {
+      const { loadYouTubeVideo } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'video-wrapper';
+      const container = document.createElement('div');
+      container.id = 'youtube-player-container';
+      const playerDiv = document.createElement('div');
+      playerDiv.id = 'youtube-player';
+      container.appendChild(playerDiv);
+      wrapper.appendChild(container);
+      document.body.appendChild(wrapper);
+
+      setPlaybackYouTubePlaying();
+      setState('youtube.currentSubIndex', 2);
+      setState('playlist.currentTrackIndex', 1);
+      setState('playlist.items', [
+        {
+          type: 'youtube',
+          videoId: 'firstEntry',
+          playlistId: 'playlist-repeat',
+          name: 'Playlist A',
+        },
+        {
+          type: 'youtube',
+          videoId: 'secondEntry',
+          playlistId: 'playlist-repeat',
+          name: 'Playlist A again',
+        },
+      ] satisfies PlaylistItem[]);
+      (window as unknown as { YT: unknown }).YT = {
+        Player: vi.fn(),
+        PlayerState: {
+          UNSTARTED: -1,
+          ENDED: 0,
+          PLAYING: 1,
+          PAUSED: 2,
+          BUFFERING: 3,
+          CUED: 5,
+        },
+      };
+
+      const player: YouTubePlayerInstance = {
+        loadVideoById: vi.fn(),
+        loadPlaylist: vi.fn(),
+        cuePlaylist: vi.fn(),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+        stopVideo: vi.fn(),
+        destroy: vi.fn(),
+        seekTo: vi.fn(),
+        getCurrentTime: vi.fn(() => 0),
+        getDuration: vi.fn(() => 0),
+        getPlayerState: vi.fn(() => 2),
+        getPlaylistIndex: vi.fn(() => 2),
+        getVideoData: vi.fn(() => ({ video_id: 'previousLastVideo' })),
+        getPlaylist: vi.fn(() => ['firstVideo', 'secondVideo', 'previousLastVideo']),
+        setVolume: vi.fn(),
+      };
+      setYouTubePlayer(player);
+
+      loadYouTubeVideo('secondEntry', 'playlist-repeat', true, 0);
+
+      expect(player.cuePlaylist).toHaveBeenCalledWith(
+        expect.objectContaining({
+          list: 'playlist-repeat',
+          listType: 'playlist',
+          index: 0,
+          startSeconds: 0,
+        }),
+      );
+      expect(getState('youtube.currentSubIndex')).toBe(0);
     });
   });
 

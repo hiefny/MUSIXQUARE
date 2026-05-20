@@ -113,6 +113,8 @@ interface IframeRuntime {
   lastPreemptIdx: number;
   /** True if we are intercepting a native playlist load via cuePlaylist purely to scrape IDs. */
   isScrapingPlaylist: boolean;
+  /** Requested starting index for the active scrape/load session. */
+  scrapeStartSubIndex: number | null;
   /** The playlistId currently being indexed/scraped. */
   indexingPlaylistId: string | null;
   /** Timestamp when the player first entered a "stuck" (non-playing) state.
@@ -141,6 +143,7 @@ const _ifr: IframeRuntime = {
   crashFailCount: 0,
   lastPreemptIdx: -1,
   isScrapingPlaylist: false,
+  scrapeStartSubIndex: null,
   indexingPlaylistId: null,
   unavailableStuckSince: null,
   liveDurationSample: 0,
@@ -435,10 +438,16 @@ function createYouTubePlayer(
 
   if (needsScrape) {
     _ifr.isScrapingPlaylist = true;
+    // Bind the requested start position to this scrape session. Repeated uses
+    // of the same playlistId must not inherit the previous queue item's last
+    // observed sub-index while getPlaylist() is still being scraped.
+    _ifr.scrapeStartSubIndex = subIndex;
+    setYouTubeSubIndex(subIndex);
     setYtLoadInProgress(true);
     showToast(t('youtube.loading_large_playlist'));
   } else {
     _ifr.isScrapingPlaylist = false;
+    _ifr.scrapeStartSubIndex = null;
   }
 
   const existingPlayer = getYouTubePlayer();
@@ -485,6 +494,7 @@ function createYouTubePlayer(
                 '[YouTube] Scrape safety timer fired — forcing isScrapingPlaylist + ytLoadInProgress cleanup',
               );
               _ifr.isScrapingPlaylist = false;
+              _ifr.scrapeStartSubIndex = null;
               setYtLoadInProgress(false);
               showLoader(false);
             }
@@ -758,14 +768,18 @@ function _finishScrape(ids: string[] | null): void {
   setYtLoadInProgress(false);
   showLoader(false);
 
+  const requestedSubIdxRaw = _ifr.scrapeStartSubIndex ?? getState('youtube.currentSubIndex') ?? 0;
+  const requestedSubIdx = Number.isFinite(requestedSubIdxRaw) ? requestedSubIdxRaw : 0;
+  _ifr.scrapeStartSubIndex = null;
+
   const player = getYouTubePlayer();
   if (!player) return;
 
   const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
   const pid = currentTrack?.playlistId as string | undefined;
-  const subIdx = getState('youtube.currentSubIndex') ?? 0;
 
   if (ids && ids.length > 0) {
+    const subIdx = Math.max(0, Math.min(requestedSubIdx, ids.length - 1));
     if (pid) updateSubItemIds(pid, ids);
     log.debug('[YouTube] Scrape captured IDs — switching to single-video mode');
     setYouTubeSubIndex(subIdx);

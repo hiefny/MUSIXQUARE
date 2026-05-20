@@ -145,12 +145,6 @@ export { loadYouTubeVideo } from './iframe.ts';
 // ─── YouTube Auto-Sync (SharedClock) ──────────────────────────────
 // Every play/seek action delays 1s so all devices start simultaneously.
 
-let _isLastSyncTransition = false;
-
-export function isLastYtSyncTransition(): boolean {
-  return _isLastSyncTransition;
-}
-
 /**
  * Host action + 2-stage broadcast for guest sync.
  *
@@ -178,7 +172,6 @@ export function scheduleYtAutoSync(
     skipSeek?: boolean;
     rendezvousDelayMs?: number;
     state?: number;
-    isTrackTransition?: boolean;
   },
 ): void {
   const player = getYouTubePlayer();
@@ -187,8 +180,6 @@ export function scheduleYtAutoSync(
   const targetState = overrides?.state ?? 1; // Default to PLAYING
   const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
   const videoId = (overrides?.videoId ?? player.getVideoData?.()?.video_id) || '';
-
-  _isLastSyncTransition = !!overrides?.isTrackTransition;
 
   // 1. Host: Execute action immediately
   if (!overrides?.skipSeek && targetTime >= 0) {
@@ -252,7 +243,6 @@ export function scheduleYtAutoSync(
 
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
 export function cancelYtAutoSync(): void {
-  _isLastSyncTransition = false;
   clearManagedTimer('yt-auto-sync');
   bus.emit('youtube:sync-loading', false);
 }
@@ -302,7 +292,6 @@ function scheduleLateJoinRendezvousSync(
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
 export function stopYouTubeMode(opts?: { silent?: boolean }): void {
-  _isLastSyncTransition = false;
   getYtScope()?.dispose();
   setYtScope(null);
   setYtLoadInProgress(false);
@@ -733,7 +722,6 @@ export function initYouTube(): void {
         videoId: options.videoId,
         skipSeek: options.skipSeek ?? true,
         rendezvousDelayMs: options.rendezvousDelayMs ?? TRACK_TRANSITION_RENDEZVOUS_MS,
-        isTrackTransition: true,
       });
       return;
     }
@@ -854,7 +842,6 @@ export function initYouTube(): void {
       videoId: nextVideoId,
       skipSeek: true,
       rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
-      isTrackTransition: true,
     });
   });
 

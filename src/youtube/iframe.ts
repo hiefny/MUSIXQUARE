@@ -51,8 +51,8 @@ import {
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
-import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync, broadcastYouTubeSync } from './sync.ts';
-import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady, isLastYtSyncTransition } from './player.ts';
+import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
+import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
@@ -883,23 +883,6 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     showLoader(false);
     setPlaybackYouTubePlaying();
     bus.emit('ui:update-play-state', true);
-
-    if (!hostConn) {
-      if (getManagedTimer('yt-auto-sync') && isLastYtSyncTransition()) {
-        clearManagedTimer('yt-auto-sync');
-        log.info(
-          '[YouTube] Host player reached PLAYING early — bypassing sync delay to broadcast precision sync'
-        );
-        broadcastYouTubeSync(true, YT.PlayerState.PLAYING);
-      }
-    } else {
-      bus.emit('youtube:guest-iframe-playing');
-    }
-  } else if (state === YT.PlayerState.BUFFERING) {
-    const hostConn = getState('network.hostConn');
-    if (hostConn) {
-      bus.emit('youtube:guest-iframe-playing');
-    }
   } else if (state === YT.PlayerState.PAUSED) {
     showLoader(false);
     setPlaybackYouTubePaused();

@@ -224,7 +224,6 @@ interface HostPositionSnapshot {
   hostPosition: number; // video position (seconds)
   hostState: number; // YT PlayerState (1=playing, 2=paused, ...)
   _videoId?: string; // video ID at snapshot time (for calibration cross-check)
-  isRealtime?: boolean; // true if taken from a real-time sync heartbeat
 }
 
 interface GuestSyncRuntime {
@@ -244,8 +243,6 @@ interface GuestSyncRuntime {
   lastRendezvousAt: number;
   /** Date.now() expiry for a manual rendezvous waiting on iframe/app readiness. */
   pendingManualRendezvousUntil: number;
-  /** The video ID we are waiting to rendezvous with as soon as the iframe transitions to PLAYING. */
-  pendingRendezvousVideoId: string | null;
 }
 
 const _rt: GuestSyncRuntime = {
@@ -257,7 +254,6 @@ const _rt: GuestSyncRuntime = {
   rendezvousInProgress: false,
   lastRendezvousAt: 0,
   pendingManualRendezvousUntil: 0,
-  pendingRendezvousVideoId: null,
 };
 
 const MANUAL_OFFSET_APPLY_RETRY_MS = 250;
@@ -283,19 +279,13 @@ export function suppressDriftUntil(ms: number): void {
 // Consumed by guestRendezvousSync() to extrapolate host's current position
 // using the shared clock. hostClockAt is in host-clock milliseconds so
 // extrapolation composes directly with getHostNow().
-function updateHostSnapshot(
-  hostTime: number,
-  hostState: number,
-  hostClock?: number,
-  isRealtime?: boolean,
-): void {
+function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: number): void {
   const player = getYouTubePlayer();
   _rt.lastHostSnapshot = {
     hostClockAt: hostClock ?? getHostNow(),
     hostPosition: hostTime,
     hostState,
     _videoId: player?.getVideoData?.()?.video_id || '',
-    isRealtime: isRealtime ?? false,
   };
 }
 
@@ -428,8 +418,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostState = Number(data.state);
   const hostSubIndex = data.subIndex as number | undefined;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
-  updateHostSnapshot(hostTime, hostState, hostClock, true);
-  tryFireRendezvousOnReady();
+  updateHostSnapshot(hostTime, hostState, hostClock);
 
   const isManual = !!data.isManual;
   if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) {
@@ -522,7 +511,6 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         );
         if (player.loadVideoById) {
           player.loadVideoById(hostVideoId);
-          armGuestRendezvousOnReady(hostVideoId);
           // The new video's duration isn't reported until the iframe buffers
           // it. Invalidate the cache now so the seekbar doesn't keep showing
           // the previous video's total time during the load window.
@@ -942,7 +930,6 @@ export function resetYouTubeSyncState(): void {
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
-  _rt.pendingRendezvousVideoId = null;
   _pendingManualOffsetApplyUntil = 0;
   resetAdDetection();
   clearManagedTimer('yt-manual-rendezvous-retry');
@@ -951,60 +938,6 @@ export function resetYouTubeSyncState(): void {
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
   bus.emit('youtube:sync-loading', false);
-}
-
-export function armGuestRendezvousOnReady(videoId: string): void {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) return; // Only guests perform spontaneous auto-rendezvous
-  _rt.pendingRendezvousVideoId = videoId;
-  log.debug(`[YouTube Sync] Armed guest spontaneous rendezvous for videoId=${videoId}`);
-  tryFireRendezvousOnReady();
-}
-
-export function tryFireRendezvousOnReady(): void {
-  if (!_rt.pendingRendezvousVideoId) return;
-
-  const player = getYouTubePlayer();
-  if (
-    !player ||
-    !isPlaybackModeYouTube() ||
-    !player.getPlayerState ||
-    !player.getVideoData
-  ) {
-    return;
-  }
-
-  const pState = player.getPlayerState();
-  const currentVideoId = player.getVideoData()?.video_id || '';
-
-  // Allow both PLAYING (1) and BUFFERING (3) states to initiate rendezvous early.
-  // This allows the guest to seek while paused/buffering and wait in cue, rather than
-  // waiting until the audio already starts playing.
-  const isReadyState = pState === 1 || pState === 3;
-  if (!isReadyState || currentVideoId !== _rt.pendingRendezvousVideoId) {
-    return;
-  }
-
-  const snapshot = _rt.lastHostSnapshot;
-  if (!snapshot || !snapshot.isRealtime) {
-    log.debug(
-      '[YouTube Sync] Guest iframe is PLAYING but host snapshot is not realtime yet. Waiting for heartbeat...'
-    );
-    return;
-  }
-
-  if (snapshot._videoId && snapshot._videoId !== _rt.pendingRendezvousVideoId) {
-    log.warn(
-      `[YouTube Sync] Video ID mismatch on tryFireRendezvousOnReady: expected=${_rt.pendingRendezvousVideoId}, snapshot=${snapshot._videoId}`
-    );
-    return;
-  }
-
-  log.info(
-    `[YouTube Sync] Spontaneous guest auto-rendezvous firing for videoId=${_rt.pendingRendezvousVideoId}`
-  );
-  _rt.pendingRendezvousVideoId = null; // Consume
-  guestRendezvousSync({ silent: true, suppressProgressToast: true });
 }
 
 // ─── Handle YouTube State (Host→Guest broadcast) ──────────────────
@@ -1045,7 +978,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // bad snapshot.
   const time = Number(data.time) || 0;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
-  updateHostSnapshot(time, state, hostClock, false);
+  updateHostSnapshot(time, state, hostClock);
 
   if (!player || !isPlaybackModeYouTube()) return;
 
@@ -1111,7 +1044,6 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         );
         if (player.loadVideoById) {
           player.loadVideoById(hostVideoId);
-          armGuestRendezvousOnReady(hostVideoId);
           if (subIndex !== undefined && subIndex !== -1) {
             setYouTubeSubIndex(subIndex);
           }
@@ -1443,7 +1375,6 @@ export function initYouTubeSync(): void {
   });
 
   bus.on('youtube:player-ready', runPendingManualRendezvous);
-  bus.on('youtube:guest-iframe-playing', tryFireRendezvousOnReady);
   bus.on('youtube:apply-manual-sync', runManualOffsetApplyRendezvous);
 
   log.info('[YouTube Sync] Initialized');

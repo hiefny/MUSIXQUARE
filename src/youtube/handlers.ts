@@ -14,7 +14,6 @@ import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
-import { armGuestRendezvousOnReady } from './sync.ts';
 import { scheduleYtAutoSync } from './player.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
 import {
@@ -98,10 +97,6 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
       finalVideoId = knownIds[0];
       finalPlaylistId = null;
     }
-  }
-
-  if (autoplay !== false && finalVideoId) {
-    armGuestRendezvousOnReady(finalVideoId);
   }
 
   // When we have a videoId, force playlistId to null so the iframe's native

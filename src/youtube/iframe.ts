@@ -52,7 +52,7 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync, broadcastYouTubeSync } from './sync.ts';
-import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
+import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady, isLastYtSyncTransition } from './player.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
@@ -885,7 +885,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     bus.emit('ui:update-play-state', true);
 
     if (!hostConn) {
-      if (getManagedTimer('yt-auto-sync')) {
+      if (getManagedTimer('yt-auto-sync') && isLastYtSyncTransition()) {
         clearManagedTimer('yt-auto-sync');
         log.info(
           '[YouTube] Host player reached PLAYING early — bypassing sync delay to broadcast precision sync'

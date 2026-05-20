@@ -129,9 +129,6 @@ import {
 } from './handlers.ts';
 import {
   broadcastYouTubeSync,
-  armHostPlayStartRendezvous,
-  clearHostPlayStartRendezvous,
-  queueHostPlayStartRendezvousIfPlaying,
   resetYouTubeSyncState,
 } from './sync.ts';
 import { showToast } from '../ui/toast.ts';
@@ -175,7 +172,6 @@ export function scheduleYtAutoSync(
     skipSeek?: boolean;
     rendezvousDelayMs?: number;
     state?: number;
-    actualPlayStartRendezvous?: boolean;
   },
 ): void {
   const player = getYouTubePlayer();
@@ -184,12 +180,6 @@ export function scheduleYtAutoSync(
   const targetState = overrides?.state ?? 1; // Default to PLAYING
   const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
   const videoId = (overrides?.videoId ?? player.getVideoData?.()?.video_id) || '';
-
-  if (targetState === 1 && overrides?.actualPlayStartRendezvous && videoId) {
-    armHostPlayStartRendezvous({ videoId });
-  } else {
-    clearHostPlayStartRendezvous();
-  }
 
   // 1. Host: Execute action immediately
   if (!overrides?.skipSeek && targetTime >= 0) {
@@ -249,9 +239,6 @@ export function scheduleYtAutoSync(
     },
     waitMs,
   );
-  if (overrides?.actualPlayStartRendezvous) {
-    queueHostPlayStartRendezvousIfPlaying();
-  }
 }
 
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
@@ -735,7 +722,6 @@ export function initYouTube(): void {
         videoId: options.videoId,
         skipSeek: options.skipSeek ?? true,
         rendezvousDelayMs: options.rendezvousDelayMs ?? TRACK_TRANSITION_RENDEZVOUS_MS,
-        actualPlayStartRendezvous: true,
       });
       return;
     }
@@ -856,7 +842,6 @@ export function initYouTube(): void {
       videoId: nextVideoId,
       skipSeek: true,
       rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
-      actualPlayStartRendezvous: !!nextVideoId,
     });
   });
 

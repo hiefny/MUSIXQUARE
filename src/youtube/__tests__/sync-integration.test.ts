@@ -121,7 +121,6 @@ vi.mock('../iframe.ts', () => ({
   loadYouTubeVideo: vi.fn(),
   refreshYouTubeDisplay: vi.fn(),
   markYtStateBroadcast: vi.fn(),
-  invalidateYtDurationCache: vi.fn(),
 }));
 
 // search.ts — stub out fetches
@@ -262,54 +261,6 @@ describe('YouTube Sync — Regression Integration', () => {
       const stage2 = broadcastMock.mock.calls[0][0];
       expect(stage2.type).toBe(MSG.YOUTUBE_SYNC);
       expect(stage2.isManual).toBe(true);
-    });
-
-    it('can replace the fixed transition fallback with an actual-play-start rendezvous', async () => {
-      installPlayer({ __state: 2, __currentTime: 0, __duration: 300, __videoId: 'NEW_VID' });
-      const { scheduleYtAutoSync } = await importPlayer();
-      const { ACTUAL_PLAY_START_RENDEZVOUS_SETTLE_MS } = await import('../constants.ts');
-      const { broadcast } = await import('../../network/peer.ts');
-      const broadcastMock = vi.mocked(broadcast);
-
-      scheduleYtAutoSync(0, {
-        videoId: 'NEW_VID',
-        skipSeek: true,
-        rendezvousDelayMs: 4000,
-        actualPlayStartRendezvous: true,
-      });
-      broadcastMock.mockClear(); // drop Stage 1
-
-      expect(getManagedTimer('yt-host-play-start-rendezvous')).not.toBeNull();
-      vi.advanceTimersByTime(ACTUAL_PLAY_START_RENDEZVOUS_SETTLE_MS);
-
-      const earlySyncs = broadcastMock.mock.calls.filter((c) => c[0]?.type === MSG.YOUTUBE_SYNC);
-      expect(earlySyncs).toHaveLength(1);
-      expect(earlySyncs[0][0]).toMatchObject({
-        type: MSG.YOUTUBE_SYNC,
-        isManual: true,
-        state: 1,
-        videoId: 'NEW_VID',
-      });
-      expect(getManagedTimer('yt-auto-sync')).toBeNull();
-
-      vi.advanceTimersByTime(4000);
-      const allSyncs = broadcastMock.mock.calls.filter((c) => c[0]?.type === MSG.YOUTUBE_SYNC);
-      expect(allSyncs).toHaveLength(1);
-    });
-
-    it('keeps the fixed transition fallback when PLAYING is still on the wrong video', async () => {
-      installPlayer({ __state: 2, __currentTime: 0, __duration: 300, __videoId: 'OLD_VID' });
-      const { scheduleYtAutoSync } = await importPlayer();
-
-      scheduleYtAutoSync(0, {
-        videoId: 'NEW_VID',
-        skipSeek: true,
-        rendezvousDelayMs: 4000,
-        actualPlayStartRendezvous: true,
-      });
-
-      expect(getManagedTimer('yt-host-play-start-rendezvous')).toBeNull();
-      expect(getManagedTimer('yt-auto-sync')).not.toBeNull();
     });
 
     it('rapid transitions debounce Stage 2 — only ONE YOUTUBE_SYNC fires', async () => {
@@ -585,38 +536,6 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(result.status).toBe('completed');
       expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([42.4, true]);
-    });
-
-    it('defers manual rendezvous until the guest iframe reaches the host video', async () => {
-      const player = installPlayer({
-        __state: 1,
-        __currentTime: 2,
-        __duration: 300,
-        __videoId: 'OLD_VIDEO',
-      });
-      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
-      setState('network.hostConn', mockHostConn as never);
-
-      handler(
-        {
-          time: 5,
-          state: 1,
-          subIndex: 0,
-          videoId: 'NEW_VIDEO',
-          hostClock: Date.now(),
-          isManual: true,
-        },
-        mockHostConn,
-      );
-
-      expect(player.__log.find((c) => c.op === 'loadVideoById')?.args).toEqual(['NEW_VIDEO']);
-      expect(player.__log.find((c) => c.op === 'seekTo')).toBeUndefined();
-
-      vi.advanceTimersByTime(250);
-
-      const seek = player.__log.find((c) => c.op === 'seekTo');
-      expect(seek?.args?.[0] as number).toBeCloseTo(6.75, 2);
-      expect(seek?.args?.[1]).toBe(true);
     });
 
     it('retries manual-offset application when rendezvous is busy', async () => {

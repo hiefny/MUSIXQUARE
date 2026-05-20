@@ -51,12 +51,7 @@ import {
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
-import {
-  resetYouTubeSyncState,
-  suppressDriftUntil,
-  guestRendezvousSync,
-  queueHostPlayStartRendezvousIfPlaying,
-} from './sync.ts';
+import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
 import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
@@ -849,7 +844,6 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
         log.debug('[YouTube] Playback started — triggering immediate playlist snapshot');
         _triggerPlaylistSnapshot(pid);
       }
-      queueHostPlayStartRendezvousIfPlaying();
     }
 
     // Pause-back if autoplay was not intended (e.g. loadPlaylist async path).

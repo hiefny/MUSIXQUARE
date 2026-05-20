@@ -30,10 +30,6 @@ export const STAGE2_RENDEZVOUS_BROADCAST_MS = 2000;
  *  guests time to loadVideoById a different video before synced play fires. */
 export const TRACK_TRANSITION_RENDEZVOUS_MS = 4000;
 
-/** Brief settle after host iframe reports PLAYING before sending an
- *  experimental actual-play-start rendezvous snapshot. */
-export const ACTUAL_PLAY_START_RENDEZVOUS_SETTLE_MS = 150;
-
 /** Host heartbeat interval (periodic YOUTUBE_SYNC drift broadcast). */
 export const HEARTBEAT_INTERVAL_MS = 3000;
 

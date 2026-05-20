@@ -59,7 +59,6 @@ import {
   ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
   LATENCY_CLAMP_MAX_MS,
   LATENCY_OUTLIER_REJECT_MS,
-  ACTUAL_PLAY_START_RENDEZVOUS_SETTLE_MS,
 } from './constants.ts';
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
@@ -73,13 +72,6 @@ import {
  */
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 let _lastManualBroadcastAt = 0;
-
-interface HostPlayStartRendezvousArm {
-  videoId: string;
-  expiresAt: number;
-}
-
-let _pendingHostPlayStartRendezvous: HostPlayStartRendezvousArm | null = null;
 
 /** Effective playVideo-to-audible latency for guest rendezvous calibration. */
 function getEffectiveGuestPlayLatencyMs(): number {
@@ -221,69 +213,6 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   }
 }
 
-export function armHostPlayStartRendezvous(opts: {
-  videoId?: string;
-  ttlMs?: number;
-}): void {
-  if (getState('network.hostConn')) return;
-  const videoId = opts.videoId || getYouTubePlayer()?.getVideoData?.()?.video_id || '';
-  if (!videoId) return;
-
-  _pendingHostPlayStartRendezvous = {
-    videoId,
-    expiresAt: Date.now() + (opts.ttlMs ?? 7000),
-  };
-  clearManagedTimer('yt-host-play-start-rendezvous');
-  log.debug(`[YouTube] Armed actual-play-start rendezvous for videoId=${videoId}`);
-}
-
-export function clearHostPlayStartRendezvous(): void {
-  _pendingHostPlayStartRendezvous = null;
-  clearManagedTimer('yt-host-play-start-rendezvous');
-}
-
-export function queueHostPlayStartRendezvousIfPlaying(): void {
-  const armed = _pendingHostPlayStartRendezvous;
-  if (!armed) return;
-  if (getState('network.hostConn')) {
-    clearHostPlayStartRendezvous();
-    return;
-  }
-  if (Date.now() > armed.expiresAt) {
-    clearHostPlayStartRendezvous();
-    return;
-  }
-
-  const player = getYouTubePlayer();
-  if (!player?.getPlayerState || player.getPlayerState() !== 1) return;
-
-  const currentVideoId = player.getVideoData?.()?.video_id || '';
-  if (currentVideoId !== armed.videoId) return;
-
-  clearManagedTimer('yt-host-play-start-rendezvous');
-  setManagedTimer(
-    'yt-host-play-start-rendezvous',
-    () => {
-      const latest = _pendingHostPlayStartRendezvous;
-      const p = getYouTubePlayer();
-      if (!latest || !p?.getPlayerState || getState('network.hostConn')) return;
-      if (Date.now() > latest.expiresAt) {
-        clearHostPlayStartRendezvous();
-        return;
-      }
-      if (p.getPlayerState() !== 1) return;
-      const videoId = p.getVideoData?.()?.video_id || '';
-      if (videoId !== latest.videoId) return;
-
-      clearManagedTimer('yt-auto-sync');
-      _pendingHostPlayStartRendezvous = null;
-      broadcastYouTubeSync(true, 1);
-      log.info(`[YouTube] Actual-play-start rendezvous sent for videoId=${videoId}`);
-    },
-    ACTUAL_PLAY_START_RENDEZVOUS_SETTLE_MS,
-  );
-}
-
 // ─── Guest-side Sync Runtime State ────────────────────────────────
 // All mutable guest-side state in one place. Previously scattered as
 // individual module-level `let` bindings — consolidated so that
@@ -314,8 +243,6 @@ interface GuestSyncRuntime {
   lastRendezvousAt: number;
   /** Date.now() expiry for a manual rendezvous waiting on iframe/app readiness. */
   pendingManualRendezvousUntil: number;
-  /** Optional host video ID a deferred manual rendezvous must wait for. */
-  pendingManualRendezvousVideoId: string | null;
 }
 
 const _rt: GuestSyncRuntime = {
@@ -327,7 +254,6 @@ const _rt: GuestSyncRuntime = {
   rendezvousInProgress: false,
   lastRendezvousAt: 0,
   pendingManualRendezvousUntil: 0,
-  pendingManualRendezvousVideoId: null,
 };
 
 const MANUAL_OFFSET_APPLY_RETRY_MS = 250;
@@ -365,31 +291,18 @@ function updateHostSnapshot(hostTime: number, hostState: number, hostClock?: num
 
 // Manual rendezvous retry helpers.
 function isManualRendezvousReady(player: YouTubePlayerInstance | null): boolean {
-  if (
-    !(
-      !!player &&
-      isPlaybackModeYouTube() &&
-      !!player.getCurrentTime &&
-      !!player.seekTo &&
-      !!player.pauseVideo &&
-      !!player.playVideo
-    )
-  ) {
-    return false;
-  }
-
-  const pendingVideoId = _rt.pendingManualRendezvousVideoId;
-  if (pendingVideoId) {
-    const currentVideoId = player.getVideoData?.()?.video_id || '';
-    if (currentVideoId !== pendingVideoId) return false;
-  }
-
-  return true;
+  return (
+    !!player &&
+    isPlaybackModeYouTube() &&
+    !!player.getCurrentTime &&
+    !!player.seekTo &&
+    !!player.pauseVideo &&
+    !!player.playVideo
+  );
 }
 
 function clearPendingManualRendezvous(): void {
   _rt.pendingManualRendezvousUntil = 0;
-  _rt.pendingManualRendezvousVideoId = null;
   clearManagedTimer('yt-manual-rendezvous-retry');
 }
 
@@ -424,9 +337,8 @@ function runPendingManualRendezvous(): void {
   );
 }
 
-function deferManualRendezvousUntilReady(reason: string, videoId?: string): void {
+function deferManualRendezvousUntilReady(reason: string): void {
   _rt.pendingManualRendezvousUntil = Date.now() + MANUAL_RENDEZVOUS_RETRY_MAX_MS;
-  _rt.pendingManualRendezvousVideoId = videoId || null;
   log.debug(`[YouTube Sync] Deferring manual rendezvous until ready (${reason})`);
   setManagedTimer(
     'yt-manual-rendezvous-retry',
@@ -506,12 +418,11 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostState = Number(data.state);
   const hostSubIndex = data.subIndex as number | undefined;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
-  const hostVideoId = (data.videoId as string) || '';
   updateHostSnapshot(hostTime, hostState, hostClock);
 
   const isManual = !!data.isManual;
   if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) {
-    if (isManual) deferManualRendezvousUntilReady('player-or-app-state-not-ready', hostVideoId);
+    if (isManual) deferManualRendezvousUntilReady('player-or-app-state-not-ready');
     return;
   }
 
@@ -526,31 +437,8 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   try {
     // If this is a manual sync request from the host, trigger precision rendezvous immediately
     if (isManual) {
-      if (hostVideoId && player.getVideoData) {
-        const guestVideoId = player.getVideoData()?.video_id || '';
-        if (!guestVideoId) {
-          deferManualRendezvousUntilReady('manual-video-not-ready', hostVideoId);
-          return;
-        }
-        if (guestVideoId !== hostVideoId) {
-          log.info(
-            `[YouTube Sync Manual] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} - defer rendezvous`,
-          );
-          if (player.loadVideoById) {
-            player.loadVideoById(hostVideoId);
-            invalidateYtDurationCache();
-            if (hostSubIndex !== undefined && hostSubIndex !== -1) {
-              setYouTubeSubIndex(hostSubIndex);
-            }
-          }
-          _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
-          deferManualRendezvousUntilReady('manual-video-mismatch', hostVideoId);
-          return;
-        }
-      }
-
       if (!isManualRendezvousReady(player)) {
-        deferManualRendezvousUntilReady('player-api-not-ready', hostVideoId);
+        deferManualRendezvousUntilReady('player-api-not-ready');
         return;
       }
       clearPendingManualRendezvous();
@@ -605,6 +493,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
     // Single-video mode: always drive guest via loadVideoById. We never call
     // playVideoAt / loadPlaylist so the iframe's native playlist engine
     // stays dormant and the guest stays on one video at a time.
+    const hostVideoId = (data.videoId as string) || '';
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
@@ -1036,13 +925,11 @@ export function cancelGuestRendezvous(): void {
  *   - youtube:sync-loading overlay hidden
  */
 export function resetYouTubeSyncState(): void {
-  clearHostPlayStartRendezvous();
   _rt.rendezvousInProgress = false;
   _rt.lastRendezvousAt = 0;
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
-  _rt.pendingManualRendezvousVideoId = null;
   _pendingManualOffsetApplyUntil = 0;
   resetAdDetection();
   clearManagedTimer('yt-manual-rendezvous-retry');

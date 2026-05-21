@@ -38,6 +38,7 @@ import {
 import { hasAppUseRecord, hasSeenDemoPrompt, markAppUsed, markDemoPromptSeen } from './storage.ts';
 import type { DataConnection } from '../types/index.ts';
 import type { PlaybackModeActivity } from '../player/ownership.ts';
+import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
 
 type DemoSnapshot = {
   channelMode: number;
@@ -59,6 +60,10 @@ type DemoSnapshot = {
   duration: number;
   playback: PlaybackModeActivity;
   visualizerMode: 'circular' | 'spectrum';
+};
+
+type RestoreSnapshotOptions = {
+  media?: boolean;
 };
 
 type PendingDemoPlay = {
@@ -153,8 +158,13 @@ function captureSnapshot(): DemoSnapshot {
   };
 }
 
-function restoreSnapshot(snapshot: DemoSnapshot | null): void {
+function restoreSnapshot(
+  snapshot: DemoSnapshot | null,
+  options: RestoreSnapshotOptions = {},
+): void {
   if (!snapshot) return;
+  const restoreMedia = options.media ?? true;
+
   setState('audio.channelMode', snapshot.channelMode);
   setState('audio.reverbMix', snapshot.reverbMix);
   setState('audio.reverbDecay', snapshot.reverbDecay);
@@ -166,30 +176,33 @@ function restoreSnapshot(snapshot: DemoSnapshot | null): void {
   setState('audio.virtualBass', snapshot.virtualBass);
   setState('audio.userPreampGain', snapshot.userPreampGain);
   setState('audio.subFreq', snapshot.subFreq);
-  setState('playlist.currentTrackIndex', snapshot.currentTrackIndex);
-  setPlaybackTrackMeta(snapshot.currentTrackMeta);
-  if (
-    snapshot.playback.mode === 'file' &&
-    snapshot.currentAudioBuffer &&
-    snapshot.currentFileBlob
-  ) {
-    setState('files.currentFileBlob', snapshot.currentFileBlob);
-    setCurrentAudioBuffer(snapshot.currentAudioBuffer);
-    setState(
-      'player.pausedAt',
-      Math.min(snapshot.pausedAt, snapshot.duration || snapshot.pausedAt),
-    );
-    setPlaybackFilePaused();
-    bus.emit('ui:play-btn-state', true);
-    if (snapshot.duration > 0) bus.emit('ui:duration-update', snapshot.duration);
-  } else {
-    setState('files.currentFileBlob', null);
-    if (snapshot.playback.mode === 'youtube' || snapshot.playback.mode === 'system-audio') {
-      setPlaybackTrackMeta(null);
-      setPlaybackIdle();
-      bus.emit('ui:play-btn-state', false);
+  if (restoreMedia) {
+    setState('playlist.currentTrackIndex', snapshot.currentTrackIndex);
+    setPlaybackTrackMeta(snapshot.currentTrackMeta);
+    if (
+      snapshot.playback.mode === 'file' &&
+      snapshot.currentAudioBuffer &&
+      snapshot.currentFileBlob
+    ) {
+      setState('files.currentFileBlob', snapshot.currentFileBlob);
+      setCurrentAudioBuffer(snapshot.currentAudioBuffer);
+      setState(
+        'player.pausedAt',
+        Math.min(snapshot.pausedAt, snapshot.duration || snapshot.pausedAt),
+      );
+      setPlaybackFilePaused();
+      bus.emit('ui:play-btn-state', true);
+      if (snapshot.duration > 0) bus.emit('ui:duration-update', snapshot.duration);
+    } else {
+      setState('files.currentFileBlob', null);
+      if (snapshot.playback.mode === 'youtube' || snapshot.playback.mode === 'system-audio') {
+        setPlaybackTrackMeta(null);
+        setPlaybackIdle();
+        bus.emit('ui:play-btn-state', false);
+      }
     }
   }
+
   setVisualizerMode(snapshot.visualizerMode);
   void applySettingsAsync();
 }
@@ -982,8 +995,15 @@ function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   _snapshot = null;
   setDemoDomActive(false, {
     afterCovered: () => {
-      restoreSnapshot(snapshot);
-      bus.emit('ui:seek-reset');
+      const restoreMedia = shouldRestoreDemoSnapshotMedia(
+        getPlaybackModeActivitySnapshot(),
+        getState('playback.lifecycle'),
+      );
+      if (!restoreMedia) {
+        log.info('[Demo] Skipping stale media snapshot restore; new playback started during exit');
+      }
+      restoreSnapshot(snapshot, { media: restoreMedia });
+      if (restoreMedia) bus.emit('ui:seek-reset');
     },
   });
 }

@@ -65,10 +65,7 @@ async function generateQR(containerId: string): Promise<void> {
 
   try {
     // QR: uppercase alphanumeric mode for smallest QR
-    // Keep the QR in alphanumeric mode while making the scheme explicit.
-    // iOS 17 Safari Private can treat bare domains as http://, which breaks
-    // secure-context APIs before the invite route gets a chance to auto-join.
-    const qrUrl = `HTTPS://MUSIXQUARE.COM/${sessionCode}`;
+    const qrUrl = `MUSIXQUARE.COM/${sessionCode}`;
     // Clipboard: normal readable URL. Invite OG cards are
     // English-only now, so no per-host-lang query suffix.
     const shareUrl = `${location.origin}/${sessionCode}`;

@@ -576,6 +576,24 @@ describe('Cloudflare app worker invite route', () => {
     };
   }
 
+  it('redirects HTTP invite URLs to HTTPS before serving the app shell', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('http://musixquare.com/123456'), env);
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe('https://musixquare.com/123456');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps localhost HTTP available for worker development', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('http://localhost:8787/123456'), env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Invite-Rewrite')).toBe('123456');
+    expect(env.ASSETS.fetch).toHaveBeenCalled();
+  });
+
   it('serves invite pages for GET with fresh app-shell cache semantics', async () => {
     const env = createAssetEnv();
     const response = await appWorker.fetch(new Request('https://musixquare.com/123456'), env);

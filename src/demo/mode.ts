@@ -701,7 +701,7 @@ async function renderDemoQRCode(code: string): Promise<void> {
   }
 
   try {
-    const svgString = await QRCode.toString(`MUSIXQUARE.COM/${code}`, {
+    const svgString = await QRCode.toString(`HTTPS://MUSIXQUARE.COM/${code}`, {
       type: 'svg',
       margin: 2,
       errorCorrectionLevel: 'L',

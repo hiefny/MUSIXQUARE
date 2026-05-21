@@ -1010,6 +1010,11 @@ function cacheHeadersForPath(pathname, assetPathname = pathname) {
   return {};
 }
 
+function isLocalHttpHost(hostname) {
+  const normalized = hostname.toLowerCase();
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+}
+
 async function serveStatic(request, env) {
   const url = new URL(request.url);
   const redirect = redirectTarget(url.pathname);
@@ -1061,6 +1066,11 @@ async function serveStatic(request, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.protocol === 'http:' && !isLocalHttpHost(url.hostname)) {
+      url.protocol = 'https:';
+      return withSecurityHeaders(Response.redirect(url, 308));
+    }
+
     switch (url.pathname) {
       case '/api/security-config':
         return handleSecurityConfig(request, env);

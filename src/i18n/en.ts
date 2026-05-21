@@ -545,9 +545,10 @@ const en: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Leaving session...',
   'dialog.background_resume_title': 'The app briefly moved to the background',
   'dialog.background_resume_message':
-    'If sync is off or audio does not play, fully restart the browser or app.',
+    'If sync is off or audio does not play, fully close the app and open it again.',
   'dialog.background_resume_sync_fallback_message':
-    'If sync is off or audio does not play, fully restart the browser or app.',
+    'If sync is off or audio does not play, fully close the app and open it again.',
+  'dialog.got_it': 'Got it',
   'dialog.continue_using': 'Keep using',
   'dialog.leave_session': 'Leave session',
   'dialog.sw_update_title': 'Update',

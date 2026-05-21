@@ -237,23 +237,12 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
 }
 
 async function warnLongBackgroundResume(): Promise<void> {
-  const result = await showDialog({
+  await showDialog({
     title: t('dialog.background_resume_title'),
     message: t('dialog.background_resume_message'),
-    buttonText: t('dialog.continue_using'),
-    secondaryText: t('dialog.leave_session'),
+    buttonText: t('dialog.got_it'),
     defaultFocus: 'primary',
   });
-
-  if (result.action !== 'secondary') return;
-
-  try {
-    leaveSession();
-  } catch (error) {
-    log.warn('[App] leaveSession after long background failed:', error);
-  }
-  markIntentionalNav();
-  window.location.reload();
 }
 
 // Global error handlers

@@ -389,7 +389,7 @@ const ko = {
   'network.cant_join': '세션을 찾을 수 없어요.\n네트워크를 확인해 주세요.',
   'network.session_full': '세션이 가득 찼어요',
   'network.session_full_detail':
-    '연결 가능한 기기 한도에 도달했어요.\n연결할 수 있는 기기 수는 "연결"탭에서 설정할 수 있어요.',
+    '연결 가능한 기기 한도에 도달했어요.\n방장에게 증원 요청을 해주세요.\n연결할 수 있는 기기 수는 "연결"탭에서 설정할 수 있어요.',
   'network.op_granted': '관리자 권한이 부여되었어요.',
   'network.op_revoked': '관리자 권한이 해제되었어요.',
 
@@ -543,9 +543,10 @@ const ko = {
   'dialog.leaving_session': '세션 나가는 중...',
   'dialog.background_resume_title': '앱이 잠시 백그라운드로 넘어갔어요',
   'dialog.background_resume_message':
-    '만약 싱크가 맞지 않거나 소리가 나지 않는다면 브라우저 또는 앱을 완전히 재시작해주세요.',
+    '싱크가 맞지 않거나 소리가 나지 않으면 앱을 완전히 종료한 뒤 다시 열어주세요.',
   'dialog.background_resume_sync_fallback_message':
-    '만약 싱크가 맞지 않거나 소리가 나지 않는다면 브라우저 또는 앱을 완전히 재시작해주세요.',
+    '싱크가 맞지 않거나 소리가 나지 않으면 앱을 완전히 종료한 뒤 다시 열어주세요.',
+  'dialog.got_it': '알겠어요',
   'dialog.continue_using': '계속 사용',
   'dialog.leave_session': '세션 나가기',
   'dialog.sw_update_title': '업데이트',

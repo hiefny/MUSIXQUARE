@@ -49,6 +49,7 @@ type OutgoingSignal =
   | { type: 'media-close'; to: string | 'host'; callId: string };
 
 const DATA_CHANNEL_LABEL = 'musixquare-data';
+const CONTROL_CHANNEL_LABEL = 'musixquare-control';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -116,11 +117,18 @@ async function decodePayload(data: unknown): Promise<unknown> {
   return data;
 }
 
-class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {
+function isBulkPayload(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  return !!toUint8Array((data as Record<string, unknown>).chunk);
+}
+
+export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {
   open = false;
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
+  controlChannel?: RTCDataChannel;
   private closed = false;
+  private pcListenersAttached = false;
 
   constructor(
     readonly peer: string,
@@ -129,35 +137,61 @@ class CloudflareDataConnection extends TinyEmitter implements TransportDataConne
     super();
   }
 
-  attach(pc: RTCPeerConnection, channel: RTCDataChannel): void {
+  attach(pc: RTCPeerConnection, channel: RTCDataChannel): boolean {
     this.peerConnection = pc;
-    this.dataChannel = channel;
+    const isControl = channel.label === CONTROL_CHANNEL_LABEL;
+    if (isControl) this.controlChannel = channel;
+    else this.dataChannel = channel;
     channel.binaryType = 'arraybuffer';
 
-    channel.addEventListener('open', () => this.markOpen());
+    channel.addEventListener('open', () => {
+      if (!isControl) this.markOpen();
+    });
     channel.addEventListener('message', (event) => {
       decodePayload(event.data)
         .then((payload) => this.emit('data', payload))
         .catch((error) => this.emit('error', error));
     });
-    channel.addEventListener('close', () => this.markClosed());
+    channel.addEventListener('close', () => {
+      if (isControl) {
+        if (this.controlChannel === channel) this.controlChannel = undefined;
+        return;
+      }
+      this.markClosed();
+    });
     channel.addEventListener('error', (event) => this.emit('error', event));
 
-    pc.addEventListener('connectionstatechange', () => {
-      if (
-        pc.connectionState === 'closed' ||
-        pc.connectionState === 'failed' ||
-        pc.connectionState === 'disconnected'
-      ) {
-        this.markClosed();
-      }
-    });
+    if (!this.pcListenersAttached) {
+      this.pcListenersAttached = true;
+      pc.addEventListener('connectionstatechange', () => {
+        if (
+          pc.connectionState === 'closed' ||
+          pc.connectionState === 'failed' ||
+          pc.connectionState === 'disconnected'
+        ) {
+          this.markClosed();
+        }
+      });
+    }
 
-    if (channel.readyState === 'open') queueMicrotask(() => this.markOpen());
+    if (!isControl && channel.readyState === 'open') queueMicrotask(() => this.markOpen());
+    return !isControl;
   }
 
   send(data: unknown): void {
-    const channel = this.dataChannel;
+    // Keep latency-sensitive control frames (PLAY/PAUSE/SYNC/etc.) off the
+    // ordered bulk stream. iOS can throttle a backgrounded receiver while file
+    // chunks keep queuing; sharing one stream lets playback commands sit behind
+    // those chunks for seconds after the app returns.
+    const bulk = isBulkPayload(data);
+    const preferredChannel = bulk ? this.dataChannel : this.controlChannel;
+    const fallbackChannel = bulk ? undefined : this.dataChannel;
+    const channel =
+      preferredChannel?.readyState === 'open'
+        ? preferredChannel
+        : fallbackChannel?.readyState === 'open'
+          ? fallbackChannel
+          : null;
     if (!this.open || !channel || channel.readyState !== 'open') {
       throw createTransportError('webrtc', 'DATA_CHANNEL_NOT_OPEN');
     }
@@ -170,6 +204,11 @@ class CloudflareDataConnection extends TinyEmitter implements TransportDataConne
     if (this.closed) return;
     try {
       this.dataChannel?.close();
+    } catch {
+      /* noop */
+    }
+    try {
+      this.controlChannel?.close();
     } catch {
       /* noop */
     }
@@ -777,8 +816,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.connections.set(peerId, conn);
 
     pc.addEventListener('datachannel', (event) => {
-      conn.attach(pc, event.channel);
-      this.emit('connection', conn);
+      const shouldEmitConnection = conn.attach(pc, event.channel);
+      if (shouldEmitConnection) this.emit('connection', conn);
     });
 
     await pc.setRemoteDescription(sdp);
@@ -800,7 +839,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const channel = pc.createDataChannel(DATA_CHANNEL_LABEL, {
       ordered: true,
     });
+    const controlChannel = pc.createDataChannel(CONTROL_CHANNEL_LABEL, {
+      ordered: true,
+    });
     conn.attach(pc, channel);
+    conn.attach(pc, controlChannel);
     this.connections.set(roomId, conn);
 
     const offer = await pc.createOffer();

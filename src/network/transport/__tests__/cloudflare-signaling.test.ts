@@ -2,13 +2,15 @@
  * @vitest-environment jsdom
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MSG } from '../../../core/constants.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
-import { CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
+import { CloudflareDataConnection, CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
 import type { TransportDataConnection } from '../types.ts';
 
 const originalWebSocket = globalThis.WebSocket;
 
 type FakeSocketListener = (event: { data?: unknown }) => void;
+type FakeChannelListener = (event: { data?: unknown }) => void;
 
 class FakeWebSocket {
   static readonly CONNECTING = 0;
@@ -47,6 +49,59 @@ class FakeWebSocket {
     if (event === 'open') this.readyState = FakeWebSocket.OPEN;
     for (const listener of this.listeners.get(event) ?? []) {
       listener({ data });
+    }
+  }
+}
+
+class FakeDataChannel {
+  readyState: RTCDataChannelState = 'open';
+  binaryType: BinaryType = 'blob';
+  sent: unknown[] = [];
+  private listeners = new Map<string, Set<FakeChannelListener>>();
+
+  constructor(readonly label: string) {}
+
+  addEventListener(event: string, listener: FakeChannelListener): void {
+    const listeners = this.listeners.get(event) ?? new Set<FakeChannelListener>();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+  }
+
+  send(data: unknown): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    if (this.readyState === 'closed') return;
+    this.readyState = 'closed';
+    this.dispatch('close');
+  }
+
+  dispatch(event: string, data?: unknown): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener({ data });
+    }
+  }
+}
+
+class FakePeerConnection {
+  connectionState: RTCPeerConnectionState = 'connected';
+  private listeners = new Map<string, Set<FakeChannelListener>>();
+
+  addEventListener(event: string, listener: FakeChannelListener): void {
+    const listeners = this.listeners.get(event) ?? new Set<FakeChannelListener>();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+  }
+
+  close(): void {
+    this.connectionState = 'closed';
+    this.dispatch('connectionstatechange');
+  }
+
+  dispatch(event: string): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener({});
     }
   }
 }
@@ -95,6 +150,51 @@ afterEach(() => {
 });
 
 describe('Cloudflare signaling/data-channel boundary', () => {
+  it('routes control frames away from the bulk chunk channel', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+
+    expect(conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel)).toBe(
+      true,
+    );
+    expect(
+      conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel),
+    ).toBe(false);
+
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    conn.send({ type: MSG.PLAY, time: 0, index: 1 });
+    conn.send({
+      type: MSG.FILE_CHUNK,
+      chunk: new Uint8Array([1, 2, 3]),
+      index: 0,
+      sessionId: 1,
+      total: 1,
+      name: 'track.mp3',
+    });
+
+    expect(control.sent).toHaveLength(1);
+    expect(bulk.sent).toHaveLength(1);
+    expect(typeof control.sent[0]).toBe('string');
+    expect(bulk.sent[0]).toBeInstanceOf(ArrayBuffer);
+  });
+
+  it('falls back to the bulk channel for control frames until control is open', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    conn.send({ type: MSG.PAUSE, time: 12, reason: 'pause' });
+
+    expect(bulk.sent).toHaveLength(1);
+    expect(typeof bulk.sent[0]).toBe('string');
+  });
+
   it('keeps a live guest data channel when only the signaling socket errors', () => {
     installFakeWebSocket();
     const peer = createGuestPeer();

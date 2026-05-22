@@ -62,7 +62,7 @@
     /* Header/Nav/Cards */
     --surface-3: #b7b9bb;
     /* Interactions */
-    --divider: var(--surface-3);
+    --divider: #d4d6d8;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
     --accent: var(--primary);

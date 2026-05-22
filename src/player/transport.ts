@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG } from '../core/constants.ts';
+import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
@@ -35,6 +35,15 @@ import { getHostNow } from '../network/shared-clock.ts';
 
 /** Schedule playback slightly in the future so the message arrives before play time */
 const SCHEDULE_AHEAD_MS = 200;
+
+function isFilePipelineBusyForPlay(): boolean {
+  const lifecycle = getState('playback.lifecycle');
+  return (
+    lifecycle === PLAYBACK_STATE.DOWNLOADING ||
+    lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
+    lifecycle === PLAYBACK_STATE.DECODING
+  );
+}
 
 import {
   getPlayerNode,
@@ -668,6 +677,13 @@ export function togglePlay(): void {
 
   // System audio: ignore play/pause toggle (use "공유 중지" button instead)
   if (isSystemAudioOwner()) return;
+
+  // During download/decode, the resident AudioBuffer may still belong to the
+  // previous track. Ignore play until the file pipeline reaches a playable state.
+  if (isFilePipelineBusyForPlay()) {
+    log.debug('[Play] Ignoring toggle while file pipeline is preparing');
+    return;
+  }
 
   const isActuallyPlaying = isFilePlaybackPlaying();
   const pausedAt = getState('player.pausedAt') || 0;

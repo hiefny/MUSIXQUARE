@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { MSG } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
@@ -204,6 +204,22 @@ describe('initPlayerControls playback mode rendering', () => {
 
     bus.emit('ui:update-play-state', true);
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+  });
+
+  it('shows the loading play button while a local file is preparing', () => {
+    renderPlaybackControls();
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+
+    initPlayerControls();
+
+    const playBtn = document.getElementById('play-btn');
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
   });
 });
 

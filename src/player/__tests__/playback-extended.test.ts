@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import {
   getCurrentAudioBuffer,
@@ -287,6 +287,24 @@ describe('togglePlay end-of-track race', () => {
 });
 
 // ─── updatePlayState ─────────────────────────────────────────────────
+
+describe('togglePlay file pipeline guard', () => {
+  it('ignores play while the next file is decoding even if an old buffer is still resident', () => {
+    setState('playlist.items', [
+      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
+      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 1);
+    setState('player.pausedAt', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    togglePlay();
+
+    expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+    expect(getState('playback.activity')).not.toBe('playing');
+  });
+});
 
 describe('updatePlayState', () => {
   it('emits ui:update-play-state with true', () => {

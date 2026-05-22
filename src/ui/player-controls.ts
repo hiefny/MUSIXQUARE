@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
@@ -52,6 +52,29 @@ const ROLE_CLOCK_SECOND_MS = 1000;
 const ROLE_CLOCK_PULSE_WINDOW_MS = 120;
 const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
 const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
+let _ytPlayButtonLoading = false;
+let _filePlayButtonLoading = false;
+
+function isFilePlayButtonLoading(): boolean {
+  const lifecycle = getState('playback.lifecycle');
+  return (
+    lifecycle === PLAYBACK_STATE.DOWNLOADING ||
+    lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
+    lifecycle === PLAYBACK_STATE.DECODING
+  );
+}
+
+function syncPlayButtonLoadingClass(): void {
+  const btn = document.getElementById('play-btn');
+  if (!btn) return;
+  btn.classList.toggle('yt-syncing', _ytPlayButtonLoading || _filePlayButtonLoading);
+  btn.setAttribute('aria-busy', String(_ytPlayButtonLoading || _filePlayButtonLoading));
+}
+
+function refreshFilePlayButtonLoading(): void {
+  _filePlayButtonLoading = isFilePlayButtonLoading();
+  syncPlayButtonLoadingClass();
+}
 
 export function getRoleLabelByChannelMode(mode: number): string {
   return t((STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).labelKey);
@@ -589,6 +612,8 @@ export function initPlayerControls(): void {
   // don't stack duplicate handlers. Matches the pattern in connect.ts
   // and playlist-view.ts.
   _busScope.dispose();
+  _ytPlayButtonLoading = false;
+  _filePlayButtonLoading = false;
 
   const $on = (id: string, evt: string, fn: EventListener) => {
     const el = document.getElementById(id);
@@ -957,8 +982,8 @@ export function initPlayerControls(): void {
 
       // Clear YouTube sync spinner when leaving YouTube mode
       if (playback.mode !== 'youtube') {
-        const playBtn = document.getElementById('play-btn');
-        if (playBtn) playBtn.classList.remove('yt-syncing');
+        _ytPlayButtonLoading = false;
+        syncPlayButtonLoadingClass();
       }
 
       // System audio: host gets "공유 중지", guest keeps "미디어 재생" (dimmed)
@@ -1010,8 +1035,13 @@ export function initPlayerControls(): void {
 
   // YouTube auto-sync loading spinner on play button
   _busScope.on('youtube:sync-loading', (loading) => {
-    const btn = document.getElementById('play-btn');
-    if (btn) btn.classList.toggle('yt-syncing', !!loading);
+    _ytPlayButtonLoading = !!loading;
+    syncPlayButtonLoadingClass();
+  });
+
+  refreshFilePlayButtonLoading();
+  _busScope.on('state:playback.lifecycle', () => {
+    refreshFilePlayButtonLoading();
   });
 
   // Player actions

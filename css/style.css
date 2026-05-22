@@ -1357,7 +1357,7 @@
     fill: currentColor;
   }
 
-  /* YouTube auto-sync spinner */
+  /* Play button loading spinner (YouTube sync / local file decode) */
   .play-fab.yt-syncing {
     pointer-events: none;
   }

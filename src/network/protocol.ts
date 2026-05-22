@@ -50,7 +50,7 @@ const isArrayBufferLike = (v: unknown): boolean =>
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isNonNegInt = (v: unknown): v is number => isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
 
-// Max 200,000 chunks ≈ 3.2 GB at 16 KB/chunk — prevents DoS via unbounded total
+// Max 200,000 chunks ≈ 12.8 GB at 64 KB/chunk — prevents DoS via unbounded total
 const MAX_FILE_TOTAL = 200_000;
 const MAX_REMOTE_SHARE_BYTES = 300 * 1024 * 1024;
 

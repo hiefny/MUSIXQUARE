@@ -22,7 +22,7 @@ let _broadcastScope: SessionScope | null = null;
 
 const BROADCAST_BACKPRESSURE_LIMIT = 512 * 1024;
 const BROADCAST_BACKPRESSURE_TIMEOUT = 5_000;
-const UNICAST_BACKPRESSURE_LIMIT = 64 * 1024;
+const UNICAST_BACKPRESSURE_LIMIT = 256 * 1024;
 const UNICAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 function isPeerConnectionCurrent(peerId: string, conn: DataConnection): boolean {

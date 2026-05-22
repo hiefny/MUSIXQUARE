@@ -7135,7 +7135,7 @@ html:not(.ios-standalone) body {
 /* YouTube preview thumb (16:9) */
 .yt-preview-thumb {
   width: 100%;
-  border-radius: 10px;
+  border-radius: 4px;
   aspect-ratio: 16 / 9;
   object-fit: cover;
   background: #000;
@@ -7167,7 +7167,11 @@ html:not(.ios-standalone) body {
   font-weight: 700;
   color: var(--text-main);
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .yt-preview-meta {
@@ -7216,22 +7220,50 @@ html:not(.ios-standalone) body {
 
 /* Hidden preview card container that JS toggles to flex */
 .yt-preview-card {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
   background: var(--surface-2);
-  border-radius: var(--radius-m);
-  padding: 12px;
-  gap: 12px;
+  border-radius: 0;
+  margin-top: 10px;
+  padding: 14px 14px 14px 16px;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.yt-preview-card[hidden] {
+  display: none;
+}
+
+.yt-preview-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--primary);
+}
+
+.yt-preview-card .setup-card-mt-8 {
+  min-width: 0;
+  margin-top: 0;
 }
 
 .yt-search-results {
   --yt-search-fade-size: 34px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
   width: 100%;
   max-height: min(42vh, 360px);
   margin-top: 10px;
   overflow-y: auto;
-  padding-right: 10px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow-x: hidden;
   transition: mask-image 0.16s ease;
 }
 
@@ -7297,16 +7329,17 @@ html:not(.ios-standalone) body {
 }
 
 .yt-search-result {
+  position: relative;
   width: 100%;
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  border: 1px solid transparent;
-  border-radius: var(--radius-m);
-  background: var(--surface-2);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-main);
-  padding: 8px;
+  padding: 10px 12px 10px 14px;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -7314,6 +7347,22 @@ html:not(.ios-standalone) body {
     border-color 0.16s ease,
     background 0.16s ease,
     transform 0.16s ease;
+}
+
+.yt-search-result::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 0;
+  background: transparent;
+  transition: background-color 0.16s ease;
+}
+
+.yt-search-result + .yt-search-result {
+  border-top: 1px solid var(--divider);
 }
 
 .yt-search-result:focus-visible {
@@ -7329,8 +7378,11 @@ html:not(.ios-standalone) body {
 }
 
 .yt-search-result.selected {
-  border-color: rgba(var(--primary-rgb), 0.75);
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-2));
+  background: var(--surface-2);
+}
+
+.yt-search-result.selected::before {
+  background: var(--primary);
 }
 
 .yt-search-result.selected .yt-search-title {
@@ -7344,7 +7396,7 @@ html:not(.ios-standalone) body {
 .yt-search-thumb {
   width: 84px;
   aspect-ratio: 16 / 9;
-  border-radius: 12px;
+  border-radius: 4px;
   object-fit: cover;
   background: #000;
 }
@@ -7368,7 +7420,7 @@ html:not(.ios-standalone) body {
 }
 
 .yt-search-channel {
-  color: var(--text-sub);
+  color: var(--text-muted);
   font-size: 11px;
   line-height: 1.3;
   overflow: hidden;
@@ -7379,8 +7431,11 @@ html:not(.ios-standalone) body {
 /* Smaller preview meta line (channel / duration), distinct from yt-preview-meta */
 .yt-preview-channel {
   font-size: 11px;
-  color: var(--text-sub);
+  color: var(--text-muted);
   margin: 4px 0 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* "Watch together" button: 1.5x flex grow, dimmed while disabled */

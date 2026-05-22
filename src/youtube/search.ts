@@ -371,7 +371,7 @@ function hidePreviewCard(): void {
   const preview = getPreviewContainer();
   if (!preview) return;
   preview.hidden = true;
-  preview.style.display = 'none';
+  preview.style.removeProperty('display');
 }
 
 function clearSearchResults(): void {
@@ -635,15 +635,15 @@ export function fetchYouTubePreview(url: string): void {
         if (title) title.innerText = typeof data.title === 'string' ? data.title : '';
         if (chan) chan.innerText = typeof data.author_name === 'string' ? data.author_name : '';
 
+        freshPreview.style.removeProperty('display');
         freshPreview.hidden = false;
-        freshPreview.style.display = 'block';
         freshStatus.style.display = 'none';
         freshSetPlayBtnEnabled(true);
       } catch (e) {
         if (abort.signal.aborted) return;
         log.error('[YouTube Preview] Error:', e);
         freshPreview.hidden = true;
-        freshPreview.style.display = 'none';
+        freshPreview.style.removeProperty('display');
         freshStatus.style.display = 'block';
         freshStatus.innerText = t('youtube.fetch_failed');
         freshStatus.style.color = 'var(--danger, #ef4444)';

@@ -5183,8 +5183,7 @@
     min-width: 0;
   }
 
-  .demo-track-title,
-  .demo-desktop-title {
+  .demo-track-title {
     font-size: 18px;
     font-weight: 800;
     line-height: 1.25;
@@ -5193,8 +5192,7 @@
     overflow-wrap: anywhere;
   }
 
-  .demo-track-artist,
-  .demo-desktop-artist {
+  .demo-track-artist {
     margin-top: 3px;
     font-size: 13px;
     font-weight: 600;
@@ -5646,35 +5644,6 @@
 
   .demo-step-nav button:active {
     transform: scale(0.92);
-  }
-
-  .demo-desktop-track-info {
-    display: none;
-  }
-
-  body.mode-demo #btn-repeat,
-  body.mode-demo #btn-shuffle,
-  body.mode-demo #btn-add-media,
-  body.mode-demo #playlist-ui {
-    display: none !important;
-  }
-
-  body.mode-demo #demo-desktop-track-info {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-height: 164px;
-    gap: 6px;
-    padding: 28px 16px;
-    margin: 0 16px;
-  }
-
-  body.mode-demo .demo-desktop-title {
-    color: var(--text-main);
-  }
-
-  body.mode-demo .demo-desktop-artist {
-    color: var(--text-sub);
   }
 
   [data-theme='light'] .demo-visual-stage::before {

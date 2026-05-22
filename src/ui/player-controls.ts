@@ -735,18 +735,8 @@ export function initPlayerControls(): void {
   $on('volume-slider', 'change', function (this: HTMLInputElement) {
     onVolChange(Number(this.value));
   });
-  $on('btn-sync', 'click', () => {
-    if (getState('demo.active')) {
-      bus.emit('demo:open-info');
-      return;
-    }
-    handleMainSyncBtn();
-  });
+  $on('btn-sync', 'click', () => handleMainSyncBtn());
   $on('btn-media-source', 'click', () => {
-    if (getState('demo.active')) {
-      bus.emit('demo:request-exit');
-      return;
-    }
     if (isPlaybackModeSystemAudio()) {
       if (getState('network.hostConn')) {
         showToast(t('toast.host_only_media'));
@@ -991,14 +981,7 @@ export function initPlayerControls(): void {
       const mediaBtnLabel = mediaBtn?.querySelector('span');
       const isGuest = !!getState('network.hostConn');
       if (mediaBtnLabel) {
-        if (getState('demo.active')) {
-          mediaBtnLabel.textContent = t('demo.exit');
-          mediaBtnLabel.setAttribute('data-i18n', 'demo.exit');
-          if (mediaBtn) {
-            mediaBtn.style.opacity = '';
-            mediaBtn.classList.remove('sys-audio-guest');
-          }
-        } else if (playback.mode === 'system-audio') {
+        if (playback.mode === 'system-audio') {
           if (isGuest) {
             // Guest: keep original label + color (opacity already set by hostConn listener)
             if (mediaBtn) mediaBtn.classList.add('sys-audio-guest');

@@ -82,14 +82,6 @@ const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
 const DEMO_STEP_COLLAPSE_MS = 320;
 const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
 const DEMO_LAYOUT_REFRESH_DELAYS_MS = [40, 180, 420, 720] as const;
-const SYNC_ICON_PATH =
-  'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z';
-const MEDIA_ICON_PATH =
-  'M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM9 8l7 4-7 4V8z';
-const INFO_ICON_PATH =
-  'M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7zM19 19H5V5h5V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5z';
-const EXIT_ICON_PATH =
-  'M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z';
 const _busScope = createBusScope();
 
 let _snapshot: DemoSnapshot | null = null;
@@ -402,7 +394,7 @@ async function loadDemoTrack(index: number, options: { autoplay: boolean }): Pro
   setState('playlist.currentTrackIndex', index);
   setCurrentAudioBuffer(null);
   setPlaybackTrackMeta(createDemoTrackMeta(track));
-  syncDesktopDemoText();
+  syncDemoTrackText();
 
   showLoader(true, t('transfer.demo_loading_short'));
   updateLoader(0);
@@ -584,7 +576,7 @@ function setDemoDomActive(active: boolean, options: { afterCovered?: () => void 
     }
   }
 
-  syncDesktopDemoText(active);
+  syncDemoTrackText();
   syncDemoSessionCopy();
   syncDemoStep();
 }
@@ -601,43 +593,14 @@ function scheduleDemoLayoutRefresh(): void {
   });
 }
 
-function syncDesktopDemoText(active = getState('demo.active')): void {
+function syncDemoTrackText(): void {
   const track = getCurrentDemoTrack();
-  document.querySelectorAll<HTMLElement>('.demo-track-title, .demo-desktop-title').forEach((el) => {
+  document.querySelectorAll<HTMLElement>('.demo-track-title').forEach((el) => {
     el.textContent = track.title;
   });
-  document
-    .querySelectorAll<HTMLElement>('.demo-track-artist, .demo-desktop-artist')
-    .forEach((el) => {
-      el.textContent = `© ${track.artist}`;
-    });
-
-  const demoInfo = document.getElementById('demo-desktop-track-info');
-  if (demoInfo) demoInfo.setAttribute('aria-hidden', String(!active));
-
-  const playlistTitle = document.querySelector<HTMLElement>('#tab-playlist .tab-title');
-  if (playlistTitle) {
-    playlistTitle.textContent = active ? t('demo.track_info') : t('nav.playlist');
-    playlistTitle.setAttribute('data-i18n', active ? 'demo.track_info' : 'nav.playlist');
-  }
-
-  const syncLabel = document.querySelector<HTMLElement>('#btn-sync span');
-  if (syncLabel) {
-    syncLabel.textContent = active ? t('demo.track_info') : t('common.sync');
-    syncLabel.setAttribute('data-i18n', active ? 'demo.track_info' : 'common.sync');
-  }
-
-  const mediaLabel = document.querySelector<HTMLElement>('#btn-media-source span');
-  if (mediaLabel) {
-    mediaLabel.textContent = active ? t('demo.exit') : t('player.play_media');
-    mediaLabel.setAttribute('data-i18n', active ? 'demo.exit' : 'player.play_media');
-  }
-
-  const syncIcon = document.querySelector<SVGPathElement>('#btn-sync svg path');
-  if (syncIcon) syncIcon.setAttribute('d', active ? INFO_ICON_PATH : SYNC_ICON_PATH);
-
-  const mediaIcon = document.querySelector<SVGPathElement>('#btn-media-source svg path');
-  if (mediaIcon) mediaIcon.setAttribute('d', active ? EXIT_ICON_PATH : MEDIA_ICON_PATH);
+  document.querySelectorAll<HTMLElement>('.demo-track-artist').forEach((el) => {
+    el.textContent = `© ${track.artist}`;
+  });
 
   syncDemoTrackList();
 }
@@ -1275,7 +1238,7 @@ export function initDemoMode(): void {
     playNextDemoTrack();
   });
   _busScope.on('i18n:changed', () => {
-    syncDesktopDemoText();
+    syncDemoTrackText();
     syncDemoSessionCopy();
   });
   _busScope.on('network:device-list-update', () => syncDemoSessionCopy());

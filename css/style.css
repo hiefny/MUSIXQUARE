@@ -7517,7 +7517,6 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(.
 .track-item,
 .sub-track-item,
 .device-row,
-.chat-pinned-notice,
 .list-empty-state {
   border-radius: 999px !important;
 }

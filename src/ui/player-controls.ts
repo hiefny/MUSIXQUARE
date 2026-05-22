@@ -31,6 +31,7 @@ import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
+import { installRangeDragGuard } from './range-drag.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { getPlaybackModeActivitySnapshot, scopePlaybackModeActivity } from './_state-hooks.ts';
 import {
@@ -810,6 +811,9 @@ export function initPlayerControls(): void {
 
   // Seek bar
   initSeekBar();
+
+  // Range sliders
+  installRangeDragGuard();
 
   // Android fix
   installAndroidRangeScrollFix();

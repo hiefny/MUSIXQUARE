@@ -1223,14 +1223,16 @@
       background-color 0.2s;
   }
 
-  input[type='range']:active::-webkit-slider-thumb {
+  input[type='range']:active::-webkit-slider-thumb,
+  input[type='range'].is-dragging::-webkit-slider-thumb {
     transform: scale(1.25);
     /* 물리적 크기가 원래대로 돌아왔으므로 약간 더 반응성 있게 설정 */
     filter: none;
     box-shadow: none !important;
   }
 
-  input[type='range']:active::-moz-range-thumb {
+  input[type='range']:active::-moz-range-thumb,
+  input[type='range'].is-dragging::-moz-range-thumb {
     transform: scale(1.25);
     filter: none;
     box-shadow: none !important;
@@ -2002,12 +2004,14 @@
       background-color 0.2s;
   }
 
-  input[type='range'].eq-slider:active::-webkit-slider-thumb {
+  input[type='range'].eq-slider:active::-webkit-slider-thumb,
+  input[type='range'].eq-slider.is-dragging::-webkit-slider-thumb {
     transform: scale(1.25);
     filter: none;
   }
 
-  input[type='range'].eq-slider:active::-moz-range-thumb {
+  input[type='range'].eq-slider:active::-moz-range-thumb,
+  input[type='range'].eq-slider.is-dragging::-moz-range-thumb {
     transform: scale(1.25);
     filter: none;
   }

@@ -39,6 +39,7 @@ function initSeekBarInput(): void {
   if (!slider) return;
 
   slider.addEventListener('mousedown', () => setState('player.isSeeking', true));
+  slider.addEventListener('pointerdown', () => setState('player.isSeeking', true));
   slider.addEventListener('touchstart', () => setState('player.isSeeking', true), {
     passive: true,
   });
@@ -73,6 +74,9 @@ function initSeekBarInput(): void {
   });
 
   slider.addEventListener('mouseup', releaseSeek);
+  slider.addEventListener('pointerup', releaseSeek);
+  slider.addEventListener('pointercancel', releaseSeek);
+  slider.addEventListener('lostpointercapture', releaseSeek);
   slider.addEventListener('touchend', releaseSeek, { passive: true });
   slider.addEventListener('touchcancel', releaseSeek, { passive: true });
   slider.addEventListener('contextmenu', releaseSeek);

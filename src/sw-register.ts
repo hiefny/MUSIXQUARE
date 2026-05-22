@@ -78,10 +78,10 @@ export function registerServiceWorker(): void {
                 title: t('dialog.sw_update_title'),
                 message: t('dialog.sw_update_msg'),
                 buttonText: t('common.refresh'),
-                dismissible: true,
+                secondaryText: t('common.later'),
               });
 
-              // Activate + reload only if user clicked OK
+              // Activate + reload only if user clicked Refresh.
               if (result && result.action === 'ok') {
                 if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
                 reloadForServiceWorkerUpdate();

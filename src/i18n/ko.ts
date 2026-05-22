@@ -12,6 +12,7 @@ const ko = {
   'common.close': '닫기',
   'common.reset': '초기화',
   'common.refresh': '새로고침',
+  'common.later': '나중에',
   'common.next': '다음으로',
   'common.start': '시작하기',
   'common.info': '안내',

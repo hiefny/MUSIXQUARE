@@ -19,7 +19,7 @@ export interface DialogOptions {
   secondaryText?: string;
   cancelText?: string;
   dismissible?: boolean;
-  defaultFocus?: 'primary' | 'secondary' | 'close';
+  defaultFocus?: 'primary' | 'secondary';
   inputField?: {
     placeholder?: string;
     defaultValue?: string;
@@ -127,9 +127,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   const msgEl = document.getElementById('dialog-message');
   const okBtn = document.getElementById('btn-dialog-ok') as HTMLButtonElement | null;
   const secondaryBtn = document.getElementById('btn-dialog-secondary') as HTMLButtonElement | null;
-  const closeBtn = document.getElementById('btn-dialog-close') as HTMLButtonElement | null;
 
-  if (!overlay || !titleEl || !msgEl || !okBtn || !closeBtn) {
+  if (!overlay || !titleEl || !msgEl || !okBtn) {
     showToast(typeof opts === 'string' ? opts : opts?.message || t('common.info'));
     resolve({ action: 'fallback' });
     setManagedTimer('dialog-drain', drainDialogQueue, 0);
@@ -148,7 +147,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         : '';
   const secondaryText = String(secondaryTextRaw ?? '').trim();
   const hasSecondary = !!secondaryText;
-  const dismissible = o.dismissible !== undefined ? !!o.dismissible : true;
+  const dismissible = o.dismissible === true;
   const defaultFocus = o.defaultFocus
     ? String(o.defaultFocus)
     : hasSecondary
@@ -376,14 +375,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   if (hasSecondary && secondaryBtn) {
     on(secondaryBtn, 'click', () => done('secondary'));
   }
-  // Hide close button when dialog is not dismissible
-  if (!dismissible) {
-    closeBtn.style.display = 'none';
-    cleanup.push(() => {
-      closeBtn.style.display = '';
-    });
-  }
-  on(closeBtn, 'click', () => done('close'));
 
   // Enter key on input confirms dialog (with validation)
   if (_dialogInput) {
@@ -406,7 +397,6 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
     if (ke.key === 'Tab') {
       const focusables = [
-        closeBtn,
         (_dialogInputFocusTarget || _dialogInput) as HTMLElement | null,
         hasSecondary ? secondaryBtn : null,
         okBtn,
@@ -454,9 +444,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
           const pick =
             defaultFocus === 'secondary' && hasSecondary && secondaryBtn
               ? secondaryBtn
-              : defaultFocus === 'close'
-                ? closeBtn
-                : okBtn;
+              : okBtn;
           (pick || okBtn)!.focus();
         }
       } catch {

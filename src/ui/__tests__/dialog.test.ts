@@ -37,15 +37,10 @@ function createDialogDOM(): void {
   secondaryBtn.id = 'btn-dialog-secondary';
   Object.defineProperty(secondaryBtn, 'offsetParent', { value: overlay, configurable: true });
 
-  const closeBtn = document.createElement('button');
-  closeBtn.id = 'btn-dialog-close';
-  Object.defineProperty(closeBtn, 'offsetParent', { value: overlay, configurable: true });
-
   overlay.appendChild(title);
   overlay.appendChild(msg);
   overlay.appendChild(okBtn);
   overlay.appendChild(secondaryBtn);
-  overlay.appendChild(closeBtn);
   document.body.appendChild(overlay);
 }
 
@@ -221,6 +216,25 @@ describe('Dialog System', () => {
 
       const result = await promise;
       expect(result.action).toBe('escape');
+    });
+
+    it('Escape does NOT close regular dialogs by default', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      let resolved = false;
+      const promise = showDialog({ title: 'Default Esc Test' });
+      promise.then(() => {
+        resolved = true;
+      });
+      vi.advanceTimersByTime(10);
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      vi.advanceTimersByTime(10);
+
+      expect(resolved).toBe(false);
+
+      closeDialog('ok');
+      vi.advanceTimersByTime(10);
+      await promise;
     });
 
     it('Escape does NOT close non-dismissible dialog', async () => {

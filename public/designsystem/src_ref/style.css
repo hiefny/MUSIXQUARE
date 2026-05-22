@@ -2711,31 +2711,6 @@
         color: var(--text-main);
     }
 
-    .dialog-close {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        border: none;
-        background: var(--surface-2);
-        color: var(--text-sub);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-
-    .dialog-close:active {
-        transform: scale(0.9);
-        background: var(--surface-3);
-    }
-
-    .dialog-close svg {
-        width: 18px;
-        height: 18px;
-        fill: currentColor;
-    }
-
     .dialog-message {
         padding: 12px 28px 24px;
         font-size: 15px;

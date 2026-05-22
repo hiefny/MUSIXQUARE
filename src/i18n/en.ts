@@ -14,6 +14,7 @@ const en: Record<I18nKey, string> = {
   'common.close': 'Close',
   'common.reset': 'Reset',
   'common.refresh': 'Refresh',
+  'common.later': 'Later',
   'common.next': 'Next',
   'common.start': 'Start',
   'common.info': 'Info',

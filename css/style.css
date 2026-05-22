@@ -7489,7 +7489,7 @@ html:not(.ios-standalone) body {
 /* Global button shape policy: card-like choice buttons, navigation tabs,
    underline-style subtabs, and segmented-control pieces keep their framed
    shape; every other real button uses a pill/capsule hit surface. */
-button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]) {
+button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(.yt-search-result) {
   border-radius: 999px !important;
 }
 

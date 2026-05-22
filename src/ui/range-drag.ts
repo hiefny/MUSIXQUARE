@@ -15,6 +15,20 @@ function getRangeBounds(range: HTMLInputElement): { min: number; max: number } {
   return max >= min ? { min, max } : { min: max, max: min };
 }
 
+export function syncRangeProgress(range: HTMLInputElement): void {
+  const { min, max } = getRangeBounds(range);
+  const value = Number(range.value);
+  const progress =
+    max > min && Number.isFinite(value) ? clamp(((value - min) / (max - min)) * 100, 0, 100) : 0;
+  range.style.setProperty('--range-progress', `${progress}%`);
+}
+
+export function syncAllRangeProgress(root: ParentNode = document): void {
+  root
+    .querySelectorAll<HTMLInputElement>('input[type="range"]')
+    .forEach((range) => syncRangeProgress(range));
+}
+
 function getRangeRatio(range: HTMLInputElement, event: PointerEvent): number {
   const rect = range.getBoundingClientRect();
   if (range.classList.contains('eq-slider')) {
@@ -42,17 +56,22 @@ function applyRangeValue(range: HTMLInputElement, event: PointerEvent): void {
   if (range.value === next) return;
 
   range.value = next;
+  syncRangeProgress(range);
   range.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 export function installRangeDragGuard(root: ParentNode = document): void {
   const ranges = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="range"]'));
+  requestAnimationFrame(() => syncAllRangeProgress(root));
 
   ranges.forEach((range) => {
     if (range.dataset.rangeDragGuard === '1') return;
     range.dataset.rangeDragGuard = '1';
 
     let activePointerId: number | null = null;
+    syncRangeProgress(range);
+    range.addEventListener('input', () => syncRangeProgress(range));
+    range.addEventListener('change', () => syncRangeProgress(range));
 
     const finishDrag = (event?: PointerEvent) => {
       if (activePointerId === null) return;

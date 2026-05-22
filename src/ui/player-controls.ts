@@ -31,7 +31,7 @@ import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { initSeekBar } from './seekbar.ts';
-import { installRangeDragGuard } from './range-drag.ts';
+import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { getPlaybackModeActivitySnapshot, scopePlaybackModeActivity } from './_state-hooks.ts';
 import {
@@ -596,7 +596,10 @@ function installAndroidRangeScrollFix(): void {
 function syncVolumeSlider(): void {
   const vol = getState('audio.masterVolume') ?? 1;
   const vSlider = document.getElementById('volume-slider') as HTMLInputElement | null;
-  if (vSlider) vSlider.value = String(vol * 100);
+  if (vSlider) {
+    vSlider.value = String(vol * 100);
+    syncRangeProgress(vSlider);
+  }
   updateVolumeIcon();
 }
 

@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
 import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
+import { syncRangeProgress } from './range-drag.ts';
 
 function isSeekUnavailable(): boolean {
   const playback = getPlaybackModeActivitySnapshot();
@@ -32,6 +33,16 @@ function isFileActivelyPlaying(): boolean {
   return playback.mode === 'file' && playback.activity === 'playing';
 }
 
+function setSeekSliderValue(slider: HTMLInputElement, value: string): void {
+  slider.value = value;
+  syncRangeProgress(slider);
+}
+
+function setSeekSliderMax(slider: HTMLInputElement, value: string): void {
+  slider.max = value;
+  syncRangeProgress(slider);
+}
+
 // ─── Seek Bar Input Events ──────────────────────────────────────
 
 function initSeekBarInput(): void {
@@ -45,7 +56,7 @@ function initSeekBarInput(): void {
   });
   slider.addEventListener('input', () => {
     if (isSeekUnavailable()) {
-      slider.value = '0';
+      setSeekSliderValue(slider, '0');
       return;
     }
     const formatted = fmtTime(parseFloat(slider.value));
@@ -65,7 +76,7 @@ function initSeekBarInput(): void {
   slider.addEventListener('change', () => {
     releaseSeek();
     if (isSeekUnavailable()) {
-      slider.value = '0';
+      setSeekSliderValue(slider, '0');
       return;
     }
     const seekTime = parseFloat(slider.value);
@@ -103,8 +114,8 @@ function _seekRafLoop(now: number): void {
       const tc = document.getElementById('time-curr');
       const tt = document.getElementById('time-total');
       if (slider) {
-        slider.value = '0';
-        slider.max = '0';
+        setSeekSliderValue(slider, '0');
+        setSeekSliderMax(slider, '0');
       }
       if (tc) tc.innerText = '0:00';
       if (tt) tt.innerText = '0:00';
@@ -133,7 +144,7 @@ function _seekRafLoop(now: number): void {
     if (slider) {
       const dt = (now - _rafAnchorTs) / 1000;
       const interpolated = Math.min(_rafAnchorTime + dt, parseFloat(slider.max) || 0);
-      slider.value = String(interpolated);
+      setSeekSliderValue(slider, String(interpolated));
 
       const sec = Math.floor(interpolated);
       if (sec !== _rafLastFmtSec) {
@@ -177,7 +188,7 @@ function initSeekBarBusHandlers(): void {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tTotal = document.getElementById('time-dur');
     if (slider) {
-      slider.max = String(duration);
+      setSeekSliderMax(slider, String(duration));
     }
     if (tTotal) tTotal.innerText = fmtTime(duration);
   });
@@ -186,7 +197,7 @@ function initSeekBarBusHandlers(): void {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) {
-      slider.value = '0';
+      setSeekSliderValue(slider, '0');
     }
     if (tc) tc.innerText = '0:00';
     clearManagedTimer('time-update-loop');
@@ -257,10 +268,10 @@ function initSeekBarBusHandlers(): void {
 
     if (slider) {
       if (duration > 0) {
-        slider.max = String(duration);
+        setSeekSliderMax(slider, String(duration));
       }
       if (!isSeeking && duration > 0) {
-        slider.value = String(currentTime);
+        setSeekSliderValue(slider, String(currentTime));
         slider.setAttribute('aria-valuetext', currentFormatted);
       }
     }

@@ -4057,7 +4057,7 @@
 
   .chat-bubble.whisper.mine {
     background: rgba(147, 112, 219, 0.25);
-    color: white;
+    color: var(--text-main);
   }
 
   .whisper-label {

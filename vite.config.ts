@@ -96,6 +96,23 @@ export default defineConfig({
     port: 3000,
     open: true,
     allowedHosts: true,
+    proxy: {
+      '/api/security-config': {
+        target: 'https://musixquare.com',
+        changeOrigin: true,
+        secure: true,
+      },
+      '/api/capability-token': {
+        target: 'https://musixquare.com',
+        changeOrigin: true,
+        secure: true,
+      },
+      '/api/youtube-search': {
+        target: 'https://musixquare.com',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
   },
   worker: {
     format: 'es',

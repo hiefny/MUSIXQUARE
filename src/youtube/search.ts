@@ -321,6 +321,28 @@ function getSearchResultsContainer(): HTMLElement | null {
   return document.getElementById('youtube-search-results');
 }
 
+function updateSearchScrollMask(): void {
+  const resultsEl = getSearchResultsContainer();
+  if (!resultsEl || resultsEl.hidden) return;
+
+  const maxScrollTop = Math.max(0, resultsEl.scrollHeight - resultsEl.clientHeight);
+  const hasOverflow = maxScrollTop > 2;
+  const scrollTop = resultsEl.scrollTop;
+
+  resultsEl.classList.toggle('can-scroll-up', hasOverflow && scrollTop > 2);
+  resultsEl.classList.toggle(
+    'can-scroll-down',
+    hasOverflow && scrollTop < maxScrollTop - 2,
+  );
+}
+
+function bindSearchScrollMask(): void {
+  const resultsEl = getSearchResultsContainer();
+  if (!resultsEl || resultsEl.dataset.scrollMaskBound === '1') return;
+  resultsEl.dataset.scrollMaskBound = '1';
+  resultsEl.addEventListener('scroll', () => updateSearchScrollMask(), { passive: true });
+}
+
 function setStatus(key: I18nKey, color = 'var(--text-sub)'): void {
   const status = getStatusText();
   if (!status) return;
@@ -339,7 +361,10 @@ function setYouTubePrimaryButton(enabled: boolean, labelKey: I18nKey = 'player.p
 }
 
 function scheduleSearchScrollbarRelayout(): void {
-  window.requestAnimationFrame(() => bus.emit('ui:scrollbar-relayout'));
+  window.requestAnimationFrame(() => {
+    bus.emit('ui:scrollbar-relayout');
+    updateSearchScrollMask();
+  });
 }
 
 function hidePreviewCard(): void {
@@ -356,6 +381,7 @@ function clearSearchResults(): void {
   if (resultsEl) {
     resultsEl.hidden = true;
     resultsEl.replaceChildren();
+    resultsEl.classList.remove('can-scroll-up', 'can-scroll-down');
     scheduleSearchScrollbarRelayout();
   }
 }
@@ -390,6 +416,7 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
 
   resultsEl.replaceChildren();
   resultsEl.hidden = false;
+  bindSearchScrollMask();
   scheduleSearchScrollbarRelayout();
 
   for (const result of results) {

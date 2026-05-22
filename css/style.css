@@ -2110,7 +2110,7 @@
   .ch-opt.active,
   .ch-opt.selected {
     background: rgba(var(--primary-rgb), 0.08);
-    border-color: rgba(var(--primary-rgb), 0.9);
+    border-color: rgba(var(--primary-rgb), 0.75);
     border-width: 2px;
     color: var(--primary);
     box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.22);
@@ -2212,7 +2212,7 @@
   .d-op-btn.active {
     background: var(--primary);
     color: white;
-    border-color: var(--primary);
+    border-color: rgba(var(--primary-rgb), 0.26);
   }
 
   .d-status {
@@ -3699,7 +3699,8 @@
     padding: 0 10px;
   }
 
-  /* Role Selection Grid Specifics (Setup Overlay) */
+  /* Parked setup role picker. The current onboarding auto-selects center,
+     but these styles stay with the hidden picker for a possible return. */
   #setup-role-grid.channel-grid {
     padding: 0 8px;
     margin-top: 12px;
@@ -3720,7 +3721,7 @@
 
   #setup-role-grid .ch-opt.selected {
     background: rgba(var(--primary-rgb), 0.08);
-    border-color: var(--primary);
+    border-color: rgba(var(--primary-rgb), 0.26);
     box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.15);
   }
 
@@ -5604,7 +5605,7 @@
 
   .demo-step-nav .demo-step-next:not(.is-final) {
     background: var(--primary);
-    border-color: var(--primary);
+    border-color: rgba(var(--primary-rgb), 0.26);
     color: #fff;
   }
 
@@ -7303,7 +7304,7 @@ html:not(.ios-standalone) body {
 }
 
 .yt-search-result.selected {
-  border-color: var(--primary);
+  border-color: rgba(var(--primary-rgb), 0.26);
   background: color-mix(in srgb, var(--primary) 12%, var(--surface-2));
 }
 

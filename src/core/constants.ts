@@ -47,7 +47,7 @@ export const LOAD_SOURCE = {
 export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
 
 // ─── File Transfer ─────────────────────────────────────────────────
-export const CHUNK_SIZE = 16384; // 16KB per chunk
+export const CHUNK_SIZE = 64 * 1024; // 64KB per chunk
 export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog
 
 export const MAX_RECOVERY_RETRIES = 3;

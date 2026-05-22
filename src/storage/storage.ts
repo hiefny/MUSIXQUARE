@@ -19,7 +19,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { TRANSFER_STATE } from '../core/constants.ts';
+import { CHUNK_SIZE, TRANSFER_STATE } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { INSTANCE_ID, validateSessionId } from '../core/session.ts';
 import type { StorageCommand, StorageEvent } from '../types/index.ts';
@@ -103,7 +103,7 @@ function runStorageCommand(payload: StorageCommand): void {
 
   switch (cmd) {
     case 'STORAGE_START': {
-      const chunkSize = (payload.size as number) || 16384;
+      const chunkSize = (payload.size as number) || CHUNK_SIZE;
       const keepExisting = !!payload.keepExisting;
       const result = ramStart(filename, isPreload, sessionId, chunkSize, keepExisting);
       if (result.ok) {

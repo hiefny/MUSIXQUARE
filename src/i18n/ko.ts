@@ -190,8 +190,8 @@ const ko = {
   'connect.room_password_pending': '8자리 암호 대기 중',
   'connect.room_password_on': '암호 적용됨',
   'connect.room_password_invalid': '8자리 숫자를 입력해 주세요',
-  'connect.room_password_enabled': '이제 누군가가 이 방에 참여를 시도하면 암호가 요구돼요',
-  'connect.room_password_disabled': '누군가가 참여할 때 더이상 암호를 입력할 필요가 없어요',
+  'connect.room_password_enabled': '이제 이 방에 참여하려면 암호를 입력해야 해요',
+  'connect.room_password_disabled': '이제 이 방에 참여할 때 암호를 입력하지 않아도 돼요',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': '제가 방장할래요',

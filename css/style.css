@@ -7271,7 +7271,7 @@ html:not(.ios-standalone) body {
 /* Hidden preview card container that JS toggles to flex */
 .yt-preview-card {
   background: var(--surface-2);
-  border-radius: 16px;
+  border-radius: var(--radius-m);
   padding: 12px;
   gap: 12px;
 }
@@ -7308,7 +7308,7 @@ html:not(.ios-standalone) body {
   gap: 10px;
   align-items: center;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   background: var(--surface-2);
   color: var(--text-main);
   padding: 8px;
@@ -7517,8 +7517,6 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]) {
 .track-item,
 .sub-track-item,
 .device-row,
-.yt-preview-card,
-.yt-search-result,
 .chat-pinned-notice,
 .list-empty-state {
   border-radius: 999px !important;

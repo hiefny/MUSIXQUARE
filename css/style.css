@@ -7461,3 +7461,37 @@ html:not(.ios-standalone) body {
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
   pointer-events: none;
 }
+
+/* Global button shape policy: card-like choice buttons, navigation tabs, and
+   underline-style subtabs keep their framed shape; every other real button
+   uses a pill/capsule hit surface. */
+button:not(.ch-opt):not(.nav-item):not(.subtab-pill) {
+  border-radius: 999px !important;
+}
+
+.bottom-nav button.nav-item {
+  border-radius: 0 !important;
+}
+
+.settings-subtab-nav > button.subtab-pill {
+  border-radius: 0 !important;
+}
+
+@media (min-width: 720px) and (max-width: 1279px) {
+  .bottom-nav button.nav-item {
+    border-radius: 10px !important;
+  }
+}
+
+/* List-like interactive/display surfaces follow the same capsule language as
+   buttons, while media frames, dialogs, thumbnails, and setting cards keep
+   their own shapes. */
+.track-item,
+.sub-track-item,
+.device-row,
+.yt-preview-card,
+.yt-search-result,
+.chat-pinned-notice,
+.list-empty-state {
+  border-radius: 999px !important;
+}

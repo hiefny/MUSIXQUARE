@@ -68,7 +68,7 @@ import { guestRendezvousSync, initYouTubeSync } from './youtube/sync.ts';
 import { initBeatDetector } from './audio/beat-detector.ts';
 
 // ── UI ──
-import { initOverlayObservers } from './ui/dom.ts';
+import { initInputModalityClass, initOverlayObservers } from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
 import { initDialog, showDialog } from './ui/dialog.ts';
@@ -394,6 +394,7 @@ function bootstrap(): void {
   safeInit('Platform', initPlatform);
 
   // 2. Core UI init (must run before other UI modules)
+  safeInit('InputModalityClass', initInputModalityClass);
   safeInit('OverlayObservers', initOverlayObservers);
   safeInit('Toast', initToast);
   safeInit('EmailCopy', initEmailCopyLinks);

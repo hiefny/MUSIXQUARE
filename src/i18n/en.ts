@@ -202,7 +202,7 @@ const en: Record<I18nKey, string> = {
   'setup.demo_button': 'Try it (Demo)',
   'demo.prompt_title': 'Try MUSIXQUARE',
   'demo.prompt_message': "Looks like you're new here. Want to try the basics?",
-  'demo.prompt_cta': 'Start',
+  'demo.prompt_cta': 'Try it',
   'demo.prompt_later': 'Not now',
   'demo.try_later_toast': 'You can try it anytime from the Help tab.',
   'demo.track_info': 'Track info',

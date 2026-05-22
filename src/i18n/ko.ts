@@ -200,7 +200,7 @@ const ko = {
   'setup.demo_button': '앱 체험하기 (데모)',
   'demo.prompt_title': 'MUSIXQUARE 체험하기',
   'demo.prompt_message': '새로 오신 것 같네요. 간단하게 기능들을 체험해보시겠어요?',
-  'demo.prompt_cta': '시작하기',
+  'demo.prompt_cta': '체험하기',
   'demo.prompt_later': '나중에',
   'demo.try_later_toast': '체험은 도움말 탭에서 언제든 시도해보실 수 있어요',
   'demo.track_info': '트랙 정보',

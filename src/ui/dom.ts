@@ -167,7 +167,13 @@ function syncModalStack(): void {
     if (isShown(o) && !_modalStack.includes(o.id)) _modalStack.push(o.id);
   }
 
-  const top = _modalStack.length > 0 ? _modalStack[_modalStack.length - 1] : null;
+  // Centered dialogs are confirmations/alerts, so they must remain the
+  // interactive layer even if a fullscreen overlay re-syncs after them.
+  const top =
+    [..._modalStack].reverse().find((id) => {
+      const overlay = OVERLAYS.find((x) => x.id === id);
+      return overlay && !overlay.fullscreen;
+    }) ?? (_modalStack.length > 0 ? _modalStack[_modalStack.length - 1] : null);
 
   // 3. Apply inert to every body child except the top of the stack. With
   //    the stack empty (no modals open), nothing is inert.

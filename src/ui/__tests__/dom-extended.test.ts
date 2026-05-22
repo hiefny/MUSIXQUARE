@@ -176,6 +176,7 @@ describe('initOverlayObservers — modal stack', () => {
       <header id="hdr"></header>
       <div id="non-modal"></div>
       <div id="setup-overlay"></div>
+      <div id="demo-overlay"></div>
       <div id="media-source-overlay"></div>
       <div id="youtube-url-overlay"></div>
       <div id="dialog-overlay"></div>
@@ -198,6 +199,7 @@ describe('initOverlayObservers — modal stack', () => {
     await flushObservers();
     expect(isInert('hdr')).toBe(true);
     expect(isInert('non-modal')).toBe(true);
+    expect(isInert('demo-overlay')).toBe(true);
     expect(isInert('dialog-overlay')).toBe(true);
     expect(isInert('setup-overlay')).toBe(false);
   });
@@ -221,6 +223,28 @@ describe('initOverlayObservers — modal stack', () => {
     syncOverlayState();
 
     expect(isInert('setup-overlay')).toBe(true);
+    expect(isInert('dialog-overlay')).toBe(false);
+    expect(isInert('hdr')).toBe(true);
+  });
+
+  it('keeps dialog interactive over the demo overlay', async () => {
+    document.getElementById('demo-overlay')!.classList.add('active');
+    await flushObservers();
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    await flushObservers();
+
+    expect(isInert('demo-overlay')).toBe(true);
+    expect(isInert('dialog-overlay')).toBe(false);
+    expect(isInert('hdr')).toBe(true);
+  });
+
+  it('keeps dialog interactive if demo overlay re-syncs after the dialog opens', async () => {
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    await flushObservers();
+    document.getElementById('demo-overlay')!.classList.add('active');
+    await flushObservers();
+
+    expect(isInert('demo-overlay')).toBe(true);
     expect(isInert('dialog-overlay')).toBe(false);
     expect(isInert('hdr')).toBe(true);
   });

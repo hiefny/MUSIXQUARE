@@ -32,6 +32,8 @@ const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
 const YOUTUBE_SEARCH_CACHE_MAX = 25;
 const YOUTUBE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
+const YOUTUBE_SEARCH_MARQUEE_TIMER = 'youtube-search-selected-marquee';
+const YOUTUBE_SEARCH_MARQUEE_RESIZE_TIMER = 'youtube-search-selected-marquee-resize';
 
 export type YouTubeInputKind =
   | 'empty'
@@ -63,6 +65,8 @@ interface YouTubeSearchErrorPayload {
   reason?: string;
   message?: string;
 }
+
+let _searchMarqueeResizeBound = false;
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
@@ -375,6 +379,8 @@ function hidePreviewCard(): void {
 }
 
 function clearSearchResults(): void {
+  clearManagedTimer(YOUTUBE_SEARCH_MARQUEE_TIMER);
+  clearManagedTimer(YOUTUBE_SEARCH_MARQUEE_RESIZE_TIMER);
   _selectedSearchResult = null;
   _selectedSearchQuery = '';
   const resultsEl = getSearchResultsContainer();
@@ -383,6 +389,71 @@ function clearSearchResults(): void {
     resultsEl.replaceChildren();
     resultsEl.classList.remove('can-scroll-up', 'can-scroll-down');
     scheduleSearchScrollbarRelayout();
+  }
+}
+
+function resetSearchMarquee(scope: ParentNode): void {
+  for (const el of Array.from(
+    scope.querySelectorAll('.yt-search-title.marquee, .yt-search-channel.marquee'),
+  ) as HTMLElement[]) {
+    el.classList.remove('marquee');
+    el.style.removeProperty('--marquee-offset');
+    el.style.removeProperty('--marquee-duration');
+    el.style.removeProperty('animation');
+  }
+}
+
+function applySearchMarquee(el: HTMLElement): void {
+  el.classList.remove('marquee');
+  el.style.animation = 'none';
+  el.style.removeProperty('--marquee-offset');
+  el.style.removeProperty('--marquee-duration');
+
+  const overflowWidth = el.scrollWidth - el.clientWidth;
+  if (overflowWidth <= 1) {
+    el.style.removeProperty('animation');
+    return;
+  }
+
+  const targetOffset = -overflowWidth;
+  const speed = 40;
+  const travelDuration = Math.abs(targetOffset) / speed;
+  const totalDuration = travelDuration * 2 + 4;
+
+  el.classList.add('marquee');
+  el.style.setProperty('--marquee-offset', `${targetOffset}px`);
+  el.style.setProperty('--marquee-duration', `${totalDuration}s`);
+  el.style.animation = '';
+}
+
+function refreshSelectedSearchMarquee(): void {
+  const resultsEl = getSearchResultsContainer();
+  if (!resultsEl || resultsEl.hidden) return;
+
+  resetSearchMarquee(resultsEl);
+
+  const selected = resultsEl.querySelector<HTMLElement>('.yt-search-result.selected');
+  if (!selected) return;
+
+  for (const el of Array.from(
+    selected.querySelectorAll<HTMLElement>('.yt-search-title, .yt-search-channel'),
+  )) {
+    applySearchMarquee(el);
+  }
+}
+
+function scheduleSelectedSearchMarquee(): void {
+  setManagedTimer(
+    YOUTUBE_SEARCH_MARQUEE_TIMER,
+    () => requestAnimationFrame(refreshSelectedSearchMarquee),
+    30,
+  );
+
+  if (!_searchMarqueeResizeBound) {
+    _searchMarqueeResizeBound = true;
+    window.addEventListener('resize', () => {
+      setManagedTimer(YOUTUBE_SEARCH_MARQUEE_RESIZE_TIMER, refreshSelectedSearchMarquee, 160);
+    });
   }
 }
 
@@ -406,6 +477,7 @@ function selectSearchResult(result: YouTubeSearchResult, query: string): void {
     }
   }
 
+  scheduleSelectedSearchMarquee();
   setStatus('youtube.search_selected');
   setYouTubePrimaryButton(true);
 }
@@ -419,13 +491,18 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
   bindSearchScrollMask();
   scheduleSearchScrollbarRelayout();
 
-  for (const result of results) {
+  results.forEach((result, index) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'yt-search-result';
     btn.dataset.videoId = result.videoId;
     btn.setAttribute('role', 'option');
     btn.setAttribute('aria-selected', 'false');
+
+    const resultIndex = document.createElement('span');
+    resultIndex.className = 'yt-search-index';
+    resultIndex.setAttribute('aria-hidden', 'true');
+    resultIndex.textContent = String(index + 1);
 
     const thumb = document.createElement('img');
     thumb.className = 'yt-search-thumb';
@@ -445,10 +522,10 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
     channel.textContent = result.channelTitle || 'YouTube';
 
     meta.append(title, channel);
-    btn.append(thumb, meta);
+    btn.append(resultIndex, thumb, meta);
     btn.addEventListener('click', () => selectSearchResult(result, query));
     resultsEl.appendChild(btn);
-  }
+  });
 
   if (results.length > 0) {
     selectSearchResult(results[0], query);

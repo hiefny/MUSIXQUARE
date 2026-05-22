@@ -7324,7 +7324,7 @@ html:not(.ios-standalone) body {
   min-height: 56px;
   max-height: 56px;
   display: grid;
-  grid-template-columns: 24px 100px minmax(0, 1fr) 28px;
+  grid-template-columns: 24px 100px minmax(0, 1fr);
   gap: 16px;
   align-items: center;
   border: none;
@@ -7384,28 +7384,6 @@ html:not(.ios-standalone) body {
   color: var(--primary);
 }
 
-.yt-search-forward {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  color: var(--primary);
-  opacity: 0;
-  transition:
-    opacity 0.16s ease,
-    transform 0.16s ease;
-}
-
-.yt-search-forward svg {
-  width: 20px;
-  height: 20px;
-  fill: currentColor;
-}
-
-.yt-search-result.selected .yt-search-forward {
-  opacity: 1;
-}
-
 .yt-search-result:active {
   transform: scale(0.99);
 }
@@ -7414,9 +7392,9 @@ html:not(.ios-standalone) body {
   display: block;
   width: 100px;
   min-width: 100px;
-  height: 54px;
-  min-height: 54px;
-  max-height: 54px;
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
   border-radius: 10px;
   object-fit: cover;
   background: #000;

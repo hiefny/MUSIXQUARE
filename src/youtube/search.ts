@@ -521,14 +521,8 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
     channel.className = 'yt-search-channel';
     channel.textContent = result.channelTitle || 'YouTube';
 
-    const forward = document.createElement('span');
-    forward.className = 'yt-search-forward';
-    forward.setAttribute('aria-hidden', 'true');
-    forward.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8-8-8z"/></svg>';
-
     meta.append(title, channel);
-    btn.append(resultIndex, thumb, meta, forward);
+    btn.append(resultIndex, thumb, meta);
     btn.addEventListener('click', () => selectSearchResult(result, query));
     resultsEl.appendChild(btn);
   });

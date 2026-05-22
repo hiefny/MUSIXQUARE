@@ -463,7 +463,7 @@ const en: Record<I18nKey, string> = {
   'toast.yt_host_sync_sent': 'Auto-sync signal sent to guests',
   'toast.yt_manual_sync_prompt':
     'Automatic sync was just attempted.\nIf it still feels delayed, adjust the value now',
-  'toast.playlist_ended': 'Last track has ended',
+  'toast.playlist_ended': 'Last media has ended',
   'toast.operator_required': 'Only admin can change audio settings',
   'toast.connection_closing': 'Connection lost, setting not synced',
   'toast.host_changed_setting': 'Settings were changed',
@@ -594,7 +594,7 @@ const en: Record<I18nKey, string> = {
     'Set the role for each device.<br>Play left and right audio separately<br>and feel the deep bass in woofer.',
   'setup.advanced_audio_desc_html':
     "Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.",
-  'youtube.enter_link_desc_html': 'Only public videos or playlists can be watched.',
+  'youtube.enter_link_desc_html': 'Only public videos can be watched.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'System Audio',

@@ -462,7 +462,7 @@ const ko = {
   'toast.yt_host_sync_sent': '자동 동기화 신호를 보냈어요',
   'toast.yt_manual_sync_prompt':
     '방금 자동 동기화를 시도했어요.\n여전히 지연이 있으면 지금 값을 수정해주세요',
-  'toast.playlist_ended': '마지막 곡이 끝났어요',
+  'toast.playlist_ended': '마지막 미디어가 끝났어요',
   'toast.operator_required': '관리자만 오디오 설정을 변경할 수 있어요',
   'toast.connection_closing': '연결 끊김, 설정이 동기화되지 않았어요',
   'toast.host_changed_setting': '설정이 변경되었어요',
@@ -591,7 +591,7 @@ const ko = {
     '각 기기의 역할을 설정해 보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한 저음을 느껴보세요.',
   'setup.advanced_audio_desc_html':
     '방장의 설정에 맞추어<br>리버브, 이퀄라이저, 가상 효과 등<br>고급 효과를 시스템에 적용할 수 있어요.',
-  'youtube.enter_link_desc_html': '공개된 영상이나 플레이리스트만 볼 수 있어요',
+  'youtube.enter_link_desc_html': '공개된 영상만 볼 수 있어요',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': '시스템 오디오 공유',

@@ -49,7 +49,7 @@ const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: 
 };
 
 const ROLE_CLOCK_SECOND_MS = 1000;
-const ROLE_CLOCK_PULSE_WINDOW_MS = 120;
+const ROLE_CLOCK_PULSE_WINDOW_MS = 100;
 const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
 const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
 let _ytPlayButtonLoading = false;

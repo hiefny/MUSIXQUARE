@@ -5959,6 +5959,49 @@
     transform: scale(0.97);
   }
 
+  /* Touch browsers can keep :hover latched after a tap until the next
+     unrelated tap. Keep hover lift/color only for real hover devices; touch
+     still gets the :active pressed state above while the finger is down. */
+  @media (hover: none), (pointer: coarse) {
+    .file-select-btn:hover:not(:active) {
+      background: var(--surface-2);
+      color: var(--text-sub);
+      transform: none;
+      box-shadow: none;
+    }
+
+    #media-source-overlay .file-select-btn-large:hover:not(:active),
+    .btn-copy-invite-link:hover:not(:active),
+    #btn-sync:hover:not(:active),
+    #btn-media-source:hover:not(:active) {
+      background: var(--surface-2);
+      transform: none;
+      box-shadow: none;
+    }
+
+    .file-select-btn:hover:not(:active) .btn-icon-bg {
+      background: transparent;
+      color: var(--text-main);
+    }
+
+    .file-select-btn:hover:not(:active) .btn-icon-bg.youtube {
+      color: #ff0033;
+    }
+
+    body.mode-system-audio #btn-media-source:not(.sys-audio-guest):hover:not(:active) {
+      background: rgba(255, 59, 48, 0.08) !important;
+    }
+
+    [data-theme='light'] .chat-preview-btn:hover:not(:active),
+    [data-theme='light'] .file-select-btn:hover:not(:active) {
+      background: #ffffff;
+    }
+
+    [data-theme='light'] .btn-copy-invite-link:hover:not(:active) {
+      background: var(--surface-2);
+    }
+  }
+
   /* Animation for media play button hint */
   .blink-hint {
     animation: blink-primary-light 0.8s step-end 3;

@@ -7345,7 +7345,7 @@ html:not(.ios-standalone) body {
 .yt-search-thumb {
   width: 84px;
   aspect-ratio: 16 / 9;
-  border-radius: 10px;
+  border-radius: 12px;
   object-fit: cover;
   background: #000;
 }

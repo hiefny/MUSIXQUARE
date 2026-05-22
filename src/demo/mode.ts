@@ -871,6 +871,12 @@ function isDemoPlaying(): boolean {
 
 function syncPlayButton(): void {
   const playing = isDemoPlaying();
+  const loading = !!getState('demo.loading');
+  document.querySelectorAll<HTMLButtonElement>('[data-demo-play]').forEach((button) => {
+    button.classList.toggle('is-loading', loading);
+    button.setAttribute('aria-busy', loading ? 'true' : 'false');
+    button.setAttribute('aria-disabled', loading ? 'true' : 'false');
+  });
   document.querySelectorAll<HTMLElement>('[data-demo-play-icon]').forEach((path) => {
     path.setAttribute('d', playing ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z');
   });
@@ -1076,6 +1082,7 @@ function toggleDemoSurround(): void {
 
 function toggleDemoPlay(): void {
   if (!getState('demo.active')) return;
+  if (getState('demo.loading')) return;
   if (getState('network.hostConn')) {
     showToast(t('demo.host_only_exit'));
     return;
@@ -1255,6 +1262,7 @@ export function initDemoMode(): void {
   _busScope.on('state:demo.bassBoostOn', () => syncEffectButtons());
   _busScope.on('state:demo.trebleBoostOn', () => syncEffectButtons());
   _busScope.on('state:demo.surroundOn', () => syncEffectButtons());
+  _busScope.on('state:demo.loading', () => syncPlayButton());
   _busScope.on('state:audio.reverbMix', () => scheduleDemoEffectStateSync());
   _busScope.on('state:audio.virtualBass', () => scheduleDemoEffectStateSync());
   _busScope.on('state:audio.eqValues', () => scheduleDemoEffectStateSync());

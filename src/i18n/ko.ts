@@ -470,7 +470,7 @@ const ko = {
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': '서버에서 데모 음원 로딩 중...',
-  'transfer.demo_loaded': '데모 음원 로드 완료.\n재생할게요.',
+  'transfer.demo_loaded': '데모 트랙 준비 완료.',
   'transfer.demo_load_fail': '데모 로드 실패:',
   'transfer.demo_loading_short': '데모 음원 로딩 중...',
   'transfer.file_requesting': '파일 요청 중...',

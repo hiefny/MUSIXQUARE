@@ -471,7 +471,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': 'Loading demo track from server...',
-  'transfer.demo_loaded': 'Demo track loaded.\nStarting playback.',
+  'transfer.demo_loaded': 'Demo track ready.',
   'transfer.demo_load_fail': 'Demo load failed:',
   'transfer.demo_loading_short': 'Loading demo track...',
   'transfer.file_requesting': 'Requesting file...',

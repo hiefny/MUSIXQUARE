@@ -1502,9 +1502,11 @@
     transition: all 0.2s;
   }
 
-  .sub-track-item:hover {
-    background: var(--surface-2);
-    color: var(--text-main);
+  @media (hover: hover) {
+    .sub-track-item:hover {
+      background: var(--surface-2);
+      color: var(--text-main);
+    }
   }
 
   .sub-track-item.active {
@@ -1548,9 +1550,11 @@
     border: none;
   }
 
-  .expand-toggle:hover {
-    background: var(--surface-3);
-    color: var(--text-main);
+  @media (hover: hover) {
+    .expand-toggle:hover {
+      background: var(--surface-3);
+      color: var(--text-main);
+    }
   }
 
   .expand-toggle svg {
@@ -1601,9 +1605,11 @@
     opacity: 0.75;
   }
 
-  .btn-playlist-remove:hover {
-    opacity: 1;
-    color: #ff4d4f;
+  @media (hover: hover) {
+    .btn-playlist-remove:hover {
+      opacity: 1;
+      color: #ff4d4f;
+    }
   }
 
   .section-group {
@@ -1659,9 +1665,14 @@
     transition: color 0.15s ease;
   }
 
-  .slot-guide-btn:hover,
   .slot-guide-btn:focus-visible {
     color: var(--text-main);
+  }
+
+  @media (hover: hover) {
+    .slot-guide-btn:hover {
+      color: var(--text-main);
+    }
   }
 
   .slot-guide-btn svg {
@@ -1780,10 +1791,16 @@
     fill: currentColor;
   }
 
-  .room-password-refresh:not(:disabled):hover,
   .room-password-refresh:not(:disabled):focus-visible {
     background: var(--surface-2);
     color: var(--text-main);
+  }
+
+  @media (hover: hover) {
+    .room-password-refresh:not(:disabled):hover {
+      background: var(--surface-2);
+      color: var(--text-main);
+    }
   }
 
   .room-password-refresh:not(:disabled):active {
@@ -2280,8 +2297,10 @@
       transform 0.2s;
   }
 
-  .rename-device-btn:hover {
-    background: rgba(0, 122, 255, 0.12);
+  @media (hover: hover) {
+    .rename-device-btn:hover {
+      background: rgba(0, 122, 255, 0.12);
+    }
   }
 
   .rename-device-btn:active {
@@ -2316,8 +2335,10 @@
       transform 0.2s;
   }
 
-  .leave-session-btn:hover {
-    background: rgba(255, 59, 48, 0.12);
+  @media (hover: hover) {
+    .leave-session-btn:hover {
+      background: rgba(255, 59, 48, 0.12);
+    }
   }
 
   .leave-session-btn:active {
@@ -3364,9 +3385,11 @@
     flex-shrink: 0;
   }
 
-  .ob-nav-arrow:hover {
-    color: var(--primary);
-    background: rgba(var(--primary-rgb, 0, 122, 255), 0.08);
+  @media (hover: hover) {
+    .ob-nav-arrow:hover {
+      color: var(--primary);
+      background: rgba(var(--primary-rgb, 0, 122, 255), 0.08);
+    }
   }
 
   .ob-nav-arrow:active {
@@ -3743,12 +3766,14 @@
     margin-bottom: 8px;
   }
 
-  .btn-ob-primary:hover {
-    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
-  }
+  @media (hover: hover) {
+    .btn-ob-primary:hover {
+      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
+    }
 
-  .btn-ob-secondary:hover {
-    background: var(--surface-3);
+    .btn-ob-secondary:hover {
+      background: var(--surface-3);
+    }
   }
 
   .btn-ob-primary:active,
@@ -3806,8 +3831,10 @@
       opacity var(--role-diagram-duration) var(--role-diagram-ease);
   }
 
-  .graphic-speaker:hover {
-    stroke: var(--text-main);
+  @media (hover: hover) {
+    .graphic-speaker:hover {
+      stroke: var(--text-main);
+    }
   }
 
   .graphic-speaker.active {
@@ -4105,9 +4132,14 @@
     transition: background 0.1s;
   }
 
-  .chat-cmd-item:hover,
   .chat-cmd-item.active {
     background: var(--surface-2);
+  }
+
+  @media (hover: hover) {
+    .chat-cmd-item:hover {
+      background: var(--surface-2);
+    }
   }
 
   .chat-cmd-usage {
@@ -4277,8 +4309,10 @@
     padding: 4px 10px;
   }
 
-  .chat-preview-btn:hover {
-    background: var(--surface-3);
+  @media (hover: hover) {
+    .chat-preview-btn:hover {
+      background: var(--surface-3);
+    }
   }
 
   .chat-preview-btn:active {
@@ -4589,9 +4623,11 @@
     transform: translate(-50%, 0);
   }
 
-  .chat-scroll-down-btn:hover {
-    background-color: var(--surface-2);
-    box-shadow: none;
+  @media (hover: hover) {
+    .chat-scroll-down-btn:hover {
+      background-color: var(--surface-2);
+      box-shadow: none;
+    }
   }
 
   .chat-scroll-down-btn:active {
@@ -4628,8 +4664,10 @@
     will-change: transform;
   }
 
-  .cscroll-thumb:hover {
-    background-color: var(--scrollbar-thumb-hover);
+  @media (hover: hover) {
+    .cscroll-thumb:hover {
+      background-color: var(--scrollbar-thumb-hover);
+    }
   }
 
   .cscroll-thumb:active {
@@ -6367,9 +6405,11 @@
         color 0.15s !important;
     }
 
-    #media-source-overlay #btn-close-media-popup:hover {
-      background: var(--surface-3) !important;
-      color: var(--text-main) !important;
+    @media (hover: hover) {
+      #media-source-overlay #btn-close-media-popup:hover {
+        background: var(--surface-3) !important;
+        color: var(--text-main) !important;
+      }
     }
 
     #media-source-overlay #btn-close-media-popup::after {
@@ -7193,10 +7233,16 @@ html:not(.ios-standalone) body {
     transform 0.16s ease;
 }
 
-.yt-search-result:hover,
 .yt-search-result:focus-visible {
   background: var(--surface-3);
   outline: none;
+}
+
+@media (hover: hover) {
+  .yt-search-result:hover {
+    background: var(--surface-3);
+    outline: none;
+  }
 }
 
 .yt-search-result.selected {

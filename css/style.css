@@ -4393,15 +4393,19 @@
   }
 
   .chat-preview-icon {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     fill: var(--text-sub);
     flex-shrink: 0;
-    transform: translateY(2px);
   }
 
   .chat-icon-wrapper {
     position: relative;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
   }
 
@@ -6027,7 +6031,8 @@
   #btn-media-source {
     height: 56px;
     padding: 0 20px;
-    font-size: 14px;
+    border: none;
+    font-size: 15px;
     gap: 12px;
     display: flex;
     align-items: center;

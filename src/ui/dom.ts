@@ -219,41 +219,6 @@ export function initOverlayObservers(): void {
   syncOverlayState();
 }
 
-let _inputModalityInitialized = false;
-
-export function initInputModalityClass(): void {
-  if (_inputModalityInitialized) return;
-  _inputModalityInitialized = true;
-
-  const root = document.documentElement;
-  const setTouch = () => {
-    root.classList.add('input-touch');
-    root.classList.remove('input-mouse');
-  };
-  const setMouse = () => {
-    root.classList.add('input-mouse');
-    root.classList.remove('input-touch');
-  };
-
-  window.addEventListener(
-    'pointerdown',
-    (e) => {
-      if (e.pointerType === 'touch' || e.pointerType === 'pen') setTouch();
-      else if (e.pointerType === 'mouse') setMouse();
-    },
-    { passive: true },
-  );
-  window.addEventListener(
-    'pointermove',
-    (e) => {
-      if (e.pointerType === 'mouse') setMouse();
-    },
-    { passive: true },
-  );
-  window.addEventListener('touchstart', setTouch, { passive: true });
-  window.addEventListener('mousemove', setMouse, { passive: true });
-}
-
 const _ESCAPE_HTML_RE = /[&<>"']/;
 const _ESCAPE_HTML_RE_G = /[&<>"']/g;
 const _ESCAPE_HTML_MAP: Record<string, string> = {

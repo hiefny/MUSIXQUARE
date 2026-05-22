@@ -3961,7 +3961,7 @@
     max-width: 100%;
     min-width: 0;
     padding: 10px 14px;
-    border-radius: 14px;
+    border-radius: var(--radius-m);
     font-size: 14px;
     line-height: 1.4;
     overflow-wrap: anywhere;
@@ -3994,7 +3994,7 @@
   /* Mine: last bubble in group — top-right sharp, bottom-right round (restore) */
   .chat-group .chat-row + .chat-row:last-child .chat-bubble.mine {
     border-top-right-radius: 4px;
-    border-bottom-right-radius: 14px;
+    border-bottom-right-radius: var(--radius-m);
   }
 
   /* Others: middle bubbles — both left corners sharp */
@@ -4006,7 +4006,7 @@
   /* Others: last bubble in group — top-left sharp, bottom-left round (restore) */
   .chat-group .chat-row + .chat-row:last-child .chat-bubble.others {
     border-top-left-radius: 4px;
-    border-bottom-left-radius: 14px;
+    border-bottom-left-radius: var(--radius-m);
   }
 
   /* ── Grouped YouTube Bubble Tail Logic ───────────────────────── */

@@ -7462,10 +7462,10 @@ html:not(.ios-standalone) body {
   pointer-events: none;
 }
 
-/* Global button shape policy: card-like choice buttons, navigation tabs, and
-   underline-style subtabs keep their framed shape; every other real button
-   uses a pill/capsule hit surface. */
-button:not(.ch-opt):not(.nav-item):not(.subtab-pill) {
+/* Global button shape policy: card-like choice buttons, navigation tabs,
+   underline-style subtabs, and segmented-control pieces keep their framed
+   shape; every other real button uses a pill/capsule hit surface. */
+button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]) {
   border-radius: 999px !important;
 }
 
@@ -7474,6 +7474,10 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill) {
 }
 
 .settings-subtab-nav > button.subtab-pill {
+  border-radius: 0 !important;
+}
+
+.demo-role-segmented.demo-role-segmented > button[data-demo-role][data-demo-role] {
   border-radius: 0 !important;
 }
 

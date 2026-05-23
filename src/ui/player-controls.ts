@@ -1083,7 +1083,7 @@ export function initPlayerControls(): void {
 
   // ── Tab Title Marquee ───────────────────────────────────────────
 
-  const DEFAULT_TITLE = 'MUSIXQUARE - 뮤직스퀘어';
+  const DEFAULT_TITLE = 'MUSIXQUARE · 뮤직스퀘어';
   const MARQUEE_PAUSE_START = 3; // 3s pause at start
   const MARQUEE_PAUSE_END = 1; // 1s pause at end
   let _tabTitleTrack = '';
@@ -1106,11 +1106,11 @@ export function initPlayerControls(): void {
         const name = _tabTitleTrack || 'MUSIXQUARE';
         if (playback.activity === 'paused') {
           stopTabTitleMarquee();
-          document.title = `${name} | MUSIXQUARE`;
+          document.title = `${name} · MUSIXQUARE`;
           return;
         }
 
-        const suffix = ' | MUSIXQUARE';
+        const suffix = ' · MUSIXQUARE';
         const full = name + suffix;
 
         // Phase 1: start pause (3s)
@@ -1121,7 +1121,7 @@ export function initPlayerControls(): void {
         }
 
         // Phase 3: end pause (1s)
-        const maxScroll = name.length + 3; // " | " length
+        const maxScroll = name.length + 3; // " · " length
         if (scrollPos >= maxScroll) {
           if (endPause < MARQUEE_PAUSE_END) {
             document.title = 'MUSIXQUARE';
@@ -1151,7 +1151,7 @@ export function initPlayerControls(): void {
 
   function stopTabTitleMarquee(): void {
     clearManagedTimer('tab-title-marquee');
-    document.title = _tabTitleTrack ? `${_tabTitleTrack} | MUSIXQUARE` : DEFAULT_TITLE;
+    document.title = _tabTitleTrack ? `${_tabTitleTrack} · MUSIXQUARE` : DEFAULT_TITLE;
   }
 
   _busScope.on('state:player.currentTrackMeta', () => {
@@ -1189,7 +1189,7 @@ export function initPlayerControls(): void {
     } else {
       stopTabTitleMarquee();
       const name = _tabTitleTrack || 'MUSIXQUARE';
-      document.title = `${name} | MUSIXQUARE`;
+      document.title = `${name} · MUSIXQUARE`;
     }
   });
 

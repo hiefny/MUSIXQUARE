@@ -74,14 +74,33 @@ export function preventIOSPinchZoom(): void {
  * instant if the user types right after rotating.
  */
 const KB_DETECTION_LOCK_MS = 1000;
+const IOS_STANDALONE_TOP_FALLBACK_PX = 24;
 
 let _appHeightRaf = 0;
 let _lastSoftKeyHeight = 0;
 let _platformClassesApplied = false;
 let _iosViewportProbe: HTMLDivElement | null = null;
+let _iosSafeAreaProbe: HTMLDivElement | null = null;
 let _stableViewportHeight = 0;
 let _keyboardFreezeUntil = 0;
 let _kbDetectionLockedUntil = 0;
+
+function readIosSafeAreaTop(): number {
+  try {
+    if (!_iosSafeAreaProbe && document.body) {
+      _iosSafeAreaProbe = document.createElement('div');
+      _iosSafeAreaProbe.style.cssText =
+        'position:fixed;top:0;left:0;width:0;height:0;padding-top:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none';
+      document.body.appendChild(_iosSafeAreaProbe);
+    }
+    if (!_iosSafeAreaProbe) return 0;
+    const value = parseFloat(getComputedStyle(_iosSafeAreaProbe).paddingTop);
+    return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  } catch (e) {
+    log.debug('[Platform] iOS safe-area probe failed:', e);
+    return 0;
+  }
+}
 
 function updateAppHeightNow(): void {
   const root = document.documentElement;
@@ -107,6 +126,14 @@ function updateAppHeightNow(): void {
     isLandscape = !!window.matchMedia?.('(orientation: landscape)').matches;
   } catch {
     isLandscape = window.innerWidth > window.innerHeight;
+  }
+
+  const iosStandaloneTopFallback =
+    IS_IOS && isStandalone && readIosSafeAreaTop() === 0 ? IOS_STANDALONE_TOP_FALLBACK_PX : 0;
+  try {
+    root.style.setProperty('--ios-pwa-top-fallback', `${iosStandaloneTopFallback}px`);
+  } catch (e) {
+    log.debug('[Platform] --ios-pwa-top-fallback set failed:', e);
   }
 
   // Collect all available height signals
@@ -290,9 +317,13 @@ function updateAppHeightNow(): void {
     } catch (e) {
       log.debug('[Platform] removeProperty failed:', e);
     }
-    if (h > 0 && !shouldFreezeAppHeight) {
+    const appH =
+      IS_IOS && isStandalone && isLandscape && iosStandaloneTopFallback > 0
+        ? h + iosStandaloneTopFallback
+        : h;
+    if (appH > 0 && !shouldFreezeAppHeight) {
       try {
-        root.style.setProperty('--app-height', `${h}px`);
+        root.style.setProperty('--app-height', `${appH}px`);
       } catch (e) {
         log.debug('[Platform] --app-height set failed:', e);
       }

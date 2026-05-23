@@ -18,8 +18,11 @@
     --text-main: #eeeeee;
     --text-sub: #a1a1aa;
     --text-muted: #71717a;
-    --range-fill-idle: rgba(161, 161, 170, 0.75);
-    --range-fill-active: #a1a1aa;
+    --range-fill-idle: rgba(238, 238, 238, 0.75);
+    --range-fill-active: var(--text-main);
+    --play-fab-bg-idle: rgba(238, 238, 238, 0.9);
+    --play-fab-bg-active: var(--text-main);
+    --play-fab-bg-disabled: rgba(238, 238, 238, 0.2);
 
     --radius-l: 32px;
     --radius-m: 20px;
@@ -75,8 +78,11 @@
     /* Darker grey for legibility */
     --text-muted: #868e96;
     /* Darker grey for legibility */
-    --range-fill-idle: rgba(73, 80, 87, 0.75);
-    --range-fill-active: #495057;
+    --range-fill-idle: rgba(48, 53, 64, 0.75);
+    --range-fill-active: var(--text-main);
+    --play-fab-bg-idle: rgba(48, 53, 64, 0.9);
+    --play-fab-bg-active: var(--text-main);
+    --play-fab-bg-disabled: rgba(48, 53, 64, 0.2);
 
     --glass-bg: var(--surface-1);
     --glass-border: rgba(0, 0, 0, 0.06);
@@ -1381,7 +1387,7 @@
     width: 64px;
     height: 64px;
     border-radius: 50%;
-    background: var(--text-sub);
+    background: var(--play-fab-bg-idle);
     color: var(--bg);
     border: none;
     display: flex;
@@ -1390,7 +1396,8 @@
     transition: transform 0.2s;
   }
 
-  .play-fab:active {
+  .play-fab:not([aria-disabled='true']):active {
+    background: var(--play-fab-bg-active);
     transform: scale(0.92);
   }
 
@@ -1399,7 +1406,8 @@
        visually it reads as disabled. Real `disabled` would suppress
        the click event entirely. */
   .play-fab[aria-disabled='true'] {
-    opacity: 0.4;
+    background: var(--play-fab-bg-disabled);
+    opacity: 1;
     cursor: not-allowed;
   }
 

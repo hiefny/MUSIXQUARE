@@ -467,6 +467,10 @@ function cmdDebug(args: string[]): void {
     cmdDebugMemory();
     return;
   }
+  if (sub === 'screen' || sub === 'viewport' || sub === 'vp') {
+    cmdDebugScreen();
+    return;
+  }
 
   const lines: string[] = ['SYSTEM DEBUG INFO'];
 
@@ -625,6 +629,257 @@ function cmdDebug(args: string[]): void {
 //   - Preload (reorder buffer + sessionState + ackSent)
 //   - Network (peer connections)
 //   - Lifecycle (state machine + recovery target)
+// /debug screen: local-only live viewport/PWA diagnostics.
+interface ScreenDebugSession {
+  overlay: HTMLElement;
+  pre: HTMLPreElement;
+  cleanup: () => void;
+}
+
+let _activeScreenDebugSession: ScreenDebugSession | null = null;
+const DEBUG_SCREEN_TIMER = 'debug-screen-poll';
+const DEBUG_SCREEN_POLL_INTERVAL_MS = 1000;
+
+function cmdDebugScreen(): void {
+  stopDebugScreenSession();
+  stopDebugMemorySession();
+
+  const existing = document.getElementById('debug-screen-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'debug-screen-overlay';
+  overlay.className = 'debug-memory-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-label', 'Debug screen live overlay');
+
+  const pre = document.createElement('pre');
+  pre.className = 'debug-memory-content';
+  overlay.appendChild(pre);
+
+  const hint = document.createElement('div');
+  hint.className = 'debug-memory-hint';
+  hint.textContent = 'tap to close | live 1s | copied once';
+  overlay.appendChild(hint);
+
+  let latestText = '';
+
+  const refresh = (): void => {
+    latestText = collectScreenDebugText();
+    pre.textContent = latestText;
+  };
+
+  const close = (): void => stopDebugScreenSession();
+
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  };
+
+  const cleanup = (): void => {
+    clearManagedTimer(DEBUG_SCREEN_TIMER);
+    document.removeEventListener('keydown', onKey);
+    window.removeEventListener('resize', refresh);
+    window.visualViewport?.removeEventListener('resize', refresh);
+    window.visualViewport?.removeEventListener('scroll', refresh);
+    if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+  };
+
+  overlay.addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+  window.addEventListener('resize', refresh, { passive: true });
+  window.visualViewport?.addEventListener('resize', refresh, { passive: true });
+  window.visualViewport?.addEventListener('scroll', refresh, { passive: true });
+
+  _activeScreenDebugSession = { overlay, pre, cleanup };
+  document.body.appendChild(overlay);
+  refresh();
+
+  setManagedTimer(DEBUG_SCREEN_TIMER, refresh, DEBUG_SCREEN_POLL_INTERVAL_MS, { interval: true });
+
+  try {
+    navigator.clipboard
+      .writeText(latestText)
+      .then(() => showToast(t('chat.debug_copied')))
+      .catch(() => {
+        /* clipboard not available */
+      });
+  } catch {
+    /* ignore */
+  }
+}
+
+function stopDebugScreenSession(): void {
+  if (!_activeScreenDebugSession) return;
+  try {
+    _activeScreenDebugSession.cleanup();
+  } catch {
+    /* ignore */
+  }
+  _activeScreenDebugSession = null;
+}
+
+function collectScreenDebugText(): string {
+  const root = document.documentElement;
+  const body = document.body;
+  const vv = window.visualViewport;
+  const ua = navigator.userAgent;
+  const safe = readSafeAreaProbe();
+  const rootRect = root.getBoundingClientRect();
+  const bodyRect = body?.getBoundingClientRect() ?? null;
+  const activeTab = document.querySelector('.tab-content.active');
+  const activeTabRect = activeTab?.getBoundingClientRect() ?? null;
+  const rootStyle = getComputedStyle(root);
+  const bodyStyle = body ? getComputedStyle(body) : null;
+  const activeElement = document.activeElement as HTMLElement | null;
+  const lines: string[] = ['SCREEN / PWA DEBUG'];
+
+  lines.push(`[Time] ${new Date().toISOString()}`);
+  lines.push(`[Browser] ${_parseBrowser(ua)} | ${_parseOS(ua)}`);
+  lines.push(`[UA] ${ua}`);
+  lines.push(
+    `[Mode] display:${getDisplayMode()} | standalone:${fmtBool(isStandaloneLike())} | touch:${fmtBool('ontouchstart' in window)} | dpr:${fmtNum(window.devicePixelRatio, 2)}`,
+  );
+  lines.push(
+    `[Orientation] media:${getOrientationMedia()} | screen:${screen.orientation?.type ?? '-'} @${screen.orientation?.angle ?? '-'}`,
+  );
+  lines.push(
+    `[Window] inner:${fmtSize(window.innerWidth, window.innerHeight)} | outer:${fmtSize(window.outerWidth, window.outerHeight)}`,
+  );
+  lines.push(
+    `[Screen] size:${fmtSize(screen.width, screen.height)} | avail:${fmtSize(screen.availWidth, screen.availHeight)} | colorDepth:${screen.colorDepth}`,
+  );
+  if (vv) {
+    lines.push(
+      `[VisualViewport] size:${fmtSize(vv.width, vv.height)} | offset:${fmtPoint(vv.offsetLeft, vv.offsetTop)} | page:${fmtPoint(vv.pageLeft, vv.pageTop)} | scale:${fmtNum(vv.scale, 3)}`,
+    );
+  } else {
+    lines.push('[VisualViewport] unavailable');
+  }
+  lines.push(
+    `[Document] client:${fmtSize(root.clientWidth, root.clientHeight)} | scroll:${fmtSize(root.scrollWidth, root.scrollHeight)} | bodyClient:${body ? fmtSize(body.clientWidth, body.clientHeight) : '-'}`,
+  );
+  lines.push(
+    `[Scroll] page:${fmtPoint(window.scrollX, window.scrollY)} | root:${fmtPoint(root.scrollLeft, root.scrollTop)} | body:${body ? fmtPoint(body.scrollLeft, body.scrollTop) : '-'}`,
+  );
+  lines.push(
+    `[SafeArea env] top:${safe.top} right:${safe.right} bottom:${safe.bottom} left:${safe.left}`,
+  );
+  lines.push(
+    `[CSS vars] app:${readCssVar('--app-height')} safeTop:${readCssVar('--safe-top')} safeBottom:${readCssVar('--safe-bottom')} navSafe:${readCssVar('--safe-nav-bottom')} kb:${readCssVar('--keyboard-overlap')}`,
+  );
+  lines.push(
+    `[CSS vars] header:${readCssVar('--header-height')} nav:${readCssVar('--nav-height')} right:${readCssVar('--safe-right')} left:${readCssVar('--safe-left')}`,
+  );
+  lines.push(`[Classes] html:${root.className || '-'} | body:${body?.className || '-'}`);
+  lines.push(
+    `[Root style] height:${rootStyle.height} min:${rootStyle.minHeight} max:${rootStyle.maxHeight} overflow:${rootStyle.overflow}`,
+  );
+  if (bodyStyle) {
+    lines.push(
+      `[Body style] height:${bodyStyle.height} min:${bodyStyle.minHeight} max:${bodyStyle.maxHeight} overflow:${bodyStyle.overflow} pos:${bodyStyle.position}`,
+    );
+  }
+  lines.push(
+    `[Bottom gaps] html->inner:${fmtPx(window.innerHeight - rootRect.bottom)} body->inner:${bodyRect ? fmtPx(window.innerHeight - bodyRect.bottom) : '-'} tab->inner:${activeTabRect ? fmtPx(window.innerHeight - activeTabRect.bottom) : '-'}`,
+  );
+  if (vv) {
+    lines.push(
+      `[Bottom gaps@vv] html:${fmtPx(vv.height - rootRect.bottom)} body:${bodyRect ? fmtPx(vv.height - bodyRect.bottom) : '-'} tab:${activeTabRect ? fmtPx(vv.height - activeTabRect.bottom) : '-'}`,
+    );
+  }
+  lines.push('[Rects]');
+  lines.push(`  html ${fmtElement(root)}`);
+  lines.push(`  body ${fmtElement(body)}`);
+  lines.push(`  header ${fmtElement(document.querySelector('header'))}`);
+  lines.push(`  bottomNav ${fmtElement(document.querySelector('.bottom-nav'))}`);
+  lines.push(`  activeTab ${fmtElement(activeTab)}`);
+  lines.push(`  tabBody ${fmtElement(document.querySelector('.tab-content.active .tab-body'))}`);
+  lines.push(`  chatInput ${fmtElement(document.querySelector('#chat-input'))}`);
+  lines.push(`  setup ${fmtElement(document.querySelector('#setup-overlay'))}`);
+  lines.push(`  dialog ${fmtElement(document.querySelector('#dialog-overlay'))}`);
+  lines.push(
+    `[ActiveElement] ${activeElement ? `${activeElement.tagName.toLowerCase()}#${activeElement.id || '-'} .${activeElement.className || '-'}` : '-'}`,
+  );
+
+  return lines.join('\n');
+}
+
+function readSafeAreaProbe(): { top: string; right: string; bottom: string; left: string } {
+  const parent = document.body || document.documentElement;
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    'position:fixed;top:0;left:0;width:0;height:0;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);visibility:hidden;pointer-events:none;';
+  parent.appendChild(probe);
+  const style = getComputedStyle(probe);
+  const safe = {
+    top: style.paddingTop || '0px',
+    right: style.paddingRight || '0px',
+    bottom: style.paddingBottom || '0px',
+    left: style.paddingLeft || '0px',
+  };
+  probe.remove();
+  return safe;
+}
+
+function readCssVar(name: string): string {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || '-';
+}
+
+function getDisplayMode(): string {
+  const modes = ['fullscreen', 'standalone', 'minimal-ui', 'browser'];
+  return modes.find((mode) => window.matchMedia?.(`(display-mode: ${mode})`).matches) || 'unknown';
+}
+
+function isStandaloneLike(): boolean {
+  return (
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    Boolean((navigator as unknown as { standalone?: boolean }).standalone)
+  );
+}
+
+function getOrientationMedia(): string {
+  if (window.matchMedia?.('(orientation: portrait)').matches) return 'portrait';
+  if (window.matchMedia?.('(orientation: landscape)').matches) return 'landscape';
+  return 'unknown';
+}
+
+function fmtNum(value: unknown, digits = 1): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '-';
+}
+
+function fmtPx(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}px` : '-';
+}
+
+function fmtBool(value: unknown): string {
+  return value ? 'yes' : 'no';
+}
+
+function fmtSize(width: unknown, height: unknown): string {
+  return `${fmtNum(width)}x${fmtNum(height)}`;
+}
+
+function fmtPoint(x: unknown, y: unknown): string {
+  return `${fmtNum(x)},${fmtNum(y)}`;
+}
+
+function fmtElement(el: Element | null | undefined): string {
+  if (!el) return '-';
+  const rect = el.getBoundingClientRect();
+  const style = getComputedStyle(el);
+  const id = el.id ? `#${el.id}` : '';
+  const cls = typeof el.className === 'string' && el.className ? `.${el.className}` : '';
+  return `${el.tagName.toLowerCase()}${id}${cls} rect:${fmtRect(rect)} disp:${style.display} pos:${style.position} overflow:${style.overflow} h:${style.height} max:${style.maxHeight} padT/B:${style.paddingTop}/${style.paddingBottom}`;
+}
+
+function fmtRect(rect: DOMRect): string {
+  return `x:${fmtPx(rect.x)} y:${fmtPx(rect.y)} w:${fmtPx(rect.width)} h:${fmtPx(rect.height)} b:${fmtPx(rect.bottom)}`;
+}
+
 interface MemSnapshot {
   lines: string[];
   /** usedJSHeapSize in MB (Chromium only — null on Safari/iOS). */

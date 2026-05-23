@@ -262,22 +262,37 @@ function updateAppHeightNow(): void {
     (root.classList.contains('keyboard-open') ||
       (_keyboardFreezeUntil > 0 && Date.now() < _keyboardFreezeUntil));
 
-  // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
-  // on iOS standalone. Use the largest available height signal and set html
-  // element height directly. screen.height (hardware constant) is included as
-  // a stable fallback — innerHeight / visualViewport.height can report shorter
-  // values during cold-start before the viewport fully stabilises.
-  if (IS_IOS && isStandalone && !isLandscape) {
+  // iOS PWA: visualViewport.height can exclude standalone chrome/safe-area
+  // affordances while innerHeight still describes the usable app viewport.
+  // Use the larger runtime signal so landscape iPad PWAs do not leave a
+  // bottom strip equal to the resize/home affordance. Portrait keeps the
+  // historical screen.height fallback because iOS standalone can under-report
+  // the top safe area during cold start.
+  if (IS_IOS && isStandalone) {
     const ih = Number.isFinite(window.innerHeight) ? Math.round(window.innerHeight) : 0;
     const vvH = vv && Number.isFinite(vv.height) ? Math.round(vv.height) : 0;
+    const rootH =
+      !isLandscape && root && Number.isFinite(root.clientHeight) && root.clientHeight > 0
+        ? Math.round(root.clientHeight)
+        : 0;
     const scrH =
-      window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0
+      !isLandscape &&
+      window.screen &&
+      Number.isFinite(window.screen.height) &&
+      window.screen.height > 0
         ? Math.round(window.screen.height)
         : 0;
-    const fullH = Math.max(ih, vvH, scrH);
+    const fullH = Math.max(ih, vvH, rootH, scrH);
+    if (isLandscape) {
+      try {
+        root.style.removeProperty('height');
+      } catch (e) {
+        log.debug('[Platform] removeProperty failed:', e);
+      }
+    }
     if (fullH > 0 && !shouldFreezeAppHeight) {
       try {
-        root.style.height = `${fullH}px`;
+        if (!isLandscape) root.style.height = `${fullH}px`;
         root.style.setProperty('--app-height', `${fullH}px`);
       } catch (e) {
         log.debug('[Platform] iOS standalone height set failed:', e);

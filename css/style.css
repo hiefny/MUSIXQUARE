@@ -6648,6 +6648,32 @@
     }
   }
 
+  /* iPad PWA portrait reports a valid safe-area top while using the
+     tablet sidebar layout. The sidebar rules above intentionally reset
+     top padding for landscape, so restore only portrait's real inset. */
+  @media (min-width: 720px) and (max-width: 1279px) and (orientation: portrait) {
+    html.ios-standalone header {
+      padding-top: calc(29px + var(--safe-top)) !important;
+    }
+
+    html.ios-standalone .tab-content.active {
+      padding-top: calc(16px + var(--safe-top)) !important;
+    }
+
+    html.ios-standalone .chat-drawer {
+      padding-top: var(--safe-top) !important;
+    }
+
+    html.ios-standalone #media-source-overlay,
+    html.ios-standalone #youtube-url-overlay {
+      padding-top: calc(8px + var(--safe-top)) !important;
+    }
+
+    html.ios-standalone #setup-overlay .desktop-step-header {
+      padding-top: calc(var(--setup-head-py) + var(--safe-top)) !important;
+    }
+  }
+
   /* Hide the super-compact help button in all other modes */
   .header-help-btn {
     display: none;

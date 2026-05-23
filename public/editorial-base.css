@@ -7,9 +7,14 @@
   --surface-2: #222222;
   --divider: #262626;
   --surface-3: #404040;
-  --text-main: #ffffff;
+  --text-main: #eeeeee;
   --text-sub: #a1a1aa;
   --text-muted: #71717a;
+  --range-fill-idle: rgba(238, 238, 238, 0.75);
+  --range-fill-active: var(--text-main);
+  --play-fab-bg-idle: rgba(238, 238, 238, 0.9);
+  --play-fab-bg-active: var(--text-main);
+  --play-fab-bg-disabled: rgba(238, 238, 238, 0.2);
   --primary: #3b82f6;
   --primary-rgb: 59, 130, 246;
   --radius-s: 14px;
@@ -483,7 +488,7 @@ svg {
 .section {
   margin-top: 0;
   padding: 112px 0;
-  border-top: 1px solid var(--surface-2);
+  border-top: 1px solid var(--divider);
 }
 
 .section-head {
@@ -592,7 +597,7 @@ code {
   left: 50%;
   width: 100vw;
   height: 1px;
-  background: var(--surface-2);
+  background: var(--divider);
   transform: translateX(-50%) scaleY(var(--hairline-scale));
   transform-origin: top center;
 }

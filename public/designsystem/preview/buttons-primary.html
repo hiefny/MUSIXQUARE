@@ -4,7 +4,8 @@ html,body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(-
 .btn{display:flex;align-items:center;justify-content:center;gap:10px;height:56px;padding:0 22px;border-radius:20px;background:var(--surface-2);color:var(--text-main);font-size:15px;font-weight:600;border:none;cursor:pointer;}
 .btn:hover{background:var(--surface-3);transform:translateY(-2px);}
 .btn svg{width:22px;height:22px;fill:currentColor;}
-.fab{width:64px;height:64px;border-radius:50%;background:#fff;color:#000;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;}
+.fab{width:64px;height:64px;border-radius:50%;background:var(--play-fab-bg-idle);color:var(--bg);display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;transition:transform .2s var(--ease-out),background .2s var(--ease-out);}
+.fab:active{background:var(--play-fab-bg-active);transform:scale(.95);}
 .fab svg{width:28px;height:28px;fill:currentColor;}
 .pill{height:40px;padding:0 18px;border-radius:100px;background:var(--primary);color:#fff;border:none;font-weight:700;font-size:13px;letter-spacing:0.02em;cursor:pointer;}
 </style></head><body><div class="card">

@@ -101,17 +101,19 @@ gradients, no skeuomorphism. Secondary vibe is Toss-influenced
 |---|---|---|
 | `--bg` | `#121212` | App background |
 | `--surface-1` | `#1A1A1A` | Cards, header, nav resting |
-| `--surface-2` | `#262626` | Inputs, buttons, dividers |
+| `--surface-2` | `#222222` | Inputs, buttons |
+| `--divider` | `#262626` | 1px solid separators |
 | `--surface-3` | `#404040` | Hover, active |
 | `--primary` | `#3b82f6` | The only accent. Blue. |
-| `--text-main` | `#ffffff` | Primary text |
+| `--text-main` | `#eeeeee` | Primary text |
 | `--text-sub` | `#a1a1aa` | Secondary text |
 | `--text-muted` | `#71717a` | Tertiary / disabled |
 
 **Palette — light.** Swaps to soft neutrals: `--bg: #f8f9fa`,
-`--surface-1: #ffffff`, `--surface-2: #f1f3f5`, text `#212529` / `#495057` /
-`#868e96`. Primary blue stays identical across themes — this is intentional
-and the only accent color in the whole system.
+`--surface-1: #ffffff`, `--surface-2: #f1f3f5`, `--divider: #d4d6d8`,
+text `#303540` / `#495057` / `#868e96`. Primary blue stays identical
+across themes — this is intentional and the only accent color in the whole
+system.
 
 **Type.** Pretendard Variable (weights 45–920) is the sole family. Pretendard
 is a Korean-first sans that also covers Latin elegantly, with tight metrics
@@ -131,15 +133,16 @@ and good mono figures. Scale:
 mostly 12–16px.
 
 **Corner radii.** Three steps: `14` / `20` / `32` — plus `50%` for circular
-controls and `100px` pills for badges and FABs. Every meaningful container
-is rounded; no hard corners except overlays in full-screen mode.
+controls and `100px` pills for badges and FABs. Dialog cards use a 16-step
+squircle clip-path on top of `32px` radius; it keeps the soft iOS-like
+corner without changing the rest of the rounded-rectangle system.
 
-**Backgrounds.** Flat solid colors. **No gradients anywhere in the UI.** The
-two exceptions are both functional: (a) `radial-gradient` circles that make
-up the tab-action button's 36px hit target inside a 44px square, and (b)
-`linear-gradient` masks that fade marquee edges. No illustrations, no
-photography, no patterns, no noise textures. The visualizer canvas is the
-only "imagery."
+**Backgrounds.** Flat solid colors. **No decorative gradients anywhere in
+the UI.** The exceptions are functional only: (a) `radial-gradient` circles
+that make up the tab-action button's 36px hit target inside a 44px square,
+(b) `linear-gradient` masks that fade marquee edges, and (c) slider filled
+tracks. No illustrations, no photography, no patterns, no noise textures.
+The visualizer canvas is the only "imagery."
 
 **Glass & blur.** The header and bottom nav use `backdrop-filter: blur(16px)`
 over `rgba(38,38,38,0.75)` (dark) / `rgba(255,255,255,0.85)` (light). Glass
@@ -163,16 +166,25 @@ to `--primary` on hover.
 **Press state.** `transform: scale(0.97)` + darken. Never a distinct color
 tint — pressing is always "smaller + darker".
 
-**Borders.** Almost no borders. Separation is done with surface steps. A
-couple of 1px dividers use `rgba(0,0,0,0.06)` in light mode. Focused inputs
+**Borders.** Almost no borders. Separation is done with surface steps and
+`1px solid var(--divider)`. Dividers are solid, not dotted. Focused inputs
 get a 2px bottom border in `--primary`. Keyboard focus rings use
 `outline: 2px solid #fff` with 2px offset.
 
+**Sliders.** Slider thumbs are visually removed. The track is 6px at rest
+and grows to 8px while pressed/dragged. Filled track color is
+`--range-fill-idle` (`text-main` at 75%) and becomes `--range-fill-active`
+(`text-main`) during interaction. The main play/pause FAB follows the same
+quiet-to-solid hierarchy: 90% text-main at rest, 100% on press, 20% when
+soft-disabled.
+
 **Shadows.** **Effectively no shadow system.** `box-shadow: none !important`
-appears 60+ times in the codebase. The only shadow-like effect is a
-`text-shadow: 0 0 6px rgba(59,130,246,0.4)` glow on copied invite-codes, and
-an `inset box-shadow` flash used to pulse a button when activated. Depth
-comes from surface-step color, not shadow. **Do not add drop shadows.**
+appears 60+ times in the codebase. Depth comes from surface-step color, not
+shadow. The intentional exceptions are modal affordances: dialog cards use
+`drop-shadow(0 20px 48px rgba(0,0,0,.32))`, dialog primary buttons use
+`0 4px 12px rgba(59,130,246,.3)`, copied invite-codes use a small blue
+text-glow, and activated buttons may use an inset flash. Do not add new drop
+shadows outside modal affordances.
 
 **Protection gradients.** None. Text-on-video uses solid pill-shaped
 buttons (role badge is `rgba(128,128,128,0.15)` + `backdrop-filter: blur(4px)`

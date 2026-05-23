@@ -107,6 +107,7 @@
       <div class="swatch" style="background:#121212"><span class="nm">bg</span><span class="hx">#121212</span></div>
       <div class="swatch" style="background:#1A1A1A"><span class="nm">surface-1</span><span class="hx">#1A1A1A</span></div>
       <div class="swatch" style="background:#222222"><span class="nm">surface-2</span><span class="hx">#222222</span></div>
+      <div class="swatch" style="background:#262626"><span class="nm">divider</span><span class="hx">#262626</span></div>
       <div class="swatch" style="background:#404040"><span class="nm">surface-3</span><span class="hx">#404040</span></div>
       <div class="swatch primary" style="background:#3b82f6"><span class="nm">primary</span><span class="hx">#3B82F6</span></div>
     </div>
@@ -118,6 +119,7 @@
       <div class="swatch" style="background:#f8f9fa;outline-color:rgba(0,0,0,0.06)"><span class="nm">bg</span><span class="hx">#F8F9FA</span></div>
       <div class="swatch" style="background:#ffffff;outline-color:rgba(0,0,0,0.1)"><span class="nm">surface-1</span><span class="hx">#FFFFFF</span></div>
       <div class="swatch" style="background:#f1f3f5;outline-color:rgba(0,0,0,0.06)"><span class="nm">surface-2</span><span class="hx">#F1F3F5</span></div>
+      <div class="swatch" style="background:#d4d6d8"><span class="nm">divider</span><span class="hx">#D4D6D8</span></div>
       <div class="swatch" style="background:#B7B9BB"><span class="nm">surface-3</span><span class="hx">#B7B9BB</span></div>
       <div class="swatch primary" style="background:#3b82f6"><span class="nm">primary</span><span class="hx">#3B82F6</span></div>
     </div>
@@ -126,11 +128,22 @@
   <div class="block">
     <h3 class="block-title">Text colors</h3>
     <div class="row" style="gap: 28px;">
-      <div class="dot-swatch"><div class="dot" style="background:#ffffff;outline:1px solid rgba(255,255,255,0.1);outline-offset:-1px"></div><div class="meta"><div class="nm">text-main</div><div class="hx">#FFFFFF</div></div></div>
+      <div class="dot-swatch"><div class="dot" style="background:#eeeeee;outline:1px solid rgba(255,255,255,0.1);outline-offset:-1px"></div><div class="meta"><div class="nm">text-main</div><div class="hx">#EEEEEE</div></div></div>
       <div class="dot-swatch"><div class="dot" style="background:#a1a1aa"></div><div class="meta"><div class="nm">text-sub</div><div class="hx">#A1A1AA</div></div></div>
       <div class="dot-swatch"><div class="dot" style="background:#71717a"></div><div class="meta"><div class="nm">text-muted</div><div class="hx">#71717A</div></div></div>
-      <div class="dot-swatch"><div class="dot" style="background:#6B7684"></div><div class="meta"><div class="nm">grey-600</div><div class="hx">#6B7684</div></div></div>
-      <div class="dot-swatch"><div class="dot" style="background:#8B95A1"></div><div class="meta"><div class="nm">grey-500</div><div class="hx">#8B95A1</div></div></div>
+      <div class="dot-swatch"><div class="dot" style="background:#303540"></div><div class="meta"><div class="nm">light text-main</div><div class="hx">#303540</div></div></div>
+    </div>
+  </div>
+
+  <div class="block">
+    <h3 class="block-title">Control state colors</h3>
+    <div class="tokens">
+      <span class="head">Token</span><span class="head">Value</span><span class="head">Use</span>
+      <span class="tok">--range-fill-idle</span><span class="val">text-main / 75%</span><span class="use">Slider filled track at rest</span>
+      <span class="tok">--range-fill-active</span><span class="val">var(--text-main)</span><span class="use">Slider while dragging or pressing</span>
+      <span class="tok">--play-fab-bg-idle</span><span class="val">text-main / 90%</span><span class="use">Main play/pause button at rest</span>
+      <span class="tok">--play-fab-bg-active</span><span class="val">var(--text-main)</span><span class="use">Main play/pause button while pressed</span>
+      <span class="tok">--play-fab-bg-disabled</span><span class="val">text-main / 20%</span><span class="use">Soft-disabled play/pause button</span>
     </div>
   </div>
 </section>
@@ -340,10 +353,15 @@
     <span class="tok">--divider</span><span class="val">#262626</span><span class="use">Dividers</span>
     <span class="tok">--surface-3</span><span class="val">#404040</span><span class="use">Hover, active</span>
     <span class="tok">--primary</span><span class="val">#3B82F6</span><span class="use">The only accent — blue</span>
-    <span class="tok">--text-main</span><span class="val">#FFFFFF</span><span class="use">Primary text</span>
+    <span class="tok">--text-main</span><span class="val">#EEEEEE</span><span class="use">Primary text</span>
     <span class="tok">--text-sub</span><span class="val">#A1A1AA</span><span class="use">Secondary text</span>
     <span class="tok">--text-muted</span><span class="val">#71717A</span><span class="use">Tertiary / disabled</span>
-    <span class="tok">--radius-s / m / l</span><span class="val">14 / 20 / 32</span><span class="use">Corner radii + 100px pill</span>
+    <span class="tok">--range-fill-idle</span><span class="val">rgba(238,238,238,.75)</span><span class="use">Slider fill at rest</span>
+    <span class="tok">--range-fill-active</span><span class="val">var(--text-main)</span><span class="use">Slider fill while pressed</span>
+    <span class="tok">--play-fab-bg-idle</span><span class="val">rgba(238,238,238,.9)</span><span class="use">Play/pause button at rest</span>
+    <span class="tok">--play-fab-bg-active</span><span class="val">var(--text-main)</span><span class="use">Play/pause button while pressed</span>
+    <span class="tok">--play-fab-bg-disabled</span><span class="val">rgba(238,238,238,.2)</span><span class="use">Soft-disabled play/pause button</span>
+    <span class="tok">--radius-s / m / l</span><span class="val">14 / 20 / 32</span><span class="use">Corner radii + 100px pill + dialog squircle</span>
     <span class="tok">--glass-bg</span><span class="val">var(--surface-1)</span><span class="use">Legacy alias for solid chrome</span>
     <span class="tok">--font-sans</span><span class="val">Pretendard</span><span class="use">Variable 45–920</span>
     <span class="tok">--ease-out</span><span class="val">cubic-bezier(0.2, 0.8, 0.2, 1)</span><span class="use">Default interactions</span>

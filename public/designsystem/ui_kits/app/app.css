@@ -115,13 +115,13 @@
 /* FAB / circular transport */
 .mq-fab {
   width: 72px; height: 72px; border-radius: 50%;
-  background: #fff; color: #000;
+  background: var(--play-fab-bg-idle); color: var(--bg);
   display: flex; align-items: center; justify-content: center;
   border: none; cursor: pointer;
-  transition: transform 0.2s var(--ease-out);
+  transition: transform 0.2s var(--ease-out), background 0.2s var(--ease-out);
 }
 .mq-fab:hover { transform: scale(1.04); }
-.mq-fab:active { transform: scale(0.96); }
+.mq-fab:active { background: var(--play-fab-bg-active); transform: scale(0.96); }
 .mq-fab svg { width: 32px; height: 32px; fill: currentColor; }
 
 /* Transport row */
@@ -167,11 +167,11 @@
 /* Seek */
 .mq-seek { margin-top: 14px; }
 .mq-seek-bar {
-  height: 4px; background: var(--surface-2); border-radius: 100px;
+  height: 6px; background: var(--surface-2); border-radius: 100px;
   position: relative; overflow: hidden;
 }
 .mq-seek-bar > i {
-  display: block; height: 100%; background: var(--primary);
+  display: block; height: 100%; background: var(--range-fill-idle);
   border-radius: 100px;
 }
 .mq-seek-times {
@@ -186,14 +186,14 @@
 }
 .mq-role {
   display: flex; flex-direction: column; gap: 10px;
-  background: var(--surface-1); border: none;
+  background: var(--surface-1); border: 2px solid var(--surface-2);
   border-radius: var(--radius-m); padding: 18px;
   color: var(--text-sub); cursor: pointer; text-align: left;
   transition: background 0.2s var(--ease-out), color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
 .mq-role:hover { background: var(--surface-2); transform: translateY(-2px); }
 .mq-role svg { width: 28px; height: 28px; fill: currentColor; }
-.mq-role.active { background: var(--primary); color: #fff; }
+.mq-role.active { background: rgba(var(--primary-rgb), 0.08); border-color: rgba(var(--primary-rgb), 0.75); color: var(--primary); }
 .mq-role .label { font-size: 15px; font-weight: 700; }
 .mq-role .hint { font-size: 11px; font-weight: 500; opacity: 0.85; }
 
@@ -215,7 +215,7 @@
 .mq-list .row {
   display: flex; align-items: center; gap: 14px;
   padding: 14px 0; cursor: pointer; min-height: 56px;
-  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.04);
+  box-shadow: inset 0 -1px 0 var(--divider);
 }
 .mq-list .row:last-child { box-shadow: none; }
 .mq-list .idx {
@@ -261,7 +261,7 @@
 .mq-device {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 4px;
-  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.04);
+  box-shadow: inset 0 -1px 0 var(--divider);
 }
 .mq-device:last-child { box-shadow: none; }
 .mq-device .dot {
@@ -278,15 +278,32 @@
 /* Slider */
 .mq-slider {
   -webkit-appearance: none; appearance: none;
-  width: 100%; height: 4px; background: var(--surface-2);
+  width: 100%; height: 32px; background: transparent;
   border-radius: 100px; outline: none; cursor: pointer;
+  --range-progress: 0%;
+}
+.mq-slider::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 100px;
+  background: linear-gradient(to right, var(--range-fill-idle) 0%, var(--range-fill-idle) var(--range-progress), var(--surface-2) var(--range-progress), var(--surface-2) 100%);
+}
+.mq-slider:active::-webkit-slider-runnable-track {
+  height: 8px;
+  background: linear-gradient(to right, var(--range-fill-active) 0%, var(--range-fill-active) var(--range-progress), var(--surface-2) var(--range-progress), var(--surface-2) 100%);
 }
 .mq-slider::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 18px; height: 18px;
-  border-radius: 50%; background: #fff;
+  -webkit-appearance: none; width: 0; height: 0;
+  border: 0; opacity: 0;
+}
+.mq-slider::-moz-range-track {
+  height: 6px; border-radius: 100px;
+  background: linear-gradient(to right, var(--range-fill-idle) 0%, var(--range-fill-idle) var(--range-progress), var(--surface-2) var(--range-progress), var(--surface-2) 100%);
+}
+.mq-slider:active::-moz-range-track {
+  height: 8px;
+  background: linear-gradient(to right, var(--range-fill-active) 0%, var(--range-fill-active) var(--range-progress), var(--surface-2) var(--range-progress), var(--surface-2) 100%);
 }
 .mq-slider::-moz-range-thumb {
-  width: 18px; height: 18px; border-radius: 50%; background: #fff; border: none;
+  width: 0; height: 0; border: 0; opacity: 0;
 }
 
 /* Segmented */

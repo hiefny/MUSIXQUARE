@@ -25,9 +25,14 @@
   --primary-rgb: 59, 130, 246;
   --accent:     var(--primary);
 
-  --text-main:  #ffffff;
+  --text-main:  #eeeeee;
   --text-sub:   #a1a1aa;
   --text-muted: #71717a;
+  --range-fill-idle: rgba(238, 238, 238, 0.75);
+  --range-fill-active: var(--text-main);
+  --play-fab-bg-idle: rgba(238, 238, 238, 0.9);
+  --play-fab-bg-active: var(--text-main);
+  --play-fab-bg-disabled: rgba(238, 238, 238, 0.2);
 
   /* Grey scale used by nav items (Toss adaptive) */
   --grey-600: #6B7684;
@@ -106,10 +111,15 @@ html[data-theme="light"] {
   --surface-1:  #ffffff;
   --surface-2:  #f1f3f5;
   --surface-3:  #B7B9BB;
-  --divider:    var(--surface-3);
-  --text-main:  #212529;
+  --divider:    #d4d6d8;
+  --text-main:  #303540;
   --text-sub:   #495057;
   --text-muted: #868e96;
+  --range-fill-idle: rgba(48, 53, 64, 0.75);
+  --range-fill-active: var(--text-main);
+  --play-fab-bg-idle: rgba(48, 53, 64, 0.9);
+  --play-fab-bg-active: var(--text-main);
+  --play-fab-bg-disabled: rgba(48, 53, 64, 0.2);
   --glass-bg:   var(--surface-1);
   --glass-border: rgba(0,0,0,0.06);
   --scrollbar-thumb: rgba(0,0,0,0.2);

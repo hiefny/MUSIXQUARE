@@ -18,6 +18,7 @@ function Settings({ theme, onTheme, reverb, onReverb, volume, onVolume }) {
           <span className="mq-badge" style={{ background: 'transparent', color: 'var(--text-sub)' }}>{volume}%</span>
         </div>
         <input className="mq-slider" type="range" min="0" max="100" value={volume}
+               style={{ '--range-progress': `${volume}%` }}
                onChange={e => onVolume(Number(e.target.value))} />
       </div>
 
@@ -36,7 +37,7 @@ function Settings({ theme, onTheme, reverb, onReverb, volume, onVolume }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-sub)', fontWeight: 600, marginBottom: 6 }}>
           <span>Decay time</span><span>2.4s</span>
         </div>
-        <input className="mq-slider" type="range" defaultValue="40" />
+        <input className="mq-slider" type="range" defaultValue="40" style={{ '--range-progress': '40%' }} />
       </div>
 
       <div className="mq-card">

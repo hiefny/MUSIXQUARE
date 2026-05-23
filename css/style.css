@@ -1677,11 +1677,11 @@
     border-radius: 0;
     margin: 0 44px;
     padding: 0 0 44px;
-    border-bottom: 1px dotted var(--surface-3);
+    border-bottom: 1px solid var(--divider);
   }
 
   [data-theme='light'] .section-group {
-    border-bottom: 1px dotted var(--surface-3);
+    border-bottom: 1px solid var(--divider);
   }
 
   .section-group:last-of-type,
@@ -2637,7 +2637,7 @@
 
   /* Mobile stacks General and Audio, so keep the divider between them. */
   .settings-subtab-panel[data-panel='general'] > .section-group:last-of-type {
-    border-bottom: 1px dotted var(--surface-3);
+    border-bottom: 1px solid var(--divider);
   }
 
   /* Desktop connect sub-panel — hidden on mobile (duplicate of mobile #tab-connect) */
@@ -2677,7 +2677,7 @@
   }
 
   .legal-block {
-    border-top: 1px dotted var(--divider);
+    border-top: 1px solid var(--divider);
     margin-top: 8px;
   }
 
@@ -5015,7 +5015,7 @@
   }
 
   .sync-col + .sync-col {
-    border-left: 1px solid var(--surface-3);
+    border-left: 1px solid var(--divider);
   }
 
   .sync-col-label {

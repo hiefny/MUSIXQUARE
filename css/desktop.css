@@ -649,7 +649,7 @@
         box-shadow: none;
         border: none;
         border-radius: 0;
-        border-bottom: 1px dotted var(--divider);
+        border-bottom: 1px solid var(--divider);
     }
 
     .section-group:last-of-type,
@@ -738,7 +738,7 @@
     }
 
     .help-block.legal-block {
-        border-top: 1px dotted var(--divider);
+        border-top: 1px solid var(--divider);
         margin-top: 16px;
         padding-top: 28px;
     }

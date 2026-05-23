@@ -7,7 +7,6 @@ Guests join a host with a 6-digit code and each device picks a role
 file-sync, or across networks via YouTube Together.
 
 - Site: **https://musixquare.com**
-- Source: **github.com/hiefny/MUSIXQUARE** (MIT-compatible — see repo LICENSE)
 - Locale: Korean (primary) + English
 - Stack: TypeScript + Vite, Web Audio API, PeerJS (WebRTC), RAM-only storage
 - Deploy: Cloudflare Workers (app worker bundles static assets + TURN/YouTube/Realtime API)
@@ -260,7 +259,7 @@ Self-hosted at `fonts/PretendardVariable.woff2`.
 
 ## Caveats / open questions
 
-1. **No `scripts/` directory accessible** on GitHub for the font-fetch
+1. **No `scripts/` directory accessible** for the font-fetch
    script — CDN fallback in use.
 2. **`icons/*.png` (PWA icons) not imported** — they're binary. If you want
    them copied in, say so and I'll pull them as a batch.

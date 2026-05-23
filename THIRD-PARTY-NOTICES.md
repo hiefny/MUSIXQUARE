@@ -6,25 +6,21 @@ MUSIXQUARE includes several open-source software libraries. This file provides t
 
 ## 1. realtime-bpm-analyzer (BPM Detection)
 
-- **Repository**: [https://github.com/dlepaux/realtime-bpm-analyzer](https://github.com/dlepaux/realtime-bpm-analyzer)
 - **License**: Apache License 2.0
 - **Copyright**: Copyright (c) 2016-2024 David Lepaux
 
 ## 2. PeerJS (Fallback WebRTC Transport)
 
-- **Repository**: [https://github.com/peers/peerjs](https://github.com/peers/peerjs)
 - **License**: MIT License
 - **Copyright**: Copyright (c) 2015-2024 PeerJS Team
 
 ## 3. node-qrcode (QR Code Generation)
 
-- **Repository**: [https://github.com/soldair/node-qrcode](https://github.com/soldair/node-qrcode)
 - **License**: MIT License
 - **Copyright**: Copyright (c) 2012-2024 Ryan Day
 
 ## 4. content-shield (Chat Filtering)
 
-- **Repository**: [https://github.com/hiefny/content-shield](https://github.com/hiefny/content-shield)
 - **License**: MIT License
 - **Copyright**: Copyright (c) 2024 hiefny
 

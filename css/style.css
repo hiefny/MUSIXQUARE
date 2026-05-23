@@ -47,6 +47,12 @@
     --nav-height: 72px;
   }
 
+  @media (orientation: landscape) {
+    html.ios-standalone {
+      --safe-bottom: 0px;
+    }
+  }
+
   /* Force UA color scheme per app theme.
    (Critical for mobile/PWA overlay scrollbar contrast in light mode.) */
   html[data-theme='dark'],

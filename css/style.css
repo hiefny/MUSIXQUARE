@@ -1202,9 +1202,7 @@
     /* 트랙의 시인성을 높이기 위해 살짝 굵게 6px 및 surface-2 사용 */
     border-radius: 100px;
     border: none;
-    transition:
-      height 0.16s ease,
-      background 0.16s ease;
+    transition: height 0.16s ease;
   }
 
   input[type='range']::-moz-range-track {
@@ -1219,9 +1217,7 @@
     );
     border-radius: 100px;
     border: none;
-    transition:
-      height 0.16s ease,
-      background 0.16s ease;
+    transition: height 0.16s ease;
   }
 
   input[type='range']:active::-webkit-slider-runnable-track,
@@ -2027,9 +2023,7 @@
     /* 메인 슬라이더와 통일된 두께 및 색상 */
     border-radius: 3px;
     cursor: pointer;
-    transition:
-      height 0.16s ease,
-      background 0.16s ease;
+    transition: height 0.16s ease;
   }
 
   input[type='range'].eq-slider::-moz-range-track {
@@ -2044,9 +2038,7 @@
     );
     border-radius: 3px;
     cursor: pointer;
-    transition:
-      height 0.16s ease,
-      background 0.16s ease;
+    transition: height 0.16s ease;
   }
 
   input[type='range'].eq-slider:active::-webkit-slider-runnable-track,

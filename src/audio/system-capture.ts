@@ -46,6 +46,11 @@ let _destR: MediaStreamAudioDestinationNode | null = null;
 // connected AudioNodes on each start/stop cycle.
 let _splitter: ChannelSplitterNode | null = null;
 let _stereoUpmix: GainNode | null = null;
+let _debugLastCaptureStartedAt = 0;
+let _debugLastCaptureStoppedAt = 0;
+let _debugLastStartBroadcastAt = 0;
+let _debugLastStopBroadcastAt = 0;
+let _debugLastStreamsReadyAt = 0;
 
 interface PreSystemAudioState {
   playback: {
@@ -81,6 +86,37 @@ export function getCapturedAudioStream(): MediaStream | null {
   const tracks = _capturedStream?.getAudioTracks() || [];
   if (tracks.length === 0) return null;
   return new MediaStream(tracks);
+}
+
+function describeTrack(track: MediaStreamTrack | undefined): string {
+  if (!track) return 'none';
+  return `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`;
+}
+
+export function getSystemAudioCaptureDebugSnapshot(): Record<string, unknown> {
+  const capturedTracks = _capturedStream?.getAudioTracks() || [];
+  const leftTracks = _streamL?.getAudioTracks() || [];
+  const rightTracks = _streamR?.getAudioTracks() || [];
+
+  return {
+    active: isSystemAudioActive(),
+    capturedStreamActive: _capturedStream?.active ?? false,
+    capturedTracks: capturedTracks.map(describeTrack),
+    sourceNode: !!_sourceNode,
+    splitter: !!_splitter,
+    stereoUpmix: !!_stereoUpmix,
+    destL: !!_destL,
+    destR: !!_destR,
+    streamLActive: _streamL?.active ?? false,
+    streamRActive: _streamR?.active ?? false,
+    streamLTracks: leftTracks.map(describeTrack),
+    streamRTracks: rightTracks.map(describeTrack),
+    lastCaptureStartedAt: _debugLastCaptureStartedAt,
+    lastCaptureStoppedAt: _debugLastCaptureStoppedAt,
+    lastStartBroadcastAt: _debugLastStartBroadcastAt,
+    lastStopBroadcastAt: _debugLastStopBroadcastAt,
+    lastStreamsReadyAt: _debugLastStreamsReadyAt,
+  };
 }
 
 /**
@@ -173,6 +209,7 @@ export async function startSystemAudioCapture(): Promise<void> {
   await initAudio();
   const ctx = getAudioContext();
   _capturedStream = stream;
+  _debugLastCaptureStartedAt = Date.now();
   _sourceNode = ctx.createMediaStreamSource(stream);
 
   // 5. Connect to L and R mono MediaStream destinations for synced P2P
@@ -226,7 +263,9 @@ export async function startSystemAudioCapture(): Promise<void> {
   });
 
   // 9. Broadcast start + call guests with L/R streams
+  _debugLastStartBroadcastAt = Date.now();
   broadcast({ type: MSG.SYSTEM_AUDIO_START });
+  _debugLastStreamsReadyAt = Date.now();
   bus.emit('system-audio:streams-ready');
 
   // 9.1 Localized chat notice for everyone in the room. Same pattern as the
@@ -259,6 +298,7 @@ export async function startSystemAudioCapture(): Promise<void> {
 export function stopSystemAudioCapture(): void {
   if (!isSystemAudioActive() && !_capturedStream) return;
 
+  _debugLastStopBroadcastAt = Date.now();
   broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
   broadcastSystemNotice('chat.system_audio_stopped_notice');
   // Current participants should see the stop notice, but late joiners should not
@@ -276,6 +316,7 @@ export function stopSystemAudioCapture(): void {
   }
 
   bus.emit('ui:show-toast', t('system_audio.stopped'));
+  _debugLastCaptureStoppedAt = Date.now();
   log.info('[SystemAudio] Capture stopped');
 }
 

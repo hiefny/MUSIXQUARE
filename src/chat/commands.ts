@@ -25,6 +25,7 @@ import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { getPlaybackOwnership } from '../player/ownership.ts';
+import { collectSystemAudioDebugText } from '../network/system-audio-debug.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { rememberPinnedNotice } from './protocol.ts';
@@ -471,6 +472,10 @@ function cmdDebug(args: string[]): void {
     cmdDebugScreen();
     return;
   }
+  if (sub === 'systemaudio' || sub === 'sysaudio' || sub === 'sa') {
+    void cmdDebugSystemAudio();
+    return;
+  }
 
   const lines: string[] = ['SYSTEM DEBUG INFO'];
 
@@ -630,6 +635,29 @@ function cmdDebug(args: string[]): void {
 //   - Network (peer connections)
 //   - Lifecycle (state machine + recovery target)
 // /debug screen: local-only live viewport/PWA diagnostics.
+async function cmdDebugSystemAudio(): Promise<void> {
+  let debugText: string;
+  try {
+    debugText = await collectSystemAudioDebugText();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    debugText = `SYSTEM AUDIO DEBUG\n[Error] ${message}`;
+  }
+
+  addSystemChatMessage(debugText);
+
+  try {
+    navigator.clipboard
+      .writeText(debugText)
+      .then(() => showToast(t('chat.debug_copied')))
+      .catch(() => {
+        /* clipboard not available */
+      });
+  } catch {
+    /* ignore */
+  }
+}
+
 interface ScreenDebugSession {
   overlay: HTMLElement;
   pre: HTMLPreElement;

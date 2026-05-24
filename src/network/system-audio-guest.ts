@@ -76,6 +76,50 @@ let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
 let _initialUnmuteWaitSeq = 0;
 
+interface GuestChannelDebug {
+  channel: string;
+  incomingAt?: number;
+  peerId?: string;
+  metadataType?: string;
+  answerAt?: number;
+  answerError?: string;
+  streamAt?: number;
+  streamTracks: string[];
+  graphAt?: number;
+  graphError?: string;
+  closedAt?: number;
+  error?: string;
+  pc?: RTCPeerConnection;
+}
+
+const _debugChannels = new Map<string, GuestChannelDebug>();
+let _debugLastStartAt = 0;
+let _debugLastStartIgnoredAt = 0;
+let _debugLastStartIgnoredReason = '';
+let _debugLastStopAt = 0;
+let _debugLastCleanupAt = 0;
+let _debugWatchdogArmedAt = 0;
+let _debugWatchdogTimedOutAt = 0;
+let _debugWatchdogActive = false;
+
+function errorToDebugString(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function getDebugChannel(channel: string): GuestChannelDebug {
+  const existing = _debugChannels.get(channel);
+  if (existing) return existing;
+  const created: GuestChannelDebug = { channel, streamTracks: [] };
+  _debugChannels.set(channel, created);
+  return created;
+}
+
+function readMetadataType(metadata: MediaConnection['metadata']): string {
+  const type = metadata?.type;
+  return typeof type === 'string' ? type : '-';
+}
+
 function isSystemAudioPlaceholder(): boolean {
   const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
   return isSystemAudioPlaceholderMeta(currentMeta);
@@ -96,15 +140,20 @@ function getSystemAudioTrackMapping(
 
 function clearReceiveWatchdog(): void {
   clearManagedTimer(SYSTEM_AUDIO_RECEIVE_WATCHDOG);
+  _debugWatchdogActive = false;
 }
 
 function armReceiveWatchdog(): void {
+  _debugWatchdogArmedAt = Date.now();
+  _debugWatchdogActive = true;
   setManagedTimer(
     SYSTEM_AUDIO_RECEIVE_WATCHDOG,
     () => {
       if (getState('systemAudio.isReceiving')) return;
       if (!isSystemAudioPlaceholder()) return;
 
+      _debugWatchdogActive = false;
+      _debugWatchdogTimedOutAt = Date.now();
       log.warn('[SysAudioGuest] Timed out waiting for system audio stream');
       bus.emit('system-audio:receive-timeout');
       cleanupGuestSystemAudio();
@@ -199,10 +248,76 @@ export function isReceivingSystemAudio(): boolean {
   return _gotL || _gotR || _gotStereo || _gotSynced;
 }
 
+export function getSystemAudioGuestDebugSnapshot() {
+  const channels = [..._debugChannels.values()].map((channel) => ({
+    channel: channel.channel,
+    incomingAt: channel.incomingAt,
+    peerId: channel.peerId,
+    metadataType: channel.metadataType,
+    answerAt: channel.answerAt,
+    answerError: channel.answerError,
+    streamAt: channel.streamAt,
+    streamTracks: channel.streamTracks,
+    graphAt: channel.graphAt,
+    graphError: channel.graphError,
+    closedAt: channel.closedAt,
+    error: channel.error,
+    pcState: channel.pc
+      ? {
+          connectionState: channel.pc.connectionState,
+          iceConnectionState: channel.pc.iceConnectionState,
+          signalingState: channel.pc.signalingState,
+        }
+      : null,
+  }));
+
+  return {
+    systemReceiving: getState('systemAudio.isReceiving'),
+    placeholder: isSystemAudioPlaceholder(),
+    gotL: _gotL,
+    gotR: _gotR,
+    gotStereo: _gotStereo,
+    gotSynced: _gotSynced,
+    sourceL: !!_sourceL,
+    sourceR: !!_sourceR,
+    sourceStereo: !!_sourceStereo,
+    merger: !!_merger,
+    decoderPrimer: !!_decoderPrimer,
+    lastStartAt: _debugLastStartAt,
+    lastStartIgnoredAt: _debugLastStartIgnoredAt,
+    lastStartIgnoredReason: _debugLastStartIgnoredReason,
+    lastStopAt: _debugLastStopAt,
+    lastCleanupAt: _debugLastCleanupAt,
+    watchdogArmedAt: _debugWatchdogArmedAt,
+    watchdogTimedOutAt: _debugWatchdogTimedOutAt,
+    watchdogActive: _debugWatchdogActive,
+    channels,
+    peerConnections: [..._debugChannels.values()]
+      .filter((channel): channel is GuestChannelDebug & { pc: RTCPeerConnection } => !!channel.pc)
+      .map((channel) => ({
+        label: `guest:${channel.channel}:${(channel.peerId || '?').slice(0, 8)}`,
+        pc: channel.pc,
+      })),
+  };
+}
+
 // ─── Handle Incoming Media Call ───────────────────────────────────
 
 async function handleIncomingCall(mediaConn: MediaConnection, channel: string): Promise<void> {
   log.info(`[SysAudioGuest] Incoming ${channel} channel call`);
+  const debug = getDebugChannel(channel);
+  debug.incomingAt = Date.now();
+  debug.peerId = mediaConn.peer;
+  debug.metadataType = readMetadataType(mediaConn.metadata);
+  debug.answerAt = undefined;
+  debug.answerError = undefined;
+  debug.streamAt = undefined;
+  debug.streamTracks = [];
+  debug.graphAt = undefined;
+  debug.graphError = undefined;
+  debug.closedAt = undefined;
+  debug.error = undefined;
+  debug.pc = mediaConn.peerConnection;
 
   if (channel === 'L') {
     if (_mediaConnL) {
@@ -261,6 +376,11 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     log.info(`[SysAudioGuest] Received ${channel} stream`);
     const streamTracks = remoteStream.getAudioTracks();
     log.info(`[SysAudioGuest] ${channel} stream tracks: ${describeAudioTracks(streamTracks)}`);
+    debug.streamAt = Date.now();
+    debug.streamTracks = streamTracks.map(
+      (track) => `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`,
+    );
+    debug.pc = mediaConn.peerConnection;
     await waitForInitialUnmute(channel, streamTracks);
 
     // Pin every audio receiver to the same playout-delay target so NetEq's
@@ -285,6 +405,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     const widener = getWidener();
     if (!widener) {
       log.error('[SysAudioGuest] Audio graph not ready');
+      debug.graphError = 'audio-graph-not-ready';
       return;
     }
 
@@ -311,6 +432,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
         const tracks = remoteStream.getAudioTracks();
         if (tracks.length === 0) {
           log.warn(`[SysAudioGuest] ${channel} stream received but 0 tracks found`);
+          debug.graphError = 'zero-audio-tracks';
           return;
         }
 
@@ -408,6 +530,9 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       }
     }
 
+    debug.graphAt = Date.now();
+    debug.graphError = undefined;
+
     // Update state once at least one stream is connected
     if (!getState('systemAudio.isReceiving')) {
       clearReceiveWatchdog();
@@ -420,6 +545,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.on('close', () => {
     log.info(`[SysAudioGuest] ${channel} MediaConnection closed`);
+    debug.closedAt = Date.now();
     if (channel === 'DUAL' || channel === 'SYNCED') {
       _gotL = false;
       _gotR = false;
@@ -443,14 +569,18 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
   mediaConn.on('error', (err: unknown) => {
     log.warn(`[SysAudioGuest] ${channel} error:`, err);
+    debug.error = errorToDebugString(err);
   });
 
   // Register stream/close/error handlers before answer(). Fast local desktop
   // peers can emit the PeerJS stream event immediately after answering.
   try {
     mediaConn.answer();
+    debug.answerAt = Date.now();
+    debug.answerError = undefined;
   } catch (err) {
     log.warn(`[SysAudioGuest] ${channel} answer failed:`, err);
+    debug.answerError = errorToDebugString(err);
   }
 }
 
@@ -459,6 +589,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 // Shared by the PeerJS and SFU receive adapters; this module owns the
 // placeholder and previous-track metadata restoration contract.
 export function cleanupGuestSystemAudio(): void {
+  _debugLastCleanupAt = Date.now();
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
   clearReceiveWatchdog();
   if (_sourceL) {
@@ -571,13 +702,21 @@ export function registerSystemAudioGuestListeners(): void {
   registerHandler(
     MSG.SYSTEM_AUDIO_START,
     (_data: Record<string, unknown>, conn?: DataConnection) => {
-      if (!isHostBroadcast(conn)) return;
+      if (!isHostBroadcast(conn)) {
+        _debugLastStartIgnoredAt = Date.now();
+        _debugLastStartIgnoredReason = conn ? 'non-host-connection' : 'missing-connection';
+        return;
+      }
       const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
       if (isSystemAudioPlaceholder()) {
+        _debugLastStartIgnoredAt = Date.now();
+        _debugLastStartIgnoredReason = 'duplicate-placeholder';
         log.debug('[SysAudioGuest] Duplicate system audio start ignored');
         return;
       }
       log.info('[SysAudioGuest] Host started system audio sharing');
+      _debugLastStartAt = Date.now();
+      _debugLastStartIgnoredReason = '';
       _prevTrackMeta = currentMeta;
       stopAllMedia({ silent: true, cancelInFlight: true });
       claimPlaybackOwner('system-audio', {
@@ -593,6 +732,7 @@ export function registerSystemAudioGuestListeners(): void {
     (_data: Record<string, unknown>, conn?: DataConnection) => {
       if (!isHostBroadcast(conn)) return;
       log.info('[SysAudioGuest] Host stopped system audio sharing');
+      _debugLastStopAt = Date.now();
       cleanupGuestSystemAudio();
       bus.emit('system-audio:host-stopped');
     },

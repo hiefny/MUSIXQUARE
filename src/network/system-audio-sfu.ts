@@ -100,6 +100,48 @@ let guestLimitTimerActive = false;
 let guestLimitBlockedHostConn: DataConnection | null = null;
 const guestDecoderPrimers = new Map<Channel, WindowsAudioDecoderPrimer>();
 
+export function getSystemAudioSfuDebugSnapshot() {
+  return {
+    host: {
+      pcState: hostPc
+        ? {
+            connectionState: hostPc.connectionState,
+            iceConnectionState: hostPc.iceConnectionState,
+            signalingState: hostPc.signalingState,
+          }
+        : null,
+      sessionId: hostSessionId,
+      publishedTracks: hostPublishedTracks,
+      publishInFlight: !!hostPublishPromise,
+      unavailable: hostSfuUnavailable,
+      publishEpoch: hostPublishEpoch,
+    },
+    guest: {
+      pcState: guestPc
+        ? {
+            connectionState: guestPc.connectionState,
+            iceConnectionState: guestPc.iceConnectionState,
+            signalingState: guestPc.signalingState,
+          }
+        : null,
+      sessionId: guestSessionId,
+      subscriptionKey: guestSubscriptionKey,
+      connectInFlight: !!guestConnectPromise,
+      sourceL: !!guestSourceL,
+      sourceR: !!guestSourceR,
+      merger: !!guestMerger,
+      receiving: guestReceiving,
+      limitTimerActive: guestLimitTimerActive,
+      limitBlocked: !!guestLimitBlockedHostConn,
+      decoderPrimerCount: guestDecoderPrimers.size,
+    },
+    peerConnections: [
+      ...(hostPc ? [{ label: 'sfu:host', pc: hostPc }] : []),
+      ...(guestPc ? [{ label: 'sfu:guest', pc: guestPc }] : []),
+    ],
+  };
+}
+
 function shouldUseRealtimeSfu(): boolean {
   return true;
 }
@@ -168,17 +210,11 @@ function isGuestLimitedForHost(hostConn: DataConnection | null): boolean {
 }
 
 function getRealtimeEndpoints(): string[] {
-  return [
-    '/api/cloudflare-realtime',
-    'https://musixquare.com/api/cloudflare-realtime',
-  ];
+  return ['/api/cloudflare-realtime', 'https://musixquare.com/api/cloudflare-realtime'];
 }
 
 function getTurnConfigEndpoints(): string[] {
-  return [
-    '/api/get-turn-config',
-    'https://musixquare.com/api/get-turn-config',
-  ];
+  return ['/api/get-turn-config', 'https://musixquare.com/api/get-turn-config'];
 }
 
 function normalizeIceServerUrls(value: unknown): string[] {

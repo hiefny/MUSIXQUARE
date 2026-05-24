@@ -582,10 +582,6 @@
     transition: stroke-dashoffset 0.16s ease 0.08s;
   }
 
-  #vol-icon-btn.is-muted {
-    color: var(--text-main);
-  }
-
   #vol-icon-btn.is-muted .volume-speaker {
     transform: translateX(-0.5px);
   }
@@ -1057,6 +1053,12 @@
     width: 20px;
     height: 20px;
     fill: currentColor;
+  }
+
+  #btn-repeat svg,
+  #btn-shuffle svg {
+    width: 18px;
+    height: 18px;
   }
 
   /* Playlist Controls Active States */

@@ -73,16 +73,16 @@
       <span class="history-stat-label">Days for shipping</span>
     </div>
     <div class="history-stat-card">
-      <span class="history-stat-value">12,706</span>
+      <span class="history-stat-value">12,018</span>
       <span class="history-stat-label">Lines rewritten to TypeScript</span>
     </div>
     <div class="history-stat-card">
-      <span class="history-stat-value">983</span>
-      <span class="history-stat-label">Test cases</span>
+      <span class="history-stat-value">1,126</span>
+      <span class="history-stat-label">Unit + E2E test cases</span>
     </div>
     <div class="history-stat-card">
-      <span class="history-stat-value">2</span>
-      <span class="history-stat-label">Infrastructure vendors</span>
+      <span class="history-stat-value">1</span>
+      <span class="history-stat-label">Primary infra vendor</span>
     </div>
   </div>
   <div class="meta">
@@ -187,7 +187,7 @@
     </li>
     <li>
       <div class="lead">Apr · Multiple security audit rounds</div>
-      <div class="body">Eight iterative audit passes across the full codebase — bus event mismatches, sink-level XSS validation, CSPRNG for room codes, TURN endpoint hardening. Zero critical or high findings at close.</div>
+      <div class="body">Iterative audit passes across the full codebase (eight launch-bar rounds, more post-launch) — bus event mismatches, sink-level XSS validation, CSPRNG for room codes, TURN endpoint hardening. Zero critical or high findings at every close.</div>
     </li>
   </ul>
 </section>
@@ -223,10 +223,10 @@
   </ul>
   <div class="milestone" style="margin-top: 20px;">
     <div class="m-label">Milestone · May 1, 2026</div>
-    <div class="m-title">Product Hunt — Featured · #13 of the day · 80 upvotes</div>
+    <div class="m-title">Product Hunt — Featured · #13 of the day · 88 upvotes</div>
     <div class="m-body">
       First public launch. Listed on Product Hunt the same week remote file sharing and the Cloudflare SFU path shipped.
-      <strong>Featured</strong> within hours, finished <strong>13th</strong> for the day with 80 upvotes — enough to validate
+      <strong>Featured</strong> within hours, finished <strong>13th</strong> for the day with 88 upvotes — enough to validate
       the core idea and surface the next set of real user needs.
     </div>
   </div>
@@ -290,8 +290,8 @@
     </div>
     <div class="ahead-item">
       <div>
-        <div class="a-title">7.1-channel UI</div>
-        <div class="a-body">The engine already supports FL / FR / Center / LFE / Side L·R / Rear L·R routing. The UI was parked for UX complexity. Will re-surface when demand is clear.</div>
+        <div class="a-title">Full 7.1 channel routing UI</div>
+        <div class="a-body">The 8-channel role picker ships today. The full FL / FR / Center / LFE / Side L·R / Rear L·R routing UI was parked for UX complexity — engine support is already in place. Will re-surface when demand is clear.</div>
       </div>
       <span class="a-tag">Gated</span>
     </div>
@@ -322,8 +322,8 @@
     </div>
     <div class="wall-item">
       <div>
-        <div class="w-title">System audio on iOS and Android</div>
-        <div class="w-body"><code>getDisplayMedia({audio: true})</code> is not implemented by mobile browsers. System audio sharing is a desktop-only feature until mobile OS APIs allow it.</div>
+        <div class="w-title">Capturing system audio on iOS and Android</div>
+        <div class="w-body"><code>getDisplayMedia({audio: true})</code> is not implemented by mobile browsers, so a mobile device cannot <em>host</em> system audio. Mobile guests can still <em>receive</em> a desktop host's stream through the SFU path. Hosting from a phone stays desktop-only until mobile OS APIs allow it.</div>
       </div>
       <span class="w-tag">OS Limit</span>
     </div>

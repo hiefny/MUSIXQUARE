@@ -481,7 +481,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         );
         // Arm after youtube:load: fresh non-YT -> YT loads synchronously
         // stop existing media, which clears stale pending sync first.
-        setPendingAutoSyncOnReady(true);
+        setPendingAutoSyncOnReady(true, {
+          isTrackTransition: isAlreadyYt,
+          targetTime: 0,
+          subIndex: subIndex ?? 0,
+          videoId: broadcastVideoId ?? undefined,
+          skipSeek: true,
+        });
       }
 
       // Mirror the local-file branch's preload trigger. Without this, the

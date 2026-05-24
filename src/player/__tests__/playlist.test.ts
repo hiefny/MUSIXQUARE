@@ -6,8 +6,19 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
-import { getPendingAutoSyncOnReady, setPendingAutoSyncOnReady } from '../../youtube/player.ts';
-import { setRepeatMode, setShuffle, clearPreloadState, initPlaylist, playTrack } from '../playlist.ts';
+import {
+  consumePendingAutoSyncOnReady,
+  getPendingAutoSyncOnReady,
+  setPendingAutoSyncOnReady,
+} from '../../youtube/player.ts';
+import { setPlaybackYouTubePlaying } from '../ownership.ts';
+import {
+  setRepeatMode,
+  setShuffle,
+  clearPreloadState,
+  initPlaylist,
+  playTrack,
+} from '../playlist.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
@@ -93,6 +104,35 @@ describe('playTrack YouTube auto-rendezvous', () => {
     await playTrack(1);
 
     expect(getPendingAutoSyncOnReady()).toBe(true);
+    expect(consumePendingAutoSyncOnReady()).toMatchObject({
+      isTrackTransition: false,
+      targetTime: 0,
+      subIndex: 0,
+      videoId: 'VIDEO_ID_01',
+      skipSeek: true,
+    });
+  });
+
+  it('marks YouTube-to-YouTube loads as track transitions', async () => {
+    setPlaybackYouTubePlaying();
+    setState('player.isFirstTrackLoad', false);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [
+      { type: 'youtube', name: 'Old Video', videoId: 'OLD_VIDEO_01', playlistId: null },
+      { type: 'youtube', name: 'New Video', videoId: 'NEW_VIDEO_01', playlistId: null },
+    ]);
+
+    bus.on('youtube:load', () => {});
+
+    await playTrack(1);
+
+    expect(consumePendingAutoSyncOnReady()).toMatchObject({
+      isTrackTransition: true,
+      targetTime: 0,
+      subIndex: 0,
+      videoId: 'NEW_VIDEO_01',
+      skipSeek: true,
+    });
   });
 });
 

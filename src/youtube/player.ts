@@ -545,7 +545,15 @@ export function initYouTube(): void {
 
     if (getState('player.isFirstTrackLoad')) setState('player.isFirstTrackLoad', false);
     bus.emit('youtube:load', videoId || payload.videoId || null, playlistId, autoplay, subIndex);
-    if (autoplay) setPendingAutoSyncOnReady(true);
+    if (autoplay) {
+      setPendingAutoSyncOnReady(true, {
+        isTrackTransition: false,
+        targetTime: 0,
+        subIndex,
+        videoId: videoId || payload.videoId || undefined,
+        skipSeek: true,
+      });
+    }
     schedulePreload();
   });
 

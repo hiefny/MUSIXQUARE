@@ -98,6 +98,7 @@ let guestMerger: ChannelMergerNode | null = null;
 let guestReceiving = false;
 let guestLimitTimerActive = false;
 let guestLimitBlockedHostConn: DataConnection | null = null;
+let guestInitialUnmuteWaitSeq = 0;
 const guestDecoderPrimers = new Map<Channel, WindowsAudioDecoderPrimer>();
 
 function shouldUseRealtimeSfu(): boolean {
@@ -537,7 +538,57 @@ function setReceiverDelay(receiver: RTCRtpReceiver): void {
   delayedReceiver.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
 }
 
+function describeRemoteTrack(track: MediaStreamTrack): string {
+  return `${track.id.slice(0, 8)}:${track.readyState}${track.muted ? ':muted' : ''}`;
+}
+
+async function waitForInitialTrackUnmute(channel: Channel, track: MediaStreamTrack): Promise<void> {
+  if (!track.muted) return;
+
+  log.info(
+    `[SysAudioSFU] ${channel} remote track arrived muted; waiting for unmute before graph attach`,
+  );
+
+  await new Promise<void>((resolve) => {
+    const id = ++guestInitialUnmuteWaitSeq;
+    const timeoutTimer = `system-audio-sfu-unmute-timeout-${id}`;
+    const settleTimer = `system-audio-sfu-unmute-settle-${id}`;
+    let settled = false;
+
+    const cleanup = (): void => {
+      clearManagedTimer(timeoutTimer);
+      clearManagedTimer(settleTimer);
+      track.removeEventListener('unmute', check);
+    };
+
+    const done = (reason: string): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      log.info(
+        `[SysAudioSFU] ${channel} graph attach after ${reason}: ${describeRemoteTrack(track)}`,
+      );
+      resolve();
+    };
+
+    const check = (): void => {
+      if (!track.muted) {
+        setManagedTimer(settleTimer, () => done('unmute'), 80);
+      }
+    };
+
+    track.addEventListener('unmute', check);
+    setManagedTimer(timeoutTimer, () => done('unmute-timeout'), 2000);
+    check();
+  });
+}
+
 async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Promise<void> {
+  await waitForInitialTrackUnmute(channel, track);
+  if (!guestPc || track.readyState === 'ended') {
+    log.debug(`[SysAudioSFU] Skipping stale ${channel} remote track attach`);
+    return;
+  }
   await initAudio();
   const ctx = getAudioContext();
   const widener = getWidener();

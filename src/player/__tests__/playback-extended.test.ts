@@ -306,6 +306,77 @@ describe('togglePlay file pipeline guard', () => {
   });
 });
 
+// ─── handleRequestPlay file pipeline guard ──────────────────────────
+// Sibling of togglePlay's guard (4901b9cd): host receiving an OP guest's
+// REQUEST_PLAY while its own file pipeline is preparing must not play the
+// stale resident buffer + broadcast PLAY with the NEW track index.
+
+describe('handleRequestPlay file pipeline guard', () => {
+  it('drops OP REQUEST_PLAY while the next file is decoding', async () => {
+    setState('playlist.items', [
+      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
+      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 1);
+    setState('player.pausedAt', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    const opConn = { open: true, peer: 'op-1' } as DataConnection;
+    setState('network.connectedPeers', [
+      { id: 'op-1', label: 'OP', isOp: true, conn: opConn },
+    ]);
+
+    initPlayback();
+    await handleData({ type: MSG.REQUEST_PLAY, time: 0 }, opConn);
+
+    expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+  });
+});
+
+// ─── handlePlayMsg lifecycle gate (DOWNLOADING/DECODING defer) ──────
+// Sibling of the AWAITING_PRELOAD branch: a host PLAY broadcast that
+// arrives while the guest's own pipeline is still preparing must defer
+// to pendingPlayTime instead of replaying the previous track's buffer.
+
+describe('handlePlayMsg lifecycle gate', () => {
+  it('defers play time when host PLAY arrives during DECODING', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [
+      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
+      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 1);
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    initPlayback();
+    await handleData({ type: MSG.PLAY, time: 42, index: 1, name: 'new.mp3' }, hostConn);
+
+    expect(getPendingPlayTime()).toBe(42);
+    expect(getState('playback.activity')).not.toBe('playing');
+  });
+
+  it('defers play time when host PLAY arrives during DOWNLOADING', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [
+      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
+      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 1);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    initPlayback();
+    await handleData({ type: MSG.PLAY, time: 7, index: 1, name: 'new.mp3' }, hostConn);
+
+    expect(getPendingPlayTime()).toBe(7);
+    expect(getState('playback.activity')).not.toBe('playing');
+  });
+});
+
 describe('updatePlayState', () => {
   it('emits ui:update-play-state with true', () => {
     const handler = vi.fn();

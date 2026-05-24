@@ -36,7 +36,7 @@ import { getHostNow } from '../network/shared-clock.ts';
 /** Schedule playback slightly in the future so the message arrives before play time */
 const SCHEDULE_AHEAD_MS = 200;
 
-function isFilePipelineBusyForPlay(): boolean {
+export function isFilePipelineBusyForPlay(): boolean {
   const lifecycle = getState('playback.lifecycle');
   return (
     lifecycle === PLAYBACK_STATE.DOWNLOADING ||

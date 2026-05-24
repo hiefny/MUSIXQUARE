@@ -38,7 +38,15 @@ import {
   setLastClearedTrackName,
 } from './_state.ts';
 
-import { play, pause, stopAllMedia, getTrackPosition, handleEnded, skipTime } from './transport.ts';
+import {
+  play,
+  pause,
+  stopAllMedia,
+  getTrackPosition,
+  handleEnded,
+  isFilePipelineBusyForPlay,
+  skipTime,
+} from './transport.ts';
 
 import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
@@ -185,22 +193,32 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
 
   // Lifecycle gate.
   //
-  // If we're in AWAITING_PRELOAD for this track, the "stale audio" we're
-  // about to detect below is EXPECTED — we haven't consumed the preload
-  // blob yet, so transfer.meta still reflects the previous track. The old
-  // stale-audio-recovery timer would kick in 5s later and request a full
-  // re-download (0%-restart), wasting the almost-finished preload.
+  // During AWAITING_PRELOAD/DOWNLOADING/DECODING the currentAudioBuffer
+  // still belongs to the PREVIOUS track — playing immediately would emit
+  // stale audio while UI already shows the NEW track index. Same race as
+  // togglePlay's isFilePipelineBusyForPlay guard (transport.ts:683,
+  // 4901b9cd) and handleRequestPlay (playback.ts, F-1701 sibling).
   //
-  // In AWAITING_PRELOAD, just defer the play time. When the preload blob
-  // finalizes and loadPreloadedTrack runs, it consumes pendingPlayTime and
-  // plays at the correct host-scheduled instant.
+  // The state machine documents these as `{stay: true}` "store
+  // pendingPlayTime, no recovery" — defer to the load completion path:
+  //   AWAITING_PRELOAD → loadPreloadedTrack consumes pendingPlayTime
+  //   DOWNLOADING/DECODING → decode.ts:992 hostConn branch consumes it
+  //     after DECODE_SUCCESS lands cleanly on READY.
+  //
+  // For AWAITING_PRELOAD specifically: the old stale-audio-recovery
+  // timer would kick in 5s later and request a full re-download
+  // (0%-restart), wasting the almost-finished preload.
   const lifecycle = getState('playback.lifecycle');
-  if (lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD) {
+  if (
+    lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
+    lifecycle === PLAYBACK_STATE.DOWNLOADING ||
+    lifecycle === PLAYBACK_STATE.DECODING
+  ) {
     setPendingPlayTime(time);
     // Drive the state machine for observability (it's a stay transition).
     transition({ type: 'PLAY', time, index: incomingIndex, sameTrack: true });
     log.debug(
-      `[Guest] PLAY arrived while AWAITING_PRELOAD — deferring to preload waiter (time=${time})`,
+      `[Guest] PLAY arrived while ${lifecycle} — deferring to pipeline completion (time=${time})`,
     );
     return;
   }
@@ -418,6 +436,19 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   // rather than resuming stale audio buffer.
   if (currentTrackIndex === -1 && playlistItems.length > 0) {
     void import('./playlist.ts').then((mod) => mod.playTrack(0));
+    return;
+  }
+
+  // Sibling guard to togglePlay's isFilePipelineBusyForPlay (4901b9cd):
+  // during DOWNLOADING/AWAITING_PRELOAD/DECODING the resident AudioBuffer
+  // still belongs to the previous track, so play(time) would broadcast
+  // currentTrackIndex (the NEW track) while emitting the OLD buffer's
+  // audio. Silently drop — host's decode-success path
+  // (decode.ts:193-199 → READY) auto-broadcasts PLAY for the new track,
+  // so the OP doesn't need to retry. Mirrors togglePlay (transport.ts:683)
+  // and handlePlayMsg's lifecycle gate (playback.ts).
+  if (isFilePipelineBusyForPlay()) {
+    log.debug('[Playback] Ignoring REQUEST_PLAY while file pipeline is preparing');
     return;
   }
 

@@ -17,6 +17,47 @@ vi.mock('../toast.ts', () => ({
 
 import { initSettings, setTheme, selectStandardChannelButton } from '../settings.ts';
 
+function installEffectSettingsDom(): void {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `
+      <div class="channel-grid" id="grid-reverb">
+        <button class="ch-opt" data-rvb-type="studio">Studio</button>
+        <button class="ch-opt" data-rvb-type="arena">Arena</button>
+        <button class="ch-opt" data-rvb-type="advanced">Advanced</button>
+        <button class="ch-opt active" data-rvb-type="off">Off</button>
+      </div>
+      <div id="reverb-sliders-area" class="reverb-sliders-area collapsed">
+        <span id="val-reverb">0%</span>
+        <input type="range" id="reverb-slider" min="0" max="100" value="0" />
+        <span id="val-rvb-decay">5.0s</span>
+        <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0" />
+        <span id="val-rvb-predelay">0.1s</span>
+        <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1" />
+        <span id="val-rvb-lowcut">20Hz</span>
+        <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0" />
+        <span id="val-rvb-highcut">20.0kHz</span>
+        <input type="range" id="reverb-highcut-slider" min="0" max="100" step="1" value="0" />
+      </div>
+      <div class="channel-grid" id="grid-eq">
+        <button class="ch-opt" data-eq-type="bright">Bright</button>
+        <button class="ch-opt" data-eq-type="warm">Warm</button>
+        <button class="ch-opt" data-eq-type="advanced">Advanced</button>
+        <button class="ch-opt active" data-eq-type="off">Off</button>
+      </div>
+      <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
+        ${Array.from(
+          { length: 5 },
+          (_, i) => `
+            <span id="eq-val-${i}">0</span>
+            <input type="range" class="eq-slider" id="eq-slider-${i}" min="-12" max="12" value="0" />
+          `,
+        ).join('')}
+      </div>
+    `,
+  );
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   resetState();
@@ -146,5 +187,50 @@ describe('initSettings playback mode guards', () => {
 
     expect(setChannel).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('Cannot change roles during system audio sharing.');
+  });
+});
+
+describe('initSettings effect slider fill sync', () => {
+  it('updates reverb range fill when a preset sets hidden advanced sliders', () => {
+    installEffectSettingsDom();
+    initSettings();
+
+    document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
+    document
+      .querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="advanced"]')
+      ?.click();
+
+    const slider = document.getElementById('reverb-slider') as HTMLInputElement;
+    expect(slider.value).toBe('40');
+    expect(slider.style.getPropertyValue('--range-progress')).toBe('40%');
+    expect(document.getElementById('reverb-sliders-area')?.classList.contains('collapsed')).toBe(
+      false,
+    );
+  });
+
+  it('updates EQ range fill when a preset sets hidden advanced sliders', () => {
+    installEffectSettingsDom();
+    initSettings();
+
+    document.querySelector<HTMLElement>('#grid-eq .ch-opt[data-eq-type="bright"]')?.click();
+    document.querySelector<HTMLElement>('#grid-eq .ch-opt[data-eq-type="advanced"]')?.click();
+
+    const slider = document.getElementById('eq-slider-4') as HTMLInputElement;
+    expect(slider.value).toBe('6');
+    expect(slider.style.getPropertyValue('--range-progress')).toBe('75%');
+    expect(document.getElementById('eq-sliders-area')?.classList.contains('collapsed')).toBe(false);
+  });
+
+  it('updates range fill for host-synced effect values', () => {
+    installEffectSettingsDom();
+    initSettings();
+
+    bus.emit('ui:sync-reverb-param', 'mix', 30);
+    bus.emit('ui:sync-eq-band', 0, -6);
+
+    const reverbSlider = document.getElementById('reverb-slider') as HTMLInputElement;
+    const eqSlider = document.getElementById('eq-slider-0') as HTMLInputElement;
+    expect(reverbSlider.style.getPropertyValue('--range-progress')).toBe('30%');
+    expect(eqSlider.style.getPropertyValue('--range-progress')).toBe('25%');
   });
 });

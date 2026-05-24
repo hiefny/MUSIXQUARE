@@ -11,6 +11,7 @@ import { getState } from '../core/state.ts';
 import { isPlaybackModeSystemAudio } from '../player/ownership.ts';
 import { setLanguageMode, t } from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
+import { syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 
@@ -126,6 +127,17 @@ function setChannel(mode: number): void {
 function _setDisp(id: string, text: string): void {
   const el = document.getElementById(id);
   if (el) el.innerText = text;
+}
+
+function setRangeValue(slider: HTMLInputElement, value: number | string): void {
+  slider.value = String(value);
+  syncRangeProgress(slider);
+}
+
+function setRangeValueById(id: string, value: number | string): HTMLInputElement | null {
+  const slider = document.getElementById(id) as HTMLInputElement | null;
+  if (slider) setRangeValue(slider, value);
+  return slider;
 }
 
 function formatReverbValDisp(param: string, v: number): void {
@@ -260,20 +272,11 @@ function syncReverbSlidersToPreset(type: string): void {
   if (type === 'off') {
     // Off: reset reverb, reset slider values to defaults, hide sliders
     const defaults = { mix: 0, decay: 5.0, predelay: 0.1, lowcut: 0, highcut: 0 };
-    const mixSlider = document.getElementById('reverb-slider') as HTMLInputElement | null;
-    const decaySlider = document.getElementById('reverb-decay-slider') as HTMLInputElement | null;
-    const predelaySlider = document.getElementById(
-      'reverb-predelay-slider',
-    ) as HTMLInputElement | null;
-    const lowcutSlider = document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null;
-    const highcutSlider = document.getElementById(
-      'reverb-highcut-slider',
-    ) as HTMLInputElement | null;
-    if (mixSlider) mixSlider.value = String(defaults.mix);
-    if (decaySlider) decaySlider.value = String(defaults.decay);
-    if (predelaySlider) predelaySlider.value = String(defaults.predelay);
-    if (lowcutSlider) lowcutSlider.value = String(defaults.lowcut);
-    if (highcutSlider) highcutSlider.value = String(defaults.highcut);
+    setRangeValueById('reverb-slider', defaults.mix);
+    setRangeValueById('reverb-decay-slider', defaults.decay);
+    setRangeValueById('reverb-predelay-slider', defaults.predelay);
+    setRangeValueById('reverb-lowcut-slider', defaults.lowcut);
+    setRangeValueById('reverb-highcut-slider', defaults.highcut);
     formatReverbValDisp('mix', defaults.mix);
     formatReverbValDisp('decay', defaults.decay);
     formatReverbValDisp('predelay', defaults.predelay);
@@ -297,19 +300,12 @@ function syncReverbSlidersToPreset(type: string): void {
   if (!preset) return;
 
   // Update slider positions (for when user switches to Advanced later)
-  const mixSlider = document.getElementById('reverb-slider') as HTMLInputElement | null;
-  const decaySlider = document.getElementById('reverb-decay-slider') as HTMLInputElement | null;
-  const predelaySlider = document.getElementById(
-    'reverb-predelay-slider',
-  ) as HTMLInputElement | null;
-  const lowcutSlider = document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null;
-  const highcutSlider = document.getElementById('reverb-highcut-slider') as HTMLInputElement | null;
-  if (mixSlider) mixSlider.value = String(preset.mix);
-  if (decaySlider) decaySlider.value = String(preset.decay);
-  if (predelaySlider) predelaySlider.value = String(preset.predelay);
+  setRangeValueById('reverb-slider', preset.mix);
+  setRangeValueById('reverb-decay-slider', preset.decay);
+  setRangeValueById('reverb-predelay-slider', preset.predelay);
   // Reset lowcut/highcut to defaults when switching presets (presets don't define them)
-  if (lowcutSlider) lowcutSlider.value = '0';
-  if (highcutSlider) highcutSlider.value = '0';
+  setRangeValueById('reverb-lowcut-slider', 0);
+  setRangeValueById('reverb-highcut-slider', 0);
 
   // Update value displays
   formatReverbValDisp('mix', preset.mix);
@@ -327,8 +323,7 @@ function resetEQ(): void {
   bus.emit('audio:reset-eq');
   // Reset slider UI
   for (let i = 0; i < 5; i++) {
-    const eq = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
-    if (eq) eq.value = '0';
+    setRangeValueById(`eq-slider-${i}`, 0);
     _setDisp(`eq-val-${i}`, '0');
   }
   clearEqChipActive();
@@ -364,8 +359,7 @@ function syncEqSlidersToPreset(type: string): void {
     document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.classList.add('active');
     // Zero all slider DOM values so switching to Advanced shows flat EQ
     for (let i = 0; i < 5; i++) {
-      const slider = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
-      if (slider) slider.value = '0';
+      setRangeValueById(`eq-slider-${i}`, 0);
       _setDisp(`eq-val-${i}`, '0');
     }
     setEqSlidersVisible(false);
@@ -383,8 +377,7 @@ function syncEqSlidersToPreset(type: string): void {
 
   // Update slider positions (for when user switches to Advanced later)
   for (let i = 0; i < 5; i++) {
-    const slider = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
-    if (slider) slider.value = String(preset[i]);
+    setRangeValueById(`eq-slider-${i}`, preset[i]);
     const v = preset[i];
     _setDisp(`eq-val-${i}`, v > 0 ? `+${v}` : String(v));
   }
@@ -566,7 +559,7 @@ export function initSettings(): void {
   });
   $on('cutoff-slider', 'dblclick', function (this: HTMLInputElement) {
     updateAudioEffect('cutoff', 'value', 120);
-    this.value = '120';
+    setRangeValue(this, 120);
   });
 
   // Reverb preset grid
@@ -605,7 +598,7 @@ export function initSettings(): void {
     $on(id, 'dblclick', function (this: HTMLInputElement) {
       if (_guardHostCtrl()) return;
       updateAudioEffect('reverb', param, resetVal);
-      this.value = String(resetVal);
+      setRangeValue(this, resetVal);
     });
   });
 
@@ -652,7 +645,7 @@ export function initSettings(): void {
       if (_guardHostCtrl()) return;
       setEQ(i, 0);
       const el = document.getElementById(`eq-slider-${i}`) as HTMLInputElement;
-      if (el) el.value = '0';
+      if (el) setRangeValue(el, 0);
     });
   }
 
@@ -700,8 +693,7 @@ export function initSettings(): void {
     };
     const sliderId = sliderMap[param];
     if (sliderId) {
-      const slider = document.getElementById(sliderId) as HTMLInputElement | null;
-      if (slider) slider.value = String(value);
+      setRangeValueById(sliderId, value);
     }
     formatReverbValDisp(param, value);
 
@@ -738,7 +730,7 @@ export function initSettings(): void {
   _busScope.on('ui:sync-eq-band', (bandIdx: number, value: number) => {
     _setDisp(`eq-val-${bandIdx}`, value > 0 ? `+${value}` : String(value));
     const slider = document.getElementById(`eq-slider-${bandIdx}`) as HTMLInputElement | null;
-    if (slider && parseFloat(slider.value) !== value) slider.value = String(value);
+    if (slider && parseFloat(slider.value) !== value) setRangeValue(slider, value);
   });
 
   // ─── Host-Ctrl Lock UI update on role change ──────────────────

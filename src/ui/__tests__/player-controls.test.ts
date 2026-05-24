@@ -196,11 +196,6 @@ describe('updateRoleBadge', () => {
   });
 });
 
-const ROUNDED_PLAY_ICON_PATH =
-  'M320-273v-414q0-17 12-28.5t28-11.5q5 0 10.5 1.5T381-721l326 207q9 6 13.5 15t4.5 19q0 10-4.5 19T707-446L381-239q-5 3-10.5 4.5T360-233q-16 0-28-11.5T320-273Zm80-207Zm0 134 210-134-210-134v268Z';
-const ROUNDED_PAUSE_ICON_PATH =
-  'M600-200q-33 0-56.5-23.5T520-280v-400q0-33 23.5-56.5T600-760h80q33 0 56.5 23.5T760-680v400q0 33-23.5 56.5T680-200h-80Zm-320 0q-33 0-56.5-23.5T200-280v-400q0-33 23.5-56.5T280-760h80q33 0 56.5 23.5T440-680v400q0 33-23.5 56.5T360-200h-80Zm320-80h80v-400h-80v400Zm-320 0h80v-400h-80v400Zm0-400v400-400Zm320 0v400-400Z';
-
 describe('initPlayerControls playback mode rendering', () => {
   function renderPlaybackControls(): void {
     document.body.innerHTML = `
@@ -219,12 +214,12 @@ describe('initPlayerControls playback mode rendering', () => {
     const mediaBtn = document.getElementById('btn-media-source');
     const mediaLabel = mediaBtn?.querySelector('span');
 
-    expect(icon?.getAttribute('d')).toBe(ROUNDED_PAUSE_ICON_PATH);
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
     expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop');
 
     setPlaybackIdle();
 
-    expect(icon?.getAttribute('d')).toBe(ROUNDED_PLAY_ICON_PATH);
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
     expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media');
     expect(mediaBtn?.classList.contains('sys-audio-guest')).toBe(false);
   });
@@ -237,10 +232,10 @@ describe('initPlayerControls playback mode rendering', () => {
     initPlayerControls();
 
     const icon = document.querySelector('#play-btn path');
-    expect(icon?.getAttribute('d')).toBe(ROUNDED_PLAY_ICON_PATH);
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
 
     bus.emit('ui:update-play-state', true);
-    expect(icon?.getAttribute('d')).toBe(ROUNDED_PAUSE_ICON_PATH);
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
   });
 
   it('shows the loading play button while a local file is preparing', () => {

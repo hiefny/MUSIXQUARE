@@ -47,7 +47,15 @@ export function primeWebRtcAudioDecoder(
   const audioEl = document.createElement('audio');
   audioEl.autoplay = true;
   audioEl.controls = false;
-  // Volume 0 keeps WebRTC audio decoding active without bypassing the app graph.
+  // muted + volume 0 = silent without bypassing the app graph. The primer's
+  // only job is to wake the WebRTC audio decoder; the real audio path is the
+  // parallel Web Audio MediaStreamAudioSourceNode. Chrome / Safari autoplay
+  // policy allows muted autoplay without a user gesture, so the primer works
+  // on fresh tab / hidden-tab / late-join paths where no gesture is in scope.
+  // Without `muted = true` the primer can hit NotAllowedError on those paths
+  // and the WebRTC track stays at readyState=live but muted=true — the exact
+  // Android symptom this primer is here to prevent.
+  audioEl.muted = true;
   audioEl.volume = 0;
   audioEl.setAttribute('playsinline', 'true');
   audioEl.preload = 'auto';

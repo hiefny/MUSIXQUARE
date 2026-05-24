@@ -505,6 +505,118 @@
   #vol-icon-btn {
     display: inline-flex;
     align-items: center;
+    color: var(--text-sub);
+    transition:
+      color 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  #vol-icon-btn:active {
+    transform: scale(0.94);
+  }
+
+  #vol-icon-btn .volume-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
+    overflow: visible;
+  }
+
+  .volume-speaker {
+    fill: currentColor;
+    transform-origin: 8px 12px;
+    transition:
+      opacity 0.18s ease,
+      transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .volume-wave {
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+    opacity: 1;
+    transform-origin: 13px 12px;
+    transition:
+      opacity 0.18s ease,
+      transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .volume-wave-outer {
+    transition-delay: 0.03s;
+  }
+
+  .volume-muted-backdrop,
+  .volume-muted-mark {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0;
+    transform: scale(0.82) rotate(-8deg);
+    transform-origin: 17px 12px;
+    transition:
+      opacity 0.12s ease,
+      transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .volume-muted-backdrop {
+    stroke: var(--bg);
+    stroke-width: 4;
+  }
+
+  .volume-muted-mark {
+    stroke: currentColor;
+    stroke-width: 2;
+  }
+
+  .volume-muted-ring {
+    stroke-dasharray: 29;
+    stroke-dashoffset: 29;
+    transition: stroke-dashoffset 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .volume-muted-slash {
+    stroke-dasharray: 10;
+    stroke-dashoffset: 10;
+    transition: stroke-dashoffset 0.16s ease 0.08s;
+  }
+
+  #vol-icon-btn.is-muted {
+    color: var(--text-main);
+  }
+
+  #vol-icon-btn.is-muted .volume-speaker {
+    transform: translateX(-0.5px);
+  }
+
+  #vol-icon-btn.is-muted .volume-wave {
+    opacity: 0;
+    transform: translateX(-1.5px) scale(0.72);
+    transition-delay: 0s;
+  }
+
+  #vol-icon-btn.is-muted .volume-muted-backdrop,
+  #vol-icon-btn.is-muted .volume-muted-mark {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+
+  #vol-icon-btn.is-muted .volume-muted-ring,
+  #vol-icon-btn.is-muted .volume-muted-slash {
+    stroke-dashoffset: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #vol-icon-btn,
+    .volume-speaker,
+    .volume-wave,
+    .volume-muted-backdrop,
+    .volume-muted-mark,
+    .volume-muted-ring,
+    .volume-muted-slash {
+      transition: none;
+    }
   }
 
   /* Logo SVG Styling */

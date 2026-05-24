@@ -255,6 +255,53 @@ describe('initPlayerControls playback mode rendering', () => {
   });
 });
 
+describe('initPlayerControls volume icon', () => {
+  function renderVolumeControls(): HTMLElement {
+    document.body.innerHTML = `
+      <button id="vol-icon-btn" aria-label="Toggle mute">
+        <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z"></path>
+          <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7"></path>
+          <path class="volume-wave volume-wave-outer" d="M18 5.7a8.9 8.9 0 0 1 0 12.6"></path>
+          <g class="volume-muted-backdrop">
+            <circle class="volume-muted-ring" cx="17" cy="12" r="4.8"></circle>
+            <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8"></path>
+          </g>
+          <g class="volume-muted-mark">
+            <circle class="volume-muted-ring" cx="17" cy="12" r="4.8"></circle>
+            <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8"></path>
+          </g>
+        </svg>
+      </button>
+      <input type="range" id="volume-slider" min="0" max="100" value="100" />
+    `;
+    return document.getElementById('vol-icon-btn') as HTMLElement;
+  }
+
+  it('uses a class-driven muted mark instead of swapping icon paths', () => {
+    const button = renderVolumeControls();
+    setState('audio.masterVolume', 0);
+
+    initPlayerControls();
+
+    expect(button.classList.contains('is-muted')).toBe(true);
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('volume-slider')?.style.getPropertyValue('--range-progress')).toBe(
+      '0%',
+    );
+
+    setState('audio.masterVolume', 0.65);
+    bus.emit('audio:volume-changed', 0.65);
+
+    expect(button.classList.contains('is-muted')).toBe(false);
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect((document.getElementById('volume-slider') as HTMLInputElement).value).toBe('65');
+    expect(document.getElementById('volume-slider')?.style.getPropertyValue('--range-progress')).toBe(
+      '65%',
+    );
+  });
+});
+
 describe('initPlayerControls sync button', () => {
   function renderSyncControls(): void {
     document.body.innerHTML = `

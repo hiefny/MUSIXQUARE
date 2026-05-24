@@ -271,10 +271,18 @@
                 aria-label="음소거 전환"
                 data-i18n-aria-label="player.toggle_mute"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
-                  />
+                <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z" />
+                  <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7" />
+                  <path class="volume-wave volume-wave-outer" d="M18 5.7a8.9 8.9 0 0 1 0 12.6" />
+                  <g class="volume-muted-backdrop">
+                    <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                    <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                  </g>
+                  <g class="volume-muted-mark">
+                    <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                    <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                  </g>
                 </svg>
               </button>
               <input

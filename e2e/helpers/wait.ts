@@ -4,12 +4,91 @@
  */
 import type { Page } from '@playwright/test';
 
-/** Valid appState enum values — mirrors src/core/constants.ts APP_STATE.
+/** E2E-only projected playback labels derived from the current playback state.
  *  Used by chaos/recovery tests that want to assert "app is in some
- *  legitimate state" without pinning the exact value. */
-export const VALID_APP_STATES = [
-  'IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_VIDEO', 'PLAYING_YOUTUBE', 'PLAYING_SYSTEM_AUDIO',
+ *  legitimate state" without pinning the exact mode/activity/lifecycle. */
+export const VALID_PROJECTED_PLAYBACK_STATES = [
+  'IDLE',
+  'PAUSED',
+  'PLAYING_AUDIO',
+  'PLAYING_VIDEO',
+  'PLAYING_YOUTUBE',
+  'PLAYING_SYSTEM_AUDIO',
 ] as const;
+
+/** @deprecated Use VALID_PROJECTED_PLAYBACK_STATES in new tests. */
+export const VALID_APP_STATES = VALID_PROJECTED_PLAYBACK_STATES;
+
+export type ProjectedPlaybackState = (typeof VALID_PROJECTED_PLAYBACK_STATES)[number];
+
+interface PlaybackSnapshot {
+  mode: unknown;
+  activity: unknown;
+  lifecycle: unknown;
+  isReceivingSystemAudio: unknown;
+  currentTrackMeta: unknown;
+  projectedState: ProjectedPlaybackState;
+}
+
+export async function readPlaybackSnapshot(page: Page): Promise<PlaybackSnapshot> {
+  return page.evaluate(() => {
+    const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+      | ((p: string) => unknown)
+      | undefined;
+    if (!get) {
+      return {
+        mode: undefined,
+        activity: undefined,
+        lifecycle: undefined,
+        isReceivingSystemAudio: undefined,
+        currentTrackMeta: undefined,
+        projectedState: 'IDLE',
+      };
+    }
+
+    const snapshot = {
+      mode: get('playback.mode'),
+      activity: get('playback.activity'),
+      lifecycle: get('playback.lifecycle'),
+      isReceivingSystemAudio: get('systemAudio.isReceiving'),
+      currentTrackMeta: get('player.currentTrackMeta'),
+    };
+    const meta = snapshot.currentTrackMeta as
+      | { systemAudioPlaceholder?: boolean }
+      | null
+      | undefined;
+    let projectedState: ProjectedPlaybackState = 'IDLE';
+
+    if (snapshot.mode === 'youtube') projectedState = 'PLAYING_YOUTUBE';
+    else if (
+      snapshot.mode === 'system-audio' ||
+      snapshot.isReceivingSystemAudio === true ||
+      meta?.systemAudioPlaceholder === true
+    ) {
+      projectedState = 'PLAYING_SYSTEM_AUDIO';
+    } else if (snapshot.mode === 'file') {
+      if (snapshot.activity === 'playing' || snapshot.lifecycle === 'PLAYING') {
+        projectedState = 'PLAYING_AUDIO';
+      } else if (
+        snapshot.activity === 'paused' ||
+        snapshot.lifecycle === 'PAUSED' ||
+        snapshot.lifecycle === 'READY'
+      ) {
+        projectedState = 'PAUSED';
+      }
+    } else if (snapshot.lifecycle === 'PLAYING') {
+      projectedState = 'PLAYING_AUDIO';
+    } else if (snapshot.lifecycle === 'PAUSED' || snapshot.lifecycle === 'READY') {
+      projectedState = 'PAUSED';
+    }
+
+    return { ...snapshot, projectedState };
+  });
+}
+
+export async function readProjectedPlaybackState(page: Page): Promise<ProjectedPlaybackState> {
+  return (await readPlaybackSnapshot(page)).projectedState;
+}
 
 /**
  * Wait for an app state path to equal the expected value.
@@ -28,7 +107,9 @@ export async function waitForState(
         | ((p: string) => unknown)
         | undefined;
       if (!get) return false;
-      const current = get(path as string);
+      const projected = (window as unknown as Record<string, unknown>)
+        .__MUSIXQUARE_GET_PROJECTED_APP_STATE__ as (() => unknown) | undefined;
+      const current = path === 'appState' && projected ? projected() : get(path as string);
       // Deep compare for arrays/objects, strict for primitives
       if (val !== null && typeof val === 'object') {
         return JSON.stringify(current) === JSON.stringify(val);
@@ -114,6 +195,61 @@ export async function waitForPlayState(
 }
 
 /**
+ * Wait until the current local file has decoded and the transport is ready.
+ */
+export async function waitForFilePlaybackReady(page: Page, timeout = 15_000): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+        | ((p: string) => unknown)
+        | undefined;
+      if (!get) return false;
+      const lifecycle = get('playback.lifecycle');
+      return (
+        get('files.currentFileBlob') !== null &&
+        (lifecycle === 'READY' || lifecycle === 'PLAYING' || lifecycle === 'PAUSED')
+      );
+    },
+    { timeout },
+  );
+}
+
+/**
+ * Wait until the play button is clickable from the user's point of view.
+ */
+export async function waitForPlayButtonReady(page: Page, timeout = 15_000): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const btn = document.getElementById('play-btn') as HTMLButtonElement | null;
+      if (!btn) return false;
+      const style = window.getComputedStyle(btn);
+      return (
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        !btn.disabled &&
+        btn.getAttribute('aria-disabled') !== 'true' &&
+        btn.getAttribute('aria-busy') !== 'true' &&
+        !btn.classList.contains('yt-syncing')
+      );
+    },
+    { timeout },
+  );
+}
+
+/**
+ * Click the play button after readiness checks, with a DOM click fallback for
+ * transient layout wrappers that can intercept Playwright's pointer action.
+ */
+export async function clickPlayButton(page: Page, timeout = 15_000): Promise<void> {
+  await waitForPlayButtonReady(page, timeout);
+  try {
+    await page.locator('#play-btn').click({ timeout: 3_000 });
+  } catch {
+    await page.evaluate(() => document.getElementById('play-btn')?.click());
+  }
+}
+
+/**
  * Wait for a chat message to appear in the chat drawer.
  */
 export async function waitForChatMessage(
@@ -150,6 +286,12 @@ export async function exposeGetState(page: Page): Promise<void> {
  */
 export async function readState(page: Page, statePath: string): Promise<unknown> {
   return page.evaluate((path) => {
+    if (path === 'appState') {
+      const projected = (window as unknown as Record<string, unknown>)
+        .__MUSIXQUARE_GET_PROJECTED_APP_STATE__ as (() => unknown) | undefined;
+      if (projected) return projected();
+    }
+
     const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
       | ((p: string) => unknown)
       | undefined;
@@ -164,11 +306,7 @@ export async function readState(page: Page, statePath: string): Promise<unknown>
  * Navigate to a tab, waiting for the tab to become active.
  * Replaces patterns like: click nav + waitForTimeout(500)
  */
-export async function navigateToTab(
-  page: Page,
-  tabName: string,
-  timeout = 10_000,
-): Promise<void> {
+export async function navigateToTab(page: Page, tabName: string, timeout = 10_000): Promise<void> {
   // Ensure setup overlay is dismissed before clicking nav
   await page.waitForFunction(
     () => !document.getElementById('setup-overlay')?.classList.contains('active'),
@@ -238,11 +376,7 @@ export async function clickAndWaitActive(
 /**
  * Wait for data-theme attribute to change.
  */
-export async function waitForTheme(
-  page: Page,
-  theme: string,
-  timeout = 5_000,
-): Promise<void> {
+export async function waitForTheme(page: Page, theme: string, timeout = 5_000): Promise<void> {
   await page.waitForFunction(
     (t) => document.documentElement.getAttribute('data-theme') === t,
     theme,
@@ -253,17 +387,11 @@ export async function waitForTheme(
 /**
  * Wait for i18n text to contain a pattern (Korean or English).
  */
-export async function waitForLang(
-  page: Page,
-  lang: 'ko' | 'en',
-  timeout = 5_000,
-): Promise<void> {
+export async function waitForLang(page: Page, lang: 'ko' | 'en', timeout = 5_000): Promise<void> {
   await page.waitForFunction(
     (l) => {
       const text = document.body.textContent || '';
-      return l === 'ko'
-        ? /[\uAC00-\uD7A3]/.test(text)
-        : /settings|audio|connect|play/i.test(text);
+      return l === 'ko' ? /[\uAC00-\uD7A3]/.test(text) : /settings|audio|connect|play/i.test(text);
     },
     lang,
     { timeout },
@@ -288,8 +416,9 @@ export async function openChatDrawer(page: Page, timeout = 5_000): Promise<void>
   } catch {
     // Fallback: click via JS if element exists but isn't visible
     await page.evaluate(() => {
-      const btn = document.getElementById('chat-preview-btn')
-        || document.querySelector('.nav-item[data-tab="chat"]');
+      const btn =
+        document.getElementById('chat-preview-btn') ||
+        document.querySelector('.nav-item[data-tab="chat"]');
       (btn as HTMLElement)?.click();
     });
   }

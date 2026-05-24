@@ -8,9 +8,20 @@
  * - Display updates with offset value
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { readState } from './helpers/wait.ts';
+import { uploadFixture } from './helpers/file-upload.ts';
+import {
+  clickPlayButton,
+  readState,
+  waitForFilePlaybackReady,
+  waitForPlaylistCount,
+  waitForPlayState,
+} from './helpers/wait.ts';
 import type { Page } from '@playwright/test';
 
 /** Click an element by selector with JS fallback. */
@@ -20,24 +31,12 @@ async function jsClick(page: Page, selector: string): Promise<void> {
     await el.waitFor({ state: 'visible', timeout: 3_000 });
     await el.click();
   } catch {
-    await page.evaluate(
-      (sel) => (document.querySelector(sel) as HTMLElement)?.click(),
-      selector,
-    );
+    await page.evaluate((sel) => (document.querySelector(sel) as HTMLElement)?.click(), selector);
   }
 }
 
-/**
- * Open the manual sync overlay by adding 'show' class directly.
- * The app has no UI flow to open this overlay from btn-sync (btn-sync triggers auto-sync),
- * so we open it programmatically by adding the 'show' class.
- */
 async function openSyncOverlay(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const overlay = document.getElementById('manual-sync-overlay');
-    if (overlay) overlay.classList.add('show');
-  });
-  // Wait for the overlay to have the 'show' class
+  await jsClick(page, '#btn-sync');
   await page.waitForFunction(
     () => {
       const overlay = document.getElementById('manual-sync-overlay');
@@ -48,11 +47,39 @@ async function openSyncOverlay(page: Page): Promise<void> {
   );
 }
 
+async function prepareGuestManualSync(): Promise<void> {
+  await connectHostAndGuest(pair.hostPage, pair.guestPage);
+  await uploadFixture(pair.hostPage, 'test01');
+  await waitForPlaylistCount(pair.hostPage, 1);
+  await waitForPlaylistCount(pair.guestPage, 1, 25_000);
+  await waitForFilePlaybackReady(pair.hostPage, 20_000);
+  await clickPlayButton(pair.hostPage);
+  await waitForPlayState(pair.hostPage, true);
+  await pair.guestPage.waitForFunction(
+    () => {
+      const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+        | ((p: string) => unknown)
+        | undefined;
+      const hostConn = get?.('network.hostConn') as { open?: boolean } | null | undefined;
+      return (
+        hostConn?.open === true &&
+        get?.('playback.mode') === 'file' &&
+        get?.('files.currentFileBlob') !== null
+      );
+    },
+    { timeout: 25_000 },
+  );
+}
+
 /**
  * Wait for sync.localOffset to reach the expected value (in seconds).
  * Nudge values are in ms, but adjustSync stores them as seconds.
  */
-async function waitForSyncOffset(page: Page, expectedSeconds: number, timeout = 10_000): Promise<void> {
+async function waitForSyncOffset(
+  page: Page,
+  expectedSeconds: number,
+  timeout = 10_000,
+): Promise<void> {
   await page.waitForFunction(
     ([expected]) => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
@@ -87,10 +114,8 @@ test.describe('Sync Controls', () => {
   });
 
   test('clicking sync opens manual sync overlay', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await prepareGuestManualSync();
 
-    // The manual sync overlay is opened programmatically (no UI trigger from btn-sync).
-    // Verify it can be shown with the 'show' class.
     await openSyncOverlay(pair.guestPage);
 
     const isShown = await pair.guestPage.evaluate(() => {
@@ -101,7 +126,7 @@ test.describe('Sync Controls', () => {
   });
 
   test('nudge +1ms button increases offset', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await prepareGuestManualSync();
 
     await openSyncOverlay(pair.guestPage);
 
@@ -116,7 +141,7 @@ test.describe('Sync Controls', () => {
   });
 
   test('nudge -1ms button decreases offset', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await prepareGuestManualSync();
 
     await openSyncOverlay(pair.guestPage);
 
@@ -131,7 +156,7 @@ test.describe('Sync Controls', () => {
   });
 
   test('nudge +10ms button increases offset by 10', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await prepareGuestManualSync();
 
     await openSyncOverlay(pair.guestPage);
 
@@ -146,7 +171,7 @@ test.describe('Sync Controls', () => {
   });
 
   test('nudge -10ms button decreases offset by 10', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await prepareGuestManualSync();
 
     await openSyncOverlay(pair.guestPage);
 
@@ -161,7 +186,7 @@ test.describe('Sync Controls', () => {
   });
 
   test('multiple nudges accumulate correctly', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await prepareGuestManualSync();
 
     await openSyncOverlay(pair.guestPage);
 
@@ -182,7 +207,7 @@ test.describe('Sync Controls', () => {
   });
 
   test('sync display shows current offset value', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await prepareGuestManualSync();
 
     await openSyncOverlay(pair.guestPage);
 
@@ -197,7 +222,7 @@ test.describe('Sync Controls', () => {
   });
 
   test('done button closes sync overlay', async () => {
-    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await prepareGuestManualSync();
 
     await openSyncOverlay(pair.guestPage);
 

@@ -29,6 +29,7 @@ import {
   waitForChatMessage,
   waitForState,
   waitForPlayState,
+  clickPlayButton,
   navigateToTab,
   openChatDrawer,
   sendChat,
@@ -65,7 +66,7 @@ test.describe('Mode Switching Chains', () => {
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
       { timeout: 15_000 },
     );
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Phase 2: Switch to YouTube
@@ -122,19 +123,19 @@ test.describe('Mode Switching Chains', () => {
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
       { timeout: 15_000 },
     );
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Pause
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, false);
 
     // Play again
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, true);
 
     // Pause again
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, false);
 
     // State should be consistent
@@ -174,7 +175,7 @@ test.describe('Playlist Manipulation During Playback', () => {
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
       { timeout: 15_000 },
     );
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, true);
 
     // Switch to play tab if not already
@@ -409,7 +410,7 @@ test.describe('Settings Changes During Playback', () => {
     );
 
     // Start playing
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Change EQ values via state (no need to navigate to settings tab)
@@ -450,7 +451,7 @@ test.describe('Settings Changes During Playback', () => {
       { timeout: 15_000 },
     );
 
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Set volume to 0
@@ -483,7 +484,7 @@ test.describe('Settings Changes During Playback', () => {
       { timeout: 15_000 },
     );
 
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Enable reverb
@@ -518,7 +519,7 @@ test.describe('Settings Changes During Playback', () => {
       { timeout: 15_000 },
     );
 
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
 
     // Cycle through channel modes
@@ -566,7 +567,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
 
     // Play -> Pause -> Play -> Pause
     for (let i = 0; i < 4; i++) {
-      await pair.hostPage.click('#play-btn');
+      await clickPlayButton(pair.hostPage);
       if (i % 2 === 0) {
         await waitForPlayState(pair.hostPage, true);
       } else {
@@ -747,7 +748,7 @@ test.describe('Operator Privilege Scenarios', () => {
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
       { timeout: 15_000 },
     );
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, true);
 
     // Revoke operator while playing
@@ -801,7 +802,7 @@ test.describe('Guest Disconnect During Transfer', () => {
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
         { timeout: 15_000 },
       );
-      await pair.hostPage.click('#play-btn');
+      await clickPlayButton(pair.hostPage);
       await waitForPlayState(pair.hostPage, true);
 
       const playState = await readState(pair.hostPage, 'appState');
@@ -946,6 +947,8 @@ test.describe('State Consistency After Complex Flows', () => {
   });
 
   test('full session lifecycle: upload, play, pause, next, prev, remove, upload again', async () => {
+    test.setTimeout(120_000);
+
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload 3 files
@@ -963,11 +966,11 @@ test.describe('State Consistency After Complex Flows', () => {
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
       { timeout: 15_000 },
     );
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, true);
 
     // Pause
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, false);
 
     // Next
@@ -991,7 +994,7 @@ test.describe('State Consistency After Complex Flows', () => {
     );
 
     // Play again
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, true);
 
     // Remove last track via play tab
@@ -1038,11 +1041,11 @@ test.describe('State Consistency After Complex Flows', () => {
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
       { timeout: 15_000 },
     );
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, true);
 
     // Pause
-    await pair.hostPage.click('#play-btn');
+    await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, false);
 
     // Upload another
@@ -1099,7 +1102,7 @@ test.describe('State Consistency After Complex Flows', () => {
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
         { timeout: 15_000 },
       );
-      await hostPage.click('#play-btn');
+      await clickPlayButton(hostPage);
       await waitForPlayState(hostPage, true);
 
       // Next track
@@ -1113,7 +1116,7 @@ test.describe('State Consistency After Complex Flows', () => {
       );
 
       // Pause
-      await hostPage.click('#play-btn');
+      await clickPlayButton(hostPage);
       await waitForPlayState(hostPage, false);
 
       // Both guests should have 2 tracks

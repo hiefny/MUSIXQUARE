@@ -49,7 +49,7 @@ test.describe('Linelight demo mode', () => {
     await expect(page.locator('#dialog-overlay.show')).toContainText(
       "Looks like you're new here. Want to try the basics?",
     );
-    await expect(page.locator('#btn-dialog-ok')).toHaveText('Start');
+    await expect(page.locator('#btn-dialog-ok')).toHaveText('Try it');
     await page.locator('#btn-dialog-ok').click();
 
     await expect(page.locator('#demo-overlay')).toHaveClass(/active/, { timeout: 15_000 });
@@ -153,10 +153,10 @@ test.describe('Linelight demo mode', () => {
     await page.locator('[data-demo-step="3"]').click();
     await expect(page.locator('.demo-support-copy')).toHaveCount(0);
     await expect(page.locator('[data-demo-effect="bass"]')).toBeVisible();
-    await expect(page.locator('[data-demo-effect="bass"]')).toContainText('Bass Boost On/Off');
-    await expect(page.locator('[data-demo-effect="treble"]')).toContainText('Treble Boost On/Off');
-    await expect(page.locator('[data-demo-effect="reverb"]')).toContainText('Reverb On/Off');
-    await expect(page.locator('[data-demo-effect="surround"]')).toContainText('Surround On/Off');
+    await expect(page.locator('[data-demo-effect="bass"]')).toContainText('Bass Boost');
+    await expect(page.locator('[data-demo-effect="treble"]')).toContainText('Treble Boost');
+    await expect(page.locator('[data-demo-effect="reverb"]')).toContainText('Reverb');
+    await expect(page.locator('[data-demo-effect="surround"]')).toContainText('Surround');
     const effectLayout = await page.evaluate(() => {
       const bass = document.querySelector('[data-demo-effect="bass"]')!;
       const treble = document.querySelector('[data-demo-effect="treble"]')!;

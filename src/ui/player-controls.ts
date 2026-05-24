@@ -50,7 +50,10 @@ const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: 
 };
 
 const ROLE_CLOCK_SECOND_MS = 1000;
-const ROLE_CLOCK_PULSE_WINDOW_MS = 100;
+const ROLE_CLOCK_PULSE_ON_MS = 120;
+const ROLE_CLOCK_PULSE_GAP_MS = 120;
+const ROLE_CLOCK_SECOND_PULSE_START_MS = ROLE_CLOCK_PULSE_ON_MS + ROLE_CLOCK_PULSE_GAP_MS;
+const ROLE_CLOCK_SECOND_PULSE_END_MS = ROLE_CLOCK_SECOND_PULSE_START_MS + ROLE_CLOCK_PULSE_ON_MS;
 const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
 const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
 let _ytPlayButtonLoading = false;
@@ -221,14 +224,25 @@ function scheduleRoleClockPulse(realign = false): void {
   const hostNow = getHostNow();
   const phase = ((hostNow % ROLE_CLOCK_SECOND_MS) + ROLE_CLOCK_SECOND_MS) % ROLE_CLOCK_SECOND_MS;
 
-  if (phase < ROLE_CLOCK_PULSE_WINDOW_MS) {
+  let activeUntilMs = 0;
+  let nextPulseDelayMs = ROLE_CLOCK_SECOND_MS - phase;
+  if (phase < ROLE_CLOCK_PULSE_ON_MS) {
+    activeUntilMs = ROLE_CLOCK_PULSE_ON_MS;
+    nextPulseDelayMs = ROLE_CLOCK_SECOND_PULSE_START_MS - phase;
+  } else if (phase < ROLE_CLOCK_SECOND_PULSE_START_MS) {
+    nextPulseDelayMs = ROLE_CLOCK_SECOND_PULSE_START_MS - phase;
+  } else if (phase < ROLE_CLOCK_SECOND_PULSE_END_MS) {
+    activeUntilMs = ROLE_CLOCK_SECOND_PULSE_END_MS;
+  }
+
+  if (activeUntilMs > phase) {
     dot.classList.add('clock-beat');
     setManagedTimer(
       ROLE_CLOCK_PULSE_RESET_TIMER,
       () => {
         dot.classList.remove('clock-beat');
       },
-      Math.max(1, ROLE_CLOCK_PULSE_WINDOW_MS - phase),
+      Math.max(1, activeUntilMs - phase),
     );
   } else {
     dot.classList.remove('clock-beat');
@@ -239,7 +253,7 @@ function scheduleRoleClockPulse(realign = false): void {
     () => {
       scheduleRoleClockPulse(true);
     },
-    Math.max(1, ROLE_CLOCK_SECOND_MS - phase),
+    Math.max(1, nextPulseDelayMs),
   );
 }
 

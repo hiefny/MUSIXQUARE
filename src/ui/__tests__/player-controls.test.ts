@@ -131,6 +131,7 @@ describe('updateRoleBadge', () => {
   function renderBadge(): HTMLElement {
     document.body.innerHTML = `
       <div class="role-badge" id="role-badge">
+        <span class="role-dot"></span>
         <span id="role-text"></span>
       </div>
     `;
@@ -161,6 +162,37 @@ describe('updateRoleBadge', () => {
 
     expect(badge.classList.contains('connected')).toBe(true);
     expect(badge.classList.contains('remote')).toBe(false);
+  });
+
+  it('pulses the role dot twice per host-clock second', () => {
+    vi.useFakeTimers();
+    try {
+      const badge = renderBadge();
+      const dot = badge.querySelector('.role-dot') as HTMLElement;
+      vi.setSystemTime(0);
+      setState('network.appRole', 'host');
+
+      updateRoleBadge();
+      expect(dot.classList.contains('clock-beat')).toBe(true);
+
+      vi.advanceTimersByTime(120);
+      expect(dot.classList.contains('clock-beat')).toBe(false);
+
+      vi.advanceTimersByTime(119);
+      expect(dot.classList.contains('clock-beat')).toBe(false);
+
+      vi.advanceTimersByTime(1);
+      expect(dot.classList.contains('clock-beat')).toBe(true);
+
+      vi.advanceTimersByTime(120);
+      expect(dot.classList.contains('clock-beat')).toBe(false);
+
+      vi.advanceTimersByTime(640);
+      expect(dot.classList.contains('clock-beat')).toBe(true);
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
   });
 });
 

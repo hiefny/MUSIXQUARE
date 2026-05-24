@@ -1492,6 +1492,11 @@
     width: 32px;
     height: 32px;
     fill: currentColor;
+    /* Without display:block the inline svg sits on the text baseline and the
+       descender slot below it pushes the glyph ~1.5px above the button's
+       optical center — visible against the larger .play-fab next to it
+       which uses flex-centering. */
+    display: block;
   }
 
   .play-fab {

@@ -29,11 +29,11 @@ import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.
 
 import { forceStereoSdp } from './peer.ts';
 import {
-  cleanupWindowsAudioDecoderPrimer,
+  cleanupWebRtcAudioDecoderPrimer,
   getAudioTrackStreamKey,
-  primeWindowsAudioDecoder,
-  type WindowsAudioDecoderPrimer,
-} from './windows-audio-decoder-primer.ts';
+  primeWebRtcAudioDecoder,
+  type WebRtcAudioDecoderPrimer,
+} from './webrtc-audio-decoder-primer.ts';
 
 // ─── Tuning ───────────────────────────────────────────────────────
 //
@@ -68,7 +68,7 @@ let _sourceL: MediaStreamAudioSourceNode | null = null;
 let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _sourceStereo: MediaStreamAudioSourceNode | null = null;
 let _merger: ChannelMergerNode | null = null;
-let _decoderPrimer: WindowsAudioDecoderPrimer | null = null;
+let _decoderPrimer: WebRtcAudioDecoderPrimer | null = null;
 let _gotL = false;
 let _gotR = false;
 let _gotStereo = false;
@@ -172,7 +172,7 @@ function describeAudioTracks(tracks: MediaStreamTrack[]): string {
 }
 
 function primeGuestWindowsAudioDecoder(channel: string, tracks: MediaStreamTrack[]): void {
-  _decoderPrimer = primeWindowsAudioDecoder(
+  _decoderPrimer = primeWebRtcAudioDecoder(
     _decoderPrimer,
     tracks,
     getAudioTrackStreamKey(channel, tracks),
@@ -616,7 +616,7 @@ export function cleanupGuestSystemAudio(): void {
     }
     _sourceStereo = null;
   }
-  cleanupWindowsAudioDecoderPrimer(_decoderPrimer);
+  cleanupWebRtcAudioDecoderPrimer(_decoderPrimer);
   _decoderPrimer = null;
   if (_merger) {
     try {

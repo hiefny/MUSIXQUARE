@@ -21,11 +21,11 @@ import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
 import { cleanupGuestSystemAudio } from './system-audio-guest.ts';
 import {
-  cleanupWindowsAudioDecoderPrimer,
+  cleanupWebRtcAudioDecoderPrimer,
   getAudioTrackStreamKey,
-  primeWindowsAudioDecoder,
-  type WindowsAudioDecoderPrimer,
-} from './windows-audio-decoder-primer.ts';
+  primeWebRtcAudioDecoder,
+  type WebRtcAudioDecoderPrimer,
+} from './webrtc-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
@@ -98,7 +98,7 @@ let guestMerger: ChannelMergerNode | null = null;
 let guestReceiving = false;
 let guestLimitTimerActive = false;
 let guestLimitBlockedHostConn: DataConnection | null = null;
-const guestDecoderPrimers = new Map<Channel, WindowsAudioDecoderPrimer>();
+const guestDecoderPrimers = new Map<Channel, WebRtcAudioDecoderPrimer>();
 
 export function getSystemAudioSfuDebugSnapshot() {
   return {
@@ -159,7 +159,7 @@ function buildTrackName(channel: Channel): string {
 }
 
 function cleanupGuestDecoderPrimer(channel: Channel): void {
-  cleanupWindowsAudioDecoderPrimer(guestDecoderPrimers.get(channel) ?? null);
+  cleanupWebRtcAudioDecoderPrimer(guestDecoderPrimers.get(channel) ?? null);
   guestDecoderPrimers.delete(channel);
 }
 
@@ -169,7 +169,7 @@ function cleanupGuestDecoderPrimers(): void {
 }
 
 function primeWindowsSfuAudioDecoder(channel: Channel, track: MediaStreamTrack): void {
-  const primer = primeWindowsAudioDecoder(
+  const primer = primeWebRtcAudioDecoder(
     guestDecoderPrimers.get(channel) ?? null,
     [track],
     getAudioTrackStreamKey(`sfu:${channel}`, [track]),

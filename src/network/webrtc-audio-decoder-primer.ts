@@ -1,6 +1,6 @@
 import { log } from '../core/log.ts';
 
-export interface WindowsAudioDecoderPrimer {
+export interface WebRtcAudioDecoderPrimer {
   element: HTMLAudioElement;
   streamKey: string;
 }
@@ -9,7 +9,7 @@ export function getAudioTrackStreamKey(scope: string, tracks: readonly MediaStre
   return `${scope}:${tracks.map((track) => track.id).join(',')}`;
 }
 
-export function cleanupWindowsAudioDecoderPrimer(primer: WindowsAudioDecoderPrimer | null): void {
+export function cleanupWebRtcAudioDecoderPrimer(primer: WebRtcAudioDecoderPrimer | null): void {
   if (!primer) return;
 
   try {
@@ -29,15 +29,15 @@ export function cleanupWindowsAudioDecoderPrimer(primer: WindowsAudioDecoderPrim
   }
 }
 
-export function primeWindowsAudioDecoder(
-  current: WindowsAudioDecoderPrimer | null,
+export function primeWebRtcAudioDecoder(
+  current: WebRtcAudioDecoderPrimer | null,
   tracks: readonly MediaStreamTrack[],
   streamKey: string,
   label: string,
   logPrefix: string,
-): WindowsAudioDecoderPrimer | null {
+): WebRtcAudioDecoderPrimer | null {
   if (current?.streamKey === streamKey) return current;
-  cleanupWindowsAudioDecoderPrimer(current);
+  cleanupWebRtcAudioDecoderPrimer(current);
 
   // WebRTC remote streams require an HTMLMediaElement (like <audio>) playing the stream
   // in order for browsers (such as Chrome on Windows/Android, and Safari on iOS/macOS)
@@ -52,11 +52,11 @@ export function primeWindowsAudioDecoder(
   audioEl.setAttribute('playsinline', 'true');
   audioEl.preload = 'auto';
   audioEl.srcObject = new MediaStream([...tracks]);
-  audioEl.dataset.mxqrSystemAudio = 'windows-decoder-primer';
+  audioEl.dataset.mxqrSystemAudio = 'webrtc-decoder-primer';
   audioEl.style.display = 'none';
   document.body.appendChild(audioEl);
 
-  const primer: WindowsAudioDecoderPrimer = { element: audioEl, streamKey };
+  const primer: WebRtcAudioDecoderPrimer = { element: audioEl, streamKey };
   void audioEl
     .play()
     .then(() => log.info(`${logPrefix} WebRTC audio decoder primed (${label})`))

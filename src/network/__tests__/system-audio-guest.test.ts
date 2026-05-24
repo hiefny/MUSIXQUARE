@@ -60,10 +60,10 @@ vi.mock('../peer.ts', () => ({
   forceStereoSdp: vi.fn((sdp: string) => sdp),
 }));
 
-vi.mock('../windows-audio-decoder-primer.ts', () => ({
-  cleanupWindowsAudioDecoderPrimer: vi.fn(),
+vi.mock('../webrtc-audio-decoder-primer.ts', () => ({
+  cleanupWebRtcAudioDecoderPrimer: vi.fn(),
   getAudioTrackStreamKey: vi.fn(() => 'stream-key'),
-  primeWindowsAudioDecoder: vi.fn(() => null),
+  primeWebRtcAudioDecoder: vi.fn(() => null),
 }));
 
 describe('system audio guest receive watchdog', () => {

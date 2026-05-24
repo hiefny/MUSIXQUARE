@@ -95,7 +95,6 @@ const ENTRANCE_TARGETS: [string, string, number][] = [
   ['.track-box', 'up', 100],
   ['.progress-bar', 'up', 150],
   ['.play-controls-left', 'up', 200],
-  ['.vol-group-playback', 'up', 250],
   ['#chat-preview-btn', 'up', 300],
   ['.play-action-buttons', 'up', 350],
   ['.bottom-nav', 'up', 400],

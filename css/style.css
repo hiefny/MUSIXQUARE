@@ -1417,7 +1417,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    transform: translateX(-8px);
+    transform: translateX(-10px);
   }
 
   .vol-group-playback {

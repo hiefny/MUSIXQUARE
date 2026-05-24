@@ -635,20 +635,104 @@ function cmdDebug(args: string[]): void {
 //   - Network (peer connections)
 //   - Lifecycle (state machine + recovery target)
 // /debug screen: local-only live viewport/PWA diagnostics.
-async function cmdDebugSystemAudio(): Promise<void> {
-  let debugText: string;
-  try {
-    debugText = await collectSystemAudioDebugText();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    debugText = `SYSTEM AUDIO DEBUG\n[Error] ${message}`;
-  }
+// /debug systemaudio (sa): local-only live system-audio sharing diagnostics.
+// Same fullscreen-overlay UX as /debug screen — the dump is too dense to
+// scan in chat, and most signals (track muted, pc state, watchdog timers)
+// are time-sensitive enough that a 1s live refresh matters.
+interface SystemAudioDebugSession {
+  overlay: HTMLElement;
+  pre: HTMLPreElement;
+  cleanup: () => void;
+}
 
-  addSystemChatMessage(debugText);
+let _activeSystemAudioDebugSession: SystemAudioDebugSession | null = null;
+const DEBUG_SYSTEM_AUDIO_TIMER = 'debug-system-audio-poll';
+const DEBUG_SYSTEM_AUDIO_POLL_INTERVAL_MS = 1000;
+
+async function cmdDebugSystemAudio(): Promise<void> {
+  stopDebugSystemAudioSession();
+  stopDebugScreenSession();
+  stopDebugMemorySession();
+
+  const existing = document.getElementById('debug-system-audio-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'debug-system-audio-overlay';
+  overlay.className = 'debug-memory-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-label', 'Debug system audio live overlay');
+
+  const pre = document.createElement('pre');
+  pre.className = 'debug-memory-content';
+  overlay.appendChild(pre);
+
+  const hint = document.createElement('div');
+  hint.className = 'debug-memory-hint';
+  hint.textContent = 'tap to close | live 1s | copied once';
+  overlay.appendChild(hint);
+
+  let latestText = '';
+  // Re-entrancy guard: collectSystemAudioDebugText awaits RTCStats, which
+  // can take longer than the 1s poll interval on slow links. Without this,
+  // overlapping ticks could write an older snapshot over a newer one.
+  let inFlight = false;
+
+  const refresh = async (): Promise<void> => {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      latestText = await collectSystemAudioDebugText();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      latestText = `SYSTEM AUDIO DEBUG\n[Error] ${message}`;
+    } finally {
+      inFlight = false;
+    }
+    // Stale-write guard: session may have been torn down during the await.
+    if (_activeSystemAudioDebugSession?.overlay === overlay) {
+      pre.textContent = latestText;
+    }
+  };
+
+  const close = (): void => stopDebugSystemAudioSession();
+
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  };
+
+  const cleanup = (): void => {
+    clearManagedTimer(DEBUG_SYSTEM_AUDIO_TIMER);
+    document.removeEventListener('keydown', onKey);
+    if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+  };
+
+  overlay.addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+
+  _activeSystemAudioDebugSession = { overlay, pre, cleanup };
+  document.body.appendChild(overlay);
+  await refresh();
+
+  setManagedTimer(
+    DEBUG_SYSTEM_AUDIO_TIMER,
+    () => {
+      if (!document.body.contains(overlay)) {
+        stopDebugSystemAudioSession();
+        return;
+      }
+      void refresh();
+    },
+    DEBUG_SYSTEM_AUDIO_POLL_INTERVAL_MS,
+    { interval: true },
+  );
 
   try {
     navigator.clipboard
-      .writeText(debugText)
+      .writeText(latestText)
       .then(() => showToast(t('chat.debug_copied')))
       .catch(() => {
         /* clipboard not available */
@@ -656,6 +740,16 @@ async function cmdDebugSystemAudio(): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+function stopDebugSystemAudioSession(): void {
+  if (!_activeSystemAudioDebugSession) return;
+  try {
+    _activeSystemAudioDebugSession.cleanup();
+  } catch {
+    /* ignore */
+  }
+  _activeSystemAudioDebugSession = null;
 }
 
 interface ScreenDebugSession {
@@ -671,6 +765,7 @@ const DEBUG_SCREEN_POLL_INTERVAL_MS = 1000;
 function cmdDebugScreen(): void {
   stopDebugScreenSession();
   stopDebugMemorySession();
+  stopDebugSystemAudioSession();
 
   const existing = document.getElementById('debug-screen-overlay');
   if (existing) existing.remove();
@@ -1233,6 +1328,8 @@ function stopDebugMemorySession(): void {
 // stops when the overlay is dismissed (tap / ESC).
 function startDebugMemorySession(initial: MemSnapshot): void {
   stopDebugMemorySession();
+  stopDebugScreenSession();
+  stopDebugSystemAudioSession();
 
   // Drop any zombie overlay from a prior crash where cleanup didn't run.
   const existing = document.getElementById('debug-memory-overlay');

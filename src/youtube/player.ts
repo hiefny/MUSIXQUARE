@@ -544,8 +544,8 @@ export function initYouTube(): void {
     }
 
     if (getState('player.isFirstTrackLoad')) setState('player.isFirstTrackLoad', false);
-    if (autoplay) setPendingAutoSyncOnReady(true);
     bus.emit('youtube:load', videoId || payload.videoId || null, playlistId, autoplay, subIndex);
+    if (autoplay) setPendingAutoSyncOnReady(true);
     schedulePreload();
   });
 

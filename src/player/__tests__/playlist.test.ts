@@ -6,12 +6,14 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
-import { setRepeatMode, setShuffle, clearPreloadState, initPlaylist } from '../playlist.ts';
+import { getPendingAutoSyncOnReady, setPendingAutoSyncOnReady } from '../../youtube/player.ts';
+import { setRepeatMode, setShuffle, clearPreloadState, initPlaylist, playTrack } from '../playlist.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
   resetState();
   bus.clear();
+  setPendingAutoSyncOnReady(false);
 });
 
 function makeConnection(peer: string): DataConnection {
@@ -68,6 +70,29 @@ describe('clearPreloadState', () => {
     setRepeatMode(0, false); // ensure state initialized
     clearPreloadState();
     expect(getState('preload.nextTrackIndex')).toBe(-1);
+  });
+});
+
+describe('playTrack YouTube auto-rendezvous', () => {
+  it('keeps pending auto-sync armed after fresh non-YouTube -> YouTube load cleanup', async () => {
+    setState('player.isFirstTrackLoad', false);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [
+      { type: 'file', name: 'local.mp3', videoId: null, playlistId: null },
+      { type: 'youtube', name: 'Video', videoId: 'VIDEO_ID_01', playlistId: null },
+    ]);
+
+    bus.on('youtube:stop-mode', () => setPendingAutoSyncOnReady(false));
+    bus.on('player:stop-all-media', () => {
+      bus.emit('youtube:stop-mode', { silent: false });
+    });
+    bus.on('youtube:load', () => {
+      bus.emit('player:stop-all-media');
+    });
+
+    await playTrack(1);
+
+    expect(getPendingAutoSyncOnReady()).toBe(true);
   });
 });
 

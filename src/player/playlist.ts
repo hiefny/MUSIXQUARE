@@ -472,10 +472,6 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         showToast(t('youtube.ready'));
       } else {
         if (isFirstTrackLoad) setState('player.isFirstTrackLoad', false);
-        // Arm the rendezvous flag so the YT auto-sync kicks in once the
-        // player (or existing player's async load) is ready — keeps
-        // host/guest aligned without an arbitrary 1-sec timer.
-        setPendingAutoSyncOnReady(true);
         bus.emit(
           'youtube:load',
           item.videoId ?? null,
@@ -483,6 +479,9 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
           shouldAutoplay,
           subIndex ?? 0,
         );
+        // Arm after youtube:load: fresh non-YT -> YT loads synchronously
+        // stop existing media, which clears stale pending sync first.
+        setPendingAutoSyncOnReady(true);
       }
 
       // Mirror the local-file branch's preload trigger. Without this, the

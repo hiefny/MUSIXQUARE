@@ -885,6 +885,13 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // every block switch. Pass isTrackTransition=true so the handler
     // pauses + uses the longer TRACK_TRANSITION_RENDEZVOUS_MS instead
     // of the URL-input STAGE2 delay.
+    //
+    // `?? true` is a conservative fallback for callers that armed the flag
+    // without specifying isTrackTransition — pick the longer 4s rendezvous
+    // so guests don't drift if the caller's scenario was actually a
+    // YT-to-YT switch. All known caller sites (playlist.ts playTrack,
+    // youtube/player.ts URL input/chat add, iframe.ts crash recovery) set the
+    // flag explicitly; this fallback only covers future callers that forget to.
     const pendingAutoSync = consumePendingAutoSyncOnReady();
     if (pendingAutoSync) {
       bus.emit('youtube:auto-play', {
@@ -1104,7 +1111,12 @@ function updateYouTubeUI(): void {
       // and immediately attempt a quiet one-device rendezvous once ready.
       if (videoId || playlistId) {
         if (!hostConn) {
+          // Crash recovery rebuilds the iframe from scratch, so both host and
+          // guests re-enter the fresh other-to-yt setup phase together. STAGE2
+          // (2s) is the right delay — `isTrackTransition: false` keeps this off
+          // the onStateChange `?? true` conservative-fallback path.
           setPendingAutoSyncOnReady(true, {
+            isTrackTransition: false,
             targetTime: recoveryTime,
             subIndex,
             videoId: videoId || undefined,

@@ -61,6 +61,11 @@ vi.mock('../search.ts', () => ({
     return m ? m[1] : null;
   }),
   extractYouTubePlaylistId: vi.fn(() => null),
+  isYouTubeLiveUrl: vi.fn(() => false),
+  getYouTubeInputIntent: vi.fn(() => ({ kind: 'invalid-url' })),
+  getSelectedYouTubeSearchResult: vi.fn(() => null),
+  searchYouTubeFromInput: vi.fn(),
+  clearYouTubeInputState: vi.fn(),
   fetchOEmbedTitle: vi.fn(async () => 'Test Title'),
   fetchYouTubePreview: vi.fn(),
   fetchPlaylistSubTitles: vi.fn(),
@@ -365,6 +370,30 @@ describe('YouTube Player', () => {
         }),
       );
       expect(getState('youtube.currentSubIndex')).toBe(0);
+    });
+  });
+
+  describe('Chat add auto-rendezvous', () => {
+    it('marks first idle YouTube adds as fresh loads after load cleanup', async () => {
+      const {
+        initYouTube,
+        consumePendingAutoSyncOnReady,
+        setPendingAutoSyncOnReady,
+      } = await import('../player.ts');
+
+      initYouTube();
+      bus.on('player:stop-all-media', () => setPendingAutoSyncOnReady(false));
+
+      bus.emit('youtube:load-from-chat', 'https://www.youtube.com/watch?v=VIDEO_ID_01');
+
+      expect(getState('playlist.currentTrackIndex')).toBe(0);
+      expect(consumePendingAutoSyncOnReady()).toMatchObject({
+        isTrackTransition: false,
+        targetTime: 0,
+        subIndex: 0,
+        videoId: 'VIDEO_ID_01',
+        skipSeek: true,
+      });
     });
   });
 

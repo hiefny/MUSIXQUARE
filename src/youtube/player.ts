@@ -1096,7 +1096,17 @@ export function initYouTube(): void {
 
       // Load YouTube with autoplay=FALSE for sync coordination.
       loadYouTubeVideo(finalVideoId, finalPlaylistId, false);
-      setPendingAutoSyncOnReady(true);
+      // Adding a YT entry while IDLE = fresh other-to-yt scenario: host and
+      // guests both go through iframe init + first BUFFERING/CUED together,
+      // so STAGE2 (2s) is enough. Mark explicitly so we don't fall into the
+      // iframe.ts onStateChange `?? true` conservative-fallback path.
+      setPendingAutoSyncOnReady(true, {
+        isTrackTransition: false,
+        targetTime: 0,
+        subIndex: 0,
+        videoId: finalVideoId || undefined,
+        skipSeek: true,
+      });
       setState('playlist.currentTrackIndex', newIndex);
     } else {
       showToast(t('youtube.added_to_playlist'));

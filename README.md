@@ -6,6 +6,18 @@ MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchron
 
 **https://musixquare.com/about**
 
+**Source code:** https://github.com/hiefny/MUSIXQUARE
+
+---
+
+## Open Source
+
+MUSIXQUARE is open-source software licensed under the **GNU Affero General Public License v3.0 or later** (`AGPL-3.0-or-later`).
+
+You may run, study, modify, and share the source code under the license terms. Because MUSIXQUARE is a networked web application, if you run a modified network-accessible version, the AGPL requires you to make the corresponding source code available to users of that version.
+
+The public repository does not include production secrets, API keys, TURN credentials, Cloudflare account credentials, or other private deployment material. Use the example environment files and configure sensitive values through your own deployment secrets.
+
 ---
 
 ## Features
@@ -49,6 +61,36 @@ Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled 
 
 ---
 
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+Useful checks:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build:checked
+```
+
+E2E tests require Playwright and the local PeerJS signaling helper used by the test setup:
+
+```bash
+npm run test:e2e
+```
+
+For the live E2E report viewer on Windows, run:
+
+```bat
+e2e\run-tests.bat
+```
+
+---
+
 ## How to Use
 
 **https://musixquare.com**, no install needed.
@@ -78,12 +120,15 @@ For the lowest latency and strongest sync, keep devices on the same local networ
 - **About**: https://musixquare.com/about
 - **History**: https://musixquare.com/history
 - **Design System**: https://musixquare.com/designsystem
+- **Source**: https://github.com/hiefny/MUSIXQUARE
 
 ---
 
 ## License
 
-All Rights Reserved. See [LICENSE](./LICENSE).
+Copyright (c) 2025-2026 MUSIXQUARE.
+
+MUSIXQUARE is free software licensed under the **GNU Affero General Public License v3.0 or later**. See [LICENSE](./LICENSE).
 
 ## Third-Party Licenses
 

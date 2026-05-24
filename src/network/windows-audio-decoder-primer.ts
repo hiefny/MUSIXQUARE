@@ -38,7 +38,11 @@ export function primeWindowsAudioDecoder(
 ): WindowsAudioDecoderPrimer | null {
   if (current?.streamKey === streamKey) return current;
   cleanupWindowsAudioDecoderPrimer(current);
-  if (!isWindowsDesktop() || tracks.length === 0) return null;
+
+  // WebRTC remote streams require an HTMLMediaElement (like <audio>) playing the stream
+  // in order for browsers (such as Chrome on Windows/Android, and Safari on iOS/macOS)
+  // to start decoding the stream. Otherwise, the track remains in a "muted" state in Web Audio.
+  if (tracks.length === 0) return null;
 
   const audioEl = document.createElement('audio');
   audioEl.autoplay = true;
@@ -55,14 +59,8 @@ export function primeWindowsAudioDecoder(
   const primer: WindowsAudioDecoderPrimer = { element: audioEl, streamKey };
   void audioEl
     .play()
-    .then(() => log.info(`${logPrefix} Windows WebRTC audio decoder primed (${label})`))
-    .catch((error) => log.warn(`${logPrefix} Windows WebRTC audio decoder primer blocked:`, error));
+    .then(() => log.info(`${logPrefix} WebRTC audio decoder primed (${label})`))
+    .catch((error) => log.warn(`${logPrefix} WebRTC audio decoder primer blocked:`, error));
 
   return primer;
-}
-
-function isWindowsDesktop(): boolean {
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-  const platform = nav.userAgentData?.platform || navigator.platform || '';
-  return /windows/i.test(platform) || /Windows NT/i.test(navigator.userAgent);
 }

@@ -533,7 +533,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       mime: file.type,
       autoPlayDelayMs,
     };
-    await loadAndBroadcastFile(file, sessionId, myLoadToken, prepareMsg);
+    const didLoad = await loadAndBroadcastFile(file, sessionId, myLoadToken, prepareMsg);
+    if (!didLoad) return;
 
     if (isFirstTrackLoad) {
       setState('player.isFirstTrackLoad', false);

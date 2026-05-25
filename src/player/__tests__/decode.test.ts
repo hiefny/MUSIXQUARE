@@ -9,6 +9,7 @@ import { handleData } from '../../network/protocol.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
+  broadcast: vi.fn(),
   broadcastSystemNotice: vi.fn(),
   decodeAudioData: vi.fn(),
   sendRecoveryRequest: vi.fn(),
@@ -54,6 +55,7 @@ vi.mock('../../storage/preload.ts', () => ({
 }));
 
 vi.mock('../../network/peer.ts', () => ({
+  broadcast: mocks.broadcast,
   safeSend: mocks.safeSend,
   sendToHost: mocks.sendToHost,
 }));
@@ -109,6 +111,17 @@ function makeTrack(name: string): PlaylistItem {
   return {
     type: 'file',
     name,
+    videoId: null,
+    playlistId: null,
+  };
+}
+
+function makeFileTrack(file: File): PlaylistItem {
+  return {
+    type: 'file',
+    name: file.name,
+    title: file.name,
+    file,
     videoId: null,
     playlistId: null,
   };
@@ -200,5 +213,39 @@ describe('guest decode failure reports', () => {
     );
     expect(mocks.sendToHost).toHaveBeenCalledWith({ type: MSG.GUEST_DECODE_FAILED, index: 0 });
     expect(mocks.sendRecoveryRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('host decode failure cleanup', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+    mocks.decodeAudioData.mockRejectedValue(new Error('unsupported codec'));
+  });
+
+  it('returns to an empty player title state when the only track cannot decode', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'broken.mp3', {
+      type: 'audio/mpeg',
+      lastModified: 123,
+    });
+    setState('playlist.items', [makeFileTrack(file)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('player.currentTrackMeta', makeFileTrack(file));
+
+    const { loadAndBroadcastFile } = await import('../decode.ts');
+    const didLoad = await loadAndBroadcastFile(file, 1);
+
+    expect(didLoad).toBe(false);
+    expect(getState('player.currentTrackMeta')).toBeNull();
+    expect(getState('playlist.currentTrackIndex')).toBe(-1);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(mocks.broadcast).toHaveBeenCalledWith({
+      type: MSG.PAUSE,
+      time: 0,
+      endOfPlaylist: true,
+      reason: 'end-of-playlist',
+    });
   });
 });

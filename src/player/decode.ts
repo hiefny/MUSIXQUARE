@@ -27,7 +27,7 @@ import { broadcastFileDebounced } from '../storage/transfer.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 import type { AnyProtocolMsg, TrackMeta } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
-import { safeSend, sendToHost } from '../network/peer.ts';
+import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { broadcastSystemNotice } from '../chat/protocol.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
@@ -119,7 +119,7 @@ export async function loadAndBroadcastFile(
   sessionId: number | null = null,
   loadToken?: number,
   prepareMsg?: AnyProtocolMsg,
-): Promise<void> {
+): Promise<boolean> {
   const myLoadId = incrementLoadSessionId();
   const myToken = loadToken ?? getLoadToken();
 
@@ -171,12 +171,12 @@ export async function loadAndBroadcastFile(
         log.warn('[Load] Token mismatch after decode. Aborting stale load.');
         showLoader(false);
       }
-      return;
+      return false;
     }
 
     if (isExternalOwner()) {
       log.debug('[Load] Aborted - external playback mode took ownership after decode');
-      return;
+      return false;
     }
 
     // Dispose old buffer
@@ -186,7 +186,7 @@ export async function loadAndBroadcastFile(
 
     if (myLoadId !== getActiveLoadSessionId()) {
       log.debug('[Load] Stale loading session detected. Aborting.');
-      return;
+      return false;
     }
 
     // Load into state
@@ -235,6 +235,7 @@ export async function loadAndBroadcastFile(
     if (!hostConn) {
       schedulePreload();
     }
+    return true;
   } catch (err: unknown) {
     log.error(err);
     // Clear corrupt/stale blob so recovery doesn't re-serve it to guests
@@ -260,6 +261,7 @@ export async function loadAndBroadcastFile(
       const failedIdx = getState('playlist.currentTrackIndex');
       markFailedAndAdvance(file, failedIdx);
     }
+    return false;
   } finally {
     if (myLoadId === getActiveLoadSessionId()) {
       showLoader(false);
@@ -382,7 +384,13 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
     // Without an explicit stop, the play button stays enabled and the user
     // falls back into the same failure cycle on the next click.
     stopAllMedia();
+    setCurrentAudioBuffer(null);
+    setPlaybackTrackMeta(null);
+    setState('playlist.currentTrackIndex', -1);
+    setState('player.pausedAt', 0);
     setPlaybackIdle();
+    transition({ type: 'PAUSE', time: 0, endOfPlaylist: true });
+    broadcast({ type: MSG.PAUSE, time: 0, endOfPlaylist: true, reason: 'end-of-playlist' });
     return;
   }
 

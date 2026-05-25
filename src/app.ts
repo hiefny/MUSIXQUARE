@@ -64,9 +64,6 @@ import { initMediaSession } from './player/media-session.ts';
 import { initYouTube } from './youtube/player.ts';
 import { guestRendezvousSync, initYouTubeSync } from './youtube/sync.ts';
 
-// ── Audio: Beat Detection ──
-import { initBeatDetector } from './audio/beat-detector.ts';
-
 // ── UI ──
 import { initOverlayObservers } from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
@@ -76,7 +73,6 @@ import { initTabs } from './ui/tabs.ts';
 import { initI18n } from './i18n/index.ts';
 import { t } from './i18n/index.ts';
 import { initVisualizer } from './ui/visualizer.ts';
-import { initBeatVibration } from './ui/party-mode.ts';
 import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
 import { initPlayerControls } from './ui/player-controls.ts';
@@ -410,7 +406,6 @@ function bootstrap(): void {
   // 4. Audio engine (deferred init — Web Audio API context on user interaction)
   // Engine, effects, channel register bus listeners at import time
   safeInit('EffectsHandlers', initEffectsHandlers);
-  safeInit('BeatDetector', initBeatDetector);
 
   // 5. Network (registers bus listeners; PeerJS init deferred to host/guest flow)
   // initNetwork() is called from setup.ts via createHostSessionWithShortCode() or joinSession()
@@ -456,7 +451,6 @@ function bootstrap(): void {
 
   // 8. UI modules (binds DOM events)
   safeInit('Visualizer', initVisualizer);
-  safeInit('BeatVibration', initBeatVibration);
   safeInit('Chat', initChat);
   safeInit('PlaylistView', initPlaylistView);
   safeInit('PlayerControls', initPlayerControls);

@@ -19,7 +19,6 @@ import {
 import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
-import { getDetectedBPM, setPartyMode } from '../audio/beat-detector.ts';
 import { isAudioReady, getAudioContext } from '../audio/engine.ts';
 import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
@@ -1563,23 +1562,6 @@ function drawAccumulatingGraph(
   ctx.fillText(`${current.toFixed(1)} (n=${history.length})`, w - 4 * dpr, 2 * dpr);
 }
 
-function cmdParty(args: string[]): void {
-  const flag = args[0]?.toLowerCase();
-  if (flag !== 'on' && flag !== 'off') {
-    addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_party') }));
-    return;
-  }
-  const on = flag === 'on';
-  setPartyMode(on);
-
-  if (on) {
-    const bpm = getDetectedBPM();
-    addSystemChatMessage(bpm > 0 ? t('chat.party_on_bpm', { bpm }) : t('chat.party_on_detecting'));
-  } else {
-    addSystemChatMessage(t('chat.party_off'));
-  }
-}
-
 // ─── Command Registry ───────────────────────────────────────────
 
 // usage/description use i18n keys, resolved at access time via getAvailableCommands()
@@ -1675,14 +1657,6 @@ const COMMANDS_DEF: Record<
     execute: cmdDebug,
     usageKey: 'chat.cmd_u_debug',
     descKey: 'chat.cmd_d_debug',
-  },
-  party: {
-    permission: 'all',
-    execute: cmdParty,
-    usageKey: 'chat.cmd_u_party',
-    descKey: 'chat.cmd_d_party',
-    hidden: true,
-    hideFromSuggest: true,
   },
 };
 

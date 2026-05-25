@@ -26,7 +26,6 @@ export default defineConfig({
         'src/audio/channel.ts',
         'src/audio/helpers.ts',
         'src/audio/context.ts',
-        'src/audio/beat-detector.ts',
         'src/audio/system-capture.ts',
         // WebRTC networking — requires PeerJS / RTCPeerConnection / DataConnection
         'src/network/peer.ts',
@@ -81,7 +80,6 @@ export default defineConfig({
         'src/ui/connect.ts',
         'src/ui/copy-email.ts',
         'src/ui/custom-scrollbar.ts',
-        'src/ui/party-mode.ts',
         'src/ui/seekbar.ts',
         'src/ui/settings.ts',
         // Test-only / dev infrastructure

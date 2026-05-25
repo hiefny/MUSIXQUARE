@@ -347,11 +347,6 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_unmute': 'Unmute device',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'System debug info',
-  'chat.cmd_u_party': '/party on|off',
-  'chat.cmd_d_party': 'Toggle party mode',
-  'chat.party_on_bpm': '🎉 Party mode ON · {{bpm}} BPM',
-  'chat.party_on_detecting': '🎉 Party mode ON · BPM detecting...',
-  'chat.party_off': 'Party mode OFF',
   'chat.debug_copied': 'Debug info copied.\nSend it to the developer if you found a bug.',
   'chat.seek_to': 'Seek to {{time}}',
 

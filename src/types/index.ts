@@ -757,9 +757,6 @@ interface BaseEventMap {
   'demo:toggle-treble': [];
   'demo:toggle-surround': [];
 
-  // ── Beat Detection ──────────────────────────────────────────────
-  'beat:pulse': [bpm: number, beatIndex: number];
-
   // ── Player ────────────────────────────────────────────────────────
   'player:ended': [];
   'player:toggle-play': [];

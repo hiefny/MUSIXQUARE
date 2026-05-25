@@ -19,7 +19,7 @@
       'header.logo_aria': 'MUSIXQUARE home',
       'header.app': 'App',
       'hero.title': 'Privacy Policy',
-      'hero.date': 'Effective date: May 5, 2026',
+      'hero.date': 'Effective date: May 25, 2026',
 
       'section.general.title': '1. General',
       'section.general.p1':
@@ -41,6 +41,9 @@
       'section.data.files.term': 'Remote file data',
       'section.data.files.desc':
         'Remote file data is encrypted before upload and may be stored temporarily for delivery. The decryption key is not stored.',
+      'section.data.analytics.term': 'Aggregate analytics data',
+      'section.data.analytics.desc':
+        'Page paths, referrers, browser, OS, device type, and approximate region may be collected through Cloudflare Web Analytics to understand traffic patterns. No cookies are used and no personally identifying information is stored.',
 
       'section.purpose.title': '3. Purpose of Processing',
       'section.purpose.p1':
@@ -57,7 +60,7 @@
       'section.third.title': '5. Third-Party Services',
       'section.third.p1': 'MUSIXQUARE does not sell user data or provide it to third parties for advertising or marketing.',
       'section.third.p2':
-        "Some features rely on external infrastructure. Cloudflare may be used for signaling, remote sharing, TURN, SFU, and temporary encrypted file delivery. YouTube sharing uses YouTube's official playback structure.",
+        "Some features rely on external infrastructure. Cloudflare may be used for signaling, remote sharing, TURN, SFU, temporary encrypted file delivery, and aggregate web analytics. YouTube sharing uses YouTube's official playback structure.",
 
       'section.security.title': '6. Security Measures',
       'section.security.p1':
@@ -88,7 +91,7 @@
       'header.logo_aria': 'MUSIXQUARE 홈',
       'header.app': 'App',
       'hero.title': '개인정보 처리방침',
-      'hero.date': '시행일: 2026년 5월 5일',
+      'hero.date': '시행일: 2026년 5월 25일',
 
       'section.general.title': '1. 총칙',
       'section.general.p1':
@@ -110,6 +113,9 @@
       'section.data.files.term': '원격 파일 데이터',
       'section.data.files.desc':
         '원격 파일 데이터는 업로드 전에 암호화되며 전달을 위해 임시 저장될 수 있습니다. 복호화 키는 저장되지 않습니다.',
+      'section.data.analytics.term': '집계 분석 데이터',
+      'section.data.analytics.desc':
+        '트래픽 패턴 파악을 위해 페이지 경로, 레퍼러, 브라우저, OS, 기기 유형, 대략적인 지역 정보가 Cloudflare Web Analytics를 통해 수집될 수 있습니다. 쿠키는 사용하지 않으며 개인 식별 정보는 저장되지 않습니다.',
 
       'section.purpose.title': '3. 처리 목적',
       'section.purpose.p1':
@@ -126,7 +132,7 @@
       'section.third.title': '5. 외부 서비스',
       'section.third.p1': 'MUSIXQUARE는 사용자 데이터를 광고나 마케팅 목적으로 판매하거나 제3자에게 제공하지 않습니다.',
       'section.third.p2':
-        '일부 기능은 외부 인프라에 의존합니다. Cloudflare는 시그널링, 원격 공유, TURN, SFU, 암호화 파일 임시 전달에 사용될 수 있습니다. YouTube 공유는 YouTube의 공식 재생 구조를 사용합니다.',
+        '일부 기능은 외부 인프라에 의존합니다. Cloudflare는 시그널링, 원격 공유, TURN, SFU, 암호화 파일 임시 전달, 그리고 집계 웹 분석에 사용될 수 있습니다. YouTube 공유는 YouTube의 공식 재생 구조를 사용합니다.',
 
       'section.security.title': '6. 보안 조치',
       'section.security.p1':

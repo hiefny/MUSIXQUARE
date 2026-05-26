@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 
-// Mock ensureSurroundNodes — Tone.js constructors hang in jsdom (no real AudioContext)
+// Mock ensureSurroundNodes because jsdom has no real AudioContext.
 vi.mock('../engine.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../engine.ts')>();
   return {
@@ -62,14 +62,14 @@ describe('setChannelMode', () => {
 
 describe('toggleSurroundMode', () => {
   // Note: toggleSurroundMode sets state first, then calls ensureSurroundNodes()
-  // which requires real Tone.js AudioContext (unavailable in jsdom).
-  // We wrap in try/catch and verify the state update that happens before the Tone.js call.
+  // which requires real Web Audio nodes (unavailable in jsdom). We wrap in
+  // try/catch and verify the state update that happens before graph setup.
 
   it('enabling surround sets audio.isSurroundMode to true', () => {
     try {
       toggleSurroundMode(true);
     } catch {
-      /* Tone.js node creation fails in jsdom */
+      /* Web Audio node creation fails in jsdom */
     }
     expect(getState('audio.isSurroundMode')).toBe(true);
   });
@@ -78,12 +78,12 @@ describe('toggleSurroundMode', () => {
     try {
       toggleSurroundMode(true);
     } catch {
-      /* Tone.js */
+      /* Web Audio */
     }
     try {
       toggleSurroundMode(false);
     } catch {
-      /* Tone.js */
+      /* Web Audio */
     }
     expect(getState('audio.isSurroundMode')).toBe(false);
   });
@@ -97,13 +97,13 @@ describe('toggleSurroundMode', () => {
     try {
       toggleSurroundMode(true);
     } catch {
-      /* Tone.js */
+      /* Web Audio */
     }
     expect(getState('audio.isSurroundMode')).toBe(true);
     try {
       toggleSurroundMode(false);
     } catch {
-      /* Tone.js */
+      /* Web Audio */
     }
     expect(getState('audio.isSurroundMode')).toBe(false);
   });

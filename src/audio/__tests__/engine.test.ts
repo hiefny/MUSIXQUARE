@@ -112,14 +112,14 @@ describe('all getter functions return null before initAudio', () => {
 });
 
 describe('initAudio idempotency', () => {
-  it('calling initAudio without Tone.js context does not corrupt module state', async () => {
-    // initAudio requires real Tone.js context which is not available in jsdom.
+  it('calling initAudio without a real AudioContext does not corrupt module state', async () => {
+    // initAudio requires browser Web Audio primitives that are not available in jsdom.
     // Verify that after a failed attempt, getters still return safe defaults.
     const { initAudio } = await import('../engine.ts');
     try {
       await initAudio();
     } catch {
-      // Expected: Tone.js not loaded or context not running
+      // Expected: AudioContext missing or context not running.
     }
     // Module state should remain in pre-init defaults
     expect(isAudioReady()).toBe(false);

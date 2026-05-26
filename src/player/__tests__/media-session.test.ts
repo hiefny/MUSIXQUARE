@@ -11,7 +11,7 @@ import {
   setPlaybackYouTubePlaying,
 } from '../ownership.ts';
 
-// Mock transport.ts to avoid Tone.js
+// Mock transport.ts to avoid browser Web Audio setup.
 vi.mock('../transport.ts', () => ({
   togglePlay: vi.fn(),
   stopPlayback: vi.fn(),

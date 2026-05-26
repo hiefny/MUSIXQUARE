@@ -164,7 +164,7 @@ export function initMediaSession(): void {
   // playbackState === 'playing', enabling background audio playback.
   // Without this, iOS suspends the AudioContext when the app goes to
   // the background or the screen turns off, killing audio immediately.
-  // (Tone.js / Web Audio apps need this because the browser can't
+  // Web Audio apps need this because the browser can't
   // infer playback state from an <audio> element.)
   bus.on('state:playback.activity', (activity) => {
     if (!('mediaSession' in navigator)) return;

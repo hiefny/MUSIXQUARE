@@ -60,7 +60,7 @@ export function setChannelMode(mode: number): void {
   safeDisconnect(gL);
   safeDisconnect(gR);
 
-  // Reset gains (rampTo prevents audible click, matches setSurroundChannel pattern)
+  // Reset gains with a short ramp to prevent audible clicks.
   // Skip for Sub mode (mode=2) — immediate .value=0.5 override avoids transient spike
   if (mode !== 2) {
     rampParam(gL.gain, 1, RAMP_TIME_FAST);
@@ -227,7 +227,7 @@ export function setSurroundChannel(idx: number): void {
       splitter.connect(sGain, idx, 0);
     }
 
-    // LowPass for LFE channel (rampTo avoids click on active signal path)
+    // LowPass for LFE channel; ramping avoids clicks on the active signal path.
     if (lowPass) {
       rampParam(lowPass.frequency, idx === 3 ? subFreq : FREQ_FULL_RANGE, RAMP_TIME_FAST);
     }

@@ -134,10 +134,10 @@ export const EXCITER_DRIVE = 4.5;
  *  fills the missing 14-20 kHz "air" range from 7-10 kHz source material. */
 export const EXCITER_BIAS = 0.28;
 /** Mix amount when the toggle is ON. Effects.ts ramps the gain node
- *  between 0 and this value when the user flips the switch. The
- *  post-HPF keeps the return subtle, but a low fixed mix avoids fatigue
- *  because there is no user-facing intensity slider yet. */
-export const EXCITER_MIX_GAIN = 0.25;
+ *  between 0 and this value when the user flips the switch. The post-HPF
+ *  keeps the return air-band focused, so 0.5 is audible without turning
+ *  the effect into a broad treble boost. */
+export const EXCITER_MIX_GAIN = 0.5;
 /** Curve resolution — 4096 samples is enough for an audibly smooth
  *  tanh without bloating the WaveShaperNode. */
 export const EXCITER_CURVE_LENGTH = 4096;

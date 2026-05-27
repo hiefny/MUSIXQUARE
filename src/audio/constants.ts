@@ -97,15 +97,16 @@ export const VB_LIMITER = {
 //
 // First HPF picks the material that has enough mid-high energy to
 // generate useful harmonics (cymbals, snare top, breath, fricatives).
-// A biased tanh shaper synthesizes both even and odd harmonics, so
-// material around 7-10 kHz can create useful "air" near 14-20 kHz.
+// A symmetric tanh shaper synthesizes focused odd harmonics. Listening
+// tests favored zero bias because added even harmonics made noisy
+// cymbal/hat material feel grainy instead of cleaner.
 // The post-shaper HPF then removes most of the saturated fundamental
 // and lower harmonics, leaving a subtle air-band layer under the dry
 // path. This is enhancement, not source restoration.
 
 /** Pre-shaper HPF cutoff. Sets the input window for harmonic
- *  generation. 4 kHz is wide enough to catch the percussive content
- *  whose 2nd/3rd harmonics will land above 14 kHz. */
+ *  generation. 4 kHz is wide enough to catch percussive content whose
+ *  upper harmonics can land above 14 kHz. */
 export const EXCITER_HPF_FREQ = 4000;
 /** Q for the pre-shaper HPF — gentle slope so the transition isn't audible. */
 export const EXCITER_HPF_Q = 0.707;
@@ -125,14 +126,14 @@ export const EXCITER_HPF_POST_STAGES = 2;
  *  (maximally flat passband, no resonance bump). */
 export const EXCITER_HPF_POST_Q = 0.707;
 /** Drive into the tanh curve. With the post-HPF removing the bulk of
- *  the fundamental, we can push drive higher (4.5) for richer 2nd /
- *  3rd / 5th order content without smudging the mid-high. Above ~6 the
+ *  the fundamental, we can push drive higher (4.5) for richer upper
+ *  harmonic content without smudging the mid-high. Above ~6 the
  *  curve hard-clips and the harmonics turn into buzzy distortion. */
 export const EXCITER_DRIVE = 4.5;
-/** Positive transfer-curve bias. A perfectly symmetric shaper mostly creates
- *  odd harmonics, while a small bias introduces 2nd-order content that better
- *  fills the missing 14-20 kHz "air" range from 7-10 kHz source material. */
-export const EXCITER_BIAS = 0.28;
+/** Transfer-curve bias. 0 keeps the shaper symmetric and avoids the
+ *  sand-like even-harmonic grit that showed up with noisy high-frequency
+ *  source material. */
+export const EXCITER_BIAS = 0.0;
 /** Mix amount when the toggle is ON. Effects.ts ramps the gain node
  *  between 0 and this value when the user flips the switch. The post-HPF
  *  keeps the return air-band focused, so 0.5 is audible without turning

@@ -20,16 +20,21 @@ describe('getFullRangeFrequency', () => {
 });
 
 describe('makeExciterCurve', () => {
-  it('keeps silence centered while using an asymmetric transfer curve', () => {
-    const curve = makeExciterCurve(4.5, 257, 0.28);
+  it('keeps silence centered while using a symmetric default transfer curve', () => {
+    const curve = makeExciterCurve(4.5, 257);
     const mid = Math.floor(curve.length / 2);
 
     expect(curve[mid]).toBeCloseTo(0, 6);
     expect(curve[0]).toBeGreaterThanOrEqual(-1);
     expect(curve[curve.length - 1]).toBeLessThanOrEqual(1);
 
-    // A biased curve should not be odd-symmetric; this is what preserves
-    // even-order harmonics for the air-band exciter.
+    // Zero bias should stay odd-symmetric, keeping the exciter return cleaner.
+    expect(curve[32]).toBeCloseTo(-curve[curve.length - 1 - 32], 3);
+  });
+
+  it('still supports asymmetric curves for bias experiments', () => {
+    const curve = makeExciterCurve(4.5, 257, 0.28);
+
     expect(curve[32]).not.toBeCloseTo(-curve[curve.length - 1 - 32], 3);
   });
 });

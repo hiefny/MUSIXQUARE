@@ -76,19 +76,19 @@ export function safeDisconnect(node: AudioNode | null): void {
  */
 
 /**
- * Build a biased tanh saturation curve for the harmonic exciter's
+ * Build a tanh saturation curve for the harmonic exciter's
  * WaveShaperNode. tanh keeps the transition smooth (no hard clip
  * spikes), and the final normalization keeps the downstream mix gain
  * predictable.
  *
- * The bias intentionally breaks symmetry so the shaper creates useful
- * even-order harmonics. That helps source content around 7-10 kHz seed
- * the 14-20 kHz air band after the post-shaper high-pass filter.
+ * The default zero bias keeps the transfer curve symmetric, which keeps
+ * the virtual treble return cleaner on noisy cymbal/hat material. A
+ * non-zero bias is still supported for experiments with even harmonics.
  */
 export function makeExciterCurve(
   drive: number,
   length = 4096,
-  bias = 0.28,
+  bias = 0.0,
 ): Float32Array<ArrayBuffer> {
   // Float32Array<ArrayBuffer> (not the wider <ArrayBufferLike> default) so the
   // result is assignable directly to WaveShaperNode.curve under strict TS lib types.

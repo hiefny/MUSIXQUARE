@@ -460,9 +460,9 @@ async function _doInitAudio(): Promise<void> {
 
   // Harmonic Exciter — parallel tap on the post-EQ bus.
   // Pre-HPF picks the mid-high content that will generate useful harmonics
-  // (cymbals, snare top, breath, fricatives). A biased tanh WaveShaper
-  // creates both even and odd harmonics, then the post-HPF keeps the wet
-  // return focused on the air band. 4x oversampling reduces aliasing in
+  // (cymbals, snare top, breath, fricatives). A symmetric tanh WaveShaper
+  // creates focused upper harmonics, then the post-HPF keeps the wet
+  // return on the air band. 4x oversampling reduces aliasing in
   // the shaper. Gain rides 0 ↔ EXCITER_MIX_GAIN to toggle the effect
   // without re-wiring the graph.
   _graph.exHpf = ctx.createBiquadFilter();

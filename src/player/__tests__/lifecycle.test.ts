@@ -379,6 +379,33 @@ describe('lifecycle: from DECODING', () => {
     expect(r).toEqual({ stay: true });
   });
 
+  it('FILE_PREPARE preload-match → DECODING (host local switch while prior decode is in flight)', () => {
+    const r = step(FROM, {
+      type: 'FILE_PREPARE',
+      variant: 'preload-match',
+      index: 2,
+      name: 'c.mp3',
+    });
+    expect(r).toEqual({
+      next: PLAYBACK_STATE.DECODING,
+      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
+    });
+  });
+
+  it('rapid host local switch can accept the new decode success', () => {
+    forceState(FROM);
+    expect(
+      transition({
+        type: 'FILE_PREPARE',
+        variant: 'preload-match',
+        index: 2,
+        name: 'c.mp3',
+      }),
+    ).toBe(PLAYBACK_STATE.DECODING);
+    expect(transition({ type: 'DECODE_SUCCESS' })).toBe(PLAYBACK_STATE.READY);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.READY);
+  });
+
   it('FILE_PREPARE different → DOWNLOADING (decode aborts via load-token)', () => {
     const r = step(FROM, { type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 'c.mp3' });
     expect(r).toEqual({ next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH });

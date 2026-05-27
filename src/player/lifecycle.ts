@@ -262,6 +262,8 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         return { next: PLAYBACK_STATE.FAILED };
       case 'FILE_PREPARE':
         if (ev.variant === 'same-file') return { stay: true };
+        if (ev.variant === 'preload-match')
+          return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH }; // supersede; decode aborts via load-token
       case 'PLAY_PRELOADED':
         if (ev.variant === 'blob-ready') return { stay: true }; // likely dedup for same track

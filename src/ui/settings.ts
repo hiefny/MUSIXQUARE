@@ -43,6 +43,7 @@ function _updateHostCtrlLockUI(): void {
     'eq-sliders-area',
     'grid-surround',
     'grid-vbass',
+    'grid-exciter',
   ];
   hostCtrlIds.forEach((id) => {
     const el = document.getElementById(id);
@@ -432,6 +433,17 @@ function setVBassOn(on: boolean): void {
   }
 }
 
+function setExciterOn(on: boolean): void {
+  document.querySelectorAll('#grid-exciter .ch-opt').forEach((el) => el.classList.remove('active'));
+  document
+    .querySelector(`#grid-exciter .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
+    ?.classList.add('active');
+  // Wire shape is 0|1 so it survives the REQUEST_SETTING number validator.
+  // effects.ts converts back to boolean for setState.
+  bus.emit('audio:update-effect', 'exciter', 'mix', on ? 1 : 0, false);
+  if (on) _notifyGuestOnlyEffects();
+}
+
 // ─── Device List ─────────────────────────────────────────────────
 
 export function renderDeviceList(list: Array<Record<string, unknown>>): void {
@@ -665,6 +677,14 @@ export function initSettings(): void {
     });
   });
 
+  // Exciter ON/OFF grid (subtle high-frequency harmonic enhancer)
+  document.querySelectorAll<HTMLElement>('#grid-exciter .ch-opt[data-toggle]').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      if (_guardHostCtrl()) return;
+      setExciterOn(opt.dataset.toggle === 'on');
+    });
+  });
+
   // Visualizer mode grid
   document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]').forEach((opt) => {
     opt.addEventListener('click', () =>
@@ -723,6 +743,16 @@ export function initSettings(): void {
       .forEach((el) => el.classList.remove('active'));
     document
       .querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
+      ?.classList.add('active');
+  });
+
+  // Exciter toggle sync (from host broadcast)
+  _busScope.on('ui:sync-exciter', (on: boolean) => {
+    document
+      .querySelectorAll('#grid-exciter .ch-opt[data-toggle]')
+      .forEach((el) => el.classList.remove('active'));
+    document
+      .querySelector(`#grid-exciter .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
       ?.classList.add('active');
   });
 

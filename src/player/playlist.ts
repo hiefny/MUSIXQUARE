@@ -21,6 +21,7 @@ import { transition } from './lifecycle.ts';
 import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
 import {
   setEQ,
+  setExciter,
   setPreamp,
   setStereoWidth,
   setVirtualBass,
@@ -52,6 +53,7 @@ let _shufflePosition = 0;
 const DEMO_ALLOWED_SETTING_TYPES = new Set<string>([
   'eq',
   MSG.VBASS,
+  MSG.EXCITER,
   MSG.STEREO_WIDTH,
   MSG.REVERB_TYPE,
 ]);
@@ -1007,6 +1009,15 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       if (!Number.isFinite(v)) break;
       setVirtualBass(v);
       broadcast({ type: MSG.VBASS, value: v });
+      break;
+    }
+    case MSG.EXCITER: {
+      // Wire shape is 0 | 1 to share the REQUEST_SETTING number contract;
+      // setExciter takes the boolean form locally.
+      const v = Number(val);
+      if (v !== 0 && v !== 1) break;
+      setExciter(v === 1);
+      broadcast({ type: MSG.EXCITER, value: v });
       break;
     }
     case MSG.REVERB: {

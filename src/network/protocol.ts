@@ -80,6 +80,12 @@ function isValidRequestSetting(data: Record<string, unknown>): boolean {
     case MSG.VBASS:
     case MSG.REVERB:
       return isBoundedNumber(data.value, 0, 100);
+    case MSG.EXCITER:
+      // Toggle-only effect; value is 0 (off) or 1 (on). Reuse the number wire
+      // shape so the existing REQUEST_SETTING dispatcher (playlist.ts) and
+      // bootstrap path (effects.ts network:peer-connected) work without a
+      // boolean special case.
+      return data.value === 0 || data.value === 1;
     case MSG.STEREO_WIDTH:
       return isBoundedNumber(data.value, 0, 200);
     case MSG.REVERB_TYPE:

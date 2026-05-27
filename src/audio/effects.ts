@@ -25,6 +25,7 @@ import {
   getWidener,
   getGlobalLowPass,
   getVbGain,
+  getExciterGain,
 } from './engine.ts';
 import { rampParam, setCrossFade, generateReverbIR } from './helpers.ts';
 import { showToast } from '../ui/toast.ts';
@@ -43,6 +44,7 @@ import {
   STEREO_NARROW_BASE,
   STEREO_NARROW_SCALE,
   STEREO_WIDE_FLOOR,
+  EXCITER_MIX_GAIN,
 } from './constants.ts';
 
 // ─── Apply All Settings ────────────────────────────────────────────
@@ -62,6 +64,7 @@ export async function applySettings(): Promise<void> {
   const reverbHighCut = getState('audio.reverbHighCut');
   const stereoWidth = getState('audio.stereoWidth');
   const virtualBass = getState('audio.virtualBass');
+  const exciterOn = getState('audio.exciter');
   const eqValues = getState('audio.eqValues');
   const userPreampGain = getState('audio.userPreampGain');
   const channelMode = getState('audio.channelMode');
@@ -127,6 +130,17 @@ export async function applySettings(): Promise<void> {
   if (vbg) {
     const targetGain = isWooferRole ? 0 : virtualBass;
     rampParam(vbg.gain, targetGain, RAMP_TIME);
+  }
+
+  // Harmonic Exciter (toggle-only)
+  // Suppress on the woofer role — the saturator's harmonics live above
+  // 6 kHz, which the woofer's lowpass would chop out anyway, and feeding
+  // the WaveShaper for nothing just wastes CPU on the device that needs
+  // the most headroom for the sub-bass band.
+  const exg = getExciterGain();
+  if (exg) {
+    const targetExGain = !isWooferRole && exciterOn ? EXCITER_MIX_GAIN : 0;
+    rampParam(exg.gain, targetExGain, RAMP_TIME);
   }
 
   // Global LowPass
@@ -264,6 +278,17 @@ export function resetVirtualBass(): void {
   setVirtualBass(0);
 }
 
+// ─── Harmonic Exciter ──────────────────────────────────────────────
+
+export function setExciter(on: boolean): void {
+  setState('audio.exciter', !!on);
+  applySettingsAsync();
+}
+
+export function resetExciter(): void {
+  setExciter(false);
+}
+
 // ─── Subwoofer Cutoff ──────────────────────────────────────────────
 
 function updateSubFreq(val: number): void {
@@ -337,6 +362,14 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
       if (param === 'mix') {
         setVirtualBass(value);
         if (!isPreview) _broadcastOrRequestSetting(MSG.VBASS, value);
+      }
+      break;
+    case 'exciter':
+      // value: 0 (off) | 1 (on). Toggle-only, no mid-range like vbass.
+      if (param === 'mix') {
+        const on = value > 0;
+        setExciter(on);
+        if (!isPreview) _broadcastOrRequestSetting(MSG.EXCITER, on ? 1 : 0);
       }
       break;
     case 'cutoff':
@@ -427,6 +460,9 @@ bus.on('network:peer-connected', (conn) => {
 
     const virtualBass = getState('audio.virtualBass');
     conn.send({ type: MSG.VBASS, value: virtualBass * 100 });
+
+    const exciterOn = getState('audio.exciter');
+    conn.send({ type: MSG.EXCITER, value: exciterOn ? 1 : 0 });
 
     log.debug('[Effects] Bootstrap: sent audio settings to new peer');
   } catch (e) {
@@ -615,6 +651,18 @@ function handleVBassMsg(data: Record<string, unknown>, conn?: DataConnection): v
   _notifyHostChanged();
 }
 
+function handleExciterMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isHostBroadcast(conn)) return;
+  if (data.value === undefined) return;
+  const v = Number(data.value);
+  // Strict 0/1 — anything else is malformed. Mirrors protocol.ts validator.
+  if (v !== 0 && v !== 1) return;
+  const on = v === 1;
+  setExciter(on);
+  bus.emit('ui:sync-exciter', on);
+  _notifyHostChanged();
+}
+
 function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
@@ -644,6 +692,7 @@ export function initEffectsHandlers(): void {
     [MSG.REVERB_HIGHCUT]: handleReverbHighCutMsg,
     [MSG.STEREO_WIDTH]: handleStereoWidthMsg,
     [MSG.VBASS]: handleVBassMsg,
+    [MSG.EXCITER]: handleExciterMsg,
     [MSG.REQUEST_EQ_RESET]: handleRequestEQReset,
   });
 

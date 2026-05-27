@@ -144,6 +144,7 @@ const en: Record<I18nKey, string> = {
   'settings.highpass': 'High-pass',
   'settings.surround_title': 'Virtual Surround',
   'settings.bass_title': 'Virtual Bass',
+  'settings.exciter_title': 'Virtual Treble',
   'settings.subwoofer_adjust': 'Subwoofer Cutoff',
   'settings.subwoofer_cutoff': 'Subwoofer cutoff frequency',
   'settings.default_0pct': 'Default 0%',

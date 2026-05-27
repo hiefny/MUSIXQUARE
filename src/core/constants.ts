@@ -140,6 +140,7 @@ export const MSG = {
   OPERATOR_GRANT: 'operator-grant',
   OPERATOR_REVOKE: 'operator-revoke',
   VBASS: 'vbass',
+  EXCITER: 'exciter',
   VOLUME: 'volume',
   WELCOME: 'welcome',
   SESSION_FULL: 'session-full',

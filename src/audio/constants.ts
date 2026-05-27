@@ -86,3 +86,56 @@ export const VB_LIMITER = {
   release: 0.01,
   knee: 0,
 } as const;
+
+// ─── Harmonic Exciter ────────────────────────────────────────────
+// Two-HPF "harmonic isolation" topology, inspired by classic
+// BBE/Aphex-style exciters:
+//
+//   in → HPF(4k) → tanh saturate → HPF(14k) → ×mix → out
+//
+// First HPF picks the material that has enough mid-high energy to
+// generate useful harmonics (cymbals, snare top, breath, fricatives).
+// A biased tanh shaper synthesizes both even and odd harmonics, so
+// material around 7-10 kHz can create useful "air" near 14-20 kHz.
+// The post-shaper HPF then removes most of the saturated fundamental
+// and lower harmonics, leaving a subtle air-band layer under the dry
+// path. This is enhancement, not source restoration.
+
+/** Pre-shaper HPF cutoff. Sets the input window for harmonic
+ *  generation. 4 kHz is wide enough to catch the percussive content
+ *  whose 2nd/3rd harmonics will land above 14 kHz. */
+export const EXCITER_HPF_FREQ = 4000;
+/** Q for the pre-shaper HPF — gentle slope so the transition isn't audible. */
+export const EXCITER_HPF_Q = 0.707;
+/** Post-shaper HPF cutoff. This is what makes the effect mostly "air only".
+ *  16 kHz with a steep slope keeps most harshness-prone mid-high content
+ *  out of the wet return while letting synthesized top-end through. */
+export const EXCITER_HPF_POST_FREQ = 16000;
+/** Cascaded stages on the post-HPF — 2 stages = −24 dB/oct, the
+ *  industry standard for BBE / Aphex-style harmonic isolation.
+ *  At 16 kHz cutoff: 14 kHz ≈ −10 dB, 12 kHz ≈ −16 dB, 10 kHz ≈ −24 dB,
+ *  so the mid-high response stays flat where the ear is most sensitive
+ *  to roughness while still passing real synthesized air above ~14 kHz.
+ *  4 stages (−48 dB/oct) is technically possible but the phase shift
+ *  around cutoff starts reading as an unnatural "edge". */
+export const EXCITER_HPF_POST_STAGES = 2;
+/** Q for each cascade stage. 0.707 keeps the joint response Butterworth
+ *  (maximally flat passband, no resonance bump). */
+export const EXCITER_HPF_POST_Q = 0.707;
+/** Drive into the tanh curve. With the post-HPF removing the bulk of
+ *  the fundamental, we can push drive higher (4.5) for richer 2nd /
+ *  3rd / 5th order content without smudging the mid-high. Above ~6 the
+ *  curve hard-clips and the harmonics turn into buzzy distortion. */
+export const EXCITER_DRIVE = 4.5;
+/** Positive transfer-curve bias. A perfectly symmetric shaper mostly creates
+ *  odd harmonics, while a small bias introduces 2nd-order content that better
+ *  fills the missing 14-20 kHz "air" range from 7-10 kHz source material. */
+export const EXCITER_BIAS = 0.28;
+/** Mix amount when the toggle is ON. Effects.ts ramps the gain node
+ *  between 0 and this value when the user flips the switch. The
+ *  post-HPF keeps the return subtle, but a low fixed mix avoids fatigue
+ *  because there is no user-facing intensity slider yet. */
+export const EXCITER_MIX_GAIN = 0.25;
+/** Curve resolution — 4096 samples is enough for an audibly smooth
+ *  tanh without bloating the WaveShaperNode. */
+export const EXCITER_CURVE_LENGTH = 4096;

@@ -121,6 +121,7 @@ function createInitialState(): StateTree {
       eqValues: Array(EQ_FREQUENCIES.length).fill(0) as number[],
       stereoWidth: 1.0,
       virtualBass: 0,
+      exciter: false,
       subFreq: 120,
       userPreampGain: 1.0,
     },

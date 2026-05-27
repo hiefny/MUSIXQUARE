@@ -240,6 +240,7 @@ export interface ProtocolMap {
   'reverb-highcut': { value: number };
   'stereo-width': { value: number };
   vbass: { value: number };
+  exciter: { value: number };
 
   // ── Playback ─────────────────────────────────────────────────────
   play: {
@@ -540,6 +541,7 @@ export interface StateTree {
     eqValues: number[];
     stereoWidth: number;
     virtualBass: number;
+    exciter: boolean;
     subFreq: number;
     userPreampGain: number;
   };
@@ -780,6 +782,7 @@ interface BaseEventMap {
   'ui:sync-eq-band': [bandIdx: number, value: number];
   'ui:sync-surround': [on: boolean];
   'ui:sync-vbass': [on: boolean];
+  'ui:sync-exciter': [on: boolean];
   'ui:show-toast': [message: string];
   // ui:show-loader / ui:update-loader removed — driven via direct function imports
   'ui:play-btn-state': [enabled: boolean];

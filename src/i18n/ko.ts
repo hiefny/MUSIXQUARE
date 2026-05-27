@@ -142,6 +142,7 @@ const ko = {
   'settings.highpass': '하이패스',
   'settings.surround_title': '가상 서라운드',
   'settings.bass_title': '가상 베이스',
+  'settings.exciter_title': '가상 트레블',
   'settings.subwoofer_adjust': '서브우퍼 컷오프',
   'settings.subwoofer_cutoff': '서브우퍼 컷오프 주파수',
   'settings.default_0pct': '기본값 0%',

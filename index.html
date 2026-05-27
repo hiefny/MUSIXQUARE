@@ -1196,7 +1196,7 @@
             </div>
 
             <!-- 5. Virtual Bass -->
-            <div class="section-group" id="last-setting-section">
+            <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="settings.bass_title"></span>
                 <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
@@ -1219,7 +1219,32 @@
               </div>
             </div>
 
-            <!-- 6. Connected Devices (desktop only — mobile uses #tab-connect) -->
+            <!-- 6. Virtual Treble -->
+            <div class="section-group" id="last-setting-section">
+              <div class="section-header-row">
+                <span class="section-title" data-i18n="settings.exciter_title"></span>
+                <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
+              </div>
+              <div class="channel-grid" id="grid-exciter">
+                <button type="button" class="ch-opt" data-toggle="on">
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M211.5-371.5Q200-383 200-400t11.5-28.5Q223-440 240-440t28.5 11.5Q280-417 280-400t-11.5 28.5Q257-360 240-360t-28.5-11.5Zm0 160Q200-223 200-240t11.5-28.5Q223-280 240-280t28.5 11.5Q280-257 280-240t-11.5 28.5Q257-200 240-200t-28.5-11.5Zm0-320Q200-543 200-560t11.5-28.5Q223-600 240-600t28.5 11.5Q280-577 280-560t-11.5 28.5Q257-520 240-520t-28.5-11.5ZM106-546q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm105.5-145.5Q200-703 200-720t11.5-28.5Q223-760 240-760t28.5 11.5Q280-737 280-720t-11.5 28.5Q257-680 240-680t-28.5-11.5ZM106-386q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm280 280q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm0-720q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm-14.5 134.5Q360-703 360-720t11.5-28.5Q383-760 400-760t28.5 11.5Q440-737 440-720t-11.5 28.5Q417-680 400-680t-28.5-11.5Zm-14 334Q340-375 340-400t17.5-42.5Q375-460 400-460t42.5 17.5Q460-425 460-400t-17.5 42.5Q425-340 400-340t-42.5-17.5Zm0-160Q340-535 340-560t17.5-42.5Q375-620 400-620t42.5 17.5Q460-585 460-560t-17.5 42.5Q425-500 400-500t-42.5-17.5Zm14 306Q360-223 360-240t11.5-28.5Q383-280 400-280t28.5 11.5Q440-257 440-240t-11.5 28.5Q417-200 400-200t-28.5-11.5ZM480-120v-80q116 0 198-82t82-198q0-116-82-198t-198-82v-80q74 0 139.5 28.5T734-734q49 49 77.5 114.5T840-480q0 74-28.5 139.5T734-226q-49 49-114.5 77.5T480-120Zm0-360Z"
+                    /></svg
+                  ><span data-i18n="common.on">켜기</span>
+                </button>
+                <button type="button" class="ch-opt active" data-toggle="off">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+                    /></svg
+                  ><span data-i18n="common.off">끄기</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 7. Connected Devices (desktop only — mobile uses #tab-connect) -->
             <div class="section-group settings-device-section">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="settings.devices_title"></span>

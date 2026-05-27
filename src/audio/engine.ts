@@ -22,6 +22,7 @@ import {
   rampParam,
   safeDisconnect,
   generateReverbIR,
+  makeExciterCurve,
   createCrossFade,
   createStereoWidener,
   createCascadedFilter,
@@ -36,6 +37,14 @@ import {
   REVERB_DEFAULT_DECAY,
   REVERB_DEFAULT_PREDELAY,
   REVERB_LOWCUT_BASE,
+  EXCITER_HPF_FREQ,
+  EXCITER_HPF_Q,
+  EXCITER_HPF_POST_FREQ,
+  EXCITER_HPF_POST_Q,
+  EXCITER_HPF_POST_STAGES,
+  EXCITER_DRIVE,
+  EXCITER_BIAS,
+  EXCITER_CURVE_LENGTH,
   VB_CURVE_LENGTH,
   VB_SUB_LP_FREQ,
   VB_SUB_HP_FREQ,
@@ -94,6 +103,12 @@ interface AudioGraph {
   vbLimiter: DynamicsCompressorNode | null;
   vbGain: GainNode | null;
 
+  // Harmonic Exciter (parallel HPF → saturate → cascaded post-HPF → mix)
+  exHpf: BiquadFilterNode | null;
+  exShaper: WaveShaperNode | null;
+  exHpfPost: CascadedFilter | null; // −24 dB/oct (2 biquads) for clean air-band isolation
+  exGain: GainNode | null;
+
   // Surround
   surroundSplitter: ChannelSplitterNode | null;
   surroundGain: GainNode | null;
@@ -134,6 +149,10 @@ function createEmptyGraph(): AudioGraph {
     vbSum: null,
     vbLimiter: null,
     vbGain: null,
+    exHpf: null,
+    exShaper: null,
+    exHpfPost: null,
+    exGain: null,
     surroundSplitter: null,
     surroundGain: null,
   };
@@ -188,6 +207,9 @@ export function getGlobalLowPass(): BiquadFilterNode | null {
 }
 export function getVbGain(): GainNode | null {
   return _graph.vbGain;
+}
+export function getExciterGain(): GainNode | null {
+  return _graph.exGain;
 }
 export function getSurroundSplitter(): ChannelSplitterNode | null {
   return _graph.surroundSplitter;
@@ -436,6 +458,34 @@ async function _doInitAudio(): Promise<void> {
   _graph.vbLimiter.connect(_graph.vbGain);
   _graph.vbGain.connect(_graph.masterGain);
 
+  // Harmonic Exciter — parallel tap on the post-EQ bus.
+  // Pre-HPF picks the mid-high content that will generate useful harmonics
+  // (cymbals, snare top, breath, fricatives). A biased tanh WaveShaper
+  // creates both even and odd harmonics, then the post-HPF keeps the wet
+  // return focused on the air band. 4x oversampling reduces aliasing in
+  // the shaper. Gain rides 0 ↔ EXCITER_MIX_GAIN to toggle the effect
+  // without re-wiring the graph.
+  _graph.exHpf = ctx.createBiquadFilter();
+  _graph.exHpf.type = 'highpass';
+  _graph.exHpf.frequency.value = EXCITER_HPF_FREQ;
+  _graph.exHpf.Q.value = EXCITER_HPF_Q;
+  _graph.exShaper = ctx.createWaveShaper();
+  _graph.exShaper.curve = makeExciterCurve(EXCITER_DRIVE, EXCITER_CURVE_LENGTH, EXCITER_BIAS);
+  _graph.exShaper.oversample = '4x';
+  _graph.exHpfPost = createCascadedFilter(
+    'highpass',
+    EXCITER_HPF_POST_FREQ,
+    EXCITER_HPF_POST_STAGES,
+    EXCITER_HPF_POST_Q,
+  );
+  _graph.exGain = ctx.createGain();
+  _graph.exGain.gain.value = 0;
+  eqIn.connect(_graph.exHpf);
+  _graph.exHpf.connect(_graph.exShaper);
+  _graph.exShaper.connect(_graph.exHpfPost.input);
+  _graph.exHpfPost.output.connect(_graph.exGain);
+  _graph.exGain.connect(_graph.masterGain);
+
   // Visualizer analyser for accurate frequency mapping
   _graph.analyser = ctx.createAnalyser();
   _graph.analyser.fftSize = ANALYSER_FFT_SIZE;
@@ -511,6 +561,9 @@ function _cleanupAllNodes(): void {
     _graph.vbSum,
     _graph.vbLimiter,
     _graph.vbGain,
+    _graph.exHpf,
+    _graph.exShaper,
+    _graph.exGain,
     _graph.surroundSplitter,
     _graph.surroundGain,
   ];
@@ -522,6 +575,7 @@ function _cleanupAllNodes(): void {
   _graph.vbSubPostLP?.disconnect();
   _graph.vbMidLP?.disconnect();
   _graph.vbMidPostLP?.disconnect();
+  _graph.exHpfPost?.disconnect();
 
   // CrossFade
   if (_graph.rvbCrossFade) {

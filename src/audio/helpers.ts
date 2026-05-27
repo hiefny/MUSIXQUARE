@@ -55,6 +55,44 @@ export function safeDisconnect(node: AudioNode | null): void {
  * @param preDelay - Silence before reverb onset in seconds (e.g. 0.1)
  * @returns AudioBuffer with exponentially decaying noise
  */
+
+/**
+ * Build a biased tanh saturation curve for the harmonic exciter's
+ * WaveShaperNode. tanh keeps the transition smooth (no hard clip
+ * spikes), and the final normalization keeps the downstream mix gain
+ * predictable.
+ *
+ * The bias intentionally breaks symmetry so the shaper creates useful
+ * even-order harmonics. That helps source content around 7-10 kHz seed
+ * the 14-20 kHz air band after the post-shaper high-pass filter.
+ */
+export function makeExciterCurve(
+  drive: number,
+  length = 4096,
+  bias = 0.28,
+): Float32Array<ArrayBuffer> {
+  // Float32Array<ArrayBuffer> (not the wider <ArrayBufferLike> default) so the
+  // result is assignable directly to WaveShaperNode.curve under strict TS lib types.
+  const curve = new Float32Array(length);
+  const safeDrive = Number.isFinite(drive) ? Math.max(0.1, Math.min(12, drive)) : 1;
+  const safeBias = Number.isFinite(bias) ? Math.max(-0.95, Math.min(0.95, bias)) : 0;
+  const zero = Math.tanh(safeDrive * safeBias);
+  let maxAbs = 0;
+
+  for (let i = 0; i < length; i++) {
+    const x = (i / (length - 1)) * 2 - 1;
+    const y = Math.tanh(safeDrive * (x + safeBias)) - zero;
+    curve[i] = y;
+    maxAbs = Math.max(maxAbs, Math.abs(y));
+  }
+
+  if (maxAbs > 0) {
+    for (let i = 0; i < length; i++) curve[i] /= maxAbs;
+  }
+
+  return curve as Float32Array<ArrayBuffer>;
+}
+
 export function generateReverbIR(decay: number, preDelay: number): AudioBuffer {
   const ctx = getAudioContext();
   const sampleRate = ctx.sampleRate;

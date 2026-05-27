@@ -12,8 +12,10 @@ export const RAMP_TIME = 0.1;
 export const RAMP_TIME_FAST = 0.02;
 
 // ─── Frequency Limits ────────────────────────────────────────────
-/** Full-range lowpass — effectively bypassed. Used as "no filter" sentinel. */
+/** UI-facing/fallback full-range marker; runtime filters open up to safe Nyquist. */
 export const FREQ_FULL_RANGE = 20000;
+/** Keep "bypass" low-pass cutoffs just below Nyquist for browser filter stability. */
+export const FULL_RANGE_NYQUIST_RATIO = 0.49;
 /** Sub-frequency range */
 export const SUB_FREQ_MIN = 20;
 export const SUB_FREQ_MAX = 500;

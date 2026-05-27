@@ -11,6 +11,25 @@
  */
 
 import { getAudioContext } from './context.ts';
+import { FREQ_FULL_RANGE, FULL_RANGE_NYQUIST_RATIO } from './constants.ts';
+
+/**
+ * Return a "no audible low-pass" cutoff for the current output sample rate.
+ *
+ * The UI still presents 20 kHz as the top of the audible band, but the engine
+ * should preserve ultrasonic source content when the browser/device runs above
+ * 40 kHz. The 0.49 ratio sits just below Nyquist for stable BiquadFilterNode
+ * behavior: 44.1 kHz -> 21.6 kHz, 48 kHz -> 23.5 kHz.
+ */
+export function getFullRangeFrequency(sampleRate?: number): number {
+  if (!Number.isFinite(sampleRate) || !sampleRate || sampleRate <= 0) return FREQ_FULL_RANGE;
+  return sampleRate * FULL_RANGE_NYQUIST_RATIO;
+}
+
+export function clampFilterFrequency(frequency: number, sampleRate?: number): number {
+  const safeFrequency = Number.isFinite(frequency) ? Math.max(1, frequency) : FREQ_FULL_RANGE;
+  return Math.min(safeFrequency, getFullRangeFrequency(sampleRate));
+}
 
 // ─── Parameter Ramping ──────────────────────────────────────────
 

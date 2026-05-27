@@ -28,8 +28,8 @@ import {
   safeDisconnect,
 } from './engine.ts';
 import { applySettingsAsync } from './effects.ts';
-import { rampParam } from './helpers.ts';
-import { FREQ_FULL_RANGE, RAMP_TIME_FAST } from './constants.ts';
+import { getFullRangeFrequency, rampParam } from './helpers.ts';
+import { RAMP_TIME_FAST } from './constants.ts';
 
 // ─── Channel Mode ──────────────────────────────────────────────────
 
@@ -52,9 +52,11 @@ export function setChannelMode(mode: number): void {
   const subFreq = getState('audio.subFreq');
 
   // Reset LowPass: skip full-range ramp when switching TO Sub (mode=2),
-  // because Sub immediately sets its own target frequency — avoids transient
-  // burst of unfiltered bass during the 20kHz→subFreq ramp.
-  if (lowPass && mode !== 2) rampParam(lowPass.frequency, FREQ_FULL_RANGE, RAMP_TIME_FAST);
+  // because Sub immediately sets its own target frequency and avoids a
+  // transient burst of unfiltered bass during the full-range -> subFreq ramp.
+  if (lowPass && mode !== 2) {
+    rampParam(lowPass.frequency, getFullRangeFrequency(lowPass.context.sampleRate), RAMP_TIME_FAST);
+  }
 
   // Reset routing
   safeDisconnect(gL);
@@ -229,7 +231,8 @@ export function setSurroundChannel(idx: number): void {
 
     // LowPass for LFE channel; ramping avoids clicks on the active signal path.
     if (lowPass) {
-      rampParam(lowPass.frequency, idx === 3 ? subFreq : FREQ_FULL_RANGE, RAMP_TIME_FAST);
+      const fullRange = getFullRangeFrequency(lowPass.context.sampleRate);
+      rampParam(lowPass.frequency, idx === 3 ? subFreq : fullRange, RAMP_TIME_FAST);
     }
 
     // Force output to Dual Mono

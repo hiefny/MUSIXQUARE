@@ -27,11 +27,16 @@ import {
   getVbGain,
   getExciterGain,
 } from './engine.ts';
-import { rampParam, setCrossFade, generateReverbIR } from './helpers.ts';
+import {
+  rampParam,
+  setCrossFade,
+  generateReverbIR,
+  getFullRangeFrequency,
+  clampFilterFrequency,
+} from './helpers.ts';
 import { showToast } from '../ui/toast.ts';
 import {
   RAMP_TIME,
-  FREQ_FULL_RANGE,
   SUB_FREQ_MIN,
   SUB_FREQ_MAX,
   REVERB_DEFAULT_DECAY,
@@ -86,9 +91,13 @@ export async function applySettings(): Promise<void> {
   }
   const rhc = getRvbHighCut();
   if (rhc) {
-    const hFreq =
+    const hFreqRaw =
       REVERB_HIGHCUT_BASE *
       Math.pow(REVERB_HIGHCUT_FACTOR, Math.max(0, Math.min(100, reverbHighCut)) / 100);
+    const hFreq =
+      reverbHighCut <= 0
+        ? getFullRangeFrequency(rhc.context.sampleRate)
+        : clampFilterFrequency(hFreqRaw, rhc.context.sampleRate);
     rampParam(rhc.frequency, hFreq, RAMP_TIME);
   }
 
@@ -146,7 +155,8 @@ export async function applySettings(): Promise<void> {
   // Global LowPass
   const lp = getGlobalLowPass();
   if (lp) {
-    rampParam(lp.frequency, isWooferRole ? subFreq : FREQ_FULL_RANGE, RAMP_TIME);
+    const fullRange = getFullRangeFrequency(lp.context.sampleRate);
+    rampParam(lp.frequency, isWooferRole ? subFreq : fullRange, RAMP_TIME);
   }
 
   // Master Volume

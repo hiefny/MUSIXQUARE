@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
-import { makeExciterCurve } from '../helpers.ts';
+import { clampFilterFrequency, getFullRangeFrequency, makeExciterCurve } from '../helpers.ts';
+
+describe('getFullRangeFrequency', () => {
+  it('opens the full-range cutoff to a safe Nyquist margin', () => {
+    expect(getFullRangeFrequency(44_100)).toBeCloseTo(21_609, 5);
+    expect(getFullRangeFrequency(48_000)).toBeCloseTo(23_520, 5);
+  });
+
+  it('falls back to the UI-facing 20 kHz marker without a valid sample rate', () => {
+    expect(getFullRangeFrequency()).toBe(20_000);
+    expect(getFullRangeFrequency(0)).toBe(20_000);
+  });
+
+  it('clamps explicit filter cutoffs below the safe Nyquist margin', () => {
+    expect(clampFilterFrequency(30_000, 48_000)).toBeCloseTo(23_520, 5);
+    expect(clampFilterFrequency(18_000, 48_000)).toBe(18_000);
+  });
+});
 
 describe('makeExciterCurve', () => {
   it('keeps silence centered while using an asymmetric transfer curve', () => {

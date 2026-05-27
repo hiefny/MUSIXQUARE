@@ -23,6 +23,7 @@ import {
   safeDisconnect,
   generateReverbIR,
   makeExciterCurve,
+  getFullRangeFrequency,
   createCrossFade,
   createStereoWidener,
   createCascadedFilter,
@@ -31,7 +32,6 @@ import {
   type CascadedFilter,
 } from './helpers.ts';
 import {
-  FREQ_FULL_RANGE,
   ANALYSER_FFT_SIZE,
   ANALYSER_SMOOTHING,
   REVERB_DEFAULT_DECAY,
@@ -327,7 +327,7 @@ async function _doInitAudio(): Promise<void> {
 
   _graph.rvbHighCut = ctx.createBiquadFilter();
   _graph.rvbHighCut.type = 'lowpass';
-  _graph.rvbHighCut.frequency.value = FREQ_FULL_RANGE;
+  _graph.rvbHighCut.frequency.value = getFullRangeFrequency(ctx.sampleRate);
 
   _graph.rvbCrossFade = createCrossFade(0); // Initially Dry
 
@@ -415,7 +415,7 @@ async function _doInitAudio(): Promise<void> {
   // 3. Post-Processing: Merge → GlobalLowPass → EQ → Reverb → Master
   _graph.globalLowPass = ctx.createBiquadFilter();
   _graph.globalLowPass.type = 'lowpass';
-  _graph.globalLowPass.frequency.value = FREQ_FULL_RANGE;
+  _graph.globalLowPass.frequency.value = getFullRangeFrequency(ctx.sampleRate);
   _graph.toneMerge.connect(_graph.globalLowPass);
 
   let eqIn: AudioNode = _graph.globalLowPass;

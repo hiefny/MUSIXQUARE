@@ -166,7 +166,6 @@ function initStepper(stepperId: string): void {
     const span = (e.target as HTMLElement).closest('.stepper-value') as HTMLElement | null;
     if (!span || span.querySelector('input')) return;
     if (_guardHostCtrl()) return;
-    if (window.matchMedia?.('(pointer: coarse)').matches) return;
 
     const cur = getState('network.maxGuestSlots') ?? 3;
     const input = document.createElement('input');

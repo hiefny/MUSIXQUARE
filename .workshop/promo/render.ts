@@ -4,11 +4,13 @@
  * Captures CSS-animated HTML scenes frame-by-frame using Playwright,
  * then encodes to MP4 via ffmpeg.
  *
- * Usage:  npx tsx promo/render.ts
+ * Usage:  npm run promo:render
  */
 
 import { chromium, type Browser, type Page } from 'playwright';
+import { createServer, type ViteDevServer } from 'vite';
 import { execSync } from 'child_process';
+import type { AddressInfo } from 'net';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -49,6 +51,7 @@ const ORIENTATIONS: Orientation[] = [
 ];
 
 const ROOT       = path.resolve(__dirname);
+const REPO_ROOT  = path.resolve(ROOT, '..', '..');
 const FRAMES_DIR = path.join(ROOT, 'frames');
 const OUTPUT_DIR = path.join(ROOT, 'output');
 
@@ -70,12 +73,38 @@ function padNum(n: number, len = 5): string {
   return String(n).padStart(len, '0');
 }
 
+async function startViteServer(): Promise<{ server: ViteDevServer; origin: string }> {
+  const server = await createServer({
+    root: REPO_ROOT,
+    configFile: path.join(REPO_ROOT, 'vite.config.ts'),
+    server: {
+      host: '127.0.0.1',
+      port: 0,
+      strictPort: false,
+      open: false,
+    },
+  });
+
+  await server.listen();
+
+  const address = server.httpServer?.address();
+  if (!address || typeof address === 'string') {
+    await server.close();
+    throw new Error('Unable to determine Vite dev server port.');
+  }
+
+  const origin = `http://127.0.0.1:${(address as AddressInfo).port}`;
+  console.log(`Vite dev server: ${origin}`);
+  return { server, origin };
+}
+
 // ─── Frame Capture ───────────────────────────────────────────────
 
 async function captureFrames(
   browser: Browser,
   scene: SceneConfig,
   orient: Orientation,
+  serverOrigin: string,
 ): Promise<string> {
   const frameDir = path.join(FRAMES_DIR, `${scene.name}-${orient.name}`);
   ensureDir(frameDir);
@@ -87,11 +116,12 @@ async function captureFrames(
   });
   const page: Page = await ctx.newPage();
 
-  const htmlPath = path.resolve(ROOT, scene.htmlFile);
-  const fileUrl  = `file:///${htmlPath.replace(/\\/g, '/')}?orientation=${orient.name}`;
+  const scenePath = scene.htmlFile.replace(/\\/g, '/');
+  const sceneUrl = `${serverOrigin}/.workshop/promo/${scenePath}?orientation=${orient.name}`;
 
-  console.log(`  Loading: ${fileUrl}`);
-  await page.goto(fileUrl, { waitUntil: 'networkidle' });
+  console.log(`  Loading: ${sceneUrl}`);
+  await page.goto(sceneUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => undefined);
 
   // Wait for fonts to load
   await page.evaluate(() => document.fonts.ready);
@@ -208,38 +238,41 @@ async function main() {
   ensureDir(FRAMES_DIR);
   ensureDir(OUTPUT_DIR);
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--disable-gpu',
-      '--no-sandbox',
-      '--allow-file-access-from-files',  // Allow iframe file:// access
-      '--disable-web-security',           // Cross-origin iframe access
-    ],
-  });
-
+  const { server, origin } = await startViteServer();
+  let browser: Browser | null = null;
   const results: string[] = [];
 
-  for (const scene of SCENES) {
-    for (const orient of ORIENTATIONS) {
-      const label = `${scene.name} (${orient.name} ${orient.width}x${orient.height})`;
-      console.log(`\n[${label}]`);
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--disable-gpu',
+        '--no-sandbox',
+      ],
+    });
 
-      const frameDir = await captureFrames(browser, scene, orient);
+    for (const scene of SCENES) {
+      for (const orient of ORIENTATIONS) {
+        const label = `${scene.name} (${orient.name} ${orient.width}x${orient.height})`;
+        console.log(`\n[${label}]`);
 
-      const outputFile = path.join(OUTPUT_DIR,
-        `${scene.name}-${orient.name}-${orient.width}x${orient.height}.mp4`);
+        const frameDir = await captureFrames(browser, scene, orient, origin);
 
-      encodeToMp4(frameDir, outputFile, scene.fps);
-      results.push(outputFile);
+        const outputFile = path.join(OUTPUT_DIR,
+          `${scene.name}-${orient.name}-${orient.width}x${orient.height}.mp4`);
 
-      // Clean up frames to save disk space
-      cleanDir(frameDir);
-      fs.rmdirSync(frameDir);
+        encodeToMp4(frameDir, outputFile, scene.fps);
+        results.push(outputFile);
+
+        // Clean up frames to save disk space
+        cleanDir(frameDir);
+        fs.rmdirSync(frameDir);
+      }
     }
+  } finally {
+    if (browser) await browser.close();
+    await server.close();
   }
-
-  await browser.close();
 
   console.log('\n========================');
   console.log('All videos rendered!\n');

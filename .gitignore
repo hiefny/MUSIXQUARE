@@ -12,6 +12,8 @@ dist/
 .env.signaling.example
 promo/frames/
 promo/output/
+.workshop/promo/frames/
+.workshop/promo/output/
 
 # Test reports
 e2e-report.json

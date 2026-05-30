@@ -7,7 +7,7 @@
 <style>
 @font-face {
   font-family: "Pretendard";
-  src: url("../../fonts/PretendardVariable.woff2") format("woff2");
+  src: url("/fonts/PretendardVariable.woff2") format("woff2");
   font-weight: 45 920;
   font-style: normal;
   font-display: swap;
@@ -171,7 +171,7 @@ body {
 
   <div class="promo-phone-wrap" id="promo-phone-wrap">
     <div class="promo-phone">
-      <iframe id="app-frame" src="../../index.html"></iframe>
+      <iframe id="app-frame" src="/index.html"></iframe>
     </div>
   </div>
 </div>
@@ -523,6 +523,22 @@ function showSetupSection(sectionName) {
   }
 }
 
+function clearAppEntranceClasses() {
+  if (!appDoc) return;
+  appDoc.querySelectorAll('.app-entrance, .app-entered, .app-chat-entrance').forEach(el => {
+    el.classList.remove(
+      'app-entrance',
+      'app-entrance-down',
+      'app-entrance-up',
+      'app-entrance-left',
+      'app-entrance-right',
+      'app-entered',
+      'app-chat-entrance',
+    );
+    el.style.removeProperty('--entrance-delay');
+  });
+}
+
 // ─── Timeline constants ───
 // Phase A: Logo animation (note + MUSIXQUARE appear together)
 const NOTE_APPEAR = 200;
@@ -841,6 +857,7 @@ window.__promoSetTime = function(ms) {
     overlay.classList.remove('promo-visible', 'active');
     overlay.classList.add('promo-hidden');
   }
+  clearAppEntranceClasses();
 
   // ═══ Visualizer ═══
   if (ms >= D_START + 700 && ms < D_FADEOUT + FADEOUT_DUR) {

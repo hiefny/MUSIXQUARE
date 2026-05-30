@@ -34,6 +34,7 @@ async function waitForBus(page: Page, timeout = 20_000): Promise<void> {
     () =>
       typeof (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ === 'object' &&
       typeof (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ === 'function',
+    undefined,
     { timeout },
   );
 }
@@ -144,6 +145,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
           | undefined;
         return get?.('appState') === 'PLAYING_YOUTUBE';
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -188,6 +190,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
         const get = w.__MUSIXQUARE_GET_STATE__ as ((p: string) => unknown) | undefined;
         return get?.('playback.mode') === 'youtube' && !!w.__fakeYtLastPlayer;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -245,6 +248,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
           | undefined;
         return get?.('appState') === 'PLAYING_YOUTUBE';
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -256,6 +260,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
           | undefined;
         return get?.('appState') === 'PLAYING_YOUTUBE';
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -278,6 +283,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
           | undefined;
         return get?.('appState') === 'PLAYING_YOUTUBE';
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -299,6 +305,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
           | undefined;
         return get?.('appState') !== 'PLAYING_YOUTUBE';
       },
+      undefined,
       { timeout: 15_000 },
     );
 

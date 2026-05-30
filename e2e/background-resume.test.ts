@@ -118,6 +118,7 @@ test.describe('Mobile Background Resume', () => {
             | undefined;
           return (signals?.forceResync ?? 0) + (signals?.refreshPosition ?? 0) > 0;
         },
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -130,6 +131,7 @@ test.describe('Mobile Background Resume', () => {
             (title.length > 0 || document.getElementById('dialog-message')?.textContent)
           );
         },
+        undefined,
         { timeout: 10_000 },
       );
 

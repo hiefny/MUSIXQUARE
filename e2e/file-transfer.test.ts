@@ -89,6 +89,7 @@ test.describe('File Transfer', () => {
         const state = get('transfer.state');
         return state === 'IDLE';
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -152,6 +153,7 @@ test.describe('File Transfer', () => {
           get?.('preload.nextTrackIndex') === -1
         );
       },
+      undefined,
       { timeout: 10_000 },
     );
 

@@ -236,4 +236,3 @@ active vs settling" visible during field reports.
    track switching, same-track replay, and preload promotion.
 4. Consider a conservative finalized-preload eviction invariant only after the
    diagnostics can prove whether stale `ramstore` slots are actually retained.
-

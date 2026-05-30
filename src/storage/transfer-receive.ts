@@ -189,11 +189,7 @@ function shouldAcceptLocalDirectFileStart(data: Record<string, unknown>): boolea
     incomingName === preloadMeta?.name;
   const indexMatches =
     incomingIndex === undefined || pendingIndex === undefined || incomingIndex === pendingIndex;
-  const preloadMatches =
-    preloadMeta?.name === incomingName &&
-    (preloadIndex === undefined || incomingIndex === undefined || preloadIndex === incomingIndex);
-  const isWaitingForPreload =
-    getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD || preloadMatches;
+  const isWaitingForPreload = getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
 
   return isWaitingForPreload && nameMatches && indexMatches;
 }

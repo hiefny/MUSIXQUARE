@@ -108,6 +108,41 @@ describe('remote-share to local direct transfer promotion', () => {
     );
   });
 
+  it('does not promote stale direct FILE_START after preload playback has already moved on', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    const { cancelRemoteShareWait } = await import('../../share/remote-share.ts');
+    const { postCommand } = await import('../storage.ts');
+
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+    setState('playback.loadSource', LOAD_SOURCE.PRELOAD_PROMOTED);
+    setState('transfer.localSessionId', 6);
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7 });
+    setState('preload.meta', { name: 'song.mp3', index: 0, sessionId: 7 });
+
+    handleFileStart(
+      {
+        type: 'file-start',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        total: 2,
+        size: 4,
+        index: 0,
+        sessionId: 7,
+      },
+      conn,
+    );
+
+    expect(cancelRemoteShareWait).not.toHaveBeenCalled();
+    expect(postCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'STORAGE_START',
+      }),
+    );
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.READY);
+    expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.PRELOAD_PROMOTED);
+  });
+
   it('accepts demo FILE_PREPARE while leaving YouTube mode', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 

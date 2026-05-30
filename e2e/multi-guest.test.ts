@@ -120,6 +120,7 @@ test.describe('Multi-Guest', () => {
         const peers = get?.('network.connectedPeers') as Array<{ status?: string }> | undefined;
         return peers?.filter((peer) => peer.status === 'connected').length === 1;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -229,6 +230,7 @@ test.describe('Multi-Guest', () => {
           const peers = get('network.connectedPeers') as unknown[];
           return peers && peers.length === 1;
         },
+        undefined,
         { timeout: 15_000 },
       );
 

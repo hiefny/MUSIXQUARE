@@ -102,7 +102,9 @@ async function captureFrames(
   if (hasIframe) {
     console.log('  Waiting for iframe to load...');
     // Wait for the iframe's load event and app setup
-    await page.waitForFunction(() => (window as any).appReady === true, { timeout: 30000 });
+    await page.waitForFunction(() => (window as any).appReady === true, undefined, {
+      timeout: 30000,
+    });
     // Extra wait for iframe CSS to fully render
     await page.waitForTimeout(500);
     // Also wait for fonts inside iframe

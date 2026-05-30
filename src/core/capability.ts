@@ -144,6 +144,13 @@ async function getSecurityConfig(apiBase: string): Promise<SecurityConfig> {
   }
 }
 
+/** Drop the cached security-config probe so the next getSecurityConfig() re-fetches.
+ *  Used on a 401 retry: a 401 means the endpoint really required capability, so a
+ *  cached `capabilityRequired:false` (possibly from a failed-open probe) was wrong. */
+function invalidateSecurityConfig(apiBase: string): void {
+  configCache.delete(apiBase);
+}
+
 async function loadTurnstile(): Promise<void> {
   if (window.turnstile) return;
   if (turnstileLoadPromise) {
@@ -470,8 +477,15 @@ export async function fetchWithCapability(
   const capabilityHeaders = await getCapabilityHeaders(input, scopes);
   for (const [name, value] of Object.entries(capabilityHeaders)) headers.set(name, value);
   const response = await fetch(input, { ...init, headers });
-  if (response.status !== 401 || !capabilityHeaders['X-MXQR-Capability']) return response;
+  if (response.status !== 401) return response;
 
+  // 401 means the endpoint demanded capability. Either our token was stale, or
+  // we sent none because the security-config probe failed open (a transient
+  // network blip → cached capabilityRequired:false). Invalidate the cached
+  // config + token, re-probe, and retry once. A genuinely unprotected endpoint
+  // never reaches here (it won't 401), and the server still rejects a truly
+  // invalid token — this widens recovery, not access.
+  invalidateSecurityConfig(apiBase);
   tokenCache.delete(tokenCacheKey(apiBase, BUNDLE_SCOPES));
   const retryHeaders = new Headers(init.headers);
   const retryCapabilityHeaders = await getCapabilityHeaders(input, scopes);

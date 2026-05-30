@@ -165,6 +165,15 @@ async function getRemoteShareSecurityConfig(
   }
 }
 
+/** Drop the cached remote-share security-config so the next probe re-fetches.
+ *  Used on a 401 retry — a 401 means /session really required capability, so a
+ *  cached `capabilityRequired:false` (e.g. from a failed-open probe) was wrong. */
+function invalidateRemoteShareSecurityConfig(endpoint: string): void {
+  if (remoteShareSecurityConfigCache?.endpoint === endpoint) {
+    remoteShareSecurityConfigCache = null;
+  }
+}
+
 async function getRemoteShareSessionHeaders(
   endpoint: string,
   signal?: AbortSignal,
@@ -199,11 +208,13 @@ async function requestUploadSession(
       signal,
     });
 
-    // Stale capability cache (e.g. a token minted before the remote-share
-    // scope was bundled into the client): invalidate and retry once. Same
-    // shape as fetchWithCapability's 401 retry path.
-    if (response.status === 401 && capabilityHeaders['X-MXQR-Capability']) {
-      invalidateCapabilityToken(capabilityTarget);
+    // 401 on /session: either a stale capability token, or we sent none because
+    // the remote-share security-config probe failed open. Invalidate the cached
+    // config + token, re-probe, and retry once. Same shape as
+    // fetchWithCapability's 401 retry path.
+    if (response.status === 401) {
+      if (capabilityHeaders['X-MXQR-Capability']) invalidateCapabilityToken(capabilityTarget);
+      invalidateRemoteShareSecurityConfig(endpoint);
       capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
       response = await fetch(`${endpoint}/session`, {
         method: 'POST',

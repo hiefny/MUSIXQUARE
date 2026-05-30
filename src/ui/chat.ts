@@ -912,6 +912,7 @@ export function initChat(): void {
       container.replaceChildren();
       addSystemChatMessage(t('chat.cmd_clear'));
     }
+    resetUnread();
     clearLatestPinnedNotice();
     clearPinnedNotice();
   });

@@ -87,6 +87,40 @@ describe('Chat Module', () => {
     });
   });
 
+  describe('Unread badge', () => {
+    function renderChatShell(): void {
+      document.body.innerHTML = `
+        <button id="chat-preview-btn">
+          <span id="chat-preview-badge"></span>
+          <span class="chat-preview-text"></span>
+        </button>
+        <div id="chat-backdrop"></div>
+        <div id="chat-drawer"></div>
+        <div id="chat-messages"></div>
+        <button id="btn-chat-scroll-down"></button>
+        <button id="btn-chat-send"></button>
+        <button id="btn-chat-close"></button>
+        <div id="chat-input"></div>
+        <div id="chat-pinned-notice"></div>
+      `;
+    }
+
+    it('clears unread badge when chat is cleared remotely', async () => {
+      renderChatShell();
+      const { initChat } = await import('../chat.ts');
+      initChat();
+
+      bus.emit('chat:message-rendered', 'Peer', 'hello', false);
+      const badge = document.getElementById('chat-preview-badge') as HTMLElement;
+      expect(badge.textContent).toBe('1');
+      expect(badge.classList.contains('show')).toBe(true);
+
+      bus.emit('chat:clear-all');
+      expect(badge.textContent).toBe('0');
+      expect(badge.classList.contains('show')).toBe(false);
+    });
+  });
+
   describe('Timestamp Parsing Logic', () => {
     // Reimplement the parseTimestamp logic for testing
     function parseTimestamp(str: string): number {

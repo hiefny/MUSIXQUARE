@@ -8,8 +8,6 @@ export interface DemoTrack {
   mime: string;
   url: string;
   infoUrl: string;
-  bpm: number;
-  pulseBpm: number;
 }
 
 const LINELIGHT_INFO_URL = 'https://batzerk.bandcamp.com/album/linelight-ost';
@@ -25,8 +23,6 @@ export const DEMO_TRACKS: DemoTrack[] = [
     mime: 'audio/mp4',
     url: 'https://demo.musixquare.com/linelight/01-adventure.m4a',
     infoUrl: LINELIGHT_INFO_URL,
-    bpm: 80,
-    pulseBpm: 40,
   },
   {
     id: 'linelight-lockstep-lunge',
@@ -38,8 +34,6 @@ export const DEMO_TRACKS: DemoTrack[] = [
     mime: 'audio/mp4',
     url: 'https://demo.musixquare.com/linelight/02-lockstep-lunge.m4a',
     infoUrl: LINELIGHT_INFO_URL,
-    bpm: 80,
-    pulseBpm: 40,
   },
   {
     id: 'linelight-forgiveness-ballad',
@@ -51,8 +45,6 @@ export const DEMO_TRACKS: DemoTrack[] = [
     mime: 'audio/mp4',
     url: 'https://demo.musixquare.com/linelight/03-forgiveness-ballad.m4a',
     infoUrl: LINELIGHT_INFO_URL,
-    bpm: 80,
-    pulseBpm: 40,
   },
   {
     id: 'linelight-spring',
@@ -64,8 +56,6 @@ export const DEMO_TRACKS: DemoTrack[] = [
     mime: 'audio/mp4',
     url: 'https://demo.musixquare.com/linelight/04-spring.m4a',
     infoUrl: LINELIGHT_INFO_URL,
-    bpm: 80,
-    pulseBpm: 40,
   },
 ];
 

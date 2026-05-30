@@ -358,6 +358,47 @@ export class MusixquareRoom {
     };
     this.acceptSocket(ws, attachment, ['role:guest', `peer:${peerId}`, 'auth:pending']);
     this.pendingGuests.set(peerId, ws);
+    this.scheduleAuthSweep();
+  }
+
+  // Active sweep for unauthenticated pending guests. handleGuestAuth (on a guest
+  // message) and indexSocket (on hibernation wake) already close expired pending
+  // sockets, but a guest that connects and then stays silent triggers neither —
+  // its socket would linger until something else wakes the DO. Schedule a DO
+  // alarm at the earliest pending authDeadline so the slot is reclaimed even with
+  // no further traffic. (setAlarm overwrites; we re-arm after each sweep.)
+  scheduleAuthSweep() {
+    let earliest = null;
+    for (const sock of this.pendingGuests.values()) {
+      const att = readAttachment(sock);
+      if (
+        typeof att?.authDeadline === 'number' &&
+        (earliest === null || att.authDeadline < earliest)
+      ) {
+        earliest = att.authDeadline;
+      }
+    }
+    if (earliest !== null) {
+      // Fire just after the deadline so it has definitely elapsed on wake.
+      Promise.resolve(this.state.storage.setAlarm(earliest + 1000)).catch(() => {});
+    }
+  }
+
+  async alarm() {
+    const now = Date.now();
+    for (const [peerId, sock] of [...this.pendingGuests]) {
+      const att = readAttachment(sock);
+      if (typeof att?.authDeadline === 'number' && now > att.authDeadline) {
+        this.pendingGuests.delete(peerId);
+        try {
+          sock.close(1011, 'auth timeout (sweep)');
+        } catch {
+          /* already closed */
+        }
+      }
+    }
+    // Re-arm for any guests still inside their auth window.
+    this.scheduleAuthSweep();
   }
 
   completeGuestAccept(ws, roomId, peerId, alreadyAccepted) {

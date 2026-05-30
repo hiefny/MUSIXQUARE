@@ -7,6 +7,7 @@ type WorkerModule = {
     fetch(request: Request): Promise<Response>;
     webSocketMessage(ws: FakeSocket, raw: string): Promise<void>;
     webSocketClose(ws: FakeSocket): Promise<void>;
+    alarm(): Promise<void>;
   };
   default: {
     fetch(request: Request, env: Record<string, unknown>): Promise<Response>;
@@ -86,6 +87,7 @@ class FakeWebSocketPair {
 
 class FakeStorage {
   data = new Map<string, unknown>();
+  alarmTime: number | null = null;
 
   async get(key: string): Promise<unknown> {
     return structuredClone(this.data.get(key));
@@ -93,6 +95,18 @@ class FakeStorage {
 
   async put(key: string, value: unknown): Promise<void> {
     this.data.set(key, structuredClone(value));
+  }
+
+  async setAlarm(time: number): Promise<void> {
+    this.alarmTime = time;
+  }
+
+  async getAlarm(): Promise<number | null> {
+    return this.alarmTime;
+  }
+
+  async deleteAlarm(): Promise<void> {
+    this.alarmTime = null;
   }
 }
 
@@ -437,6 +451,27 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       errorType: 'room-password-auth-timeout',
       message: 'ROOM_PASSWORD_AUTH_TIMEOUT',
     });
+  });
+
+  it('sweeps an expired pending guest via the DO alarm with no further messages', async () => {
+    const { room } = await createPasswordRoom();
+
+    await room.fetch(wsRequest('123456', 'guest', 'silent-guest'));
+    const guest = lastServer();
+
+    // Guest connected but never sent guest-auth. Force its deadline past, as if
+    // GUEST_AUTH_TIMEOUT_MS elapsed with zero traffic — the case that previously
+    // left the socket OPEN until something else happened to wake the DO.
+    guest.serializeAttachment({
+      ...(guest.deserializeAttachment() as Record<string, unknown>),
+      authDeadline: Date.now() - 1,
+    });
+
+    // The DO alarm fires on its own; the guest sends nothing.
+    await room.alarm();
+
+    expect(guest.closed).toBe(true);
+    expect(guest.closeEvents.at(-1)).toMatchObject({ reason: 'auth timeout (sweep)' });
   });
 
   it('rehydrates host and guest indexes from WebSocket attachments', async () => {

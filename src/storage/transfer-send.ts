@@ -308,6 +308,14 @@ export async function unicastFile(
     });
   } catch (e) {
     log.error(`[Unicast] Failed to send ${msgType}:`, e);
+    // The initial send failed *before* the chunk loop's try/finally below, so
+    // its cleanup never runs. Dispose the scope we registered above to avoid a
+    // stale _activeUnicasts entry (and an undisposed SessionScope) lingering
+    // until the next unicast to this peer replaces it.
+    if (_activeUnicasts.get(unicastKey) === scope) {
+      scope.dispose();
+      _activeUnicasts.delete(unicastKey);
+    }
     return;
   }
 

@@ -48,6 +48,26 @@ interface CommandDef {
   hideFromSuggest?: boolean; // Hidden from autocomplete dropdown
 }
 
+type NavigatorDebugInfo = Navigator & {
+  standalone?: boolean;
+  connection?: {
+    effectiveType?: unknown;
+    downlink?: unknown;
+    rtt?: unknown;
+  };
+};
+
+type PerformanceWithMemory = Performance & {
+  memory?: {
+    usedJSHeapSize: number;
+    totalJSHeapSize: number;
+    jsHeapSizeLimit: number;
+  };
+};
+
+const debugNavigator = navigator as NavigatorDebugInfo;
+const debugPerformance = performance as PerformanceWithMemory;
+
 // ─── Target Resolution ──────────────────────────────────────────
 
 function resolveTarget(arg: string): { peerId: string; label: string } | null {
@@ -488,8 +508,7 @@ function cmdDebug(args: string[]): void {
   const dpr = window.devicePixelRatio?.toFixed(1) || '?';
   const touch = 'ontouchstart' in window ? 'yes' : 'no';
   const standalone =
-    window.matchMedia('(display-mode: standalone)').matches ||
-    (navigator as unknown as { standalone?: boolean }).standalone
+    window.matchMedia('(display-mode: standalone)').matches || debugNavigator.standalone
       ? 'yes'
       : 'no';
   lines.push(`[Browser] ${browser}`);
@@ -562,9 +581,7 @@ function cmdDebug(args: string[]): void {
   const trackIdx = getState('playlist.currentTrackIndex') ?? -1;
   const playlist = getState('playlist.items') || [];
   const currentTitle =
-    trackIdx >= 0 && playlist[trackIdx]
-      ? (playlist[trackIdx] as unknown as Record<string, unknown>).title || 'untitled'
-      : '-';
+    trackIdx >= 0 && playlist[trackIdx] ? playlist[trackIdx].title || playlist[trackIdx].name : '-';
   lines.push(`[Playlist] ${playlist.length} tracks | current:#${trackIdx} ${currentTitle}`);
 
   // Session timing
@@ -573,8 +590,7 @@ function cmdDebug(args: string[]): void {
 
   // Memory (if available)
   try {
-    const perf = performance as unknown as Record<string, unknown>;
-    const mem = perf.memory as { usedJSHeapSize: number; jsHeapSizeLimit: number } | undefined;
+    const mem = debugPerformance.memory;
     if (mem) {
       const used = (mem.usedJSHeapSize / 1048576).toFixed(1);
       const limit = (mem.jsHeapSizeLimit / 1048576).toFixed(0);
@@ -586,9 +602,7 @@ function cmdDebug(args: string[]): void {
 
   // Network info (if available)
   try {
-    const conn = (navigator as unknown as Record<string, unknown>).connection as
-      | Record<string, unknown>
-      | undefined;
+    const conn = debugNavigator.connection;
     if (conn) {
       lines.push(
         `[NetInfo] type:${conn.effectiveType || '?'} | downlink:${conn.downlink || '?'}Mbps | rtt:${conn.rtt || '?'}ms`,
@@ -959,7 +973,7 @@ function getDisplayMode(): string {
 function isStandaloneLike(): boolean {
   return (
     window.matchMedia?.('(display-mode: standalone)').matches ||
-    Boolean((navigator as unknown as { standalone?: boolean }).standalone)
+    Boolean(debugNavigator.standalone)
   );
 }
 
@@ -1046,10 +1060,7 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
 
   // ── Heap (Chromium only) ──
   try {
-    const perf = performance as unknown as Record<string, unknown>;
-    const mem = perf.memory as
-      | { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number }
-      | undefined;
+    const mem = debugPerformance.memory;
     if (mem) {
       const used = mem.usedJSHeapSize / 1048576;
       const total = mem.totalJSHeapSize / 1048576;
@@ -1165,11 +1176,10 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
 
   // ── Blob URLs ──
   try {
-    const bm = BlobURLManager as unknown as Record<string, unknown>;
-    const active = bm._activeURL ? 1 : 0;
-    const preparing = bm._preparingURL ? 1 : 0;
-    const pending = (bm._pendingRevocations as Map<unknown, unknown>)?.size ?? 0;
-    const deferred = (bm._deferredUntilDetached as Set<unknown>)?.size ?? 0;
+    const active = BlobURLManager._activeURL ? 1 : 0;
+    const preparing = BlobURLManager._preparingURL ? 1 : 0;
+    const pending = BlobURLManager._pendingRevocations.size;
+    const deferred = BlobURLManager._deferredUntilDetached.size;
     lines.push(
       `[BlobURLs] active:${active} preparing:${preparing} pendingRevoke:${pending} deferred:${deferred}`,
     );
@@ -1187,10 +1197,7 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     const preloadMB = preloadBlob ? (preloadBlob.size / 1048576).toFixed(1) : '0.0';
     lines.push(`[Files] currentBlob:${currentMB}MB preloadBlob:${preloadMB}MB`);
 
-    const playlist = (getState('playlist.items') || []) as unknown as Array<{
-      file?: File | Blob;
-      type?: string;
-    }>;
+    const playlist = getState('playlist.items') || [];
     let plBytes = 0;
     let plFileCount = 0;
     for (const item of playlist) {
@@ -1700,7 +1707,7 @@ export function getAvailableCommands(
   const result: { name: string; usage: string; description: string }[] = [];
   const query = filter.toLowerCase();
   for (const [name, def] of _allCommandEntries()) {
-    if ((def as unknown as Record<string, unknown>).hideFromSuggest) continue;
+    if (def.hideFromSuggest) continue;
     if (!hasPermission(def.permission)) continue;
     if (query && !name.startsWith(query)) continue;
     result.push({ name, usage: def.usage, description: def.description });

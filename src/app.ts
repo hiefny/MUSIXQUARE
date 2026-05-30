@@ -86,6 +86,12 @@ import { initDemoMode } from './demo/mode.ts';
 import { registerServiceWorker } from './sw-register.ts';
 import { showToast } from './ui/toast.ts';
 
+declare global {
+  interface Window {
+    __MXQR?: unknown;
+  }
+}
+
 // ── System Compatibility Check ──
 
 function checkSystemCompatibility(): void {
@@ -504,7 +510,7 @@ function bootstrap(): void {
       markIntentionalNav,
       isIntentionalNav,
     };
-    (window as unknown as Record<string, unknown>).__MXQR = debugObj;
+    window.__MXQR = debugObj;
   }
 
   log.info('[App] Bootstrap complete — all modules loaded');

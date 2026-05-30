@@ -221,7 +221,7 @@ export function stopPlayerNode(): void {
     /* ignore */
   }
   try {
-    (node as unknown as { buffer: AudioBuffer | null }).buffer = null;
+    node.buffer = null;
   } catch {
     /* InvalidStateError on spec-strict engines — ignore */
   }

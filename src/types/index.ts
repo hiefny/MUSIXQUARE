@@ -174,6 +174,7 @@ export interface DeviceInfo {
   isHost: boolean;
   status: string;
   joinOrder?: number;
+  connectionType?: 'local' | 'remote' | 'unknown' | string;
 }
 
 export interface ConnectedPeer {
@@ -193,8 +194,7 @@ export interface ConnectedPeer {
 // ─── P2P Protocol Messages ────────────────────────────────────────
 
 /** Marker for protocol messages with no additional payload fields beyond `type`. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-type NoPayload = {};
+type NoPayload = Record<never, never>;
 
 /**
  * Maps each MsgType string literal to its payload shape (excluding the `type` field).

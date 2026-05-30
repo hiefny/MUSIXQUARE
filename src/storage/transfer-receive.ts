@@ -171,22 +171,31 @@ function shouldSkipIncomingFile(incomingName?: string): boolean {
 
 function shouldAcceptLocalDirectFileStart(data: Record<string, unknown>): boolean {
   if (getState('network.connectionType') !== 'local') return false;
-  if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return false;
 
   const incomingName = typeof data.name === 'string' ? data.name : '';
   if (!incomingName) return false;
 
   const pendingTarget = getState('playback.pendingRecoveryTarget');
   const meta = getState('transfer.meta');
+  const preloadMeta = getState('preload.meta');
   const metaIndex = typeof meta?.index === 'number' ? meta.index : undefined;
+  const preloadIndex = typeof preloadMeta?.index === 'number' ? preloadMeta.index : undefined;
   const incomingIndex = typeof data.index === 'number' ? data.index : undefined;
-  const pendingIndex = pendingTarget?.index ?? metaIndex;
+  const pendingIndex = pendingTarget?.index ?? metaIndex ?? preloadIndex;
 
-  const nameMatches = incomingName === pendingTarget?.name || incomingName === meta?.name;
+  const nameMatches =
+    incomingName === pendingTarget?.name ||
+    incomingName === meta?.name ||
+    incomingName === preloadMeta?.name;
   const indexMatches =
     incomingIndex === undefined || pendingIndex === undefined || incomingIndex === pendingIndex;
+  const preloadMatches =
+    preloadMeta?.name === incomingName &&
+    (preloadIndex === undefined || incomingIndex === undefined || preloadIndex === incomingIndex);
+  const isWaitingForPreload =
+    getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD || preloadMatches;
 
-  return nameMatches && indexMatches;
+  return isWaitingForPreload && nameMatches && indexMatches;
 }
 
 function getLocalDirectFileIndex(data: Record<string, unknown>): number {
@@ -843,6 +852,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   const incomingSid = data.sessionId as number;
   const localSid = getState('transfer.localSessionId');
+  const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data);
 
   if (!incomingSid || incomingSid < localSid) {
     log.warn(`[file-start] Stale session ignored. Current: ${localSid}, Received: ${incomingSid}`);
@@ -853,7 +863,11 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   if (isNewSession) {
     setState('transfer.localSessionId', incomingSid);
     postCommand({ command: 'STORAGE_RESET', isPreload: false });
-    bus.emit('storage:clear-previous-track', 'new-session-start');
+    // Remote-share waits already cleared stale playback on entry; clearing
+    // again here erases the pending target needed to promote to local direct.
+    if (!isLocalDirectStart) {
+      bus.emit('storage:clear-previous-track', 'new-session-start');
+    }
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
   }
 
@@ -864,20 +878,17 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   // session), the host explicitly wants us to receive data — fall through
   // and let the STORAGE_START + transfer.state=RECEIVING below break the
   // skip condition for subsequent chunks.
-  if (shouldSkipIncomingFile(data.name as string | undefined)) {
+  if (isLocalDirectStart) {
+    switchRemoteWaitToLocalDirect(data);
+  } else if (shouldSkipIncomingFile(data.name as string | undefined)) {
     const meta = getState('transfer.meta');
     const isRecoveryResend = !isNewSession && meta?.name === data.name;
-    const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data);
-    if (!isRecoveryResend && !isLocalDirectStart) {
+    if (!isRecoveryResend) {
       clearManagedTimer('prepareWatchdog');
       clearManagedTimer('chunkWatchdog');
       return;
     }
-    if (isLocalDirectStart) {
-      switchRemoteWaitToLocalDirect(data);
-    } else {
-      log.info('[file-start] Accepting same-session recovery resend');
-    }
+    log.info('[file-start] Accepting same-session recovery resend');
   }
 
   clearManagedTimer('prepareWatchdog');

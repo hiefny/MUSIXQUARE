@@ -873,10 +873,8 @@ export function initPlayback(): void {
       if (isSystemAudioPlaying) {
         conn.send({ type: MSG.SYSTEM_AUDIO_START });
       } else if (isFilePlaying) {
-        const item = (playlist[currentTrackIndex] as unknown as Record<string, unknown>) || {};
-        const itemName = (item.name || (item.file as File | undefined)?.name || null) as
-          | string
-          | null;
+        const item = playlist[currentTrackIndex];
+        const itemName = item?.name || item?.file?.name || null;
         // Late-join bootstrap: omit hostPlayAt — guest has no clock samples yet.
         // Guest plays immediately (legacy path); initial sync corrects 1s later.
         conn.send({
@@ -921,7 +919,7 @@ export function initPlayback(): void {
     const playlist = getState('playlist.items') || [];
 
     if (currentTrackIndex >= 0 && playlist[currentTrackIndex]) {
-      const item = playlist[currentTrackIndex] as unknown as Record<string, unknown>;
+      const item = playlist[currentTrackIndex];
       if (item.type !== 'youtube') {
         const currentFileBlob = getState('files.currentFileBlob');
         const currentSessionId = getState('transfer.currentSessionId');

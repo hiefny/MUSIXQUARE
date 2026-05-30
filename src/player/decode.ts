@@ -96,8 +96,7 @@ async function decodeWithTimeout(arrayBuffer: ArrayBuffer, label = 'decode'): Pr
   const timeoutPromise = new Promise<never>((_, reject) => {
     // One-shot timeout race for decodeAudioData; cleared in finally below.
     // setManagedTimer is name-keyed and not suited for per-call concurrent decodes.
-    // eslint-disable-next-line no-restricted-globals
-    timeoutId = setTimeout(() => {
+    timeoutId = globalThis.setTimeout(() => {
       reject(new Error(`${DECODE_TIMEOUT_TAG}:${label}:${DECODE_TIMEOUT_MS}ms`));
     }, DECODE_TIMEOUT_MS);
   });
@@ -833,7 +832,7 @@ export async function loadPreloadedTrack(
     // won't infinite-loop.
     const playlist = getState('playlist.items') || [];
     const idx = getState('playlist.currentTrackIndex');
-    const recoveryName = (playlist[idx] as unknown as Record<string, string>)?.name || name;
+    const recoveryName = playlist[idx]?.name || name;
     sendToHost({
       type: MSG.REQUEST_CURRENT_FILE,
       name: recoveryName,

@@ -72,6 +72,11 @@ describe('remote-share to local direct transfer promotion', () => {
     setState('preload.meta', { name: 'song.mp3', index: 0, sessionId: 7 });
     setState('preload.nextTrackIndex', 0);
     setState('transfer.localSessionId', 0);
+    bus.on('storage:clear-previous-track', (reason) => {
+      if (reason !== 'new-session-start') return;
+      setState('transfer.meta', {});
+      setState('playback.pendingRecoveryTarget', null);
+    });
 
     handleFileStart(
       {

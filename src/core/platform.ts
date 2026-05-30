@@ -5,14 +5,21 @@
 import { log } from './log.ts';
 import { setManagedTimer } from './timers.ts';
 
+type NavigatorWithInstallHints = Navigator & {
+  standalone?: boolean;
+  userAgentData?: { platform?: string };
+};
+
+type WindowWithLegacyMsStream = Window & { MSStream?: unknown };
+
+const installNavigator = navigator as NavigatorWithInstallHints;
+
 // ─── Platform Detection ────────────────────────────────────────────
 
 export const IS_IOS: boolean =
   (/iPad|iPhone|iPod/.test(navigator.userAgent) &&
-    !(window as unknown as Record<string, unknown>).MSStream) ||
-  (((navigator as unknown as Record<string, { platform?: string }>).userAgentData?.platform ??
-    navigator.platform ??
-    '') === 'MacIntel' &&
+    !(typeof window !== 'undefined' ? (window as WindowWithLegacyMsStream).MSStream : undefined)) ||
+  ((installNavigator.userAgentData?.platform ?? navigator.platform ?? '') === 'MacIntel' &&
     navigator.maxTouchPoints > 1);
 
 export const IS_ANDROID: boolean = /Android/i.test(navigator.userAgent);
@@ -46,7 +53,7 @@ export function onCompactLandscapeChange(cb: () => void): () => void {
 
 export function isStandaloneDisplayMode(): boolean {
   try {
-    if ((navigator as unknown as Record<string, unknown>).standalone) return true;
+    if (installNavigator.standalone) return true;
     if (window.matchMedia?.('(display-mode: standalone)').matches) return true;
   } catch (e) {
     log.debug('[Platform] standalone detection failed:', e);

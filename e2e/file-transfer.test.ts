@@ -95,4 +95,87 @@ test.describe('File Transfer', () => {
     const transferState = await readState(pair.guestPage, 'transfer.state');
     expect(transferState).toBe('IDLE');
   });
+
+  test('local direct transfer promotes a pending remote-share wait', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+
+    await pair.guestPage.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const get = w.__MUSIXQUARE_GET_STATE__ as ((path: string) => unknown) | undefined;
+      const set = w.__MUSIXQUARE_SET_STATE__ as
+        | ((path: string, value: unknown) => void)
+        | undefined;
+      const bus = w.__MUSIXQUARE_BUS__ as
+        | { emit: (type: string, ...args: unknown[]) => void }
+        | undefined;
+      if (!get || !set || !bus) throw new Error('E2E state hooks unavailable');
+
+      const hostConn = get('network.hostConn');
+      if (!hostConn) throw new Error('Guest host connection unavailable');
+
+      const name = 'promoted-direct.mp3';
+      set('network.connectionType', 'local');
+      set('playback.pendingRecoveryTarget', { index: 0, name });
+      set('transfer.meta', { name, index: 0, sessionId: 7 });
+      set('preload.meta', { name, index: 0, sessionId: 7 });
+      set('preload.nextTrackIndex', 0);
+      set('transfer.localSessionId', 0);
+      set('playback.loadSource', 'preload-promoted');
+      set('playback.lifecycle', 'AWAITING_PRELOAD');
+
+      bus.emit(
+        'network:data',
+        {
+          type: 'file-start',
+          name,
+          mime: 'audio/mpeg',
+          total: 2,
+          size: 4,
+          index: 0,
+          sessionId: 7,
+        },
+        hostConn,
+      );
+    });
+
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((path: string) => unknown)
+          | undefined;
+        return (
+          get?.('playback.lifecycle') === 'DOWNLOADING' &&
+          get?.('playback.loadSource') === 'fresh' &&
+          get?.('transfer.state') === 'RECEIVING' &&
+          get?.('transfer.localSessionId') === 7 &&
+          get?.('preload.meta') === null &&
+          get?.('preload.nextTrackIndex') === -1
+        );
+      },
+      { timeout: 10_000 },
+    );
+
+    const promotedState = await pair.guestPage.evaluate(() => {
+      const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+        | ((path: string) => unknown)
+        | undefined;
+      return {
+        lifecycle: get?.('playback.lifecycle'),
+        loadSource: get?.('playback.loadSource'),
+        transferState: get?.('transfer.state'),
+        localSessionId: get?.('transfer.localSessionId'),
+        preloadMeta: get?.('preload.meta'),
+        nextTrackIndex: get?.('preload.nextTrackIndex'),
+      };
+    });
+
+    expect(promotedState).toEqual({
+      lifecycle: 'DOWNLOADING',
+      loadSource: 'fresh',
+      transferState: 'RECEIVING',
+      localSessionId: 7,
+      preloadMeta: null,
+      nextTrackIndex: -1,
+    });
+  });
 });

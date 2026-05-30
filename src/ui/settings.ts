@@ -446,7 +446,19 @@ function setExciterOn(on: boolean): void {
 
 // ─── Device List ─────────────────────────────────────────────────
 
-export function renderDeviceList(list: Array<Record<string, unknown>>): void {
+interface DeviceListRow {
+  id?: unknown;
+  label?: unknown;
+  isOp?: unknown;
+  isHost?: unknown;
+  status?: unknown;
+}
+
+function isDeviceListRow(value: unknown): value is DeviceListRow {
+  return value !== null && typeof value === 'object';
+}
+
+export function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
   const container = document.getElementById('device-list');
   if (!container) return;
 
@@ -770,7 +782,7 @@ export function initSettings(): void {
 
   // Device list events
   _busScope.on('network:device-list-update', (list: unknown[]) => {
-    if (Array.isArray(list)) renderDeviceList(list as Array<Record<string, unknown>>);
+    if (Array.isArray(list)) renderDeviceList(list.filter(isDeviceListRow));
   });
 
   // Language switch → re-render device list so status/grant-revoke button
@@ -778,7 +790,7 @@ export function initSettings(): void {
   // time via t() and don't carry data-i18n attributes).
   _busScope.on('i18n:changed', () => {
     const list = getState('network.connectedPeers') || [];
-    renderDeviceList(list as unknown as Array<Record<string, unknown>>);
+    renderDeviceList(list);
   });
 
   // Initial theme: restore from localStorage (defaults to system; 'system' auto-resolves)

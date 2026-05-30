@@ -169,6 +169,67 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
   });
 
   // ── Test 3: state propagation ────────────────────────────────────────
+  test('manual YouTube sync frame makes guest seek before replay', async () => {
+    test.setTimeout(60_000);
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await waitForBus(pair.hostPage);
+    await waitForBus(pair.guestPage);
+
+    await pair.guestPage.evaluate(() => {
+      const bus = (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ as
+        | { emit: (type: string, ...args: unknown[]) => void }
+        | undefined;
+      if (!bus) throw new Error('bus not exposed via __MUSIXQUARE_BUS__');
+      bus.emit('youtube:load', 'FAKE_VIDEO_ID', null, false);
+    });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const w = window as unknown as Record<string, unknown>;
+        const get = w.__MUSIXQUARE_GET_STATE__ as ((p: string) => unknown) | undefined;
+        return get?.('playback.mode') === 'youtube' && !!w.__fakeYtLastPlayer;
+      },
+      { timeout: 20_000 },
+    );
+
+    await clearFakeYtLog(pair.guestPage);
+
+    await pair.guestPage.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const get = w.__MUSIXQUARE_GET_STATE__ as ((p: string) => unknown) | undefined;
+      const bus = w.__MUSIXQUARE_BUS__ as
+        | { emit: (type: string, ...args: unknown[]) => void }
+        | undefined;
+      const player = w.__fakeYtLastPlayer as { __state?: number; __currentTime?: number } | undefined;
+      const hostConn = get?.('network.hostConn');
+      if (!bus || !hostConn || !player) throw new Error('manual sync setup unavailable');
+
+      player.__state = 1;
+      player.__currentTime = 12;
+      bus.emit(
+        'network:data',
+        {
+          type: 'youtube-sync',
+          time: 12,
+          state: 1,
+          subIndex: -1,
+          videoId: 'FAKE_VIDEO_ID',
+          hostClock: Date.now(),
+          isManual: true,
+          title: 'Fake Title',
+        },
+        hostConn,
+      );
+    });
+
+    await waitForYtLogOp(pair.guestPage, 'seekTo', 20_000);
+    await waitForYtLogOp(pair.guestPage, 'playVideo', 20_000);
+
+    const guestOps = (await readFakeYtLog(pair.guestPage)).map((entry) => entry.op);
+    expect(guestOps).toContain('seekTo');
+    expect(guestOps).toContain('playVideo');
+    expect(guestOps.indexOf('seekTo')).toBeLessThan(guestOps.lastIndexOf('playVideo'));
+  });
+
   test('guest transitions to PLAYING_YOUTUBE after host starts video', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForBus(pair.hostPage);

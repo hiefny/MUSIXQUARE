@@ -12,6 +12,7 @@ import {
   EQ_FREQUENCIES,
   DEFAULT_MAX_GUEST_SLOTS,
 } from './constants.ts';
+import { log } from './log.ts';
 
 // 3.0: StateTree, StatePath, StatePathValue, ShallowImmutable moved to types/index.ts
 // to enable typed state:${StatePath} events without circular dependency.
@@ -224,8 +225,20 @@ let _batchedPaths: string[] = [];
 
 type StateEventName = `state:${StatePath}`;
 
+declare global {
+  interface Window {
+    __MUSIXQUARE_GET_STATE__?: typeof getState;
+    __MUSIXQUARE_SET_STATE__?: typeof setState;
+    __MUSIXQUARE_BUS__?: typeof bus;
+  }
+}
+
 function emitStateChange(path: StatePath, value: unknown): void {
   bus.emit(`state:${path}` as StateEventName, value, path);
+}
+
+function asMutableStateRecord(value: object): Record<string, unknown> {
+  return value as Record<string, unknown>;
 }
 
 // ─── Accessors ─────────────────────────────────────────────────────
@@ -241,8 +254,7 @@ export function getState<P extends StatePath>(path: P): ShallowImmutable<StatePa
   for (const key of keys) {
     if (current == null || typeof current !== 'object') {
       if (import.meta.env?.DEV) {
-        // eslint-disable-next-line no-console
-        console.debug(`[State] path not found: "${path}" (failed at key "${key}")`);
+        log.debug(`[State] path not found: "${path}" (failed at key "${key}")`);
       }
       return undefined as ShallowImmutable<StatePathValue<P>>;
     }
@@ -257,14 +269,13 @@ export function getState<P extends StatePath>(path: P): ShallowImmutable<StatePa
  */
 export function setState<P extends StatePath>(path: P, value: StatePathValue<P>): void {
   const keys = path.split('.');
-  let current: Record<string, unknown> = _state as unknown as Record<string, unknown>;
+  let current = asMutableStateRecord(_state);
 
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
     if (current[key] == null || typeof current[key] !== 'object') {
       if (import.meta.env?.DEV) {
-        // eslint-disable-next-line no-console
-        console.warn(
+        log.warn(
           `[State] setState auto-creating intermediate key "${keys.slice(0, i + 1).join('.')}" for path "${path}"`,
         );
       }
@@ -300,14 +311,13 @@ export function batchSetState(updates: Partial<{ [P in StatePath]: StatePathValu
   try {
     for (const [path, value] of Object.entries(updates)) {
       const keys = path.split('.');
-      let current: Record<string, unknown> = _state as unknown as Record<string, unknown>;
+      let current = asMutableStateRecord(_state);
 
       for (let i = 0; i < keys.length - 1; i++) {
         const key = keys[i];
         if (current[key] == null || typeof current[key] !== 'object') {
           if (import.meta.env?.DEV) {
-            // eslint-disable-next-line no-console
-            console.warn(
+            log.warn(
               `[State] batchSetState auto-creating intermediate key "${keys.slice(0, i + 1).join('.')}" for path "${path}"`,
             );
           }
@@ -391,7 +401,7 @@ const SHOULD_EXPOSE_TEST_HOOKS =
   import.meta.env.VITE_MUSIXQUARE_TEST_HOOKS === '1';
 
 if (typeof window !== 'undefined' && SHOULD_EXPOSE_TEST_HOOKS) {
-  (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ = getState;
-  (window as unknown as Record<string, unknown>).__MUSIXQUARE_SET_STATE__ = setState;
-  (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ = bus;
+  window.__MUSIXQUARE_GET_STATE__ = getState;
+  window.__MUSIXQUARE_SET_STATE__ = setState;
+  window.__MUSIXQUARE_BUS__ = bus;
 }

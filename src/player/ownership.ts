@@ -612,7 +612,12 @@ const _shouldExposeTestHooks =
   import.meta.env.MODE === 'e2e' ||
   import.meta.env.VITE_MUSIXQUARE_TEST_HOOKS === '1';
 
+declare global {
+  interface Window {
+    __MUSIXQUARE_GET_PROJECTED_APP_STATE__?: typeof getProjectedAppState;
+  }
+}
+
 if (typeof window !== 'undefined' && _shouldExposeTestHooks) {
-  (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_PROJECTED_APP_STATE__ =
-    getProjectedAppState;
+  window.__MUSIXQUARE_GET_PROJECTED_APP_STATE__ = getProjectedAppState;
 }

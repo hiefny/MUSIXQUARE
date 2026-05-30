@@ -349,7 +349,7 @@
 
   @keyframes blink-primary-light {
     0% {
-      box-shadow: inset 0 0 0 100px rgba(59, 130, 246, 0.4);
+      box-shadow: inset 0 0 0 100px rgba(var(--primary-rgb), 0.4);
     }
 
     50% {
@@ -1286,6 +1286,7 @@
     -webkit-appearance: none;
     appearance: none;
     width: 100%;
+    display: block;
     background: transparent;
     --range-fill: var(--range-fill-idle);
     --range-progress: 0%;
@@ -2042,13 +2043,6 @@
 
   .section-row:last-child {
     border-bottom: none;
-  }
-
-  /* Reset any default input margins that might shift the visual balance */
-  input[type='range'] {
-    margin: 0;
-    display: block;
-    width: 100%;
   }
 
   .reverb-sliders-area {
@@ -3271,7 +3265,7 @@
     font-weight: 700;
     cursor: pointer;
     min-width: 100px;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
     transition:
       transform 0.2s,
       box-shadow 0.2s;
@@ -3412,12 +3406,6 @@
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
-  }
-
-  /* Redundant scrollbar prevention on parent */
-  .onboarding-card {
-    overflow: hidden;
-    /* Scrolling happens in children */
   }
 
   /* Unified Setup Flow Areas */
@@ -3717,7 +3705,7 @@
   .btn-ob-primary {
     background: var(--primary);
     color: white;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
   }
 
   .btn-ob-secondary {
@@ -4012,7 +4000,7 @@
 
   @media (hover: hover) {
     .btn-ob-primary:hover {
-      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
+      box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.35);
     }
 
     .btn-ob-secondary:hover {
@@ -6364,21 +6352,14 @@
       opacity: 1 !important;
     }
 
-    .header-right.header-default-content {
-      transition: none !important;
-    }
-
     /* Role badge area: push to sidebar bottom */
     .header-right.header-default-content {
+      transition: none !important;
       margin-top: auto !important;
       flex-shrink: 0 !important;
       width: 100% !important;
       padding-left: 13px !important; /* 29 - header 16px padding (from sidebar left edge) */
       padding-bottom: 13px !important; /* 29 - header 16px padding */
-    }
-
-    #btn-logo-help {
-      display: none !important;
     }
 
     .header-loading-text {
@@ -6477,7 +6458,7 @@
       height: var(--app-height, 100dvh) !important;
       z-index: 90 !important;
       background: var(--bg);
-      padding: 16px 24px 12px 24px !important;
+      padding: 16px 24px 8px 24px !important;
       padding-left: calc(24px + var(--safe-left)) !important;
       box-sizing: border-box;
       border-radius: 0 !important;
@@ -6488,11 +6469,6 @@
     .tab-body {
       overflow: visible !important;
       height: auto !important;
-      padding-bottom: 8px !important;
-    }
-
-    /* Reduce bottom spacing in all tabs */
-    .tab-content.active {
       padding-bottom: 8px !important;
     }
 
@@ -6512,12 +6488,6 @@
 
     /* Tighten section spacing */
     .ob-actions {
-      padding-bottom: 8px !important;
-    }
-
-    .settings-section:last-child,
-    .guide-section:last-child {
-      margin-bottom: 0 !important;
       padding-bottom: 8px !important;
     }
 
@@ -6687,6 +6657,7 @@
         padding: 0 8px !important;
         padding-right: calc(8px + var(--safe-right)) !important;
         width: calc(200px + var(--safe-right)) !important;
+        top: calc((45px + var(--app-height, 100dvh) - 54px) / 2) !important;
         gap: 0 !important;
         left: auto !important;
         right: 0 !important;
@@ -6709,11 +6680,6 @@
         width: 19px !important;
         height: 19px !important;
         margin: 0 !important;
-      }
-
-      /* Stabilize vertical centering when icons have no text */
-      html:not(.keyboard-open) .bottom-nav {
-        top: calc((45px + var(--app-height, 100dvh) - 54px) / 2) !important;
       }
 
       /* Dashboard bottom area: badge on left, help on right */

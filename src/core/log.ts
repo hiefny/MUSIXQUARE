@@ -67,9 +67,14 @@ export function setLogLevel(level: LogLevelName | Lowercase<LogLevelName>): void
   if (v !== null) _logLevel = v;
 }
 
+declare global {
+  // Dev-console hook exposed below. Optional because workers may not have a writable global.
+  var setLogLevel: ((level: LogLevelName | Lowercase<LogLevelName>) => void) | undefined;
+}
+
 // Expose to browser console for runtime debugging
 try {
-  (globalThis as unknown as Record<string, unknown>).setLogLevel = setLogLevel;
+  globalThis.setLogLevel = setLogLevel;
 } catch {
   /* worker context */
 }

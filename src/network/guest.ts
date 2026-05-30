@@ -27,6 +27,7 @@ import { showToast } from '../ui/toast.ts';
 let _initNetwork: ((requestedId: string | null) => Promise<string>) | null = null;
 type ConnectionType = 'local' | 'remote' | 'unknown';
 let _hostReportedConnectionType: ConnectionType | null = null;
+const _handledConnectionErrors = new WeakSet<DataConnection>();
 
 function asConnectionType(value: unknown): ConnectionType | null {
   return value === 'local' || value === 'remote' || value === 'unknown' ? value : null;
@@ -222,7 +223,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     // Before 'open' fires, the join-timeout timer handles failures.
     // Registering them here avoids premature cleanup from PeerJS
     // internal close events that can fire before the channel opens.
-    (conn as unknown as Record<string, unknown>)._errorHandled = false;
+    _handledConnectionErrors.delete(conn);
 
     conn.on('close', () => {
       log.warn('[Join] Host connection closed');
@@ -233,13 +234,13 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       }
       setState('network.isConnecting', false);
 
-      if ((conn as unknown as Record<string, unknown>)._errorHandled) {
+      if (_handledConnectionErrors.has(conn)) {
         // Don't reset isIntentionalDisconnect — the error handler already
         // determined intent. Resetting unconditionally here would mask
         // intentional disconnects (e.g. leaveSession) that race with close.
         return;
       }
-      (conn as unknown as Record<string, unknown>)._errorHandled = true;
+      _handledConnectionErrors.add(conn);
 
       const isIntentional = getState('network.isIntentionalDisconnect');
       if (!isIntentional) {
@@ -255,8 +256,8 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       }
       setState('network.isConnecting', false);
 
-      if ((conn as unknown as Record<string, unknown>)._errorHandled) return;
-      (conn as unknown as Record<string, unknown>)._errorHandled = true;
+      if (_handledConnectionErrors.has(conn)) return;
+      _handledConnectionErrors.add(conn);
 
       bus.emit('network:error', new Error('HOST_CONNECTION_ERROR'));
     });
@@ -371,9 +372,7 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>, conn?: DataCon
       setState('network.myJoinOrder', amIStillConnected.joinOrder);
     }
     // Trust host's connectionType over local ICE detection (host sees both sides)
-    const hostConnType = asConnectionType(
-      (amIStillConnected as unknown as Record<string, unknown>).connectionType,
-    );
+    const hostConnType = asConnectionType(amIStillConnected.connectionType);
     if (hostConnType) applyHostReportedConnectionType(hostConnType);
   }
 

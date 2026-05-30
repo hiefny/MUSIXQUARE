@@ -74,6 +74,13 @@ import {
 
 import type { YTNamespace, YTPlayerConfig } from './_state.ts';
 declare const YT: YTNamespace;
+declare global {
+  interface Window {
+    YT?: YTNamespace;
+    onYouTubeIframeAPIReady?: () => void;
+    isYouTubeAPIReady?: boolean;
+  }
+}
 
 function resetYouTubePlayerHost(container: HTMLElement): void {
   const playerHost = document.createElement('div');
@@ -316,8 +323,7 @@ export function loadYouTubeVideo(
     resetYouTubePlayerHost(container);
   }
 
-  const w = window as unknown as Record<string, unknown>;
-  if (!w.YT || !(w.YT as Record<string, unknown>).Player) {
+  if (!window.YT?.Player) {
     if (!isYtScriptLoading() && !document.querySelector('script[src*="youtube.com/iframe_api"]')) {
       setYtScriptLoading(true);
       const tag = document.createElement('script');
@@ -342,8 +348,8 @@ export function loadYouTubeVideo(
       };
       document.head.appendChild(tag);
     }
-    w.onYouTubeIframeAPIReady = () => {
-      (w as Record<string, boolean>).isYouTubeAPIReady = true;
+    window.onYouTubeIframeAPIReady = () => {
+      window.isYouTubeAPIReady = true;
       // Guard: skip if a timeout already cancelled this load session
       if (getCurrentSessionId() !== sessionId || scope.aborted) {
         log.debug('[YouTube] onYouTubeIframeAPIReady skipped — session changed');

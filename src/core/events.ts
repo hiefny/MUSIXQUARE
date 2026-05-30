@@ -19,6 +19,8 @@ type TypedListener<K extends EventKey> = (...args: EventArgs<K>) => void;
 
 type AnyListener = (...args: unknown[]) => void;
 
+const _onceOriginals = new WeakMap<AnyListener, AnyListener>();
+
 class EventBusImpl {
   private _listeners = new Map<string, Set<AnyListener>>();
 
@@ -43,7 +45,7 @@ class EventBusImpl {
       this.off(event, wrapper as TypedListener<K>);
       (fn as AnyListener)(...args);
     };
-    (wrapper as unknown as Record<string, unknown>)._originalFn = fn;
+    _onceOriginals.set(wrapper, fn as AnyListener);
     return this.on(event, wrapper as TypedListener<K>);
   }
 
@@ -60,7 +62,7 @@ class EventBusImpl {
       }
       // Match by original fn (for once() wrappers)
       for (const listener of set) {
-        if ((listener as unknown as Record<string, unknown>)._originalFn === fn) {
+        if (_onceOriginals.get(listener) === (fn as AnyListener)) {
           set.delete(listener);
           if (set.size === 0) this._listeners.delete(event as string);
           return;

@@ -42,6 +42,12 @@ export interface RemoteUploadMeta {
 
 export type ProgressHandler = (progress: number) => void;
 
+declare global {
+  interface Window {
+    __MUSIXQUARE_REMOTE_SHARE_ENDPOINT__?: unknown;
+  }
+}
+
 interface RemoteShareSecurityConfig {
   capabilityRequired: boolean;
 }
@@ -70,9 +76,7 @@ function normalizeEndpoint(value: unknown): string | null {
 }
 
 export function getRemoteShareEndpoint(): string | null {
-  const injected = normalizeEndpoint(
-    (window as unknown as Record<string, unknown>).__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__,
-  );
+  const injected = normalizeEndpoint(window.__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__);
   if (injected) return injected;
 
   try {

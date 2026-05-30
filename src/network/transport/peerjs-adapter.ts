@@ -18,7 +18,8 @@ export async function createPeerJsPeer(
   requestedId: string | null,
   options: TransportPeerOptions,
 ): Promise<TransportPeer> {
-  const { Peer } = (await import('peerjs')) as unknown as PeerJsModule;
+  const peerjs = await import('peerjs');
+  const Peer = peerjs.Peer as PeerJsModule['Peer'];
   const peerOptions: PeerJsOptions = {
     debug: options.debug,
     config: options.config,

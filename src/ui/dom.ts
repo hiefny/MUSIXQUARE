@@ -14,18 +14,29 @@ let _batchedTransitionCb: (() => void) | null = null;
 
 let _suppressViewTransitionUntil = 0;
 
+interface ViewTransitionLike {
+  ready?: Promise<void>;
+  finished?: Promise<void>;
+  updateCallbackDone?: Promise<void>;
+}
+
+type DocumentWithViewTransition = Document & {
+  startViewTransition?: (callback: () => void) => ViewTransitionLike;
+};
+
 /** Suppress View Transitions for the given duration (ms). */
 export function suppressViewTransitions(durationMs: number): void {
   _suppressViewTransitionUntil = Date.now() + durationMs;
 }
 
 export function animateTransition(callback: () => void): void {
+  const transitionDocument = document as DocumentWithViewTransition;
   // Skip View Transitions while the header loading-bar CSS transition
   // is in progress — startViewTransition snapshots replay CSS transitions,
   // causing the loading animation to appear twice.
   if (
     Date.now() < _suppressViewTransitionUntil ||
-    !(document as unknown as Record<string, unknown>).startViewTransition
+    !transitionDocument.startViewTransition
   ) {
     callback();
     return;
@@ -55,14 +66,10 @@ export function animateTransition(callback: () => void): void {
       // but an uncaught rejection lands in the global `unhandledrejection`
       // handler and shows up in console as "InvalidStateError: Transition
       // was aborted because of invalid state". Silence the benign ones.
-      const vt = (
-        document as unknown as Record<string, (...args: unknown[]) => unknown>
-      ).startViewTransition(() => {
+      const vt = transitionDocument.startViewTransition(() => {
         executed = true;
         cb();
-      }) as
-        | { ready?: Promise<void>; finished?: Promise<void>; updateCallbackDone?: Promise<void> }
-        | undefined;
+      });
       vt?.ready?.catch(() => {
         /* noop — benign abort */
       });

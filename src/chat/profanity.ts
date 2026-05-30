@@ -12,13 +12,31 @@
 import { KO } from 'content-shield/languages/ko';
 import { EN } from 'content-shield/languages/en';
 
+interface KoreanProfanityEntry {
+  severity: number;
+  variations: readonly string[];
+}
+
+interface EnglishProfanityEntry {
+  severity: number;
+  word: string;
+  variations: readonly string[];
+}
+
+interface KoreanProfanityDictionary {
+  profanity: readonly KoreanProfanityEntry[];
+}
+
+interface EnglishProfanityDictionary {
+  words: readonly EnglishProfanityEntry[];
+}
+
 // ─── Build word set ─────────────────────────────────────────────
 
 const _profanitySet = new Set<string>();
 
 // Korean: severity >= 2
-for (const entry of (KO as unknown as { profanity: { severity: number; variations: string[] }[] })
-  .profanity) {
+for (const entry of (KO as KoreanProfanityDictionary).profanity) {
   if (entry.severity >= 2) {
     for (const v of entry.variations) {
       _profanitySet.add(v.toLowerCase());
@@ -27,9 +45,7 @@ for (const entry of (KO as unknown as { profanity: { severity: number; variation
 }
 
 // English: severity >= 2
-for (const entry of (
-  EN as unknown as { words: { severity: number; word: string; variations: string[] }[] }
-).words) {
+for (const entry of (EN as EnglishProfanityDictionary).words) {
   if (entry.severity >= 2) {
     _profanitySet.add(entry.word.toLowerCase());
     for (const v of entry.variations) {

@@ -98,6 +98,53 @@ test.describe('Multi-Guest', () => {
     }
   });
 
+  test('replacement guest rejoins while existing guest still receives fan-out', async ({ browser }) => {
+    test.setTimeout(90_000);
+    setup = await createMultiGuestSetup(browser, 2);
+
+    const code = await setupHostAndStart(setup.hostPage);
+    for (const guestPage of setup.guestPages) {
+      await setupGuest(guestPage, code);
+    }
+    await waitForDeviceCount(setup.hostPage, 3);
+
+    await uploadFixture(setup.hostPage, 'test01');
+    await waitForPlaylistCount(setup.hostPage, 1);
+    await waitForPlaylistCount(setup.guestPages[0], 1, 30_000);
+    await waitForPlaylistCount(setup.guestPages[1], 1, 30_000);
+
+    await setup.guestContexts[0].close();
+    await setup.hostPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        const peers = get?.('network.connectedPeers') as Array<{ status?: string }> | undefined;
+        return peers?.filter((peer) => peer.status === 'connected').length === 1;
+      },
+      { timeout: 20_000 },
+    );
+
+    const replacementContext = await browser.newContext();
+    const replacementPage = await replacementContext.newPage();
+    await injectPeerServer(replacementPage);
+    setup.guestContexts[0] = replacementContext;
+    setup.guestPages[0] = replacementPage;
+
+    await setupGuest(replacementPage, code);
+    await waitForDeviceCount(setup.hostPage, 3, 20_000);
+
+    await uploadFixture(setup.hostPage, 'test02');
+    await waitForPlaylistCount(setup.hostPage, 2);
+    await waitForPlaylistCount(replacementPage, 2, 30_000);
+    await waitForPlaylistCount(setup.guestPages[1], 2, 30_000);
+
+    const connectedPeerCount = await setup.hostPage.evaluate(() => {
+      const get = (window as any).__MUSIXQUARE_GET_STATE__;
+      const peers = get?.('network.connectedPeers') as Array<{ status?: string }> | undefined;
+      return peers?.filter((peer) => peer.status === 'connected').length ?? 0;
+    });
+    expect(connectedPeerCount).toBe(2);
+  });
+
   test('all guests see same playlist after multiple uploads', async ({ browser }) => {
     setup = await createMultiGuestSetup(browser, 3);
 

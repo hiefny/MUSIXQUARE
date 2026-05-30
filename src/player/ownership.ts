@@ -269,6 +269,42 @@ export function getPlaybackOwnership(): PlaybackOwnership {
   };
 }
 
+/**
+ * E2E projection: collapse the decomposed playback contract (mode/activity/
+ * lifecycle + system-audio signals) into a single coarse label. Mirrors the
+ * projection in `e2e/helpers/wait.ts` so specs that still read the legacy
+ * `appState` path resolve consistently through the test hook exposed below.
+ * Not used by product code — playback UIs read mode/activity directly.
+ */
+export type ProjectedAppState =
+  | 'IDLE'
+  | 'PAUSED'
+  | 'PLAYING_AUDIO'
+  | 'PLAYING_VIDEO'
+  | 'PLAYING_YOUTUBE'
+  | 'PLAYING_SYSTEM_AUDIO';
+
+export function getProjectedAppState(): ProjectedAppState {
+  const o = getPlaybackOwnership();
+  if (o.mode === 'youtube') return 'PLAYING_YOUTUBE';
+  if (o.mode === 'system-audio' || o.isReceivingSystemAudio || o.isSystemAudioPlaceholder) {
+    return 'PLAYING_SYSTEM_AUDIO';
+  }
+  if (o.mode === 'file') {
+    if (o.activity === 'playing' || o.lifecycle === PLAYBACK_STATE.PLAYING) return 'PLAYING_AUDIO';
+    if (
+      o.activity === 'paused' ||
+      o.lifecycle === PLAYBACK_STATE.PAUSED ||
+      o.lifecycle === PLAYBACK_STATE.READY
+    ) {
+      return 'PAUSED';
+    }
+  }
+  if (o.lifecycle === PLAYBACK_STATE.PLAYING) return 'PLAYING_AUDIO';
+  if (o.lifecycle === PLAYBACK_STATE.PAUSED || o.lifecycle === PLAYBACK_STATE.READY) return 'PAUSED';
+  return 'IDLE';
+}
+
 export function getPlaybackModeActivity(): PlaybackModeActivity {
   const ownership = getPlaybackOwnership();
   return {
@@ -558,4 +594,25 @@ export function releasePlaybackOwner(
     setState('player.currentTrackMeta', options.currentTrackMeta ?? null);
   }
   return setPlaybackModeActivity({ mode: null, activity: 'idle' });
+}
+
+// ─── E2E Test Hook ─────────────────────────────────────────────────
+// Expose the legacy projected app-state so e2e specs that still assert on the
+// old single-enum `appState` path resolve through wait.ts's compat layer
+// (__MUSIXQUARE_GET_PROJECTED_APP_STATE__). Dev / e2e build / explicit opt-in
+// only — never the normal production bundle.
+//
+// The gate mirrors core/state.ts but is read inline from `import.meta.env`
+// rather than importing a shared flag: top-level dependence on a state.ts
+// export would force every test that partially mocks state.ts (e.g.
+// visualizer.test.ts) to replicate it, and `import.meta.env` is a build
+// constant that cannot be mocked away.
+const _shouldExposeTestHooks =
+  import.meta.env.DEV ||
+  import.meta.env.MODE === 'e2e' ||
+  import.meta.env.VITE_MUSIXQUARE_TEST_HOOKS === '1';
+
+if (typeof window !== 'undefined' && _shouldExposeTestHooks) {
+  (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_PROJECTED_APP_STATE__ =
+    getProjectedAppState;
 }

@@ -9,6 +9,7 @@ import {
   getPlaybackModeActivity,
   getPlaybackModeActivitySnapshot,
   getPlaybackOwnership,
+  getProjectedAppState,
   isExternalOwner,
   isFileOwner,
   isPlaybackIdle,
@@ -51,6 +52,42 @@ function expectPlaybackModeActivitySlots(mode: string | null, activity: string):
   expect(getState('playback.mode')).toBe(mode);
   expect(getState('playback.activity')).toBe(activity);
 }
+
+// Locks the production projection (exposed to e2e via
+// __MUSIXQUARE_GET_PROJECTED_APP_STATE__) against the mirror in
+// e2e/helpers/wait.ts, so the legacy single-enum `appState` assertions stay
+// consistent with the decomposed mode/activity/lifecycle contract.
+describe('getProjectedAppState (e2e legacy projection)', () => {
+  it('projects an idle room to IDLE', () => {
+    expect(getProjectedAppState()).toBe('IDLE');
+  });
+
+  it('projects file playback to PLAYING_AUDIO / PAUSED', () => {
+    setPlaybackFilePlaying();
+    expect(getProjectedAppState()).toBe('PLAYING_AUDIO');
+    setPlaybackFilePaused();
+    expect(getProjectedAppState()).toBe('PAUSED');
+  });
+
+  it('projects a READY file pipeline (decoded, not yet playing) as PAUSED', () => {
+    setPlaybackLifecycleState(PLAYBACK_STATE.READY);
+    expect(getProjectedAppState()).toBe('PAUSED');
+  });
+
+  it('projects YouTube playback to PLAYING_YOUTUBE', () => {
+    setPlaybackYouTubePlaying();
+    expect(getProjectedAppState()).toBe('PLAYING_YOUTUBE');
+  });
+
+  it('projects system audio (sharing and receiving) to PLAYING_SYSTEM_AUDIO', () => {
+    setPlaybackSystemAudioPlaying();
+    expect(getProjectedAppState()).toBe('PLAYING_SYSTEM_AUDIO');
+
+    resetState();
+    setSystemAudioReceiving(true);
+    expect(getProjectedAppState()).toBe('PLAYING_SYSTEM_AUDIO');
+  });
+});
 
 describe('playback ownership view', () => {
   it('defaults to no owner', () => {

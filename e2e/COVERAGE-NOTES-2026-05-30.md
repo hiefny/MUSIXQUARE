@@ -8,12 +8,22 @@
   -> 18 passed in 3.7m.
 - Focused unit regression for the direct-transfer promotion race:
   `npm test -- src/storage/__tests__/remote-local-promotion.test.ts` -> 4 passed.
+- Post-stabilization targeted checks:
+  - `npx playwright test e2e/chat-commands.test.ts:433 --project=chromium` -> 1 passed.
+  - `npx playwright test e2e/chaos-scenarios-2.test.ts:689 --project=chromium` -> 1 passed.
+- Final full post-edit verification:
+  `npm run test:e2e` -> 307 passed in 54.6m.
 
 Expected local-preview noise observed during YouTube E2E: TURN endpoint 401/403 fallback, Wake Lock permission denial, and fake-YouTube shared-clock warnings. These did not fail tests.
 
 ## Stale Spec Pass
 
 The existing suite is still runnable as a whole, so I did not delete or quarantine specs. The scan found broad existing coverage for reconnects, host leave/refresh, multi-guest fan-out, mobile UI, YouTube drift/rendezvous, and transfer round trips. I added narrower regression tests where the prompt named edge paths that were only indirectly covered.
+
+I also de-staled the shared setup helpers after full-suite runs exposed local PeerJS setup flakes:
+
+- Corrected no-argument `page.waitForFunction` calls so timeout options are passed as Playwright options, not as the page-function argument.
+- Added one bounded retry for host code generation and guest join setup. This keeps transient local signaling stalls from consuming the enclosing test timeout while still failing quickly if setup remains broken.
 
 ## Coverage Added
 

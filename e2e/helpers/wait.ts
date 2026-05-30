@@ -127,6 +127,7 @@ export async function waitForState(
 export async function waitForOverlayDismissed(page: Page, timeout = 20_000): Promise<void> {
   await page.waitForFunction(
     () => !document.getElementById('setup-overlay')?.classList.contains('active'),
+    undefined,
     { timeout },
   );
 }
@@ -210,6 +211,7 @@ export async function waitForFilePlaybackReady(page: Page, timeout = 15_000): Pr
         (lifecycle === 'READY' || lifecycle === 'PLAYING' || lifecycle === 'PAUSED')
       );
     },
+    undefined,
     { timeout },
   );
 }
@@ -232,6 +234,7 @@ export async function waitForPlayButtonReady(page: Page, timeout = 15_000): Prom
         !btn.classList.contains('yt-syncing')
       );
     },
+    undefined,
     { timeout },
   );
 }
@@ -310,6 +313,7 @@ export async function navigateToTab(page: Page, tabName: string, timeout = 10_00
   // Ensure setup overlay is dismissed before clicking nav
   await page.waitForFunction(
     () => !document.getElementById('setup-overlay')?.classList.contains('active'),
+    undefined,
     { timeout },
   );
   const nav = page.locator(`.nav-item[data-tab="${tabName}"]`);
@@ -406,6 +410,7 @@ export async function openChatDrawer(page: Page, timeout = 5_000): Promise<void>
   // Ensure setup overlay is dismissed first
   await page.waitForFunction(
     () => !document.getElementById('setup-overlay')?.classList.contains('active'),
+    undefined,
     { timeout },
   );
   // Try chat preview button first, then nav item
@@ -424,6 +429,7 @@ export async function openChatDrawer(page: Page, timeout = 5_000): Promise<void>
   }
   await page.waitForFunction(
     () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+    undefined,
     { timeout },
   );
 }
@@ -460,6 +466,7 @@ export async function waitForToast(
 export async function waitForOverlayActive(page: Page, timeout = 10_000): Promise<void> {
   await page.waitForFunction(
     () => document.getElementById('setup-overlay')?.classList.contains('active') ?? false,
+    undefined,
     { timeout },
   );
 }

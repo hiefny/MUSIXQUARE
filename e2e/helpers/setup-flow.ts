@@ -7,6 +7,11 @@
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
+const HOST_CODE_ATTEMPTS = 2;
+const HOST_CODE_TIMEOUT_MS = 15_000;
+const GUEST_JOIN_ATTEMPTS = 2;
+const GUEST_JOIN_TIMEOUT_MS = 20_000;
+
 /** Navigate to app, wait for setup overlay to appear with role buttons */
 async function navigateAndWaitForSetup(page: Page): Promise<void> {
   await page.goto('/');
@@ -23,18 +28,7 @@ async function setChannelModeForTest(page: Page, channelMode: number): Promise<v
   }, channelMode);
 }
 
-/**
- * Complete host setup flow: create session, select channel, get code.
- * Returns the 6-digit session code.
- */
-export async function setupHost(page: Page, channelMode = 0): Promise<string> {
-  await navigateAndWaitForSetup(page);
-
-  // 1. Click "Host" button
-  await page.click('#btn-setup-host');
-
-  // 4. Wait for code area to appear and code to be generated (not '------')
-  await page.waitForSelector('#setup-code-area', { state: 'visible', timeout: 10_000 });
+async function waitForGeneratedHostCode(page: Page): Promise<string> {
   await page.waitForFunction(
     () => {
       const el = document.getElementById('setup-code');
@@ -42,16 +36,43 @@ export async function setupHost(page: Page, channelMode = 0): Promise<string> {
       const val = el.tagName === 'INPUT' ? (el as HTMLInputElement).value : el.textContent || '';
       return /^\d{6}$/.test(val.trim());
     },
-    { timeout: 15_000 },
+    undefined,
+    { timeout: HOST_CODE_TIMEOUT_MS },
   );
 
-  // 5. Read the code
   const code = await page.evaluate(() => {
     const el = document.getElementById('setup-code')!;
     return el.tagName === 'INPUT' ? (el as HTMLInputElement).value : el.textContent || '';
   });
 
   return code.trim();
+}
+
+/**
+ * Complete host setup flow: create session, select channel, get code.
+ * Returns the 6-digit session code.
+ */
+export async function setupHost(page: Page, channelMode = 0): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= HOST_CODE_ATTEMPTS; attempt += 1) {
+    try {
+      await navigateAndWaitForSetup(page);
+
+      // 1. Click "Host" button
+      await page.click('#btn-setup-host');
+
+      // 4. Wait for code area to appear and code to be generated (not '------')
+      await page.waitForSelector('#setup-code-area', { state: 'visible', timeout: 10_000 });
+      return await waitForGeneratedHostCode(page);
+    } catch (error) {
+      lastError = error;
+      if (attempt === HOST_CODE_ATTEMPTS || page.isClosed()) break;
+      await page.goto('/', { waitUntil: 'domcontentloaded' }).catch(() => {});
+    }
+  }
+
+  throw lastError;
 }
 
 /**
@@ -68,6 +89,7 @@ export async function setupHostAndStart(page: Page, channelMode = 0): Promise<st
   // Wait for overlay to close (session started)
   await page.waitForFunction(
     () => !document.getElementById('setup-overlay')?.classList.contains('active'),
+    undefined,
     { timeout: 15_000 },
   );
 
@@ -80,23 +102,37 @@ export async function setupHostAndStart(page: Page, channelMode = 0): Promise<st
  * Complete guest join flow: select channel, enter code, confirm, wait for connection.
  */
 export async function setupGuest(page: Page, joinCode: string, channelMode = 0): Promise<void> {
-  await navigateAndWaitForSetup(page);
+  let lastError: unknown;
 
-  // 1. Click "Guest" button
-  await page.click('#btn-setup-guest');
+  for (let attempt = 1; attempt <= GUEST_JOIN_ATTEMPTS; attempt += 1) {
+    try {
+      await navigateAndWaitForSetup(page);
 
-  // 4. Wait for join area, fill code, confirm
-  await page.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });
-  await page.fill('#setup-join-code', joinCode);
-  await page.click('#btn-setup-confirm');
+      // 1. Click "Guest" button
+      await page.click('#btn-setup-guest');
 
-  // 5. Wait for overlay to close (join success)
-  await page.waitForFunction(
-    () => !document.getElementById('setup-overlay')?.classList.contains('active'),
-    { timeout: 20_000 },
-  );
+      // 4. Wait for join area, fill code, confirm
+      await page.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });
+      await page.fill('#setup-join-code', joinCode);
+      await page.click('#btn-setup-confirm');
 
-  await setChannelModeForTest(page, channelMode);
+      // 5. Wait for overlay to close (join success)
+      await page.waitForFunction(
+        () => !document.getElementById('setup-overlay')?.classList.contains('active'),
+        undefined,
+        { timeout: GUEST_JOIN_TIMEOUT_MS },
+      );
+
+      await setChannelModeForTest(page, channelMode);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === GUEST_JOIN_ATTEMPTS || page.isClosed()) break;
+      await page.goto('/', { waitUntil: 'domcontentloaded' }).catch(() => {});
+    }
+  }
+
+  throw lastError;
 }
 
 /**

@@ -1,11 +1,14 @@
 /**
  * @vitest-environment jsdom
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
+import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { handleData } from '../../network/protocol.ts';
+import { getPendingPlayTime, setPendingPlayTime } from '../_state.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -127,10 +130,16 @@ function makeFileTrack(file: File): PlaylistItem {
   };
 }
 
+afterEach(() => {
+  clearAllManagedTimers();
+  vi.useRealTimers();
+});
+
 describe('guest decode failure reports', () => {
   beforeEach(async () => {
     resetState();
     bus.clear();
+    clearAllManagedTimers();
     vi.clearAllMocks();
     mocks.decodeAudioData.mockResolvedValue({ duration: 120 });
 
@@ -216,10 +225,57 @@ describe('guest decode failure reports', () => {
   });
 });
 
+describe('guest file finalization sync', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    clearAllManagedTimers();
+    vi.clearAllMocks();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:guest-file'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    mocks.decodeAudioData.mockResolvedValue({ duration: 120 });
+  });
+
+  it('wraps local P2P demo pending time and requests an immediate host sync', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-31T00:00:05.000Z'));
+
+    const hostConn = makeConnection('host-1');
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack(DEMO_TRACK.fileName)]);
+    setState('playlist.currentTrackIndex', 0);
+    setPendingPlayTime(118, Date.now() - 5_000);
+
+    const syncRequest = vi.fn();
+    bus.on('sync:request-immediate-ping', syncRequest);
+
+    const { finalizeGuestFile } = await import('../decode.ts');
+    const { play } = await import('../transport.ts');
+    await finalizeGuestFile(
+      new File([new Uint8Array([1, 2, 3])], DEMO_TRACK.fileName, { type: DEMO_TRACK.mime }),
+    );
+
+    expect(play).toHaveBeenCalledWith(3);
+    expect(getPendingPlayTime()).toBeUndefined();
+    expect(syncRequest).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(syncRequest).toHaveBeenCalledOnce();
+  });
+});
+
 describe('host decode failure cleanup', () => {
   beforeEach(() => {
     resetState();
     bus.clear();
+    clearAllManagedTimers();
     vi.clearAllMocks();
     mocks.decodeAudioData.mockRejectedValue(new Error('unsupported codec'));
   });

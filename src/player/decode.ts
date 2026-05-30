@@ -986,12 +986,11 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
     // Set track metadata from playlist (missing in download path — fixes title display)
     const hostConn = getState('network.hostConn');
-    if (hostConn) {
-      const playlist = getState('playlist.items') || [];
-      const idx = getState('playlist.currentTrackIndex');
-      if (playlist[idx]) {
-        setPlaybackTrackMeta(playlist[idx]);
-      }
+    const playlist = getState('playlist.items') || [];
+    const idx = getState('playlist.currentTrackIndex');
+    const currentPlaylistItem = idx >= 0 ? playlist[idx] : undefined;
+    if (hostConn && currentPlaylistItem) {
+      setPlaybackTrackMeta(currentPlaylistItem);
     }
 
     // Consume pending play time — compensate for elapsed wall clock so the
@@ -999,11 +998,25 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined) {
       const age = getPendingPlayTimeAge();
-      const target = pendingTime + age;
+      let target = pendingTime + age;
+      const fileName =
+        currentPlaylistItem?.name || (file as File).name || getState('transfer.meta')?.name;
+      if (
+        isDemoTrackName(fileName) &&
+        Number.isFinite(audioBuffer.duration) &&
+        audioBuffer.duration > 0
+      ) {
+        target = target % audioBuffer.duration;
+      }
       log.debug(`[Guest] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
       play(target);
       setPendingPlayTime(undefined);
       bus.emit('sync:arm-initial');
+      setManagedTimer(
+        'playback-finalize-host-sync',
+        () => bus.emit('sync:request-immediate-ping'),
+        250,
+      );
     }
 
     bus.emit('ui:play-btn-state', true);

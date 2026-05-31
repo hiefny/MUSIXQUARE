@@ -28,6 +28,8 @@
     "test:e2e": "playwright test",
     "pretest:e2e:report": "npm run build:e2e",
     "test:e2e:report": "playwright test --reporter=./e2e/live-reporter.ts,line",
+    "pretest:e2e:runtime": "npm run build:e2e",
+    "test:e2e:runtime": "playwright test e2e/late-join.test.ts e2e/playback-sync.test.ts e2e/youtube-sync.test.ts e2e/reconnection.test.ts e2e/background-resume.test.ts",
     "test:report-viewer": "npx serve . -p 3333 -s",
     "test:all": "vitest run && npm run build:checked && npm run test:e2e"
   },

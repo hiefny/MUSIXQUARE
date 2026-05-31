@@ -16,6 +16,44 @@
 
 Expected local-preview noise observed during YouTube E2E: TURN endpoint 401/403 fallback, Wake Lock permission denial, and fake-YouTube shared-clock warnings. These did not fail tests.
 
+## AppState Projection De-Stale - 2026-05-31
+
+The legacy production `appState` state slot is gone, so raw reads inside
+`page.evaluate` / `page.waitForFunction` now bypass the E2E projection and
+resolve to `undefined`. I removed those direct raw reads and routed assertions
+through `window.__MUSIXQUARE_GET_PROJECTED_APP_STATE__` or existing helpers
+that already project `appState`.
+
+De-staled files:
+
+- `e2e/chaos-scenarios-2.test.ts`
+- `e2e/chaos-scenarios.test.ts`
+- `e2e/late-join.test.ts`
+- `e2e/playback-advanced.test.ts`
+- `e2e/playback-sync.test.ts`
+- `e2e/youtube-sync.test.ts`
+- `e2e/youtube.test.ts` (also contained current raw reads in this worktree)
+
+Verification:
+
+- Raw-read guard:
+  `rg -n '(get\??\.?|__MUSIXQUARE_GET_STATE__)\([''\"]appState' e2e`
+  -> no E2E spec matches; the only remaining match is this documentation line.
+- `npm run typecheck` -> passed.
+- `npm test` -> 68 files, 979 tests passed.
+- `npx playwright test e2e/playback-sync.test.ts` -> 4 passed in 38.0s.
+- `npx playwright test e2e/playback-advanced.test.ts` -> 14 passed in 1.9m.
+- `npx playwright test e2e/youtube-sync.test.ts` -> 5 passed in 59.1s.
+- `npx playwright test e2e/youtube.test.ts` -> 8 passed in 1.2m.
+- `npx playwright test e2e/late-join.test.ts` -> 13 passed in 2.1m.
+- `npx playwright test e2e/chaos-scenarios.test.ts` -> 15 passed in 4.8m.
+- `npx playwright test e2e/chaos-scenarios-2.test.ts` -> 48 passed in 11.7m.
+- `npx playwright test e2e/playback-sync.test.ts e2e/playback-advanced.test.ts e2e/youtube-sync.test.ts e2e/late-join.test.ts e2e/chaos-scenarios.test.ts e2e/chaos-scenarios-2.test.ts e2e/youtube.test.ts`
+  -> 107 passed in 23.6m.
+- `npm run test:e2e` -> 307 passed in 56.8m.
+
+No stale `appState` raw-read path is currently known.
+
 ## Stale Spec Pass
 
 The existing suite is still runnable as a whole, so I did not delete or quarantine specs. The scan found broad existing coverage for reconnects, host leave/refresh, multi-guest fan-out, mobile UI, YouTube drift/rendezvous, and transfer round trips. I added narrower regression tests where the prompt named edge paths that were only indirectly covered.

@@ -34,7 +34,7 @@ import {
   openChatDrawer,
   sendChat,
   waitForOverlayActive,
-  VALID_APP_STATES,
+  VALID_PROJECTED_PLAYBACK_STATES,
 } from './helpers/wait.ts';
 
 // ─── Local Helpers ───────────────────────────────────────────
@@ -110,7 +110,7 @@ async function sendChatMessage(page: Page, text: string): Promise<void> {
 
 async function assertHostAlive(page: Page): Promise<void> {
   const state = await readState(page, 'appState');
-  expect(VALID_APP_STATES).toContain(state);
+  expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
 }
 
 async function allowExtraGuestSlots(page: Page, slots = 8): Promise<void> {
@@ -458,7 +458,7 @@ test.describe('Upload Barrage + Disconnect Cascade', () => {
 
       // Host is still functional
       const hostState = await readState(setup.hostPage, 'appState');
-      expect(VALID_APP_STATES).toContain(hostState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(hostState);
 
       // New guest3 joins and gets full playlist via late-join sync
       guest3 = await joinAsLateGuest(browser, code);
@@ -612,7 +612,7 @@ test.describe('Mode Switch + Disconnect', () => {
 
       // Host should be functional (may or may not be PLAYING_YOUTUBE depending on load)
       const hostState = await readState(setup.hostPage, 'appState');
-      expect(VALID_APP_STATES).toContain(hostState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(hostState);
 
       // If YouTube loaded, guest2 should also see it
       if (hostState === 'PLAYING_YOUTUBE') {
@@ -622,15 +622,7 @@ test.describe('Mode Switch + Disconnect', () => {
 
       // New guest joins and sees current state
       lateGuest = await joinAsLateGuest(browser, code);
-      await lateGuest.guestPage.waitForFunction(
-        ([expected]) => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          return get('appState') === expected;
-        },
-        [hostState] as const,
-        { timeout: 10_000 },
-      );
+      await waitForState(lateGuest.guestPage, 'appState', hostState, 10_000);
       // waitForFunction above already asserts lateState === hostState; this
       // is just a belt-and-suspenders readback to pin the exact value for
       // clearer failure output if the guard ever weakens.
@@ -695,7 +687,7 @@ test.describe('Chat Flood + Mass Disconnect', () => {
 
       // Host app still functional
       const hostState = await readState(setup.hostPage, 'appState');
-      expect(VALID_APP_STATES).toContain(hostState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(hostState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -825,9 +817,9 @@ test.describe('Full Lifecycle Chaos', () => {
       // Accept PLAYING_AUDIO or PAUSED (audio may auto-pause in headless)
       await hostPage.waitForFunction(
         () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
+          const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+          if (typeof projected !== 'function') return false;
+          const s = projected();
           return s === 'PLAYING_AUDIO' || s === 'PAUSED';
         },
         { timeout: 15_000 },
@@ -889,9 +881,9 @@ test.describe('Full Lifecycle Chaos', () => {
       // May already be PAUSED or IDLE if audio stopped; accept any non-playing state
       await hostPage.waitForFunction(
         () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
+          const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+          if (typeof projected !== 'function') return false;
+          const s = projected();
           return s === 'PAUSED' || s === 'IDLE';
         },
         { timeout: 15_000 },
@@ -927,9 +919,9 @@ test.describe('Full Lifecycle Chaos', () => {
       // Accept any active state after clicking play
       await hostPage.waitForFunction(
         () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
+          const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+          if (typeof projected !== 'function') return false;
+          const s = projected();
           return s === 'PLAYING_AUDIO' || s === 'PAUSED' || s === 'IDLE';
         },
         { timeout: 15_000 },
@@ -1131,7 +1123,7 @@ test.describe('Settings Chain + Late Join', () => {
 
       // Guest is functional (did not crash)
       const guestState = await readState(lateGuest.guestPage, 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});
@@ -1177,9 +1169,9 @@ test.describe('Preload + Disconnect', () => {
       // Accept PLAYING_AUDIO or PAUSED (audio may not fully start in headless)
       await setup.hostPage.waitForFunction(
         () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
+          const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+          if (typeof projected !== 'function') return false;
+          const s = projected();
           return s === 'PLAYING_AUDIO' || s === 'PAUSED';
         },
         { timeout: 15_000 },

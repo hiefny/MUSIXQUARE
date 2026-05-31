@@ -59,8 +59,12 @@ export async function injectPeerServer(page: Page): Promise<void> {
     };
 
     const projectedGetState: Getter = (path) => {
+      if (!rawGetState) {
+        if (path === 'files.currentFileBlob' || path === 'network.hostConn') return null;
+        return undefined;
+      }
       if (path === 'appState') return projectAppState();
-      return rawGetState?.(path);
+      return rawGetState(path);
     };
 
     Object.defineProperty(win, stateHook, {

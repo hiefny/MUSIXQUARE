@@ -10,7 +10,11 @@
  * These tests verify the transport/state layer rather than actual audio output.
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import { waitForPlaylistCount, readState, waitForState } from './helpers/wait.ts';
@@ -70,8 +74,8 @@ test.describe('Playback Sync', () => {
     // Wait for state to change from IDLE
     await pair.hostPage.waitForFunction(
       () => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('appState') !== 'IDLE';
+        const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+        return typeof projected === 'function' && projected() !== 'IDLE';
       },
       { timeout: 10_000 },
     );
@@ -122,8 +126,8 @@ test.describe('Playback Sync', () => {
     // Wait for state to change from IDLE
     await pair.hostPage.waitForFunction(
       () => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('appState') !== 'IDLE';
+        const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+        return typeof projected === 'function' && projected() !== 'IDLE';
       },
       { timeout: 10_000 },
     );
@@ -138,9 +142,9 @@ test.describe('Playback Sync', () => {
       // Wait for state to change to PAUSED or IDLE
       await pair.hostPage.waitForFunction(
         () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const state = get('appState');
+          const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+          if (typeof projected !== 'function') return false;
+          const state = projected();
           return state === 'PAUSED' || state === 'IDLE';
         },
         { timeout: 10_000 },

@@ -6,9 +6,13 @@
  * Tests are designed to gracefully handle API unavailability.
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { readState, waitForClass, isVisible } from './helpers/wait.ts';
+import { readState, waitForClass, isVisible, waitForState } from './helpers/wait.ts';
 
 const YT_VIDEO_1 = 'https://youtu.be/bnh70V0yu2s';
 const YT_VIDEO_2 = 'https://youtu.be/OALIXy23HvI';
@@ -68,8 +72,11 @@ test.describe('YouTube Integration', () => {
         () => {
           const preview = document.getElementById('youtube-preview');
           const status = document.getElementById('youtube-preview-status');
-          return (preview?.style.display === 'block' || preview?.style.display === 'flex') ||
-                 (status?.textContent?.trim()?.length ?? 0) > 0;
+          return (
+            preview?.style.display === 'block' ||
+            preview?.style.display === 'flex' ||
+            (status?.textContent?.trim()?.length ?? 0) > 0
+          );
         },
         { timeout: 10_000 },
       );
@@ -85,9 +92,11 @@ test.describe('YouTube Integration', () => {
       });
 
       // Either preview shows or status has a message
-      expect(previewVisible.previewDisplay === 'block' ||
-             previewVisible.previewDisplay === 'flex' ||
-             previewVisible.statusText.length > 0).toBe(true);
+      expect(
+        previewVisible.previewDisplay === 'block' ||
+          previewVisible.previewDisplay === 'flex' ||
+          previewVisible.statusText.length > 0,
+      ).toBe(true);
     }
   });
 
@@ -144,10 +153,7 @@ test.describe('YouTube Integration', () => {
         await playBtn.click();
 
         // appState should change to PLAYING_YOUTUBE
-        await pair.hostPage.waitForFunction(
-          () => (window as any).__MUSIXQUARE_GET_STATE__?.('appState') === 'PLAYING_YOUTUBE',
-          { timeout: 15_000 },
-        );
+        await waitForState(pair.hostPage, 'appState', 'PLAYING_YOUTUBE', 15_000);
 
         const appState = await readState(pair.hostPage, 'appState');
         expect(appState).toBe('PLAYING_YOUTUBE');
@@ -185,7 +191,9 @@ test.describe('YouTube Integration', () => {
         // Wait for state to settle
         await pair.hostPage.waitForFunction(
           () => {
-            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            if (typeof projected !== 'function') return false;
+            const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
           },
           { timeout: 15_000 },
@@ -227,7 +235,9 @@ test.describe('YouTube Integration', () => {
         // Wait for host state to settle
         await pair.hostPage.waitForFunction(
           () => {
-            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            if (typeof projected !== 'function') return false;
+            const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
           },
           { timeout: 15_000 },
@@ -236,7 +246,9 @@ test.describe('YouTube Integration', () => {
         // Guest should receive YouTube mode
         await pair.guestPage.waitForFunction(
           () => {
-            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            if (typeof projected !== 'function') return false;
+            const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
           },
           { timeout: 15_000 },
@@ -287,7 +299,7 @@ test.describe('YouTube Integration', () => {
 
         const playlistCount = await pair.hostPage.evaluate(() => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get ? (get('playlist.items') as unknown[])?.length ?? 0 : 0;
+          return get ? ((get('playlist.items') as unknown[])?.length ?? 0) : 0;
         });
         expect(playlistCount).toBeGreaterThanOrEqual(1);
       }
@@ -324,7 +336,9 @@ test.describe('YouTube Integration', () => {
         // Wait for YouTube state
         await pair.hostPage.waitForFunction(
           () => {
-            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
+            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            if (typeof projected !== 'function') return false;
+            const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
           },
           { timeout: 15_000 },
@@ -344,8 +358,8 @@ test.describe('YouTube Integration', () => {
         // Wait for state to settle after file upload
         await pair.hostPage.waitForFunction(
           () => {
-            const state = (window as any).__MUSIXQUARE_GET_STATE__?.('appState');
-            return state !== undefined;
+            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            return typeof projected === 'function' && projected() !== undefined;
           },
           { timeout: 10_000 },
         );

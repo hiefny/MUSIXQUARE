@@ -20,7 +20,7 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { readState } from './helpers/wait.ts';
+import { readState, waitForState } from './helpers/wait.ts';
 import { installFakeYt, readFakeYtLog, clearFakeYtLog } from './helpers/fake-yt.ts';
 
 // Deterministic fake URL — fake-yt stub accepts any videoId
@@ -53,11 +53,7 @@ async function hostLoadYouTube(page: Page, url: string): Promise<void> {
   }, url);
 }
 
-async function waitForYtLogOp(
-  page: Page,
-  op: string,
-  timeout = 20_000,
-): Promise<void> {
+async function waitForYtLogOp(page: Page, op: string, timeout = 20_000): Promise<void> {
   await page.waitForFunction(
     (expectedOp) => {
       const log = (window as unknown as Record<string, unknown>).__fakeYtLog as
@@ -103,11 +99,15 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
 
     const hostHasYT = await pair.hostPage.evaluate(() => {
       const w = window as unknown as Record<string, unknown>;
-      return typeof w.YT === 'object' && typeof (w.YT as Record<string, unknown>).Player === 'function';
+      return (
+        typeof w.YT === 'object' && typeof (w.YT as Record<string, unknown>).Player === 'function'
+      );
     });
     const guestHasYT = await pair.guestPage.evaluate(() => {
       const w = window as unknown as Record<string, unknown>;
-      return typeof w.YT === 'object' && typeof (w.YT as Record<string, unknown>).Player === 'function';
+      return (
+        typeof w.YT === 'object' && typeof (w.YT as Record<string, unknown>).Player === 'function'
+      );
     });
 
     expect(hostHasYT).toBe(true);
@@ -138,16 +138,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
 
     // Guest appState must have flipped to PLAYING_YOUTUBE (set by
     // setEngineMode inside loadYouTubeVideo when handleYouTubePlay runs)
-    await pair.guestPage.waitForFunction(
-      () => {
-        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
-        return get?.('appState') === 'PLAYING_YOUTUBE';
-      },
-      undefined,
-      { timeout: 20_000 },
-    );
+    await waitForState(pair.guestPage, 'appState', 'PLAYING_YOUTUBE', 20_000);
 
     // Guest fake player should receive playVideo from the scheduled
     // handleYouTubeState on the PeerJS broadcast
@@ -202,7 +193,9 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
       const bus = w.__MUSIXQUARE_BUS__ as
         | { emit: (type: string, ...args: unknown[]) => void }
         | undefined;
-      const player = w.__fakeYtLastPlayer as { __state?: number; __currentTime?: number } | undefined;
+      const player = w.__fakeYtLastPlayer as
+        | { __state?: number; __currentTime?: number }
+        | undefined;
       const hostConn = get?.('network.hostConn');
       if (!bus || !hostConn || !player) throw new Error('manual sync setup unavailable');
 
@@ -241,28 +234,10 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
 
     // Host appState flips first
-    await pair.hostPage.waitForFunction(
-      () => {
-        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
-        return get?.('appState') === 'PLAYING_YOUTUBE';
-      },
-      undefined,
-      { timeout: 15_000 },
-    );
+    await waitForState(pair.hostPage, 'appState', 'PLAYING_YOUTUBE', 15_000);
 
     // Guest appState should flip to PLAYING_YOUTUBE after receiving YOUTUBE_PLAY
-    await pair.guestPage.waitForFunction(
-      () => {
-        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
-        return get?.('appState') === 'PLAYING_YOUTUBE';
-      },
-      undefined,
-      { timeout: 20_000 },
-    );
+    await waitForState(pair.guestPage, 'appState', 'PLAYING_YOUTUBE', 20_000);
 
     expect(await readState(pair.guestPage, 'appState')).toBe('PLAYING_YOUTUBE');
   });
@@ -276,16 +251,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
 
     // Wait for guest to enter YT mode
-    await pair.guestPage.waitForFunction(
-      () => {
-        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
-        return get?.('appState') === 'PLAYING_YOUTUBE';
-      },
-      undefined,
-      { timeout: 20_000 },
-    );
+    await waitForState(pair.guestPage, 'appState', 'PLAYING_YOUTUBE', 20_000);
 
     // Host triggers stop-mode (listener → stopYouTubeMode → YOUTUBE_STOP broadcast)
     await pair.hostPage.evaluate(() => {
@@ -300,10 +266,9 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     // which transitions appState out of PLAYING_YOUTUBE)
     await pair.guestPage.waitForFunction(
       () => {
-        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
-        return get?.('appState') !== 'PLAYING_YOUTUBE';
+        const projected = (window as unknown as Record<string, unknown>)
+          .__MUSIXQUARE_GET_PROJECTED_APP_STATE__ as (() => unknown) | undefined;
+        return typeof projected === 'function' && projected() !== 'PLAYING_YOUTUBE';
       },
       undefined,
       { timeout: 15_000 },

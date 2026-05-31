@@ -36,7 +36,7 @@ import {
   readState,
   waitForState,
   isVisible,
-  VALID_APP_STATES,
+  VALID_PROJECTED_PLAYBACK_STATES,
 } from './helpers/wait.ts';
 
 // ─── Local Helpers ───────────────────────────────────────────
@@ -76,12 +76,16 @@ async function createChaosSetup(browser: Browser, guestCount: number): Promise<C
 function assertNoPageErrors(setup: ChaosSetup): void {
   const hostErrors = getPageErrors(setup.hostPage);
   if (hostErrors.length > 0) {
-    throw new Error(`Host page had uncaught JS errors: ${hostErrors.map(e => e.message).join(', ')}`);
+    throw new Error(
+      `Host page had uncaught JS errors: ${hostErrors.map((e) => e.message).join(', ')}`,
+    );
   }
   for (let i = 0; i < setup.guestPages.length; i++) {
     const guestErrors = getPageErrors(setup.guestPages[i]);
     if (guestErrors.length > 0) {
-      throw new Error(`Guest ${i} had uncaught JS errors: ${guestErrors.map(e => e.message).join(', ')}`);
+      throw new Error(
+        `Guest ${i} had uncaught JS errors: ${guestErrors.map((e) => e.message).join(', ')}`,
+      );
     }
   }
 }
@@ -167,6 +171,32 @@ async function waitForPeerCountAtMost(page: Page, count: number, timeout = 20_00
   }
 }
 
+async function waitForProjectedAppStateIn(
+  page: Page,
+  allowedStates: readonly string[],
+  timeout = 15_000,
+): Promise<void> {
+  await page.waitForFunction(
+    (allowed) => {
+      const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+      return typeof projected === 'function' && allowed.includes(projected());
+    },
+    [...allowedStates],
+    { timeout },
+  );
+}
+
+async function waitForProjectedAppStateReady(page: Page, timeout = 10_000): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+      return typeof projected === 'function' && projected() !== undefined;
+    },
+    undefined,
+    { timeout },
+  );
+}
+
 /** Start playback on host after ensuring blob is loaded */
 async function startPlayback(hostPage: Page): Promise<void> {
   await hostPage.waitForFunction(
@@ -175,21 +205,13 @@ async function startPlayback(hostPage: Page): Promise<void> {
   );
   await hostPage.click('#play-btn');
   // Accept PLAYING_AUDIO or PAUSED (audio may not fully start in headless environments)
-  await hostPage.waitForFunction(
-    () => {
-      const get = (window as any).__MUSIXQUARE_GET_STATE__;
-      if (!get) return false;
-      const s = get('appState');
-      return s === 'PLAYING_AUDIO' || s === 'PAUSED';
-    },
-    { timeout: 15_000 },
-  );
+  await waitForProjectedAppStateIn(hostPage, ['PLAYING_AUDIO', 'PAUSED']);
 }
 
 /** Assert a page's appState is a valid enum value (not undefined / null / typo). */
 async function assertAppStateValid(page: Page): Promise<void> {
   const state = await readState(page, 'appState');
-  expect(VALID_APP_STATES).toContain(state);
+  expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
 }
 
 /** Assert host is still functional (not crashed) */
@@ -229,8 +251,8 @@ test.describe('Host Page Refresh', () => {
       );
 
       // Host page should show setup overlay again (session ended)
-      const overlayActive = await setup.hostPage.evaluate(() =>
-        document.getElementById('setup-overlay')?.classList.contains('active') ?? false,
+      const overlayActive = await setup.hostPage.evaluate(
+        () => document.getElementById('setup-overlay')?.classList.contains('active') ?? false,
       );
       // Either overlay is shown or app recovered — both acceptable
       expect(typeof overlayActive).toBe('boolean');
@@ -249,7 +271,9 @@ test.describe('Host Page Refresh', () => {
   test('host refresh + re-create session, old guest gone, new guest joins', async ({ browser }) => {
     test.setTimeout(120_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const lateGuests: LateGuest[] = [];
@@ -269,10 +293,9 @@ test.describe('Host Page Refresh', () => {
       await hostPage.reload();
       await hostPage.waitForLoadState('networkidle');
       // Wait for page to be ready after reload
-      await hostPage.waitForFunction(
-        () => document.getElementById('setup-overlay') !== null,
-        { timeout: 10_000 },
-      );
+      await hostPage.waitForFunction(() => document.getElementById('setup-overlay') !== null, {
+        timeout: 10_000,
+      });
 
       // Re-inject peer server and create new session
       await injectPeerServer(hostPage);
@@ -304,7 +327,9 @@ test.describe('Seek Position Chaos', () => {
   test('seek commands during guest join do not desync', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -333,7 +358,7 @@ test.describe('Seek Position Chaos', () => {
       // Both should be functional
       await assertHostAlive(hostPage);
       const guestState = await readState(lateGuest.guestPage, 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});
@@ -394,7 +419,7 @@ test.describe('Total Guest Wipeout', () => {
       await startPlayback(setup.hostPage);
 
       // ★ CHAOS: ALL guests drop simultaneously
-      await Promise.all(setup.guestContexts.map(ctx => ctx.close()));
+      await Promise.all(setup.guestContexts.map((ctx) => ctx.close()));
 
       // Wait for host to detect all disconnects
       await waitForPeerCount(setup.hostPage, 0, 30_000);
@@ -404,15 +429,7 @@ test.describe('Total Guest Wipeout', () => {
 
       // Host can still pause
       await setup.hostPage.click('#play-btn');
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
-          return s === 'PAUSED' || s === 'IDLE';
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateIn(setup.hostPage, ['PAUSED', 'IDLE'], 10_000);
 
       // Host can still upload
       await uploadFixture(setup.hostPage, 'test02');
@@ -488,23 +505,17 @@ test.describe('Rapid Play/Pause Cycling', () => {
       }
 
       // Wait for state to settle
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('appState') !== undefined;
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
 
       // Both should survive
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
 
       // Guest still connected
       const peers = await setup.hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('network.connectedPeers') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
       });
       expect(peers).toBe(1);
     } finally {
@@ -567,15 +578,17 @@ test.describe('Rapid Track Navigation', () => {
       expect(hostIdx).toBeGreaterThanOrEqual(-1);
 
       // Guest may take time to sync after rapid navigation
-      await setup.guestPages[0].waitForFunction(
-        (expectedIdx) => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          return get('playlist.currentTrackIndex') === expectedIdx;
-        },
-        hostIdx,
-        { timeout: 15_000 },
-      ).catch(() => {});
+      await setup.guestPages[0]
+        .waitForFunction(
+          (expectedIdx) => {
+            const get = (window as any).__MUSIXQUARE_GET_STATE__;
+            if (!get) return false;
+            return get('playlist.currentTrackIndex') === expectedIdx;
+          },
+          hostIdx,
+          { timeout: 15_000 },
+        )
+        .catch(() => {});
 
       const guestIdx = await readState(setup.guestPages[0], 'playlist.currentTrackIndex');
       // Guest should eventually match host, but rapid navigation may leave a transient mismatch
@@ -670,7 +683,7 @@ test.describe('Audio Settings Cascade + Disconnect', () => {
       // Surviving guest should be ok
       await assertHostAlive(setup.hostPage);
       const g2State = await readState(setup.guestPages[1], 'appState');
-      expect(VALID_APP_STATES).toContain(g2State);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(g2State);
 
       // Final settings should be stable
       const vol = await readState(setup.hostPage, 'audio.masterVolume');
@@ -689,7 +702,9 @@ test.describe('Shuffle Repeat + Late Join', () => {
   test('shuffle enabled before late join, guest receives shuffle state', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -729,8 +744,8 @@ test.describe('Shuffle Repeat + Late Join', () => {
       await waitForPlaylistCount(lateGuest.guestPage, 3, 30_000);
 
       // Guest should have playlist
-      const guestItems = await lateGuest.guestPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const guestItems = await lateGuest.guestPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(guestItems).toBe(3);
 
@@ -744,7 +759,9 @@ test.describe('Shuffle Repeat + Late Join', () => {
   test('toggle repeat mode 5 times rapidly then late join', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -768,7 +785,7 @@ test.describe('Shuffle Repeat + Late Join', () => {
 
       await assertHostAlive(hostPage);
       const guestState = await readState(lateGuest.guestPage, 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});
@@ -784,7 +801,9 @@ test.describe('Interleaved Join Upload', () => {
   test('guest1→upload→guest2→upload→guest3→upload chain', async ({ browser }) => {
     test.setTimeout(120_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -828,8 +847,8 @@ test.describe('Interleaved Join Upload', () => {
 
       // Verify consistency
       for (const g of guests) {
-        const count = await g.guestPage.evaluate(() =>
-          document.getElementById('playlist-ui')?.children.length ?? 0,
+        const count = await g.guestPage.evaluate(
+          () => document.getElementById('playlist-ui')?.children.length ?? 0,
         );
         expect(count).toBe(3);
       }
@@ -869,8 +888,8 @@ test.describe('Concurrent Chat Flood', () => {
         { timeout: 10_000 },
       );
 
-      const hostChat = await setup.hostPage.evaluate(() =>
-        document.getElementById('chat-messages')?.textContent || '',
+      const hostChat = await setup.hostPage.evaluate(
+        () => document.getElementById('chat-messages')?.textContent || '',
       );
       expect(hostChat.length).toBeGreaterThan(0);
 
@@ -906,8 +925,8 @@ test.describe('Concurrent Chat Flood', () => {
 
       // Both should be alive
       await assertHostAlive(setup.hostPage);
-      const guestChat = await setup.guestPages[0].evaluate(() =>
-        document.getElementById('chat-messages')?.textContent || '',
+      const guestChat = await setup.guestPages[0].evaluate(
+        () => document.getElementById('chat-messages')?.textContent || '',
       );
       expect(guestChat.length).toBeGreaterThan(0);
     } finally {
@@ -924,7 +943,9 @@ test.describe('Connection Flapping', () => {
   test('guest disconnect and immediate rejoin 3 times', async ({ browser }) => {
     test.setTimeout(120_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -1010,7 +1031,7 @@ test.describe('Triple Combo Operations', () => {
       // Guest still connected
       const peers = await setup.hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('network.connectedPeers') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
       });
       expect(peers).toBe(1);
     } finally {
@@ -1109,7 +1130,7 @@ test.describe('Settings Reset Mid-Session', () => {
       // Guest should still be connected
       const peers = await setup.hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('network.connectedPeers') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
       });
       expect(peers).toBe(1);
 
@@ -1159,18 +1180,12 @@ test.describe('Mode Toggle Storm', () => {
       }
 
       // Wait for app state to settle
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('appState') !== undefined;
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
 
       // Both should be alive
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1199,8 +1214,9 @@ test.describe('YouTube URL Switch', () => {
       if (await isVisible(setup.hostPage, '#media-youtube-btn, .media-opt-youtube')) {
         await setup.hostPage.locator('#media-youtube-btn, .media-opt-youtube').first().click();
         await setup.hostPage.waitForFunction(
-          () => document.body.classList.contains('mode-youtube') ||
-                document.getElementById('youtube-url-input') !== null,
+          () =>
+            document.body.classList.contains('mode-youtube') ||
+            document.getElementById('youtube-url-input') !== null,
           { timeout: 5_000 },
         );
       }
@@ -1216,13 +1232,19 @@ test.describe('YouTube URL Switch', () => {
         }
 
         // Wait for YouTube to process URL
-        await setup.hostPage.waitForFunction(
-          () => {
-            const get = (window as any).__MUSIXQUARE_GET_STATE__;
-            return get && (get('appState') === 'PLAYING_YOUTUBE' || get('youtube.videoId'));
-          },
-          { timeout: 10_000 },
-        ).catch(() => {}); // YouTube may not actually load in test env
+        await setup.hostPage
+          .waitForFunction(
+            () => {
+              const get = (window as any).__MUSIXQUARE_GET_STATE__;
+              const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+              return (
+                typeof projected === 'function' &&
+                (projected() === 'PLAYING_YOUTUBE' || get?.('youtube.videoId'))
+              );
+            },
+            { timeout: 10_000 },
+          )
+          .catch(() => {}); // YouTube may not actually load in test env
 
         // ★ CHAOS: Switch to different video
         await ytInput.fill('');
@@ -1233,18 +1255,12 @@ test.describe('YouTube URL Switch', () => {
       }
 
       // Wait for state to settle
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('appState') !== undefined;
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
 
       // Both should be alive
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1259,7 +1275,9 @@ test.describe('Sequential Sessions', () => {
   test('host creates 3 sessions back-to-back, guests join each', async ({ browser }) => {
     test.setTimeout(180_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const allGuests: LateGuest[] = [];
@@ -1288,10 +1306,9 @@ test.describe('Sequential Sessions', () => {
         if (session < 2) {
           await hostPage.reload();
           await hostPage.waitForLoadState('networkidle');
-          await hostPage.waitForFunction(
-            () => document.getElementById('setup-overlay') !== null,
-            { timeout: 10_000 },
-          );
+          await hostPage.waitForFunction(() => document.getElementById('setup-overlay') !== null, {
+            timeout: 10_000,
+          });
           await injectPeerServer(hostPage);
         }
       }
@@ -1309,10 +1326,14 @@ test.describe('Sequential Sessions', () => {
 // ═══════════════════════════════════════════════════════════════
 
 test.describe('Late Join Chain', () => {
-  test('3 guests join sequentially with track uploads between, all converge', async ({ browser }) => {
+  test('3 guests join sequentially with track uploads between, all converge', async ({
+    browser,
+  }) => {
     test.setTimeout(120_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -1352,8 +1373,8 @@ test.describe('Late Join Chain', () => {
 
       // All should have consistent state
       for (const g of guests) {
-        const count = await g.guestPage.evaluate(() =>
-          document.getElementById('playlist-ui')?.children.length ?? 0,
+        const count = await g.guestPage.evaluate(
+          () => document.getElementById('playlist-ui')?.children.length ?? 0,
         );
         expect(count).toBe(3);
       }
@@ -1372,7 +1393,9 @@ test.describe('Playlist Clear + Join', () => {
   test('clear all tracks then new guest joins empty session', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -1397,20 +1420,22 @@ test.describe('Playlist Clear + Join', () => {
             // No confirm dialog needed
           }
           // Wait for removal to process
-          await hostPage.waitForFunction(
-            (expectedMax) => {
-              const list = document.getElementById('playlist-ui');
-              return list ? list.children.length <= expectedMax : true;
-            },
-            1 - i, // first removal: expect <=1, second: expect <=0
-            { timeout: 5_000 },
-          ).catch(() => {}); // May already be at target
+          await hostPage
+            .waitForFunction(
+              (expectedMax) => {
+                const list = document.getElementById('playlist-ui');
+                return list ? list.children.length <= expectedMax : true;
+              },
+              1 - i, // first removal: expect <=1, second: expect <=0
+              { timeout: 5_000 },
+            )
+            .catch(() => {}); // May already be at target
         }
       }
 
       // Host playlist should be empty (or 0)
-      const hostCount = await hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const hostCount = await hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
 
       // ★ New guest joins the empty session
@@ -1426,8 +1451,8 @@ test.describe('Playlist Clear + Join', () => {
       );
 
       // Guest should match host's playlist count
-      const guestCount = await lateGuest.guestPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const guestCount = await lateGuest.guestPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(guestCount).toBe(hostCount);
 
@@ -1466,8 +1491,8 @@ test.describe('Duplicate Upload Chaos', () => {
         },
         { timeout: 10_000 },
       );
-      const hostCount = await setup.hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const hostCount = await setup.hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(hostCount).toBeGreaterThanOrEqual(1);
 
@@ -1645,7 +1670,7 @@ test.describe('Channel Mode Switching', () => {
 
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1675,10 +1700,7 @@ test.describe('Upload During Playback + Disconnect', () => {
       await startPlayback(setup.hostPage);
 
       // ★ CHAOS: Upload + disconnect simultaneously
-      await Promise.all([
-        uploadFixture(setup.hostPage, 'test02'),
-        setup.guestContexts[0].close(),
-      ]);
+      await Promise.all([uploadFixture(setup.hostPage, 'test02'), setup.guestContexts[0].close()]);
 
       await waitForPlaylistCount(setup.hostPage, 2);
 
@@ -1747,13 +1769,17 @@ test.describe('Channel Mismatch', () => {
   test('guest joins on different channel, session still works', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     // Host on channel 0
     const code = await setupHostAndStart(hostPage, 0);
 
-    const guestCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const guestCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const guestPage = await guestCtx.newPage();
     await injectPeerServer(guestPage);
 
@@ -1783,7 +1809,9 @@ test.describe('Late Join During Track Removal', () => {
   test('guest joins while host is removing a track', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -1826,8 +1854,8 @@ test.describe('Late Join During Track Removal', () => {
       );
 
       // Read host's final count
-      const hostCount = await hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const hostCount = await hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
 
       // Guest should eventually converge to host's count
@@ -1887,8 +1915,8 @@ test.describe('Playlist Reorder + Disconnect', () => {
       await waitForPeerCountAtMost(setup.hostPage, 1);
 
       // Host should still have 3 tracks
-      const hostCount = await setup.hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const hostCount = await setup.hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(hostCount).toBe(3);
 
@@ -1923,7 +1951,7 @@ test.describe('Device Name Collision', () => {
       // Both should be connected
       const peers = await setup.hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('network.connectedPeers') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
       });
       expect(peers).toBe(2);
 
@@ -1963,29 +1991,26 @@ test.describe('Upload During YouTube Mode', () => {
         await setup.hostPage.waitForTimeout(500); // intentional rapid-fire delay
         if (await isVisible(setup.hostPage, '#media-youtube-btn, .media-opt-youtube')) {
           await setup.hostPage.locator('#media-youtube-btn, .media-opt-youtube').first().click();
-          await setup.hostPage.waitForFunction(
-            () => document.body.classList.contains('mode-youtube') ||
-                  document.getElementById('youtube-url-input') !== null,
-            { timeout: 5_000 },
-          ).catch(() => {}); // Mode may not fully switch in test env
+          await setup.hostPage
+            .waitForFunction(
+              () =>
+                document.body.classList.contains('mode-youtube') ||
+                document.getElementById('youtube-url-input') !== null,
+              { timeout: 5_000 },
+            )
+            .catch(() => {}); // Mode may not fully switch in test env
         }
       }
 
       // ★ CHAOS: Upload file while in YouTube mode
       await uploadFixture(setup.hostPage, 'test01');
       // Wait for app to handle the upload (may switch mode or queue)
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('appState') !== undefined;
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
 
       // App should handle this gracefully (file may be queued or mode may switch)
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -2015,23 +2040,17 @@ test.describe('Rapid Operator Toggle', () => {
       }
 
       // Wait for state to settle
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('appState') !== undefined;
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
 
       // Both should survive
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
 
       // Guest should still be connected
       const peers = await setup.hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('network.connectedPeers') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
       });
       expect(peers).toBe(1);
     } finally {
@@ -2048,7 +2067,9 @@ test.describe('Late Join During Pause + Seek', () => {
   test('guest joins while host is paused at specific seek position', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -2062,15 +2083,7 @@ test.describe('Late Join During Pause + Seek', () => {
       // Play for a bit then pause
       await waitForState(hostPage, 'appState', 'PLAYING_AUDIO');
       await hostPage.click('#play-btn');
-      await hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
-          return s === 'PAUSED' || s === 'IDLE';
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateIn(hostPage, ['PAUSED', 'IDLE'], 10_000);
 
       // Seek to specific position while paused
       await hostPage.evaluate(() => {
@@ -2130,7 +2143,7 @@ test.describe('State Mutation Burst', () => {
       // Guest should still be connected
       const peers = await setup.hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('network.connectedPeers') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
       });
       expect(peers).toBe(1);
 
@@ -2169,17 +2182,11 @@ test.describe('Play Stop Chat Race', () => {
       }
 
       // Wait for state to settle
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('appState') !== undefined;
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
 
       await assertHostAlive(setup.hostPage);
       const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_APP_STATES).toContain(guestState);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -2194,7 +2201,9 @@ test.describe('Double Late Join', () => {
   test('two guests join simultaneously during playback', async ({ browser }) => {
     test.setTimeout(120_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -2273,7 +2282,9 @@ test.describe('Idle Session + Late Join', () => {
   test('session idle for 15 seconds then guest joins', async ({ browser }) => {
     test.setTimeout(90_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -2309,7 +2320,9 @@ test.describe('Host Solo Stress', () => {
   test('host uploads, plays, skips, seeks, changes settings — all alone', async ({ browser }) => {
     test.setTimeout(120_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     await setupHostAndStart(hostPage);
@@ -2352,41 +2365,31 @@ test.describe('Host Solo Stress', () => {
       await waitForState(hostPage, 'audio.masterVolume', 0.4);
 
       // Toggle shuffle/repeat via JS fallback
-      await hostPage.evaluate(() => (document.getElementById('btn-shuffle') as HTMLElement)?.click());
-      await hostPage.evaluate(() => (document.getElementById('btn-repeat') as HTMLElement)?.click());
+      await hostPage.evaluate(() =>
+        (document.getElementById('btn-shuffle') as HTMLElement)?.click(),
+      );
+      await hostPage.evaluate(() =>
+        (document.getElementById('btn-repeat') as HTMLElement)?.click(),
+      );
 
       // Pause, seek, resume
       await hostPage.evaluate(() => (document.getElementById('play-btn') as HTMLElement)?.click());
-      await hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
-          return s === 'PAUSED' || s === 'IDLE';
-        },
-        { timeout: 15_000 },
-      ).catch(() => {});
+      await waitForProjectedAppStateIn(hostPage, ['PAUSED', 'IDLE'], 15_000).catch(() => {});
       await hostPage.evaluate(() => {
         const set = (window as any).__MUSIXQUARE_SET_STATE__;
         if (set) set('audio.seekTo', 1.0);
       });
       await hostPage.evaluate(() => (document.getElementById('play-btn') as HTMLElement)?.click());
       // After all the rapid controls, audio may or may not resume — accept any non-error state
-      await hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
-          return s === 'PLAYING_AUDIO' || s === 'PAUSED' || s === 'IDLE';
-        },
-        { timeout: 15_000 },
-      ).catch(() => {});
+      await waitForProjectedAppStateIn(hostPage, ['PLAYING_AUDIO', 'PAUSED', 'IDLE'], 15_000).catch(
+        () => {},
+      );
 
       await assertHostAlive(hostPage);
 
       // Should still have 3 tracks
-      const count = await hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const count = await hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(count).toBe(3);
     } finally {
@@ -2400,10 +2403,14 @@ test.describe('Host Solo Stress', () => {
 // ═══════════════════════════════════════════════════════════════
 
 test.describe('Nuclear Meltdown v2', () => {
-  test('15-step lifecycle: upload, join, play, seek, settings, chat, disconnect, rejoin, mode switch, repeat', async ({ browser }) => {
+  test('15-step lifecycle: upload, join, play, seek, settings, chat, disconnect, rejoin, mode switch, repeat', async ({
+    browser,
+  }) => {
     test.setTimeout(240_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -2493,15 +2500,7 @@ test.describe('Nuclear Meltdown v2', () => {
       await hostPage.click('#btn-next');
       await hostPage.waitForTimeout(500); // intentional rapid-fire delay
       await hostPage.click('#play-btn');
-      await hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
-          return s === 'PAUSED' || s === 'IDLE';
-        },
-        { timeout: 10_000 },
-      );
+      await waitForProjectedAppStateIn(hostPage, ['PAUSED', 'IDLE'], 10_000);
 
       // Step 13: Guest4 joins during pause
       const g4 = await joinAsLateGuest(browser, code);
@@ -2520,8 +2519,8 @@ test.describe('Nuclear Meltdown v2', () => {
       await assertHostAlive(hostPage);
 
       // Guest4 should have 4 tracks
-      const g4Count = await g4.guestPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const g4Count = await g4.guestPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(g4Count).toBe(4);
 
@@ -2552,7 +2551,9 @@ test.describe('Session Code Stability', () => {
   test('session code remains valid after multiple guest joins and leaves', async ({ browser }) => {
     test.setTimeout(120_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -2590,7 +2591,9 @@ test.describe('Playback End + Late Join', () => {
   test('guest joins after track ends naturally', async ({ browser }) => {
     test.setTimeout(120_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);
@@ -2609,15 +2612,7 @@ test.describe('Playback End + Late Join', () => {
       });
 
       // Wait for playback to end (seeking past end may take time to process)
-      await hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const s = get('appState');
-          return s === 'IDLE' || s === 'PAUSED';
-        },
-        { timeout: 30_000 },
-      ).catch(() => {}); // May stay PLAYING if looping
+      await waitForProjectedAppStateIn(hostPage, ['IDLE', 'PAUSED'], 30_000).catch(() => {}); // May stay PLAYING if looping
 
       // Host should be IDLE or PAUSED after track ends
       const state = await readState(hostPage, 'appState');
@@ -2643,7 +2638,9 @@ test.describe('Full Cycle Stress', () => {
   test('connect 3 → upload → play → disconnect all → rejoin 3, all sync', async ({ browser }) => {
     test.setTimeout(180_000);
 
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
     const code = await setupHostAndStart(hostPage);

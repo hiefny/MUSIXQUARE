@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUSIXQUARE - UI Showcase 2.0</title>
+<style>
+@font-face {
+  font-family: "Pretendard";
+  src: url("/fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.16)),
+    linear-gradient(145deg, #f7f8fb 0%, #eef6f2 54%, #f6f8ff 100%);
+  color: #111827;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(17, 24, 39, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 24, 39, 0.03) 1px, transparent 1px);
+  background-size: 96px 96px;
+  mask-image: linear-gradient(180deg, transparent 0%, black 22%, black 72%, transparent 100%);
+  opacity: 0.48;
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+.brand {
+  position: fixed;
+  top: 54px;
+  left: 64px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: rgba(17, 24, 39, 0.74);
+  font-size: 21px;
+  font-weight: 850;
+  pointer-events: none;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 14px 34px rgba(37, 99, 235, 0.28);
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.caption {
+  position: fixed;
+  left: 50%;
+  top: 118px;
+  width: min(850px, calc(100vw - 120px));
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.caption-title {
+  margin: 0;
+  font-size: 64px;
+  line-height: 1.16;
+  font-weight: 900;
+  letter-spacing: 0;
+  color: #111827;
+}
+
+.caption-sub {
+  margin: 18px 0 0;
+  font-size: 25px;
+  line-height: 1.45;
+  font-weight: 650;
+  color: rgba(31, 41, 55, 0.58);
+}
+
+.floor-line {
+  position: fixed;
+  left: 50%;
+  bottom: 185px;
+  width: 520px;
+  height: 1px;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, rgba(17,24,39,0.18), transparent);
+  pointer-events: none;
+}
+
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: #f7f8fb;
+  color: rgba(17, 24, 39, 0.45);
+  font-size: 18px;
+  font-weight: 750;
+  transition: opacity 0.35s ease;
+}
+
+.loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .brand { top: 34px; left: 34px; font-size: 17px; }
+  .caption { top: 88px; width: calc(100vw - 56px); }
+  .caption-title { font-size: 42px; }
+  .caption-sub { font-size: 18px; }
+}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="brand"><span class="brand-mark">♪</span><span>MUSIXQUARE</span></div>
+<div class="caption" id="caption">
+  <h1 class="caption-title" id="caption-title"></h1>
+  <p class="caption-sub" id="caption-sub"></p>
+</div>
+<div class="floor-line" id="floor-line"></div>
+<div class="loading" id="loading">Loading 3D scene</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+
+const canvas = document.getElementById('scene');
+const titleEl = document.getElementById('caption-title');
+const subEl = document.getElementById('caption-sub');
+const floorLine = document.getElementById('floor-line');
+const loading = document.getElementById('loading');
+
+const DURATION = 30000;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  alpha: true,
+  preserveDrawingBuffer: true,
+});
+renderer.setPixelRatio(DPR);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xf6f8fb, 12, 24);
+
+const camera = new THREE.PerspectiveCamera(34, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 0.3, 11.8);
+
+const ambient = new THREE.AmbientLight(0xffffff, 1.2);
+scene.add(ambient);
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+keyLight.position.set(-4, 8, 7);
+scene.add(keyLight);
+
+const rimLight = new THREE.DirectionalLight(0x87b7ff, 1.4);
+rimLight.position.set(5, 2.5, 5);
+scene.add(rimLight);
+
+const mintLight = new THREE.PointLight(0x60d394, 24, 15, 2);
+mintLight.position.set(-3.5, -3.5, 4);
+scene.add(mintLight);
+
+const blueLight = new THREE.PointLight(0x3b82f6, 28, 16, 2);
+blueLight.position.set(3.8, 4.2, 4);
+scene.add(blueLight);
+
+const root = new THREE.Group();
+root.position.y = -0.2;
+scene.add(root);
+
+const phoneGroup = new THREE.Group();
+root.add(phoneGroup);
+
+const PHONE_W = 2.84;
+const PHONE_H = 5.96;
+const PHONE_D = 0.34;
+const SCREEN_W = 2.52;
+const SCREEN_H = 5.42;
+
+const bodyMat = new THREE.MeshPhysicalMaterial({
+  color: 0x111827,
+  metalness: 0.58,
+  roughness: 0.28,
+  clearcoat: 0.85,
+  clearcoatRoughness: 0.18,
+  envMapIntensity: 1.0,
+});
+const body = new THREE.Mesh(
+  new RoundedBoxGeometry(PHONE_W, PHONE_H, PHONE_D, 18, 0.31),
+  bodyMat,
+);
+phoneGroup.add(body);
+
+const rimMat = new THREE.MeshPhysicalMaterial({
+  color: 0x2d3748,
+  metalness: 0.72,
+  roughness: 0.18,
+  clearcoat: 0.8,
+});
+const rim = new THREE.Mesh(
+  new RoundedBoxGeometry(PHONE_W + 0.05, PHONE_H + 0.05, 0.08, 18, 0.34),
+  rimMat,
+);
+rim.position.z = -0.13;
+phoneGroup.add(rim);
+
+const screenCanvas = document.createElement('canvas');
+screenCanvas.width = 760;
+screenCanvas.height = 1640;
+const screenCtx = screenCanvas.getContext('2d');
+const screenTexture = new THREE.CanvasTexture(screenCanvas);
+screenTexture.colorSpace = THREE.SRGBColorSpace;
+screenTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+function roundedRectShape(w, h, r) {
+  const s = new THREE.Shape();
+  const hw = w / 2;
+  const hh = h / 2;
+  s.moveTo(-hw + r, -hh);
+  s.lineTo(hw - r, -hh);
+  s.quadraticCurveTo(hw, -hh, hw, -hh + r);
+  s.lineTo(hw, hh - r);
+  s.quadraticCurveTo(hw, hh, hw - r, hh);
+  s.lineTo(-hw + r, hh);
+  s.quadraticCurveTo(-hw, hh, -hw, hh - r);
+  s.lineTo(-hw, -hh + r);
+  s.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+  return s;
+}
+
+function roundedPlaneGeometry(w, h, r) {
+  const geom = new THREE.ShapeGeometry(roundedRectShape(w, h, r), 28);
+  const uv = geom.attributes.uv.array;
+  for (let i = 0; i < uv.length; i += 2) {
+    uv[i] = (uv[i] + w / 2) / w;
+    uv[i + 1] = (uv[i + 1] + h / 2) / h;
+  }
+  geom.attributes.uv.needsUpdate = true;
+  return geom;
+}
+
+const screenMat = new THREE.MeshBasicMaterial({
+  map: screenTexture,
+  toneMapped: false,
+});
+const screenMesh = new THREE.Mesh(roundedPlaneGeometry(SCREEN_W, SCREEN_H, 0.19), screenMat);
+screenMesh.position.z = PHONE_D / 2 + 0.006;
+phoneGroup.add(screenMesh);
+
+const speaker = new THREE.Mesh(
+  new RoundedBoxGeometry(0.62, 0.045, 0.014, 8, 0.02),
+  new THREE.MeshBasicMaterial({ color: 0x27303d }),
+);
+speaker.position.set(0, PHONE_H / 2 - 0.22, PHONE_D / 2 + 0.02);
+phoneGroup.add(speaker);
+
+const sideButtonMat = new THREE.MeshPhysicalMaterial({ color: 0x334155, metalness: 0.7, roughness: 0.25 });
+[
+  [-PHONE_W / 2 - 0.045, 1.7, 0.02, 0.05, 0.52],
+  [-PHONE_W / 2 - 0.045, 0.9, 0.02, 0.05, 0.42],
+  [PHONE_W / 2 + 0.045, 1.25, 0.02, 0.05, 0.72],
+].forEach(([x, y, z, w, h]) => {
+  const b = new THREE.Mesh(new RoundedBoxGeometry(w, h, 0.06, 6, 0.025), sideButtonMat);
+  b.position.set(x, y, z);
+  phoneGroup.add(b);
+});
+
+const shadowCanvas = document.createElement('canvas');
+shadowCanvas.width = 512;
+shadowCanvas.height = 512;
+const shadowCtx = shadowCanvas.getContext('2d');
+const grad = shadowCtx.createRadialGradient(256, 256, 0, 256, 256, 256);
+grad.addColorStop(0, 'rgba(17,24,39,0.34)');
+grad.addColorStop(0.42, 'rgba(17,24,39,0.15)');
+grad.addColorStop(1, 'rgba(17,24,39,0)');
+shadowCtx.fillStyle = grad;
+shadowCtx.fillRect(0, 0, 512, 512);
+const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
+const shadow = new THREE.Mesh(
+  new THREE.PlaneGeometry(5.2, 1.45),
+  new THREE.MeshBasicMaterial({ map: shadowTexture, transparent: true, opacity: 0.44, depthWrite: false }),
+);
+shadow.rotation.x = -Math.PI / 2;
+shadow.position.set(0, -3.25, -0.6);
+root.add(shadow);
+
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+function mix(a, b, t) { return a + (b - a) * t; }
+function smooth(t) { t = clamp01(t); return t * t * (3 - 2 * t); }
+function smoother(t) { t = clamp01(t); return t * t * t * (t * (t * 6 - 15) + 10); }
+function phase(ms, start, end) { return clamp01((ms - start) / (end - start)); }
+function wave(ms, speed = 1, offset = 0) { return Math.sin(ms * 0.001 * speed + offset); }
+
+function setVec(obj, from, to, p) {
+  obj.position.set(
+    mix(from[0], to[0], p),
+    mix(from[1], to[1], p),
+    mix(from[2], to[2], p),
+  );
+}
+
+function setRot(obj, from, to, p) {
+  obj.rotation.set(
+    mix(from[0], to[0], p),
+    mix(from[1], to[1], p),
+    mix(from[2], to[2], p),
+  );
+}
+
+function setMaterialOpacity(group, opacity) {
+  group.visible = opacity > 0.01;
+  group.traverse(child => {
+    if (!child.material) return;
+    const mats = Array.isArray(child.material) ? child.material : [child.material];
+    mats.forEach(mat => {
+      if (mat.userData.baseOpacity === undefined) mat.userData.baseOpacity = mat.opacity;
+      mat.transparent = true;
+      mat.opacity = mat.userData.baseOpacity * opacity;
+      mat.needsUpdate = true;
+    });
+  });
+}
+
+function makeTextureCanvas(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  draw(ctx, w, h);
+  return c;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function fillRound(ctx, x, y, w, h, r, fill) {
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+function strokeRound(ctx, x, y, w, h, r, stroke, lineWidth = 2) {
+  roundRect(ctx, x, y, w, h, r);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+}
+
+function drawText(ctx, text, x, y, size, weight = 700, color = '#111827', align = 'left') {
+  ctx.fillStyle = color;
+  ctx.font = `${weight} ${size}px Pretendard, -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'top';
+  ctx.fillText(text, x, y);
+}
+
+function drawCenteredText(ctx, text, x, y, size, weight = 700, color = '#111827') {
+  drawText(ctx, text, x, y, size, weight, color, 'center');
+}
+
+function drawHeader(ctx, title = 'MUSIXQUARE', badge = 'HOST') {
+  drawText(ctx, title, 64, 72, 38, 900, '#111827');
+  fillRound(ctx, 584, 64, 112, 50, 25, '#2563eb');
+  drawCenteredText(ctx, badge, 640, 78, 22, 850, '#fff');
+}
+
+function drawMiniNav(ctx, active) {
+  const items = [
+    ['♪', '메인', 'play'],
+    ['≡', '목록', 'queue'],
+    ['∞', '연결', 'connect'],
+    ['⚙', '설정', 'settings'],
+  ];
+  const gap = 152;
+  const start = 91;
+  items.forEach((it, i) => {
+    const x = start + i * gap;
+    const isActive = it[2] === active;
+    ctx.fillStyle = isActive ? '#2563eb' : '#94a3b8';
+    ctx.font = '800 32px Pretendard, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(it[0], x, 1496);
+    drawCenteredText(ctx, it[1], x, 1542, 18, 700, isActive ? '#2563eb' : '#64748b');
+  });
+}
+
+function drawPhoneFrame(ctx) {
+  ctx.clearRect(0, 0, screenCanvas.width, screenCanvas.height);
+  fillRound(ctx, 0, 0, screenCanvas.width, screenCanvas.height, 54, '#fbfdff');
+  ctx.fillStyle = '#f1f5f9';
+  ctx.fillRect(0, 210, screenCanvas.width, 1);
+}
+
+function drawPlayerScreen(ms) {
+  drawPhoneFrame(screenCtx);
+  drawHeader(screenCtx);
+  const pulse = 0.5 + 0.5 * wave(ms, 2.4);
+  const cx = 380;
+  const cy = 555;
+  screenCtx.beginPath();
+  screenCtx.arc(cx, cy, 150 + pulse * 15, 0, Math.PI * 2);
+  screenCtx.fillStyle = 'rgba(37,99,235,0.10)';
+  screenCtx.fill();
+  screenCtx.beginPath();
+  screenCtx.arc(cx, cy, 108 + pulse * 8, 0, Math.PI * 2);
+  screenCtx.fillStyle = '#93c5fd';
+  screenCtx.fill();
+  screenCtx.beginPath();
+  screenCtx.arc(cx, cy, 62, 0, Math.PI * 2);
+  screenCtx.fillStyle = '#60a5fa';
+  screenCtx.fill();
+  drawCenteredText(screenCtx, 'Sunset Boulevard', 380, 770, 26, 820, '#111827');
+  drawCenteredText(screenCtx, 'Luna & The Stars', 380, 812, 19, 650, '#64748b');
+  screenCtx.strokeStyle = '#e2e8f0';
+  screenCtx.lineWidth = 8;
+  screenCtx.beginPath();
+  screenCtx.moveTo(92, 920);
+  screenCtx.lineTo(668, 920);
+  screenCtx.stroke();
+  screenCtx.strokeStyle = '#2563eb';
+  screenCtx.beginPath();
+  screenCtx.moveTo(92, 920);
+  screenCtx.lineTo(272 + pulse * 36, 920);
+  screenCtx.stroke();
+  drawText(screenCtx, '1:23', 92, 944, 16, 750, '#64748b');
+  drawText(screenCtx, '3:45', 620, 944, 16, 750, '#64748b');
+  ['‹', '▶', '›'].forEach((label, i) => {
+    const x = 278 + i * 102;
+    fillRound(screenCtx, x, 1028, 72, 72, 36, i === 1 ? '#2563eb' : '#eef2f7');
+    drawCenteredText(screenCtx, label, x + 36, 1043, 28, 900, i === 1 ? '#fff' : '#64748b');
+  });
+  fillRound(screenCtx, 92, 1168, 576, 72, 36, '#f8fafc');
+  drawText(screenCtx, '자동 싱크 활성화', 132, 1190, 22, 750, '#334155');
+  fillRound(screenCtx, 92, 1280, 260, 70, 35, '#f8fafc');
+  fillRound(screenCtx, 408, 1280, 260, 70, 35, '#f8fafc');
+  drawCenteredText(screenCtx, '공유하기', 222, 1302, 20, 760, '#64748b');
+  drawCenteredText(screenCtx, '마지막 재생', 538, 1302, 20, 760, '#64748b');
+  drawMiniNav(screenCtx, 'play');
+}
+
+function drawPlaylistScreen() {
+  drawPhoneFrame(screenCtx);
+  drawHeader(screenCtx);
+  drawText(screenCtx, '재생목록', 72, 260, 42, 900, '#111827');
+  drawText(screenCtx, '4명이 같은 순서를 보고 있어요', 72, 316, 22, 650, '#64748b');
+  const tracks = ['Sunset Boulevard', 'Midnight in Seoul', 'Ocean Drive', 'Golden Hour'];
+  tracks.forEach((track, i) => {
+    const y = 404 + i * 124;
+    fillRound(screenCtx, 72, y, 616, 88, 28, i === 0 ? '#eef6ff' : '#f8fafc');
+    drawText(screenCtx, String(i + 1), 112, y + 28, 22, 850, i === 0 ? '#2563eb' : '#94a3b8');
+    drawText(screenCtx, track, 166, y + 26, 24, 800, '#1f2937');
+    if (i === 0) {
+      [0, 1, 2].forEach(b => {
+        fillRound(screenCtx, 596 + b * 16, y + 28 + b * 4, 8, 32 - b * 5, 4, '#2563eb');
+      });
+    }
+  });
+  fillRound(screenCtx, 72, 1000, 616, 210, 34, '#f8fafc');
+  drawText(screenCtx, '실시간 동기화', 112, 1044, 26, 850, '#111827');
+  drawText(screenCtx, '호스트가 넘기면 모든 기기가 함께 이동합니다.', 112, 1092, 20, 650, '#64748b');
+  drawMiniNav(screenCtx, 'queue');
+}
+
+function drawConnectScreen() {
+  drawPhoneFrame(screenCtx);
+  drawHeader(screenCtx);
+  drawText(screenCtx, '연결', 72, 260, 42, 900, '#111827');
+  drawText(screenCtx, '482937', 606, 272, 28, 900, '#111827', 'right');
+  drawText(screenCtx, 'QR 코드로 참가', 72, 338, 22, 800, '#64748b');
+  drawQr(screenCtx, 216, 448, 328);
+  fillRound(screenCtx, 176, 810, 408, 66, 33, '#f8fafc');
+  drawCenteredText(screenCtx, '초대 링크 복사', 380, 831, 21, 760, '#475569');
+  fillRound(screenCtx, 72, 982, 616, 92, 30, '#f8fafc');
+  drawText(screenCtx, '현재 연결', 116, 1007, 21, 850, '#111827');
+  drawText(screenCtx, 'iPhone 15 Pro · Galaxy S24', 116, 1043, 18, 650, '#64748b');
+  fillRound(screenCtx, 72, 1120, 616, 92, 30, '#f8fafc');
+  drawText(screenCtx, '방장이신가요?', 116, 1144, 21, 850, '#111827');
+  drawText(screenCtx, '접속을 한 번에 관리하세요.', 116, 1180, 18, 650, '#64748b');
+  drawMiniNav(screenCtx, 'connect');
+}
+
+function drawSettingsScreen() {
+  drawPhoneFrame(screenCtx);
+  drawHeader(screenCtx);
+  drawText(screenCtx, '설정', 72, 260, 42, 900, '#111827');
+  drawText(screenCtx, '공간에 맞게 사운드를 조정합니다.', 72, 316, 22, 650, '#64748b');
+  drawText(screenCtx, '언어', 72, 408, 20, 850, '#475569');
+  fillRound(screenCtx, 72, 456, 280, 130, 30, '#eef6ff');
+  strokeRound(screenCtx, 72, 456, 280, 130, 30, '#2563eb', 3);
+  drawCenteredText(screenCtx, '가', 212, 482, 38, 900, '#2563eb');
+  drawCenteredText(screenCtx, '한국어', 212, 534, 21, 800, '#2563eb');
+  fillRound(screenCtx, 408, 456, 280, 130, 30, '#ffffff');
+  drawCenteredText(screenCtx, 'A', 548, 488, 36, 900, '#334155');
+  drawCenteredText(screenCtx, 'English', 548, 540, 20, 760, '#64748b');
+  drawText(screenCtx, '테마', 72, 650, 20, 850, '#475569');
+  fillRound(screenCtx, 72, 698, 280, 130, 30, '#eef6ff');
+  strokeRound(screenCtx, 72, 698, 280, 130, 30, '#2563eb', 3);
+  drawCenteredText(screenCtx, '☀', 212, 724, 38, 900, '#2563eb');
+  drawCenteredText(screenCtx, '라이트', 212, 776, 21, 800, '#2563eb');
+  fillRound(screenCtx, 408, 698, 280, 130, 30, '#ffffff');
+  drawCenteredText(screenCtx, '◐', 548, 724, 38, 900, '#334155');
+  drawCenteredText(screenCtx, '다크', 548, 776, 21, 760, '#64748b');
+  drawText(screenCtx, '바이브레이션', 72, 892, 20, 850, '#475569');
+  fillRound(screenCtx, 72, 940, 280, 130, 30, '#ffffff');
+  fillRound(screenCtx, 408, 940, 280, 130, 30, '#ffffff');
+  drawCenteredText(screenCtx, '저음', 212, 974, 28, 900, '#334155');
+  drawCenteredText(screenCtx, '공간감', 548, 974, 28, 900, '#334155');
+  drawMiniNav(screenCtx, 'settings');
+}
+
+function drawFinalScreen() {
+  drawPhoneFrame(screenCtx);
+  drawHeader(screenCtx);
+  drawText(screenCtx, '도움말', 72, 260, 42, 900, '#111827');
+  const rows = [
+    ['같은 네트워크', '모든 기기를 같은 Wi-Fi에 연결'],
+    ['QR 또는 코드', '친구는 바로 참가'],
+    ['역할 선택', '왼쪽, 오른쪽, 서브우퍼까지'],
+  ];
+  rows.forEach((row, i) => {
+    const y = 384 + i * 168;
+    fillRound(screenCtx, 72, y, 616, 122, 32, '#f8fafc');
+    fillRound(screenCtx, 112, y + 34, 54, 54, 18, '#e0f2fe');
+    drawCenteredText(screenCtx, '✓', 139, y + 43, 26, 900, '#2563eb');
+    drawText(screenCtx, row[0], 196, y + 28, 24, 850, '#111827');
+    drawText(screenCtx, row[1], 196, y + 68, 20, 650, '#64748b');
+  });
+  fillRound(screenCtx, 92, 1052, 576, 92, 46, '#2563eb');
+  drawCenteredText(screenCtx, '바로 시작하기', 380, 1081, 28, 900, '#fff');
+  drawMiniNav(screenCtx, 'settings');
+}
+
+function drawQr(ctx, x, y, size) {
+  fillRound(ctx, x - 28, y - 28, size + 56, size + 56, 34, '#ffffff');
+  const n = 21;
+  const cell = size / n;
+  ctx.fillStyle = '#111827';
+  const finder = (fx, fy) => {
+    ctx.fillRect(x + fx * cell, y + fy * cell, cell * 7, cell * 7);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + (fx + 1) * cell, y + (fy + 1) * cell, cell * 5, cell * 5);
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(x + (fx + 2) * cell, y + (fy + 2) * cell, cell * 3, cell * 3);
+  };
+  finder(0, 0);
+  finder(14, 0);
+  finder(0, 14);
+  for (let yy = 0; yy < n; yy++) {
+    for (let xx = 0; xx < n; xx++) {
+      const inFinder = (xx < 7 && yy < 7) || (xx > 13 && yy < 7) || (xx < 7 && yy > 13);
+      if (inFinder) continue;
+      const on = ((xx * 7 + yy * 11 + xx * yy) % 5 === 0) || ((xx + yy * 3) % 7 === 0);
+      if (on) ctx.fillRect(x + xx * cell, y + yy * cell, cell * 0.92, cell * 0.92);
+    }
+  }
+}
+
+const screenDrawers = {
+  intro: () => {
+    drawPhoneFrame(screenCtx);
+    drawCenteredText(screenCtx, 'MUSIXQUARE', 380, 560, 42, 900, '#111827');
+    drawCenteredText(screenCtx, '공간을 채우는 작은 사운드 시스템', 380, 626, 24, 650, '#64748b');
+    [0, 1, 2].forEach(i => {
+      fillRound(screenCtx, 255 + i * 82, 730, 48, 48, 16, i === 1 ? '#2563eb' : '#e2e8f0');
+    });
+  },
+  player: drawPlayerScreen,
+  playlist: drawPlaylistScreen,
+  connect: drawConnectScreen,
+  settings: drawSettingsScreen,
+  final: drawFinalScreen,
+};
+
+function screenModeAt(ms) {
+  if (ms < 3600) return 'intro';
+  if (ms < 8600) return 'player';
+  if (ms < 13600) return 'playlist';
+  if (ms < 18600) return 'connect';
+  if (ms < 23600) return 'settings';
+  return 'final';
+}
+
+function makeFloatingPanel(name, ratio, draw) {
+  const h = 640;
+  const w = Math.round(h * ratio);
+  const source = makeTextureCanvas(w, h, draw);
+  const texture = new THREE.CanvasTexture(source);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const group = new THREE.Group();
+  group.name = name;
+  const panelW = ratio * 1.56;
+  const panelH = 1.56;
+  const back = new THREE.Mesh(
+    roundedPlaneGeometry(panelW, panelH, 0.09),
+    new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      roughness: 0.2,
+      metalness: 0.0,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.18,
+      transparent: true,
+      opacity: 0.82,
+    }),
+  );
+  back.position.z = -0.018;
+  group.add(back);
+  const front = new THREE.Mesh(
+    roundedPlaneGeometry(panelW * 0.965, panelH * 0.965, 0.08),
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      toneMapped: false,
+      opacity: 1,
+      depthWrite: false,
+    }),
+  );
+  front.position.z = 0.018;
+  group.add(front);
+  setMaterialOpacity(group, 0);
+  root.add(group);
+  return group;
+}
+
+const panels = [
+  {
+    key: 'player',
+    group: makeFloatingPanel('player-card', 1.52, (ctx, w, h) => {
+      fillRound(ctx, 0, 0, w, h, 44, '#ffffff');
+      drawText(ctx, 'Now playing', 54, 52, 30, 850, '#111827');
+      drawText(ctx, 'Sunset Boulevard', 54, 104, 44, 900, '#2563eb');
+      drawText(ctx, 'Luna & The Stars', 54, 166, 26, 700, '#64748b');
+      ctx.strokeStyle = '#dbeafe';
+      ctx.lineWidth = 12;
+      ctx.beginPath();
+      ctx.moveTo(54, 254);
+      ctx.lineTo(w - 54, 254);
+      ctx.stroke();
+      ctx.strokeStyle = '#2563eb';
+      ctx.beginPath();
+      ctx.moveTo(54, 254);
+      ctx.lineTo(w * 0.58, 254);
+      ctx.stroke();
+      ['L', 'C', 'R'].forEach((label, i) => {
+        fillRound(ctx, 54 + i * 132, 330, 94, 94, 28, i === 1 ? '#2563eb' : '#eff6ff');
+        drawCenteredText(ctx, label, 101 + i * 132, 360, 30, 900, i === 1 ? '#fff' : '#2563eb');
+      });
+    }),
+    start: 2800,
+    end: 8200,
+    from: [-5.1, 1.9, -1.6],
+    active: [-2.75, 1.72, 0.58],
+    dock: [-0.3, 0.95, 0.75],
+    final: [-3.15, 2.05, 0.15],
+    rFrom: [0.6, -0.95, 0.14],
+    rActive: [0.12, 0.42, -0.08],
+    rDock: [0.02, 0.02, 0],
+    rFinal: [0.12, 0.42, -0.07],
+  },
+  {
+    key: 'playlist',
+    group: makeFloatingPanel('playlist-card', 0.88, (ctx, w, h) => {
+      fillRound(ctx, 0, 0, w, h, 44, '#ffffff');
+      drawText(ctx, 'Queue', 46, 48, 38, 900, '#111827');
+      ['Sunset Boulevard', 'Midnight in Seoul', 'Ocean Drive', 'Golden Hour'].forEach((track, i) => {
+        const y = 132 + i * 104;
+        fillRound(ctx, 38, y, w - 76, 74, 24, i === 0 ? '#eff6ff' : '#f8fafc');
+        drawText(ctx, String(i + 1), 70, y + 24, 22, 850, i === 0 ? '#2563eb' : '#94a3b8');
+        drawText(ctx, track, 118, y + 24, 22, 800, '#1f2937');
+      });
+    }),
+    start: 8000,
+    end: 13200,
+    from: [5.0, 2.2, -1.7],
+    active: [2.65, 1.95, 0.62],
+    dock: [0.25, 0.65, 0.75],
+    final: [3.12, 1.32, 0.18],
+    rFrom: [0.36, 0.88, -0.2],
+    rActive: [0.1, -0.38, 0.08],
+    rDock: [0, 0, 0],
+    rFinal: [0.08, -0.42, 0.08],
+  },
+  {
+    key: 'connect',
+    group: makeFloatingPanel('connect-card', 0.82, (ctx, w, h) => {
+      fillRound(ctx, 0, 0, w, h, 44, '#ffffff');
+      drawText(ctx, 'Invite', 46, 48, 38, 900, '#111827');
+      drawText(ctx, '482937', w - 48, 56, 30, 900, '#2563eb', 'right');
+      drawQr(ctx, 126, 154, w - 252);
+      fillRound(ctx, 62, 464, w - 124, 72, 36, '#eff6ff');
+      drawCenteredText(ctx, 'QR 하나로 연결', w / 2, 486, 24, 850, '#2563eb');
+    }),
+    start: 13000,
+    end: 18200,
+    from: [-5.4, -0.6, -1.6],
+    active: [-2.88, -0.25, 0.78],
+    dock: [-0.18, 0.25, 0.76],
+    final: [-3.28, -0.78, 0.2],
+    rFrom: [-0.35, -0.9, -0.1],
+    rActive: [-0.04, 0.48, -0.05],
+    rDock: [0, 0, 0],
+    rFinal: [-0.06, 0.46, -0.04],
+  },
+  {
+    key: 'settings',
+    group: makeFloatingPanel('settings-card', 0.92, (ctx, w, h) => {
+      fillRound(ctx, 0, 0, w, h, 44, '#ffffff');
+      drawText(ctx, 'Sound', 46, 48, 38, 900, '#111827');
+      const chips = [
+        ['Language', '한국어'],
+        ['Theme', 'Light'],
+        ['Bass', '+4 dB'],
+        ['Space', 'Wide'],
+      ];
+      chips.forEach((chip, i) => {
+        const x = 44 + (i % 2) * ((w - 110) / 2 + 22);
+        const y = 138 + Math.floor(i / 2) * 150;
+        const cw = (w - 110) / 2;
+        fillRound(ctx, x, y, cw, 112, 30, i === 2 ? '#eff6ff' : '#f8fafc');
+        drawText(ctx, chip[0], x + 30, y + 24, 20, 760, '#64748b');
+        drawText(ctx, chip[1], x + 30, y + 58, 27, 900, i === 2 ? '#2563eb' : '#111827');
+      });
+      ctx.strokeStyle = '#bfdbfe';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(66, 500);
+      ctx.bezierCurveTo(w * 0.32, 440, w * 0.58, 570, w - 66, 494);
+      ctx.stroke();
+    }),
+    start: 18000,
+    end: 23200,
+    from: [5.2, -0.6, -1.55],
+    active: [2.82, -0.35, 0.72],
+    dock: [0.2, -0.05, 0.75],
+    final: [3.18, -1.08, 0.18],
+    rFrom: [-0.32, 0.92, 0.12],
+    rActive: [-0.06, -0.42, 0.07],
+    rDock: [0, 0, 0],
+    rFinal: [-0.07, -0.42, 0.06],
+  },
+];
+
+const connectorMat = new THREE.LineBasicMaterial({
+  color: 0x2563eb,
+  transparent: true,
+  opacity: 0.42,
+});
+const connectorGroup = new THREE.Group();
+root.add(connectorGroup);
+const connectorLines = panels.map(() => {
+  const geom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const line = new THREE.Line(geom, connectorMat.clone());
+  connectorGroup.add(line);
+  return line;
+});
+
+const captionEntries = [
+  { start: 0, end: 3600, title: 'MUSIXQUARE', sub: '작은 기기들이 하나의 공간을 채웁니다' },
+  { start: 3600, end: 8600, title: '기기들이 하나의 사운드로', sub: '역할을 고르면 같은 음악이 동시에 재생됩니다' },
+  { start: 8600, end: 13600, title: '재생목록은 함께 움직이고', sub: '방장이 넘기는 순간 모두의 화면이 따라옵니다' },
+  { start: 13600, end: 18600, title: 'QR 하나로 바로 연결', sub: '초대 코드를 공유하고 곧장 같은 세션으로' },
+  { start: 18600, end: 23600, title: '내 공간에 맞게 조정', sub: '테마, 역할, 사운드를 가볍게 커스텀하세요' },
+  { start: 23600, end: DURATION, title: '작게, 선명하게, 바로 시작', sub: 'MUSIXQUARE로 공간형 플레이를 시작하세요' },
+];
+
+let lastScreenMode = '';
+
+function updateCaption(ms) {
+  const entry = captionEntries.find(c => ms >= c.start && ms < c.end) || captionEntries[captionEntries.length - 1];
+  titleEl.textContent = entry.title;
+  subEl.textContent = entry.sub;
+  const fade = 520;
+  const inP = smooth((ms - entry.start) / fade);
+  const outP = smooth((entry.end - ms) / fade);
+  const opacity = Math.min(inP, outP);
+  titleEl.style.opacity = String(opacity);
+  subEl.style.opacity = String(opacity * 0.86);
+  titleEl.style.transform = `translateY(${18 * (1 - inP)}px)`;
+  subEl.style.transform = `translateY(${12 * (1 - inP)}px)`;
+}
+
+function updatePhone(ms) {
+  const intro = smoother(phase(ms, 0, 2600));
+  const final = smoother(phase(ms, 23600, 27000));
+  phoneGroup.position.set(
+    mix(0, 0, intro),
+    mix(-0.35, -0.72, final),
+    mix(-2.6, 0.0, intro),
+  );
+  const orbit = wave(ms, 0.55) * 0.035;
+  phoneGroup.rotation.x = mix(0.52, -0.035, intro) + wave(ms, 0.45, 1.7) * 0.012;
+  phoneGroup.rotation.y = mix(-0.86, -0.17, intro) + orbit + final * 0.12;
+  phoneGroup.rotation.z = mix(0.12, -0.03, intro) + wave(ms, 0.35) * 0.006;
+  const scale = mix(0.64, 1.0, intro) * mix(1.0, 0.92, final);
+  phoneGroup.scale.setScalar(scale);
+  shadow.material.opacity = mix(0.0, 0.42, intro) * mix(1.0, 0.78, final);
+  shadow.scale.setScalar(mix(0.55, 1.0, intro));
+  floorLine.style.opacity = String(mix(0.0, 1.0, intro) * 0.76);
+}
+
+function updatePanels(ms) {
+  const finalP = smoother(phase(ms, 23600, 26800));
+  panels.forEach((panel, index) => {
+    const { group } = panel;
+    const introP = smoother(phase(ms, panel.start, panel.start + 900));
+    const dockP = smoother(phase(ms, panel.end - 1250, panel.end - 300));
+    const fadeOut = smoother(phase(ms, panel.end - 620, panel.end));
+    let opacity = introP * (1 - fadeOut);
+    if (ms < panel.start || ms > panel.end) opacity = 0;
+
+    const activePos = [
+      panel.active[0],
+      panel.active[1] + wave(ms, 0.8, index) * 0.1,
+      panel.active[2] + wave(ms, 0.55, index * 0.6) * 0.07,
+    ];
+    const activeRot = [
+      panel.rActive[0] + wave(ms, 0.45, index) * 0.02,
+      panel.rActive[1] + wave(ms, 0.38, index + 2) * 0.03,
+      panel.rActive[2],
+    ];
+
+    setVec(group, panel.from, activePos, introP);
+    setRot(group, panel.rFrom, activeRot, introP);
+    if (dockP > 0) {
+      setVec(group, group.position.toArray(), panel.dock, dockP);
+      setRot(group, group.rotation.toArray(), panel.rDock, dockP);
+      group.scale.setScalar(mix(1.0, 0.42, dockP));
+    } else {
+      group.scale.setScalar(1);
+    }
+
+    if (finalP > 0.01) {
+      const reveal = smoother(phase(ms, 23800 + index * 190, 25800 + index * 190));
+      const currentPos = group.position.toArray();
+      setVec(group, currentPos, panel.final, finalP);
+      setRot(group, group.rotation.toArray(), panel.rFinal, finalP);
+      group.scale.setScalar(mix(group.scale.x, 0.74, finalP));
+      opacity = Math.max(opacity, reveal * 0.9);
+    }
+
+    setMaterialOpacity(group, opacity);
+
+    const line = connectorLines[index];
+    const lineOpacity = opacity * (1 - dockP) * (1 - finalP * 0.25);
+    line.material.opacity = lineOpacity * 0.38;
+    line.visible = lineOpacity > 0.05;
+    const pos = line.geometry.attributes.position;
+    pos.setXYZ(0, group.position.x, group.position.y, group.position.z - 0.06);
+    pos.setXYZ(1, phoneGroup.position.x, phoneGroup.position.y + 0.15, phoneGroup.position.z + 0.04);
+    pos.needsUpdate = true;
+  });
+}
+
+function updateScreen(ms) {
+  const mode = screenModeAt(ms);
+  if (mode !== lastScreenMode || mode === 'player') {
+    screenDrawers[mode](ms);
+    screenTexture.needsUpdate = true;
+    lastScreenMode = mode;
+  }
+}
+
+function updateCamera(ms) {
+  const p = smoother(phase(ms, 0, 2600));
+  const final = smoother(phase(ms, 23600, 27000));
+  camera.position.x = mix(0.2, 0, p) + wave(ms, 0.22) * 0.035;
+  camera.position.y = mix(0.62, 0.28, p) + final * -0.12;
+  camera.position.z = mix(13.8, 11.8, p) + final * 0.65;
+  camera.lookAt(0, -0.18 - final * 0.3, 0);
+}
+
+function updateLights(ms) {
+  const pulse = 0.5 + 0.5 * wave(ms, 1.1);
+  blueLight.intensity = 24 + pulse * 8;
+  mintLight.intensity = 19 + (1 - pulse) * 7;
+}
+
+function renderAt(ms) {
+  const t = Math.max(0, Math.min(DURATION, ms));
+  updateCaption(t);
+  updateCamera(t);
+  updatePhone(t);
+  updatePanels(t);
+  updateScreen(t);
+  updateLights(t);
+  renderer.render(scene, camera);
+}
+
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderAt(window.__promoCurrentTime || 0);
+}
+
+window.addEventListener('resize', resize);
+
+window.__promoSetTime = function(ms) {
+  window.__promoCurrentTime = ms;
+  renderAt(ms);
+};
+
+function startAutoplay() {
+  const started = performance.now();
+  const loop = () => {
+    const elapsed = (performance.now() - started) % DURATION;
+    window.__promoSetTime(elapsed);
+    requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+await document.fonts.ready;
+renderAt(0);
+loading.classList.add('hidden');
+window.sceneReady = true;
+
+const params = new URLSearchParams(location.search);
+if (params.get('autoplay') === 'true') startAutoplay();
+</script>
+</body>
+</html>

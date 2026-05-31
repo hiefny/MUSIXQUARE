@@ -41,10 +41,16 @@ interface Orientation {
   height: number;
 }
 
-const SCENES: SceneConfig[] = [
-  { name: 'ui-showcase',     htmlFile: 'scenes/ui-showcase.html',    durationMs: 40000, fps: 60 },
-  { name: 'logo-animation',  htmlFile: 'scenes/logo-animation.html', durationMs: 5000,  fps: 60 },
+const ALL_SCENES: SceneConfig[] = [
+  { name: 'ui-showcase',     htmlFile: 'scenes/ui-showcase.html',     durationMs: 40000, fps: 60 },
+  { name: 'ui-showcase-2',   htmlFile: 'scenes/ui-showcase-2.html',   durationMs: 30000, fps: 60 },
+  { name: 'logo-animation',  htmlFile: 'scenes/logo-animation.html',  durationMs: 5000,  fps: 60 },
 ];
+
+const requestedScenes = new Set(process.argv.slice(2).filter(arg => !arg.startsWith('-')));
+const SCENES = requestedScenes.size
+  ? ALL_SCENES.filter(scene => requestedScenes.has(scene.name))
+  : ALL_SCENES;
 
 const ORIENTATIONS: Orientation[] = [
   { name: 'portrait',  width: 1080, height: 1920 },
@@ -226,6 +232,11 @@ function encodeToMp4(frameDir: string, outputFile: string, fps: number) {
 async function main() {
   console.log('MUSIXQUARE Promo Renderer');
   console.log('========================\n');
+
+  if (SCENES.length === 0) {
+    console.error(`ERROR: No matching scene. Available scenes: ${ALL_SCENES.map(s => s.name).join(', ')}`);
+    process.exit(1);
+  }
 
   // Check ffmpeg
   try {

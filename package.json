@@ -46,6 +46,7 @@
     "prettier": "^3.8.1",
     "satori": "^0.26.0",
     "subset-font": "^2.5.0",
+    "three": "^0.184.0",
     "tsx": "^4.20.6",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",

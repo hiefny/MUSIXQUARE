@@ -550,35 +550,40 @@ const TAGLINE_START = 3200;
 const GLOW_START = 3800;
 const TRANSITION_START = 5000, TRANSITION_END = 7000;
 
-// Phase C-I timeline — tighter timing, no dead gaps
+// Phase C-I timeline — keep captions and UI phases on the same clock.
 const REVEAL_DUR = 800;
 const TAB_DUR = 600;
 const STAGGER = 130;
 const EL_DUR = 650;
 const FADEOUT_DUR = 400; // fade-out before tab switch
-const HOLD = 1000;       // time to hold a completed tab before fading out
+const HOLD = 1900;       // time to hold a completed tab before fading out
+const SETUP_START = TRANSITION_END;
+const SETUP_END = 13000;
+const SETUP_FADE_START = SETUP_END - 500;
+const CONTENT_LEAD = 0;
 
-// Phase D: Player reveals (13.5s start)
-const D_START = 13500;
-const D_LAST = D_START + STAGGER * 7; // 14410ms last element starts
-const D_END_ANIM = D_LAST + REVEAL_DUR; // ~15210ms all visible
-const D_FADEOUT = D_END_ANIM + HOLD;    // ~17210ms start fading out
+// Phase D: Player reveals under the setup fade so the app is not blank at handoff.
+const D_START = SETUP_FADE_START + 100;
+const D_VISIBLE_START = SETUP_END;
+const D_LAST = D_START + STAGGER * 7;
+const D_END_ANIM = D_LAST + REVEAL_DUR;
+const D_FADEOUT = D_END_ANIM + HOLD;
 
-// Phase E: Playlist (~17.6s)
-const E_START = D_FADEOUT + FADEOUT_DUR; // ~17610ms
-const E_LAST = E_START + 400 + STAGGER * 3;
+// Phase E: Playlist
+const E_START = D_FADEOUT + FADEOUT_DUR;
+const E_LAST = E_START + CONTENT_LEAD + STAGGER * 3;
 const E_END_ANIM = E_LAST + EL_DUR;
 const E_FADEOUT = E_END_ANIM + HOLD;
 
 // Phase F: Connect
 const F_START = E_FADEOUT + FADEOUT_DUR;
-const F_LAST = F_START + 400 + STAGGER * 3;
+const F_LAST = F_START + CONTENT_LEAD + STAGGER * 3;
 const F_END_ANIM = F_LAST + EL_DUR;
 const F_FADEOUT = F_END_ANIM + HOLD;
 
 // Phase G: Settings
 const G_START = F_FADEOUT + FADEOUT_DUR;
-const G_LAST = G_START + 400 + STAGGER * 5;
+const G_LAST = G_START + CONTENT_LEAD + STAGGER * 5;
 const G_END_ANIM = G_LAST + EL_DUR;
 const G_SCROLL_START = G_END_ANIM + 500; // pause then scroll
 const G_SCROLL_END = G_SCROLL_START + 1500;
@@ -586,7 +591,7 @@ const G_FADEOUT = G_SCROLL_END + 800;
 
 // Phase H: Guide
 const H_START = G_FADEOUT + FADEOUT_DUR;
-const H_LAST = H_START + 400 + STAGGER * 5;
+const H_LAST = H_START + CONTENT_LEAD + STAGGER * 5;
 const H_END_ANIM = H_LAST + EL_DUR;
 
 const appEntries = [
@@ -602,45 +607,45 @@ const appEntries = [
 
   // Phase E: Playlist
   { t: E_START, dur: TAB_DUR, type: 'tab', tab: 'playlist' },
-  { t: E_START + 400, dur: EL_DUR, type: 'reveal-track', idx: 0 },
-  { t: E_START + 400 + STAGGER*1, dur: EL_DUR, type: 'reveal-track', idx: 1 },
-  { t: E_START + 400 + STAGGER*2, dur: EL_DUR, type: 'reveal-track', idx: 2 },
-  { t: E_START + 400 + STAGGER*3, dur: EL_DUR, type: 'reveal-track', idx: 3 },
+  { t: E_START + CONTENT_LEAD, dur: EL_DUR, type: 'reveal-track', idx: 0 },
+  { t: E_START + CONTENT_LEAD + STAGGER*1, dur: EL_DUR, type: 'reveal-track', idx: 1 },
+  { t: E_START + CONTENT_LEAD + STAGGER*2, dur: EL_DUR, type: 'reveal-track', idx: 2 },
+  { t: E_START + CONTENT_LEAD + STAGGER*3, dur: EL_DUR, type: 'reveal-track', idx: 3 },
 
   // Phase F: Connect
   { t: F_START, dur: TAB_DUR, type: 'tab', tab: 'connect' },
-  { t: F_START + 400, dur: EL_DUR, type: 'reveal-el', sel: '.tab-header', parent: 'tab-connect' },
-  { t: F_START + 400 + STAGGER*1, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-connect', nth: 0 },
-  { t: F_START + 400 + STAGGER*2, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-connect', nth: 1 },
-  { t: F_START + 400 + STAGGER*3, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-connect', nth: 2 },
+  { t: F_START + CONTENT_LEAD, dur: EL_DUR, type: 'reveal-el', sel: '.tab-header', parent: 'tab-connect' },
+  { t: F_START + CONTENT_LEAD + STAGGER*1, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-connect', nth: 0 },
+  { t: F_START + CONTENT_LEAD + STAGGER*2, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-connect', nth: 1 },
+  { t: F_START + CONTENT_LEAD + STAGGER*3, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-connect', nth: 2 },
 
   // Phase G: Settings
   { t: G_START, dur: TAB_DUR, type: 'tab', tab: 'settings' },
-  { t: G_START + 400, dur: EL_DUR, type: 'reveal-el', sel: '.tab-header', parent: 'tab-settings' },
-  { t: G_START + 400 + STAGGER*1, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 0 },
-  { t: G_START + 400 + STAGGER*2, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 1 },
-  { t: G_START + 400 + STAGGER*3, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 2 },
-  { t: G_START + 400 + STAGGER*4, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 3 },
-  { t: G_START + 400 + STAGGER*5, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 4 },
+  { t: G_START + CONTENT_LEAD, dur: EL_DUR, type: 'reveal-el', sel: '.tab-header', parent: 'tab-settings' },
+  { t: G_START + CONTENT_LEAD + STAGGER*1, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 0 },
+  { t: G_START + CONTENT_LEAD + STAGGER*2, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 1 },
+  { t: G_START + CONTENT_LEAD + STAGGER*3, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 2 },
+  { t: G_START + CONTENT_LEAD + STAGGER*4, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 3 },
+  { t: G_START + CONTENT_LEAD + STAGGER*5, dur: EL_DUR, type: 'reveal-el', sel: '.section-group', parent: 'tab-settings', nth: 4 },
 
   // Phase H: Guide
   { t: H_START, dur: TAB_DUR, type: 'tab', tab: 'guide' },
-  { t: H_START + 400, dur: EL_DUR, type: 'reveal-el', sel: '.tab-header', parent: 'tab-guide' },
-  { t: H_START + 400 + STAGGER*1, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 0 },
-  { t: H_START + 400 + STAGGER*2, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 1 },
-  { t: H_START + 400 + STAGGER*3, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 2 },
-  { t: H_START + 400 + STAGGER*4, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 3 },
-  { t: H_START + 400 + STAGGER*5, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 4 },
+  { t: H_START + CONTENT_LEAD, dur: EL_DUR, type: 'reveal-el', sel: '.tab-header', parent: 'tab-guide' },
+  { t: H_START + CONTENT_LEAD + STAGGER*1, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 0 },
+  { t: H_START + CONTENT_LEAD + STAGGER*2, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 1 },
+  { t: H_START + CONTENT_LEAD + STAGGER*3, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 2 },
+  { t: H_START + CONTENT_LEAD + STAGGER*4, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 3 },
+  { t: H_START + CONTENT_LEAD + STAGGER*5, dur: EL_DUR, type: 'reveal-el', sel: '.help-block', parent: 'tab-guide', nth: 4 },
 ];
 
 // ─── Tagline entries (must be after timeline constants) ───
 const taglineEntries = [
-  { start: 6000,  end: D_FADEOUT,  text: '3초면 연결 완료!' },
-  { start: D_FADEOUT, end: E_FADEOUT, text: '같은 음악으로 함께' },
-  { start: E_FADEOUT, end: F_FADEOUT, text: '재생목록도 실시간 공유' },
-  { start: F_FADEOUT, end: G_FADEOUT, text: 'QR 하나로 바로 참가' },
-  { start: G_FADEOUT, end: H_END_ANIM + 1000, text: '내 취향대로 사운드 커스텀' },
-  { start: H_END_ANIM + 1000, end: H_END_ANIM + 6000, text: '지금 바로 시작하세요' },
+  { start: 6000, end: D_VISIBLE_START, text: '3초면 연결 완료!' },
+  { start: D_VISIBLE_START, end: E_START, text: '같은 음악으로 함께' },
+  { start: E_START, end: F_START, text: '재생목록도 실시간 공유' },
+  { start: F_START, end: G_START, text: 'QR 하나로 바로 참가' },
+  { start: G_START, end: H_START, text: '내 취향대로 사운드 커스텀' },
+  { start: H_START, end: 40000, text: '지금 바로 시작하세요' },
 ];
 
 // ════════════════════════════════════════════════════════════
@@ -786,12 +791,12 @@ window.__promoSetTime = function(ms) {
 
   // ═══ Phase C: Setup overlay (7-13s) ═══
   const overlay = appDoc.getElementById('setup-overlay');
-  if (ms < 13000) {
+  if (ms < SETUP_END) {
     if (overlay) {
       overlay.classList.add('promo-visible', 'active');
       overlay.classList.remove('promo-hidden');
-      if (ms > 12500) {
-        overlay.style.opacity = String(1 - smooth((ms - 12500) / 500));
+      if (ms > SETUP_FADE_START) {
+        overlay.style.opacity = String(1 - smooth((ms - SETUP_FADE_START) / (SETUP_END - SETUP_FADE_START)));
       } else {
         overlay.style.opacity = '';
       }
@@ -799,9 +804,9 @@ window.__promoSetTime = function(ms) {
     // Welcome → Role → Code (matching real app flow) with slide transitions
     const SETUP_TRANS = 500; // transition duration
     const setupPhases = [
-      { start: 7000, end: 9200, section: 'setup-welcome-area' },
+      { start: SETUP_START, end: 9200, section: 'setup-welcome-area' },
       { start: 9200, end: 11000, section: 'setup-role-area' },
-      { start: 11000, end: 13000, section: 'setup-code-area' },
+      { start: 11000, end: SETUP_END, section: 'setup-code-area' },
     ];
     for (const sp of setupPhases) {
       if (ms >= sp.start && ms < sp.end) {

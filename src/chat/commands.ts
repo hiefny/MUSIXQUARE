@@ -22,6 +22,7 @@ import { showToast } from '../ui/toast.ts';
 import { isAudioReady, getAudioContext } from '../audio/engine.ts';
 import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
+import { ramStats } from '../storage/ramstore.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { getPlaybackOwnership } from '../player/ownership.ts';
 import { collectSystemAudioDebugText } from '../network/system-audio-debug.ts';
@@ -1254,6 +1255,22 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     );
     lines.push(
       `          sessionState:${sessionState.size} (final:${finalized}/skip:${skipped}/active:${inProgress}) | ackSent:${ackSent.size} | latestSid:${ps.latestSessionId}`,
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // ── RAM Store ──
+  try {
+    const rs = ramStats();
+    const totalRamBytes = rs.mainBytes + rs.preloadBytes;
+    const mainSlots = rs.mainBytes > 0 ? 1 : 0;
+    trackedBytes += totalRamBytes;
+    lines.push(
+      `[RamStore] main:${(rs.mainBytes / 1048576).toFixed(2)}MB preload:${(rs.preloadBytes / 1048576).toFixed(2)}MB`,
+    );
+    lines.push(
+      `           slots:${mainSlots + rs.preloadCount} (preload:${rs.preloadCount}, final:${rs.finalizedCount}, active:${rs.inFlightCount})`,
     );
   } catch {
     /* ignore */

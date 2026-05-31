@@ -421,6 +421,18 @@ describe('late-join playback bootstrap', () => {
     expect(send.mock.calls[0]?.[0]).not.toHaveProperty('state');
   });
 
+  it('lets demo mode own late-join playback bootstrap', () => {
+    initPlayback();
+    setPlaybackFilePlaying();
+    setState('demo.active', true);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [{ name: 'demo.mp3' }]);
+
+    const send = emitPeerConnected();
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('sends file PAUSE bootstrap with pause reason but no legacy state payload', () => {
     initPlayback();
     setPlaybackFilePaused();

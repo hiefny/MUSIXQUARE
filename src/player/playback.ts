@@ -856,6 +856,7 @@ export function initPlayback(): void {
     // Only Host bootstraps guests
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
+    if (getState('demo.active')) return;
 
     const playback = getPlaybackModeActivity();
     const isFilePlaying = isPlaybackPlayingFile(playback);
@@ -908,6 +909,7 @@ export function initPlayback(): void {
   async function bootstrapLocalPeerFile(peerId: string, reason: string): Promise<void> {
     const hostConn = getState('network.hostConn');
     if (hostConn) return; // Only Host
+    if (getState('demo.active')) return;
 
     const peers = getState('network.connectedPeers') || [];
     const peer = peers.find((p) => p.id === peerId);

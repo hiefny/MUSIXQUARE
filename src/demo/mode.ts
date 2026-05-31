@@ -860,6 +860,10 @@ function applyPendingDemoPlay(): void {
     const elapsed = hostPlayAt > 0 ? Math.max(0, now - hostPlayAt) / 1000 : 0;
     void play(pending.time + elapsed);
   }
+  if (getState('network.hostConn')?.open) {
+    bus.emit('sync:arm-initial');
+    setManagedTimer('demo-play-host-sync', () => bus.emit('sync:request-immediate-ping'), 250);
+  }
   syncPlayButton();
 }
 

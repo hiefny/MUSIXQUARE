@@ -1,7 +1,7 @@
 /**
  * MUSIXQUARE — Playback Lifecycle State Machine
  *
- * Guest-side track lifecycle. See `.workshop/design/playback-state-machine.md`
+ * Guest-side track lifecycle. See `docs/design/playback-state-machine.md`
  * for the design doc and transition table.
  *
  * Contract:

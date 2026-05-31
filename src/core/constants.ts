@@ -20,7 +20,7 @@ export type TransferStateValue = (typeof TRANSFER_STATE)[keyof typeof TRANSFER_S
 // WHAT PHASE within the local-file/video mode we're in. For YouTube and
 // system-audio modes this stays at IDLE (they have their own lifecycle paths).
 //
-// See .workshop/design/playback-state-machine.md for the full transition
+// See docs/design/playback-state-machine.md for the full transition
 // table and migration plan. Every transition goes through
 // src/player/lifecycle.ts::transition(); direct setState calls to
 // playback.lifecycle outside that helper are forbidden.

@@ -2,7 +2,7 @@
  * Tests for src/player/lifecycle.ts — the playback state machine.
  *
  * Coverage goal: every row of the transition table in
- * .workshop/design/playback-state-machine.md Section 4.
+ * docs/design/playback-state-machine.md Section 4.
  *
  * Organized by source state so a failing test points directly at the design
  * doc row that's off.

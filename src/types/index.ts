@@ -625,7 +625,7 @@ export interface StateTree {
   /**
    * Guest-side track playback lifecycle. Orthogonal to playback mode/activity.
    * Every transition MUST go through `src/player/lifecycle.ts::transition()`.
-   * See `.workshop/design/playback-state-machine.md` for the full table.
+   * See `docs/design/playback-state-machine.md` for the full table.
    *
    * `transfer.waitingForPreload` and `transfer.skipIncomingFile` are derived
    * from this field now. New flags here would just resurrect the same divergence

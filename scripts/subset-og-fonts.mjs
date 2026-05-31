@@ -3,7 +3,7 @@
  * Pretendard Subsetter for Invite OG Cards
  *
  * Takes the full Pretendard-Bold.ttf / Pretendard-ExtraBold.ttf from
- * scratch/fonts/ and produces tiny subsets covering only the glyphs
+ * fonts/ and produces tiny subsets covering only the glyphs
  * used in the invite OG card template.
  *
  * Output: public/fonts/og-pretendard-{bold,extrabold}.ttf
@@ -37,8 +37,8 @@ const TARGET_TEXT = [
 
 // ─── Input / Output ───────────────────────────────────────────────
 const INPUT = {
-  bold: path.join(repoRoot, "scratch/fonts/Pretendard-Bold.ttf"),
-  extrabold: path.join(repoRoot, "scratch/fonts/Pretendard-ExtraBold.ttf"),
+  bold: path.join(repoRoot, "fonts/Pretendard-Bold.ttf"),
+  extrabold: path.join(repoRoot, "fonts/Pretendard-ExtraBold.ttf"),
 };
 const OUTPUT_DIR = path.join(repoRoot, "public/fonts");
 const OUTPUT = {
@@ -74,7 +74,7 @@ async function main() {
       await stat(p);
     } catch {
       console.error(`\n❌ Missing input: ${p}`);
-      console.error(`   Place Pretendard-${name === "bold" ? "Bold" : "ExtraBold"}.ttf under scratch/fonts/`);
+      console.error(`   Place Pretendard-${name === "bold" ? "Bold" : "ExtraBold"}.ttf under fonts/`);
       process.exit(1);
     }
   }

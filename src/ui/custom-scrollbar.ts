@@ -167,6 +167,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
   // Create track + thumb elements
   const track = document.createElement('div');
   track.className = 'cscroll-track';
+  if (container.hasAttribute('data-custom-scroll-contained')) {
+    track.classList.add('cscroll-track-contained');
+  }
 
   const thumb = document.createElement('div');
   thumb.className = 'cscroll-thumb';

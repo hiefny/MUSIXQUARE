@@ -5089,6 +5089,10 @@
     z-index: 95;
   }
 
+  .cscroll-track-contained {
+    position: absolute;
+  }
+
   .cscroll-thumb {
     position: absolute;
     right: 0;

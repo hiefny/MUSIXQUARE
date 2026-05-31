@@ -380,13 +380,21 @@ function initBackButtonGuard(): void {
 
 // ── Bootstrap ──
 
-function bootstrap(): void {
+async function bootstrap(): Promise<void> {
   log.info(`[App] MUSIXQUARE bootstrap (instance: ${INSTANCE_ID})`);
 
   /** Wrap an init call so a single failure doesn't crash the entire bootstrap. */
   function safeInit(name: string, fn: () => void): void {
     try {
       fn();
+    } catch (e) {
+      log.error(`[App] ${name} init failed:`, e);
+    }
+  }
+
+  async function safeInitAsync(name: string, fn: () => void | Promise<void>): Promise<void> {
+    try {
+      await fn();
     } catch (e) {
       log.error(`[App] ${name} init failed:`, e);
     }
@@ -401,7 +409,7 @@ function bootstrap(): void {
   safeInit('EmailCopy', initEmailCopyLinks);
   safeInit('Dialog', initDialog);
   safeInit('Tabs', initTabs);
-  safeInit('I18n', initI18n);
+  await safeInitAsync('I18n', initI18n);
 
   // 3. Player & Media
   safeInit('Playback', initPlayback);
@@ -517,8 +525,12 @@ function bootstrap(): void {
 }
 
 // Run bootstrap
+function runBootstrap(): void {
+  void bootstrap().catch((e) => log.error('[App] Bootstrap failed:', e));
+}
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+  document.addEventListener('DOMContentLoaded', runBootstrap, { once: true });
 } else {
-  bootstrap();
+  runBootstrap();
 }

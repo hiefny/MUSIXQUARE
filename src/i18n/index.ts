@@ -126,6 +126,10 @@ export function getSystemResolvedLanguage(): LanguageCode {
 
 /** Switch language mode. Persists to localStorage and retranslates DOM. */
 export function setLanguageMode(mode: string): void {
+  void _setLanguageMode(mode);
+}
+
+async function _setLanguageMode(mode: string): Promise<void> {
   const normalizedMode = _normalizeLanguageMode(mode);
   const resolved = normalizedMode === 'system' ? _resolveSystem() : normalizedMode;
   _mode = normalizedMode;
@@ -137,11 +141,11 @@ export function setLanguageMode(mode: string): void {
     /* ignore */
   }
 
-  _applyLanguage(resolved);
+  await _applyLanguage(resolved);
 }
 
 /** Bootstrap — call once from app.ts. */
-export function initI18n(): void {
+export async function initI18n(): Promise<void> {
   let saved: string | null = null;
   try {
     saved = localStorage.getItem('musixquare-lang');
@@ -149,7 +153,7 @@ export function initI18n(): void {
     /* ignore */
   }
 
-  setLanguageMode(saved || 'system');
+  await _setLanguageMode(saved || 'system');
 
   try {
     window.addEventListener('languagechange', () => {
@@ -304,7 +308,7 @@ function _translateLoadedLanguage(resolved: LanguageCode): void {
   bus.emit('i18n:changed', resolved);
 }
 
-function _applyLanguage(resolved: LanguageCode): void {
+async function _applyLanguage(resolved: LanguageCode): Promise<void> {
   _resolved = resolved;
   try {
     document.documentElement.setAttribute('lang', _htmlLangFor(_resolved));
@@ -317,7 +321,8 @@ function _applyLanguage(resolved: LanguageCode): void {
     return;
   }
 
-  void _loadLanguage(resolved).then(() => _translateLoadedLanguage(resolved));
+  await _loadLanguage(resolved);
+  _translateLoadedLanguage(resolved);
 }
 
 function _updateSelector(mode: LanguageMode): void {

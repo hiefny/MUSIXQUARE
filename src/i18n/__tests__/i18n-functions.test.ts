@@ -26,7 +26,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { t, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       const result = t('common.ok');
       // Should return Korean string, not the key itself
       expect(result).not.toBe('common.ok');
@@ -39,7 +39,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { t, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       expect(t('nonexistent.key.here')).toBe('nonexistent.key.here');
     });
 
@@ -49,7 +49,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { t, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       // Use a key that has a placeholder — we test the mechanism
       // Even if key doesn't exist, interpolation still works on fallback
       const result = t('test.{{name}}.greeting', { name: 'World' });
@@ -119,7 +119,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       expect(getResolvedLanguage()).toBe('ko');
     });
 
@@ -129,7 +129,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       expect(getResolvedLanguage()).toBe('en');
     });
 
@@ -139,7 +139,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       expect(getResolvedLanguage()).toBe('ja');
     });
 
@@ -149,7 +149,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       expect(getResolvedLanguage()).toBe('en');
     });
 
@@ -159,7 +159,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       expect(getResolvedLanguage()).toBe('zh-hant');
     });
   });
@@ -171,7 +171,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { setLanguageMode, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       setLanguageMode('ko');
       expect(localStorage.getItem('musixquare-lang')).toBe('ko');
     });
@@ -182,7 +182,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { setLanguageMode, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       setLanguageMode('ko');
       expect(document.documentElement.getAttribute('lang')).toBe('ko');
     });
@@ -193,7 +193,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { setLanguageMode, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       setLanguageMode('invalid');
       expect(localStorage.getItem('musixquare-lang')).toBe('system');
     });
@@ -205,7 +205,7 @@ describe('i18n functions', () => {
       });
       const { getLanguageMode, getResolvedLanguage, setLanguageMode, initI18n } =
         await import('../index.ts');
-      initI18n();
+      await initI18n();
       setLanguageMode('system');
       expect(localStorage.getItem('musixquare-lang')).toBe('system');
       expect(getLanguageMode()).toBe('system');
@@ -221,7 +221,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       // Saved 'en' overrides system 'ko'
       expect(getResolvedLanguage()).toBe('en');
     });
@@ -232,8 +232,24 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
-      initI18n();
+      await initI18n();
       expect(getResolvedLanguage()).toBe('ko');
+    });
+
+    it('loads a saved lazy language before resolving initial DOM translation', async () => {
+      localStorage.setItem('musixquare-lang', 'ja');
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
+
+      const { initI18n, t } = await import('../index.ts');
+      await initI18n();
+      const { default: ja } = await import('../ja.ts');
+
+      expect(t('setup.host_button')).toBe(ja['setup.host_button']);
+      expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']);
     });
   });
 });

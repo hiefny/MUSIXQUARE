@@ -2,7 +2,9 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from 'vitest';
+import { setLanguageMode } from '../../i18n/index.ts';
 import {
+  clearYouTubeInputState,
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
   getYouTubeInputIntent,
@@ -122,5 +124,26 @@ describe('getYouTubeInputIntent', () => {
     expect(getYouTubeInputIntent('https://example.com/watch?v=dQw4w9WgXcQ')).toMatchObject({
       kind: 'invalid-url',
     });
+  });
+});
+
+describe('YouTube input i18n state', () => {
+  it('keeps dynamic status text translatable', () => {
+    document.body.innerHTML = `
+      <div id="youtube-preview"></div>
+      <div id="youtube-preview-status"></div>
+      <div id="youtube-search-results"></div>
+      <button id="youtube-play-btn"></button>
+    `;
+    setLanguageMode('ko');
+
+    clearYouTubeInputState();
+
+    const status = document.getElementById('youtube-preview-status');
+    expect(status?.getAttribute('data-i18n')).toBe('youtube.enter_link_prompt');
+
+    setLanguageMode('en');
+
+    expect(status?.textContent).toBe('Enter a YouTube search term or link');
   });
 });

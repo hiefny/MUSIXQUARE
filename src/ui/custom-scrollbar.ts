@@ -54,6 +54,7 @@ function findFixedContainingBlock(el: HTMLElement): HTMLElement | null {
 function updateLayout(state: ScrollbarState): void {
   const { container, track, thumb } = state;
   const { scrollHeight, clientHeight } = container;
+  const isContained = container.hasAttribute('data-custom-scroll-contained');
 
   if (scrollHeight <= clientHeight + 1) {
     thumb.style.display = 'none';
@@ -67,7 +68,12 @@ function updateLayout(state: ScrollbarState): void {
   const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
   const isCompactLand = isCompactLandscape();
 
-  if (!isDesktop && !isCompactLand && !document.body.classList.contains('mode-demo')) {
+  if (
+    !isContained &&
+    !isDesktop &&
+    !isCompactLand &&
+    !document.body.classList.contains('mode-demo')
+  ) {
     const bottomNav = document.querySelector('.bottom-nav') as HTMLElement;
     if (bottomNav) {
       const navRect = bottomNav.getBoundingClientRect();
@@ -80,7 +86,7 @@ function updateLayout(state: ScrollbarState): void {
   }
 
   state.visibleHeight = visibleHeight;
-  if (isDesktop) {
+  if (isDesktop || isContained) {
     // Desktop: track is position:absolute inside parent — offset by container's position within parent
     const parentRect = container.parentElement?.getBoundingClientRect();
     const offsetTop = parentRect ? containerRect.top - parentRect.top : 0;

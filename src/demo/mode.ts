@@ -1249,6 +1249,7 @@ export function initDemoMode(): void {
   });
   _busScope.on('i18n:changed', () => {
     syncDemoTrackText();
+    syncDemoStep();
     syncDemoSessionCopy();
   });
   _busScope.on('network:device-list-update', () => syncDemoSessionCopy());

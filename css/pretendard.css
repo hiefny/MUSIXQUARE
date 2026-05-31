@@ -1,11 +1,11 @@
-/* Pretendard (self-hosted)
+/* Pretendard JP (self-hosted)
  *
- * This project previously loaded Pretendard from a CDN.
- * To self-host the font files:
- *   1) Run scripts/fetch-pretendard.(sh|ps1)
- *   2) The font files will be placed into /fonts
+ * The app uses Pretendard JP as the default Latin/Korean/Japanese family.
+ * Pretendard UI Core intentionally excludes Han and Thai ranges so those
+ * scripts can be served by the dedicated fallback stack while Latin/digits
+ * still keep Pretendard metrics.
  *
- * License: fonts/PRETENDARD_LICENSE.txt (SIL Open Font License 1.1)
+ * License: fonts/PRETENDARD_JP_LICENSE.txt (SIL Open Font License 1.1)
  */
 
 @font-face {
@@ -13,8 +13,37 @@
   /* WOFF2 only: modern browsers/WebViews support it, and this repo
    * intentionally does not ship a WOFF fallback.
    */
-  src: url("../fonts/PretendardVariable.woff2") format("woff2");
+  src: url("../fonts/PretendardJPVariable.woff2") format("woff2");
   font-weight: 45 920;
   font-style: normal;
   font-display: swap;
+}
+
+@font-face {
+  font-family: "Pretendard UI Core";
+  src: url("../fonts/PretendardJPVariable.woff2") format("woff2");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-024F,
+    U+02B0-036F,
+    U+2000-206F,
+    U+2070-209F,
+    U+20A0-20CF,
+    U+2100-214F,
+    U+2190-22FF,
+    U+2460-24FF,
+    U+25A0-27BF,
+    U+3000-303F,
+    U+3040-30FF,
+    U+31F0-31FF,
+    U+1100-11FF,
+    U+3130-318F,
+    U+A960-A97F,
+    U+AC00-D7AF,
+    U+D7B0-D7FF,
+    U+FE10-FE19,
+    U+FE30-FE6F,
+    U+FF00-FFEF;
 }

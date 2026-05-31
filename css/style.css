@@ -27,6 +27,25 @@
     --radius-l: 32px;
     --radius-m: 20px;
     --radius-s: 14px;
+    --font-sans-ja:
+      'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
+      'Noto Sans KR', sans-serif;
+    --font-sans-cjk-sc:
+      'Pretendard UI Core', 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei',
+      'Noto Sans Thai', 'Leelawadee UI', 'Noto Sans CJK TC', 'Noto Sans TC',
+      'Microsoft JhengHei', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    --font-sans-cjk-tc:
+      'Pretendard UI Core', 'Noto Sans CJK TC', 'Noto Sans TC', 'Microsoft JhengHei',
+      'Noto Sans Thai', 'Leelawadee UI', 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei',
+      'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
+      'Noto Sans KR', sans-serif;
+    --font-sans-th:
+      'Pretendard UI Core', 'Noto Sans Thai', 'Leelawadee UI', 'Noto Sans CJK SC',
+      'Noto Sans SC', 'Microsoft YaHei', 'Noto Sans CJK TC', 'Noto Sans TC',
+      'Microsoft JhengHei', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    --font-sans: var(--font-sans-cjk-sc);
 
     --glass-bg: var(--surface-1);
     --glass-border: transparent;
@@ -174,7 +193,7 @@
   body {
     background-color: var(--bg);
     color: var(--text-main);
-    font-family: 'Pretendard', sans-serif;
+    font-family: var(--font-sans);
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
 
@@ -192,6 +211,18 @@
     flex-direction: column;
     overflow: hidden;
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  html:lang(ja) {
+    --font-sans: var(--font-sans-ja);
+  }
+
+  html:lang(zh-Hant) {
+    --font-sans: var(--font-sans-cjk-tc);
+  }
+
+  html:lang(th) {
+    --font-sans: var(--font-sans-th);
   }
 
   @keyframes fadeIn {
@@ -3233,6 +3264,178 @@
     display: flex;
     justify-content: flex-end;
     gap: 10px;
+  }
+
+  .language-dialog {
+    width: min(420px, 100%);
+    max-height: min(560px, calc(var(--app-height, 100dvh) - 48px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .language-list {
+    --language-list-fade-size: 28px;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: min(392px, calc(var(--app-height, 100dvh) - 196px));
+    margin: 18px 28px 0;
+    padding: 0 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    transition: mask-image 0.16s ease;
+  }
+
+  .language-list.can-scroll-down {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - var(--language-list-fade-size)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - var(--language-list-fade-size)),
+      transparent 100%
+    );
+  }
+
+  .language-list.can-scroll-up {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--language-list-fade-size),
+      #000 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--language-list-fade-size),
+      #000 100%
+    );
+  }
+
+  .language-list.can-scroll-up.can-scroll-down {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--language-list-fade-size),
+      #000 calc(100% - var(--language-list-fade-size)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--language-list-fade-size),
+      #000 calc(100% - var(--language-list-fade-size)),
+      transparent 100%
+    );
+  }
+
+  .language-dialog .dialog-actions {
+    flex-shrink: 0;
+    margin-top: 18px;
+    padding-top: 0;
+  }
+
+  .language-dialog > .cscroll-track {
+    right: 24px;
+    z-index: 2;
+  }
+
+  .language-option {
+    width: 100%;
+    min-height: 56px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-main);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
+  }
+
+  @media (hover: hover) {
+    .language-option:hover {
+      background: rgba(255, 255, 255, 0.035);
+    }
+  }
+
+  .language-option.active {
+    border-color: transparent;
+    background: var(--surface-2);
+    color: var(--primary);
+  }
+
+  .language-option-label {
+    min-width: 0;
+    padding-left: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .language-option-native {
+    font-size: 15px;
+    font-weight: 750;
+    line-height: 1.25;
+  }
+
+  .language-option-native:lang(ja) {
+    font-family: var(--font-sans-ja);
+  }
+
+  .language-option-native:lang(zh-Hans) {
+    font-family: var(--font-sans-cjk-sc);
+  }
+
+  .language-option-native:lang(zh-Hant) {
+    font-family: var(--font-sans-cjk-tc);
+  }
+
+  .language-option-native:lang(th) {
+    font-family: var(--font-sans-th);
+  }
+
+  .language-option-english {
+    color: var(--text-sub);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  .language-option-check {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    opacity: 0;
+  }
+
+  .language-option.active .language-option-check {
+    opacity: 1;
+  }
+
+  .language-option.active .language-option-english {
+    color: rgba(var(--primary-rgb), 0.72);
+  }
+
+  .language-option-check svg {
+    width: 22px;
+    height: 22px;
+    display: block;
   }
 
   .dialog-secondary {
@@ -7432,7 +7635,7 @@ html:not(.ios-standalone) body {
 }
 
 .yt-preview-card::before {
-  content: "";
+  content: '';
   position: absolute;
   left: 0;
   top: 0;
@@ -7484,12 +7687,7 @@ html:not(.ios-standalone) body {
     #000 var(--yt-search-fade-size),
     #000 100%
   );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 var(--yt-search-fade-size),
-    #000 100%
-  );
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--yt-search-fade-size), #000 100%);
 }
 
 .yt-search-results.can-scroll-up.can-scroll-down {
@@ -7545,7 +7743,7 @@ html:not(.ios-standalone) body {
 }
 
 .yt-search-result::before {
-  content: "";
+  content: '';
   position: absolute;
   left: 0;
   top: 0;
@@ -7738,7 +7936,9 @@ html:not(.ios-standalone) body {
 /* Global button shape policy: card-like choice buttons, navigation tabs,
    underline-style subtabs, and segmented-control pieces keep their framed
    shape; every other real button uses a pill/capsule hit surface. */
-button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(.yt-search-result):not(.chat-youtube-btn) {
+button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
+    .yt-search-result
+  ):not(.chat-youtube-btn):not(.language-option) {
   border-radius: 999px !important;
 }
 

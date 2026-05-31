@@ -8,12 +8,22 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { isPlaybackModeSystemAudio } from '../player/ownership.ts';
-import { setLanguageMode, t } from '../i18n/index.ts';
+import {
+  getLanguageMode,
+  getResolvedLanguage,
+  LANGUAGE_OPTIONS,
+  setLanguageMode,
+  t,
+  type LanguageCode,
+} from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
 import { syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
+import { initCustomScrollbar } from './custom-scrollbar.ts';
+import { syncOverlayState } from './dom.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -530,6 +540,129 @@ export function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
 
 const _busScope = createBusScope();
 
+function refreshLanguageControls(): void {
+  const mode = getLanguageMode();
+  const resolved = getResolvedLanguage();
+
+  document.querySelectorAll('#grid-lang .ch-opt').forEach((el) => el.classList.remove('active'));
+  document
+    .getElementById(mode === 'system' ? 'btn-language-system' : 'btn-language-select')
+    ?.classList.add('active');
+
+  document.querySelectorAll<HTMLElement>('.language-option[data-lang]').forEach((option) => {
+    const active = option.dataset.lang === resolved;
+    option.classList.toggle('active', active);
+    option.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function renderLanguageOptions(): void {
+  const list = document.getElementById('language-list');
+  if (!list || list.dataset.rendered === 'true') return;
+
+  const fragment = document.createDocumentFragment();
+  for (const lang of LANGUAGE_OPTIONS) {
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = 'language-option';
+    option.dataset.lang = lang.code;
+    option.setAttribute('role', 'option');
+
+    const label = document.createElement('span');
+    label.className = 'language-option-label';
+
+    const nativeName = document.createElement('span');
+    nativeName.className = 'language-option-native';
+    nativeName.lang = lang.htmlLang;
+    nativeName.textContent = lang.nativeName;
+    label.appendChild(nativeName);
+
+    if (lang.englishName !== lang.nativeName) {
+      const englishName = document.createElement('span');
+      englishName.className = 'language-option-english';
+      englishName.lang = 'en';
+      englishName.textContent = lang.englishName;
+      label.appendChild(englishName);
+    }
+
+    const check = document.createElement('span');
+    check.className = 'language-option-check';
+    check.setAttribute('aria-hidden', 'true');
+    check.innerHTML =
+      '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 6.9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    option.appendChild(label);
+    option.appendChild(check);
+    option.addEventListener('click', () => {
+      setLanguageMode(lang.code);
+      refreshLanguageControls();
+      bus.emit('ui:scrollbar-relayout');
+    });
+
+    fragment.appendChild(option);
+  }
+
+  list.appendChild(fragment);
+  list.dataset.rendered = 'true';
+  initCustomScrollbar(list);
+  bindLanguageScrollMask();
+  updateLanguageScrollMask();
+  refreshLanguageControls();
+}
+
+function updateLanguageScrollMask(): void {
+  const list = document.getElementById('language-list');
+  if (!list) return;
+
+  const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+  const hasOverflow = maxScrollTop > 2;
+  const scrollTop = list.scrollTop;
+
+  list.classList.toggle('can-scroll-up', hasOverflow && scrollTop > 2);
+  list.classList.toggle('can-scroll-down', hasOverflow && scrollTop < maxScrollTop - 2);
+}
+
+function bindLanguageScrollMask(): void {
+  const list = document.getElementById('language-list');
+  if (!list || list.dataset.scrollMaskBound === '1') return;
+
+  list.dataset.scrollMaskBound = '1';
+  list.addEventListener('scroll', () => updateLanguageScrollMask(), { passive: true });
+}
+
+function openLanguageDialog(): void {
+  renderLanguageOptions();
+  refreshLanguageControls();
+
+  const overlay = document.getElementById('language-dialog-overlay');
+  if (!overlay) return;
+  overlay.classList.add('show');
+  overlay.setAttribute('aria-hidden', 'false');
+  syncOverlayState();
+
+  setManagedTimer(
+    'language-dialog-focus',
+    () => {
+      const active =
+        document.querySelector<HTMLElement>(
+          `.language-option[data-lang="${getResolvedLanguage() as LanguageCode}"]`,
+        ) || document.querySelector<HTMLElement>('.language-option');
+      active?.focus();
+      bus.emit('ui:scrollbar-relayout');
+      updateLanguageScrollMask();
+    },
+    0,
+  );
+}
+
+function closeLanguageDialog(): void {
+  const overlay = document.getElementById('language-dialog-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('show');
+  overlay.setAttribute('aria-hidden', 'true');
+  syncOverlayState();
+}
+
 export function initSettings(): void {
   _busScope.dispose();
   const $on = (id: string, evt: string, fn: EventListener) => {
@@ -542,10 +675,19 @@ export function initSettings(): void {
     opt.addEventListener('click', () => setTheme(opt.dataset.theme!));
   });
 
-  // Language grid
-  document.querySelectorAll<HTMLElement>('#grid-lang .ch-opt[data-lang]').forEach((opt) => {
-    opt.addEventListener('click', () => setLanguageMode(opt.dataset.lang!));
+  // Language controls
+  renderLanguageOptions();
+  $on('btn-language-select', 'click', () => openLanguageDialog());
+  $on('btn-language-system', 'click', () => setLanguageMode('system'));
+  $on('btn-language-dialog-done', 'click', () => closeLanguageDialog());
+  const languageOverlay = document.getElementById('language-dialog-overlay');
+  languageOverlay?.addEventListener('click', (e) => {
+    if (e.target === languageOverlay) closeLanguageDialog();
   });
+  languageOverlay?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeLanguageDialog();
+  });
+  refreshLanguageControls();
 
   // Channel grid (standard)
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach((el) => {
@@ -791,6 +933,8 @@ export function initSettings(): void {
   _busScope.on('i18n:changed', () => {
     const list = getState('network.connectedPeers') || [];
     renderDeviceList(list);
+    refreshLanguageControls();
+    updateLanguageScrollMask();
   });
 
   // Initial theme: restore from localStorage (defaults to system; 'system' auto-resolves)

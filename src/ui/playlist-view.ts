@@ -103,6 +103,7 @@ export function updatePlaylistUI(): void {
     const key = isHost ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
     const empty = document.createElement('li');
     empty.className = 'list-empty-state';
+    empty.setAttribute('data-i18n', key);
     empty.textContent = t(key);
     ul.replaceChildren(empty);
     return;
@@ -314,6 +315,7 @@ export function initPlaylistView(): void {
   _busScope.on('state:youtube.subItemsMap', debouncedUpdate);
   scopePlaybackModeActivity(_busScope, debouncedUpdate);
   _busScope.on('state:network.connectionType', debouncedUpdate);
+  _busScope.on('i18n:changed', debouncedUpdate);
 
   _busScope.on('ui:playlist-tab-opened', () => {
     // Reset indices to force scroll on the next UI update

@@ -133,14 +133,34 @@ describe('i18n functions', () => {
       expect(getResolvedLanguage()).toBe('en');
     });
 
-    it('returns "en" for non-Korean languages (fallback)', async () => {
+    it('returns a supported non-English language when available', async () => {
       Object.defineProperty(navigator, 'languages', {
         value: ['ja-JP'],
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
       initI18n();
+      expect(getResolvedLanguage()).toBe('ja');
+    });
+
+    it('returns "en" for unsupported languages (fallback)', async () => {
+      Object.defineProperty(navigator, 'languages', {
+        value: ['ru-RU'],
+        configurable: true,
+      });
+      const { getResolvedLanguage, initI18n } = await import('../index.ts');
+      initI18n();
       expect(getResolvedLanguage()).toBe('en');
+    });
+
+    it('maps traditional Chinese system locales', async () => {
+      Object.defineProperty(navigator, 'languages', {
+        value: ['zh-TW'],
+        configurable: true,
+      });
+      const { getResolvedLanguage, initI18n } = await import('../index.ts');
+      initI18n();
+      expect(getResolvedLanguage()).toBe('zh-hant');
     });
   });
 
@@ -167,7 +187,7 @@ describe('i18n functions', () => {
       expect(document.documentElement.getAttribute('lang')).toBe('ko');
     });
 
-    it('falls back to system-resolved language for invalid mode', async () => {
+    it('falls back to system mode for invalid mode', async () => {
       Object.defineProperty(navigator, 'languages', {
         value: ['en-US'],
         configurable: true,
@@ -175,8 +195,21 @@ describe('i18n functions', () => {
       const { setLanguageMode, initI18n } = await import('../index.ts');
       initI18n();
       setLanguageMode('invalid');
-      // Invalid mode is resolved to the system language ('en' for en-US)
-      expect(localStorage.getItem('musixquare-lang')).toBe('en');
+      expect(localStorage.getItem('musixquare-lang')).toBe('system');
+    });
+
+    it('persists system mode while resolving to the browser language', async () => {
+      Object.defineProperty(navigator, 'languages', {
+        value: ['ja-JP'],
+        configurable: true,
+      });
+      const { getLanguageMode, getResolvedLanguage, setLanguageMode, initI18n } =
+        await import('../index.ts');
+      initI18n();
+      setLanguageMode('system');
+      expect(localStorage.getItem('musixquare-lang')).toBe('system');
+      expect(getLanguageMode()).toBe('system');
+      expect(getResolvedLanguage()).toBe('ja');
     });
   });
 

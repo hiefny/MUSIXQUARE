@@ -11,7 +11,11 @@
          rules apply on first frame. Source: public/bootstrap.js -->
     <script src="/bootstrap.js"></script>
     <!-- Cloudflare Web Analytics -->
-    <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'></script>
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'
+    ></script>
     <!-- End Cloudflare Web Analytics -->
 
     <link rel="canonical" href="https://musixquare.com/" />
@@ -67,6 +71,7 @@
          parses. No inline <style> needed → CSP can drop style-src
          'unsafe-inline'. -->
     <link rel="stylesheet" href="css/pretendard.css" />
+    <link rel="stylesheet" href="css/noto.css" />
     <link rel="stylesheet" href="css/style.css" />
     <link rel="stylesheet" href="css/desktop.css" />
 
@@ -695,36 +700,60 @@
             <div class="section-header-row">
               <span class="section-title" data-i18n="settings.language"></span>
             </div>
-            <div class="channel-grid" id="grid-lang">
-              <button type="button" class="ch-opt" data-lang="ko">
+            <div class="channel-grid language-mode-grid" id="grid-lang">
+              <button
+                type="button"
+                class="ch-opt"
+                id="btn-language-select"
+                data-lang-action="select"
+                data-i18n-aria-label="settings.language_select_aria"
+              >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <text
-                    x="12"
-                    y="17"
-                    text-anchor="middle"
-                    font-size="16"
-                    font-weight="bold"
-                    fill="currentColor"
-                  >
-                    가
-                  </text>
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                  />
+                  <path
+                    d="M3.5 12h17M12 3c2.4 2.4 3.6 5.4 3.6 9S14.4 18.6 12 21M12 3c-2.4 2.4-3.6 5.4-3.6 9s1.2 6.6 3.6 9"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-width="1.8"
+                  />
                 </svg>
-                <span>한국어</span>
+                <span data-i18n="settings.language_select"></span>
               </button>
-              <button type="button" class="ch-opt" data-lang="en">
+              <button
+                type="button"
+                class="ch-opt"
+                id="btn-language-system"
+                data-lang-action="system"
+                data-i18n-aria-label="settings.language_system_aria"
+              >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <text
-                    x="12"
-                    y="17"
-                    text-anchor="middle"
-                    font-size="16"
-                    font-weight="bold"
-                    fill="currentColor"
-                  >
-                    A
-                  </text>
+                  <rect
+                    x="4"
+                    y="5"
+                    width="16"
+                    height="12"
+                    rx="2.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                  />
+                  <path
+                    d="M9 20h6M12 17v3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-width="1.8"
+                  />
                 </svg>
-                <span>English</span>
+                <span data-i18n="settings.language_system"></span>
               </button>
             </div>
           </div>
@@ -2548,6 +2577,42 @@
             class="dialog-primary"
             id="btn-dialog-ok"
             data-i18n="common.ok"
+          ></button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay language-dialog-overlay"
+      id="language-dialog-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog language-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="language-dialog-title"
+      >
+        <div class="dialog-header">
+          <span
+            class="dialog-title"
+            id="language-dialog-title"
+            data-i18n="settings.language_dialog_title"
+          ></span>
+        </div>
+        <div
+          class="language-list"
+          id="language-list"
+          role="listbox"
+          data-custom-scroll
+          data-custom-scroll-contained
+        ></div>
+        <div class="dialog-actions">
+          <button
+            type="button"
+            class="dialog-primary"
+            id="btn-language-dialog-done"
+            data-i18n="common.done"
           ></button>
         </div>
       </div>

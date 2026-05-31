@@ -347,6 +347,7 @@ function setStatus(key: I18nKey, color = 'var(--text-sub)'): void {
   const status = getStatusText();
   if (!status) return;
   status.style.display = 'block';
+  status.setAttribute('data-i18n', key);
   status.textContent = t(key);
   status.style.color = color;
 }
@@ -645,6 +646,7 @@ export function fetchYouTubePreview(url: string): void {
         freshPreview.hidden = true;
         freshPreview.style.removeProperty('display');
         freshStatus.style.display = 'block';
+        freshStatus.setAttribute('data-i18n', 'youtube.fetch_failed');
         freshStatus.innerText = t('youtube.fetch_failed');
         freshStatus.style.color = 'var(--danger, #ef4444)';
         freshSetPlayBtnEnabled(false);

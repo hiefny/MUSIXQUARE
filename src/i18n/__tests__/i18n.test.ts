@@ -42,8 +42,9 @@ describe('t() translation function', () => {
 });
 
 describe('getResolvedLanguage', () => {
-  it('returns ko or en', () => {
+  it('returns a supported language code', async () => {
+    const { LANGUAGE_OPTIONS } = await import('../index.ts');
     const lang = getResolvedLanguage();
-    expect(['ko', 'en']).toContain(lang);
+    expect(LANGUAGE_OPTIONS.map((option) => option.code)).toContain(lang);
   });
 });

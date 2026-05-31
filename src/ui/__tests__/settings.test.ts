@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
+import { LANGUAGE_OPTIONS, setLanguageMode } from '../../i18n/index.ts';
 
 // Mock player-controls.ts (transitive dep)
 vi.mock('../player-controls.ts', () => ({
@@ -16,6 +17,20 @@ vi.mock('../toast.ts', () => ({
 }));
 
 import { initSettings, setTheme, selectStandardChannelButton } from '../settings.ts';
+
+class ResizeObserverStub {
+  observe(): void {
+    /* noop */
+  }
+
+  unobserve(): void {
+    /* noop */
+  }
+
+  disconnect(): void {
+    /* noop */
+  }
+}
 
 function installEffectSettingsDom(): void {
   document.body.insertAdjacentHTML(
@@ -58,6 +73,55 @@ function installEffectSettingsDom(): void {
   );
 }
 
+function installLanguageSettingsDom(): void {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `
+      <div class="channel-grid language-mode-grid" id="grid-lang">
+        <button
+          type="button"
+          class="ch-opt"
+          id="btn-language-select"
+          data-lang-action="select"
+        >
+          <span>Select</span>
+        </button>
+        <button
+          type="button"
+          class="ch-opt"
+          id="btn-language-system"
+          data-lang-action="system"
+        >
+          <span>System</span>
+        </button>
+      </div>
+      <div
+        class="dialog-overlay language-dialog-overlay"
+        id="language-dialog-overlay"
+        aria-hidden="true"
+      >
+        <div class="dialog language-dialog">
+          <div class="dialog-header">
+            <span class="dialog-title" id="language-dialog-title">Select Language</span>
+          </div>
+          <div
+            class="language-list"
+            id="language-list"
+            role="listbox"
+            data-custom-scroll
+            data-custom-scroll-contained
+          ></div>
+          <div class="dialog-actions">
+            <button type="button" class="dialog-primary" id="btn-language-dialog-done">
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    `,
+  );
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   resetState();
@@ -78,6 +142,14 @@ beforeEach(() => {
       dispatchEvent: vi.fn(),
     })),
   });
+  Object.defineProperty(window, 'ResizeObserver', {
+    writable: true,
+    value: ResizeObserverStub,
+  });
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    writable: true,
+    value: ResizeObserverStub,
+  });
   document.body.innerHTML = `
     <div class="channel-grid" id="grid-theme">
       <div class="ch-opt" data-theme="light" id="theme-light">Light</div>
@@ -92,6 +164,7 @@ beforeEach(() => {
     <meta name="theme-color" content="">
     <meta name="color-scheme" content="">
   `;
+  setLanguageMode('en');
 });
 
 describe('setTheme', () => {
@@ -187,6 +260,49 @@ describe('initSettings playback mode guards', () => {
 
     expect(setChannel).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('Cannot change roles during system audio sharing.');
+  });
+});
+
+describe('initSettings language controls', () => {
+  it('opens the language dialog with all supported languages and a custom scrollbar', () => {
+    setLanguageMode('ko');
+    installLanguageSettingsDom();
+    initSettings();
+
+    document.getElementById('btn-language-select')?.click();
+
+    expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
+      true,
+    );
+    expect(document.querySelectorAll('.language-option')).toHaveLength(LANGUAGE_OPTIONS.length);
+    expect(document.querySelector('.language-dialog > .cscroll-track')).not.toBeNull();
+    expect(
+      document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang,
+    ).toBe('ko');
+  });
+
+  it('switches between explicit selection and system language mode', () => {
+    installLanguageSettingsDom();
+    initSettings();
+
+    document.getElementById('btn-language-select')?.click();
+    document.querySelector<HTMLElement>('.language-option[data-lang="en"]')?.click();
+
+    expect(localStorage.getItem('musixquare-lang')).toBe('en');
+    expect(document.getElementById('btn-language-select')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
+      true,
+    );
+
+    document.getElementById('btn-language-dialog-done')?.click();
+    expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+
+    document.getElementById('btn-language-system')?.click();
+
+    expect(localStorage.getItem('musixquare-lang')).toBe('system');
+    expect(document.getElementById('btn-language-system')?.classList.contains('active')).toBe(true);
   });
 });
 

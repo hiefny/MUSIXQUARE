@@ -19,6 +19,7 @@ import { copyTextToClipboard } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 
 let _langObserver: MutationObserver | null = null;
+let _lastDeviceList: Array<Record<string, unknown>> = [];
 
 // ─── Host-Ctrl Lock (shared pattern) ────────────────────────────
 
@@ -53,6 +54,7 @@ async function generateQR(containerId: string): Promise<void> {
   if (!sessionStarted || !sessionCode || !/^\d{6}$/.test(sessionCode)) {
     const p = document.createElement('p');
     p.className = 'qr-placeholder';
+    p.setAttribute('data-i18n', 'connect.no_session');
     p.textContent = t('connect.no_session');
     container.replaceChildren(p);
     return;
@@ -60,6 +62,7 @@ async function generateQR(containerId: string): Promise<void> {
 
   const loadingP = document.createElement('p');
   loadingP.className = 'qr-placeholder';
+  loadingP.setAttribute('data-i18n', 'connect.generating_qr');
   loadingP.textContent = t('connect.generating_qr');
   container.replaceChildren(loadingP);
 
@@ -111,6 +114,7 @@ async function generateQR(containerId: string): Promise<void> {
     log.warn('[Connect] QR generation failed', e);
     const errP = document.createElement('p');
     errP.className = 'qr-placeholder';
+    errP.setAttribute('data-i18n', 'connect.no_session');
     errP.textContent = t('connect.no_session');
     container.replaceChildren(errP);
   }
@@ -356,6 +360,7 @@ function _deviceListTitle(count: number): string {
 }
 
 function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
+  _lastDeviceList = list;
   _lastDeviceCount = list.length;
   _updateDeviceTitles();
 
@@ -485,6 +490,11 @@ export function initConnect(): void {
     syncRoomPasswordControls();
   });
   _langObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+  _busScope.on('i18n:changed', () => {
+    _updateDeviceTitles();
+    syncRoomPasswordControls();
+    if (_lastDeviceList.length > 0) renderConnectDeviceList(_lastDeviceList);
+  });
 
   _busScope.on('network:device-list-update', (list: unknown[]) => {
     if (Array.isArray(list)) {

@@ -34,10 +34,7 @@ export function animateTransition(callback: () => void): void {
   // Skip View Transitions while the header loading-bar CSS transition
   // is in progress — startViewTransition snapshots replay CSS transitions,
   // causing the loading animation to appear twice.
-  if (
-    Date.now() < _suppressViewTransitionUntil ||
-    !transitionDocument.startViewTransition
-  ) {
+  if (Date.now() < _suppressViewTransitionUntil || !transitionDocument.startViewTransition) {
     callback();
     return;
   }
@@ -130,6 +127,7 @@ const OVERLAYS: readonly OverlayDef[] = [
   { id: 'media-source-overlay', cls: 'active', fullscreen: true },
   { id: 'youtube-url-overlay', cls: 'active', fullscreen: true },
   { id: 'dialog-overlay', cls: 'show', fullscreen: false },
+  { id: 'language-dialog-overlay', cls: 'show', fullscreen: false },
 ] as const;
 
 function isShown(o: OverlayDef): boolean {

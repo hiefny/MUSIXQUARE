@@ -15,11 +15,63 @@ export type { I18nKey };
 
 // ─── Language State ──────────────────────────────────────────────
 
-type ResolvedLang = 'ko' | 'en';
+export const LANGUAGE_OPTIONS = [
+  { code: 'en', htmlLang: 'en', nativeName: 'English', englishName: 'Default' },
+  { code: 'ko', htmlLang: 'ko', nativeName: '한국어', englishName: 'Korean' },
+  { code: 'ja', htmlLang: 'ja', nativeName: '日本語', englishName: 'Japanese' },
+  {
+    code: 'zh-hans',
+    htmlLang: 'zh-Hans',
+    nativeName: '简体中文',
+    englishName: 'Chinese (Simplified)',
+  },
+  {
+    code: 'zh-hant',
+    htmlLang: 'zh-Hant',
+    nativeName: '繁體中文',
+    englishName: 'Chinese (Traditional)',
+  },
+  { code: 'es', htmlLang: 'es', nativeName: 'Español', englishName: 'Spanish' },
+  {
+    code: 'pt-br',
+    htmlLang: 'pt-BR',
+    nativeName: 'Português (Brasil)',
+    englishName: 'Portuguese (Brazil)',
+  },
+  { code: 'fr', htmlLang: 'fr', nativeName: 'Français', englishName: 'French' },
+  { code: 'de', htmlLang: 'de', nativeName: 'Deutsch', englishName: 'German' },
+  { code: 'id', htmlLang: 'id', nativeName: 'Bahasa Indonesia', englishName: 'Indonesian' },
+  { code: 'vi', htmlLang: 'vi', nativeName: 'Tiếng Việt', englishName: 'Vietnamese' },
+  { code: 'th', htmlLang: 'th', nativeName: 'ไทย', englishName: 'Thai' },
+] as const;
 
-let _resolved: ResolvedLang = _resolveSystem();
+export type LanguageCode = (typeof LANGUAGE_OPTIONS)[number]['code'];
+export type LanguageMode = LanguageCode | 'system';
 
-const _dicts: Record<ResolvedLang, Record<string, string>> = { ko, en };
+let _mode: LanguageMode = 'system';
+let _resolved: LanguageCode = _resolveSystem();
+
+const _dicts: Partial<Record<LanguageCode, Record<string, string>>> = {
+  ko,
+  en,
+};
+
+const _localeLoaders: Partial<
+  Record<LanguageCode, () => Promise<{ default: Record<string, string> }>>
+> = {
+  de: () => import('./de.ts'),
+  es: () => import('./es.ts'),
+  fr: () => import('./fr.ts'),
+  id: () => import('./id.ts'),
+  ja: () => import('./ja.ts'),
+  'pt-br': () => import('./pt-br.ts'),
+  th: () => import('./th.ts'),
+  vi: () => import('./vi.ts'),
+  'zh-hans': () => import('./zh-hans.ts'),
+  'zh-hant': () => import('./zh-hant.ts'),
+};
+
+const _loadingLocales = new Map<LanguageCode, Promise<void>>();
 
 // ─── Public API ─────────────────────────────────────────────────
 
@@ -31,7 +83,8 @@ const _dicts: Record<ResolvedLang, Record<string, string>> = { ko, en };
  *   t('toast.device_connected', { name: 'iPhone' })  // "iPhone가 연결됐어요"
  */
 export function t(key: I18nKey, params?: Record<string, string | number>): string {
-  let str: string = _dicts[_resolved][key] ?? key;
+  const dict = _dicts[_resolved] || en;
+  let str: string = dict[key] ?? en[key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       str = str.replaceAll(`{{${k}}}`, String(v));
@@ -42,7 +95,8 @@ export function t(key: I18nKey, params?: Record<string, string | number>): strin
 
 /** Translate with HTML-safe interpolation (escapes param values for innerHTML contexts). */
 export function tHtml(key: I18nKey, params?: Record<string, string | number>): string {
-  let str: string = _dicts[_resolved][key] ?? key;
+  const dict = _dicts[_resolved] || en;
+  let str: string = dict[key] ?? en[key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       const escaped = String(v).replace(
@@ -56,30 +110,54 @@ export function tHtml(key: I18nKey, params?: Record<string, string | number>): s
 }
 
 /** Current effective language (after system resolution). */
-export function getResolvedLanguage(): ResolvedLang {
+export function getResolvedLanguage(): LanguageCode {
   return _resolved;
+}
+
+/** Current preference mode. `system` means the effective language follows the browser. */
+export function getLanguageMode(): LanguageMode {
+  return _mode;
+}
+
+/** Current system-resolved language using the browser preference list. */
+export function getSystemResolvedLanguage(): LanguageCode {
+  return _resolveSystem();
 }
 
 /** Switch language mode. Persists to localStorage and retranslates DOM. */
 export function setLanguageMode(mode: string): void {
-  // Migrate legacy 'system' → resolve to actual value
-  if (mode === 'system') mode = _resolveSystem();
-  if (mode !== 'ko' && mode !== 'en') mode = _resolveSystem();
-  _updateSelector(mode);
+  const normalizedMode = _normalizeLanguageMode(mode);
+  const resolved = normalizedMode === 'system' ? _resolveSystem() : normalizedMode;
+  _mode = normalizedMode;
+  _updateSelector(normalizedMode);
 
   try {
-    localStorage.setItem('musixquare-lang', mode);
+    localStorage.setItem('musixquare-lang', normalizedMode);
   } catch {
     /* ignore */
   }
 
-  _applyLanguage(mode as ResolvedLang);
+  _applyLanguage(resolved);
 }
 
 /** Bootstrap — call once from app.ts. */
 export function initI18n(): void {
-  const saved = localStorage.getItem('musixquare-lang');
-  setLanguageMode(saved || _resolveSystem());
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem('musixquare-lang');
+  } catch {
+    /* ignore */
+  }
+
+  setLanguageMode(saved || 'system');
+
+  try {
+    window.addEventListener('languagechange', () => {
+      if (_mode === 'system') setLanguageMode('system');
+    });
+  } catch {
+    /* ignore */
+  }
 
   log.info('[i18n] Initialized');
 }
@@ -141,27 +219,83 @@ function _ensureObserver(): void {
 
 // ─── Internal ───────────────────────────────────────────────────
 
-function _resolveSystem(): ResolvedLang {
+function _normalizeLanguageMode(value: string | null | undefined): LanguageMode {
+  if (value === 'system') return 'system';
+  return _matchLanguage(value) ?? 'system';
+}
+
+function _matchLanguage(value: string | null | undefined): LanguageCode | null {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/_/g, '-')
+    .toLowerCase();
+  if (!normalized) return null;
+
+  if (normalized === 'zh-hans' || normalized.startsWith('zh-hans-')) return 'zh-hans';
+  if (normalized === 'zh-hant' || normalized.startsWith('zh-hant-')) return 'zh-hant';
+  if (normalized.startsWith('zh')) {
+    if (
+      normalized.includes('tw') ||
+      normalized.includes('hk') ||
+      normalized.includes('mo') ||
+      normalized.includes('hant')
+    ) {
+      return 'zh-hant';
+    }
+    return 'zh-hans';
+  }
+
+  if (normalized === 'pt-br' || normalized.startsWith('pt-br-')) return 'pt-br';
+  if (normalized === 'pt' || normalized.startsWith('pt-')) return 'pt-br';
+
+  const primary = normalized.split('-')[0];
+  if (LANGUAGE_OPTIONS.some((lang) => lang.code === primary)) return primary as LanguageCode;
+  return null;
+}
+
+function _resolveSystem(): LanguageCode {
   try {
     const langs = navigator.languages?.length ? navigator.languages : [navigator.language || ''];
-    return String(langs[0] || '')
-      .toLowerCase()
-      .startsWith('ko')
-      ? 'ko'
-      : 'en';
+    for (const lang of langs) {
+      const matched = _matchLanguage(lang);
+      if (matched) return matched;
+    }
+    return 'en';
   } catch {
-    return 'ko';
+    return 'en';
   }
 }
 
-function _applyLanguage(resolved: ResolvedLang): void {
-  _resolved = resolved;
-  try {
-    document.documentElement.setAttribute('lang', _resolved);
-  } catch {
-    /* ignore */
-  }
+function _htmlLangFor(code: LanguageCode): string {
+  return LANGUAGE_OPTIONS.find((lang) => lang.code === code)?.htmlLang ?? code;
+}
 
+function _loadLanguage(code: LanguageCode): Promise<void> {
+  if (_dicts[code]) return Promise.resolve();
+  const loader = _localeLoaders[code];
+  if (!loader) return Promise.resolve();
+
+  const existing = _loadingLocales.get(code);
+  if (existing) return existing;
+
+  const pending = loader()
+    .then((mod) => {
+      _dicts[code] = mod.default;
+    })
+    .catch((error) => {
+      log.warn(`[i18n] Failed to load locale "${code}", falling back to English`, error);
+      _dicts[code] = en;
+    })
+    .finally(() => {
+      _loadingLocales.delete(code);
+    });
+
+  _loadingLocales.set(code, pending);
+  return pending;
+}
+
+function _translateLoadedLanguage(resolved: LanguageCode): void {
+  if (_resolved !== resolved) return;
   _ensureObserver();
   _translateSubtree(document.body || document.documentElement);
 
@@ -170,9 +304,29 @@ function _applyLanguage(resolved: ResolvedLang): void {
   bus.emit('i18n:changed', resolved);
 }
 
-function _updateSelector(mode: string): void {
+function _applyLanguage(resolved: LanguageCode): void {
+  _resolved = resolved;
+  try {
+    document.documentElement.setAttribute('lang', _htmlLangFor(_resolved));
+  } catch {
+    /* ignore */
+  }
+
+  if (_dicts[resolved]) {
+    _translateLoadedLanguage(resolved);
+    return;
+  }
+
+  void _loadLanguage(resolved).then(() => _translateLoadedLanguage(resolved));
+}
+
+function _updateSelector(mode: LanguageMode): void {
   try {
     document.querySelectorAll('#grid-lang .ch-opt').forEach((el) => el.classList.remove('active'));
+    const action = mode === 'system' ? 'system' : 'select';
+    document
+      .querySelector(`#grid-lang .ch-opt[data-lang-action="${action}"]`)
+      ?.classList.add('active');
     document.querySelector(`#grid-lang .ch-opt[data-lang="${mode}"]`)?.classList.add('active');
   } catch {
     /* ignore */

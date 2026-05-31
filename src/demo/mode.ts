@@ -50,6 +50,7 @@ type DemoSnapshot = {
   eqValues: number[];
   stereoWidth: number;
   virtualBass: number;
+  exciter: boolean;
   userPreampGain: number;
   subFreq: number;
   currentTrackMeta: TrackMeta | null;
@@ -137,6 +138,7 @@ function captureSnapshot(): DemoSnapshot {
     eqValues: [...(getState('audio.eqValues') || [])],
     stereoWidth: getState('audio.stereoWidth'),
     virtualBass: getState('audio.virtualBass'),
+    exciter: getState('audio.exciter'),
     userPreampGain: getState('audio.userPreampGain'),
     subFreq: getState('audio.subFreq'),
     currentTrackMeta: getState('player.currentTrackMeta') as TrackMeta | null,
@@ -166,6 +168,7 @@ function restoreSnapshot(
   setState('audio.eqValues', [...snapshot.eqValues]);
   setState('audio.stereoWidth', snapshot.stereoWidth);
   setState('audio.virtualBass', snapshot.virtualBass);
+  setState('audio.exciter', snapshot.exciter);
   setState('audio.userPreampGain', snapshot.userPreampGain);
   setState('audio.subFreq', snapshot.subFreq);
   if (restoreMedia) {
@@ -795,6 +798,7 @@ function applyDemoToneState(
   trebleOn = getState('demo.trebleBoostOn'),
 ): void {
   bus.emit('audio:update-effect', 'vbass', 'mix', bassOn ? 60 : 0, false);
+  bus.emit('audio:update-effect', 'exciter', 'mix', trebleOn ? 1 : 0, false);
   applyDemoEqPreset(getDemoEqPreset(!!bassOn, !!trebleOn));
 }
 
@@ -802,13 +806,14 @@ function syncDemoEffectStateFromAudio(): void {
   if (!getState('demo.active')) return;
   const reverbOn = (getState('audio.reverbMix') || 0) > 0.001;
   const bassOn = (getState('audio.virtualBass') || 0) > 0.001;
+  const exciterOn = !!getState('audio.exciter');
   const eqValues = getState('audio.eqValues');
   const eqIsFlat = eqMatches(eqValues, FLAT_EQ);
   const eqIsWarm = eqMatches(eqValues, WARM_EQ);
   const eqIsBright = eqMatches(eqValues, BRIGHT_EQ);
   const eqIsVShape = eqMatches(eqValues, V_SHAPE_EQ);
   const trebleOn =
-    eqIsBright || eqIsVShape
+    exciterOn || eqIsBright || eqIsVShape
       ? true
       : eqIsFlat || eqIsWarm
         ? false
@@ -1232,6 +1237,7 @@ export function initDemoMode(): void {
   _busScope.on('state:demo.loading', () => syncPlayButton());
   _busScope.on('state:audio.reverbMix', () => scheduleDemoEffectStateSync());
   _busScope.on('state:audio.virtualBass', () => scheduleDemoEffectStateSync());
+  _busScope.on('state:audio.exciter', () => scheduleDemoEffectStateSync());
   _busScope.on('state:audio.eqValues', () => scheduleDemoEffectStateSync());
   _busScope.on('state:audio.stereoWidth', () => scheduleDemoEffectStateSync());
   _busScope.on('state:playback.activity', () => syncPlayButton());

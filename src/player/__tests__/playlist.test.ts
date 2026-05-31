@@ -148,6 +148,9 @@ describe('request-setting authorization', () => {
     await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.VBASS, value: 60 }, conn);
     expect(getState('audio.virtualBass')).toBeCloseTo(0.6);
 
+    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.EXCITER, value: 1 }, conn);
+    expect(getState('audio.exciter')).toBe(true);
+
     await handleData(
       { type: MSG.REQUEST_SETTING, settingType: MSG.STEREO_WIDTH, value: 120 },
       conn,

@@ -3163,6 +3163,19 @@
     word-break: keep-all;
   }
 
+  html:lang(ja) .dialog-message,
+  html:lang(ja) .ob-slide .ob-desc,
+  html:lang(ja) .ob-desc,
+  html:lang(ja) .setup-header-text p,
+  html:lang(ja) .setup-unified-item .setup-inner-desc,
+  html:lang(ja) .setup-inner-desc,
+  html:lang(ja) .demo-step-copy p,
+  html:lang(ja) .demo-step-body {
+    word-break: normal;
+    overflow-wrap: anywhere;
+    line-break: strict;
+  }
+
   .dialog-input {
     display: block;
     width: 100%;
@@ -6336,6 +6349,10 @@
     font-weight: 600;
     letter-spacing: -0.3px;
     flex: 1;
+    min-width: 0;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .btn-icon-bg {
@@ -6416,6 +6433,10 @@
     font-size: 15px;
     font-weight: 600;
     color: currentColor;
+    min-width: 0;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   #btn-sync:hover,

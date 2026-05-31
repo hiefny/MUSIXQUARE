@@ -1,48 +1,78 @@
 import { describe, it, expect } from 'vitest';
 import ko from '../ko.ts';
 import en from '../en.ts';
+import de from '../de.ts';
+import es from '../es.ts';
+import fr from '../fr.ts';
+import id from '../id.ts';
+import ja from '../ja.ts';
+import ptBr from '../pt-br.ts';
+import th from '../th.ts';
+import vi from '../vi.ts';
+import zhHans from '../zh-hans.ts';
+import zhHant from '../zh-hant.ts';
 
 const koKeys = Object.keys(ko);
-const enKeys = Object.keys(en);
+const locales = {
+  ko,
+  en,
+  de,
+  es,
+  fr,
+  id,
+  ja,
+  ptBr,
+  th,
+  vi,
+  zhHans,
+  zhHant,
+};
 
 describe('Translation key integrity', () => {
-  it('ko and en have the same number of keys', () => {
-    expect(koKeys.length).toBe(enKeys.length);
+  it('all locales have the same number of keys as ko', () => {
+    for (const [locale, dict] of Object.entries(locales)) {
+      expect(Object.keys(dict), locale).toHaveLength(koKeys.length);
+    }
   });
 
-  it('every ko key exists in en', () => {
-    const missingInEn = koKeys.filter((k) => !(k in en));
-    expect(missingInEn).toEqual([]);
+  it('every ko key exists in each locale', () => {
+    for (const [locale, dict] of Object.entries(locales)) {
+      const missing = koKeys.filter((k) => !(k in dict));
+      expect(missing, locale).toEqual([]);
+    }
   });
 
-  it('every en key exists in ko', () => {
-    const missingInKo = enKeys.filter((k) => !(k in ko));
-    expect(missingInKo).toEqual([]);
+  it('every locale key exists in ko', () => {
+    for (const [locale, dict] of Object.entries(locales)) {
+      const extra = Object.keys(dict).filter((k) => !(k in ko));
+      expect(extra, locale).toEqual([]);
+    }
   });
 
-  it('no empty values in ko', () => {
-    const emptyKo = koKeys.filter((k) => !ko[k as keyof typeof ko]);
-    expect(emptyKo).toEqual([]);
+  it('no empty values in any locale', () => {
+    for (const [locale, dict] of Object.entries(locales)) {
+      const empty = Object.entries(dict).filter(([, value]) => !value);
+      expect(empty, locale).toEqual([]);
+    }
   });
 
-  it('no empty values in en', () => {
-    const emptyEn = enKeys.filter((k) => !en[k as keyof typeof en]);
-    expect(emptyEn).toEqual([]);
-  });
-
-  it('{{param}} placeholders match between ko and en', () => {
+  it('{{param}} placeholders match between ko and every locale', () => {
     const paramRe = /\{\{(\w+)\}\}/g;
     const mismatched: string[] = [];
 
-    for (const key of koKeys) {
-      const koVal = ko[key as keyof typeof ko] || '';
-      const enVal = en[key as keyof typeof en] || '';
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const key of koKeys) {
+        const koVal = ko[key as keyof typeof ko] || '';
+        const localeVal = dict[key as keyof typeof dict] || '';
 
-      const koParams = [...koVal.matchAll(paramRe)].map((m) => m[1]).sort();
-      const enParams = [...enVal.matchAll(paramRe)].map((m) => m[1]).sort();
+        const koParams = [...koVal.matchAll(paramRe)].map((m) => m[1]).sort();
+        const localeParams = [...localeVal.matchAll(paramRe)].map((m) => m[1]).sort();
 
-      if (JSON.stringify(koParams) !== JSON.stringify(enParams)) {
-        mismatched.push(`${key}: ko=${koParams.join(',')} en=${enParams.join(',')}`);
+        if (JSON.stringify(koParams) !== JSON.stringify(localeParams)) {
+          mismatched.push(
+            `${locale}.${key}: ko=${koParams.join(',')} ${locale}=${localeParams.join(',')}`,
+          );
+        }
       }
     }
 

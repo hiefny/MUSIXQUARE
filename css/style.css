@@ -4187,7 +4187,7 @@
   }
 
   .chat-group.mine .chat-row + .chat-row:last-child .chat-youtube-btn {
-    border-bottom-right-radius: 14px;
+    border-bottom-right-radius: var(--radius-m);
   }
 
   .chat-group.others .chat-row + .chat-row .chat-youtube-btn {
@@ -4199,7 +4199,7 @@
   }
 
   .chat-group.others .chat-row + .chat-row:last-child .chat-youtube-btn {
-    border-bottom-left-radius: 14px;
+    border-bottom-left-radius: var(--radius-m);
   }
 
   /* Redesign: When bubble contains YouTube, strip its own background/padding */
@@ -4948,7 +4948,7 @@
     /* Solid white text */
     padding: 14px;
     /* Goldilocks zone for visual weight */
-    border-radius: 14px;
+    border-radius: var(--radius-m);
     font-size: 13px;
     cursor: pointer;
     margin: 0;
@@ -7738,7 +7738,7 @@ html:not(.ios-standalone) body {
 /* Global button shape policy: card-like choice buttons, navigation tabs,
    underline-style subtabs, and segmented-control pieces keep their framed
    shape; every other real button uses a pill/capsule hit surface. */
-button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(.yt-search-result) {
+button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(.yt-search-result):not(.chat-youtube-btn) {
   border-radius: 999px !important;
 }
 

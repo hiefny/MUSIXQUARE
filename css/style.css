@@ -6736,6 +6736,10 @@
       right: calc(200px + var(--safe-right) + 56px) !important;
     }
 
+    .language-dialog > .cscroll-track {
+      right: 24px !important;
+    }
+
     /* chat-drawer.transform creates a new containing block for the
            position:fixed track inside it, so the rule above (which targets
            viewport-anchored tracks) ends up offsetting from the drawer's

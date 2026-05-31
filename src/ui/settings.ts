@@ -577,7 +577,7 @@ function renderLanguageOptions(): void {
     nativeName.textContent = lang.nativeName;
     label.appendChild(nativeName);
 
-    if (lang.englishName !== lang.nativeName) {
+    if (String(lang.englishName) !== String(lang.nativeName)) {
       const englishName = document.createElement('span');
       englishName.className = 'language-option-english';
       englishName.lang = 'en';

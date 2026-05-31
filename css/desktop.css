@@ -98,7 +98,8 @@
 
         background: transparent;
         border-radius: 0;
-        border: none;
+        border: 0;
+        border-right: 1px solid var(--divider);
         box-shadow: none;
         overflow: hidden;
         /* Parent NO LONGER scrolls */

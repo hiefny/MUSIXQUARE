@@ -300,7 +300,7 @@ export function updateTitleWithMarquee(text: string): void {
   if (!el) return;
 
   // Skip if text hasn't changed — prevents marquee animation restart flicker
-  if (text === _currentMarqueeText) return;
+  if (text === _currentMarqueeText && el.innerText === text) return;
 
   _currentMarqueeText = text;
   el.innerText = text;

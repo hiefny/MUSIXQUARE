@@ -800,6 +800,7 @@ interface BaseEventMap {
   'ui:switch-tab': [tabId: string];
   'ui:settings-tab-opened': [];
   'ui:playlist-tab-opened': [];
+  'ui:player-panel-visible': [];
   'ui:visualizer-check': [];
   'ui:close-chat-drawer': [];
   'ui:toggle-chat-drawer': [];

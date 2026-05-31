@@ -139,5 +139,27 @@ export function initTabs(): void {
     switchTab(tabId);
   });
 
+  try {
+    const desktopMql = window.matchMedia('(min-width: 1280px)');
+    const refreshDesktopPanels = () => {
+      if (!desktopMql.matches) return;
+      setManagedTimer(
+        'tabs-desktop-panel-refresh',
+        () => {
+          if (isPlaybackModeYouTube()) {
+            bus.emit('youtube:refresh-display');
+          }
+          bus.emit('ui:player-panel-visible');
+          bus.emit('ui:visualizer-check');
+          bus.emit('ui:scrollbar-relayout');
+        },
+        80,
+      );
+    };
+    desktopMql.addEventListener('change', refreshDesktopPanels);
+  } catch {
+    /* matchMedia may be unavailable in tests or very old browsers. */
+  }
+
   log.info('[Tabs] Initialized');
 }

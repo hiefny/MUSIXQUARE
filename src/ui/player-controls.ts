@@ -609,7 +609,6 @@ function syncVolumeSlider(): void {
 
 // ─── Module State ───────────────────────────────────────────────
 
-let _langObserver: MutationObserver | null = null;
 
 // ─── Init ────────────────────────────────────────────────────────
 
@@ -868,9 +867,8 @@ export function initPlayerControls(): void {
   });
 
   // Language switch → refresh translated track title + tab title
-  // Store reference so the observer can be disconnected if module re-inits.
-  _langObserver?.disconnect();
-  _langObserver = new MutationObserver(() => {
+  // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
+  const refreshPlayerText = () => {
     refreshTrackTitle();
     const item = getState('player.currentTrackMeta');
     if (item) {
@@ -880,9 +878,12 @@ export function initPlayerControls(): void {
           : item.name === 'system-audio-receiving'
             ? t('system_audio.receiving')
             : item.title || item.name || '';
+    } else {
+      _tabTitleTrack = '';
     }
-  });
-  _langObserver.observe(document.documentElement, { attributeFilter: ['lang'] });
+  };
+  _busScope.on('i18n:changed', refreshPlayerText);
+  _busScope.on('ui:player-panel-visible', refreshPlayerText);
 
   // Peer disconnected: update UI
   _busScope.on('network:peer-disconnected', (peerId) => {

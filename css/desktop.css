@@ -151,7 +151,7 @@
     .track-title {
         font-size: 24px;
         /* Beautifully unified and properly proportioned */
-        font-weight: 800;
+        font-weight: var(--font-weight-display);
         letter-spacing: -0.02em;
         color: var(--text-main);
         /* Lock line-box to 36px (24 × 1.5) so the title's own height matches

@@ -153,7 +153,23 @@ describe('Chat Module', () => {
       expect(document.getElementById('chat-pinned-notice-text')?.textContent).toBe(
         'playlist requests here',
       );
+      expect(
+        document.getElementById('chat-pinned-notice')?.classList.contains('notice-attention-hint'),
+      ).toBe(true);
       expect(rendered).toEqual([['HOST', 'playlist requests here', false]]);
+    });
+
+    it('clears the notice attention hint after the animation ends', async () => {
+      renderNoticeShell();
+
+      const { addNoticeChatMessage } = await import('../chat-render.ts');
+      addNoticeChatMessage('HOST', 'fresh notice');
+
+      const banner = document.getElementById('chat-pinned-notice');
+      expect(banner?.classList.contains('notice-attention-hint')).toBe(true);
+
+      banner?.dispatchEvent(new Event('animationend'));
+      expect(banner?.classList.contains('notice-attention-hint')).toBe(false);
     });
   });
 

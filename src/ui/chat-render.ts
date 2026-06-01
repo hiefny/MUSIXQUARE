@@ -428,6 +428,20 @@ export function addNoticeChatMessage(sender: string, text: string, timestamp?: n
 
 // ─── Pinned Notice Banner ────────────────────────────────────────
 
+function playPinnedNoticeAttentionHint(banner: HTMLElement): void {
+  banner.classList.remove('notice-attention-hint');
+  // Force a reflow so a fast follow-up notice restarts the attention animation.
+  void banner.offsetWidth;
+  banner.classList.add('notice-attention-hint');
+  banner.addEventListener(
+    'animationend',
+    () => {
+      banner.classList.remove('notice-attention-hint');
+    },
+    { once: true },
+  );
+}
+
 export function setPinnedNotice(sender: string, text: string, timestamp?: number): void {
   const banner = document.getElementById('chat-pinned-notice');
   const label = document.getElementById('chat-pinned-notice-label');
@@ -442,6 +456,7 @@ export function setPinnedNotice(sender: string, text: string, timestamp?: number
   if (time) time.textContent = formatNoticeTime(timestamp);
   body.textContent = text;
   banner.hidden = false;
+  playPinnedNoticeAttentionHint(banner);
   // Hide the chat title once a notice is pinned — same rule as first message.
   const drawer = document.getElementById('chat-drawer');
   if (drawer) drawer.classList.add('has-messages');
@@ -449,5 +464,8 @@ export function setPinnedNotice(sender: string, text: string, timestamp?: number
 
 export function clearPinnedNotice(): void {
   const banner = document.getElementById('chat-pinned-notice');
-  if (banner) banner.hidden = true;
+  if (banner) {
+    banner.hidden = true;
+    banner.classList.remove('notice-attention-hint');
+  }
 }

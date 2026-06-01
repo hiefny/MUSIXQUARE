@@ -48,6 +48,7 @@
       'Pretendard UI Core', 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       sans-serif;
     --font-sans: var(--font-sans-ko);
+    --font-weight-display: 800;
 
     --glass-bg: var(--surface-1);
     --glass-border: transparent;
@@ -252,6 +253,12 @@
     --font-sans: var(--font-sans-cyrillic);
   }
 
+  html:lang(ja),
+  html:lang(zh-Hans),
+  html:lang(zh-Hant) {
+    --font-weight-display: 700;
+  }
+
   @keyframes fadeIn {
     from {
       opacity: 0;
@@ -405,13 +412,14 @@
     }
   }
 
-  @keyframes blink-primary-light {
+  @keyframes attention-hint-fill {
     0% {
-      box-shadow: inset 0 0 0 100px rgba(var(--primary-rgb), 0.4);
+      box-shadow: inset 0 0 0 100px var(--attention-hint-color);
     }
 
-    50% {
-      box-shadow: none;
+    50%,
+    100% {
+      box-shadow: inset 0 0 0 100px var(--attention-hint-transparent);
     }
   }
 
@@ -923,7 +931,7 @@
 
   .tab-title {
     font-size: 28px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     color: var(--text-main);
     letter-spacing: -0.03em;
   }
@@ -1136,7 +1144,7 @@
     content: '1';
     position: absolute;
     font-size: 9px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     top: -2px;
     right: -2px;
     background: white;
@@ -1752,7 +1760,7 @@
 
   .sub-idx {
     font-size: 11px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     width: 20px;
     opacity: 0.5;
   }
@@ -1993,7 +2001,7 @@
 
   .room-password-code.is-placeholder {
     color: var(--text-muted);
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     letter-spacing: 0.02em;
   }
 
@@ -2475,7 +2483,7 @@
 
   .d-status {
     font-size: 11px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     padding: 4px 10px;
     border-radius: 100px;
   }
@@ -3178,7 +3186,7 @@
 
   .dialog-title {
     font-size: 20px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     letter-spacing: -0.02em;
     color: var(--text-main);
   }
@@ -3247,7 +3255,7 @@
     color: var(--text-main);
     font-family: inherit;
     font-size: 22px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     font-variant-numeric: tabular-nums;
     line-height: 36px;
     letter-spacing: 0.12em;
@@ -3267,7 +3275,7 @@
   .dialog-input-separator {
     color: var(--text-muted);
     font-size: 22px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     line-height: 36px;
     transform: translateY(4px);
     user-select: none;
@@ -3758,7 +3766,7 @@
 
   .ob-slide .ob-title {
     font-size: 24px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     margin-bottom: 8px;
     color: var(--text-main);
   }
@@ -3794,7 +3802,7 @@
 
   .ob-title {
     font-size: 20px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     color: var(--text-main);
     letter-spacing: -0.5px;
   }
@@ -4008,7 +4016,7 @@
 
   .setup-header-text h2 {
     font-size: 24px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     margin-bottom: 8px;
     /* Reduced from 12px */
     letter-spacing: -0.03em;
@@ -5003,6 +5011,12 @@
     background: rgba(255, 193, 7, 0.2);
   }
 
+  .chat-pinned-notice.notice-attention-hint {
+    --attention-hint-color: rgba(255, 193, 7, 0.4);
+    --attention-hint-transparent: rgba(255, 193, 7, 0);
+    animation: attention-hint-fill 0.8s step-end 2;
+  }
+
   .chat-pinned-notice[hidden] {
     display: none;
   }
@@ -5258,7 +5272,7 @@
 
   .chat-yt-label {
     font-size: 14px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     letter-spacing: -0.3px;
     line-height: 16px;
     /* Match SVG height exactly */
@@ -5391,7 +5405,7 @@
 
   .sync-col-value {
     font-size: 28px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     font-variant-numeric: tabular-nums;
     color: var(--text-main);
     letter-spacing: -0.5px;
@@ -5617,7 +5631,7 @@
 
   .demo-track-title {
     font-size: 18px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     line-height: 1.25;
     letter-spacing: 0;
     color: var(--text-main);
@@ -5711,7 +5725,7 @@
     margin: 0;
     font-size: 22px;
     line-height: 1.25;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     letter-spacing: 0;
     color: var(--text-main);
   }
@@ -5922,7 +5936,7 @@
   .demo-track-row span {
     color: var(--text-muted);
     font-size: 12px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
   }
 
   .demo-track-row strong {
@@ -6008,7 +6022,7 @@
     display: block;
     flex: 0 0 auto;
     font-size: 14px;
-    font-weight: 800;
+    font-weight: var(--font-weight-display);
     line-height: 1;
     opacity: 1;
     transition: opacity 0.16s ease;
@@ -6537,9 +6551,11 @@
     }
   }
 
-  /* Animation for media play button hint */
-  .blink-hint {
-    animation: blink-primary-light 0.8s step-end 3;
+  /* Animation for one-time attention hints */
+  .attention-hint {
+    --attention-hint-color: rgba(var(--primary-rgb), 0.4);
+    --attention-hint-transparent: rgba(var(--primary-rgb), 0);
+    animation: attention-hint-fill 0.8s step-end 3;
   }
 
   /* Accessibility: visible focus ring */
@@ -7130,7 +7146,7 @@
 
     .desktop-step-header h2 {
       font-size: var(--setup-h2) !important;
-      font-weight: 800 !important;
+      font-weight: var(--font-weight-display) !important;
       letter-spacing: -0.03em !important;
       color: var(--text-main) !important;
       margin-bottom: var(--setup-h2-mb) !important;
@@ -7472,7 +7488,7 @@ html:not(.ios-standalone) body {
 
 .invite-meta-value {
   font-size: 16px;
-  font-weight: 800;
+  font-weight: var(--font-weight-display);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.1em;
   text-align: right;
@@ -8042,3 +8058,4 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
 .list-empty-state {
   border-radius: 999px !important;
 }
+

@@ -182,11 +182,11 @@ export function startSessionFromHost(): void {
     () => {
       const btn = document.getElementById('btn-media-source');
       if (btn) {
-        btn.classList.add('blink-hint');
+        btn.classList.add('attention-hint');
         btn.addEventListener(
           'animationend',
           () => {
-            btn.classList.remove('blink-hint');
+            btn.classList.remove('attention-hint');
           },
           { once: true },
         );

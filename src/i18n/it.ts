@@ -384,7 +384,7 @@ const it: Record<I18nKey, string> = {
   'youtube.searching': 'Ricerca su YouTube...',
   'youtube.search_no_results': 'Nessun risultato trovato',
   'youtube.search_failed': 'La ricerca su YouTube non è disponibile',
-  'youtube.search_selected': 'Puoi aggiungere the video selezionato alla coda',
+  'youtube.search_selected': 'Puoi aggiungere il video selezionato alla coda',
   'youtube.search_results': 'Risultati di ricerca su YouTube',
   'youtube.live_sync_warning': 'La sincronizzazione precisa delle trasmissioni live potrebbe essere instabile.',
 

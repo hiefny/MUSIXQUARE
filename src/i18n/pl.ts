@@ -252,7 +252,7 @@ const pl: Record<I18nKey, string> = {
   'setup.enter_code': 'Wpisz 6-cyfrowy kod połączenia',
   'setup.enter_host_code': 'Wpisz 6-cyfrowy kod podany przez hosta',
   'setup.enter_host_code_alt': 'Wpisz kod hosta.',
-  'setup.connect_devices': 'Now podłącz inne urządzenia.',
+  'setup.connect_devices': 'Teraz podłącz inne urządzenia.',
   'setup.enter_code_connect': 'Wpisz ten kod na innych urządzeniach',
   'setup.last_step': 'Zaczynamy?',
   'setup.joining': 'Dołączanie...',
@@ -296,7 +296,7 @@ const pl: Record<I18nKey, string> = {
   'chat.system_sender': 'System',
   'chat.decode_skip_notice': 'Niektóre urządzenia nie mogły odtworzyć tego utworu. Przejście do kolejnego utworu...',
   'chat.system_audio_started_notice':
-    'Rozpoczęto udostępnianie dźwięku systemowego. Ponieważ opopóźnienie między hostem a gośćmi jest nieuniknione, zalecamy hostowi maksymalne zmniejszenie głośności swojego urządzenia.',
+    'Rozpoczęto udostępnianie dźwięku systemowego. Ponieważ opóźnienie między hostem a gośćmi jest nieuniknione, zalecamy hostowi maksymalne zmniejszenie głośności swojego urządzenia.',
   'chat.system_audio_stopped_notice':
     'Udostępnianie dźwięku systemowego zostało zakończone. Host może ponownie podgłośnić swoje urządzenie, aby powrócić do roli głośnika.',
   'chat.remote_guest_detected_notice':

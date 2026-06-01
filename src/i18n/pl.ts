@@ -524,7 +524,7 @@ const pl: Record<I18nKey, string> = {
   'error.host_disconnected': 'Połączenie z hostem pokoju przerwane',
   'error.host_conn_error': 'Błąd połączenia z hostem pokoju',
   'error.connect_failed': 'Połączenie nie powiodło się',
-  'error.peer_not_ready': 'Połączenie peer nie jest yet gotowe',
+  'error.peer_not_ready': 'Połączenie peer nie jest jeszcze gotowe',
   'error.network_init_failed': 'Inicjalizacja sieci nie powiodła się',
   'error.no_host_id': 'Identyfikator hosta pokoju nie został znaleziony',
   'error.peer_unavailable': 'Pokój nie został znaleziony.\nZweryfikuj wprowadzony kod.',

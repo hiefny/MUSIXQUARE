@@ -612,7 +612,7 @@ const ru: Record<I18nKey, string> = {
   'system_audio.host_channel_locked': 'Невозможно изменить роли динамиков во время трансляции системного звука.',
   'system_audio.effects_guest_only':
     'Трансляция системного звука активна.\nЗвуковые эффекты применяются исключительно к устройствам гостей.',
-  'system_audio.desktop_only': 'Yalnızca Windows veya Mac üzerindeki masaüstü Chrome tarayıcısında kullanılabilir.', // 이 부분도 터키어였던 버그 완벽 교정! -> 'Доступно только в браузере Chrome на настольном компьютере Windows или Mac.'
+  'system_audio.desktop_only': 'Доступно только в браузере Chrome на настольном компьютере Windows или Mac.',
   'system_audio.receive_failed':
     'Не удалось принять системный звук.\nПопросите хоста перезапустить трансляцию.',
   'system_audio.remote_receive_limit':

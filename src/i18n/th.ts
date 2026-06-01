@@ -235,7 +235,7 @@ const th: Record<I18nKey, string> = {
   'demo.effects_step_title': 'สร้างสรรค์มิติเสียงระดับพรีเมียมในแบบของคุณ',
   'demo.effects_step_subtitle': 'คุณสามารถตั้งค่าอย่างละเอียดได้ทุกเมื่อภายหลังในส่วนการตั้งค่า',
   'demo.finish_step_title': 'ทัวร์แนะนำเบื้องต้นสิ้นสุดลงแล้ว',
-  'demo.finish_step_subtitle': 'กลับไปที่แอปพลิ케ชันเพื่อสัมผัสฟีเจอร์ทั้งหมดได้เลย!',
+  'demo.finish_step_subtitle': 'กลับไปที่แอปพลิเคชันเพื่อสัมผัสฟีเจอร์ทั้งหมดได้เลย!',
   'demo.track_list_label': 'รายการเพลงเดโม',
   'demo.host_only_exit': 'เฉพาะโฮสต์ของห้องเท่านั้นที่สามารถดำเนินการได้',
   'demo.external_playback_stopped':
@@ -447,7 +447,7 @@ const th: Record<I18nKey, string> = {
   'toast.sync_reset': 'รีเซ็ตออฟเซ็ตซิงค์แล้ว',
   'toast.stop_sent': 'ส่งคำขอหยุดแล้ว',
   'toast.auto_play_canceled': 'ยกเลิกเล่นอัตโนมัติแล้ว',
-  'toast.playing_in_3s': 'จะเริ่มเล่น in 3 วินาที...',
+  'toast.playing_in_3s': 'จะเริ่มเล่นใน 3 วินาที...',
   'toast.hprecision_sync': 'ซิงค์ความแม่นยำสูง: กำลังเตรียมเสียง...',
   'toast.file_ready': 'ไฟล์พร้อมแล้ว!\nกดเล่น',
   'toast.host_sync_not_recommended': 'ปรับซิงค์บนอุปกรณ์ผู้เข้าร่วม',

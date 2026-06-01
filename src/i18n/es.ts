@@ -361,8 +361,7 @@ const es: Record<I18nKey, string> = {
   'system_audio.stop': 'Detener compartición',
   'system_audio.started':
     'El audio del sistema puede tener algo de latencia.\nBaja el volumen de origen si es posible.',
-  'system_audio.stopped': 'Terminó la compartición de audio del sistema.
-Reanudando la lista.',
+  'system_audio.stopped': 'Terminó la compartición de audio del sistema.\nReanudando la lista.',
   'system_audio.many_devices_warning':
     'El audio del sistema funciona mejor con hasta 4 participantes.\nMás dispositivos pueden añadir latencia o cortes.',
   'system_audio.host_channel_locked':

@@ -46,7 +46,7 @@ export const LANGUAGE_OPTIONS = [
   { code: 'tr', htmlLang: 'tr', nativeName: 'Türkçe', englishName: 'Turkish' },
   { code: 'id', htmlLang: 'id', nativeName: 'Bahasa Indonesia', englishName: 'Indonesian' },
   { code: 'vi', htmlLang: 'vi', nativeName: 'Tiếng Việt', englishName: 'Vietnamese' },
-  { code: 'fil', htmlLang: 'fil', nativeName: 'Filipino', englishName: 'Filipino (Philippines)' },
+  { code: 'fil', htmlLang: 'fil', nativeName: 'Wikang Filipino', englishName: 'Filipino' },
   { code: 'th', htmlLang: 'th', nativeName: 'ไทย', englishName: 'Thai' },
   { code: 'ar', htmlLang: 'ar', nativeName: 'العربية', englishName: 'Arabic' },
   { code: 'hi', htmlLang: 'hi', nativeName: 'हिन्दी', englishName: 'Hindi' },

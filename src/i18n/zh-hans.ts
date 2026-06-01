@@ -87,7 +87,7 @@ const zhHans: Record<I18nKey, string> = {
   'settings.advanced_audio': '高级音频',
   'settings.spatial_audio': '空间音频',
   'settings.reverb_title': '混响',
-  'settings.host_ctrl': '房主控制',
+  'settings.host_ctrl': '主持人控制',
   'settings.self_ctrl': '本地控制',
   'settings.rvb_studio': '录音室',
   'settings.rvb_arena': '场馆',
@@ -166,7 +166,7 @@ const zhHans: Record<I18nKey, string> = {
   'playlist.shuffle_on': '已开启随机播放',
   'playlist.shuffle_off': '已关闭随机播放',
   'playlist.empty_hint': '请添加媒体。',
-  'playlist.empty_hint_guest': '正在等待房主添加媒体。',
+  'playlist.empty_hint_guest': '正在等待主持人添加媒体。',
   'playlist.loading_info': '正在加载曲目信息...',
   'playlist.sub_load_failed': '无法加载视频信息',
   'playlist.remove_title': '从播放列表移除',
@@ -511,7 +511,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.system_audio_started_notice':
     '系统音频共享已启动。主持人和嘉宾设备之间有轻微延迟是正常现象。为避免回音，建议尽量降低源设备音量。',
   'chat.system_audio_stopped_notice':
-    '系统音频共享已结束。房主可以恢复设备音量，继续作为扬声器播放。',
+    '系统音频共享已结束。主持人可以恢复设备音量，继续作为扬声器播放。',
   'chat.remote_guest_detected_notice': '远程参与者已加入。连接质量可能因网络状况而变化。',
   'chat.remote_upload_limited_notice': '文件上传已达到限制。\n远程参与者请稍后再试。',
   'chat.remote_upload_failed_notice': '远程文件上传失败。\n远程参与者请稍后重试。',

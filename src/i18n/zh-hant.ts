@@ -87,7 +87,7 @@ const zhHant: Record<I18nKey, string> = {
   'settings.advanced_audio': '進階音訊',
   'settings.spatial_audio': '空間音訊',
   'settings.reverb_title': '殘響',
-  'settings.host_ctrl': '房主控制',
+  'settings.host_ctrl': '主持人控制',
   'settings.self_ctrl': '本地控制',
   'settings.rvb_studio': '錄音室',
   'settings.rvb_arena': '場館',
@@ -166,7 +166,7 @@ const zhHant: Record<I18nKey, string> = {
   'playlist.shuffle_on': '已啟用隨機播放',
   'playlist.shuffle_off': '已關閉隨機播放',
   'playlist.empty_hint': '請新增媒體。',
-  'playlist.empty_hint_guest': '正在等待房主新增媒體。',
+  'playlist.empty_hint_guest': '正在等待主持人新增媒體。',
   'playlist.loading_info': '正在載入曲目資訊...',
   'playlist.sub_load_failed': '無法載入影片資訊',
   'playlist.remove_title': '從播放清單移除',
@@ -512,7 +512,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.system_audio_started_notice':
     '系統音訊分享已啟動。主持人與嘉賓裝置之間有些微延遲是正常現象。為避免回音，建議儘量降低來源裝置音量。',
   'chat.system_audio_stopped_notice':
-    '系統音訊分享已結束。房主可以恢復裝置音量，繼續作為喇叭播放。',
+    '系統音訊分享已結束。主持人可以恢復裝置音量，繼續作為喇叭播放。',
   'chat.remote_guest_detected_notice': '遠端參與者已加入。連線品質可能因網路狀況而變化。',
   'chat.remote_upload_limited_notice': '檔案上傳已達限制。\n遠端參與者請稍後再試。',
   'chat.remote_upload_failed_notice': '遠端檔案上傳失敗。\n遠端參與者請稍後重試。',

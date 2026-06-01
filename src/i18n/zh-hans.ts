@@ -248,7 +248,7 @@ const zhHans: Record<I18nKey, string> = {
   'setup.join_session_subtitle': '你即将加入房间 {{code}}。',
   'setup.select_role': '请选择角色',
   'setup.select_role_alt': '请选择角色',
-  'setup.hello_select_role': '你好！请选择你的角色。',
+  'setup.hello_select_role': '欢迎！请选择你的角色。',
   'setup.enter_code': '输入代码',
   'setup.enter_host_code': '输入主机代码',
   'setup.enter_host_code_alt': '请输入主机代码。',

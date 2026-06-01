@@ -208,6 +208,7 @@ const zhHans: Record<I18nKey, string> = {
   // Setup and demo
   'setup.host_button': '创建房间',
   'setup.guest_button': '加入房间',
+  'setup.demo_button': '试用（演示）',
   'demo.prompt_title': '体验 MUSIXQUARE',
   'demo.prompt_message': '欢迎！准备好快速体验我们的核心功能了吗？',
   'demo.prompt_cta': '立即开始',

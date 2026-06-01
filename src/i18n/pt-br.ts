@@ -399,6 +399,7 @@ const ptBr: Record<I18nKey, string> = {
   'toast.host_only_media': 'Só o host pode adicionar mídia.',
   'toast.host_only_youtube': 'Só o host pode adicionar links do YouTube.',
   'toast.host_only_control': 'Só o host pode controlar isto',
+  'toast.host_setting_required': 'Só o host pode alterar esta configuração',
   'toast.host_only_file': 'Só o host pode adicionar arquivos',
   'toast.no_tracks': 'Não há faixas para reproduzir',
   'toast.no_invite_code': 'Ainda não há código de convite',

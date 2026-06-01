@@ -386,6 +386,7 @@ const zhHant: Record<I18nKey, string> = {
   'toast.host_only_media': '只有主持人可以新增媒體。',
   'toast.host_only_youtube': '只有主持人可以新增 YouTube 連結。',
   'toast.host_only_control': '只有主持人可以控制此項',
+  'toast.host_setting_required': '只有主持人可以變更此設定',
   'toast.host_only_file': '只有主持人可以新增檔案',
   'toast.no_tracks': '沒有可播放的曲目',
   'toast.no_invite_code': '還沒有邀請碼',

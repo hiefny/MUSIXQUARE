@@ -424,6 +424,7 @@ const it: Record<I18nKey, string> = {
   'toast.host_only_media': 'Solo il gestore della stanza può aggiungere brani.',
   'toast.host_only_youtube': 'Solo il gestore della stanza può aggiungere link di YouTube.',
   'toast.host_only_control': 'Solo il gestore della stanza può controllare la riproduzione.',
+  'toast.host_setting_required': 'Solo l\'host può modificare questa impostazione',
   'toast.host_only_file': 'Solo il gestore della stanza può aggiungere file.',
   'toast.no_tracks': 'Nessun brano da riprodurre',
   'toast.no_invite_code': 'Codice d\'invito non ancora generato',

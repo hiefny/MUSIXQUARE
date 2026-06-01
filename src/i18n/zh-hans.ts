@@ -386,6 +386,7 @@ const zhHans: Record<I18nKey, string> = {
   'toast.host_only_media': '只有主持人可以添加媒体。',
   'toast.host_only_youtube': '只有主持人可以添加 YouTube 链接。',
   'toast.host_only_control': '只有主持人可以控制此项',
+  'toast.host_setting_required': '只有主持人可以更改此设置',
   'toast.host_only_file': '只有主持人可以添加文件',
   'toast.no_tracks': '没有可播放的曲目',
   'toast.no_invite_code': '还没有邀请码',

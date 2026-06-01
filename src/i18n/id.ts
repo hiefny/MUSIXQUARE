@@ -396,6 +396,7 @@ const id: Record<I18nKey, string> = {
   'toast.host_only_media': 'Hanya host yang dapat menambahkan media.',
   'toast.host_only_youtube': 'Hanya host yang dapat menambahkan tautan YouTube.',
   'toast.host_only_control': 'Hanya host yang dapat mengontrol ini',
+  'toast.host_setting_required': 'Hanya host yang dapat mengubah pengaturan ini',
   'toast.host_only_file': 'Hanya host yang dapat menambahkan file',
   'toast.no_tracks': 'Tidak ada track untuk diputar',
   'toast.no_invite_code': 'Belum ada kode undangan',

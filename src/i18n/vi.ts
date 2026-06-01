@@ -394,6 +394,7 @@ const vi: Record<I18nKey, string> = {
   'toast.host_only_media': 'Chỉ host mới có thể thêm nội dung.',
   'toast.host_only_youtube': 'Chỉ host mới có thể thêm liên kết YouTube.',
   'toast.host_only_control': 'Chỉ host mới có thể điều khiển mục này',
+  'toast.host_setting_required': 'Chỉ host mới có thể đổi cài đặt này',
   'toast.host_only_file': 'Chỉ host mới có thể thêm tệp',
   'toast.no_tracks': 'Không có bài để phát',
   'toast.no_invite_code': 'Chưa có mã mời',

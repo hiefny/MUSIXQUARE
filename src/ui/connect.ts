@@ -23,15 +23,13 @@ let _lastDeviceList: Array<Record<string, unknown>> = [];
 
 // ─── Host-Ctrl Lock (shared pattern) ────────────────────────────
 
-function _isGuestLocked(): boolean {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) return false;
-  return !getState('network.isOperator');
+function _canEditHostOwnedSetting(): boolean {
+  return getState('network.appRole') === 'host' && !getState('network.hostConn');
 }
 
-function _guardHostCtrl(): boolean {
-  if (_isGuestLocked()) {
-    showToast(t('toast.operator_required'));
+function _guardHostSettingCtrl(): boolean {
+  if (!_canEditHostOwnedSetting()) {
+    showToast(t('toast.host_setting_required'));
     return true;
   }
   return false;
@@ -158,7 +156,7 @@ function initStepper(stepperId: string): void {
     const btn = (e.target as HTMLElement).closest('.stepper-btn') as HTMLElement | null;
     if (!btn) return;
 
-    if (_guardHostCtrl()) return;
+    if (_guardHostSettingCtrl()) return;
 
     const dir = parseInt(btn.dataset.dir || '0', 10);
     const cur = getState('network.maxGuestSlots') ?? 3;
@@ -169,7 +167,7 @@ function initStepper(stepperId: string): void {
   stepper.addEventListener('click', (e) => {
     const span = (e.target as HTMLElement).closest('.stepper-value') as HTMLElement | null;
     if (!span || span.querySelector('input')) return;
-    if (_guardHostCtrl()) return;
+    if (_guardHostSettingCtrl()) return;
 
     const cur = getState('network.maxGuestSlots') ?? 3;
     const input = document.createElement('input');
@@ -242,15 +240,11 @@ function _formatRoomPassword(password: string): string {
 }
 
 function _canEditRoomPassword(): boolean {
-  return getState('network.appRole') === 'host' && !getState('network.hostConn');
+  return _canEditHostOwnedSetting();
 }
 
 function _guardRoomPasswordCtrl(): boolean {
-  if (!_canEditRoomPassword()) {
-    showToast(t('toast.host_only_control'));
-    return true;
-  }
-  return false;
+  return _guardHostSettingCtrl();
 }
 
 function _generateRoomPassword(): string {
@@ -281,7 +275,8 @@ function syncRoomPasswordControls(): void {
     if (!toggle) return;
     toggle.classList.toggle('active', active);
     toggle.setAttribute('aria-pressed', active ? 'true' : 'false');
-    toggle.disabled = !canEdit;
+    toggle.disabled = false;
+    toggle.setAttribute('aria-disabled', canEdit ? 'false' : 'true');
     toggle.style.background = active ? 'rgba(var(--primary-rgb), 0.18)' : '';
     const knob = toggle.querySelector('.room-password-toggle-knob') as HTMLElement | null;
     if (knob) {
@@ -306,7 +301,8 @@ function syncRoomPasswordControls(): void {
     const button = document.getElementById(id) as HTMLButtonElement | null;
     if (!button) return;
     button.hidden = !active;
-    button.disabled = !active || !canEdit;
+    button.disabled = !active;
+    button.setAttribute('aria-disabled', canEdit ? 'false' : 'true');
   });
 }
 

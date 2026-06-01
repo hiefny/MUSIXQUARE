@@ -424,6 +424,7 @@ const pl: Record<I18nKey, string> = {
   'toast.host_only_media': 'Tylko host pokoju może dodawać utwory.',
   'toast.host_only_youtube': 'Tylko host pokoju może dodawać linki z YouTube.',
   'toast.host_only_control': 'Tylko host pokoju może kontrolować odtwarzanie.',
+  'toast.host_setting_required': 'Tylko host pokoju może zmienić to ustawienie',
   'toast.host_only_file': 'Tylko host pokoju może dodawać pliki.',
   'toast.no_tracks': 'Brak utworów do odtworzenia',
   'toast.no_invite_code': 'Kod zaproszenia nie został jeszcze wygenerowany',

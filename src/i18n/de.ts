@@ -397,6 +397,7 @@ const de: Record<I18nKey, string> = {
   'toast.host_only_media': 'Nur der Host kann Medien hinzufügen.',
   'toast.host_only_youtube': 'Nur der Host kann YouTube-Links hinzufügen.',
   'toast.host_only_control': 'Nur der Host kann dies steuern',
+  'toast.host_setting_required': 'Nur der Host kann diese Einstellung ändern',
   'toast.host_only_file': 'Nur der Host kann Dateien hinzufügen',
   'toast.no_tracks': 'Keine Titel zum Abspielen',
   'toast.no_invite_code': 'Noch kein Einladungscode',

@@ -395,6 +395,7 @@ const ja: Record<I18nKey, string> = {
   'toast.host_only_media': 'メディアを追加できるのはホストだけです。',
   'toast.host_only_youtube': 'YouTubeリンクを追加できるのはホストだけです。',
   'toast.host_only_control': '操作できるのはホストだけです',
+  'toast.host_setting_required': 'この設定を変更できるのはホストだけです',
   'toast.host_only_file': 'ファイルを追加できるのはホストだけです',
   'toast.no_tracks': '再生するトラックがありません',
   'toast.no_invite_code': '招待コードはまだありません',

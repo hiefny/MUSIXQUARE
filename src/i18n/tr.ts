@@ -424,6 +424,7 @@ const tr: Record<I18nKey, string> = {
   'toast.host_only_media': 'Sadece oda sahibi medya ekleyebilir.',
   'toast.host_only_youtube': 'Sadece oda sahibi YouTube linki ekleyebilir.',
   'toast.host_only_control': 'Sadece oda sahibi kontrol edebilir',
+  'toast.host_setting_required': 'Bu ayarı yalnızca oda sahibi değiştirebilir',
   'toast.host_only_file': 'Sadece oda sahibi dosya ekleyebilir',
   'toast.no_tracks': 'Çalınacak şarkı bulunmuyor',
   'toast.no_invite_code': 'Davet kodu henüz oluşturulmadı',

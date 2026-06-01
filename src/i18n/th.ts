@@ -424,6 +424,7 @@ const th: Record<I18nKey, string> = {
   'toast.host_only_media': 'เฉพาะโฮสต์เท่านั้นที่เพิ่มสื่อได้',
   'toast.host_only_youtube': 'เฉพาะโฮสต์เท่านั้นที่เพิ่มลิงก์ YouTube ได้',
   'toast.host_only_control': 'เฉพาะโฮสต์เท่านั้นที่ควบคุมได้',
+  'toast.host_setting_required': 'เฉพาะโฮสต์เท่านั้นที่เปลี่ยนการตั้งค่านี้ได้',
   'toast.host_only_file': 'เฉพาะโฮสต์เท่านั้นที่เพิ่มไฟล์ได้',
   'toast.no_tracks': 'ไม่มีแทร็กให้เล่น',
   'toast.no_invite_code': 'ยังไม่มีรหัสเชิญ',

@@ -424,6 +424,7 @@ const ru: Record<I18nKey, string> = {
   'toast.host_only_media': 'Только хост комнаты может добавлять треки.',
   'toast.host_only_youtube': 'Только хост комнаты может добавлять ссылки на YouTube.',
   'toast.host_only_control': 'Только хост комнаты может управлять воспроизведением.',
+  'toast.host_setting_required': 'Изменять эту настройку может только хост комнаты',
   'toast.host_only_file': 'Только хост комнаты может добавлять файлы.',
   'toast.no_tracks': 'Нет треков для воспроизведения',
   'toast.no_invite_code': 'Код приглашения еще не сгенерирован',

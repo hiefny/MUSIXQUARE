@@ -1965,7 +1965,9 @@
   }
 
   .room-password-toggle:disabled,
-  .room-password-refresh:disabled {
+  .room-password-toggle[aria-disabled='true'],
+  .room-password-refresh:disabled,
+  .room-password-refresh[aria-disabled='true'] {
     opacity: 0.45;
     cursor: default;
   }
@@ -2026,19 +2028,19 @@
     fill: currentColor;
   }
 
-  .room-password-refresh:not(:disabled):focus-visible {
+  .room-password-refresh:not(:disabled):not([aria-disabled='true']):focus-visible {
     background: var(--surface-2);
     color: var(--text-main);
   }
 
   @media (hover: hover) {
-    .room-password-refresh:not(:disabled):hover {
+    .room-password-refresh:not(:disabled):not([aria-disabled='true']):hover {
       background: var(--surface-2);
       color: var(--text-main);
     }
   }
 
-  .room-password-refresh:not(:disabled):active {
+  .room-password-refresh:not(:disabled):not([aria-disabled='true']):active {
     transform: scale(0.95);
   }
 

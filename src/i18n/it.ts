@@ -90,7 +90,7 @@ const it: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Riproduzione casuale attiva',
   'playlist.shuffle_off': 'Riproduzione casuale disattivata',
   'playlist.empty_hint': 'Aggiungi dei brani alla playlist.',
-  'playlist.empty_hint_guest': 'I brani compariranno quando l\'host li aggiungerà.',
+  'playlist.empty_hint_guest': 'I brani compariranno quando il gestore li aggiungerà.',
   'playlist.loading_info': 'Caricamento informazioni del brano...',
   'playlist.sub_load_failed': 'Impossibile recuperare le informazioni del video',
   'playlist.remove_title': 'Rimuovi dalla playlist',
@@ -126,7 +126,7 @@ const it: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Audio avanzato',
   'settings.spatial_audio': 'Audio spaziale',
   'settings.reverb_title': 'Riverbero',
-  'settings.host_ctrl': 'Controllo Host',
+  'settings.host_ctrl': 'Controllo gestore',
   'settings.self_ctrl': 'Controllo locale',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Sala da concerto',
@@ -148,7 +148,7 @@ const it: Record<I18nKey, string> = {
   'settings.highpass': 'Filtro passa-alto',
   'settings.surround_title': 'Surround virtuale',
   'settings.bass_title': 'Basso virtuale',
-  'settings.exciter_title': 'Treble virtuale',
+  'settings.exciter_title': 'Alti virtuali',
   'settings.subwoofer_adjust': 'Crossover subwoofer',
   'settings.subwoofer_cutoff': 'Frequenza di crossover',
   'settings.default_0pct': 'Predefinito 0%',
@@ -296,9 +296,9 @@ const it: Record<I18nKey, string> = {
   'chat.system_sender': 'Sistema',
   'chat.decode_skip_notice': 'Impossibile riprodurre il brano su alcuni dispositivi. Passaggio al brano successivo...',
   'chat.system_audio_started_notice':
-    'La condivisione dell\'audio di sistema è iniziata. Poiché è inevitabile un certo ritardo tra l\'host e gli ospiti, consigliamo all\'host di abbassare al minimo il volume del proprio dispositivo.',
+    'La condivisione dell\'audio di sistema è iniziata. Poiché è inevitabile un certo ritardo tra il gestore e gli ospiti, consigliamo al gestore di abbassare al minimo il volume del proprio dispositivo.',
   'chat.system_audio_stopped_notice':
-    'La condivisione dell\'audio di sistema è terminata. L\'host può rialzare il volume per riprendere il ruolo di altoparlante.',
+    'La condivisione dell\'audio di sistema è terminata. Il gestore può rialzare il volume per riprendere il ruolo di altoparlante.',
   'chat.remote_guest_detected_notice':
     'Un ospite remoto è entrato nella stanza. La qualità della connessione potrebbe variare a seconda della rete.',
   'chat.remote_upload_limited_notice':
@@ -424,7 +424,7 @@ const it: Record<I18nKey, string> = {
   'toast.host_only_media': 'Solo il gestore della stanza può aggiungere brani.',
   'toast.host_only_youtube': 'Solo il gestore della stanza può aggiungere link di YouTube.',
   'toast.host_only_control': 'Solo il gestore della stanza può controllare la riproduzione.',
-  'toast.host_setting_required': 'Solo l\'host può modificare questa impostazione',
+  'toast.host_setting_required': 'Solo il gestore può modificare questa impostazione',
   'toast.host_only_file': 'Solo il gestore della stanza può aggiungere file.',
   'toast.no_tracks': 'Nessun brano da riprodurre',
   'toast.no_invite_code': 'Codice d\'invito non ancora generato',

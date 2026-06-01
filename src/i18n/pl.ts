@@ -148,7 +148,7 @@ const pl: Record<I18nKey, string> = {
   'settings.highpass': 'Filtr górnoprzepustowy',
   'settings.surround_title': 'Wirtualny surround',
   'settings.bass_title': 'Wirtualny bas',
-  'settings.exciter_title': 'Wirtualny sopran',
+  'settings.exciter_title': 'Wirtualne soprany',
   'settings.subwoofer_adjust': 'Crossover subwoofera',
   'settings.subwoofer_cutoff': 'Częstotliwość crossovera',
   'settings.default_0pct': 'Domyślnie: 0%',

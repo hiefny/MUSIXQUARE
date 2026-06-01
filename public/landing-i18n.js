@@ -57,7 +57,7 @@
       'remote.reach_value': 'Any browser, any network',
       'remote.caveat': "Note: channel separation and audio effects aren't available for YouTube.",
       'remote.pin_label': 'NOTICE · HOST',
-      'remote.pin_text': "Tonight's playlist, make yourself at home.",
+      'remote.pin_text': "Taking playlist recs tonight",
       'remote.host_name': 'HOST',
       'remote.host_msg1': 'you in yet?',
       'remote.peer_name': 'Peer 1',

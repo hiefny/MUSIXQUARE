@@ -229,7 +229,7 @@ const ptBr: Record<I18nKey, string> = {
   'demo.step_role': '2. Definir papel',
   'demo.step_effects': '3. Efeitos de áudio',
   'demo.step_finish': '4. Sair da demo',
-  'demo.session_title': 'Esta é a sala {{code}}.',
+  'demo.session_title': 'Sua sala: {{code}}',
   'demo.session_subtitle': 'Você pode convidar outro dispositivo quando quiser.',
   'demo.session_body_connected':
     '{{count}} dispositivos estão conectados agora.\nDefina um papel para cada dispositivo.',

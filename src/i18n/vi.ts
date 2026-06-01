@@ -229,7 +229,7 @@ const vi: Record<I18nKey, string> = {
   'demo.step_role': '2. Đặt vai trò',
   'demo.step_effects': '3. Hiệu ứng âm thanh',
   'demo.step_finish': '4. Thoát demo',
-  'demo.session_title': 'Đây là phòng {{code}}.',
+  'demo.session_title': 'Phòng của bạn: {{code}}',
   'demo.session_subtitle': 'Bạn có thể mời thiết bị khác bất cứ lúc nào.',
   'demo.session_body_connected':
     'Hiện có {{count}} thiết bị đang kết nối.\nHãy đặt vai trò cho từng thiết bị.',
@@ -423,7 +423,7 @@ const vi: Record<I18nKey, string> = {
   'toast.yt_host_sync_sent': 'Đã gửi tín hiệu tự đồng bộ cho khách',
   'toast.yt_manual_sync_prompt':
     'Vừa thử đồng bộ tự động.\nNếu vẫn thấy trễ, hãy chỉnh giá trị ngay',
-  'toast.playlist_ended': 'Media cuối cùng đã kết thúc',
+  'toast.playlist_ended': 'Nội dung cuối cùng đã kết thúc',
   'toast.operator_required': 'Chỉ quản trị viên mới có thể đổi cài đặt âm thanh',
   'toast.connection_closing': 'Mất kết nối, cài đặt chưa được đồng bộ',
   'toast.host_changed_setting': 'Cài đặt đã thay đổi',

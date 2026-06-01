@@ -229,7 +229,7 @@ const zhHans: Record<I18nKey, string> = {
   'demo.step_role': '2. 设置角色',
   'demo.step_effects': '3. 音频效果',
   'demo.step_finish': '4. 退出演示',
-  'demo.session_title': '这是房间 {{code}}。',
+  'demo.session_title': '你的房间：{{code}}',
   'demo.session_subtitle': '你可以随时邀请另一台设备。',
   'demo.session_body_connected': '当前已连接 {{count}} 台设备。\n请为每台设备设置角色。',
   'demo.session_body_alone': '当前只有这台设备在播放。\n现在邀请另一台设备吧。',

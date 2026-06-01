@@ -229,7 +229,7 @@ const th: Record<I18nKey, string> = {
   'demo.step_role': '2. ตั้งค่าบทบาท',
   'demo.step_effects': '3. เอฟเฟกต์เสียง',
   'demo.step_finish': '4. ออกจากเดโม',
-  'demo.session_title': 'นี่คือห้อง {{code}}',
+  'demo.session_title': 'ห้องของคุณ {{code}}',
   'demo.session_subtitle': 'คุณเชิญอุปกรณ์อื่นได้ทุกเมื่อ',
   'demo.session_body_connected':
     'ขณะนี้มีอุปกรณ์เชื่อมต่อ {{count}} เครื่อง\nตั้งค่าบทบาทให้แต่ละอุปกรณ์',

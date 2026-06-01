@@ -229,7 +229,7 @@ const id: Record<I18nKey, string> = {
   'demo.step_role': '2. Atur peran',
   'demo.step_effects': '3. Efek audio',
   'demo.step_finish': '4. Keluar demo',
-  'demo.session_title': 'Ini ruang {{code}}.',
+  'demo.session_title': 'Ruang Anda: {{code}}',
   'demo.session_subtitle': 'Anda bisa mengundang perangkat lain kapan saja.',
   'demo.session_body_connected':
     '{{count}} perangkat sedang tersambung.\nAtur peran untuk setiap perangkat.',
@@ -596,7 +596,7 @@ const id: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Berbagi audio paling stabil di jaringan yang sama.<ul class="help-list"><li>Peserta jarak jauh dapat menggunakan fitur yang sama.</li><li>Peserta jarak jauh menggunakan jalur Cloudflare, sehingga latensi dapat meningkat atau penerimaan dapat gagal tergantung kondisi jaringan.</li><li>VPN atau jaringan terbatas dapat membuat koneksi tidak stabil.</li></ul>',
   'setup.how_to_connect_html':
-    'Masukkan <strong>kode 6 digit</strong> dari host untuk terhubung.<ul class="help-list"><li><strong>Host:</strong> “Jadi host” → cek kode</li><li><strong>Tamu:</strong> “Gabung ruang” → masukkan kode</li><li>Jumlah perangkat yang dapat tersambung dapat diatur di <strong>tab "Sambungkan"</strong>.</li></ul>',
+    'Masukkan <strong>kode 6 digit</strong> dari host untuk terhubung.<ul class="help-list"><li><strong>Host:</strong> “Jadi host” → cek kode</li><li><strong>Tamu:</strong> “Gabung ruang” → masukkan kode</li><li>Jumlah perangkat yang dapat tersambung dapat diatur di <strong>tab "Hubungkan"</strong>.</li></ul>',
   'player.play_speakers_html':
     'Setiap tamu memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Keluaran stereo (default)</li><li><strong>Kiri:</strong> Keluaran kanal L</li><li><strong>Kanan:</strong> Keluaran kanal R</li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
   'player.play_media_action_html':

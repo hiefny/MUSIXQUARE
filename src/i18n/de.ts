@@ -229,7 +229,7 @@ const de: Record<I18nKey, string> = {
   'demo.step_role': '2. Rolle festlegen',
   'demo.step_effects': '3. Audioeffekte',
   'demo.step_finish': '4. Demo beenden',
-  'demo.session_title': 'Dies ist Raum {{code}}.',
+  'demo.session_title': 'Dein Raum: {{code}}',
   'demo.session_subtitle': 'Du kannst jederzeit ein weiteres Gerät einladen.',
   'demo.session_body_connected':
     '{{count}} Geräte sind gerade verbunden.\nLege für jedes Gerät eine Rolle fest.',

@@ -716,6 +716,19 @@ code {
   letter-spacing: 0;
 }
 
+:lang(ja) .lp-h1 {
+  letter-spacing: 0;
+  font-size: clamp(44px, 6vw, 88px);
+  line-height: 1.12;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  line-break: strict;
+}
+
+:lang(ja) .lp-lead {
+  line-break: strict;
+}
+
 .lp-lang-divider {
   color: var(--text-muted);
   user-select: none;

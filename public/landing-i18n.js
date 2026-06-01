@@ -200,18 +200,18 @@
   addLang('ja', {
     'meta.title': 'MUSIXQUAREについて',
     'meta.description':
-      'MUSIXQUAREは、同じ空間にあるスマートフォン、タブレット、ノートPCをひとつの同期サウンドシステムにします。ブラウザだけで、インストール不要です。',
+      'MUSIXQUAREは、同じ空間にあるスマートフォン、タブレット、ノートPCをひとつのサウンドシステムにつなげます。インストールは不要。コードを共有するだけで始められます。',
     'meta.og_title': 'MUSIXQUAREについて',
-    'meta.og_description': 'すべてのデバイスを、ひとつのシステムに。インストール不要のマルチデバイス同期オーディオ。',
-    'meta.og_image_alt': 'MUSIXQUARE: すべてのデバイスを、ひとつのシステムに。',
+    'meta.og_description': 'すべての端末を、ひとつの音へ。インストール不要のマルチデバイス同期オーディオ。',
+    'meta.og_image_alt': 'MUSIXQUARE: すべての端末を、ひとつの音へ。',
     'meta.tw_title': 'MUSIXQUAREについて',
-    'meta.tw_description': 'すべてのデバイスを、ひとつのシステムに。',
+    'meta.tw_description': 'すべての端末を、ひとつの音へ。',
     'header.logo_aria': 'MUSIXQUAREホーム',
     'header.try': '今すぐ試す',
     'header.try_aria': 'MUSIXQUAREを今すぐ試す',
-    'hero.h1': 'すべてのデバイスを<br>ひとつのシステムに',
+    'hero.h1': 'すべての端末を<br>ひとつの音へ',
     'hero.lead':
-      'MUSIXQUAREは、同じ空間にあるスマートフォン、タブレット、ノートPCをひとつのサウンドシステムにつなげます。インストール不要で、コードを共有するだけです。',
+      'MUSIXQUAREは、同じ空間にあるスマートフォン、タブレット、ノートPCをひとつのサウンドシステムにつなげます。インストールは不要。コードを共有するだけで始められます。',
     'hero.btn_ghost': 'しくみを見る',
     'array.h2': 'サラウンドスピーカーなしで<br>サラウンドを',
     'array.lead':

@@ -52,7 +52,7 @@ const es: Record<I18nKey, string> = {
   'common.system': 'Sistema',
   'common.unknown': 'Desconocido',
   'common.youtube_video': 'Video de YouTube',
-  'common.peer': 'Par',
+  'common.peer': 'Peer',
 
   // Navigation
   'nav.home': 'Inicio',
@@ -87,7 +87,7 @@ const es: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Audio avanzado',
   'settings.spatial_audio': 'Audio espacial',
   'settings.reverb_title': 'Reverberación',
-  'settings.host_ctrl': 'Control del anfitrión',
+  'settings.host_ctrl': 'Control del host',
   'settings.self_ctrl': 'Control local',
   'settings.rvb_studio': 'Estudio',
   'settings.rvb_arena': 'Arena',
@@ -140,7 +140,7 @@ const es: Record<I18nKey, string> = {
   'player.select_file_hint': 'Selecciona un archivo o revisa la lista',
   'player.play_pause': 'Reproducir/Pausar',
   'player.visualizer': 'Visualizador de audio',
-  'player.seek': 'Buscar',
+  'player.seek': 'Ajustar posición de reproducción',
   'player.volume': 'Ajustar volumen',
   'player.toggle_mute': 'Activar o desactivar silencio',
   'player.fullscreen': 'Pantalla completa',

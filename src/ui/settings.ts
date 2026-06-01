@@ -681,9 +681,6 @@ export function initSettings(): void {
   $on('btn-language-system', 'click', () => setLanguageMode('system'));
   $on('btn-language-dialog-done', 'click', () => closeLanguageDialog());
   const languageOverlay = document.getElementById('language-dialog-overlay');
-  languageOverlay?.addEventListener('click', (e) => {
-    if (e.target === languageOverlay) closeLanguageDialog();
-  });
   languageOverlay?.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeLanguageDialog();
   });

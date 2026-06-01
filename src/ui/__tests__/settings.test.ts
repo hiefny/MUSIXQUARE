@@ -304,6 +304,18 @@ describe('initSettings language controls', () => {
     expect(localStorage.getItem('musixquare-lang')).toBe('system');
     expect(document.getElementById('btn-language-system')?.classList.contains('active')).toBe(true);
   });
+
+  it('keeps the language dialog open when the backdrop is clicked', () => {
+    installLanguageSettingsDom();
+    initSettings();
+
+    document.getElementById('btn-language-select')?.click();
+    const overlay = document.getElementById('language-dialog-overlay')!;
+
+    overlay.click();
+
+    expect(overlay.classList.contains('show')).toBe(true);
+  });
 });
 
 describe('initSettings effect slider fill sync', () => {

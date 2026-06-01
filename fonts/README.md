@@ -22,6 +22,9 @@ The app also self-hosts Google Fonts WOFF2 shards for:
 - `Noto Sans SC`
 - `Noto Sans TC`
 - `Noto Sans Thai`
+- `Noto Sans` (Cyrillic shards)
+- `Noto Sans Arabic`
+- `Noto Sans Devanagari`
 
 These live under `fonts/noto/` and are referenced by per-locale CSS shards in
 `css/fonts/`. The app loads those CSS shards only when the resolved language
@@ -31,6 +34,9 @@ needs them:
 - Simplified Chinese: `css/fonts/noto-sc.css`
 - Traditional Chinese: `css/fonts/noto-tc.css`
 - Thai: `css/fonts/noto-thai.css`
+- Russian: `css/fonts/noto-cyrillic.css`
+- Arabic: `css/fonts/noto-arabic.css`
+- Hindi: `css/fonts/noto-devanagari.css`
 
 Latin, digits, and shared symbols keep Pretendard metrics through
 `Pretendard UI Core`; Korean uses the full `Pretendard` face.
@@ -39,5 +45,5 @@ Latin, digits, and shared symbols keep Pretendard metrics through
 
 - The site will still work without the font files, but it will fall back to system fonts.
 - The font is licensed under **SIL Open Font License 1.1** (see `PRETENDARD_LICENSE.txt`).
-- Noto fonts are licensed under **SIL Open Font License 1.1** (see
-  `NOTO_CJK_LICENSE.txt` and `NOTO_THAI_LICENSE.txt`).
+- Noto fonts are licensed under **SIL Open Font License 1.1** (see the Noto
+  license files in this directory).

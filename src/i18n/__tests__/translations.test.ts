@@ -1,13 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import ko from '../ko.ts';
 import en from '../en.ts';
+import ar from '../ar.ts';
 import de from '../de.ts';
 import es from '../es.ts';
+import fil from '../fil.ts';
 import fr from '../fr.ts';
+import hi from '../hi.ts';
 import id from '../id.ts';
+import italian from '../it.ts';
 import ja from '../ja.ts';
+import pl from '../pl.ts';
 import ptBr from '../pt-br.ts';
+import ru from '../ru.ts';
 import th from '../th.ts';
+import tr from '../tr.ts';
 import vi from '../vi.ts';
 import zhHans from '../zh-hans.ts';
 import zhHant from '../zh-hant.ts';
@@ -16,13 +23,20 @@ const koKeys = Object.keys(ko);
 const locales = {
   ko,
   en,
+  ar,
   de,
   es,
+  fil,
   fr,
+  hi,
   id,
+  italian,
   ja,
+  pl,
   ptBr,
+  ru,
   th,
+  tr,
   vi,
   zhHans,
   zhHant,
@@ -77,5 +91,41 @@ describe('Translation key integrity', () => {
     }
 
     expect(mismatched).toEqual([]);
+  });
+
+  it('HTML tag sequences match English in every locale', () => {
+    const tagRe = /<[^>]+>/g;
+    const mismatched: string[] = [];
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      if (locale === 'ko') continue;
+      for (const key of Object.keys(en)) {
+        const enVal = en[key as keyof typeof en] || '';
+        if (!enVal.includes('<')) continue;
+
+        const localeVal = dict[key as keyof typeof dict] || '';
+        const enTags = [...enVal.matchAll(tagRe)].map((m) => m[0]);
+        const localeTags = [...localeVal.matchAll(tagRe)].map((m) => m[0]);
+
+        if (JSON.stringify(enTags) !== JSON.stringify(localeTags)) {
+          mismatched.push(`${locale}.${key}`);
+        }
+      }
+    }
+
+    expect(mismatched).toEqual([]);
+  });
+
+  it('no machine-translation protection tokens remain in locale values', () => {
+    const tokenRe = /(?:ZXQ[A-Z0-9]+QXZ|QZX[A-Z0-9]+XZQ|ZXQZX[A-Z0-9]+)/;
+    const leaked: string[] = [];
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const [key, value] of Object.entries(dict)) {
+        if (tokenRe.test(value)) leaked.push(`${locale}.${key}`);
+      }
+    }
+
+    expect(leaked).toEqual([]);
   });
 });

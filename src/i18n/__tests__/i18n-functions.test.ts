@@ -145,7 +145,7 @@ describe('i18n functions', () => {
 
     it('returns "en" for unsupported languages (fallback)', async () => {
       Object.defineProperty(navigator, 'languages', {
-        value: ['ru-RU'],
+        value: ['sw-KE'],
         configurable: true,
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
@@ -161,6 +161,16 @@ describe('i18n functions', () => {
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
       await initI18n();
       expect(getResolvedLanguage()).toBe('zh-hant');
+    });
+
+    it('maps Tagalog system locales to Filipino', async () => {
+      Object.defineProperty(navigator, 'languages', {
+        value: ['tl-PH'],
+        configurable: true,
+      });
+      const { getResolvedLanguage, initI18n } = await import('../index.ts');
+      await initI18n();
+      expect(getResolvedLanguage()).toBe('fil');
     });
   });
 
@@ -185,6 +195,20 @@ describe('i18n functions', () => {
       await initI18n();
       setLanguageMode('ko');
       expect(document.documentElement.getAttribute('lang')).toBe('ko');
+    });
+
+    it('sets rtl direction for Arabic and clears it for ltr languages', async () => {
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      const { setLanguageMode, initI18n } = await import('../index.ts');
+      await initI18n();
+      setLanguageMode('ar');
+      expect(document.documentElement.getAttribute('lang')).toBe('ar');
+      expect(document.documentElement.getAttribute('dir')).toBe('rtl');
+      setLanguageMode('en');
+      expect(document.documentElement.getAttribute('dir')).toBeNull();
     });
 
     it('falls back to system mode for invalid mode', async () => {

@@ -44,6 +44,14 @@
     --font-sans-th:
       'Pretendard UI Core', 'Noto Sans Thai', 'Leelawadee UI', 'Tahoma', 'Pretendard',
       sans-serif;
+    --font-sans-cyrillic:
+      'Pretendard UI Core', 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      sans-serif;
+    --font-sans-ar:
+      'Pretendard UI Core', 'Noto Sans Arabic', 'Segoe UI', Tahoma, Arial, sans-serif;
+    --font-sans-hi:
+      'Pretendard UI Core', 'Noto Sans Devanagari', 'Nirmala UI', 'Kohinoor Devanagari',
+      sans-serif;
     --font-sans: var(--font-sans-ko);
 
     --glass-bg: var(--surface-1);
@@ -217,8 +225,12 @@
   html:lang(pt-BR),
   html:lang(fr),
   html:lang(de),
+  html:lang(it),
+  html:lang(pl),
+  html:lang(tr),
   html:lang(id),
-  html:lang(vi) {
+  html:lang(vi),
+  html:lang(fil) {
     --font-sans: var(--font-sans-ui);
   }
 
@@ -240,6 +252,22 @@
 
   html:lang(th) {
     --font-sans: var(--font-sans-th);
+  }
+
+  html:lang(ru) {
+    --font-sans: var(--font-sans-cyrillic);
+  }
+
+  html:lang(ar) {
+    --font-sans: var(--font-sans-ar);
+  }
+
+  html:lang(hi) {
+    --font-sans: var(--font-sans-hi);
+  }
+
+  html[dir='rtl'] {
+    direction: rtl;
   }
 
   @keyframes fadeIn {
@@ -3438,6 +3466,19 @@
 
   .language-option-native:lang(th) {
     font-family: var(--font-sans-th);
+  }
+
+  .language-option-native:lang(ru) {
+    font-family: var(--font-sans-cyrillic);
+  }
+
+  .language-option-native:lang(ar) {
+    direction: rtl;
+    font-family: var(--font-sans-ar);
+  }
+
+  .language-option-native:lang(hi) {
+    font-family: var(--font-sans-hi);
   }
 
   .language-option-english {

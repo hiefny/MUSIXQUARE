@@ -47,8 +47,8 @@ const de: Record<I18nKey, string> = {
   'common.woofer': 'Woofer',
   'common.connected': 'Verbunden',
   'common.disconnected': 'Getrennt',
-  'common.revoke': 'Administrator entziehen',
-  'common.grant': 'Administrator erteilen',
+  'common.revoke': 'Administrator-Rechte entziehen',
+  'common.grant': 'Administrator-Rechte erteilen',
   'common.system': 'System',
   'common.unknown': 'Unbekannt',
   'common.youtube_video': 'YouTube-Video',
@@ -577,8 +577,8 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_d_notice': 'Hinweis',
   'chat.cmd_d_nick': 'Gerät umbenennen',
   'chat.cmd_d_kick': 'Gerät entfernen',
-  'chat.cmd_d_op': 'Administrator erteilen',
-  'chat.cmd_d_deop': 'Administrator entziehen',
+  'chat.cmd_d_op': 'Administrator-Rechte erteilen',
+  'chat.cmd_d_deop': 'Administrator-Rechte entziehen',
   'chat.cmd_d_mute': 'Gerät stummschalten',
   'chat.cmd_d_unmute': 'Stummschaltung aufheben',
   'chat.cmd_u_debug': '/debug',
@@ -609,7 +609,7 @@ const de: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Code eingegeben, aber keine Verbindung:</strong> Prüfe den Code und versuche es gleich erneut. Firmen-, Schul- oder VPN-Netzwerke können die Verbindung einschränken.</li><li><strong>Instabile Verbindung:</strong> Lokale Teilnehmer sollten näher am Router bleiben, Remote-Teilnehmer eine stabile Internetverbindung nutzen.</li><li><strong>Andere Probleme:</strong> Prüfe den Netzwerkstatus und starte die App auf allen Geräten neu. Bei Fragen lies die <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> oder kontaktiere uns über die E-Mail ganz unten.</li></ul>',
   'setup.brand_tagline_html': 'Gemeinsam hören, überall<br>Das perfekte Klangerlebnis',
   'setup.invite_share_desc_html':
-    'Verbinde mehrere Geräte kabellos<br>und erschaffe ein großes Audiosystem.<br>Nutze zum Verbinden einen 6-stelligen Code.',
+    'Verbinde mehrere Geräte kabellos<br>und erschaffe ein leistungsstarkes Audiosystem.<br>Nutze zum Verbinden einen 6-stelligen Code.',
   'setup.play_together_desc_html':
     'Wenn der Host Medien abspielt,<br>spielen alle verbundenen Geräte synchron.<br>Drücke die Sync-Taste zum Abgleichen.',
   'setup.spatial_audio_desc_html':

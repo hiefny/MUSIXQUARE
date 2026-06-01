@@ -603,7 +603,7 @@ const vi: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Đã nhập mã nhưng không kết nối được:</strong> Kiểm tra mã rồi thử lại sau ít phút. Mạng công ty, trường học hoặc VPN có thể hạn chế kết nối.</li><li><strong>Kết nối không ổn định:</strong> Người tham gia nội bộ nên ở gần router hơn, còn người tham gia từ xa nên dùng kết nối Internet ổn định.</li><li><strong>Vấn đề khác:</strong> Kiểm tra trạng thái mạng và khởi động lại ứng dụng trên tất cả thiết bị. Nếu có câu hỏi, hãy xem <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> hoặc liên hệ qua email ở cuối trang.</li></ul>',
   'setup.brand_tagline_html': 'Nghe cùng nhau, ở mọi nơi<br>Trải nghiệm âm thanh hoàn hảo',
   'setup.invite_share_desc_html':
-    'Kết nối không dây nhiều thiết bị<br>để tạo một hệ thống âm thanh lớn.<br>Dùng mã 6 chữ số để kết nối.',
+    'Kết nối không dây nhiều thiết bị<br>để tạo một hệ thống âm thanh mạnh mẽ.<br>Dùng mã 6 chữ số để kết nối.',
   'setup.play_together_desc_html':
     'Khi host phát nội dung,<br>mọi thiết bị đã kết nối phát đồng bộ.<br>Nhấn nút đồng bộ để căn chỉnh.',
   'setup.spatial_audio_desc_html':

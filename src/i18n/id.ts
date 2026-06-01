@@ -605,7 +605,7 @@ const id: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Kode sudah dimasukkan tetapi tidak bisa terhubung:</strong> Periksa kode lalu coba lagi sebentar lagi. Jaringan perusahaan, sekolah, atau VPN dapat membatasi koneksi.</li><li><strong>Koneksi tidak stabil:</strong> Peserta lokal sebaiknya lebih dekat ke router, dan peserta jarak jauh sebaiknya memakai koneksi internet yang stabil.</li><li><strong>Masalah lain:</strong> Periksa status jaringan dan mulai ulang aplikasi di semua perangkat. Jika ada pertanyaan, lihat <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> atau hubungi kami lewat email di bagian paling bawah.</li></ul>',
   'setup.brand_tagline_html': 'Dengarkan bersama, di mana saja<br>Pengalaman suara yang sempurna',
   'setup.invite_share_desc_html':
-    'Hubungkan beberapa perangkat secara nirkabel<br>untuk membuat sistem audio besar.<br>Gunakan kode 6 digit untuk terhubung.',
+    'Hubungkan beberapa perangkat secara nirkabel<br>untuk membuat sistem audio yang kuat.<br>Gunakan kode 6 digit untuk terhubung.',
   'setup.play_together_desc_html':
     'Saat host memutar media,<br>semua perangkat yang terhubung memutar secara sinkron.<br>Tekan tombol sinkronisasi untuk menyelaraskan.',
   'setup.spatial_audio_desc_html':

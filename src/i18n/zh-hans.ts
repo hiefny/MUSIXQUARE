@@ -586,7 +586,7 @@ const zhHans: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>输入代码但无法连接：</strong>请检查代码，稍后重试。公司、学校或 VPN 网络可能限制连接。</li><li><strong>连接不稳定：</strong>本地参与者请靠近路由器，远程参与者请使用稳定的网络连接。</li><li><strong>其他问题：</strong>请检查网络状态，并在所有设备上重启应用。如有疑问，请查看 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>，或通过页面底部的邮箱联系我们。</li></ul>',
   'setup.brand_tagline_html': '随时随地一起聆听<br>完美的声音体验',
   'setup.invite_share_desc_html':
-    '无线连接多台设备<br>打造巨大的音频系统。<br>使用 6 位代码即可连接。',
+    '无线连接多台设备<br>打造强大的音频系统。<br>使用 6 位代码即可连接。',
   'setup.play_together_desc_html':
     '主机播放媒体时，<br>所有已连接设备会同步播放。<br>按同步按钮即可对齐。',
   'setup.spatial_audio_desc_html':

@@ -254,7 +254,7 @@ const th: Record<I18nKey, string> = {
   'setup.enter_host_code': 'ใส่รหัสโฮสต์',
   'setup.enter_host_code_alt': 'ใส่รหัสของโฮสต์',
   'setup.connect_devices': 'ตอนนี้เชื่อมต่ออุปกรณ์อื่น',
-  'setup.enter_code_connect': 'รหัสอีกเครื่อง',
+  'setup.enter_code_connect': 'ใส่รหัสนี้ในอีกเครื่อง',
   'setup.last_step': 'พร้อมเริ่ม?',
   'setup.joining': 'กำลังเข้าร่วม...',
   'setup.six_digit_enter': 'โปรดใส่รหัส 6 หลัก',

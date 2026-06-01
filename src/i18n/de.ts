@@ -140,7 +140,7 @@ const de: Record<I18nKey, string> = {
   'player.select_file_hint': 'Wähle eine Datei oder prüfe die Playlist',
   'player.play_pause': 'Wiedergabe/Pause',
   'player.visualizer': 'Audio-Visualisierung',
-  'player.seek': 'Suchen',
+  'player.seek': 'Wiedergabeposition anpassen',
   'player.volume': 'Lautstärke anpassen',
   'player.toggle_mute': 'Stummschaltung umschalten',
   'player.fullscreen': 'Vollbild umschalten',

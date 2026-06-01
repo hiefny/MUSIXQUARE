@@ -140,7 +140,7 @@ const ptBr: Record<I18nKey, string> = {
   'player.select_file_hint': 'Selecione um arquivo ou confira a playlist',
   'player.play_pause': 'Reproduzir/Pausar',
   'player.visualizer': 'Visualizador de áudio',
-  'player.seek': 'Buscar',
+  'player.seek': 'Ajustar posição de reprodução',
   'player.volume': 'Ajustar volume',
   'player.toggle_mute': 'Alternar mudo',
   'player.fullscreen': 'Alternar tela cheia',

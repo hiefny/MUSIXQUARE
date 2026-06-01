@@ -52,7 +52,7 @@ const it: Record<I18nKey, string> = {
   'common.peer': 'Peer',
 
   // ─── Navigation ──────────────────────────────────────────────────
-  'nav.home': 'Main',
+  'nav.home': 'Principale',
   'nav.playlist': 'Playlist',
   'nav.settings': 'Impostazioni',
   'nav.help': 'Aiuto',

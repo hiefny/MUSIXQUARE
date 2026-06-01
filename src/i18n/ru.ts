@@ -52,7 +52,7 @@ const ru: Record<I18nKey, string> = {
   'common.peer': 'Peer',
 
   // ─── Navigation ──────────────────────────────────────────────────
-  'nav.home': 'Main',
+  'nav.home': 'Главная',
   'nav.playlist': 'Playlist',
   'nav.settings': 'Настройки',
   'nav.help': 'Помощь',
@@ -65,7 +65,7 @@ const ru: Record<I18nKey, string> = {
   'player.play_pause': 'Воспроизведение/Пауза',
   'player.visualizer': 'Аудиовизуализатор',
   'player.seek': 'Перемотка',
-  'player.volume': 'Регулировка громкость',
+  'player.volume': 'Регулировка громкости',
   'player.toggle_mute': 'Вкл/Выкл звук',
   'player.fullscreen': 'Полноэкранный режим',
   'player.prev_track': 'Предыдущий трек',
@@ -363,7 +363,7 @@ const ru: Record<I18nKey, string> = {
   'youtube.enter_source_placeholder': 'Поисковый запрос или ссылка (https://youtube.com/...)',
   'youtube.watch_together': 'Совместный просмотр YouTube',
   'youtube.ready': 'YouTube готов!\nНажмите «Воспроизвести», чтобы начать.',
-  'youtube.thumbnail': 'Превью-картинка video на YouTube',
+  'youtube.thumbnail': 'Превью-картинка видео на YouTube',
   'youtube.load_fail': 'Не удалось загрузить API YouTube.\nПроверьте подключение к интернету!',
   'youtube.video_unavailable': 'Видео недоступно. Переход к следующему треку...',
   'youtube.load_timeout': 'Истекло время ожидания загрузки YouTube.\nПопробуйте еще раз.',

@@ -52,7 +52,7 @@ const pl: Record<I18nKey, string> = {
   'common.peer': 'Peer',
 
   // ─── Navigation ──────────────────────────────────────────────────
-  'nav.home': 'Main',
+  'nav.home': 'Główna',
   'nav.playlist': 'Playlist',
   'nav.settings': 'Ustawienia',
   'nav.help': 'Pomoc',
@@ -111,7 +111,7 @@ const pl: Record<I18nKey, string> = {
   'role.right_placement': 'Umieść urządzenie po prawej stronie',
 
   // ─── Settings ────────────────────────────────────────────────────
-  'settings.theme': 'Tema',
+  'settings.theme': 'Motyw',
   'settings.dark': 'Ciemny',
   'settings.light': 'Jasny',
   'settings.visualizer': 'Wizualizator',

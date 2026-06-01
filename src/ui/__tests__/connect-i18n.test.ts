@@ -53,7 +53,9 @@ describe('connect i18n refresh', () => {
     setLanguageMode('en');
 
     expect(document.querySelector<HTMLElement>('.d-name')?.textContent).toContain('Peer');
-    expect(document.querySelector<HTMLButtonElement>('.d-op-btn')?.textContent).toBe('Grant OP');
+    expect(document.querySelector<HTMLButtonElement>('.d-op-btn')?.textContent).toBe(
+      'Grant admin',
+    );
     expect(document.querySelector<HTMLButtonElement>('.btn-kick-device')?.ariaLabel).toBe(
       'Kick device',
     );

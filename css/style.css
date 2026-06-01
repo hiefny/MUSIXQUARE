@@ -27,25 +27,24 @@
     --radius-l: 32px;
     --radius-m: 20px;
     --radius-s: 14px;
+    --font-sans-ui:
+      'Pretendard UI Core', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-sans-ko:
+      'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
+      'Noto Sans KR', sans-serif;
     --font-sans-ja:
-      'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
-      'Noto Sans KR', sans-serif;
+      'Pretendard UI Core', 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo',
+      'Pretendard', sans-serif;
     --font-sans-cjk-sc:
-      'Pretendard UI Core', 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei',
-      'Noto Sans Thai', 'Leelawadee UI', 'Noto Sans CJK TC', 'Noto Sans TC',
-      'Microsoft JhengHei', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-      'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      'Pretendard UI Core', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', 'Pretendard',
+      sans-serif;
     --font-sans-cjk-tc:
-      'Pretendard UI Core', 'Noto Sans CJK TC', 'Noto Sans TC', 'Microsoft JhengHei',
-      'Noto Sans Thai', 'Leelawadee UI', 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei',
-      'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
-      'Noto Sans KR', sans-serif;
+      'Pretendard UI Core', 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', 'Pretendard',
+      sans-serif;
     --font-sans-th:
-      'Pretendard UI Core', 'Noto Sans Thai', 'Leelawadee UI', 'Noto Sans CJK SC',
-      'Noto Sans SC', 'Microsoft YaHei', 'Noto Sans CJK TC', 'Noto Sans TC',
-      'Microsoft JhengHei', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-      'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
-    --font-sans: var(--font-sans-cjk-sc);
+      'Pretendard UI Core', 'Noto Sans Thai', 'Leelawadee UI', 'Tahoma', 'Pretendard',
+      sans-serif;
+    --font-sans: var(--font-sans-ko);
 
     --glass-bg: var(--surface-1);
     --glass-border: transparent;
@@ -213,8 +212,26 @@
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
+  html:lang(en),
+  html:lang(es),
+  html:lang(pt-BR),
+  html:lang(fr),
+  html:lang(de),
+  html:lang(id),
+  html:lang(vi) {
+    --font-sans: var(--font-sans-ui);
+  }
+
+  html:lang(ko) {
+    --font-sans: var(--font-sans-ko);
+  }
+
   html:lang(ja) {
     --font-sans: var(--font-sans-ja);
+  }
+
+  html:lang(zh-Hans) {
+    --font-sans: var(--font-sans-cjk-sc);
   }
 
   html:lang(zh-Hant) {
@@ -5200,7 +5217,7 @@
     justify-content: flex-start;
     gap: 6px;
     color: #ffffff;
-    font-family: 'Pretendard', sans-serif;
+    font-family: var(--font-sans);
     line-height: normal;
   }
 

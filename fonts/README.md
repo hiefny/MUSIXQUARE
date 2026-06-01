@@ -1,6 +1,7 @@
 # Fonts
 
-This project is set up to **self-host Pretendard** and Noto fallback fonts.
+This project is set up to **self-host Pretendard** and locale-specific Noto
+fallback fonts.
 
 ## Quick setup
 
@@ -17,13 +18,22 @@ This will download:
 ## Noto fallback fonts
 
 The app also self-hosts Google Fonts WOFF2 shards for:
+- `Noto Sans JP`
 - `Noto Sans SC`
 - `Noto Sans TC`
 - `Noto Sans Thai`
 
-These live under `fonts/noto/` and are referenced by `css/noto.css`.
-They let Chinese and Thai glyphs render with Noto while Latin, digits, Korean,
-and Japanese keep Pretendard metrics through `Pretendard UI Core`.
+These live under `fonts/noto/` and are referenced by per-locale CSS shards in
+`css/fonts/`. The app loads those CSS shards only when the resolved language
+needs them:
+
+- Japanese: `css/fonts/noto-jp.css`
+- Simplified Chinese: `css/fonts/noto-sc.css`
+- Traditional Chinese: `css/fonts/noto-tc.css`
+- Thai: `css/fonts/noto-thai.css`
+
+Latin, digits, and shared symbols keep Pretendard metrics through
+`Pretendard UI Core`; Korean uses the full `Pretendard` face.
 
 ## Notes
 

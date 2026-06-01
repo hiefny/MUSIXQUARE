@@ -71,7 +71,15 @@ const _localeLoaders: Partial<
   'zh-hant': () => import('./zh-hant.ts'),
 };
 
+const _fontLoaders: Partial<Record<LanguageCode, () => Promise<unknown>>> = {
+  ja: () => import('../../css/fonts/noto-jp.css'),
+  th: () => import('../../css/fonts/noto-thai.css'),
+  'zh-hans': () => import('../../css/fonts/noto-sc.css'),
+  'zh-hant': () => import('../../css/fonts/noto-tc.css'),
+};
+
 const _loadingLocales = new Map<LanguageCode, Promise<void>>();
+const _loadingFonts = new Map<LanguageCode, Promise<void>>();
 
 // ─── Public API ─────────────────────────────────────────────────
 
@@ -293,6 +301,26 @@ function _loadLanguage(code: LanguageCode): Promise<void> {
   return pending;
 }
 
+function _loadLocaleFonts(code: LanguageCode): Promise<void> {
+  const loader = _fontLoaders[code];
+  if (!loader) return Promise.resolve();
+
+  const existing = _loadingFonts.get(code);
+  if (existing) return existing;
+
+  const pending = loader()
+    .then(() => undefined)
+    .catch((error) => {
+      log.warn(`[i18n] Failed to load font CSS for "${code}"`, error);
+    })
+    .finally(() => {
+      _loadingFonts.delete(code);
+    });
+
+  _loadingFonts.set(code, pending);
+  return pending;
+}
+
 function _translateLoadedLanguage(resolved: LanguageCode): void {
   if (_resolved !== resolved) return;
   _ensureObserver();
@@ -311,12 +339,16 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
     /* ignore */
   }
 
+  const needsFontLoad = Boolean(_fontLoaders[resolved]);
+  const fontLoad = _loadLocaleFonts(resolved);
+
   if (_dicts[resolved]) {
+    if (needsFontLoad) await fontLoad;
     _translateLoadedLanguage(resolved);
     return;
   }
 
-  await _loadLanguage(resolved);
+  await Promise.all([_loadLanguage(resolved), fontLoad]);
   _translateLoadedLanguage(resolved);
 }
 

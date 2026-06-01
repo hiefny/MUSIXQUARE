@@ -116,6 +116,7 @@ the first machine pass).
 | `nav.home`, `nav.go_home` | Home | **home screen** | "house / residence" |
 | `common.woofer`, `role.subwoofer` | Woofer / Subwoofer | audio term — use the standard **loanword/transliteration** | literal "barker" |
 | `settings.host_ctrl` / `settings.self_ctrl` | Host Control / Local Control | who controls the effect: the **host** vs **locally/yourself** | "self-control" (restraint!); leaving it English |
+| `connect.rename_message` "Choose a display name" | Choose | **enter / decide on** a name (it's a text field) | a "select-from-a-list" verb — esp. zh `选择`/`選擇`; you type the name, not pick it |
 
 ---
 

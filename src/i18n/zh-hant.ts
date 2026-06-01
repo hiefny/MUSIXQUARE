@@ -121,7 +121,7 @@ const zhHant: Record<I18nKey, string> = {
   'settings.leave_session': '離開房間',
   'connect.rename_device': '重新命名裝置',
   'connect.rename_title': '變更裝置名稱',
-  'connect.rename_message': '選擇一個對他人可見的暱稱。',
+  'connect.rename_message': '輸入一個對他人可見的暱稱。',
   'connect.rename_placeholder': '新暱稱（最多 20 個字元）',
   'connect.rename_current': '目前暱稱',
   'connect.rename_empty': '請輸入暱稱。',

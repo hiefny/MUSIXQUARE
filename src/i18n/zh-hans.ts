@@ -121,7 +121,7 @@ const zhHans: Record<I18nKey, string> = {
   'settings.leave_session': '离开房间',
   'connect.rename_device': '重命名设备',
   'connect.rename_title': '更改设备名称',
-  'connect.rename_message': '选择一个对他人可见的昵称。',
+  'connect.rename_message': '输入一个对他人可见的昵称。',
   'connect.rename_placeholder': '新昵称（最多 20 个字符）',
   'connect.rename_current': '当前昵称',
   'connect.rename_empty': '请输入昵称。',

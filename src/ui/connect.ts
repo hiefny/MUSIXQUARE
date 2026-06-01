@@ -555,7 +555,7 @@ export function initConnect(): void {
         hint: `${t('connect.rename_current')}: ${currentLabel}`,
         validator: (val) => {
           const name = val.trim();
-          if (!name) return t('connect.rename_reserved');
+          if (!name) return t('connect.rename_empty');
           const isHostSelf = !getState('network.hostConn');
           if (RESERVED_NAMES.some((r) => name.toLowerCase() === r.toLowerCase())) {
             // HOST가 "host"/"방장"/"호스트"로 되돌리는 건 허용

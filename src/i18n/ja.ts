@@ -28,7 +28,7 @@ const ja: Record<I18nKey, string> = {
   'common.pause': '一時停止',
   'common.message': 'メッセージ',
   'common.mix': 'ミックス',
-  'common.wait': '少々お待ちください...',
+  'common.wait': 'しばらくお待ちください...',
   'common.guest': '参加者',
   'common.help': 'ヘルプ',
   'common.increase': '増やす',
@@ -63,13 +63,13 @@ const ja: Record<I18nKey, string> = {
   'nav.go_home': 'ホームへ移動',
 
   // Role
-  'role.center': 'センター',
-  'role.left': '左',
-  'role.right': '右',
+  'role.center': '中央スピーカー',
+  'role.left': '左スピーカー',
+  'role.right': '右スピーカー',
   'role.subwoofer': 'サブウーファー',
-  'role.center_placement': 'デバイスを中央に置いてください',
-  'role.left_placement': 'デバイスを左側に置いてください',
-  'role.right_placement': 'デバイスを右側に置いてください',
+  'role.center_placement': 'デバイスを中央に配置してください',
+  'role.left_placement': 'デバイスを左側に配置してください',
+  'role.right_placement': 'デバイスを右側に配置してください',
 
   // Settings
   'settings.theme': 'テーマ',
@@ -88,7 +88,7 @@ const ja: Record<I18nKey, string> = {
   'settings.spatial_audio': '空間オーディオ',
   'settings.reverb_title': 'リバーブ',
   'settings.host_ctrl': 'ホスト制御',
-  'settings.self_ctrl': '自分で制御',
+  'settings.self_ctrl': 'ローカル制御',
   'settings.rvb_studio': 'スタジオ',
   'settings.rvb_arena': 'アリーナ',
   'settings.rvb_advanced': '詳細',
@@ -122,8 +122,9 @@ const ja: Record<I18nKey, string> = {
   'connect.rename_device': 'デバイス名を変更',
   'connect.rename_title': 'デバイス名を変更',
   'connect.rename_message': '他の人に表示される名前を入力してください。',
-  'connect.rename_placeholder': '新しい名前（最大20文字）',
+  'connect.rename_placeholder': '新しいニックネーム（最大20文字）',
   'connect.rename_current': '現在の名前',
+  'connect.rename_empty': 'ニックネームを入力してください。',
   'connect.rename_reserved': 'この名前は使用できません。',
   'connect.rename_profanity': 'この名前には不適切な表現が含まれています。',
   'connect.rename_duplicate': 'この名前はすでに使用されています。',
@@ -135,7 +136,7 @@ const ja: Record<I18nKey, string> = {
   'settings.subtab.help': 'ヘルプ',
 
   // Player
-  'player.no_media': 'メディアなし',
+  'player.no_media': '再生中のメディアはありません',
   'player.select_file_hint': 'ファイルを選択するかプレイリストを確認してください',
   'player.play_pause': '再生/一時停止',
   'player.visualizer': 'オーディオビジュアライザー',
@@ -170,7 +171,7 @@ const ja: Record<I18nKey, string> = {
   'playlist.sub_load_failed': '動画情報を読み込めませんでした',
   'playlist.remove_title': 'プレイリストから削除',
   'playlist.remove_message': 'このメディアをプレイリストから削除しますか？',
-  'playlist.remove_yes': '削除',
+  'playlist.remove_yes': '削除する',
   'playlist.remove_no': 'いいえ',
   'playlist.video_fallback': '読み込み中...',
   'playlist.track_fallback': 'トラック {{idx}}',
@@ -178,12 +179,12 @@ const ja: Record<I18nKey, string> = {
 
   // Connect
   'connect.qr_title': 'QRまたはリンクで招待',
-  'connect.max_devices': '許可するデバイス数',
+  'connect.max_devices': '最大収容デバイス数',
   'connect.device_list': '{{count}}台の接続中デバイス',
   'connect.device_list_one': '{{count}}台の接続中デバイス',
   'connect.no_session': '先にルームを作成してください',
   'connect.generating_qr': 'QRコードを生成中...',
-  'connect.cannot_reduce': 'すでに{{count}}台のデバイスが接続されています',
+  'connect.cannot_reduce': '接続中のデバイスが{{count}}台あるため、収容数を減らせません',
   'connect.kick_title': 'デバイスを退出させる',
   'connect.kick_message': 'このデバイスをルームから削除しますか？',
   'connect.kick_yes': '退出させる',
@@ -205,8 +206,8 @@ const ja: Record<I18nKey, string> = {
   'connect.room_password_disabled': '参加者はルームパスワードなしで参加できます',
 
   // Setup and demo
-  'setup.host_button': 'ホストになる',
-  'setup.guest_button': 'ルームに参加',
+  'setup.host_button': 'ホストとして開始',
+  'setup.guest_button': 'ゲストとして参加',
   'setup.demo_button': '試してみる（デモ）',
   'demo.prompt_title': 'MUSIXQUAREを試す',
   'demo.prompt_message': '初めてのようです。基本機能を試してみますか？',
@@ -245,7 +246,7 @@ const ja: Record<I18nKey, string> = {
   'setup.how_to_connect': '接続方法',
   'setup.set_role': 'デバイスの役割を設定',
   'setup.what_sound': 'このデバイスで鳴らす音は？',
-  'setup.change_later': 'あとで設定から変更できます。',
+  'setup.change_later': 'あとで設定からいつでも変更できます。',
   'setup.welcome_title': 'ようこそ',
   'setup.join_session_subtitle': 'ルーム {{code}} に参加します。',
   'setup.select_role': '役割を選択してください',
@@ -525,11 +526,11 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': '送信する前に {{sec}}秒お待ちください',
   'chat.cmd_notice_prefix': 'お知らせ',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice': '一部のデバイスでこのトラックを再生できません。次へスキップします',
+  'chat.decode_skip_notice': '一部のデバイスで再生できないため、次のトラックへスキップします',
   'chat.system_audio_started_notice':
-    'システムオーディオ共有を開始しました。利用可能な場合、リモート参加者はCloudflare経由で受信できます。ホストと参加者の間には自然な遅延があるため、ホストは元デバイスの音量をできるだけ下げてください。',
+    'システムオーディオの共有を開始しました。ホストと参加者の間には一定の遅延が発生するため、ハウリングを防ぐためにホストデバイスの音量をできるだけ下げてご使用ください。',
   'chat.system_audio_stopped_notice':
-    'システムオーディオ共有を終了しました。ホストは音量を戻してルームのスピーカー役に戻ってください。',
+    'システムオーディオの共有を終了しました。ホストデバイスの音量を戻して、スピーカーとして再生してください。',
   'chat.remote_guest_detected_notice':
     'リモート参加者が参加しました。接続品質はネットワーク状況により変わる場合があります。',
   'chat.remote_upload_limited_notice':

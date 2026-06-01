@@ -59,7 +59,7 @@ const ko = {
   'nav.go_home': '메인 화면으로 이동',
 
   // ─── Player ──────────────────────────────────────────────────────
-  'player.no_media': '미디어 없음',
+  'player.no_media': '재생 중인 미디어 없음',
   'player.select_file_hint': '파일을 선택하거나 플레이리스트를 확인하세요',
   'player.play_pause': '재생/일시정지',
   'player.visualizer': '오디오 비주얼라이저',
@@ -162,6 +162,7 @@ const ko = {
   'connect.rename_message': '다른 사람에게 보일 이름을 입력하세요.',
   'connect.rename_placeholder': '새 이름 (최대 20자)',
   'connect.rename_current': '기존 이름',
+  'connect.rename_empty': '닉네임을 입력해 주세요.',
   'connect.rename_reserved': '사용할 수 없는 이름이에요.',
   'connect.rename_profanity': '부적절한 표현이 포함된 이름이에요.',
   'connect.rename_duplicate': '이미 사용 중인 이름이에요.',
@@ -179,7 +180,7 @@ const ko = {
   'connect.device_list_one': '연결된 기기 {{count}}대',
   'connect.no_session': '세션을 먼저 시작하세요',
   'connect.generating_qr': 'QR 코드 생성 중...',
-  'connect.cannot_reduce': '이미 {{count}}대가 연결되어 있어요',
+  'connect.cannot_reduce': '현재 이미 {{count}}대의 기기가 연결되어 있어 더 줄일 수 없어요.',
   'connect.kick_title': '강제퇴장 시키기',
   'connect.kick_message': '이 기기를 내보낼까요?',
   'connect.kick_yes': '내보내기',

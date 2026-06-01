@@ -48,16 +48,15 @@ is missing** — so a complete file must define every key.
    messages.
 3. **Never translate** brand/technical tokens:
    `MUSIXQUARE` · `YouTube` · `Cloudflare` · `QR` · `API` ·
-   `HOST-CTRL` · `SELF-CTRL` · and units `Hz` `kHz` `dB` `ms` `%` (+ the numbers).
+   and units `Hz` `kHz` `dB` `ms` `%` (+ the numbers).
 4. **Ellipsis = three ASCII periods `...`**, never the single `…` (U+2026)
    character. (Keeps the codebase consistent.)
 5. **Escape apostrophes** for a single-quoted JS string (`'it\'s'`) or use the
    language's typographic quote (`'`, `’`, `»`). A raw `'` inside `'...'` breaks
    the build.
 6. **Keep ALL-CAPS** only where the target script has letter case (Latin,
-   Cyrillic, Greek). Caseless scripts (CJK, Arabic, Hebrew, Devanagari, Thai)
-   ignore it. Caps source values: `youtube.tap_to_play` = "TAP TO PLAY",
-   `chat.system_sender` = "SYSTEM".
+   Cyrillic). Caseless scripts (CJK, Thai) ignore it. Caps source values:
+   `youtube.tap_to_play` = "TAP TO PLAY", `chat.system_sender` = "SYSTEM".
 
 ---
 
@@ -73,6 +72,15 @@ is missing** — so a complete file must define every key.
   reads jarring at app start — prefer the idiomatic onboarding/welcome phrasing.
 - **`demo.session_title`** (en: "This is room {{code}}.") → translate to the
   natural **"Your room: {{code}}"** form, not the literal "This is room X."
+- **Roles, not channels:** a device's assignment is framed as its **role** (역할),
+  not an "audio channel" — the experience is "this device acts as the left
+  speaker," not "separate an audio channel." Keep `setup.*` prompts on role
+  wording, never "channel."
+- **Role labels carry "speaker":** `role.center` / `role.left` / `role.right` read
+  as **"[position] speaker"** in every language (Left Speaker, 왼쪽 스피커, Altavoz
+  izquierdo, 左音箱 / 左喇叭) — even if it wraps to two lines on the selection cards.
+  Use each region's everyday word for *speaker* (zh-Hans 音箱, zh-Hant 喇叭 — not a
+  forced match). `common.left` / `common.right` stay the bare direction word.
 - **One word for "admin":** pick a single term for the admin/operator role and use
   it consistently across every key (`common.grant`, `chat.cmd_d_op`,
   `toast.operator_required`, `network.op_granted`, …). Don't alternate
@@ -90,15 +98,15 @@ the first machine pass).
 
 | Key(s) | English | Means | ✗ Wrong sense to avoid |
 |---|---|---|---|
-| `common.right`, `role.right` | Right | **right-hand side** (speaker position) | "correct / yes / OK / sure" |
-| `common.left`, `role.left` | Left | **left-hand side** | past tense of *leave*; "remaining" |
+| `common.right` / `common.left` | Right / Left | bare **direction** word (audio balance, woofer L/R) | "correct / yes / OK"; past tense of *leave* |
+| `role.right` / `role.left` / `role.center` | Right / Left / Center | the device's role = **"[position] speaker"** (e.g. Left Speaker) | bare direction with no "speaker"; "channel" |
 | `common.on` | On | toggle state **enabled / powered on** | preposition "on / upon / atop" |
 | `common.off` | Off | toggle state **disabled** | "away / distant" |
 | `common.grant`, `chat.cmd_d_op` | Grant admin | **verb: give** someone the admin role | noun "a grant / subsidy / funding" |
 | `common.revoke`, `chat.cmd_d_deop` | Revoke admin | **verb: take away** the admin role | "annul / invalidate" (too legalistic) |
 | `connect.kick_*`, `chat.cmd_d_kick`, `toast.device_kicked` | Kick | **eject / remove** a device from the session | physical "kick / strike / football" |
 | `player.seek` | Seek | **scrub** the playback position | "search / look for" |
-| `player.play_media`, `player.play_together`, `player.play_speakers` | Play | **play back media (audio)** | "play a game / have fun / frolic" |
+| `player.play_media` "Play media", `player.play_together` "Play in Sync", `player.play_speakers` "Use as Speaker" | Play / Sync | **play back audio**; *sync* = synchronized playback | "play a game / have fun"; "channel" |
 | `common.mix` | Mix | **audio mix** (combine sources) | "stir / blend (cooking)" |
 | `common.original` | Original | **unprocessed audio** (effects off) | "novel / creative / first-ever" |
 | `common.peer` | Peer | **network peer** (another device) | "nobleman / aristocrat / equal-rank" |
@@ -107,7 +115,7 @@ the first machine pass).
 | `settings.eq_warm` / `settings.eq_bright` | Warm / Bright | **audio tonality** | temperature / intelligence |
 | `nav.home`, `nav.go_home` | Home | **home screen** | "house / residence" |
 | `common.woofer`, `role.subwoofer` | Woofer / Subwoofer | audio term — use the standard **loanword/transliteration** | literal "barker" |
-| `settings.host_ctrl` / `settings.self_ctrl` | HOST-CTRL / SELF-CTRL | **keep as-is** (UI abbreviation) | translating the abbreviation |
+| `settings.host_ctrl` / `settings.self_ctrl` | Host Control / Local Control | who controls the effect: the **host** vs **locally/yourself** | "self-control" (restraint!); leaving it English |
 
 ---
 
@@ -156,11 +164,10 @@ Strings to translate:
 
 ---
 
-## 6. Re-translating the existing AI locales (trap keys)
+## 6. High-risk keys to verify / re-translate
 
-For the machine-translated locales (`ar`, `fil`, `hi`, `it`, `pl`, `ru`, `tr`) the
-bulk is fine — only the trap keys below need re-doing. Paste these English sources
-into the §5 prompt, then drop the results back into each file:
+When adding or auditing a locale, double-check these keys (the historical trap set).
+Their current English sources — paste into the §5 prompt if re-doing them:
 
 ```
 'common.left': 'Left',
@@ -174,11 +181,12 @@ into the §5 prompt, then drop the results back into each file:
 'common.peer': 'Peer',
 'common.stay': 'Stay',
 'common.leave': 'Leave',
-'role.left': 'Left',
-'role.right': 'Right',
+'role.center': 'Center Speaker',
+'role.left': 'Left Speaker',
+'role.right': 'Right Speaker',
 'player.seek': 'Seek',
-'player.play_together': 'Play together',
-'player.play_speakers': 'Play through speakers',
+'player.play_together': 'Play in Sync',
+'player.play_speakers': 'Use as Speaker',
 'settings.light': 'Light',
 'settings.dark': 'Dark',
 'settings.leave_session': 'Leave Session',
@@ -193,13 +201,6 @@ into the §5 prompt, then drop the results back into each file:
 'toast.device_kicked': '{{name}} has been kicked',
 'demo.session_title': 'This is room {{code}}.',
 ```
-
-> **Arabic (`ar`) also needs more than re-translation:** several buttons used a
-> conjugated verb instead of the UI noun/imperative form (`common.cancel` يلغي
-> "he cancels" → إلغاء; `common.close` يغلق → إغلاق; `common.ok` نعم "yes" → موافق),
-> **and** RTL layout is not yet mirrored (the CSS is ~117 physical
-> `left/right/margin-*` properties vs. 4 logical). Hold `ar` from the language
-> menu until RTL layout work lands.
 
 ---
 

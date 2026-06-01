@@ -390,7 +390,7 @@ const fr: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Décodage audio...',
   'toast.preparing_next': 'Préparation de la piste suivante... ({{name}})',
   'toast.preparing_next_pct': 'Préparation de la piste suivante... {{pct}}%',
-  'toast.op_status': '{{label}} permission {{status}}',
+  'toast.op_status': 'Droit {{label}} {{status}}',
   'toast.file_read_error': 'Erreur de lecture du fichier : {{name}}',
   'toast.host_ended_connection': 'L’hôte a mis fin à la connexion',
   'toast.copy_failed': 'Impossible de copier',

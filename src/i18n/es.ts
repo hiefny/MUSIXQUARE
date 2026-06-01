@@ -166,7 +166,7 @@ const es: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Aleatorio activado',
   'playlist.shuffle_off': 'Aleatorio desactivado',
   'playlist.empty_hint': 'Añade medios.',
-  'playlist.empty_hint_guest': 'Se mostrará cuando el anfitrión añada medios.',
+  'playlist.empty_hint_guest': 'Se mostrará cuando el host añada medios.',
   'playlist.loading_info': 'Cargando información de la pista...',
   'playlist.sub_load_failed': 'No se pudo cargar la información del video',
   'playlist.remove_title': 'Eliminar de la lista',
@@ -533,7 +533,7 @@ const es: Record<I18nKey, string> = {
   'chat.decode_skip_notice':
     'Pista omitida: formato no compatible en algunos dispositivos.',
   'chat.system_audio_started_notice':
-    'Se ha iniciado la transmisión de audio del sistema. Es normal que haya una leve latencia entre el anfitrión y los invitados. Recomendamos bajar al mínimo el volumen del dispositivo fuente para evitar ecos.',
+    'Se ha iniciado la transmisión de audio del sistema. Es normal que haya una leve latencia entre el host y los invitados. Recomendamos bajar al mínimo el volumen del dispositivo fuente para evitar ecos.',
   'chat.system_audio_stopped_notice':
     'Terminó la compartición de audio del sistema. Host, vuelve a subir el volumen para ser el altavoz de la sala.',
   'chat.remote_guest_detected_notice':

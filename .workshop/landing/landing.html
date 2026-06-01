@@ -21,7 +21,6 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
-  <meta property="og:locale:alternate" content="ko_KR">
   <meta property="og:url" content="https://musixquare.com/about">
   <meta property="og:image" content="https://musixquare.com/og-image.png">
   <meta property="og:image:width" content="1200">
@@ -32,8 +31,8 @@
   <meta name="twitter:description" content="Every device, one system.">
   <meta name="twitter:image" content="https://musixquare.com/og-image.png">
 
-  <!-- Sync language detection. Runs before stylesheet → :lang(ko) selectors apply
-       before first paint. Source: public/landing-bootstrap.js -->
+  <!-- Resolve the saved app language preference before the footer selector renders. -->
+  <script src="/static-language.js"></script>
   <script src="/landing-bootstrap.js"></script>
 
   <link rel="icon" href="/designsystem/assets/favicon.svg">
@@ -41,6 +40,7 @@
   <link rel="preload" href="../../fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/css/pretendard.css">
   <link rel="stylesheet" href="/editorial-base.css">
+  <link rel="stylesheet" href="/static-language.css">
   <link rel="stylesheet" href="/editorial-about.css">
   <!-- Cloudflare Web Analytics -->
   <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'></script>
@@ -470,8 +470,7 @@
         <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">GitHub</a>
         <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer">Discord</a>
         <span class="lp-lang-divider" aria-hidden="true">·</span>
-        <button type="button" class="lp-lang-btn" data-lang-set="en">English</button>
-        <button type="button" class="lp-lang-btn" data-lang-set="ko">한국어</button>
+        <div class="static-lang-picker" data-static-lang-picker></div>
       </nav>
     </div>
   </footer>

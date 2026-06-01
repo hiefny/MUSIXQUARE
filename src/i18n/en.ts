@@ -27,7 +27,7 @@ const en: Record<I18nKey, string> = {
   'common.message': 'Message',
   'common.mix': 'Mix',
   'common.wait': 'Just a moment...',
-  'common.guest': 'Guest',
+  'common.guest': 'Participant',
   'common.help': 'Help',
   'common.increase': 'Increase',
   'common.decrease': 'Decrease',
@@ -199,8 +199,8 @@ const en: Record<I18nKey, string> = {
   'connect.room_password_pending': 'Waiting for 8 digits',
   'connect.room_password_on': 'Password applied',
   'connect.room_password_invalid': 'Enter 8 digits',
-  'connect.room_password_enabled': 'New guests will need the room password',
-  'connect.room_password_disabled': 'Guests no longer need the room password',
+  'connect.room_password_enabled': 'New participants will need the room password',
+  'connect.room_password_disabled': 'Participants no longer need the room password',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': "I'll host",
@@ -434,23 +434,24 @@ const en: Record<I18nKey, string> = {
   'toast.video_only_rejected': "Can't add video files.",
   'dialog.large_room_file.title': 'File sharing in a large room',
   'dialog.large_room_file.message':
-    'Local file sharing is stable with up to ~8 guests on a local network.\n\nContinue?',
+    'Local file sharing is stable with up to ~8 participants on a local network.\n\nContinue?',
   'dialog.large_room_sysaudio.title': 'System audio in a large room',
   'dialog.large_room_sysaudio.message':
-    'System audio sharing supports local and remote guests, but up to ~4 guests is recommended for host load and latency.\n\nContinue?',
+    'System audio sharing supports local and remote participants, but up to ~4 participants is recommended for host load and latency.\n\nContinue?',
   'dialog.continue': 'Continue',
-  'connect.slot_guide.aria': 'Open recommended guest count guide',
-  'connect.slot_guide.title': 'Number of Guests',
+  'connect.slot_guide.aria': 'Open recommended participant count guide',
+  'connect.slot_guide.title': 'Number of Participants',
   'connect.slot_guide.body':
-    'The more guests connect, the less stable the system becomes.\n\n• YouTube together: up to 32\n• Local file sharing: up to 8\n• System audio sharing: up to 4 recommended',
+    'The more participants connect, the less stable the system becomes.\n\n• YouTube together: up to 32\n• Local file sharing: up to 8\n• System audio sharing: up to 4 recommended',
   'toast.sync_reset': 'Sync offset reset',
   'toast.stop_sent': 'Stop request sent',
   'toast.auto_play_canceled': 'Auto-play canceled',
   'toast.playing_in_3s': 'Starting playback in 3 seconds...',
   'toast.hprecision_sync': 'High-precision sync: preparing audio\u2026',
   'toast.file_ready': 'Your file is ready!\nPress Play.',
-  'toast.host_sync_not_recommended': 'Adjust sync on a guest device',
-  'toast.host_sync_requested': 'Precision sync requested.\nAdjust manual sync on a guest device.',
+  'toast.host_sync_not_recommended': 'Adjust sync on a participant device',
+  'toast.host_sync_requested':
+    'Precision sync requested.\nAdjust manual sync on a participant device.',
   'toast.sync_not_in_system_audio': 'Sync is unavailable in system audio sharing mode',
   'toast.sync_not_ready': 'Not ready yet.\nTry again in a moment',
   'toast.host_ad': 'The host seems to be watching an ad',
@@ -461,7 +462,7 @@ const en: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Host is paused, matched position only',
   'toast.yt_rendezvous_no_data': 'No host playback data yet, try again in a moment',
   'toast.yt_rendezvous_timeout': 'Sync failed, please try again in a moment',
-  'toast.yt_host_sync_sent': 'Auto-sync signal sent to guests',
+  'toast.yt_host_sync_sent': 'Auto-sync signal sent to participants',
   'toast.yt_manual_sync_prompt':
     'Automatic sync was just attempted.\nIf it still feels delayed, adjust the value now',
   'toast.playlist_ended': 'Last media has ended',
@@ -482,7 +483,7 @@ const en: Record<I18nKey, string> = {
   'transfer.preload_done': 'Using preloaded file!',
   'transfer.preload_waiting': 'Waiting for preload to complete...',
   // Remote file sharing (R2-backed encrypted transfer)
-  'share.remote.encrypting': 'Encrypting file for remote guests...',
+  'share.remote.encrypting': 'Encrypting file for remote participants...',
   'share.remote.uploading': 'Uploading encrypted file...',
   'share.remote.upload_ready': 'Remote share ready',
   'share.remote.waiting': 'Waiting for encrypted remote file...',
@@ -499,7 +500,7 @@ const en: Record<I18nKey, string> = {
   'share.remote.unavailable': 'Remote sharing failed.\nPlease try again in a moment.',
   'transfer.preload_fail': 'Preload playback failed, reloading',
   'transfer.download_finishing': 'Finishing download...',
-  'transfer.preparation_delayed': 'Preparation delayed...\nRequesting Host recovery',
+  'transfer.preparation_delayed': 'Preparation delayed...\nRequesting recovery from the host',
   'transfer.receiving_0pct': 'Receiving... 0%',
   'transfer.check_conn_type': 'Checking connection type...',
   'transfer.preload_pending': 'Waiting for preload: {{name}}',
@@ -575,9 +576,9 @@ const en: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul>',
   'setup.how_to_connect_html':
-    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> \u201CI\'ll be the host\u201D \u2192 check code</li><li><strong>Guest:</strong> \u201CJoin a session\u201D \u2192 enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
+    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I\'ll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>The number of devices you can connect can be set in the <strong>"Connect" tab</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Each guest selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
+    'Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html':
     'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host is using Chrome on Windows or Mac</li></ul>',
   'help.need_help_html':
@@ -609,9 +610,9 @@ const en: Record<I18nKey, string> = {
     'System audio may have slight latency.\nLower the source volume if possible.',
   'system_audio.stopped': 'System audio sharing ended.\nResuming playlist.',
   'system_audio.many_devices_warning':
-    'System audio is best with up to 4 guests.\nMore devices may add latency or stutter.',
+    'System audio is best with up to 4 participants.\nMore devices may add latency or stutter.',
   'system_audio.host_channel_locked': 'Cannot change roles during system audio sharing.',
-  'system_audio.effects_guest_only': 'Sharing system audio.\nEffects apply to guests only.',
+  'system_audio.effects_guest_only': 'Sharing system audio.\nEffects apply to participants only.',
   'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
   'system_audio.receive_failed':
     'Could not receive system audio.\nAsk the host to start sharing again.',

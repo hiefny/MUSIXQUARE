@@ -29,7 +29,7 @@ const zhHant: Record<I18nKey, string> = {
   'common.message': '訊息',
   'common.mix': '混合',
   'common.wait': '請稍候...',
-  'common.guest': '訪客',
+  'common.guest': '參與者',
   'common.help': '說明',
   'common.increase': '增加',
   'common.decrease': '減少',
@@ -201,8 +201,8 @@ const zhHant: Record<I18nKey, string> = {
   'connect.room_password_pending': '等待 8 位數字',
   'connect.room_password_on': '密碼已套用',
   'connect.room_password_invalid': '請輸入 8 位數字',
-  'connect.room_password_enabled': '新訪客需要輸入房間密碼',
-  'connect.room_password_disabled': '訪客不再需要房間密碼',
+  'connect.room_password_enabled': '新參與者需要輸入房間密碼',
+  'connect.room_password_disabled': '參與者不再需要房間密碼',
 
   // Setup and demo
   'setup.host_button': '成為主持人',
@@ -320,7 +320,7 @@ const zhHant: Record<I18nKey, string> = {
   'transfer.file_wait': '正在等待檔案...\n請稍候',
   'transfer.preload_done': '使用已預載的檔案！',
   'transfer.preload_waiting': '正在等待預載完成...',
-  'share.remote.encrypting': '正在為遠端訪客加密檔案...',
+  'share.remote.encrypting': '正在為遠端參與者加密檔案...',
   'share.remote.uploading': '正在上傳加密檔案...',
   'share.remote.upload_ready': '遠端分享已準備好',
   'share.remote.waiting': '正在等待加密的遠端檔案...',
@@ -354,9 +354,9 @@ const zhHant: Record<I18nKey, string> = {
   'system_audio.started': '系統音訊可能有些微延遲。\n請盡量降低來源裝置音量。',
   'system_audio.stopped': '系統音訊分享已結束。\n正在恢復播放清單。',
   'system_audio.many_devices_warning':
-    '系統音訊建議最多約 4 位訪客。\n更多裝置可能增加延遲或卡頓。',
+    '系統音訊建議最多約 4 位參與者。\n更多裝置可能增加延遲或卡頓。',
   'system_audio.host_channel_locked': '系統音訊分享期間無法變更角色。',
-  'system_audio.effects_guest_only': '正在分享系統音訊。\n效果僅套用於訪客。',
+  'system_audio.effects_guest_only': '正在分享系統音訊。\n效果僅套用於參與者。',
   'system_audio.desktop_only': '僅可在 Windows 或 Mac 桌面版 Chrome 中使用。',
   'system_audio.receive_failed': '無法接收系統音訊。\n請讓主持人重新開始分享。',
   'system_audio.remote_receive_limit':
@@ -400,8 +400,8 @@ const zhHant: Record<I18nKey, string> = {
   'toast.playing_in_3s': '將在 3 秒後開始播放...',
   'toast.hprecision_sync': '高精度同步：正在準備音訊...',
   'toast.file_ready': '檔案已準備好！\n請按播放。',
-  'toast.host_sync_not_recommended': '請在訪客裝置上調整同步',
-  'toast.host_sync_requested': '已要求精準同步。\n請在訪客裝置上調整手動同步。',
+  'toast.host_sync_not_recommended': '請在參與者裝置上調整同步',
+  'toast.host_sync_requested': '已要求精準同步。\n請在參與者裝置上調整手動同步。',
   'toast.sync_not_in_system_audio': '系統音訊分享模式無法使用同步',
   'toast.sync_not_ready': '尚未準備好。\n請稍後再試',
   'toast.host_ad': '主持人似乎正在觀看廣告',
@@ -412,7 +412,7 @@ const zhHant: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': '主持人已暫停，僅對齊位置',
   'toast.yt_rendezvous_no_data': '尚無主持人播放資料，請稍後再試',
   'toast.yt_rendezvous_timeout': '同步失敗，請稍後再試',
-  'toast.yt_host_sync_sent': '自動同步訊號已送給訪客',
+  'toast.yt_host_sync_sent': '自動同步訊號已送給參與者',
   'toast.yt_manual_sync_prompt': '剛剛已嘗試自動同步。\n如果仍覺得延遲，請現在調整數值',
   'toast.playlist_ended': '最後一個媒體已結束',
   'toast.operator_required': '只有管理員可以變更音訊設定',
@@ -455,10 +455,10 @@ const zhHant: Record<I18nKey, string> = {
 
   // Dialog
   'dialog.large_room_file.title': '大型房間中的檔案分享',
-  'dialog.large_room_file.message': '本機檔案分享在同一網路下最多約 8 位訪客較穩定。\n\n繼續嗎？',
+  'dialog.large_room_file.message': '本機檔案分享在同一網路下最多約 8 位參與者較穩定。\n\n繼續嗎？',
   'dialog.large_room_sysaudio.title': '大型房間中的系統音訊',
   'dialog.large_room_sysaudio.message':
-    '系統音訊分享支援本機和遠端訪客，但考量主持人負載和延遲，建議最多約 4 位訪客。\n\n繼續嗎？',
+    '系統音訊分享支援本機和遠端參與者，但考量主持人負載和延遲，建議最多約 4 位參與者。\n\n繼續嗎？',
   'dialog.continue': '繼續',
   'dialog.return_home_title': '離開房間',
   'dialog.return_home_msg': '返回開始畫面嗎？',
@@ -569,18 +569,18 @@ const zhHant: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': '捲動到底部',
 
   // Final help and legal blocks
-  'connect.slot_guide.aria': '開啟建議訪客數指南',
-  'connect.slot_guide.title': '訪客數量',
+  'connect.slot_guide.aria': '開啟建議參與者數指南',
+  'connect.slot_guide.title': '參與者數量',
   'connect.slot_guide.body':
-    '連線的訪客越多，系統越容易不穩定。\n\n• 一起觀看 YouTube：最多 32 人\n• 本機檔案分享：最多 8 人\n• 系統音訊分享：建議最多 4 人',
+    '連線的參與者越多，系統越容易不穩定。\n\n• 一起觀看 YouTube：最多 32 人\n• 本機檔案分享：最多 8 人\n• 系統音訊分享：建議最多 4 人',
   'help.install_app_html':
     '喜歡 MUSIXQUARE 嗎？你可以將它安裝為應用程式。<ul class="help-list"><li><strong>iOS：</strong>分享 → 加入主畫面</li><li><strong>Android：</strong>選單 → 安裝應用程式</li><li><strong>Windows：</strong>網址列中的安裝圖示</li><li><strong>macOS：</strong>分享 → 加入 Dock</li></ul>',
   'help.local_recommended_html':
     '音訊分享在同一網路上最穩定。<ul class="help-list"><li>遠端參與者也可以使用相同功能。</li><li>遠端參與者會使用 Cloudflare 路徑，因此延遲可能增加，或因網路狀況導致接收失敗。</li><li>VPN 或受限網路可能讓連線不穩定。</li></ul>',
   'setup.how_to_connect_html':
-    '輸入主持人提供的<strong>6 位代碼</strong>進行連線。<ul class="help-list"><li><strong>主持人：</strong>「成為主持人」→ 查看代碼</li><li><strong>訪客：</strong>「加入房間」→ 輸入代碼</li><li>可連線的裝置數可在<strong>「連線」分頁</strong>中設定。</li></ul>',
+    '輸入主持人提供的<strong>6 位代碼</strong>進行連線。<ul class="help-list"><li><strong>主持人：</strong>「成為主持人」→ 查看代碼</li><li><strong>參與者：</strong>「加入房間」→ 輸入代碼</li><li>可連線的裝置數可在<strong>「連線」分頁</strong>中設定。</li></ul>',
   'player.play_speakers_html':
-    '每位訪客選擇一個<strong>角色（輸出聲道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立體聲（預設）輸出</li><li><strong>左：</strong>L 聲道輸出</li><li><strong>右：</strong>R 聲道輸出</li><li><strong>重低音：</strong>低頻混合輸出</li></ul>你可以隨時在<strong>設定</strong>中變更角色。',
+    '每位參與者選擇一個<strong>角色（輸出聲道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立體聲（預設）輸出</li><li><strong>左：</strong>L 聲道輸出</li><li><strong>右：</strong>R 聲道輸出</li><li><strong>重低音：</strong>低頻混合輸出</li></ul>你可以隨時在<strong>設定</strong>中變更角色。',
   'player.play_media_action_html':
     '主持人有 3 個選項。<ul class="help-list"><li><strong>載入本機檔案：</strong>從裝置中選擇音樂。支援精確同步</li><li><strong>一起看 YouTube：</strong>支援影片和播放清單。不支援聲道分離和音訊效果</li><li><strong>系統音訊分享：</strong>主持人使用 Windows 或 Mac 的 Chrome 時可用</li></ul>',
   'help.need_help_html':

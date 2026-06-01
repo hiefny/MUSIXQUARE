@@ -29,7 +29,7 @@ const id: Record<I18nKey, string> = {
   'common.message': 'Pesan',
   'common.mix': 'Mix',
   'common.wait': 'Sebentar...',
-  'common.guest': 'Tamu',
+  'common.guest': 'Peserta',
   'common.help': 'Bantuan',
   'common.increase': 'Naikkan',
   'common.decrease': 'Turunkan',
@@ -201,8 +201,8 @@ const id: Record<I18nKey, string> = {
   'connect.room_password_pending': 'Menunggu 8 digit',
   'connect.room_password_on': 'Sandi diterapkan',
   'connect.room_password_invalid': 'Masukkan 8 digit',
-  'connect.room_password_enabled': 'Tamu baru perlu sandi ruang',
-  'connect.room_password_disabled': 'Tamu tidak lagi perlu sandi ruang',
+  'connect.room_password_enabled': 'Peserta baru perlu sandi ruang',
+  'connect.room_password_disabled': 'Peserta tidak lagi perlu sandi ruang',
 
   // Setup and demo
   'setup.host_button': 'Jadi host',
@@ -325,7 +325,7 @@ const id: Record<I18nKey, string> = {
   'transfer.file_wait': 'Menunggu file...\nMohon tunggu',
   'transfer.preload_done': 'Menggunakan file pramuat!',
   'transfer.preload_waiting': 'Menunggu pramuat selesai...',
-  'share.remote.encrypting': 'Mengenkripsi file untuk tamu jarak jauh...',
+  'share.remote.encrypting': 'Mengenkripsi file untuk peserta jarak jauh...',
   'share.remote.uploading': 'Mengunggah file terenkripsi...',
   'share.remote.upload_ready': 'Berbagi jarak jauh siap',
   'share.remote.waiting': 'Menunggu file jarak jauh terenkripsi...',
@@ -342,7 +342,7 @@ const id: Record<I18nKey, string> = {
   'share.remote.unavailable': 'Berbagi jarak jauh gagal.\nCoba lagi sebentar lagi.',
   'transfer.preload_fail': 'Pemutaran pramuat gagal, memuat ulang',
   'transfer.download_finishing': 'Menyelesaikan unduhan...',
-  'transfer.preparation_delayed': 'Persiapan tertunda...\nMeminta pemulihan host',
+  'transfer.preparation_delayed': 'Persiapan tertunda...\nMeminta host memulihkan',
   'transfer.receiving_0pct': 'Menerima... 0%',
   'transfer.check_conn_type': 'Memeriksa jenis koneksi...',
   'transfer.preload_pending': 'Menunggu pramuat: {{name}}',
@@ -361,9 +361,10 @@ const id: Record<I18nKey, string> = {
     'Audio sistem mungkin memiliki sedikit latensi.\nTurunkan volume sumber jika memungkinkan.',
   'system_audio.stopped': 'Berbagi audio sistem berakhir.\nMelanjutkan playlist.',
   'system_audio.many_devices_warning':
-    'Audio sistem paling baik untuk hingga 4 tamu.\nLebih banyak perangkat dapat menambah latensi atau putus-putus.',
+    'Audio sistem paling baik untuk hingga 4 peserta.\nLebih banyak perangkat dapat menambah latensi atau putus-putus.',
   'system_audio.host_channel_locked': 'Tidak dapat mengubah peran saat berbagi audio sistem.',
-  'system_audio.effects_guest_only': 'Sedang berbagi audio sistem.\nEfek hanya berlaku untuk tamu.',
+  'system_audio.effects_guest_only':
+    'Sedang berbagi audio sistem.\nEfek hanya berlaku untuk peserta.',
   'system_audio.desktop_only': 'Hanya tersedia di Chrome desktop Windows atau Mac.',
   'system_audio.receive_failed':
     'Tidak dapat menerima audio sistem.\nMinta host memulai berbagi lagi.',
@@ -409,9 +410,9 @@ const id: Record<I18nKey, string> = {
   'toast.playing_in_3s': 'Pemutaran dimulai dalam 3 detik...',
   'toast.hprecision_sync': 'Sinkronisasi presisi tinggi: menyiapkan audio...',
   'toast.file_ready': 'File Anda siap!\nTekan Putar.',
-  'toast.host_sync_not_recommended': 'Atur sinkronisasi di perangkat tamu',
+  'toast.host_sync_not_recommended': 'Atur sinkronisasi di perangkat peserta',
   'toast.host_sync_requested':
-    'Sinkronisasi presisi diminta.\nAtur sinkronisasi manual di perangkat tamu.',
+    'Sinkronisasi presisi diminta.\nAtur sinkronisasi manual di perangkat peserta.',
   'toast.sync_not_in_system_audio': 'Sinkronisasi tidak tersedia dalam mode berbagi audio sistem',
   'toast.sync_not_ready': 'Belum siap.\nCoba lagi sebentar lagi',
   'toast.host_ad': 'Host sepertinya sedang menonton iklan',
@@ -422,7 +423,7 @@ const id: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Host sedang jeda, hanya posisi yang disamakan',
   'toast.yt_rendezvous_no_data': 'Belum ada data pemutaran host, coba lagi sebentar lagi',
   'toast.yt_rendezvous_timeout': 'Sinkronisasi gagal, coba lagi sebentar lagi',
-  'toast.yt_host_sync_sent': 'Sinyal sinkronisasi otomatis dikirim ke tamu',
+  'toast.yt_host_sync_sent': 'Sinyal sinkronisasi otomatis dikirim ke peserta',
   'toast.yt_manual_sync_prompt':
     'Sinkronisasi otomatis baru saja dicoba.\nJika masih terasa terlambat, atur nilainya sekarang',
   'toast.playlist_ended': 'Media terakhir telah selesai',
@@ -469,10 +470,10 @@ const id: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Berbagi file di ruang besar',
   'dialog.large_room_file.message':
-    'Berbagi file lokal stabil hingga sekitar 8 tamu di jaringan lokal.\n\nLanjutkan?',
+    'Berbagi file lokal stabil hingga sekitar 8 peserta di jaringan lokal.\n\nLanjutkan?',
   'dialog.large_room_sysaudio.title': 'Audio sistem di ruang besar',
   'dialog.large_room_sysaudio.message':
-    'Berbagi audio sistem mendukung tamu lokal dan jarak jauh, tetapi hingga sekitar 4 tamu disarankan untuk beban host dan latensi.\n\nLanjutkan?',
+    'Berbagi audio sistem mendukung peserta lokal dan jarak jauh, tetapi hingga sekitar 4 peserta disarankan untuk beban host dan latensi.\n\nLanjutkan?',
   'dialog.continue': 'Lanjutkan',
   'dialog.return_home_title': 'Keluar ruang',
   'dialog.return_home_msg': 'Kembali ke layar awal?',
@@ -587,18 +588,18 @@ const id: Record<I18nKey, string> = {
   'chat.empty_html': 'Belum ada pesan.<br>Kirim pesan pertama!',
   'chat.msg_truncated': 'Pesan dipotong menjadi {{max}} karakter',
   'chat.scroll_to_bottom': 'Gulir ke bawah',
-  'connect.slot_guide.aria': 'Buka panduan jumlah tamu yang disarankan',
-  'connect.slot_guide.title': 'Jumlah tamu',
+  'connect.slot_guide.aria': 'Buka panduan jumlah peserta yang disarankan',
+  'connect.slot_guide.title': 'Jumlah peserta',
   'connect.slot_guide.body':
-    'Semakin banyak tamu terhubung, sistem menjadi kurang stabil.\n\n• YouTube bersama: hingga 32\n• Berbagi file lokal: hingga 8\n• Berbagi audio sistem: hingga 4 disarankan',
+    'Semakin banyak peserta terhubung, sistem menjadi kurang stabil.\n\n• YouTube bersama: hingga 32\n• Berbagi file lokal: hingga 8\n• Berbagi audio sistem: hingga 4 disarankan',
   'help.install_app_html':
     'Suka MUSIXQUARE? Anda bisa memasangnya sebagai aplikasi.<ul class="help-list"><li><strong>iOS:</strong> Bagikan → Tambah ke Layar Utama</li><li><strong>Android:</strong> Menu → Instal aplikasi</li><li><strong>Windows:</strong> Ikon instal di bilah alamat</li><li><strong>macOS:</strong> Bagikan → Tambah ke Dock</li></ul>',
   'help.local_recommended_html':
     'Berbagi audio paling stabil di jaringan yang sama.<ul class="help-list"><li>Peserta jarak jauh dapat menggunakan fitur yang sama.</li><li>Peserta jarak jauh menggunakan jalur Cloudflare, sehingga latensi dapat meningkat atau penerimaan dapat gagal tergantung kondisi jaringan.</li><li>VPN atau jaringan terbatas dapat membuat koneksi tidak stabil.</li></ul>',
   'setup.how_to_connect_html':
-    'Masukkan <strong>kode 6 digit</strong> dari host untuk terhubung.<ul class="help-list"><li><strong>Host:</strong> “Jadi host” → cek kode</li><li><strong>Tamu:</strong> “Gabung ruang” → masukkan kode</li><li>Jumlah perangkat yang dapat tersambung dapat diatur di <strong>tab "Hubungkan"</strong>.</li></ul>',
+    'Masukkan <strong>kode 6 digit</strong> dari host untuk terhubung.<ul class="help-list"><li><strong>Host:</strong> “Jadi host” → cek kode</li><li><strong>Peserta:</strong> “Gabung ruang” → masukkan kode</li><li>Jumlah perangkat yang dapat tersambung dapat diatur di <strong>tab "Hubungkan"</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Setiap tamu memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Keluaran stereo (default)</li><li><strong>Kiri:</strong> Keluaran kanal L</li><li><strong>Kanan:</strong> Keluaran kanal R</li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
+    'Setiap peserta memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Keluaran stereo (default)</li><li><strong>Kiri:</strong> Keluaran kanal L</li><li><strong>Kanan:</strong> Keluaran kanal R</li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
   'player.play_media_action_html':
     'Host memiliki 3 opsi.<ul class="help-list"><li><strong>Muat file lokal:</strong> Pilih musik dari perangkat Anda. Sinkronisasi presisi didukung</li><li><strong>YouTube Bersama:</strong> Video dan playlist didukung. Tidak ada pemisahan kanal atau efek audio</li><li><strong>Berbagi Audio Sistem:</strong> Tersedia saat host memakai Chrome di Windows atau Mac</li></ul>',
   'help.need_help_html':

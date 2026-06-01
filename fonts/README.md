@@ -23,8 +23,6 @@ The app also self-hosts Google Fonts WOFF2 shards for:
 - `Noto Sans TC`
 - `Noto Sans Thai`
 - `Noto Sans` (Cyrillic shards)
-- `Noto Sans Arabic`
-- `Noto Sans Devanagari`
 
 These live under `fonts/noto/` and are referenced by per-locale CSS shards in
 `css/fonts/`. The app loads those CSS shards only when the resolved language
@@ -35,8 +33,6 @@ needs them:
 - Traditional Chinese: `css/fonts/noto-tc.css`
 - Thai: `css/fonts/noto-thai.css`
 - Russian: `css/fonts/noto-cyrillic.css`
-- Arabic: `css/fonts/noto-arabic.css`
-- Hindi: `css/fonts/noto-devanagari.css`
 
 Latin, digits, and shared symbols keep Pretendard metrics through
 `Pretendard UI Core`; Korean uses the full `Pretendard` face.

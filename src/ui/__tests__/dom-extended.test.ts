@@ -180,6 +180,7 @@ describe('initOverlayObservers — modal stack', () => {
       <div id="media-source-overlay"></div>
       <div id="youtube-url-overlay"></div>
       <div id="dialog-overlay"></div>
+      <div id="language-dialog-overlay"></div>
     `;
     __resetModalStackForTests();
     initOverlayObservers();
@@ -192,6 +193,7 @@ describe('initOverlayObservers — modal stack', () => {
     expect(isInert('non-modal')).toBe(false);
     expect(isInert('setup-overlay')).toBe(false);
     expect(isInert('dialog-overlay')).toBe(false);
+    expect(isInert('language-dialog-overlay')).toBe(false);
   });
 
   it('inerts everything except setup when setup becomes active', async () => {
@@ -270,6 +272,7 @@ describe('initOverlayObservers — modal stack', () => {
     expect(isInert('non-modal')).toBe(false);
     expect(isInert('setup-overlay')).toBe(false);
     expect(isInert('dialog-overlay')).toBe(false);
+    expect(isInert('language-dialog-overlay')).toBe(false);
   });
 
   it('handles dialog opening with no other modal — only dialog stays interactive', async () => {
@@ -279,5 +282,56 @@ describe('initOverlayObservers — modal stack', () => {
     expect(isInert('non-modal')).toBe(true);
     expect(isInert('setup-overlay')).toBe(true);
     expect(isInert('dialog-overlay')).toBe(false);
+  });
+
+  it('promotes a common dialog over an already open language dialog', () => {
+    const languageOverlay = document.getElementById('language-dialog-overlay')!;
+    const dialogOverlay = document.getElementById('dialog-overlay')!;
+
+    languageOverlay.classList.add('show');
+    syncOverlayState('language-dialog-overlay');
+    expect(isInert('language-dialog-overlay')).toBe(false);
+
+    dialogOverlay.classList.add('show');
+    syncOverlayState('dialog-overlay');
+
+    expect(isInert('dialog-overlay')).toBe(false);
+    expect(isInert('language-dialog-overlay')).toBe(true);
+    expect(Number(dialogOverlay.style.zIndex)).toBeGreaterThan(
+      Number(languageOverlay.style.zIndex),
+    );
+  });
+
+  it('keeps the common dialog on top when both centered dialogs appear before observer sync', () => {
+    const languageOverlay = document.getElementById('language-dialog-overlay')!;
+    const dialogOverlay = document.getElementById('dialog-overlay')!;
+
+    languageOverlay.classList.add('show');
+    dialogOverlay.classList.add('show');
+    syncOverlayState('dialog-overlay');
+
+    expect(isInert('dialog-overlay')).toBe(false);
+    expect(isInert('language-dialog-overlay')).toBe(true);
+    expect(Number(dialogOverlay.style.zIndex)).toBeGreaterThan(
+      Number(languageOverlay.style.zIndex),
+    );
+  });
+
+  it('returns the language dialog to top when the common dialog closes', () => {
+    const languageOverlay = document.getElementById('language-dialog-overlay')!;
+    const dialogOverlay = document.getElementById('dialog-overlay')!;
+
+    languageOverlay.classList.add('show');
+    syncOverlayState('language-dialog-overlay');
+    dialogOverlay.classList.add('show');
+    syncOverlayState('dialog-overlay');
+
+    dialogOverlay.classList.remove('show');
+    syncOverlayState();
+
+    expect(isInert('language-dialog-overlay')).toBe(false);
+    expect(isInert('dialog-overlay')).toBe(true);
+    expect(languageOverlay.style.zIndex).toBe('6000');
+    expect(dialogOverlay.style.zIndex).toBe('');
   });
 });

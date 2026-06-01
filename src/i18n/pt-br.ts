@@ -29,7 +29,7 @@ const ptBr: Record<I18nKey, string> = {
   'common.message': 'Mensagem',
   'common.mix': 'Mix',
   'common.wait': 'Só um momento...',
-  'common.guest': 'Convidado',
+  'common.guest': 'Participante',
   'common.help': 'Ajuda',
   'common.increase': 'Aumentar',
   'common.decrease': 'Diminuir',
@@ -201,8 +201,8 @@ const ptBr: Record<I18nKey, string> = {
   'connect.room_password_pending': 'Aguardando 8 dígitos',
   'connect.room_password_on': 'Senha aplicada',
   'connect.room_password_invalid': 'Digite 8 dígitos',
-  'connect.room_password_enabled': 'Novos convidados precisarão da senha da sala',
-  'connect.room_password_disabled': 'Convidados não precisam mais da senha da sala',
+  'connect.room_password_enabled': 'Novos participantes precisarão da senha da sala',
+  'connect.room_password_disabled': 'Participantes não precisam mais da senha da sala',
 
   // Setup and demo
   'setup.host_button': 'Ser host',
@@ -325,7 +325,7 @@ const ptBr: Record<I18nKey, string> = {
   'transfer.file_wait': 'Aguardando arquivo...\nSó um momento',
   'transfer.preload_done': 'Usando arquivo pré-carregado!',
   'transfer.preload_waiting': 'Aguardando o pré-carregamento terminar...',
-  'share.remote.encrypting': 'Criptografando arquivo para convidados remotos...',
+  'share.remote.encrypting': 'Criptografando arquivo para participantes remotos...',
   'share.remote.uploading': 'Enviando arquivo criptografado...',
   'share.remote.upload_ready': 'Compartilhamento remoto pronto',
   'share.remote.waiting': 'Aguardando arquivo remoto criptografado...',
@@ -362,11 +362,11 @@ const ptBr: Record<I18nKey, string> = {
     'O áudio do sistema pode ter um pouco de latência.\nReduza o volume da origem se possível.',
   'system_audio.stopped': 'Compartilhamento de áudio do sistema encerrado.\nRetomando playlist.',
   'system_audio.many_devices_warning':
-    'Áudio do sistema é melhor com até 4 convidados.\nMais dispositivos podem adicionar latência ou cortes.',
+    'Áudio do sistema é melhor com até 4 participantes.\nMais dispositivos podem adicionar latência ou cortes.',
   'system_audio.host_channel_locked':
     'Não é possível mudar papéis durante o compartilhamento de áudio do sistema.',
   'system_audio.effects_guest_only':
-    'Compartilhando áudio do sistema.\nEfeitos se aplicam apenas aos convidados.',
+    'Compartilhando áudio do sistema.\nEfeitos se aplicam apenas aos participantes.',
   'system_audio.desktop_only': 'Disponível apenas no Chrome desktop para Windows ou Mac.',
   'system_audio.receive_failed':
     'Não foi possível receber o áudio do sistema.\nPeça ao host para compartilhar de novo.',
@@ -412,9 +412,9 @@ const ptBr: Record<I18nKey, string> = {
   'toast.playing_in_3s': 'Iniciando reprodução em 3 segundos...',
   'toast.hprecision_sync': 'Sincronização de alta precisão: preparando áudio...',
   'toast.file_ready': 'Seu arquivo está pronto!\nPressione Reproduzir.',
-  'toast.host_sync_not_recommended': 'Ajuste a sincronização em um dispositivo convidado',
+  'toast.host_sync_not_recommended': 'Ajuste a sincronização em um dispositivo participante',
   'toast.host_sync_requested':
-    'Sincronização precisa solicitada.\nAjuste a sincronização manual em um dispositivo convidado.',
+    'Sincronização precisa solicitada.\nAjuste a sincronização manual em um dispositivo participante.',
   'toast.sync_not_in_system_audio':
     'Sincronização indisponível no modo de compartilhamento de áudio do sistema',
   'toast.sync_not_ready': 'Ainda não está pronto.\nTente novamente em instantes',
@@ -427,7 +427,7 @@ const ptBr: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Ainda não há dados de reprodução do host, tente novamente em instantes',
   'toast.yt_rendezvous_timeout': 'Falha na sincronização, tente novamente em instantes',
-  'toast.yt_host_sync_sent': 'Sinal de autosync enviado aos convidados',
+  'toast.yt_host_sync_sent': 'Sinal de autosync enviado aos participantes',
   'toast.yt_manual_sync_prompt':
     'A sincronização automática acabou de ser tentada.\nSe ainda parecer atrasado, ajuste o valor agora',
   'toast.playlist_ended': 'A última mídia terminou',
@@ -475,10 +475,10 @@ const ptBr: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Compartilhamento de arquivo em sala grande',
   'dialog.large_room_file.message':
-    'O compartilhamento local de arquivos é estável com até ~8 convidados na rede local.\n\nContinuar?',
+    'O compartilhamento local de arquivos é estável com até ~8 participantes na rede local.\n\nContinuar?',
   'dialog.large_room_sysaudio.title': 'Áudio do sistema em sala grande',
   'dialog.large_room_sysaudio.message':
-    'O compartilhamento de áudio do sistema aceita convidados locais e remotos, mas até ~4 convidados é recomendado por carga e latência do host.\n\nContinuar?',
+    'O compartilhamento de áudio do sistema aceita participantes locais e remotos, mas até ~4 participantes é recomendado por carga e latência do host.\n\nContinuar?',
   'dialog.continue': 'Continuar',
   'dialog.return_home_title': 'Sair da sala',
   'dialog.return_home_msg': 'Voltar para a tela inicial?',
@@ -596,18 +596,18 @@ const ptBr: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': 'Rolar para o fim',
 
   // Final help and legal blocks
-  'connect.slot_guide.aria': 'Abrir guia de quantidade recomendada de convidados',
-  'connect.slot_guide.title': 'Número de convidados',
+  'connect.slot_guide.aria': 'Abrir guia de quantidade recomendada de participantes',
+  'connect.slot_guide.title': 'Número de participantes',
   'connect.slot_guide.body':
-    'Quanto mais convidados se conectam, menos estável o sistema fica.\n\n• YouTube juntos: até 32\n• Compartilhamento de arquivo local: até 8\n• Compartilhamento de áudio do sistema: até 4 recomendado',
+    'Quanto mais participantes se conectam, menos estável o sistema fica.\n\n• YouTube juntos: até 32\n• Compartilhamento de arquivo local: até 8\n• Compartilhamento de áudio do sistema: até 4 recomendado',
   'help.install_app_html':
     'Gostou do MUSIXQUARE? Você pode instalá-lo como app.<ul class="help-list"><li><strong>iOS:</strong> Compartilhar → Adicionar à Tela de Início</li><li><strong>Android:</strong> Menu → Instalar app</li><li><strong>Windows:</strong> Ícone de instalação na barra de endereços</li><li><strong>macOS:</strong> Compartilhar → Adicionar ao Dock</li></ul>',
   'help.local_recommended_html':
     'Compartilhar áudio é mais estável na mesma rede.<ul class="help-list"><li>Participantes remotos podem usar os mesmos recursos.</li><li>Participantes remotos usam rotas da Cloudflare, então a latência pode aumentar ou a recepção pode falhar conforme a rede.</li><li>VPN ou rede restrita pode deixar a conexão instável.</li></ul>',
   'setup.how_to_connect_html':
-    'Digite o <strong>código de 6 dígitos</strong> do host para conectar.<ul class="help-list"><li><strong>Host:</strong> “Ser host” → conferir código</li><li><strong>Convidado:</strong> “Entrar na sala” → digitar código</li><li>A quantidade de dispositivos pode ser configurada na <strong>aba "Conectar"</strong>.</li></ul>',
+    'Digite o <strong>código de 6 dígitos</strong> do host para conectar.<ul class="help-list"><li><strong>Host:</strong> “Ser host” → conferir código</li><li><strong>Participante:</strong> “Entrar na sala” → digitar código</li><li>A quantidade de dispositivos pode ser configurada na <strong>aba "Conectar"</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Cada convidado seleciona um <strong>papel (canal de saída)</strong>.<ul class="help-list"><li><strong>Centro:</strong> saída estéreo padrão</li><li><strong>Esquerda:</strong> saída do canal L</li><li><strong>Direita:</strong> saída do canal R</li><li><strong>Subwoofer:</strong> saída de mix de graves</li></ul>Você pode mudar papéis quando quiser em <strong>Configurações</strong>.',
+    'Cada participante seleciona um <strong>papel (canal de saída)</strong>.<ul class="help-list"><li><strong>Centro:</strong> saída estéreo padrão</li><li><strong>Esquerda:</strong> saída do canal L</li><li><strong>Direita:</strong> saída do canal R</li><li><strong>Subwoofer:</strong> saída de mix de graves</li></ul>Você pode mudar papéis quando quiser em <strong>Configurações</strong>.',
   'player.play_media_action_html':
     'O host tem 3 opções.<ul class="help-list"><li><strong>Carregar arquivo local:</strong> escolha músicas do dispositivo. Suporta sincronização precisa</li><li><strong>YouTube juntos:</strong> vídeos e playlists compatíveis. Sem divisão de canais ou efeitos de áudio</li><li><strong>Compartilhar áudio do sistema:</strong> disponível quando o host usa Chrome no Windows ou Mac</li></ul>',
   'help.need_help_html':

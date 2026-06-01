@@ -134,4 +134,4 @@ MUSIXQUARE is free software licensed under the **GNU Affero General Public Licen
 
 - **PeerJS**: MIT License
 - **Pretendard** (font): SIL Open Font License 1.1, see `fonts/PRETENDARD_LICENSE.txt`
-- **Noto Sans JP/SC/TC/Thai/Arabic/Devanagari/Cyrillic** (fonts): SIL Open Font License 1.1, see Noto license files under `fonts/`
+- **Noto Sans JP/SC/TC/Thai/Cyrillic** (fonts): SIL Open Font License 1.1, see the Noto license files under `fonts/`

@@ -638,7 +638,7 @@ function openLanguageDialog(): void {
   if (!overlay) return;
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
-  syncOverlayState();
+  syncOverlayState('language-dialog-overlay');
 
   setManagedTimer(
     'language-dialog-focus',

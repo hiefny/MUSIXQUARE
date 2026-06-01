@@ -121,14 +121,15 @@ interface OverlayDef {
   fullscreen: boolean;
 }
 
-const OVERLAYS: readonly OverlayDef[] = [
+const OVERLAYS = [
   { id: 'setup-overlay', cls: 'active', fullscreen: true },
   { id: 'demo-overlay', cls: 'active', fullscreen: true },
   { id: 'media-source-overlay', cls: 'active', fullscreen: true },
   { id: 'youtube-url-overlay', cls: 'active', fullscreen: true },
   { id: 'dialog-overlay', cls: 'show', fullscreen: false },
   { id: 'language-dialog-overlay', cls: 'show', fullscreen: false },
-] as const;
+] as const satisfies readonly OverlayDef[];
+type OverlayId = (typeof OVERLAYS)[number]['id'];
 
 function isShown(o: OverlayDef): boolean {
   const el = document.getElementById(o.id);
@@ -153,13 +154,43 @@ export function updateOverlayOpenClass(): void {
 // Module-scoped so successive open/close events preserve stack order
 // without re-deriving it from the DOM.
 const _modalStack: string[] = [];
+const CENTERED_OVERLAY_Z_INDEX_BASE = 6000;
+const CENTERED_OVERLAY_Z_INDEX_STEP = 10;
 
 /** @internal Test-only helper to reset stack between cases. */
 export function __resetModalStackForTests(): void {
   _modalStack.length = 0;
 }
 
-function syncModalStack(): void {
+function promoteOverlayToTop(id: OverlayId | undefined): void {
+  if (!id) return;
+  const overlay = OVERLAYS.find((x) => x.id === id);
+  if (!overlay || !isShown(overlay)) return;
+
+  const index = _modalStack.indexOf(id);
+  if (index !== -1) _modalStack.splice(index, 1);
+  _modalStack.push(id);
+}
+
+function applyCenteredOverlayZIndexes(): void {
+  for (const o of OVERLAYS) {
+    if (o.fullscreen) continue;
+    const el = document.getElementById(o.id);
+    if (!el) continue;
+
+    const stackIndex = _modalStack.indexOf(o.id);
+    if (stackIndex === -1 || !isShown(o)) {
+      el.style.removeProperty('z-index');
+      continue;
+    }
+
+    el.style.zIndex = String(
+      CENTERED_OVERLAY_Z_INDEX_BASE + stackIndex * CENTERED_OVERLAY_Z_INDEX_STEP,
+    );
+  }
+}
+
+function syncModalStack(preferredTopOverlayId?: OverlayId): void {
   // 1. Drop modals that are no longer shown (preserves order of survivors).
   for (let i = _modalStack.length - 1; i >= 0; i--) {
     const o = OVERLAYS.find((x) => x.id === _modalStack[i]);
@@ -172,6 +203,10 @@ function syncModalStack(): void {
     if (isShown(o) && !_modalStack.includes(o.id)) _modalStack.push(o.id);
   }
 
+  // Synchronous open paths know which overlay was just opened. Promote it
+  // after catch-up scanning so observer timing cannot invert two dialogs.
+  promoteOverlayToTop(preferredTopOverlayId);
+
   // Centered dialogs are confirmations/alerts, so they must remain the
   // interactive layer even if a fullscreen overlay re-syncs after them.
   const top =
@@ -179,6 +214,8 @@ function syncModalStack(): void {
       const overlay = OVERLAYS.find((x) => x.id === id);
       return overlay && !overlay.fullscreen;
     }) ?? (_modalStack.length > 0 ? _modalStack[_modalStack.length - 1] : null);
+
+  applyCenteredOverlayZIndexes();
 
   // 3. Apply inert to every body child except the top of the stack. With
   //    the stack empty (no modals open), nothing is inert.
@@ -192,9 +229,9 @@ function syncModalStack(): void {
   }
 }
 
-export function syncOverlayState(): void {
+export function syncOverlayState(preferredTopOverlayId?: OverlayId): void {
   updateOverlayOpenClass();
-  syncModalStack();
+  syncModalStack(preferredTopOverlayId);
 }
 
 // ─── Observer (single watcher, both effects) ─────────────────────

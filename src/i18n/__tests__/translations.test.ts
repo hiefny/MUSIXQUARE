@@ -1,12 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import ko from '../ko.ts';
 import en from '../en.ts';
-import ar from '../ar.ts';
 import de from '../de.ts';
 import es from '../es.ts';
-import fil from '../fil.ts';
 import fr from '../fr.ts';
-import hi from '../hi.ts';
 import id from '../id.ts';
 import italian from '../it.ts';
 import ja from '../ja.ts';
@@ -23,12 +20,9 @@ const koKeys = Object.keys(ko);
 const locales = {
   ko,
   en,
-  ar,
   de,
   es,
-  fil,
   fr,
-  hi,
   id,
   italian,
   ja,
@@ -93,22 +87,27 @@ describe('Translation key integrity', () => {
     expect(mismatched).toEqual([]);
   });
 
-  it('HTML tag sequences match English in every locale', () => {
-    const tagRe = /<[^>]+>/g;
+  it('HTML tag sequences match Korean in every locale', () => {
+    const tagRe = /<\/?([a-z][\w:-]*)\b[^>]*>/gi;
+    const tagSequence = (value: string): string[] =>
+      [...value.matchAll(tagRe)].map((match) => {
+        const raw = match[0];
+        const name = match[1].toLowerCase();
+        return raw.startsWith('</') ? `</${name}>` : `<${name}>`;
+      });
     const mismatched: string[] = [];
 
     for (const [locale, dict] of Object.entries(locales)) {
-      if (locale === 'ko') continue;
-      for (const key of Object.keys(en)) {
-        const enVal = en[key as keyof typeof en] || '';
-        if (!enVal.includes('<')) continue;
-
+      for (const key of koKeys) {
+        const koVal = ko[key as keyof typeof ko] || '';
         const localeVal = dict[key as keyof typeof dict] || '';
-        const enTags = [...enVal.matchAll(tagRe)].map((m) => m[0]);
-        const localeTags = [...localeVal.matchAll(tagRe)].map((m) => m[0]);
+        const koTags = tagSequence(koVal);
+        const localeTags = tagSequence(localeVal);
 
-        if (JSON.stringify(enTags) !== JSON.stringify(localeTags)) {
-          mismatched.push(`${locale}.${key}`);
+        if (JSON.stringify(koTags) !== JSON.stringify(localeTags)) {
+          mismatched.push(
+            `${locale}.${key}: ko=${koTags.join(' ')} ${locale}=${localeTags.join(' ')}`,
+          );
         }
       }
     }
@@ -117,15 +116,36 @@ describe('Translation key integrity', () => {
   });
 
   it('no machine-translation protection tokens remain in locale values', () => {
-    const tokenRe = /(?:ZXQ[A-Z0-9]+QXZ|QZX[A-Z0-9]+XZQ|ZXQZX[A-Z0-9]+)/;
-    const leaked: string[] = [];
+    const tokenRe = /\b(?:QZX|ZXQ|ZZQ|QQZ)\w*\b/;
+    const leftovers: string[] = [];
 
     for (const [locale, dict] of Object.entries(locales)) {
       for (const [key, value] of Object.entries(dict)) {
-        if (tokenRe.test(value)) leaked.push(`${locale}.${key}`);
+        if (tokenRe.test(value)) {
+          leftovers.push(`${locale}.${key}: ${value}`);
+        }
       }
     }
 
-    expect(leaked).toEqual([]);
+    expect(leftovers).toEqual([]);
+  });
+
+  it('keeps protected contact literals intact in legal copy', () => {
+    const badLegalCopy: string[] = [];
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      const legal = dict['legal.content_html' as keyof typeof dict] || '';
+      const emailTexts = [...legal.matchAll(/>([^<>@]*@[\w.-]+)<\/a>/g)].map((match) => match[1]);
+
+      if (
+        !legal.includes('mailto:contact@musixquare.com') ||
+        !legal.includes('data-copy-email="contact@musixquare.com"') ||
+        emailTexts.some((email) => email !== 'contact@musixquare.com')
+      ) {
+        badLegalCopy.push(`${locale}: ${emailTexts.join(',') || '(no visible email)'}`);
+      }
+    }
+
+    expect(badLegalCopy).toEqual([]);
   });
 });

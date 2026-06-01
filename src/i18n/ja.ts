@@ -29,7 +29,7 @@ const ja: Record<I18nKey, string> = {
   'common.message': 'メッセージ',
   'common.mix': 'ミックス',
   'common.wait': '少々お待ちください...',
-  'common.guest': 'ゲスト',
+  'common.guest': '参加者',
   'common.help': 'ヘルプ',
   'common.increase': '増やす',
   'common.decrease': '減らす',
@@ -201,8 +201,8 @@ const ja: Record<I18nKey, string> = {
   'connect.room_password_pending': '8桁の入力待ち',
   'connect.room_password_on': 'パスワードを適用しました',
   'connect.room_password_invalid': '8桁を入力してください',
-  'connect.room_password_enabled': '新しいゲストはルームパスワードが必要です',
-  'connect.room_password_disabled': 'ゲストはルームパスワードなしで参加できます',
+  'connect.room_password_enabled': '新しい参加者はルームパスワードが必要です',
+  'connect.room_password_disabled': '参加者はルームパスワードなしで参加できます',
 
   // Setup and demo
   'setup.host_button': 'ホストになる',
@@ -323,7 +323,7 @@ const ja: Record<I18nKey, string> = {
   'transfer.file_wait': 'ファイル待機中...\nしばらくお待ちください',
   'transfer.preload_done': 'プリロード済みファイルを使用します！',
   'transfer.preload_waiting': 'プリロード完了を待っています...',
-  'share.remote.encrypting': 'リモートゲスト向けにファイルを暗号化中...',
+  'share.remote.encrypting': 'リモート参加者向けにファイルを暗号化中...',
   'share.remote.uploading': '暗号化済みファイルをアップロード中...',
   'share.remote.upload_ready': 'リモート共有の準備ができました',
   'share.remote.waiting': '暗号化済みリモートファイルを待っています...',
@@ -362,7 +362,7 @@ const ja: Record<I18nKey, string> = {
     'システムオーディオは最大4人程度がおすすめです。\n人数が増えると遅延や途切れが出る場合があります。',
   'system_audio.host_channel_locked': 'システムオーディオ共有中は役割を変更できません。',
   'system_audio.effects_guest_only':
-    'システムオーディオ共有中です。\n効果はゲスト側にのみ適用されます。',
+    'システムオーディオ共有中です。\n効果は参加者側にのみ適用されます。',
   'system_audio.desktop_only': 'WindowsまたはMacのデスクトップChromeでのみ利用できます。',
   'system_audio.receive_failed':
     'システムオーディオを受信できませんでした。\nホストに共有を再開してもらってください。',
@@ -408,9 +408,9 @@ const ja: Record<I18nKey, string> = {
   'toast.playing_in_3s': '3秒後に再生を開始します...',
   'toast.hprecision_sync': '高精度同期: オーディオを準備中...',
   'toast.file_ready': 'ファイルの準備ができました！\n再生ボタンを押してください。',
-  'toast.host_sync_not_recommended': '同期補正はゲストデバイスで調整してください',
+  'toast.host_sync_not_recommended': '同期補正は参加者デバイスで調整してください',
   'toast.host_sync_requested':
-    '高精度同期を要求しました。\n手動同期はゲストデバイスで調整してください。',
+    '高精度同期を要求しました。\n手動同期は参加者デバイスで調整してください。',
   'toast.sync_not_in_system_audio': 'システムオーディオ共有モードでは同期を利用できません',
   'toast.sync_not_ready': 'まだ準備中です。\n少し待ってから再試行してください',
   'toast.host_ad': 'ホストが広告を見ているようです',
@@ -421,7 +421,7 @@ const ja: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'ホストが一時停止中のため、位置だけ合わせました',
   'toast.yt_rendezvous_no_data': 'ホストの再生データがまだありません。少し待って再試行してください',
   'toast.yt_rendezvous_timeout': '同期に失敗しました。少し待って再試行してください',
-  'toast.yt_host_sync_sent': '自動同期信号をゲストに送信しました',
+  'toast.yt_host_sync_sent': '自動同期信号を参加者に送信しました',
   'toast.yt_manual_sync_prompt':
     '自動同期を試しました。\nまだ遅れを感じる場合は、いま値を調整してください',
   'toast.playlist_ended': '最後のメディアが終了しました',
@@ -452,8 +452,7 @@ const ja: Record<I18nKey, string> = {
   'error.peer_not_ready': 'ピア接続はまだ準備できていません',
   'error.network_init_failed': 'ネットワークの初期化に失敗しました',
   'error.no_host_id': 'ホストIDが見つかりません',
-  'error.peer_unavailable':
-    'ルームが見つかりませんでした。\nコードをもう一度確認してください。',
+  'error.peer_unavailable': 'ルームが見つかりませんでした。\nコードをもう一度確認してください。',
   'error.host_left': 'ホストがルームを退出したようです',
   'error.network_issue': 'ネットワークに問題があります。\nインターネット接続を確認してください。',
   'error.signal_server_fail':
@@ -475,7 +474,7 @@ const ja: Record<I18nKey, string> = {
     'ローカルファイル共有は、同じネットワーク上で最大約8人まで安定します。\n\n続行しますか？',
   'dialog.large_room_sysaudio.title': '大人数ルームでのシステムオーディオ',
   'dialog.large_room_sysaudio.message':
-    'システムオーディオ共有はローカル/リモートのゲストに対応していますが、ホスト負荷と遅延のため最大約4人を推奨します。\n\n続行しますか？',
+    'システムオーディオ共有はローカル/リモートの参加者に対応していますが、ホスト負荷と遅延のため最大約4人を推奨します。\n\n続行しますか？',
   'dialog.continue': '続行',
   'dialog.return_home_title': 'ルームを退出',
   'dialog.return_home_msg': '開始画面に戻りますか？',
@@ -593,18 +592,18 @@ const ja: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': '一番下へスクロール',
 
   // Final help and legal blocks
-  'connect.slot_guide.aria': '推奨ゲスト数ガイドを開く',
-  'connect.slot_guide.title': 'ゲスト数',
+  'connect.slot_guide.aria': '推奨参加者数ガイドを開く',
+  'connect.slot_guide.title': '参加者数',
   'connect.slot_guide.body':
-    'ゲストが増えるほどシステムは不安定になりやすくなります。\n\n• YouTube一緒に視聴: 最大32人\n• ローカルファイル共有: 最大8人\n• システムオーディオ共有: 最大4人推奨',
+    '参加者が増えるほどシステムは不安定になりやすくなります。\n\n• YouTube一緒に視聴: 最大32人\n• ローカルファイル共有: 最大8人\n• システムオーディオ共有: 最大4人推奨',
   'help.install_app_html':
     'MUSIXQUAREが気に入りましたか？アプリとしてインストールできます。<ul class="help-list"><li><strong>iOS:</strong> 共有 → ホーム画面に追加</li><li><strong>Android:</strong> メニュー → アプリをインストール</li><li><strong>Windows:</strong> アドレスバーのインストールアイコン</li><li><strong>macOS:</strong> 共有 → Dockに追加</li></ul>',
   'help.local_recommended_html':
     'オーディオ共有は同じネットワーク上で最も安定します。<ul class="help-list"><li>リモート参加者も同じ機能を利用できます。</li><li>リモート参加者はCloudflare経路を使用するため、ネットワーク状況によって遅延や受信失敗が発生する場合があります。</li><li>VPNや制限されたネットワークでは接続が不安定になることがあります。</li></ul>',
   'setup.how_to_connect_html':
-    'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ホストになる」→ コードを確認</li><li><strong>ゲスト:</strong> 「ルームに参加」→ コードを入力</li><li>接続できるデバイス数は<strong>「接続」タブ</strong>で設定できます。</li></ul>',
+    'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ホストになる」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>接続できるデバイス数は<strong>「接続」タブ</strong>で設定できます。</li></ul>',
   'player.play_speakers_html':
-    '各ゲストが<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>センター:</strong> ステレオ（標準）出力</li><li><strong>左:</strong> Lチャンネル出力</li><li><strong>右:</strong> Rチャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
+    '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>センター:</strong> ステレオ（標準）出力</li><li><strong>左:</strong> Lチャンネル出力</li><li><strong>右:</strong> Rチャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
   'player.play_media_action_html':
     'ホストには3つの選択肢があります。<ul class="help-list"><li><strong>ローカルファイルを読み込む:</strong> デバイス内の音楽を選択。高精度同期に対応</li><li><strong>YouTube一緒に視聴:</strong> 動画とプレイリストに対応。チャンネル分離とオーディオ効果は無効</li><li><strong>システムオーディオ共有:</strong> ホストがWindowsまたはMacのChromeを使っている場合に利用可能</li></ul>',
   'help.need_help_html':

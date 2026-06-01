@@ -304,7 +304,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
-  syncOverlayState();
+  syncOverlayState('dialog-overlay');
 
   const cleanup: (() => void)[] = [];
   const on = (target: EventTarget | null, type: string, handler: EventListener) => {

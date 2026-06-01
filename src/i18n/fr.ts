@@ -29,7 +29,7 @@ const fr: Record<I18nKey, string> = {
   'common.message': 'Message',
   'common.mix': 'Mixage',
   'common.wait': 'Un instant...',
-  'common.guest': 'Invité',
+  'common.guest': 'Participant',
   'common.help': 'Aide',
   'common.increase': 'Augmenter',
   'common.decrease': 'Diminuer',
@@ -201,8 +201,8 @@ const fr: Record<I18nKey, string> = {
   'connect.room_password_pending': 'En attente de 8 chiffres',
   'connect.room_password_on': 'Mot de passe appliqué',
   'connect.room_password_invalid': 'Saisissez 8 chiffres',
-  'connect.room_password_enabled': 'Les nouveaux invités devront saisir le mot de passe',
-  'connect.room_password_disabled': 'Les invités n’ont plus besoin du mot de passe',
+  'connect.room_password_enabled': 'Les nouveaux participants devront saisir le mot de passe',
+  'connect.room_password_disabled': 'Les participants n’ont plus besoin du mot de passe',
 
   // Setup and demo
   'setup.host_button': 'Devenir hôte',
@@ -327,7 +327,7 @@ const fr: Record<I18nKey, string> = {
   'transfer.file_wait': 'En attente du fichier...\nVeuillez patienter',
   'transfer.preload_done': 'Utilisation du fichier préchargé !',
   'transfer.preload_waiting': 'En attente de la fin du préchargement...',
-  'share.remote.encrypting': 'Chiffrement du fichier pour les invités distants...',
+  'share.remote.encrypting': 'Chiffrement du fichier pour les participants distants...',
   'share.remote.uploading': 'Envoi du fichier chiffré...',
   'share.remote.upload_ready': 'Partage distant prêt',
   'share.remote.waiting': 'En attente du fichier distant chiffré...',
@@ -363,11 +363,11 @@ const fr: Record<I18nKey, string> = {
     'L’audio système peut avoir une légère latence.\nBaissez le volume source si possible.',
   'system_audio.stopped': 'Partage de l’audio système terminé.\nReprise de la playlist.',
   'system_audio.many_devices_warning':
-    'L’audio système fonctionne mieux avec jusqu’à 4 invités.\nPlus d’appareils peut ajouter de la latence ou des coupures.',
+    'L’audio système fonctionne mieux avec jusqu’à 4 participants.\nPlus d’appareils peut ajouter de la latence ou des coupures.',
   'system_audio.host_channel_locked':
     'Impossible de changer de rôle pendant le partage audio système.',
   'system_audio.effects_guest_only':
-    'Partage de l’audio système.\nLes effets s’appliquent uniquement aux invités.',
+    'Partage de l’audio système.\nLes effets s’appliquent uniquement aux participants.',
   'system_audio.desktop_only': 'Disponible uniquement sur Chrome de bureau Windows ou Mac.',
   'system_audio.receive_failed':
     'Impossible de recevoir l’audio système.\nDemandez à l’hôte de relancer le partage.',
@@ -413,9 +413,9 @@ const fr: Record<I18nKey, string> = {
   'toast.playing_in_3s': 'Démarrage de la lecture dans 3 secondes...',
   'toast.hprecision_sync': 'Synchronisation haute précision : préparation audio...',
   'toast.file_ready': 'Votre fichier est prêt !\nAppuyez sur Lecture.',
-  'toast.host_sync_not_recommended': 'Réglez la synchronisation sur un appareil invité',
+  'toast.host_sync_not_recommended': 'Réglez la synchronisation sur l’appareil d’un participant',
   'toast.host_sync_requested':
-    'Synchronisation précise demandée.\nRéglez la synchronisation manuelle sur un appareil invité.',
+    'Synchronisation précise demandée.\nRéglez la synchronisation manuelle sur l’appareil d’un participant.',
   'toast.sync_not_in_system_audio':
     'La synchronisation n’est pas disponible en mode partage audio système',
   'toast.sync_not_ready': 'Pas encore prêt.\nRéessayez dans un instant',
@@ -428,7 +428,7 @@ const fr: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Aucune donnée de lecture de l’hôte pour l’instant, réessayez dans un instant',
   'toast.yt_rendezvous_timeout': 'Échec de la synchronisation, réessayez dans un instant',
-  'toast.yt_host_sync_sent': 'Signal de synchronisation automatique envoyé aux invités',
+  'toast.yt_host_sync_sent': 'Signal de synchronisation automatique envoyé aux participants',
   'toast.yt_manual_sync_prompt':
     'La synchronisation automatique vient d’être tentée.\nSi le décalage persiste, ajustez la valeur maintenant',
   'toast.playlist_ended': 'Le dernier média est terminé',
@@ -478,10 +478,10 @@ const fr: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Partage de fichier dans une grande salle',
   'dialog.large_room_file.message':
-    'Le partage local de fichiers est stable avec jusqu’à ~8 invités sur un réseau local.\n\nContinuer ?',
+    'Le partage local de fichiers est stable avec jusqu’à ~8 participants sur un réseau local.\n\nContinuer ?',
   'dialog.large_room_sysaudio.title': 'Audio système dans une grande salle',
   'dialog.large_room_sysaudio.message':
-    'Le partage audio système prend en charge les invités locaux et distants, mais jusqu’à ~4 invités est recommandé pour la charge et la latence de l’hôte.\n\nContinuer ?',
+    'Le partage audio système prend en charge les participants locaux et distants, mais il est recommandé de limiter à ~4 participants pour la charge et la latence de l’hôte.\n\nContinuer ?',
   'dialog.continue': 'Continuer',
   'dialog.return_home_title': 'Quitter la salle',
   'dialog.return_home_msg': 'Revenir à l’écran de départ ?',
@@ -598,18 +598,18 @@ const fr: Record<I18nKey, string> = {
   'chat.empty_html': 'Aucun message pour l’instant.<br>Envoyez le premier !',
   'chat.msg_truncated': 'Message tronqué à {{max}} caractères',
   'chat.scroll_to_bottom': 'Faire défiler vers le bas',
-  'connect.slot_guide.aria': 'Ouvrir le guide du nombre d’invités recommandé',
-  'connect.slot_guide.title': 'Nombre d’invités',
+  'connect.slot_guide.aria': 'Ouvrir le guide du nombre de participants recommandé',
+  'connect.slot_guide.title': 'Nombre de participants',
   'connect.slot_guide.body':
-    'Plus il y a d’invités connectés, moins le système est stable.\n\n• YouTube ensemble : jusqu’à 32\n• Partage de fichier local : jusqu’à 8\n• Partage audio système : jusqu’à 4 recommandé',
+    'Plus il y a de participants connectés, moins le système est stable.\n\n• YouTube ensemble : jusqu’à 32\n• Partage de fichier local : jusqu’à 8\n• Partage audio système : jusqu’à 4 recommandé',
   'help.install_app_html':
     'Vous aimez MUSIXQUARE ? Vous pouvez l’installer comme une app.<ul class="help-list"><li><strong>iOS :</strong> Partager → Ajouter à l’écran d’accueil</li><li><strong>Android :</strong> Menu → Installer l’application</li><li><strong>Windows :</strong> Icône d’installation dans la barre d’adresse</li><li><strong>macOS :</strong> Partager → Ajouter au Dock</li></ul>',
   'help.local_recommended_html':
     'Le partage audio est plus stable sur le même réseau.<ul class="help-list"><li>Les participants distants peuvent utiliser les mêmes fonctionnalités.</li><li>Les participants distants utilisent des chemins Cloudflare ; la latence peut donc augmenter ou la réception échouer selon le réseau.</li><li>Un VPN ou un réseau restreint peut rendre la connexion instable.</li></ul>',
   'setup.how_to_connect_html':
-    'Saisissez le <strong>code à 6 chiffres</strong> de l’hôte pour vous connecter.<ul class="help-list"><li><strong>Hôte :</strong> « Devenir hôte » → vérifier le code</li><li><strong>Invité :</strong> « Rejoindre une salle » → saisir le code</li><li>Le nombre d’appareils connectables se règle dans l’<strong>onglet « Connexion »</strong>.</li></ul>',
+    'Saisissez le <strong>code à 6 chiffres</strong> de l’hôte pour vous connecter.<ul class="help-list"><li><strong>Hôte :</strong> « Devenir hôte » → vérifier le code</li><li><strong>Participant :</strong> « Rejoindre une salle » → saisir le code</li><li>Le nombre d’appareils connectables se règle dans l’<strong>onglet « Connexion »</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Chaque invité sélectionne un <strong>rôle (canal de sortie)</strong>.<ul class="help-list"><li><strong>Centre :</strong> sortie stéréo (par défaut)</li><li><strong>Gauche :</strong> sortie canal G</li><li><strong>Droite :</strong> sortie canal D</li><li><strong>Subwoofer :</strong> sortie mixée des basses fréquences</li></ul>Vous pouvez changer de rôle à tout moment dans les <strong>Paramètres</strong>.',
+    'Chaque participant sélectionne un <strong>rôle (canal de sortie)</strong>.<ul class="help-list"><li><strong>Centre :</strong> sortie stéréo (par défaut)</li><li><strong>Gauche :</strong> sortie canal G</li><li><strong>Droite :</strong> sortie canal D</li><li><strong>Subwoofer :</strong> sortie mixée des basses fréquences</li></ul>Vous pouvez changer de rôle à tout moment dans les <strong>Paramètres</strong>.',
   'player.play_media_action_html':
     'L’hôte a 3 options.<ul class="help-list"><li><strong>Charger un fichier local :</strong> Choisissez de la musique sur votre appareil. Synchronisation précise prise en charge</li><li><strong>YouTube ensemble :</strong> Vidéos et playlists prises en charge. Pas de séparation de canaux ni d’effets audio</li><li><strong>Partage audio système :</strong> Disponible lorsque l’hôte utilise Chrome sur Windows ou Mac</li></ul>',
   'help.need_help_html':

@@ -29,7 +29,7 @@ const de: Record<I18nKey, string> = {
   'common.message': 'Nachricht',
   'common.mix': 'Mix',
   'common.wait': 'Einen Moment...',
-  'common.guest': 'Gast',
+  'common.guest': 'Teilnehmer',
   'common.help': 'Hilfe',
   'common.increase': 'Erhöhen',
   'common.decrease': 'Verringern',
@@ -201,8 +201,8 @@ const de: Record<I18nKey, string> = {
   'connect.room_password_pending': 'Warten auf 8 Ziffern',
   'connect.room_password_on': 'Passwort angewendet',
   'connect.room_password_invalid': 'Gib 8 Ziffern ein',
-  'connect.room_password_enabled': 'Neue Gäste benötigen das Raumpasswort',
-  'connect.room_password_disabled': 'Gäste benötigen kein Raumpasswort mehr',
+  'connect.room_password_enabled': 'Neue Teilnehmer benötigen das Raumpasswort',
+  'connect.room_password_disabled': 'Teilnehmer benötigen kein Raumpasswort mehr',
 
   // Setup and demo
   'setup.host_button': 'Ich hoste',
@@ -325,7 +325,7 @@ const de: Record<I18nKey, string> = {
   'transfer.file_wait': 'Warten auf Datei...\nBitte kurz warten',
   'transfer.preload_done': 'Vorab geladene Datei wird verwendet!',
   'transfer.preload_waiting': 'Warten auf Abschluss des Vorladens...',
-  'share.remote.encrypting': 'Datei für Remote-Gäste wird verschlüsselt...',
+  'share.remote.encrypting': 'Datei für Remote-Teilnehmer wird verschlüsselt...',
   'share.remote.uploading': 'Verschlüsselte Datei wird hochgeladen...',
   'share.remote.upload_ready': 'Remote-Freigabe bereit',
   'share.remote.waiting': 'Warten auf verschlüsselte Remote-Datei...',
@@ -341,7 +341,7 @@ const de: Record<I18nKey, string> = {
   'share.remote.unavailable': 'Remote-Freigabe fehlgeschlagen.\nBitte gleich erneut versuchen.',
   'transfer.preload_fail': 'Vorab-Wiedergabe fehlgeschlagen, lade neu',
   'transfer.download_finishing': 'Download wird abgeschlossen...',
-  'transfer.preparation_delayed': 'Vorbereitung verzögert...\nHost-Wiederherstellung angefordert',
+  'transfer.preparation_delayed': 'Vorbereitung verzögert...\nHost um Wiederherstellung gebeten',
   'transfer.receiving_0pct': 'Empfangen... 0%',
   'transfer.check_conn_type': 'Verbindungstyp wird geprüft...',
   'transfer.preload_pending': 'Warten auf Vorladen: {{name}}',
@@ -360,11 +360,11 @@ const de: Record<I18nKey, string> = {
     'Systemaudio kann leichte Latenz haben.\nSenke wenn möglich die Lautstärke der Quelle.',
   'system_audio.stopped': 'Systemaudio-Freigabe beendet.\nPlaylist wird fortgesetzt.',
   'system_audio.many_devices_warning':
-    'Systemaudio funktioniert am besten mit bis zu 4 Gästen.\nMehr Geräte können Latenz oder Aussetzer verursachen.',
+    'Systemaudio funktioniert am besten mit bis zu 4 Teilnehmern.\nMehr Geräte können Latenz oder Aussetzer verursachen.',
   'system_audio.host_channel_locked':
     'Rollen können während der Systemaudio-Freigabe nicht geändert werden.',
   'system_audio.effects_guest_only':
-    'Systemaudio wird geteilt.\nEffekte werden nur auf Gäste angewendet.',
+    'Systemaudio wird geteilt.\nEffekte werden nur auf Teilnehmer angewendet.',
   'system_audio.desktop_only': 'Nur in Chrome auf Windows- oder Mac-Desktop verfügbar.',
   'system_audio.receive_failed':
     'Systemaudio konnte nicht empfangen werden.\nBitte den Host, die Freigabe neu zu starten.',
@@ -410,9 +410,9 @@ const de: Record<I18nKey, string> = {
   'toast.playing_in_3s': 'Wiedergabe startet in 3 Sekunden...',
   'toast.hprecision_sync': 'Hochpräzise Synchronisierung: Audio wird vorbereitet...',
   'toast.file_ready': 'Deine Datei ist bereit!\nDrücke Wiedergabe.',
-  'toast.host_sync_not_recommended': 'Sync auf einem Gastgerät anpassen',
+  'toast.host_sync_not_recommended': 'Sync auf einem Teilnehmergerät anpassen',
   'toast.host_sync_requested':
-    'Präzise Synchronisierung angefordert.\nManuellen Sync auf einem Gastgerät anpassen.',
+    'Präzise Synchronisierung angefordert.\nManuellen Sync auf einem Teilnehmergerät anpassen.',
   'toast.sync_not_in_system_audio': 'Sync ist im Systemaudio-Freigabemodus nicht verfügbar',
   'toast.sync_not_ready': 'Noch nicht bereit.\nVersuche es gleich erneut',
   'toast.host_ad': 'Der Host scheint eine Werbung anzusehen',
@@ -423,7 +423,7 @@ const de: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Host ist pausiert, nur Position angepasst',
   'toast.yt_rendezvous_no_data': 'Noch keine Host-Wiedergabedaten, gleich erneut versuchen',
   'toast.yt_rendezvous_timeout': 'Synchronisierung fehlgeschlagen, gleich erneut versuchen',
-  'toast.yt_host_sync_sent': 'Auto-Sync-Signal an Gäste gesendet',
+  'toast.yt_host_sync_sent': 'Auto-Sync-Signal an Teilnehmer gesendet',
   'toast.yt_manual_sync_prompt':
     'Automatische Synchronisierung wurde gerade versucht.\nWenn es noch verzögert wirkt, passe den Wert jetzt an',
   'toast.playlist_ended': 'Letztes Medium ist beendet',
@@ -472,10 +472,10 @@ const de: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Dateifreigabe in einem großen Raum',
   'dialog.large_room_file.message':
-    'Lokale Dateifreigabe ist im lokalen Netzwerk mit bis zu ~8 Gästen stabil.\n\nFortfahren?',
+    'Lokale Dateifreigabe ist im lokalen Netzwerk mit bis zu ~8 Teilnehmern stabil.\n\nFortfahren?',
   'dialog.large_room_sysaudio.title': 'Systemaudio in einem großen Raum',
   'dialog.large_room_sysaudio.message':
-    'Systemaudio-Freigabe unterstützt lokale und Remote-Gäste, empfohlen sind wegen Host-Last und Latenz aber bis zu ~4 Gäste.\n\nFortfahren?',
+    'Systemaudio-Freigabe unterstützt lokale und Remote-Teilnehmer, empfohlen sind wegen Host-Last und Latenz aber bis zu ~4 Teilnehmer.\n\nFortfahren?',
   'dialog.continue': 'Fortfahren',
   'dialog.return_home_title': 'Raum verlassen',
   'dialog.return_home_msg': 'Zum Startbildschirm zurückkehren?',
@@ -591,18 +591,18 @@ const de: Record<I18nKey, string> = {
   'chat.empty_html': 'Noch keine Nachrichten.<br>Sende die erste Nachricht!',
   'chat.msg_truncated': 'Nachricht auf {{max}} Zeichen gekürzt',
   'chat.scroll_to_bottom': 'Nach unten scrollen',
-  'connect.slot_guide.aria': 'Empfohlene Gästeanzahl öffnen',
-  'connect.slot_guide.title': 'Anzahl der Gäste',
+  'connect.slot_guide.aria': 'Empfohlene Teilnehmeranzahl öffnen',
+  'connect.slot_guide.title': 'Anzahl der Teilnehmer',
   'connect.slot_guide.body':
-    'Je mehr Gäste verbunden sind, desto weniger stabil wird das System.\n\n• YouTube gemeinsam: bis zu 32\n• Lokale Dateifreigabe: bis zu 8\n• Systemaudio-Freigabe: bis zu 4 empfohlen',
+    'Je mehr Teilnehmer verbunden sind, desto weniger stabil wird das System.\n\n• YouTube gemeinsam: bis zu 32\n• Lokale Dateifreigabe: bis zu 8\n• Systemaudio-Freigabe: bis zu 4 empfohlen',
   'help.install_app_html':
     'Gefällt dir MUSIXQUARE? Du kannst es als App installieren.<ul class="help-list"><li><strong>iOS:</strong> Teilen → Zum Home-Bildschirm hinzufügen</li><li><strong>Android:</strong> Menü → App installieren</li><li><strong>Windows:</strong> Installationssymbol in der Adressleiste</li><li><strong>macOS:</strong> Teilen → Zum Dock hinzufügen</li></ul>',
   'help.local_recommended_html':
     'Audiofreigabe ist im selben Netzwerk am stabilsten.<ul class="help-list"><li>Remote-Teilnehmer können dieselben Funktionen nutzen.</li><li>Remote-Teilnehmer verwenden Cloudflare-Pfade, daher kann je nach Netzwerk die Latenz steigen oder der Empfang fehlschlagen.</li><li>Ein VPN oder ein eingeschränktes Netzwerk kann die Verbindung instabil machen.</li></ul>',
   'setup.how_to_connect_html':
-    'Gib den <strong>6-stelligen Code</strong> des Hosts ein, um dich zu verbinden.<ul class="help-list"><li><strong>Host:</strong> „Ich hoste“ → Code prüfen</li><li><strong>Gast:</strong> „Raum beitreten“ → Code eingeben</li><li>Die Anzahl verbindbarer Geräte kann im <strong>Tab „Verbinden“</strong> festgelegt werden.</li></ul>',
+    'Gib den <strong>6-stelligen Code</strong> des Hosts ein, um dich zu verbinden.<ul class="help-list"><li><strong>Host:</strong> „Ich hoste“ → Code prüfen</li><li><strong>Teilnehmer:</strong> „Raum beitreten“ → Code eingeben</li><li>Die Anzahl verbindbarer Geräte kann im <strong>Tab „Verbinden“</strong> festgelegt werden.</li></ul>',
   'player.play_speakers_html':
-    'Jeder Gast wählt eine <strong>Rolle (Ausgabekanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereoausgabe (Standard)</li><li><strong>Links:</strong> Ausgabe des L-Kanals</li><li><strong>Rechts:</strong> Ausgabe des R-Kanals</li><li><strong>Subwoofer:</strong> Ausgabe des Tiefton-Mixes</li></ul>Rollen können jederzeit in den <strong>Einstellungen</strong> geändert werden.',
+    'Jeder Teilnehmer wählt eine <strong>Rolle (Ausgabekanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereoausgabe (Standard)</li><li><strong>Links:</strong> Ausgabe des L-Kanals</li><li><strong>Rechts:</strong> Ausgabe des R-Kanals</li><li><strong>Subwoofer:</strong> Ausgabe des Tiefton-Mixes</li></ul>Rollen können jederzeit in den <strong>Einstellungen</strong> geändert werden.',
   'player.play_media_action_html':
     'Der Host hat 3 Optionen.<ul class="help-list"><li><strong>Lokale Datei laden:</strong> Musik vom Gerät auswählen. Präzise Synchronisierung wird unterstützt</li><li><strong>YouTube gemeinsam:</strong> Videos und Playlists werden unterstützt. Keine Kanaltrennung oder Audioeffekte</li><li><strong>Systemaudio-Freigabe:</strong> Verfügbar, wenn der Host Chrome unter Windows oder Mac verwendet</li></ul>',
   'help.need_help_html':

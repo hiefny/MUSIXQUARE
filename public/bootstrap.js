@@ -52,14 +52,7 @@
       tr: 'tr',
       id: 'id',
       vi: 'vi',
-      fil: 'fil',
       th: 'th',
-      ar: 'ar',
-      hi: 'hi',
-    };
-
-    var dirByCode = {
-      ar: 'rtl',
     };
 
     function matchLanguage(value) {
@@ -85,7 +78,6 @@
 
       if (normalized === 'pt-br' || normalized.indexOf('pt-br-') === 0) return 'pt-br';
       if (normalized === 'pt' || normalized.indexOf('pt-') === 0) return 'pt-br';
-      if (normalized === 'tl' || normalized.indexOf('tl-') === 0) return 'fil';
 
       var primary = normalized.split('-')[0];
       return htmlLangByCode[primary] ? primary : null;
@@ -105,10 +97,7 @@
       }
     }
 
-    var resolvedCode = resolvedLang || 'en';
-    document.documentElement.setAttribute('lang', htmlLangByCode[resolvedCode] || 'en');
-    if (dirByCode[resolvedCode]) document.documentElement.setAttribute('dir', dirByCode[resolvedCode]);
-    else document.documentElement.removeAttribute('dir');
+    document.documentElement.setAttribute('lang', htmlLangByCode[resolvedLang || 'en'] || 'en');
   } catch (e) {
     /* localStorage / navigator denied - keep the HTML default */
   }

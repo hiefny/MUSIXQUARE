@@ -29,7 +29,7 @@ const vi: Record<I18nKey, string> = {
   'common.message': 'Tin nhắn',
   'common.mix': 'Pha trộn',
   'common.wait': 'Vui lòng chờ...',
-  'common.guest': 'Khách',
+  'common.guest': 'Người tham gia',
   'common.help': 'Trợ giúp',
   'common.increase': 'Tăng',
   'common.decrease': 'Giảm',
@@ -201,8 +201,8 @@ const vi: Record<I18nKey, string> = {
   'connect.room_password_pending': 'Đang chờ 8 chữ số',
   'connect.room_password_on': 'Đã áp dụng mật khẩu',
   'connect.room_password_invalid': 'Nhập 8 chữ số',
-  'connect.room_password_enabled': 'Khách mới sẽ cần mật khẩu phòng',
-  'connect.room_password_disabled': 'Khách không cần mật khẩu phòng nữa',
+  'connect.room_password_enabled': 'Người tham gia mới sẽ cần mật khẩu phòng',
+  'connect.room_password_disabled': 'Người tham gia không cần mật khẩu phòng nữa',
 
   // Setup and demo
   'setup.host_button': 'Làm host',
@@ -323,7 +323,7 @@ const vi: Record<I18nKey, string> = {
   'transfer.file_wait': 'Đang chờ tệp...\nVui lòng đợi',
   'transfer.preload_done': 'Dùng tệp đã tải trước!',
   'transfer.preload_waiting': 'Đang chờ tải trước hoàn tất...',
-  'share.remote.encrypting': 'Đang mã hóa tệp cho khách từ xa...',
+  'share.remote.encrypting': 'Đang mã hóa tệp cho người tham gia từ xa...',
   'share.remote.uploading': 'Đang tải lên tệp đã mã hóa...',
   'share.remote.upload_ready': 'Chia sẻ từ xa đã sẵn sàng',
   'share.remote.waiting': 'Đang chờ tệp từ xa đã mã hóa...',
@@ -358,10 +358,10 @@ const vi: Record<I18nKey, string> = {
     'Âm thanh hệ thống có thể có độ trễ nhẹ.\nHãy giảm âm lượng nguồn nếu có thể.',
   'system_audio.stopped': 'Chia sẻ âm thanh hệ thống đã kết thúc.\nĐang tiếp tục playlist.',
   'system_audio.many_devices_warning':
-    'Âm thanh hệ thống tốt nhất với tối đa 4 khách.\nNhiều thiết bị hơn có thể gây trễ hoặc giật.',
+    'Âm thanh hệ thống tốt nhất với tối đa 4 người tham gia.\nNhiều thiết bị hơn có thể gây trễ hoặc giật.',
   'system_audio.host_channel_locked': 'Không thể đổi vai trò khi chia sẻ âm thanh hệ thống.',
   'system_audio.effects_guest_only':
-    'Đang chia sẻ âm thanh hệ thống.\nHiệu ứng chỉ áp dụng cho khách.',
+    'Đang chia sẻ âm thanh hệ thống.\nHiệu ứng chỉ áp dụng cho người tham gia.',
   'system_audio.desktop_only': 'Chỉ dùng được trên Chrome máy tính Windows hoặc Mac.',
   'system_audio.receive_failed':
     'Không nhận được âm thanh hệ thống.\nHãy nhờ host bắt đầu chia sẻ lại.',
@@ -407,9 +407,9 @@ const vi: Record<I18nKey, string> = {
   'toast.playing_in_3s': 'Bắt đầu phát sau 3 giây...',
   'toast.hprecision_sync': 'Đồng bộ độ chính xác cao: đang chuẩn bị âm thanh...',
   'toast.file_ready': 'Tệp của bạn đã sẵn sàng!\nNhấn Phát.',
-  'toast.host_sync_not_recommended': 'Hãy chỉnh đồng bộ trên thiết bị khách',
+  'toast.host_sync_not_recommended': 'Hãy chỉnh đồng bộ trên thiết bị của người tham gia',
   'toast.host_sync_requested':
-    'Đã yêu cầu đồng bộ chính xác.\nHãy chỉnh đồng bộ thủ công trên thiết bị khách.',
+    'Đã yêu cầu đồng bộ chính xác.\nHãy chỉnh đồng bộ thủ công trên thiết bị của người tham gia.',
   'toast.sync_not_in_system_audio': 'Không thể dùng đồng bộ trong chế độ chia sẻ âm thanh hệ thống',
   'toast.sync_not_ready': 'Chưa sẵn sàng.\nHãy thử lại sau',
   'toast.host_ad': 'Có vẻ host đang xem quảng cáo',
@@ -420,7 +420,7 @@ const vi: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Host đang tạm dừng, chỉ căn vị trí',
   'toast.yt_rendezvous_no_data': 'Chưa có dữ liệu phát từ host, hãy thử lại sau',
   'toast.yt_rendezvous_timeout': 'Đồng bộ thất bại, hãy thử lại sau',
-  'toast.yt_host_sync_sent': 'Đã gửi tín hiệu tự đồng bộ cho khách',
+  'toast.yt_host_sync_sent': 'Đã gửi tín hiệu tự đồng bộ cho người tham gia',
   'toast.yt_manual_sync_prompt':
     'Vừa thử đồng bộ tự động.\nNếu vẫn thấy trễ, hãy chỉnh giá trị ngay',
   'toast.playlist_ended': 'Nội dung cuối cùng đã kết thúc',
@@ -466,10 +466,10 @@ const vi: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Chia sẻ tệp trong phòng lớn',
   'dialog.large_room_file.message':
-    'Chia sẻ tệp cục bộ ổn định với tối đa khoảng 8 khách trên mạng cục bộ.\n\nTiếp tục?',
+    'Chia sẻ tệp cục bộ ổn định với tối đa khoảng 8 người tham gia trên mạng cục bộ.\n\nTiếp tục?',
   'dialog.large_room_sysaudio.title': 'Âm thanh hệ thống trong phòng lớn',
   'dialog.large_room_sysaudio.message':
-    'Chia sẻ âm thanh hệ thống hỗ trợ khách cục bộ và từ xa, nhưng khuyến nghị tối đa khoảng 4 khách để giảm tải host và độ trễ.\n\nTiếp tục?',
+    'Chia sẻ âm thanh hệ thống hỗ trợ người tham gia cục bộ và từ xa, nhưng khuyến nghị tối đa khoảng 4 người tham gia để giảm tải host và độ trễ.\n\nTiếp tục?',
   'dialog.continue': 'Tiếp tục',
   'dialog.return_home_title': 'Rời phòng',
   'dialog.return_home_msg': 'Quay lại màn hình bắt đầu?',
@@ -585,18 +585,18 @@ const vi: Record<I18nKey, string> = {
   'chat.empty_html': 'Chưa có tin nhắn.<br>Hãy gửi tin nhắn đầu tiên!',
   'chat.msg_truncated': 'Tin nhắn đã bị cắt còn {{max}} ký tự',
   'chat.scroll_to_bottom': 'Cuộn xuống cuối',
-  'connect.slot_guide.aria': 'Mở hướng dẫn số khách khuyến nghị',
-  'connect.slot_guide.title': 'Số lượng khách',
+  'connect.slot_guide.aria': 'Mở hướng dẫn số người tham gia khuyến nghị',
+  'connect.slot_guide.title': 'Số lượng người tham gia',
   'connect.slot_guide.body':
-    'Càng nhiều khách kết nối, hệ thống càng kém ổn định.\n\n• YouTube cùng nhau: tối đa 32\n• Chia sẻ tệp cục bộ: tối đa 8\n• Chia sẻ âm thanh hệ thống: khuyến nghị tối đa 4',
+    'Càng nhiều người tham gia kết nối, hệ thống càng kém ổn định.\n\n• YouTube cùng nhau: tối đa 32\n• Chia sẻ tệp cục bộ: tối đa 8\n• Chia sẻ âm thanh hệ thống: khuyến nghị tối đa 4',
   'help.install_app_html':
     'Bạn thích MUSIXQUARE? Bạn có thể cài đặt như một ứng dụng.<ul class="help-list"><li><strong>iOS:</strong> Chia sẻ → Thêm vào Màn hình chính</li><li><strong>Android:</strong> Menu → Cài đặt ứng dụng</li><li><strong>Windows:</strong> Biểu tượng cài đặt trên thanh địa chỉ</li><li><strong>macOS:</strong> Chia sẻ → Thêm vào Dock</li></ul>',
   'help.local_recommended_html':
     'Chia sẻ âm thanh ổn định nhất trên cùng một mạng.<ul class="help-list"><li>Người tham gia từ xa có thể dùng cùng các tính năng.</li><li>Người tham gia từ xa dùng đường truyền Cloudflare, nên độ trễ có thể tăng hoặc việc nhận dữ liệu có thể thất bại tùy điều kiện mạng.</li><li>VPN hoặc mạng bị hạn chế có thể khiến kết nối không ổn định.</li></ul>',
   'setup.how_to_connect_html':
-    'Nhập <strong>mã 6 chữ số</strong> từ host để kết nối.<ul class="help-list"><li><strong>Host:</strong> “Làm host” → kiểm tra mã</li><li><strong>Khách:</strong> “Vào phòng” → nhập mã</li><li>Số thiết bị có thể kết nối có thể đặt trong <strong>tab "Kết nối"</strong>.</li></ul>',
+    'Nhập <strong>mã 6 chữ số</strong> từ host để kết nối.<ul class="help-list"><li><strong>Host:</strong> “Làm host” → kiểm tra mã</li><li><strong>Người tham gia:</strong> “Vào phòng” → nhập mã</li><li>Số thiết bị có thể kết nối có thể đặt trong <strong>tab "Kết nối"</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Mỗi khách chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Center:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh L</li><li><strong>Phải:</strong> Đầu ra kênh R</li><li><strong>Subwoofer:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
+    'Mỗi người tham gia chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Center:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh L</li><li><strong>Phải:</strong> Đầu ra kênh R</li><li><strong>Subwoofer:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
   'player.play_media_action_html':
     'Host có 3 tùy chọn.<ul class="help-list"><li><strong>Tải tệp cục bộ:</strong> Chọn nhạc từ thiết bị của bạn. Hỗ trợ đồng bộ chính xác</li><li><strong>YouTube cùng nhau:</strong> Hỗ trợ video và playlist. Không tách kênh hoặc hiệu ứng âm thanh</li><li><strong>Chia sẻ âm thanh hệ thống:</strong> Khả dụng khi host dùng Chrome trên Windows hoặc Mac</li></ul>',
   'help.need_help_html':

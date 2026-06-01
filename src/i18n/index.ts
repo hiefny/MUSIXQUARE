@@ -46,10 +46,7 @@ export const LANGUAGE_OPTIONS = [
   { code: 'tr', htmlLang: 'tr', nativeName: 'Türkçe', englishName: 'Turkish' },
   { code: 'id', htmlLang: 'id', nativeName: 'Bahasa Indonesia', englishName: 'Indonesian' },
   { code: 'vi', htmlLang: 'vi', nativeName: 'Tiếng Việt', englishName: 'Vietnamese' },
-  { code: 'fil', htmlLang: 'fil', nativeName: 'Wikang Filipino', englishName: 'Filipino' },
   { code: 'th', htmlLang: 'th', nativeName: 'ไทย', englishName: 'Thai' },
-  { code: 'ar', htmlLang: 'ar', nativeName: 'العربية', englishName: 'Arabic' },
-  { code: 'hi', htmlLang: 'hi', nativeName: 'हिन्दी', englishName: 'Hindi' },
 ] as const;
 
 export type LanguageCode = (typeof LANGUAGE_OPTIONS)[number]['code'];
@@ -66,12 +63,9 @@ const _dicts: Partial<Record<LanguageCode, Record<string, string>>> = {
 const _localeLoaders: Partial<
   Record<LanguageCode, () => Promise<{ default: Record<string, string> }>>
 > = {
-  ar: () => import('./ar.ts'),
   de: () => import('./de.ts'),
   es: () => import('./es.ts'),
-  fil: () => import('./fil.ts'),
   fr: () => import('./fr.ts'),
-  hi: () => import('./hi.ts'),
   id: () => import('./id.ts'),
   it: () => import('./it.ts'),
   ja: () => import('./ja.ts'),
@@ -86,8 +80,6 @@ const _localeLoaders: Partial<
 };
 
 const _fontLoaders: Partial<Record<LanguageCode, () => Promise<unknown>>> = {
-  ar: () => import('../../css/fonts/noto-arabic.css'),
-  hi: () => import('../../css/fonts/noto-devanagari.css'),
   ja: () => import('../../css/fonts/noto-jp.css'),
   ru: () => import('../../css/fonts/noto-cyrillic.css'),
   th: () => import('../../css/fonts/noto-thai.css'),
@@ -271,7 +263,6 @@ function _matchLanguage(value: string | null | undefined): LanguageCode | null {
 
   if (normalized === 'pt-br' || normalized.startsWith('pt-br-')) return 'pt-br';
   if (normalized === 'pt' || normalized.startsWith('pt-')) return 'pt-br';
-  if (normalized === 'tl' || normalized.startsWith('tl-')) return 'fil';
 
   const primary = normalized.split('-')[0];
   if (LANGUAGE_OPTIONS.some((lang) => lang.code === primary)) return primary as LanguageCode;
@@ -293,10 +284,6 @@ function _resolveSystem(): LanguageCode {
 
 function _htmlLangFor(code: LanguageCode): string {
   return LANGUAGE_OPTIONS.find((lang) => lang.code === code)?.htmlLang ?? code;
-}
-
-function _directionFor(code: LanguageCode): 'ltr' | 'rtl' {
-  return code === 'ar' ? 'rtl' : 'ltr';
 }
 
 function _loadLanguage(code: LanguageCode): Promise<void> {
@@ -356,10 +343,7 @@ function _translateLoadedLanguage(resolved: LanguageCode): void {
 async function _applyLanguage(resolved: LanguageCode): Promise<void> {
   _resolved = resolved;
   try {
-    const root = document.documentElement;
-    root.setAttribute('lang', _htmlLangFor(_resolved));
-    if (_directionFor(_resolved) === 'rtl') root.setAttribute('dir', 'rtl');
-    else root.removeAttribute('dir');
+    document.documentElement.setAttribute('lang', _htmlLangFor(_resolved));
   } catch {
     /* ignore */
   }

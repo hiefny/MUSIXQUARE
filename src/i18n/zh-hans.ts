@@ -1,8 +1,7 @@
 /**
- * MUSIXQUARE - Simplified Chinese Translations (Draft)
+ * MUSIXQUARE - Simplified Chinese Translations
  *
- * Draft locale files fall back to English for untranslated keys.
- * They are not loaded by the app until index.ts explicitly wires them in.
+ * Untranslated keys fall back to English.
  */
 
 import en from './en.ts';

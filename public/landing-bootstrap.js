@@ -33,7 +33,7 @@
     /* defensive fallback */
   }
 
-  document.documentElement.lang = 'en';
+  document.documentElement.lang = window.MXQRStaticLang ? window.MXQRStaticLang.htmlLang(lang) : lang;
 
   try {
     var standalone =

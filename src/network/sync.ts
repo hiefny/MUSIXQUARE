@@ -501,7 +501,7 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       const noticePayload = { type: MSG.CHAT_NOTICE, senderLabel: peerLabel, text, ts: Date.now() };
       rememberPinnedNotice(noticePayload);
       broadcast(noticePayload);
-      bus.emit('chat:notice-message', peerLabel, text);
+      bus.emit('chat:notice-message', peerLabel, text, noticePayload.ts);
       break;
     }
     default:

@@ -1,11 +1,11 @@
 /**
  * MUSIXQUARE — Chat Render Primitives
  *
- * Pure DOM rendering for chat: bubble groups, system/whisper/notice messages,
- * inline YouTube buttons, timestamp links. No drawer/unread state — render
- * funcs emit `chat:message-rendered` so ui/chat.ts can update the preview
- * and unread badge. Importable by commands.ts and chat/protocol.ts without
- * dragging in the full chat UI shell.
+ * Pure DOM rendering for chat: bubble groups, system/whisper messages, pinned
+ * notice banners, inline YouTube buttons, timestamp links. No drawer/unread
+ * state — render funcs emit `chat:message-rendered` so ui/chat.ts can update
+ * the preview and unread badge. Importable by commands.ts and chat/protocol.ts
+ * without dragging in the full chat UI shell.
  */
 
 import { bus } from '../core/events.ts';
@@ -409,71 +409,37 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
 
 // ─── Render: Notice Message ──────────────────────────────────────
 
-export function addNoticeChatMessage(sender: string, text: string): void {
-  const container = document.getElementById('chat-messages');
-  if (!container) return;
-  const isAtBottom = isContainerAtBottom(container);
-  const empty = container.querySelector('.chat-empty');
-  if (empty) empty.remove();
+function formatNoticeTime(timestamp: number | undefined): string {
+  const date = new Date(typeof timestamp === 'number' ? timestamp : Date.now());
+  if (!Number.isFinite(date.getTime())) return '';
+  return `${date.getHours().toString().padStart(2, '0')}:${date
+    .getMinutes()
+    .toString()
+    .padStart(2, '0')}`;
+}
 
-  const drawer = document.getElementById('chat-drawer');
-  if (drawer) drawer.classList.add('has-messages');
+export function addNoticeChatMessage(sender: string, text: string, timestamp?: number): void {
+  setPinnedNotice(sender, text, timestamp);
 
-  const now = new Date();
-  const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-
-  // System-originated notices (broadcastSystemNotice in chat/protocol.ts) ship
-  // with sender=''; fall back to a localized "system" label so the prefix
-  // doesn't render with a dangling separator. Done at render time so each
-  // device sees its own locale's word for "system" — host doesn't need to
-  // know each guest's language.
-  const displayName = sender || t('chat.system_sender');
-
-  const group = document.createElement('div');
-  group.className = 'chat-group others notice';
-
-  const senderNode = document.createElement('div');
-  senderNode.className = 'chat-sender notice-label';
-  senderNode.textContent = `${t('chat.cmd_notice_prefix')} · ${displayName}`;
-  group.appendChild(senderNode);
-
-  const row = document.createElement('div');
-  row.className = 'chat-row';
-
-  const bubble = document.createElement('div');
-  bubble.className = 'chat-bubble others notice';
-  const chatTextDiv = document.createElement('div');
-  chatTextDiv.className = 'chat-text';
-  chatTextDiv.textContent = text;
-  bubble.appendChild(chatTextDiv);
-
-  const timeNode = document.createElement('div');
-  timeNode.className = 'chat-time';
-  timeNode.innerText = timeStr;
-
-  row.appendChild(bubble);
-  row.appendChild(timeNode);
-  group.appendChild(row);
-  container.appendChild(group);
-  pruneOldMessages(container);
-  if (isAtBottom) container.scrollTop = container.scrollHeight;
-
-  // Also pin above the feed so a fast-scrolling chat doesn't bury it.
-  setPinnedNotice(sender, text);
-
-  bus.emit('chat:message-rendered', sender, text, false);
+  // Notices now live only in the pinned banner. Keep preview/unread behavior
+  // so users still notice a room-wide announcement while the drawer is closed.
+  bus.emit('chat:message-rendered', sender || t('chat.cmd_notice_prefix'), text, false);
 }
 
 // ─── Pinned Notice Banner ────────────────────────────────────────
 
-export function setPinnedNotice(sender: string, text: string): void {
+export function setPinnedNotice(sender: string, text: string, timestamp?: number): void {
   const banner = document.getElementById('chat-pinned-notice');
   const label = document.getElementById('chat-pinned-notice-label');
+  const time = document.getElementById('chat-pinned-notice-time');
   const body = document.getElementById('chat-pinned-notice-text');
   if (!banner || !label || !body) return;
-  // Same fallback as addNoticeChatMessage — see comment there.
+  // System-originated notices (broadcastSystemNotice in chat/protocol.ts) ship
+  // with sender=''. Fall back at render time so each device sees its own
+  // locale's word for "system".
   const displayName = sender || t('chat.system_sender');
   label.textContent = `${t('chat.cmd_notice_prefix')} · ${displayName}`;
+  if (time) time.textContent = formatNoticeTime(timestamp);
   body.textContent = text;
   banner.hidden = false;
   // Hide the chat title once a notice is pinned — same rule as first message.

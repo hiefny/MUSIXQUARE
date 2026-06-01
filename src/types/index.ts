@@ -806,12 +806,12 @@ interface BaseEventMap {
   'ui:toggle-chat-drawer': [];
   'i18n:changed': [lang: string];
   'chat:system-message': [text: string];
-  'chat:notice-message': [sender: string, text: string];
+  'chat:notice-message': [sender: string, text: string, timestamp?: number];
   /**
-   * Emitted by chat-render.ts when a chat/whisper/notice message is rendered
-   * into the DOM. ui/chat.ts listens to update the preview text and unread
-   * badge, keeping drawer state decoupled from render primitives. Unread
-   * increments iff !isMine.
+   * Emitted by chat-render.ts when a chat/whisper message is rendered into
+   * the DOM, or when a notice reaches its pinned banner. ui/chat.ts listens to
+   * update the preview text and unread badge, keeping drawer state decoupled
+   * from render primitives. Unread increments iff !isMine.
    */
   'chat:message-rendered': [sender: string, text: string, isMine: boolean];
 

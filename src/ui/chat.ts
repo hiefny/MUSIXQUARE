@@ -865,7 +865,8 @@ export function initChat(): void {
     });
   }
 
-  // Render primitives emit this when a chat/whisper/notice DOM append completes.
+  // Render primitives emit this when a chat, whisper, or banner-only notice
+  // reaches the UI.
   // Keeps drawer/unread state out of chat-render.ts (single-direction dep).
   _busScope.on('chat:message-rendered', (sender: string, text: string, isMine: boolean) => {
     updateChatPreview(sender, text);
@@ -888,8 +889,8 @@ export function initChat(): void {
   });
 
   // Notice messages (host-side for OP-initiated notices)
-  _busScope.on('chat:notice-message', (sender: string, text: string) => {
-    addNoticeChatMessage(sender, text);
+  _busScope.on('chat:notice-message', (sender: string, text: string, timestamp?: number) => {
+    addNoticeChatMessage(sender, text, timestamp);
   });
 
   // Muted state: disable input

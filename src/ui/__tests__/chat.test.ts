@@ -121,6 +121,42 @@ describe('Chat Module', () => {
     });
   });
 
+  describe('Notice banner', () => {
+    function renderNoticeShell(): void {
+      document.body.innerHTML = `
+        <div id="chat-drawer"></div>
+        <div id="chat-messages"><div class="chat-empty"></div></div>
+        <div id="chat-pinned-notice" hidden>
+          <div id="chat-pinned-notice-label"></div>
+          <span id="chat-pinned-notice-time"></span>
+          <div id="chat-pinned-notice-text"></div>
+        </div>
+      `;
+    }
+
+    it('pins notices without adding a duplicate chat bubble', async () => {
+      renderNoticeShell();
+      const rendered: Array<[string, string, boolean]> = [];
+      bus.on('chat:message-rendered', (sender, text, isMine) => {
+        rendered.push([sender, text, isMine]);
+      });
+
+      const { addNoticeChatMessage } = await import('../chat-render.ts');
+      addNoticeChatMessage('HOST', 'playlist requests here', new Date(2026, 0, 1, 9, 5).getTime());
+
+      expect(document.querySelector('.chat-group.notice')).toBeNull();
+      expect(document.getElementById('chat-pinned-notice')?.hidden).toBe(false);
+      expect(document.getElementById('chat-pinned-notice-label')?.textContent).toBe(
+        'chat.cmd_notice_prefix · HOST',
+      );
+      expect(document.getElementById('chat-pinned-notice-time')?.textContent).toBe('09:05');
+      expect(document.getElementById('chat-pinned-notice-text')?.textContent).toBe(
+        'playlist requests here',
+      );
+      expect(rendered).toEqual([['HOST', 'playlist requests here', false]]);
+    });
+  });
+
   describe('Timestamp Parsing Logic', () => {
     // Reimplement the parseTimestamp logic for testing
     function parseTimestamp(str: string): number {

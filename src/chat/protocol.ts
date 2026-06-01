@@ -396,7 +396,8 @@ function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection):
     if (localized !== i18nKey) text = localized;
   }
 
-  addNoticeChatMessage(senderLabel, text);
+  const timestamp = typeof data.ts === 'number' ? data.ts : Date.now();
+  addNoticeChatMessage(senderLabel, text, timestamp);
 }
 
 function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -473,17 +474,18 @@ export function broadcastSystemNotice(
   params?: Record<string, string | number>,
 ): void {
   const fallbackText = t(i18nKey, params);
+  const ts = Date.now();
   const payload = {
     type: MSG.CHAT_NOTICE,
     senderLabel: '',
     text: fallbackText,
-    ts: Date.now(),
+    ts,
     i18nKey,
     ...(params ? { i18nParams: params } : {}),
   };
   rememberPinnedNotice(payload);
   broadcast(payload);
-  bus.emit('chat:notice-message', '', fallbackText);
+  bus.emit('chat:notice-message', '', fallbackText, ts);
 }
 
 /**

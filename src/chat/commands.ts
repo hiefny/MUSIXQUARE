@@ -305,7 +305,7 @@ function cmdNotice(_: string[], rawArgs: string): void {
   if (isHost()) {
     rememberPinnedNotice(payload);
     bus.emit('network:broadcast', payload);
-    addNoticeChatMessage(senderLabel, rawArgs.trim());
+    addNoticeChatMessage(senderLabel, rawArgs.trim(), payload.ts);
   } else {
     sendToHost({ type: MSG.REQUEST_CHAT_COMMAND, command: 'notice', args: [rawArgs.trim()] });
   }

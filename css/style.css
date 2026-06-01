@@ -5021,6 +5021,7 @@
   }
 
   .chat-pinned-notice-label {
+    flex: 1;
     font-size: 11px;
     font-weight: 700;
     color: #ffc107;
@@ -5028,6 +5029,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .chat-pinned-notice-time {
+    flex-shrink: 0;
+    color: #ffc107;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.55;
   }
 
   /* Decorative affordance only — parent .chat-pinned-notice handles the click */

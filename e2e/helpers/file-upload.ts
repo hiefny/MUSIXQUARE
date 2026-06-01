@@ -19,7 +19,7 @@ export const FIXTURE_FILES = {
  * Upload one or more fixture files to the app.
  * The hidden file input triggers the app's file handling pipeline.
  */
-export async function uploadFiles(page: Page, ...filePaths: string[]): Promise<void> {
+async function uploadFiles(page: Page, ...filePaths: string[]): Promise<void> {
   const fileInput = page.locator('#file-input');
   await fileInput.setInputFiles(filePaths);
 }

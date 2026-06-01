@@ -29,7 +29,7 @@ import {
   waitForSelectorCount,
   waitForOverlayActive,
   waitForClass,
-  VALID_APP_STATES,
+  VALID_PROJECTED_PLAYBACK_STATES,
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
@@ -291,7 +291,7 @@ test.describe('Edge Cases', () => {
 
       // Verify state is valid after setting volume to 0
       const state = await readState(pair.hostPage, 'appState');
-      expect(VALID_APP_STATES).toContain(state);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
     }
   });
 
@@ -303,7 +303,7 @@ test.describe('Edge Cases', () => {
 
       // App still functional
       const state = await readState(pair.hostPage, 'appState');
-      expect(VALID_APP_STATES).toContain(state);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
     }
   });
 
@@ -341,7 +341,7 @@ test.describe('Edge Cases', () => {
 
     // App should still be functional
     const state = await readState(pair.hostPage, 'appState');
-    expect(VALID_APP_STATES).toContain(state);
+    expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
   });
 
   // ── Invite Code Validation ──────────────────────────────────
@@ -380,7 +380,7 @@ test.describe('Edge Cases', () => {
     const mediaBtnVisible = await isVisible(pair.guestPage, '#btn-media-source');
     if (mediaBtnVisible) {
       const state = await readState(pair.guestPage, 'appState');
-      expect(VALID_APP_STATES).toContain(state);
+      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
     }
   });
 

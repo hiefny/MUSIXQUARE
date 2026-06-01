@@ -16,10 +16,7 @@ export const VALID_PROJECTED_PLAYBACK_STATES = [
   'PLAYING_SYSTEM_AUDIO',
 ] as const;
 
-/** @deprecated Use VALID_PROJECTED_PLAYBACK_STATES in new tests. */
-export const VALID_APP_STATES = VALID_PROJECTED_PLAYBACK_STATES;
-
-export type ProjectedPlaybackState = (typeof VALID_PROJECTED_PLAYBACK_STATES)[number];
+type ProjectedPlaybackState = (typeof VALID_PROJECTED_PLAYBACK_STATES)[number];
 
 interface PlaybackSnapshot {
   mode: unknown;
@@ -60,7 +57,7 @@ function projectPlaybackState(
   return 'IDLE';
 }
 
-export async function readPlaybackSnapshot(page: Page): Promise<PlaybackSnapshot> {
+async function readPlaybackSnapshot(page: Page): Promise<PlaybackSnapshot> {
   return page.evaluate(() => {
     const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
       | ((p: string) => unknown)
@@ -116,7 +113,7 @@ export async function readPlaybackSnapshot(page: Page): Promise<PlaybackSnapshot
   });
 }
 
-export async function readProjectedPlaybackState(page: Page): Promise<ProjectedPlaybackState> {
+async function readProjectedPlaybackState(page: Page): Promise<ProjectedPlaybackState> {
   return projectPlaybackState(await readPlaybackSnapshot(page));
 }
 
@@ -280,7 +277,7 @@ export async function waitForFilePlaybackReady(page: Page, timeout = 15_000): Pr
 /**
  * Wait until the play button is clickable from the user's point of view.
  */
-export async function waitForPlayButtonReady(page: Page, timeout = 15_000): Promise<void> {
+async function waitForPlayButtonReady(page: Page, timeout = 15_000): Promise<void> {
   await page.waitForFunction(
     () => {
       const btn = document.getElementById('play-btn') as HTMLButtonElement | null;
@@ -330,19 +327,6 @@ export async function waitForChatMessage(
     textSubstring,
     { timeout },
   );
-}
-
-/**
- * Expose the app's getState function globally for test inspection.
- * Call this after page navigation.
- */
-export async function exposeGetState(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    // The app's state module will be loaded as an ES module.
-    // We hook into it by watching for the state object on window.
-    // This is set up by a small patch — see below.
-    // Fallback: if not available, tests use DOM-based checks.
-  });
 }
 
 /**

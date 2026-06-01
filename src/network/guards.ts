@@ -26,11 +26,3 @@ export function isGuestBlocked(): boolean {
   showToast(t('toast.host_only_control'));
   return true;
 }
-
-/**
- * Returns true if the current user is a guest (regardless of operator status).
- * No toast — use when you just need to check, not block.
- */
-export function isGuest(): boolean {
-  return !!getState('network.hostConn');
-}

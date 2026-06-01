@@ -119,11 +119,6 @@ export function getLanguageMode(): LanguageMode {
   return _mode;
 }
 
-/** Current system-resolved language using the browser preference list. */
-export function getSystemResolvedLanguage(): LanguageCode {
-  return _resolveSystem();
-}
-
 /** Switch language mode. Persists to localStorage and retranslates DOM. */
 export function setLanguageMode(mode: string): void {
   void _setLanguageMode(mode);

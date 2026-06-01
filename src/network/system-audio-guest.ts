@@ -244,10 +244,6 @@ function applySdpMunge(mc: MediaConnection): void {
 
 // ─── Public API ───────────────────────────────────────────────────
 
-export function isReceivingSystemAudio(): boolean {
-  return _gotL || _gotR || _gotStereo || _gotSynced;
-}
-
 export function getSystemAudioGuestDebugSnapshot() {
   const channels = [..._debugChannels.values()].map((channel) => ({
     channel: channel.channel,

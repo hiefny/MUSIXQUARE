@@ -30,10 +30,8 @@ import { setInitNetwork, initGuestProtocolHandlers } from './guest.ts';
 
 // ─── Re-exports (preserves external import surface) ─────────────────
 
-export { getPeer } from './peer-state.ts';
 export {
   broadcast,
-  broadcastExcept,
   broadcastDeviceList,
   safeSend,
   sendToHost,
@@ -217,7 +215,7 @@ function assertNetworkInitStillActive(requestedId: string | null): void {
  * Initialize the configured WebRTC transport with optional requested ID.
  * Returns the assigned peer ID.
  */
-export async function initNetwork(requestedId: string | null = null): Promise<string> {
+async function initNetwork(requestedId: string | null = null): Promise<string> {
   // Clean up existing peer instance
   const oldPeer = getPeer();
   if (oldPeer) {

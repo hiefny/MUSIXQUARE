@@ -295,10 +295,6 @@ export function setExciter(on: boolean): void {
   applySettingsAsync();
 }
 
-export function resetExciter(): void {
-  setExciter(false);
-}
-
 // ─── Subwoofer Cutoff ──────────────────────────────────────────────
 
 function updateSubFreq(val: number): void {

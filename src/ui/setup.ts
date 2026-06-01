@@ -625,27 +625,3 @@ export function initSetup(): void {
 
   log.info('[Setup] Initialized');
 }
-
-// ─── Re-exports ──────────────────────────────────────────────────
-// External modules import from 'ui/setup.ts' — keep that contract.
-
-export { startHostFlow, startSessionFromHost } from './setup-host.ts';
-export { startGuestFlow, handleSetupJoinWithRole } from './setup-guest.ts';
-export {
-  BACK_SVG,
-  showSetupOverlay,
-  hideSetupOverlay,
-  setupShowCodeArea,
-  setupShowJoinArea,
-  setupShowAutoJoinArea,
-  setupShowRoleArea,
-  setupShowWelcome,
-  setupSetCode,
-  setupSetAutoJoinCode,
-  setupSetGuestJoinBusy,
-  setupHighlightJoinRole,
-  setupRenderActions,
-  setupEl,
-  syncDesktopLeftPanel,
-  handleSetupRolePreview,
-} from './setup-shared.ts';

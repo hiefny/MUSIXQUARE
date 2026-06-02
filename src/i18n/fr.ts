@@ -140,7 +140,7 @@ const fr: Record<I18nKey, string> = {
   'player.select_file_hint': 'Sélectionnez un fichier ou vérifiez la playlist',
   'player.play_pause': 'Lecture/Pause',
   'player.visualizer': 'Visualiseur audio',
-  'player.seek': 'Défilement',
+  'player.seek': 'Régler la position de lecture',
   'player.volume': 'Régler le volume',
   'player.toggle_mute': 'Activer/désactiver le son',
   'player.fullscreen': 'Activer/désactiver le plein écran',
@@ -239,7 +239,7 @@ const fr: Record<I18nKey, string> = {
   'demo.effects_step_title': 'Créez votre propre expérience sonore premium.',
   'demo.effects_step_subtitle': 'Vous pouvez micro-ajuster ces effets avancés à tout moment dans les Réglages.',
   'demo.finish_step_title': 'Tout est prêt !',
-  'demo.finish_step_subtitle': 'Rejoignez-nous maintenant et commencez à diffuser en synchronie.',
+  'demo.finish_step_subtitle': 'Rejoignez-nous maintenant et lancez la lecture synchronisée.',
   'demo.track_list_label': 'Liste des pistes de démo',
   'demo.host_only_exit': 'Seul l’hôte peut appuyer ici.',
   'demo.external_playback_stopped':
@@ -364,7 +364,7 @@ const fr: Record<I18nKey, string> = {
     'L’audio système peut avoir une légère latence.\nBaissez le volume source si possible.',
   'system_audio.stopped': 'Partage de l’audio système terminé.\nReprise de la playlist.',
   'system_audio.many_devices_warning':
-    'L’audio système fonctionne mieux avec jusqu’à 4 participants.\nPlus d’appareils peut ajouter de la latence ou des coupures.',
+    'L’audio système fonctionne mieux avec jusqu’à 4 participants.\nPlus d’appareils peuvent ajouter de la latence ou des coupures.',
   'system_audio.host_channel_locked':
     'Impossible de changer de rôle pendant le partage audio système.',
   'system_audio.effects_guest_only': 'Audio système actif.\nLes effets s’appliquent uniquement aux invités.',

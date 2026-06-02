@@ -367,7 +367,7 @@ const ptBr: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Não é possível mudar papéis durante o compartilhamento de áudio do sistema.',
   'system_audio.effects_guest_only':
-    'Compartilhando áudio do sistema.\nEfeitos se aplicam apenas aos participantes.',
+    'Compartilhando áudio do sistema.\nEfeitos se aplicam apenas aos convidados.',
   'system_audio.desktop_only': 'Disponível apenas no Chrome desktop para Windows ou Mac.',
   'system_audio.receive_failed':
     'Não foi possível receber o áudio do sistema.\nPeça ao host para compartilhar de novo.',
@@ -533,7 +533,7 @@ const ptBr: Record<I18nKey, string> = {
   'chat.decode_skip_notice':
     'Alguns dispositivos não conseguiram tocar esta faixa, pulando para a próxima',
   'chat.system_audio_started_notice':
-    'Compartilhamento de áudio do sistema iniciado. Participantes remotos podem receber via Cloudflare quando disponível. Algum atraso entre host e participantes é natural, então o host deve baixar o volume do dispositivo fonte tanto quanto possível.',
+    'Compartilhamento de áudio do sistema iniciado. Algum atraso entre host e participantes é natural, então o host deve baixar o volume do dispositivo fonte tanto quanto possível.',
   'chat.system_audio_stopped_notice':
     'Compartilhamento de áudio do sistema encerrado. Host, aumente o volume novamente para ser o alto-falante da sala.',
   'chat.remote_guest_detected_notice':

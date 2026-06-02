@@ -527,7 +527,7 @@ const id: Record<I18nKey, string> = {
   'chat.decode_skip_notice':
     'Beberapa perangkat tidak dapat memutar track ini, melewati ke berikutnya',
   'chat.system_audio_started_notice':
-    'Berbagi audio sistem dimulai. Peserta jarak jauh dapat menerima melalui Cloudflare saat tersedia. Sedikit jeda antara host dan peserta adalah wajar, jadi host sebaiknya menurunkan volume perangkat sumber sebisa mungkin.',
+    'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi host sebaiknya menurunkan volume perangkat sumber sebisa mungkin.',
   'chat.system_audio_stopped_notice':
     'Berbagi audio sistem berakhir. Host, naikkan kembali volume untuk menjadi speaker ruang.',
   'chat.remote_guest_detected_notice':

@@ -524,7 +524,7 @@ const vi: Record<I18nKey, string> = {
   'chat.decode_skip_notice':
     'Một số thiết bị không phát được bài này, đang chuyển sang bài tiếp theo',
   'chat.system_audio_started_notice':
-    'Chia sẻ âm thanh hệ thống đã bắt đầu. Người tham gia từ xa có thể nhận qua Cloudflare khi khả dụng. Độ trễ giữa host và người tham gia là bình thường, nên host hãy giảm âm lượng thiết bị nguồn càng nhiều càng tốt.',
+    'Chia sẻ âm thanh hệ thống đã bắt đầu. Độ trễ giữa host và người tham gia là bình thường, nên host hãy giảm âm lượng thiết bị nguồn càng nhiều càng tốt.',
   'chat.system_audio_stopped_notice':
     'Chia sẻ âm thanh hệ thống đã kết thúc. Host hãy tăng lại âm lượng để làm loa của phòng.',
   'chat.remote_guest_detected_notice':

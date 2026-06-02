@@ -53,7 +53,7 @@ const ru: Record<I18nKey, string> = {
 
   // ─── Navigation ──────────────────────────────────────────────────
   'nav.home': 'Главная',
-  'nav.playlist': 'Playlist',
+  'nav.playlist': 'Плейлист',
   'nav.settings': 'Настройки',
   'nav.help': 'Помощь',
   'nav.connect': 'Подключение',
@@ -137,7 +137,7 @@ const ru: Record<I18nKey, string> = {
   'settings.reverb_predelay': 'Предварительная задержка реверберации',
   'settings.reverb_lowcut': 'Низкочастотный срез реверберации',
   'settings.reverb_highcut': 'Высокочастотный срез реверберации',
-  'settings.decay_time': 'Время реверберации',
+  'settings.decay_time': 'Время затухания',
   'settings.predelay': 'Предварительная задержка (Pre-delay)',
   'settings.eq_title': 'Эквалайзер',
   'settings.eq_bright': 'Четкость',
@@ -152,10 +152,10 @@ const ru: Record<I18nKey, string> = {
   'settings.subwoofer_adjust': 'Кроссовер сабвуфера',
   'settings.subwoofer_cutoff': 'Частота кроссовера',
   'settings.default_0pct': 'По умолчанию: 0%',
-  'settings.default_01s': 'По умолчанию: 0.1 с',
-  'settings.default_20khz': 'По умолчанию: 20.0 кГц',
+  'settings.default_01s': 'По умолчанию: 0,1 с',
+  'settings.default_20khz': 'По умолчанию: 20,0 кГц',
   'settings.default_20hz': 'По умолчанию: 20 Гц',
-  'settings.default_5s': 'По умолчанию: 5.0 с',
+  'settings.default_5s': 'По умолчанию: 5,0 с',
   'settings.invite_code': 'Код приглашения',
   'settings.leave_session': 'Выйти из комнаты',
   'connect.rename_device': 'Переименовать это устройство',
@@ -578,7 +578,7 @@ const ru: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'Каждый гость выбирает <strong>роль (выходной канал)</strong>.<ul class="help-list"><li><strong>Центральный динамик:</strong> стереовыход (по умолчанию)</li><li><strong>Левый динамик:</strong> выход левого канала (L)</li><li><strong>Правый динамик:</strong> выход правого канала (R)</li><li><strong>Сабвуфер:</strong> низкочастотный микс-выход</li></ul>Роли можно изменить в любое время в <strong>Настройках</strong>.',
   'player.play_media_action_html':
-    'У хоста есть 3 варианты воспроизведения.<ul class="help-list"><li><strong>Локальный файл:</strong> Выберите музыку с вашего устройства. Поддерживается точная синхронизация</li><li><strong>YouTube вместе:</strong> Поддержка видео и плейлистов. Разделение каналов и эффекты недоступны</li><li><strong>Общий системный звук:</strong> Доступно, только если хост использует Chrome на Windows или Mac</li></ul>',
+    'У хоста есть 3 варианта воспроизведения.<ul class="help-list"><li><strong>Локальный файл:</strong> Выберите музыку с вашего устройства. Поддерживается точная синхронизация</li><li><strong>YouTube вместе:</strong> Поддержка видео и плейлистов. Разделение каналов и эффекты недоступны</li><li><strong>Общий системный звук:</strong> Доступно, только если хост использует Chrome на Windows или Mac</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Ввел код, но не получается подключиться:</strong> Проверьте код и попробуйте еще раз через минуту. Корпоративные, школьные или VPN сети могут блокировать соединение.</li><li><strong>Нестабильное соединение:</strong> Рекомендуется, чтобы локальные гости находились ближе к Wi-Fi роутеру, а удаленные гости использовали стабильный интернет.</li><li><strong>Другие проблемы:</strong> Проверьте состояние сети и перезапустите приложение на всех устройствах. По остальным вопросам обратитесь к разделу <a href="/faq?lang=ru" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Часто задаваемых вопросов (FAQ)</a> или свяжитесь с нами по электронной почте внизу страницы.</li></ul>',
   'chat.peer_connected': '{{name}} вошел в комнату',

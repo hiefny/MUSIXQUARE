@@ -538,6 +538,51 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   });
 });
 
+describe('Cloudflare app worker YouTube search proxy', () => {
+  it('decodes HTML entities in YouTube result metadata', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          items: [
+            {
+              id: { videoId: 'dQw4w9WgXcQ' },
+              snippet: {
+                title: 'Ain&#39;t &amp; &quot;Too Cool&quot; &lt;Live&gt; &rsquo;',
+                channelTitle: 'LunchMoney &amp; Crew',
+                publishedAt: '2026-01-01T00:00:00Z',
+                thumbnails: {
+                  medium: { url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg' },
+                },
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/youtube-search?q=aint', {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': '203.0.113.31',
+        },
+      }),
+      {
+        MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+        YOUTUBE_API_KEY: 'test-key',
+      },
+    );
+    const payload = (await response.json()) as {
+      results?: Array<{ title?: string; channelTitle?: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.results?.[0]?.title).toBe('Ain\'t & "Too Cool" <Live> \u2019');
+    expect(payload.results?.[0]?.channelTitle).toBe('LunchMoney & Crew');
+  });
+});
+
 describe('Cloudflare app worker invite route', () => {
   function createAssetEnv() {
     return {

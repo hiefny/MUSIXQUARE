@@ -577,6 +577,60 @@ function getBestThumbnail(thumbnails) {
   );
 }
 
+const HTML_ENTITY_RE = /&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);/i;
+const HTML_ENTITY_RE_G = /&(#\d+|#x[\da-f]+|[a-z][\da-z]+);/gi;
+const HTML_ENTITY_FALLBACKS = {
+  amp: '&',
+  apos: "'",
+  bull: '\u2022',
+  copy: '\u00a9',
+  divide: '\u00f7',
+  gt: '>',
+  hellip: '\u2026',
+  laquo: '\u00ab',
+  ldquo: '\u201c',
+  lsquo: '\u2018',
+  lt: '<',
+  mdash: '\u2014',
+  middot: '\u00b7',
+  nbsp: '\u00a0',
+  ndash: '\u2013',
+  plusmn: '\u00b1',
+  quot: '"',
+  raquo: '\u00bb',
+  rdquo: '\u201d',
+  reg: '\u00ae',
+  rsquo: '\u2019',
+  times: '\u00d7',
+  trade: '\u2122',
+};
+
+function decodeNumericEntity(entity) {
+  const isHex = entity.slice(0, 2).toLowerCase() === '#x';
+  const raw = isHex ? entity.slice(2) : entity.slice(1);
+  const codePoint = Number.parseInt(raw, isHex ? 16 : 10);
+  if (!Number.isFinite(codePoint) || codePoint <= 0 || codePoint > 0x10ffff) return null;
+  try {
+    return String.fromCodePoint(codePoint);
+  } catch {
+    return null;
+  }
+}
+
+function decodeHtmlEntities(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  if (!HTML_ENTITY_RE.test(text)) return text;
+  return text.replace(HTML_ENTITY_RE_G, (match, entity) => {
+    if (entity[0] === '#') return decodeNumericEntity(entity) || match;
+    return HTML_ENTITY_FALLBACKS[entity.toLowerCase()] || match;
+  });
+}
+
+function normalizeExternalText(value) {
+  return typeof value === 'string' ? decodeHtmlEntities(value).trim() : '';
+}
+
 function normalizeResults(items) {
   if (!Array.isArray(items)) return [];
   return items
@@ -586,8 +640,8 @@ function normalizeResults(items) {
       if (typeof videoId !== 'string' || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) return null;
       return {
         videoId,
-        title: typeof snippet.title === 'string' ? snippet.title : '',
-        channelTitle: typeof snippet.channelTitle === 'string' ? snippet.channelTitle : '',
+        title: normalizeExternalText(snippet.title),
+        channelTitle: normalizeExternalText(snippet.channelTitle),
         thumbnailUrl: getBestThumbnail(snippet.thumbnails),
         publishedAt: typeof snippet.publishedAt === 'string' ? snippet.publishedAt : '',
         url: `https://www.youtube.com/watch?v=${videoId}`,

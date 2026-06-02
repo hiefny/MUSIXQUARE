@@ -1,15 +1,21 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { setLanguageMode } from '../../i18n/index.ts';
 import {
   clearYouTubeInputState,
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
+  fetchOEmbedTitle,
+  fetchYouTubeSearchResults,
   getYouTubeInputIntent,
   isYouTubeLiveUrl,
 } from '../search.ts';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('extractYouTubeVideoId', () => {
   it('extracts from standard watch URL', () => {
@@ -145,5 +151,43 @@ describe('YouTube input i18n state', () => {
     setLanguageMode('en');
 
     expect(status?.textContent).toBe('Enter a YouTube search term or link');
+  });
+});
+
+describe('YouTube title entity decoding', () => {
+  it('decodes HTML entities from search results and oEmbed titles', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.includes('/api/youtube-search')) {
+          return Response.json({
+            results: [
+              {
+                videoId: 'dQw4w9WgXcQ',
+                title: 'Ain&#39;t &amp; &quot;Too Cool&quot; &lt;Live&gt; &rsquo;',
+                channelTitle: 'LunchMoney &amp; Crew',
+                thumbnailUrl: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg',
+                url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+              },
+            ],
+          });
+        }
+        return Response.json({
+          title: 'Rock &amp; Roll &#x27;Tonight&#x27; &mdash; Live',
+        });
+      }),
+    );
+
+    const results = await fetchYouTubeSearchResults('entity decode smoke 20260602');
+    expect(results[0]?.title).toBe('Ain\'t & "Too Cool" <Live> \u2019');
+    expect(results[0]?.channelTitle).toBe('LunchMoney & Crew');
+
+    await expect(
+      fetchOEmbedTitle('https://www.youtube.com/watch?v=entityDecode01'),
+    ).resolves.toBe('Rock & Roll \'Tonight\' \u2014 Live');
   });
 });

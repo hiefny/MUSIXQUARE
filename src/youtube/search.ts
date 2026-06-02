@@ -15,6 +15,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
+import { decodeHtmlEntities } from '../core/html-entities.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { updateSubItemTitlesBulk } from './_state.ts';
@@ -129,6 +130,10 @@ function normalizeSearchQuery(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
 }
 
+function normalizeExternalTitle(value: unknown): string {
+  return decodeHtmlEntities(typeof value === 'string' ? value : '').trim();
+}
+
 export function getYouTubeInputIntent(value: string): YouTubeInputIntent {
   const raw = normalizeSearchQuery(value || '');
   if (!raw) {
@@ -192,7 +197,7 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
       const response = await fetchWithTimeout(oEmbedUrl);
       if (!response.ok) return null;
       const data = await response.json();
-      const title = data && typeof data.title === 'string' ? data.title.trim() : '';
+      const title = normalizeExternalTitle(data?.title);
       return title || null;
     } catch (e) {
       log.warn('[YouTube oEmbed] Fetch failed:', e);
@@ -254,8 +259,8 @@ function normalizeSearchResults(value: unknown): YouTubeSearchResult[] {
       if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) return null;
       return {
         videoId,
-        title: typeof row.title === 'string' ? row.title : '',
-        channelTitle: typeof row.channelTitle === 'string' ? row.channelTitle : '',
+        title: normalizeExternalTitle(row.title),
+        channelTitle: normalizeExternalTitle(row.channelTitle),
         // https:// whitelist: own /api/youtube-search returns i.ytimg.com URLs,
         // but defense-in-depth blocks data:/javascript: if backend ever drifts.
         // Empty string falls back to canonical mqdefault.jpg in the renderer.
@@ -633,8 +638,8 @@ export function fetchYouTubePreview(url: string): void {
             thumb.style.display = 'none';
           }
         }
-        if (title) title.innerText = typeof data.title === 'string' ? data.title : '';
-        if (chan) chan.innerText = typeof data.author_name === 'string' ? data.author_name : '';
+        if (title) title.innerText = normalizeExternalTitle(data?.title);
+        if (chan) chan.innerText = normalizeExternalTitle(data?.author_name);
 
         freshPreview.style.removeProperty('display');
         freshPreview.hidden = false;
@@ -738,9 +743,10 @@ export async function fetchPlaylistSubTitles(
 
         if (abort.signal.aborted) return;
 
-        if (json && json.title) {
-          batchBuffer.push({ index: i, title: json.title });
-          log.debug(`[YouTube Feed] Buffered Title [${i}]: ${json.title}`);
+        const title = normalizeExternalTitle(json?.title);
+        if (title) {
+          batchBuffer.push({ index: i, title });
+          log.debug(`[YouTube Feed] Buffered Title [${i}]: ${title}`);
 
           // Flush batch every OEMBED_INITIAL_BATCH_SIZE items (batch mode)
           // OR every item (initial phase) OR at the very end

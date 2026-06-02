@@ -60,6 +60,10 @@ function installEffectSettingsDom(): void {
         <button class="ch-opt" data-eq-type="advanced">Advanced</button>
         <button class="ch-opt active" data-eq-type="off">Off</button>
       </div>
+      <div class="channel-grid" id="grid-exciter">
+        <button class="ch-opt" data-toggle="on">On</button>
+        <button class="ch-opt active" data-toggle="off">Off</button>
+      </div>
       <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
         ${Array.from(
           { length: 5 },
@@ -360,5 +364,14 @@ describe('initSettings effect slider fill sync', () => {
     const eqSlider = document.getElementById('eq-slider-0') as HTMLInputElement;
     expect(reverbSlider.style.getPropertyValue('--range-progress')).toBe('30%');
     expect(eqSlider.style.getPropertyValue('--range-progress')).toBe('25%');
+  });
+
+  it('shows the distortion warning when virtual treble is enabled', () => {
+    installEffectSettingsDom();
+    initSettings();
+
+    document.querySelector<HTMLElement>('#grid-exciter .ch-opt[data-toggle="on"]')?.click();
+
+    expect(showToast).toHaveBeenCalledWith('May cause distortion');
   });
 });

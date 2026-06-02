@@ -451,7 +451,9 @@ function setExciterOn(on: boolean): void {
   // Wire shape is 0|1 so it survives the REQUEST_SETTING number validator.
   // effects.ts converts back to boolean for setState.
   bus.emit('audio:update-effect', 'exciter', 'mix', on ? 1 : 0, false);
-  if (on) _notifyGuestOnlyEffects();
+  if (on) {
+    if (!_notifyGuestOnlyEffects()) showToast(t('toast.distortion_warn'));
+  }
 }
 
 // ─── Device List ─────────────────────────────────────────────────

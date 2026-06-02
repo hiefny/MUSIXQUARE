@@ -237,8 +237,8 @@ const ptBr: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Só este dispositivo está tocando agora.\nConvide outro dispositivo.',
   'demo.effects_step_title': 'Crie sua própria experiência de som premium.',
   'demo.effects_step_subtitle': 'Você pode ajustar tudo depois nas Configurações.',
-  'demo.finish_step_title': 'Esse foi o tour rápido.',
-  'demo.finish_step_subtitle': 'Volte ao app para usar todos os recursos.',
+  'demo.finish_step_title': 'Tudo pronto!',
+  'demo.finish_step_subtitle': 'Entre agora e comece a tocar em sincronia!',
   'demo.track_list_label': 'Lista de faixas demo',
   'demo.host_only_exit': 'Só o host pode apertar isto.',
   'demo.external_playback_stopped':

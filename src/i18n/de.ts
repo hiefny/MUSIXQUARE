@@ -237,8 +237,8 @@ const de: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Gerade spielt nur dieses Gerät.\nLade jetzt ein weiteres Gerät ein.',
   'demo.effects_step_title': 'Gestalte dein eigenes Premium-Klangerlebnis.',
   'demo.effects_step_subtitle': 'Du kannst später alles in den Einstellungen feinjustieren.',
-  'demo.finish_step_title': 'Das war die kurze Tour.',
-  'demo.finish_step_subtitle': 'Kehre zur App zurück, um alle Funktionen zu nutzen.',
+  'demo.finish_step_title': 'Alles bereit!',
+  'demo.finish_step_subtitle': 'Leg direkt los und spielt gemeinsam!',
   'demo.track_list_label': 'Demo-Titelliste',
   'demo.host_only_exit': 'Nur der Host kann dies drücken.',
   'demo.external_playback_stopped':

@@ -234,8 +234,8 @@ const it: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Attualmente stai riproducendo la musica da solo.\nInvita subito altri dispositivi.',
   'demo.effects_step_title': 'Crea la tua esperienza audio premium.',
   'demo.effects_step_subtitle': 'Potrai personalizzare i dettagli in qualsiasi momento dalle Impostazioni.',
-  'demo.finish_step_title': 'Il tour introduttivo è terminato.',
-  'demo.finish_step_subtitle': 'Torna all\'app e inizia a sfruttare tutte le funzionalità!',
+  'demo.finish_step_title': 'È tutto pronto!',
+  'demo.finish_step_subtitle': 'Entra subito e inizia a riprodurre in sincronia!',
   'demo.track_list_label': 'Elenco brani demo',
   'demo.host_only_exit': 'Solo il gestore della stanza può farlo.',
   'demo.external_playback_stopped':

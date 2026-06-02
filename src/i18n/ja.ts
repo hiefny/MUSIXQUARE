@@ -237,8 +237,8 @@ const ja: Record<I18nKey, string> = {
   'demo.session_body_alone': '現在このデバイスだけで再生中です。\n別のデバイスを招待しましょう。',
   'demo.effects_step_title': 'より豊かな音に整えましょう。',
   'demo.effects_step_subtitle': 'あとで設定から細かく調整できます。',
-  'demo.finish_step_title': 'クイックツアーは以上です。',
-  'demo.finish_step_subtitle': 'アプリに戻ってすべての機能を使えます。',
+  'demo.finish_step_title': '準備完了です！',
+  'demo.finish_step_subtitle': 'さっそく参加して、みんなで一緒に再生しましょう！',
   'demo.track_list_label': 'デモトラック一覧',
   'demo.host_only_exit': 'ホストだけが押せます。',
   'demo.external_playback_stopped':

@@ -234,8 +234,8 @@ const ru: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Сейчас вы воспроизводите музыку в одиночку.\nПригласите другие устройства прямо сейчас.',
   'demo.effects_step_title': 'Создайте собственное премиальное звуковое окружение.',
   'demo.effects_step_subtitle': 'Вы можете настроить все детали позже в Настройках.',
-  'demo.finish_step_title': 'Ознакомительный тур завершен.',
-  'demo.finish_step_subtitle': 'Вернитесь в приложение и начните использовать все его возможности!',
+  'demo.finish_step_title': 'Всё готово!',
+  'demo.finish_step_subtitle': 'Присоединяйтесь и слушайте вместе!',
   'demo.track_list_label': 'Список демо-треков',
   'demo.host_only_exit': 'Только хост комнаты может это сделать.',
   'demo.external_playback_stopped':

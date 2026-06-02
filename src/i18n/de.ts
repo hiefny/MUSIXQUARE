@@ -365,7 +365,7 @@ const de: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Rollen können während der Systemaudio-Freigabe nicht geändert werden.',
   'system_audio.effects_guest_only':
-    'Systemaudio wird geteilt.\nEffekte werden nur auf Teilnehmer angewendet.',
+    'Systemaudio wird geteilt.\nEffekte werden nur auf Gäste angewendet.',
   'system_audio.desktop_only': 'Nur in Chrome auf Windows- oder Mac-Desktop verfügbar.',
   'system_audio.receive_failed':
     'Systemaudio konnte nicht empfangen werden.\nBitte den Host, die Freigabe neu zu starten.',
@@ -530,7 +530,7 @@ const de: Record<I18nKey, string> = {
   'chat.decode_skip_notice':
     'Einige Geräte konnten diesen Titel nicht abspielen, springe zum nächsten',
   'chat.system_audio_started_notice':
-    'Systemaudio-Freigabe gestartet. Remote-Teilnehmer können sie über Cloudflare empfangen, wenn verfügbar. Etwas Verzögerung zwischen Host und Teilnehmern ist normal, daher sollte der Host die Lautstärke des Quellgeräts möglichst weit senken.',
+    'Systemaudio-Freigabe gestartet. Etwas Verzögerung zwischen Host und Teilnehmern ist normal, daher sollte der Host die Lautstärke des Quellgeräts möglichst weit senken.',
   'chat.system_audio_stopped_notice':
     'Systemaudio-Freigabe beendet. Host, erhöhe die Lautstärke wieder, um der Raumlautsprecher zu sein.',
   'chat.remote_guest_detected_notice':

@@ -42,7 +42,7 @@ export const REVERB_IR_DAMPING_BLOCK_SIZE = 64;
 // ─── Reverb Presets ──────────────────────────────────────────────
 export const REVERB_PRESETS = {
   studio: { mix: 0.4, decay: 1.0, preDelay: 0.02, lowCut: 0, highCut: 0 },
-  arena: { mix: 0.6, decay: 5.0, preDelay: 0.12, lowCut: 0, highCut: 0 },
+  arena: { mix: 0.5, decay: 5.0, preDelay: 0.12, lowCut: 0, highCut: 0 },
 } as const;
 
 // ─── Stereo Width Compensation ───────────────────────────────────

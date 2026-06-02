@@ -329,8 +329,8 @@ describe('initSettings effect slider fill sync', () => {
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="advanced"]')?.click();
 
     const slider = document.getElementById('reverb-slider') as HTMLInputElement;
-    expect(slider.value).toBe('60');
-    expect(slider.style.getPropertyValue('--range-progress')).toBe('60%');
+    expect(slider.value).toBe('50');
+    expect(slider.style.getPropertyValue('--range-progress')).toBe('50%');
     expect(document.getElementById('reverb-sliders-area')?.classList.contains('collapsed')).toBe(
       false,
     );
@@ -340,7 +340,7 @@ describe('initSettings effect slider fill sync', () => {
     installEffectSettingsDom();
     initSettings();
 
-    bus.emit('ui:sync-reverb-param', 'mix', 60);
+    bus.emit('ui:sync-reverb-param', 'mix', 50);
     bus.emit('ui:sync-reverb-param', 'decay', 5);
     bus.emit('ui:sync-reverb-param', 'predelay', 0.12);
     bus.emit('ui:sync-reverb-param', 'lowcut', 0);

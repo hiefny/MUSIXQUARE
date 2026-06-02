@@ -237,8 +237,8 @@ const id: Record<I18nKey, string> = {
     'Saat ini hanya perangkat ini yang memutar.\nUndang perangkat lain sekarang.',
   'demo.effects_step_title': 'Buat pengalaman suara premium Anda sendiri.',
   'demo.effects_step_subtitle': 'Anda bisa menyetel semuanya nanti di Pengaturan.',
-  'demo.finish_step_title': 'Itu tur singkatnya.',
-  'demo.finish_step_subtitle': 'Kembali ke app untuk memakai semua fitur.',
+  'demo.finish_step_title': 'Semua siap!',
+  'demo.finish_step_subtitle': 'Langsung gabung dan dengarkan bersama!',
   'demo.track_list_label': 'Daftar track demo',
   'demo.host_only_exit': 'Hanya host yang bisa menekan ini.',
   'demo.external_playback_stopped':

@@ -237,8 +237,8 @@ const vi: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Hiện chỉ thiết bị này đang phát.\nHãy mời thiết bị khác.',
   'demo.effects_step_title': 'Tự tạo trải nghiệm âm thanh cao cấp của riêng bạn.',
   'demo.effects_step_subtitle': 'Bạn có thể tinh chỉnh mọi thứ sau trong Cài đặt.',
-  'demo.finish_step_title': 'Đó là tour nhanh.',
-  'demo.finish_step_subtitle': 'Quay lại app để dùng tất cả tính năng.',
+  'demo.finish_step_title': 'Tất cả đã sẵn sàng!',
+  'demo.finish_step_subtitle': 'Tham gia ngay và cùng nghe nhạc nào!',
   'demo.track_list_label': 'Danh sách bài demo',
   'demo.host_only_exit': 'Chỉ host mới bấm được.',
   'demo.external_playback_stopped':

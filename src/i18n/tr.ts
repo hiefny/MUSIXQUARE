@@ -234,8 +234,8 @@ const tr: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Şu anda tek başınıza çalıyorsunuz.\nŞimdi yeni cihazlar davet edin.',
   'demo.effects_step_title': 'Kendi premium ses deneyiminizi yaratın.',
   'demo.effects_step_subtitle': 'Daha detaylı ayarları dilediğiniz zaman Ayarlar sekmesinden yapabilirsiniz.',
-  'demo.finish_step_title': 'Tanıtım turu sona erdi.',
-  'demo.finish_step_subtitle': 'Tüm özellikleri kullanmak için uygulamaya geri dönün!',
+  'demo.finish_step_title': 'Her şey hazır!',
+  'demo.finish_step_subtitle': 'Hemen katıl ve birlikte dinleyin!',
   'demo.track_list_label': 'Demo Şarkı Listesi',
   'demo.host_only_exit': 'Bunu yalnızca oda sahibi yapabilir.',
   'demo.external_playback_stopped':

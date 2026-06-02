@@ -234,8 +234,8 @@ const pl: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Obecnie odtwarzasz muzykę sam.\nZaproś teraz inne urządzenia.',
   'demo.effects_step_title': 'Kształtuj bogatszy dźwięk.',
   'demo.effects_step_subtitle': 'Szczegółowe ustawienia możesz dostosować w dowolnej chwili w Ustawieniach.',
-  'demo.finish_step_title': 'Przewodnik wprowadzający dobiegł końca.',
-  'demo.finish_step_subtitle': 'Wróć do aplikacji i zacznij korzystać ze wszystkich funkcji!',
+  'demo.finish_step_title': 'Wszystko gotowe!',
+  'demo.finish_step_subtitle': 'Dołącz i słuchajcie razem!',
   'demo.track_list_label': 'Lista utworów demo',
   'demo.host_only_exit': 'Tylko host pokoju może wykonać tę operację.',
   'demo.external_playback_stopped':

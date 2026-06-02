@@ -234,8 +234,8 @@ const th: Record<I18nKey, string> = {
   'demo.session_body_alone': 'ตอนนี้คุณกำลังเล่นเพลงคนเดียว\nเชิญอุปกรณ์อื่นเพื่อเริ่มการเล่นด้วยกัน',
   'demo.effects_step_title': 'สร้างสรรค์มิติเสียงระดับพรีเมียมในแบบของคุณ',
   'demo.effects_step_subtitle': 'คุณสามารถตั้งค่าอย่างละเอียดได้ทุกเมื่อภายหลังในส่วนการตั้งค่า',
-  'demo.finish_step_title': 'ทัวร์แนะนำเบื้องต้นสิ้นสุดลงแล้ว',
-  'demo.finish_step_subtitle': 'กลับไปที่แอปพลิเคชันเพื่อสัมผัสฟีเจอร์ทั้งหมดได้เลย!',
+  'demo.finish_step_title': 'พร้อมแล้ว!',
+  'demo.finish_step_subtitle': 'เข้าร่วมเลย แล้วฟังเพลงพร้อมกัน!',
   'demo.track_list_label': 'รายการเพลงเดโม',
   'demo.host_only_exit': 'เฉพาะโฮสต์ของห้องเท่านั้นที่สามารถดำเนินการได้',
   'demo.external_playback_stopped':

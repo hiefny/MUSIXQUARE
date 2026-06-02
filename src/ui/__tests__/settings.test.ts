@@ -280,9 +280,7 @@ describe('initSettings language controls', () => {
     );
     expect(document.querySelectorAll('.language-option')).toHaveLength(LANGUAGE_OPTIONS.length);
     expect(document.querySelector('.language-dialog > .cscroll-track')).not.toBeNull();
-    expect(
-      document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang,
-    ).toBe('ko');
+    expect(document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang).toBe('ko');
   });
 
   it('switches between explicit selection and system language mode', () => {
@@ -328,15 +326,33 @@ describe('initSettings effect slider fill sync', () => {
     initSettings();
 
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
-    document
-      .querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="advanced"]')
-      ?.click();
+    document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="advanced"]')?.click();
 
     const slider = document.getElementById('reverb-slider') as HTMLInputElement;
-    expect(slider.value).toBe('40');
-    expect(slider.style.getPropertyValue('--range-progress')).toBe('40%');
+    expect(slider.value).toBe('60');
+    expect(slider.style.getPropertyValue('--range-progress')).toBe('60%');
     expect(document.getElementById('reverb-sliders-area')?.classList.contains('collapsed')).toBe(
       false,
+    );
+  });
+
+  it('detects host-synced reverb presets from the audio preset constants', () => {
+    installEffectSettingsDom();
+    initSettings();
+
+    bus.emit('ui:sync-reverb-param', 'mix', 60);
+    bus.emit('ui:sync-reverb-param', 'decay', 5);
+    bus.emit('ui:sync-reverb-param', 'predelay', 0.12);
+    bus.emit('ui:sync-reverb-param', 'lowcut', 0);
+    bus.emit('ui:sync-reverb-param', 'highcut', 0);
+
+    expect(
+      document
+        .querySelector('#grid-reverb .ch-opt[data-rvb-type="arena"]')
+        ?.classList.contains('active'),
+    ).toBe(true);
+    expect(document.getElementById('reverb-sliders-area')?.classList.contains('collapsed')).toBe(
+      true,
     );
   });
 

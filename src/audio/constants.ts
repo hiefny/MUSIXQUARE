@@ -5,6 +5,8 @@
  * Centralised here to avoid magic numbers scattered across engine/effects/channel.
  */
 
+export { REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY } from '../core/constants.ts';
+
 // ─── Ramp Durations (seconds) ────────────────────────────────────
 /** Standard parameter ramp — EQ, reverb mix, preamp, stereo, master volume. */
 export const RAMP_TIME = 0.1;
@@ -25,9 +27,6 @@ export const ANALYSER_FFT_SIZE = 4096;
 export const ANALYSER_SMOOTHING = 0.3;
 
 // ─── Reverb Defaults ─────────────────────────────────────────────
-export const REVERB_DEFAULT_DECAY = 5.0;
-export const REVERB_DEFAULT_PREDELAY = 0.1;
-
 /** Reverb damping filter: lowcut freq = BASE * pow(FACTOR, knob/100) */
 export const REVERB_LOWCUT_BASE = 20;
 export const REVERB_LOWCUT_FACTOR = 50;
@@ -35,10 +34,15 @@ export const REVERB_LOWCUT_FACTOR = 50;
 export const REVERB_HIGHCUT_BASE = 20000;
 export const REVERB_HIGHCUT_FACTOR = 0.05;
 
+/** IR synthesis air damping: low-pass cutoff slides down over the tail. */
+export const REVERB_IR_DAMPING_START_FREQ = 16000;
+export const REVERB_IR_DAMPING_END_FREQ = 2600;
+export const REVERB_IR_DAMPING_BLOCK_SIZE = 64;
+
 // ─── Reverb Presets ──────────────────────────────────────────────
 export const REVERB_PRESETS = {
-  studio: { mix: 0.3, decay: 1.0, preDelay: 0.02, lowCut: 0, highCut: 0 },
-  arena: { mix: 0.4, decay: 5.0, preDelay: 0.12, lowCut: 0, highCut: 0 },
+  studio: { mix: 0.4, decay: 1.0, preDelay: 0.02, lowCut: 0, highCut: 0 },
+  arena: { mix: 0.6, decay: 5.0, preDelay: 0.12, lowCut: 0, highCut: 0 },
 } as const;
 
 // ─── Stereo Width Compensation ───────────────────────────────────

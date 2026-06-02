@@ -10,6 +10,8 @@ import {
   TRANSFER_STATE,
   PLAYBACK_STATE,
   EQ_FREQUENCIES,
+  REVERB_DEFAULT_DECAY,
+  REVERB_DEFAULT_PREDELAY,
   DEFAULT_MAX_GUEST_SLOTS,
 } from './constants.ts';
 import { log } from './log.ts';
@@ -115,8 +117,8 @@ function createInitialState(): StateTree {
       isSurroundMode: false,
       surroundChannelIndex: -1,
       reverbMix: 0,
-      reverbDecay: 5.0,
-      reverbPreDelay: 0.1,
+      reverbDecay: REVERB_DEFAULT_DECAY,
+      reverbPreDelay: REVERB_DEFAULT_PREDELAY,
       reverbLowCut: 0,
       reverbHighCut: 0,
       eqValues: Array(EQ_FREQUENCIES.length).fill(0) as number[],

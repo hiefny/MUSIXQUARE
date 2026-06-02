@@ -182,6 +182,8 @@ export type MsgType = (typeof MSG)[keyof typeof MSG];
 
 // ─── Audio ──────────────────────────────────────────────────────────
 export const EQ_FREQUENCIES = [60, 230, 910, 3600, 14000] as const;
+export const REVERB_DEFAULT_DECAY = 5.0;
+export const REVERB_DEFAULT_PREDELAY = 0.1;
 
 // ─── Rename Validation ──────────────────────────────────────────────
 // Names the host may reclaim (own identity across locales).

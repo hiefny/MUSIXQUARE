@@ -11,7 +11,13 @@
  */
 
 import { getAudioContext } from './context.ts';
-import { FREQ_FULL_RANGE, FULL_RANGE_NYQUIST_RATIO } from './constants.ts';
+import {
+  FREQ_FULL_RANGE,
+  FULL_RANGE_NYQUIST_RATIO,
+  REVERB_IR_DAMPING_BLOCK_SIZE,
+  REVERB_IR_DAMPING_END_FREQ,
+  REVERB_IR_DAMPING_START_FREQ,
+} from './constants.ts';
 
 /**
  * Return a "no audible low-pass" cutoff for the current output sample rate.
@@ -127,14 +133,51 @@ export function generateReverbIR(decay: number, preDelay: number): AudioBuffer {
 
   const buffer = ctx.createBuffer(2, totalSamples, sampleRate);
 
-  for (let ch = 0; ch < 2; ch++) {
-    const data = buffer.getChannelData(ch);
-    for (let i = preDelaySamples; i < totalSamples; i++) {
-      const t = (i - preDelaySamples) / decaySamples;
-      // White noise × exponential decay (matches Tone.js algorithm)
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, clampedDecay / 2);
-    }
+  const left = buffer.getChannelData(0);
+  const right = buffer.getChannelData(1);
+
+  // Fill pre-delay period with absolute silence
+  for (let i = 0; i < preDelaySamples; i++) {
+    left[i] = 0;
+    right[i] = 0;
   }
+
+  const startCutoff = clampFilterFrequency(REVERB_IR_DAMPING_START_FREQ, sampleRate);
+  const endCutoff = Math.min(
+    startCutoff,
+    clampFilterFrequency(REVERB_IR_DAMPING_END_FREQ, sampleRate),
+  );
+  const cutoffRatio = endCutoff / startCutoff;
+  const rt60 = Math.log(1000);
+  const decayCoeffL = Math.exp(-rt60 / decaySamples);
+  const decayCoeffR = decayCoeffL;
+  let envelopeL = 1;
+  let envelopeR = 1;
+  let filteredL = 0;
+  let filteredR = 0;
+  let filterAlpha = 1 - Math.exp((-2 * Math.PI * startCutoff) / sampleRate);
+
+  // White noise through a time-varying one-pole low-pass gives the tail
+  // frequency-dependent air absorption instead of only turning down volume.
+  for (let n = 0; n < decaySamples; n++) {
+    const i = preDelaySamples + n;
+
+    if (n % REVERB_IR_DAMPING_BLOCK_SIZE === 0) {
+      const progress = n / Math.max(1, decaySamples - 1);
+      const cutoffProgress = Math.pow(progress, 0.72);
+      const cutoff = startCutoff * Math.pow(cutoffRatio, cutoffProgress);
+      filterAlpha = 1 - Math.exp((-2 * Math.PI * cutoff) / sampleRate);
+    }
+
+    filteredL += (Math.random() * 2 - 1 - filteredL) * filterAlpha;
+    filteredR += (Math.random() * 2 - 1 - filteredR) * filterAlpha;
+
+    left[i] = filteredL * envelopeL;
+    right[i] = filteredR * envelopeR;
+    envelopeL *= decayCoeffL;
+    envelopeR *= decayCoeffR;
+  }
+
   return buffer;
 }
 

@@ -1,6 +1,31 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { clampFilterFrequency, getFullRangeFrequency, makeExciterCurve } from '../helpers.ts';
+vi.mock('../context.ts', () => ({
+  getAudioContext: () => ({
+    currentTime: 0,
+    sampleRate: 48_000,
+    createBuffer: (channels: number, length: number, sampleRate: number) => {
+      const channelData = Array.from({ length: channels }, () => new Float32Array(length));
+      return {
+        length,
+        numberOfChannels: channels,
+        sampleRate,
+        getChannelData: (channel: number) => channelData[channel],
+      } as AudioBuffer;
+    },
+  }),
+}));
+
+import {
+  clampFilterFrequency,
+  generateReverbIR,
+  getFullRangeFrequency,
+  makeExciterCurve,
+} from '../helpers.ts';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('getFullRangeFrequency', () => {
   it('opens the full-range cutoff to a safe Nyquist margin', () => {
@@ -36,5 +61,30 @@ describe('makeExciterCurve', () => {
     const curve = makeExciterCurve(4.5, 257, 0.28);
 
     expect(curve[32]).not.toBeCloseTo(-curve[curve.length - 1 - 32], 3);
+  });
+});
+
+describe('generateReverbIR', () => {
+  it('darkens the reverb tail with frequency-dependent damping', () => {
+    let callCount = 0;
+    vi.spyOn(Math, 'random').mockImplementation(() => {
+      const sampleIndex = Math.floor(callCount++ / 2);
+      return sampleIndex % 2 === 0 ? 0 : 1;
+    });
+
+    const buffer = generateReverbIR(1, 0);
+    const left = buffer.getChannelData(0);
+
+    const normalizedDelta = (start: number, length: number) => {
+      let delta = 0;
+      let level = 0;
+      for (let i = start + 1; i < start + length; i++) {
+        delta += Math.abs(left[i] - left[i - 1]);
+        level += Math.abs(left[i]);
+      }
+      return delta / Math.max(level, Number.EPSILON);
+    };
+
+    expect(normalizedDelta(left.length - 4096, 4096)).toBeLessThan(normalizedDelta(256, 4096));
   });
 });

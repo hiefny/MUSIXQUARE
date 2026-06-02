@@ -9,6 +9,15 @@ import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer } from '../core/timers.ts';
+import {
+  REVERB_DEFAULT_DECAY,
+  REVERB_DEFAULT_PREDELAY,
+  REVERB_HIGHCUT_BASE,
+  REVERB_HIGHCUT_FACTOR,
+  REVERB_LOWCUT_BASE,
+  REVERB_LOWCUT_FACTOR,
+  REVERB_PRESETS as AUDIO_REVERB_PRESETS,
+} from '../audio/constants.ts';
 import { isPlaybackModeSystemAudio } from '../player/ownership.ts';
 import {
   getLanguageMode,
@@ -163,7 +172,7 @@ function formatReverbValDisp(param: string, v: number): void {
       _setDisp('val-rvb-predelay', parseFloat(v.toFixed(2)) + 's');
       break;
     case 'lowcut': {
-      const lFreq = 20 * Math.pow(50, v / 100);
+      const lFreq = REVERB_LOWCUT_BASE * Math.pow(REVERB_LOWCUT_FACTOR, v / 100);
       _setDisp(
         'val-rvb-lowcut',
         lFreq >= 1000 ? (lFreq / 1000).toFixed(1) + 'kHz' : Math.round(lFreq) + 'Hz',
@@ -171,7 +180,7 @@ function formatReverbValDisp(param: string, v: number): void {
       break;
     }
     case 'highcut': {
-      const hFreq = 20000 * Math.pow(0.05, v / 100);
+      const hFreq = REVERB_HIGHCUT_BASE * Math.pow(REVERB_HIGHCUT_FACTOR, v / 100);
       _setDisp(
         'val-rvb-highcut',
         hFreq >= 1000 ? (hFreq / 1000).toFixed(1) + 'kHz' : Math.round(hFreq) + 'Hz',
@@ -222,10 +231,34 @@ function setEQ(band: number, value: number, isPreview = false): void {
 
 // ─── Reverb Preset Chips ───────────────────────────────────────
 
-const REVERB_PRESETS: Record<string, { mix: number; decay: number; predelay: number }> = {
-  studio: { mix: 30, decay: 1.0, predelay: 0.02 },
-  arena: { mix: 40, decay: 5.0, predelay: 0.12 },
+interface ReverbUiPreset {
+  mix: number;
+  decay: number;
+  predelay: number;
+  lowcut: number;
+  highcut: number;
+}
+
+const REVERB_DEFAULTS: ReverbUiPreset = {
+  mix: 0,
+  decay: REVERB_DEFAULT_DECAY,
+  predelay: REVERB_DEFAULT_PREDELAY,
+  lowcut: 0,
+  highcut: 0,
 };
+
+const REVERB_PRESETS = Object.fromEntries(
+  Object.entries(AUDIO_REVERB_PRESETS).map(([name, preset]) => [
+    name,
+    {
+      mix: preset.mix * 100,
+      decay: preset.decay,
+      predelay: preset.preDelay,
+      lowcut: preset.lowCut,
+      highcut: preset.highCut,
+    },
+  ]),
+) as Record<string, ReverbUiPreset>;
 
 function clearReverbChipActive(): void {
   document.querySelectorAll('#grid-reverb .ch-opt').forEach((el) => el.classList.remove('active'));
@@ -237,30 +270,41 @@ function clearReverbChipActive(): void {
  */
 function detectReverbPreset(): string {
   const mix = Number(
-    (document.getElementById('reverb-slider') as HTMLInputElement | null)?.value ?? 0,
+    (document.getElementById('reverb-slider') as HTMLInputElement | null)?.value ??
+      REVERB_DEFAULTS.mix,
   );
   const decay = Number(
-    (document.getElementById('reverb-decay-slider') as HTMLInputElement | null)?.value ?? 5,
+    (document.getElementById('reverb-decay-slider') as HTMLInputElement | null)?.value ??
+      REVERB_DEFAULTS.decay,
   );
   const predelay = Number(
-    (document.getElementById('reverb-predelay-slider') as HTMLInputElement | null)?.value ?? 0.1,
+    (document.getElementById('reverb-predelay-slider') as HTMLInputElement | null)?.value ??
+      REVERB_DEFAULTS.predelay,
   );
   const lowcut = Number(
-    (document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null)?.value ?? 0,
+    (document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null)?.value ??
+      REVERB_DEFAULTS.lowcut,
   );
   const highcut = Number(
-    (document.getElementById('reverb-highcut-slider') as HTMLInputElement | null)?.value ?? 0,
+    (document.getElementById('reverb-highcut-slider') as HTMLInputElement | null)?.value ??
+      REVERB_DEFAULTS.highcut,
   );
 
   // Off: mix is 0 and no cut filters active
   if (mix === 0 && lowcut === 0 && highcut === 0) return 'off';
 
-  // Check named presets (lowcut/highcut must be 0 to match).
+  // Check named presets against UI values derived from audio constants.
   // Use epsilon comparison for floats — slider values may have rounding drift.
   const nearEq = (a: number, b: number) => Math.abs(a - b) < 0.01;
-  if (lowcut === 0 && highcut === 0) {
-    for (const [name, p] of Object.entries(REVERB_PRESETS)) {
-      if (nearEq(mix, p.mix) && nearEq(decay, p.decay) && nearEq(predelay, p.predelay)) return name;
+  for (const [name, p] of Object.entries(REVERB_PRESETS)) {
+    if (
+      nearEq(mix, p.mix) &&
+      nearEq(decay, p.decay) &&
+      nearEq(predelay, p.predelay) &&
+      nearEq(lowcut, p.lowcut) &&
+      nearEq(highcut, p.highcut)
+    ) {
+      return name;
     }
   }
 
@@ -282,17 +326,16 @@ function syncReverbSlidersToPreset(type: string): void {
 
   if (type === 'off') {
     // Off: reset reverb, reset slider values to defaults, hide sliders
-    const defaults = { mix: 0, decay: 5.0, predelay: 0.1, lowcut: 0, highcut: 0 };
-    setRangeValueById('reverb-slider', defaults.mix);
-    setRangeValueById('reverb-decay-slider', defaults.decay);
-    setRangeValueById('reverb-predelay-slider', defaults.predelay);
-    setRangeValueById('reverb-lowcut-slider', defaults.lowcut);
-    setRangeValueById('reverb-highcut-slider', defaults.highcut);
-    formatReverbValDisp('mix', defaults.mix);
-    formatReverbValDisp('decay', defaults.decay);
-    formatReverbValDisp('predelay', defaults.predelay);
-    formatReverbValDisp('lowcut', defaults.lowcut);
-    formatReverbValDisp('highcut', defaults.highcut);
+    setRangeValueById('reverb-slider', REVERB_DEFAULTS.mix);
+    setRangeValueById('reverb-decay-slider', REVERB_DEFAULTS.decay);
+    setRangeValueById('reverb-predelay-slider', REVERB_DEFAULTS.predelay);
+    setRangeValueById('reverb-lowcut-slider', REVERB_DEFAULTS.lowcut);
+    setRangeValueById('reverb-highcut-slider', REVERB_DEFAULTS.highcut);
+    formatReverbValDisp('mix', REVERB_DEFAULTS.mix);
+    formatReverbValDisp('decay', REVERB_DEFAULTS.decay);
+    formatReverbValDisp('predelay', REVERB_DEFAULTS.predelay);
+    formatReverbValDisp('lowcut', REVERB_DEFAULTS.lowcut);
+    formatReverbValDisp('highcut', REVERB_DEFAULTS.highcut);
     document.querySelector('#grid-reverb .ch-opt[data-rvb-type="off"]')?.classList.add('active');
     setReverbSlidersVisible(false);
     return;
@@ -314,16 +357,15 @@ function syncReverbSlidersToPreset(type: string): void {
   setRangeValueById('reverb-slider', preset.mix);
   setRangeValueById('reverb-decay-slider', preset.decay);
   setRangeValueById('reverb-predelay-slider', preset.predelay);
-  // Reset lowcut/highcut to defaults when switching presets (presets don't define them)
-  setRangeValueById('reverb-lowcut-slider', 0);
-  setRangeValueById('reverb-highcut-slider', 0);
+  setRangeValueById('reverb-lowcut-slider', preset.lowcut);
+  setRangeValueById('reverb-highcut-slider', preset.highcut);
 
   // Update value displays
   formatReverbValDisp('mix', preset.mix);
   formatReverbValDisp('decay', preset.decay);
   formatReverbValDisp('predelay', preset.predelay);
-  formatReverbValDisp('lowcut', 0);
-  formatReverbValDisp('highcut', 0);
+  formatReverbValDisp('lowcut', preset.lowcut);
+  formatReverbValDisp('highcut', preset.highcut);
 
   // Update chip active state + hide sliders
   document.querySelector(`#grid-reverb .ch-opt[data-rvb-type="${type}"]`)?.classList.add('active');
@@ -745,11 +787,11 @@ export function initSettings(): void {
   });
 
   const reverbSliders = [
-    { id: 'reverb-slider', param: 'mix', resetVal: 0 },
-    { id: 'reverb-decay-slider', param: 'decay', resetVal: 5.0 },
-    { id: 'reverb-predelay-slider', param: 'predelay', resetVal: 0.1 },
-    { id: 'reverb-lowcut-slider', param: 'lowcut', resetVal: 0 },
-    { id: 'reverb-highcut-slider', param: 'highcut', resetVal: 0 },
+    { id: 'reverb-slider', param: 'mix', resetVal: REVERB_DEFAULTS.mix },
+    { id: 'reverb-decay-slider', param: 'decay', resetVal: REVERB_DEFAULTS.decay },
+    { id: 'reverb-predelay-slider', param: 'predelay', resetVal: REVERB_DEFAULTS.predelay },
+    { id: 'reverb-lowcut-slider', param: 'lowcut', resetVal: REVERB_DEFAULTS.lowcut },
+    { id: 'reverb-highcut-slider', param: 'highcut', resetVal: REVERB_DEFAULTS.highcut },
   ];
   reverbSliders.forEach(({ id, param, resetVal }) => {
     $on(id, 'input', function (this: HTMLInputElement) {

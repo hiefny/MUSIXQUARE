@@ -594,6 +594,15 @@ describe('Cloudflare app worker invite route', () => {
     expect(env.ASSETS.fetch).toHaveBeenCalled();
   });
 
+  it('adds UTF-8 charset to the root app shell HTML response', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('https://musixquare.com/'), env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+  });
+
   it('serves invite pages for GET with fresh app-shell cache semantics', async () => {
     const env = createAssetEnv();
     const response = await appWorker.fetch(new Request('https://musixquare.com/123456'), env);

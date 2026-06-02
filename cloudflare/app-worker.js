@@ -52,6 +52,10 @@ function withSecurityHeaders(response, extraHeaders = {}) {
     if (value === null) headers.delete(name);
     else headers.set(name, value);
   }
+  const contentType = headers.get('Content-Type') || '';
+  if (/^text\/html(?:\s*;|$)/i.test(contentType) && !/;\s*charset=/i.test(contentType)) {
+    headers.set('Content-Type', `${contentType.trim().replace(/;\s*$/, '')}; charset=utf-8`);
+  }
   headers.delete('Content-Length');
   return new Response(response.body, {
     status: response.status,

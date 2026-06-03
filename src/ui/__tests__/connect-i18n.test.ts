@@ -26,14 +26,18 @@ beforeEach(() => {
   document.body.innerHTML = `
     <div id="qr-container"></div>
     <div id="desktop-qr-container"></div>
-    <button type="button" class="room-password-toggle" id="room-password-toggle"></button>
-    <span id="room-password-code"></span>
-    <button type="button" class="room-password-refresh" id="room-password-refresh"></button>
-    <div id="room-password-code-row"></div>
-    <div class="number-stepper" id="max-device-stepper">
-      <button type="button" class="stepper-btn" data-dir="-1"></button>
-      <span class="stepper-value" id="max-device-value">3</span>
-      <button type="button" class="stepper-btn" data-dir="1"></button>
+    <div class="section-group room-password-section">
+      <button type="button" class="room-password-toggle" id="room-password-toggle"></button>
+      <span id="room-password-code"></span>
+      <button type="button" class="room-password-refresh" id="room-password-refresh"></button>
+      <div id="room-password-code-row"></div>
+    </div>
+    <div class="section-group max-guests-section">
+      <div class="number-stepper" id="max-device-stepper">
+        <button type="button" class="stepper-btn" data-dir="-1"></button>
+        <span class="stepper-value" id="max-device-value">3</span>
+        <button type="button" class="stepper-btn" data-dir="1"></button>
+      </div>
     </div>
     <div id="connect-device-title"></div>
     <div id="desktop-device-title"></div>
@@ -75,6 +79,27 @@ describe('connect i18n refresh', () => {
     expect(document.querySelector<HTMLButtonElement>('.btn-kick-device')?.ariaLabel).toBe(
       'Kick device',
     );
+  });
+});
+
+describe('connect host-owned admission controls', () => {
+  it('hides controls from guests because the values are host-local admission policy', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection());
+
+    initConnect();
+
+    expect(document.querySelector<HTMLElement>('.room-password-section')?.hidden).toBe(true);
+    expect(document.querySelector<HTMLElement>('.max-guests-section')?.hidden).toBe(true);
+  });
+
+  it('shows controls on the host', () => {
+    setState('network.appRole', 'host');
+
+    initConnect();
+
+    expect(document.querySelector<HTMLElement>('.room-password-section')?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.max-guests-section')?.hidden).toBe(false);
   });
 });
 

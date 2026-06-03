@@ -126,6 +126,7 @@ function refreshAllQR(): void {
 // ─── Max Device Stepper (−  N  +) ───────────────────────────────
 
 const VALUE_IDS = ['max-device-value', 'desktop-max-device-value'];
+const HOST_OWNED_SECTION_SELECTORS = ['.room-password-section', '.max-guests-section'];
 
 function _applyValue(value: number): void {
   const clamped = Math.max(MIN_GUEST_SLOTS, Math.min(MAX_GUEST_SLOTS_LIMIT, value));
@@ -306,6 +307,16 @@ function syncRoomPasswordControls(): void {
   });
 }
 
+function syncHostOwnedConnectSections(): void {
+  const visible = _canEditHostOwnedSetting();
+  HOST_OWNED_SECTION_SELECTORS.forEach((selector) => {
+    document.querySelectorAll<HTMLElement>(selector).forEach((section) => {
+      section.hidden = !visible;
+      section.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    });
+  });
+}
+
 function initRoomPasswordControls(): void {
   ROOM_PASSWORD_TOGGLE_IDS.forEach((id) => {
     const toggle = document.getElementById(id);
@@ -452,6 +463,7 @@ export function initConnect(): void {
   initStepper('max-device-stepper');
   initStepper('desktop-max-device-stepper');
   initRoomPasswordControls();
+  syncHostOwnedConnectSections();
 
   // Slot-guide ⓘ buttons (mobile + desktop). Same info dialog either way.
   const openSlotGuide = () => {
@@ -505,11 +517,18 @@ export function initConnect(): void {
   _busScope.on('state:setup.sessionStarted', () => {
     refreshAllQR();
     syncRoomPasswordControls();
+    syncHostOwnedConnectSections();
   });
   _busScope.on('state:network.roomPasswordRequired', () => syncRoomPasswordControls());
   _busScope.on('state:network.roomPassword', () => syncRoomPasswordControls());
-  _busScope.on('state:network.hostConn', () => syncRoomPasswordControls());
-  _busScope.on('state:network.appRole', () => syncRoomPasswordControls());
+  _busScope.on('state:network.hostConn', () => {
+    syncRoomPasswordControls();
+    syncHostOwnedConnectSections();
+  });
+  _busScope.on('state:network.appRole', () => {
+    syncRoomPasswordControls();
+    syncHostOwnedConnectSections();
+  });
 
   // Leave Session buttons (mobile + desktop)
   const leaveHandler = () => {

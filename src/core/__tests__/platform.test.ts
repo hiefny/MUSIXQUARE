@@ -86,6 +86,34 @@ describe('Platform Detection', () => {
     });
   });
 
+  describe('IS_WINDOWS', () => {
+    it('detects Windows userAgent as Windows', async () => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'Win32',
+        configurable: true,
+      });
+      const { IS_WINDOWS } = await import('../platform.ts');
+      expect(IS_WINDOWS).toBe(true);
+    });
+
+    it('does not flag Android as Windows', async () => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', {
+        value: 'Linux armv8l',
+        configurable: true,
+      });
+      const { IS_WINDOWS } = await import('../platform.ts');
+      expect(IS_WINDOWS).toBe(false);
+    });
+  });
+
   describe('isStandaloneDisplayMode', () => {
     it('returns false in normal browser mode', async () => {
       Object.defineProperty(navigator, 'userAgent', {

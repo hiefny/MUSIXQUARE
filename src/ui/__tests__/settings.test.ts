@@ -382,6 +382,49 @@ describe('initSettings effect slider fill sync', () => {
     expect(eqSlider.style.getPropertyValue('--range-progress')).toBe('25%');
   });
 
+  it('updates EQ preset chips from host-synced band values', () => {
+    installEffectSettingsDom();
+    initSettings();
+
+    [5, 3, 0, -2, -3].forEach((value, index) => {
+      bus.emit('ui:sync-eq-band', index, value);
+    });
+
+    expect(
+      document.querySelector('#grid-eq .ch-opt[data-eq-type="warm"]')?.classList.contains('active'),
+    ).toBe(true);
+    expect(document.getElementById('eq-sliders-area')?.classList.contains('collapsed')).toBe(true);
+  });
+
+  it('marks EQ as advanced when host-synced band values do not match a preset', () => {
+    installEffectSettingsDom();
+    initSettings();
+
+    bus.emit('ui:sync-eq-band', 0, -6);
+
+    expect(
+      document
+        .querySelector('#grid-eq .ch-opt[data-eq-type="advanced"]')
+        ?.classList.contains('active'),
+    ).toBe(true);
+    expect(document.getElementById('eq-sliders-area')?.classList.contains('collapsed')).toBe(false);
+  });
+
+  it('marks EQ as off when host-synced band values return to flat', () => {
+    installEffectSettingsDom();
+    initSettings();
+
+    bus.emit('ui:sync-eq-band', 0, -6);
+    for (let index = 0; index < 5; index += 1) {
+      bus.emit('ui:sync-eq-band', index, 0);
+    }
+
+    expect(
+      document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.classList.contains('active'),
+    ).toBe(true);
+    expect(document.getElementById('eq-sliders-area')?.classList.contains('collapsed')).toBe(true);
+  });
+
   it('shows the distortion warning when virtual treble is enabled', () => {
     installEffectSettingsDom();
     initSettings();

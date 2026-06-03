@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
+import { IS_WINDOWS } from '../core/platform.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
 import {
@@ -35,6 +36,17 @@ import { getHostNow } from '../network/shared-clock.ts';
 
 /** Schedule playback slightly in the future so the message arrives before play time */
 const SCHEDULE_AHEAD_MS = 200;
+
+/** Windows WebAudio output tends to land a hair late in local-file sync. */
+const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
+
+export function getPlatformLocalFileOutputOffset(): number {
+  return IS_WINDOWS ? WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC : 0;
+}
+
+function getEffectiveLocalFileOutputOffset(): number {
+  return (getState('sync.localOffset') || 0) + getPlatformLocalFileOutputOffset();
+}
 
 export function isFilePipelineBusyForPlay(): boolean {
   const lifecycle = getState('playback.lifecycle');
@@ -131,7 +143,8 @@ export function getTrackPosition(): number {
 
   let pos = 0;
   const startedAt = getState('player.startedAt') || 0;
-  const localOffset = getState('sync.localOffset') || 0;
+  const manualOffset = getState('sync.localOffset') || 0;
+  const localOffset = getEffectiveLocalFileOutputOffset();
 
   const startedAtValid =
     typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
@@ -141,9 +154,9 @@ export function getTrackPosition(): number {
     // Deferred to avoid setState inside a getter (side-effect in read path).
     // _offsetResetQueued prevents duplicate microtasks when getTrackPosition()
     // is called multiple times in the same frame (seek bar, sync, broadcast).
-    if (Math.abs(localOffset) > 30 && !_offsetResetQueued) {
+    if (Math.abs(manualOffset) > 30 && !_offsetResetQueued) {
       _offsetResetQueued = true;
-      log.warn(`[Sync] Offset divergence detected: local=${localOffset.toFixed(3)}s — resetting`);
+      log.warn(`[Sync] Offset divergence detected: local=${manualOffset.toFixed(3)}s — resetting`);
       queueMicrotask(() => {
         _offsetResetQueued = false;
         const lo = getState('sync.localOffset') || 0;
@@ -515,8 +528,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
 
   const ctx = getAudioContext();
 
-  // 1. Get the current manual sync offset (nudge) for both audio-engine and clock
-  const localOffset = getState('sync.localOffset') || 0;
+  // 1. Get the current output sync offset (manual nudge + hidden platform compensation)
+  const localOffset = getEffectiveLocalFileOutputOffset();
 
   // 2. Sanitize offset
   let safeOffset = Number(offset);

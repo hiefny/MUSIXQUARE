@@ -439,6 +439,38 @@ function syncEqSlidersToPreset(type: string): void {
   setEqSlidersVisible(false);
 }
 
+function readEqSliderValues(): number[] | null {
+  const values: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const slider = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
+    if (!slider) return null;
+    const value = Number(slider.value);
+    values.push(Number.isFinite(value) ? value : 0);
+  }
+  return values;
+}
+
+function detectEqPreset(): string {
+  const values = readEqSliderValues();
+  if (!values) return 'advanced';
+  if (values.every((value) => value === 0)) return 'off';
+
+  for (const [name, preset] of Object.entries(EQ_PRESETS)) {
+    if (preset.every((value, index) => values[index] === value)) return name;
+  }
+
+  return 'advanced';
+}
+
+function syncEqPresetFromCurrentSliders(): void {
+  const detected = detectEqPreset();
+  clearEqChipActive();
+  document
+    .querySelector(`#grid-eq .ch-opt[data-eq-type="${detected}"]`)
+    ?.classList.add('active');
+  setEqSlidersVisible(detected === 'advanced');
+}
+
 function setSurroundOn(on: boolean): void {
   // Guard: skip if already in requested state (prevents dblclick duplicate toast)
   const currentWidth = getState('audio.stereoWidth');
@@ -956,6 +988,7 @@ export function initSettings(): void {
     _setDisp(`eq-val-${bandIdx}`, value > 0 ? `+${value}` : String(value));
     const slider = document.getElementById(`eq-slider-${bandIdx}`) as HTMLInputElement | null;
     if (slider && parseFloat(slider.value) !== value) setRangeValue(slider, value);
+    syncEqPresetFromCurrentSliders();
   });
 
   // ─── Host-Ctrl Lock UI update on role change ──────────────────

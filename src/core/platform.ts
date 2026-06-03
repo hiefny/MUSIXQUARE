@@ -24,6 +24,10 @@ export const IS_IOS: boolean =
 
 export const IS_ANDROID: boolean = /Android/i.test(navigator.userAgent);
 
+export const IS_WINDOWS: boolean =
+  /Windows/i.test(navigator.userAgent) ||
+  /^Win/i.test(installNavigator.userAgentData?.platform ?? navigator.platform ?? '');
+
 /** Desktop Chromium browser (Chrome, Edge, Opera, etc.) — supports getDisplayMedia with audio */
 export const IS_DESKTOP_CHROMIUM: boolean =
   !IS_IOS && !IS_ANDROID && /Chrome\//.test(navigator.userAgent);

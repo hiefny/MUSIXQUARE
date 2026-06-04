@@ -54,6 +54,7 @@ let _needsInitialSync = false;
 let _wasPlaying = false;
 
 const YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS = 1000;
+const FILE_SYNC_END_FENCE_SEC = 0.1;
 
 interface SyncPongPlaybackState {
   mode: PlaybackModeValue;
@@ -233,6 +234,27 @@ function getSafeSyncPongPosition(isFilePlaying: boolean): number {
   }
 }
 
+function getPlayableFileSyncPosition(estimatedHostPos: number): number | null {
+  if (!Number.isFinite(estimatedHostPos)) return null;
+
+  const buffer = getCurrentAudioBuffer();
+  if (!buffer) return null;
+
+  const duration = Number.isFinite(buffer.duration) ? buffer.duration : 0;
+  const syncPosition = Math.max(0, estimatedHostPos);
+  if (duration <= 0) return syncPosition;
+
+  const endFence = Math.max(0, duration - FILE_SYNC_END_FENCE_SEC);
+  if (syncPosition >= endFence) {
+    log.debug(
+      `[Sync] Ignoring file sync at ${syncPosition.toFixed(3)}s near ${duration.toFixed(3)}s end; waiting for host playback command`,
+    );
+    return null;
+  }
+
+  return syncPosition;
+}
+
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
   // 1. Liveness update (from old handleHeartbeat)
   try {
@@ -349,27 +371,31 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
     // Bootstrap: only if we have a decoded buffer. Otherwise the audio
     // engine has nothing to start, and play() would no-op (or worse,
     // race with an in-flight decode).
-    if (getCurrentAudioBuffer()) {
+    const syncPosition = getPlayableFileSyncPosition(estimatedHostPos);
+    if (syncPosition !== null) {
       log.info(
-        `[Sync] Initial bootstrap: starting playback at host position ${estimatedHostPos.toFixed(2)}s`,
+        `[Sync] Initial bootstrap: starting playback at host position ${syncPosition.toFixed(2)}s`,
       );
-      play(estimatedHostPos);
+      play(syncPosition);
       _needsInitialSync = false;
       bus.emit('sync:arm-initial');
     }
     return;
   }
 
+  const syncPosition = getPlayableFileSyncPosition(estimatedHostPos);
+  if (syncPosition === null) return;
+
   // First pong after play start: unconditionally lock to host
   if (_needsInitialSync) {
     _needsInitialSync = false;
-    play(estimatedHostPos);
+    play(syncPosition);
     return;
   }
   // Ongoing: correct if drift > 2s
-  const drift = Math.abs(estimatedHostPos - getTrackPosition());
+  const drift = Math.abs(syncPosition - getTrackPosition());
   if (drift > 2) {
-    play(estimatedHostPos);
+    play(syncPosition);
   }
 }
 

@@ -34,6 +34,18 @@ import {
   setPlaybackYouTubePlaying,
 } from '../../player/ownership.ts';
 
+const transportMocks = vi.hoisted(() => ({
+  play: vi.fn(),
+}));
+
+vi.mock('../../player/transport.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../player/transport.ts')>();
+  return {
+    ...actual,
+    play: transportMocks.play,
+  };
+});
+
 beforeEach(() => {
   vi.useRealTimers();
   clearAllManagedTimers();
@@ -42,6 +54,8 @@ beforeEach(() => {
   setCurrentAudioBuffer(null);
   bus.clear();
   resetInboundRateLimit('guest-1');
+  transportMocks.play.mockReset();
+  transportMocks.play.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -298,6 +312,37 @@ describe('background resume recovery', () => {
     await handleData({ type: MSG.SYNC_REQUEST }, otherConn as DataConnection);
 
     expect(hostConn.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('local-file sync correction', () => {
+  it('does not seek a guest to the decoded track end while waiting for host repeat', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setPlaybackFilePlaying();
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    setCurrentAudioBuffer({ duration: 10 } as AudioBuffer);
+
+    registerPing(77);
+    vi.setSystemTime(1050);
+
+    await handleData(
+      {
+        type: MSG.SYNC_PONG,
+        pingId: 77,
+        hostTime: 1050,
+        position: 9.96,
+        mode: 'file',
+        activity: 'playing',
+      },
+      hostConn,
+    );
+
+    expect(transportMocks.play).not.toHaveBeenCalled();
   });
 });
 

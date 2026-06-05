@@ -39,58 +39,68 @@
 
     .blog-hero-index {
       position: relative;
+      width: min(560px, 42vw);
+      align-self: center;
       display: grid;
-      gap: 14px;
-      padding: clamp(22px, 4vw, 36px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: var(--radius-m);
-      background: var(--surface-1);
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1px;
+      padding: 0;
+      border: 1px solid rgba(255, 255, 255, 0.055);
+      border-radius: 0;
+      background: rgba(255, 255, 255, 0.055);
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.32);
       overflow: hidden;
     }
 
+    .editorial-blog .hero[data-animate] > .blog-hero-index {
+      transform: translateY(16px);
+    }
+
+    .editorial-blog .hero[data-animate].is-visible > .blog-hero-index {
+      transform: translateY(0);
+    }
+
     .blog-hero-index::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      border-left: 4px solid var(--primary);
-      opacity: 0.9;
-      pointer-events: none;
+      display: none;
     }
 
     .blog-hero-line {
       position: relative;
       display: grid;
-      grid-template-columns: 48px minmax(0, 1fr);
-      gap: 18px;
+      grid-template-columns: minmax(48px, 0.22fr) minmax(0, 1fr);
+      gap: clamp(18px, 2.4vw, 30px);
       align-items: center;
-      min-height: 92px;
-      padding: 18px 20px;
-      background: var(--surface-2);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 8px;
+      min-height: clamp(112px, 10vw, 144px);
+      padding: clamp(22px, 2.4vw, 30px);
+      background: rgba(18, 18, 18, 0.86);
     }
 
     .blog-hero-line span {
       color: var(--primary);
-      font-size: 12px;
+      font-size: clamp(18px, 2.2vw, 28px);
       font-weight: 800;
       letter-spacing: 0;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
     }
 
     .blog-hero-line strong {
       display: block;
       color: var(--text-main);
-      font-size: 18px;
-      line-height: 1.2;
+      font-size: clamp(20px, 2.2vw, 28px);
+      font-weight: 800;
+      line-height: 1.08;
     }
 
     .blog-hero-line em {
       display: block;
-      margin-top: 5px;
+      margin-top: 9px;
       color: var(--text-sub);
-      font-size: 13px;
+      font-size: 11px;
+      font-weight: 800;
       font-style: normal;
-      line-height: 1.45;
+      line-height: 1.35;
+      text-transform: uppercase;
     }
 
     .blog-page {
@@ -132,18 +142,23 @@
       grid-template-columns: 190px minmax(0, 1fr) !important;
       gap: 22px !important;
       align-items: center !important;
-      border: 1px solid rgba(255, 255, 255, 0.16) !important;
+      border: 0 !important;
       border-radius: 8px !important;
       background: rgba(255, 255, 255, 0.045) !important;
+      box-shadow: none !important;
       color: var(--text-main) !important;
       transition:
-        border-color var(--dur-fast) var(--ease-out),
         background var(--dur-fast) var(--ease-out),
         transform var(--dur-fast) var(--ease-out);
     }
 
+    #soro-blog .soro-blog-card:focus,
+    #soro-blog .soro-blog-card:focus-visible {
+      outline: 0 !important;
+      box-shadow: none !important;
+    }
+
     #soro-blog .soro-blog-card:hover {
-      border-color: rgba(59, 130, 246, 0.7) !important;
       background: rgba(59, 130, 246, 0.09) !important;
       transform: translateY(-1px);
     }
@@ -259,7 +274,12 @@
 
     @media (max-width: 720px) {
       .blog-hero-index {
-        padding: 18px;
+        width: 100%;
+      }
+
+      .blog-hero-line {
+        grid-template-columns: 42px minmax(0, 1fr);
+        min-height: 112px;
       }
 
       #soro-blog .soro-blog-card {
@@ -340,7 +360,6 @@
   <section class="section blog-section" id="articles" data-animate>
     <div class="section-head">
       <h2>Latest articles</h2>
-      <span class="num">Blog</span>
     </div>
 
     <div id="soro-blog"></div>

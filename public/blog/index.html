@@ -33,40 +33,82 @@
       --blog-max: 960px;
     }
 
-    .blog-shell {
-      width: min(var(--blog-max), calc(100vw - 32px));
-      margin: calc(var(--header-h) + var(--tabs-h) + 56px) auto 0;
+    .editorial-blog .hero {
+      grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
     }
 
-    .blog-heading {
-      margin-bottom: 28px;
+    .blog-hero-index {
+      position: relative;
+      display: grid;
+      gap: 14px;
+      padding: clamp(22px, 4vw, 36px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--radius-m);
+      background: var(--surface-1);
+      overflow: hidden;
     }
 
-    .blog-kicker {
-      margin: 0 0 10px;
+    .blog-hero-index::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-left: 4px solid var(--primary);
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .blog-hero-line {
+      position: relative;
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 18px;
+      align-items: center;
+      min-height: 92px;
+      padding: 18px 20px;
+      background: var(--surface-2);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+    }
+
+    .blog-hero-line span {
       color: var(--primary);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 800;
       letter-spacing: 0;
-      text-transform: uppercase;
     }
 
-    .blog-heading h1 {
-      margin: 0;
-      font-size: 76px;
-      line-height: 0.95;
-      letter-spacing: 0;
-    }
-
-    .blog-heading p {
-      max-width: 620px;
-      margin: 18px 0 0;
-      color: var(--text-sub);
+    .blog-hero-line strong {
+      display: block;
+      color: var(--text-main);
       font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .blog-hero-line em {
+      display: block;
+      margin-top: 5px;
+      color: var(--text-sub);
+      font-size: 13px;
+      font-style: normal;
+      line-height: 1.45;
+    }
+
+    .blog-page {
+      max-width: var(--blog-max);
+    }
+
+    .blog-page .section {
+      padding-top: 96px;
     }
 
     #soro-blog {
       min-height: 360px;
+    }
+
+    #soro-blog,
+    #soro-blog * {
+      font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      letter-spacing: 0 !important;
     }
 
     #soro-blog .soro-blog {
@@ -216,17 +258,8 @@
     }
 
     @media (max-width: 720px) {
-      .blog-shell {
-        width: min(100% - 24px, var(--blog-max));
-        margin-top: calc(var(--header-h) + var(--tabs-h) + 36px);
-      }
-
-      .blog-heading h1 {
-        font-size: 42px;
-      }
-
-      .blog-heading p {
-        font-size: 16px;
+      .blog-hero-index {
+        padding: 18px;
       }
 
       #soro-blog .soro-blog-card {
@@ -276,14 +309,42 @@
   </div>
 </nav>
 
-<main class="blog-shell">
-  <section class="blog-heading" data-animate>
-    <p class="blog-kicker">MUSIXQUARE Blog</p>
-    <h1>Articles</h1>
-    <p>Listening ideas, setup notes, and practical audio guides for playing together.</p>
-  </section>
+<section class="hero blog-hero" data-animate>
+  <div class="editorial-hero__copy">
+    <h1 class="lp-h1">Articles</h1>
+    <p class="lp-lead">Listening ideas, setup notes, and practical audio guides for playing together.</p>
+    <div class="lp-btn-row">
+      <a class="lp-btn lp-btn--solid" href="#articles">
+        <span>Browse articles</span>
+        <span class="lp-btn__arrow lp-btn__arrow--down" aria-hidden="true">&#8595;</span>
+      </a>
+    </div>
+  </div>
+  <div class="blog-hero-index" aria-label="MUSIXQUARE article guide">
+    <div class="blog-hero-line">
+      <span>01</span>
+      <div><strong>Setup notes</strong><em>Practical room and device placement.</em></div>
+    </div>
+    <div class="blog-hero-line">
+      <span>02</span>
+      <div><strong>Sync guides</strong><em>Latency, playback, and shared listening flow.</em></div>
+    </div>
+    <div class="blog-hero-line">
+      <span>03</span>
+      <div><strong>Audio ideas</strong><em>Ways to make spare devices useful.</em></div>
+    </div>
+  </div>
+</section>
 
-  <div id="soro-blog"></div>
+<main class="page blog-page">
+  <section class="section blog-section" id="articles" data-animate>
+    <div class="section-head">
+      <h2>Latest articles</h2>
+      <span class="num">Blog</span>
+    </div>
+
+    <div id="soro-blog"></div>
+  </section>
 </main>
 
 <script src="https://app.trysoro.com/api/embed/a07c133f-e3b9-401e-a076-ee36124598a7" defer></script>

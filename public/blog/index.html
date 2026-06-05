@@ -67,21 +67,11 @@
     .blog-hero-line {
       position: relative;
       display: grid;
-      grid-template-columns: minmax(48px, 0.22fr) minmax(0, 1fr);
-      gap: clamp(18px, 2.4vw, 30px);
+      grid-template-columns: minmax(0, 1fr);
       align-items: center;
       min-height: clamp(112px, 10vw, 144px);
-      padding: clamp(22px, 2.4vw, 30px);
+      padding: clamp(26px, 3vw, 36px) clamp(34px, 4.2vw, 58px);
       background: rgba(18, 18, 18, 0.86);
-    }
-
-    .blog-hero-line span {
-      color: var(--primary);
-      font-size: clamp(18px, 2.2vw, 28px);
-      font-weight: 800;
-      letter-spacing: 0;
-      line-height: 1;
-      font-variant-numeric: tabular-nums;
     }
 
     .blog-hero-line strong {
@@ -143,7 +133,7 @@
       gap: 22px !important;
       align-items: center !important;
       border: 0 !important;
-      border-radius: 8px !important;
+      border-radius: 20px !important;
       background: rgba(255, 255, 255, 0.045) !important;
       box-shadow: none !important;
       color: var(--text-main) !important;
@@ -272,14 +262,25 @@
       text-underline-offset: 3px;
     }
 
+    @media (max-width: 1023px) {
+      .editorial-blog .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .blog-hero-index {
+        width: min(100%, 640px);
+        justify-self: stretch;
+      }
+    }
+
     @media (max-width: 720px) {
       .blog-hero-index {
         width: 100%;
       }
 
       .blog-hero-line {
-        grid-template-columns: 42px minmax(0, 1fr);
         min-height: 112px;
+        padding: 24px 30px;
       }
 
       #soro-blog .soro-blog-card {
@@ -342,15 +343,12 @@
   </div>
   <div class="blog-hero-index" aria-label="MUSIXQUARE article guide">
     <div class="blog-hero-line">
-      <span>01</span>
       <div><strong>Setup notes</strong><em>Practical room and device placement.</em></div>
     </div>
     <div class="blog-hero-line">
-      <span>02</span>
       <div><strong>Sync guides</strong><em>Latency, playback, and shared listening flow.</em></div>
     </div>
     <div class="blog-hero-line">
-      <span>03</span>
       <div><strong>Audio ideas</strong><em>Ways to make spare devices useful.</em></div>
     </div>
   </div>

@@ -963,7 +963,11 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       const repeatMode = getState('playlist.repeatMode') || 0;
       if (repeatMode === 2) {
         log.debug('[YouTube] Ended with repeat-one, restarting current video...');
-        bus.emit('youtube:seek-to', 0);
+        bus.emit('youtube:auto-play', {
+          targetTime: 0,
+          skipSeek: false,
+          isTrackTransition: false,
+        });
         return;
       }
 

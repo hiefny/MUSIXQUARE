@@ -373,13 +373,79 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('Repeat-one ended handling', () => {
+    it('routes host YouTube repeat-one through the synchronized auto-play path', async () => {
+      const { loadYouTubeVideo } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+      setYouTubePlayer(null);
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'video-wrapper';
+      document.body.appendChild(wrapper);
+
+      let onStateChange: ((event: { data: number }) => void) | undefined;
+      const player: YouTubePlayerInstance = {
+        loadVideoById: vi.fn(),
+        loadPlaylist: vi.fn(),
+        cuePlaylist: vi.fn(),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+        stopVideo: vi.fn(),
+        destroy: vi.fn(),
+        seekTo: vi.fn(),
+        getCurrentTime: vi.fn(() => 120),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 0),
+        getPlaylistIndex: vi.fn(() => -1),
+        getVideoData: vi.fn(() => ({ video_id: 'repeatVideo', title: 'Repeat Video' })),
+        getPlaylist: vi.fn(() => []),
+        setVolume: vi.fn(),
+      };
+
+      (window as unknown as { YT: unknown }).YT = {
+        Player: vi.fn(function (
+          _target: string,
+          options: { events: { onStateChange: typeof onStateChange } },
+        ) {
+          onStateChange = options.events.onStateChange;
+          return player;
+        }),
+        PlayerState: {
+          UNSTARTED: -1,
+          ENDED: 0,
+          PLAYING: 1,
+          PAUSED: 2,
+          BUFFERING: 3,
+          CUED: 5,
+        },
+      };
+
+      const autoPlaySpy = vi.fn();
+      const seekSpy = vi.fn();
+      bus.on('youtube:auto-play', autoPlaySpy);
+      bus.on('youtube:seek-to', seekSpy);
+
+      setPlaybackYouTubePlaying();
+      setState('playlist.repeatMode', 2);
+
+      loadYouTubeVideo('repeatVideo', null, true, 0);
+      onStateChange?.({ data: 0 });
+
+      expect(autoPlaySpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetTime: 0,
+          skipSeek: false,
+          isTrackTransition: false,
+        }),
+      );
+      expect(seekSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Chat add auto-rendezvous', () => {
     it('marks first idle YouTube adds as fresh loads after load cleanup', async () => {
-      const {
-        initYouTube,
-        consumePendingAutoSyncOnReady,
-        setPendingAutoSyncOnReady,
-      } = await import('../player.ts');
+      const { initYouTube, consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } =
+        await import('../player.ts');
 
       initYouTube();
       bus.on('player:stop-all-media', () => setPendingAutoSyncOnReady(false));

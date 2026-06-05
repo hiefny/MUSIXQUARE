@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#1a1a1a">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Blog - MUSIXQUARE</title>
+  <link rel="canonical" href="https://musixquare.com/blog">
+  <meta name="description" content="MUSIXQUARE blog articles, listening tips, and audio setup guides.">
+  <meta property="og:title" content="Blog - MUSIXQUARE">
+  <meta property="og:description" content="Articles, listening tips, and audio setup guides from MUSIXQUARE.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="MUSIXQUARE">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="https://musixquare.com/blog">
+  <meta property="og:image" content="https://musixquare.com/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="MUSIXQUARE blog">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Blog - MUSIXQUARE">
+  <meta name="twitter:description" content="Articles, listening tips, and audio setup guides from MUSIXQUARE.">
+  <meta name="twitter:image" content="https://musixquare.com/og-image.png">
+  <link rel="icon" href="/designsystem/assets/favicon.svg">
+  <link rel="preload" href="/designsystem/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css">
+  <link rel="stylesheet" href="/designsystem/colors_and_type.css">
+  <link rel="stylesheet" href="/editorial-base.css">
+  <style>
+    .editorial-blog {
+      --blog-max: 960px;
+    }
+
+    .blog-shell {
+      width: min(var(--blog-max), calc(100vw - 32px));
+      margin: calc(var(--header-h) + var(--tabs-h) + 56px) auto 0;
+    }
+
+    .blog-heading {
+      margin-bottom: 28px;
+    }
+
+    .blog-kicker {
+      margin: 0 0 10px;
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .blog-heading h1 {
+      margin: 0;
+      font-size: 76px;
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    .blog-heading p {
+      max-width: 620px;
+      margin: 18px 0 0;
+      color: var(--text-sub);
+      font-size: 18px;
+    }
+
+    #soro-blog {
+      min-height: 360px;
+    }
+
+    @media (max-width: 720px) {
+      .blog-shell {
+        width: min(100% - 24px, var(--blog-max));
+        margin-top: calc(var(--header-h) + var(--tabs-h) + 36px);
+      }
+
+      .blog-heading h1 {
+        font-size: 42px;
+      }
+
+      .blog-heading p {
+        font-size: 16px;
+      }
+    }
+  </style>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'></script>
+  <!-- End Cloudflare Web Analytics -->
+</head>
+<body class="editorial-page editorial-blog">
+
+<header class="lp-header is-loading">
+  <div class="lp-header-progress" aria-hidden="true"></div>
+  <a class="lp-logo" href="https://musixquare.com" aria-label="MUSIXQUARE home">
+    <span class="editorial-wordmark" aria-hidden="true"></span>
+  </a>
+  <a class="lp-try" href="https://musixquare.com" aria-label="Try MUSIXQUARE now">
+    <span class="lp-try__dot" aria-hidden="true"></span>
+    <span>Try it now</span>
+  </a>
+</header>
+
+<nav class="editorial-site-tabs" aria-label="MUSIXQUARE editorial pages">
+  <div class="editorial-site-tabs__inner">
+    <a class="editorial-site-tab" href="/about">About</a>
+    <a class="editorial-site-tab is-active" href="/blog" aria-current="page">Blog</a>
+    <a class="editorial-site-tab" href="/history">History</a>
+    <a class="editorial-site-tab" href="/designsystem">Design</a>
+  </div>
+</nav>
+
+<main class="blog-shell">
+  <section class="blog-heading" data-animate>
+    <p class="blog-kicker">MUSIXQUARE Blog</p>
+    <h1>Articles</h1>
+    <p>Listening ideas, setup notes, and practical audio guides for playing together.</p>
+  </section>
+
+  <div id="soro-blog"></div>
+</main>
+
+<script src="https://app.trysoro.com/api/embed/a07c133f-e3b9-401e-a076-ee36124598a7" defer></script>
+<script src="/editorial-pages.js"></script>
+</body>
+</html>

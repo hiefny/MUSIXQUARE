@@ -260,6 +260,7 @@ svg {
 }
 
 .editorial-site-tab[href="/about"] { width: 72px; }
+.editorial-site-tab[href="/blog"] { width: 68px; }
 .editorial-site-tab[href="/history"] { width: 80px; }
 .editorial-site-tab[href="/designsystem"] { width: 78px; }
 

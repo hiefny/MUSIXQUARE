@@ -52,6 +52,8 @@ const devPageAliases = (): Plugin => ({
         normalizedPath === '/roadmap'
       ) {
         target = '/history/index.html';
+      } else if (normalizedPath === '/blog') {
+        target = '/blog/index.html';
       } else if (normalizedPath === '/designsystem') {
         target = '/designsystem/index.html';
       }

@@ -27,7 +27,7 @@ const SECURITY_HEADERS = {
   'Permissions-Policy':
     'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: wss://0.peerjs.com:443 https://0.peerjs.com:443 wss://*.peerjs.com https://*.peerjs.com https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com; frame-src https://www.youtube.com https://challenges.cloudflare.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
+    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://*.trysoro.com; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: wss://0.peerjs.com:443 https://0.peerjs.com:443 wss://*.peerjs.com https://*.peerjs.com https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; frame-src https://www.youtube.com https://challenges.cloudflare.com https://app.trysoro.com https://*.trysoro.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
 };
 
 function json(body, status = 200, headers = {}) {
@@ -1019,6 +1019,7 @@ function redirectTarget(pathname) {
   if (['/changelog', '/changelog/', '/roadmap', '/roadmap/'].includes(lower)) return '/history';
   const canonical = new Map([
     ['/about', '/about'],
+    ['/blog', '/blog'],
     ['/privacy', '/privacy'],
     ['/terms', '/terms'],
     ['/faq', '/faq'],
@@ -1034,6 +1035,7 @@ function redirectTarget(pathname) {
 function routeStaticPath(pathname) {
   const path = pathname.toLowerCase();
   if (path === '/about' || path === '/about/') return '/about.html';
+  if (path === '/blog' || path === '/blog/') return '/blog/index.html';
   if (path === '/privacy' || path === '/privacy/') return '/privacy.html';
   if (path === '/terms' || path === '/terms/') return '/terms.html';
   if (path === '/faq' || path === '/faq/') return '/faq.html';
@@ -1057,7 +1059,7 @@ function cacheHeadersForPath(pathname, assetPathname = pathname) {
     return { 'Cache-Control': 'public, max-age=31536000, immutable' };
   }
   if (
-    ['/about', '/privacy', '/terms', '/faq', '/history', '/designsystem'].includes(
+    ['/about', '/blog', '/privacy', '/terms', '/faq', '/history', '/designsystem'].includes(
       pathname.toLowerCase().replace(/\/$/, ''),
     )
   ) {

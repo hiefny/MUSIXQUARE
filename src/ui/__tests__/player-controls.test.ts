@@ -286,9 +286,9 @@ describe('initPlayerControls volume icon', () => {
 
     expect(button.classList.contains('is-muted')).toBe(true);
     expect(button.getAttribute('aria-pressed')).toBe('true');
-    expect(document.getElementById('volume-slider')?.style.getPropertyValue('--range-progress')).toBe(
-      '0%',
-    );
+    expect(
+      document.getElementById('volume-slider')?.style.getPropertyValue('--range-progress'),
+    ).toBe('0%');
 
     setState('audio.masterVolume', 0.65);
     bus.emit('audio:volume-changed', 0.65);
@@ -296,9 +296,9 @@ describe('initPlayerControls volume icon', () => {
     expect(button.classList.contains('is-muted')).toBe(false);
     expect(button.getAttribute('aria-pressed')).toBe('false');
     expect((document.getElementById('volume-slider') as HTMLInputElement).value).toBe('65');
-    expect(document.getElementById('volume-slider')?.style.getPropertyValue('--range-progress')).toBe(
-      '65%',
-    );
+    expect(
+      document.getElementById('volume-slider')?.style.getPropertyValue('--range-progress'),
+    ).toBe('65%');
   });
 });
 
@@ -371,21 +371,53 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('broadcasts a local-file sync request when the host presses sync', () => {
+  it('broadcasts an authoritative local-file PLAY sync when the host presses sync', () => {
     renderSyncControls();
     setState('playback.mode', 'file');
     setState('playback.activity', 'playing');
+    setState('playlist.currentTrackIndex', 2);
+    setState('player.pausedAt', 42);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     const broadcastSpy = vi.fn();
     bus.on('network:broadcast', broadcastSpy);
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
-    expect(broadcastSpy).toHaveBeenCalledWith({ type: MSG.SYNC_REQUEST });
+    expect(broadcastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.PLAY,
+        index: 2,
+        time: expect.any(Number),
+        hostPlayAt: expect.any(Number),
+      }),
+    );
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
     expect(showToast).toHaveBeenCalledWith(
       'Precision sync requested.\nAdjust manual sync on a guest device.',
     );
+  });
+
+  it('broadcasts a local-file PAUSE position sync when the host is paused', () => {
+    renderSyncControls();
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    setState('playlist.currentTrackIndex', 1);
+    setState('player.pausedAt', 33);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const broadcastSpy = vi.fn();
+    bus.on('network:broadcast', broadcastSpy);
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+
+    expect(broadcastSpy).toHaveBeenCalledWith({
+      type: MSG.PAUSE,
+      time: 33,
+      index: 1,
+      reason: 'seek',
+    });
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
   });
 
   it('runs one local-file resync before opening the guest manual sync panel', () => {

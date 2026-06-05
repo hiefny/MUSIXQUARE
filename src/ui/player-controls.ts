@@ -24,7 +24,7 @@ import {
   updateTitleWithMarquee,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
-import { togglePlay } from '../player/transport.ts';
+import { getTrackPosition, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
@@ -38,6 +38,7 @@ import {
   isPlaybackModeFile,
   isPlaybackModeSystemAudio,
   isPlaybackModeYouTube,
+  isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -56,6 +57,7 @@ const ROLE_CLOCK_SECOND_PULSE_START_MS = ROLE_CLOCK_PULSE_ON_MS + ROLE_CLOCK_PUL
 const ROLE_CLOCK_SECOND_PULSE_END_MS = ROLE_CLOCK_SECOND_PULSE_START_MS + ROLE_CLOCK_PULSE_ON_MS;
 const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
 const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
+const LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS = 200;
 let _ytPlayButtonLoading = false;
 let _filePlayButtonLoading = false;
 
@@ -501,7 +503,18 @@ function handleMainSyncBtn(): void {
   }
 
   if (!hostConn) {
-    bus.emit('network:broadcast', { type: MSG.SYNC_REQUEST });
+    const time = getTrackPosition();
+    const index = getState('playlist.currentTrackIndex');
+    if (isPlaybackPlayingFile()) {
+      bus.emit('network:broadcast', {
+        type: MSG.PLAY,
+        time,
+        index,
+        hostPlayAt: getHostNow() + LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS,
+      });
+    } else {
+      bus.emit('network:broadcast', { type: MSG.PAUSE, time, index, reason: 'seek' });
+    }
     showToast(t('toast.host_sync_requested'));
     return;
   }
@@ -608,7 +621,6 @@ function syncVolumeSlider(): void {
 }
 
 // ─── Module State ───────────────────────────────────────────────
-
 
 // ─── Init ────────────────────────────────────────────────────────
 

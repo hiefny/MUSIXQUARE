@@ -747,7 +747,6 @@ interface BaseEventMap {
   'audio:reset-eq': [];
   'audio:surround-toggled': [];
   'demo:enter': [];
-  'demo:exit': [];
   'demo:request-exit': [];
   'demo:open-info': [];
   'demo:toggle-play': [];
@@ -916,17 +915,11 @@ interface BaseEventMap {
   'storage:use-preloaded': [index: number, name: string];
   'storage:preload-file-ready': [filename: string, sessionId: number];
   'storage:file-ready': [filename: string, sessionId: number, isPreload: boolean];
-  'storage:read-complete': [data: unknown];
   'storage:read-error': [data: unknown];
   'storage:error': [error: string, filename: string];
   'storage:write-error': [data: unknown];
   'storage:session-mismatch': [data: unknown];
   'storage:cleanup-complete': [filename: string];
-
-  // ── Remote Share ─────────────────────────────────────────────────
-  'share:remote-file': [descriptor: RemoteFileSharePayload];
-  'remote-file:ready': [index: number, name: string];
-  'remote-file:progress': [phase: 'upload' | 'download' | 'decrypt', progress: number];
 
   // ── Blob ──────────────────────────────────────────────────────────
   'blob:revoke-all': [];
@@ -958,7 +951,6 @@ interface BaseEventMap {
   'setup:app-entrance': [];
 
   // ── App ───────────────────────────────────────────────────────────
-  'app:load-demo': [];
   'app:files-selected': [files: FileList | null];
 
   // ── System Audio Sharing ────────────────────────────────────────

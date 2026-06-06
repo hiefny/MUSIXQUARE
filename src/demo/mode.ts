@@ -1220,7 +1220,6 @@ export function initDemoMode(): void {
       }
     });
   });
-  _busScope.on('demo:exit', () => exitDemoMode());
   _busScope.on('demo:request-exit', () => requestDemoExit());
   _busScope.on('demo:open-info', () => openDemoInfo());
   _busScope.on('demo:toggle-play', () => toggleDemoPlay());

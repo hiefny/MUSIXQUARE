@@ -393,7 +393,6 @@ export async function shareRemoteFileIfNeeded(
           signal: abort.signal,
           onUploadProgress: (progress) => {
             showUploadProgress(t('share.remote.uploading'), progress);
-            bus.emit('remote-file:progress', 'upload', progress);
           },
         });
 
@@ -439,7 +438,6 @@ export async function shareRemoteFileIfNeeded(
     } else {
       broadcast(msg);
     }
-    bus.emit('share:remote-file', outboundDescriptor);
     log.info(`[RemoteShare] Shared encrypted descriptor for ${outboundDescriptor.name}`);
     showToast(t('share.remote.upload_ready'));
   } catch (error) {
@@ -613,7 +611,6 @@ async function handleRemoteFileShare(
   if (isCurrentRemoteFileLoaded(descriptor)) {
     log.debug('[RemoteShare] Active descriptor already loaded, ignoring duplicate');
     clearManagedTimer(REMOTE_WAIT_TIMER);
-    bus.emit('remote-file:ready', descriptor.index, descriptor.name);
     return;
   }
 
@@ -655,7 +652,6 @@ async function handleRemoteFileShare(
       index: descriptor.index,
       name: descriptor.name,
     });
-    bus.emit('remote-file:ready', descriptor.index, descriptor.name);
     bus.emit('storage:use-preloaded', descriptor.index, descriptor.name);
     return;
   }
@@ -708,7 +704,6 @@ async function handleRemoteFileShare(
             progress,
           },
         });
-        bus.emit('remote-file:progress', 'download', progress);
       },
       abort.signal,
     );
@@ -746,7 +741,6 @@ async function handleRemoteFileShare(
 
     clearManagedTimer(REMOTE_WAIT_TIMER);
     transition({ type: 'PRELOAD_FILE_READY', index: descriptor.index });
-    bus.emit('remote-file:ready', descriptor.index, descriptor.name);
     bus.emit('storage:use-preloaded', descriptor.index, descriptor.name);
   } catch (error) {
     if (isAbortError(error)) {

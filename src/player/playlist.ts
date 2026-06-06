@@ -1221,11 +1221,6 @@ export function initPlaylist(): void {
   bus.on('playlist:prev-track', () => playPrevTrack());
   bus.on('playlist:next-track', () => playNextTrack());
 
-  // Demo media loading
-  bus.on('app:load-demo', () => {
-    bus.emit('demo:enter');
-  });
-
   // File selection
   bus.on('app:files-selected', (files) => {
     handleFilesSelected(files);

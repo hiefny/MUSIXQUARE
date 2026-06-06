@@ -16,6 +16,7 @@
     "promo:render": "tsx .workshop/promo/render.ts",
     "guard:prod-hooks": "node scripts/assert-production-build-clean.mjs",
     "guard:prod-security": "node scripts/assert-production-security-config.mjs",
+    "guard:bus-pairing": "node scripts/check-bus-pairing.mjs",
     "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

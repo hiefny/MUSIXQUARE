@@ -358,7 +358,8 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
         break;
 
       case 'STORAGE_READ_COMPLETE':
-        bus.emit('storage:read-complete', data);
+        // No bus consumer — the former 'storage:read-complete' emit was dead
+        // wiring. Kept as an explicit no-op so the response is acknowledged.
         break;
 
       case 'STORAGE_WRITE_ERROR':

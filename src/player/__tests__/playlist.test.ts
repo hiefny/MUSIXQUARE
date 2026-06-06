@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
@@ -15,6 +15,9 @@ import { setPlaybackYouTubePlaying } from '../ownership.ts';
 import {
   setRepeatMode,
   setShuffle,
+  getShuffleNextPlayableIndex,
+  advanceToShuffleNextIndex,
+  advanceToShufflePreviousIndex,
   clearPreloadState,
   initPlaylist,
   playTrack,
@@ -22,6 +25,7 @@ import {
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   resetState();
   bus.clear();
   setPendingAutoSyncOnReady(false);
@@ -73,6 +77,44 @@ describe('setShuffle', () => {
   it('disables shuffle', () => {
     setShuffle(false, false);
     expect(getState('playlist.isShuffle')).toBe(false);
+  });
+});
+
+describe('shuffle row order helpers', () => {
+  beforeEach(() => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    setState('playlist.items', [
+      { type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'b.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'c.mp3', videoId: null, playlistId: null },
+    ]);
+  });
+
+  it('finds the next playable row without falling back to a fresh random pick', () => {
+    setState('playlist.currentTrackIndex', 1);
+    setRepeatMode(0, false);
+    setShuffle(true, false);
+
+    expect(getShuffleNextPlayableIndex((idx) => idx !== 2)).toBe(-1);
+
+    setRepeatMode(1, false);
+    expect(getShuffleNextPlayableIndex((idx) => idx !== 2)).toBe(0);
+  });
+
+  it('wraps previous row navigation through the same shuffle order', () => {
+    setState('playlist.currentTrackIndex', 0);
+    setRepeatMode(1, false);
+    setShuffle(true, false);
+
+    expect(advanceToShufflePreviousIndex()).toBe(2);
+  });
+
+  it('advances next row and reshuffles at repeat-all pass end', () => {
+    setState('playlist.currentTrackIndex', 2);
+    setRepeatMode(1, false);
+    setShuffle(true, false);
+
+    expect(advanceToShuffleNextIndex()).toBe(0);
   });
 });
 
@@ -133,6 +175,43 @@ describe('playTrack YouTube auto-rendezvous', () => {
       videoId: 'NEW_VIDEO_01',
       skipSeek: true,
     });
+  });
+
+  it('broadcasts the requested YouTube playlist sub-index on playTrack', async () => {
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
+    setState('player.isFirstTrackLoad', false);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [
+      {
+        type: 'youtube',
+        name: 'Playlist',
+        title: 'Playlist',
+        videoId: 'entryVideo',
+        playlistId: 'playlist-1',
+      },
+    ]);
+    setState('youtube.subItemsMap', {
+      'playlist-1': {
+        ids: ['firstVideo', 'secondVideo'],
+        titles: ['First', 'Second'],
+      },
+    });
+
+    bus.on('youtube:load', () => {});
+
+    await playTrack(0, 1);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.YOUTUBE_PLAY,
+        videoId: 'secondVideo',
+        playlistId: 'playlist-1',
+        index: 0,
+        subIndex: 1,
+      }),
+    );
   });
 });
 

@@ -396,7 +396,7 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   // Walk order candidates in priority:
   //   (1) preloaded next — preserves shuffle intent when host already
   //       staged the shuffle-next, and avoids wasting the preload
-  //   (2) shuffle — random non-failed (when shuffle ON)
+  //   (2) shuffle — shared row-level Fisher-Yates order
   //   (3) sequential — (failedIdx + 1) % length (when shuffle OFF)
   const isShuffle = getState('playlist.isShuffle');
   const preloadIdx = getState('preload.nextTrackIndex');
@@ -413,17 +413,9 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
     nextIdx = preloadIdx;
   }
 
-  if (nextIdx === -1 && isShuffle) {
-    const pool: number[] = [];
-    for (let i = 0; i < playlist.length; i++) {
-      if (isGoodCandidate(i)) pool.push(i);
-    }
-    if (pool.length > 0) {
-      nextIdx = pool[Math.floor(Math.random() * pool.length)];
-    }
-  }
+  const shouldUseShuffleOrder = nextIdx === -1 && isShuffle;
 
-  if (nextIdx === -1) {
+  if (nextIdx === -1 && !shouldUseShuffleOrder) {
     for (let probe = 1; probe <= playlist.length; probe++) {
       const candidate = (failedIdx + probe) % playlist.length;
       if (isGoodCandidate(candidate)) {
@@ -433,7 +425,7 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
     }
   }
 
-  if (nextIdx !== -1) {
+  if (nextIdx !== -1 || shouldUseShuffleOrder) {
     // Snapshot the load token at scheduling time. If a user action (track
     // click, next/prev) bumps the token during the 600ms backoff, abort —
     // playTrack already cleared this timer at its entry, but the snapshot
@@ -449,7 +441,18 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
           return;
         }
         // Dynamic import to avoid a static cycle with playlist.ts
-        import('./playlist.ts').then(({ playTrack }) => playTrack(nextIdx));
+        import('./playlist.ts').then(
+          ({ getShuffleNextPlayableIndex, playNextTrack, playTrack }) => {
+            const targetIdx = shouldUseShuffleOrder
+              ? getShuffleNextPlayableIndex(isGoodCandidate)
+              : nextIdx;
+            if (targetIdx !== -1) {
+              playTrack(targetIdx);
+            } else {
+              playNextTrack();
+            }
+          },
+        );
       },
       600,
     );

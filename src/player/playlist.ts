@@ -87,19 +87,104 @@ function ensureShuffleOrderValid(): void {
   if (_shuffleOrder.length !== playlist.length) generateShuffleOrder();
 }
 
-/** Expose for tests & for preload.ts to query the "next in shuffle order". */
-export function getShuffleNextIndex(): number {
+/**
+ * Expose for tests, preload.ts, and decode recovery to query the next slot in
+ * the row-level shuffle order without advancing the cursor.
+ */
+export function getShuffleNextPlayableIndex(
+  isCandidate: (index: number) => boolean = () => true,
+): number {
   ensureShuffleOrderValid();
   const repeatMode = getState('playlist.repeatMode') || 0;
   const playlist = getState('playlist.items') || [];
   if (playlist.length <= 1) return -1;
 
-  const next = _shufflePosition + 1;
-  if (next >= _shuffleOrder.length) {
-    if (repeatMode === 1) return _shuffleOrder[0]; // peek; advance happens on play
-    return -1; // end of shuffle pass without repeat-all
+  const currentIdx = getState('playlist.currentTrackIndex');
+  const anchor = _shuffleOrder.indexOf(currentIdx);
+  const startPos = anchor >= 0 ? anchor : _shufflePosition;
+
+  for (let pos = startPos + 1; pos < _shuffleOrder.length; pos++) {
+    const idx = _shuffleOrder[pos];
+    if (idx !== currentIdx && isCandidate(idx)) return idx;
   }
-  return _shuffleOrder[next];
+
+  if (repeatMode !== 1) return -1;
+
+  for (let pos = 0; pos <= startPos && pos < _shuffleOrder.length; pos++) {
+    const idx = _shuffleOrder[pos];
+    if (idx !== currentIdx && isCandidate(idx)) return idx;
+  }
+
+  return -1;
+}
+
+/** Expose for tests & for preload.ts to query the "next in shuffle order". */
+export function getShuffleNextIndex(): number {
+  return getShuffleNextPlayableIndex();
+}
+
+export function advanceToShuffleNextIndex(preferredIndex = -1): number {
+  ensureShuffleOrderValid();
+  const repeatMode = getState('playlist.repeatMode') || 0;
+  const playlist = getState('playlist.items') || [];
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  if (playlist.length <= 1) return -1;
+
+  if (
+    preferredIndex !== -1 &&
+    preferredIndex !== currentTrackIndex &&
+    preferredIndex < playlist.length &&
+    playlist[preferredIndex] != null
+  ) {
+    const pos = _shuffleOrder.indexOf(preferredIndex);
+    if (pos >= 0) _shufflePosition = pos;
+    return preferredIndex;
+  }
+
+  const anchor = _shuffleOrder.indexOf(currentTrackIndex);
+  if (anchor >= 0) _shufflePosition = anchor;
+
+  const nextPos = _shufflePosition + 1;
+  if (nextPos >= _shuffleOrder.length) {
+    if (repeatMode !== 1) return -1;
+
+    generateShuffleOrder();
+    _shufflePosition = 0;
+    let nextIndex =
+      _shuffleOrder[0] === currentTrackIndex && _shuffleOrder.length > 1
+        ? _shuffleOrder[1]
+        : _shuffleOrder[0];
+    if (nextIndex === currentTrackIndex && _shuffleOrder.length > 1) {
+      nextIndex = _shuffleOrder[1];
+      _shufflePosition = 1;
+    } else {
+      _shufflePosition = _shuffleOrder.indexOf(nextIndex);
+    }
+    return nextIndex ?? -1;
+  }
+
+  _shufflePosition = nextPos;
+  return _shuffleOrder[nextPos] ?? -1;
+}
+
+export function advanceToShufflePreviousIndex(): number {
+  ensureShuffleOrderValid();
+  const repeatMode = getState('playlist.repeatMode') || 0;
+  const playlist = getState('playlist.items') || [];
+  if (playlist.length <= 1) return -1;
+
+  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const anchor = _shuffleOrder.indexOf(currentTrackIndex);
+  if (anchor >= 0) _shufflePosition = anchor;
+
+  let prevPos = _shufflePosition - 1;
+  if (prevPos < 0) {
+    if (repeatMode !== 1) return -1;
+    prevPos = _shuffleOrder.length - 1;
+  }
+
+  _shufflePosition = prevPos;
+  return _shuffleOrder[prevPos] ?? -1;
 }
 
 export function resetShuffleOrder(): void {
@@ -444,6 +529,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         name: item.name || item.title,
         index,
         autoplay: shouldAutoplay,
+        subIndex: subIndex ?? 0,
       });
 
       // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
@@ -638,54 +724,11 @@ export function playNextTrack(): void {
         return;
       }
       nextIndex = 0;
-    } else if (
-      nextTrackIndex !== -1 &&
-      nextTrackIndex !== currentTrackIndex &&
-      nextTrackIndex < playlist.length &&
-      // Validate preloaded index still points to the expected track —
-      // playlist mutations (remove/reorder) can shift positions.
-      playlist[nextTrackIndex] != null
-    ) {
-      nextIndex = nextTrackIndex;
-      // Advance the Fisher-Yates cursor to the preloaded position so that a
-      // subsequent prev button goes back to `currentTrackIndex` correctly.
-      ensureShuffleOrderValid();
-      const pos = _shuffleOrder.indexOf(nextIndex);
-      if (pos >= 0) _shufflePosition = pos;
     } else {
-      // Walk the Fisher-Yates permutation forward. This gives a stable order
-      // so prev → next round-trips return to the same track.
-      ensureShuffleOrderValid();
-      // Re-anchor cursor to currentTrackIndex in case it drifted (e.g. user
-      // jumped by clicking a track directly).
-      const anchor = _shuffleOrder.indexOf(currentTrackIndex);
-      if (anchor >= 0) _shufflePosition = anchor;
-
-      const nextPos = _shufflePosition + 1;
-      if (nextPos >= _shuffleOrder.length) {
-        if (repeatMode === 1) {
-          // Exhausted one pass — reshuffle for a fresh permutation and start over
-          generateShuffleOrder();
-          // generateShuffleOrder re-anchors to current; step forward once
-          _shufflePosition = 0;
-          nextIndex =
-            _shuffleOrder[0] === currentTrackIndex && _shuffleOrder.length > 1
-              ? _shuffleOrder[1]
-              : _shuffleOrder[0];
-          if (nextIndex === currentTrackIndex && _shuffleOrder.length > 1) {
-            // Safety: ensure we never re-play the same track back-to-back
-            nextIndex = _shuffleOrder[1];
-            _shufflePosition = 1;
-          } else {
-            _shufflePosition = _shuffleOrder.indexOf(nextIndex);
-          }
-        } else {
-          handleEndOfPlaylist('shuffle-end');
-          return;
-        }
-      } else {
-        _shufflePosition = nextPos;
-        nextIndex = _shuffleOrder[nextPos];
+      nextIndex = advanceToShuffleNextIndex(nextTrackIndex);
+      if (nextIndex === -1) {
+        handleEndOfPlaylist('shuffle-end');
+        return;
       }
     }
   } else {
@@ -727,11 +770,23 @@ export function playPrevTrack(): void {
     });
     if (handled) return;
 
+    const playlist = getState('playlist.items') || [];
+    const repeatMode = getState('playlist.repeatMode') || 0;
+    const isShuffle = getState('playlist.isShuffle');
+
+    if (isShuffle && playlist.length > 1) {
+      const prevIndex = advanceToShufflePreviousIndex();
+      if (prevIndex !== -1) {
+        playTrack(prevIndex);
+      } else {
+        playTrack(Math.max(0, currentTrackIndex));
+      }
+      return;
+    }
+
     if (currentTrackIndex > 0) {
       playTrack(currentTrackIndex - 1);
     } else {
-      const playlist = getState('playlist.items') || [];
-      const repeatMode = getState('playlist.repeatMode') || 0;
       if (repeatMode === 1 && playlist.length > 1) {
         playTrack(playlist.length - 1);
       } else {
@@ -758,28 +813,20 @@ export function playPrevTrack(): void {
   // Shuffle: walk the Fisher-Yates permutation BACKWARD so prev→next
   // round-trips return to the same track.
   if (isShuffle && playlist.length > 1) {
-    ensureShuffleOrderValid();
-    const anchor = _shuffleOrder.indexOf(currentTrackIndex);
-    if (anchor >= 0) _shufflePosition = anchor;
-
-    let prevPos = _shufflePosition - 1;
-    if (prevPos < 0) {
-      if (repeatMode === 1) {
-        prevPos = _shuffleOrder.length - 1;
-      } else {
-        // At start of shuffle pass, no repeat-all → restart current, same as
-        // sequential behaviour at first track.
-        if (isQueueIdle()) {
-          playTrack(Math.max(0, currentTrackIndex));
-        } else {
-          play(0);
-          broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-        }
-        return;
-      }
+    const prevIndex = advanceToShufflePreviousIndex();
+    if (prevIndex !== -1) {
+      playTrack(prevIndex);
+      return;
     }
-    _shufflePosition = prevPos;
-    playTrack(_shuffleOrder[prevPos]);
+
+    // At start of shuffle pass, no repeat-all → restart current, same as
+    // sequential behaviour at first track.
+    if (isQueueIdle()) {
+      playTrack(Math.max(0, currentTrackIndex));
+    } else {
+      play(0);
+      broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+    }
     return;
   }
 

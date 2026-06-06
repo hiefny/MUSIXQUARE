@@ -6458,6 +6458,10 @@
     white-space: nowrap;
   }
 
+  #btn-system-audio.unsupported .media-source-beta-badge {
+    display: none;
+  }
+
   html[data-theme='light'] .file-select-btn .media-source-beta-badge {
     background: rgba(48, 53, 64, 0.08);
     color: #6b7280;

@@ -415,7 +415,6 @@ export interface ProtocolMap {
     activity: PlaybackActivityValue;
     trackIndex: number;
   };
-  'sync-request': NoPayload;
 
   // ── Chat ─────────────────────────────────────────────────────────
   chat: {

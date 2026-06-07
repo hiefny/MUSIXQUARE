@@ -155,8 +155,14 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isFiniteNumber(d.state) &&
     (d.time === undefined || isFiniteNumber(d.time)) &&
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
+  // subIdx is capped at 5000 (YouTube playlist max, matches YOUTUBE_PLAYLIST_INFO
+  // ids cap) — the handler pads youtube.subItemsMap[pid].titles up to subIdx, so
+  // an uncapped index would grow that array to billions of empty slots (OOM).
   [MSG.YOUTUBE_SUB_TITLE_UPDATE]: (d) =>
-    typeof d.playlistId === 'string' && isNonNegInt(d.subIdx) && typeof d.title === 'string',
+    typeof d.playlistId === 'string' &&
+    isNonNegInt(d.subIdx) &&
+    (d.subIdx as number) < 5000 &&
+    typeof d.title === 'string',
   // Without per-element validation a compromised host (or any peer that
   // bypasses isHostBroadcast in some future regression) could populate ids[]
   // with attacker-controlled strings — youtube/handlers.ts:209 then calls

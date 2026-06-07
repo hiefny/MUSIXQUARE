@@ -12,7 +12,7 @@ import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
-import { getYouTubePlayer, setYouTubeSubIndex } from './_state.ts';
+import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
@@ -51,6 +51,8 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
     log.warn('[YouTube] handleYouTubePlay: no videoId or playlistId');
     return;
   }
+
+  setLocalYouTubePaused(false);
 
   // A new host command arrived — cancel any pending guest-ENDED fallback
   // from a prior track's ENDED event. Without this, the 5s fallback can

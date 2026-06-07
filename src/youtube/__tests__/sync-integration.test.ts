@@ -38,6 +38,8 @@ import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
+const localYouTubePaused = vi.hoisted(() => ({ value: false }));
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -104,6 +106,10 @@ vi.mock('../_state.ts', () => ({
   replaceYtScope: vi.fn(),
   isYtLoadInProgress: vi.fn(() => false),
   setYtLoadInProgress: vi.fn(),
+  isLocalYouTubePaused: vi.fn(() => localYouTubePaused.value),
+  setLocalYouTubePaused: vi.fn((paused: boolean) => {
+    localYouTubePaused.value = paused;
+  }),
   getYtAutoplayIntent: vi.fn(() => false),
   setYtAutoplayIntent: vi.fn(),
   getCachedYtDuration: vi.fn(() => 0),
@@ -168,6 +174,7 @@ beforeEach(async () => {
   vi.setSystemTime(new Date(1_700_000_000_000));
   getYouTubePlayerMock.mockReset();
   getYouTubePlayerMock.mockReturnValue(null);
+  localYouTubePaused.value = false;
 
   setPlaybackYouTubePlaying();
 
@@ -383,6 +390,23 @@ describe('YouTube Sync — Regression Integration', () => {
       const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks).toHaveLength(1);
       expect(seeks[0].args).toEqual([14.5, true]);
+    });
+
+    it('local YouTube pause suppresses heartbeat seek and resume', async () => {
+      const player = installPlayer({
+        __state: 2,
+        __currentTime: 10,
+        __duration: 300,
+      });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      expect(handler).toBeDefined();
+      setState('network.hostConn', mockHostConn as never);
+      localYouTubePaused.value = true;
+
+      handler({ time: 30, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
+
+      expect(player.__log.filter((c) => c.op === 'seekTo')).toHaveLength(0);
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(0);
     });
 
     it('adds the YouTube manual offset to drift correction seeks', async () => {

@@ -16,6 +16,8 @@ vi.mock('../transport.ts', () => ({
   togglePlay: vi.fn(),
   stopPlayback: vi.fn(),
   skipTime: vi.fn(),
+  play: vi.fn(),
+  pause: vi.fn(),
 }));
 
 // Mock video.ts
@@ -60,7 +62,7 @@ globalThis.MediaMetadata = class MediaMetadata {
 } as unknown as typeof MediaMetadata;
 
 import { updateMediaSessionMetadata, initMediaSession } from '../media-session.ts';
-import { togglePlay, stopPlayback, skipTime } from '../transport.ts';
+import { togglePlay, stopPlayback, skipTime, play, pause } from '../transport.ts';
 
 beforeEach(() => {
   resetState();
@@ -149,13 +151,15 @@ describe('initMediaSession', () => {
   // Non-OP guests must still be able to play/pause — lock screen and
   // hardware media buttons should always work (see media-session.ts
   // isPlaybackBlocked comment). Only track changes and seek are blocked.
-  it('play handler still works for non-operator guests', () => {
+  it('play handler resumes local file playback for non-operator guests', () => {
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
     setPlaybackFilePaused();
     setState('playlist.currentTrackIndex', 0);
+    setState('player.pausedAt', 12);
     _handlers['play']();
-    expect(togglePlay).toHaveBeenCalled();
+    expect(play).toHaveBeenCalledWith(12);
+    expect(togglePlay).not.toHaveBeenCalled();
   });
 
   it('pause handler calls togglePlay when playing', () => {
@@ -164,10 +168,30 @@ describe('initMediaSession', () => {
     expect(togglePlay).toHaveBeenCalled();
   });
 
+  it('pause handler pauses local file playback for non-operator guests', () => {
+    setState('network.hostConn', { fake: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePlaying();
+    _handlers['pause']();
+    expect(pause).toHaveBeenCalledWith(undefined, { showToast: false });
+    expect(togglePlay).not.toHaveBeenCalled();
+  });
+
   it('pause handler delegates to YouTube mode', () => {
     setPlaybackYouTubePlaying();
     _handlers['pause']();
     expect(togglePlay).toHaveBeenCalled();
+  });
+
+  it('YouTube handler toggles only the local player for non-operator guests', () => {
+    const fn = vi.fn();
+    bus.on('youtube:local-toggle-play', fn);
+    setState('network.hostConn', { fake: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackYouTubePlaying();
+    _handlers['pause']();
+    expect(fn).toHaveBeenCalled();
+    expect(togglePlay).not.toHaveBeenCalled();
   });
 
   it('pause handler does nothing when already paused', () => {

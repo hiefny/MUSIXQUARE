@@ -832,6 +832,7 @@ interface BaseEventMap {
     },
   ];
   'youtube:toggle-play': [];
+  'youtube:local-toggle-play': [];
   // isTrackTransition=true: caller is a block-to-block YT-to-YT track switch
   // (existing player ran loadVideoById on a different video). Handler pauses
   // the host and uses TRACK_TRANSITION_RENDEZVOUS_MS so guests get a 4s

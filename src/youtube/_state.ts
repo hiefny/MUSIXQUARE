@@ -7,6 +7,7 @@
  */
 import { SessionScope } from '../core/session-scope.ts';
 import { getState, setState } from '../core/state.ts';
+import { MAX_PLAYLIST_SUB_ITEMS } from './constants.ts';
 
 // ─── Module State ──────────────────────────────────────────────────
 
@@ -75,6 +76,7 @@ let _ytScope: SessionScope | null = null;
 let _ytLoadInProgress = false;
 let _isYtIndexing = false;
 let _ytIndexingCallback: ((ids: string[]) => void) | null = null;
+let _localYouTubePaused = false;
 
 /**
  * Autoplay intent flag — set by createYouTubePlayer.
@@ -117,6 +119,10 @@ export function getYtScope(): SessionScope | null {
 
 export function isYtLoadInProgress(): boolean {
   return _ytLoadInProgress;
+}
+
+export function isLocalYouTubePaused(): boolean {
+  return _localYouTubePaused;
 }
 
 export function getYtAutoplayIntent(): boolean {
@@ -169,6 +175,10 @@ export function replaceYtScope(): SessionScope {
 
 export function setYtLoadInProgress(inProgress: boolean): void {
   _ytLoadInProgress = inProgress;
+}
+
+export function setLocalYouTubePaused(paused: boolean): void {
+  _localYouTubePaused = paused;
 }
 
 export function setYtAutoplayIntent(autoplay: boolean): void {
@@ -283,6 +293,10 @@ export function updateSubItemTitle(playlistId: string, subIdx: number, title: st
   const subMap = _getSubMap();
   const entry = subMap[playlistId];
   if (!entry) return;
+  // Cap the index so a hostile/buggy YOUTUBE_SUB_TITLE_UPDATE can't pad the
+  // titles array to billions of empty slots (OOM). Sibling sinks (setEQ) guard
+  // their own array index the same way; the validator also caps subIdx < 5000.
+  if (subIdx >= MAX_PLAYLIST_SUB_ITEMS) return;
   // Only setState if title actually changed
   if (entry.titles[subIdx] === title) return;
   const newTitles = [...entry.titles];
@@ -333,6 +347,8 @@ export function updateSubItemTitlesBulk(
   let changed = false;
 
   for (const update of updates) {
+    // Same OOM cap as updateSubItemTitle — skip out-of-range indices.
+    if (update.index < 0 || update.index >= MAX_PLAYLIST_SUB_ITEMS) continue;
     while (newTitles.length <= update.index) newTitles.push('');
     if (newTitles[update.index] !== update.title) {
       newTitles[update.index] = update.title;

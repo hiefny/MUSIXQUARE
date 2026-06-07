@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
-import { togglePlay, stopPlayback, skipTime } from './transport.ts';
+import { togglePlay, stopPlayback, skipTime, play, pause } from './transport.ts';
 import {
   isPlaybackActivityValue,
   isPlaybackIdle,
@@ -79,21 +79,27 @@ export function initMediaSession(): void {
   if (!('mediaSession' in navigator)) return;
   log.debug('[MediaSession] Initializing action handlers...');
 
-  /** Non-OP guest: block track changes & seek, but ALLOW play/pause.
+  /** Non-OP guest: block room-level changes & seek, but allow local play/pause.
    *  Users must always be able to pause from lock screen / hardware buttons. */
   const isPlaybackBlocked = (): boolean => {
     const hostConn = getState('network.hostConn');
     const isOperator = getState('network.isOperator');
     return !!(hostConn && !isOperator);
   };
+  const isNonOperatorGuest = isPlaybackBlocked;
 
   navigator.mediaSession.setActionHandler('play', () => {
     if (isPlaybackModeYouTube()) {
+      if (isNonOperatorGuest()) {
+        bus.emit('youtube:local-toggle-play');
+        return;
+      }
       togglePlay();
       return;
     }
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     if (isPlaybackIdle()) {
+      if (isNonOperatorGuest()) return;
       // Try to play from current playlist position instead of blocking
       if (currentTrackIndex >= 0) {
         bus.emit('playlist:play-track', currentTrackIndex);
@@ -106,12 +112,30 @@ export function initMediaSession(): void {
     // below which guards the symmetric case.
     if (isPlaybackPlayingFile()) return;
     if (currentTrackIndex >= 0) {
+      if (isNonOperatorGuest()) {
+        void play(getState('player.pausedAt') || 0);
+        return;
+      }
       togglePlay();
     }
   });
 
   navigator.mediaSession.setActionHandler('pause', () => {
-    if (isPlaybackPlayingFile() || isPlaybackModeYouTube()) togglePlay();
+    if (isPlaybackModeYouTube()) {
+      if (isNonOperatorGuest()) {
+        bus.emit('youtube:local-toggle-play');
+        return;
+      }
+      togglePlay();
+      return;
+    }
+    if (isPlaybackPlayingFile()) {
+      if (isNonOperatorGuest()) {
+        pause(undefined, { showToast: false });
+        return;
+      }
+      togglePlay();
+    }
   });
 
   navigator.mediaSession.setActionHandler('previoustrack', () => {

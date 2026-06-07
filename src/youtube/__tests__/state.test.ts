@@ -7,6 +7,7 @@ import {
   updateSubItemIds,
   updateSubItemTitle,
 } from '../_state.ts';
+import { MAX_PLAYLIST_SUB_ITEMS } from '../constants.ts';
 
 describe('YouTube subItemsMap cache', () => {
   beforeEach(() => {
@@ -63,5 +64,23 @@ describe('YouTube subItemsMap cache', () => {
 
     setSubItemsLoadError('pid-50', false);
     expect(getState('youtube.subItemsMap')['pid-50']?.loadError).toBeUndefined();
+  });
+
+  it('caps an out-of-range sub-item index so a hostile update cannot OOM-pad titles (F-2101)', () => {
+    setSubItemsData('pid-0', ['v0'], ['Video 0']);
+
+    // A YOUTUBE_SUB_TITLE_UPDATE with subIdx=1e9 must be dropped, not padded
+    // into a billion-element titles array. (Validator also caps subIdx < 5000.)
+    updateSubItemTitle('pid-0', 1_000_000_000, 'evil');
+
+    const titles = getState('youtube.subItemsMap')['pid-0']?.titles ?? [];
+    expect(titles.length).toBe(1);
+    expect(titles.length).toBeLessThanOrEqual(MAX_PLAYLIST_SUB_ITEMS);
+  });
+
+  it('still applies an in-range sub-item title update', () => {
+    setSubItemsData('pid-0', ['v0', 'v1', 'v2'], ['A', '', '']);
+    updateSubItemTitle('pid-0', 2, 'C');
+    expect(getState('youtube.subItemsMap')['pid-0']?.titles[2]).toBe('C');
   });
 });

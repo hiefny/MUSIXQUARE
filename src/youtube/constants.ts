@@ -179,6 +179,13 @@ export const GUEST_ENDED_FALLBACK_MS = 5000;
 
 // ─── Playlist / Sub-Item Data ────────────────────────────────────────
 
+/** Hard cap on a YouTube playlist's sub-item (sub-video) count / index.
+ *  Mirrors the YOUTUBE_PLAYLIST_INFO `ids` validator cap (protocol.ts) so a
+ *  single YOUTUBE_SUB_TITLE_UPDATE can never pad the titles array past the
+ *  real playlist size. Without it, subIdx=1e9 would grow the array to a
+ *  billion empty slots and OOM-crash the tab. */
+export const MAX_PLAYLIST_SUB_ITEMS = 5000;
+
 /** Delay after player-ready before snapshotting the iframe's internal
  *  queue. YouTube populates getPlaylist() lazily; too-early snapshots
  *  return [] or a single-element "current video" array. */

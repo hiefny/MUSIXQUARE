@@ -28,6 +28,8 @@ import {
   updateSubItemTitle,
   setSubItemsData,
   setYtAutoplayIntent,
+  isLocalYouTubePaused,
+  setLocalYouTubePaused,
 } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
 import { invalidateYtDurationCache } from './iframe.ts';
@@ -437,6 +439,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   try {
     // If this is a manual sync request from the host, trigger precision rendezvous immediately
     if (isManual) {
+      setLocalYouTubePaused(false);
       if (!isManualRendezvousReady(player)) {
         deferManualRendezvousUntilReady('player-api-not-ready');
         return;
@@ -531,6 +534,11 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
     if (hostSubIndex !== undefined && hostSubIndex !== -1 && hostSubIndex !== currentSubIndex) {
       log.debug(`[YouTube Sync] Sub-index state alignment: ${currentSubIndex} -> ${hostSubIndex}`);
       setYouTubeSubIndex(hostSubIndex);
+    }
+
+    if (isLocalYouTubePaused()) {
+      log.debug('[YouTube Sync] Local pause active; skipping heartbeat drift/play correction');
+      return;
     }
 
     // Drift correction includes the guest's YouTube-specific manual offset.
@@ -931,6 +939,7 @@ export function resetYouTubeSyncState(): void {
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
   _pendingManualOffsetApplyUntil = 0;
+  setLocalYouTubePaused(false);
   resetAdDetection();
   clearManagedTimer('yt-manual-rendezvous-retry');
   clearManagedTimer('yt-manual-offset-apply-retry');
@@ -981,6 +990,8 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   updateHostSnapshot(time, state, hostClock);
 
   if (!player || !isPlaybackModeYouTube()) return;
+
+  setLocalYouTubePaused(false);
 
   // Host sent a new command — cancel the guest ENDED fallback timer.
   // (Guest defers IDLE transition on video end to wait for this message.)
@@ -1148,9 +1159,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
           waitMs,
         );
 
-        log.debug(
-          `[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`,
-        );
+        log.debug(`[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`);
       } else if (waitMs > 0 && waitMs <= SHORT_WAIT_THRESHOLD_MS) {
         // Short wait (≤SHORT_WAIT_THRESHOLD_MS) — schedule with brief pause-seek-play
         // M6: clamp to [0, duration] to avoid seeking past the end which

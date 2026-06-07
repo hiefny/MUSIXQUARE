@@ -102,6 +102,7 @@ import {
   getYtScope,
   setYtScope,
   setCachedYtDuration,
+  setLocalYouTubePaused,
   setYtAutoplayIntent,
   setYouTubeSubIndex,
   updateSubItemIds,
@@ -127,10 +128,7 @@ import {
   handleRequestYouTubeSubSeek,
   handleRequestYouTubePlaylistInfo,
 } from './handlers.ts';
-import {
-  broadcastYouTubeSync,
-  resetYouTubeSyncState,
-} from './sync.ts';
+import { broadcastYouTubeSync, guestRendezvousSync, resetYouTubeSyncState } from './sync.ts';
 import { showToast } from '../ui/toast.ts';
 
 import type { YTNamespace } from './_state.ts';
@@ -696,6 +694,34 @@ export function initYouTube(): void {
       }
     } catch (e) {
       log.error('[YouTube] Toggle play error:', e);
+    }
+  });
+
+  bus.on('youtube:local-toggle-play', () => {
+    if (isYtLoadInProgress()) {
+      log.debug('[YouTube] Load already in progress, ignoring local toggle');
+      return;
+    }
+
+    const player = getYouTubePlayer();
+    if (!player) return;
+    try {
+      if (player.getPlayerState() === YT.PlayerState.PLAYING) {
+        setLocalYouTubePaused(true);
+        player.pauseVideo();
+      } else {
+        setLocalYouTubePaused(false);
+        const result = guestRendezvousSync({ silent: true, suppressProgressToast: true });
+        if (result.status === 'started' || result.status === 'completed') return;
+        // Authorize this play past the onYouTubePlayerStateChange pause-back
+        // guard. Without it, a PLAYING transition while autoplay intent is
+        // still false gets immediately paused back and the local resume
+        // silently fails — every other deliberate play site sets this first.
+        setYtAutoplayIntent(true);
+        player.playVideo();
+      }
+    } catch (e) {
+      log.error('[YouTube] Local toggle play error:', e);
     }
   });
 

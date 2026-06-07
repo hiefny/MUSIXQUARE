@@ -74,6 +74,7 @@ vi.mock('../search.ts', () => ({
 
 vi.mock('../sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
+  guestRendezvousSync: vi.fn(() => ({ status: 'not-ready' })),
   resetAdDetection: vi.fn(),
   initYouTubeSync: vi.fn(),
   resetYouTubeSyncState: vi.fn(),
@@ -140,6 +141,49 @@ describe('YouTube Player', () => {
     it('returns null initially', async () => {
       const { getYouTubePlayer } = await import('../player.ts');
       expect(getYouTubePlayer()).toBeNull();
+    });
+  });
+
+  describe('local media-session toggle', () => {
+    it('marks local pause and clears it through rendezvous resume', async () => {
+      const yt = {
+        PlayerState: {
+          PLAYING: 1,
+          PAUSED: 2,
+        },
+      };
+      (window as unknown as { YT: unknown }).YT = yt;
+      (globalThis as unknown as { YT: unknown }).YT = yt;
+
+      const player = {
+        getPlayerState: vi.fn(() => 1),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+      };
+      const stateMod = await import('../_state.ts');
+      const syncMod = await import('../sync.ts');
+      const { initYouTube } = await import('../player.ts');
+      const guestRendezvousSync = vi.mocked(syncMod.guestRendezvousSync);
+      guestRendezvousSync.mockReturnValue({ status: 'started' });
+
+      stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      stateMod.setLocalYouTubePaused(false);
+      initYouTube();
+
+      bus.emit('youtube:local-toggle-play');
+
+      expect(stateMod.isLocalYouTubePaused()).toBe(true);
+      expect(player.pauseVideo).toHaveBeenCalledTimes(1);
+
+      player.getPlayerState.mockReturnValue(2);
+      bus.emit('youtube:local-toggle-play');
+
+      expect(stateMod.isLocalYouTubePaused()).toBe(false);
+      expect(guestRendezvousSync).toHaveBeenCalledWith({
+        silent: true,
+        suppressProgressToast: true,
+      });
+      expect(player.playVideo).not.toHaveBeenCalled();
     });
   });
 

@@ -158,9 +158,17 @@ function cmdOp(args: string[]): void {
     addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] }));
     return;
   }
+  if (target.peerId === getState('network.myId')) {
+    addSystemChatMessage(t('chat.cmd_already_op', { name: target.label }));
+    return;
+  }
   const peers = getState('network.connectedPeers') as ConnectedPeer[];
   const peer = peers.find((p) => p.id === target.peerId);
-  if (peer?.isOp) {
+  if (!peer) {
+    addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] }));
+    return;
+  }
+  if (peer.isOp) {
     addSystemChatMessage(t('chat.cmd_already_op', { name: target.label }));
     return;
   }
@@ -177,9 +185,17 @@ function cmdDeop(args: string[]): void {
     addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] }));
     return;
   }
+  if (target.peerId === getState('network.myId')) {
+    addSystemChatMessage(t('chat.cmd_no_permission'));
+    return;
+  }
   const peers = getState('network.connectedPeers') as ConnectedPeer[];
   const peer = peers.find((p) => p.id === target.peerId);
-  if (!peer?.isOp) {
+  if (!peer) {
+    addSystemChatMessage(t('chat.cmd_target_not_found', { target: args[0] }));
+    return;
+  }
+  if (!peer.isOp) {
     addSystemChatMessage(t('chat.cmd_not_op', { name: target.label }));
     return;
   }
@@ -973,8 +989,7 @@ function getDisplayMode(): string {
 
 function isStandaloneLike(): boolean {
   return (
-    window.matchMedia?.('(display-mode: standalone)').matches ||
-    Boolean(debugNavigator.standalone)
+    window.matchMedia?.('(display-mode: standalone)').matches || Boolean(debugNavigator.standalone)
   );
 }
 

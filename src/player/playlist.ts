@@ -218,9 +218,9 @@ function adjustShuffleOrderForRemoval(removedIndex: number): void {
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
 
 export function toggleRepeat(): void {
+  if (isGuestBlocked()) return;
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-  if (hostConn && !isOperator) return;
   const repeatMode = getState('playlist.repeatMode') || 0;
   const nextMode = (repeatMode + 1) % 3;
   setRepeatMode(nextMode);
@@ -263,9 +263,9 @@ export function setRepeatMode(mode: number, notify = true): void {
 }
 
 export function toggleShuffle(): void {
+  if (isGuestBlocked()) return;
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-  if (hostConn && !isOperator) return;
   const isShuffle = getState('playlist.isShuffle');
   const nextShuffle = !isShuffle;
   setShuffle(nextShuffle);

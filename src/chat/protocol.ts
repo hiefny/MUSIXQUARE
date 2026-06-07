@@ -529,5 +529,15 @@ export function registerChatProtocolHandlers(): void {
   // accumulate entries across long-running host sessions.
   bus.on('network:peer-disconnected', (peerId: string) => {
     resetChatRateLimit(peerId);
+    // Also drop the departed peer from the mute set — otherwise a left guest's
+    // id lingers for the whole host session (unbounded across churn, and could
+    // mis-apply if the transport ever reused the id). Immutable replace so
+    // subscribers fire.
+    const muted = getState('network.mutedPeers');
+    if (muted.has(peerId)) {
+      const next = new Set(muted);
+      next.delete(peerId);
+      setState('network.mutedPeers', next);
+    }
   });
 }

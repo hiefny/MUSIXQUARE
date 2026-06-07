@@ -355,11 +355,9 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
  * Handles all roles (host, OP guest, regular guest) and modes (audio, video, YouTube).
  */
 export function seekTo(time: number): void {
+  if (isGuestBlocked()) return;
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
-
-  // Guest (non-OP): blocked
-  if (hostConn && !isOperator) return;
 
   // OP guest: request host to seek
   if (hostConn && isOperator) {

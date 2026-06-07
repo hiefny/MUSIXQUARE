@@ -24,6 +24,7 @@ import {
   getAvailablePeerSlot,
   assignPeerSlot,
   releasePeerSlot,
+  safeSend,
   broadcast,
   broadcastDeviceList,
 } from './peer-state.ts';
@@ -453,13 +454,12 @@ bus.on('network:toggle-operator', (peerId) => {
       return;
     }
     const newOp = !p.isOp;
+    if (!safeSend(conn, { type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE })) {
+      log.warn(`[OP] Failed to send operator status to ${peerId}`);
+      return;
+    }
     const updated = connectedPeers.map((peer, i) => (i === idx ? { ...peer, isOp: newOp } : peer));
     setState('network.connectedPeers', updated);
-    try {
-      conn.send({ type: newOp ? MSG.OPERATOR_GRANT : MSG.OPERATOR_REVOKE });
-    } catch (e) {
-      log.warn(`[OP] Failed to send operator status to ${peerId}:`, e);
-    }
     broadcastDeviceList();
     showToast(
       t('toast.op_status', {

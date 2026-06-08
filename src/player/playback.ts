@@ -36,6 +36,7 @@ import {
   getPendingPlayTimeSetAt,
   isPlayPreloadedInProgress,
   setLastClearedTrackName,
+  setLocalFilePaused,
 } from './_state.ts';
 
 import {
@@ -110,6 +111,10 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   // a6eadce (effects), 8cbf192 (youtube), fe32164 (preload/transfer).
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
+
+  // Authoritative host command — release any local lock-screen pause so this
+  // guest follows the host again (symmetric to handleYouTubePlay).
+  setLocalFilePaused(false);
 
   // Ignore PLAY during system audio mode (live stream, not file-based).
   // The helper also covers the guest's pending placeholder window between
@@ -366,6 +371,10 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // playback. Mirrors the chat handler defenses (4157237/dcd3472).
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
+
+  // Authoritative host command — release any local lock-screen pause. Both
+  // ends end up paused here; a later host PLAY then resumes this guest.
+  setLocalFilePaused(false);
 
   // Ignore PAUSE during system audio mode
   if (isSystemAudioOwner()) return;

@@ -109,6 +109,24 @@ export function setPlayLocked(v: boolean): void {
   _isPlayLocked = v;
 }
 
+// ─── Local File Pause (guest lock-screen / hardware-button pause) ───
+// A non-OP guest can locally pause/resume file playback from the lock screen
+// or hardware media buttons (see media-session.ts). Without this flag the
+// host's periodic SYNC_PONG auto-resumes them within ~1s via the
+// bootstrap/drift branch in network/sync.ts. Mirrors youtube/_state.ts's
+// `_localYouTubePaused`. Set on local guest pause; cleared on local resume, on
+// any authoritative host PLAY/PAUSE (playback.ts), and on sync reset.
+
+let _localFilePaused = false;
+
+export function isLocalFilePaused(): boolean {
+  return _localFilePaused;
+}
+
+export function setLocalFilePaused(v: boolean): void {
+  _localFilePaused = v;
+}
+
 // ─── Pending Play ──────────────────────────────────────────────────
 
 export function getPendingPlayTime(): number | undefined {

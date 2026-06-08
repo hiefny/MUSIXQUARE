@@ -22,7 +22,7 @@ import {
   registerPing,
   resetClockState,
 } from '../shared-clock.ts';
-import { setCurrentAudioBuffer } from '../../player/_state.ts';
+import { setCurrentAudioBuffer, setLocalFilePaused } from '../../player/_state.ts';
 import {
   createSystemAudioTrackMeta,
   setPlaybackFilePaused,
@@ -56,6 +56,7 @@ beforeEach(() => {
   resetInboundRateLimit('guest-1');
   transportMocks.play.mockReset();
   transportMocks.play.mockResolvedValue(undefined);
+  setLocalFilePaused(false);
 });
 
 afterEach(() => {
@@ -314,6 +315,55 @@ describe('local-file sync correction', () => {
     );
 
     expect(transportMocks.play).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-resume a guest that locally paused (lock-screen pause)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    setState('network.hostConn', hostConn);
+    // Guest locally paused: file/paused (PAUSED lifecycle, not a decode state)
+    // with a decoded buffer — without the flag the SYNC_PONG bootstrap resumes
+    // it via getPlayableFileSyncPosition.
+    setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+    setLocalFilePaused(true);
+
+    registerPing(88);
+    vi.setSystemTime(1050);
+
+    await handleData(
+      { type: MSG.SYNC_PONG, pingId: 88, hostTime: 1050, position: 30, mode: 'file', activity: 'playing' },
+      hostConn,
+    );
+
+    expect(transportMocks.play).not.toHaveBeenCalled();
+  });
+
+  it('still bootstraps a guest that has not locally paused', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    setState('network.hostConn', hostConn);
+    // Identical to the case above except the local-pause flag is clear, so the
+    // bootstrap must fire (proves the guard above is what suppresses it).
+    setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+    setLocalFilePaused(false);
+
+    registerPing(89);
+    vi.setSystemTime(1050);
+
+    await handleData(
+      { type: MSG.SYNC_PONG, pingId: 89, hostTime: 1050, position: 30, mode: 'file', activity: 'playing' },
+      hostConn,
+    );
+
+    expect(transportMocks.play).toHaveBeenCalled();
   });
 });
 

@@ -25,7 +25,7 @@ import {
   adjustSync,
   setLocalManualSyncOffset,
 } from '../player/transport.ts';
-import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { getCurrentAudioBuffer, isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import {
@@ -67,6 +67,9 @@ function resetSyncClockRuntime(): void {
   resetClockState();
   _syncPingCounter = 0;
   _needsInitialSync = false;
+  // Drop any lingering local lock-screen pause so a fresh/reconnected guest is
+  // not stuck suppressing its own bootstrap resume.
+  setLocalFilePaused(false);
   clearManagedTimer('sync-youtube-nudge-apply');
 }
 
@@ -353,6 +356,14 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   //       won't auto-play" symptom.
   if (!isSyncPongPlayingFile(data)) return;
   if (!Number.isFinite(position)) return;
+
+  // A non-OP guest who locally paused (lock screen / hardware media button —
+  // see media-session.ts) must not be auto-resumed by the host's SYNC_PONG
+  // bootstrap/drift. Clock-offset + latency above still update so the guest
+  // stays calibrated for when it resumes. Mirrors youtube/sync.ts's
+  // isLocalYouTubePaused guard; cleared by the authoritative host PLAY/PAUSE
+  // handlers (playback.ts) and on sync reset (resetSyncClockRuntime).
+  if (isLocalFilePaused()) return;
 
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;

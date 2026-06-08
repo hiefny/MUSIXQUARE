@@ -10,6 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime, play, pause } from './transport.ts';
+import { setLocalFilePaused } from './_state.ts';
 import {
   isPlaybackActivityValue,
   isPlaybackIdle,
@@ -113,6 +114,9 @@ export function initMediaSession(): void {
     if (isPlaybackPlayingFile()) return;
     if (currentTrackIndex >= 0) {
       if (isNonOperatorGuest()) {
+        // Local resume: clear the pause flag so the next SYNC_PONG re-locks
+        // this guest to the host position (network/sync.ts).
+        setLocalFilePaused(false);
         void play(getState('player.pausedAt') || 0);
         return;
       }
@@ -131,6 +135,9 @@ export function initMediaSession(): void {
     }
     if (isPlaybackPlayingFile()) {
       if (isNonOperatorGuest()) {
+        // Local pause: mark it so the host's SYNC_PONG bootstrap/drift in
+        // network/sync.ts does not auto-resume this guest within ~1s.
+        setLocalFilePaused(true);
         pause(undefined, { showToast: false });
         return;
       }

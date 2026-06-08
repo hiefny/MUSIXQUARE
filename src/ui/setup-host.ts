@@ -37,7 +37,7 @@ import {
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
 import { markAppUsed } from '../demo/storage.ts';
-import { primeYouTubePlayer } from '../youtube/player.ts';
+import { primeYouTubePlayer, precreateYouTubePlayer } from '../youtube/player.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
@@ -56,6 +56,11 @@ export function startHostFlow(): void {
 
   setState('network.appRole', 'host');
   setState('setup.sessionStarted', false);
+
+  // Eagerly pre-create the hidden iOS YouTube prime player now (async), well
+  // before the "Start" tap, so a ready player exists for the gesture-bound
+  // bounce in startSessionFromHost(). No-op off iOS / in C mode.
+  precreateYouTubePlayer();
   // The role picker is parked for now; default hosts to the center speaker.
   // Keep setup-role-area wired so explicit role selection can return later.
   setPendingSetupRole(DEFAULT_SETUP_ROLE);

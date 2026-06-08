@@ -43,6 +43,8 @@ import {
   setYtPrimed,
   isYtPriming,
   setYtPriming,
+  isYtPrimeReady,
+  setYtPrimeReady,
   isYtPrimeBouncePending,
   setYtPrimeBouncePending,
   getYtAutoplayIntent,
@@ -323,11 +325,27 @@ export function invalidateYtDurationCache(): void {
 
 // ─── Load YouTube Video ────────────────────────────────────────────
 
-export function primeYouTubePlayer(): void {
-  if (!IS_IOS || isYtPrimed() || isYtPriming()) return;
+/**
+ * Phase 1 — eager pre-create (async, NOT gesture-bound).
+ *
+ * Builds the hidden iOS prime player with the silent video CUED and lets
+ * onYouTubePlayerReady fire, so a READY player exists before the user reaches
+ * the join/start tap. Call this early in the setup flow (startHostFlow /
+ * startGuestFlow). The actual unlock happens in primeYouTubePlayer() (Phase 2),
+ * which MUST run synchronously inside the gesture — that is exactly why the
+ * async work (API script + iframe load + onReady) is split out to here. Doing
+ * the playVideo() in onReady (async) failed: iOS does not count it as
+ * user-initiated, so it never unlocked.
+ */
+export function precreateYouTubePlayer(): void {
+  if (!IS_IOS) return;
+  // B-mode only. C (no silent video) cannot durably unlock audible playback,
+  // so there is nothing worth pre-creating for it.
+  if (YOUTUBE_PRIME_MODE !== 'B' || !YOUTUBE_PRIME_VIDEO_ID) return;
+  if (isYtPrimed() || isYtPriming() || isYtPrimeReady()) return;
 
   if (getYouTubePlayer()) {
-    setYtPrimed(true);
+    setYtPrimeReady(true);
     return;
   }
 
@@ -342,13 +360,47 @@ export function primeYouTubePlayer(): void {
   runWhenYouTubeApiReady(
     () => {
       if (!isYtPriming() || getYouTubePlayer()) return;
-      createYouTubePlayer(YOUTUBE_PRIME_VIDEO_ID || null, null, false, 0, { prime: true });
+      // Cue (autoplay:0) the silent video; the gesture bounce plays it later.
+      createYouTubePlayer(YOUTUBE_PRIME_VIDEO_ID, null, false, 0, { prime: true });
     },
     () => {
       setYtPriming(false);
       log.warn('[YouTube Prime] API load failed; tap-to-play fallback remains available');
     },
   );
+}
+
+/**
+ * Phase 2 — gesture-bound bounce (synchronous).
+ *
+ * MUST be called inside a user gesture (join/start tap). If Phase 1 produced a
+ * ready player, do an unmuted playVideo() of the cued silent video right here
+ * in the gesture call stack so iOS registers a user-initiated audible play and
+ * unlocks the iframe; onYouTubePlayerStateChange(PLAYING) then pauses it back
+ * and marks the player primed. If the player is not ready yet (user tapped
+ * before onReady), do nothing — the iOS tap-to-play watchdog stays as fallback.
+ */
+export function primeYouTubePlayer(): void {
+  if (!IS_IOS || isYtPrimed() || isYtPrimeBouncePending()) return;
+  if (!isYtPrimeReady()) return;
+  const player = getYouTubePlayer();
+  if (!player?.playVideo) return;
+
+  setYtPrimeReady(false);
+  setYtPrimeBouncePending(true);
+  setYtAutoplayIntent(false);
+  try {
+    player.unMute?.();
+    player.playVideo();
+    setManagedTimer(
+      'yt-prime-bounce-timeout',
+      () => setYtPrimeBouncePending(false),
+      YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS,
+    );
+  } catch (e) {
+    setYtPrimeBouncePending(false);
+    log.warn('[YouTube Prime] gesture bounce failed; tap-to-play fallback remains available', e);
+  }
 }
 
 export function loadYouTubeVideo(
@@ -358,6 +410,7 @@ export function loadYouTubeVideo(
   subIndex = 0,
 ): void {
   setYtPriming(false);
+  setYtPrimeReady(false);
   setYtPrimeBouncePending(false);
   clearManagedTimer('yt-prime-bounce-timeout');
 
@@ -712,29 +765,19 @@ function onYouTubePlayerReady(): void {
 
   const indexing = isYtIndexing();
   if (isYtPriming() && !isPlaybackModeYouTube() && !indexing) {
+    // Phase 1 complete: the silent video is cued and the player is ready. Mark
+    // it ready for the gesture-bound bounce (primeYouTubePlayer) — do NOT play
+    // here. This onReady is async (outside any user gesture), so a playVideo()
+    // now would not register as user-initiated on iOS and would fail to unlock.
+    // Keep it muted while cued for safety.
     const player = getYouTubePlayer();
     setYtPriming(false);
-    setYtPrimed(true);
+    setYtPrimeReady(true);
     setYtAutoplayIntent(false);
-
-    if (YOUTUBE_PRIME_MODE === 'B' && YOUTUBE_PRIME_VIDEO_ID && player?.playVideo) {
-      setYtPrimeBouncePending(true);
-      try {
-        player.unMute?.();
-        player.playVideo();
-        setManagedTimer(
-          'yt-prime-bounce-timeout',
-          () => setYtPrimeBouncePending(false),
-          YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS,
-        );
-      } catch (e) {
-        setYtPrimeBouncePending(false);
-        setYtPrimed(false);
-        log.warn(
-          '[YouTube Prime] audible bounce failed; tap-to-play fallback remains available',
-          e,
-        );
-      }
+    try {
+      player?.mute?.();
+    } catch {
+      /* noop */
     }
     return;
   }
@@ -1025,6 +1068,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 
   if (isYtPrimeBouncePending() && state === YT.PlayerState.PLAYING) {
     setYtPrimeBouncePending(false);
+    setYtPrimed(true);
     clearManagedTimer('yt-prime-bounce-timeout');
     setYtAutoplayIntent(false);
     try {

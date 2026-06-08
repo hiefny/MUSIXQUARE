@@ -143,7 +143,7 @@ declare const YT: YTNamespace;
 // External modules (e.g. sync.ts) import { getYouTubePlayer } from './player.ts'
 
 export { getYouTubePlayer } from './_state.ts';
-export { loadYouTubeVideo, primeYouTubePlayer } from './iframe.ts';
+export { loadYouTubeVideo, primeYouTubePlayer, precreateYouTubePlayer } from './iframe.ts';
 
 // ─── YouTube Auto-Sync (SharedClock) ──────────────────────────────
 // Every play/seek action delays 1s so all devices start simultaneously.

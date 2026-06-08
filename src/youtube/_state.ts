@@ -82,6 +82,7 @@ let _ytIndexingCallback: ((ids: string[]) => void) | null = null;
 let _localYouTubePaused = false;
 let _ytPrimed = false;
 let _ytPriming = false;
+let _ytPrimeReady = false;
 let _ytPrimeBouncePending = false;
 
 /**
@@ -159,6 +160,10 @@ export function isYtPriming(): boolean {
   return _ytPriming;
 }
 
+export function isYtPrimeReady(): boolean {
+  return _ytPrimeReady;
+}
+
 export function isYtPrimeBouncePending(): boolean {
   return _ytPrimeBouncePending;
 }
@@ -227,6 +232,10 @@ export function setYtPriming(priming: boolean): void {
   _ytPriming = priming;
 }
 
+export function setYtPrimeReady(ready: boolean): void {
+  _ytPrimeReady = ready;
+}
+
 export function setYtPrimeBouncePending(pending: boolean): void {
   _ytPrimeBouncePending = pending;
 }
@@ -254,6 +263,7 @@ export function resetYouTubeModuleState(): void {
   _ytAutoplayIntent = true;
   _ytPrimed = false;
   _ytPriming = false;
+  _ytPrimeReady = false;
   _ytPrimeBouncePending = false;
   _cachedYtDuration = 0;
   _cachedYtPlaylistIdx = -1;

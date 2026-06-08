@@ -42,7 +42,7 @@ import { animateTransition } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from './dialog.ts';
 import { markAppUsed } from '../demo/storage.ts';
-import { primeYouTubePlayer } from '../youtube/player.ts';
+import { primeYouTubePlayer, precreateYouTubePlayer } from '../youtube/player.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -84,6 +84,11 @@ export function startGuestFlow(): void {
 
   setState('network.appRole', 'guest');
   setState('setup.sessionStarted', false);
+
+  // Eagerly pre-create the hidden iOS YouTube prime player now (async), well
+  // before the join tap, so a ready player exists for the gesture-bound bounce
+  // in the join handlers. No-op off iOS / in C mode.
+  precreateYouTubePlayer();
   // The role picker is parked for now; default guests to the center speaker.
   // Keep setup-role-area wired so explicit role selection can return later.
   setPendingSetupRole(DEFAULT_SETUP_ROLE);

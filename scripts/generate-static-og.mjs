@@ -107,6 +107,13 @@ const CARDS = [
       tagline: 'Geometric · Dark · Minimal',
     },
   },
+  {
+    outFile: 'public/og-blog.png',
+    props: {
+      headline: 'Blog',
+      tagline: 'Articles · Tips · Guides',
+    },
+  },
 ];
 
 async function main() {

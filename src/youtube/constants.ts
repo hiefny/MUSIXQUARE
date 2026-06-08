@@ -156,7 +156,7 @@ export const IOS_WATCHDOG_MS = 3000;
  * YouTube iframe. Leave empty to run creation-only prime mode until a stable
  * unlisted silent video ID is available.
  */
-export const YOUTUBE_PRIME_VIDEO_ID = '';
+export const YOUTUBE_PRIME_VIDEO_ID = 'r7M_P0FAOtw';
 
 /** C = create the persistent iframe only. B = unmuted silent-video bounce. */
 export const YOUTUBE_PRIME_MODE: 'B' | 'C' = YOUTUBE_PRIME_VIDEO_ID ? 'B' : 'C';

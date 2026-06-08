@@ -1044,6 +1044,32 @@ function onYouTubePlayerError(event: { data: number }): void {
   // ENDED handler's ownership model).
   const UNAVAILABLE_CODES = new Set([100, 101, 150]);
   if (UNAVAILABLE_CODES.has(code)) {
+    // Ignore stale/spurious unavailable-code errors that must NOT advance the
+    // room playlist:
+    //   (a) the silent prime video — it can fire a late 100/101/150 during the
+    //       prime→real transition (stopVideo + loadVideoById on the reused iOS
+    //       iframe) and is never a real room track;
+    //   (b) any such error while the player is actually PLAYING — a genuinely
+    //       unavailable video can't be in the PLAYING state, so it's a
+    //       transition artifact, not a real failure.
+    const errPlayer = getYouTubePlayer();
+    let erroredVid = '';
+    let errState: number | undefined;
+    try {
+      erroredVid = errPlayer?.getVideoData?.()?.video_id || '';
+      errState = errPlayer?.getPlayerState?.();
+    } catch {
+      /* player in a bad state — fall through to the normal advance */
+    }
+    if (
+      (erroredVid && erroredVid === YOUTUBE_PRIME_VIDEO_ID) ||
+      errState === YT.PlayerState.PLAYING
+    ) {
+      log.debug(
+        `[YouTube] Ignoring spurious unavailable error ${code} (vid=${erroredVid}, state=${errState})`,
+      );
+      return;
+    }
     showToast(t('youtube.video_unavailable'));
     const hostConn = getState('network.hostConn');
     if (!hostConn) {

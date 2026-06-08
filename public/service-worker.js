@@ -8,7 +8,7 @@
 
 // IMPORTANT: bump this when deploying changes to app shell assets
 // so existing clients don't stay pinned to stale cached JS/CSS.
-const CACHE_VERSION = "v120";
+const CACHE_VERSION = "v121";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 

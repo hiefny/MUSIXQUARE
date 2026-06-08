@@ -135,6 +135,11 @@ describe('YouTube Player', () => {
       const mod = await import('../player.ts');
       expect(typeof mod.initYouTube).toBe('function');
     });
+
+    it('exports primeYouTubePlayer', async () => {
+      const mod = await import('../player.ts');
+      expect(typeof mod.primeYouTubePlayer).toBe('function');
+    });
   });
 
   describe('getYouTubePlayer()', () => {

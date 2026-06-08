@@ -42,6 +42,7 @@ import { animateTransition } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from './dialog.ts';
 import { markAppUsed } from '../demo/storage.ts';
+import { primeYouTubePlayer } from '../youtube/player.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -169,6 +170,8 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
     return;
   }
 
+  primeYouTubePlayer();
+
   setPendingGuestRoleMode(mode);
   setState('network.lastJoinCode', autoCode);
   updateInviteCodeUI();
@@ -260,6 +263,8 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
     if (input) input.focus();
     return;
   }
+
+  primeYouTubePlayer();
 
   setState('network.lastJoinCode', code);
   updateInviteCodeUI();

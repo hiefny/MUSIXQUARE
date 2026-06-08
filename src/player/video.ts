@@ -102,14 +102,69 @@ function updateBodyModeClass(mode: PlaybackModeValue): void {
 
   const ytContainer = document.getElementById('youtube-player-container');
   if (ytContainer) {
+    const ytWrapper = ytContainer.closest('.video-wrapper') as HTMLElement | null;
+    const hasIframe = !!ytContainer.querySelector('iframe');
+
     if (mode === 'youtube') {
+      if (ytWrapper) {
+        ytWrapper.style.display = 'flex';
+        ytWrapper.style.position = '';
+        ytWrapper.style.left = '';
+        ytWrapper.style.top = '';
+        ytWrapper.style.width = '';
+        ytWrapper.style.height = '';
+        ytWrapper.style.maxWidth = '';
+        ytWrapper.style.margin = '';
+        ytWrapper.style.opacity = '';
+        ytWrapper.style.visibility = '';
+        ytWrapper.style.pointerEvents = '';
+        ytWrapper.style.overflow = '';
+      }
       ytContainer.style.display = 'block';
       ytContainer.style.opacity = '1';
       ytContainer.style.pointerEvents = 'auto';
+      ytContainer.style.position = 'relative';
+      ytContainer.style.left = '';
+      ytContainer.style.top = '';
+      ytContainer.style.width = '100%';
+      ytContainer.style.height = '100%';
+      ytContainer.style.overflow = '';
     } else {
-      ytContainer.style.opacity = '0';
-      ytContainer.style.pointerEvents = 'none';
-      ytContainer.style.display = 'none';
+      if (hasIframe) {
+        if (ytWrapper) {
+          ytWrapper.style.display = 'flex';
+          ytWrapper.style.position = 'fixed';
+          ytWrapper.style.left = '-9999px';
+          ytWrapper.style.top = '0';
+          ytWrapper.style.width = '1px';
+          ytWrapper.style.height = '1px';
+          ytWrapper.style.maxWidth = 'none';
+          ytWrapper.style.margin = '0';
+          ytWrapper.style.opacity = '0';
+          ytWrapper.style.visibility = 'visible';
+          ytWrapper.style.pointerEvents = 'none';
+          ytWrapper.style.overflow = 'hidden';
+        }
+        ytContainer.style.display = 'block';
+        ytContainer.style.opacity = '0';
+        ytContainer.style.pointerEvents = 'none';
+        ytContainer.style.position = 'relative';
+        ytContainer.style.left = '';
+        ytContainer.style.top = '';
+        ytContainer.style.width = '1px';
+        ytContainer.style.height = '1px';
+        ytContainer.style.overflow = 'hidden';
+      } else {
+        if (ytWrapper) {
+          ytWrapper.style.display = 'none';
+          ytWrapper.style.opacity = '';
+          ytWrapper.style.visibility = '';
+          ytWrapper.style.pointerEvents = '';
+        }
+        ytContainer.style.opacity = '0';
+        ytContainer.style.pointerEvents = 'none';
+        ytContainer.style.display = 'none';
+      }
     }
   }
 }

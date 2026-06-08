@@ -39,6 +39,12 @@ import {
   setYtIndexing,
   getYtIndexingCallback,
   setYtIndexingCallback,
+  isYtPrimed,
+  setYtPrimed,
+  isYtPriming,
+  setYtPriming,
+  isYtPrimeBouncePending,
+  setYtPrimeBouncePending,
   getYtAutoplayIntent,
   setYtAutoplayIntent,
   getCachedYtDuration,
@@ -65,6 +71,9 @@ import {
   SCRIPT_LOAD_TIMEOUT_MS,
   REFRESH_DISPLAY_DELAY_MS,
   GUEST_ENDED_FALLBACK_MS,
+  YOUTUBE_PRIME_VIDEO_ID,
+  YOUTUBE_PRIME_MODE,
+  YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS,
   PLAYLIST_SNAPSHOT_DELAY_MS,
   FIRST_TRACK_FISHER_INTERVAL_MS,
   FIRST_TRACK_FISHER_MAX_POLLS,
@@ -86,6 +95,104 @@ function resetYouTubePlayerHost(container: HTMLElement): void {
   const playerHost = document.createElement('div');
   playerHost.id = 'youtube-player';
   container.replaceChildren(playerHost);
+}
+
+type YouTubeApiReadyTask = {
+  onReady: () => void;
+  onError?: () => void;
+};
+
+const _ytApiReadyTasks: YouTubeApiReadyTask[] = [];
+
+function flushYouTubeApiReadyTasks(): void {
+  window.isYouTubeAPIReady = true;
+  setYtScriptLoading(false);
+  const tasks = _ytApiReadyTasks.splice(0);
+  for (const task of tasks) task.onReady();
+}
+
+function failYouTubeApiReadyTasks(): void {
+  const tasks = _ytApiReadyTasks.splice(0);
+  for (const task of tasks) task.onError?.();
+}
+
+function runWhenYouTubeApiReady(onReady: () => void, onError?: () => void): void {
+  if (window.YT?.Player) {
+    onReady();
+    return;
+  }
+
+  _ytApiReadyTasks.push({ onReady, onError });
+  window.onYouTubeIframeAPIReady = flushYouTubeApiReadyTasks;
+
+  if (isYtScriptLoading() || document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+    return;
+  }
+
+  setYtScriptLoading(true);
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  tag.onload = () => {
+    setYtScriptLoading(false);
+    log.debug('[YouTube] API script loaded');
+  };
+  tag.onerror = () => {
+    log.error('[YouTube] Failed to load API script');
+    setYtScriptLoading(false);
+    failYouTubeApiReadyTasks();
+    tag.remove();
+  };
+  document.head.appendChild(tag);
+}
+
+function ensureYouTubePlayerContainer(): HTMLElement | null {
+  const wrapper = document.querySelector('.video-wrapper');
+  if (!wrapper) {
+    log.warn('[YouTube] .video-wrapper not found');
+    return null;
+  }
+
+  let container = document.getElementById('youtube-player-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'youtube-player-container';
+    container.style.cssText = 'width:100%; height:100%; position:relative;';
+    wrapper.appendChild(container);
+  }
+
+  if (!container.querySelector('#youtube-player')) {
+    resetYouTubePlayerHost(container);
+  }
+
+  return container;
+}
+
+function hideYouTubeContainerResident(container: HTMLElement): void {
+  const wrapper = container.closest('.video-wrapper') as HTMLElement | null;
+  if (wrapper) {
+    wrapper.style.display = 'flex';
+    wrapper.style.position = 'fixed';
+    wrapper.style.left = '-9999px';
+    wrapper.style.top = '0';
+    wrapper.style.width = '1px';
+    wrapper.style.height = '1px';
+    wrapper.style.maxWidth = 'none';
+    wrapper.style.margin = '0';
+    wrapper.style.opacity = '0';
+    wrapper.style.visibility = 'visible';
+    wrapper.style.pointerEvents = 'none';
+    wrapper.style.overflow = 'hidden';
+  }
+
+  container.style.display = 'block';
+  container.style.opacity = '0';
+  container.style.pointerEvents = 'none';
+  container.style.position = 'relative';
+  container.style.left = '';
+  container.style.top = '';
+  container.style.width = '1px';
+  container.style.height = '1px';
+  container.style.overflow = 'hidden';
 }
 
 const LIVE_DURATION_GROWTH_MIN_SEC = 0.2;
@@ -216,12 +323,44 @@ export function invalidateYtDurationCache(): void {
 
 // ─── Load YouTube Video ────────────────────────────────────────────
 
+export function primeYouTubePlayer(): void {
+  if (!IS_IOS || isYtPrimed() || isYtPriming()) return;
+
+  if (getYouTubePlayer()) {
+    setYtPrimed(true);
+    return;
+  }
+
+  const container = ensureYouTubePlayerContainer();
+  if (!container) return;
+
+  resetYouTubePlayerHost(container);
+  hideYouTubeContainerResident(container);
+  setYtPriming(true);
+  setYtAutoplayIntent(false);
+
+  runWhenYouTubeApiReady(
+    () => {
+      if (!isYtPriming() || getYouTubePlayer()) return;
+      createYouTubePlayer(YOUTUBE_PRIME_VIDEO_ID || null, null, false, 0, { prime: true });
+    },
+    () => {
+      setYtPriming(false);
+      log.warn('[YouTube Prime] API load failed; tap-to-play fallback remains available');
+    },
+  );
+}
+
 export function loadYouTubeVideo(
   videoId: string | null,
   playlistId: string | null = null,
   autoplay = true,
   subIndex = 0,
 ): void {
+  setYtPriming(false);
+  setYtPrimeBouncePending(false);
+  clearManagedTimer('yt-prime-bounce-timeout');
+
   const indexing = isYtIndexing();
   if (indexing) _ifr.indexingPlaylistId = playlistId;
   else _ifr.indexingPlaylistId = null;
@@ -304,61 +443,33 @@ export function loadYouTubeVideo(
 
   showToast(t('youtube.effects_disabled'));
 
-  const wrapper = document.querySelector('.video-wrapper');
-  if (!wrapper) {
+  const container = ensureYouTubePlayerContainer();
+  if (!container) {
     setYtLoadInProgress(false);
-    log.warn('[YouTube] .video-wrapper not found');
     return;
   }
 
-  let container = document.getElementById('youtube-player-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'youtube-player-container';
-    container.style.cssText = 'width:100%; height:100%; position:relative;';
-    wrapper.appendChild(container);
-  }
-
-  if (!getYouTubePlayer()) {
-    resetYouTubePlayerHost(container);
-  }
-
   if (!window.YT?.Player) {
-    if (!isYtScriptLoading() && !document.querySelector('script[src*="youtube.com/iframe_api"]')) {
-      setYtScriptLoading(true);
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      tag.onload = () => {
-        setYtScriptLoading(false);
-        log.debug('[YouTube] API script loaded');
-      };
-      tag.onerror = () => {
-        log.error('[YouTube] Failed to load API script');
-        setYtScriptLoading(false);
+    runWhenYouTubeApiReady(
+      () => {
+        // Guard: skip if a timeout already cancelled this load session
+        if (getCurrentSessionId() !== sessionId || scope.aborted) {
+          log.debug('[YouTube] onYouTubeIframeAPIReady skipped - session changed');
+          setYtLoadInProgress(false);
+          return;
+        }
+        createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
+      },
+      () => {
         setYtLoadInProgress(false);
-        // Cancel the safety timer so we don't double-toast 15s later
-        // with `youtube.load_timeout` on top of this `load_fail`.
         clearManagedTimer('yt-load-timeout');
-        tag.remove(); // Remove broken script tag so retry can re-insert
         showToast(t('youtube.load_fail'));
-        // Mirror yt-load-timeout's recovery: drop back to IDLE so the user
-        // isn't stranded in YouTube mode with no player (seekbar/play
-        // controls would be inert).
         bus.emit('youtube:stop-mode');
-      };
-      document.head.appendChild(tag);
-    }
-    window.onYouTubeIframeAPIReady = () => {
-      window.isYouTubeAPIReady = true;
-      // Guard: skip if a timeout already cancelled this load session
-      if (getCurrentSessionId() !== sessionId || scope.aborted) {
-        log.debug('[YouTube] onYouTubeIframeAPIReady skipped — session changed');
-        setYtLoadInProgress(false);
-        return;
-      }
-      createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
-    };
-  } else {
+      },
+    );
+  }
+
+  if (window.YT?.Player) {
     createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
   }
 
@@ -392,14 +503,20 @@ export function loadYouTubeVideo(
 
 // ─── Create YouTube Player (IFrame) ────────────────────────────────
 
+type CreateYouTubePlayerOptions = {
+  prime?: boolean;
+};
+
 function createYouTubePlayer(
   videoId: string | null,
   playlistId: string | null = null,
   autoplay = true,
   subIndex = 0,
+  options: CreateYouTubePlayerOptions = {},
 ): void {
   const indexing = isYtIndexing();
-  if (!isPlaybackModeYouTube() && !indexing) {
+  const prime = options.prime === true;
+  if (!isPlaybackModeYouTube() && !indexing && !prime) {
     log.warn('[YouTube] createYouTubePlayer aborted - not in YouTube playback mode');
     setYtLoadInProgress(false);
     // Clear any stale indexing intent from an aborted new-playlist flow.
@@ -417,7 +534,7 @@ function createYouTubePlayer(
   // Set autoplay intent BEFORE any player API call — onStateChange
   // checks this flag to pause-back if autoplay was not requested.
   // Fixes: loadPlaylist() is async, so pauseVideo() on UNSTARTED is a no-op.
-  setYtAutoplayIntent(autoplay);
+  setYtAutoplayIntent(prime ? false : autoplay);
 
   // Reset sub-index cache so the sub-video auto-advance detector (in
   // updateYouTubeUI) doesn't mistake the initial index of a freshly loaded
@@ -458,6 +575,13 @@ function createYouTubePlayer(
 
   const existingPlayer = getYouTubePlayer();
   if (existingPlayer?.loadVideoById) {
+    if (prime) {
+      setYtPriming(false);
+      setYtPrimed(true);
+      setYtLoadInProgress(false);
+      return;
+    }
+
     log.debug('[YouTube] Re-using existing player instance');
     try {
       if ((needsScrape || indexing) && playlistId) {
@@ -579,6 +703,34 @@ function onYouTubePlayerReady(): void {
   log.debug('[YouTube] Player ready');
 
   const indexing = isYtIndexing();
+  if (isYtPriming() && !isPlaybackModeYouTube() && !indexing) {
+    const player = getYouTubePlayer();
+    setYtPriming(false);
+    setYtPrimed(true);
+    setYtAutoplayIntent(false);
+
+    if (YOUTUBE_PRIME_MODE === 'B' && YOUTUBE_PRIME_VIDEO_ID && player?.playVideo) {
+      setYtPrimeBouncePending(true);
+      try {
+        player.unMute?.();
+        player.playVideo();
+        setManagedTimer(
+          'yt-prime-bounce-timeout',
+          () => setYtPrimeBouncePending(false),
+          YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS,
+        );
+      } catch (e) {
+        setYtPrimeBouncePending(false);
+        setYtPrimed(false);
+        log.warn(
+          '[YouTube Prime] audible bounce failed; tap-to-play fallback remains available',
+          e,
+        );
+      }
+    }
+    return;
+  }
+
   if (!isPlaybackModeYouTube() && !indexing) {
     log.debug('[YouTube] onPlayerReady skipped - mode changed');
     return;
@@ -806,6 +958,21 @@ function _finishScrape(ids: string[] | null): void {
 
 function onYouTubePlayerError(event: { data: number }): void {
   const code = event.data;
+
+  // Prime-time error (e.g. silent prime video unavailable): abandon the prime
+  // silently and keep the tap-to-play fallback. Must bail before the toast /
+  // next-track advance below — priming is a background op with no active
+  // YouTube session, so user-facing recovery would be wrong here.
+  if (isYtPriming() || isYtPrimeBouncePending()) {
+    log.warn('[YouTube Prime] player error during prime; tap-to-play fallback remains', code);
+    setYtPriming(false);
+    setYtPrimeBouncePending(false);
+    setYtPrimed(false);
+    clearManagedTimer('yt-prime-bounce-timeout');
+    setYtLoadInProgress(false);
+    return;
+  }
+
   log.error('[YouTube] Player error:', code);
   setYtLoadInProgress(false);
   showLoader(false);
@@ -844,11 +1011,23 @@ function onYouTubePlayerError(event: { data: number }): void {
 
 function onYouTubePlayerStateChange(event: { data: number }): void {
   const indexing = isYtIndexing();
-  if (!isPlaybackModeYouTube() && !indexing) return;
-
   const player = getYouTubePlayer();
   if (!player) return; // Player destroyed during async state transition
   const state = event.data;
+
+  if (isYtPrimeBouncePending() && state === YT.PlayerState.PLAYING) {
+    setYtPrimeBouncePending(false);
+    clearManagedTimer('yt-prime-bounce-timeout');
+    setYtAutoplayIntent(false);
+    try {
+      player.pauseVideo?.();
+    } catch (e) {
+      log.debug('[YouTube Prime] pause after bounce failed:', e);
+    }
+    return;
+  }
+
+  if (!isPlaybackModeYouTube() && !indexing) return;
 
   if (state === YT.PlayerState.PLAYING) {
     // Host: If playlist sub-item data is still missing, attempt immediate snapshot.
@@ -1494,9 +1673,9 @@ export function refreshYouTubeDisplay(): void {
   log.debug('[YouTube] Refreshing display to prevent black screen...');
   const iframe = container.querySelector('iframe');
 
-  container.style.display = 'none';
+  container.style.visibility = 'hidden';
   void container.offsetHeight; // Force reflow
-  container.style.display = 'block';
+  container.style.visibility = 'visible';
 
   if (iframe) {
     iframe.style.visibility = 'hidden';

@@ -16,6 +16,7 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
+import { IS_IOS } from '../core/platform.ts';
 import {
   isPlaybackIdleCompat,
   isPlaybackModeYouTube,
@@ -109,6 +110,10 @@ import {
   isYtIndexing,
   setYtIndexing,
   setYtIndexingCallback,
+  isYtPrimed,
+  setYtPrimed,
+  setYtPriming,
+  setYtPrimeBouncePending,
 } from './_state.ts';
 
 import {
@@ -138,7 +143,7 @@ declare const YT: YTNamespace;
 // External modules (e.g. sync.ts) import { getYouTubePlayer } from './player.ts'
 
 export { getYouTubePlayer } from './_state.ts';
-export { loadYouTubeVideo } from './iframe.ts';
+export { loadYouTubeVideo, primeYouTubePlayer } from './iframe.ts';
 
 // ─── YouTube Auto-Sync (SharedClock) ──────────────────────────────
 // Every play/seek action delays 1s so all devices start simultaneously.
@@ -333,6 +338,10 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   clearManagedTimer('yt-load-timeout');
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
+  clearManagedTimer('yt-prime-bounce-timeout');
+  setYtPriming(false);
+  setYtPrimeBouncePending(false);
+  setYtAutoplayIntent(false);
   // Stop the background oEmbed fetch loop. Without this, leaving YouTube
   // mode mid-playlist with 100+ items keeps firing oEmbed requests for
   // ~80s and broadcasting YOUTUBE_SUB_TITLE_UPDATE messages — wasted
@@ -365,19 +374,29 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   resetYouTubeSyncState();
 
   const player = getYouTubePlayer();
+  const retainPlayer = !!player && (IS_IOS || isYtPrimed());
   if (player) {
     try {
-      log.debug('[YouTube] Destroying player instance...');
+      log.debug(
+        retainPlayer
+          ? '[YouTube] Stopping retained player instance...'
+          : '[YouTube] Destroying player instance...',
+      );
       player.stopVideo();
-      if (typeof player.destroy === 'function') player.destroy();
+      if (!retainPlayer && typeof player.destroy === 'function') player.destroy();
     } catch (e: unknown) {
       log.debug('[YouTube] Cleanup error (non-critical):', (e as Error).message);
     }
-    setYouTubePlayer(null);
+    if (!retainPlayer) {
+      setYouTubePlayer(null);
+      setYtPrimed(false);
+    } else {
+      setYtPrimed(true);
+    }
   }
 
   const container = document.getElementById('youtube-player-container');
-  if (container) container.replaceChildren();
+  if (container && !retainPlayer) container.replaceChildren();
 
   // Remove iOS sync overlay if present (prevents orphaned overlay on mode exit)
   const iosOverlay = document.getElementById('youtube-ios-sync-overlay');

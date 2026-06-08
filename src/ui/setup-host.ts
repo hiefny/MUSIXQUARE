@@ -37,6 +37,7 @@ import {
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
 import { markAppUsed } from '../demo/storage.ts';
+import { primeYouTubePlayer } from '../youtube/player.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
@@ -158,6 +159,8 @@ async function proceedToHostCode(mode: number): Promise<void> {
 export function startSessionFromHost(): void {
   const appRole = getState('network.appRole');
   if (appRole !== 'host' || getState('setup.sessionStarted')) return;
+
+  primeYouTubePlayer();
 
   // The pinned-notice cache is module-scoped, so a new host session starts clean.
   clearLatestPinnedNotice();

@@ -151,6 +151,19 @@ export const HOST_AD_STALE_DIFF_SEC = 1.0;
  *  overlay so the user can satisfy the iOS gesture requirement. */
 export const IOS_WATCHDOG_MS = 3000;
 
+/**
+ * Optional owner-controlled silent video used to "audible-prime" the iOS
+ * YouTube iframe. Leave empty to run creation-only prime mode until a stable
+ * unlisted silent video ID is available.
+ */
+export const YOUTUBE_PRIME_VIDEO_ID = '';
+
+/** C = create the persistent iframe only. B = unmuted silent-video bounce. */
+export const YOUTUBE_PRIME_MODE: 'B' | 'C' = YOUTUBE_PRIME_VIDEO_ID ? 'B' : 'C';
+
+/** Clears the prime-bounce pause guard if iOS never reports PLAYING. */
+export const YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS = 1500;
+
 /** Unavailable-video heuristic — if the host's player sits in a non-playing
  *  state (UNSTARTED / CUED / BUFFERING) for this long without recovering AND
  *  none of the legitimate-stall exceptions apply (iOS gate, tab hidden,

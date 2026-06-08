@@ -88,4 +88,21 @@ describe('body class sink (playback.mode matrix)', () => {
       }
     });
   }
+
+  it('keeps an existing YouTube iframe resident offscreen outside YouTube mode', () => {
+    document.body.innerHTML =
+      '<div class="video-wrapper"><div id="youtube-player-container"><iframe></iframe></div></div>';
+    setState('playback.mode', 'youtube');
+
+    setState('playback.mode', 'file');
+
+    const wrapper = document.querySelector('.video-wrapper') as HTMLElement;
+    const container = document.getElementById('youtube-player-container') as HTMLElement;
+    expect(wrapper.style.display).toBe('flex');
+    expect(wrapper.style.position).toBe('fixed');
+    expect(wrapper.style.left).toBe('-9999px');
+    expect(container.style.display).toBe('block');
+    expect(container.style.width).toBe('1px');
+    expect(container.style.opacity).toBe('0');
+  });
 });

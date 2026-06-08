@@ -12,6 +12,7 @@ import { MAX_PLAYLIST_SUB_ITEMS } from './constants.ts';
 // ─── Module State ──────────────────────────────────────────────────
 
 export interface YouTubePlayerInstance {
+  cueVideoById?(videoId: string, startSeconds?: number): void;
   loadVideoById(videoId: string, startSeconds?: number): void;
   loadPlaylist(args: {
     list: string;
@@ -37,6 +38,8 @@ export interface YouTubePlayerInstance {
   getVideoData(): { video_id?: string; title?: string; author?: string };
   getPlaylist(): string[];
   setVolume(volume: number): void;
+  mute?(): void;
+  unMute?(): void;
 }
 
 /**
@@ -77,6 +80,9 @@ let _ytLoadInProgress = false;
 let _isYtIndexing = false;
 let _ytIndexingCallback: ((ids: string[]) => void) | null = null;
 let _localYouTubePaused = false;
+let _ytPrimed = false;
+let _ytPriming = false;
+let _ytPrimeBouncePending = false;
 
 /**
  * Autoplay intent flag — set by createYouTubePlayer.
@@ -145,6 +151,18 @@ export function getYtIndexingCallback(): ((ids: string[]) => void) | null {
   return _ytIndexingCallback;
 }
 
+export function isYtPrimed(): boolean {
+  return _ytPrimed;
+}
+
+export function isYtPriming(): boolean {
+  return _ytPriming;
+}
+
+export function isYtPrimeBouncePending(): boolean {
+  return _ytPrimeBouncePending;
+}
+
 // ─── Setters ───────────────────────────────────────────────────────
 
 export function setYouTubePlayer(player: YouTubePlayerInstance | null): void {
@@ -201,6 +219,18 @@ export function setYtIndexingCallback(cb: ((ids: string[]) => void) | null): voi
   _ytIndexingCallback = cb;
 }
 
+export function setYtPrimed(primed: boolean): void {
+  _ytPrimed = primed;
+}
+
+export function setYtPriming(priming: boolean): void {
+  _ytPriming = priming;
+}
+
+export function setYtPrimeBouncePending(pending: boolean): void {
+  _ytPrimeBouncePending = pending;
+}
+
 /**
  * Central function: update YouTube sub-index + refresh playlist UI.
  * All code paths that change the current sub-video within a YouTube playlist
@@ -222,6 +252,9 @@ export function resetYouTubeModuleState(): void {
   _ytScope = null;
   _ytLoadInProgress = false;
   _ytAutoplayIntent = true;
+  _ytPrimed = false;
+  _ytPriming = false;
+  _ytPrimeBouncePending = false;
   _cachedYtDuration = 0;
   _cachedYtPlaylistIdx = -1;
   _isYtIndexing = false;

@@ -38,7 +38,11 @@ const devPageAliases = (): Plugin => ({
       const normalizedPath = (pathname.replace(/\/+$/, '') || '/').toLowerCase();
 
       let target: string | null = null;
-      if (normalizedPath === '/about' || normalizedPath === '/about.html' || normalizedPath === '/landing') {
+      if (
+        normalizedPath === '/about' ||
+        normalizedPath === '/about.html' ||
+        normalizedPath === '/landing'
+      ) {
         target = '/.workshop/landing/landing.html';
       } else if (normalizedPath === '/privacy' || normalizedPath === '/privacy.html') {
         target = '/.workshop/privacy/privacy.html';
@@ -66,6 +70,29 @@ const devPageAliases = (): Plugin => ({
   },
 });
 
+const prioritizeStylesheetsInHtml = (): Plugin => ({
+  name: 'prioritize-stylesheets-in-html',
+  apply: 'build',
+  transformIndexHtml: {
+    order: 'post',
+    handler(html) {
+      const stylesheetPattern = /\s*<link\b[^>]*\brel=(["'])stylesheet\1[^>]*>\s*/gi;
+      const stylesheets = html.match(stylesheetPattern);
+      if (!stylesheets?.length) return html;
+
+      const firstModuleScript = html.search(/<script\b[^>]*\btype=(["'])module\1[^>]*>/i);
+      if (firstModuleScript === -1) return html;
+
+      const withoutStylesheets = html.replace(stylesheetPattern, '\n');
+      const insertAt = withoutStylesheets.search(/<script\b[^>]*\btype=(["'])module\1[^>]*>/i);
+      if (insertAt === -1) return html;
+
+      const block = stylesheets.map((tag) => tag.trim()).join('\n    ');
+      return `${withoutStylesheets.slice(0, insertAt)}${block}\n    ${withoutStylesheets.slice(insertAt)}`;
+    },
+  },
+});
+
 export default defineConfig({
   root: '.',
   publicDir: 'public',
@@ -74,7 +101,7 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
-  plugins: [flattenWorkshopHtml(), devPageAliases()],
+  plugins: [flattenWorkshopHtml(), devPageAliases(), prioritizeStylesheetsInHtml()],
   build: {
     outDir: 'dist',
     target: 'es2022',

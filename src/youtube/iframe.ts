@@ -583,6 +583,14 @@ function createYouTubePlayer(
     }
 
     log.debug('[YouTube] Re-using existing player instance');
+    // A reused player skips onYouTubePlayerReady, which is where a freshly
+    // created player starts the UI loop — and the iOS tap-to-play watchdog
+    // lives inside that loop. A PRIMED player reused here for real playback
+    // would otherwise sit UNSTARTED with no watchdog running → no tap-to-play
+    // fallback → frozen iframe on iOS. Mirror onReady / the YT-to-YT path.
+    if (!getManagedTimer('youtubeUILoop')) {
+      setManagedTimer('youtubeUILoop', updateYouTubeUI, UI_LOOP_INTERVAL_MS, { interval: true });
+    }
     try {
       if ((needsScrape || indexing) && playlistId) {
         existingPlayer.cuePlaylist({

@@ -24,6 +24,7 @@ import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { ramStats } from '../storage/ramstore.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
+import { getCapturedLogs } from '../core/log-capture.ts';
 import { getPlaybackOwnership } from '../player/ownership.ts';
 import { collectSystemAudioDebugText } from '../network/system-audio-debug.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
@@ -512,6 +513,10 @@ function cmdDebug(args: string[]): void {
     void cmdDebugSystemAudio();
     return;
   }
+  if (sub === 'console' || sub === 'log' || sub === 'logs') {
+    cmdDebugConsole();
+    return;
+  }
 
   const lines: string[] = ['SYSTEM DEBUG INFO'];
 
@@ -683,6 +688,7 @@ async function cmdDebugSystemAudio(): Promise<void> {
   stopDebugSystemAudioSession();
   stopDebugScreenSession();
   stopDebugMemorySession();
+  stopDebugConsoleSession();
 
   const existing = document.getElementById('debug-system-audio-overlay');
   if (existing) existing.remove();
@@ -796,6 +802,7 @@ function cmdDebugScreen(): void {
   stopDebugScreenSession();
   stopDebugMemorySession();
   stopDebugSystemAudioSession();
+  stopDebugConsoleSession();
 
   const existing = document.getElementById('debug-screen-overlay');
   if (existing) existing.remove();
@@ -872,6 +879,103 @@ function stopDebugScreenSession(): void {
     /* ignore */
   }
   _activeScreenDebugSession = null;
+}
+
+// ─── /debug console ──────────────────────────────────────────────
+// On-device console viewer. iOS has no DevTools without a tethered Mac, so
+// this surfaces the captured console ring buffer (core/log-capture.ts) as a
+// scrollable overlay. Same look as /debug screen; tap the edge / ESC to close.
+interface ConsoleDebugSession {
+  overlay: HTMLElement;
+  pre: HTMLPreElement;
+  cleanup: () => void;
+}
+let _activeConsoleDebugSession: ConsoleDebugSession | null = null;
+const DEBUG_CONSOLE_TIMER = 'debug-console-poll';
+const DEBUG_CONSOLE_POLL_INTERVAL_MS = 1000;
+
+function cmdDebugConsole(): void {
+  stopDebugConsoleSession();
+  stopDebugScreenSession();
+  stopDebugMemorySession();
+  stopDebugSystemAudioSession();
+
+  const existing = document.getElementById('debug-console-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'debug-console-overlay';
+  overlay.className = 'debug-memory-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-label', 'Debug console live overlay');
+
+  const pre = document.createElement('pre');
+  pre.className = 'debug-memory-content';
+  // The log buffer can be long, so make the content scrollable. The other
+  // overlays are short and close on any tap; this one closes on backdrop tap.
+  pre.style.overflowY = 'auto';
+  pre.style.maxHeight = '85vh';
+  overlay.appendChild(pre);
+
+  const hint = document.createElement('div');
+  hint.className = 'debug-memory-hint';
+  hint.textContent = 'tap edge / ESC to close | live 1s | newest at bottom';
+  overlay.appendChild(hint);
+
+  const refresh = (): void => {
+    // Stick to the bottom only when the user hasn't scrolled up to read back.
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.textContent = getCapturedLogs();
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  };
+
+  const close = (): void => stopDebugConsoleSession();
+
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  };
+
+  const cleanup = (): void => {
+    clearManagedTimer(DEBUG_CONSOLE_TIMER);
+    document.removeEventListener('keydown', onKey);
+    if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+  };
+
+  // Close on backdrop tap only — tapping/scrolling the content must not close.
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  document.addEventListener('keydown', onKey);
+
+  _activeConsoleDebugSession = { overlay, pre, cleanup };
+  document.body.appendChild(overlay);
+  refresh();
+
+  setManagedTimer(DEBUG_CONSOLE_TIMER, refresh, DEBUG_CONSOLE_POLL_INTERVAL_MS, { interval: true });
+
+  try {
+    navigator.clipboard
+      .writeText(getCapturedLogs())
+      .then(() => showToast(t('chat.debug_copied')))
+      .catch(() => {
+        /* clipboard not available */
+      });
+  } catch {
+    /* ignore */
+  }
+}
+
+function stopDebugConsoleSession(): void {
+  if (!_activeConsoleDebugSession) return;
+  try {
+    _activeConsoleDebugSession.cleanup();
+  } catch {
+    /* ignore */
+  }
+  _activeConsoleDebugSession = null;
 }
 
 function collectScreenDebugText(): string {
@@ -1368,6 +1472,7 @@ function startDebugMemorySession(initial: MemSnapshot): void {
   stopDebugMemorySession();
   stopDebugScreenSession();
   stopDebugSystemAudioSession();
+  stopDebugConsoleSession();
 
   // Drop any zombie overlay from a prior crash where cleanup didn't run.
   const existing = document.getElementById('debug-memory-overlay');

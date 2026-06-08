@@ -15,6 +15,7 @@
 
 // ── Core ──
 import { log } from './core/log.ts';
+import { installConsoleCapture } from './core/log-capture.ts';
 import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
@@ -91,6 +92,11 @@ declare global {
     __MXQR?: unknown;
   }
 }
+
+// Tee console output into a ring buffer so `/debug console` can surface it on
+// iOS, where Safari Web Inspector needs a tethered Mac. Install before the rest
+// of bootstrap so runtime logs (YouTube sync, errors, etc.) are captured.
+installConsoleCapture();
 
 // ── System Compatibility Check ──
 

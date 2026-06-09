@@ -19,7 +19,15 @@
 
 SA-08(시스템오디오 START watchdog 비대칭)도 Group C에서 함께 수정
 (`cancelIncomingFileTransfer('system-audio-start')` — 유튜브 전환과 대칭).
-미수정 잔여: SA-06/07/09/10/11/12/13 (P4/관찰, 기록 유지).
+
+**후속 라운드 (같은 날)**: 사용자 정책 확정으로 3건 추가 수정 —
+- SA-09 ✅: **정책 확정 "방이 일시정지면 게스트도 resume 불가"**. media-session play 핸들러가
+  `isLocalFilePaused()`일 때만 로컬 resume 허용 (로컬 일시정지=호스트 재생 중인 경우만).
+  유튜브 쪽은 이미 같은 정책(rendezvous host-paused 분기)이라 파일 모드만 정렬.
+- SA-12 ✅: repeat-one 타이머가 fire 시점에 currentTrackIndex 재읽기.
+- SA-13 ✅: 데모 진입 시 `cancelOutgoingFileTransfers()`.
+
+미수정 잔여: SA-06/07/10/11 (자가치유/의도된 트레이드오프, 기록 유지).
 
 **Phase 4(대규모 리팩터링) 평가 결과**: stopAllMedia를 stopForTransition/stopTerminal로
 분리하는 옵션을 검토했으나 기각 — `silent` 플래그가 이미 '전환' 의미를 인코딩하고 있고,

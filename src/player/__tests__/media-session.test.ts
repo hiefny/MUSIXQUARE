@@ -62,12 +62,14 @@ globalThis.MediaMetadata = class MediaMetadata {
 } as unknown as typeof MediaMetadata;
 
 import { updateMediaSessionMetadata, initMediaSession } from '../media-session.ts';
+import { setLocalFilePaused } from '../_state.ts';
 import { togglePlay, stopPlayback, skipTime, play, pause } from '../transport.ts';
 
 beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  setLocalFilePaused(false);
   navigator.mediaSession.metadata = null;
   navigator.mediaSession.playbackState = 'none';
 });
@@ -148,17 +150,32 @@ describe('initMediaSession', () => {
     expect(fn).toHaveBeenCalledWith(2);
   });
 
-  // Non-OP guests must still be able to play/pause — lock screen and
-  // hardware media buttons should always work (see media-session.ts
-  // isPlaybackBlocked comment). Only track changes and seek are blocked.
-  it('play handler resumes local file playback for non-operator guests', () => {
+  // Non-OP guests must still be able to pause/resume their OWN local pause —
+  // lock screen and hardware media buttons should always work (see
+  // media-session.ts isPlaybackBlocked comment). Resume is only valid when
+  // the pause originated locally (isLocalFilePaused); a ROOM-level pause
+  // (host PAUSE) must not be resumable by a lone guest (SA-09).
+  it('play handler resumes a LOCALLY-paused file for non-operator guests', () => {
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
     setPlaybackFilePaused();
+    setLocalFilePaused(true); // pause came from this guest's lock screen
     setState('playlist.currentTrackIndex', 0);
     setState('player.pausedAt', 12);
     _handlers['play']();
     expect(play).toHaveBeenCalledWith(12);
+    expect(togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('play handler does NOT let a non-operator guest resume a ROOM-paused file (SA-09)', () => {
+    setState('network.hostConn', { fake: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePaused();
+    setLocalFilePaused(false); // host paused the room → flag cleared by handlePauseMsg
+    setState('playlist.currentTrackIndex', 0);
+    setState('player.pausedAt', 12);
+    _handlers['play']();
+    expect(play).not.toHaveBeenCalled();
     expect(togglePlay).not.toHaveBeenCalled();
   });
 

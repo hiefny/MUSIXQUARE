@@ -1271,7 +1271,6 @@ export function initPlaylist(): void {
 
     const token = ++_endedAdvanceToken;
     const repeatMode = getState('playlist.repeatMode') || 0;
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
 
     if (repeatMode === 2) {
       log.debug('Repeat One: Replaying current track...');
@@ -1285,7 +1284,11 @@ export function initPlaylist(): void {
           play(0).catch(() => {
             /* noop */
           });
-          broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+          // Read the index at FIRE time, not capture time: a non-current
+          // track removal during this 300ms window shifts indices (SA-12) —
+          // a captured value would broadcast the pre-splice index and send
+          // guests through a pointless index-mismatch recovery.
+          broadcast({ type: MSG.PLAY, time: 0, index: getState('playlist.currentTrackIndex') });
           // SharedClock handles sync
         },
         300,

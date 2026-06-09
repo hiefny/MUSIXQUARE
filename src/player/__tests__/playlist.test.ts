@@ -1,10 +1,11 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
   consumePendingAutoSyncOnReady,
@@ -29,6 +30,11 @@ beforeEach(() => {
   resetState();
   bus.clear();
   setPendingAutoSyncOnReady(false);
+});
+
+afterEach(() => {
+  clearAllManagedTimers();
+  vi.useRealTimers();
 });
 
 function makeConnection(peer: string): DataConnection {
@@ -211,6 +217,33 @@ describe('playTrack YouTube auto-rendezvous', () => {
         index: 0,
         subIndex: 1,
       }),
+    );
+  });
+});
+
+describe('repeat-one ended-advance after a mid-window removal (SA-12)', () => {
+  it('broadcasts the index read at FIRE time, not the captured one', async () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
+    initPlaylist();
+    setState('playlist.items', [
+      { type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'b.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'c.mp3', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 2);
+    setRepeatMode(2, false);
+
+    bus.emit('player:ended');
+    // A non-current track removal during the 300ms window shifts the
+    // current index down — the replay broadcast must follow it.
+    setState('playlist.currentTrackIndex', 1);
+    await vi.advanceTimersByTimeAsync(320);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PLAY, time: 0, index: 1 }),
     );
   });
 });

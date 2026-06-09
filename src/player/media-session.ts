@@ -10,7 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime, play, pause } from './transport.ts';
-import { setLocalFilePaused } from './_state.ts';
+import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
 import {
   isPlaybackActivityValue,
   isPlaybackIdle,
@@ -114,8 +114,15 @@ export function initMediaSession(): void {
     if (isPlaybackPlayingFile()) return;
     if (currentTrackIndex >= 0) {
       if (isNonOperatorGuest()) {
-        // Local resume: clear the pause flag so the next SYNC_PONG re-locks
-        // this guest to the host position (network/sync.ts).
+        // Local resume is only valid when the pause was LOCAL (this guest
+        // paused via lock screen / BT button while the host kept playing —
+        // SYNC_PONG re-locks position after resume). If the flag is clear,
+        // the pause is ROOM-level (host PAUSE cleared it in playback.ts):
+        // a lone guest resuming would play solo in a multi-device room
+        // (SA-09). The room resumes via the host's next PLAY broadcast.
+        if (!isLocalFilePaused()) return;
+        // Clear the flag so the next SYNC_PONG re-locks this guest to the
+        // host position (network/sync.ts).
         setLocalFilePaused(false);
         void play(getState('player.pausedAt') || 0);
         return;

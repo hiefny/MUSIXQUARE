@@ -18,6 +18,7 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
+import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { applySettingsAsync } from '../audio/effects.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
@@ -208,6 +209,12 @@ function stopPlaybackForDemoEntry(playback: PlaybackModeActivity): void {
   }
 
   stopAllMedia({ silent: true, cancelInFlight: true });
+
+  // SA-13: the demo takes over the room. Guests drop any still-streaming
+  // file chunks via their lifecycle gates anyway — cancel the host's
+  // outgoing broadcast/unicast loops so the share doesn't burn bandwidth
+  // for the entire demo session.
+  cancelOutgoingFileTransfers();
 
   const afterStop = getPlaybackModeActivitySnapshot();
   if (afterStop.mode === 'system-audio') {

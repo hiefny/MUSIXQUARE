@@ -12,9 +12,20 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { play, pause, stopAllMedia, getTrackPosition } from './transport.ts';
+import {
+  play,
+  pause,
+  stopAllMedia,
+  getTrackPosition,
+  isFilePipelineBusyForPlay,
+} from './transport.ts';
 import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
-import { incrementLoadToken, getCurrentAudioBuffer, setCurrentAudioBuffer } from './_state.ts';
+import {
+  incrementLoadToken,
+  getLoadToken,
+  getCurrentAudioBuffer,
+  setCurrentAudioBuffer,
+} from './_state.ts';
 import { isMediaVideo } from './video.ts';
 import { transition } from './lifecycle.ts';
 
@@ -469,7 +480,17 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     // subsequent DECODE_SUCCESS lands cleanly on READY.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name: fileName });
 
-    await loadPreloadedTrack(index, myLoadToken);
+    // SA-05: only play+broadcast when the activation actually succeeded AND
+    // this invocation is still current. On failure loadPreloadedTrack already
+    // routed the host into markFailedAndAdvance (failed-mark + auto-advance);
+    // playing here would emit the empty-buffer toast and broadcast a PLAY
+    // that only guests can honor. On token mismatch a newer playTrack owns
+    // playback — a stale PLAY(old index) broadcast would flap guests back.
+    const activated = await loadPreloadedTrack(index, myLoadToken);
+    if (!activated || getLoadToken() !== myLoadToken) {
+      log.debug('[Host] Preloaded activation failed or superseded — skipping play/broadcast');
+      return;
+    }
     await play(0);
     broadcast({ type: MSG.PLAY, time: 0, index, name: fileName });
     // SharedClock handles sync
@@ -750,6 +771,28 @@ export function playNextTrack(): void {
 
 // ─── Play Previous Track ───────────────────────────────────────────
 
+/**
+ * Restart the resident buffer from 0:00 and broadcast (Prev-button
+ * "restart current track" semantics).
+ *
+ * SA-04 sibling of togglePlay's guard (4901b9cd/F-1701): during
+ * DOWNLOADING/AWAITING_PRELOAD/DECODING the resident AudioBuffer is the
+ * PREVIOUS track's — restarting it would play stale audio under the new
+ * track's index AND broadcast that index to guests. During track prep
+ * getTrackPosition() reads 0, so Prev lands on these restart branches
+ * instead of the pos>3 path; drop and let the post-decode autoPlayTimer
+ * own the start.
+ */
+function restartCurrentTrackFromStart(currentTrackIndex: number): void {
+  if (isFilePipelineBusyForPlay()) {
+    log.debug('[Playlist] Ignoring restart-current while file pipeline is preparing');
+    return;
+  }
+  play(0);
+  broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+  // SharedClock handles sync
+}
+
 export function playPrevTrack(): void {
   if (isGuestBlocked()) return;
 
@@ -800,9 +843,7 @@ export function playPrevTrack(): void {
   const pos = getTrackPosition();
   if (pos > 3) {
     // Restart current track from the beginning
-    play(0);
-    broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-    // SharedClock handles sync
+    restartCurrentTrackFromStart(currentTrackIndex);
     return;
   }
 
@@ -824,8 +865,7 @@ export function playPrevTrack(): void {
     if (isQueueIdle()) {
       playTrack(Math.max(0, currentTrackIndex));
     } else {
-      play(0);
-      broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+      restartCurrentTrackFromStart(currentTrackIndex);
     }
     return;
   }
@@ -845,9 +885,7 @@ export function playPrevTrack(): void {
         // playTrack doesn't no-op-return on the out-of-range guard.
         playTrack(Math.max(0, currentTrackIndex));
       } else {
-        play(0);
-        broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
-        // SharedClock handles sync
+        restartCurrentTrackFromStart(currentTrackIndex);
       }
     }
   }

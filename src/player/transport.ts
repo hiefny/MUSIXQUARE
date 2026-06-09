@@ -380,6 +380,16 @@ export function seekTo(time: number): void {
   // System audio: no seek (live stream)
   if (isSystemAudioOwner()) return;
 
+  // SA-04 sibling of togglePlay's guard (4901b9cd/F-1701): during
+  // DOWNLOADING/AWAITING_PRELOAD/DECODING the resident buffer is the
+  // PREVIOUS track's — seeking would play stale audio AND broadcast the
+  // NEW index (the host's own seekbar reaches here unguarded, see
+  // seekbar.ts 'change'). Drop; the post-decode autoPlayTimer owns playback.
+  if (isFilePipelineBusyForPlay()) {
+    log.debug('[Seek] Ignoring seek while file pipeline is preparing');
+    return;
+  }
+
   // Host: playing → seek + broadcast
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   if (isFilePlaybackPlaying()) {
@@ -402,6 +412,19 @@ export function seekTo(time: number): void {
 export async function play(offset: number, scheduleDelay = 0): Promise<void> {
   if (isPlayLocked()) {
     log.warn('[Play] Blocked: queuing play request');
+    setPendingPlayTime(offset);
+    return;
+  }
+  // SA-04 source-level safety net: during DOWNLOADING/AWAITING_PRELOAD/
+  // DECODING the resident AudioBuffer still belongs to the PREVIOUS track —
+  // starting it would emit stale audio under the new track's index. Every
+  // known entry point guards this itself (togglePlay, handleRequestPlay,
+  // seekTo, skipTime, ...), so this only catches future callers. Queue as
+  // pendingPlayTime (same contract as the play-lock branch above): the
+  // pipeline-completion paths in decode.ts consume it, and _internalPlay
+  // clears it at the start of the next legitimate play.
+  if (isFilePipelineBusyForPlay()) {
+    log.warn('[Play] Deferred: file pipeline busy — queuing as pendingPlayTime');
     setPendingPlayTime(offset);
     return;
   }
@@ -824,6 +847,13 @@ export function skipTime(sec: number): void {
   if (isSystemAudioOwner()) return; // No skip on live stream
   if (isYouTubeOwner()) {
     bus.emit('youtube:skip-time', sec);
+    return;
+  }
+
+  // SA-04 sibling guard — see seekTo above. Reachable via media-session
+  // seekforward/seekbackward and REQUEST_SKIP_TIME during track prep.
+  if (isFilePipelineBusyForPlay()) {
+    log.debug('[Skip] Ignoring skip while file pipeline is preparing');
     return;
   }
 

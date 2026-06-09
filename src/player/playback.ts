@@ -319,6 +319,31 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     }
     setPendingPlayTime(time);
     log.debug(`[Guest] Storing pending play time: ${time}`);
+
+    // Orphaned-pipeline recovery (SA-03, docs/scenario-audit-2026-06-10.md):
+    // index matches but there is no buffer AND no inbound pipeline (lifecycle
+    // IDLE/FAILED — busy states already deferred above). This happens when a
+    // mid-download transfer was killed by a mode switch (e.g. a system-audio
+    // session started, dropping chunks via the external-owner gate) and the
+    // host later resumes with plain PLAY — no FILE_PREPARE ever re-arrives,
+    // and the SYNC_PONG bootstrap can't start without a buffer. Without this
+    // request the guest stays silent until the host changes tracks.
+    // De-dup is structural: the host's FILE_START response moves lifecycle to
+    // DOWNLOADING within one RTT, so a repeated PLAY no longer reaches here.
+    const lifecycleNow = getState('playback.lifecycle');
+    if (
+      (lifecycleNow === PLAYBACK_STATE.IDLE || lifecycleNow === PLAYBACK_STATE.FAILED) &&
+      currentTrackIndex >= 0
+    ) {
+      const trackName = playlist[currentTrackIndex]?.name || (data.name as string) || '';
+      log.info('[Guest] PLAY for current index with no buffer/pipeline — requesting current file');
+      sendToHost({
+        type: MSG.REQUEST_CURRENT_FILE,
+        name: trackName,
+        index: currentTrackIndex,
+        reason: 'no_buffer',
+      });
+    }
   }
 }
 
@@ -512,6 +537,17 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
+  // Sibling guard to handleRequestPlay above (4901b9cd/F-1701, SA-04):
+  // during DOWNLOADING/AWAITING_PRELOAD/DECODING the resident AudioBuffer
+  // still belongs to the previous track — play(time) would emit stale audio
+  // and broadcast the NEW index. Placed after the YouTube branch because a
+  // stale non-IDLE lifecycle can survive a file→YouTube switch (transition()
+  // no-ops under external owners) and must not block YouTube seeks.
+  if (isFilePipelineBusyForPlay()) {
+    log.debug('[Playback] Ignoring REQUEST_SEEK while file pipeline is preparing');
+    return;
+  }
+
   if (isPlaybackPlayingFile()) {
     play(time);
     broadcast({
@@ -591,6 +627,11 @@ export function initPlayback(): void {
   bus.on('playback:refresh-current-position', () => {
     if (!getCurrentAudioBuffer()) return;
     if (!isPlaybackPlayingFile()) return;
+    // SA-04 sibling: a long background resume can land inside a track
+    // change (stopAllMedia({silent}) keeps mode=file/playing while the new
+    // file decodes) — the resident buffer is the previous track's. The
+    // post-decode autoPlayTimer owns the restart.
+    if (isFilePipelineBusyForPlay()) return;
     play(getTrackPosition());
   });
 

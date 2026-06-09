@@ -218,22 +218,25 @@ async function preloadNextTrack(): Promise<void> {
     nextIdx = currentTrackIndex; // Repeat One
   } else if (isShuffle && playlist.length > 1) {
     // Ask playlist.ts for the next slot in its Fisher-Yates permutation so
-    // the preload matches exactly what playNextTrack will pick. Falls back
-    // to a safe random pick if the order isn't ready (first-run edge case).
+    // the preload matches exactly what playNextTrack will pick.
+    //
+    // hinted === -1 means the shuffle pass has ENDED (repeat OFF): there is
+    // no legitimate next track. The old "safe random pick" fallback here was
+    // SA-01 (docs/scenario-audit-2026-06-10.md): the staged random index fed
+    // playNextTrack's preferredIndex fast-accept and bypassed
+    // handleEndOfPlaylist('shuffle-end') — shuffle+repeat-off never ended.
+    // No next track → no preload. Same contract as the sequential branch's
+    // nextIdx = -1 path below.
     try {
       const mod = await import('../player/playlist.ts');
       const hinted = mod.getShuffleNextIndex();
       if (hinted >= 0 && hinted < playlist.length && hinted !== currentTrackIndex) {
         nextIdx = hinted;
       } else {
-        do {
-          nextIdx = Math.floor(Math.random() * playlist.length);
-        } while (nextIdx === currentTrackIndex);
+        nextIdx = -1;
       }
     } catch {
-      do {
-        nextIdx = Math.floor(Math.random() * playlist.length);
-      } while (nextIdx === currentTrackIndex);
+      nextIdx = -1;
     }
   } else {
     nextIdx = currentTrackIndex + 1;

@@ -14,6 +14,7 @@ import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
+import { cancelIncomingFileTransfer } from '../storage/transfer.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -715,6 +716,13 @@ export function registerSystemAudioGuestListeners(): void {
       _debugLastStartIgnoredReason = '';
       _prevTrackMeta = currentMeta;
       stopAllMedia({ silent: true, cancelInFlight: true });
+      // SA-08: mirror the youtube switch's cancelInFlightTransfer. The share
+      // takes over the receive path (incoming chunks are dropped via the
+      // external-owner gate), so tear down any in-flight main download —
+      // otherwise the still-armed chunk/prepare watchdogs keep firing
+      // REQUEST_DATA_RECOVERY during the share for chunks we discard anyway.
+      cancelIncomingFileTransfer('system-audio-start');
+      clearManagedTimer('preloadWatchdog');
       claimPlaybackOwner('system-audio', {
         pending: true,
         currentTrackMeta: createSystemAudioTrackMeta('receiving'),

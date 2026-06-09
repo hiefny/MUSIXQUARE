@@ -32,13 +32,14 @@ import {
   setPlaybackSystemAudioPlaying,
   setPlaybackYouTubePlaying,
 } from '../ownership.ts';
-import { broadcast } from '../../network/peer.ts';
+import { broadcast, sendToHost } from '../../network/peer.ts';
 import { handleData } from '../../network/protocol.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
   sendToHost: vi.fn(),
+  isRemoteGuest: vi.fn(() => false),
 }));
 
 beforeEach(() => {
@@ -48,6 +49,7 @@ beforeEach(() => {
   setCurrentAudioBuffer(null);
   setPlayerNode(null);
   vi.mocked(broadcast).mockClear();
+  vi.mocked(sendToHost).mockClear();
 });
 
 // ─── getCurrentAudioBuffer ───────────────────────────────────────────
@@ -374,6 +376,60 @@ describe('handlePlayMsg lifecycle gate', () => {
 
     expect(getPendingPlayTime()).toBe(7);
     expect(getState('playback.activity')).not.toBe('playing');
+  });
+});
+
+// ─── handlePlayMsg orphaned-pipeline recovery (SA-03) ────────────────
+// A mode switch (e.g. system-audio session) can kill an in-flight download:
+// chunks get dropped via the external-owner gate, and after the mode ends
+// the guest sits with no buffer, lifecycle IDLE, and an index that matches
+// the host's. A later plain PLAY used to only store pendingPlayTime — with
+// no inbound pipeline and no SYNC_PONG bootstrap (needs a buffer), the
+// guest stayed silent until the host changed tracks.
+
+describe('handlePlayMsg orphaned-pipeline recovery', () => {
+  it('requests the current file when PLAY arrives with no buffer and no inbound pipeline', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [
+      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
+      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 1);
+    // lifecycle IDLE: the prior transfer was torn down, nothing inbound
+    setCurrentAudioBuffer(null);
+
+    initPlayback();
+    await handleData({ type: MSG.PLAY, time: 30, index: 1, name: 'new.mp3' }, hostConn);
+
+    expect(getPendingPlayTime()).toBe(30);
+    expect(sendToHost).toHaveBeenCalledWith({
+      type: MSG.REQUEST_CURRENT_FILE,
+      name: 'new.mp3',
+      index: 1,
+      reason: 'no_buffer',
+    });
+  });
+
+  it('does not fire the recovery request while a pipeline is inbound (DOWNLOADING)', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [
+      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setCurrentAudioBuffer(null);
+
+    initPlayback();
+    await handleData({ type: MSG.PLAY, time: 30, index: 0, name: 'new.mp3' }, hostConn);
+
+    expect(getPendingPlayTime()).toBe(30);
+    expect(sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
+    );
   });
 });
 

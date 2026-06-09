@@ -293,10 +293,22 @@ export async function startSystemAudioCapture(): Promise<void> {
 }
 
 /**
- * Stop system audio capture and restore previous state.
+ * Stop system audio capture.
+ *
+ * `restore` (default true) controls whether the pre-share playback snapshot
+ * is restored. Explicit user stops (공유 중지 button, browser "Stop sharing",
+ * error cleanup) restore. The `system-audio:force-stop` path passes
+ * restore:false — force-stop only ever fires from TRANSITION/teardown
+ * contexts (stopAllMedia during a track/mode change, demo entry,
+ * leaveSession) where another playback flow is already taking over.
+ * Restoring there ran synchronously INSIDE that flow and stomped it:
+ * pre-share YouTube resurrected room-wide while the clicked file's decode
+ * aborted on the external-owner gate (SA-02,
+ * docs/scenario-audit-2026-06-10.md).
  */
-export function stopSystemAudioCapture(): void {
+export function stopSystemAudioCapture(opts?: { restore?: boolean }): void {
   if (!isSystemAudioActive() && !_capturedStream) return;
+  const shouldRestore = opts?.restore ?? true;
 
   _debugLastStopBroadcastAt = Date.now();
   broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
@@ -307,13 +319,21 @@ export function stopSystemAudioCapture(): void {
   cleanupCapture();
   muteLocalOutput(false);
 
-  if (_preSysAudioState) {
+  if (shouldRestore && _preSysAudioState) {
     restorePreSystemAudioPlaybackState(_preSysAudioState);
-    _preSysAudioState = null;
-  } else {
+  } else if (shouldRestore) {
     setPlaybackTrackMeta(null);
     setPlaybackIdle();
+  } else {
+    // Transition teardown: release system-audio ownership so the caller's
+    // flow (play()/youtube:load) can claim the next mode — but do NOT touch
+    // currentTrackMeta: the in-progress selection (e.g. playTrack) already
+    // set the new track's meta before reaching us.
+    setPlaybackIdle();
   }
+  // Discard the snapshot in every path — a stale snapshot surviving a
+  // transition would leak into a later explicit stop.
+  _preSysAudioState = null;
 
   bus.emit('ui:show-toast', t('system_audio.stopped'));
   _debugLastCaptureStoppedAt = Date.now();
@@ -442,7 +462,10 @@ export function registerSystemCaptureListeners(): void {
   bus.on('system-audio:stop', () => {
     stopSystemAudioCapture();
   });
+  // force-stop = transition/teardown semantics (stopAllMedia track/mode
+  // change, demo entry, leaveSession): another flow is taking over playback,
+  // so never restore the pre-share snapshot here (SA-02).
   bus.on('system-audio:force-stop', () => {
-    stopSystemAudioCapture();
+    stopSystemAudioCapture({ restore: false });
   });
 }

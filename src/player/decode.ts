@@ -587,10 +587,20 @@ export function initDecodeHandlers(): void {
 
 // ─── Load Preloaded Track ──────────────────────────────────────────
 
+/**
+ * Activate the preloaded blob (decode → swap into the live buffer).
+ *
+ * Returns `true` only when the activation fully succeeded (buffer swapped,
+ * lifecycle at READY). Every abort/supersede/failure path returns `false` so
+ * callers that follow up with play()+broadcast (host fast path in
+ * playlist.ts) can bail instead of broadcasting a PLAY for audio the host
+ * never loaded (SA-05, docs/scenario-audit-2026-06-10.md). Mirrors the
+ * boolean contract of loadAndBroadcastFile above.
+ */
 export async function loadPreloadedTrack(
   expectedIndex?: number,
   loadToken?: number,
-): Promise<void> {
+): Promise<boolean> {
   const nextMeta = getState('preload.meta');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const targetIndex = expectedIndex ?? (nextMeta?.index as number) ?? currentTrackIndex;
@@ -601,7 +611,7 @@ export async function loadPreloadedTrack(
   if (!localBlob) {
     log.warn('[Preload] No preloaded blob found in cache!');
     setPendingPlayTime(undefined);
-    return;
+    return false;
   }
 
   const activationOwner = beginPreloadActivation();
@@ -628,7 +638,7 @@ export async function loadPreloadedTrack(
       // silently stalled with the blob loaded but never started — exactly
       // the "downloads but doesn't sync-play" symptom on remote-share track
       // switching.
-      return;
+      return false;
     }
 
     if (isExternalOwner()) {
@@ -636,7 +646,7 @@ export async function loadPreloadedTrack(
       finishPreloadActivation(activationOwner);
       setPendingPlayTime(undefined);
       showLoader(false);
-      return;
+      return false;
     }
 
     // Dispose old buffer
@@ -656,7 +666,7 @@ export async function loadPreloadedTrack(
       finishPreloadActivation(activationOwner);
       // Same rationale: token mismatch means a newer load is starting; the
       // newer load owns pendingPlayTime consumption.
-      return;
+      return false;
     }
     if (
       expectedIndex !== undefined &&
@@ -666,14 +676,14 @@ export async function loadPreloadedTrack(
       log.warn('[Preload] Track changed during decode. Discarding.');
       finishPreloadActivation(activationOwner);
       // Preserve pendingPlayTime for the new track's loader.
-      return;
+      return false;
     }
     if (isExternalOwner()) {
       log.debug('[Preload] Activation discarded - external playback mode took ownership');
       finishPreloadActivation(activationOwner);
       setPendingPlayTime(undefined);
       showLoader(false);
-      return;
+      return false;
     }
 
     const activeMeta = localMeta || getState('transfer.meta');
@@ -794,10 +804,11 @@ export async function loadPreloadedTrack(
 
     finishPreloadActivation(activationOwner);
     showLoader(false);
+    return true;
   } catch (e: unknown) {
     if (!isCurrentPreloadActivation(activationOwner)) {
       log.debug('[Preload] Stale activation failed after supersession; ignoring', e);
-      return;
+      return false;
     }
     finishPreloadActivation(activationOwner);
     setPendingPlayTime(undefined);
@@ -816,9 +827,22 @@ export async function loadPreloadedTrack(
     setState('preload.nextTrackIndex', -1);
     clearManagedTimer('preloadWatchdog');
 
-    // On decode timeout, the file itself is unplayable — asking host for a
-    // recovery copy would just re-trigger the same timeout. Skip recovery and
-    // wait for host to advance to the next track on its own.
+    const hostConn = getState('network.hostConn');
+    const failedIdx = getState('playlist.currentTrackIndex');
+
+    // HOST: this was the preloaded-fast-path activation of the host's own
+    // file — there is no one to request recovery FROM (the old
+    // sendToHost below was a silent no-op on host, leaving the host stuck
+    // while guests played; SA-05). Route through the same
+    // failed-mark + auto-advance path that loadAndBroadcastFile failures use.
+    if (!hostConn) {
+      markFailedAndAdvance(localBlob, failedIdx);
+      return false;
+    }
+
+    // GUEST, decode timeout: the file itself is unplayable — asking host for
+    // a recovery copy would just re-trigger the same timeout. Skip recovery
+    // and wait for host to advance to the next track on its own.
     //
     // Also mark the track as failed so that a subsequent manual click on the
     // same entry (while still in this session) doesn't re-run the 10s timeout
@@ -827,21 +851,21 @@ export async function loadPreloadedTrack(
     if (timedOut) {
       const failedKey = getTrackKeyFromFile(localBlob);
       markTrackFailed(failedKey);
-      return;
+      return false;
     }
 
-    // Non-timeout failure (e.g. partial download, network error) — request
-    // recovery from host. Recovery path has its own retry ceiling so this
-    // won't infinite-loop.
+    // GUEST, non-timeout failure (e.g. partial download, network error) —
+    // request recovery from host. Recovery path has its own retry ceiling so
+    // this won't infinite-loop.
     const playlist = getState('playlist.items') || [];
-    const idx = getState('playlist.currentTrackIndex');
-    const recoveryName = playlist[idx]?.name || name;
+    const recoveryName = playlist[failedIdx]?.name || name;
     sendToHost({
       type: MSG.REQUEST_CURRENT_FILE,
       name: recoveryName,
-      index: idx,
+      index: failedIdx,
       reason: 'preload_activation_failed',
     });
+    return false;
   }
 }
 

@@ -24,7 +24,7 @@ import {
   updateTitleWithMarquee,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
-import { getTrackPosition, togglePlay } from '../player/transport.ts';
+import { getTrackPosition, isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
@@ -503,6 +503,14 @@ function handleMainSyncBtn(): void {
   }
 
   if (!hostConn) {
+    // SA-04 variant: during track prep (DOWNLOADING/AWAITING_PRELOAD/
+    // DECODING) getTrackPosition() reads 0 and the resident buffer is the
+    // previous track's — broadcasting PLAY/PAUSE(time 0, new index) would
+    // bounce ready guests to 0:00 while the host is still preparing.
+    if (isFilePipelineBusyForPlay()) {
+      showToast(t('toast.sync_not_ready'));
+      return;
+    }
     const time = getTrackPosition();
     const index = getState('playlist.currentTrackIndex');
     if (isPlaybackPlayingFile()) {

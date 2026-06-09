@@ -271,6 +271,75 @@ describe('guest file finalization sync', () => {
   });
 });
 
+describe('host preload activation result (SA-05)', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    clearAllManagedTimers();
+    vi.clearAllMocks();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:preload'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  it('returns false on decode failure and routes the host into failed-mark cleanup', async () => {
+    mocks.decodeAudioData.mockRejectedValue(new Error('unsupported codec'));
+    const file = new File([new Uint8Array([1, 2, 3])], 'broken.mp3', {
+      type: 'audio/mpeg',
+      lastModified: 123,
+    });
+    setState('playlist.items', [makeFileTrack(file)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('preload.nextFileBlob', file);
+    setState('preload.meta', { name: 'broken.mp3', index: 0, sessionId: 7 });
+    setState('preload.nextTrackIndex', 0);
+
+    const { loadPreloadedTrack } = await import('../decode.ts');
+    const activated = await loadPreloadedTrack(0);
+
+    expect(activated).toBe(false);
+    // Host must not fall into the guest-only recovery request (no-op on host)
+    expect(mocks.sendToHost).not.toHaveBeenCalled();
+    // Single broken track → all-failed terminal reset, mirrored to guests
+    expect(mocks.broadcast).toHaveBeenCalledWith({
+      type: MSG.PAUSE,
+      time: 0,
+      endOfPlaylist: true,
+      reason: 'end-of-playlist',
+    });
+    expect(getState('playlist.currentTrackIndex')).toBe(-1);
+  });
+
+  it('returns true when activation succeeds', async () => {
+    mocks.decodeAudioData.mockResolvedValue({ duration: 120 });
+    const file = new File([new Uint8Array([1, 2, 3])], 'ok.mp3', {
+      type: 'audio/mpeg',
+      lastModified: 123,
+    });
+    setState('playlist.items', [makeFileTrack(file)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('preload.nextFileBlob', file);
+    setState('preload.meta', { name: 'ok.mp3', index: 0, sessionId: 7 });
+    setState('preload.nextTrackIndex', 0);
+
+    const { loadPreloadedTrack } = await import('../decode.ts');
+    const activated = await loadPreloadedTrack(0);
+
+    expect(activated).toBe(true);
+    expect(getState('preload.nextFileBlob')).toBeNull();
+  });
+
+  it('returns false when no preloaded blob exists', async () => {
+    const { loadPreloadedTrack } = await import('../decode.ts');
+    expect(await loadPreloadedTrack(0)).toBe(false);
+  });
+});
+
 describe('host decode failure cleanup', () => {
   beforeEach(() => {
     resetState();

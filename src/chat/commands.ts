@@ -834,9 +834,6 @@ function cmdDebugScreen(): void {
 // On-device console viewer. iOS has no DevTools without a tethered Mac, so
 // this surfaces the captured console ring buffer (core/log-capture.ts) as a
 // scrollable overlay. Same look as /debug screen; tap the edge / ESC to close.
-// ─── /debug console ──────────────────────────────────────────────
-// On-device console viewer. iOS has no DevTools without a tethered Mac, so this
-// surfaces the captured console ring buffer (core/log-capture.ts).
 function cmdDebugConsole(): void {
   openTextDebugOverlay({
     id: 'debug-console-overlay',

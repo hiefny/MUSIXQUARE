@@ -742,7 +742,19 @@ export function initChat(): void {
     });
 
     // Input event: filter commands + ghost text
-    chatInput.addEventListener('input', () => {
+    chatInput.addEventListener('input', (e) => {
+      // contentEditable leaves a stray <br> after you type then delete
+      // everything, so the div is no longer :empty and the CSS placeholder
+      // (.chat-input:empty::before) never comes back. Normalize to truly empty
+      // so it reappears. Skip during IME composition so in-progress Hangul/CJK
+      // isn't clobbered (programmatic innerHTML writes don't refire 'input').
+      if (
+        !(e as InputEvent).isComposing &&
+        chatInput.textContent === '' &&
+        chatInput.innerHTML !== ''
+      ) {
+        chatInput.innerHTML = '';
+      }
       const val = getInputValue();
       updateGhost();
       if (!val.startsWith('/') || val.includes(' ')) {

@@ -61,36 +61,6 @@ Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled 
 
 ---
 
-## Development
-
-```bash
-npm install
-npm run dev
-```
-
-Useful checks:
-
-```bash
-npm run typecheck
-npm run lint
-npm test
-npm run build:checked
-```
-
-E2E tests require Playwright and the local PeerJS signaling helper used by the test setup:
-
-```bash
-npm run test:e2e
-```
-
-For the live E2E report viewer on Windows, run:
-
-```bat
-e2e\run-tests.bat
-```
-
----
-
 ## How to Use
 
 **https://musixquare.com**, no install needed.

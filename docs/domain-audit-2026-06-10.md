@@ -291,6 +291,26 @@
 ### 신규 사각 후보 ⑭ — 캡처된 로컬 vs 상태 클리어
 같은 스코프에서 "상태를 읽어 로컬에 캡처 → 조건부 상태 클리어 → 캡처본으로 분기"가 있으면 클리어가 무력화된다. 상태 클리어 가드를 추가/리뷰할 때 **선행 캡처본이 클리어를 우회하는지** 확인 의무화. (22차가 놓친 이유: 검증자들은 변경 코드에, 도메인 에이전트는 모듈 간 플로우에 집중 — 한 함수 안 20줄 거리의 시간차 비일관성은 양쪽 렌즈 모두의 사각)
 
+## 실기기 테스트 발견 (같은 날, 커밋 7adf11c6)
+
+사용자 실기기 테스트가 잡은 2건 — 조사 에이전트 1:1 추적 후 수정:
+
+### DV-1 🔴(P1) — 신규 전송 전체에서 호스트 재생 시작 시 게스트 다운로드 0% 리셋 (SA-03 유발 회귀)
+- **메커니즘**: handleFilePrepare fresh 분기가 DOWNLOADING 전이 **한 버스홉 뒤에** `storage:clear-previous-track`를 emit → clearPreviousTrackState의 setPlaybackIdle이 방금 쓴 lifecycle을 IDLE로 클로버 → **모든 신규 게스트 다운로드에서 FSM이 조용히 해제된 채 진행** → PLAY의 DOWNLOADING defer 게이트 무발동 → 어제 넣은 SA-03 no-buffer 분기가 전송 중 REQUEST_CURRENT_FILE 발사 → 호스트 unicast-from-0 응답(같은 sid의 FILE_START)을 handleFileStart가 "복구 재전송 = 0부터"로 처리 → 부분 다운로드 폐기. SA-03 주석의 "FILE_START가 1 RTT 내 DOWNLOADING 전이" 가정은 HEAD에서 거짓이었음(handleFileStart는 transition을 안 함) — PLAY마다 반복 리셋.
+- **픽스**: ① clearPreviousTrackState가 `isFilePipelineBusyForPlay()` 중에는 idle 금지(근본) ② SA-03에 transfer.state RECEIVING/PROCESSING 억제 벨트(웨지는 12초 chunkWatchdog의 resume 복구가 커버). +동반 최적화: FILE_PREPARE에 size 추가, name+size 일치 시 프리로드 blob을 재인덱싱해 재다운로드 생략(중복 파일명/prev 복귀).
+- 상태: ✅ (+핀 4)
+
+### DV-2 🟠(P2) — 원격 게스트의 remote-wait가 수동적 막다른 길 (사각 ⑤ 재발)
+- **메커니즘**: bare PLAY(데모 종료 후 재개 등)로 remote-wait에 진입하면 호스트에 **아무것도 안 보냄** — local 형제 분기는 REQUEST_CURRENT_FILE을 보내는데 remote는 passive. 정당화였던 "호스트가 원격 요청을 드랍"은 HET-6 라우팅으로 obsolete됐는데 형제 분기 미갱신. 재개 경로엔 descriptor 재공유가 없고, 5분 타이머도 토스트만(lifecycle 영구 AWAITING_PRELOAD → 이후 PLAY 전부 defer, SYNC 부트스트랩 스킵, 플레이 버튼 busy 차단).
+- **픽스**: ① 양쪽 remote-wait 분기가 NEW wait일 때 REQUEST_CURRENT_FILE(reason: remote_share_wait) 발사 → 호스트의 기존 원격 라우팅이 캐시 descriptor 재전송(컨트롤 플레인만) ② REMOTE_WAIT_TIMER 타임아웃 시 AWAITING_PRELOAD→FAILED 전이로 게이트 해제.
+- 상태: ✅ (+핀 3+1)
+
+### 후속 관찰 (DV-1 조사 중 발견, 미수정)
+FILE_END가 control 채널로 bulk 청크(~512KB)를 추월 → 조기 shortfall 복구 + backoff 콜백에 완료-확인 부재 → finalize된 슬롯에 무의미한 FILE_RESUME/INTEGRITY_FAIL 노이즈 가능(자가치유, wire 낭비만). 다음 라운드 후보.
+
+### 사각 ⑭ 보강
+DV-1은 ⑭("캡처된 로컬 vs 상태 클리어")의 형제 모양: **"전이 직후의 클린업이 방금 쓴 상태를 클로버"**. 전이 추가/리뷰 시 같은 플로우 안에서 뒤따르는 클린업(stop-all-media, clear-previous-track)이 그 전이를 덮지 않는지 확인.
+
 ## 메타 — 이번 오디트가 추가한 사각 후보
 
 1. **⑪ 모듈 로컬 상태 vs 전역 기계** (HET 패턴): 서브시스템이 자기 수명주기를 모듈 변수로 관리하면 cancel/parity 스윕(⑧⑨)이 못 본다. 신규 서브시스템 추가 시 "이 모듈의 in-flight 작업을 외부 기계가 취소/관찰할 수 있는가" 체크 의무화.

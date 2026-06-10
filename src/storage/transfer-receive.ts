@@ -665,6 +665,20 @@ export async function handleFilePrepare(
   const currentTransferMeta = getState('transfer.meta');
   const isSameTrackByName =
     data.index === undefined && data.name && currentTransferMeta?.name === data.name;
+  // Same-content reuse at a DIFFERENT index (sibling of the preload promote
+  // above): the loaded — possibly PLAYING — file IS the requested track
+  // (duplicate playlist entries). Re-point its identity instead of
+  // re-downloading bytes that already passed decode. name+size identity,
+  // same risk posture as the preload promote; size only ships from current
+  // hosts, so old-host pairs gracefully fall back to a re-download.
+  const isSameContentByNameSize =
+    data.index !== undefined &&
+    data.index !== currentTrackIndex &&
+    !!data.name &&
+    currentTransferMeta?.name === data.name &&
+    Number(data.size) > 0 &&
+    currentFileBlob != null &&
+    currentFileBlob.size === Number(data.size);
   const incomingSameFileSessionId = Number(data.sessionId);
   const loadedSameFileSessionId =
     Number(getState('transfer.localSessionId')) || Number(currentTransferMeta?.sessionId) || 0;
@@ -673,10 +687,19 @@ export async function handleFilePrepare(
     incomingSameFileSessionId > 0 &&
     loadedSameFileSessionId > 0 &&
     incomingSameFileSessionId > loadedSameFileSessionId;
-  if (currentFileBlob && (isSameTrackByIndex || isSameTrackByName) && !isNewerSameFileSession) {
+  if (
+    currentFileBlob &&
+    (isSameTrackByIndex || isSameTrackByName || isSameContentByNameSize) &&
+    !isNewerSameFileSession
+  ) {
     log.debug(
       `[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`,
     );
+    if (isSameContentByNameSize) {
+      // Re-point identity to the requested playlist slot; blob/buffer stay.
+      setState('playlist.currentTrackIndex', data.index as number);
+      setState('transfer.meta', { ...currentTransferMeta, index: data.index as number });
+    }
     // Same file already loaded. No lifecycle change — replay-current fires
     // and the existing PLAYING/READY/PAUSED state keeps its audio buffer.
     // shouldSkipIncomingFile() returns true via the same-track-replay

@@ -403,6 +403,71 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
+  // Current-file sibling of the promote above (user device find): the
+  // already-loaded — possibly PLAYING — file is the requested duplicate
+  // entry at another index. Re-point identity, never re-download.
+  it('reuses the loaded identical file when its duplicate at another index is played', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playlist.currentTrackIndex', 0);
+    setState('transfer.localSessionId', 7);
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7, size: 4 });
+    setState('files.currentFileBlob', new Blob(['abcd'])); // size 4
+
+    const replay = vi.fn();
+    bus.on('playback:replay-current', replay);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        index: 2,
+        size: 4,
+        sessionId: 9,
+        autoPlayDelayMs: 3000,
+      },
+      conn,
+    );
+
+    expect(replay).toHaveBeenCalledWith(3000);
+    expect(getState('files.currentFileBlob')).not.toBeNull();
+    expect(getState('playlist.currentTrackIndex')).toBe(2);
+    expect(getState('transfer.meta')).toMatchObject({ name: 'song.mp3', index: 2 });
+    expect(getState('playback.lifecycle')).not.toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
+  it('still re-downloads the duplicate-name track when the loaded size differs', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playlist.currentTrackIndex', 0);
+    setState('transfer.localSessionId', 7);
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7, size: 4 });
+    setState('files.currentFileBlob', new Blob(['abcd'])); // size 4
+
+    const replay = vi.fn();
+    bus.on('playback:replay-current', replay);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        index: 2,
+        size: 999,
+        sessionId: 9,
+      },
+      conn,
+    );
+
+    expect(replay).not.toHaveBeenCalled();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
   it('still uses a name-matched preload when FILE_PREPARE carries no index (legit fallback)', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 

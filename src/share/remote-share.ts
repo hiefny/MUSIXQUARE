@@ -72,6 +72,23 @@ const _descriptorCache = new Map<string, RemoteFileSharePayload>();
 // Only one active (foreground) download at a time. A newer one supersedes
 // the in-flight one via abort.
 let _activeDownload: DownloadEntry | null = null;
+
+// Monotonic context gate that outlives the in-flight window (EXT-6): the
+// last playback context adopted from any descriptor. R2 completion timing is
+// independent of control-message order, so a late composed-stale
+// REQUEST_CURRENT_FILE response can land AFTER _activeDownload was cleared —
+// it must not rewind the wait or start a redundant re-download. Reset on any
+// session boundary (a new host's sessionId space restarts).
+let _lastAdoptedRemoteContext: { objectId: string; index: number; sessionId: number } | null =
+  null;
+
+function adoptRemoteContext(descriptor: RemoteFileSharePayload): void {
+  _lastAdoptedRemoteContext = {
+    objectId: descriptor.objectId,
+    index: descriptor.index,
+    sessionId: Number(descriptor.sessionId) || 0,
+  };
+}
 let _lastUploadFailureNoticeAt = 0;
 
 function rawRemoteShareError(error: unknown): string {
@@ -648,6 +665,7 @@ async function handleRemoteFileShare(
       `[RemoteShare] Active descriptor matches preloaded blob (index ${descriptor.index}); promoting`,
     );
 
+    adoptRemoteContext(descriptor);
     const preMetaRecord = preMeta as Record<string, unknown>;
     const preservedMeta = {
       ...preMetaRecord,
@@ -681,6 +699,28 @@ async function handleRemoteFileShare(
     return;
   }
 
+  // Monotonic context gate beyond the in-flight window (EXT-6): a late
+  // composed-stale response (same/older sessionId, different index) arriving
+  // after _activeDownload was cleared would otherwise enter the fresh-download
+  // path below and rewind the wait via prepareRemoteShareWait — plus re-fetch
+  // bytes already on device. An exact re-send of the adopted context stays
+  // allowed so failure recovery (e.g. decode-failure re-request) can retry.
+  if (_lastAdoptedRemoteContext) {
+    const last = _lastAdoptedRemoteContext;
+    const incomingSid = Number(descriptor.sessionId);
+    const isNewerContext = Number.isFinite(incomingSid) && incomingSid > last.sessionId;
+    const isExactResend =
+      descriptor.objectId === last.objectId &&
+      descriptor.index === last.index &&
+      incomingSid === last.sessionId;
+    if (!isNewerContext && !isExactResend) {
+      log.debug(
+        `[RemoteShare] Stale descriptor context ignored (index ${descriptor.index}, sid ${descriptor.sessionId} ≤ adopted ${last.sessionId})`,
+      );
+      return;
+    }
+  }
+
   // Active descriptor: supersede any in-flight active download for a
   // DIFFERENT object (newer track wins). Same-object dedup keeps the
   // in-flight download but must adopt the NEW playback context.
@@ -709,6 +749,7 @@ async function handleRemoteFileShare(
         Number.isFinite(incomingSid) && (!Number.isFinite(trackedSid) || incomingSid > trackedSid);
       if (isNewerContext) {
         _activeDownload.descriptor = descriptor;
+        adoptRemoteContext(descriptor);
         prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
         log.debug('[RemoteShare] Duplicate active descriptor — download kept, context re-pointed');
       } else {
@@ -728,6 +769,7 @@ async function handleRemoteFileShare(
     descriptor,
     abort,
   };
+  adoptRemoteContext(descriptor);
 
   try {
     setState('share.remote', {
@@ -923,6 +965,10 @@ export function initRemoteShare(): void {
   });
 
   bus.on('state:network.sessionCode', (code) => {
+    // Any session boundary invalidates the adopted-context gate — a new
+    // host's sessionId space restarts. Not keyed on the falsy branch below:
+    // a reconnect can change the code truthy→truthy (M13).
+    _lastAdoptedRemoteContext = null;
     if (!code) {
       // Tear down any in-flight uploads/downloads so a new session starts clean.
       for (const entry of _activeUploads.values()) entry.abort.abort();

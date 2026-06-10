@@ -81,6 +81,11 @@ function descriptor(overrides: Partial<RemoteFileSharePayload> = {}): RemoteFile
 describe('remote file share policy', () => {
   beforeEach(async () => {
     resetState();
+    // Session boundary: resets module-local remote-share state (adopted
+    // context gate, active download) registered by prior initRemoteShare
+    // calls — module state would otherwise leak across tests.
+    const { bus } = await import('../../core/events.ts');
+    bus.emit('state:network.sessionCode', null);
     vi.clearAllMocks();
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -225,6 +230,82 @@ describe('remote file share policy', () => {
     expect(getState('preload.nextTrackIndex')).toBe(1);
     expect(mocks.transition).toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 1 });
     expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
+  });
+
+  // EXT-6 (external review 2026-06-11, EXT-5 follow-up): R2 completion is
+  // independent of control-message order — a composed-stale descriptor can
+  // land AFTER the download finished and _activeDownload was cleared. The
+  // monotonic gate must hold beyond the in-flight window, or the descriptor
+  // enters the fresh-download path and rewinds the wait + re-fetches bytes
+  // already on device.
+  it('ignores a stale same-object descriptor arriving after the download completed', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getState } = await import('../../core/state.ts');
+
+    let resolveDownload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementation(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+        }),
+    );
+
+    const first = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 1, sessionId: 9 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await first; // download done, _activeDownload cleared
+
+    // Late composed-stale responses — same object, non-newer context.
+    await handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 0, sessionId: 9 }) },
+      conn,
+    );
+    await handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 0, sessionId: 7 }) },
+      conn,
+    );
+
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce(); // no re-download
+    expect(getState('playback.pendingRecoveryTarget')).toMatchObject({ index: 1 });
+    expect(getState('playlist.currentTrackIndex')).toBe(1);
+    expect(getState('preload.meta')).toMatchObject({ index: 1, sessionId: 9 });
+    expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
+  });
+
+  it('still accepts a genuinely newer same-object context after the download completed', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getState } = await import('../../core/state.ts');
+
+    let resolveDownload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementation(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+        }),
+    );
+
+    const first = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 1, sessionId: 9 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await first;
+
+    // Host re-selected the duplicate entry — strictly newer sessionId.
+    const second = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 0, sessionId: 10 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2));
+    expect(getState('playback.pendingRecoveryTarget')).toMatchObject({ index: 0 });
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await second;
+
+    expect(getState('preload.meta')).toMatchObject({ index: 0, sessionId: 10 });
   });
 
   it('still dedups an identical re-sent descriptor without disturbing the wait', async () => {

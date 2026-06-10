@@ -334,6 +334,13 @@ DV-1은 ⑭("캡처된 로컬 vs 상태 클리어")의 형제 모양: **"전이 
 - **관찰 (미수정, P4)**: findMatchingBlob의 name 폴백이 명시적 index 불일치 요청에 현재 blob을 서빙하는 것 자체는 잔존 — 게스트 측 게이트가 descriptor 방향을 막았고, 로컬 unicast 방향은 동명·이내용 파일 엣지(size 불일치가 하류에서 잡음). 호스트 측 엄격화는 로컬 복구 회귀 위험 대비 이득이 낮아 보류.
 - **교훈**: ⑬의 형제 — **"늦게 도착한 메시지 ≠ 최신 컨텍스트". 컨텍스트 채택 로직은 도착 순서가 아니라 단조 증가 토큰(sessionId)으로 게이트할 것.** + re-point/adopt 픽스를 넣으면 "이걸 악용하는 stale 공급원이 있나"를 즉시 역방향 스윕 (EXT-4 검증 때 호스트 측 합성 경로를 안 봤음).
 
+### EXT-6 🟡(P2) — EXT-5 게이트가 in-flight 창에서만 유효, 다운로드 완료 후 stale descriptor는 fresh-download로 우회 (EXT-5 잔여)
+- **메커니즘**: EXT-5 게이트는 `if (_activeDownload)` 분기 내부 — finally가 `_activeDownload = null` 후 늦은 composed-stale descriptor 도착 시 ① isCurrentRemoteFileLoaded / isPreloadedRemoteFile 모두 index 불일치로 미스 ② 게이트 부재 → **fresh download 진입 + prepareRemoteShareWait로 wait 되감기 + 이미 기기에 있는 바이트 풀 R2 재다운로드**. R2 완료 타이밍은 DataChannel control 순서와 독립이라 "완료 후 늦은 응답" 창은 실재.
+- **픽스**: 모듈 레벨 `_lastAdoptedRemoteContext {objectId, index, sessionId}` — 채택 3지점(fresh 시작·in-flight re-point·preload-promote)에서 기록, fresh-download 진입 전 전역 게이트: **strictly newer sessionId 또는 exact re-send(동일 objectId+index+sid)만 통과**. exact 예외가 디코드 실패 재요청 등 복구 재시도 보존. 세션 경계(`state:network.sessionCode` 변경 — M13: truthy→truthy 재연결 포함)에서 무조건 리셋(새 호스트 sid 공간이 낮으면 정당 descriptor 차단 방지). **보너스: EXT-5 분석에서 식별한 다른-object 변종(호스트 preload 슬롯이 stale 요청을 현재 sid로 서빙)도 전역 게이트가 함께 차단** — equal-sid 다른-object는 newer도 exact도 아님.
+- 상태: ✅ (+핀 2: 완료 후 same-sid/older-sid stale 무시 + **newer-sid는 여전히 수락(과차단 방지 컨트롤)**, 1080 tests)
+- **잔여 관찰 (P3 후보, 미수정)**: newer-sid 중복 항목 재선택 시 원격 게스트는 이미 가진 바이트를 풀 재다운로드 — 로컬 same-content reuse(517f4a60)의 원격 형제 미배선(원격 게스트는 transfer-receive의 same-content 분기 도달 전에 return). meta에 objectId를 실으면 재포인팅 가능. 다음 라운드 후보.
+- **교훈**: 게이트/가드 픽스의 스코프 질문 의무화 — **"이 가드가 지키는 상태의 수명과 가드 자신의 수명이 일치하는가?"** in-flight 가드는 in-flight 상태만 지킨다; 지켜야 할 것이 완료 후에도 남으면(채택된 컨텍스트) 가드도 그만큼 살아야 한다. + 테스트가 "pending 동안"만 커버하면 "완료 후" 형제 케이스를 명시적으로 묻기.
+
 ## 메타 — 이번 오디트가 추가한 사각 후보
 
 1. **⑪ 모듈 로컬 상태 vs 전역 기계** (HET 패턴): 서브시스템이 자기 수명주기를 모듈 변수로 관리하면 cancel/parity 스윕(⑧⑨)이 못 본다. 신규 서브시스템 추가 시 "이 모듈의 in-flight 작업을 외부 기계가 취소/관찰할 수 있는가" 체크 의무화.

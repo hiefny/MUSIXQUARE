@@ -196,12 +196,12 @@ const es: Record<I18nKey, string> = {
   'connect.room_password_title': 'Pedir contraseña',
   'connect.room_password_set': 'Establecer',
   'connect.room_password_toggle_aria': 'Cambiar requisito de contraseña de la sala',
-  'connect.room_password_input_aria': 'Introduce la contraseña de sala de 8 dígitos',
+  'connect.room_password_input_aria': 'Ingresa la contraseña de sala de 8 dígitos',
   'connect.room_password_refresh_aria': 'Generar una nueva contraseña de sala',
   'connect.room_password_off': '- - - - - - - -',
   'connect.room_password_pending': 'Esperando 8 dígitos',
   'connect.room_password_on': 'Contraseña aplicada',
-  'connect.room_password_invalid': 'Introduce 8 dígitos',
+  'connect.room_password_invalid': 'Ingresa 8 dígitos',
   'connect.room_password_enabled': 'Los nuevos participantes necesitarán la contraseña de la sala',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
 
@@ -240,9 +240,9 @@ const es: Record<I18nKey, string> = {
   'demo.effects_step_subtitle':
     'Puedes afinar estos efectos avanzados en cualquier momento en Ajustes.',
   'demo.finish_step_title': '¡Todo listo!',
-  'demo.finish_step_subtitle': 'Entra de lleno y empieza a reproducir en sincronía.',
+  'demo.finish_step_subtitle': 'Ya puedes empezar a reproducir en sincronía.',
   'demo.track_list_label': 'Lista de pistas demo',
-  'demo.host_only_exit': 'Solo el host puede pulsar esto.',
+  'demo.host_only_exit': 'Solo el host puede tocar esto.',
   'demo.external_playback_stopped':
     'El modo demo detuvo la reproducción actual de YouTube o audio del sistema.',
   'setup.how_to_connect': 'Cómo conectar',
@@ -250,24 +250,24 @@ const es: Record<I18nKey, string> = {
   'setup.what_sound': '¿Qué debe sonar aquí?',
   'setup.change_later': 'Puedes ajustar esto en cualquier momento en Ajustes.',
   'setup.welcome_title': 'Bienvenido',
-  'setup.join_session_subtitle': 'Vas a entrar en la sala {{code}}.',
+  'setup.join_session_subtitle': 'Vas a entrar a la sala {{code}}.',
   'setup.select_role': 'Selecciona un rol',
   'setup.select_role_alt': 'Selecciona un rol',
   'setup.hello_select_role': '¡Hola! Elige tu rol.',
-  'setup.enter_code': 'Introduce el código de 6 dígitos',
-  'setup.enter_host_code': 'Introduce el código de 6 dígitos del host',
-  'setup.enter_host_code_alt': 'Introduce el código del host.',
+  'setup.enter_code': 'Ingresa el código de 6 dígitos',
+  'setup.enter_host_code': 'Ingresa el código de 6 dígitos del host',
+  'setup.enter_host_code_alt': 'Ingresa el código del host.',
   'setup.connect_devices': 'Conecta tus otros dispositivos para comenzar.',
-  'setup.enter_code_connect': 'Introduce este código en los dispositivos de invitados',
+  'setup.enter_code_connect': 'Ingresa este código en los demás dispositivos',
   'setup.last_step': '¡Empecemos!',
   'setup.joining': 'Uniéndose...',
-  'setup.six_digit_enter': 'Introduce el código de conexión de 6 dígitos',
+  'setup.six_digit_enter': 'Ingresa el código de conexión de 6 dígitos',
 
   // Help
   'help.need_help': '¿Necesitas ayuda?',
   'help.install_app': 'Instalar aplicación web',
   'help.local_recommended': 'Red local recomendada',
-  'help.connect_all_wifi': 'Las conexiones en la misma red son las más fiables',
+  'help.connect_all_wifi': 'Las conexiones en la misma red son las más confiables',
   'help.local_file': 'Elegir archivo local',
   'help.load_local': 'Cargar archivo local',
   'help.youtube_compat': 'YouTube (modo de compatibilidad)',
@@ -277,12 +277,12 @@ const es: Record<I18nKey, string> = {
   'help.wifi_hotspot': 'Un punto de acceso también puede ponerlos a todos en la misma red',
 
   // YouTube
-  'youtube.enter_link': 'Introduce enlace de YouTube',
-  'youtube.enter_source': 'Introduce enlace de YouTube o búsqueda',
-  'youtube.enter_link_prompt': 'Introduce una búsqueda o enlace de YouTube',
+  'youtube.enter_link': 'Ingresa enlace de YouTube',
+  'youtube.enter_source': 'Ingresa enlace de YouTube o búsqueda',
+  'youtube.enter_link_prompt': 'Ingresa una búsqueda o enlace de YouTube',
   'youtube.enter_source_placeholder': 'Búsqueda o https://youtube.com/',
   'youtube.watch_together': 'Ver YouTube juntos',
-  'youtube.ready': '¡YouTube está listo!\nPulsa Reproducir.',
+  'youtube.ready': '¡YouTube está listo!\nToca Reproducir.',
   'youtube.thumbnail': 'Miniatura de vista previa de YouTube',
   'youtube.load_fail': 'No se pudo cargar la API de YouTube.\n¡Revisa tu conexión!',
   'youtube.video_unavailable': 'Video no disponible, saltando a la siguiente pista',
@@ -290,18 +290,18 @@ const es: Record<I18nKey, string> = {
   'youtube.invalid_link': 'Enlace de YouTube no válido',
   'youtube.effects_disabled':
     'Ver YouTube juntos.\nLos efectos de audio avanzados están desactivados.',
-  'youtube.enter_link_placeholder': 'Introduce un enlace de video o playlist',
-  'youtube.enter_source_toast': 'Introduce un enlace de YouTube o búsqueda',
+  'youtube.enter_link_placeholder': 'Ingresa un enlace de video o playlist',
+  'youtube.enter_source_toast': 'Ingresa un enlace de YouTube o búsqueda',
   'youtube.fetching_info': 'Cargando información del video...',
   'youtube.fetch_failed': 'No se pudo cargar la información del video',
-  'youtube.enter_link_toast': 'Introduce un enlace de YouTube',
+  'youtube.enter_link_toast': 'Ingresa un enlace de YouTube',
   'youtube.open_link': 'Abrir enlace de YouTube',
   'youtube.tap_to_play': 'TOCA PARA REPRODUCIR',
   'youtube.added_to_playlist': 'Añadido a la lista',
   'youtube.loading_large_playlist': 'Cargando playlist grande...',
   'youtube.indexing_playlist': 'Analizando elementos de la playlist...',
   'youtube.search_button': 'Buscar',
-  'youtube.search_prompt': 'Pulsa Enter o Buscar para encontrar videos',
+  'youtube.search_prompt': 'Presiona Enter o Buscar para encontrar videos',
   'youtube.searching': 'Buscando en YouTube...',
   'youtube.search_no_results': 'No se encontraron videos',
   'youtube.search_failed': 'La búsqueda de YouTube no está disponible',
@@ -347,7 +347,7 @@ const es: Record<I18nKey, string> = {
   'transfer.download_finishing': 'Finalizando descarga...',
   'transfer.preparation_delayed': 'Preparación demorada...\nSolicitando recuperación al host',
   'transfer.receiving_0pct': 'Recibiendo... 0%',
-  'transfer.check_conn_type': 'Comprobando tipo de conexión...',
+  'transfer.check_conn_type': 'Verificando tipo de conexión...',
   'transfer.preload_pending': 'Esperando precarga: {{name}}',
   'transfer.waiting_recovery': 'Recuperación pendiente: {{name}}',
   'transfer.preparing_name': 'Preparando: {{name}}',
@@ -367,13 +367,13 @@ const es: Record<I18nKey, string> = {
     'El audio del sistema funciona mejor con hasta 4 participantes.\nMás dispositivos pueden añadir latencia o cortes.',
   'system_audio.host_channel_locked':
     'No se pueden cambiar roles durante la compartición de audio del sistema.',
-  'system_audio.effects_guest_only': 'Audio del sistema activo.\nLos efectos solo se aplican a invitados.',
+  'system_audio.effects_guest_only': 'Audio del sistema activo.\nLos efectos solo se aplican a los dispositivos participantes.',
   'system_audio.desktop_only':
     'Solo disponible en navegadores de escritorio basados en Chrome (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
     'No se pudo recibir el audio del sistema.\nPide al host que vuelva a compartir.',
   'system_audio.remote_receive_limit':
-    'El audio remoto del sistema se pausó después de 2 horas.\nVuelve a entrar en la sala para seguir escuchando.',
+    'El audio remoto del sistema se pausó después de 2 horas.\nVuelve a entrar a la sala para seguir escuchando.',
 
   // Toast
   'toast.device_connected': '{{name}} se conectó',
@@ -414,7 +414,7 @@ const es: Record<I18nKey, string> = {
   'toast.auto_play_canceled': 'Reproducción automática cancelada',
   'toast.playing_in_3s': 'La reproducción empezará en 3 segundos...',
   'toast.hprecision_sync': 'Sincronización de alta precisión: preparando audio...',
-  'toast.file_ready': '¡Tu archivo está listo!\nPulsa Reproducir.',
+  'toast.file_ready': '¡Tu archivo está listo!\nToca Reproducir.',
   'toast.host_sync_not_recommended': 'Ajusta la sincronización en un dispositivo participante',
   'toast.host_sync_requested':
     'Sincronización precisa solicitada.\nAjusta la sincronización manual en un dispositivo participante.',
@@ -473,7 +473,7 @@ const es: Record<I18nKey, string> = {
   'error.ssl_required': 'Se requiere una conexión segura (HTTPS).',
   'error.room_password_required': 'Esta sala requiere contraseña.',
   'error.room_password_invalid': 'La contraseña de la sala no coincide.',
-  'error.room_password_auth_timeout': 'La red está inestable.\nVuelve a introducir la contraseña.',
+  'error.room_password_auth_timeout': 'La red está inestable.\nVuelve a ingresar la contraseña.',
 
   // Dialog
   'dialog.large_room_file.title': 'Compartir archivos en una sala grande',
@@ -500,11 +500,11 @@ const es: Record<I18nKey, string> = {
   'dialog.reconnect_ask': '¿Quieres reconectar?',
   'dialog.reconnect': 'Reconectar',
   'dialog.go_back': 'Volver',
-  'dialog.room_password_title': 'Introducir contraseña de sala',
+  'dialog.room_password_title': 'Ingresar contraseña de sala',
   'dialog.room_password_msg': 'Se requiere contraseña para unirse a esta sala.',
   'dialog.room_password_retry_msg': 'La contraseña no coincide. Inténtalo de nuevo.',
   'dialog.room_password_timeout_msg':
-    'La conexión agotó el tiempo. Vuelve a introducir la contraseña.',
+    'La conexión agotó el tiempo. Vuelve a ingresar la contraseña.',
   'dialog.room_password_placeholder': 'Contraseña de 8 dígitos',
   'dialog.session_lost_msg':
     'La app se suspendió o perdió conexión, así que los demás dispositivos ya se desconectaron. Reinicia para crear una sala nueva.',
@@ -609,19 +609,19 @@ const es: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Compartir audio es más estable en la misma red.<ul class="help-list"><li>Los participantes remotos pueden usar las mismas funciones.</li><li>Los participantes remotos usan rutas de Cloudflare, por lo que la latencia puede aumentar o la recepción puede fallar según la red.</li><li>Una VPN o red restringida puede volver inestable la conexión.</li></ul>',
   'setup.how_to_connect_html':
-    'Introduce el <strong>código de 6 dígitos</strong> del host para conectarte.<ul class="help-list"><li><strong>Host:</strong> “Crear sala” → revisar código</li><li><strong>Participante:</strong> “Unirse a una sala” → introducir código</li><li>La cantidad de dispositivos se puede configurar en la <strong>pestaña "Conectar"</strong>.</li></ul>',
+    'Ingresa el <strong>código de 6 dígitos</strong> del host para conectarte.<ul class="help-list"><li><strong>Host:</strong> “Crear sala” → revisar código</li><li><strong>Participante:</strong> “Unirse a una sala” → ingresar código</li><li>La cantidad de dispositivos se puede configurar en la <strong>pestaña "Conectar"</strong>.</li></ul>',
   'player.play_speakers_html':
     'Cada participante selecciona un <strong>rol (canal de salida)</strong>.<ul class="help-list"><li><strong>Centro:</strong> salida estéreo predeterminada</li><li><strong>Izquierda:</strong> salida del canal L</li><li><strong>Derecha:</strong> salida del canal R</li><li><strong>Subwoofer:</strong> salida de mezcla de bajas frecuencias</li></ul>Puedes cambiar roles cuando quieras en <strong>Ajustes</strong>.',
   'player.play_media_action_html':
     'El host tiene 3 opciones.<ul class="help-list"><li><strong>Cargar archivo local:</strong> elige música del dispositivo. Admite sincronización precisa</li><li><strong>YouTube juntos:</strong> videos y playlists compatibles. Sin separación de canales ni efectos de audio</li><li><strong>Compartir audio del sistema:</strong> disponible cuando el host usa un navegador de escritorio basado en Chrome</li></ul>',
   'help.need_help_html':
-    '<ul class="help-list"><li><strong>Introdujiste el código pero no conecta:</strong> revisa el código e inténtalo de nuevo en un momento. Redes de empresa, escuela o VPN pueden restringir la conexión.</li><li><strong>Conexión inestable:</strong> los participantes locales deberían acercarse al router y los remotos usar una conexión estable.</li><li><strong>Otros problemas:</strong> revisa el estado de la red y reinicia la app en todos los dispositivos. Si tienes preguntas, consulta las <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o contáctanos por el correo al final de la página.</li></ul>',
+    '<ul class="help-list"><li><strong>Ingresaste el código pero no conecta:</strong> revisa el código e inténtalo de nuevo en un momento. Redes de empresa, escuela o VPN pueden restringir la conexión.</li><li><strong>Conexión inestable:</strong> los participantes locales deberían acercarse al router y los remotos usar una conexión estable.</li><li><strong>Otros problemas:</strong> revisa el estado de la red y reinicia la app en todos los dispositivos. Si tienes preguntas, consulta las <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o contáctanos por el correo al final de la página.</li></ul>',
   'setup.brand_tagline_html':
     'Escuchen juntos, en cualquier lugar<br>La experiencia de sonido perfecta',
   'setup.invite_share_desc_html':
     'Conecta varios dispositivos de forma inalámbrica<br>para crear un gran sistema de audio.<br>Usa un código de 6 dígitos para conectar.',
   'setup.play_together_desc_html':
-    'Cuando el host reproduce medios,<br>todos los dispositivos conectados suenan sincronizados.<br>Pulsa el botón de sincronización para alinear.',
+    'Cuando el host reproduce medios,<br>todos los dispositivos conectados suenan sincronizados.<br>Toca el botón de sincronización para alinear.',
   'setup.spatial_audio_desc_html':
     'Define el rol de cada dispositivo.<br>Reproduce audio izquierdo y derecho por separado<br>y siente graves profundos con el woofer.',
   'setup.advanced_audio_desc_html':

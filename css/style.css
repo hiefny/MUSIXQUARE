@@ -123,6 +123,13 @@
        so platform.ts sets root.style.height via JS (window.innerHeight). */
     height: 100%;
     overflow: hidden;
+    /* Kill the document rubber-band: overflow:hidden alone does NOT stop iOS
+       from elastically bouncing the whole viewport when a pan starts on
+       non-scrollable chrome (header/title/nav). While that bounce settles,
+       iOS keeps routing touches to the document scroll session, so the real
+       scrollers (.tab-body) feel dead. Inner lists keep their own momentum +
+       edge bounce. iOS <16 ignores this (no regression). */
+    overscroll-behavior: none;
     background-color: var(--bg);
 
     /* Let UA widgets (incl. overlay scrollbars on mobile/PWA) adapt to the app theme.
@@ -213,6 +220,9 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    /* Pair of the html rule above — both roots must opt out or iOS picks
+       the permissive one for the document bounce. */
+    overscroll-behavior: none;
     transition: background-color 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 

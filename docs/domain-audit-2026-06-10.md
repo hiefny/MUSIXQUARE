@@ -321,6 +321,12 @@ DV-1은 ⑭("캡처된 로컬 vs 상태 클리어")의 형제 모양: **"전이 
 - 상태: ✅ (+핀 2: 장전→해제 호출 순서 assert, 1075 tests)
 - **교훈**: 사각 ⑤ 3연속 — 517f4a60에서 "픽스 자신에게 sibling sweep"을 기록하고도, reuse fast-path 신설 시 **몇 줄 위에서 방금 장전한 안전망**은 안 봤다. fast-path/short-circuit return을 추가하면 그 함수가 진입 시점에 장전한 타이머/가드/카운터를 전수 확인할 것.
 
+### EXT-4 🟡(P2) — remote-share 같은 objectId dedup이 새 재생 컨텍스트를 통째로 버림 (사각 ⑪ + ⑤ 원격 형제)
+- **메커니즘**: `_activeDownload.objectId === descriptor.objectId`면 무조건 return — 중복 playlist 항목/호스트 재클릭이 같은 캐시 descriptor를 **새 index/sessionId로 rebase해 재전송**하는 경우(호스트 측 명시 기능: "rebasing the wire descriptor to the current playback session/index")를 구분 못 함. 다운로드 완료 publish는 클로저에 잡힌 **원본 descriptor의 index/sid**로 나감 → 게스트가 stale 트랙 정체성 채택(잘못된 row 하이라이트, transfer.meta index/sid 불일치) + **REMOTE_WAIT_TIMER 성공판정이 새 index 기준이라 정상 재생 중 스퓨리어스 "대기 시간 초과" 토스트**. 이후 descriptor 재수신 시 `isCurrentRemoteFileLoaded`가 index 불일치로 false → 같은 바이트 풀 R2 재다운로드 가능.
+- **픽스**: abort/restart(부분 다운로드 폐기 — 셀룰러 대용량에 최악)가 아니라 **publish 컨텍스트 re-point**. `DownloadEntry`가 최신 descriptor를 보유, 같은 objectId 수신 시 `_activeDownload.descriptor` 갱신 + `prepareRemoteShareWait` 재호출(동일 컨텍스트면 idempotent skip), 완료 publish는 `publishDescriptor`(최신) 기준. 같은 objectId = 같은 바이트라 다운로드는 그대로 살림.
+- 상태: ✅ (+핀 2: mid-download 컨텍스트 교체 publish / 동일 컨텍스트 순수 dedup, 1077 tests)
+- **교훈**: ⑪(모듈 로컬 `_activeDownload`가 전역 기계에 불가시)과 ⑤(로컬 same-content reuse 픽스의 원격 형제)의 교차점. **dedup 키와 publish 컨텍스트가 다른 축이면, dedup은 "작업"만 합치고 "컨텍스트"는 최신으로 끌고 가야 한다** — wholesale drop은 컨텍스트까지 버린다.
+
 ## 메타 — 이번 오디트가 추가한 사각 후보
 
 1. **⑪ 모듈 로컬 상태 vs 전역 기계** (HET 패턴): 서브시스템이 자기 수명주기를 모듈 변수로 관리하면 cancel/parity 스윕(⑧⑨)이 못 본다. 신규 서브시스템 추가 시 "이 모듈의 in-flight 작업을 외부 기계가 취소/관찰할 수 있는가" 체크 의무화.

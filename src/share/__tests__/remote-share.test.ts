@@ -130,4 +130,83 @@ describe('remote file share policy', () => {
     expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
     expect(mocks.transition).toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
   });
+
+  // EXT-4 (external review 2026-06-11): a same-object descriptor under a NEW
+  // playback context (duplicate playlist entry / host re-click rebases the
+  // cached descriptor to a new index/sessionId) must keep the in-flight
+  // download (same bytes) but completion must publish the LATEST context —
+  // dropping it wholesale published the original index/sessionId, leaving
+  // the guest on a stale track identity plus a spurious wait-timeout toast.
+  it('publishes the latest context when a same-object descriptor arrives mid-download', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getState } = await import('../../core/state.ts');
+    const { bus } = await import('../../core/events.ts');
+
+    let resolveDownload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementation(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+        }),
+    );
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
+
+    const first = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 3, sessionId: 7 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+
+    // Same objectId, rebased context — must dedup the download, not the context.
+    await handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 0, sessionId: 9 }) },
+      conn,
+    );
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    // Wait machinery re-pointed to the new context.
+    expect(getState('playback.pendingRecoveryTarget')).toMatchObject({ index: 0 });
+    expect(getState('playlist.currentTrackIndex')).toBe(0);
+
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await first;
+
+    expect(getState('preload.meta')).toMatchObject({ index: 0, sessionId: 9 });
+    expect(getState('preload.nextTrackIndex')).toBe(0);
+    expect(mocks.transition).toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
+    expect(usePreloaded).toHaveBeenCalledWith(0, 'song.mp3');
+  });
+
+  it('still dedups an identical re-sent descriptor without disturbing the wait', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getState } = await import('../../core/state.ts');
+
+    let resolveDownload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementation(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+        }),
+    );
+
+    const first = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 3, sessionId: 7 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+
+    // Identical context re-send (e.g. REQUEST_CURRENT_FILE response racing
+    // the original broadcast) — pure dedup, single download, same publish.
+    await handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 3, sessionId: 7 }) },
+      conn,
+    );
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await first;
+
+    expect(getState('preload.meta')).toMatchObject({ index: 3, sessionId: 7 });
+    expect(mocks.transition).toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 3 });
+  });
 });

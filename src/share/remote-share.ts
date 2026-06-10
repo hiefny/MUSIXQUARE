@@ -54,7 +54,11 @@ interface UploadEntry {
 
 interface DownloadEntry {
   objectId: string;
-  index: number;
+  /** Latest descriptor received for this object — the PUBLISH context.
+   *  Same objectId = same bytes, but the playback context (index/sessionId)
+   *  can move mid-download when the host re-selects a duplicate playlist
+   *  entry; completion must publish under the latest context (EXT-4). */
+  descriptor: RemoteFileSharePayload;
   abort: AbortController;
 }
 
@@ -678,14 +682,24 @@ async function handleRemoteFileShare(
   }
 
   // Active descriptor: supersede any in-flight active download for a
-  // DIFFERENT object (newer track wins). Same-object dedup is preserved.
+  // DIFFERENT object (newer track wins). Same-object dedup keeps the
+  // in-flight download but must adopt the NEW playback context.
   if (_activeDownload) {
     if (_activeDownload.objectId === descriptor.objectId) {
-      log.debug('[RemoteShare] Duplicate active descriptor, ignoring');
+      // Same bytes — keep downloading. But a duplicate playlist entry or a
+      // host re-click re-sends the cached descriptor rebased to a new
+      // index/sessionId; dropping it wholesale made completion publish the
+      // ORIGINAL context, so the guest adopted a stale track identity and
+      // the wait timer (keyed on the new index) fired a spurious timeout
+      // toast (EXT-4). Re-point the publish context + wait machinery
+      // (prepareRemoteShareWait is idempotent for an identical context).
+      _activeDownload.descriptor = descriptor;
+      prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
+      log.debug('[RemoteShare] Duplicate active descriptor — download kept, context re-pointed');
       return;
     }
     log.info(
-      `[RemoteShare] Newer active descriptor (index ${descriptor.index}) supersedes in-flight (index ${_activeDownload.index})`,
+      `[RemoteShare] Newer active descriptor (index ${descriptor.index}) supersedes in-flight (index ${_activeDownload.descriptor.index})`,
     );
     _activeDownload.abort.abort();
   }
@@ -693,7 +707,7 @@ async function handleRemoteFileShare(
   const abort = new AbortController();
   _activeDownload = {
     objectId: descriptor.objectId,
-    index: descriptor.index,
+    descriptor,
     abort,
   };
 
@@ -763,19 +777,26 @@ async function handleRemoteFileShare(
     // switch, because the next descriptor's fetch-start nulled the field
     // without revoking. Playback consumes the File via preload.nextFileBlob →
     // storage:use-preloaded → decode.ts, which manages its own URL.
+    // Publish under the LATEST context received for this object — a
+    // same-object descriptor may have re-pointed it mid-download (EXT-4).
+    // The closure `descriptor` is only the transport context (URL/key);
+    // track identity comes from the active entry.
+    const publishDescriptor =
+      _activeDownload?.objectId === descriptor.objectId ? _activeDownload.descriptor : descriptor;
+
     const meta = {
-      name: descriptor.name,
-      title: descriptor.name.replace(/\.[^/.]+$/, ''),
-      index: descriptor.index,
+      name: publishDescriptor.name,
+      title: publishDescriptor.name.replace(/\.[^/.]+$/, ''),
+      index: publishDescriptor.index,
       size: file.size,
-      mime: descriptor.mime,
-      sessionId: descriptor.sessionId,
+      mime: publishDescriptor.mime,
+      sessionId: publishDescriptor.sessionId,
     };
 
     setState('preload.nextFileBlob', file);
     setState('preload.meta', meta);
-    setState('preload.nextTrackIndex', descriptor.index);
-    setState('files.currentTrack', { name: descriptor.name });
+    setState('preload.nextTrackIndex', publishDescriptor.index);
+    setState('files.currentTrack', { name: publishDescriptor.name });
     setState('share.remote', {
       ...getState('share.remote'),
       download: {
@@ -787,8 +808,8 @@ async function handleRemoteFileShare(
     });
 
     clearManagedTimer(REMOTE_WAIT_TIMER);
-    transition({ type: 'PRELOAD_FILE_READY', index: descriptor.index });
-    bus.emit('storage:use-preloaded', descriptor.index, descriptor.name);
+    transition({ type: 'PRELOAD_FILE_READY', index: publishDescriptor.index });
+    bus.emit('storage:use-preloaded', publishDescriptor.index, publishDescriptor.name);
   } catch (error) {
     if (isAbortError(error)) {
       log.debug('[RemoteShare] Active download superseded — abort is expected');
@@ -835,7 +856,7 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
     getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
   if (!shouldAct) return;
 
-  if (_activeDownload?.index === index) {
+  if (_activeDownload?.descriptor.index === index) {
     _activeDownload.abort.abort();
     _activeDownload = null;
   }

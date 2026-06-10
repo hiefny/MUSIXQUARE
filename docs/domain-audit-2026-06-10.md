@@ -298,7 +298,8 @@
 ### DV-1 🔴(P1) — 신규 전송 전체에서 호스트 재생 시작 시 게스트 다운로드 0% 리셋 (SA-03 유발 회귀)
 - **메커니즘**: handleFilePrepare fresh 분기가 DOWNLOADING 전이 **한 버스홉 뒤에** `storage:clear-previous-track`를 emit → clearPreviousTrackState의 setPlaybackIdle이 방금 쓴 lifecycle을 IDLE로 클로버 → **모든 신규 게스트 다운로드에서 FSM이 조용히 해제된 채 진행** → PLAY의 DOWNLOADING defer 게이트 무발동 → 어제 넣은 SA-03 no-buffer 분기가 전송 중 REQUEST_CURRENT_FILE 발사 → 호스트 unicast-from-0 응답(같은 sid의 FILE_START)을 handleFileStart가 "복구 재전송 = 0부터"로 처리 → 부분 다운로드 폐기. SA-03 주석의 "FILE_START가 1 RTT 내 DOWNLOADING 전이" 가정은 HEAD에서 거짓이었음(handleFileStart는 transition을 안 함) — PLAY마다 반복 리셋.
 - **픽스**: ① clearPreviousTrackState가 `isFilePipelineBusyForPlay()` 중에는 idle 금지(근본) ② SA-03에 transfer.state RECEIVING/PROCESSING 억제 벨트(웨지는 12초 chunkWatchdog의 resume 복구가 커버). +동반 최적화: FILE_PREPARE에 size 추가, name+size 일치 시 프리로드 blob을 재인덱싱해 재다운로드 생략(중복 파일명/prev 복귀).
-- 상태: ✅ (+핀 4)
+- **후속 (517f4a60, 사용자 재질문이 잡은 형제 갭)**: 재사용 기계가 2곳(프리로드 슬롯 / 현재 로드 파일)인데 promote를 프리로드에만 배선했었음 — **재생 중인 바로 그 파일**의 중복 항목을 다른 index로 클릭해도 재다운로드. same-file 분기에 name+size 매칭 추가, index/meta 재포인팅 후 기존 replay-current 경로. (사각 ⑤: 픽스 자체도 형제 스윕 대상)
+- 상태: ✅ (+핀 4+2)
 
 ### DV-2 🟠(P2) — 원격 게스트의 remote-wait가 수동적 막다른 길 (사각 ⑤ 재발)
 - **메커니즘**: bare PLAY(데모 종료 후 재개 등)로 remote-wait에 진입하면 호스트에 **아무것도 안 보냄** — local 형제 분기는 REQUEST_CURRENT_FILE을 보내는데 remote는 passive. 정당화였던 "호스트가 원격 요청을 드랍"은 HET-6 라우팅으로 obsolete됐는데 형제 분기 미갱신. 재개 경로엔 descriptor 재공유가 없고, 5분 타이머도 토스트만(lifecycle 영구 AWAITING_PRELOAD → 이후 PLAY 전부 defer, SYNC 부트스트랩 스킵, 플레이 버튼 busy 차단).

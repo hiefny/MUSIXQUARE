@@ -40,9 +40,16 @@ export const REVERB_IR_DAMPING_END_FREQ = 2600;
 export const REVERB_IR_DAMPING_BLOCK_SIZE = 64;
 
 // ─── Reverb Presets ──────────────────────────────────────────────
+// highCut knob → freq: 20000 × 0.05^(knob/100). Arena 40 ≈ 6.0 kHz wet
+// low-pass: HF damping reads as a larger, more natural space (air/boundary
+// absorption shortens high-band RT in real halls) and tames synthetic-IR
+// fizz on phone speakers, while keeping cymbal sheen and vocal air
+// (ear-tuned on device 2026-06-10; 4 kHz read as too dark stacked on the
+// IR's own 16k→2.6k time-varying damping). lowCut stays 0 by deliberate
+// product taste — the full sub-band reverb tail is part of the app's sound.
 export const REVERB_PRESETS = {
   studio: { mix: 0.4, decay: 1.0, preDelay: 0.02, lowCut: 0, highCut: 0 },
-  arena: { mix: 0.5, decay: 5.0, preDelay: 0.12, lowCut: 0, highCut: 0 },
+  arena: { mix: 0.5, decay: 5.0, preDelay: 0.12, lowCut: 0, highCut: 40 },
 } as const;
 
 // ─── Stereo Width Compensation ───────────────────────────────────

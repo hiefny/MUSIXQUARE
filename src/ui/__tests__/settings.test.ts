@@ -344,7 +344,8 @@ describe('initSettings effect slider fill sync', () => {
     bus.emit('ui:sync-reverb-param', 'decay', 5);
     bus.emit('ui:sync-reverb-param', 'predelay', 0.12);
     bus.emit('ui:sync-reverb-param', 'lowcut', 0);
-    bus.emit('ui:sync-reverb-param', 'highcut', 0);
+    // Arena ships highCut knob 40 (≈6 kHz wet low-pass) since 2026-06-10.
+    bus.emit('ui:sync-reverb-param', 'highcut', 40);
 
     expect(
       document

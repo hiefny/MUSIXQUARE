@@ -129,7 +129,7 @@ const de: Record<I18nKey, string> = {
   'connect.rename_profanity': 'Unangemessener Spitzname erkannt.',
   'connect.rename_duplicate': 'Dieser Spitzname wird bereits verwendet.',
   'settings.devices_title': 'Verbundene Geräte',
-  'settings.invite_share': 'Einladen & teilen',
+  'settings.invite_share': 'Einladen & Teilen',
   'settings.subtab.general': 'Allgemein',
   'settings.subtab.audio': 'Audio',
   'settings.subtab.connect': 'Verbinden',
@@ -151,9 +151,9 @@ const de: Record<I18nKey, string> = {
   'player.play_media': 'Medien abspielen',
   'player.play_media_action': 'Medien abspielen',
   'player.add_media': 'Medien hinzufügen',
-  'player.play_start': 'In Warteschlange',
+  'player.play_start': 'In die Warteschlange',
   'player.select_media': 'Medium zum Abspielen auswählen',
-  'player.play_together': 'Wiedergabe synchronisieren',
+  'player.play_together': 'Synchrone Wiedergabe',
   'player.play_speakers': 'Als Lautsprecher nutzen',
   'player.auto_sync_label': 'Auto (ms)',
   'player.manual_sync_label': 'Manuell (ms)',
@@ -238,7 +238,7 @@ const de: Record<I18nKey, string> = {
   'demo.effects_step_title': 'Gestalte dein eigenes Premium-Klangerlebnis.',
   'demo.effects_step_subtitle': 'Du kannst später alles in den Einstellungen feinjustieren.',
   'demo.finish_step_title': 'Alles bereit!',
-  'demo.finish_step_subtitle': 'Leg direkt los und spielt gemeinsam!',
+  'demo.finish_step_subtitle': 'Leg direkt los und starte die gemeinsame Wiedergabe!',
   'demo.track_list_label': 'Demo-Titelliste',
   'demo.host_only_exit': 'Nur der Host kann dies drücken.',
   'demo.external_playback_stopped':
@@ -253,7 +253,7 @@ const de: Record<I18nKey, string> = {
   'setup.select_role_alt': 'Bitte wähle eine Rolle',
   'setup.hello_select_role': 'Hallo! Bitte wähle deine Rolle.',
   'setup.enter_code': '6-stelligen Code eingeben',
-  'setup.enter_host_code': 'Host-Code eingeben',
+  'setup.enter_host_code': '6-stelligen Code des Hosts eingeben',
   'setup.enter_host_code_alt': 'Gib den Host-Code ein.',
   'setup.connect_devices': 'Verbinde jetzt weitere Geräte.',
   'setup.enter_code_connect': 'Code auf anderem Gerät eingeben',
@@ -268,7 +268,7 @@ const de: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Verbindungen im selben Netzwerk sind am zuverlässigsten',
   'help.local_file': 'Lokale Datei wählen',
   'help.load_local': 'Lokale Datei laden',
-  'help.youtube_compat': 'YouTube (kompatibel)',
+  'help.youtube_compat': 'YouTube (Kompatibilitätsmodus)',
   'help.youtube_no_effects': 'Im YouTube-Modus sind Rollen und Audioeffekte nicht verfügbar.',
   'help.media_synced_detail':
     'Das ausgewählte Medium wird gleichzeitig auf allen verbundenen Geräten abgespielt.',
@@ -312,7 +312,7 @@ const de: Record<I18nKey, string> = {
   'network.cant_join': 'Raum nicht gefunden.\nBitte prüfe dein Netzwerk.',
   'network.session_full': 'Der Raum ist voll',
   'network.session_full_detail':
-    'Das Gerätelimit ist erreicht.\nDie Anzahl der Geräte kann im Tab "Verbinden" festgelegt werden.',
+    'Dieser Raum hat sein Gerätelimit erreicht.\nBitte den Host, das Limit im Tab „Verbinden“ zu erhöhen.',
   'network.op_granted': 'Administratorberechtigung erteilt.',
   'network.op_revoked': 'Administratorberechtigung entzogen.',
 
@@ -337,10 +337,10 @@ const de: Record<I18nKey, string> = {
   'share.remote.too_large': 'Datei zu groß (max. 200 MB)',
   'share.remote.network_error': 'Netzwerkfehler während der Remote-Freigabe',
   'share.remote.rate_limited': 'Zu viele Remote-Uploads.\nBitte gleich erneut versuchen',
-  'share.remote.auth_failed': 'Remote-Freigabeautorisierung fehlgeschlagen.\nWorker prüfen',
+  'share.remote.auth_failed': 'Remote-Freigabeautorisierung fehlgeschlagen.\nWorker-Einstellungen prüfen',
   'share.remote.expired': 'Remote-Dateilink ist abgelaufen.\nBitte erneut freigeben.',
   'share.remote.unavailable': 'Remote-Freigabe fehlgeschlagen.\nBitte gleich erneut versuchen.',
-  'transfer.preload_fail': 'Vorab-Wiedergabe fehlgeschlagen, lade neu',
+  'transfer.preload_fail': 'Vorab-Wiedergabe fehlgeschlagen, wird neu geladen',
   'transfer.download_finishing': 'Download wird abgeschlossen...',
   'transfer.preparation_delayed': 'Vorbereitung verzögert...\nHost um Wiederherstellung gebeten',
   'transfer.receiving_0pct': 'Empfangen... 0%',
@@ -355,7 +355,7 @@ const de: Record<I18nKey, string> = {
   'system_audio.sharing': 'Systemaudio wird geteilt',
   'system_audio.receiving': 'Systemaudio wird empfangen',
   'system_audio.capture_denied': 'Audiofreigabe wurde abgebrochen.',
-  'system_audio.no_audio_track': '"Audio teilen" wurde nicht aktiviert.\nBitte erneut versuchen.',
+  'system_audio.no_audio_track': '„Audio teilen“ wurde nicht aktiviert.\nBitte erneut versuchen.',
   'system_audio.stop': 'Freigabe stoppen',
   'system_audio.started':
     'Systemaudio kann leichte Latenz haben.\nSenke wenn möglich die Lautstärke der Quelle.',
@@ -366,7 +366,7 @@ const de: Record<I18nKey, string> = {
     'Rollen können während der Systemaudio-Freigabe nicht geändert werden.',
   'system_audio.effects_guest_only':
     'Systemaudio wird geteilt.\nEffekte werden nur auf Gäste angewendet.',
-  'system_audio.desktop_only': 'Nur in Chrome auf Windows- oder Mac-Desktop verfügbar.',
+  'system_audio.desktop_only': 'Nur in Chrome-basierten Desktop-Browsern verfügbar (Chrome, Edge usw.).',
   'system_audio.receive_failed':
     'Systemaudio konnte nicht empfangen werden.\nBitte den Host, die Freigabe neu zu starten.',
   'system_audio.remote_receive_limit':
@@ -401,7 +401,7 @@ const de: Record<I18nKey, string> = {
   'toast.host_only_file': 'Nur der Host kann Dateien hinzufügen',
   'toast.no_tracks': 'Keine Titel zum Abspielen',
   'toast.no_invite_code': 'Noch kein Einladungscode',
-  'toast.invite_code_settings': 'Teile den Einladungslink im Tab Verbinden.',
+  'toast.invite_code_settings': 'Teile den Einladungslink im Tab „Verbinden“.',
   'toast.click_copy_invite': 'Klicken, um Einladungscode zu kopieren',
   'toast.cant_select_file': 'Datei kann nicht ausgewählt werden',
   'toast.video_excluded': 'Videodateien wurden übersprungen.',
@@ -532,7 +532,7 @@ const de: Record<I18nKey, string> = {
   'chat.system_audio_started_notice':
     'Systemaudio-Freigabe gestartet. Etwas Verzögerung zwischen Host und Teilnehmern ist normal, daher sollte der Host die Lautstärke des Quellgeräts möglichst weit senken.',
   'chat.system_audio_stopped_notice':
-    'Systemaudio-Freigabe beendet. Host, erhöhe die Lautstärke wieder, um der Raumlautsprecher zu sein.',
+    'Systemaudio-Freigabe beendet. Host, erhöhe die Lautstärke wieder, um als Lautsprecher mitzuspielen.',
   'chat.remote_guest_detected_notice':
     'Ein Remote-Teilnehmer ist beigetreten. Die Verbindungsqualität kann je nach Netzwerkbedingungen variieren.',
   'chat.remote_upload_limited_notice':
@@ -544,7 +544,7 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_whisper_to': 'Flüstern an {{name}}',
   'chat.cmd_target_not_found': 'Ziel nicht gefunden: {{target}}',
   'chat.cmd_no_permission': 'Du hast keine Berechtigung',
-  'chat.cmd_nick_changed': 'Name geändert zu {{name}}',
+  'chat.cmd_nick_changed': 'Name in {{name}} geändert',
   'chat.cmd_nick_too_long': 'Spitzname darf höchstens 20 Zeichen lang sein',
   'chat.cmd_already_op': '{{name}} ist bereits Administrator',
   'chat.cmd_not_op': '{{name}} ist kein Administrator',
@@ -602,11 +602,11 @@ const de: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Audiofreigabe ist im selben Netzwerk am stabilsten.<ul class="help-list"><li>Remote-Teilnehmer können dieselben Funktionen nutzen.</li><li>Remote-Teilnehmer verwenden Cloudflare-Pfade, daher kann je nach Netzwerk die Latenz steigen oder der Empfang fehlschlagen.</li><li>Ein VPN oder ein eingeschränktes Netzwerk kann die Verbindung instabil machen.</li></ul>',
   'setup.how_to_connect_html':
-    'Gib den <strong>6-stelligen Code</strong> des Hosts ein, um dich zu verbinden.<ul class="help-list"><li><strong>Host:</strong> „Ich hoste“ → Code prüfen</li><li><strong>Teilnehmer:</strong> „Raum beitreten“ → Code eingeben</li><li>Die Anzahl verbindbarer Geräte kann im <strong>Tab „Verbinden“</strong> festgelegt werden.</li></ul>',
+    'Gib den <strong>6-stelligen Code</strong> des Hosts ein, um dich zu verbinden.<ul class="help-list"><li><strong>Host:</strong> „Raum erstellen“ → Code prüfen</li><li><strong>Teilnehmer:</strong> „Einem Raum beitreten“ → Code eingeben</li><li>Die Anzahl verbindbarer Geräte kann im <strong>Tab „Verbinden“</strong> festgelegt werden.</li></ul>',
   'player.play_speakers_html':
     'Jeder Teilnehmer wählt eine <strong>Rolle (Ausgabekanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereoausgabe (Standard)</li><li><strong>Links:</strong> Ausgabe des L-Kanals</li><li><strong>Rechts:</strong> Ausgabe des R-Kanals</li><li><strong>Subwoofer:</strong> Ausgabe des Tiefton-Mixes</li></ul>Rollen können jederzeit in den <strong>Einstellungen</strong> geändert werden.',
   'player.play_media_action_html':
-    'Der Host hat 3 Optionen.<ul class="help-list"><li><strong>Lokale Datei laden:</strong> Musik vom Gerät auswählen. Präzise Synchronisierung wird unterstützt</li><li><strong>YouTube gemeinsam:</strong> Videos und Playlists werden unterstützt. Keine Kanaltrennung oder Audioeffekte</li><li><strong>Systemaudio-Freigabe:</strong> Verfügbar, wenn der Host Chrome unter Windows oder Mac verwendet</li></ul>',
+    'Der Host hat 3 Optionen.<ul class="help-list"><li><strong>Lokale Datei laden:</strong> Musik vom Gerät auswählen. Präzise Synchronisierung wird unterstützt</li><li><strong>YouTube gemeinsam:</strong> Videos und Playlists werden unterstützt. Keine Kanaltrennung oder Audioeffekte</li><li><strong>Systemaudio-Freigabe:</strong> Verfügbar, wenn der Host einen Chrome-basierten Desktop-Browser verwendet</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Code eingegeben, aber keine Verbindung:</strong> Prüfe den Code und versuche es gleich erneut. Firmen-, Schul- oder VPN-Netzwerke können die Verbindung einschränken.</li><li><strong>Instabile Verbindung:</strong> Lokale Teilnehmer sollten näher am Router bleiben, Remote-Teilnehmer eine stabile Internetverbindung nutzen.</li><li><strong>Andere Probleme:</strong> Prüfe den Netzwerkstatus und starte die App auf allen Geräten neu. Bei Fragen lies die <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> oder kontaktiere uns über die E-Mail ganz unten.</li></ul>',
   'setup.brand_tagline_html': 'Gemeinsam hören, überall<br>Das perfekte Klangerlebnis',
@@ -618,7 +618,7 @@ const de: Record<I18nKey, string> = {
     'Lege die Rolle jedes Geräts fest.<br>Spiele linken und rechten Ton getrennt ab<br>und spüre tiefe Bässe über den Woofer.',
   'setup.advanced_audio_desc_html':
     'Übernimm die Einstellungen des Hosts<br>mit Hall, EQ, virtuellen Effekten<br>und mehr im ganzen System.',
-  'youtube.enter_link_desc_html': 'Nur öffentliche Videos können angesehen werden.',
+  'youtube.enter_link_desc_html': 'Nur öffentliche Videos oder Playlists können abgespielt werden.',
   'legal.title': 'Servicehinweise',
   'legal.content_html':
     '<strong>Datenschutzrichtlinie</strong><br>Im selben Netzwerk werden Sitzungsdaten direkt zwischen Geräten übertragen; nur IP- und Verbindungsdetails laufen über das Signaling. Remote-Datei- und Systemaudio-Freigabe leiten Daten über Cloudflare; Remote-Dateien werden verschlüsselt, bis zu 24 Stunden aufbewahrt und ohne Entschlüsselungsschlüssel gespeichert. MUSIXQUARE sieht, analysiert oder speichert keine Daten über das hinaus, was zur Bereitstellung der Funktionen nötig ist. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>Urheberrechtshinweis</strong><br>Über MUSIXQUARE geteilte Inhalte gehören den jeweiligen Rechteinhabern. Systemaudio-Freigabe und Dateifreigabe sind für die persönliche Nutzung vorgesehen. Nutzer sind für unautorisierte Verbreitung oder öffentliche Übertragung urheberrechtlich geschützter Inhalte verantwortlich. YouTube-Sharing nutzt die offizielle Wiedergabestruktur; Aufrufe und Rechtebehandlung folgen den Richtlinien dieses Dienstes und den Einstellungen der Rechteinhaber. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>Haftungsausschluss</strong><br>MUSIXQUARE wird kostenlos bereitgestellt. Einige Funktionen hängen von externen Diensten wie YouTube oder Cloudflare ab; daher können vorübergehende Einschränkungen auftreten, wenn sich diese Dienste ändern oder offline gehen. Echtzeit-Audiosynchronisierung und Qualität der Remote-Freigabe können je nach Netzwerk, Browser-Richtlinien und Geräteleistung stark variieren. Außerhalb von Wi-Fi können Gebühren für mobile Daten anfallen. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Mehr erfahren</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Über uns</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Verlauf</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Designsystem</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',

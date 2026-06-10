@@ -19,14 +19,14 @@ const th: Record<I18nKey, string> = {
   'common.info': 'ข้อมูล',
   'common.stay': 'อยู่ต่อ',
   'common.leave': 'ออก',
-  'common.granted': 'ได้รับสิทธิ์',
-  'common.revoked': 'ถูกถอนสิทธิ์',
+  'common.granted': 'ได้รับสิทธิ์แล้ว',
+  'common.revoked': 'ถูกถอนสิทธิ์แล้ว',
   'common.stop': 'หยุด',
   'common.pause': 'หยุดชั่วคราว',
   'common.message': 'ข้อความ',
   'common.mix': 'มิกซ์',
   'common.wait': 'รอสักครู่...',
-  'common.guest': 'แขก',
+  'common.guest': 'ผู้เข้าร่วม',
   'common.help': 'ช่วยเหลือ',
   'common.increase': 'เพิ่ม',
   'common.decrease': 'ลด',
@@ -134,7 +134,7 @@ const th: Record<I18nKey, string> = {
   'settings.rvb_off': 'ปิด',
   'settings.reverb_mix': 'มิกซ์รีเวิร์บ',
   'settings.reverb_decay': 'รีเวิร์บจาง',
-  'settings.reverb_predelay': 'พรีดีเลย์',
+  'settings.reverb_predelay': 'พรีดีเลย์รีเวิร์บ',
   'settings.reverb_lowcut': 'ตัดต่ำรีเวิร์บ',
   'settings.reverb_highcut': 'ตัดสูงรีเวิร์บ',
   'settings.decay_time': 'เวลาจาง',
@@ -149,7 +149,7 @@ const th: Record<I18nKey, string> = {
   'settings.surround_title': 'เซอร์ราวด์เสมือน',
   'settings.bass_title': 'เบสเสมือน',
   'settings.exciter_title': 'แหลมเสมือน',
-  'settings.subwoofer_adjust': 'ปรับซับวูฟเฟอร์',
+  'settings.subwoofer_adjust': 'จุดตัดซับวูฟเฟอร์',
   'settings.subwoofer_cutoff': 'ความถี่ครอสโอเวอร์',
   'settings.default_0pct': 'ค่าเริ่มต้น: 0%',
   'settings.default_01s': 'ค่าเริ่มต้น: 0.1 วิ',
@@ -199,8 +199,8 @@ const th: Record<I18nKey, string> = {
   'connect.room_password_pending': 'กำลังรอรหัสผ่าน 8 หลัก',
   'connect.room_password_on': 'ใช้งานรหัสผ่านแล้ว',
   'connect.room_password_invalid': 'โปรดใส่รหัสผ่าน 8 หลัก',
-  'connect.room_password_enabled': 'ผู้เข้าห้องคนใหม่จะต้องระบุรหัสผ่านห้องแล้ว',
-  'connect.room_password_disabled': 'ผู้เข้าห้องไม่ต้องระบุรหัสผ่านห้องแล้ว',
+  'connect.room_password_enabled': 'ผู้เข้าร่วมใหม่จะต้องใช้รหัสผ่านห้อง',
+  'connect.room_password_disabled': 'ผู้เข้าร่วมไม่ต้องใช้รหัสผ่านห้องแล้ว',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'สร้างห้อง',
@@ -231,18 +231,18 @@ const th: Record<I18nKey, string> = {
   'demo.session_subtitle': 'คุณสามารถเชิญอุปกรณ์อื่น ๆ ได้ทุกเมื่อ',
   'demo.session_body_connected':
     'ขณะนี้มีอุปกรณ์เชื่อมต่อ {{count}} เครื่อง\nโปรดตั้งค่าบทบาทให้แต่ละอุปกรณ์',
-  'demo.session_body_alone': 'ตอนนี้คุณกำลังเล่นเพลงคนเดียว\nเชิญอุปกรณ์อื่นเพื่อเริ่มการเล่นด้วยกัน',
+  'demo.session_body_alone': 'ตอนนี้มีเพียงอุปกรณ์เครื่องนี้ที่กำลังเล่นอยู่\nเชิญอุปกรณ์อื่นเพื่อเริ่มการเล่นด้วยกัน',
   'demo.effects_step_title': 'สร้างสรรค์มิติเสียงระดับพรีเมียมในแบบของคุณ',
   'demo.effects_step_subtitle': 'คุณสามารถตั้งค่าอย่างละเอียดได้ทุกเมื่อภายหลังในส่วนการตั้งค่า',
   'demo.finish_step_title': 'พร้อมแล้ว!',
   'demo.finish_step_subtitle': 'เข้าร่วมเลย แล้วฟังเพลงพร้อมกัน!',
   'demo.track_list_label': 'รายการเพลงเดโม',
-  'demo.host_only_exit': 'เฉพาะโฮสต์ของห้องเท่านั้นที่สามารถดำเนินการได้',
+  'demo.host_only_exit': 'เฉพาะโฮสต์เท่านั้นที่กดปุ่มนี้ได้',
   'demo.external_playback_stopped':
-    'ทัวร์เดโมได้หยุดการเล่น YouTube หรือเสียงระบบที่กำลังเล่นอยู่',
+    'โหมดเดโมได้หยุดการเล่น YouTube หรือเสียงระบบที่กำลังเล่นอยู่',
   'setup.how_to_connect': 'วิธีเชื่อมต่อ',
-  'setup.set_role': 'บทบาทอุปกรณ์',
-  'setup.what_sound': 'จะเล่นอะไร?',
+  'setup.set_role': 'ตั้งค่าบทบาทอุปกรณ์เครื่องนี้',
+  'setup.what_sound': 'จะให้อุปกรณ์เครื่องนี้เล่นเสียงแบบไหน?',
   'setup.change_later': 'คุณสามารถเปลี่ยนการตั้งค่านี้ภายหลังได้ในส่วนการตั้งค่า',
   'setup.welcome_title': 'ยินดีต้อนรับ',
   'setup.join_session_subtitle': 'คุณกำลังจะเข้าร่วมห้อง {{code}}',
@@ -260,14 +260,14 @@ const th: Record<I18nKey, string> = {
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'ต้องการความช่วยเหลือ?',
-  'help.install_app': 'ติดตั้งแอปพลิเคชันเว็บ',
+  'help.install_app': 'ติดตั้งเว็บแอป',
   'help.local_recommended': 'แนะนำให้ใช้เครือข่ายท้องถิ่นเดียวกัน',
   'help.connect_all_wifi': 'การเชื่อมต่อจะเสถียรที่สุดเมื่อทุกอุปกรณ์เชื่อมต่อ Wi-Fi เครือข่ายเดียวกัน',
   'help.local_file': 'เลือกไฟล์ในเครื่อง',
   'help.load_local': 'โหลดไฟล์ในเครื่อง',
   'help.youtube_compat': 'YouTube (โหมดเข้ากันได้)',
   'help.youtube_no_effects': 'ในโหมด YouTube จะไม่สามารถแยกช่องสัญญาณลำโพงและใช้เอฟเฟกต์เสียงขั้นสูงได้',
-  'help.media_synced_detail': 'เพลงที่เลือกจะเล่นอย่างสอดคล้องพร้อมกันอย่างสมบูรณ์แบบบนทุกอุปกรณ์ที่เชื่อมต่อ',
+  'help.media_synced_detail': 'สื่อที่เลือกจะเล่นพร้อมกันบนทุกอุปกรณ์ที่เชื่อมต่อ',
   'help.wifi_hotspot': 'คุณสามารถใช้ฮอตสปอตมือถือ (Hotspot) เพื่อเชื่อมต่อทุกอุปกรณ์เข้ากับเครือข่ายเดียวกันได้',
 
   // ─── Chat ────────────────────────────────────────────────────────
@@ -296,9 +296,9 @@ const th: Record<I18nKey, string> = {
   'chat.system_sender': 'ระบบ',
   'chat.decode_skip_notice': 'บางอุปกรณ์เล่นแทร็กนี้ไม่ได้ กำลังข้ามไปแทร็กถัดไป',
   'chat.system_audio_started_notice':
-    'เริ่มแชร์เสียงระบบแล้ว ความหน่วงระหว่างโฮสต์กับผู้เข้าร่วมเป็นเรื่องปกติ โฮสต์จึงควรลดระดับเสียงของอุปกรณ์ต้นทางให้มากที่สุด',
+    'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างโฮสต์กับอุปกรณ์ผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์โฮสต์เพื่อเลี่ยงเสียงก้อง',
   'chat.system_audio_stopped_notice':
-    'สิ้นสุดการแชร์เสียงระบบแล้ว โฮสต์ โปรดเพิ่มเสียงกลับเพื่อเป็นลำโพงของห้อง',
+    'สิ้นสุดการแชร์เสียงระบบแล้ว โฮสต์สามารถเพิ่มระดับเสียงกลับเพื่อเล่นเป็นลำโพงได้เลย',
   'chat.remote_guest_detected_notice':
     'มีผู้เข้าร่วมระยะไกลเข้ามา คุณภาพการเชื่อมต่ออาจเปลี่ยนตามสภาพเครือข่าย',
   'chat.remote_upload_limited_notice':
@@ -368,7 +368,7 @@ const th: Record<I18nKey, string> = {
   'youtube.video_unavailable': 'วิดีโอไม่พร้อมใช้งาน กำลังข้ามไปแทร็กถัดไป',
   'youtube.load_timeout': 'โหลด YouTube หมดเวลา\nโปรดลองอีกครั้ง',
   'youtube.invalid_link': 'ลิงก์ YouTube ไม่ถูกต้อง',
-  'youtube.effects_disabled': 'ดู YouTube ด้วยกัน\nปิดเอฟเฟกต์เสียงขั้นสูง',
+  'youtube.effects_disabled': 'ดู YouTube ด้วยกัน\nใช้เอฟเฟกต์เสียงขั้นสูงไม่ได้',
   'youtube.enter_link_placeholder': 'ใส่ลิงก์วิดีโอหรือเพลย์ลิสต์',
   'youtube.enter_source_toast': 'ใส่ลิงก์ YouTube หรือคำค้นหา',
   'youtube.fetching_info': 'กำลังโหลดข้อมูลวิดีโอ...',
@@ -380,7 +380,7 @@ const th: Record<I18nKey, string> = {
   'youtube.loading_large_playlist': 'กำลังโหลดเพลย์ลิสต์ขนาดใหญ่...',
   'youtube.indexing_playlist': 'กำลังวิเคราะห์รายการในเพลย์ลิสต์...',
   'youtube.search_button': 'ค้นหา',
-  'youtube.search_prompt': 'กด Enter หรือค้นหาเพื่อหาวิดีโอ',
+  'youtube.search_prompt': 'กด Enter หรือปุ่มค้นหาเพื่อหาวิดีโอ',
   'youtube.searching': 'กำลังค้นหา YouTube...',
   'youtube.search_no_results': 'ไม่พบวิดีโอ',
   'youtube.search_failed': 'ใช้การค้นหา YouTube ไม่ได้',
@@ -393,7 +393,7 @@ const th: Record<I18nKey, string> = {
   'network.cant_join': 'ไม่พบห้อง\nโปรดตรวจสอบเครือข่าย',
   'network.session_full': 'ห้องเต็มแล้ว',
   'network.session_full_detail':
-    'ถึงขีดจำกัดอุปกรณ์แล้ว\nจำนวนอุปกรณ์ที่เชื่อมต่อได้ตั้งค่าได้ในแท็บ "เชื่อมต่อ"',
+    'ห้องนี้ถึงขีดจำกัดจำนวนอุปกรณ์แล้ว\nโปรดขอให้โฮสต์เพิ่มความจุห้องในแท็บ "เชื่อมต่อ"',
   'network.op_granted': 'ให้สิทธิ์ผู้ดูแลแล้ว',
   'network.op_revoked': 'ถอนสิทธิ์ผู้ดูแลแล้ว',
 
@@ -413,7 +413,7 @@ const th: Record<I18nKey, string> = {
   'toast.decoding_audio': 'กำลังถอดรหัสเสียง...',
   'toast.preparing_next': 'กำลังเตรียมแทร็กถัดไป... ({{name}})',
   'toast.preparing_next_pct': 'กำลังเตรียมแทร็กถัดไป... {{pct}}%',
-  'toast.op_status': '{{label}} สิทธิ์ {{status}}',
+  'toast.op_status': '{{label}} {{status}}',
   'toast.file_read_error': 'ข้อผิดพลาดอ่านไฟล์: {{name}}',
   'toast.host_ended_connection': 'โฮสต์สิ้นสุดการเชื่อมต่อแล้ว',
 
@@ -428,14 +428,14 @@ const th: Record<I18nKey, string> = {
   'toast.host_only_file': 'เฉพาะโฮสต์เท่านั้นที่เพิ่มไฟล์ได้',
   'toast.no_tracks': 'ไม่มีแทร็กให้เล่น',
   'toast.no_invite_code': 'ยังไม่มีรหัสเชิญ',
-  'toast.invite_code_settings': 'แชร์ลิงก์เชิญได้จากแท็บเชื่อมต่อ',
+  'toast.invite_code_settings': 'แชร์ลิงก์เชิญได้จากแท็บ "เชื่อมต่อ"',
   'toast.click_copy_invite': 'คลิกเพื่อคัดลอกรหัสเชิญ',
   'toast.cant_select_file': 'เลือกไฟล์ไม่ได้',
   'toast.video_excluded': 'ข้ามไฟล์วิดีโอแล้ว',
   'toast.video_only_rejected': 'เพิ่มไฟล์วิดีโอไม่ได้',
   'dialog.large_room_file.title': 'แชร์ไฟล์ในห้องขนาดใหญ่',
   'dialog.large_room_file.message':
-    'การแชร์ไฟล์ในเครื่องเสถียรกับผู้เข้าร่วมประมาณ 8 คนบนเครือข่ายท้องถิ่น\n\nดำเนินการต่อ?',
+    'การแชร์ไฟล์ในเครื่องจะเสถียรเมื่อมีผู้เข้าร่วมไม่เกินประมาณ 8 คนบนเครือข่ายท้องถิ่น\n\nดำเนินการต่อ?',
   'dialog.large_room_sysaudio.title': 'เสียงระบบในห้องขนาดใหญ่',
   'dialog.large_room_sysaudio.message':
     'การแชร์เสียงระบบรองรับผู้เข้าร่วมทั้งในเครื่องและระยะไกล แต่แนะนำไม่เกินประมาณ 4 คนเพื่อลดภาระโฮสต์และความหน่วง\n\nดำเนินการต่อ?',
@@ -452,7 +452,7 @@ const th: Record<I18nKey, string> = {
   'toast.file_ready': 'ไฟล์พร้อมแล้ว!\nกดเล่น',
   'toast.host_sync_not_recommended': 'ปรับซิงค์บนอุปกรณ์ผู้เข้าร่วม',
   'toast.host_sync_requested':
-    'ขอซิงค์ความแม่นยำแล้ว\nปรับซิงค์แบบกำหนดเองบนอุปกรณ์ผู้เข้าร่วม',
+    'ขอซิงค์ความแม่นยำสูงแล้ว\nปรับซิงค์แบบกำหนดเองบนอุปกรณ์ผู้เข้าร่วม',
   'toast.sync_not_in_system_audio': 'ใช้การซิงค์ไม่ได้ในโหมดแชร์เสียงระบบ',
   'toast.sync_not_ready': 'ยังไม่พร้อม\nโปรดลองอีกครั้งภายหลัง',
   'toast.host_ad': 'ดูเหมือนโฮสต์กำลังดูโฆษณา',
@@ -494,11 +494,11 @@ const th: Record<I18nKey, string> = {
   'share.remote.too_large': 'ไฟล์ใหญ่เกินไป (สูงสุด 200 MB)',
   'share.remote.network_error': 'เกิดข้อผิดพลาดเครือข่ายระหว่างแชร์ระยะไกล',
   'share.remote.rate_limited': 'มีการอัปโหลดระยะไกลมากเกินไป\nโปรดลองอีกครั้งภายหลัง',
-  'share.remote.auth_failed': 'ยืนยันสิทธิ์แชร์ระยะไกลไม่สำเร็จ\nตรวจสอบการตั้งค่า Worker',
+  'share.remote.auth_failed': 'ยืนยันสิทธิ์แชร์ระยะไกลไม่สำเร็จ\nโปรดตรวจสอบการตั้งค่า Worker',
   'share.remote.expired': 'ลิงก์ไฟล์ระยะไกลหมดอายุแล้ว\nโปรดแชร์ใหม่',
   'share.remote.unavailable': 'แชร์ระยะไกลไม่สำเร็จ\nโปรดลองอีกครั้งภายหลัง',
   'transfer.preload_fail': 'เล่นไฟล์ที่โหลดล่วงหน้าไม่สำเร็จ กำลังโหลดใหม่',
-  'transfer.download_finishing': 'กำลังจบการดาวน์โหลด...',
+  'transfer.download_finishing': 'ดาวน์โหลดใกล้เสร็จแล้ว...',
   'transfer.preparation_delayed': 'การเตรียมล่าช้า...\nกำลังขอให้โฮสต์กู้คืน',
   'transfer.receiving_0pct': 'กำลังรับ... 0%',
   'transfer.check_conn_type': 'กำลังตรวจสอบประเภทการเชื่อมต่อ...',
@@ -543,7 +543,7 @@ const th: Record<I18nKey, string> = {
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.return_home_title': 'ออกจากห้อง',
   'dialog.return_home_msg': 'กลับไปหน้าจอเริ่มต้น?',
-  'dialog.return_home_detail': 'คุณจะตัดการเชื่อมต่อจากห้องปัจจุบัน',
+  'dialog.return_home_detail': 'คุณจะถูกตัดการเชื่อมต่อจากห้องปัจจุบัน',
   'dialog.leaving_session': 'กำลังออก...',
   'dialog.background_resume_title': 'แอปเพิ่งไปอยู่เบื้องหลังชั่วครู่',
   'dialog.background_resume_message': 'ถ้าซิงค์ไม่ตรงหรือเสียงไม่เล่น ให้ปิดแอปให้สนิทแล้วเปิดใหม่',
@@ -570,15 +570,15 @@ const th: Record<I18nKey, string> = {
   'help.install_app_html':
     'ชอบ MUSIXQUARE ใช่ไหม? คุณสามารถติดตั้งเป็นแอปได้<ul class="help-list"><li><strong>iOS:</strong> แชร์ → เพิ่มไปยังหน้าจอโฮม</li><li><strong>Android:</strong> เมนู → ติดตั้งแอป</li><li><strong>Windows:</strong> ไอคอนติดตั้งในแถบที่อยู่</li><li><strong>macOS:</strong> แชร์ → เพิ่มไปยัง Dock</li></ul>',
   'help.local_recommended_html':
-    'การแชร์เสียงจะเสถียรที่สุดเมื่ออยู่บนเครือข่ายเดียวกัน<ul class="help-list"><li>ผู้เข้าร่วมระยะไกลสามารถใช้ฟีเจอร์เดียวกันได้</li><li>ผู้เข้าร่วมระยะไกลใช้เส้นทาง Cloudflare จึงอาจมีความหน่วงเพิ่มขึ้นหรือรับสัญญาณล้มเหลวตามสภาพเครือข่าย</li><li>VPN หรือเครือข่ายที่จำกัดอาจทำให้การเชื่อมต่อไม่เสถียร</li></ul>',
+    'การแชร์เสียงจะเสถียรที่สุดเมื่ออยู่บนเครือข่ายเดียวกัน<ul class="help-list"><li>ผู้เข้าร่วมระยะไกลสามารถใช้ฟีเจอร์เดียวกันได้</li><li>ผู้เข้าร่วมระยะไกลใช้เส้นทาง Cloudflare จึงอาจมีความหน่วงเพิ่มขึ้นหรือรับข้อมูลไม่สำเร็จตามสภาพเครือข่าย</li><li>VPN หรือเครือข่ายที่จำกัดอาจทำให้การเชื่อมต่อไม่เสถียร</li></ul>',
   'setup.how_to_connect_html':
-    'ป้อน <strong>รหัส 6 หลัก</strong> จากโฮสต์เพื่อเชื่อมต่อ<ul class="help-list"><li><strong>โฮสต์:</strong> “เป็นโฮสต์” → ตรวจสอบรหัส</li><li><strong>ผู้เข้าร่วม:</strong> “เข้าห้อง” → ป้อนรหัส</li><li>จำนวนอุปกรณ์ที่เชื่อมต่อได้ตั้งค่าได้ใน <strong>แท็บ "เชื่อมต่อ"</strong></li></ul>',
+    'ใส่ <strong>รหัส 6 หลัก</strong> จากโฮสต์เพื่อเชื่อมต่อ<ul class="help-list"><li><strong>โฮสต์:</strong> “สร้างห้อง” → ตรวจสอบรหัส</li><li><strong>ผู้เข้าร่วม:</strong> “เข้าร่วมห้อง” → ใส่รหัส</li><li>จำนวนอุปกรณ์ที่เชื่อมต่อได้สามารถตั้งค่าได้ใน <strong>แท็บ "เชื่อมต่อ"</strong></li></ul>',
   'player.play_speakers_html':
     'ผู้เข้าร่วมแต่ละคนเลือก <strong>บทบาท (ช่องสัญญาณเอาต์พุต)</strong><ul class="help-list"><li><strong>กลาง:</strong> เอาต์พุตสเตอริโอ (ค่าเริ่มต้น)</li><li><strong>ซ้าย:</strong> เอาต์พุตช่อง L</li><li><strong>ขวา:</strong> เอาต์พุตช่อง R</li><li><strong>ซับวูฟเฟอร์:</strong> เอาต์พุตผสมย่านความถี่ต่ำ</li></ul>เปลี่ยนบทบาทได้ทุกเมื่อใน <strong>การตั้งค่า</strong>',
   'player.play_media_action_html':
-    'โฮสต์มี 3 ตัวเลือก<ul class="help-list"><li><strong>โหลดไฟล์ในเครื่อง:</strong> เลือกเพลงจากอุปกรณ์ของคุณ รองรับการซิงก์ที่แม่นยำ</li><li><strong>YouTube ด้วยกัน:</strong> รองรับวิดีโอและเพลย์ลิสต์ ไม่มีการแยกช่องสัญญาณหรือเอฟเฟกต์เสียง</li><li><strong>แชร์เสียงระบบ:</strong> ใช้ได้เมื่อโฮสต์ใช้ Chrome บน Windows หรือ Mac</li></ul>',
+    'โฮสต์มี 3 ตัวเลือก<ul class="help-list"><li><strong>โหลดไฟล์ในเครื่อง:</strong> เลือกเพลงจากอุปกรณ์ของคุณ รองรับการซิงค์ที่แม่นยำ</li><li><strong>YouTube ด้วยกัน:</strong> รองรับวิดีโอและเพลย์ลิสต์ ไม่มีการแยกช่องสัญญาณหรือเอฟเฟกต์เสียง</li><li><strong>แชร์เสียงระบบ:</strong> ใช้ได้เมื่อโฮสต์ใช้เบราว์เซอร์เดสก์ท็อปตระกูล Chrome</li></ul>',
   'help.need_help_html':
-    '<ul class="help-list"><li><strong>ป้อนรหัสแล้วแต่เชื่อมต่อไม่ได้:</strong> ตรวจสอบรหัสแล้วลองอีกครั้งในอีกสักครู่ เครือข่ายบริษัท โรงเรียน หรือ VPN อาจจำกัดการเชื่อมต่อ</li><li><strong>การเชื่อมต่อไม่เสถียร:</strong> ผู้เข้าร่วมในเครือข่ายเดียวกันควรอยู่ใกล้เราเตอร์มากขึ้น และผู้เข้าร่วมระยะไกลควรใช้การเชื่อมต่ออินเทอร์เน็ตที่เสถียร</li><li><strong>ปัญหาอื่น ๆ:</strong> ตรวจสอบสถานะเครือข่ายและรีสตาร์ทแอปบนทุกอุปกรณ์ หากมีคำถาม โปรดดู <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> หรือติดต่อเราผ่านอีเมลด้านล่างสุด</li></ul>',
+    '<ul class="help-list"><li><strong>ใส่รหัสแล้วแต่เชื่อมต่อไม่ได้:</strong> ตรวจสอบรหัสแล้วลองอีกครั้งในอีกสักครู่ เครือข่ายบริษัท โรงเรียน หรือ VPN อาจจำกัดการเชื่อมต่อ</li><li><strong>การเชื่อมต่อไม่เสถียร:</strong> ผู้เข้าร่วมในเครือข่ายเดียวกันควรอยู่ใกล้เราเตอร์มากขึ้น และผู้เข้าร่วมระยะไกลควรใช้การเชื่อมต่ออินเทอร์เน็ตที่เสถียร</li><li><strong>ปัญหาอื่น ๆ:</strong> ตรวจสอบสถานะเครือข่ายและรีสตาร์ตแอปบนทุกอุปกรณ์ หากมีคำถาม โปรดดู <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> หรือติดต่อเราผ่านอีเมลด้านล่างสุด</li></ul>',
   'chat.peer_connected': '{{name}} เข้าร่วมแล้ว',
   'chat.peer_disconnected': '{{name}} ออกแล้ว',
   'chat.empty_html': 'ยังไม่มีข้อความ<br>ส่งข้อความแรกเลย!',
@@ -588,12 +588,12 @@ const th: Record<I18nKey, string> = {
   'setup.invite_share_desc_html':
     'เชื่อมต่ออุปกรณ์หลายเครื่องแบบไร้สาย<br>เพื่อสร้างระบบเสียงขนาดใหญ่<br>ใช้รหัส 6 หลักเพื่อเชื่อมต่อ',
   'setup.play_together_desc_html':
-    'เมื่อโฮสต์เล่นสื่อ<br>อุปกรณ์ที่เชื่อมต่อทั้งหมดจะเล่นพร้อมกัน<br>กดปุ่มซิงก์เพื่อปรับให้ตรงกัน',
+    'เมื่อโฮสต์เล่นสื่อ<br>อุปกรณ์ที่เชื่อมต่อทั้งหมดจะเล่นพร้อมกัน<br>กดปุ่มซิงค์เพื่อปรับให้ตรงกัน',
   'setup.spatial_audio_desc_html':
     'กำหนดบทบาทให้แต่ละอุปกรณ์<br>เล่นเสียงซ้ายและขวาแยกกัน<br>และสัมผัสเบสลึกจากวูฟเฟอร์',
   'setup.advanced_audio_desc_html':
     'จับคู่การตั้งค่าของโฮสต์<br>ด้วยรีเวิร์บ EQ เอฟเฟกต์เสมือน<br>และอื่น ๆ ทั่วทั้งระบบ',
-  'youtube.enter_link_desc_html': 'ดูได้เฉพาะวิดีโอสาธารณะเท่านั้น',
+  'youtube.enter_link_desc_html': 'เล่นได้เฉพาะวิดีโอหรือเพลย์ลิสต์สาธารณะเท่านั้น',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'เสียงระบบ',
@@ -610,15 +610,15 @@ const th: Record<I18nKey, string> = {
   'system_audio.host_channel_locked': 'เปลี่ยนบทบาทไม่ได้ระหว่างแชร์เสียงระบบ',
   'system_audio.effects_guest_only':
     'กำลังแชร์เสียงระบบ\nเอฟเฟกต์ใช้กับผู้เข้าร่วมเท่านั้น',
-  'system_audio.desktop_only': 'ใช้ได้เฉพาะ Chrome บนเดสก์ท็อป Windows หรือ Mac',
+  'system_audio.desktop_only': 'ใช้ได้เฉพาะในเบราว์เซอร์เดสก์ท็อปตระกูล Chrome (เช่น Chrome, Edge)',
   'system_audio.receive_failed': 'รับเสียงระบบไม่ได้\nขอให้โฮสต์เริ่มแชร์อีกครั้ง',
   'system_audio.remote_receive_limit':
-    'การรับเสียงระบบระยะไกลหยุดหลังจาก 2 ชั่วโมง\nเข้าห้องใหม่เพื่อฟังต่อ',
+    'การรับเสียงระบบระยะไกลหยุดหลังจาก 2 ชั่วโมง\nเข้าร่วมห้องอีกครั้งเพื่อฟังต่อ',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'หมายเหตุการใช้บริการ',
   'legal.content_html':
-    '<strong>นโยบายความเป็นส่วนตัว</strong><br>เมื่ออยู่บนเครือข่ายเดียวกัน ข้อมูลเซสชันจะส่งตรงระหว่างอุปกรณ์ มีเพียง IP และรายละเอียดการเชื่อมต่อเท่านั้นที่ผ่านระบบ signaling การแชร์ไฟล์ระยะไกลและการแชร์เสียงระบบจะส่งข้อมูลผ่าน Cloudflare ไฟล์ระยะไกลจะถูกเข้ารหัส เก็บไว้สูงสุด 24 ชั่วโมง และจัดเก็บโดยไม่มีคีย์ถอดรหัส MUSIXQUARE ไม่ดู วิเคราะห์ หรือจัดเก็บข้อมูลเกินกว่าที่จำเป็นต่อการให้บริการฟีเจอร์ <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ประกาศลิขสิทธิ์</strong><br>เนื้อหาที่แชร์ผ่าน MUSIXQUARE เป็นของผู้ถือสิทธิ์ที่เกี่ยวข้อง การแชร์เสียงระบบและการแชร์ไฟล์มีไว้สำหรับการใช้งานส่วนตัว ผู้ใช้ต้องรับผิดชอบต่อการเผยแพร่โดยไม่ได้รับอนุญาตหรือการส่งต่อสาธารณะของเนื้อหาที่มีลิขสิทธิ์ การแชร์ YouTube ใช้โครงสร้างการเล่นอย่างเป็นทางการ และยอดรับชมกับการจัดการสิทธิ์เป็นไปตามนโยบายของบริการนั้นและการตั้งค่าของผู้ถือสิทธิ์ <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ข้อจำกัดความรับผิด</strong><br>MUSIXQUARE ให้บริการฟรี ฟีเจอร์บางอย่างพึ่งพาบริการภายนอก เช่น YouTube หรือ Cloudflare จึงอาจมีข้อจำกัดชั่วคราวหากบริการเหล่านั้นเปลี่ยนแปลงหรือออฟไลน์ การซิงก์เสียงแบบเรียลไทม์และคุณภาพการแชร์ระยะไกลอาจแตกต่างมากตามเครือข่าย นโยบายเบราว์เซอร์ และประสิทธิภาพของอุปกรณ์ อาจมีค่าบริการข้อมูลมือถือเมื่อไม่ได้ใช้ Wi-Fi <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">เกี่ยวกับ</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ประวัติ</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ระบบดีไซน์</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>นโยบายความเป็นส่วนตัว</strong><br>เมื่ออยู่บนเครือข่ายเดียวกัน ข้อมูลเซสชันจะส่งตรงระหว่างอุปกรณ์ มีเพียง IP และรายละเอียดการเชื่อมต่อเท่านั้นที่ผ่านระบบ signaling การแชร์ไฟล์ระยะไกลและการแชร์เสียงระบบจะส่งข้อมูลผ่าน Cloudflare ไฟล์ระยะไกลจะถูกเข้ารหัส เก็บไว้สูงสุด 24 ชั่วโมง และจัดเก็บโดยไม่มีคีย์ถอดรหัส MUSIXQUARE ไม่ดู วิเคราะห์ หรือจัดเก็บข้อมูลเกินกว่าที่จำเป็นต่อการให้บริการฟีเจอร์ <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ประกาศลิขสิทธิ์</strong><br>เนื้อหาที่แชร์ผ่าน MUSIXQUARE เป็นของผู้ถือสิทธิ์ที่เกี่ยวข้อง การแชร์เสียงระบบและการแชร์ไฟล์มีไว้สำหรับการใช้งานส่วนตัว ผู้ใช้ต้องรับผิดชอบต่อการเผยแพร่โดยไม่ได้รับอนุญาตหรือการส่งต่อสาธารณะของเนื้อหาที่มีลิขสิทธิ์ การแชร์ YouTube ใช้โครงสร้างการเล่นอย่างเป็นทางการ และยอดรับชมกับการจัดการสิทธิ์เป็นไปตามนโยบายของบริการนั้นและการตั้งค่าของผู้ถือสิทธิ์ <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>ข้อจำกัดความรับผิด</strong><br>MUSIXQUARE ให้บริการฟรี ฟีเจอร์บางอย่างพึ่งพาบริการภายนอก เช่น YouTube หรือ Cloudflare จึงอาจมีข้อจำกัดชั่วคราวหากบริการเหล่านั้นเปลี่ยนแปลงหรือออฟไลน์ การซิงค์เสียงแบบเรียลไทม์และคุณภาพการแชร์ระยะไกลอาจแตกต่างมากตามเครือข่าย นโยบายเบราว์เซอร์ และประสิทธิภาพของอุปกรณ์ อาจมีค่าบริการข้อมูลมือถือเมื่อไม่ได้ใช้ Wi-Fi <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ดูเพิ่มเติม</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">เกี่ยวกับ</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ประวัติ</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ระบบดีไซน์</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default th;

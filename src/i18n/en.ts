@@ -582,7 +582,7 @@ const en: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html':
-    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host is using Chrome on Windows or Mac</li></ul>',
+    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host is using a Chrome-based desktop browser</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul>',
   'chat.peer_connected': '{{name}} joined',
@@ -615,7 +615,7 @@ const en: Record<I18nKey, string> = {
     'System audio is best with up to 4 participants.\nMore devices may add latency or stutter.',
   'system_audio.host_channel_locked': 'Cannot change roles during system audio sharing.',
   'system_audio.effects_guest_only': 'System audio active.\nSound effects apply to guest devices only.',
-  'system_audio.desktop_only': 'Only available on Windows or Mac desktop Chrome.',
+  'system_audio.desktop_only': 'Only available in Chrome-based desktop browsers (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
     'Could not receive system audio.\nAsk the host to start sharing again.',
   'system_audio.remote_receive_limit':

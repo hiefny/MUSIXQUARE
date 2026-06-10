@@ -22,8 +22,8 @@ const vi: Record<I18nKey, string> = {
   'common.info': 'Thông tin',
   'common.stay': 'Ở lại',
   'common.leave': 'Rời đi',
-  'common.granted': 'đã cấp',
-  'common.revoked': 'đã thu hồi',
+  'common.granted': 'đã được cấp',
+  'common.revoked': 'đã bị thu hồi',
   'common.stop': 'Dừng',
   'common.pause': 'Tạm dừng',
   'common.message': 'Tin nhắn',
@@ -121,12 +121,12 @@ const vi: Record<I18nKey, string> = {
   'settings.leave_session': 'Rời phòng',
   'connect.rename_device': 'Đổi biệt danh thiết bị',
   'connect.rename_title': 'Đổi biệt danh thiết bị',
-  'connect.rename_message': 'Chọn biệt danh hiển thị với người khác.',
+  'connect.rename_message': 'Chọn biệt danh hiển thị cho người khác.',
   'connect.rename_placeholder': 'Biệt danh mới (tối đa 20 ký tự)',
   'connect.rename_current': 'Biệt danh hiện tại',
   'connect.rename_empty': 'Biệt danh không được để trống.',
-  'connect.rename_reserved': 'Biệt danh này đã được bảo lưu.',
-  'connect.rename_profanity': 'Biệt danh không phù hợp đã bị phát hiện.',
+  'connect.rename_reserved': 'Biệt danh này đã được dành riêng.',
+  'connect.rename_profanity': 'Đã phát hiện từ ngữ không phù hợp.',
   'connect.rename_duplicate': 'Biệt danh này đã được sử dụng.',
   'settings.devices_title': 'Thiết bị đã kết nối',
   'settings.invite_share': 'Mời & Chia sẻ',
@@ -136,13 +136,13 @@ const vi: Record<I18nKey, string> = {
   'settings.subtab.help': 'Trợ giúp',
 
   // Player
-  'player.no_media': 'Không có phương tiện đang phát',
+  'player.no_media': 'Không có nội dung đang phát',
   'player.select_file_hint': 'Chọn tệp hoặc kiểm tra danh sách phát',
   'player.play_pause': 'Phát/Tạm dừng',
   'player.visualizer': 'Hiển thị âm thanh',
   'player.seek': 'Tua',
   'player.volume': 'Điều chỉnh âm lượng',
-  'player.toggle_mute': 'Bật/tắt tắt tiếng',
+  'player.toggle_mute': 'Bật/tắt tiếng',
   'player.fullscreen': 'Bật/tắt toàn màn hình',
   'player.prev_track': 'Bài trước',
   'player.next_track': 'Bài tiếp theo',
@@ -245,15 +245,15 @@ const vi: Record<I18nKey, string> = {
     'Chế độ demo đã dừng phát YouTube hoặc âm thanh hệ thống hiện tại.',
   'setup.how_to_connect': 'Cách kết nối',
   'setup.set_role': 'Vai trò thiết bị',
-  'setup.what_sound': 'Phát gì ở đây?',
+  'setup.what_sound': 'Thiết bị này sẽ phát gì?',
   'setup.change_later': 'Bạn có thể đổi sau trong Cài đặt.',
   'setup.welcome_title': 'Chào mừng',
   'setup.join_session_subtitle': 'Bạn sắp vào phòng {{code}}.',
   'setup.select_role': 'Vui lòng chọn vai trò',
   'setup.select_role_alt': 'Vui lòng chọn vai trò',
   'setup.hello_select_role': 'Xin chào! Hãy chọn vai trò của bạn.',
-  'setup.enter_code': 'Nhập mã',
-  'setup.enter_host_code': 'Nhập mã host',
+  'setup.enter_code': 'Nhập mã 6 chữ số',
+  'setup.enter_host_code': 'Nhập mã 6 chữ số từ host',
   'setup.enter_host_code_alt': 'Nhập mã của host.',
   'setup.connect_devices': 'Giờ hãy kết nối các thiết bị khác.',
   'setup.enter_code_connect': 'Nhập mã này trên thiết bị khác',
@@ -268,7 +268,7 @@ const vi: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Kết nối cùng mạng là ổn định nhất',
   'help.local_file': 'Chọn tệp cục bộ',
   'help.load_local': 'Tải tệp cục bộ',
-  'help.youtube_compat': 'YouTube (Tương thích)',
+  'help.youtube_compat': 'YouTube (Chế độ tương thích)',
   'help.youtube_no_effects': 'Trong chế độ YouTube, vai trò và hiệu ứng âm thanh không khả dụng.',
   'help.media_synced_detail': 'Nội dung đã chọn sẽ phát đồng thời trên tất cả thiết bị đã kết nối.',
   'help.wifi_hotspot': 'Hotspot cũng có thể đưa mọi người vào cùng một mạng',
@@ -310,7 +310,7 @@ const vi: Record<I18nKey, string> = {
   'network.cant_join': 'Không tìm thấy phòng.\nVui lòng kiểm tra mạng.',
   'network.session_full': 'Phòng đã đầy',
   'network.session_full_detail':
-    'Bạn đã đạt giới hạn thiết bị.\nSố thiết bị có thể đặt trong tab "Kết nối".',
+    'Phòng này đã đạt giới hạn thiết bị.\nHãy nhờ host tăng giới hạn trong tab "Kết nối".',
   'network.op_granted': 'Đã cấp quyền quản trị.',
   'network.op_revoked': 'Đã thu hồi quyền quản trị.',
 
@@ -357,13 +357,13 @@ const vi: Record<I18nKey, string> = {
   'system_audio.stop': 'Dừng chia sẻ',
   'system_audio.started':
     'Âm thanh hệ thống có thể có độ trễ nhẹ.\nHãy giảm âm lượng nguồn nếu có thể.',
-  'system_audio.stopped': 'Chia sẻ âm thanh hệ thống đã kết thúc.\nĐang tiếp tục playlist.',
+  'system_audio.stopped': 'Chia sẻ âm thanh hệ thống đã kết thúc.\nĐang tiếp tục danh sách phát.',
   'system_audio.many_devices_warning':
     'Âm thanh hệ thống tốt nhất với tối đa 4 người tham gia.\nNhiều thiết bị hơn có thể gây trễ hoặc giật.',
   'system_audio.host_channel_locked': 'Không thể đổi vai trò khi chia sẻ âm thanh hệ thống.',
   'system_audio.effects_guest_only':
     'Đang chia sẻ âm thanh hệ thống.\nHiệu ứng chỉ áp dụng cho người tham gia.',
-  'system_audio.desktop_only': 'Chỉ dùng được trên Chrome máy tính Windows hoặc Mac.',
+  'system_audio.desktop_only': 'Chỉ dùng được trên trình duyệt máy tính dựa trên Chrome (Chrome, Edge, v.v.).',
   'system_audio.receive_failed':
     'Không nhận được âm thanh hệ thống.\nHãy nhờ host bắt đầu chia sẻ lại.',
   'system_audio.remote_receive_limit':
@@ -385,7 +385,7 @@ const vi: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Đang giải mã âm thanh...',
   'toast.preparing_next': 'Đang chuẩn bị bài tiếp theo... ({{name}})',
   'toast.preparing_next_pct': 'Đang chuẩn bị bài tiếp theo... {{pct}}%',
-  'toast.op_status': '{{label}} quyền {{status}}',
+  'toast.op_status': 'Quyền của {{label}} {{status}}',
   'toast.file_read_error': 'Lỗi đọc tệp: {{name}}',
   'toast.host_ended_connection': 'Host đã kết thúc kết nối',
   'toast.copy_failed': 'Không thể sao chép',
@@ -596,11 +596,11 @@ const vi: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Chia sẻ âm thanh ổn định nhất trên cùng một mạng.<ul class="help-list"><li>Người tham gia từ xa có thể dùng cùng các tính năng.</li><li>Người tham gia từ xa dùng đường truyền Cloudflare, nên độ trễ có thể tăng hoặc việc nhận dữ liệu có thể thất bại tùy điều kiện mạng.</li><li>VPN hoặc mạng bị hạn chế có thể khiến kết nối không ổn định.</li></ul>',
   'setup.how_to_connect_html':
-    'Nhập <strong>mã 6 chữ số</strong> từ host để kết nối.<ul class="help-list"><li><strong>Host:</strong> “Làm host” → kiểm tra mã</li><li><strong>Người tham gia:</strong> “Vào phòng” → nhập mã</li><li>Số thiết bị có thể kết nối có thể đặt trong <strong>tab "Kết nối"</strong>.</li></ul>',
+    'Nhập <strong>mã 6 chữ số</strong> từ host để kết nối.<ul class="help-list"><li><strong>Host:</strong> “Tạo phòng” → kiểm tra mã</li><li><strong>Người tham gia:</strong> “Tham gia phòng” → nhập mã</li><li>Bạn có thể đặt số thiết bị kết nối trong <strong>tab "Kết nối"</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Mỗi người tham gia chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Center:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh L</li><li><strong>Phải:</strong> Đầu ra kênh R</li><li><strong>Subwoofer:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
+    'Mỗi người tham gia chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Giữa:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh L</li><li><strong>Phải:</strong> Đầu ra kênh R</li><li><strong>Subwoofer:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
   'player.play_media_action_html':
-    'Host có 3 tùy chọn.<ul class="help-list"><li><strong>Tải tệp cục bộ:</strong> Chọn nhạc từ thiết bị của bạn. Hỗ trợ đồng bộ chính xác</li><li><strong>YouTube cùng nhau:</strong> Hỗ trợ video và playlist. Không tách kênh hoặc hiệu ứng âm thanh</li><li><strong>Chia sẻ âm thanh hệ thống:</strong> Khả dụng khi host dùng Chrome trên Windows hoặc Mac</li></ul>',
+    'Host có 3 tùy chọn.<ul class="help-list"><li><strong>Tải tệp cục bộ:</strong> Chọn nhạc từ thiết bị của bạn. Hỗ trợ đồng bộ chính xác</li><li><strong>YouTube cùng nhau:</strong> Hỗ trợ video và playlist. Không hỗ trợ tách kênh và hiệu ứng âm thanh</li><li><strong>Chia sẻ âm thanh hệ thống:</strong> Khả dụng khi host dùng trình duyệt máy tính dựa trên Chrome</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Đã nhập mã nhưng không kết nối được:</strong> Kiểm tra mã rồi thử lại sau ít phút. Mạng công ty, trường học hoặc VPN có thể hạn chế kết nối.</li><li><strong>Kết nối không ổn định:</strong> Người tham gia nội bộ nên ở gần router hơn, còn người tham gia từ xa nên dùng kết nối Internet ổn định.</li><li><strong>Vấn đề khác:</strong> Kiểm tra trạng thái mạng và khởi động lại ứng dụng trên tất cả thiết bị. Nếu có câu hỏi, hãy xem <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> hoặc liên hệ qua email ở cuối trang.</li></ul>',
   'setup.brand_tagline_html': 'Nghe cùng nhau, ở mọi nơi<br>Trải nghiệm âm thanh hoàn hảo',
@@ -611,11 +611,11 @@ const vi: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Đặt vai trò cho từng thiết bị.<br>Phát riêng âm thanh trái và phải<br>và cảm nhận âm trầm sâu từ woofer.',
   'setup.advanced_audio_desc_html':
-    'Đồng bộ cài đặt của host<br>với reverb, EQ, hiệu ứng ảo<br>và nhiều hơn trên toàn hệ thống.',
-  'youtube.enter_link_desc_html': 'Chỉ có thể xem video công khai.',
+    'Đồng bộ cài đặt của host<br>với reverb, EQ, hiệu ứng ảo<br>và nhiều hơn nữa trên toàn hệ thống.',
+  'youtube.enter_link_desc_html': 'Chỉ có thể phát video hoặc playlist công khai.',
   'legal.title': 'Ghi chú dịch vụ',
   'legal.content_html':
-    '<strong>Chính sách quyền riêng tư</strong><br>Trên cùng một mạng, dữ liệu phiên đi trực tiếp giữa các thiết bị; chỉ IP và chi tiết kết nối đi qua signaling. Chia sẻ tệp từ xa và âm thanh hệ thống định tuyến dữ liệu qua Cloudflare; tệp từ xa được mã hóa, lưu tối đa 24 giờ và được lưu mà không có khóa giải mã. MUSIXQUARE không xem, phân tích hoặc lưu trữ dữ liệu ngoài phạm vi cần thiết để cung cấp tính năng. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Thông báo bản quyền</strong><br>Nội dung được chia sẻ qua MUSIXQUARE thuộc về các chủ sở hữu quyền tương ứng. Chia sẻ âm thanh hệ thống và chia sẻ tệp dành cho mục đích sử dụng cá nhân. Người dùng chịu trách nhiệm về việc phân phối trái phép hoặc truyền phát công khai nội dung có bản quyền. Chia sẻ YouTube dùng cấu trúc phát chính thức, còn lượt xem và xử lý quyền tuân theo chính sách của dịch vụ đó và cài đặt của chủ sở hữu quyền. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Tuyên bố miễn trừ</strong><br>MUSIXQUARE được cung cấp miễn phí. Một số tính năng phụ thuộc vào dịch vụ bên ngoài như YouTube hoặc Cloudflare, nên có thể xuất hiện giới hạn tạm thời nếu các dịch vụ đó thay đổi hoặc ngừng hoạt động. Đồng bộ âm thanh thời gian thực và chất lượng chia sẻ từ xa có thể thay đổi rất nhiều tùy mạng, chính sách trình duyệt và hiệu năng thiết bị. Có thể phát sinh phí dữ liệu di động khi không dùng Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Giới thiệu</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lịch sử</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Hệ thống thiết kế</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Chính sách quyền riêng tư</strong><br>Trên cùng một mạng, dữ liệu phiên đi trực tiếp giữa các thiết bị; chỉ IP và chi tiết kết nối đi qua signaling. Chia sẻ tệp từ xa và âm thanh hệ thống định tuyến dữ liệu qua Cloudflare; tệp từ xa được mã hóa, chỉ lưu tối đa 24 giờ và không kèm khóa giải mã. MUSIXQUARE không xem, phân tích hoặc lưu trữ dữ liệu ngoài phạm vi cần thiết để cung cấp tính năng. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Thông báo bản quyền</strong><br>Nội dung được chia sẻ qua MUSIXQUARE thuộc về các chủ sở hữu quyền tương ứng. Chia sẻ âm thanh hệ thống và chia sẻ tệp dành cho mục đích sử dụng cá nhân. Người dùng chịu trách nhiệm về việc phân phối trái phép hoặc truyền phát công khai nội dung có bản quyền. Chia sẻ YouTube dùng cấu trúc phát chính thức, còn lượt xem và xử lý quyền tuân theo chính sách của dịch vụ đó và cài đặt của chủ sở hữu quyền. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Tuyên bố miễn trừ</strong><br>MUSIXQUARE được cung cấp miễn phí. Một số tính năng phụ thuộc vào dịch vụ bên ngoài như YouTube hoặc Cloudflare, nên có thể xuất hiện giới hạn tạm thời nếu các dịch vụ đó thay đổi hoặc ngừng hoạt động. Đồng bộ âm thanh thời gian thực và chất lượng chia sẻ từ xa có thể thay đổi rất nhiều tùy mạng, chính sách trình duyệt và hiệu năng thiết bị. Có thể phát sinh phí dữ liệu di động khi không dùng Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Giới thiệu</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lịch sử</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Hệ thống thiết kế</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default vi;

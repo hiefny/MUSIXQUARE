@@ -144,8 +144,8 @@ const ja: Record<I18nKey, string> = {
   'player.volume': '音量を調整',
   'player.toggle_mute': 'ミュート切り替え',
   'player.fullscreen': '全画面切り替え',
-  'player.prev_track': '前の曲',
-  'player.next_track': '次の曲',
+  'player.prev_track': '前のトラック',
+  'player.next_track': '次のトラック',
   'player.repeat_mode': 'リピートモードを変更',
   'player.shuffle_mode': 'シャッフルモードを変更',
   'player.play_media': 'メディア再生',
@@ -153,7 +153,7 @@ const ja: Record<I18nKey, string> = {
   'player.add_media': 'メディアを追加',
   'player.play_start': 'キューに追加',
   'player.select_media': '再生するメディアを選択',
-  'player.play_together': '一緒に再生',
+  'player.play_together': '同時に再生',
   'player.play_speakers': 'スピーカーで再生',
   'player.auto_sync_label': '自動 (ms)',
   'player.manual_sync_label': '手動 (ms)',
@@ -166,8 +166,8 @@ const ja: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'シャッフルが有効です',
   'playlist.shuffle_off': 'シャッフルは無効です',
   'playlist.empty_hint': 'メディアを追加してください。',
-  'playlist.empty_hint_guest': 'ホストがメディアを追加するのを待っています。',
-  'playlist.loading_info': '曲情報を読み込み中...',
+  'playlist.empty_hint_guest': 'ホストがメディアを追加すると表示されます。',
+  'playlist.loading_info': 'トラック情報を読み込み中...',
   'playlist.sub_load_failed': '動画情報を読み込めませんでした',
   'playlist.remove_title': 'プレイリストから削除',
   'playlist.remove_message': 'このメディアをプレイリストから削除しますか？',
@@ -207,13 +207,13 @@ const ja: Record<I18nKey, string> = {
 
   // Setup and demo
   'setup.host_button': 'ホストとして開始',
-  'setup.guest_button': 'ゲストとして参加',
+  'setup.guest_button': 'ルームに参加',
   'setup.demo_button': '試してみる（デモ）',
   'demo.prompt_title': 'MUSIXQUAREを試す',
   'demo.prompt_message': '初めてのようです。基本機能を試してみますか？',
   'demo.prompt_cta': '試してみる',
   'demo.prompt_later': '後で',
-  'demo.try_later_toast': 'ヘルプタブからいつでも試せます。',
+  'demo.try_later_toast': '「ヘルプ」タブからいつでも試せます。',
   'demo.track_info': 'トラック情報',
   'demo.exit': 'デモを終了',
   'demo.credit': 'デモトラック',
@@ -253,7 +253,7 @@ const ja: Record<I18nKey, string> = {
   'setup.select_role_alt': '役割を選択してください',
   'setup.hello_select_role': 'ようこそ！役割を選んでください。',
   'setup.enter_code': '6桁のコードを入力',
-  'setup.enter_host_code': 'ホストのコードを入力',
+  'setup.enter_host_code': 'ホストの6桁コードを入力',
   'setup.enter_host_code_alt': 'ホストコードを入力',
   'setup.connect_devices': '他のデバイスを接続しましょう。',
   'setup.enter_code_connect': '他のデバイスでこのコードを入力',
@@ -266,12 +266,12 @@ const ja: Record<I18nKey, string> = {
   'help.install_app': 'アプリとしてインストール',
   'help.local_recommended': '同じネットワーク推奨',
   'help.connect_all_wifi': '同じネットワークでの接続が最も安定します',
-  'help.local_file': 'ファイルを選択',
-  'help.load_local': 'ファイルを選択',
-  'help.youtube_compat': 'YouTube（互換）',
+  'help.local_file': 'ローカルファイルを選択',
+  'help.load_local': 'ローカルファイルを読み込む',
+  'help.youtube_compat': 'YouTube（互換モード）',
   'help.youtube_no_effects': 'YouTubeモードでは、役割設定とオーディオ効果は利用できません。',
   'help.media_synced_detail': '選択したメディアは接続中のすべてのデバイスで同時に再生されます。',
-  'help.wifi_hotspot': 'ホットスポットでも同じネットワークを作れます',
+  'help.wifi_hotspot': 'テザリングでも同じネットワークを作れます',
 
   // YouTube
   'youtube.enter_link': 'YouTubeリンクを入力',
@@ -310,7 +310,7 @@ const ja: Record<I18nKey, string> = {
   'network.cant_join': 'ルームが見つかりませんでした。\nネットワークを確認してください。',
   'network.session_full': 'ルームが満員です',
   'network.session_full_detail':
-    'デバイス数の上限に達しました。\n接続できるデバイス数は「接続」タブで設定できます。',
+    'このルームはデバイス数の上限に達しています。\nホストに「接続」タブから上限を上げてもらってください。',
   'network.op_granted': '管理者権限が付与されました。',
   'network.op_revoked': '管理者権限が解除されました。',
 
@@ -364,7 +364,7 @@ const ja: Record<I18nKey, string> = {
   'system_audio.host_channel_locked': 'システムオーディオ共有中は役割を変更できません。',
   'system_audio.effects_guest_only':
     'システムオーディオ共有中です。\n効果は参加者側にのみ適用されます。',
-  'system_audio.desktop_only': 'WindowsまたはMacのデスクトップChromeでのみ利用できます。',
+  'system_audio.desktop_only': 'デスクトップのChrome系ブラウザ（Chrome、Edgeなど）でのみ利用できます。',
   'system_audio.receive_failed':
     'システムオーディオを受信できませんでした。\nホストに共有を再開してもらってください。',
   'system_audio.remote_receive_limit':
@@ -399,7 +399,7 @@ const ja: Record<I18nKey, string> = {
   'toast.host_only_file': 'ファイルを追加できるのはホストだけです',
   'toast.no_tracks': '再生するトラックがありません',
   'toast.no_invite_code': '招待コードはまだありません',
-  'toast.invite_code_settings': '接続タブから招待リンクを共有できます。',
+  'toast.invite_code_settings': '「接続」タブから招待リンクを共有できます。',
   'toast.click_copy_invite': 'クリックして招待コードをコピー',
   'toast.cant_select_file': 'ファイルを選択できません',
   'toast.video_excluded': '動画ファイルは除外されました。',
@@ -577,7 +577,7 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_d_w': 'ささやき',
   'chat.cmd_d_notice': 'お知らせ',
   'chat.cmd_d_nick': 'デバイス名を変更',
-  'chat.cmd_d_kick': 'デバイスを退出',
+  'chat.cmd_d_kick': 'デバイスを退出させる',
   'chat.cmd_d_op': '管理者を付与',
   'chat.cmd_d_deop': '管理者を解除',
   'chat.cmd_d_mute': 'デバイスをミュート',
@@ -603,11 +603,11 @@ const ja: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'オーディオ共有は同じネットワーク上で最も安定します。<ul class="help-list"><li>リモート参加者も同じ機能を利用できます。</li><li>リモート参加者はCloudflare経路を使用するため、ネットワーク状況によって遅延や受信失敗が発生する場合があります。</li><li>VPNや制限されたネットワークでは接続が不安定になることがあります。</li></ul>',
   'setup.how_to_connect_html':
-    'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ホストになる」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>接続できるデバイス数は<strong>「接続」タブ</strong>で設定できます。</li></ul>',
+    'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ホストとして開始」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>接続できるデバイス数は<strong>「接続」タブ</strong>で設定できます。</li></ul>',
   'player.play_speakers_html':
-    '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>センター:</strong> ステレオ（標準）出力</li><li><strong>左:</strong> Lチャンネル出力</li><li><strong>右:</strong> Rチャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
+    '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>中央:</strong> ステレオ（標準）出力</li><li><strong>左:</strong> Lチャンネル出力</li><li><strong>右:</strong> Rチャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
   'player.play_media_action_html':
-    'ホストには3つの選択肢があります。<ul class="help-list"><li><strong>ローカルファイルを読み込む:</strong> デバイス内の音楽を選択。高精度同期に対応</li><li><strong>YouTube一緒に視聴:</strong> 動画とプレイリストに対応。チャンネル分離とオーディオ効果は無効</li><li><strong>システムオーディオ共有:</strong> ホストがWindowsまたはMacのChromeを使っている場合に利用可能</li></ul>',
+    'ホストには3つの選択肢があります。<ul class="help-list"><li><strong>ローカルファイルを読み込む:</strong> デバイス内の音楽を選択。高精度同期に対応</li><li><strong>YouTube一緒に視聴:</strong> 動画とプレイリストに対応。チャンネル分離とオーディオ効果は無効</li><li><strong>システムオーディオ共有:</strong> ホストがデスクトップのChrome系ブラウザを使っている場合に利用可能</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>コードを入力しても接続できない:</strong> コードを確認して、少し待ってから再試行してください。会社、学校、VPNのネットワークでは接続が制限される場合があります。</li><li><strong>接続が不安定:</strong> ローカル参加者はルーターの近くに移動し、リモート参加者は安定したインターネット接続を使用してください。</li><li><strong>その他の問題:</strong> ネットワーク状態を確認し、すべてのデバイスでアプリを再起動してください。質問がある場合は<a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>を確認するか、最下部のメールアドレスからお問い合わせください。</li></ul>',
   'setup.brand_tagline_html': 'いつでもどこでも一緒に聴く<br>完璧なサウンド体験',
@@ -619,7 +619,7 @@ const ja: Record<I18nKey, string> = {
     '各デバイスに役割を設定します。<br>左右の音を分けて再生し、<br>ウーファーで深い低音を感じられます。',
   'setup.advanced_audio_desc_html':
     'ホストの設定に合わせて<br>リバーブ、EQ、バーチャル効果などを<br>システム全体に適用できます。',
-  'youtube.enter_link_desc_html': '公開動画のみ視聴できます。',
+  'youtube.enter_link_desc_html': '公開されている動画またはプレイリストのみ再生できます。',
   'legal.title': 'サービス利用に関する注意',
   'legal.content_html':
     '<strong>プライバシーポリシー</strong><br>同じネットワーク上では、セッションデータはデバイス間で直接送受信され、シグナリングにはIPアドレスと接続情報のみが通ります。リモートファイル共有とシステムオーディオ共有ではデータがCloudflareを経由します。リモートファイルは暗号化され、最大24時間保持されますが、復号キーは保存されません。MUSIXQUAREは機能提供以外の目的でデータを閲覧、分析、保存しません。 <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>著作権に関する注意</strong><br>MUSIXQUAREを通じて共有されるコンテンツの権利は、それぞれの権利者に帰属します。システムオーディオ共有とファイル共有は個人的な利用を目的としています。著作権のあるコンテンツの無断配布や公衆送信に関する責任はユーザーにあります。YouTube共有は公式の再生構造を使用し、視聴回数や権利処理は同サービスの方針と権利者設定に従います。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>免責事項</strong><br>MUSIXQUAREは無料で提供されます。一部の機能はYouTubeやCloudflareなど外部サービスに依存するため、それらの変更や停止により一時的な制限が発生する場合があります。リアルタイムのオーディオ同期とリモート共有品質は、ネットワーク、ブラウザポリシー、デバイス性能によって大きく変わることがあります。Wi-Fi以外で利用する場合、モバイルデータ通信料が発生する場合があります。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">詳しく見る</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',

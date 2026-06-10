@@ -215,7 +215,7 @@ const es: Record<I18nKey, string> = {
   'demo.prompt_later': 'Más tarde',
   'demo.try_later_toast': 'Puedes comenzar el recorrido cuando quieras desde la pestaña Ayuda.',
   'demo.track_info': 'Información de pista',
-  'demo.exit': 'Finalizar recorrido',
+  'demo.exit': 'Salir de la demo',
   'demo.credit': 'Pista demo',
   'demo.role_title': 'Rol del dispositivo',
   'demo.effects_title': 'Probar efectos',
@@ -237,9 +237,10 @@ const es: Record<I18nKey, string> = {
   'demo.session_body_alone':
     'Solo este dispositivo está reproduciendo ahora.\nInvita otro dispositivo.',
   'demo.effects_step_title': 'Crea tu propia experiencia de sonido premium.',
-  'demo.effects_step_subtitle': 'Puedes microajustar estos efectos avanzados en cualquier momento en Ajustes.',
+  'demo.effects_step_subtitle':
+    'Puedes afinar estos efectos avanzados en cualquier momento en Ajustes.',
   'demo.finish_step_title': '¡Todo listo!',
-  'demo.finish_step_subtitle': 'Únete ahora y comienza a reproducir en sincronía.',
+  'demo.finish_step_subtitle': 'Entra de lleno y empieza a reproducir en sincronía.',
   'demo.track_list_label': 'Lista de pistas demo',
   'demo.host_only_exit': 'Solo el host puede pulsar esto.',
   'demo.external_playback_stopped':
@@ -253,8 +254,8 @@ const es: Record<I18nKey, string> = {
   'setup.select_role': 'Selecciona un rol',
   'setup.select_role_alt': 'Selecciona un rol',
   'setup.hello_select_role': '¡Hola! Elige tu rol.',
-  'setup.enter_code': 'Introduce el código',
-  'setup.enter_host_code': 'Código del host',
+  'setup.enter_code': 'Introduce el código de 6 dígitos',
+  'setup.enter_host_code': 'Introduce el código de 6 dígitos del host',
   'setup.enter_host_code_alt': 'Introduce el código del host.',
   'setup.connect_devices': 'Conecta tus otros dispositivos para comenzar.',
   'setup.enter_code_connect': 'Introduce este código en los dispositivos de invitados',
@@ -281,7 +282,7 @@ const es: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Introduce una búsqueda o enlace de YouTube',
   'youtube.enter_source_placeholder': 'Búsqueda o https://youtube.com/',
   'youtube.watch_together': 'Ver YouTube juntos',
-  'youtube.ready': '¡YouTube está listo!\nPulsa reproducir.',
+  'youtube.ready': '¡YouTube está listo!\nPulsa Reproducir.',
   'youtube.thumbnail': 'Miniatura de vista previa de YouTube',
   'youtube.load_fail': 'No se pudo cargar la API de YouTube.\n¡Revisa tu conexión!',
   'youtube.video_unavailable': 'Video no disponible, saltando a la siguiente pista',
@@ -314,7 +315,7 @@ const es: Record<I18nKey, string> = {
   'network.cant_join': 'No se encontró la sala.\nRevisa tu red.',
   'network.session_full': 'La sala está llena',
   'network.session_full_detail':
-    'Alcanzaste el límite de dispositivos.\nLa cantidad de dispositivos se puede configurar en la pestaña "Conectar".',
+    'Esta sala alcanzó el límite de dispositivos.\nPide al host que lo aumente en su pestaña "Conectar".',
   'network.op_granted': 'Permiso de administrador concedido.',
   'network.op_revoked': 'Permiso de administrador revocado.',
 
@@ -367,7 +368,8 @@ const es: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'No se pueden cambiar roles durante la compartición de audio del sistema.',
   'system_audio.effects_guest_only': 'Audio del sistema activo.\nLos efectos solo se aplican a invitados.',
-  'system_audio.desktop_only': 'Solo disponible en Chrome de escritorio para Windows o Mac.',
+  'system_audio.desktop_only':
+    'Solo disponible en navegadores de escritorio basados en Chrome (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
     'No se pudo recibir el audio del sistema.\nPide al host que vuelva a compartir.',
   'system_audio.remote_receive_limit':
@@ -389,7 +391,7 @@ const es: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Decodificando audio...',
   'toast.preparing_next': 'Preparando siguiente pista... ({{name}})',
   'toast.preparing_next_pct': 'Preparando siguiente pista... {{pct}}%',
-  'toast.op_status': '{{label}} permiso {{status}}',
+  'toast.op_status': 'Permiso de {{label}} {{status}}',
   'toast.file_read_error': 'Error al leer archivo: {{name}}',
   'toast.host_ended_connection': 'El host terminó la conexión',
   'toast.copy_failed': 'No se pudo copiar',
@@ -428,14 +430,14 @@ const es: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Aún no hay datos de reproducción del host, inténtalo en un momento',
   'toast.yt_rendezvous_timeout': 'Falló la sincronización, inténtalo en un momento',
-  'toast.yt_host_sync_sent': 'Señal de autosincronización enviada a participantes',
+  'toast.yt_host_sync_sent': 'Señal de autosincronización enviada a los participantes',
   'toast.yt_manual_sync_prompt':
     'Se acaba de intentar la sincronización automática.\nSi aún notas retraso, ajusta el valor ahora',
   'toast.playlist_ended': 'El último medio terminó',
   'toast.operator_required': 'Solo el administrador puede cambiar los ajustes de audio',
   'toast.connection_closing': 'Conexión perdida, ajuste no sincronizado',
   'toast.host_changed_setting': 'Los ajustes cambiaron',
-  'toast.session_mismatch': 'Sesión no coincidente.\nSe reintentará la transferencia de archivo.',
+  'toast.session_mismatch': 'La sesión no coincide.\nSe reintentará la transferencia de archivo.',
   'toast.receiving_pct': 'Recibiendo... {{pct}}%',
 
   // Error
@@ -533,7 +535,7 @@ const es: Record<I18nKey, string> = {
   'chat.decode_skip_notice':
     'Pista omitida: formato no compatible en algunos dispositivos.',
   'chat.system_audio_started_notice':
-    'Se ha iniciado la transmisión de audio del sistema. Es normal que haya una leve latencia entre el host y los invitados. Recomendamos bajar al mínimo el volumen del dispositivo fuente para evitar ecos.',
+    'Se inició la compartición de audio del sistema. Es normal que haya una leve latencia entre el host y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo host para evitar ecos.',
   'chat.system_audio_stopped_notice':
     'Terminó la compartición de audio del sistema. Host, vuelve a subir el volumen para ser el altavoz de la sala.',
   'chat.remote_guest_detected_notice':
@@ -585,7 +587,7 @@ const es: Record<I18nKey, string> = {
   'chat.cmd_d_op': 'Conceder administrador',
   'chat.cmd_d_deop': 'Revocar administrador',
   'chat.cmd_d_mute': 'Silenciar dispositivo',
-  'chat.cmd_d_unmute': 'Quitar silencio',
+  'chat.cmd_d_unmute': 'Quitar silencio al dispositivo',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Información de depuración del sistema',
   'chat.debug_copied':
@@ -607,11 +609,11 @@ const es: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Compartir audio es más estable en la misma red.<ul class="help-list"><li>Los participantes remotos pueden usar las mismas funciones.</li><li>Los participantes remotos usan rutas de Cloudflare, por lo que la latencia puede aumentar o la recepción puede fallar según la red.</li><li>Una VPN o red restringida puede volver inestable la conexión.</li></ul>',
   'setup.how_to_connect_html':
-    'Introduce el <strong>código de 6 dígitos</strong> del host para conectarte.<ul class="help-list"><li><strong>Host:</strong> “Ser host” → revisar código</li><li><strong>Participante:</strong> “Entrar en una sala” → introducir código</li><li>La cantidad de dispositivos se puede configurar en la <strong>pestaña "Conectar"</strong>.</li></ul>',
+    'Introduce el <strong>código de 6 dígitos</strong> del host para conectarte.<ul class="help-list"><li><strong>Host:</strong> “Crear sala” → revisar código</li><li><strong>Participante:</strong> “Unirse a una sala” → introducir código</li><li>La cantidad de dispositivos se puede configurar en la <strong>pestaña "Conectar"</strong>.</li></ul>',
   'player.play_speakers_html':
     'Cada participante selecciona un <strong>rol (canal de salida)</strong>.<ul class="help-list"><li><strong>Centro:</strong> salida estéreo predeterminada</li><li><strong>Izquierda:</strong> salida del canal L</li><li><strong>Derecha:</strong> salida del canal R</li><li><strong>Subwoofer:</strong> salida de mezcla de bajas frecuencias</li></ul>Puedes cambiar roles cuando quieras en <strong>Ajustes</strong>.',
   'player.play_media_action_html':
-    'El host tiene 3 opciones.<ul class="help-list"><li><strong>Cargar archivo local:</strong> elige música del dispositivo. Soporta sincronización precisa</li><li><strong>YouTube juntos:</strong> videos y playlists compatibles. Sin separación de canales ni efectos de audio</li><li><strong>Compartir audio del sistema:</strong> disponible cuando el host usa Chrome en Windows o Mac</li></ul>',
+    'El host tiene 3 opciones.<ul class="help-list"><li><strong>Cargar archivo local:</strong> elige música del dispositivo. Admite sincronización precisa</li><li><strong>YouTube juntos:</strong> videos y playlists compatibles. Sin separación de canales ni efectos de audio</li><li><strong>Compartir audio del sistema:</strong> disponible cuando el host usa un navegador de escritorio basado en Chrome</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Introdujiste el código pero no conecta:</strong> revisa el código e inténtalo de nuevo en un momento. Redes de empresa, escuela o VPN pueden restringir la conexión.</li><li><strong>Conexión inestable:</strong> los participantes locales deberían acercarse al router y los remotos usar una conexión estable.</li><li><strong>Otros problemas:</strong> revisa el estado de la red y reinicia la app en todos los dispositivos. Si tienes preguntas, consulta las <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o contáctanos por el correo al final de la página.</li></ul>',
   'setup.brand_tagline_html':
@@ -624,7 +626,8 @@ const es: Record<I18nKey, string> = {
     'Define el rol de cada dispositivo.<br>Reproduce audio izquierdo y derecho por separado<br>y siente graves profundos con el woofer.',
   'setup.advanced_audio_desc_html':
     'Replica los ajustes del host<br>con reverb, EQ, efectos virtuales<br>y más en todo el sistema.',
-  'youtube.enter_link_desc_html': 'Solo se pueden reproducir videos o listas públicas.',
+  'youtube.enter_link_desc_html':
+    'Solo se pueden reproducir videos públicos o playlists públicas.',
   'legal.title': 'Notas del servicio',
   'legal.content_html':
     '<strong>Política de privacidad</strong><br>En la misma red, los datos de sesión van directamente entre dispositivos; solo la IP y los detalles de conexión pasan por señalización. Compartir archivos remotos y audio del sistema enruta datos por Cloudflare; los archivos remotos se cifran, se conservan hasta 24 horas y se almacenan sin la clave de descifrado. MUSIXQUARE no ve, analiza ni almacena datos fuera de lo necesario para sus funciones. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>Aviso de copyright</strong><br>El contenido compartido mediante MUSIXQUARE pertenece a sus respectivos titulares. Compartir audio del sistema y archivos está pensado para uso personal. Los usuarios son responsables de cualquier distribución o transmisión pública no autorizada de contenido protegido. YouTube se comparte mediante su estructura oficial de reproducción, y las vistas y derechos siguen las políticas de ese servicio y la configuración de sus titulares. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>Descargo de responsabilidad</strong><br>MUSIXQUARE se ofrece gratis. Algunas funciones dependen de servicios externos como YouTube o Cloudflare, por lo que pueden ocurrir limitaciones temporales si esos servicios cambian o dejan de estar disponibles. La sincronización de audio en tiempo real y la calidad de uso remoto pueden variar mucho según red, políticas del navegador y rendimiento del dispositivo. Pueden aplicarse cargos de datos móviles si no usas Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',

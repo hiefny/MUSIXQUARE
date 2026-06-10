@@ -314,4 +314,52 @@ describe('remote-share to local direct transfer promotion', () => {
     );
     expect(getState('transfer.localSessionId')).toBe(8);
   });
+
+  // External-review finding (2026-06-10): the index-mismatch branch clears
+  // the preload STATE, but the match booleans/blob were captured before it —
+  // a same-name-different-index FILE_PREPARE (duplicate filenames) entered
+  // the preload-match path anyway, then stalled on the now-null blob while
+  // shouldSkipIncomingFile() dropped the real transfer.
+  it('does not enter preload-match for a same-name DIFFERENT-index track after the mismatch clear', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('network.connectionType', 'local');
+    setState('preload.meta', { name: 'song.mp3', index: 3, sessionId: 7 });
+    setState('preload.nextFileBlob', new Blob(['stale-preload']));
+    setState('preload.nextTrackIndex', 3);
+
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
+
+    await handleFilePrepare(
+      { type: 'file-prepare', name: 'song.mp3', mime: 'audio/mpeg', index: 7, sessionId: 9 },
+      conn,
+    );
+
+    expect(usePreloaded).not.toHaveBeenCalled();
+    expect(getState('preload.nextFileBlob')).toBeNull();
+    expect(getState('preload.meta')).toBeNull();
+    // The fresh receive pipeline must be armed for the REAL incoming transfer.
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
+  it('still uses a name-matched preload when FILE_PREPARE carries no index (legit fallback)', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('network.connectionType', 'local');
+    setState('preload.meta', { name: 'song.mp3', index: 3, sessionId: 7 });
+    setState('preload.nextFileBlob', new Blob(['preload']));
+    setState('preload.nextTrackIndex', 3);
+
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
+
+    await handleFilePrepare(
+      { type: 'file-prepare', name: 'song.mp3', mime: 'audio/mpeg', sessionId: 9 },
+      conn,
+    );
+
+    expect(usePreloaded).toHaveBeenCalled();
+    expect(getState('preload.nextFileBlob')).not.toBeNull();
+  });
 });

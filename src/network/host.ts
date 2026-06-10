@@ -550,6 +550,15 @@ bus.on('network:max-guests-changed', (max: number) => {
       // releasePeerSlot first (the old out-of-range index no longer exists
       // in the truncated array).
       assignPeerSlot(peerId, free);
+      // Keep the ConnectedPeer record's slot in sync — no prod reader today,
+      // but a stale field is a future-bug magnet. label/joinOrder stay AS-IS
+      // on purpose: label is join-time identity (rename semantics) and
+      // joinOrder is join order, not slot. The device list exposes neither
+      // slot nor anything relocation changes, so no re-broadcast needed.
+      setState(
+        'network.connectedPeers',
+        getState('network.connectedPeers').map((p) => (p.id === peerId ? { ...p, slot: free } : p)),
+      );
       log.info(`[Peer] Relocated ${peerId} to freed slot ${free} after max-guests resize`);
     } else {
       releasePeerSlot(peerId);

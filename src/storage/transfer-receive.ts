@@ -592,7 +592,17 @@ export async function handleFilePrepare(
 
   const pendingPlaySnapshot = capturePendingPlaySnapshot();
 
-  if (nextFileBlob && (hasPreloadedByIndex || hasPreloadedByName)) {
+  // !isMismatch: the mismatch branch above just CLEARED the preload state,
+  // but these locals were captured before it ran — without this gate a
+  // same-name-different-index track (duplicate filenames in the playlist,
+  // even the same song added twice) still entered here via
+  // hasPreloadedByName. The use-preloaded consumer then reads the now-null
+  // blob from state, arms a phantom preload wait, and the preload-match
+  // transition makes shouldSkipIncomingFile() drop the REAL incoming
+  // transfer — guest stalls until watchdog recovery. hasPreloadedByIndex
+  // and isMismatch are mutually exclusive, so this only blocks the
+  // name-match entry; the index-undefined name fallback still works.
+  if (nextFileBlob && !isMismatch && (hasPreloadedByIndex || hasPreloadedByName)) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
     showToast(t('transfer.preload_done'));
 

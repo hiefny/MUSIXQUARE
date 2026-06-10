@@ -105,6 +105,11 @@ describe('max-guests reduction with sparse slots', () => {
     expect(sendG4).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
     expect(getState('network.peerSlots')).toEqual([null, 'g1', 'g4', 'g3']);
     expect(getState('network.peerSlotByPeerId').get('g4')).toBe(2);
+    // The ConnectedPeer record must follow (stale-field hygiene); label and
+    // joinOrder intentionally keep their join-time values.
+    const relocated = getState('network.connectedPeers').find((p) => p.id === 'g4');
+    expect(relocated?.slot).toBe(2);
+    expect(relocated?.joinOrder).toBe(4);
     expect(getState('network.maxGuestSlots')).toBe(3);
   });
 

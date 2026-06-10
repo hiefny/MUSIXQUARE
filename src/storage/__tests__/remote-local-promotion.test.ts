@@ -47,6 +47,18 @@ vi.mock('../../core/timers.ts', () => ({
   clearManagedTimer: vi.fn(),
 }));
 
+/** Highest invocationCallOrder of a managed-timer mock call for `timerName`, or -1. */
+function lastCallOrder(
+  mockFn: { mock: { calls: unknown[][]; invocationCallOrder: number[] } },
+  timerName: string,
+): number {
+  let last = -1;
+  mockFn.mock.calls.forEach((args, i) => {
+    if (args[0] === timerName) last = mockFn.mock.invocationCallOrder[i];
+  });
+  return last;
+}
+
 describe('remote-share to local direct transfer promotion', () => {
   const conn = { open: true, peer: 'host-1' } as DataConnection;
 
@@ -466,6 +478,69 @@ describe('remote-share to local direct transfer promotion', () => {
 
     expect(replay).not.toHaveBeenCalled();
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
+  // EXT-3 (external review 2026-06-11): the new-session reset arms the
+  // chunkWatchdog BEFORE the reuse fast-paths are evaluated. Both no-chunk
+  // returns must disarm it — left running it fires at 12s with
+  // receivedCount=0, requests recovery from chunk 0, and the host re-streams
+  // the entire file only for the guest to discard it.
+  it('disarms the chunk watchdog when the duplicate-entry reuse skips the download', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { setManagedTimer, clearManagedTimer } = await import('../../core/timers.ts');
+
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playlist.currentTrackIndex', 0);
+    setState('transfer.localSessionId', 7);
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7, size: 4 });
+    setState('files.currentFileBlob', new Blob(['abcd'])); // size 4
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        index: 2,
+        size: 4,
+        sessionId: 9, // > 7 → new-session reset arms the watchdog
+      },
+      conn,
+    );
+
+    const armed = lastCallOrder(vi.mocked(setManagedTimer), 'chunkWatchdog');
+    const disarmed = lastCallOrder(vi.mocked(clearManagedTimer), 'chunkWatchdog');
+    expect(armed).toBeGreaterThan(-1);
+    expect(disarmed).toBeGreaterThan(armed);
+    expect(lastCallOrder(vi.mocked(clearManagedTimer), 'prepareWatchdog')).toBeGreaterThan(-1);
+  });
+
+  it('disarms the chunk watchdog when a byte-identical preload promote skips the download', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { setManagedTimer, clearManagedTimer } = await import('../../core/timers.ts');
+
+    setState('network.connectionType', 'local');
+    setState('transfer.localSessionId', 7);
+    setState('preload.meta', { name: 'song.mp3', index: 3, sessionId: 7, size: 4 });
+    setState('preload.nextFileBlob', new Blob(['abcd'])); // size 4
+    setState('preload.nextTrackIndex', 3);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        index: 0,
+        size: 4,
+        sessionId: 9,
+      },
+      conn,
+    );
+
+    const armed = lastCallOrder(vi.mocked(setManagedTimer), 'chunkWatchdog');
+    const disarmed = lastCallOrder(vi.mocked(clearManagedTimer), 'chunkWatchdog');
+    expect(armed).toBeGreaterThan(-1);
+    expect(disarmed).toBeGreaterThan(armed);
   });
 
   it('still uses a name-matched preload when FILE_PREPARE carries no index (legit fallback)', async () => {

@@ -631,6 +631,12 @@ export async function handleFilePrepare(
     (hasPreloadedByIndex || hasPreloadedByName)
   ) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
+    // No chunks ride this path — disarm the chunk safety net the new-session
+    // reset above just armed, or it fires at 12s with receivedCount=0 and
+    // requests a full-file resend the host dutifully streams (EXT-3). Decode
+    // completion also clears it, but only if decode beats the watchdog window.
+    clearManagedTimer('chunkWatchdog');
+    clearManagedTimer('prepareWatchdog');
     showToast(t('transfer.preload_done'));
 
     // Stop old media right before loading preloaded track (minimizes audio gap)
@@ -695,6 +701,14 @@ export async function handleFilePrepare(
     log.debug(
       `[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`,
     );
+    // Replay never decodes and never receives chunks, so nothing downstream
+    // clears the chunkWatchdog the new-session reset armed above. Left running
+    // it fires at 12s and asks the host to re-stream the entire file from
+    // chunk 0 — the FILE_START same-file short-circuit then silently discards
+    // it, so the only symptom is a full-file resend per local guest on every
+    // duplicate-entry reuse (EXT-3).
+    clearManagedTimer('chunkWatchdog');
+    clearManagedTimer('prepareWatchdog');
     if (isSameContentByNameSize) {
       // Re-point identity to the requested playlist slot; blob/buffer stay.
       setState('playlist.currentTrackIndex', data.index as number);

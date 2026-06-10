@@ -312,6 +312,15 @@ FILE_END가 control 채널로 bulk 청크(~512KB)를 추월 → 조기 shortfall
 ### 사각 ⑭ 보강
 DV-1은 ⑭("캡처된 로컬 vs 상태 클리어")의 형제 모양: **"전이 직후의 클린업이 방금 쓴 상태를 클로버"**. 전이 추가/리뷰 시 같은 플로우 안에서 뒤따르는 클린업(stop-all-media, clear-previous-track)이 그 전이를 덮지 않는지 확인.
 
+## 외부 리뷰 2차 (2026-06-11)
+
+### EXT-3 🟡(P2~P3) — reuse fast-path가 고아 chunkWatchdog을 남김 (사각 ⑤가 DV-1/517f4a60 픽스 자신에 재적중)
+- **메커니즘**: handleFilePrepare의 new-session 리셋이 chunkWatchdog 장전 + receivedCount=0 → 직후 reuse fast-path(preload promote / same-content replay)로 빠지면 청크가 영영 안 오는데 해제 코드가 없음. replay는 decode를 안 타서 decode 완료 해제(decode.ts)도 안 옴 → 12초 뒤 발화 → `sendRecoveryRequest`의 로컬 게스트 경로는 lifecycle 게이트가 없어 `REQUEST_DATA_RECOVERY(nextChunk=0)` 발사 → **호스트가 파일 전체를 로컬 게스트 수만큼 unicast 재스트리밍**. FILE_START의 HET-1 단락이 받아서 버리므로 재생 끊김·0% 리셋은 없음 — 증상이 "조용한 풀파일 재전송 낭비"라 실기기에서 안 보였음.
+- **범위 보정**: 원격 게스트 무관(장전 이전에 return). preload promote는 decode 완료가 12초 내면 자가치유 — 대용량 decode 엣지만 잔존. 중복 항목 reuse(같은 날 넣은 517f4a60 경로)는 100% 재현.
+- **픽스**: 두 reuse return 직전에 `clearManagedTimer('chunkWatchdog')` + 방어적 `prepareWatchdog`. "청크가 올 일 없는 경로 = 청크 안전망 해제" 의미론. startChunkWatchdog 장전 자체를 뒤로 미루는 대안은 preload-waiting 분기의 백업 벨트 의미를 바꿔서 기각.
+- 상태: ✅ (+핀 2: 장전→해제 호출 순서 assert, 1075 tests)
+- **교훈**: 사각 ⑤ 3연속 — 517f4a60에서 "픽스 자신에게 sibling sweep"을 기록하고도, reuse fast-path 신설 시 **몇 줄 위에서 방금 장전한 안전망**은 안 봤다. fast-path/short-circuit return을 추가하면 그 함수가 진입 시점에 장전한 타이머/가드/카운터를 전수 확인할 것.
+
 ## 메타 — 이번 오디트가 추가한 사각 후보
 
 1. **⑪ 모듈 로컬 상태 vs 전역 기계** (HET 패턴): 서브시스템이 자기 수명주기를 모듈 변수로 관리하면 cancel/parity 스윕(⑧⑨)이 못 본다. 신규 서브시스템 추가 시 "이 모듈의 in-flight 작업을 외부 기계가 취소/관찰할 수 있는가" 체크 의무화.

@@ -16,6 +16,7 @@ import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
+import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
   createYouTubeTrackMeta,
   setPlaybackTrackMeta,
@@ -249,6 +250,14 @@ export function handleRequestYouTubePlaylistInfo(
  * leaky abstractions across module domains.
  */
 function cancelInFlightTransfer(): void {
+  // R2 download first, UNCONDITIONALLY: the remote path never sets
+  // transfer.state, so the RECEIVING/PROCESSING gate below is blind to it —
+  // without this an in-flight encrypted download keeps streaming over mobile
+  // data through the whole YouTube switch, repaints the loader on top of the
+  // new mode, and leaves the 5-minute wait timer armed. Idempotent no-op when
+  // nothing is in flight. (No cycle: remote-share imports no youtube/*.)
+  cancelRemoteShareWait('youtube-play');
+
   const transferState = getState('transfer.state');
   if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
     log.debug('[YouTube] Cancelling in-flight file transfer for YouTube switch');

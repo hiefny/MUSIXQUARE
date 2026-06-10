@@ -10,7 +10,7 @@ import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT, RESERVED_NAMES } from '../core/constants.ts';
-import { t, getResolvedLanguage } from '../i18n/index.ts';
+import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { showToast, showLoader } from './toast.ts';
@@ -360,7 +360,9 @@ function _updateDeviceTitles(): void {
 }
 
 function _deviceListTitle(count: number): string {
-  if (count === 1 && getResolvedLanguage() === 'en') {
+  // Every locale defines device_list_one; languages without a grammatical
+  // singular duplicate the plural string, so this is safe unconditionally.
+  if (count === 1) {
     return t('connect.device_list_one', { count });
   }
   return t('connect.device_list', { count });

@@ -239,4 +239,79 @@ describe('remote-share to local direct transfer promotion', () => {
       sessionId: 13,
     });
   });
+
+  // HET-1 (22차 domain audit): a guest who loaded the current track via the
+  // R2 remote path never wrote transfer.localSessionId — the promotion
+  // unicast's FILE_START must NOT register as a new session and destroy the
+  // playing buffer mid-track.
+  it('skips re-transfer and preserves loaded audio when a promoted guest receives FILE_START for the already-loaded track', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playback.loadSource', LOAD_SOURCE.PRELOAD_PROMOTED);
+    setState('transfer.localSessionId', 0); // remote path never wrote it
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7, size: 4 });
+    setState('files.currentFileBlob', new Blob(['abcd']));
+    setState('playlist.currentTrackIndex', 0);
+
+    const clearSpy = vi.fn();
+    bus.on('storage:clear-previous-track', clearSpy);
+
+    handleFileStart(
+      {
+        type: 'file-start',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        total: 2,
+        size: 4,
+        index: 0,
+        sessionId: 7,
+      },
+      conn,
+    );
+
+    expect(clearSpy).not.toHaveBeenCalled();
+    expect(postCommand).not.toHaveBeenCalled();
+    expect(getState('files.currentFileBlob')).not.toBeNull();
+    expect(getState('transfer.localSessionId')).toBe(7); // session adopted
+    expect(getState('transfer.state')).not.toBe(TRANSFER_STATE.RECEIVING);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PLAYING);
+  });
+
+  it('still falls through to a fresh receive when the same file arrives under a genuinely newer session', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playback.loadSource', LOAD_SOURCE.PRELOAD_PROMOTED);
+    setState('transfer.localSessionId', 0);
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7, size: 4 });
+    setState('files.currentFileBlob', new Blob(['abcd']));
+    setState('playlist.currentTrackIndex', 0);
+
+    const clearSpy = vi.fn();
+    bus.on('storage:clear-previous-track', clearSpy);
+
+    handleFileStart(
+      {
+        type: 'file-start',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        total: 2,
+        size: 4,
+        index: 0,
+        sessionId: 8, // host re-click / repeat rebroadcast — newer than loaded 7
+      },
+      conn,
+    );
+
+    expect(clearSpy).toHaveBeenCalled();
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_RESET' }),
+    );
+    expect(getState('transfer.localSessionId')).toBe(8);
+  });
 });

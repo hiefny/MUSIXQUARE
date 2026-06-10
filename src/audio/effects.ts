@@ -424,34 +424,42 @@ bus.on('audio:ready', () => {
   applySettingsAsync();
 });
 
-bus.on('network:peer-connected', (conn) => {
-  if (!conn?.open) return;
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
-
+/**
+ * Send the full effect-settings snapshot to one peer. `_bootstrap: true` on
+ * every frame suppresses the receiver's "host changed a setting" toast —
+ * a snapshot is a re-baseline, not a change.
+ *
+ * includeVolume is true only for the join bootstrap: guests own their
+ * personal volume mid-session (player-controls.ts applies set-volume locally
+ * without broadcasting), so a mid-session resync (e.g. on OPERATOR_REVOKE)
+ * must NOT stomp it.
+ */
+function sendEffectsSnapshot(conn: DataConnection, includeVolume: boolean): void {
   try {
-    const masterVolume = getState('audio.masterVolume');
-    conn.send({ type: MSG.VOLUME, value: masterVolume, _bootstrap: true });
+    if (includeVolume) {
+      const masterVolume = getState('audio.masterVolume');
+      conn.send({ type: MSG.VOLUME, value: masterVolume, _bootstrap: true });
+    }
 
     const reverbMix = getState('audio.reverbMix');
-    conn.send({ type: MSG.REVERB, value: reverbMix * 100 });
+    conn.send({ type: MSG.REVERB, value: reverbMix * 100, _bootstrap: true });
 
     const reverbDecay = getState('audio.reverbDecay');
-    conn.send({ type: MSG.REVERB_DECAY, value: reverbDecay });
+    conn.send({ type: MSG.REVERB_DECAY, value: reverbDecay, _bootstrap: true });
 
     const reverbPreDelay = getState('audio.reverbPreDelay');
-    conn.send({ type: MSG.REVERB_PREDELAY, value: reverbPreDelay });
+    conn.send({ type: MSG.REVERB_PREDELAY, value: reverbPreDelay, _bootstrap: true });
 
     const reverbLowCut = getState('audio.reverbLowCut');
-    conn.send({ type: MSG.REVERB_LOWCUT, value: reverbLowCut });
+    conn.send({ type: MSG.REVERB_LOWCUT, value: reverbLowCut, _bootstrap: true });
 
     const reverbHighCut = getState('audio.reverbHighCut');
-    conn.send({ type: MSG.REVERB_HIGHCUT, value: reverbHighCut });
+    conn.send({ type: MSG.REVERB_HIGHCUT, value: reverbHighCut, _bootstrap: true });
 
     const eqValues = getState('audio.eqValues');
     if (eqValues) {
       eqValues.forEach((val, i) => {
-        conn.send({ type: MSG.EQ_UPDATE, band: i, value: val });
+        conn.send({ type: MSG.EQ_UPDATE, band: i, value: val, _bootstrap: true });
       });
     }
 
@@ -459,21 +467,39 @@ bus.on('network:peer-connected', (conn) => {
     conn.send({
       type: MSG.PREAMP,
       value: Math.round(20 * Math.log10(Math.max(userPreampGain, 1e-6))),
+      _bootstrap: true,
     });
 
     const stereoWidth = getState('audio.stereoWidth');
-    conn.send({ type: MSG.STEREO_WIDTH, value: stereoWidth * 100 });
+    conn.send({ type: MSG.STEREO_WIDTH, value: stereoWidth * 100, _bootstrap: true });
 
     const virtualBass = getState('audio.virtualBass');
-    conn.send({ type: MSG.VBASS, value: virtualBass * 100 });
+    conn.send({ type: MSG.VBASS, value: virtualBass * 100, _bootstrap: true });
 
     const exciterOn = getState('audio.exciter');
-    conn.send({ type: MSG.EXCITER, value: exciterOn ? 1 : 0 });
+    conn.send({ type: MSG.EXCITER, value: exciterOn ? 1 : 0, _bootstrap: true });
 
-    log.debug('[Effects] Bootstrap: sent audio settings to new peer');
+    log.debug('[Effects] Sent effect-settings snapshot to peer');
   } catch (e) {
-    log.warn('[Effects] Bootstrap send failed:', e);
+    log.warn('[Effects] Snapshot send failed:', e);
   }
+}
+
+bus.on('network:peer-connected', (conn) => {
+  if (!conn?.open) return;
+  const hostConn = getState('network.hostConn');
+  if (hostConn) return;
+  sendEffectsSnapshot(conn, true);
+});
+
+// Re-baseline a demoted OP's effects (emitted by host.ts on OPERATOR_REVOKE):
+// their optimistic local applies may have raced the revoke and been silently
+// dropped by verifyOperator — without this they'd stay desynced until the
+// same parameter next changes room-wide. Volume excluded (guest-personal).
+bus.on('effects:resync-peer', (conn) => {
+  if (getState('network.hostConn')) return; // host only
+  if (!conn?.open) return;
+  sendEffectsSnapshot(conn, false);
 });
 
 // ─── Network Protocol Handlers ──────────────────────────────────
@@ -510,7 +536,7 @@ function handleEQUpdateMsg(data: Record<string, unknown>, conn?: DataConnection)
   const value = Number(data.value);
   if (!Number.isFinite(band) || !Number.isFinite(value)) return;
   setEQ(band, value);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 function handlePreampMsg(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -519,11 +545,14 @@ function handlePreampMsg(data: Record<string, unknown>, conn?: DataConnection): 
   const v = Number(data.value);
   if (!Number.isFinite(v)) return;
   setPreamp(v);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
-function _notifyHostChanged(): void {
+function _notifyHostChanged(data?: Record<string, unknown>): void {
   if (!getState('network.hostConn')) return;
+  // Snapshot frames (join bootstrap / revoke resync) are re-baselines, not
+  // host actions — no toast. Mirrors handleVolume's _bootstrap handling.
+  if (data?._bootstrap) return;
   setManagedTimer(
     'host-change-toast',
     () => {
@@ -547,7 +576,7 @@ function handleReverbMsg(data: Record<string, unknown>, conn?: DataConnection): 
   if (!Number.isFinite(v)) return;
   setReverbParam('mix', v);
   bus.emit('ui:sync-reverb-param', 'mix', v);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 // Trusted local-apply path for reverb preset selection. Called by both the
@@ -604,7 +633,7 @@ function handleReverbDecayMsg(data: Record<string, unknown>, conn?: DataConnecti
   if (!Number.isFinite(v)) return;
   setReverbParam('decay', v);
   bus.emit('ui:sync-reverb-param', 'decay', v);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 function handleReverbPreDelayMsg(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -614,7 +643,7 @@ function handleReverbPreDelayMsg(data: Record<string, unknown>, conn?: DataConne
   if (!Number.isFinite(v)) return;
   setReverbParam('predelay', v);
   bus.emit('ui:sync-reverb-param', 'predelay', v);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 function handleReverbLowCutMsg(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -624,7 +653,7 @@ function handleReverbLowCutMsg(data: Record<string, unknown>, conn?: DataConnect
   if (!Number.isFinite(v)) return;
   setReverbParam('lowcut', v);
   bus.emit('ui:sync-reverb-param', 'lowcut', v);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 function handleReverbHighCutMsg(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -634,7 +663,7 @@ function handleReverbHighCutMsg(data: Record<string, unknown>, conn?: DataConnec
   if (!Number.isFinite(v)) return;
   setReverbParam('highcut', v);
   bus.emit('ui:sync-reverb-param', 'highcut', v);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 function handleStereoWidthMsg(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -644,7 +673,7 @@ function handleStereoWidthMsg(data: Record<string, unknown>, conn?: DataConnecti
   if (!Number.isFinite(v)) return;
   setStereoWidth(v);
   bus.emit('ui:sync-surround', v > 100);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 function handleVBassMsg(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -654,7 +683,7 @@ function handleVBassMsg(data: Record<string, unknown>, conn?: DataConnection): v
   if (!Number.isFinite(v)) return;
   setVirtualBass(v);
   bus.emit('ui:sync-vbass', v > 0);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 function handleExciterMsg(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -666,7 +695,7 @@ function handleExciterMsg(data: Record<string, unknown>, conn?: DataConnection):
   const on = v === 1;
   setExciter(on);
   bus.emit('ui:sync-exciter', on);
-  _notifyHostChanged();
+  _notifyHostChanged(data);
 }
 
 function handleRequestEQReset(data: Record<string, unknown>, conn: DataConnection): void {

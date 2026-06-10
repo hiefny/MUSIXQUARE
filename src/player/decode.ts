@@ -855,8 +855,18 @@ export async function loadPreloadedTrack(
     }
 
     // GUEST, non-timeout failure (e.g. partial download, network error) —
-    // request recovery from host. Recovery path has its own retry ceiling so
-    // this won't infinite-loop.
+    // request recovery from host. The LOCAL pipeline's recovery has its own
+    // retry ceiling, but a REMOTE guest's request now routes to a descriptor
+    // re-send (recovery.ts) which re-triggers this very activation: bound the
+    // loop at 2 attempts per track, or a persistent (codec) decode failure
+    // would download the full file from R2 forever.
+    const failureCount = (getState('player.decodeFailureCount') || 0) + 1;
+    setState('player.decodeFailureCount', failureCount);
+    if (failureCount >= 2) {
+      log.warn('[Preload] Activation failed twice for the same track — marking failed, no re-request');
+      markTrackFailed(getTrackKeyFromFile(localBlob));
+      return false;
+    }
     const playlist = getState('playlist.items') || [];
     const recoveryName = playlist[failedIdx]?.name || name;
     sendToHost({

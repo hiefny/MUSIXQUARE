@@ -104,6 +104,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       try {
         conn.send({
           type: MSG.SESSION_FULL,
+          // i18nKey translates at the receiver (guest locale); message stays
+          // as the back-compat fallback for older SW-cached bundles.
+          i18nKey: 'network.session_full_detail',
           message: t('network.session_full_detail'),
         });
       } catch {
@@ -133,7 +136,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   if (!slot) {
     const sendFullAndClose = () => {
       try {
-        conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') });
+        conn.send({
+          type: MSG.SESSION_FULL,
+          i18nKey: 'network.session_full_detail',
+          message: t('network.session_full_detail'),
+        });
       } catch {
         /* noop */
       }
@@ -192,7 +199,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     }
     const sendFullAndClose = () => {
       try {
-        conn.send({ type: MSG.SESSION_FULL, message: t('network.session_full_detail') });
+        conn.send({
+          type: MSG.SESSION_FULL,
+          i18nKey: 'network.session_full_detail',
+          message: t('network.session_full_detail'),
+        });
       } catch {
         /* noop */
       }
@@ -461,6 +472,13 @@ bus.on('network:toggle-operator', (peerId) => {
     const updated = connectedPeers.map((peer, i) => (i === idx ? { ...peer, isOp: newOp } : peer));
     setState('network.connectedPeers', updated);
     broadcastDeviceList();
+    // Revoke: re-baseline the demoted guest's effect state. Their optimistic
+    // local applies (slider preview / apply-before-request) may have raced the
+    // revoke and were silently dropped by verifyOperator with no NACK — the
+    // snapshot resend converges them back to room state. Ordered channel
+    // guarantees it lands after OPERATOR_REVOKE. (Bus event, not a direct
+    // import: effects.ts → peer.ts → host.ts would cycle.)
+    if (!newOp) bus.emit('effects:resync-peer', conn);
     showToast(
       t('toast.op_status', {
         label: p.label,
@@ -512,19 +530,31 @@ bus.on('network:max-guests-changed', (max: number) => {
   setState('network.maxGuestSlots', max);
   const oldSlots = getState('network.peerSlots');
   const newSlots = Array(max + 1).fill(null) as (string | null)[];
-  // Preserve existing assignments, kick peers in truncated slots
-  const orphanedPeerIds: string[] = [];
+  // Preserve in-range assignments; collect occupants of truncated slots.
+  // Slots can be sparse (mid-session departures leave holes), so a peer in a
+  // high slot index may still FIT within the new count — relocate them into a
+  // freed low slot instead of kicking. Kick only genuine overflow.
+  const displacedPeerIds: string[] = [];
   for (let i = 1; i < oldSlots.length; i++) {
     if (i < newSlots.length) {
       newSlots[i] = oldSlots[i];
     } else if (oldSlots[i]) {
-      orphanedPeerIds.push(oldSlots[i]!);
-      releasePeerSlot(oldSlots[i]!);
+      displacedPeerIds.push(oldSlots[i]!);
     }
   }
   setState('network.peerSlots', newSlots);
-  for (const peerId of orphanedPeerIds) {
-    bus.emit('network:kick-device', peerId);
+  for (const peerId of displacedPeerIds) {
+    const free = getAvailablePeerSlot(null, peerId);
+    if (free) {
+      // assignPeerSlot overwrites the peerSlotByPeerId entry; do NOT call
+      // releasePeerSlot first (the old out-of-range index no longer exists
+      // in the truncated array).
+      assignPeerSlot(peerId, free);
+      log.info(`[Peer] Relocated ${peerId} to freed slot ${free} after max-guests resize`);
+    } else {
+      releasePeerSlot(peerId);
+      bus.emit('network:kick-device', peerId);
+    }
   }
   log.info(`[Peer] Max guest slots changed to ${max}`);
 });

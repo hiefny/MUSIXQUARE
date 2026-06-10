@@ -15,6 +15,7 @@ import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer.ts';
+import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -722,6 +723,11 @@ export function registerSystemAudioGuestListeners(): void {
       // otherwise the still-armed chunk/prepare watchdogs keep firing
       // REQUEST_DATA_RECOVERY during the share for chunks we discard anyway.
       cancelIncomingFileTransfer('system-audio-start');
+      // The R2 sibling: cancelIncomingFileTransfer is keyed on transfer.state
+      // (RECEIVING), which the remote-share path never sets — a remote guest's
+      // in-flight encrypted download would keep streaming through the whole
+      // share otherwise. Idempotent no-op when nothing is in flight.
+      cancelRemoteShareWait('system-audio-start');
       clearManagedTimer('preloadWatchdog');
       claimPlaybackOwner('system-audio', {
         pending: true,

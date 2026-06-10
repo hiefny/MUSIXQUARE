@@ -806,8 +806,17 @@ export function stopPlayback(): void {
   }
 
   if (isYouTubeOwner()) {
+    // Broadcast YOUTUBE_STOP explicitly: stopYouTubeMode cannot do it on this
+    // path because its wasInYouTube check reads playback.mode AFTER the
+    // setPlaybackIdle() below has nulled it. Without this, guests stay stuck
+    // in YT mode forever (every subsequent FILE_PREPARE dropped by their
+    // YT-owner guard) when the host stops via the OS media key. hostConn is
+    // provably null here (OP guests returned above) — guard is convention.
+    if (!hostConn) broadcast({ type: MSG.YOUTUBE_STOP });
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
     // from triggering playlist:next-track (its guard checks YouTube playback mode).
+    // Do NOT reorder the idle write after the emits — that re-opens the
+    // stopVideo()→ENDED→next-track advance race this ordering suppresses.
     setPlaybackIdle();
     bus.emit('youtube:stop-playback');
     bus.emit('youtube:stop-mode');

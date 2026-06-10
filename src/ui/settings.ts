@@ -472,17 +472,20 @@ function syncEqPresetFromCurrentSliders(): void {
 }
 
 function setSurroundOn(on: boolean): void {
-  // Guard: skip if already in requested state (prevents dblclick duplicate toast)
-  const currentWidth = getState('audio.stereoWidth');
-  const alreadyOn = currentWidth > 1;
-  if (on === alreadyOn) return;
-
+  // Chip visuals sync before the idempotence guard: when state changed without
+  // a ui:sync event (e.g. an OP's REQUEST_SETTING applied host-side), a click
+  // on the already-true value must still heal the stale chip.
   document
     .querySelectorAll('#grid-surround .ch-opt')
     .forEach((el) => el.classList.remove('active'));
   document
     .querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
     ?.classList.add('active');
+
+  // Guard: skip if already in requested state (prevents dblclick duplicate toast)
+  const currentWidth = getState('audio.stereoWidth');
+  const alreadyOn = currentWidth > 1;
+  if (on === alreadyOn) return;
   // ON: 120%, OFF: 100%
   bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
   if (on) {
@@ -1004,9 +1007,12 @@ export function initSettings(): void {
   // Language switch → re-render device list so status/grant-revoke button
   // labels pick up the new locale (those strings are composed at render
   // time via t() and don't carry data-i18n attributes).
+  // Source must be lastKnownDeviceList (the canonical broadcast list):
+  // connectedPeers is host-only raw state — empty on guests, missing the
+  // host's own row — and re-rendering from it wipes the list.
   _busScope.on('i18n:changed', () => {
-    const list = getState('network.connectedPeers') || [];
-    renderDeviceList(list);
+    const list = getState('network.lastKnownDeviceList') || [];
+    renderDeviceList(list.filter(isDeviceListRow));
     refreshLanguageControls();
     updateLanguageScrollMask();
   });

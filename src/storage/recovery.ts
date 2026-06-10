@@ -22,6 +22,10 @@ import { ensureNamedFile } from './storage.ts';
 import { unicastFile } from './transfer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { isRemoteGuest } from '../network/peer.ts';
+import { canSendFileTo } from '../network/peer-state.ts';
+import { isRemoteShareConfigured } from '../share/r2-client.ts';
+import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
+import { isDemoTrackName } from '../demo/tracks.ts';
 import { t } from '../i18n/index.ts';
 import type { DataConnection } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -193,7 +197,36 @@ async function handleRequestCurrentFile(
   const sid = ensureValidSessionId();
   const fallbackName = getBlobFallbackName(blob, reqName);
   const fileToSend = ensureNamedFile(blob, fallbackName);
-  if (fileToSend) await unicastFile(conn, fileToSend, 0, sid);
+  if (!fileToSend) return;
+
+  // Route by transport eligibility. unicastFile's own guard silently DROPS
+  // remote/unknown peers (and since the blob was found, no FILE_WAIT went out
+  // either) — a remote guest whose R2 download/decode failed was left
+  // permanently silent. Re-send the descriptor instead: targeted
+  // shareRemoteFileIfNeeded reuses the fresh descriptor cache (cheap), and
+  // re-uploads only when expired. TURN cost policy holds — only a
+  // control-plane descriptor rides the connection; bytes go via R2.
+  if (await canSendFileTo(conn)) {
+    await unicastFile(conn, fileToSend, 0, sid, true);
+    return;
+  }
+  if (!conn.open) return;
+  if (isRemoteShareConfigured() && fileToSend instanceof File && !isDemoTrackName(fileToSend.name)) {
+    void shareRemoteFileIfNeeded(
+      fileToSend,
+      sid,
+      conn,
+      Number.isFinite(reqIndex) ? { index: reqIndex as number } : undefined,
+    );
+    return;
+  }
+  // Demo track or share unconfigured: at least tell the guest to wait so its
+  // FILE_WAIT timeout path gives feedback instead of silence.
+  try {
+    conn.send({ type: MSG.FILE_WAIT, message: 'Host cannot serve this peer directly' });
+  } catch {
+    /* noop */
+  }
 }
 
 async function handleRequestDataRecovery(

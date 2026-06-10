@@ -8,7 +8,7 @@ import { log } from '../core/log.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
-import { syncOverlayState } from './dom.ts';
+import { syncOverlayState, normalizeEmptyContentEditable } from './dom.ts';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -254,6 +254,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         const text = e.clipboardData?.getData('text/plain') || '';
         document.execCommand('insertText', false, maxLen ? text.slice(0, maxLen) : text);
       });
+      // Stray-<br> placeholder restore — shared helper, see dom.ts.
+      input.addEventListener('input', (e) => normalizeEmptyContentEditable(input, e));
       if (maxLen) {
         input.addEventListener('beforeinput', (e) => {
           if (e.inputType === 'insertCompositionText') return; // Don't break IME

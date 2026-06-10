@@ -1082,10 +1082,15 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       broadcast({ type: MSG.PREAMP, value: v });
       break;
     }
+    // The ui:sync-* emits below mirror the guest-side network handlers in
+    // audio/effects.ts: setters alone don't update the settings UI, so the
+    // HOST's own chips/sliders would go stale when an OP's request applies.
+    // (eq and REVERB_TYPE are excluded — their setters already emit.)
     case MSG.STEREO_WIDTH: {
       const v = Number(val);
       if (!Number.isFinite(v)) break;
       setStereoWidth(v);
+      bus.emit('ui:sync-surround', v > 100);
       broadcast({ type: MSG.STEREO_WIDTH, value: v });
       break;
     }
@@ -1093,6 +1098,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       const v = Number(val);
       if (!Number.isFinite(v)) break;
       setVirtualBass(v);
+      bus.emit('ui:sync-vbass', v > 0);
       broadcast({ type: MSG.VBASS, value: v });
       break;
     }
@@ -1102,6 +1108,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       const v = Number(val);
       if (v !== 0 && v !== 1) break;
       setExciter(v === 1);
+      bus.emit('ui:sync-exciter', v === 1);
       broadcast({ type: MSG.EXCITER, value: v });
       break;
     }
@@ -1109,6 +1116,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       const v = Number(val);
       if (!Number.isFinite(v)) break;
       setReverbParam('mix', v);
+      bus.emit('ui:sync-reverb-param', 'mix', v);
       broadcast({ type: MSG.REVERB, value: v });
       break;
     }
@@ -1121,6 +1129,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       const v = Number(val);
       if (!Number.isFinite(v)) break;
       setReverbParam('decay', v);
+      bus.emit('ui:sync-reverb-param', 'decay', v);
       broadcast({ type: MSG.REVERB_DECAY, value: v });
       break;
     }
@@ -1128,6 +1137,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       const v = Number(val);
       if (!Number.isFinite(v)) break;
       setReverbParam('predelay', v);
+      bus.emit('ui:sync-reverb-param', 'predelay', v);
       broadcast({ type: MSG.REVERB_PREDELAY, value: v });
       break;
     }
@@ -1135,6 +1145,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       const v = Number(val);
       if (!Number.isFinite(v)) break;
       setReverbParam('lowcut', v);
+      bus.emit('ui:sync-reverb-param', 'lowcut', v);
       broadcast({ type: MSG.REVERB_LOWCUT, value: v });
       break;
     }
@@ -1142,6 +1153,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       const v = Number(val);
       if (!Number.isFinite(v)) break;
       setReverbParam('highcut', v);
+      bus.emit('ui:sync-reverb-param', 'highcut', v);
       broadcast({ type: MSG.REVERB_HIGHCUT, value: v });
       break;
     }

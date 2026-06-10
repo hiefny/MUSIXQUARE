@@ -202,7 +202,14 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
   // ── Host-side profanity filter ──
   if (!hostConn && getState('network.filterEnabled')) {
     text = filterProfanity(text);
-    data.text = text; // Update data so broadcast sends filtered text
+  }
+  // Write the truncated (and possibly filtered) text back BEFORE the fan-out:
+  // the broadcast below sends `data` by reference, and without this an
+  // oversized payload would relay at full size to N-1 guests even though
+  // every renderer caps at MAX_MSG_LENGTH (wire amplification; the whisper
+  // handler already writes back — this mirrors it).
+  if (!hostConn) {
+    data.text = text;
   }
 
   // ── Badge derivation: Host-side uses authoritative peer list, guest trusts host ──

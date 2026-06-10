@@ -379,6 +379,24 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
       return;
     }
 
+    // Demo track-identity guard: a guest whose demo track load lagged a host
+    // advance can be sitting on track n's buffer while the host plays n+1 —
+    // bootstrapping here would play the WRONG track at the host's position.
+    // DEMO-SCOPED on purpose: in demo both sides set currentTrackIndex from
+    // the same DEMO_ENTER index so the comparison is contractually sound,
+    // whereas normal-file index parity across reorder/shuffle windows is not
+    // pinned and a false suppression would regress the first-remote-download
+    // bootstrap this branch exists for.
+    const pongTrackIndex = Number(data.trackIndex);
+    if (
+      getState('demo.active') &&
+      Number.isFinite(pongTrackIndex) &&
+      pongTrackIndex !== getState('playlist.currentTrackIndex')
+    ) {
+      log.debug('[Sync] Bootstrap skipped: demo track index mismatch with host pong');
+      return;
+    }
+
     // Bootstrap: only if we have a decoded buffer. Otherwise the audio
     // engine has nothing to start, and play() would no-op (or worse,
     // race with an in-flight decode).
@@ -423,7 +441,14 @@ function handleRequestRename(data: Record<string, unknown>, conn: DataConnection
   const peerId = conn?.peer;
   if (!peerId) return;
 
+  // Strip control / zero-width / bidi-override characters BEFORE the
+  // reserved/duplicate checks: a "HOST"+zero-width-space must not slip past the
+  // lowercase comparison as a visually identical impersonation, and U+202E
+  // must not reorder the rendered name. (Render sinks are textContent, so
+  // this is anti-spoofing, not XSS.)
   const newLabel = String(data.newLabel || '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, '')
     .trim()
     .slice(0, 20);
   if (!newLabel) return;

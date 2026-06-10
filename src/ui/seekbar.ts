@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
 import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
+import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { syncRangeProgress } from './range-drag.ts';
 
 function isSeekUnavailable(): boolean {
@@ -112,7 +113,7 @@ function _seekRafLoop(now: number): void {
     if (!_systemAudioZerosApplied) {
       const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
       const tc = document.getElementById('time-curr');
-      const tt = document.getElementById('time-total');
+      const tt = document.getElementById('time-dur');
       if (slider) {
         setSeekSliderValue(slider, '0');
         setSeekSliderMax(slider, '0');
@@ -257,6 +258,34 @@ function initSeekBarBusHandlers(): void {
   _busScope.on('player:stop-all-media', () => {
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
+  });
+
+  // Mode-driven time display sync. The rAF system-audio zeroing branch is
+  // unreachable on canonical entries (stopAllMedia kills the loop via
+  // ui:seek-reset BEFORE mode flips), so entry zeroing must be deterministic
+  // here. The 'file' repaint is its required pair: after an explicit
+  // stop-sharing restore (or a guest resume from an existing buffer) no
+  // ui:duration-update re-fires, so without it the display would stay 0:00.
+  // ui:seek-reset deliberately stays duration-preserving (silent track-change
+  // path depends on it) — do not move this logic there.
+  _busScope.on('state:playback.mode', (mode) => {
+    const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+    const tDur = document.getElementById('time-dur');
+    if (mode === 'system-audio') {
+      const tc = document.getElementById('time-curr');
+      if (slider) {
+        setSeekSliderValue(slider, '0');
+        setSeekSliderMax(slider, '0');
+      }
+      if (tc) tc.innerText = '0:00';
+      if (tDur) tDur.innerText = '0:00';
+    } else if (mode === 'file') {
+      const buf = getCurrentAudioBuffer();
+      if (buf && Number.isFinite(buf.duration) && buf.duration > 0) {
+        if (slider) setSeekSliderMax(slider, String(buf.duration));
+        if (tDur) tDur.innerText = fmtTime(buf.duration);
+      }
+    }
   });
 
   // YouTube time update (seek bar + time display)

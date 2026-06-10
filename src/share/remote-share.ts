@@ -24,7 +24,7 @@ import { sendSystemNotice } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { broadcast, isRemoteGuest, safeSend, waitForGuestConnectionType } from '../network/peer.ts';
 import { transition } from '../player/lifecycle.ts';
-import { createFileTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
+import { createFileTrackMeta, isExternalOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
 import {
   getPendingPlayTime,
   getPendingPlayTimeSetAt,
@@ -429,6 +429,20 @@ export async function shareRemoteFileIfNeeded(
         );
         return;
       }
+      // Mode sibling of the check above: isHostActiveFile passes on blob
+      // identity even after a file→YouTube/system-audio switch (the switch
+      // doesn't clear files.currentFileBlob), which would broadcast a
+      // descriptor for a track nobody is playing — remote guests would stomp
+      // their index/title UI and burn mobile data on a download that aborts
+      // at activation. If the host flips back to file mode before the upload
+      // completes, this stays false and the broadcast proceeds (and the
+      // descriptor cache makes the return-to-file re-share instant).
+      if (isExternalOwner()) {
+        log.debug(
+          '[RemoteShare] Upload completed but external playback mode owns the room; descriptor not broadcast',
+        );
+        return;
+      }
     }
 
     const outboundDescriptor = withPlaybackContext(descriptor, sessionId, index);
@@ -690,32 +704,58 @@ async function handleRemoteFileShare(
     prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
     showLoader(true, t('share.remote.downloading'));
 
-    const file = await downloadRemoteFile(
-      descriptor,
-      (progress) => {
-        if (abort.signal.aborted) return;
-        updateLoader(Math.round(progress * 100));
-        const remote = getState('share.remote');
-        setState('share.remote', {
-          ...remote,
-          download: {
-            ...remote.download,
-            status: 'fetching',
-            progress,
-          },
-        });
-      },
-      abort.signal,
-    );
+    const onDownloadProgress = (progress: number): void => {
+      if (abort.signal.aborted) return;
+      updateLoader(Math.round(progress * 100));
+      const remote = getState('share.remote');
+      setState('share.remote', {
+        ...remote,
+        download: {
+          ...remote.download,
+          status: 'fetching',
+          progress,
+        },
+      });
+    };
+
+    // One bounded retry on transient failures (network blip / timeout): the
+    // local P2P pipeline gets a 3-retry recovery loop, but a remote guest's
+    // failed download was terminal — silent until the host changed tracks.
+    // Non-transient errors (404/expired/429), supersede-aborts, and expired
+    // descriptors never retry.
+    let file: File;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        file = await downloadRemoteFile(descriptor, onDownloadProgress, abort.signal);
+        break;
+      } catch (error) {
+        const raw = rawRemoteShareError(error);
+        const transient =
+          raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' || raw === 'REMOTE_SHARE_DOWNLOAD_TIMEOUT';
+        if (
+          attempt >= 2 ||
+          !transient ||
+          isAbortError(error) ||
+          abort.signal.aborted ||
+          !isDescriptorFresh(descriptor)
+        ) {
+          throw error;
+        }
+        log.warn('[RemoteShare] Transient download failure — retrying once:', error);
+      }
+    }
 
     if (abort.signal.aborted) {
       log.debug('[RemoteShare] Active download finished but was superseded; discarding');
       return;
     }
 
-    const previousBlobUrl = getState('share.remote').download.blobUrl;
-    if (previousBlobUrl) URL.revokeObjectURL(previousBlobUrl);
-    const objectUrl = URL.createObjectURL(file);
+    // No object URL here on purpose: share.remote.download.blobUrl had ZERO
+    // consumers, and createObjectURL pinned the full decrypted file until
+    // document unload — one leaked track (up to 200MB) per remote→remote
+    // switch, because the next descriptor's fetch-start nulled the field
+    // without revoking. Playback consumes the File via preload.nextFileBlob →
+    // storage:use-preloaded → decode.ts, which manages its own URL.
     const meta = {
       name: descriptor.name,
       title: descriptor.name.replace(/\.[^/.]+$/, ''),
@@ -734,7 +774,7 @@ async function handleRemoteFileShare(
       download: {
         status: 'ready',
         progress: 1,
-        blobUrl: objectUrl,
+        blobUrl: null,
         error: null,
       },
     });

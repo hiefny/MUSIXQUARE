@@ -23,7 +23,8 @@ import {
   isRemoteGuest,
 } from '../network/peer.ts';
 import type { DataConnection } from '../types/index.ts';
-import { showLoader, updateLoader } from '../ui/toast.ts';
+import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
+import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { transition } from '../player/lifecycle.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
 import { isSystemAudioOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
@@ -1150,6 +1151,33 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     bus.emit('storage:use-preloaded', index, name);
     _activePlayPreloadedIndex = undefined;
 
+    return;
+  }
+
+  // Remote guest fork — PLAY_PRELOADED was the only host→guest track-change
+  // message without one. No P2P bytes will arrive (remote guests are excluded
+  // from preload sessions), and the REQUEST_DATA_RECOVERY below is silently
+  // dropped by the host's unicast transport guard for remote peers: with R2
+  // configured the incoming descriptor self-heals the detour, but without it
+  // the loader spun forever. Mirror handlePlayMsg's remote branch instead;
+  // prepareRemoteShareWait owns the lifecycle transition.
+  if (isRemoteGuest()) {
+    _activePlayPreloadedIndex = undefined;
+    if (shouldWaitForRemoteShare()) {
+      setPendingRecoveryTarget(index, name);
+      const localSid = Number(getState('transfer.localSessionId')) || 0;
+      const currentSid = Number(getState('transfer.currentSessionId')) || 0;
+      prepareRemoteShareWait(
+        index,
+        name || ((playlist[index]?.name as string) ?? ''),
+        localSid > 0 ? localSid : currentSid,
+      );
+      log.info('[Guest] Remote guest — waiting for remote share descriptor (play-preloaded)');
+      return;
+    }
+    showLoader(false);
+    showToast(t('share.remote.unavailable'));
+    log.info('[Guest] Remote guest — remote share unavailable (play-preloaded)');
     return;
   }
 

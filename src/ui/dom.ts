@@ -286,6 +286,24 @@ export function escapeHtml(value: unknown): string {
 
 export const escapeAttr = escapeHtml;
 
+// ─── contentEditable Placeholder Normalization ───────────────────
+
+/**
+ * contentEditable leaves a stray <br> after you type then delete everything,
+ * so the element is no longer :empty and the CSS placeholder
+ * (:empty::before) never comes back. Normalize to truly empty so it
+ * reappears. Skips during IME composition so in-progress Hangul/CJK isn't
+ * clobbered (programmatic innerHTML writes don't refire 'input').
+ *
+ * Call from an 'input' event handler of any placeholder-bearing
+ * contentEditable (chat input, YouTube URL input, dialog inputs).
+ */
+export function normalizeEmptyContentEditable(el: HTMLElement, e: Event): void {
+  if (!(e as InputEvent).isComposing && el.textContent === '' && el.innerHTML !== '') {
+    el.innerHTML = '';
+  }
+}
+
 // ─── Marquee Title ───────────────────────────────────────────────
 
 let _currentMarqueeText: string | null = null;

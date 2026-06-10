@@ -9,7 +9,7 @@ import { createBusScope } from '../core/events.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
-import { isPlaybackModeYouTube, isPlaybackPaused } from '../player/ownership.ts';
+import { isPlaybackModeYouTube, isPlaybackPaused, isPlaybackPlaying } from '../player/ownership.ts';
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -114,7 +114,17 @@ function _initThemeListeners(): void {
     _themeObserver = null;
   }
   try {
-    _themeObserver = new MutationObserver(refreshThemeCache);
+    _themeObserver = new MutationObserver(() => {
+      refreshThemeCache();
+      // Repaint static content with the new theme — a paused-held or resting
+      // frame would otherwise keep the old theme's colors (visible on the
+      // spectrum grid) until the next playback transition. Active/settling
+      // loops read the refreshed cache on their next frame.
+      if (_visualizerLoopState === 'idle') {
+        if (_isHoldingPauseFrame) redrawHeldFrame();
+        else drawRestingVisualizerFrame();
+      }
+    });
     _themeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-theme'],
@@ -324,6 +334,54 @@ function drawRestingVisualizerFrame(): void {
   clearLastVisualizerFrames();
 }
 
+/**
+ * Redraw the held pause-frame onto a (possibly resized/re-themed) canvas
+ * without restarting the rAF loop. Spectrum points are re-normalized to the
+ * new logical size — same mapping as settleVisualizerToRest at eased=0.
+ */
+function redrawHeldFrame(): void {
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  const ctx = canvas?.getContext('2d');
+  if (!canvas || !ctx) return;
+
+  refreshThemeCache();
+  const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+  syncCanvasSize(canvas, ctx, wrapper);
+  const dpr = window.devicePixelRatio || 1;
+  const logicalW = canvas.width / dpr;
+  const logicalH = canvas.height / dpr;
+
+  if (_vizMode === 'circular' && _lastCircularFrame) {
+    drawCircularVisualizerFrame(ctx, Math.min(logicalW, logicalH), _lastCircularFrame);
+    return;
+  }
+
+  if (_vizMode === 'spectrum' && _lastSpectrumFrame?.points.length) {
+    const source = _lastSpectrumFrame;
+    const padX = 4;
+    const padY = 8;
+    const points = source.points.map((p) => {
+      const xRange = Math.max(1, source.width - 2 * source.padX);
+      const yRange = Math.max(1, source.height - 2 * source.padY);
+      const xNorm = Math.max(0, Math.min(1, (p.x - source.padX) / xRange));
+      const yNorm = Math.max(0, Math.min(1, (p.y - source.padY) / yRange));
+      return {
+        x: padX + xNorm * (logicalW - 2 * padX),
+        y: padY + yNorm * (logicalH - 2 * padY),
+      };
+    });
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(0, 0, logicalW, logicalH);
+    ctx.shadowBlur = 0;
+    drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
+    drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
+    _lastSpectrumFrame = { points, width: logicalW, height: logicalH, padX, padY };
+    return;
+  }
+
+  drawRestingVisualizerFrame();
+}
+
 function fadeVisualizerOut(): void {
   settleVisualizerToRest();
   // Keep the event-facing name for compatibility with transport/playback.
@@ -432,6 +490,25 @@ function settleVisualizerToRest(): void {
 
 export function startVisualizer(): void {
   if (_visualizerLoopState === 'active' && _animationId !== null) return;
+
+  // Activity gate — the single chokepoint for every entry point (resize,
+  // ui:visualizer-check, set-type, visualizer:start, init/retry chain).
+  // Without playing audio there is nothing to visualize: render a static
+  // frame instead of spinning the rAF loop at full refresh rate (battery),
+  // and never destroy a deliberately held pause-frame. Must NOT touch the
+  // hold flags, and must draw (not bare-return): drawRestingVisualizerFrame
+  // runs syncCanvasSize, which the iOS 0-sized-canvas wake and the resize
+  // path rely on.
+  if (!isPlaybackPlaying()) {
+    if (_visualizerLoopState === 'settling') return; // settle rAF already converging to rest
+    if (_isHoldingPauseFrame) {
+      redrawHeldFrame();
+      return;
+    }
+    drawRestingVisualizerFrame();
+    return;
+  }
+
   if (!claimVisualizerStart()) return;
 
   if (_vizMode === 'spectrum') {

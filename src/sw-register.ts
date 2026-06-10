@@ -7,7 +7,9 @@
 
 import { log } from './core/log.ts';
 import { t } from './i18n/index.ts';
+import { getState } from './core/state.ts';
 import { showDialog } from './ui/dialog.ts';
+import { showToast } from './ui/toast.ts';
 import { setManagedTimer } from './core/timers.ts';
 import { markIntentionalNav } from './core/page-lifecycle.ts';
 
@@ -50,6 +52,22 @@ export function registerServiceWorker(): void {
         if (!hadController) {
           hadController = true;
           log.debug('[SW] Controller claimed page for the first time — skipping reload');
+          return;
+        }
+
+        // controllerchange fires in EVERY controlled same-origin tab when any
+        // one of them accepts the update (skipWaiting activation migrates all
+        // clients) — auto-reloading here silently killed live sessions in the
+        // other tabs (markIntentionalNav even suppresses the leave prompt).
+        // Defer for in-session tabs; the update applies on their next natural
+        // load. Safe to keep running old JS under the new SW: no production
+        // dynamic imports exist, so cache purges can't 404 a lazy chunk.
+        // NOTE: this gate must stay OUT of reloadForServiceWorkerUpdate() —
+        // the dialog-OK path below is explicit same-tab consent and must keep
+        // reloading even mid-session.
+        if (getState('network.appRole') !== 'idle') {
+          log.info('[SW] Update activated elsewhere — deferring reload (session active)');
+          showToast(t('dialog.sw_update_msg'));
           return;
         }
 

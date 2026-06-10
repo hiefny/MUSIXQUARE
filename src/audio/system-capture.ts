@@ -335,7 +335,11 @@ export function stopSystemAudioCapture(opts?: { restore?: boolean }): void {
   // transition would leak into a later explicit stop.
   _preSysAudioState = null;
 
-  bus.emit('ui:show-toast', t('system_audio.stopped'));
+  // Toast only on explicit stop. The copy promises the playlist resumes,
+  // which is only (approximately) true on the restore path; on force-stop
+  // transitions another flow's own UI takes over immediately and this toast
+  // would stack a false claim on top of it.
+  if (shouldRestore) bus.emit('ui:show-toast', t('system_audio.stopped'));
   _debugLastCaptureStoppedAt = Date.now();
   log.info('[SystemAudio] Capture stopped');
 }

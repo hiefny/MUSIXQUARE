@@ -35,6 +35,7 @@ import {
 } from './chat-render.ts';
 import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
+import { normalizeEmptyContentEditable } from './dom.ts';
 
 // ─── Chat State ──────────────────────────────────────────────────
 
@@ -743,18 +744,8 @@ export function initChat(): void {
 
     // Input event: filter commands + ghost text
     chatInput.addEventListener('input', (e) => {
-      // contentEditable leaves a stray <br> after you type then delete
-      // everything, so the div is no longer :empty and the CSS placeholder
-      // (.chat-input:empty::before) never comes back. Normalize to truly empty
-      // so it reappears. Skip during IME composition so in-progress Hangul/CJK
-      // isn't clobbered (programmatic innerHTML writes don't refire 'input').
-      if (
-        !(e as InputEvent).isComposing &&
-        chatInput.textContent === '' &&
-        chatInput.innerHTML !== ''
-      ) {
-        chatInput.innerHTML = '';
-      }
+      // Stray-<br> placeholder restore — shared helper, see dom.ts.
+      normalizeEmptyContentEditable(chatInput, e);
       const val = getInputValue();
       updateGhost();
       if (!val.startsWith('/') || val.includes(' ')) {
@@ -912,6 +903,13 @@ export function initChat(): void {
       chatInput.setAttribute(
         'data-placeholder',
         isMuted ? t('chat.muted_placeholder') : t('chat.placeholder'),
+      );
+      // Swap the i18n retranslation key in lockstep — otherwise a language
+      // switch while muted rewrites data-placeholder back to the normal copy
+      // (same pattern as the media button in player-controls.ts).
+      chatInput.setAttribute(
+        'data-i18n-data-placeholder',
+        isMuted ? 'chat.muted_placeholder' : 'chat.placeholder',
       );
       chatInput.contentEditable = isMuted ? 'false' : 'true';
       chatInput.dataset.disabled = isMuted ? 'true' : 'false';

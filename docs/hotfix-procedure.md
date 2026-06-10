@@ -37,7 +37,8 @@ Current behavior:
 | New visitor or fresh navigation | Navigation is network-first, so the user should receive the latest deployed app shell immediately unless offline. |
 | Existing open tab | `src/sw-register.ts` performs an immediate update check after registration and then checks every 60 minutes. When a waiting worker is found, the app shows the service-worker update dialog. |
 | User accepts update dialog | The page sends `SKIP_WAITING`, records a 30-second cooldown in `sessionStorage`, marks the navigation intentional, and reloads once. |
-| Update found during cooldown | The waiting worker is activated silently to avoid a reload-dialog loop. |
+| Other same-origin tabs when one tab accepts | `controllerchange` fires in every controlled tab. Idle tabs (`network.appRole === 'idle'`) auto-reload; tabs with a live session show an update-ready toast and defer the reload to their next natural load (22차 audit CATCH-1 — auto-reload silently killed live sessions). |
+| Update found during cooldown | The waiting worker is activated silently to avoid a reload-dialog loop. In-session tabs still defer per the rule above, so a hotfix-on-hotfix is not guaranteed to reach them until they reload naturally. |
 | User dismisses update dialog | The waiting worker is not activated by app code. The update applies on a later natural load/update path. |
 | PWA/background tab | Delivery depends on when the browser wakes the page and allows the update check. Treat this as browser-controlled. |
 

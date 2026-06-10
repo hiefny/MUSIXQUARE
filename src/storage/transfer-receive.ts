@@ -855,6 +855,35 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     return;
   }
 
+  // Already-loaded same-file short-circuit. A guest who received the current
+  // track via the remote-share (R2) path never wrote transfer.localSessionId
+  // (only the direct-receive path does), so its first direct FILE_START after
+  // a remote→local promotion registers as a "new session" — and the clear
+  // below would destroy the playing buffer mid-track and force a full
+  // redundant re-transfer of a file the guest already has. Compare against
+  // the loaded blob BEFORE the destructive branch (mirrors handleFilePrepare's
+  // isNewerSameFileSession): adopt the session id and drop the redundant
+  // stream — trailing chunks/END are absorbed by shouldSkipIncomingFile via
+  // the PRELOAD_PROMOTED / same-track-replay branches. A genuinely newer
+  // session (host re-click, repeat-one rebroadcast) still falls through.
+  if (!isLocalDirectStart) {
+    const loadedBlob = getState('files.currentFileBlob');
+    const loadedMeta = getState('transfer.meta');
+    const sameName = !!data.name && loadedMeta?.name === data.name;
+    const sameSize = Number(data.size) > 0 && loadedBlob?.size === Number(data.size);
+    const loadedSid = Number(localSid) || Number(loadedMeta?.sessionId) || 0;
+    const genuinelyNewer = incomingSid > 0 && loadedSid > 0 && incomingSid > loadedSid;
+    if (loadedBlob && sameName && sameSize && !genuinelyNewer) {
+      if (incomingSid > localSid) setState('transfer.localSessionId', incomingSid);
+      clearManagedTimer('prepareWatchdog');
+      clearManagedTimer('chunkWatchdog');
+      log.info(
+        `[file-start] Already loaded "${data.name}" (adopting sid ${incomingSid}); skipping redundant re-transfer`,
+      );
+      return;
+    }
+  }
+
   const isNewSession = incomingSid > localSid;
   if (isNewSession) {
     setState('transfer.localSessionId', incomingSid);

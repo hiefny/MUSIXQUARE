@@ -394,7 +394,7 @@ const en: Record<I18nKey, string> = {
   'network.cant_join': "Couldn't find the session.\nPlease check your network.",
   'network.session_full': 'Room is full',
   'network.session_full_detail':
-    'You\'ve reached the device limit.\nThe number of devices you can connect can be set in the "Connect" tab.',
+    'This room has reached its device limit.\nAsk the host to raise it in their "Connect" tab.',
   'network.op_granted': 'Admin permission granted.',
   'network.op_revoked': 'Admin permission revoked.',
 

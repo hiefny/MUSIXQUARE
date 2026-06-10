@@ -309,6 +309,15 @@ function handleWelcome(data: Record<string, unknown>, conn?: DataConnection): vo
   if (data.label) {
     setState('network.myDeviceLabel', String(data.label));
   }
+  // Ratchet: the host always recreates peers with isOp=false, so a (future)
+  // in-place rejoin must not inherit a stale local OP flag — the host
+  // re-grants explicitly via OPERATOR_GRANT, so this can never strip a
+  // legitimate OP. Today every disconnect path hard-reloads, making this a
+  // no-op; it exists so a transparent-reconnect feature can't silently ship
+  // a permanent fake-OP UI.
+  if (getState('network.isOperator')) {
+    setState('network.isOperator', false);
+  }
   // Sync chat moderation state from host (always set, even when false/0)
   setState('network.chatFrozen', !!data.chatFrozen);
   setState(
@@ -329,7 +338,15 @@ function handleSessionFull(data: Record<string, unknown>, conn?: DataConnection)
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
-  const msg = data.message ? String(data.message) : t('network.session_full');
+  // Prefer receiver-side translation (the host sent its OWN locale's text as
+  // fallback — a Korean host's rejection must not render Korean on an English
+  // guest). Mirrors handleOperatorToast: the translated !== key check guards
+  // against leaking the raw key on a dictionary miss (older bundle).
+  let msg = data.message ? String(data.message) : t('network.session_full');
+  if (typeof data.i18nKey === 'string') {
+    const translated = t(data.i18nKey as I18nKey);
+    if (translated !== data.i18nKey) msg = translated;
+  }
 
   setState('network.isIntentionalDisconnect', true);
 

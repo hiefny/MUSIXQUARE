@@ -22,6 +22,7 @@ import {
   animateTransition,
   copyTextToClipboard,
   updateTitleWithMarquee,
+  normalizeEmptyContentEditable,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { getTrackPosition, isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
@@ -810,7 +811,9 @@ export function initPlayerControls(): void {
   // YouTube popup (contenteditable)
   const ytInput = document.getElementById('youtube-url-input');
   if (ytInput) {
-    ytInput.addEventListener('input', () => {
+    ytInput.addEventListener('input', (e) => {
+      // Stray-<br> placeholder restore — shared helper, see dom.ts.
+      normalizeEmptyContentEditable(ytInput, e);
       bus.emit('youtube:preview', ytInput.textContent || '');
     });
     ytInput.addEventListener('keydown', (e) => {

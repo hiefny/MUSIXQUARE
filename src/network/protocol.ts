@@ -227,17 +227,24 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.FILE_RESUME]: (d) =>
     typeof d.name === 'string' && isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
 
-  // Chat — validate text field exists and cap length
-  [MSG.CHAT]: (d) => typeof d.text === 'string',
-  [MSG.CHAT_WHISPER]: (d) => typeof d.text === 'string' && typeof d.targetId === 'string',
+  // Chat — validate text field exists and cap length. The wire cap (4000) is
+  // deliberately well above the 500-char render cap so legitimate near-cap
+  // multibyte messages never trip it; its job is killing multi-KB/MB
+  // amplification frames at the door (defense-in-depth behind the host-side
+  // write-back truncation in chat/protocol.ts).
+  [MSG.CHAT]: (d) => typeof d.text === 'string' && d.text.length <= 4000,
+  [MSG.CHAT_WHISPER]: (d) =>
+    typeof d.text === 'string' && d.text.length <= 4000 && typeof d.targetId === 'string',
   // text is required for back-compat fallback; i18nKey/i18nParams are optional
   // and let receivers render in their own locale when sender supplies them.
   [MSG.CHAT_NOTICE]: (d) =>
     typeof d.text === 'string' &&
+    d.text.length <= 4000 &&
     (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
     (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
   [MSG.CHAT_SYSTEM]: (d) =>
     typeof d.text === 'string' &&
+    d.text.length <= 4000 &&
     (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
     (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
   [MSG.OPERATOR_TOAST]: (d) =>

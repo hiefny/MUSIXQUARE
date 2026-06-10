@@ -693,9 +693,27 @@ async function handleRemoteFileShare(
       // the wait timer (keyed on the new index) fired a spurious timeout
       // toast (EXT-4). Re-point the publish context + wait machinery
       // (prepareRemoteShareWait is idempotent for an identical context).
-      _activeDownload.descriptor = descriptor;
-      prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
-      log.debug('[RemoteShare] Duplicate active descriptor — download kept, context re-pointed');
+      //
+      // Adopt only a STRICTLY NEWER context (EXT-5): host re-selection
+      // always bumps sessionId, while a late targeted REQUEST_CURRENT_FILE
+      // response is composed as (current sid, requested — possibly stale —
+      // index): findMatchingBlob name-matches across indices and targeted
+      // sends bypass the broadcast-only stale-track guard. Adopting it
+      // unconditionally would rewind the wait to the old index. The channel
+      // is ordered, so a genuinely newer broadcast always lands before any
+      // later-composed response — strict monotonic sid covers every
+      // interleaving.
+      const trackedSid = Number(_activeDownload.descriptor.sessionId);
+      const incomingSid = Number(descriptor.sessionId);
+      const isNewerContext =
+        Number.isFinite(incomingSid) && (!Number.isFinite(trackedSid) || incomingSid > trackedSid);
+      if (isNewerContext) {
+        _activeDownload.descriptor = descriptor;
+        prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
+        log.debug('[RemoteShare] Duplicate active descriptor — download kept, context re-pointed');
+      } else {
+        log.debug('[RemoteShare] Duplicate active descriptor (same/older context), ignoring');
+      }
       return;
     }
     log.info(

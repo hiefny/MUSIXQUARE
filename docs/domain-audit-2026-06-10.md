@@ -327,6 +327,13 @@ DV-1은 ⑭("캡처된 로컬 vs 상태 클리어")의 형제 모양: **"전이 
 - 상태: ✅ (+핀 2: mid-download 컨텍스트 교체 publish / 동일 컨텍스트 순수 dedup, 1077 tests)
 - **교훈**: ⑪(모듈 로컬 `_activeDownload`가 전역 기계에 불가시)과 ⑤(로컬 same-content reuse 픽스의 원격 형제)의 교차점. **dedup 키와 publish 컨텍스트가 다른 축이면, dedup은 "작업"만 합치고 "컨텍스트"는 최신으로 끌고 가야 한다** — wholesale drop은 컨텍스트까지 버린다.
 
+### EXT-5 🟡(P2) — 늦은 REQUEST_CURRENT_FILE 응답이 EXT-4 re-point를 통해 wait를 stale index로 되감음 (EXT-4 유도 회귀)
+- **메커니즘 (호스트 측 합성)**: ① `findMatchingBlob`이 명시적 reqIndex 불일치여도 name 매치로 현재 blob 서빙(recovery.ts:290-293) ② targeted `shareRemoteFileIfNeeded`는 stale-track guard 우회(`if (!targetConn)` 게이트, remote-share.ts:423) ③ `withPlaybackContext(descriptor, sid=ensureValidSessionId(), index=reqIndex)` — 즉 늦은 응답이 **(현재 sessionId, stale index)** descriptor로 합성됨. EXT-4의 무조건 re-point가 이걸 채택 → `prepareRemoteShareWait`가 currentTrackIndex/pendingRecoveryTarget/meta를 옛 index로 되돌리고 publish도 stale. **EXT-4 이전엔 이 방향은 무해 drop이었으므로 유도 회귀** (15차 패턴).
+- **픽스 (게스트 측 (b), monotonic sid 게이트)**: 정당한 재선택은 항상 `nextSessionId()`로 sid 증가, 합성 stale 응답은 sid가 추적값과 같거나 낮음 → **strictly newer sessionId만 채택**, 그 외 순수 dedup. ordered 채널이라 newer-sid 브로드캐스트는 나중 합성 응답보다 항상 먼저 도착 — 전 인터리빙 커버. 호스트 측 (a)(name 폴백 index 엄격화)는 로컬 복구 파이프라인과 공유되는 기계 + index-drift 관용이 존재 이유라 **기각/관찰 기록**(아래).
+- 상태: ✅ (+핀 1: index 1 대기 중 same-sid/older-sid stale descriptor 무시 + publish index 1 유지, 1078 tests)
+- **관찰 (미수정, P4)**: findMatchingBlob의 name 폴백이 명시적 index 불일치 요청에 현재 blob을 서빙하는 것 자체는 잔존 — 게스트 측 게이트가 descriptor 방향을 막았고, 로컬 unicast 방향은 동명·이내용 파일 엣지(size 불일치가 하류에서 잡음). 호스트 측 엄격화는 로컬 복구 회귀 위험 대비 이득이 낮아 보류.
+- **교훈**: ⑬의 형제 — **"늦게 도착한 메시지 ≠ 최신 컨텍스트". 컨텍스트 채택 로직은 도착 순서가 아니라 단조 증가 토큰(sessionId)으로 게이트할 것.** + re-point/adopt 픽스를 넣으면 "이걸 악용하는 stale 공급원이 있나"를 즉시 역방향 스윕 (EXT-4 검증 때 호스트 측 합성 경로를 안 봤음).
+
 ## 메타 — 이번 오디트가 추가한 사각 후보
 
 1. **⑪ 모듈 로컬 상태 vs 전역 기계** (HET 패턴): 서브시스템이 자기 수명주기를 모듈 변수로 관리하면 cancel/parity 스윕(⑧⑨)이 못 본다. 신규 서브시스템 추가 시 "이 모듈의 in-flight 작업을 외부 기계가 취소/관찰할 수 있는가" 체크 의무화.

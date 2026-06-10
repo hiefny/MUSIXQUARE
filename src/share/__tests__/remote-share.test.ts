@@ -177,6 +177,56 @@ describe('remote file share policy', () => {
     expect(usePreloaded).toHaveBeenCalledWith(0, 'song.mp3');
   });
 
+  // EXT-5 (external review 2026-06-11, EXT-4 follow-up): a LATE same-object
+  // descriptor can carry a composed-stale context — the host answers a stale
+  // REQUEST_CURRENT_FILE with (current sessionId, requested OLD index)
+  // because findMatchingBlob name-matches across indices and targeted sends
+  // bypass the broadcast-only stale-track guard. The re-point must adopt
+  // only a STRICTLY NEWER sessionId, never rewind to an equal/older context.
+  it('does not rewind the wait when a late same-object descriptor carries a non-newer context', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getState } = await import('../../core/state.ts');
+
+    let resolveDownload!: (file: File) => void;
+    mocks.downloadRemoteFile.mockImplementation(
+      () =>
+        new Promise<File>((resolve) => {
+          resolveDownload = resolve;
+        }),
+    );
+
+    // Active download for the CURRENT context: index 1, sessionId 9.
+    const first = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 1, sessionId: 9 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+
+    // Late composed-stale response: same object, same (current) sessionId,
+    // stale index 0. Must be pure-deduped — no context rewind.
+    await handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 0, sessionId: 9 }) },
+      conn,
+    );
+    // Genuinely old descriptor (older sessionId) — also ignored.
+    await handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 0, sessionId: 7 }) },
+      conn,
+    );
+
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+    expect(getState('playback.pendingRecoveryTarget')).toMatchObject({ index: 1 });
+    expect(getState('playlist.currentTrackIndex')).toBe(1);
+
+    resolveDownload(new File(['data'], 'song.mp3', { type: 'audio/mpeg' }));
+    await first;
+
+    expect(getState('preload.meta')).toMatchObject({ index: 1, sessionId: 9 });
+    expect(getState('preload.nextTrackIndex')).toBe(1);
+    expect(mocks.transition).toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 1 });
+    expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
+  });
+
   it('still dedups an identical re-sent descriptor without disturbing the wait', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { getState } = await import('../../core/state.ts');

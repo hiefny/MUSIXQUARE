@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
   broadcastSystemNotice: vi.fn(),
   decodeAudioData: vi.fn(),
+  isFilePipelineBusyForPlay: vi.fn(() => false),
   sendRecoveryRequest: vi.fn(),
   safeSend: vi.fn(() => true),
   sendToHost: vi.fn(),
@@ -77,6 +78,7 @@ vi.mock('../../ui/toast.ts', () => ({
 }));
 
 vi.mock('../transport.ts', () => ({
+  isFilePipelineBusyForPlay: mocks.isFilePipelineBusyForPlay,
   play: vi.fn(),
   stopAllMedia: mocks.stopAllMedia,
   stopPlayerNode: vi.fn(),
@@ -372,5 +374,42 @@ describe('host decode failure cleanup', () => {
       endOfPlaylist: true,
       reason: 'end-of-playlist',
     });
+  });
+});
+
+// DV-1 (device-test find): clearPreviousTrackState ran ONE bus-hop after
+// handleFilePrepare's fresh branch transitioned the FSM to DOWNLOADING and
+// knocked it back to IDLE — disengaging the PLAY defer-gate for the whole
+// download. The guard must keep mid-engagement pipelines intact while still
+// idling genuinely active/pending playback in non-busy lifecycles.
+describe('clearPreviousTrackState lifecycle guard (DV-1)', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+  });
+
+  it('does not idle playback while the file pipeline is mid-engagement', async () => {
+    const { clearPreviousTrackState } = await import('../decode.ts');
+    mocks.isFilePipelineBusyForPlay.mockReturnValue(true);
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'pending');
+
+    clearPreviousTrackState('file-prepare');
+
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('pending');
+  });
+
+  it('still idles active file playback when the pipeline is not busy', async () => {
+    const { clearPreviousTrackState } = await import('../decode.ts');
+    mocks.isFilePipelineBusyForPlay.mockReturnValue(false);
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'pending');
+
+    clearPreviousTrackState('file-prepare');
+
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 });

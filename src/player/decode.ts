@@ -53,7 +53,7 @@ import {
   getTrackKeyFromItem,
 } from './_state.ts';
 
-import { play, stopAllMedia, stopPlayerNode } from './transport.ts';
+import { isFilePipelineBusyForPlay, play, stopAllMedia, stopPlayerNode } from './transport.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -923,9 +923,17 @@ export function clearPreviousTrackState(reason = ''): void {
     setPendingPlayTime(undefined);
   }
 
-  // Reset active or pending file playback to idle.
+  // Reset active or pending file playback to idle — but NOT while the file
+  // pipeline is mid-engagement (DOWNLOADING/AWAITING_PRELOAD/DECODING).
+  // handleFilePrepare's fresh branch transitions the FSM to DOWNLOADING and
+  // emits 'storage:clear-previous-track' ONE statement later; idling here
+  // clobbered that just-written state, leaving lifecycle=IDLE for the whole
+  // download. With the FSM disengaged, handlePlayMsg's DOWNLOADING defer-gate
+  // never fired and its SA-03 no-buffer branch sent REQUEST_CURRENT_FILE on
+  // the host's first PLAY mid-transfer — the host's unicast-from-0 response
+  // then reset the partial download to 0% (DV-1, device-test find).
   const playback = getPlaybackModeActivity();
-  if (isPlaybackNonIdleFile(playback)) {
+  if (isPlaybackNonIdleFile(playback) && !isFilePipelineBusyForPlay()) {
     setPlaybackIdle();
   }
 

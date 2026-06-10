@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import {
   getCurrentAudioBuffer,
@@ -421,6 +421,31 @@ describe('handlePlayMsg orphaned-pipeline recovery', () => {
     ]);
     setState('playlist.currentTrackIndex', 0);
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setCurrentAudioBuffer(null);
+
+    initPlayback();
+    await handleData({ type: MSG.PLAY, time: 30, index: 0, name: 'new.mp3' }, hostConn);
+
+    expect(getPendingPlayTime()).toBe(30);
+    expect(sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
+    );
+  });
+
+  // DV-1 belt (device-test find): the lifecycle FSM was disengaged (IDLE)
+  // during fresh downloads, so PLAY mid-transfer hit this branch and the
+  // host's unicast-from-0 response reset the partial download to 0%. Even
+  // with the FSM fix, a LIVE transfer.state must keep SA-03 inert.
+  it('does not fire the recovery request while transfer.state is RECEIVING even if lifecycle reads IDLE', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [
+      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+    setState('transfer.state', TRANSFER_STATE.RECEIVING);
     setCurrentAudioBuffer(null);
 
     initPlayback();

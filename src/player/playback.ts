@@ -14,7 +14,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
@@ -162,8 +162,29 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       if (tryFetchDemoForRemote(incomingIndex, data.name as string | undefined, time)) return;
       if (shouldWaitForRemoteShare()) {
         const waitName = data.name as string | undefined;
+        // Dedup mirror of prepareRemoteShareWait's alreadyWaiting check —
+        // only escalate to the host when this PLAY arms a NEW wait.
+        const recoveryTarget = getState('playback.pendingRecoveryTarget');
+        const alreadyWaiting =
+          getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD &&
+          recoveryTarget?.index === incomingIndex &&
+          recoveryTarget.name === (waitName || '');
         prepareRemoteShareWait(incomingIndex, waitName || '', getRemoteWaitSessionId());
         setPendingPlayTime(time);
+        if (!alreadyWaiting) {
+          // DV-2 (device-test find): a bare host PLAY (post-demo resume,
+          // missed-descriptor pause→play) re-shares NOTHING, so this wait
+          // was a passive dead-end the host never learned about. The host's
+          // handleRequestCurrentFile now routes remote requesters to a
+          // targeted descriptor re-send (cached → control-plane only).
+          const remotePlaylist = getState('playlist.items') || [];
+          sendToHost({
+            type: MSG.REQUEST_CURRENT_FILE,
+            name: remotePlaylist[incomingIndex]?.name || waitName || '',
+            index: incomingIndex,
+            reason: 'remote_share_wait',
+          });
+        }
         log.info('[Guest] Remote guest — waiting for remote share descriptor');
         return;
       }
@@ -306,8 +327,24 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
               ? incomingIndex
               : 0;
         const waitName = data.name as string | undefined;
+        // Dedup mirror of prepareRemoteShareWait's alreadyWaiting check.
+        const recoveryTarget = getState('playback.pendingRecoveryTarget');
+        const alreadyWaiting =
+          getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD &&
+          recoveryTarget?.index === safeIndex &&
+          recoveryTarget.name === (waitName || '');
         prepareRemoteShareWait(safeIndex, waitName || '', getRemoteWaitSessionId());
         setPendingPlayTime(time);
+        if (!alreadyWaiting) {
+          // DV-2: escalate the new wait to the host — see the index-mismatch
+          // sibling above for rationale.
+          sendToHost({
+            type: MSG.REQUEST_CURRENT_FILE,
+            name: playlist[safeIndex]?.name || waitName || '',
+            index: safeIndex,
+            reason: 'remote_share_wait',
+          });
+        }
         log.info('[Guest] Remote guest — waiting for remote share descriptor');
         return;
       }
@@ -328,11 +365,19 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     // host later resumes with plain PLAY — no FILE_PREPARE ever re-arrives,
     // and the SYNC_PONG bootstrap can't start without a buffer. Without this
     // request the guest stays silent until the host changes tracks.
-    // De-dup is structural: the host's FILE_START response moves lifecycle to
-    // DOWNLOADING within one RTT, so a repeated PLAY no longer reaches here.
+    // transfer.state belt (DV-1): a LIVE inbound transfer means this is not
+    // an orphaned pipeline — requesting here makes the host unicast-from-0
+    // and handleFileStart resets the partial download to 0%. The lifecycle
+    // gate above is the primary defense; this guard keeps SA-03 inert even
+    // if a cleanup ever disengages the FSM mid-download again. A genuinely
+    // wedged RECEIVING transfer is still covered by the 12s chunkWatchdog
+    // (resume-based recovery, not from-zero).
     const lifecycleNow = getState('playback.lifecycle');
+    const transferStateNow = getState('transfer.state');
     if (
       (lifecycleNow === PLAYBACK_STATE.IDLE || lifecycleNow === PLAYBACK_STATE.FAILED) &&
+      transferStateNow !== TRANSFER_STATE.RECEIVING &&
+      transferStateNow !== TRANSFER_STATE.PROCESSING &&
       currentTrackIndex >= 0
     ) {
       const trackName = playlist[currentTrackIndex]?.name || (data.name as string) || '';

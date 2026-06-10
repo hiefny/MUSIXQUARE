@@ -561,6 +561,13 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
       log.warn('[RemoteShare] Wait timed out before descriptor/download completed');
       showToast(t('share.remote.timeout'));
       showLoader(false);
+      // Release the lifecycle gate (DV-2 hardening): without this the guest
+      // stayed AWAITING_PRELOAD forever — every later PLAY deferred, the
+      // SYNC_PONG bootstrap skipped, and the local play button busy-blocked.
+      // FAILED is inert and lets the next host PLAY re-drive recovery.
+      if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
+        transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
+      }
     },
     REMOTE_WAIT_MS,
   );

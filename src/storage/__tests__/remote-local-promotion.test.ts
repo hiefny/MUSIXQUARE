@@ -343,6 +343,66 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
+  // DV-1 same-content promote: identical name AND byte size = the preloaded
+  // blob IS this track (duplicate playlist entries) — re-point instead of
+  // discarding + re-downloading the same bytes.
+  it('promotes a byte-identical preload to the requested index instead of re-downloading', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('network.connectionType', 'local');
+    setState('preload.meta', { name: 'song.mp3', index: 3, sessionId: 7, size: 4 });
+    setState('preload.nextFileBlob', new Blob(['abcd'])); // size 4
+    setState('preload.nextTrackIndex', 3);
+
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        index: 0,
+        size: 4,
+        sessionId: 9,
+      },
+      conn,
+    );
+
+    expect(usePreloaded).toHaveBeenCalledWith(0, 'song.mp3');
+    expect(getState('preload.nextFileBlob')).not.toBeNull();
+    expect(getState('preload.nextTrackIndex')).toBe(0);
+    expect(getState('preload.meta')).toMatchObject({ name: 'song.mp3', index: 0 });
+  });
+
+  it('still clears and re-downloads when sizes differ (same name, different content)', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('network.connectionType', 'local');
+    setState('preload.meta', { name: 'song.mp3', index: 3, sessionId: 7, size: 4 });
+    setState('preload.nextFileBlob', new Blob(['abcd'])); // size 4
+    setState('preload.nextTrackIndex', 3);
+
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        index: 0,
+        size: 999,
+        sessionId: 9,
+      },
+      conn,
+    );
+
+    expect(usePreloaded).not.toHaveBeenCalled();
+    expect(getState('preload.nextFileBlob')).toBeNull();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
   it('still uses a name-matched preload when FILE_PREPARE carries no index (legit fallback)', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 

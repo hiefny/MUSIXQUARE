@@ -413,6 +413,9 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       name: file.name,
       index,
       sessionId,
+      // size lets the guest's same-name-different-index branch promote a
+      // byte-identical preloaded blob instead of re-downloading (DV-1).
+      size: file.size,
       mime: file.type,
       autoPlayDelayMs,
     });
@@ -639,6 +642,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       name: file.name,
       index,
       sessionId,
+      // size: see the fast-replay broadcast above (DV-1 same-content promote).
+      size: file.size,
       mime: file.type,
       autoPlayDelayMs,
     };

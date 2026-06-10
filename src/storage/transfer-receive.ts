@@ -578,7 +578,27 @@ export async function handleFilePrepare(
 
   // Preload INDEX MISMATCH: Don't use stale preload from a different track
   const isMismatch = preloadMeta && data.index !== undefined && data.index !== preloadMeta.index;
-  if (isMismatch) {
+  // Same-content promote (DV-1): identical name AND byte size means the
+  // preloaded blob IS this track (duplicate playlist entries — prev/click
+  // onto the other copy). Re-point the preload at the requested index
+  // instead of discarding + re-downloading the same bytes. Promote only
+  // with a non-null blob: a blob-less mismatch must still clear (EXT-1's
+  // phantom-wait bug). Risk accepted: same name+size with different bytes
+  // would play wrong audio — practically these are the same File object.
+  const isSameContentPromote = !!(
+    isMismatch &&
+    nextFileBlob &&
+    hasPreloadedByName &&
+    Number(data.size) > 0 &&
+    nextFileBlob.size === Number(data.size)
+  );
+  if (isSameContentPromote) {
+    log.info(
+      `[file-prepare] Same name+size as preloaded (index ${preloadMeta!.index} → ${data.index}); promoting instead of re-downloading`,
+    );
+    setState('preload.meta', { ...preloadMeta!, index: data.index as number });
+    setState('preload.nextTrackIndex', data.index as number);
+  } else if (isMismatch) {
     log.warn(
       `[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${preloadMeta!.index}. Clearing stale preload.`,
     );
@@ -602,7 +622,14 @@ export async function handleFilePrepare(
   // transfer — guest stalls until watchdog recovery. hasPreloadedByIndex
   // and isMismatch are mutually exclusive, so this only blocks the
   // name-match entry; the index-undefined name fallback still works.
-  if (nextFileBlob && !isMismatch && (hasPreloadedByIndex || hasPreloadedByName)) {
+  // isSameContentPromote re-opens the door for the byte-identical case —
+  // the state above was re-pointed (NOT cleared), so the consumer reads a
+  // live blob.
+  if (
+    nextFileBlob &&
+    (!isMismatch || isSameContentPromote) &&
+    (hasPreloadedByIndex || hasPreloadedByName)
+  ) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
     showToast(t('transfer.preload_done'));
 

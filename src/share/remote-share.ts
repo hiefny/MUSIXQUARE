@@ -703,17 +703,21 @@ async function handleRemoteFileShare(
   // composed-stale response (same/older sessionId, different index) arriving
   // after _activeDownload was cleared would otherwise enter the fresh-download
   // path below and rewind the wait via prepareRemoteShareWait — plus re-fetch
-  // bytes already on device. An exact re-send of the adopted context stays
+  // bytes already on device. A re-send of the SAME playback context stays
   // allowed so failure recovery (e.g. decode-failure re-request) can retry.
   if (_lastAdoptedRemoteContext) {
     const last = _lastAdoptedRemoteContext;
     const incomingSid = Number(descriptor.sessionId);
     const isNewerContext = Number.isFinite(incomingSid) && incomingSid > last.sessionId;
-    const isExactResend =
-      descriptor.objectId === last.objectId &&
-      descriptor.index === last.index &&
-      incomingSid === last.sessionId;
-    if (!isNewerContext && !isExactResend) {
+    // Same playback context = same index + sessionId. objectId is
+    // deliberately NOT compared (EXT-7): when the host's descriptor cache
+    // expired, the recovery path re-uploads the SAME track as a NEW R2
+    // object under the same sid/index — that re-issue must pass or the
+    // guest can never recover. Rewind protection only needs to block a
+    // DIFFERENT index at a same/older sessionId.
+    const isSameContextResend =
+      descriptor.index === last.index && incomingSid === last.sessionId;
+    if (!isNewerContext && !isSameContextResend) {
       log.debug(
         `[RemoteShare] Stale descriptor context ignored (index ${descriptor.index}, sid ${descriptor.sessionId} ≤ adopted ${last.sessionId})`,
       );

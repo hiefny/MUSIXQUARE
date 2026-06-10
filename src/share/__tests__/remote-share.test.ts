@@ -275,6 +275,68 @@ describe('remote file share policy', () => {
     expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
   });
 
+  // EXT-7 (external review 2026-06-11, EXT-6 follow-up): the host re-uploads
+  // the SAME track as a NEW R2 object when its descriptor cache expired —
+  // same sessionId/index, different objectId (the recovery path depends on
+  // this). The gate's resend exemption must key on the playback context
+  // (index + sessionId), NOT the objectId, or legitimate recovery re-issues
+  // are dropped forever and the guest can never obtain the file.
+  it('accepts a re-issued object for the same playback context (host cache expired)', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getState } = await import('../../core/state.ts');
+
+    let resolveDownload!: (file: File) => void;
+    let rejectDownload!: (err: unknown) => void;
+    mocks.downloadRemoteFile.mockImplementation(
+      () =>
+        new Promise<File>((resolve, reject) => {
+          resolveDownload = resolve;
+          rejectDownload = reject;
+        }),
+    );
+
+    // Adopt context {object-1, index 1, sid 9}, then the download fails
+    // non-transiently (R2 object expired) — the guest holds NO blob, so the
+    // re-issued object below is its only way to get the file. (A SUCCESSFUL
+    // first download instead takes the preload-promote fast-path on the
+    // re-issue — no download needed — which is why this test fails it.)
+    const first = handleData(
+      { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 1, sessionId: 9 }) },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
+    rejectDownload(new Error('REMOTE_SHARE_DOWNLOAD_EXPIRED'));
+    await first;
+
+    // Composed-stale under the NEW object — different index, same sid:
+    // still blocked (rewind protection must not regress).
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: 'object-2', index: 0, sessionId: 9 }),
+      },
+      conn,
+    );
+    expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
+
+    // Legit recovery re-issue: same context {index 1, sid 9}, new objectId.
+    const second = handleData(
+      {
+        type: MSG.REMOTE_FILE_SHARE,
+        ...descriptor({ objectId: 'object-2', index: 1, sessionId: 9 }),
+      },
+      conn,
+    );
+    await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledTimes(2));
+    const reissued = new File(['newB'], 'song.mp3', { type: 'audio/mpeg' });
+    resolveDownload(reissued);
+    await second;
+
+    expect(getState('preload.nextFileBlob')).toBe(reissued);
+    expect(getState('preload.meta')).toMatchObject({ index: 1, sessionId: 9 });
+    expect(getState('playback.pendingRecoveryTarget')).toMatchObject({ index: 1 });
+  });
+
   it('still accepts a genuinely newer same-object context after the download completed', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { getState } = await import('../../core/state.ts');

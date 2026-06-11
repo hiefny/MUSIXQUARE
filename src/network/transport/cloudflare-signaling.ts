@@ -48,6 +48,27 @@ type OutgoingSignal =
   | { type: 'media-answer'; to: 'host'; callId: string; sdp: RTCSessionDescriptionInit }
   | { type: 'media-close'; to: string | 'host'; callId: string };
 
+/**
+ * Durable "this session wants a signaling socket" record for a guest room.
+ * roomSockets is a transient handle map whose close handler deletes the
+ * entry, so reopen decisions (reconnect) must derive from this registry,
+ * never from the socket map itself.
+ */
+interface GuestRoomRecord {
+  conn: CloudflareDataConnection;
+  metadata: unknown;
+  password: string;
+  /**
+   * Set when the DO rejects our stored password on an established session
+   * (mid-session rotation). Excludes the room from reconnect(): peer.ts
+   * resets its retry budget on every 'disconnected', so without this flag a
+   * stale password becomes an indefinite failed-auth hammer against the DO
+   * rate limit. An explicit connect() re-join writes a fresh record and
+   * re-arms reconnect.
+   */
+  authFailed: boolean;
+}
+
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const CONTROL_CHANNEL_LABEL = 'musixquare-control';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
@@ -396,7 +417,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly mediaCalls = new Map<string, CloudflareMediaConnection>();
   private readonly pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private readonly roomSockets = new Map<string, WebSocket>();
-  private readonly roomPasswords = new Map<string, string>();
+  private readonly guestRooms = new Map<string, GuestRoomRecord>();
   private hostSocket: WebSocket | null = null;
   private readonly hostRoomId: string | null;
   private readonly hostSecret = randomBase64Url(24);
@@ -427,10 +448,30 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const conn = new CloudflareDataConnection(roomId, options?.metadata);
     const roomPassword =
       typeof options?.roomPassword === 'string' ? options.roomPassword.trim() : '';
-    if (roomPassword) this.roomPasswords.set(roomId, roomPassword);
-    else this.roomPasswords.delete(roomId);
+    this.guestRooms.set(roomId, {
+      conn,
+      metadata: options?.metadata,
+      password: roomPassword,
+      authFailed: false,
+    });
     this.connections.set(roomId, conn);
-    this.openGuestSocket(roomId, conn, options?.metadata, roomPassword);
+    conn.on('close', () => {
+      // Identity-guarded cleanup: a late 'close' from a conn replaced by a
+      // newer connect() for the same room must not evict the live records.
+      // Also drops queued candidates so a dead peer cannot grow
+      // pendingCandidates unbounded.
+      if (this.guestRooms.get(roomId)?.conn === conn) this.guestRooms.delete(roomId);
+      if (this.connections.get(roomId) === conn) {
+        this.connections.delete(roomId);
+        this.pendingCandidates.delete(roomId);
+      }
+    });
+    // Deliberately NOT ensureGuestSocket: a re-join over a still-open socket
+    // must REPLACE it, because the old socket's message listeners are
+    // closure-bound to the previous (dead) conn. The DO closes the replaced
+    // socket (GUEST_REPLACED) and the identity-guarded socket close handler
+    // ignores that late close.
+    this.openGuestSocket(roomId);
     return conn;
   }
 
@@ -470,12 +511,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.openHostSocket();
       return;
     }
-    for (const [roomId, socket] of this.roomSockets) {
-      if (socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
-        const conn = this.connections.get(roomId);
-        if (conn)
-          this.openGuestSocket(roomId, conn, conn.metadata, this.roomPasswords.get(roomId) || '');
-      }
+    for (const [roomId, record] of this.guestRooms) {
+      // Dead sessions belong to the join/HOST_DISCONNECTED re-join path, and
+      // mid-handshake conns (peerConnection set, open=false) stay with the
+      // join timeout — reconnect only serves established sessions whose
+      // signaling socket blipped.
+      if (!this.isDataConnectionAlive(record.conn)) continue;
+      this.ensureGuestSocket(roomId);
     }
   }
 
@@ -506,6 +548,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.hostSocket = null;
     for (const conn of this.connections.values()) conn.close();
     this.connections.clear();
+    this.guestRooms.clear();
     for (const mediaConn of this.mediaCalls.values()) mediaConn.closeFromRemote();
     this.mediaCalls.clear();
     this.clear();
@@ -625,13 +668,31 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     );
   }
 
-  private openGuestSocket(
-    roomId: string,
-    conn: CloudflareDataConnection,
-    metadata: unknown,
-    roomPassword: string,
-  ): void {
-    if (!this.id) return;
+  /**
+   * Idempotent reopen used by reconnect(): mirrors openHostSocket's
+   * readyState guard. Never stacks a second socket on a CONNECTING/OPEN one
+   * — the DO would close the older with GUEST_REPLACED, whose close re-emits
+   * 'disconnected' -> peer.ts budget reset -> permanent open/close
+   * oscillation.
+   */
+  private ensureGuestSocket(roomId: string): void {
+    const record = this.guestRooms.get(roomId);
+    if (!record || record.authFailed) return;
+    const existing = this.roomSockets.get(roomId);
+    if (
+      existing &&
+      existing.readyState !== WebSocket.CLOSED &&
+      existing.readyState !== WebSocket.CLOSING
+    ) {
+      return;
+    }
+    this.openGuestSocket(roomId);
+  }
+
+  private openGuestSocket(roomId: string): void {
+    const record = this.guestRooms.get(roomId);
+    if (!record || !this.id) return;
+    const { conn, metadata, password } = record;
     let socket: WebSocket;
     try {
       socket = new WebSocket(this.buildSocketUrl(roomId, 'guest', this.id));
@@ -643,7 +704,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.roomSockets.set(roomId, socket);
     socket.addEventListener('open', () => {
       try {
-        socket.send(JSON.stringify({ type: 'guest-auth', password: roomPassword || '' }));
+        socket.send(JSON.stringify({ type: 'guest-auth', password: password || '' }));
       } catch (error) {
         conn.emit('error', error);
       }
@@ -749,13 +810,37 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'error') {
-      conn.emit(
-        'error',
-        createTransportError(
-          message.errorType ?? 'server-error',
-          message.message ?? 'SIGNALING_ERROR',
-        ),
+      const error = createTransportError(
+        message.errorType ?? 'server-error',
+        message.message ?? 'SIGNALING_ERROR',
       );
+      if (this.isDataConnectionAlive(conn)) {
+        // DO rejection frames become reachable on established sessions once
+        // reconnect() actually reopens guest sockets: HOST_NOT_AVAILABLE
+        // (guest reconnects while the host's signaling is also down) and
+        // room-password-* (mid-session rotation). These are signaling-plane
+        // failures; funneling them to conn 'error' would let guest.ts tear
+        // down a working data channel. Mirror the established-socket-error
+        // policy instead: log, close the socket, keep the channel. The
+        // worker closes the socket after sending the frame anyway, and the
+        // socket close handler still emits 'disconnected' so peer.ts backoff
+        // keeps running.
+        if (message.errorType?.startsWith('room-password-')) {
+          const record = this.guestRooms.get(roomId);
+          if (record?.conn === conn) record.authFailed = true;
+        }
+        log.warn(
+          '[Transport] Guest signaling rejected after establishment; preserving data channel',
+          error,
+        );
+        try {
+          socket.close();
+        } catch {
+          /* noop */
+        }
+        return;
+      }
+      conn.emit('error', error);
       return;
     }
     if (message.type === 'signal-answer') {
@@ -767,7 +852,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'media-offer') {
-      this.handleMediaOffer(roomId, socket, message).catch((error) => conn.emit('error', error));
+      this.handleMediaOffer(roomId, message).catch((error) => conn.emit('error', error));
       return;
     }
     if (message.type === 'media-close') {
@@ -784,10 +869,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
   }
 
-  private createPeerConnection(peerId: string, socket: WebSocket): RTCPeerConnection {
+  private createPeerConnection(peerId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection(this.options.config);
     pc.addEventListener('icecandidate', (event) => {
       if (!event.candidate) return;
+      // This listener outlives any individual signaling socket (candidates
+      // can trickle after a socket blip + reopen), so resolve the CURRENT
+      // socket at send time instead of capturing one. On the guest side
+      // peerId IS the roomId (startGuestOffer passes it), which is exactly
+      // the roomSockets key. send(undefined, ...) throws the same
+      // 'socket-closed' SIGNALING_SOCKET_NOT_OPEN as the captured path did.
+      const socket = this.hostRoomId ? this.hostSocket : this.roomSockets.get(peerId);
       try {
         this.send(socket, {
           type: 'signal-candidate',
@@ -811,9 +903,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     this.connections.get(peerId)?.close();
     const conn = new CloudflareDataConnection(peerId, metadata);
-    const pc = this.createPeerConnection(peerId, socket);
+    const pc = this.createPeerConnection(peerId);
     conn.peerConnection = pc;
     this.connections.set(peerId, conn);
+    conn.on('close', () => {
+      // Identity-guarded: a late close from a conn replaced by a newer offer
+      // for the same peer must not evict the live record (handleHostOffer
+      // closes the old conn before installing the new one).
+      if (this.connections.get(peerId) === conn) {
+        this.connections.delete(peerId);
+        this.pendingCandidates.delete(peerId);
+      }
+    });
 
     pc.addEventListener('datachannel', (event) => {
       const shouldEmitConnection = conn.attach(pc, event.channel);
@@ -835,7 +936,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     metadata: unknown,
   ): Promise<void> {
     if (conn.peerConnection) return;
-    const pc = this.createPeerConnection(roomId, socket);
+    const pc = this.createPeerConnection(roomId);
     const channel = pc.createDataChannel(DATA_CHANNEL_LABEL, {
       ordered: true,
     });
@@ -890,7 +991,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private async handleMediaOffer(
     roomId: string,
-    socket: WebSocket,
     message: Extract<SignalingMessage, { type: 'media-offer' }>,
   ): Promise<void> {
     const conn = this.connections.get(roomId);
@@ -918,7 +1018,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       if (!pc.localDescription) throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
-      this.send(socket, {
+      // answer() may run long after the socket that delivered the offer died
+      // (signaling blip + reopen mid system-audio handshake), so resolve the
+      // current room socket at send time. send(undefined, ...) throws the
+      // same 'socket-closed' SIGNALING_SOCKET_NOT_OPEN as the captured path.
+      this.send(this.roomSockets.get(roomId), {
         type: 'media-answer',
         to: 'host',
         callId: incomingConn.callId,

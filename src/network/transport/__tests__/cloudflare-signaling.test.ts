@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../../core/constants.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
 import { CloudflareDataConnection, CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
-import type { TransportDataConnection } from '../types.ts';
+import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
 
 const originalWebSocket = globalThis.WebSocket;
+const originalRTCPeerConnection = globalThis.RTCPeerConnection;
+const originalMediaStream = globalThis.MediaStream;
 
 type FakeSocketListener = (event: { data?: unknown }) => void;
 type FakeChannelListener = (event: { data?: unknown }) => void;
@@ -106,11 +108,123 @@ class FakePeerConnection {
   }
 }
 
+type FakeRTCListener = (event: unknown) => void;
+
+interface FakeLocalDescription {
+  type: RTCSdpType;
+  sdp: string;
+  toJSON(): RTCSessionDescriptionInit;
+}
+
+/**
+ * Globally installable RTCPeerConnection fake (jsdom ships none). Unlike
+ * FakePeerConnection above, dispatch FORWARDS the payload so icecandidate
+ * listeners receive an event object. createDataChannel returns
+ * FakeDataChannels whose default 'open' readyState marks the conn open via
+ * attach()'s queueMicrotask — flush microtasks before asserting open state.
+ */
+class FakeRTCPeerConnection {
+  static instances: FakeRTCPeerConnection[] = [];
+
+  connectionState: RTCPeerConnectionState = 'connected';
+  signalingState: RTCSignalingState = 'stable';
+  localDescription: FakeLocalDescription | null = null;
+  remoteDescription: RTCSessionDescriptionInit | null = null;
+  readonly channels: FakeDataChannel[] = [];
+  private listeners = new Map<string, Set<FakeRTCListener>>();
+
+  constructor() {
+    FakeRTCPeerConnection.instances.push(this);
+  }
+
+  addEventListener(event: string, listener: FakeRTCListener): void {
+    const listeners = this.listeners.get(event) ?? new Set<FakeRTCListener>();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+  }
+
+  removeEventListener(event: string, listener: FakeRTCListener): void {
+    this.listeners.get(event)?.delete(listener);
+  }
+
+  createDataChannel(label: string): FakeDataChannel {
+    const channel = new FakeDataChannel(label);
+    this.channels.push(channel);
+    return channel;
+  }
+
+  async createOffer(): Promise<RTCSessionDescriptionInit> {
+    return { type: 'offer', sdp: 'fake-offer' };
+  }
+
+  async createAnswer(): Promise<RTCSessionDescriptionInit> {
+    return { type: 'answer', sdp: 'fake-answer' };
+  }
+
+  async setLocalDescription(description: RTCSessionDescriptionInit): Promise<void> {
+    const type = description.type ?? 'offer';
+    const sdp = description.sdp ?? '';
+    this.localDescription = { type, sdp, toJSON: () => ({ type, sdp }) };
+  }
+
+  async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
+    this.remoteDescription = description;
+  }
+
+  async addIceCandidate(): Promise<void> {
+    /* noop */
+  }
+
+  getSenders(): RTCRtpSender[] {
+    return [];
+  }
+
+  close(): void {
+    this.connectionState = 'closed';
+    this.dispatch('connectionstatechange', {});
+  }
+
+  dispatch(event: string, payload: unknown): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener(payload);
+    }
+  }
+}
+
 function installFakeWebSocket(): void {
   FakeWebSocket.instances = [];
   Object.defineProperty(globalThis, 'WebSocket', {
     configurable: true,
     value: FakeWebSocket as unknown as typeof WebSocket,
+  });
+}
+
+/** jsdom ships no MediaStream; CloudflareMediaConnection news one up. */
+class FakeMediaStream {
+  private readonly tracks: MediaStreamTrack[] = [];
+
+  getTracks(): MediaStreamTrack[] {
+    return [...this.tracks];
+  }
+
+  getAudioTracks(): MediaStreamTrack[] {
+    return [...this.tracks];
+  }
+
+  addTrack(track: MediaStreamTrack): void {
+    this.tracks.push(track);
+  }
+}
+
+function installFakeRTCPeerConnection(): void {
+  FakeRTCPeerConnection.instances = [];
+  Object.defineProperty(globalThis, 'RTCPeerConnection', {
+    configurable: true,
+    value: FakeRTCPeerConnection as unknown as typeof RTCPeerConnection,
+  });
+  Object.defineProperty(globalThis, 'MediaStream', {
+    configurable: true,
+    value: FakeMediaStream as unknown as typeof MediaStream,
   });
 }
 
@@ -133,11 +247,48 @@ function createHostPeer(): CloudflareSignalingPeer {
 function privateMaps(peer: CloudflareSignalingPeer): {
   connections: Map<string, TransportDataConnection>;
   roomSockets: Map<string, FakeWebSocket>;
+  guestRooms: Map<string, { conn: TransportDataConnection; authFailed: boolean }>;
 } {
   return peer as unknown as {
     connections: Map<string, TransportDataConnection>;
     roomSockets: Map<string, FakeWebSocket>;
+    guestRooms: Map<string, { conn: TransportDataConnection; authFailed: boolean }>;
   };
+}
+
+async function flushAsync(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+function sentOfType(socket: FakeWebSocket, type: string): Array<Record<string, unknown>> {
+  return socket.sent
+    .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+    .filter((message) => message.type === type);
+}
+
+/**
+ * Drives a guest through the full join handshake with the global fakes
+ * installed: connect -> socket open -> DO peer-open -> offer flow -> data
+ * channel open (FakeDataChannel defaults to readyState 'open').
+ */
+async function establishGuest(roomPassword = ''): Promise<{
+  peer: CloudflareSignalingPeer;
+  conn: TransportDataConnection;
+  socket: FakeWebSocket;
+  pc: FakeRTCPeerConnection;
+}> {
+  installFakeWebSocket();
+  installFakeRTCPeerConnection();
+  const peer = createGuestPeer();
+  const conn = peer.connect('123456', roomPassword ? { roomPassword } : undefined);
+  const socket = FakeWebSocket.instances[0];
+  socket.dispatch('open');
+  socket.dispatch(
+    'message',
+    JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+  );
+  await flushAsync();
+  return { peer, conn, socket, pc: FakeRTCPeerConnection.instances[0] };
 }
 
 afterEach(() => {
@@ -146,6 +297,14 @@ afterEach(() => {
   Object.defineProperty(globalThis, 'WebSocket', {
     configurable: true,
     value: originalWebSocket,
+  });
+  Object.defineProperty(globalThis, 'RTCPeerConnection', {
+    configurable: true,
+    value: originalRTCPeerConnection,
+  });
+  Object.defineProperty(globalThis, 'MediaStream', {
+    configurable: true,
+    value: originalMediaStream,
   });
 });
 
@@ -267,5 +426,289 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     );
 
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+describe('Cloudflare guest signaling reconnect', () => {
+  it('reopens the guest socket on reconnect() and re-auths without re-offering', async () => {
+    const { peer, conn, socket } = await establishGuest('12345678');
+    const onDisconnected = vi.fn();
+    peer.on('disconnected', onDisconnected);
+
+    expect(conn.open).toBe(true);
+    expect(sentOfType(socket, 'signal-offer')).toHaveLength(1);
+
+    socket.close();
+
+    expect(onDisconnected).toHaveBeenCalledTimes(1);
+    expect(privateMaps(peer).roomSockets.has('123456')).toBe(false);
+    // The durable registry must survive the blip — it is the reopen source.
+    expect(privateMaps(peer).guestRooms.has('123456')).toBe(true);
+
+    peer.reconnect();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const reopened = FakeWebSocket.instances[1];
+    expect(reopened.url).toContain('role=guest');
+    reopened.dispatch('open');
+    expect(sentOfType(reopened, 'guest-auth')[0]?.password).toBe('12345678');
+
+    reopened.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    expect(peer.disconnected).toBe(false);
+    expect(conn.open).toBe(true);
+    // startGuestOffer's peerConnection early-return keeps the live data
+    // channel untouched: exactly one offer total, none on the reopened socket.
+    expect(sentOfType(reopened, 'signal-offer')).toHaveLength(0);
+    expect(sentOfType(socket, 'signal-offer')).toHaveLength(1);
+  });
+
+  it('does not stack a second socket while a reconnect attempt is still connecting', async () => {
+    const { peer, socket } = await establishGuest();
+
+    socket.close();
+    peer.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances[1].readyState).toBe(FakeWebSocket.CONNECTING);
+
+    peer.reconnect();
+
+    // Stacking would make the DO close the older socket (GUEST_REPLACED),
+    // re-emitting 'disconnected' -> peer.ts budget reset -> oscillation.
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('skips unestablished sessions on reconnect()', () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+    const onDisconnected = vi.fn();
+    peer.on('disconnected', onDisconnected);
+
+    socket.close();
+    peer.reconnect();
+
+    // Mid-handshake sessions belong to the join-timeout path, not reconnect.
+    expect(onDisconnected).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('drops a room from the reconnect registry when its data connection closes', async () => {
+    const { peer, conn, socket } = await establishGuest();
+
+    conn.close();
+
+    expect(privateMaps(peer).guestRooms.has('123456')).toBe(false);
+    expect(privateMaps(peer).connections.has('123456')).toBe(false);
+
+    socket.close();
+    peer.reconnect();
+
+    // Dead sessions are owned by the explicit re-join path.
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('treats DO rejection frames on an established session as signaling loss only', async () => {
+    const { peer, conn, socket } = await establishGuest();
+    const onError = vi.fn();
+    const onDisconnected = vi.fn();
+    conn.on('error', onError);
+    peer.on('disconnected', onDisconnected);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'error',
+        errorType: 'peer-unavailable',
+        message: 'HOST_NOT_AVAILABLE',
+      }),
+    );
+    await flushAsync();
+
+    // The rejection must not tear down the live data channel...
+    expect(onError).not.toHaveBeenCalled();
+    expect(conn.open).toBe(true);
+    // ...but the socket close still surfaces as signaling loss so the
+    // peer.ts backoff keeps driving retries (host-parity churn).
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(onDisconnected).toHaveBeenCalledTimes(1);
+
+    peer.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('surfaces DO error frames before a data channel is established', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+    const onError = vi.fn();
+    conn.on('error', onError);
+
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'error',
+        errorType: 'room-password-required',
+        message: 'ROOM_PASSWORD_REQUIRED',
+      }),
+    );
+    await flushAsync();
+
+    // Pinned UX: pre-establishment rejections drive the password dialog /
+    // join failure and must keep reaching the connection error handler.
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'room-password-required' }),
+    );
+  });
+
+  it('stops reconnecting after a password rejection until an explicit re-join', async () => {
+    const { peer, socket } = await establishGuest('12345678');
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'error',
+        errorType: 'room-password-invalid',
+        message: 'ROOM_PASSWORD_INVALID',
+      }),
+    );
+    await flushAsync();
+
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+    peer.reconnect();
+    // Stored password is stale (rotation); retrying would hammer the DO
+    // forever because peer.ts resets its budget on every 'disconnected'.
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    // An explicit re-join with a fresh password re-arms the room.
+    peer.connect('123456', { roomPassword: '87654321' });
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const rejoined = FakeWebSocket.instances[1];
+    rejoined.dispatch('open');
+    expect(sentOfType(rejoined, 'guest-auth')[0]?.password).toBe('87654321');
+  });
+
+  it('sends ICE candidates over the current socket after a reopen', async () => {
+    const { peer, socket, pc } = await establishGuest();
+    const onPeerError = vi.fn();
+    peer.on('error', onPeerError);
+
+    socket.close();
+
+    // During the outage the send-time resolver finds no socket and throws
+    // the same transport error type the captured-socket path produced.
+    pc.dispatch('icecandidate', {
+      candidate: { toJSON: () => ({ candidate: 'cand-during-outage' }) },
+    });
+    expect(onPeerError).toHaveBeenCalledTimes(1);
+    expect(onPeerError).toHaveBeenCalledWith(expect.objectContaining({ type: 'socket-closed' }));
+
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+
+    pc.dispatch('icecandidate', {
+      candidate: { toJSON: () => ({ candidate: 'cand-after-reopen' }) },
+    });
+
+    const candidates = sentOfType(reopened, 'signal-candidate');
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.to).toBe('host');
+    expect(candidates[0]?.candidate).toEqual({ candidate: 'cand-after-reopen' });
+    expect(sentOfType(socket, 'signal-candidate')).toHaveLength(0);
+  });
+
+  it('answers a pre-blip media offer over the reopened socket', async () => {
+    const { peer, socket } = await establishGuest();
+    const onCall = vi.fn();
+    peer.on('call', onCall);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'media-offer',
+        from: 'host',
+        callId: 'call-1',
+        sdp: { type: 'offer', sdp: 'host-media-offer' },
+        audioTrackCount: 1,
+      }),
+    );
+    await flushAsync();
+    expect(onCall).toHaveBeenCalledTimes(1);
+    const mediaConn = onCall.mock.calls[0]?.[0] as TransportMediaConnection;
+
+    socket.close();
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+
+    mediaConn.answer();
+    await flushAsync();
+
+    const answers = sentOfType(reopened, 'media-answer');
+    expect(answers).toHaveLength(1);
+    expect(answers[0]?.callId).toBe('call-1');
+    expect(sentOfType(socket, 'media-answer')).toHaveLength(0);
+  });
+
+  it('sends host ICE candidates over the recreated host socket', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-1',
+        sdp: { type: 'offer', sdp: 'guest-offer' },
+      }),
+    );
+    await flushAsync();
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(1);
+    const pc = FakeRTCPeerConnection.instances[0];
+
+    socket.close();
+    expect(peer.disconnected).toBe(true);
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+
+    pc.dispatch('icecandidate', {
+      candidate: { toJSON: () => ({ candidate: 'host-cand' }) },
+    });
+
+    const candidates = sentOfType(reopened, 'signal-candidate');
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.to).toBe('guest-1');
+    expect(sentOfType(socket, 'signal-candidate')).toHaveLength(0);
+  });
+
+  it('destroy() clears the guest reconnect registry', () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    peer.connect('123456', { roomPassword: '12345678' });
+    expect(privateMaps(peer).guestRooms.size).toBe(1);
+
+    peer.destroy();
+
+    expect(privateMaps(peer).guestRooms.size).toBe(0);
+    expect(privateMaps(peer).roomSockets.size).toBe(0);
+    expect(privateMaps(peer).connections.size).toBe(0);
   });
 });

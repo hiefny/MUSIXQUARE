@@ -171,6 +171,16 @@ export async function initI18n(): Promise<void> {
     window.addEventListener('languagechange', () => {
       if (_mode === 'system') setLanguageMode('system');
     });
+
+    // Self-heal a lazy locale whose chunk failed to load (e.g. the saved
+    // locale 404s during a startup network blip and the user never re-opens
+    // the language dialog). The `!_dicts[_resolved]` gate is load-bearing:
+    // it makes ordinary connectivity flaps a strict no-op, so 'i18n:changed'
+    // is never re-emitted (and its 5 re-render subscribers never churn)
+    // unless a previously-requested locale is genuinely missing.
+    window.addEventListener('online', () => {
+      if (!_dicts[_resolved] && _localeLoaders[_resolved]) void _applyLanguage(_resolved);
+    });
   } catch {
     /* ignore */
   }
@@ -299,8 +309,15 @@ function _loadLanguage(code: LanguageCode): Promise<void> {
       _dicts[code] = mod.default;
     })
     .catch((error) => {
+      // Deliberately cache NOTHING on failure. _dicts is a presence-keyed
+      // success cache (entry present = genuine dictionary for that code);
+      // writing `en` under the failed code would launder a transient failure
+      // (network blip, deploy-skew chunk 404) into permanent success and pin
+      // the locale to English until a full reload. t()/tHtml already fall
+      // back to English statelessly at read time, so the failure frame
+      // renders identically either way; absence keeps the locale retryable
+      // on the next _applyLanguage (re-select, languagechange, 'online').
       log.warn(`[i18n] Failed to load locale "${code}", falling back to English`, error);
-      _dicts[code] = en;
     })
     .finally(() => {
       _loadingLocales.delete(code);

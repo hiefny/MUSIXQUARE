@@ -60,8 +60,15 @@ export function registerServiceWorker(): void {
         // clients) — auto-reloading here silently killed live sessions in the
         // other tabs (markIntentionalNav even suppresses the leave prompt).
         // Defer for in-session tabs; the update applies on their next natural
-        // load. Safe to keep running old JS under the new SW: no production
-        // dynamic imports exist, so cache purges can't 404 a lazy chunk.
+        // load. Cost of keeping old JS under the new SW: production DOES ship
+        // lazy chunks (i18n locale dicts, locale font CSS, the peerjs
+        // adapter), and the new SW's activate handler purges prior-version
+        // caches, so a deferred tab can 404 an old hashed chunk under deploy
+        // skew. Each degrades gracefully: i18n falls back to English per-key
+        // and stays retryable (re-select / 'online' — no negative caching),
+        // fonts fall back to system faces, and the peerjs import rejection
+        // propagates to the transport-fallback caller. Acceptable cost
+        // versus auto-reload killing live sessions.
         // NOTE: this gate must stay OUT of reloadForServiceWorkerUpdate() —
         // the dialog-OK path below is explicit same-tab consent and must keep
         // reloading even mid-session.

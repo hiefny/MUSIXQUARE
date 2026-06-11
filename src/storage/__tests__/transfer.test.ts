@@ -171,6 +171,91 @@ describe('host outgoing transfer routing', () => {
     expect(currentConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
   });
 
+  it('does not let a superseded broadcast stomp the successor session (FILE_END canary)', async () => {
+    // Threat model: broadcast A parks in a per-peer backpressure wait; a
+    // successor broadcast B re-points transfer.activeBroadcastSession to its
+    // own sessionId and aborts A's scope via SessionScope.replace. Pre-fix,
+    // A woke aborted after its 5s exclusion window and cleared the session
+    // UNCONDITIONALLY — stomping B's session, so B died at its own
+    // supersession check before sending FILE_END. FILE_END is the canary.
+    //
+    // Fake timers (vitest default toFake includes Date — required: the
+    // backpressure timeout uses Date.now()). The sibling pins in this file
+    // run under real timers and are deliberately left that way.
+    vi.useFakeTimers();
+    try {
+      const { broadcastFile } = await import('../transfer.ts');
+      const slowConn = {
+        open: true,
+        peer: 'peer-slow',
+        send: vi.fn(),
+        peerConnection: { connectionState: 'connected' },
+        dataChannel: { readyState: 'open', bufferedAmount: 10 * 1024 * 1024 }, // frozen above 512KB
+      } as unknown as DataConnection;
+      const healthyConn = {
+        open: true,
+        peer: 'peer-healthy',
+        send: vi.fn(),
+        peerConnection: { connectionState: 'connected' },
+        dataChannel: { readyState: 'open', bufferedAmount: 0 },
+      } as unknown as DataConnection;
+
+      setState('playlist.currentTrackIndex', 0);
+      setState('network.connectedPeers', [
+        {
+          id: 'peer-slow',
+          status: 'connected',
+          conn: slowConn,
+          isDataTarget: true,
+          connectionType: 'local',
+          joinOrder: 1,
+        },
+        {
+          id: 'peer-healthy',
+          status: 'connected',
+          conn: healthyConn,
+          isDataTarget: true,
+          connectionType: 'local',
+          joinOrder: 2,
+        },
+      ]);
+      setState(
+        'network.activeHostConnByPeerId',
+        new Map([
+          ['peer-slow', slowConn],
+          ['peer-healthy', healthyConn],
+        ]),
+      );
+
+      // A parks in the slow peer's backpressure wait on chunk 0 (do NOT await).
+      const a = broadcastFile(new File(['aaa'], 'a.mp3', { type: 'audio/mpeg' }), 1);
+      await vi.advanceTimersByTimeAsync(100);
+
+      // B supersedes A mid-park.
+      const b = broadcastFile(new File(['bbb'], 'b.mp3', { type: 'audio/mpeg' }), 2);
+      // Past BOTH 5s exclusion windows (A's and B's waits on the slow peer).
+      await vi.advanceTimersByTimeAsync(12_000);
+      await a;
+      await b;
+
+      // The healthy peer received B's COMPLETE stream — FILE_END proves A's
+      // exit did not clear B's session out from under it.
+      expect(healthyConn.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_START, sessionId: 2 }),
+      );
+      expect(healthyConn.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_CHUNK, sessionId: 2 }),
+      );
+      expect(healthyConn.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_END, sessionId: 2 }),
+      );
+      // B's ownership-conditional finally released the session it owned.
+      expect(getState('transfer.activeBroadcastSession')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('skips disconnected peer connections before bulk file broadcast starts', async () => {
     const { broadcastFile } = await import('../transfer.ts');
     const liveConn = {

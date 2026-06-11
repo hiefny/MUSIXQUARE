@@ -10,7 +10,12 @@ import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { delay, setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { filterEligiblePeers, canSendFileTo, broadcast } from '../network/peer.ts';
 import { SessionScope } from '../core/session-scope.ts';
-import type { DataConnection, AnyProtocolMsg, ConnectedPeer } from '../types/index.ts';
+import {
+  pumpChunksToPeers,
+  isPeerConnectionCurrent,
+  isBulkTransferWritablePeer,
+} from './chunk-pump.ts';
+import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 
 // ─── Send-side Module State ──────────────────────────────────────────
 
@@ -24,30 +29,6 @@ const BROADCAST_BACKPRESSURE_LIMIT = 512 * 1024;
 const BROADCAST_BACKPRESSURE_TIMEOUT = 5_000;
 const UNICAST_BACKPRESSURE_LIMIT = 256 * 1024;
 const UNICAST_BACKPRESSURE_TIMEOUT = 30_000;
-
-function isPeerConnectionCurrent(peerId: string, conn: DataConnection): boolean {
-  const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
-  if (!peer || peer.conn !== conn) return false;
-
-  const activeConn = getState('network.activeHostConnByPeerId').get(peerId);
-  return !activeConn || activeConn === conn;
-}
-
-function isBulkTransferWritablePeer(peer: ConnectedPeer): boolean {
-  const conn = peer.conn as DataConnection | null;
-  if (!conn?.open) return false;
-
-  const dataChannelState = conn.dataChannel?.readyState;
-  if (dataChannelState && dataChannelState !== 'open') return false;
-
-  const pcState = conn.peerConnection?.connectionState;
-  if (pcState === 'closed' || pcState === 'failed' || pcState === 'disconnected') return false;
-
-  const iceState = conn.peerConnection?.iceConnectionState;
-  if (iceState === 'closed' || iceState === 'failed' || iceState === 'disconnected') return false;
-
-  return isPeerConnectionCurrent(peer.id, conn);
-}
 
 // ─── Broadcast Debounce ──────────────────────────────────────────────
 
@@ -146,114 +127,96 @@ export async function broadcastFile(
   _broadcastScope = SessionScope.replace(_broadcastScope);
   const scope = _broadcastScope;
 
-  const CHUNK = CHUNK_SIZE;
-  const total = Math.ceil(file.size / CHUNK);
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const header = {
-    type: MSG.FILE_START,
-    name: file.name,
-    mime: file.type,
-    total,
-    size: file.size,
-    index: currentTrackIndex,
-    sessionId,
-  };
+  try {
+    const CHUNK = CHUNK_SIZE;
+    const total = Math.ceil(file.size / CHUNK);
+    const currentTrackIndex = getState('playlist.currentTrackIndex');
+    const header = {
+      type: MSG.FILE_START,
+      name: file.name,
+      mime: file.type,
+      total,
+      size: file.size,
+      index: currentTrackIndex,
+      sessionId,
+    };
 
-  const eligiblePeers = filterEligiblePeers().filter(isBulkTransferWritablePeer);
+    const eligiblePeers = filterEligiblePeers().filter(isBulkTransferWritablePeer);
 
-  // 12-13: Clean up activeBroadcastSession on early return to avoid resource leak
-  if (eligiblePeers.length === 0) {
-    setState('transfer.activeBroadcastSession', null);
-    scope.dispose();
-    return;
-  }
+    // 12-13: no eligible peers — the ownership-conditional finally below
+    // clears activeBroadcastSession (the old early return cleared it inline).
+    if (eligiblePeers.length === 0) return;
 
-  // Send header
-  eligiblePeers.forEach((p) => {
-    try {
-      (p.conn as DataConnection).send(header);
-    } catch {
-      /* noop */
-    }
-  });
-
-  // Track peers that hit backpressure timeout — skip them for ALL remaining chunks
-  // to avoid creating permanent chunk holes that force a full recovery re-transfer.
-  const timedOutPeers = new Set<string>();
-
-  // Send chunks
-  for (let i = 0; i < total; i++) {
-    if (scope.aborted) {
-      setState('transfer.activeBroadcastSession', null);
-      scope.dispose();
-      return;
-    }
-    if (getState('transfer.activeBroadcastSession') !== sessionId) {
-      // Another broadcast superseded this one — scope/session already reassigned
-      scope.dispose();
-      return;
-    }
-
-    const start = i * CHUNK;
-    const end = Math.min(start + CHUNK, file.size);
-    const chunkBuf = await file.slice(start, end).arrayBuffer();
-    const chunk = new Uint8Array(chunkBuf);
-    const chunkMsg = { type: MSG.FILE_CHUNK, chunk, index: i, sessionId, total, name: file.name };
-
-    // Send to all peers concurrently (backpressure is per-peer, not sequential)
-    await Promise.all(
-      eligiblePeers.map(async (p) => {
-        if (timedOutPeers.has(p.id)) return;
-        const conn = p.conn as DataConnection;
-        if (!conn?.open) return;
-        if (!isBulkTransferWritablePeer(p)) {
-          timedOutPeers.add(p.id);
-          return;
-        }
-        const backpressureStart = Date.now();
-        while (conn.dataChannel && conn.dataChannel.bufferedAmount > BROADCAST_BACKPRESSURE_LIMIT) {
-          if (!isBulkTransferWritablePeer(p)) {
-            timedOutPeers.add(p.id);
-            return;
-          }
-          if (Date.now() - backpressureStart > BROADCAST_BACKPRESSURE_TIMEOUT) {
-            log.warn(
-              `[Transfer] Backpressure timeout for peer ${p.label || p.id} — excluding from remaining transfer`,
-            );
-            timedOutPeers.add(p.id);
-            return;
-          }
-          await delay(DELAY.BACKPRESSURE);
-          if (!conn.open) return;
-        }
-        try {
-          conn.send(chunkMsg);
-        } catch {
-          /* noop */
-        }
-      }),
-    );
-
-    if (i % 50 === 0) await delay(DELAY.TICK);
-  }
-
-  // Send end message (skip if superseded or aborted after loop)
-  if (!scope.aborted && getState('transfer.activeBroadcastSession') === sessionId) {
-    const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId };
+    // Send header (raw conn.send + try/catch, deliberately NOT safeSend —
+    // pinned by transfer.test.ts whose stale-conn mock hooks FILE_START).
     eligiblePeers.forEach((p) => {
-      if (timedOutPeers.has(p.id)) return;
-      const conn = p.conn as DataConnection;
-      if (conn?.open)
-        try {
-          conn.send(endMsg);
-        } catch {
-          /* noop */
-        }
+      try {
+        (p.conn as DataConnection).send(header);
+      } catch {
+        /* noop */
+      }
     });
-  }
 
-  setState('transfer.activeBroadcastSession', null);
-  scope.dispose();
+    // Per-peer backpressure + exclusion lives in the shared engine. Peers
+    // that hit the backpressure timeout are skipped for ALL remaining chunks
+    // to avoid creating permanent chunk holes that force a full recovery
+    // re-transfer (36f8fbf2).
+    const { excluded } = await pumpChunksToPeers({
+      file,
+      chunkSize: CHUNK,
+      peers: eligiblePeers,
+      buildChunkMsg: (chunk, i) => ({
+        type: MSG.FILE_CHUNK,
+        chunk,
+        index: i,
+        sessionId,
+        total,
+        name: file.name,
+      }),
+      bufferedLimit: BROADCAST_BACKPRESSURE_LIMIT,
+      stallTimeoutMs: BROADCAST_BACKPRESSURE_TIMEOUT,
+      isWritable: isBulkTransferWritablePeer,
+      // Stop on cancel (scope abort) or when another broadcast superseded
+      // this one (activeBroadcastSession re-pointed).
+      shouldContinue: () =>
+        !scope.aborted && getState('transfer.activeBroadcastSession') === sessionId,
+    });
+
+    // Send end message (skip if superseded or aborted after the pump;
+    // excluded peers get no FILE_END — recovery re-requests serve them)
+    if (!scope.aborted && getState('transfer.activeBroadcastSession') === sessionId) {
+      const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId };
+      eligiblePeers.forEach((p) => {
+        if (excluded.has(p.id)) return;
+        const conn = p.conn as DataConnection;
+        if (conn?.open)
+          try {
+            conn.send(endMsg);
+          } catch {
+            /* noop */
+          }
+      });
+    }
+  } finally {
+    // OWNERSHIP-CONDITIONAL session clear — threat model: a successor
+    // broadcastFile B aborts THIS loop via SessionScope.replace AFTER it has
+    // already re-pointed transfer.activeBroadcastSession to its own
+    // sessionId. The pre-refactor abort exit cleared the state
+    // unconditionally, so a loop parked in a backpressure wait (or in
+    // file.slice().arrayBuffer()) when B started would wake aborted and
+    // stomp B's session — B then died at its own supersession check before
+    // sending FILE_END. Clearing only when we still OWN the session
+    // preserves the deliberate aborted-vs-superseded asymmetry
+    // (cancelOutgoingFileTransfers nulls the state itself, so the old
+    // abort-path clear was redundant-at-best) and eliminates the
+    // successor-stomp class. Also covers the 12-13 early return above and
+    // slice() throws (which previously leaked the session until the next
+    // broadcast).
+    if (getState('transfer.activeBroadcastSession') === sessionId) {
+      setState('transfer.activeBroadcastSession', null);
+    }
+    scope.dispose();
+  }
 }
 
 // ─── unicastFile ─────────────────────────────────────────────────────

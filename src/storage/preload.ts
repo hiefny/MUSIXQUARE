@@ -22,6 +22,7 @@ import {
   filterEligiblePeers,
   isRemoteGuest,
 } from '../network/peer.ts';
+import { pumpChunksToPeers, isBulkTransferWritablePeer } from './chunk-pump.ts';
 import type { DataConnection } from '../types/index.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
@@ -394,6 +395,18 @@ async function preloadNextTrack(): Promise<void> {
 
 // ─── Host: Background Transfer ──────────────────────────────────────
 
+// Preload broadcast backpressure: DOCUMENTED DIVERGENCE from broadcastFile's
+// 512KB/5s (BROADCAST_BACKPRESSURE_* in transfer-send.ts). The bulk
+// dataChannel is SHARED with concurrent main-transfer broadcasts and unicast
+// recovery streams, so a perfectly healthy peer can legitimately show
+// bufferedAmount > 256KB for many seconds while a foreign stream drains.
+// Preload is background work — it must tolerate long foreign congestion
+// before excluding a peer, because a premature exclusion silently downgrades
+// that guest to a 0%-restart on the next track advance. Do NOT align these
+// to the broadcast constants for symmetry.
+const PRELOAD_BROADCAST_BACKPRESSURE_LIMIT = 256 * 1024;
+const PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT = 30_000;
+
 async function backgroundTransfer(file: File, index: number, sessionId: number): Promise<void> {
   // Approach B: caller (preloadNextTrack) has already awaited the prior
   // in-flight transfer, so we create a fresh scope WITHOUT disposing the
@@ -414,7 +427,11 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     sessionId,
   };
 
-  const targets = filterEligiblePeers();
+  // Writability pre-filter (parity with broadcastFile): dead-channel peers
+  // get no PRELOAD_START header at all instead of a header for a stream
+  // that can never reach them. Receiver-safe: a guest that never sees the
+  // header simply has no sessionState entry for this sid.
+  const targets = filterEligiblePeers().filter(isBulkTransferWritablePeer);
 
   if (targets.length === 0) return;
 
@@ -430,47 +447,45 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     safeSend(conn, { ...header, skipped: !needsChunks });
   });
 
-  // Send chunks
-  for (let i = 0; i < total; i++) {
-    if (scope.aborted) return;
-    if (getState('preload.sessionId') !== sessionId) return;
+  // Shared engine: PER-PEER backpressure + exclusion (parity with
+  // broadcastFile's 36f8fbf2 hardening). One slow peer no longer stalls the
+  // whole preload broadcast for every guest, and no longer keeps receiving
+  // chunks onto a non-draining channel after timing out.
+  const { status, excluded } = await pumpChunksToPeers({
+    file,
+    chunkSize: CHUNK,
+    peers: targetsWhoNeedChunks,
+    buildChunkMsg: (chunk, i) => ({ type: MSG.PRELOAD_CHUNK, chunk, index: i, sessionId }),
+    bufferedLimit: PRELOAD_BROADCAST_BACKPRESSURE_LIMIT,
+    stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
+    isWritable: isBulkTransferWritablePeer,
+    shouldContinue: () => !scope.aborted && getState('preload.sessionId') === sessionId,
+    // Targeted teardown for the excluded peer ONLY — never session-level:
+    // no scope dispose, no preload.sessionId bump, no rejection. One stalled
+    // guest must not kill the preload session for everyone (that would be
+    // the original global-stall bug wearing a fix costume). The ABORT rides
+    // the control channel (no `chunk` field), so it overtakes the congested
+    // bulk queue; the guest's handlePreloadAbort releases its slot/buffers,
+    // and its sanctioned recovery path is the AWAITING_PRELOAD stall
+    // watchdog in playback.ts — do NOT add eager recovery here.
+    onPeerExcluded: (p) => {
+      safeSend(p.conn, { type: MSG.PRELOAD_ABORT, sessionId });
+    },
+  });
 
-    // Backpressure (with 30s timeout to prevent infinite stall)
-    let congested = true;
-    const bpStart = Date.now();
-    while (congested) {
-      congested = false;
-      for (const p of targetsWhoNeedChunks) {
-        const conn = p.conn as DataConnection;
-        if (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
-          congested = true;
-          break;
-        }
-      }
-      if (congested) {
-        if (Date.now() - bpStart > 30_000) {
-          log.warn('[Preload] Backpressure timeout');
-          break;
-        }
-        await delay(DELAY.BACKPRESSURE);
-      }
-    }
-
-    const start = i * CHUNK;
-    const end = Math.min(start + CHUNK, file.size);
-    const chunkBuf = await file.slice(start, end).arrayBuffer();
-    const chunk = new Uint8Array(chunkBuf);
-    const chunkMsg = { type: MSG.PRELOAD_CHUNK, chunk, index: i, sessionId };
-
-    targetsWhoNeedChunks.forEach((p) => {
-      const conn = p.conn as DataConnection;
-      if (conn?.open) safeSend(conn, chunkMsg);
-    });
-  }
+  // Cancelled/superseded mid-pump: no fanout, no state writes.
+  // cancelPreloadTransfer already broadcast PRELOAD_ABORT to all targets,
+  // and preloadNextTrack's finally owns preload.isPreloading.
+  if (status === 'stopped') return;
 
   if (getState('preload.sessionId') === sessionId) {
     const endMsg = { type: MSG.PRELOAD_END, name: file.name, index, sessionId };
+    // END audience: all targets — INCLUDING skipped-flag peers, whose
+    // handler no-ops on it — MINUS excluded peers. Excluded peers got a
+    // targeted PRELOAD_ABORT instead; sending them END too would arm
+    // handlePreloadEnd's 10s deferred-END timer churn on the guest.
     targets.forEach((p) => {
+      if (excluded.has(p.id)) return;
       const conn = p.conn as DataConnection;
       if (conn?.open) safeSend(conn, endMsg);
     });

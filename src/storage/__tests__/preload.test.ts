@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE, CHUNK_SIZE } from '../../core/constants.ts';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -114,6 +114,132 @@ describe('preloadNextTrack shuffle target (SA-01)', () => {
 
     expect(getState('preload.nextTrackIndex')).toBe(0);
     expect(getState('preload.nextFileBlob')).not.toBeNull();
+  });
+});
+
+// ─── Per-peer backpressure exclusion (STO-BACKPRESSURE) ──────────────
+//
+// Pins the shared chunk-pump behavior in backgroundTransfer: one
+// backpressure-stalled peer must neither stall the whole preload broadcast
+// nor keep receiving chunks after timing out — it gets a targeted
+// PRELOAD_ABORT and the session stays alive for everyone else.
+
+/** Two chunks so post-exclusion streaming to survivors is observable. */
+function makeChunkyFileTrack(name: string): PlaylistItem {
+  return {
+    type: 'file',
+    name,
+    title: name,
+    file: new File([new Uint8Array(CHUNK_SIZE + 16)], name, { type: 'audio/mpeg' }),
+    videoId: null,
+    playlistId: null,
+  };
+}
+
+function makeBulkConn(peer: string, bufferedAmount = 0, readyState = 'open'): DataConnection {
+  return {
+    open: true,
+    peer,
+    send: vi.fn(),
+    dataChannel: { readyState, bufferedAmount },
+  } as unknown as DataConnection;
+}
+
+function connectBulkPeers(conns: DataConnection[]): void {
+  setState(
+    'network.connectedPeers',
+    conns.map((conn, i) => ({
+      id: conn.peer,
+      status: 'connected',
+      conn,
+      isDataTarget: true,
+      connectionType: 'local',
+      joinOrder: i + 1,
+    })),
+  );
+  setState('network.activeHostConnByPeerId', new Map(conns.map((conn) => [conn.peer, conn])));
+}
+
+function msgsOf(conn: DataConnection, type: string): Array<Record<string, unknown>> {
+  return (conn.send as ReturnType<typeof vi.fn>).mock.calls
+    .map((c) => c[0] as Record<string, unknown>)
+    .filter((m) => m.type === type);
+}
+
+describe('backgroundTransfer per-peer backpressure exclusion', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Sequential mode (decoupled from shuffle internals): current 0 → preload 1.
+    setState('playlist.items', [makeFileTrack('now.mp3'), makeChunkyFileTrack('next.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.repeatMode', 0);
+    setState('playlist.isShuffle', false);
+  });
+
+  it('excludes a backpressure-stalled peer and keeps streaming to healthy peers', async () => {
+    const healthyConn = makeBulkConn('peer-healthy', 0);
+    const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024); // frozen above 256KB limit
+    connectBulkPeers([healthyConn, frozenConn]);
+
+    schedulePreload(0);
+    // Lockstep semantics: the healthy peer's chunks beyond chunk 0 only flow
+    // AFTER the frozen peer's 30s exclusion window — assert only after the
+    // full timer advance, never timing-based.
+    await vi.advanceTimersByTimeAsync(35_000);
+
+    const sid = getState('preload.sessionId');
+
+    // Healthy peer: full stream — header, both chunks, END.
+    expect(msgsOf(healthyConn, MSG.PRELOAD_START)).toHaveLength(1);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_CHUNK)).toHaveLength(2);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+
+    // Frozen peer: header, then exactly ONE targeted ABORT for the live sid.
+    // No chunks at all (the per-peer wait runs before the send, so a
+    // non-draining channel is never flooded) and no END (END would arm the
+    // guest's 10s deferred-END timer churn — ABORT is the teardown signal).
+    expect(msgsOf(frozenConn, MSG.PRELOAD_START)).toHaveLength(1);
+    const aborts = msgsOf(frozenConn, MSG.PRELOAD_ABORT);
+    expect(aborts).toHaveLength(1);
+    expect(aborts[0].sessionId).toBe(sid);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(0);
+  });
+
+  it('does not escalate a single stalled peer to session-level teardown', async () => {
+    const healthyConn = makeBulkConn('peer-healthy', 0);
+    const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024);
+    connectBulkPeers([healthyConn, frozenConn]);
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(35_000);
+
+    // The preload session survived the stalled peer: cache intact and
+    // consistent (atomic snapshot), sessionId never bumped by a cancel,
+    // and isPreloading settled false through the natural completion path.
+    expect(getState('preload.nextTrackIndex')).toBe(1);
+    expect(getState('preload.nextFileBlob')).not.toBeNull();
+    expect(getState('preload.meta')?.sessionId).toBe(getState('preload.sessionId'));
+    expect(getState('preload.isPreloading')).toBe(false);
+  });
+
+  it('pre-excludes peers with dead data channels from the preload broadcast entirely', async () => {
+    const healthyConn = makeBulkConn('peer-healthy', 0);
+    const deadConn = makeBulkConn('peer-dead', 0, 'closed');
+    connectBulkPeers([healthyConn, deadConn]);
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // Dead channel: not even a PRELOAD_START header (writability pre-filter,
+    // parity with broadcastFile) — no stream that can never arrive.
+    expect(deadConn.send).not.toHaveBeenCalled();
+
+    // Healthy peer: unaffected full stream.
+    expect(msgsOf(healthyConn, MSG.PRELOAD_START)).toHaveLength(1);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_CHUNK)).toHaveLength(2);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
   });
 });
 

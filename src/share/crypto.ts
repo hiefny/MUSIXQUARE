@@ -5,7 +5,7 @@
  * delivered over WebRTC, not through object storage.
  */
 
-export interface RemoteEncryptionResult {
+interface RemoteEncryptionResult {
   encryptedBlob: Blob;
   keyB64: string;
   ivB64: string;
@@ -22,7 +22,7 @@ function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
-export function bytesToBase64(bytes: Uint8Array): string {
+function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i += B64_CHUNK) {
     const chunk = bytes.subarray(i, i + B64_CHUNK);
@@ -31,7 +31,7 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export function base64ToBytes(value: string): Uint8Array {
+function base64ToBytes(value: string): Uint8Array {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {

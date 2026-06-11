@@ -368,7 +368,7 @@ export function shouldWaitForRemoteShare(): boolean {
   return isRemoteShareConfigured();
 }
 
-export interface ShareRemoteFileOptions {
+interface ShareRemoteFileOptions {
   /**
    * Override for the index recorded on the wire. Omitted active shares
    * default to playlist.currentTrackIndex.

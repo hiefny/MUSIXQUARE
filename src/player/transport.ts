@@ -40,7 +40,7 @@ const SCHEDULE_AHEAD_MS = 200;
 /** Windows WebAudio output tends to land a hair late in local-file sync. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
 
-export function getPlatformLocalFileOutputOffset(): number {
+function getPlatformLocalFileOutputOffset(): number {
   return IS_WINDOWS ? WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC : 0;
 }
 

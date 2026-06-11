@@ -6,7 +6,7 @@ export interface TransportConnectOptions {
   roomPassword?: string;
 }
 
-export interface TransportCallOptions {
+interface TransportCallOptions {
   metadata?: Record<string, unknown>;
 }
 

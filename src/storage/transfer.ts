@@ -29,7 +29,6 @@ export {
   broadcastFileDebounced,
   cancelPendingBroadcast,
   unicastFile,
-  cancelOutgoingFileTransferForPeer,
   cancelOutgoingFileTransfers,
 } from './transfer-send.ts';
 export { cancelIncomingFileTransfer, fetchDemoFromServer } from './transfer-receive.ts';

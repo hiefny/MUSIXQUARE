@@ -6,14 +6,14 @@ import {
   type PlaybackModeActivity,
 } from '../player/ownership.ts';
 
-export type Unsubscribe = () => void;
-export type PlaybackModeActivitySnapshot = PlaybackModeActivity;
-export type PlaybackModeActivityHandler = (
+type Unsubscribe = () => void;
+type PlaybackModeActivitySnapshot = PlaybackModeActivity;
+type PlaybackModeActivityHandler = (
   next: PlaybackModeActivitySnapshot,
   prev: PlaybackModeActivitySnapshot,
 ) => void;
 
-export interface PlaybackModeActivitySubscribeOptions {
+interface PlaybackModeActivitySubscribeOptions {
   immediate?: boolean;
 }
 

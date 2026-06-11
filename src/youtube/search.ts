@@ -32,14 +32,14 @@ const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
 const YOUTUBE_SEARCH_CACHE_MAX = 25;
 const YOUTUBE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
 
-export type YouTubeInputKind =
+type YouTubeInputKind =
   | 'empty'
   | 'video-url'
   | 'playlist-url'
   | 'search-query'
   | 'invalid-url';
 
-export interface YouTubeInputIntent {
+interface YouTubeInputIntent {
   kind: YouTubeInputKind;
   raw: string;
   videoId: string | null;
@@ -47,7 +47,7 @@ export interface YouTubeInputIntent {
   query: string | null;
 }
 
-export interface YouTubeSearchResult {
+interface YouTubeSearchResult {
   videoId: string;
   title: string;
   channelTitle: string;

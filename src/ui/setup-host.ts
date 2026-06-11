@@ -158,7 +158,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
   }
 }
 
-export function startSessionFromHost(): void {
+function startSessionFromHost(): void {
   const appRole = getState('network.appRole');
   if (appRole !== 'host' || getState('setup.sessionStarted')) return;
 

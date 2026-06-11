@@ -38,16 +38,16 @@ import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
 import type { TrackMeta } from '../types/index.ts';
 
-export type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
-export type PlaybackMode = PlaybackModeValue;
-export type PlaybackActivity = PlaybackActivityValue;
+type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
+type PlaybackMode = PlaybackModeValue;
+type PlaybackActivity = PlaybackActivityValue;
 
 export interface PlaybackModeActivity {
   mode: PlaybackMode;
   activity: PlaybackActivity;
 }
 
-export interface PlaybackOwnership {
+interface PlaybackOwnership {
   owner: PlaybackOwner;
   mode: PlaybackMode;
   activity: PlaybackActivity;
@@ -60,7 +60,7 @@ export interface PlaybackOwnership {
   isExternalOwner: boolean;
 }
 
-export interface PlaybackClaimOptions {
+interface PlaybackClaimOptions {
   currentTrackMeta?: TrackMeta | null;
   /**
    * `pending: true` skips the direct mode/activity claim but still updates
@@ -72,7 +72,7 @@ export interface PlaybackClaimOptions {
   pending?: boolean;
 }
 
-export interface PlaybackReleaseOptions {
+interface PlaybackReleaseOptions {
   currentTrackMeta?: TrackMeta | null;
   force?: boolean;
 }
@@ -276,7 +276,7 @@ export function getPlaybackOwnership(): PlaybackOwnership {
  * `appState` path resolve consistently through the test hook exposed below.
  * Not used by product code — playback UIs read mode/activity directly.
  */
-export type ProjectedAppState =
+type ProjectedAppState =
   | 'IDLE'
   | 'PAUSED'
   | 'PLAYING_AUDIO'
@@ -366,7 +366,7 @@ function assertPlaybackModeActivitySynced(expected: PlaybackModeActivity): void 
   }
 }
 
-export function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
+function syncPlaybackModeActivityFromOwnership(): PlaybackOwnership {
   const ownership = getPlaybackOwnership();
   const modeActivity = { mode: ownership.mode, activity: ownership.activity };
   writePlaybackModeActivity(modeActivity);

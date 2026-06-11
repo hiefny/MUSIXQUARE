@@ -19,7 +19,7 @@
  */
 
 /** recover() runs on any return from hidden, however brief. */
-export const DEFAULT_RECOVER_THRESHOLD_MS = 0;
+const DEFAULT_RECOVER_THRESHOLD_MS = 0;
 
 /**
  * warn() only fires after a one-minute absence. Short tab swaps for chat
@@ -27,11 +27,11 @@ export const DEFAULT_RECOVER_THRESHOLD_MS = 0;
  */
 export const DEFAULT_WARN_THRESHOLD_MS = 60 * 1000;
 
-export interface BackgroundResumeEvent {
+interface BackgroundResumeEvent {
   hiddenMs: number;
 }
 
-export interface BackgroundResumeGuardDeps {
+interface BackgroundResumeGuardDeps {
   recover: (event: BackgroundResumeEvent) => void | Promise<void>;
   warn: (event: BackgroundResumeEvent) => void | Promise<void>;
   getNow?: () => number;

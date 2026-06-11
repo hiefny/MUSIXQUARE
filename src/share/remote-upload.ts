@@ -3,9 +3,9 @@ import { encryptFile } from './crypto.ts';
 import { uploadEncryptedBlob } from './r2-client.ts';
 import type { RemoteFileSharePayload } from '../types/index.ts';
 
-export const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
+const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
 
-export interface UploadRemoteFileOptions {
+interface UploadRemoteFileOptions {
   onUploadProgress?: (progress: number) => void;
   signal?: AbortSignal;
 }

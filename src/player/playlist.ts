@@ -202,7 +202,7 @@ export function advanceToShufflePreviousIndex(): number {
   return _shuffleOrder[prevPos] ?? -1;
 }
 
-export function resetShuffleOrder(): void {
+function resetShuffleOrder(): void {
   _shuffleOrder = [];
   _shufflePosition = 0;
 }

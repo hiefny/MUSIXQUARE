@@ -21,7 +21,7 @@ import { fetchOEmbedTitle } from '../youtube/oembed.ts';
 // Render-owned DOM prune cap. The chat WIRE caps (MAX_MSG_LENGTH,
 // MAX_SENDER_LABEL_LENGTH) live in core/constants.ts — protocol code must
 // not import them from a render module.
-export const MAX_CHAT_MESSAGES = 200;
+const MAX_CHAT_MESSAGES = 200;
 
 // Sticky-bottom tolerance: how close to the bottom (in CSS px) counts as
 // "still at the bottom" when deciding whether a new message should auto-
@@ -44,7 +44,7 @@ function isContainerAtBottom(container: HTMLElement): boolean {
   );
 }
 
-export { STICKY_BOTTOM_TOLERANCE_PX, isContainerAtBottom };
+export { isContainerAtBottom };
 
 const CROWN_SVG =
   '<svg class="chat-crown" viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"/></svg>';
@@ -446,7 +446,7 @@ function playPinnedNoticeAttentionHint(banner: HTMLElement): void {
   );
 }
 
-export function setPinnedNotice(sender: string, text: string, timestamp?: number): void {
+function setPinnedNotice(sender: string, text: string, timestamp?: number): void {
   const banner = document.getElementById('chat-pinned-notice');
   const label = document.getElementById('chat-pinned-notice-label');
   const time = document.getElementById('chat-pinned-notice-time');

@@ -13,13 +13,13 @@ import {
   isCapabilityChallengeCancelled,
 } from '../core/capability.ts';
 
-export interface RemoteUploadResponse {
+interface RemoteUploadResponse {
   objectId: string;
   downloadUrl?: string;
   expiresAt: number;
 }
 
-export interface RemoteUploadSessionResponse {
+interface RemoteUploadSessionResponse {
   token?: string;
   uploadUrl: string;
   uploadHeaders: Record<string, string>;
@@ -31,7 +31,7 @@ export interface RemoteUploadSessionResponse {
   cleanupToken?: string;
 }
 
-export interface RemoteUploadMeta {
+interface RemoteUploadMeta {
   roomId: string;
   name: string;
   mime: string;
@@ -40,7 +40,7 @@ export interface RemoteUploadMeta {
   index: number;
 }
 
-export type ProgressHandler = (progress: number) => void;
+type ProgressHandler = (progress: number) => void;
 
 declare global {
   interface Window {
@@ -75,7 +75,7 @@ function normalizeEndpoint(value: unknown): string | null {
   }
 }
 
-export function getRemoteShareEndpoint(): string | null {
+function getRemoteShareEndpoint(): string | null {
   const injected = normalizeEndpoint(window.__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__);
   if (injected) return injected;
 
@@ -96,7 +96,7 @@ export function isRemoteShareConfigured(): boolean {
   return getRemoteShareEndpoint() !== null;
 }
 
-export function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string): string {
+function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string): string {
   if (downloadUrl) return downloadUrl;
   const endpoint = getRemoteShareEndpoint();
   if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');

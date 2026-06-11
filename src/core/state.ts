@@ -18,8 +18,10 @@ import { log } from './log.ts';
 
 // 3.0: StateTree, StatePath, StatePathValue, ShallowImmutable moved to types/index.ts
 // to enable typed state:${StatePath} events without circular dependency.
-// Re-export here for backward compatibility with existing importers.
-export type { StateTree, StatePath, StatePathValue, ShallowImmutable } from '../types/index.ts';
+// StateTree is re-exported here for backward compatibility with existing
+// importers; the other three lost their last external importer and are now
+// imported (below) for this module's own signatures only.
+export type { StateTree } from '../types/index.ts';
 import type { StateTree, StatePath, StatePathValue, ShallowImmutable } from '../types/index.ts';
 
 /**

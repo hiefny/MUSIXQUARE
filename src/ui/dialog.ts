@@ -12,7 +12,7 @@ import { syncOverlayState, normalizeEmptyContentEditable } from './dom.ts';
 
 // ─── Types ───────────────────────────────────────────────────────
 
-export interface DialogOptions {
+interface DialogOptions {
   title?: string;
   message?: string;
   buttonText?: string;

@@ -23,7 +23,7 @@ export function syncRangeProgress(range: HTMLInputElement): void {
   range.style.setProperty('--range-progress', `${progress}%`);
 }
 
-export function syncAllRangeProgress(root: ParentNode = document): void {
+function syncAllRangeProgress(root: ParentNode = document): void {
   root
     .querySelectorAll<HTMLInputElement>('input[type="range"]')
     .forEach((range) => syncRangeProgress(range));

@@ -75,7 +75,7 @@ export function __resetIntentionalNavForTests(): void {
 
 // ─── Handler Initialisation ─────────────────────────────────────────
 
-export interface PageLifecycleDeps {
+interface PageLifecycleDeps {
   /** Read the current session role ('idle' / 'host' / 'guest' / …). */
   getRole: () => string;
   /** Tear down peer, player, timers, blobs, etc. (idempotent). */

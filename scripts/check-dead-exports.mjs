@@ -26,9 +26,17 @@
  *                entirely — that suffix IS the repo's explicit contract for
  *                "exported for tests on purpose".
  *
- *   SELF-ONLY  : referenced only within its defining file (the `export`
- *                keyword is unnecessary). Counted as INFO only — not part of
- *                the ratchet; clean up opportunistically.
+ *   SELF-ONLY  : no live reference outside the defining file(s). NOTE the
+ *                classification precedence: a symbol with BOTH in-file uses
+ *                and unit-test references lands here (not in TEST-ONLY), so
+ *                a SELF-ONLY entry's `export` keyword is NOT automatically
+ *                removable — check for test importers first. The 2026-06-11
+ *                sweep removed the keyword from all 62 removable cases; the
+ *                52 survivors are test-imported (46) or src/types/index.ts
+ *                barrel members (6, exports there are the point). Frozen
+ *                COUNT ratchet mirroring TEST-ONLY: the check fails only if
+ *                the count GROWS above SELF_ONLY_BASELINE_COUNT; shrink
+ *                updates are manual.
  *
  * Scope / deliberate limitations (honest, not magic):
  *   - Token-level (word-boundary identifier) matching, same approach as the
@@ -81,6 +89,15 @@ const FULLY_DEAD_BASELINE = [
 // /ForTests$/ seams). Fails only if the count GROWS; update manually when it
 // shrinks. Frozen 2026-06-11.
 const TEST_ONLY_BASELINE_COUNT = 18;
+
+// ── SELF-ONLY count baseline ─────────────────────────────────────
+// Number of exports with no live reference outside their defining file(s).
+// After the 2026-06-11 export-keyword sweep the remainder is exactly the
+// set that must STAY exported: unit-test-imported symbols (self-ref
+// precedence places them here, not in TEST-ONLY) plus the types/index.ts
+// barrel. Fails only if the count GROWS; update manually when it shrinks.
+// Frozen 2026-06-11.
+const SELF_ONLY_BASELINE_COUNT = 52;
 
 // ── Walk / strip helpers (mirrors check-bus-pairing.mjs) ─────────
 
@@ -303,6 +320,7 @@ const staleBaseline = FULLY_DEAD_BASELINE.filter(
 );
 
 const testOnlyGrowth = testOnly.length > TEST_ONLY_BASELINE_COUNT;
+const selfOnlyGrowth = selfOnly.length > SELF_ONLY_BASELINE_COUNT;
 
 // ── Report ───────────────────────────────────────────────────────
 
@@ -313,7 +331,7 @@ console.log(
   `${prodFileCount} prod files, ${exportsByName.size} exported names; ` +
     `fully-dead: ${fullyDead.length} (baseline ${FULLY_DEAD_BASELINE.length}), ` +
     `test-only: ${testOnly.length} (baseline ${TEST_ONLY_BASELINE_COUNT}), ` +
-    `self-only: ${selfOnly.length} (info)`,
+    `self-only: ${selfOnly.length} (baseline ${SELF_ONLY_BASELINE_COUNT})`,
 );
 console.log('');
 
@@ -342,6 +360,24 @@ if (testOnlyGrowth) {
   console.log('');
 }
 
+if (selfOnlyGrowth) {
+  failed = true;
+  console.log(
+    `SELF-ONLY EXPORT COUNT GREW: ${selfOnly.length} > baseline ${SELF_ONLY_BASELINE_COUNT}`,
+  );
+  console.log(
+    pad('A new self-only export needs a decision: if nothing outside the file'),
+  );
+  console.log(
+    pad('(including unit tests) references it, drop the export keyword; if a'),
+  );
+  console.log(
+    pad('test imports it, consider the /ForTests$/ seam convention instead.'),
+  );
+  console.log(pad('Raising the baseline requires owner review.'));
+  console.log('');
+}
+
 // INFO: per-file test-only list (non-fatal).
 if (testOnly.length) {
   console.log(`info: test-only exports (${testOnly.length}, non-fatal):`);
@@ -360,8 +396,9 @@ if (testOnly.length) {
 
 if (selfOnly.length) {
   console.log(
-    `info: self-only exports (${selfOnly.length}) — used only inside their own file; ` +
-      'the export keyword is unnecessary. Clean up opportunistically.',
+    `info: self-only exports (${selfOnly.length}) — no live reference outside their ` +
+      'own file. Post-sweep survivors are test-imported or types/index.ts barrel ' +
+      'members; check test importers before dropping an export keyword.',
   );
   console.log('');
 }
@@ -380,11 +417,23 @@ if (testOnly.length < TEST_ONLY_BASELINE_COUNT && !failed) {
   );
   console.log('');
 }
+if (selfOnly.length < SELF_ONLY_BASELINE_COUNT && !failed) {
+  console.log(
+    `note: self-only count shrank (${selfOnly.length} < ${SELF_ONLY_BASELINE_COUNT}) — ` +
+      'lower SELF_ONLY_BASELINE_COUNT to lock in the progress.',
+  );
+  console.log('');
+}
 
 if (!failed) {
-  console.log('OK — no new fully-dead exports; test-only count within ratchet.');
+  console.log(
+    'OK — no new fully-dead exports; test-only and self-only counts within ratchet.',
+  );
   process.exit(0);
 }
 
-console.log('Total findings: ' + (newDead.length + (testOnlyGrowth ? 1 : 0)));
+console.log(
+  'Total findings: ' +
+    (newDead.length + (testOnlyGrowth ? 1 : 0) + (selfOnlyGrowth ? 1 : 0)),
+);
 process.exit(1);

@@ -547,7 +547,7 @@ function isDeviceListRow(value: unknown): value is DeviceListRow {
   return value !== null && typeof value === 'object';
 }
 
-export function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
+function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
   const container = document.getElementById('device-list');
   if (!container) return;
 

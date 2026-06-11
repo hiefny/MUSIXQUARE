@@ -117,7 +117,7 @@ const _demoPreloadInFlight = new Map<string, Promise<Blob>>();
 const _demoBlobRequests = new Set<XMLHttpRequest>();
 let _demoBlobCacheGeneration = 0;
 
-export function shouldShowFirstRunDemoPrompt(): boolean {
+function shouldShowFirstRunDemoPrompt(): boolean {
   if (_suppressFirstRunPrompt || hasSeenDemoPrompt()) return false;
   if (/^\/\d{6}$/.test(window.location.pathname)) return false;
   if (getState('network.appRole') !== 'host') return false;

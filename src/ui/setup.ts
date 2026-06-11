@@ -112,7 +112,7 @@ function _applyEntranceClasses(): void {
   }
 }
 
-export function triggerAppEntrance(): void {
+function triggerAppEntrance(): void {
   requestAnimationFrame(() => {
     for (const [sel] of ENTRANCE_TARGETS) {
       const el = document.querySelector(sel) as HTMLElement | null;

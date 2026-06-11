@@ -127,7 +127,7 @@ function allowChatFromPeer(peerId: string): boolean {
  * Drop any rate-limit state for a peer (call on peer disconnect so the
  * bucket map doesn't grow unbounded across long-lived sessions).
  */
-export function resetChatRateLimit(peerId: string): void {
+function resetChatRateLimit(peerId: string): void {
   _rateBuckets.delete(peerId);
 }
 

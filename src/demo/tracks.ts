@@ -80,7 +80,7 @@ export function getDemoTrackByIndex(index: number): DemoTrack {
   return DEMO_TRACKS[index] ?? DEMO_TRACK;
 }
 
-export function getDemoTrackByName(name: unknown): DemoTrack | null {
+function getDemoTrackByName(name: unknown): DemoTrack | null {
   if (typeof name !== 'string') return null;
   const normalized = name.trim().toLowerCase();
   return DEMO_TRACKS.find((track) => track.fileName.toLowerCase() === normalized) ?? null;

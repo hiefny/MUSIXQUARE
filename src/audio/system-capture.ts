@@ -389,7 +389,7 @@ export function restorePreSystemAudioPlaybackState(snapshot: PreSystemAudioState
   }
 }
 
-export function muteLocalOutput(mute: boolean): void {
+function muteLocalOutput(mute: boolean): void {
   const masterGain = getMasterGain();
   const ctx = getAudioContext();
   if (!masterGain) return;

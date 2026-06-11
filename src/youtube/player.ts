@@ -35,7 +35,7 @@ import {
   BROADCAST_SYNC_MIN_INTERVAL_MS,
 } from './constants.ts';
 
-export interface PendingAutoSyncOptions {
+interface PendingAutoSyncOptions {
   isTrackTransition?: boolean;
   targetTime?: number;
   subIndex?: number;

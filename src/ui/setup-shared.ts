@@ -25,7 +25,7 @@ import { activateNoSleep } from '../core/wake-lock.ts';
 import { selectStandardChannelButton } from './settings.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
-export const TOTAL_OB_SLIDES = 4;
+const TOTAL_OB_SLIDES = 4;
 
 export const BACK_SVG =
   '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>';
@@ -306,7 +306,7 @@ export function setupHighlightJoinRole(mode: number | null): void {
 
 // ─── Button Rendering ────────────────────────────────────────────
 
-export interface SetupButton {
+interface SetupButton {
   id: string;
   text?: string;
   html?: string;

@@ -83,7 +83,7 @@ export function isBulkTransferWritablePeer(peer: ConnectedPeer): boolean {
 
 // ─── Pump Engine ─────────────────────────────────────────────────────
 
-export interface ChunkPumpOptions {
+interface ChunkPumpOptions {
   /** Source file/blob, sliced lazily one chunk at a time. */
   file: File | Blob;
   /** Chunk size in bytes (CHUNK_SIZE for all current callers). */
@@ -116,7 +116,7 @@ export interface ChunkPumpOptions {
   onPeerExcluded?: (peer: ConnectedPeer) => void;
 }
 
-export interface ChunkPumpResult {
+interface ChunkPumpResult {
   /**
    * 'stopped' ONLY when shouldContinue() failed (abort/supersession) —
    * wrappers skip their completion fanout and let the canceller own state.

@@ -401,7 +401,7 @@ export function primeYouTubePlayer(): void {
   }
 }
 
-export type LoadYouTubeVideoOptions = {
+type LoadYouTubeVideoOptions = {
   /**
    * Arm a playlist-indexing session for this load: the callback fires once
    * with the stabilized getPlaylist() IDs (CUED → _pollIndexingPlaylist).

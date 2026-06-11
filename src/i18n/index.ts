@@ -50,7 +50,7 @@ export const LANGUAGE_OPTIONS = [
 ] as const;
 
 export type LanguageCode = (typeof LANGUAGE_OPTIONS)[number]['code'];
-export type LanguageMode = LanguageCode | 'system';
+type LanguageMode = LanguageCode | 'system';
 
 let _mode: LanguageMode = 'system';
 let _resolved: LanguageCode = _resolveSystem();

@@ -595,15 +595,15 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
  *
  * Called by the sync button handler when role=guest in YouTube mode.
  */
-export interface GuestRendezvousOptions {
+interface GuestRendezvousOptions {
   silent?: boolean;
   suppressProgressToast?: boolean;
   onComplete?: () => void;
 }
 
-export type GuestRendezvousStatus = 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
+type GuestRendezvousStatus = 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
 
-export interface GuestRendezvousResult {
+interface GuestRendezvousResult {
   status: GuestRendezvousStatus;
 }
 
@@ -910,7 +910,7 @@ function finishRendezvous(): void {
  * Cancel any in-progress rendezvous sync. Called when the host takes a
  * disruptive action (pause/seek/video-change) during the guest's wait.
  */
-export function cancelGuestRendezvous(): void {
+function cancelGuestRendezvous(): void {
   if (!_rt.rendezvousInProgress) return;
   log.debug('[Rendezvous] Cancelled');
   clearManagedTimer('yt-rendezvous-calibrate');

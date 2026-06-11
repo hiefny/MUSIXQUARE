@@ -39,7 +39,11 @@ import {
   setReverbParam,
 } from '../audio/effects.ts';
 import { postCommand } from '../storage/storage.ts';
-import { cancelIncomingFileTransfer, cancelOutgoingFileTransfers } from '../storage/transfer.ts';
+import {
+  cancelIncomingFileTransfer,
+  cancelOutgoingFileTransfers,
+  cancelPendingBroadcast,
+} from '../storage/transfer.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
@@ -514,6 +518,14 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
     setState('preload.nextTrackIndex', -1);
+
+    // Drop a local-file broadcast still parked in the 300ms debounce window:
+    // without this, local→YouTube within the window pumps the full superseded
+    // file to guests during YouTube playback (guest handleFileStart has no
+    // mode gate). Pending only — an IN-FLIGHT broadcast deliberately survives
+    // the switch (the same-file short-circuit makes the completed download
+    // useful when returning to that track).
+    cancelPendingBroadcast();
 
     if (!hostConn) {
       // Skip stopAllMedia for YouTube→YouTube transitions — loadYouTubeVideo

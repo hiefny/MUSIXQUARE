@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, TRANSFER_STATE } from '../../core/constants.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
@@ -306,5 +307,108 @@ describe('host outgoing transfer routing', () => {
     expect(liveConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
     expect(liveConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_CHUNK }));
     expect(liveConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
+  });
+});
+
+// ─── Debounced Broadcast vs. cancelOutgoingFileTransfers ─────────────
+
+describe('debounced broadcast cancellation', () => {
+  /** One healthy, fully writable local peer; returns its send spy. */
+  function installHealthyPeer(id: string): ReturnType<typeof vi.fn> {
+    const send = vi.fn();
+    const conn = {
+      open: true,
+      peer: id,
+      send,
+      peerConnection: { connectionState: 'connected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    setState('network.connectedPeers', [
+      {
+        id,
+        status: 'connected',
+        conn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 1,
+      },
+    ]);
+    setState('network.activeHostConnByPeerId', new Map([[id, conn]]));
+    return send;
+  }
+
+  it('cancelOutgoingFileTransfers also drops a broadcast parked in the debounce window', async () => {
+    // "Cancel outgoing transfers" must cover the queued-not-yet-fired
+    // debounced broadcast too — playlist-empty teardown and demo entry call
+    // cancelOutgoingFileTransfers expecting NO file traffic afterwards.
+    vi.useFakeTimers();
+    try {
+      const { broadcastFileDebounced, cancelOutgoingFileTransfers } = await import('../transfer.ts');
+      const send = installHealthyPeer('peer-1');
+      setState('playlist.currentTrackIndex', 0);
+
+      broadcastFileDebounced(new File(['abc'], 'gone.mp3', { type: 'audio/mpeg' }), 1, {
+        type: MSG.FILE_PREPARE,
+        name: 'gone.mp3',
+        index: 0,
+        sessionId: 1,
+        mime: 'audio/mpeg',
+      });
+      cancelOutgoingFileTransfers();
+      await vi.advanceTimersByTimeAsync(301);
+
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+      expect(getState('transfer.activeBroadcastSession')).toBeNull();
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('still coalesces rapid arms into exactly one PREPARE+START for the last file', async () => {
+    // Counter-pin: the cancellation hook must not break the original
+    // debounce semantics — N rapid calls collapse into ONE announce + ONE
+    // chunk broadcast for the latest file.
+    vi.useFakeTimers();
+    try {
+      const { broadcastFileDebounced } = await import('../transfer.ts');
+      const send = installHealthyPeer('peer-1');
+      setState('playlist.currentTrackIndex', 1);
+
+      broadcastFileDebounced(new File(['aaa'], 'a.mp3', { type: 'audio/mpeg' }), 1, {
+        type: MSG.FILE_PREPARE,
+        name: 'a.mp3',
+        index: 0,
+        sessionId: 1,
+        mime: 'audio/mpeg',
+      });
+      broadcastFileDebounced(new File(['bbb'], 'b.mp3', { type: 'audio/mpeg' }), 2, {
+        type: MSG.FILE_PREPARE,
+        name: 'b.mp3',
+        index: 1,
+        sessionId: 2,
+        mime: 'audio/mpeg',
+      });
+      await vi.advanceTimersByTimeAsync(301);
+      // Let the fire-and-forget broadcastFile pump the tiny file to FILE_END.
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      const sentTypes = send.mock.calls.map(([msg]) => (msg as { type: string }).type);
+      expect(sentTypes.filter((t) => t === MSG.FILE_PREPARE)).toHaveLength(1);
+      expect(sentTypes.filter((t) => t === MSG.FILE_START)).toHaveLength(1);
+      // Announce precedes the chunk stream header.
+      expect(sentTypes.indexOf(MSG.FILE_PREPARE)).toBeLessThan(sentTypes.indexOf(MSG.FILE_START));
+      // Both belong to the LAST armed file, not the superseded one.
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_PREPARE, name: 'b.mp3', sessionId: 2 }),
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_START, name: 'b.mp3', sessionId: 2 }),
+      );
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
   });
 });

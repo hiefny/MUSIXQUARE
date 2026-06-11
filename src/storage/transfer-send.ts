@@ -87,7 +87,22 @@ export function broadcastFileDebounced(
   );
 }
 
-/** Drop any pending debounced broadcast (e.g. on session leave / cancel). */
+/**
+ * Drop any pending (queued-not-yet-fired) debounced broadcast. Called from:
+ * - cancelOutgoingFileTransfers() below — "cancel outgoing transfers" must
+ *   also cover the broadcast still parked in the 300ms debounce window
+ *   (playlist-empty teardown, demo entry).
+ * - playTrack's YouTube branch (player/playlist.ts) — switching local→YouTube
+ *   inside the debounce window must not pump the superseded local file to
+ *   guests during YouTube playback.
+ * leaveSession needs no call here: peer.ts runs clearAllManagedTimers(),
+ * which already kills the debounce timer (the stale _pendingBroadcast value
+ * is inert — the next broadcastFileDebounced overwrites it).
+ *
+ * Both halves must stay paired: clearing only the timer leaves a stale
+ * _pendingBroadcast for the next fire; nulling only _pendingBroadcast leaves
+ * a timer that fires into the early-return (harmless but misleading).
+ */
 export function cancelPendingBroadcast(): void {
   _pendingBroadcast = null;
   clearManagedTimer(BROADCAST_DEBOUNCE_KEY);
@@ -356,6 +371,11 @@ export function cancelOutgoingFileTransferForPeer(peerId: string): void {
 }
 
 export function cancelOutgoingFileTransfers(): void {
+  // A broadcast still parked in the debounce window is an outgoing transfer
+  // too — drop it first so it can't fire after this teardown and resurrect
+  // a chunk stream for a file the caller just discarded.
+  cancelPendingBroadcast();
+
   if (_broadcastScope) {
     _broadcastScope.dispose();
     _broadcastScope = null;

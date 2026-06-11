@@ -23,6 +23,7 @@ import {
   initPlaylist,
   playTrack,
 } from '../playlist.ts';
+import { broadcastFileDebounced } from '../../storage/transfer.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
@@ -218,6 +219,50 @@ describe('playTrack YouTube auto-rendezvous', () => {
         subIndex: 1,
       }),
     );
+  });
+
+  it('drops a local-file broadcast parked in the debounce window when switching to YouTube', async () => {
+    // local→YouTube inside the 300ms send-debounce window: without
+    // cancelPendingBroadcast in the YouTube branch, the timer fires after the
+    // switch and pumps the full superseded local file to guests during
+    // YouTube playback (guest handleFileStart has no mode gate).
+    vi.useFakeTimers();
+    const send = vi.fn();
+    const conn = {
+      peer: 'guest-1',
+      open: true,
+      send,
+      peerConnection: { connectionState: 'connected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    setState('network.connectedPeers', [
+      { ...makeConnectedPeer('guest-1', false), conn, connectionType: 'local' },
+    ]);
+    setState('player.isFirstTrackLoad', false);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [
+      { type: 'file', name: 'local.mp3', videoId: null, playlistId: null },
+      { type: 'youtube', name: 'Video', videoId: 'VIDEO_ID_01', playlistId: null },
+    ]);
+    bus.on('youtube:load', () => {});
+
+    // Arm the send-side debounce exactly as decode.ts does after a local decode.
+    broadcastFileDebounced(new File(['abc'], 'local.mp3', { type: 'audio/mpeg' }), 1, {
+      type: MSG.FILE_PREPARE,
+      name: 'local.mp3',
+      index: 0,
+      sessionId: 1,
+      mime: 'audio/mpeg',
+    });
+
+    await playTrack(1);
+    await vi.advanceTimersByTimeAsync(301);
+
+    // The pending local-file announce + chunk stream never fire...
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+    // ...while the YouTube switch itself still reached the guest.
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.YOUTUBE_PLAY }));
   });
 });
 

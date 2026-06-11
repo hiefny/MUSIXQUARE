@@ -9,6 +9,9 @@ const _timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Set a managed timer. Automatically clears the previous timer for that name.
+ * WARNING: `name` is a page-GLOBAL singleton key — code instantiated N times
+ * must parameterize the key per instance, or the N registrations silently
+ * coalesce into only the last-registered closure.
  */
 export function setManagedTimer(
   name: string,

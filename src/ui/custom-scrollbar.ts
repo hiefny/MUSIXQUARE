@@ -31,6 +31,50 @@ interface ScrollbarState {
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
 
+// ─── Global settled re-layout (orientation / breakpoint changes) ─────────
+//
+// Orientation and compact-landscape MQL changes are page-global events, so
+// the settled re-layout response is global too: ONE listener pair and ONE
+// debounce pair driving a re-layout of every live instance. Registering the
+// debounce per instance under a fixed managed-timer key would last-writer-win
+// (setManagedTimer replaces by name), leaving only the last-registered
+// instance with a settled re-layout — this module-level shape makes that
+// collision unrepresentable here (no per-instance setManagedTimer remains).
+
+function relayoutAll(): void {
+  // Iterate the live registry at FIRE time, not a snapshot captured at
+  // debounce registration: destroyCustomScrollbar can run inside the
+  // 350/700ms settle window (dialog teardown) and a snapshot would touch a
+  // removed track.
+  for (const state of _instances.values()) {
+    updateLayout(state);
+  }
+}
+
+// Two-tier delay: CSS transitions settle late after rotation, so a single
+// early (or synchronous) re-measure captures mid-transition geometry — same
+// 350ms pattern as the visualizer's resize handling. These delayed timers are
+// the only settled re-measure path for track *position*: ResizeObserver
+// reacts to container box-size changes, never to getBoundingClientRect
+// position changes (bottom-nav overlap, transform-block offset, track top).
+function onGlobalLayoutChange(): void {
+  setManagedTimer('scrollbar-relayout-fast', relayoutAll, 350);
+  setManagedTimer('scrollbar-relayout-slow', relayoutAll, 700);
+}
+
+let _globalLayoutListenersBound = false;
+
+function ensureGlobalLayoutListeners(): void {
+  if (_globalLayoutListenersBound) return;
+  _globalLayoutListenersBound = true;
+  // App-lifetime listeners, never removed (same once-guard precedent as the
+  // visualizer's resize listener). Instance lifecycle is handled by
+  // relayoutAll iterating the live registry — no per-instance listener
+  // bookkeeping needed.
+  onCompactLandscapeChange(onGlobalLayoutChange);
+  window.matchMedia('(orientation: landscape)').addEventListener('change', onGlobalLayoutChange);
+}
+
 /**
  * Walk up the DOM looking for an ancestor whose computed transform/perspective
  * is non-none. Such an ancestor becomes the containing block for descendant
@@ -232,14 +276,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
   state.resizeObserver = new ResizeObserver(() => updateLayout(state));
   state.resizeObserver.observe(container);
 
-  // Orientation change → delayed re-layout (CSS transitions need time to settle)
-  const onLayoutChange = () => {
-    setManagedTimer('scrollbar-relayout-fast', () => updateLayout(state), 350);
-    setManagedTimer('scrollbar-relayout-slow', () => updateLayout(state), 700);
-  };
-  const cleanupCompactListener = onCompactLandscapeChange(onLayoutChange);
-  const orientationMql = window.matchMedia('(orientation: landscape)');
-  orientationMql.addEventListener('change', onLayoutChange);
+  // Orientation/breakpoint change → delayed re-layout, handled module-wide:
+  // one global event, one debounce, relayout-all (see relayoutAll above).
+  ensureGlobalLayoutListeners();
 
   // Bus signal for transform-based visibility changes (e.g. chat-drawer
   // sliding in via translateY). Neither ResizeObserver nor MutationObserver
@@ -330,8 +369,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
     () => window.removeEventListener('mousemove', onMouseMove),
     () => window.removeEventListener('mouseup', onDragEnd),
     () => window.removeEventListener('blur', onDragEnd),
-    () => orientationMql.removeEventListener('change', onLayoutChange),
-    cleanupCompactListener,
     cleanupRelayoutBus,
   ];
 

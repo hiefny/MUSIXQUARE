@@ -259,11 +259,6 @@ export function setPendingRecoveryTarget(
   }
 }
 
-export function clearPendingRecoveryTarget(): void {
-  if (getState('playback.pendingRecoveryTarget') === null) return;
-  setState('playback.pendingRecoveryTarget', null);
-}
-
 // ─── Preloaded In Progress ─────────────────────────────────────────
 
 export function isPlayPreloadedInProgress(): boolean {
@@ -299,8 +294,8 @@ export function setLastClearedTrackName(name: string): void {
 //                   e.g. guest viewing a remote playlist entry)
 //
 // The Set is cleared in two cases:
-//   1. When getFailedTrackCount() reaches playlist.length — every track
-//      failed, so we stop and reset for the next attempt.
+//   1. When every playlist track has failed (decode.ts counts the non-failed
+//      remainder) — we stop and reset for the next attempt.
 //   2. Never elsewhere — keys naturally become irrelevant if the underlying
 //      track is removed from the playlist (the key still lives in the Set
 //      but nothing will check for it).
@@ -341,10 +336,6 @@ export function markTrackFailed(key: string | null | undefined): void {
 export function isTrackFailed(key: string | null | undefined): boolean {
   if (!key) return false;
   return getState('playback.failedTrackKeys').has(key);
-}
-
-export function getFailedTrackCount(): number {
-  return getState('playback.failedTrackKeys').size;
 }
 
 export function clearFailedTracks(): void {

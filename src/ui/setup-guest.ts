@@ -161,12 +161,6 @@ function _renderInviteLinkActions(): void {
   );
 }
 
-/** Called when a role card is tapped in invite-link mode — enable the start button */
-export function onInviteLinkRoleSelected(): void {
-  if (!getPendingAutoJoinCode()) return;
-  _renderInviteLinkActions();
-}
-
 /** Join directly using the invite code from URL (skip code input step) */
 async function _handleInviteLinkJoin(mode: number): Promise<void> {
   const autoCode = getPendingAutoJoinCode();

@@ -68,7 +68,3 @@ export function installConsoleCapture(): void {
 export function getCapturedLogs(): string {
   return _buffer.length ? _buffer.join('\n') : '(no console output captured yet)';
 }
-
-export function clearCapturedLogs(): void {
-  _buffer.length = 0;
-}

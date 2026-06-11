@@ -42,9 +42,6 @@ let _pendingAutoJoinCode: string | null = null;
 
 // ─── State Accessors ─────────────────────────────────────────────
 
-export function getCurrentObSlide(): number {
-  return _currentObSlide;
-}
 export function setCurrentObSlide(v: number): void {
   _currentObSlide = v;
 }
@@ -92,9 +89,6 @@ export function setPendingAutoJoinCode(v: string | null): void {
 let _onInviteLinkRoleSelected: (() => void) | null = null;
 export function setOnInviteLinkRoleSelected(fn: (() => void) | null): void {
   _onInviteLinkRoleSelected = fn;
-}
-export function getOnInviteLinkRoleSelected(): (() => void) | null {
-  return _onInviteLinkRoleSelected;
 }
 
 // ─── Desktop Left Panel Sync ─────────────────────────────────────

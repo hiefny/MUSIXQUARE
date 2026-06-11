@@ -19,6 +19,7 @@
     "guard:bus-pairing": "node scripts/check-bus-pairing.mjs",
     "guard:chunk-pump": "node scripts/check-chunk-pump.mjs",
     "guard:import-graph": "node scripts/check-import-graph.mjs",
+    "guard:lifecycle-writes": "node scripts/check-lifecycle-writes.mjs",
     "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

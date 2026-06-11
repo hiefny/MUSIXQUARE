@@ -70,6 +70,15 @@ import { isDemoTrackName } from '../demo/tracks.ts';
 
 const DECODE_TIMEOUT_MS = 10_000;
 const DECODE_TIMEOUT_TAG = '__decode_timeout__';
+
+// Preload-activation owner seq (mechanism M4 in
+// docs/design/playback-concurrency-invariants.md). Exists solely so a
+// SUPERSEDED activation cannot clear the playPreloadedInProgress flag the
+// superseding one set (compare-before-clear). Every begin takes ownership;
+// finish is a no-op unless the caller still owns the activation. The flag has
+// one other sanctioned writer: stopAllMedia's flag-only clear (contract C4) —
+// benign because finishPreloadActivation is idempotent. Pinned by
+// __tests__/concurrency-invariants.test.ts (pins a, f).
 let _preloadActivationSeq = 0;
 let _activePreloadActivation = 0;
 

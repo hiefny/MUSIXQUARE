@@ -7,7 +7,13 @@
  * Contract:
  *   - All reads of `playback.lifecycle` are OK anywhere.
  *   - All WRITES to `playback.lifecycle` go through `transition()` in this
- *     module. Direct setState calls are forbidden and grep-enforced in CI.
+ *     module (which applies them via ownership.ts setPlaybackLifecycleState).
+ *     The only other sanctioned writers are ownership.ts setPlaybackIdle and
+ *     the session-leave full reset in network/peer.ts. Direct setState calls
+ *     are forbidden — statically enforced by scripts/check-lifecycle-writes.mjs
+ *     (guard:lifecycle-writes), which also pins the sanctioned call-site sets
+ *     for setPlaybackLifecycleState / setPlayPreloadedInProgress /
+ *     incrementLoadToken.
  *   - Rejected transitions (disallowed event/state combo) are logged at
  *     error level and leave the state unchanged. We never throw — a single
  *     bug in the transition table should not kill the app.

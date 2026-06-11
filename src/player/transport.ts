@@ -288,6 +288,13 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   // — the lock would otherwise stay held until the 15s watchdog fires.
   // pendingPlayTime is cleared right after, so the queued-request consumer
   // in _internalPlay's finally sees a consistent (no pending) state.
+  //
+  // MUST-RESET-TOGETHER (contract C4, docs/design/
+  // playback-concurrency-invariants.md): lock + watchdog timer +
+  // pendingPlayTime + playPreloadedInProgress reset as one unit. The flag
+  // clear below deliberately bypasses decode.ts's finishPreloadActivation
+  // (silent-path clear; the activation register stays nonzero — benign via
+  // finish idempotence). Pinned by concurrency-invariants.test.ts (pin c).
   clearManagedTimer('navigator-lock-watchdog');
   setPlayLocked(false);
   setPendingPlayTime(undefined);
@@ -438,12 +445,22 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         log.warn(
           `[Play] Lock Timeout: Forcing unlock after 15s (locked at ${new Date(lockStartTime).toISOString()})`,
         );
+        // FULL RESET TUPLE (contract C3, docs/design/
+        // playback-concurrency-invariants.md): unlock + clear pendingPlayTime
+        // + stopPlayerNode + token bump + semantic IDLE — all five together.
+        // pendingPlayTime is cleared BEFORE unlocking so the unlock-delay
+        // consumer (contract C6) sees a consistent no-pending state. Pinned
+        // by concurrency-invariants.test.ts (pin b).
         setPlayLocked(false);
         setPendingPlayTime(undefined);
         stopPlayerNode();
         // Bump the load token so any in-flight _internalPlay aborts at its
         // next await checkpoint instead of overwriting the post-watchdog IDLE
         // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
+        // KILL-SET NOTE (owner decision, pinned by pin g): this bump does NOT
+        // abort an in-flight finalizeGuestFile — finalize checks only
+        // activeLoadSessionId (M2), keeping late-join downloads immune to
+        // watchdog fires. Do not "unify" that without reading §5 of the doc.
         incrementLoadToken();
         // Reset playback to IDLE to prevent stuck "playing" UI.
         if (!isCompatIdle()) {

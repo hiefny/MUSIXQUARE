@@ -82,6 +82,7 @@ function getRemoteWaitSessionId(): number {
 }
 
 // ─── Preload waiter: cross-invocation cleanup ───────────────────────
+// (Mechanism M7a in docs/design/playback-concurrency-invariants.md.)
 // Tracks active unsubs from storage:use-preloaded's "blob not ready" path.
 // Rapid track switches (A→B while both are waiting) would otherwise leave
 // A's listeners alive alongside B's, letting A's closure overwrite B's
@@ -91,6 +92,13 @@ let _activePreloadWaiterCleanup: (() => void) | null = null;
 // so use-preloaded for a DIFFERENT index can supersede the in-flight call
 // rather than getting silently ignored. See the use-preloaded handler for
 // the supersession protocol.
+//
+// KNOWN QUIRK (documented in the invariants doc §1): handlePlayMsg's direct
+// loadPreloadedTrack call below does NOT register _activePreloadIndex, so the
+// same-index dedup in the use-preloaded handler only covers handler-initiated
+// activations. A same-index overlap with a handlePlayMsg-initiated activation
+// takes the supersede branch instead — safe (token bump + compare-before-
+// clear), just one redundant decode.
 let _activePreloadIndex: number | null = null;
 
 // ─── Re-exports ────────────────────────────────────────────────────
@@ -827,6 +835,11 @@ export function initPlayback(): void {
         // hit token mismatch and clear it itself; we'd otherwise create a
         // window where the flag is false but a decode is still running,
         // letting handlePlayMsg fall through and double-trigger play.
+        // (Flag-stomp rule, contract C1 in docs/design/
+        // playback-concurrency-invariants.md — pinned by
+        // concurrency-invariants.test.ts pin a. In practice the old call's
+        // clear resolves as a no-op via decode.ts's compare-before-clear
+        // owner seq; the new call's finish performs the real clear.)
       }
       _activePreloadIndex = index;
       const newToken = incrementLoadToken();

@@ -15,6 +15,44 @@ import type { PlaylistItem } from '../types/index.ts';
 // state tree. The accessor functions below wrap state reads/writes so callers
 // stay stable and the immutable-update rule for Sets is enforced in one place
 // (markTrackFailed).
+//
+// ─── Concurrency-mechanism inventory (PLAYER-SPRAWL) ───────────────
+//
+// Supersession ("only the CURRENT load may publish side effects") is spread
+// across several interlocking mechanisms with DIFFERENT allocation scopes.
+// The full who-allocates/who-checks/who-clears matrix, the cross-mechanism
+// contracts, and the pendingPlayTime preserve/clear policy table live in
+// docs/design/playback-concurrency-invariants.md. Pins:
+// __tests__/concurrency-invariants.test.ts. Static guard:
+// scripts/check-lifecycle-writes.mjs (guard:lifecycle-writes).
+//
+//   M1 _currentLoadToken        — user/track-change intent. Bumped ONLY at
+//                                 entry points (playlist.ts playTrack +
+//                                 repeat-one, playback.ts handlers,
+//                                 transport.ts cancelInFlight + watchdog,
+//                                 demo/mode.ts); load functions only validate.
+//   M2 _activeLoadSessionId     — load invocation counter, self-bumped at
+//                                 entry by loadAndBroadcastFile/loadDemoFile/
+//                                 finalizeGuestFile. OWNER DECISION (pinned):
+//                                 finalizeGuestFile checks ONLY this, so it is
+//                                 immune to M1 bumps (watchdog must not abort
+//                                 in-flight guest finalizes). NOT the same
+//                                 thing as transfer.localSessionId /
+//                                 preload.sessionId / storage _preloadGeneration
+//                                 — see the disambiguation table in the doc.
+//   M3 _isPlayLocked            — node-start mutual exclusion + 15s watchdog
+//                                 (transport.ts). Watchdog fire = full reset
+//                                 tuple: unlock + clear pendingPlayTime +
+//                                 stopPlayerNode + M1 bump + semantic IDLE.
+//   M4 _playPreloadedInProgress — preload-activation window flag, ownership
+//                                 managed by the compare-before-clear owner
+//                                 seq in decode.ts (beginPreloadActivation/
+//                                 finishPreloadActivation). Second sanctioned
+//                                 writer: stopAllMedia's flag-only clear.
+//   M6 pendingPlayTime          — a MAILBOX, not a guard: per-abort-cause
+//                                 preserve/clear policy is asymmetric BY
+//                                 DESIGN (see policy table in the doc before
+//                                 touching any clear site).
 
 let _playerNode: AudioBufferSourceNode | null = null;
 let _currentAudioBuffer: AudioBuffer | null = null;

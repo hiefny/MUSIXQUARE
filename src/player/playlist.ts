@@ -1275,6 +1275,11 @@ export function initPlaylist(): void {
   });
 
   // Handle track ended auto-advance (guarded against double-fire from overlapping timers)
+  // Mechanism M7b in docs/design/playback-concurrency-invariants.md — a
+  // module-local generation counter DELIBERATELY separate from the player
+  // loadToken (it guards only the two ended-advance timers below; folding it
+  // into the global counter would let unrelated token bumps cancel a
+  // legitimate ended-advance).
   let _endedAdvanceToken = 0;
   bus.on('player:ended', () => {
     const hostConn = getState('network.hostConn');

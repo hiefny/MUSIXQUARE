@@ -17,6 +17,8 @@
     "guard:prod-hooks": "node scripts/assert-production-build-clean.mjs",
     "guard:prod-security": "node scripts/assert-production-security-config.mjs",
     "guard:bus-pairing": "node scripts/check-bus-pairing.mjs",
+    "guard:chunk-pump": "node scripts/check-chunk-pump.mjs",
+    "guard:import-graph": "node scripts/check-import-graph.mjs",
     "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

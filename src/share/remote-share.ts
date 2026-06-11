@@ -64,6 +64,20 @@ interface DownloadEntry {
 
 // Upload tracking stays keyed by playback request so existing cancellation
 // semantics remain narrow while an upload is still in flight.
+//
+// DELIBERATE: there is NO per-track navigate-away cancel. In-flight uploads
+// run to completion even when the host moves on — staleness is enforced at
+// COMPLETION time by the broadcast-gate triplet in shareRemoteFileIfNeeded
+// (hasRemoteTargets / isHostActiveFile / isExternalOwner, HET-3) and
+// absorbed guest-side by the monotonic context gates (EXT-5/6/7). The
+// abandoned-upload bandwidth is the accepted price for (a) descriptor-cache
+// warm-up — a rapid A↔B re-selection re-shares instantly instead of
+// re-encrypting + re-uploading — and (b) the shared in-flight promise that
+// targeted recovery sends await (HET-6): aborting an entry would reject ALL
+// awaiters, and isAbortError swallows that silently (no toast, no
+// REMOTE_FILE_UNAVAILABLE) — a remote-guest dead end. The only upload aborts
+// are the true teardown boundaries: no-remote-targets-remain
+// (abortActiveUploadsIfNoRemoteTargets) and session-code teardown.
 const _activeUploads = new Map<string, UploadEntry>();
 // Completed descriptors are keyed by file fingerprint so revisiting a track
 // can reuse the already-encrypted R2 object until it expires.
@@ -495,20 +509,6 @@ export async function shareRemoteFileIfNeeded(
     log.warn('[RemoteShare] Upload/share failed:', error);
     maybeNotifyRemoteUploadFailure(error, file, sessionId, index, targetConn);
     showToast(t('share.remote.upload_failed', { msg: message }));
-  }
-}
-
-/**
- * Cancel any in-flight upload for the given file key. Called when the host
- * navigates away from a track before its upload completes — saves CPU and
- * R2 bandwidth, and prevents a stale descriptor from being broadcast.
- */
-export function cancelInFlightUpload(file: File, sessionId: number, index: number): void {
-  const key = uploadRequestKey(file, sessionId, index);
-  const entry = _activeUploads.get(key);
-  if (entry) {
-    entry.abort.abort();
-    _activeUploads.delete(key);
   }
 }
 

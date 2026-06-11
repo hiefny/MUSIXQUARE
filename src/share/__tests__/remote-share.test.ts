@@ -6,10 +6,16 @@ import { resetState, setState } from '../../core/state.ts';
 import { MSG } from '../../core/constants.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
-import type { DataConnection, RemoteFileSharePayload } from '../../types/index.ts';
+import type {
+  ConnectedPeer,
+  DataConnection,
+  PlaylistItem,
+  RemoteFileSharePayload,
+} from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
   downloadRemoteFile: vi.fn(),
+  uploadRemoteFile: vi.fn(),
   transition: vi.fn(),
 }));
 
@@ -18,7 +24,7 @@ vi.mock('../remote-download.ts', () => ({
 }));
 
 vi.mock('../remote-upload.ts', () => ({
-  uploadRemoteFile: vi.fn(),
+  uploadRemoteFile: mocks.uploadRemoteFile,
 }));
 
 vi.mock('../r2-client.ts', () => ({
@@ -401,5 +407,176 @@ describe('remote file share policy', () => {
 
     expect(getState('preload.meta')).toMatchObject({ index: 3, sessionId: 7 });
     expect(mocks.transition).toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 3 });
+  });
+});
+
+// Host-side completion-time broadcast gate (HET-3, 22nd audit 28a716da):
+// there is deliberately NO navigate-away upload cancel — in-flight uploads
+// run to completion (descriptor-cache warm-up + shared in-flight promise for
+// targeted recovery sends, HET-6), and staleness is enforced ONLY when the
+// upload completes, by the hasRemoteTargets / isHostActiveFile /
+// isExternalOwner triplet. These pins convert that previously comment-only
+// invariant into tested behavior; weakening any of them re-opens the stale
+// descriptor broadcast (guests stomp index/title UI + burn mobile data on a
+// download that aborts at activation).
+describe('host-side completion-time broadcast gate (HET-3)', () => {
+  function remotePeer(): ConnectedPeer {
+    return {
+      id: 'guest-remote-1',
+      slot: 1,
+      label: 'Guest 1',
+      conn: { open: true, peer: 'guest-remote-1' } as DataConnection,
+      isOp: false,
+      preloadedIndexes: new Set<number>(),
+      status: 'connected',
+      isDataTarget: true,
+      joinOrder: 1,
+      connectionType: 'remote',
+      lastHeartbeat: Date.now(),
+    };
+  }
+
+  function fileItem(file: File): PlaylistItem {
+    return { type: 'file', file, name: file.name, videoId: null, playlistId: null };
+  }
+
+  let resolveUpload!: (d: RemoteFileSharePayload) => void;
+
+  beforeEach(async () => {
+    resetState();
+    // Session boundary: resets module-local remote-share state (upload map,
+    // descriptor cache) registered by prior initRemoteShare calls — module
+    // state would otherwise leak across tests.
+    const { bus } = await import('../../core/events.ts');
+    bus.emit('state:network.sessionCode', null);
+    vi.clearAllMocks();
+
+    // Host role: no hostConn, one connected remote guest as broadcast target.
+    setState('network.hostConn', null);
+    setState('network.connectedPeers', [remotePeer()]);
+
+    mocks.uploadRemoteFile.mockImplementation(
+      () =>
+        new Promise<RemoteFileSharePayload>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+
+    const { initRemoteShare } = await import('../remote-share.ts');
+    initRemoteShare();
+  });
+
+  it('suppresses the broadcast when the host advanced past the track during the upload', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { broadcast, safeSend } = await import('../../network/peer.ts');
+
+    const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    const fileB = new File(['bbbb'], 'track-b.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(fileA), fileItem(fileB)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('files.currentFileBlob', fileA);
+
+    const share = shareRemoteFileIfNeeded(fileA, 7);
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+
+    // Host moves to the next track mid-upload — the upload still completes
+    // (no cancel by design), but the completed descriptor is stale.
+    setState('files.currentFileBlob', fileB);
+    setState('playlist.currentTrackIndex', 1);
+
+    resolveUpload(descriptor({ name: 'track-a.mp3', sessionId: 7, index: 0 }));
+    await share;
+
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(safeSend).not.toHaveBeenCalled();
+  });
+
+  it('suppresses the broadcast when external playback owns the room at completion (HET-3)', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { broadcast, safeSend } = await import('../../network/peer.ts');
+
+    const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(fileA)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('files.currentFileBlob', fileA);
+
+    const share = shareRemoteFileIfNeeded(fileA, 7);
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+
+    // Host flips file→YouTube mid-upload. The switch does NOT clear
+    // files.currentFileBlob, so isHostActiveFile alone still passes on blob
+    // identity — only the external-owner gate blocks this stale broadcast.
+    setPlaybackYouTubePlaying();
+
+    resolveUpload(descriptor({ name: 'track-a.mp3', sessionId: 7, index: 0 }));
+    await share;
+
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(safeSend).not.toHaveBeenCalled();
+  });
+
+  it('suppresses the broadcast when no remote targets remain at completion', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { broadcast, safeSend } = await import('../../network/peer.ts');
+
+    const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(fileA)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('files.currentFileBlob', fileA);
+
+    const share = shareRemoteFileIfNeeded(fileA, 7);
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+
+    // The only remote guest disconnects mid-upload (no orchestrator event in
+    // this test — the completion-time re-check is the gate under test).
+    setState('network.connectedPeers', []);
+
+    resolveUpload(descriptor({ name: 'track-a.mp3', sessionId: 7, index: 0 }));
+    await share;
+
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(safeSend).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts once per share and rebases a cached descriptor onto the current context', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { broadcast } = await import('../../network/peer.ts');
+
+    const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(fileA)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('files.currentFileBlob', fileA);
+
+    // Control case: context unchanged at completion — broadcast goes out.
+    const first = shareRemoteFileIfNeeded(fileA, 7);
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    resolveUpload(descriptor({ name: 'track-a.mp3', sessionId: 7, index: 0 }));
+    await first;
+
+    expect(broadcast).toHaveBeenCalledOnce();
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.REMOTE_FILE_SHARE,
+        objectId: 'object-1',
+        sessionId: 7,
+        index: 0,
+      }),
+    );
+
+    // Host re-selects the same track under a new sessionId: the still-fresh
+    // cached descriptor is reused (no second upload) and withPlaybackContext
+    // rebases the wire descriptor onto the CURRENT playback context.
+    await shareRemoteFileIfNeeded(fileA, 9);
+
+    expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce();
+    expect(broadcast).toHaveBeenCalledTimes(2);
+    expect(broadcast).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: MSG.REMOTE_FILE_SHARE,
+        objectId: 'object-1',
+        sessionId: 9,
+        index: 0,
+      }),
+    );
   });
 });

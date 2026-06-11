@@ -79,13 +79,22 @@ export function ramStart(
   }
 
   if (!isPreload) {
-    // If keepExisting + same filename + same session → resume.
+    // If keepExisting + same filename + same-or-newer session → resume.
+    // A strictly newer sid re-keys the slot in place (STO-RESUME): the host
+    // re-broadcast advanced the session, but chunk bytes of the same logical
+    // file are sid-invariant, so the guest's received prefix stays valid.
+    // Direction guard: an OLDER sid must NOT re-key — upstream monotonic
+    // gates make that unreachable today, but the store must not rely on
+    // caller discipline (a backwards re-key would let a stale stream stomp
+    // newer-session writes via 'Session mismatch' rejection of the live
+    // one), so it falls through to recreate, matching prior behavior.
     if (
       keepExisting &&
       mainSlot &&
       mainSlot.filename === filename &&
-      mainSlot.sessionId === sessionId
+      sessionId >= mainSlot.sessionId
     ) {
+      mainSlot.sessionId = sessionId;
       return { ok: true };
     }
     mainSlot = makeSlot(filename, isPreload, sessionId, chunkSize);
@@ -207,6 +216,35 @@ export function ramEnd(
   slot.chunks.clear();
 
   return { blob };
+}
+
+/**
+ * Contiguous-from-0 chunk count of the slot holding `filename` (0 if no
+ * matching slot). Data-plane truth used to reconcile control-plane counters
+ * (transfer.receivedCount / recovery asks) at the resume and recovery seams
+ * (STO-RESUME): no resume baseline and no recovery ask may exceed this value.
+ * Finalized slots report their full chunk count — the store holds every byte.
+ *
+ * Constraint: this is a SYNCHRONOUS read. Do NOT call it from inside the
+ * storage command drain path — postCommand defers dispatch via queueMicrotask
+ * (storage.ts routeStorageCommand), so a read in the same stack as a
+ * just-posted STORAGE_WRITE sees stale state. Production callers are the
+ * FILE_RESUME handler and the recovery backoff callback, both plain tasks
+ * with no write in flight. The preload branch exists for parity of the
+ * lookup contract only; production use is main-channel only (preload has no
+ * resume path).
+ */
+export function ramContiguousCount(filename: string, isPreload: boolean): number {
+  if (!filename) return 0;
+  const slot = isPreload ? (preloadByName.get(filename) ?? null) : mainSlot;
+  if (!slot || slot.filename !== filename) return 0;
+  if (slot.finalized) {
+    // chunkSize guard: a 0/undefined chunkSize must not divide-by-zero.
+    return Math.ceil((slot.totalSize ?? slot.finalizedBlob?.size ?? 0) / (slot.chunkSize || 1));
+  }
+  let count = 0;
+  while (slot.chunks.has(count)) count++;
+  return count;
 }
 
 // ─── Read Path ──────────────────────────────────────────────────

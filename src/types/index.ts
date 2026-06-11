@@ -914,7 +914,10 @@ interface BaseEventMap {
   // ── Storage ───────────────────────────────────────────────────────
   'storage:transfer-progress': [progress: number, total: number];
   'storage:preload-ready': [index: number];
-  'storage:request-recovery': [];
+  // forceChunk: store-derived resume base from handleFileResume (STO-RESUME).
+  // Plain emits (no arg) mean "ask from the counter"; the recovery listener
+  // normalizes undefined → null before forwarding to sendRecoveryRequest.
+  'storage:request-recovery': [forceChunk?: number];
   'storage:clear-previous-track': [context: string];
   'storage:use-preloaded': [index: number, name: string];
   'storage:preload-file-ready': [filename: string, sessionId: number];

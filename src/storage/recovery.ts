@@ -19,6 +19,7 @@ import {
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { ensureNamedFile } from './storage.ts';
+import { ramContiguousCount } from './ramstore.ts';
 import { unicastFile } from './transfer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { isRemoteGuest } from '../network/peer.ts';
@@ -126,10 +127,21 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
         return;
       }
 
-      // Re-read receivedCount after backoff — more chunks may have arrived during delay
+      // Re-read receivedCount after backoff — more chunks may have arrived during delay.
+      // STO-RESUME: receivedCount is a control-plane counter and can exceed
+      // data-plane truth (phantom from a cross-session resume, a silently
+      // dropped write, any future desync). Asking past store truth makes the
+      // host resend only the tail forever (its clamp is total-1), so the
+      // integrity gate fails every round — clamp the ask to the store's
+      // contiguous prefix instead, and any phantom self-heals in one round.
+      // A missing slot / empty name yields contiguous 0 → ask 0 = full
+      // resend, which IS the correct self-heal, not a case to skip the clamp
+      // for. forceChunk stays unclamped: it is store-derived by construction
+      // (handleFileResume) or an explicit caller decision (decode fallback 0).
       let chunkToAsk = forceChunk;
       if (chunkToAsk === null) {
-        chunkToAsk = getState('transfer.receivedCount') || 0;
+        const counterAsk = getState('transfer.receivedCount') || 0;
+        chunkToAsk = Math.min(counterAsk, ramContiguousCount(latestName, false));
       }
 
       // Re-read sessionId after backoff — session may have advanced during delay
@@ -332,9 +344,14 @@ export function initRecovery(): void {
     [MSG.REQUEST_DATA_RECOVERY]: handleRequestDataRecovery,
   });
 
-  // Listen for recovery events from other modules
-  bus.on('storage:request-recovery', () => {
-    sendRecoveryRequest();
+  // Listen for recovery events from other modules. forceChunk arrives only
+  // from handleFileResume's store-derived rebase; the 7 plain emit sites pass
+  // no args, so the listener receives undefined — normalize to null here
+  // (sendRecoveryRequest's forceChunk gate is `=== null`; forwarding
+  // undefined verbatim would send nextChunk: undefined on every ordinary
+  // recovery ask).
+  bus.on('storage:request-recovery', (forceChunk?: number) => {
+    sendRecoveryRequest(typeof forceChunk === 'number' ? forceChunk : null);
   });
 
   // Clear recovery state on session leave OR new session (reconnect) to

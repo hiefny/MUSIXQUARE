@@ -226,6 +226,21 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   // FILE_START (above) already requires `name` — this brings FILE_RESUME to parity.
   [MSG.FILE_RESUME]: (d) =>
     typeof d.name === 'string' && isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
+  // Guest → host recovery ask (previously unvalidated — blind spot ⑥).
+  // nextChunk feeds the host's startChunk math and must be a sane index;
+  // every field is OPTIONAL on the wire: the FILE_WAIT-timeout
+  // (transfer-receive.ts), playback-stall (playback.ts) and preload-decode
+  // (preload.ts) senders omit sessionId, and the handler falls back through
+  // data.fileName || data.name. index is deliberately NOT isNonNegInt:
+  // recovery.ts's freshIndex falls back to playlist.currentTrackIndex which
+  // is legitimately -1 before the first track — rejecting it would silently
+  // kill real recovery, so only non-finite poison is dropped.
+  [MSG.REQUEST_DATA_RECOVERY]: (d) =>
+    (d.nextChunk === undefined || isNonNegInt(d.nextChunk)) &&
+    (d.sessionId === undefined || isFiniteNumber(d.sessionId)) &&
+    (d.fileName === undefined || typeof d.fileName === 'string') &&
+    (d.name === undefined || typeof d.name === 'string') &&
+    (d.index === undefined || isFiniteNumber(d.index)),
 
   // Chat — validate text field exists and cap length. The wire cap (4000) is
   // deliberately well above the 500-char render cap so legitimate near-cap

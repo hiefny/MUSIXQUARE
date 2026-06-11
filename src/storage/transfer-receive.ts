@@ -19,6 +19,7 @@ import {
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { postCommand, cleanupStoredFile } from './storage.ts';
+import { ramContiguousCount, ramReadBlob } from './ramstore.ts';
 import { t } from '../i18n/index.ts';
 import { sendToHost, isRemoteGuest, waitForGuestConnectionType } from '../network/peer.ts';
 import {
@@ -1055,6 +1056,10 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   showLoader(true, t('transfer.receiving_0pct'));
 }
 
+// Sibling-divergence note (house rule ⑨): preload has NO resume path by
+// design — PRELOAD_START always restarts from chunk 0 and there is no
+// PRELOAD_RESUME message, so the store-reconciliation below is deliberately
+// main-channel only. Do not invent preload parity here.
 export function handleFileResume(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
@@ -1072,13 +1077,53 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
   }
 
+  // Finalized-slot guard (STO-RESUME sibling): a recovery backoff armed
+  // pre-finalization can fire post-finalization — the host then resumes a
+  // tail stream against a slot whose chunk map ramEnd already cleared, so
+  // every write is silently dropped ('Already finalized') while the drain
+  // still counts them, and STORAGE_END integrity-fails forever. The file is
+  // already complete here: drop the resume WITHOUT flipping transfer.state
+  // to RECEIVING. The host's tail chunks are then absorbed by
+  // applyFileChunk's stale-completed guard (the sid was adopted above, so
+  // incomingSid <= localSid there). Watchdogs are cleared because the
+  // transfer is done — leaving them armed would re-fire recovery.
+  const finalizedBlob = ramReadBlob((data.name as string) || '', false);
+  if (finalizedBlob && Number(data.size) > 0 && finalizedBlob.size === Number(data.size)) {
+    log.debug(`[file-resume] "${data.name}" already finalized in store — dropping stale resume`);
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    return;
+  }
+
   const startChunk = (data.startChunk as number) || 0;
 
-  // 12-1: Reset receive state for clean resume
-  // Set receivedCount to startChunk (not 0) because we already have those chunks.
-  // Completion check is `receivedCount >= total`, so we must account for the offset.
+  // 12-1 + STO-RESUME: store-authoritative resume baseline.
+  // startChunk is a control-plane assertion ("you told me you had N"); the
+  // ramstore main slot is data-plane truth. They diverge when the host's
+  // session advanced between the guest's stall and the recovery response
+  // (re-broadcast/re-click): honoring the assertion plants a phantom
+  // receivedCount, and recovery then asks from the phantom position forever
+  // (tail resend → integrity fail → retry). Clamp the baseline to the
+  // store's contiguous prefix — when counters and store disagree, ALWAYS
+  // bias DOWN (the inverse mistake is the documented MAX_REORDER_BUFFER
+  // infinite-recovery-loop bug below). Identity gate: name+size must match
+  // the in-flight meta for the store prefix to count as "this file" (same
+  // posture as the file-prepare same-content promote); on mismatch the
+  // resume degrades to a fresh start from 0.
+  const meta = getState('transfer.meta');
+  const identityOk =
+    meta?.name === data.name && Number(data.size) > 0 && meta?.size === data.size;
+  const base = identityOk
+    ? Math.min(startChunk, ramContiguousCount((data.name as string) || '', false))
+    : 0;
+
+  // receivedCount and nextExpectedChunk MUST move together — rebasing one
+  // while the other keeps startChunk recreates the failure in the opposite
+  // direction (drain stall at phantom completion, or chunks stranded in the
+  // reorder buffer past a fast-forwarded pointer).
   fileReorderBuffer.clear();
-  setState('transfer.receivedCount', startChunk);
+  setState('transfer.receivedCount', base);
+  nextExpectedChunk = base;
 
   clearManagedTimer('prepareWatchdog');
   postCommand({
@@ -1087,16 +1132,27 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     isPreload: false,
     sessionId: validateSessionId(incomingSid),
     size: CHUNK_SIZE,
-    keepExisting: startChunk > 0, // preserve existing data on resume
+    keepExisting: base > 0, // preserve existing data on resume
   });
 
   setState('files.currentTrack', { name: data.name as string });
 
-  nextExpectedChunk = startChunk;
   setState('transfer.meta', data as Partial<FileMeta>);
   setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
 
   startChunkWatchdog();
+
+  // Host streamed [startChunk..) but we only hold [0..base) — ask it to
+  // restart from the real position. Ordering is load-bearing: the counters
+  // are rebased ABOVE before this goes out, so the host's in-flight
+  // inconsistent stream tail drains against the rebased counters, and
+  // handleRequestDataRecovery → unicastFile does SessionScope.replace per
+  // peer, cancelling that stream. Routed via the bus (not a direct
+  // recovery.ts import — cycle: recovery → transfer → transfer-receive) so
+  // the request keeps the backoff/retry budget.
+  if (base < startChunk) {
+    bus.emit('storage:request-recovery', base);
+  }
 
   // 12-28: Drain any early chunks that arrived before resume was processed (same session only)
   if (_pendingEarlyChunks.length > 0) {

@@ -14,6 +14,7 @@ import {
   ramResetSession,
   ramReset,
   ramStats,
+  ramContiguousCount,
   __resetRamStoreForTests,
 } from '../ramstore.ts';
 
@@ -61,6 +62,47 @@ describe('ramStart', () => {
     ramStart('b.mp3', false, 2, 16, false);
     expect(ramWrite('a.mp3', false, 1, 0, u8(0xbb)).ok).toBe(false); // old slot gone
     expect(ramWrite('b.mp3', false, 2, 0, u8(0xcc)).ok).toBe(true);
+  });
+
+  // STO-RESUME: a host re-broadcast advances the sessionId, but chunk bytes
+  // of the same logical file are sid-invariant — resume must re-key the slot
+  // in place and preserve the guest's received prefix.
+  it('re-keys main slot on keepExisting + same filename + NEWER sid, preserving chunks', () => {
+    ramStart('a.mp3', false, 1, 16, false);
+    ramWrite('a.mp3', false, 1, 0, u8(0xaa));
+    ramWrite('a.mp3', false, 1, 1, u8(0xbb));
+
+    const r = ramStart('a.mp3', false, 2, 16, true);
+    expect(r.ok).toBe(true);
+
+    // Slot now lives under sid 2 — writes under the OLD sid get rejected
+    const stale = ramWrite('a.mp3', false, 1, 2, u8(0xff));
+    expect(stale.ok).toBe(false);
+    expect(stale.reason).toMatch(/session mismatch/i);
+    expect(stale.expectedSid).toBe(2);
+
+    // ...and the preserved prefix + new-session tail finalize together
+    expect(ramWrite('a.mp3', false, 2, 2, u8(0xcc)).ok).toBe(true);
+    const end = ramEnd('a.mp3', false, 2, undefined, 3);
+    expect(end.blob).not.toBeNull();
+    expect(end.blob!.size).toBe(3);
+  });
+
+  // Direction guard: an OLDER sid must NOT re-key (a backwards re-key would
+  // stomp newer-session writes). keepExisting + older sid falls through to
+  // recreate, matching pre-relaxation behavior.
+  it('recreates (not re-keys) when keepExisting carries an OLDER sid', () => {
+    ramStart('a.mp3', false, 5, 16, false);
+    ramWrite('a.mp3', false, 5, 0, u8(0xaa));
+
+    expect(ramStart('a.mp3', false, 3, 16, true).ok).toBe(true);
+
+    // Fresh slot under sid 3 — old chunks gone, old sid rejected
+    expect(ramContiguousCount('a.mp3', false)).toBe(0);
+    const stale = ramWrite('a.mp3', false, 5, 1, u8(0xff));
+    expect(stale.ok).toBe(false);
+    expect(stale.expectedSid).toBe(3);
+    expect(ramWrite('a.mp3', false, 3, 0, u8(0xcc)).ok).toBe(true);
   });
 
   it('creates preload slot keyed by sid AND filename', () => {
@@ -201,6 +243,46 @@ describe('ramEnd', () => {
     const c0 = await ramReadChunk('a.mp3', false, 1, 0);
     expect(c0).not.toBeNull();
     expect(Array.from(c0!)).toEqual([0xaa, 0xbb]);
+  });
+});
+
+// ─── ramContiguousCount ────────────────────────────────────────────
+
+describe('ramContiguousCount', () => {
+  it('returns 0 for missing slot or empty filename', () => {
+    expect(ramContiguousCount('nope.mp3', false)).toBe(0);
+    expect(ramContiguousCount('', false)).toBe(0);
+  });
+
+  it('returns 0 when the main slot holds a different filename', () => {
+    ramStart('a.mp3', false, 1, 16, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1));
+    expect(ramContiguousCount('b.mp3', false)).toBe(0);
+  });
+
+  it('counts the contiguous-from-0 prefix, ignoring chunks past a gap', () => {
+    ramStart('a.mp3', false, 1, 16, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1));
+    ramWrite('a.mp3', false, 1, 1, u8(2));
+    ramWrite('a.mp3', false, 1, 3, u8(4)); // gap at 2
+    expect(ramContiguousCount('a.mp3', false)).toBe(2);
+  });
+
+  it('reports the full chunk count for a finalized slot', () => {
+    ramStart('a.mp3', false, 1, 2, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2));
+    ramWrite('a.mp3', false, 1, 1, u8(3, 4));
+    ramWrite('a.mp3', false, 1, 2, u8(5)); // tail chunk smaller than chunkSize
+    ramEnd('a.mp3', false, 1, 5, 3);
+    // chunks map is cleared at finalize — count derives from totalSize/chunkSize
+    expect(ramContiguousCount('a.mp3', false)).toBe(3);
+  });
+
+  it('finds preload slots by name', () => {
+    ramStart('p.mp3', true, 7, 16, false);
+    ramWrite('p.mp3', true, 7, 0, u8(1));
+    expect(ramContiguousCount('p.mp3', true)).toBe(1);
+    expect(ramContiguousCount('p.mp3', false)).toBe(0); // main slot untouched
   });
 });
 

@@ -212,6 +212,58 @@ describe('YOUTUBE_PLAYLIST_INFO validation', () => {
   });
 });
 
+describe('REQUEST_DATA_RECOVERY validation', () => {
+  // Every field is optional on the wire — the four production senders differ:
+  // recovery.ts sends {nextChunk, fileName, index, sessionId}; the FILE_WAIT
+  // timeout (transfer-receive.ts), playback-stall (playback.ts) and
+  // preload-decode (preload.ts) paths send {nextChunk: 0, fileName, index}
+  // with NO sessionId. All four must keep passing.
+  it('dispatches all four production sender shapes', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_DATA_RECOVERY, handler);
+    const conn = makeConnection('peer-recovery-valid');
+
+    const validMessages = [
+      { nextChunk: 42, fileName: 'song.mp3', index: 0, sessionId: 7 },
+      { nextChunk: 0, fileName: 'song.mp3', index: 2 },
+      { nextChunk: 0, fileName: '', index: 0 }, // meta-less guest: empty name
+      // recovery.ts freshIndex falls back to playlist.currentTrackIndex,
+      // which is legitimately -1 before the first track — must NOT be dropped.
+      { nextChunk: 0, fileName: 'song.mp3', index: -1, sessionId: 0 },
+      {}, // fully bare ask — handler has its own fallbacks
+    ];
+
+    for (const message of validMessages) {
+      await handleData({ type: MSG.REQUEST_DATA_RECOVERY, ...message }, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(validMessages.length);
+  });
+
+  it('drops malformed asks before they reach the host handler', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_DATA_RECOVERY, handler);
+    const conn = makeConnection('peer-recovery-invalid');
+
+    const invalidMessages = [
+      { nextChunk: -1 }, // negative position
+      { nextChunk: 2.5 }, // non-integer position
+      { nextChunk: Infinity }, // would skew the host's startChunk math
+      { nextChunk: 'NaN' }, // wrong type
+      { nextChunk: 0, sessionId: Infinity }, // non-finite session poison
+      { nextChunk: 0, fileName: 42 }, // wrong type
+      { nextChunk: 0, name: { evil: true } }, // handler falls back to data.name
+      { nextChunk: 0, index: NaN }, // non-finite index poison
+    ];
+
+    for (const message of invalidMessages) {
+      await handleData({ type: MSG.REQUEST_DATA_RECOVERY, ...message }, conn);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe('REQUEST_SETTING validation', () => {
   it('dispatches known setting types with in-range typed values', async () => {
     const handler = vi.fn();

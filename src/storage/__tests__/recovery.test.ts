@@ -4,6 +4,10 @@ import { PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyConn = any; // Partial mock for DataConnection in tests
 import { bus } from '../../core/events.ts';
+// ramstore is REAL in this file (only storage.ts/transfer.ts are mocked) —
+// sendRecoveryRequest's ask clamp reads it as data-plane truth.
+import { ramStart, ramWrite, __resetRamStoreForTests } from '../ramstore.ts';
+import { isRemoteGuest } from '../../network/peer.ts';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -53,7 +57,22 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   vi.useFakeTimers();
+  // Real ramstore holds module-level slots — without this, slots arranged in
+  // one test leak into the next and skew the ask clamp.
+  __resetRamStoreForTests();
+  // restoreAllMocks does not restore vi.fn() factory mocks (only vi.spyOn) —
+  // the remote-guest test's mockReturnValue(true) would otherwise leak into
+  // every test that runs after it.
+  vi.mocked(isRemoteGuest).mockReturnValue(false);
 });
+
+/** Arrange `count` contiguous 1-byte chunks for `name` in the REAL ramstore. */
+function arrangeStoreChunks(name: string, sid: number, count: number): void {
+  ramStart(name, false, sid, 16, false);
+  for (let i = 0; i < count; i++) {
+    ramWrite(name, false, sid, i, new Uint8Array([i & 0xff]));
+  }
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -178,7 +197,52 @@ describe('sendRecoveryRequest', () => {
     expect(msg.nextChunk).toBe(10);
   });
 
-  it('uses receivedCount when forceChunk is null', async () => {
+  it('uses receivedCount when forceChunk is null (counter backed by store truth)', async () => {
+    const sendRecoveryRequest = await getSendRecoveryRequest();
+    const hostSend = vi.fn();
+
+    setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
+    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.receivedCount', 42);
+    setState('recovery.retryCount', 0);
+    // STO-RESUME clamp semantics: the ask is min(counter, store contiguous).
+    // Back the counter with 42 real contiguous chunks so this pin keeps
+    // asserting the same value under the clamp.
+    arrangeStoreChunks('test.mp3', 1, 42);
+
+    sendRecoveryRequest(null);
+    vi.advanceTimersByTime(2000);
+
+    const msg = hostSend.mock.calls[0][0];
+    expect(msg.nextChunk).toBe(42);
+  });
+
+  // STO-RESUME regression pin: a phantom receivedCount (control-plane counter
+  // ahead of data-plane truth — cross-session resume, dropped write, any
+  // future desync) must NOT drive the ask. Asking past store truth makes the
+  // host clamp to total-1 and resend only the tail, so the integrity gate
+  // fails every round and the recovery loop never terminates.
+  it('clamps a phantom receivedCount to the store contiguous count', async () => {
+    const sendRecoveryRequest = await getSendRecoveryRequest();
+    const hostSend = vi.fn();
+
+    setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
+    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.receivedCount', 500); // phantom — store holds far less
+    setState('recovery.retryCount', 0);
+    arrangeStoreChunks('test.mp3', 1, 3); // contiguous prefix [0..2]
+    ramWrite('test.mp3', false, 1, 10, new Uint8Array([0xff])); // non-prefix chunk — must not count
+
+    sendRecoveryRequest(null);
+    vi.advanceTimersByTime(2000);
+
+    const msg = hostSend.mock.calls[0][0];
+    expect(msg.nextChunk).toBe(3);
+  });
+
+  // Slot missing entirely → contiguous 0 → ask 0 (full resend) IS the
+  // intended self-heal, not a case that bypasses the clamp.
+  it('asks from 0 when the store has no slot for the file', async () => {
     const sendRecoveryRequest = await getSendRecoveryRequest();
     const hostSend = vi.fn();
 
@@ -191,7 +255,7 @@ describe('sendRecoveryRequest', () => {
     vi.advanceTimersByTime(2000);
 
     const msg = hostSend.mock.calls[0][0];
-    expect(msg.nextChunk).toBe(42);
+    expect(msg.nextChunk).toBe(0);
   });
 
   it('suppresses same-wifi toast while a remote-share wait is active', async () => {
@@ -220,5 +284,43 @@ describe('initRecovery', () => {
     const { initRecovery } = await import('../recovery.ts');
     initRecovery();
     expect(registerHandlers).toHaveBeenCalled();
+  });
+
+  // STO-RESUME listener-forward pins: the bus event signature is
+  // [forceChunk?: number]. The 7 plain emit sites deliver `undefined`, which
+  // the listener MUST normalize to null (sendRecoveryRequest's gate is
+  // `=== null`) — forwarding verbatim would send nextChunk: undefined on
+  // every ordinary recovery ask.
+  it('plain storage:request-recovery emit takes the clamped counter path', async () => {
+    const { initRecovery } = await import('../recovery.ts');
+    const hostSend = vi.fn();
+
+    initRecovery();
+    setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
+    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.receivedCount', 500); // phantom
+    arrangeStoreChunks('test.mp3', 1, 2);
+
+    bus.emit('storage:request-recovery');
+    vi.advanceTimersByTime(2000);
+
+    const msg = hostSend.mock.calls[0][0];
+    expect(msg.nextChunk).toBe(2); // store truth, never undefined
+  });
+
+  it('forwards a numeric forceChunk from the bus unclamped', async () => {
+    const { initRecovery } = await import('../recovery.ts');
+    const hostSend = vi.fn();
+
+    initRecovery();
+    setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
+    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.receivedCount', 500);
+
+    bus.emit('storage:request-recovery', 7); // store-derived by construction
+    vi.advanceTimersByTime(2000);
+
+    const msg = hostSend.mock.calls[0][0];
+    expect(msg.nextChunk).toBe(7);
   });
 });

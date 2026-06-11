@@ -77,8 +77,38 @@ let _ytScriptLoading = false;
 let _ytIOSWatchdog: number | null = null;
 let _ytScope: SessionScope | null = null;
 let _ytLoadInProgress = false;
-let _isYtIndexing = false;
-let _ytIndexingCallback: ((ids: string[]) => void) | null = null;
+
+/**
+ * In-flight playlist-indexing session (Fix: stale-indexing lifecycle, 2026-06-11).
+ *
+ * Threat model: indexing is an async takeover of the iframe (cuePlaylist →
+ * CUED → getPlaylist() poll chain) whose completion callback mutates the
+ * queue and broadcasts playlist info to the room. Represented as pre-armed
+ * bare globals (boolean + callback) it could survive mid-index teardown:
+ * the stale callback then fired with the WRONG playlist's IDs, and the
+ * stale flag flipped the next YouTube add into the auto-play takeover
+ * branch. As a session OBJECT, identity answers "whose poll/callback is
+ * this": every clear point drops the object, and stale poll closures
+ * compare identity before touching anything.
+ *
+ * Invariant: indexing-session identity implies ytScope identity. The scope
+ * is replaced only inside loadYouTubeVideo, which always clears (and
+ * optionally re-arms) the session in the same call (clear-then-arm), and
+ * nulled only by stopYouTubeMode, which always clears the session. A
+ * session therefore never outlives the SessionScope it was armed under,
+ * so 'yt-indexing-poll' timers registered through getYtScope() die with
+ * the scope that owns the session.
+ */
+export interface YtIndexingSession {
+  /** Playlist being indexed — consumed by onYouTubePlayerReady's re-cue. */
+  playlistId: string | null;
+  /** YouTube load session this indexing run was armed under (trace aid). */
+  sessionId: number;
+  /** Fires once with the stabilized getPlaylist() IDs. */
+  onComplete: (ids: string[]) => void;
+}
+
+let _ytIndexingSession: YtIndexingSession | null = null;
 let _localYouTubePaused = false;
 let _ytPrimed = false;
 let _ytPriming = false;
@@ -144,12 +174,13 @@ export function getCachedYtPlaylistIdx(): number {
   return _cachedYtPlaylistIdx;
 }
 
+/** Shim over the session object — keeps the mode/gate readers mechanical. */
 export function isYtIndexing(): boolean {
-  return _isYtIndexing;
+  return _ytIndexingSession !== null;
 }
 
-export function getYtIndexingCallback(): ((ids: string[]) => void) | null {
-  return _ytIndexingCallback;
+export function getYtIndexingSession(): YtIndexingSession | null {
+  return _ytIndexingSession;
 }
 
 export function isYtPrimed(): boolean {
@@ -216,12 +247,12 @@ export function setCachedYtPlaylistIdx(idx: number): void {
   _cachedYtPlaylistIdx = idx;
 }
 
-export function setYtIndexing(indexing: boolean): void {
-  _isYtIndexing = indexing;
+export function beginYtIndexingSession(session: YtIndexingSession): void {
+  _ytIndexingSession = session;
 }
 
-export function setYtIndexingCallback(cb: ((ids: string[]) => void) | null): void {
-  _ytIndexingCallback = cb;
+export function clearYtIndexingSession(): void {
+  _ytIndexingSession = null;
 }
 
 export function setYtPrimed(primed: boolean): void {
@@ -267,8 +298,7 @@ export function resetYouTubeModuleState(): void {
   _ytPrimeBouncePending = false;
   _cachedYtDuration = 0;
   _cachedYtPlaylistIdx = -1;
-  _isYtIndexing = false;
-  _ytIndexingCallback = null;
+  _ytIndexingSession = null;
 }
 
 // ─── SubItemsMap Centralized Updaters ─────────────────────────────

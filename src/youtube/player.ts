@@ -108,8 +108,7 @@ import {
   setYouTubeSubIndex,
   updateSubItemIds,
   isYtIndexing,
-  setYtIndexing,
-  setYtIndexingCallback,
+  clearYtIndexingSession,
   isYtPrimed,
   setYtPrimed,
   setYtPriming,
@@ -305,6 +304,20 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   if (!wasInYouTube && !isCompatIdle() && !isYtIndexing() && !isYtLoadInProgress()) {
     setYouTubeSubIndex(-1);
   }
+  // Unconditionally clear any in-flight indexing session. stopYouTubeMode is
+  // the teardown owner for indexing: every real mode exit (stop button, track
+  // switch, load timeout, API-script failure) routes through here, and the
+  // arming load re-arms its own session AFTER its transient stop
+  // (clear-then-arm inside loadYouTubeVideo), so there is no session this
+  // could legitimately spare. Placed after the sub-index preservation check
+  // above so that check's isYtIndexing() term keeps its read-before-clear
+  // semantics within this function.
+  if (isYtIndexing()) {
+    clearYtIndexingSession();
+    // Hide the loader the cleared session showed; gated on an actual clear so
+    // a plain track switch can't stomp the incoming flow's loader.
+    showLoader(false);
+  }
   setPendingAutoSyncOnReady(false); // Clear pending URL-input sync if any
 
   // Only leave YouTube mode when we're actually
@@ -348,17 +361,10 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   // network/CPU/battery and cross-mode peer noise.
   cancelSubTitleFetch();
   // Clear poll-loop timers so they don't reschedule against a torn-down
-  // player. Both _pollIndexingPlaylist and _pollScrapePlaylist also
-  // self-abort when getYouTubePlayer() returns null, but cancelling here
-  // also prevents the timers from leaking entries in the registry.
-  // Importantly, do NOT clear isYtIndexing() / setYtIndexingCallback(null)
-  // here: stopYouTubeMode is reached transitively from loadYouTubeVideo's
-  // `player:stop-all-media` emit on every fresh load, and IDLE Add-to-Queue
-  // sets those flags right before that load — clearing them would orphan
-  // the callback and the new playlist would never get added to the queue.
-  // The polling self-cleanup (player gone → setYtIndexing(false) +
-  // setYtIndexingCallback(null) inside _pollIndexingPlaylist) covers the
-  // user-driven mode-exit case.
+  // player. 'yt-indexing-poll' steps are scope-registered (already cleared by
+  // the dispose() at the top) and the poll body identity-guards itself
+  // against the session clear above — this explicit clear is a redundant
+  // belt, kept for symmetry with the adjacent scrape timers.
   clearManagedTimer('yt-indexing-poll');
   clearManagedTimer('yt-scrape-poll');
   clearManagedTimer('yt-scrape-safety');
@@ -596,9 +602,7 @@ export function initYouTube(): void {
 
     if (needsIndex) {
       log.info(`[YouTube] Deferred playlist navigation — indexing ${playlistIdStr} before play`);
-      showLoader(true, t('youtube.indexing_playlist'));
-      setYtIndexing(true);
-      setYtIndexingCallback((ids) => {
+      const indexingCallback = (ids: string[]): void => {
         showLoader(false);
         if (!ids || ids.length === 0) {
           log.warn(
@@ -657,11 +661,13 @@ export function initYouTube(): void {
         // is replaced with a single-video load. Sub-item navigation works
         // from here on because subItemsMap is populated.
         loadYouTubeVideo(targetVideoId, null, autoplay as boolean, targetSubIdx);
-      });
-      // Trigger the iframe to cue the playlist; createYouTubePlayer's
+      };
+      // Trigger the iframe to cue the playlist. loadYouTubeVideo arms the
+      // indexing session (and shows its loader) itself, AFTER the transient
+      // stop, so the session stays scoped to this load. createYouTubePlayer's
       // (needsScrape || indexing) branch fires cuePlaylist, then onPlayerStateChange's
       // CUED handler routes to _pollIndexingPlaylist which fires the callback above.
-      loadYouTubeVideo(videoId as string, playlistIdStr, false);
+      loadYouTubeVideo(videoId as string, playlistIdStr, false, 0, { indexingCallback });
       return;
     }
 
@@ -1299,10 +1305,8 @@ export function initYouTube(): void {
       log.info(
         `[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`,
       );
-      showLoader(true, t('youtube.indexing_playlist'));
 
-      setYtIndexing(true);
-      setYtIndexingCallback((ids) => {
+      const indexingCallback = (ids: string[]): void => {
         showLoader(false);
         if (!ids || ids.length === 0) {
           showToast(t('youtube.fetch_failed'));
@@ -1332,10 +1336,12 @@ export function initYouTube(): void {
           },
           250,
         );
-      });
+      };
 
-      // Trigger the player to index (via cuePlaylist in iframe.ts)
-      loadYouTubeVideo(videoId, playlistId, false);
+      // Trigger the player to index (via cuePlaylist in iframe.ts).
+      // loadYouTubeVideo arms the indexing session + loader itself
+      // (clear-then-arm), keeping the session scoped to this load.
+      loadYouTubeVideo(videoId, playlistId, false, 0, { indexingCallback });
     } else {
       _addYouTubeToPlaylist(videoId, playlistId, titleText, sourceUrl);
     }

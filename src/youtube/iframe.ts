@@ -33,12 +33,13 @@ import {
   getYtIOSWatchdog,
   setYtIOSWatchdog,
   replaceYtScope,
+  getYtScope,
   isYtLoadInProgress,
   setYtLoadInProgress,
   isYtIndexing,
-  setYtIndexing,
-  getYtIndexingCallback,
-  setYtIndexingCallback,
+  getYtIndexingSession,
+  beginYtIndexingSession,
+  clearYtIndexingSession,
   isYtPrimed,
   setYtPrimed,
   isYtPriming,
@@ -83,7 +84,7 @@ import {
   DURATION_CACHE_EPSILON,
 } from './constants.ts';
 
-import type { YTNamespace, YTPlayerConfig } from './_state.ts';
+import type { YTNamespace, YTPlayerConfig, YtIndexingSession } from './_state.ts';
 declare const YT: YTNamespace;
 declare global {
   interface Window {
@@ -231,8 +232,6 @@ interface IframeRuntime {
   isScrapingPlaylist: boolean;
   /** Requested starting index for the active scrape/load session. */
   scrapeStartSubIndex: number | null;
-  /** The playlistId currently being indexed/scraped. */
-  indexingPlaylistId: string | null;
   /** Timestamp when the player first entered a "stuck" (non-playing) state.
    *  Null while the player is PLAYING/PAUSED, or when one of the legitimate-
    *  stall guards applies (iOS gate, tab hidden, scraping). See the
@@ -260,7 +259,6 @@ const _ifr: IframeRuntime = {
   lastPreemptIdx: -1,
   isScrapingPlaylist: false,
   scrapeStartSubIndex: null,
-  indexingPlaylistId: null,
   unavailableStuckSince: null,
   liveDurationSample: 0,
   liveDurationGrowthFrames: 0,
@@ -403,20 +401,28 @@ export function primeYouTubePlayer(): void {
   }
 }
 
+export type LoadYouTubeVideoOptions = {
+  /**
+   * Arm a playlist-indexing session for this load: the callback fires once
+   * with the stabilized getPlaylist() IDs (CUED → _pollIndexingPlaylist).
+   * Armed INSIDE the load — after the transient stop and scope replacement —
+   * so the session can never predate, and thus never survive, the teardown
+   * of the load it belongs to (see YtIndexingSession in _state.ts).
+   */
+  indexingCallback?: (ids: string[]) => void;
+};
+
 export function loadYouTubeVideo(
   videoId: string | null,
   playlistId: string | null = null,
   autoplay = true,
   subIndex = 0,
+  opts: LoadYouTubeVideoOptions = {},
 ): void {
   setYtPriming(false);
   setYtPrimeReady(false);
   setYtPrimeBouncePending(false);
   clearManagedTimer('yt-prime-bounce-timeout');
-
-  const indexing = isYtIndexing();
-  if (indexing) _ifr.indexingPlaylistId = playlistId;
-  else _ifr.indexingPlaylistId = null;
 
   // Reset pre-empt guard on every new load. The guard compares against
   // the iframe's current playlistIdx; if the value is stale from a prior
@@ -502,6 +508,25 @@ export function loadYouTubeVideo(
     return;
   }
 
+  // Clear-then-arm: any indexing session still armed here belongs to a
+  // previous load. On the fresh-create path stopYouTubeMode (reached via the
+  // player:stop-all-media emit above) already cleared it, but the YT-to-YT
+  // reuse branch never reaches stopYouTubeMode — without this clear, a
+  // concurrent non-indexing add mid-index would carry the stale session
+  // into createYouTubePlayer, bypassing the single-video-mode enforcement
+  // and mis-routing the new load into cuePlaylist.
+  const staleIndexing = getYtIndexingSession();
+  if (staleIndexing) {
+    clearYtIndexingSession();
+    // Hide the stale session's loader — unless this same call arms a
+    // replacement below, whose own showLoader(true) must not be stomped.
+    if (!opts.indexingCallback) showLoader(false);
+  }
+  if (opts.indexingCallback) {
+    beginYtIndexingSession({ playlistId, sessionId, onComplete: opts.indexingCallback });
+    showLoader(true, t('youtube.indexing_playlist'));
+  }
+
   if (!window.YT?.Player) {
     runWhenYouTubeApiReady(
       () => {
@@ -570,17 +595,11 @@ function createYouTubePlayer(
   const indexing = isYtIndexing();
   const prime = options.prime === true;
   if (!isPlaybackModeYouTube() && !indexing && !prime) {
+    // No stale-indexing cleanup needed here: `indexing` is false by the gate
+    // above, and indexing-session teardown ownership lives in stopYouTubeMode
+    // plus loadYouTubeVideo's clear-then-arm step.
     log.warn('[YouTube] createYouTubePlayer aborted - not in YouTube playback mode');
     setYtLoadInProgress(false);
-    // Clear any stale indexing intent from an aborted new-playlist flow.
-    // Without this, _isYtIndexing stays pinned true and the next Add-playlist
-    // attempt short-circuits (the pending callback would also fire with the
-    // wrong playlist's IDs).
-    if (indexing) {
-      setYtIndexing(false);
-      setYtIndexingCallback(null);
-      showLoader(false);
-    }
     return;
   }
 
@@ -788,11 +807,11 @@ function onYouTubePlayerReady(): void {
   }
 
   const player = getYouTubePlayer();
-  const indexingPid = _ifr.indexingPlaylistId;
-  if (indexing && indexingPid && player?.cuePlaylist) {
+  const indexingSession = getYtIndexingSession();
+  if (indexingSession?.playlistId && player?.cuePlaylist) {
     const subIndex = getState('youtube.currentSubIndex') ?? 0;
     player.cuePlaylist({
-      list: indexingPid,
+      list: indexingSession.playlistId,
       listType: 'playlist',
       index: subIndex,
       startSeconds: 0,
@@ -896,12 +915,21 @@ function onYouTubePlayerReady(): void {
 const INDEXING_POLL_INTERVAL_MS = 300;
 const INDEXING_POLL_MAX_ATTEMPTS = 15; // ~4.5s ceiling
 
-function _pollIndexingPlaylist(prevCount: number, attempts: number): void {
+function _pollIndexingPlaylist(
+  session: YtIndexingSession,
+  prevCount: number,
+  attempts: number,
+): void {
+  // Identity guard covers the WHOLE poll body: if the session was cleared or
+  // replaced since this step was scheduled (mode exit, concurrent load's
+  // clear-then-arm), a stale closure must not touch the player, fire its
+  // callback, or clear someone else's session.
+  if (getYtIndexingSession() !== session) return;
   const player = getYouTubePlayer();
   if (!player?.getPlaylist) {
     // Player gone — abandon indexing without invoking the callback
-    setYtIndexing(false);
-    setYtIndexingCallback(null);
+    clearYtIndexingSession();
+    showLoader(false);
     return;
   }
   const ids = player.getPlaylist() || [];
@@ -909,18 +937,24 @@ function _pollIndexingPlaylist(prevCount: number, attempts: number): void {
   const giveUp = attempts >= INDEXING_POLL_MAX_ATTEMPTS;
   if (stabilized || giveUp) {
     log.debug(`[YouTube] Indexing settled at ${ids.length} items after ${attempts} polls`);
-    const cb = getYtIndexingCallback();
-    // Do NOT clear indexing state before the callback runs. The callback
-    // triggers loadYouTubeVideo -> stopYouTubeMode, which relies on
-    // isYtIndexing() to avoid clobbering the sub-index.
-    if (cb) cb(ids);
-    setYtIndexing(false);
-    setYtIndexingCallback(null);
+    // Clear AFTER the callback runs: _addYouTubeToPlaylist's isIdle check
+    // (player.ts `|| isYtIndexing()`) is evaluated synchronously inside the
+    // callback and implements the index-then-autoplay contract — clearing
+    // first would silently queue the indexed playlist instead of playing it.
+    // The callback's own loadYouTubeVideo clears (and may re-arm) the session
+    // via clear-then-arm, hence the identity check before the final clear so
+    // we never clobber a session armed during the callback.
+    session.onComplete(ids);
+    if (getYtIndexingSession() === session) clearYtIndexingSession();
     return;
   }
-  setManagedTimer(
+  // Reschedule through the live scope so scope disposal also kills the chain.
+  // Safe because indexing-session identity implies ytScope identity (see
+  // YtIndexingSession in _state.ts) — a null scope here means the session
+  // was already cleared and the top-of-body identity guard ends the chain.
+  getYtScope()?.timer(
     'yt-indexing-poll',
-    () => _pollIndexingPlaylist(ids.length, attempts + 1),
+    () => _pollIndexingPlaylist(session, ids.length, attempts + 1),
     INDEXING_POLL_INTERVAL_MS,
   );
 }
@@ -1029,12 +1063,11 @@ function onYouTubePlayerError(event: { data: number }): void {
   showLoader(false);
 
   // Indexing in progress when the player errors out (e.g. invalid playlistId,
-  // error 150): drop the callback and clear the flag so a subsequent
-  // Add-playlist attempt for a different ID doesn't fire the stale callback
-  // and corrupt the cached sub-items.
+  // error 150): drop the session so a subsequent Add-playlist attempt for a
+  // different ID doesn't fire the stale callback and corrupt the cached
+  // sub-items. The loader is already hidden unconditionally above.
   if (isYtIndexing()) {
-    setYtIndexing(false);
-    setYtIndexingCallback(null);
+    clearYtIndexingSession();
   }
 
   // Unavailable video (100 = removed/private, 101 & 150 = embed disabled):
@@ -1172,14 +1205,19 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     setPlaybackYouTubePaused();
     bus.emit('ui:update-play-state', false);
   } else if (state === YT.PlayerState.CUED) {
-    if (indexing) {
+    // Read the live session (not the `indexing` boolean captured at handler
+    // entry) so the poll chain is keyed to the exact session this CUED
+    // belongs to. The handler is synchronous, so no session can change
+    // between entry and here — this is about passing identity, not freshness.
+    const indexingSession = getYtIndexingSession();
+    if (indexingSession) {
       log.debug('[YouTube] CUED during indexing — polling for full list');
       // YouTube populates getPlaylist() lazily for large playlists — a
       // 100-track list commonly returns ~10 items on the first read after
       // CUED. Firing the callback immediately would cache a truncated list
       // and the playlist would "end" at sub-video 10. Poll until the count
       // stabilizes (same count twice in a row) or a safety ceiling.
-      _pollIndexingPlaylist(-1, 0);
+      _pollIndexingPlaylist(indexingSession, -1, 0);
       return;
     }
 

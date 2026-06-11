@@ -21,7 +21,6 @@ import {
   activateNoSleep,
   selectStandardChannelButton,
   BACK_SVG,
-  setPendingSetupRole,
   getPendingGuestRoleMode,
   setPendingGuestRoleMode,
   getPendingAutoJoinCode,
@@ -91,7 +90,6 @@ export function startGuestFlow(): void {
   precreateYouTubePlayer();
   // The role picker is parked for now; default guests to the center speaker.
   // Keep setup-role-area wired so explicit role selection can return later.
-  setPendingSetupRole(DEFAULT_SETUP_ROLE);
   setPendingGuestRoleMode(DEFAULT_SETUP_ROLE);
 
   updateInviteCodeUI();

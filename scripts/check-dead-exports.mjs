@@ -69,31 +69,11 @@ const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 // symbol (or its export) is deleted; adding entries requires an explicit
 // owner decision recorded in the reason. Format: { symbol, file, reason }.
 const FULLY_DEAD_BASELINE = [
-  {
-    symbol: 'cancelPendingBroadcast',
-    file: 'src/storage/transfer-send.ts',
-    reason:
-      'cancel affordance shipped with the broadcast debounce (000ff02d); zero callers today, ' +
-      'but its doc comment names session-leave/cancel as intended call sites — this smells ' +
-      'like a MISSING cancel-propagation call (15th-audit matrix discipline), not dead weight. ' +
-      'Owner: either wire it into session-leave teardown or delete it together with the ' +
-      're-export below.',
-  },
-  {
-    symbol: 'cancelPendingBroadcast',
-    file: 'src/storage/transfer.ts',
-    reason: 're-export binding of the transfer-send.ts entry above; same triage decision.',
-  },
-  {
-    symbol: 'getPendingSetupRole',
-    file: 'src/ui/setup-shared.ts',
-    reason:
-      'getter has zero callers, but the backing _pendingSetupRole is still WRITTEN from ' +
-      'setup.ts / setup-host.ts / setup-guest.ts / setup-shared.ts:417 — write-only module ' +
-      'state means either a missing read (regression) or a whole vestigial mechanism. ' +
-      'Deleting only the getter would hide that smell from this guard; owner to triage the ' +
-      'mechanism as a unit.',
-  },
+  // Empty as of 2026-06-11 (same-day triage): cancelPendingBroadcast turned
+  // out to be a MISSING cancel-propagation call and was wired into
+  // cancelOutgoingFileTransfers + playTrack's YouTube branch (now live);
+  // getPendingSetupRole was a vestigial write-only slot orphaned when the
+  // role picker was parked (2747bc7d) and was deleted as a unit.
 ];
 
 // ── TEST-ONLY count baseline ─────────────────────────────────────

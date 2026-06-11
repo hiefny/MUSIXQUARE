@@ -53,7 +53,6 @@ import {
   handleSetupRolePreview,
   // State accessors
   setCurrentObSlide,
-  setPendingSetupRole,
   setPendingGuestRoleMode,
   incrementHostCodeFlowId,
   getSetupOverlayEverShown,
@@ -185,7 +184,6 @@ function initSetupOverlay(): void {
   setState('network.roomPassword', '');
   setCurrentObSlide(0);
   setState('setup.sessionStarted', false);
-  setPendingSetupRole(null);
   setPendingGuestRoleMode(null);
 
   updateRoleBadge();

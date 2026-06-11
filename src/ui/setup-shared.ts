@@ -34,7 +34,6 @@ export const BACK_SVG =
 
 let _currentObSlide = 0;
 let _setupOverlayEverShown = false;
-let _pendingSetupRole: number | null = null;
 let _pendingGuestRoleMode: number | null = null;
 let _hostCodeFlowId = 0;
 let _setupOverlayAbort: AbortController | null = null;
@@ -48,13 +47,6 @@ export function setCurrentObSlide(v: number): void {
 
 export function getSetupOverlayEverShown(): boolean {
   return _setupOverlayEverShown;
-}
-
-export function getPendingSetupRole(): number | null {
-  return _pendingSetupRole;
-}
-export function setPendingSetupRole(v: number | null): void {
-  _pendingSetupRole = v;
 }
 
 export function getPendingGuestRoleMode(): number | null {
@@ -408,7 +400,9 @@ export function prevObSlide(): void {
 export function handleSetupRolePreview(mode: number): void {
   const appRole = getState('network.appRole');
   if (appRole !== 'guest' && appRole !== 'host') return;
-  _pendingSetupRole = mode;
+  // NOTE: this preview is visual-only — it propagates NOTHING to the join
+  // path. Reinstating the parked role picker requires wiring the tapped mode
+  // into setPendingGuestRoleMode + bus.emit('audio:set-channel-mode').
   setupHighlightJoinRole(mode);
   showPlacementToastForChannel(mode);
 

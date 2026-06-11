@@ -20,7 +20,6 @@ import {
   updateInviteCodeUI,
   selectStandardChannelButton,
   BACK_SVG,
-  setPendingSetupRole,
   getHostCodeFlowId,
   incrementHostCodeFlowId,
   setupEl,
@@ -63,8 +62,6 @@ export function startHostFlow(): void {
   precreateYouTubePlayer();
   // The role picker is parked for now; default hosts to the center speaker.
   // Keep setup-role-area wired so explicit role selection can return later.
-  setPendingSetupRole(DEFAULT_SETUP_ROLE);
-
   try {
     selectStandardChannelButton(DEFAULT_SETUP_ROLE);
     bus.emit('audio:set-channel-mode', DEFAULT_SETUP_ROLE);

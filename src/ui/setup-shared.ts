@@ -21,7 +21,7 @@ import {
   updateInviteCodeUI,
   showPlacementToastForChannel,
 } from './player-controls.ts';
-import { activateNoSleep } from '../app.ts';
+import { activateNoSleep } from '../core/wake-lock.ts';
 import { selectStandardChannelButton } from './settings.ts';
 
 // ─── Constants ───────────────────────────────────────────────────

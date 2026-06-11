@@ -6,28 +6,32 @@
  */
 
 import { log } from '../core/log.ts';
-import {
-  fetchWithCapability,
-  isCapabilityChallengeCancelled,
-  type CapabilityScope,
-} from '../core/capability.ts';
+import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState } from '../core/state.ts';
 import { MSG, DELAY } from '../core/constants.ts';
-import { decodeHtmlEntities } from '../core/html-entities.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
-import { broadcast } from '../network/peer.ts';
+// Import broadcast from the peer-state leaf, not the network/peer facade —
+// the facade drags in host.ts/guest.ts and closed the four-domain
+// ui/network/chat/youtube import cycle (same cycle-break precedent as
+// chat/protocol.ts). Same function object at runtime.
+import { broadcast } from '../network/peer-state.ts';
 import { updateSubItemTitlesBulk } from './_state.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import {
-  OEMBED_CACHE_MAX,
-  OEMBED_CACHE_TTL_MS,
   OEMBED_FETCH_TIMEOUT_MS,
   OEMBED_INITIAL_BATCH_SIZE,
   OEMBED_BACKGROUND_THROTTLE_MS,
   OEMBED_PREVIEW_DEBOUNCE_MS,
 } from './constants.ts';
+import { fetchWithTimeout, normalizeExternalTitle } from './oembed.ts';
+
+// Re-export for youtube/player.ts (same-domain consumer). ui/chat-render.ts
+// must import fetchOEmbedTitle from './oembed.ts' directly — importing it via
+// this module would re-create the render -> search -> network/peer edge that
+// ARCH-WIRECAPS dissolved (enforced by scripts/check-import-graph.mjs).
+export { fetchOEmbedTitle } from './oembed.ts';
 
 const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
@@ -65,35 +69,8 @@ interface YouTubeSearchErrorPayload {
   message?: string;
 }
 
-// ─── Fetch with Timeout ──────────────────────────────────────────
-
-async function fetchWithTimeout(
-  url: string,
-  timeoutMs = OEMBED_FETCH_TIMEOUT_MS,
-  externalSignal?: AbortSignal,
-  init: RequestInit = {},
-  capabilityScope?: CapabilityScope,
-): Promise<Response> {
-  const controller = new AbortController();
-  const id = window.setTimeout(() => controller.abort(), timeoutMs);
-  // Forward external abort to our controller
-  const onExternalAbort = () => controller.abort();
-  if (externalSignal) {
-    if (externalSignal.aborted) {
-      window.clearTimeout(id);
-      controller.abort();
-    } else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
-  }
-  try {
-    const requestInit = { ...init, signal: controller.signal };
-    return capabilityScope
-      ? await fetchWithCapability(url, capabilityScope, requestInit)
-      : await fetch(url, requestInit);
-  } finally {
-    window.clearTimeout(id);
-    externalSignal?.removeEventListener('abort', onExternalAbort);
-  }
-}
+// fetchWithTimeout / normalizeExternalTitle / fetchOEmbedTitle live in
+// ./oembed.ts (pure fetch leaf, shared with ui/chat-render.ts).
 
 // ─── URL Extraction ────────────────────────────────────────────────
 
@@ -130,10 +107,6 @@ function normalizeSearchQuery(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
 }
 
-function normalizeExternalTitle(value: unknown): string {
-  return decodeHtmlEntities(typeof value === 'string' ? value : '').trim();
-}
-
 export function getYouTubeInputIntent(value: string): YouTubeInputIntent {
   const raw = normalizeSearchQuery(value || '');
   if (!raw) {
@@ -154,63 +127,6 @@ export function getYouTubeInputIntent(value: string): YouTubeInputIntent {
   }
 
   return { kind: 'search-query', raw, videoId: null, playlistId: null, query: raw };
-}
-
-// ─── oEmbed Title Cache (LRU + TTL) ───────────────────────────────
-
-const _oEmbedTitleCache = new Map<string, { title: string; ts: number }>();
-const _oEmbedInFlight = new Map<string, Promise<string | null>>();
-
-function _oEmbedCacheGet(key: string): string | null {
-  const entry = _oEmbedTitleCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > OEMBED_CACHE_TTL_MS) {
-    _oEmbedTitleCache.delete(key);
-    return null;
-  }
-  // LRU: move to end
-  _oEmbedTitleCache.delete(key);
-  _oEmbedTitleCache.set(key, entry);
-  return entry.title;
-}
-
-function _oEmbedCacheSet(key: string, title: string): void {
-  // Evict oldest if at capacity
-  if (_oEmbedTitleCache.size >= OEMBED_CACHE_MAX) {
-    const oldest = _oEmbedTitleCache.keys().next().value;
-    if (oldest !== undefined) _oEmbedTitleCache.delete(oldest);
-  }
-  _oEmbedTitleCache.set(key, { title, ts: Date.now() });
-}
-
-export async function fetchOEmbedTitle(url: string): Promise<string | null> {
-  const key = String(url || '');
-  if (!key) return null;
-
-  const cached = _oEmbedCacheGet(key);
-  if (cached) return cached;
-  if (_oEmbedInFlight.has(key)) return _oEmbedInFlight.get(key)!;
-
-  const p = (async (): Promise<string | null> => {
-    try {
-      const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(key)}&format=json`;
-      const response = await fetchWithTimeout(oEmbedUrl);
-      if (!response.ok) return null;
-      const data = await response.json();
-      const title = normalizeExternalTitle(data?.title);
-      return title || null;
-    } catch (e) {
-      log.warn('[YouTube oEmbed] Fetch failed:', e);
-      return null;
-    } finally {
-      _oEmbedInFlight.delete(key);
-    }
-  })();
-
-  _oEmbedInFlight.set(key, p);
-  const result = await p;
-  if (result) _oEmbedCacheSet(key, result);
-  return result;
 }
 
 // YouTube Search (Data API proxy)

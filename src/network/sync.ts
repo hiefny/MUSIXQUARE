@@ -11,6 +11,8 @@ import { getState, setState } from '../core/state.ts';
 import {
   MSG,
   MANUAL_SYNC_OFFSET_LIMIT_SEC,
+  MAX_MSG_LENGTH,
+  MAX_SENDER_LABEL_LENGTH,
   PLAYBACK_STATE,
   RESERVED_NAMES,
   type PlaybackActivityValue,
@@ -37,7 +39,6 @@ import {
 } from './shared-clock.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
-import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../ui/chat-render.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
 import {
   getPlaybackModeActivity,

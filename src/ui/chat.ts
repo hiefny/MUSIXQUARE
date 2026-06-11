@@ -11,7 +11,7 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
+import { MSG, PEER_NAME_PREFIX, MAX_MSG_LENGTH } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { sendToHost } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
@@ -31,7 +31,6 @@ import {
   clearPinnedNotice,
   formatChatDisplayName,
   isContainerAtBottom,
-  MAX_MSG_LENGTH,
 } from './chat-render.ts';
 import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';

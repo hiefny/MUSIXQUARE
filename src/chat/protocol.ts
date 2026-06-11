@@ -8,7 +8,12 @@
 
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
+import {
+  MSG,
+  PEER_NAME_PREFIX,
+  MAX_MSG_LENGTH,
+  MAX_SENDER_LABEL_LENGTH,
+} from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { broadcast, safeSend } from '../network/peer-state.ts';
 import { t } from '../i18n/index.ts';
@@ -20,8 +25,6 @@ import {
   addWhisperMessage,
   addNoticeChatMessage,
   formatChatDisplayName,
-  MAX_MSG_LENGTH,
-  MAX_SENDER_LABEL_LENGTH,
 } from '../ui/chat-render.ts';
 import type { DataConnection } from '../types/index.ts';
 

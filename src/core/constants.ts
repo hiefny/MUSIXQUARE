@@ -75,6 +75,20 @@ export const MAX_GUEST_SLOTS_LIMIT = 32;
 export const WARN_WHEN_MAX_SLOTS_AT_LEAST = 6;
 export const PEER_NAME_PREFIX = 'Peer';
 
+// ─── Chat Wire Caps ────────────────────────────────────────────────
+// Cross-client WIRE CONTRACT — keep bit-identical across releases (deployed
+// clients truncate with these exact values; drift desyncs sender-side vs
+// receiver-side truncation). Used by:
+//   - chat/protocol.ts   inbound truncation + host fan-out write-back (CHAT-1)
+//   - network/sync.ts    OP /notice cap before broadcast, so an OP can't
+//                        amplify a 10MB arg to N peers
+//   - ui/chat.ts         input clamp / paste-merge clamp
+// NOT to be unified with the 4000-char validator caps in network/protocol.ts:
+// that gap is intentional defense-in-depth headroom (validator drops garbage
+// frames; these cap rendered/relayed payloads).
+export const MAX_MSG_LENGTH = 500;
+export const MAX_SENDER_LABEL_LENGTH = 30;
+
 // ─── Message Types (P2P Protocol) ──────────────────────────────────
 export const MSG = {
   CHAT: 'chat',

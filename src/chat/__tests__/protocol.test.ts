@@ -15,14 +15,15 @@ import { handleData } from '../../network/protocol.ts';
 import { registerChatProtocolHandlers } from '../protocol.ts';
 import type { DataConnection } from '../../types/index.ts';
 
+// Render-fn mocks only. The wire caps (MAX_MSG_LENGTH/MAX_SENDER_LABEL_LENGTH)
+// now come from core/constants.ts (real values, unmocked) — mocking them here
+// previously drifted (phantom label cap 24 vs real 30).
 vi.mock('../../ui/chat-render.ts', () => ({
   addChatMessage: vi.fn(),
   addSystemChatMessage: vi.fn(),
   addWhisperMessage: vi.fn(),
   addNoticeChatMessage: vi.fn(),
   formatChatDisplayName: (s: string) => s,
-  MAX_MSG_LENGTH: 500,
-  MAX_SENDER_LABEL_LENGTH: 24,
 }));
 
 vi.mock('../../core/log.ts', () => ({

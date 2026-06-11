@@ -13,11 +13,15 @@ import { setManagedTimer } from '../core/timers.ts';
 import { PEER_NAME_PREFIX } from '../core/constants.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
 import { t } from '../i18n/index.ts';
-import { fetchOEmbedTitle } from '../youtube/search.ts';
+// Import the pure oEmbed fetcher leaf, NOT youtube/search.ts — the search
+// module pulls in the network/peer facade (broadcast) and would re-create
+// the ui/network/chat/youtube import cycle dissolved in ARCH-WIRECAPS.
+import { fetchOEmbedTitle } from '../youtube/oembed.ts';
 
+// Render-owned DOM prune cap. The chat WIRE caps (MAX_MSG_LENGTH,
+// MAX_SENDER_LABEL_LENGTH) live in core/constants.ts — protocol code must
+// not import them from a render module.
 export const MAX_CHAT_MESSAGES = 200;
-export const MAX_SENDER_LABEL_LENGTH = 30;
-export const MAX_MSG_LENGTH = 500;
 
 // Sticky-bottom tolerance: how close to the bottom (in CSS px) counts as
 // "still at the bottom" when deciding whether a new message should auto-

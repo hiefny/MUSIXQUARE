@@ -28,6 +28,7 @@ import {
   isIntentionalNav,
 } from './core/page-lifecycle.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
+import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -154,35 +155,19 @@ function initKeyboardShortcuts(): void {
   log.info('[App] Keyboard shortcuts registered');
 }
 
-// ── Wake Lock (native API) ──
-// Best-effort only. Session liveness still comes from heartbeat/sync recovery.
-// Enabled once when a session starts, never disabled.
-// Re-acquired automatically when tab becomes visible again.
-
-let _wakeLockActive = false;
-
-async function acquireWakeLock(): Promise<void> {
-  if (!('wakeLock' in navigator)) return;
-  try {
-    await navigator.wakeLock.request('screen');
-    log.debug('[App] Wake Lock acquired');
-  } catch (err) {
-    log.warn('[App] Wake Lock request failed:', err);
-  }
-}
-
-export function activateNoSleep(): void {
-  if (_wakeLockActive) return;
-  _wakeLockActive = true;
-  void acquireWakeLock();
-}
+// ── Wake Lock & visibility recovery wiring ──
+// The wake-lock state machine itself lives in core/wake-lock.ts (leaf
+// module) so feature code (ui/setup-shared.ts) never back-imports the
+// bootstrap module. app.ts only owns the visibilitychange listener
+// installation. app.ts must stay import-terminal (zero exports) — enforced
+// by scripts/check-import-graph.mjs RULE A.
 
 function initWakeLock(): void {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
 
     // Re-acquire keep-awake primitives after a visibility bounce.
-    if (_wakeLockActive) void acquireWakeLock();
+    reacquireWakeLockIfActive();
 
     // iOS audio interruption recovery: resume suspended AudioContext
     if (isAudioReady()) {
@@ -223,7 +208,7 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
 async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
   log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
 
-  if (_wakeLockActive) void acquireWakeLock();
+  reacquireWakeLockIfActive();
   await resumeAudioForBackgroundRecovery();
 
   const hostConn = getState('network.hostConn');

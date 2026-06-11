@@ -42,7 +42,10 @@ vi.mock('../player-controls.ts', () => ({
   updateInviteCodeUI: vi.fn(),
 }));
 
-vi.mock('../../youtube/search.ts', () => ({
+// chat-render.ts imports the oEmbed fetcher from the youtube/oembed.ts leaf
+// (not search.ts). Without this mock, the setManagedTimer('yt-chat-title-*')
+// callbacks fire REAL oEmbed fetches in jsdom — flaky timer-leak failures.
+vi.mock('../../youtube/oembed.ts', () => ({
   fetchOEmbedTitle: vi.fn(async () => 'Mock Title'),
 }));
 

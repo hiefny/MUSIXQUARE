@@ -7,11 +7,11 @@ import {
   clearYouTubeInputState,
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
-  fetchOEmbedTitle,
   fetchYouTubeSearchResults,
   getYouTubeInputIntent,
   isYouTubeLiveUrl,
 } from '../search.ts';
+import { fetchOEmbedTitle } from '../oembed.ts';
 
 afterEach(() => {
   vi.unstubAllGlobals();

@@ -77,10 +77,14 @@ vi.mock('../search.ts', () => ({
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
   clearYouTubeInputState: vi.fn(),
-  fetchOEmbedTitle: vi.fn(async () => 'Test Title'),
   fetchYouTubePreview: vi.fn(),
   fetchPlaylistSubTitles: vi.fn(),
   cancelSubTitleFetch: vi.fn(),
+}));
+
+// player.ts imports the oEmbed fetcher from the oembed.ts leaf (not search.ts).
+vi.mock('../oembed.ts', () => ({
+  fetchOEmbedTitle: vi.fn(async () => 'Test Title'),
 }));
 
 vi.mock('../sync.ts', () => ({

@@ -87,10 +87,10 @@ import {
   getSelectedYouTubeSearchResult,
   searchYouTubeFromInput,
   clearYouTubeInputState,
-  fetchOEmbedTitle,
   fetchPlaylistSubTitles,
   cancelSubTitleFetch,
 } from './search.ts';
+import { fetchOEmbedTitle } from './oembed.ts';
 import type { DataConnection, PlaylistItem } from '../types/index.ts';
 
 // ─── Sub-module imports ────────────────────────────────────────────

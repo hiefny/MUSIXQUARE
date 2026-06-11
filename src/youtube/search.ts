@@ -27,12 +27,6 @@ import {
 } from './constants.ts';
 import { fetchWithTimeout, normalizeExternalTitle } from './oembed.ts';
 
-// Re-export for youtube/player.ts (same-domain consumer). ui/chat-render.ts
-// must import fetchOEmbedTitle from './oembed.ts' directly — importing it via
-// this module would re-create the render -> search -> network/peer edge that
-// ARCH-WIRECAPS dissolved (enforced by scripts/check-import-graph.mjs).
-export { fetchOEmbedTitle } from './oembed.ts';
-
 const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
 const YOUTUBE_SEARCH_CACHE_MAX = 25;

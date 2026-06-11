@@ -133,9 +133,13 @@ vi.mock('../iframe.ts', () => ({
 vi.mock('../search.ts', () => ({
   extractYouTubeVideoId: vi.fn(() => null),
   extractYouTubePlaylistId: vi.fn(() => null),
-  fetchOEmbedTitle: vi.fn(async () => null),
   fetchYouTubePreview: vi.fn(),
   fetchPlaylistSubTitles: vi.fn(),
+}));
+
+// player.ts imports the oEmbed fetcher from the oembed.ts leaf (not search.ts).
+vi.mock('../oembed.ts', () => ({
+  fetchOEmbedTitle: vi.fn(async () => null),
 }));
 
 // transport.ts — fmtTime is the only runtime helper needed here.

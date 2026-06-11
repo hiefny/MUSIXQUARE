@@ -37,7 +37,8 @@ import type { DataConnection } from '../types/index.ts';
 import {
   getCurrentAudioBuffer,
   setCurrentAudioBuffer,
-  getLoadToken,
+  getCurrentLoadEpoch,
+  isCurrentLoadEpoch,
   getActiveLoadSessionId,
   incrementLoadSessionId,
   getPendingPlayTime,
@@ -71,7 +72,7 @@ import { isDemoTrackName } from '../demo/tracks.ts';
 const DECODE_TIMEOUT_MS = 10_000;
 const DECODE_TIMEOUT_TAG = '__decode_timeout__';
 
-// Preload-activation owner seq (mechanism M4 in
+// Preload-activation owner handle (mechanism M4 in
 // docs/design/playback-concurrency-invariants.md). Exists solely so a
 // SUPERSEDED activation cannot clear the playPreloadedInProgress flag the
 // superseding one set (compare-before-clear). Every begin takes ownership;
@@ -79,23 +80,43 @@ const DECODE_TIMEOUT_TAG = '__decode_timeout__';
 // one other sanctioned writer: stopAllMedia's flag-only clear (contract C4) —
 // benign because finishPreloadActivation is idempotent. Pinned by
 // __tests__/concurrency-invariants.test.ts (pins a, f).
-let _preloadActivationSeq = 0;
-let _activePreloadActivation = 0;
+//
+// Stage B (PLAYER-SPRAWL): the former private `_preloadActivationSeq` counter
+// is gone — the handle records the owning LOAD EPOCH (M1) instead. Ownership
+// comparison is by handle identity, NOT by epoch equality: comparing epochs
+// would let (a) an unrelated epoch bump (watchdog fire mid-activation) strand
+// the flag true forever, and (b) two begins that erroneously share one epoch
+// stomp each other's clear — handle identity preserves the exact pre-Stage-B
+// compare-before-clear semantics while the epoch field keeps the owner
+// attributable to its logical run. Every prod begin receives a FRESHLY
+// allocated epoch (all three loadPreloadedTrack call sites bump first); the
+// warn in begin trips if a future caller skips its entry-point bump.
+interface PreloadActivation {
+  /** The load epoch (M1) that owned the pipeline when this activation began. */
+  readonly epoch: number;
+}
 
-function beginPreloadActivation(): number {
-  const owner = ++_preloadActivationSeq;
+let _activePreloadActivation: PreloadActivation | null = null;
+
+function beginPreloadActivation(epoch: number): PreloadActivation {
+  if (_activePreloadActivation && _activePreloadActivation.epoch === epoch) {
+    log.warn(
+      '[Preload] Two activations share one load epoch — a caller skipped its entry-point epoch allocation',
+    );
+  }
+  const owner: PreloadActivation = { epoch };
   _activePreloadActivation = owner;
   setPlayPreloadedInProgress(true);
   return owner;
 }
 
-function isCurrentPreloadActivation(owner: number): boolean {
+function isCurrentPreloadActivation(owner: PreloadActivation): boolean {
   return _activePreloadActivation === owner;
 }
 
-function finishPreloadActivation(owner: number): void {
+function finishPreloadActivation(owner: PreloadActivation): void {
   if (!isCurrentPreloadActivation(owner)) return;
-  _activePreloadActivation = 0;
+  _activePreloadActivation = null;
   setPlayPreloadedInProgress(false);
 }
 
@@ -125,11 +146,11 @@ function isDecodeTimeout(err: unknown): boolean {
 export async function loadAndBroadcastFile(
   file: File,
   sessionId: number | null = null,
-  loadToken?: number,
+  loadEpoch?: number,
   prepareMsg?: AnyProtocolMsg,
 ): Promise<boolean> {
   const myLoadId = incrementLoadSessionId();
-  const myToken = loadToken ?? getLoadToken();
+  const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
 
   showLoader(true, t('toast.preparing', { name: file.name }));
   stopAllMedia({ silent: true });
@@ -174,9 +195,9 @@ export async function loadAndBroadcastFile(
     const audioBuffer = await decodeWithTimeout(arrayBuffer, 'host-load');
 
     // Re-verify after async decode
-    if (loadToken !== undefined && getLoadToken() !== myToken) {
+    if (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) {
       if (myLoadId === getActiveLoadSessionId()) {
-        log.warn('[Load] Token mismatch after decode. Aborting stale load.');
+        log.warn('[Load] Load epoch superseded after decode. Aborting stale load.');
         showLoader(false);
       }
       return false;
@@ -293,9 +314,9 @@ export async function loadAndBroadcastFile(
 //
 // Caller must already be on host (hostConn=null) — this function does not
 // re-check, since both call sites have host-only guards.
-export async function loadDemoFile(file: File, meta: TrackMeta, loadToken?: number): Promise<void> {
+export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: number): Promise<void> {
   const myLoadId = incrementLoadSessionId();
-  const myToken = loadToken ?? getLoadToken();
+  const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
 
   showLoader(true, t('transfer.demo_loading_short'));
   stopAllMedia({ silent: true });
@@ -319,7 +340,7 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadToken?: numb
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await decodeWithTimeout(arrayBuffer, 'demo-load');
 
-    if (loadToken !== undefined && getLoadToken() !== myToken) {
+    if (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) {
       if (myLoadId === getActiveLoadSessionId()) showLoader(false);
       return;
     }
@@ -435,18 +456,18 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   }
 
   if (nextIdx !== -1 || shouldUseShuffleOrder) {
-    // Snapshot the load token at scheduling time. If a user action (track
-    // click, next/prev) bumps the token during the 600ms backoff, abort —
-    // playTrack already cleared this timer at its entry, but the snapshot
+    // Snapshot the load epoch at scheduling time. If a user action (track
+    // click, next/prev) allocates a new epoch during the 600ms backoff, abort
+    // — playTrack already cleared this timer at its entry, but the snapshot
     // guards the timer-fire-vs-clear race (clearManagedTimer just above
-    // the new playTrack's increment happens *after* the timer's setTimeout
+    // the new playTrack's allocation happens *after* the timer's setTimeout
     // body has already begun executing in some browsers' microtask ordering).
-    const advanceToken = getLoadToken();
+    const advanceEpoch = getCurrentLoadEpoch();
     setManagedTimer(
       'decode-fail-advance',
       () => {
-        if (getLoadToken() !== advanceToken) {
-          log.debug('[Decode] Skipping auto-advance — load token bumped (user action superseded)');
+        if (!isCurrentLoadEpoch(advanceEpoch)) {
+          log.debug('[Decode] Skipping auto-advance — load epoch advanced (user action superseded)');
           return;
         }
         // Dynamic import to avoid a static cycle with playlist.ts
@@ -608,12 +629,12 @@ export function initDecodeHandlers(): void {
  */
 export async function loadPreloadedTrack(
   expectedIndex?: number,
-  loadToken?: number,
+  loadEpoch?: number,
 ): Promise<boolean> {
   const nextMeta = getState('preload.meta');
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const targetIndex = expectedIndex ?? (nextMeta?.index as number) ?? currentTrackIndex;
-  const myToken = loadToken ?? getLoadToken();
+  const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
   const localBlob = getState('preload.nextFileBlob');
   const localMeta = nextMeta ? { ...nextMeta } : null;
 
@@ -623,7 +644,7 @@ export async function loadPreloadedTrack(
     return false;
   }
 
-  const activationOwner = beginPreloadActivation();
+  const activationOwner = beginPreloadActivation(myEpoch);
 
   try {
     if (!isSystemAudioActive()) {
@@ -670,11 +691,11 @@ export async function loadPreloadedTrack(
     const audioBuffer = await decodeWithTimeout(arrayBuffer, 'preload');
 
     // Re-verify after async decode
-    if (loadToken !== undefined && getLoadToken() !== myToken) {
-      log.warn('[Preload] Token mismatch after decode. Discarding.');
+    if (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) {
+      log.warn('[Preload] Load epoch superseded after decode. Discarding.');
       finishPreloadActivation(activationOwner);
-      // Same rationale: token mismatch means a newer load is starting; the
-      // newer load owns pendingPlayTime consumption.
+      // Same rationale: epoch supersession means a newer load is starting;
+      // the newer load owns pendingPlayTime consumption.
       return false;
     }
     if (

@@ -8,7 +8,7 @@ import { t } from '../i18n/index.ts';
 import { loadDemoFile } from '../player/decode.ts';
 import {
   getCurrentAudioBuffer,
-  incrementLoadToken,
+  newLoadEpoch,
   setCurrentAudioBuffer,
 } from '../player/_state.ts';
 import {
@@ -433,7 +433,7 @@ async function loadDemoTrack(index: number, options: { autoplay: boolean }): Pro
   if (token !== _demoLoadToken || !getState('demo.active')) return;
 
   const file = new File([blob], track.fileName, { type: track.mime });
-  await loadDemoFile(file, createDemoTrackMeta(track), incrementLoadToken());
+  await loadDemoFile(file, createDemoTrackMeta(track), newLoadEpoch());
   if (token !== _demoLoadToken || !getState('demo.active')) return;
 
   preloadDemoTrack(getNextDemoTrackIndex(index));

@@ -26,7 +26,9 @@ import type { PlaylistItem } from '../types/index.ts';
 // __tests__/concurrency-invariants.test.ts. Static guard:
 // scripts/check-lifecycle-writes.mjs (guard:lifecycle-writes).
 //
-//   M1 _currentLoadToken        — user/track-change intent. Bumped ONLY at
+//   M1 _loadEpoch               — user/track-change intent (the load EPOCH,
+//                                 Stage B's single supersession authority —
+//                                 formerly `loadToken`). Allocated ONLY at
 //                                 entry points (playlist.ts playTrack +
 //                                 repeat-one, playback.ts handlers,
 //                                 transport.ts cancelInFlight + watchdog,
@@ -46,8 +48,9 @@ import type { PlaylistItem } from '../types/index.ts';
 //                                 stopPlayerNode + M1 bump + semantic IDLE.
 //   M4 _playPreloadedInProgress — preload-activation window flag, ownership
 //                                 managed by the compare-before-clear owner
-//                                 seq in decode.ts (beginPreloadActivation/
-//                                 finishPreloadActivation). Second sanctioned
+//                                 handle in decode.ts (beginPreloadActivation/
+//                                 finishPreloadActivation; the handle records
+//                                 its owning M1 epoch). Second sanctioned
 //                                 writer: stopAllMedia's flag-only clear.
 //   M6 pendingPlayTime          — a MAILBOX, not a guard: per-abort-cause
 //                                 preserve/clear policy is asymmetric BY
@@ -56,7 +59,7 @@ import type { PlaylistItem } from '../types/index.ts';
 
 let _playerNode: AudioBufferSourceNode | null = null;
 let _currentAudioBuffer: AudioBuffer | null = null;
-let _currentLoadToken = 0;
+let _loadEpoch = 0;
 let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
 let _playPreloadedInProgress = false;
@@ -117,15 +120,46 @@ export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
   }
 }
 
-// ─── Load Token ────────────────────────────────────────────────────
+// ─── Load Epoch (M1 — single supersession authority) ───────────────
+//
+// PLAYER-SPRAWL Stage B: ONE monotonic counter answers "has a newer logical
+// load run started?" for the file-playback pipeline. It replaces the old
+// `loadToken` ambient counter and also owns the preload-activation handle in
+// decode.ts (the former private `_preloadActivationSeq` is gone).
+//
+// ALLOCATION DISCIPLINE (entry-point only — statically ratcheted by
+// scripts/check-lifecycle-writes.mjs CHECK 5): newLoadEpoch() may be called
+// ONLY at the outermost entry of a logical pipeline run —
+//   playlist.ts   playTrack + repeat-one ended-advance
+//   playback.ts   handlePlayMsg preload-match + storage:use-preloaded handler
+//   transport.ts  stopAllMedia({cancelInFlight}) + 15s navigator-lock-watchdog
+//   demo/mode.ts  loadDemoTrack entry
+// Load functions (decode.ts) NEVER allocate — they only validate. A load
+// function bumping the epoch would self-abort at its own post-decode
+// checkpoint (trap 1 in the PLAYER-SPRAWL briefing).
+//
+// NOT merged into this epoch (owner decision, doc §5, pin g):
+// activeLoadSessionId below — finalizeGuestFile must stay immune to epoch
+// bumps (watchdog/cancelInFlight must not abort in-flight guest finalizes).
 
-export function getLoadToken(): number {
-  return _currentLoadToken;
+export function getCurrentLoadEpoch(): number {
+  return _loadEpoch;
 }
 
-export function incrementLoadToken(): number {
-  return ++_currentLoadToken;
+export function newLoadEpoch(): number {
+  return ++_loadEpoch;
 }
+
+export function isCurrentLoadEpoch(epoch: number): boolean {
+  return epoch === _loadEpoch;
+}
+
+// Aliases for the pre-Stage-B names. The token-arithmetic pins
+// (playback-extended.test.ts: cancelInFlight = +1, silent = ±0 — contract C2)
+// and the Stage A pins are intentionally written against these names; prod
+// code uses the epoch names above. Same counter, no behavior difference.
+export const getLoadToken = getCurrentLoadEpoch;
+export const incrementLoadToken = newLoadEpoch;
 
 // ─── Load Session ID ───────────────────────────────────────────────
 

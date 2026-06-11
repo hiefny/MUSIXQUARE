@@ -30,15 +30,18 @@
  *     writer is precisely how the documented flag-stomp double-play window
  *     (contract C1) re-opens.
  *
- *   CHECK 5: incrementLoadToken() prod callers ⊆ {player/playlist.ts,
- *     player/playback.ts, player/transport.ts, demo/mode.ts}. Token bumps are
- *     ENTRY-POINT-ONLY allocation discipline — a load function bumping the
- *     token would self-abort at its own post-decode checkpoint (trap 1 in the
- *     PLAYER-SPRAWL briefing). File-level allowlist on purpose: line numbers
- *     churn, ordering/protocol invariants are the pin tests' job
+ *   CHECK 5: newLoadEpoch() prod callers ⊆ {player/playlist.ts,
+ *     player/playback.ts, player/transport.ts, demo/mode.ts}. Epoch
+ *     allocation is ENTRY-POINT-ONLY discipline — a load function allocating
+ *     an epoch would self-abort at its own post-decode checkpoint (trap 1 in
+ *     the PLAYER-SPRAWL briefing). File-level allowlist on purpose: line
+ *     numbers churn, ordering/protocol invariants are the pin tests' job
  *     (src/player/__tests__/concurrency-invariants.test.ts), and an eager
  *     static rule here would fight the deliberate supersession-window
- *     semantics (HET-3 guard-vs-pin class).
+ *     semantics (HET-3 guard-vs-pin class). Stage B alias period: the legacy
+ *     name incrementLoadToken (now a _state.ts const alias used only by
+ *     tests) is held to the SAME allowlist so a prod call can't sneak back
+ *     in under the old name.
  *
  * Deliberately NOT checked statically: clear-iff-current ordering, the
  * flag-stomp window, pendingPlayTime preserve/clear policy — those are
@@ -51,9 +54,6 @@
  *   - Paths normalized to forward slashes (Windows dev environment).
  *   - Definitions excluded from "caller" checks via a `function ` lookbehind;
  *     bare import-list mentions don't match because callers require a `(`.
- *
- * If Stage B renames incrementLoadToken to newLoadEpoch, update CHECK 5's
- * symbol + allowlist in the same commit (the alias-period should keep both).
  *
  * Exit code: 0 if clean, 1 if findings remain.
  */
@@ -85,7 +85,7 @@ const LIFECYCLE_BATCH_KEY_ALLOWLIST = new Map([
 // CHECK 3-5: file-level caller allowlists.
 const LIFECYCLE_SETTER_CALLERS = new Set(['src/player/lifecycle.ts']);
 const PRELOADED_FLAG_CALLERS = new Set(['src/player/decode.ts', 'src/player/transport.ts']);
-const LOAD_TOKEN_CALLERS = new Set([
+const LOAD_EPOCH_CALLERS = new Set([
   'src/player/playlist.ts',
   'src/player/playback.ts',
   'src/player/transport.ts',
@@ -99,7 +99,12 @@ const BATCH_KEY_RE = /['"]playback\.lifecycle['"]\s*:/g;
 // import-list mentions have no trailing `(` so they never match.
 const LIFECYCLE_SETTER_CALL_RE = /(?<!function )\bsetPlaybackLifecycleState\s*\(/g;
 const PRELOADED_FLAG_CALL_RE = /(?<!function )\bsetPlayPreloadedInProgress\s*\(/g;
-const LOAD_TOKEN_CALL_RE = /(?<!function )\bincrementLoadToken\s*\(/g;
+const LOAD_EPOCH_CALL_RE = /(?<!function )\bnewLoadEpoch\s*\(/g;
+// Legacy alias (Stage B migration). Its definition in _state.ts is a `const`
+// assignment (`const incrementLoadToken = newLoadEpoch;`) — neither side has
+// a trailing `(`, so the definition matches NEITHER call regex and needs no
+// allowlist entry; only real calls under the old name would be flagged.
+const LOAD_TOKEN_ALIAS_CALL_RE = /(?<!function )\bincrementLoadToken\s*\(/g;
 
 // Strip comments so doc mentions are not mistaken for call sites. The ':'
 // guard on line comments leaves URLs intact.
@@ -185,12 +190,22 @@ const CALLER_CHECKS = [
       'transport.ts stopAllMedia) — a third re-opens the flag-stomp double-play window (C1/C4)',
   },
   {
-    name: 'incrementLoadToken',
-    re: LOAD_TOKEN_CALL_RE,
-    allow: LOAD_TOKEN_CALLERS,
+    name: 'newLoadEpoch',
+    re: LOAD_EPOCH_CALL_RE,
+    allow: LOAD_EPOCH_CALLERS,
     hint:
-      'token bumps are entry-point-only — a load function bumping the token self-aborts ' +
+      'epoch allocation is entry-point-only — a load function allocating an epoch self-aborts ' +
       'at its own checkpoint (see invariants doc §1 M1)',
+  },
+  {
+    name: 'incrementLoadToken (legacy alias)',
+    // Empty allowlist: prod is fully on the epoch name; the alias exists ONLY
+    // for the pinned token-arithmetic tests. Any prod call is a regression.
+    re: LOAD_TOKEN_ALIAS_CALL_RE,
+    allow: new Set(),
+    hint:
+      'legacy alias of newLoadEpoch — prod code must use the epoch name; the alias is ' +
+      'test-only during the rename window (see invariants doc §1 M1)',
   },
 ];
 
@@ -211,12 +226,12 @@ console.log('── Playback lifecycle/concurrency write-discipline check ──
 console.log(
   `scanned ${sources.size} prod files; ` +
     `${LIFECYCLE_BATCH_KEY_ALLOWLIST.size} batch writers + ` +
-    `${LIFECYCLE_SETTER_CALLERS.size + PRELOADED_FLAG_CALLERS.size + LOAD_TOKEN_CALLERS.size} caller files allowlisted`,
+    `${LIFECYCLE_SETTER_CALLERS.size + PRELOADED_FLAG_CALLERS.size + LOAD_EPOCH_CALLERS.size} caller files allowlisted`,
 );
 console.log('');
 
 if (!findings.length) {
-  console.log('OK — lifecycle writes FSM-owned; flag and token writer sets within ratchet.');
+  console.log('OK — lifecycle writes FSM-owned; flag and epoch writer sets within ratchet.');
   process.exit(0);
 }
 

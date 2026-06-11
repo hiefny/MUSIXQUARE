@@ -31,7 +31,7 @@ import { getDemoTrackForPlayback, isDemoTrackName } from '../demo/tracks.ts';
 import {
   getCurrentAudioBuffer,
   getPlayerNode,
-  incrementLoadToken,
+  newLoadEpoch,
   setPendingPlayTime,
   getPendingPlayTimeSetAt,
   isPlayPreloadedInProgress,
@@ -97,7 +97,7 @@ let _activePreloadWaiterCleanup: (() => void) | null = null;
 // loadPreloadedTrack call below does NOT register _activePreloadIndex, so the
 // same-index dedup in the use-preloaded handler only covers handler-initiated
 // activations. A same-index overlap with a handlePlayMsg-initiated activation
-// takes the supersede branch instead — safe (token bump + compare-before-
+// takes the supersede branch instead — safe (epoch bump + compare-before-
 // clear), just one redundant decode.
 let _activePreloadIndex: number | null = null;
 
@@ -155,8 +155,8 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     const nextTrackIndex = getState('preload.nextTrackIndex');
     if (nextFileBlob && nextTrackIndex === incomingIndex) {
       log.debug(`[Guest] Found preloaded track for index ${incomingIndex}`);
-      const newToken = incrementLoadToken();
-      loadPreloadedTrack(incomingIndex, newToken);
+      const newEpoch = newLoadEpoch();
+      loadPreloadedTrack(incomingIndex, newEpoch);
       return;
     }
 
@@ -736,7 +736,8 @@ export function initPlayback(): void {
     // may have moved on to a newer transfer session (rapid track switch,
     // recovery response for an older session, etc.). Compare the incoming
     // sessionId against transfer.localSessionId and drop if superseded.
-    // finalizeGuestFile has its own load-token guard internally, but
+    // finalizeGuestFile has its own staleness guard internally
+    // (activeLoadSessionId, M2 — deliberately NOT the load epoch), but
     // skipping here avoids an unnecessary decode of a now-stale file.
     //
     // FALLBACK (2026-04-25): a "stale" session may actually be the file
@@ -815,8 +816,8 @@ export function initPlayback(): void {
         //   - Same index: redundant call (e.g. duplicate use-preloaded
         //     from a re-arm path). Ignore.
         //   - Different index: a new preload arrived while the old one
-        //     was still decoding. Supersede via load-token bump — the
-        //     in-flight call will detect the mismatch after decode and
+        //     was still decoding. Supersede via a fresh load epoch — the
+        //     in-flight call will detect the supersession after decode and
         //     bail out (preserving pendingPlayTime per decode.ts), and
         //     this new call takes ownership.
         // Without this distinction, remote-share track 2 → track 3 in
@@ -832,18 +833,18 @@ export function initPlayback(): void {
           `[Playback] use-preloaded(${index}) supersedes in-flight load(${activeIdx ?? '?'})`,
         );
         // Don't clear setPlayPreloadedInProgress — the in-flight call will
-        // hit token mismatch and clear it itself; we'd otherwise create a
-        // window where the flag is false but a decode is still running,
+        // hit epoch supersession and clear it itself; we'd otherwise create
+        // a window where the flag is false but a decode is still running,
         // letting handlePlayMsg fall through and double-trigger play.
         // (Flag-stomp rule, contract C1 in docs/design/
         // playback-concurrency-invariants.md — pinned by
         // concurrency-invariants.test.ts pin a. In practice the old call's
         // clear resolves as a no-op via decode.ts's compare-before-clear
-        // owner seq; the new call's finish performs the real clear.)
+        // owner handle; the new call's finish performs the real clear.)
       }
       _activePreloadIndex = index;
-      const newToken = incrementLoadToken();
-      loadPreloadedTrack(index, newToken).finally(() => {
+      const newEpoch = newLoadEpoch();
+      loadPreloadedTrack(index, newEpoch).finally(() => {
         if (_activePreloadIndex === index) _activePreloadIndex = null;
       });
     } else {

@@ -2,11 +2,16 @@
 
 > **Status**: authoritative invariant matrix for the file-playback pipeline's
 > concurrency-control mechanisms. Written 2026-06-11 as Stage A of the
-> PLAYER-SPRAWL plan (Stage B = merge `loadToken` + preload-activation owner
-> seq into one epoch; Stage C deferred).
+> PLAYER-SPRAWL plan. **Stage B landed the same day**: `loadToken` and the
+> preload-activation owner seq are now ONE counter — the **load epoch**
+> (`_state.ts`: `newLoadEpoch` / `getCurrentLoadEpoch` / `isCurrentLoadEpoch`;
+> the legacy names `getLoadToken`/`incrementLoadToken` remain as aliases for
+> the pinned token-arithmetic tests). Stage C deferred. Where this doc says
+> "token (bump)", read "epoch (allocation)" — same counter, older name.
 >
 > **Executable anchors** (change those in lockstep with this doc):
-> - Pins: `src/player/__tests__/concurrency-invariants.test.ts` (pins a–g)
+> - Pins: `src/player/__tests__/concurrency-invariants.test.ts` (pins a–g),
+>   `src/player/__tests__/load-epoch.test.ts` (pins h–i, Stage B)
 > - Static guard: `scripts/check-lifecycle-writes.mjs` (`guard:lifecycle-writes`)
 > - Compact inventory: header comment in `src/player/_state.ts`
 > - Related pins already in place: `busy-guard.test.ts` (SA-04 family),
@@ -18,15 +23,15 @@
 
 One logical concern — *supersession* ("only the CURRENT load may publish side
 effects") — is implemented by several mechanisms with different allocation
-scopes. Until Stage B lands, every fix touching this pipeline must respect the
-matrix below.
+scopes. Stage B merged M1 and M4's owner seq into the single load epoch;
+every fix touching this pipeline must still respect the matrix below.
 
 | # | Mechanism | Lives in | Allocates / bumps | Checks | Clears / resets | Protects |
 |---|-----------|----------|-------------------|--------|-----------------|----------|
-| M1 | `loadToken` (`_currentLoadToken`) | `player/_state.ts` | 7 prod sites: `playlist.ts` `playTrack`; `playback.ts` handlePlayMsg preload-match + use-preloaded handler; `transport.ts` `stopAllMedia({cancelInFlight})` + 15s watchdog; `playlist.ts` repeat-one ended-advance; `demo/mode.ts` `loadDemoTrack` | `decode.ts` load fns (post-decode, **optional** — only when caller passed a token), `_internalPlay` checkpoints + `ended` listener, decode-fail-advance timer, `playlist.ts` SA-05 post-activation re-check | never reset, monotonic | user/track-change intent: a newer *logical run* kills older continuations |
-| M2 | `activeLoadSessionId` | `player/_state.ts` | **self-bumped at entry** by `loadAndBroadcastFile`, `loadDemoFile`, `finalizeGuestFile` (NOT `loadPreloadedTrack`) | same three fns: loader-teardown gating (`showLoader(false)` / `pausedAt` reset in `finally`) and `finalizeGuestFile`'s pre/post-decode staleness checkpoints | never reset, monotonic | load *invocation*: a newer invocation that did NOT bump the token still invalidates me |
+| M1 | load epoch (`_loadEpoch`, ex-`loadToken`; API `newLoadEpoch`/`getCurrentLoadEpoch`/`isCurrentLoadEpoch`, legacy aliases `incrementLoadToken`/`getLoadToken`) | `player/_state.ts` | 7 prod sites (entry-point only, guard CHECK 5): `playlist.ts` `playTrack`; `playback.ts` handlePlayMsg preload-match + use-preloaded handler; `transport.ts` `stopAllMedia({cancelInFlight})` + 15s watchdog; `playlist.ts` repeat-one ended-advance; `demo/mode.ts` `loadDemoTrack` | `decode.ts` load fns (post-decode, **optional** — only when caller passed an epoch), `_internalPlay` checkpoints + `ended` listener, decode-fail-advance timer, `playlist.ts` SA-05 post-activation re-check | never reset, monotonic | user/track-change intent: a newer *logical run* kills older continuations |
+| M2 | `activeLoadSessionId` | `player/_state.ts` | **self-bumped at entry** by `loadAndBroadcastFile`, `loadDemoFile`, `finalizeGuestFile` (NOT `loadPreloadedTrack`) | same three fns: loader-teardown gating (`showLoader(false)` / `pausedAt` reset in `finally`) and `finalizeGuestFile`'s pre/post-decode staleness checkpoints | never reset, monotonic | load *invocation*: a newer invocation that did NOT bump the epoch still invalidates me |
 | M3 | `isPlayLocked` + 15s `navigator-lock-watchdog` | `player/_state.ts` + `transport.ts` | `play()` locks; watchdog armed per `play()` | `play()` entry (queue branch) | `_internalPlay` finally (10ms unlock-delay), `stopAllMedia`, watchdog fire | node-start mutual exclusion (short AudioContext/node critical section) |
-| M4 | `playPreloadedInProgress` flag + preload-activation owner seq (`_preloadActivationSeq` / `_activePreloadActivation`) | flag in `_state.ts`, seq in `decode.ts` | `beginPreloadActivation()` (sets flag true, takes ownership) | `handlePlayMsg` flag gate; `tryFetchDemoForRemote` idempotency; `isCurrentPreloadActivation` in the catch path | `finishPreloadActivation` (clear-iff-current); **second writer**: `stopAllMedia`'s flag-only clear (`transport.ts`) — deliberate, see C4 | the activation window: PLAY must queue (not double-trigger) while a preload decode is in flight; a superseded activation must not clear the superseder's flag |
+| M4 | `playPreloadedInProgress` flag + preload-activation owner handle (`_activePreloadActivation` — records its owning M1 epoch; compared by handle IDENTITY, not epoch equality, so an unrelated epoch bump mid-activation cannot strand the flag and same-epoch begins cannot stomp each other) | flag in `_state.ts`, handle in `decode.ts` | `beginPreloadActivation(epoch)` (sets flag true, takes ownership; warns when a LIVE activation already shares the epoch — stale-epoch reuse after the prior activation finished is silent, which is fine: only the overlapping case is dangerous) | `handlePlayMsg` flag gate; `tryFetchDemoForRemote` idempotency; `isCurrentPreloadActivation` in the catch path | `finishPreloadActivation` (clear-iff-current); **second writer**: `stopAllMedia`'s flag-only clear (`transport.ts`) — deliberate, see C4 | the activation window: PLAY must queue (not double-trigger) while a preload decode is in flight; a superseded activation must not clear the superseder's flag |
 | M5 | lifecycle FSM (`playback.lifecycle`) | `player/lifecycle.ts` (+ sanctioned writers, see guard) | `transition()` only | `isFilePipelineBusyForPlay()` (busy gate), `shouldSkipIncomingFile()` (transfer-receive), handlePlayMsg lifecycle gate | `setPlaybackIdle`, session-leave reset (`network/peer.ts`) | observable pipeline phase; the SA-04 stale-buffer window |
 | M6 | `pendingPlayTime` (+ `pendingPlayTimeSetAt`) | state tree, accessors in `_state.ts` | many writers — see §4 | consumed by `loadPreloadedTrack` / `finalizeGuestFile` completion, `_internalPlay` finally (unlock-delay) | per-cause policy, see §4 | a **mailbox**, not a guard: the latest authoritative play time, with deliberate per-cause preserve/clear asymmetry |
 | M7a | `_activePreloadIndex` + `_activePreloadWaiterCleanup` | `playback.ts` (module-local) | use-preloaded handler | same-index dedup in the use-preloaded supersession branch | `.finally()` on the handler-initiated activation; waiter cleanup on re-emit/lifecycle exit | cross-invocation closure cross-talk (rapid A→B switches) |
@@ -43,8 +48,8 @@ activation takes the *supersede* branch instead of the dedup branch — safe
 ## 2. Disambiguation: four unrelated "session/generation" mechanisms
 
 High implementer-trap value — the same words name DIFFERENT mechanisms.
-Stage B touches ONLY the player counters (M1 + M4's seq). Name any new
-abstraction distinctly (e.g. `loadEpoch`/`newLoadEpoch`) so greps never
+Stage B merged ONLY the player counters (M1 + M4's seq) into the load epoch;
+its name (`loadEpoch`/`newLoadEpoch`) is deliberately distinct so greps never
 conflate it with these:
 
 | Name | Lives in | What it is |
@@ -155,9 +160,9 @@ and remote-share's `clearStaleRemotePlayback` re-set
 
 This is *pin (g)* — the permanent tripwire that fails any future attempt to
 fold `activeLoadSessionId` into a single global epoch where
-`isCurrent(e) := e === latest`. Stage B is therefore scoped to merging
-M1 (`loadToken`) + M4's owner seq ONLY (3 counters → 2);
-`activeLoadSessionId` and all eleven of its call sites stay untouched.
+`isCurrent(e) := e === latest`. Stage B (landed 2026-06-11) was therefore
+scoped to merging M1 (`loadToken`) + M4's owner seq ONLY (3 counters → 2);
+`activeLoadSessionId` and all eleven of its call sites stayed untouched.
 The rejected workaround (conditional watchdog bump scoped to the wedged
 play's epoch) silently flips the kill set the other way — in-flight host
 loads that today die on a watchdog fire would newly survive — and is

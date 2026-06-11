@@ -21,8 +21,8 @@ import {
 } from './transport.ts';
 import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import {
-  incrementLoadToken,
-  getLoadToken,
+  newLoadEpoch,
+  isCurrentLoadEpoch,
   getCurrentAudioBuffer,
   setCurrentAudioBuffer,
 } from './_state.ts';
@@ -363,7 +363,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   // Cancel any pending auto-advance from a prior track's decode failure.
   // Without this, a user click during the 600ms backoff window gets stomped
   // by the timer's playTrack(nextIdx) call. Defense-in-depth — the timer
-  // also performs its own load-token check (see decode.ts), but cancelling
+  // also performs its own load-epoch check (see decode.ts), but cancelling
   // here makes the user's intent strictly authoritative on every entry.
   clearManagedTimer('decode-fail-advance');
 
@@ -376,8 +376,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   // branch — no re-download.
   //
   // Gating on `currentAudioBuffer` existence alone is unsafe: rapid
-  // playlist clicking aborts every in-flight decode via loadToken
-  // mismatch in decode.ts, and that abort path leaves the previous
+  // playlist clicking aborts every in-flight decode via load-epoch
+  // supersession in decode.ts, and that abort path leaves the previous
   // track's `currentAudioBuffer` in place (so the previously-playing
   // track stays audible for the rest of the click burst). When the
   // user finally double-clicks track X, `currentTrackIndex === X` but
@@ -450,7 +450,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   // Auto-switch to Play tab (Host only)
   if (!hostConn) bus.emit('ui:switch-tab', 'play');
 
-  const myLoadToken = incrementLoadToken();
+  const myLoadEpoch = newLoadEpoch();
 
   // Check if preloaded
   const nextTrackIndex = getState('preload.nextTrackIndex');
@@ -487,10 +487,10 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     // this invocation is still current. On failure loadPreloadedTrack already
     // routed the host into markFailedAndAdvance (failed-mark + auto-advance);
     // playing here would emit the empty-buffer toast and broadcast a PLAY
-    // that only guests can honor. On token mismatch a newer playTrack owns
-    // playback — a stale PLAY(old index) broadcast would flap guests back.
-    const activated = await loadPreloadedTrack(index, myLoadToken);
-    if (!activated || getLoadToken() !== myLoadToken) {
+    // that only guests can honor. On epoch supersession a newer playTrack
+    // owns playback — a stale PLAY(old index) broadcast would flap guests back.
+    const activated = await loadPreloadedTrack(index, myLoadEpoch);
+    if (!activated || !isCurrentLoadEpoch(myLoadEpoch)) {
       log.debug('[Host] Preloaded activation failed or superseded — skipping play/broadcast');
       return;
     }
@@ -647,7 +647,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       mime: file.type,
       autoPlayDelayMs,
     };
-    const didLoad = await loadAndBroadcastFile(file, sessionId, myLoadToken, prepareMsg);
+    const didLoad = await loadAndBroadcastFile(file, sessionId, myLoadEpoch, prepareMsg);
     if (!didLoad) return;
 
     if (isFirstTrackLoad) {
@@ -1277,8 +1277,8 @@ export function initPlaylist(): void {
   // Handle track ended auto-advance (guarded against double-fire from overlapping timers)
   // Mechanism M7b in docs/design/playback-concurrency-invariants.md — a
   // module-local generation counter DELIBERATELY separate from the player
-  // loadToken (it guards only the two ended-advance timers below; folding it
-  // into the global counter would let unrelated token bumps cancel a
+  // load epoch (it guards only the two ended-advance timers below; folding it
+  // into the global counter would let unrelated epoch bumps cancel a
   // legitimate ended-advance).
   let _endedAdvanceToken = 0;
   bus.on('player:ended', () => {
@@ -1302,7 +1302,7 @@ export function initPlaylist(): void {
           if (token !== _endedAdvanceToken) return;
           // Reuse in-memory audio buffer — skip file re-transfer to guests.
           // Same optimized path as playNextTrack() repeat-one branch.
-          incrementLoadToken();
+          newLoadEpoch();
           play(0).catch(() => {
             /* noop */
           });

@@ -61,8 +61,9 @@ import {
   getPlayerNode,
   setPlayerNode,
   getCurrentAudioBuffer,
-  getLoadToken,
-  incrementLoadToken,
+  getCurrentLoadEpoch,
+  isCurrentLoadEpoch,
+  newLoadEpoch,
   isPlayLocked,
   setPlayLocked,
   getPendingPlayTime,
@@ -247,7 +248,7 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   const wasInYouTube = isYouTubeOwner();
 
   if (opts?.cancelInFlight) {
-    incrementLoadToken();
+    newLoadEpoch();
   }
 
   // Stop system audio if active (without recursive loop — cleanup only disconnects nodes)
@@ -447,21 +448,22 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         );
         // FULL RESET TUPLE (contract C3, docs/design/
         // playback-concurrency-invariants.md): unlock + clear pendingPlayTime
-        // + stopPlayerNode + token bump + semantic IDLE — all five together.
+        // + stopPlayerNode + epoch bump + semantic IDLE — all five together.
         // pendingPlayTime is cleared BEFORE unlocking so the unlock-delay
         // consumer (contract C6) sees a consistent no-pending state. Pinned
         // by concurrency-invariants.test.ts (pin b).
         setPlayLocked(false);
         setPendingPlayTime(undefined);
         stopPlayerNode();
-        // Bump the load token so any in-flight _internalPlay aborts at its
-        // next await checkpoint instead of overwriting the post-watchdog IDLE
-        // state with PLAYING_AUDIO and starting a phantom AudioBufferSourceNode.
+        // Allocate a new load epoch so any in-flight _internalPlay aborts at
+        // its next await checkpoint instead of overwriting the post-watchdog
+        // IDLE state with PLAYING_AUDIO and starting a phantom
+        // AudioBufferSourceNode.
         // KILL-SET NOTE (owner decision, pinned by pin g): this bump does NOT
         // abort an in-flight finalizeGuestFile — finalize checks only
         // activeLoadSessionId (M2), keeping late-join downloads immune to
         // watchdog fires. Do not "unify" that without reading §5 of the doc.
-        incrementLoadToken();
+        newLoadEpoch();
         // Reset playback to IDLE to prevent stuck "playing" UI.
         if (!isCompatIdle()) {
           setPlaybackIdle();
@@ -494,11 +496,11 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
 
 async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   setPendingPlayTime(undefined);
-  // Snapshot the load token at entry. If the play()-level watchdog fires
-  // (or another path bumps the token, e.g. track switch), every await
-  // checkpoint below will see a mismatch and abort cleanly instead of
-  // racing with the watchdog's stopPlayerNode + semantic IDLE write.
-  const myLoadToken = getLoadToken();
+  // Snapshot the load epoch at entry. If the play()-level watchdog fires
+  // (or another path allocates a new epoch, e.g. track switch), every await
+  // checkpoint below will see a superseded epoch and abort cleanly instead
+  // of racing with the watchdog's stopPlayerNode + semantic IDLE write.
+  const myLoadEpoch = getCurrentLoadEpoch();
   log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
 
   if (isExternalOwner()) {
@@ -513,8 +515,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     log.warn('Resume failed:', e);
   }
 
-  if (getLoadToken() !== myLoadToken) {
-    log.warn('[Play] Aborted — load token bumped during ensureRunning');
+  if (!isCurrentLoadEpoch(myLoadEpoch)) {
+    log.warn('[Play] Aborted — load epoch superseded during ensureRunning');
     return;
   }
 
@@ -553,8 +555,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     return;
   }
 
-  if (getLoadToken() !== myLoadToken) {
-    log.warn('[Play] Aborted — load token bumped during initAudio');
+  if (!isCurrentLoadEpoch(myLoadEpoch)) {
+    log.warn('[Play] Aborted — load epoch superseded during initAudio');
     return;
   }
 
@@ -601,7 +603,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     }
 
     newNode.addEventListener('ended', () => {
-      if (myLoadToken !== getLoadToken()) return;
+      if (!isCurrentLoadEpoch(myLoadEpoch)) return;
       if (isFilePlaybackPlaying()) {
         handleEnded();
       }

@@ -135,11 +135,45 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.isConnecting')).toBe(false);
 
     // The successful open also cleared the join timeout — advancing past it
-    // must not surface HOST_UNREACHABLE against the live connection.
+    // must not surface HOST_UNREACHABLE against the live connection. The
+    // replaced conn's close must not surface HOST_DISCONNECTED either: the
+    // consumer would show a "disconnected — reconnect?" dialog (and stop
+    // YouTube playback) over the live session.
     await vi.advanceTimersByTimeAsync(10_000);
     const errorMessages = errors.mock.calls.map((call) => (call[0] as Error)?.message);
     expect(errorMessages).not.toContain('HOST_UNREACHABLE');
+    expect(errorMessages).not.toContain('HOST_DISCONNECTED');
     expect(getState('network.hostConn')).toBe(second);
+  });
+
+  it('a replaced connection closing mid-connect neither resets isConnecting nor surfaces errors', () => {
+    vi.useFakeTimers();
+    const { peer, conns, connect } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    bus.on('network:error', errors);
+
+    joinSession('HOST01');
+    const first = conns[0];
+    first.fire('open'); // conn1 owns hostConn; close/error handlers attached
+
+    // Transport blip undetected, user rejoins: joinSession closes + clears
+    // conn1 and starts conn2 (isConnecting=true while conn2 is mid-connect).
+    first.open = false;
+    joinSession('HOST01');
+    expect(getState('network.isConnecting')).toBe(true);
+
+    // conn1's late close/error land BEFORE conn2 opens. They must be inert:
+    // no isConnecting reset (would defeat the duplicate-join guard), no
+    // spurious HOST_DISCONNECTED / HOST_CONNECTION_ERROR dialog.
+    first.fire('close');
+    first.fire('error', new Error('boom'));
+
+    expect(getState('network.isConnecting')).toBe(true);
+    expect(errors).not.toHaveBeenCalled();
+
+    joinSession('HOST01'); // duplicate guard still holds
+    expect(connect).toHaveBeenCalledTimes(2);
   });
 
   it('times out with HOST_UNREACHABLE when the data channel never opens within 10s', () => {

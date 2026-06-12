@@ -226,12 +226,25 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     _handledConnectionErrors.delete(conn);
 
     conn.on('close', () => {
-      log.warn('[Join] Host connection closed');
-      // Only clear hostConn if WE are still the current connection.
-      // Prevents old conn's async close from nullifying a new connection.
-      if (getState('network.hostConn') === conn) {
-        setState('network.hostConn', null);
+      // Stale-conn no-op (parity with host.ts's per-peer close guard): once
+      // this conn no longer owns network.hostConn — replaced by a rejoin, or
+      // already nulled by leaveSession/rejoin cleanup — its close is
+      // lifecycle noise. Concretely reachable via the double-join orphan
+      // race: a pre-open conn abandoned by back-button cancel opens late,
+      // the host force-closes it as a duplicate (the guest drops that frame
+      // for non-current conns, so the intent flag never arms), and without
+      // this return its close would reset isConnecting mid-connect and
+      // surface a "disconnected" dialog (which also stops YouTube playback)
+      // over the LIVE session. Accepted residual: if the intent flag was
+      // armed while this conn was still current and the replacement opened
+      // before this close fired, the flag stays armed until the next
+      // joinSession entry resets it.
+      if (getState('network.hostConn') !== conn) {
+        log.debug('[Join] Stale connection closed — ignoring');
+        return;
       }
+      log.warn('[Join] Host connection closed');
+      setState('network.hostConn', null);
       setState('network.isConnecting', false);
 
       if (_handledConnectionErrors.has(conn)) {
@@ -250,10 +263,15 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     });
 
     conn.on('error', (err: unknown) => {
-      log.error('[Join] Host connection error', err);
-      if (getState('network.hostConn') === conn) {
-        setState('network.hostConn', null);
+      // Same stale-conn no-op as the close handler above: a replaced conn's
+      // draining error (e.g. a malformed frame on a dying transport) must
+      // not surface an error dialog over the live connection.
+      if (getState('network.hostConn') !== conn) {
+        log.debug('[Join] Stale connection error — ignoring', err);
+        return;
       }
+      log.error('[Join] Host connection error', err);
+      setState('network.hostConn', null);
       setState('network.isConnecting', false);
 
       if (_handledConnectionErrors.has(conn)) return;

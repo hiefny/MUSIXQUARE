@@ -33,6 +33,11 @@
  *       buffer swap, DECODE_SUCCESS, and pendingPlayTime consumption all
  *       still happen. Permanent tripwire against folding activeLoadSessionId
  *       into a single global epoch.
+ *   (j) a NEW transfer session (FILE_PREPARE new-session reset — bumps
+ *       neither M1 nor M2) starting during finalizeGuestFile's decode await
+ *       aborts the stale finalize via its transfer.localSessionId entry
+ *       snapshot: the new download keeps RECEIVING + its chunkWatchdog, no
+ *       stale buffer/blob/meta publish, mailbox untouched.
  *
  * Mock surface: transport.ts / decode.ts / playback.ts / lifecycle.ts /
  * ownership.ts are REAL (pins b/c need the real play-lock + watchdog, which
@@ -42,8 +47,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
+import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { handleData } from '../../network/protocol.ts';
 import type { DataConnection, PlaylistItem } from '../../types/index.ts';
@@ -154,7 +159,7 @@ import { play, stopAllMedia } from '../transport.ts';
 import { finalizeGuestFile, loadPreloadedTrack } from '../decode.ts';
 import { initPlayback } from '../playback.ts';
 import { transition } from '../lifecycle.ts';
-import { setPlaybackYouTubePlaying } from '../ownership.ts';
+import { setPlaybackTransferState, setPlaybackYouTubePlaying } from '../ownership.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -604,6 +609,56 @@ describe('pin (f) — superseded activation failure cannot clear the live activa
 // This is the permanent tripwire against unifying activeLoadSessionId into a
 // single global epoch — if a future refactor makes finalizeGuestFile abort on
 // token bumps, this pin fails and that refactor must STOP.
+
+// ─── Pin (j): finalize aborts when a NEW transfer session starts ─────
+// FILE_PREPARE's new-session reset bumps NEITHER the load epoch NOR
+// activeLoadSessionId (M2's only writers are the three load fns), so pin (d)'s
+// checkpoints are blind to it. Without the transfer.localSessionId entry
+// snapshot, the stale finalize would set transfer.state=READY and kill both
+// watchdogs while the NEW track is still RECEIVING — transfer-receive's
+// stale-completed guard then drops every remaining chunk with no watchdog
+// left to recover (silent wedge until the next session).
+
+describe('pin (j) — finalizeGuestFile aborts when a new transfer session starts mid-decode', () => {
+  it('leaves the new download untouched: RECEIVING + chunkWatchdog stay, nothing published', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentTrackIndex', 1);
+    setState('transfer.localSessionId', 5);
+    setPendingPlayTime(42);
+
+    // t1's pipeline, the way storage:file-ready drives it.
+    transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 't1.mp3' });
+    transition({ type: 'FILE_END' });
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+
+    const decodeJ = deferred<AudioBuffer>();
+    mocks.decodeAudioData.mockImplementationOnce(() => decodeJ.promise);
+
+    const p = finalizeGuestFile(makeFile('t1.mp3'));
+    await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
+
+    // Host switches to t2 mid-decode: transfer-receive's new-session reset +
+    // FILE_START, condensed. Note: no epoch bump, no M2 bump.
+    setState('transfer.localSessionId', 6);
+    transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 't2.mp3' });
+    setState('playlist.currentTrackIndex', 2);
+    setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
+    const watchdog = vi.fn();
+    setManagedTimer('chunkWatchdog', watchdog, 60_000);
+
+    decodeJ.resolve({ duration: 200 } as AudioBuffer);
+    await p;
+
+    // Stale finalize must be fully inert:
+    expect(getCurrentAudioBuffer()).toBeNull(); // no stale buffer publish
+    expect(getState('files.currentFileBlob')).toBeNull(); // no stale blob publish
+    expect(getState('player.currentTrackMeta')).toBeNull(); // t2's meta not bound to t1's audio
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING); // chunk-drop guard NOT armed
+    expect(getManagedTimer('chunkWatchdog')).not.toBeNull(); // recovery path intact
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING); // t2's download phase intact
+    expect(getPendingPlayTime()).toBe(42); // don't-touch policy (§4)
+  });
+});
 
 describe('pin (g) — owner decision: finalizeGuestFile is immune to loadToken bumps', () => {
   it('publishes buffer + DECODE_SUCCESS + consumes pendingPlayTime despite mid-decode token bumps', async () => {

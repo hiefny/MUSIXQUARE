@@ -1386,8 +1386,15 @@ export function initPlaylist(): void {
     let newIdx = currentTrackIndex;
 
     if (playlist.length === 0) {
-      // Empty playlist — stop everything and clear all stale state
-      stopAllMedia();
+      // Empty playlist — stop everything and clear all stale state.
+      // cancelInFlight: the removed track may STILL BE DECODING (click the
+      // only track, then remove it inside the decode window). Without the
+      // epoch bump the resolving decode re-publishes blob/meta with index -1,
+      // re-enables play, broadcasts FILE_START(-1) to guests 300ms later, and
+      // the autoPlayTimer audibly resurrects the deleted track. The other
+      // removal branches don't need it: current-track removal supersedes via
+      // playTrack's own epoch allocation.
+      stopAllMedia({ cancelInFlight: true });
       clearPreloadState();
       // Abort any in-flight broadcast/unicast so guests aren't forced to
       // finish downloading a file that's no longer in the playlist.

@@ -11,9 +11,10 @@
 > "epoch (allocation)" — same counter, older name.
 >
 > **Executable anchors** (change those in lockstep with this doc):
-> - Pins: `src/player/__tests__/concurrency-invariants.test.ts` (pins a–g),
+> - Pins: `src/player/__tests__/concurrency-invariants.test.ts` (pins a–g, j),
 >   `src/player/__tests__/load-epoch.test.ts` (pin h, Stage B; pin i retired
->   2026-06-12 — the alias deletion made its threat a TypeScript error)
+>   2026-06-12 — the alias deletion made its threat a TypeScript error;
+>   pin j added 2026-06-13: finalize transfer-session snapshot)
 > - Static guard: `scripts/check-lifecycle-writes.mjs` (`guard:lifecycle-writes`)
 > - Compact inventory: header comment in `src/player/_state.ts`
 > - Related pins already in place: `busy-guard.test.ts` (SA-04 family),
@@ -30,7 +31,7 @@ every fix touching this pipeline must still respect the matrix below.
 
 | # | Mechanism | Lives in | Allocates / bumps | Checks | Clears / resets | Protects |
 |---|-----------|----------|-------------------|--------|-----------------|----------|
-| M1 | load epoch (`_loadEpoch`, ex-`loadToken`; API `newLoadEpoch`/`getCurrentLoadEpoch`/`isCurrentLoadEpoch`; the legacy aliases `incrementLoadToken`/`getLoadToken` were retired 2026-06-12) | `player/_state.ts` | 7 prod sites (entry-point only, guard CHECK 5): `playlist.ts` `playTrack`; `playback.ts` handlePlayMsg preload-match + use-preloaded handler; `transport.ts` `stopAllMedia({cancelInFlight})` + 15s watchdog; `playlist.ts` repeat-one ended-advance; `demo/mode.ts` `loadDemoTrack` | `decode.ts` load fns (post-decode, **optional** — only when caller passed an epoch), `_internalPlay` checkpoints + `ended` listener, decode-fail-advance timer, `playlist.ts` SA-05 post-activation re-check | never reset, monotonic | user/track-change intent: a newer *logical run* kills older continuations |
+| M1 | load epoch (`_loadEpoch`, ex-`loadToken`; API `newLoadEpoch`/`getCurrentLoadEpoch`/`isCurrentLoadEpoch`; the legacy aliases `incrementLoadToken`/`getLoadToken` were retired 2026-06-12) | `player/_state.ts` | 7 prod sites (entry-point only, guard CHECK 5): `playlist.ts` `playTrack`; `playback.ts` handlePlayMsg preload-match + use-preloaded handler; `transport.ts` `stopAllMedia({cancelInFlight})` + 15s watchdog; `playlist.ts` repeat-one ended-advance; `demo/mode.ts` `loadDemoTrack` | `decode.ts` load fns (post-decode AND failure-catch entry since 2026-06-13, **optional** — only when caller passed an epoch), `_internalPlay` checkpoints + `ended` listener, decode-fail-advance timer, `playlist.ts` SA-05 post-activation re-check | never reset, monotonic | user/track-change intent: a newer *logical run* kills older continuations |
 | M2 | `activeLoadSessionId` | `player/_state.ts` | **self-bumped at entry** by `loadAndBroadcastFile`, `loadDemoFile`, `finalizeGuestFile` (NOT `loadPreloadedTrack`) | same three fns: loader-teardown gating (`showLoader(false)` / `pausedAt` reset in `finally`) and `finalizeGuestFile`'s pre/post-decode staleness checkpoints | never reset, monotonic | load *invocation*: a newer invocation that did NOT bump the epoch still invalidates me |
 | M3 | `isPlayLocked` + 15s `navigator-lock-watchdog` | `player/_state.ts` + `transport.ts` | `play()` locks; watchdog armed per `play()` | `play()` entry (queue branch) | `_internalPlay` finally (10ms unlock-delay), `stopAllMedia`, watchdog fire | node-start mutual exclusion (short AudioContext/node critical section) |
 | M4 | `playPreloadedInProgress` flag + preload-activation owner handle (`_activePreloadActivation` — records its owning M1 epoch; compared by handle IDENTITY, not epoch equality, so an unrelated epoch bump mid-activation cannot strand the flag and same-epoch begins cannot stomp each other) | flag in `_state.ts`, handle in `decode.ts` | `beginPreloadActivation(epoch)` (sets flag true, takes ownership; warns when a LIVE activation already shares the epoch — stale-epoch reuse after the prior activation finished is silent, which is fine: only the overlapping case is dangerous) | `handlePlayMsg` flag gate; `tryFetchDemoForRemote` idempotency; `isCurrentPreloadActivation` in the catch path | `finishPreloadActivation` (clear-iff-current); **second writer**: `stopAllMedia`'s flag-only clear (`transport.ts`) — deliberate, see C4 | the activation window: PLAY must queue (not double-trigger) while a preload decode is in flight; a superseded activation must not clear the superseder's flag |
@@ -57,7 +58,7 @@ conflate it with these:
 | Name | Lives in | What it is |
 |------|----------|-----------|
 | `activeLoadSessionId` (M2) | `player/_state.ts` | player-local load invocation counter |
-| `transfer.localSessionId` / `transfer.currentSessionId` | state tree | network transfer session ids; used by the 2026-04-25 stale-session **filename fallback** in `playback.ts` storage:file-ready handler |
+| `transfer.localSessionId` / `transfer.currentSessionId` | state tree | network transfer session ids; used by the 2026-04-25 stale-session **filename fallback** in `playback.ts` storage:file-ready handler. Since 2026-06-13 also **snapshotted at `finalizeGuestFile` entry**: a NEW transfer session starting mid-finalize (FILE_PREPARE bumps neither M1 nor M2) aborts the stale finalize at the pre/post-decode checkpoints — otherwise it would land READY + watchdog-clears + the old buffer onto the new track's active download (chunk-drop wedge). *Pin (j).* |
 | `preload.sessionId` | state tree | host send-side preload session; read by chunk-pump's caller-supplied `shouldContinue` (`storage/preload.ts`) |
 | `_preloadGeneration` | `storage/preload.ts` | send-scheduling supersession for `schedulePreload` |
 | `_demoLoadToken` | `demo/mode.ts` | demo-mode-local fetch supersession (distinct from M1, which demo entry ALSO bumps) |
@@ -94,9 +95,14 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   why stopAllMedia must clear unconditionally. *Pin (c).*
 - **C5 — sessionId gates loader teardown, token gates buffer publish**:
   `loadAndBroadcastFile`/`loadDemoFile` check token AND sessionId in
-  combination at their post-decode checkpoints; the `finally` loader teardown
-  keys on sessionId only. `finalizeGuestFile` checks sessionId ONLY (pre- and
-  post-decode). *Pins (d), (g).*
+  combination at their post-decode checkpoints — and since 2026-06-13 at
+  their failure-catch entry too (a superseded load's failure is INERT: no
+  blob clear, no FSM transition, no failed-mark/auto-advance, no play-btn
+  emit — the host-load mirror of the M4-row catch guard). The `finally`
+  loader teardown keys on sessionId only. `finalizeGuestFile` checks
+  sessionId AND its `transfer.localSessionId` entry snapshot at the same
+  pre/post-decode checkpoints (2026-06-13) — still NEVER the epoch (§5).
+  *Pins (d), (g), (j).*
 - **C6 — post-unlock queued-play consumption**: `_internalPlay`'s finally arms
   a 10ms unlock-delay that consumes `pendingPlayTime` (consume = clear + replay).
   The watchdog clears `pendingPlayTime` BEFORE unlocking precisely so this
@@ -134,6 +140,7 @@ helper is a regression generator. *Pin (e) covers both directions.*
 | `loadPreloadedTrack` catch while CURRENT activation | **clear** | terminal failure of the live activation |
 | `loadPreloadedTrack` catch while SUPERSEDED | **don't touch** (stale path is inert) — *pin (f)* | the superseder owns it |
 | `finalizeGuestFile` sessionId-stale aborts | **don't touch** | newer invocation owns it |
+| `finalizeGuestFile` transfer-sid-stale aborts (new transfer session mid-decode, pin j) | **don't touch** | the new session's own loader consumes it — same ownership logic as sessionId-stale |
 | `finalizeGuestFile` external-owner aborts (post-init & post-decode) | **clear** | no file loader will consume it under an external owner. (The ENTRY guard runs before invocation registration and does NOT touch it.) |
 | `finalizeGuestFile` decode-failure catch | **don't touch** | the retry path (recovery → re-finalize) still consumes it; terminal failures leave it for the next track's `clearPreviousTrackState` (`'file-prepare'`) to clear |
 | `clearPreviousTrackState` | **clear**, EXCEPT `reason==='new-session-start'` — note `reason==='redundant-sync'` also never reaches the clear (the function early-returns and no-ops entirely, so it is a whole-function exception, not an abort-cause one) | late-join sends PLAY bootstrap BEFORE FILE_START |

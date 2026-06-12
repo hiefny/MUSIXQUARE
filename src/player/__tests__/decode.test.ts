@@ -8,7 +8,8 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { handleData } from '../../network/protocol.ts';
-import { getPendingPlayTime, setPendingPlayTime } from '../_state.ts';
+import { getCurrentLoadEpoch, getPendingPlayTime, newLoadEpoch, setPendingPlayTime } from '../_state.ts';
+import { broadcastFileDebounced } from '../../storage/transfer.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -374,6 +375,104 @@ describe('host decode failure cleanup', () => {
       endOfPlaylist: true,
       reason: 'end-of-playlist',
     });
+  });
+});
+
+// Superseded host loads must be INERT in both directions (2026-06-13):
+// the success path's epoch checkpoint already refuses to publish, and the
+// failure catch must equally refuse its side effects — otherwise a load that
+// fails AFTER the user moved on (decode timeout, corrupt file) nulls the
+// successor's published blob, knocks the FSM to FAILED, and 600ms later
+// auto-advances the whole room off the track the user actually chose. The
+// remove-track playlist-empty teardown (stopAllMedia({cancelInFlight}) in
+// playlist.ts) relies on the same two checkpoints to kill resurrection.
+describe('superseded host load is inert (rapid-click / remove-track supersession)', () => {
+  function deferredDecode(): {
+    promise: Promise<{ duration: number }>;
+    resolve: (v: { duration: number }) => void;
+    reject: (e: unknown) => void;
+  } {
+    let resolve!: (v: { duration: number }) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<{ duration: number }>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    clearAllManagedTimers();
+    vi.clearAllMocks();
+  });
+
+  it('a load resolving after an epoch bump publishes nothing and leaves the play button alone', async () => {
+    const fileA = new File([new Uint8Array([1, 2, 3])], 'a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [makeFileTrack(fileA)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('network.connectedPeers', [makeConnectedPeer('guest-a', false)]);
+
+    const decodeA = deferredDecode();
+    mocks.decodeAudioData.mockImplementationOnce(() => decodeA.promise);
+
+    const btnEvents: boolean[] = [];
+    bus.on('ui:play-btn-state', (on) => btnEvents.push(on));
+
+    const { loadAndBroadcastFile } = await import('../decode.ts');
+    const p = loadAndBroadcastFile(fileA, 1, getCurrentLoadEpoch());
+
+    // Playlist-empty teardown shape: epoch bump with NO successor load.
+    newLoadEpoch();
+    setState('playlist.currentTrackIndex', -1);
+
+    decodeA.resolve({ duration: 120 });
+    expect(await p).toBe(false);
+
+    expect(getState('files.currentFileBlob')).toBeNull(); // no resurrection publish
+    expect(vi.mocked(broadcastFileDebounced)).not.toHaveBeenCalled(); // no FILE_START(-1) to guests
+    expect(btnEvents).not.toContain(true); // soft-disable survives the finally
+  });
+
+  it('a superseded load failing late does not clobber the successor or auto-advance the room', async () => {
+    vi.useFakeTimers();
+    const fileA = new File([new Uint8Array([1, 2, 3])], 'a.mp3', { type: 'audio/mpeg' });
+    const fileB = new File([new Uint8Array([4, 5, 6])], 'b.mp3', { type: 'audio/mpeg' });
+    const fileC = new File([new Uint8Array([7, 8, 9])], 'c.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [makeFileTrack(fileA), makeFileTrack(fileB), makeFileTrack(fileC)]);
+    setState('playlist.currentTrackIndex', 0);
+
+    const decodeA = deferredDecode();
+    mocks.decodeAudioData
+      .mockImplementationOnce(() => decodeA.promise) // A wedges in its decode
+      .mockResolvedValueOnce({ duration: 120 }); // B decodes cleanly
+
+    const { loadAndBroadcastFile } = await import('../decode.ts');
+    const pA = loadAndBroadcastFile(fileA, 1, getCurrentLoadEpoch());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1);
+
+    // User clicks B while A is still decoding (playTrack shape: new epoch,
+    // new index, new load).
+    const epochB = newLoadEpoch();
+    setState('playlist.currentTrackIndex', 1);
+    const pB = loadAndBroadcastFile(fileB, 2, epochB);
+    expect(await pB).toBe(true);
+    expect(getState('files.currentFileBlob')).toBe(fileB);
+
+    mocks.transition.mockClear();
+    decodeA.reject(new Error('unsupported codec'));
+    expect(await pA).toBe(false);
+
+    // The stale failure must be fully inert:
+    expect(getState('files.currentFileBlob')).toBe(fileB); // B's published blob survives
+    expect(mocks.broadcastSystemNotice).not.toHaveBeenCalled(); // no room-wide skip notice
+    expect(mocks.transition).not.toHaveBeenCalled(); // no DECODE_ERROR stomp on B's FSM
+
+    // ...and no decode-fail-advance hijack: 700ms later the room is still on B.
+    await vi.advanceTimersByTimeAsync(700);
+    expect(getState('playlist.currentTrackIndex')).toBe(1);
   });
 });
 

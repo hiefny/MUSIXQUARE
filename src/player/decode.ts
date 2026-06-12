@@ -267,6 +267,25 @@ export async function loadAndBroadcastFile(
     return true;
   } catch (err: unknown) {
     log.error(err);
+
+    // Supersession guard: everything below mutates SHARED state — blob
+    // clear, FSM transition, failed-mark + auto-advance keyed on the
+    // CURRENT track index/epoch. A superseded load that fails late (decode
+    // timeout after the user already clicked another track, or after the
+    // playlist-empty teardown bumped the epoch) would aim all of that at
+    // the SUCCESSOR: null its published blob, knock its FSM to FAILED, and
+    // 600ms later auto-advance the whole room off the track the user
+    // actually chose. Mirrors loadPreloadedTrack's catch-path
+    // isCurrentPreloadActivation guard; same checkpoint pair as the
+    // success path above (epoch optional, sessionId always).
+    if (
+      (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) ||
+      myLoadId !== getActiveLoadSessionId()
+    ) {
+      log.debug('[Load] Decode failed for a superseded load — skipping failure side effects.');
+      return false;
+    }
+
     // Clear corrupt/stale blob so recovery doesn't re-serve it to guests
     setState('files.currentFileBlob', null);
 
@@ -297,9 +316,17 @@ export async function loadAndBroadcastFile(
       setState('player.pausedAt', 0);
     }
 
-    const hostConn = getState('network.hostConn');
-    const isOperator = getState('network.isOperator');
-    bus.emit('ui:play-btn-state', !hostConn || isOperator);
+    // Superseded loads must not touch the play button either: a successor
+    // load owns it (rapid A→B click), and after the playlist-empty teardown
+    // (epoch bumped, NO successor) the soft-disable must survive this finally.
+    if (
+      !(loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) &&
+      myLoadId === getActiveLoadSessionId()
+    ) {
+      const hostConn = getState('network.hostConn');
+      const isOperator = getState('network.isOperator');
+      bus.emit('ui:play-btn-state', !hostConn || isOperator);
+    }
   }
 }
 
@@ -371,6 +398,16 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {
     log.error('[Demo] Load failed', err);
+    // Same supersession guard as loadAndBroadcastFile's catch: a superseded
+    // demo load's failure must not null the successor's published blob or
+    // knock the successor's FSM to FAILED. Rethrow either way — the caller's
+    // catch owns demo-level recovery.
+    if (
+      (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) ||
+      myLoadId !== getActiveLoadSessionId()
+    ) {
+      throw err;
+    }
     setState('files.currentFileBlob', null);
     transition({ type: isDecodeTimeout(err) ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     throw err;
@@ -1006,6 +1043,17 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
   log.debug('[Guest] Finalizing with Buffer Mode...');
   const myLoadId = incrementLoadSessionId();
+  // Transfer-session snapshot: a FILE_PREPARE that starts a NEW transfer
+  // session mid-decode bumps NEITHER the load epoch (§5 immunity is about
+  // epoch bumps, not this) NOR activeLoadSessionId (its only writers are the
+  // three load fns), so the sessionId checkpoints below cannot see it.
+  // Without this, a stale finalize lands READY + watchdog-clears + the OLD
+  // buffer onto the NEW track's active download — every remaining chunk is
+  // then dropped by transfer-receive's stale-completed guard with no watchdog
+  // left to recover: a silent wedge until the next session. Entry snapshot
+  // (not a live re-read at the checkpoints' call time) keeps the 2026-04-25
+  // rapid A→B→A name-match fallback intact. Pin (j).
+  const myTransferSid = getState('transfer.localSessionId');
   showLoader(true, t('error.audio_memory'));
 
   try {
@@ -1024,9 +1072,17 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       log.debug('[Guest] Stale finalize (pre-decode), aborting');
       return;
     }
+    if (getState('transfer.localSessionId') !== myTransferSid) {
+      log.debug('[Guest] Stale finalize (new transfer session pre-decode), aborting');
+      return;
+    }
     const audioBuffer = await decodeWithTimeout(arrayBuffer, 'guest-finalize');
     if (getActiveLoadSessionId() !== myLoadId) {
       log.debug('[Guest] Stale finalize (post-decode), aborting');
+      return;
+    }
+    if (getState('transfer.localSessionId') !== myTransferSid) {
+      log.debug('[Guest] Stale finalize (new transfer session post-decode), aborting');
       return;
     }
     if (isExternalOwner()) {

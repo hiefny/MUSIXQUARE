@@ -36,12 +36,14 @@ import type { PlaylistItem } from '../types/index.ts';
 //   M2 _activeLoadSessionId     — load invocation counter, self-bumped at
 //                                 entry by loadAndBroadcastFile/loadDemoFile/
 //                                 finalizeGuestFile. OWNER DECISION (pinned):
-//                                 finalizeGuestFile checks ONLY this, so it is
-//                                 immune to M1 bumps (watchdog must not abort
-//                                 in-flight guest finalizes). NOT the same
-//                                 thing as transfer.localSessionId /
-//                                 preload.sessionId / storage _preloadGeneration
-//                                 — see the disambiguation table in the doc.
+//                                 finalizeGuestFile checks this (plus a
+//                                 transfer.localSessionId entry snapshot,
+//                                 pin j) but NEVER M1, so it is immune to M1
+//                                 bumps (watchdog must not abort in-flight
+//                                 guest finalizes). NOT the same thing as
+//                                 transfer.localSessionId / preload.sessionId
+//                                 / storage _preloadGeneration — see the
+//                                 disambiguation table in the doc.
 //   M3 _isPlayLocked            — node-start mutual exclusion + 15s watchdog
 //                                 (transport.ts). Watchdog fire = full reset
 //                                 tuple: unlock + clear pendingPlayTime +

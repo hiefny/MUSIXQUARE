@@ -24,6 +24,7 @@ import {
   playTrack,
 } from '../playlist.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
+import { getCurrentLoadEpoch } from '../_state.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
@@ -263,6 +264,42 @@ describe('playTrack YouTube auto-rendezvous', () => {
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
     // ...while the YouTube switch itself still reached the guest.
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.YOUTUBE_PLAY }));
+  });
+});
+
+describe('remove-track playlist-empty teardown supersedes in-flight loads', () => {
+  // Removing the ONLY track can land inside that track's own decode window
+  // (click → remove within 0.1–10s). The empty branch must bump the load
+  // epoch (stopAllMedia({cancelInFlight:true})) so the resolving decode dies
+  // at its epoch checkpoint instead of resurrecting the deleted track —
+  // blob/meta(index -1) republish, play re-enable, FILE_START(-1) broadcast,
+  // audible autoplay. The inert-decode half is pinned in decode.test.ts.
+  it('bumps the load epoch when the last track is removed', () => {
+    initPlaylist();
+    setState('playlist.items', [{ type: 'file', name: 'only.mp3', videoId: null, playlistId: null }]);
+    setState('playlist.currentTrackIndex', 0);
+
+    const before = getCurrentLoadEpoch();
+    bus.emit('playlist:remove-track', 0);
+
+    expect(getState('playlist.items')).toHaveLength(0);
+    expect(getState('playlist.currentTrackIndex')).toBe(-1);
+    expect(getCurrentLoadEpoch()).toBe(before + 1);
+  });
+
+  it('does NOT bump the epoch when a non-current track is removed (live load must survive)', () => {
+    initPlaylist();
+    setState('playlist.items', [
+      { type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'b.mp3', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 0);
+
+    const before = getCurrentLoadEpoch();
+    bus.emit('playlist:remove-track', 1);
+
+    expect(getState('playlist.items')).toHaveLength(1);
+    expect(getCurrentLoadEpoch()).toBe(before);
   });
 });
 

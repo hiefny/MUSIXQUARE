@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -25,7 +26,7 @@ vi.mock('../../core/log.ts', () => ({
   },
 }));
 
-import '../host.ts';
+import { handleHostIncomingConnection } from '../host.ts';
 
 function makeConn(send: ReturnType<typeof vi.fn>): DataConnection {
   return {
@@ -141,6 +142,91 @@ describe('max-guests reduction with sparse slots', () => {
     expect(sends[3]).toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
     expect(getState('network.peerSlots')).toEqual([null, 'g1', 'g2', 'g3']);
     expect(getState('network.peerSlotByPeerId').has('g4')).toBe(false);
+  });
+});
+
+type FiringConn = DataConnection & { fire: (event: string, ...args: unknown[]) => void };
+
+function makeIncomingConn(peerId: string): FiringConn {
+  const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+  return {
+    peer: peerId,
+    open: true,
+    send: vi.fn(),
+    close: vi.fn(),
+    on(event: string, cb: (...args: unknown[]) => void) {
+      const list = handlers.get(event) ?? [];
+      list.push(cb);
+      handlers.set(event, list);
+    },
+    fire(event: string, ...args: unknown[]) {
+      for (const cb of [...(handlers.get(event) ?? [])]) cb(...args);
+    },
+  } as unknown as FiringConn;
+}
+
+describe('duplicate guest connection handoff', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    clearAllManagedTimers();
+    vi.useRealTimers();
+  });
+
+  it('replaces the active connection through a reconnect storm and ignores stale closes', () => {
+    const disconnected = vi.fn();
+    bus.on('network:peer-disconnected', disconnected);
+
+    const first = makeIncomingConn('guest-re');
+    const second = makeIncomingConn('guest-re');
+    const third = makeIncomingConn('guest-re');
+    handleHostIncomingConnection(first);
+    handleHostIncomingConnection(second);
+    handleHostIncomingConnection(third);
+
+    expect(first.send).toHaveBeenCalledWith({ type: MSG.FORCE_CLOSE_DUPLICATE });
+    expect(second.send).toHaveBeenCalledWith({ type: MSG.FORCE_CLOSE_DUPLICATE });
+    expect(first.close).toHaveBeenCalled();
+    expect(second.close).toHaveBeenCalled();
+
+    // PeerJS delivers the replaced connections' close events late — they must
+    // not tear down the record now bound to the live connection.
+    first.fire('close');
+    second.fire('close');
+
+    expect(disconnected).not.toHaveBeenCalled();
+    const records = getState('network.connectedPeers').filter((p) => p.id === 'guest-re');
+    expect(records).toHaveLength(1);
+    expect(records[0].conn).toBe(third);
+    expect(getState('network.activeHostConnByPeerId').get('guest-re')).toBe(third);
+    // The slot follows the peer id across the storm instead of leaking one per attempt.
+    expect(getState('network.peerSlotByPeerId').get('guest-re')).toBe(1);
+    expect(getState('network.peerSlots').filter((s) => s === 'guest-re')).toHaveLength(1);
+    expect(third.close).not.toHaveBeenCalled();
+  });
+
+  it('rejects a connection over capacity with SESSION_FULL and a deferred close, leaving no record', () => {
+    setState('network.maxGuestSlots', 1);
+    setState('network.peerSlots', [null, 'g1']);
+    setState('network.peerSlotByPeerId', new Map([['g1', 1]]));
+    setState('network.connectedPeers', [makeSlottedPeer('g1', 1, vi.fn())]);
+
+    const overflow = makeIncomingConn('guest-overflow');
+    handleHostIncomingConnection(overflow);
+
+    expect(overflow.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.SESSION_FULL, i18nKey: 'network.session_full_detail' }),
+    );
+    // Close is deferred so the rejection frame can flush first.
+    expect(overflow.close).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(500);
+    expect(overflow.close).toHaveBeenCalledTimes(1);
+
+    expect(getState('network.connectedPeers').map((p) => p.id)).toEqual(['g1']);
+    expect(getState('network.activeHostConnByPeerId').has('guest-overflow')).toBe(false);
+    expect(getState('network.peerLabels')['guest-overflow']).toBeUndefined();
   });
 });
 

@@ -1,10 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG } from '../../core/constants.ts';
+import { MSG, CHUNK_SIZE } from '../../core/constants.ts';
 import {
   validateMessage,
   registerHandlers,
@@ -12,6 +12,7 @@ import {
   hasHandler,
   verifyOperator,
   handleData,
+  initProtocol,
 } from '../protocol.ts';
 import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.ts';
 
@@ -261,6 +262,154 @@ describe('REQUEST_DATA_RECOVERY validation', () => {
     }
 
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('file-transfer frame validation', () => {
+  it('dispatches host-shaped FILE_START and FILE_CHUNK frames', async () => {
+    const startHandler = vi.fn();
+    const chunkHandler = vi.fn();
+    registerHandler(MSG.FILE_START, startHandler);
+    registerHandler(MSG.FILE_CHUNK, chunkHandler);
+    const conn = makeConnection('peer-file-valid');
+
+    // total at the documented 200k cap and a chunk at exactly CHUNK_SIZE are
+    // the host's own legitimate maxima — the caps must not reject them.
+    await handleData({ type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 1200 }, conn);
+    await handleData(
+      { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 200_000 },
+      conn,
+    );
+    await handleData(
+      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(CHUNK_SIZE), index: 0, sessionId: 3 },
+      conn,
+    );
+    await handleData(
+      { type: MSG.FILE_CHUNK, chunk: new ArrayBuffer(16), index: 7, sessionId: 3 },
+      conn,
+    );
+
+    expect(startHandler).toHaveBeenCalledTimes(2);
+    expect(chunkHandler).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops oversized, non-finite, or mistyped file frames before dispatch', async () => {
+    const startHandler = vi.fn();
+    const chunkHandler = vi.fn();
+    registerHandler(MSG.FILE_START, startHandler);
+    registerHandler(MSG.FILE_CHUNK, chunkHandler);
+    const conn = makeConnection('peer-file-hostile');
+
+    const hostileFrames = [
+      // host sends at most CHUNK_SIZE per frame — anything larger is hostile
+      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(CHUNK_SIZE + 1), index: 0, sessionId: 3 },
+      { type: MSG.FILE_CHUNK, chunk: 'AAAA', index: 0, sessionId: 3 },
+      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: -1, sessionId: 3 },
+      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: 2.5, sessionId: 3 },
+      // sessionId=Infinity poisons transfer.localSessionId on the receiver
+      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: 0, sessionId: Infinity },
+      { type: MSG.FILE_START, name: 'song.mp3', sessionId: Infinity, total: 10 },
+      // total over MAX_FILE_TOTAL would let one frame reserve a 12.8GB+ reorder budget
+      { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 200_001 },
+      { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: -1 },
+      { type: MSG.FILE_START, sessionId: 3, total: 10 },
+    ];
+
+    for (const frame of hostileFrames) {
+      await handleData(frame, conn);
+    }
+
+    expect(startHandler).not.toHaveBeenCalled();
+    expect(chunkHandler).not.toHaveBeenCalled();
+  });
+});
+
+describe('broadcast amplification caps', () => {
+  it('caps YOUTUBE_SUB_TITLE_UPDATE subIdx and CHAT text length before dispatch', async () => {
+    const titleHandler = vi.fn();
+    const chatHandler = vi.fn();
+    registerHandler(MSG.YOUTUBE_SUB_TITLE_UPDATE, titleHandler);
+    registerHandler(MSG.CHAT, chatHandler);
+    const conn = makeConnection('peer-amplification');
+
+    await handleData(
+      { type: MSG.YOUTUBE_SUB_TITLE_UPDATE, playlistId: 'PL1', subIdx: 4999, title: 'ok' },
+      conn,
+    );
+    await handleData({ type: MSG.CHAT, text: 'a'.repeat(4000) }, conn);
+    expect(titleHandler).toHaveBeenCalledTimes(1);
+    expect(chatHandler).toHaveBeenCalledTimes(1);
+
+    // subIdx at/above the 5000 playlist cap would pad the receiver's titles[]
+    // array out to the index (OOM vector); >4000-char chat is an
+    // amplification frame the wire cap exists to kill at the door.
+    await handleData(
+      { type: MSG.YOUTUBE_SUB_TITLE_UPDATE, playlistId: 'PL1', subIdx: 5000, title: 'ok' },
+      conn,
+    );
+    await handleData(
+      { type: MSG.YOUTUBE_SUB_TITLE_UPDATE, playlistId: 'PL1', subIdx: -1, title: 'ok' },
+      conn,
+    );
+    await handleData({ type: MSG.CHAT, text: 'a'.repeat(4001) }, conn);
+    await handleData({ type: MSG.CHAT, text: 42 }, conn);
+
+    expect(titleHandler).toHaveBeenCalledTimes(1);
+    expect(chatHandler).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('inbound per-peer rate limit', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('drops control frames past the 60-frame burst, refills one token per 50ms, and resets on disconnect', async () => {
+    vi.useFakeTimers();
+    initProtocol(); // wires network:peer-disconnected → bucket release (bus.clear unwires after the test)
+    const control = vi.fn();
+    const chunk = vi.fn();
+    registerHandler('rate-limit-control-probe' as MsgType, control);
+    registerHandler(MSG.PRELOAD_CHUNK, chunk);
+    const conn = makeConnection('peer-flood');
+
+    for (let i = 0; i < 61; i++) {
+      await handleData({ type: 'rate-limit-control-probe' }, conn);
+    }
+    expect(control).toHaveBeenCalledTimes(60);
+
+    // Chunk frames bypass the bucket — transfer-layer backpressure throttles
+    // them, and dropping them here would stall legitimate transfers.
+    await handleData({ type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(16), index: 0 }, conn);
+    expect(chunk).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(50); // exactly one refill interval → one token back
+    await handleData({ type: 'rate-limit-control-probe' }, conn);
+    await handleData({ type: 'rate-limit-control-probe' }, conn);
+    expect(control).toHaveBeenCalledTimes(61);
+
+    bus.emit('network:peer-disconnected', 'peer-flood');
+    await handleData({ type: 'rate-limit-control-probe' }, conn);
+    expect(control).toHaveBeenCalledTimes(62);
+  });
+});
+
+describe('handler exception containment', () => {
+  it('contains throwing and rejecting handlers so dispatch neither rejects nor stalls later messages', async () => {
+    registerHandler('throwing-probe' as MsgType, () => {
+      throw new Error('handler boom');
+    });
+    registerHandler('rejecting-probe' as MsgType, async () => {
+      throw new Error('async handler boom');
+    });
+    const after = vi.fn();
+    registerHandler('post-throw-probe' as MsgType, after);
+    const conn = makeConnection('peer-throwing');
+
+    await expect(handleData({ type: 'throwing-probe' }, conn)).resolves.toBeUndefined();
+    await expect(handleData({ type: 'rejecting-probe' }, conn)).resolves.toBeUndefined();
+    await handleData({ type: 'post-throw-probe' }, conn);
+    expect(after).toHaveBeenCalledTimes(1);
   });
 });
 

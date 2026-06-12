@@ -8,8 +8,8 @@ import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import {
   getCurrentAudioBuffer,
-  getLoadToken,
-  incrementLoadToken,
+  getCurrentLoadEpoch,
+  newLoadEpoch,
   getPendingPlayTime,
   setPendingPlayTime,
   setCurrentAudioBuffer,
@@ -60,20 +60,20 @@ describe('getCurrentAudioBuffer', () => {
   });
 });
 
-// ─── getLoadToken / incrementLoadToken ───────────────────────────────
+// ─── getCurrentLoadEpoch / newLoadEpoch ──────────────────────────────
 
-describe('getLoadToken', () => {
+describe('getCurrentLoadEpoch', () => {
   it('returns 0 initially', () => {
-    expect(getLoadToken()).toBe(0);
+    expect(getCurrentLoadEpoch()).toBe(0);
   });
 });
 
-describe('incrementLoadToken', () => {
+describe('newLoadEpoch', () => {
   it('increments and returns new value', () => {
-    const initial = getLoadToken();
-    const next = incrementLoadToken();
+    const initial = getCurrentLoadEpoch();
+    const next = newLoadEpoch();
     expect(next).toBe(initial + 1);
-    expect(getLoadToken()).toBe(next);
+    expect(getCurrentLoadEpoch()).toBe(next);
   });
 });
 
@@ -173,19 +173,19 @@ describe('stopAllMedia', () => {
   });
 
   it('can cancel in-flight loads when taking playback ownership away', () => {
-    const before = getLoadToken();
+    const before = getCurrentLoadEpoch();
 
     stopAllMedia({ cancelInFlight: true });
 
-    expect(getLoadToken()).toBe(before + 1);
+    expect(getCurrentLoadEpoch()).toBe(before + 1);
   });
 
   it('keeps the existing load token on silent track-change stops', () => {
-    const before = getLoadToken();
+    const before = getCurrentLoadEpoch();
 
     stopAllMedia({ silent: true });
 
-    expect(getLoadToken()).toBe(before);
+    expect(getCurrentLoadEpoch()).toBe(before);
   });
 });
 

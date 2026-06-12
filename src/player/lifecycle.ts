@@ -13,7 +13,8 @@
  *     are forbidden — statically enforced by scripts/check-lifecycle-writes.mjs
  *     (guard:lifecycle-writes), which also pins the sanctioned call-site sets
  *     for setPlaybackLifecycleState / setPlayPreloadedInProgress /
- *     newLoadEpoch (and its legacy alias incrementLoadToken).
+ *     newLoadEpoch (the legacy alias incrementLoadToken was retired
+ *     2026-06-12; the guard keeps a tombstone check on the old name).
  *   - Rejected transitions (disallowed event/state combo) are logged at
  *     error level and leave the state unchanged. We never throw — a single
  *     bug in the transition table should not kill the app.

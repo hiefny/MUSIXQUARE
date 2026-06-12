@@ -38,10 +38,11 @@
  *     numbers churn, ordering/protocol invariants are the pin tests' job
  *     (src/player/__tests__/concurrency-invariants.test.ts), and an eager
  *     static rule here would fight the deliberate supersession-window
- *     semantics (HET-3 guard-vs-pin class). Stage B alias period: the legacy
- *     name incrementLoadToken (now a _state.ts const alias used only by
- *     tests) is held to the SAME allowlist so a prod call can't sneak back
- *     in under the old name.
+ *     semantics (HET-3 guard-vs-pin class). Legacy-name tombstone: the
+ *     Stage B aliases (getLoadToken/incrementLoadToken) were DELETED
+ *     2026-06-12 when the pinned tests were renamed to the epoch API; an
+ *     empty-allowlist check on the old call name stays behind so the name
+ *     cannot be reintroduced as a fresh export + prod call.
  *
  * Deliberately NOT checked statically: clear-iff-current ordering, the
  * flag-stomp window, pendingPlayTime preserve/clear policy — those are
@@ -100,10 +101,9 @@ const BATCH_KEY_RE = /['"]playback\.lifecycle['"]\s*:/g;
 const LIFECYCLE_SETTER_CALL_RE = /(?<!function )\bsetPlaybackLifecycleState\s*\(/g;
 const PRELOADED_FLAG_CALL_RE = /(?<!function )\bsetPlayPreloadedInProgress\s*\(/g;
 const LOAD_EPOCH_CALL_RE = /(?<!function )\bnewLoadEpoch\s*\(/g;
-// Legacy alias (Stage B migration). Its definition in _state.ts is a `const`
-// assignment (`const incrementLoadToken = newLoadEpoch;`) — neither side has
-// a trailing `(`, so the definition matches NEITHER call regex and needs no
-// allowlist entry; only real calls under the old name would be flagged.
+// Legacy-name tombstone (Stage B migration; alias exports deleted 2026-06-12).
+// The symbol no longer exists anywhere in src — this regex can only fire if
+// someone reintroduces the NAME as a fresh definition and calls it in prod.
 const LOAD_TOKEN_ALIAS_CALL_RE = /(?<!function )\bincrementLoadToken\s*\(/g;
 
 // Strip comments so doc mentions are not mistaken for call sites. The ':'
@@ -199,13 +199,14 @@ const CALLER_CHECKS = [
   },
   {
     name: 'incrementLoadToken (legacy alias)',
-    // Empty allowlist: prod is fully on the epoch name; the alias exists ONLY
-    // for the pinned token-arithmetic tests. Any prod call is a regression.
+    // Empty allowlist tombstone: the alias export was deleted from _state.ts
+    // on 2026-06-12 (rename-completion pass). Any call under the old name
+    // means the symbol was reintroduced — that is a regression by definition.
     re: LOAD_TOKEN_ALIAS_CALL_RE,
     allow: new Set(),
     hint:
-      'legacy alias of newLoadEpoch — prod code must use the epoch name; the alias is ' +
-      'test-only during the rename window (see invariants doc §1 M1)',
+      'legacy alias of newLoadEpoch, deleted 2026-06-12 — do not reintroduce the old name; ' +
+      'use the epoch API (see invariants doc §1 M1)',
   },
 ];
 

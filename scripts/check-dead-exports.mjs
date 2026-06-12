@@ -87,8 +87,9 @@ const FULLY_DEAD_BASELINE = [
 // ── TEST-ONLY count baseline ─────────────────────────────────────
 // Number of exports referenced only by unit tests (excluding the sanctioned
 // /ForTests$/ seams). Fails only if the count GROWS; update manually when it
-// shrinks. Frozen 2026-06-11.
-const TEST_ONLY_BASELINE_COUNT = 18;
+// shrinks. Frozen 2026-06-11; lowered 18 → 17 on 2026-06-12 (getLoadToken
+// alias deleted with the Stage B rename-completion pass).
+const TEST_ONLY_BASELINE_COUNT = 17;
 
 // ── SELF-ONLY count baseline ─────────────────────────────────────
 // Number of exports with no live reference outside their defining file(s).

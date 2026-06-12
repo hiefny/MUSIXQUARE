@@ -5,13 +5,15 @@
 > PLAYER-SPRAWL plan. **Stage B landed the same day**: `loadToken` and the
 > preload-activation owner seq are now ONE counter — the **load epoch**
 > (`_state.ts`: `newLoadEpoch` / `getCurrentLoadEpoch` / `isCurrentLoadEpoch`;
-> the legacy names `getLoadToken`/`incrementLoadToken` remain as aliases for
-> the pinned token-arithmetic tests). Stage C deferred. Where this doc says
-> "token (bump)", read "epoch (allocation)" — same counter, older name.
+> the legacy names `getLoadToken`/`incrementLoadToken` survived briefly as
+> test-only aliases, retired 2026-06-12 when the pinned tests were renamed to
+> the epoch API). Stage C deferred. Where this doc says "token (bump)", read
+> "epoch (allocation)" — same counter, older name.
 >
 > **Executable anchors** (change those in lockstep with this doc):
 > - Pins: `src/player/__tests__/concurrency-invariants.test.ts` (pins a–g),
->   `src/player/__tests__/load-epoch.test.ts` (pins h–i, Stage B)
+>   `src/player/__tests__/load-epoch.test.ts` (pin h, Stage B; pin i retired
+>   2026-06-12 — the alias deletion made its threat a TypeScript error)
 > - Static guard: `scripts/check-lifecycle-writes.mjs` (`guard:lifecycle-writes`)
 > - Compact inventory: header comment in `src/player/_state.ts`
 > - Related pins already in place: `busy-guard.test.ts` (SA-04 family),
@@ -28,7 +30,7 @@ every fix touching this pipeline must still respect the matrix below.
 
 | # | Mechanism | Lives in | Allocates / bumps | Checks | Clears / resets | Protects |
 |---|-----------|----------|-------------------|--------|-----------------|----------|
-| M1 | load epoch (`_loadEpoch`, ex-`loadToken`; API `newLoadEpoch`/`getCurrentLoadEpoch`/`isCurrentLoadEpoch`, legacy aliases `incrementLoadToken`/`getLoadToken`) | `player/_state.ts` | 7 prod sites (entry-point only, guard CHECK 5): `playlist.ts` `playTrack`; `playback.ts` handlePlayMsg preload-match + use-preloaded handler; `transport.ts` `stopAllMedia({cancelInFlight})` + 15s watchdog; `playlist.ts` repeat-one ended-advance; `demo/mode.ts` `loadDemoTrack` | `decode.ts` load fns (post-decode, **optional** — only when caller passed an epoch), `_internalPlay` checkpoints + `ended` listener, decode-fail-advance timer, `playlist.ts` SA-05 post-activation re-check | never reset, monotonic | user/track-change intent: a newer *logical run* kills older continuations |
+| M1 | load epoch (`_loadEpoch`, ex-`loadToken`; API `newLoadEpoch`/`getCurrentLoadEpoch`/`isCurrentLoadEpoch`; the legacy aliases `incrementLoadToken`/`getLoadToken` were retired 2026-06-12) | `player/_state.ts` | 7 prod sites (entry-point only, guard CHECK 5): `playlist.ts` `playTrack`; `playback.ts` handlePlayMsg preload-match + use-preloaded handler; `transport.ts` `stopAllMedia({cancelInFlight})` + 15s watchdog; `playlist.ts` repeat-one ended-advance; `demo/mode.ts` `loadDemoTrack` | `decode.ts` load fns (post-decode, **optional** — only when caller passed an epoch), `_internalPlay` checkpoints + `ended` listener, decode-fail-advance timer, `playlist.ts` SA-05 post-activation re-check | never reset, monotonic | user/track-change intent: a newer *logical run* kills older continuations |
 | M2 | `activeLoadSessionId` | `player/_state.ts` | **self-bumped at entry** by `loadAndBroadcastFile`, `loadDemoFile`, `finalizeGuestFile` (NOT `loadPreloadedTrack`) | same three fns: loader-teardown gating (`showLoader(false)` / `pausedAt` reset in `finally`) and `finalizeGuestFile`'s pre/post-decode staleness checkpoints | never reset, monotonic | load *invocation*: a newer invocation that did NOT bump the epoch still invalidates me |
 | M3 | `isPlayLocked` + 15s `navigator-lock-watchdog` | `player/_state.ts` + `transport.ts` | `play()` locks; watchdog armed per `play()` | `play()` entry (queue branch) | `_internalPlay` finally (10ms unlock-delay), `stopAllMedia`, watchdog fire | node-start mutual exclusion (short AudioContext/node critical section) |
 | M4 | `playPreloadedInProgress` flag + preload-activation owner handle (`_activePreloadActivation` — records its owning M1 epoch; compared by handle IDENTITY, not epoch equality, so an unrelated epoch bump mid-activation cannot strand the flag and same-epoch begins cannot stomp each other) | flag in `_state.ts`, handle in `decode.ts` | `beginPreloadActivation(epoch)` (sets flag true, takes ownership; warns when a LIVE activation already shares the epoch — stale-epoch reuse after the prior activation finished is silent, which is fine: only the overlapping case is dangerous) | `handlePlayMsg` flag gate; `tryFetchDemoForRemote` idempotency; `isCurrentPreloadActivation` in the catch path | `finishPreloadActivation` (clear-iff-current); **second writer**: `stopAllMedia`'s flag-only clear (`transport.ts`) — deliberate, see C4 | the activation window: PLAY must queue (not double-trigger) while a preload decode is in flight; a superseded activation must not clear the superseder's flag |
@@ -101,7 +103,7 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   consumer sees a consistent (no pending) state. *Pin (b).*
 - **C7 — SA-05 post-activation double check** (`playlist.ts` fast path):
   after `await loadPreloadedTrack(...)`, re-check both the boolean result AND
-  `getLoadToken() === myLoadToken` before play+broadcast — a stale PLAY(old
+  `isCurrentLoadEpoch(myLoadEpoch)` before play+broadcast — a stale PLAY(old
   index) broadcast flaps every guest. *Pinned in `decode.test.ts` (boolean
   contract) + the token re-check is part of the playTrack flow.*
 - **C8 — waiter-cleanup pair** (`playback.ts`): the blob-not-ready path's
@@ -153,7 +155,7 @@ and remote-share's `clearStaleRemotePlayback` re-set
 
 ## 5. Owner decision (binding): finalize immunity to token bumps
 
-> `incrementLoadToken()` fired during `finalizeGuestFile`'s decode await must
+> `newLoadEpoch()` fired during `finalizeGuestFile`'s decode await must
 > NOT abort the finalize — buffer swap, DECODE_SUCCESS transition, and
 > pendingPlayTime consumption all still happen. (The late-join download path
 > must survive a concurrent watchdog fire / cancelInFlight stop.)

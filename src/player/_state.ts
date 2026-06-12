@@ -154,13 +154,6 @@ export function isCurrentLoadEpoch(epoch: number): boolean {
   return epoch === _loadEpoch;
 }
 
-// Aliases for the pre-Stage-B names. The token-arithmetic pins
-// (playback-extended.test.ts: cancelInFlight = +1, silent = ±0 — contract C2)
-// and the Stage A pins are intentionally written against these names; prod
-// code uses the epoch names above. Same counter, no behavior difference.
-export const getLoadToken = getCurrentLoadEpoch;
-export const incrementLoadToken = newLoadEpoch;
-
 // ─── Load Session ID ───────────────────────────────────────────────
 
 export function getActiveLoadSessionId(): number {

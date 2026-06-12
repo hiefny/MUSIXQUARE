@@ -28,7 +28,7 @@
  *       uniform-preserve refactor BOTH fail this suite.
  *   (f) a SUPERSEDED activation's decode-failure catch path is inert: it must
  *       not clear the superseding activation's flag nor its pending play.
- *   (g) OWNER DECISION (binding): incrementLoadToken() fired during
+ *   (g) OWNER DECISION (binding): newLoadEpoch() fired during
  *       finalizeGuestFile's decode await must NOT abort the finalize —
  *       buffer swap, DECODE_SUCCESS, and pendingPlayTime consumption all
  *       still happen. Permanent tripwire against folding activeLoadSessionId
@@ -137,11 +137,11 @@ vi.mock('../video.ts', () => ({
 
 import {
   getCurrentAudioBuffer,
-  getLoadToken,
+  getCurrentLoadEpoch,
   getPendingPlayTime,
   getPlayerNode,
   incrementLoadSessionId,
-  incrementLoadToken,
+  newLoadEpoch,
   isPlayLocked,
   isPlayPreloadedInProgress,
   setCurrentAudioBuffer,
@@ -288,13 +288,13 @@ describe('pin (a) — use-preloaded supersession keeps the activation flag owned
     // B: a preload for a DIFFERENT index arrives while A is still decoding.
     setState('playlist.currentTrackIndex', 5);
     stagePreload(5, makeFile('t5.mp3'));
-    const tokenBeforeB = getLoadToken();
+    const tokenBeforeB = getCurrentLoadEpoch();
     bus.emit('storage:use-preloaded', 5, 't5.mp3');
 
     // Supersession must NOT clear the flag (stomp rule C1) and must bump the
     // token so A self-resolves at its post-decode checkpoint.
     expect(isPlayPreloadedInProgress()).toBe(true);
-    expect(getLoadToken()).toBe(tokenBeforeB + 1);
+    expect(getCurrentLoadEpoch()).toBe(tokenBeforeB + 1);
     // ...and B's decode must actually be running (the historical wedge:
     // B's blob in memory but no decode in flight).
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
@@ -337,7 +337,7 @@ describe('pin (b) — 15s navigator-lock-watchdog resets the full tuple', () => 
     const hang = deferred<void>();
     mocks.ensureRunning.mockReturnValue(hang.promise);
 
-    const tokenBefore = getLoadToken();
+    const tokenBefore = getCurrentLoadEpoch();
     const playPromise = play(5);
     expect(isPlayLocked()).toBe(true);
 
@@ -354,7 +354,7 @@ describe('pin (b) — 15s navigator-lock-watchdog resets the full tuple', () => 
     expect(getPendingPlayTime()).toBeUndefined();
     expect(staleNode.stop).toHaveBeenCalled();
     expect(getPlayerNode()).toBeNull();
-    expect(getLoadToken()).toBe(tokenBefore + 1);
+    expect(getCurrentLoadEpoch()).toBe(tokenBefore + 1);
     expect(getState('playback.activity')).toBe('idle');
 
     // The wedged play resumes → must abort at its token checkpoint without
@@ -477,11 +477,11 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
 
     const decodeE = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeE.promise);
-    const myToken = incrementLoadToken();
+    const myToken = newLoadEpoch();
     const p = loadPreloadedTrack(2, myToken);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
-    incrementLoadToken(); // a newer load supersedes mid-decode
+    newLoadEpoch(); // a newer load supersedes mid-decode
     decodeE.resolve({ duration: 80 } as AudioBuffer);
 
     expect(await p).toBe(false);
@@ -497,7 +497,7 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
 
     const decodeE = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeE.promise);
-    const myToken = incrementLoadToken();
+    const myToken = newLoadEpoch();
     const p = loadPreloadedTrack(2, myToken);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
@@ -529,7 +529,7 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
 
     const decodeE = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeE.promise);
-    const myToken = incrementLoadToken();
+    const myToken = newLoadEpoch();
     const p = loadPreloadedTrack(2, myToken);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
@@ -624,8 +624,8 @@ describe('pin (g) — owner decision: finalizeGuestFile is immune to loadToken b
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     // Watchdog-/cancelInFlight-style token bumps land mid-decode.
-    incrementLoadToken();
-    incrementLoadToken();
+    newLoadEpoch();
+    newLoadEpoch();
 
     const decoded = { duration: 120 } as AudioBuffer;
     decodeG.resolve(decoded);

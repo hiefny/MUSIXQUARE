@@ -5,7 +5,7 @@
  *
  * Stage A's concurrency-invariants.test.ts pins the cross-mechanism protocol
  * (pins a–g, all of which must keep passing unchanged). This file pins the
- * two corners that became live traps when `loadToken` + the preload-
+ * corner that became a live trap when `loadToken` + the preload-
  * activation owner seq merged into ONE load epoch
  * (docs/design/playback-concurrency-invariants.md §1 M1/M4):
  *
@@ -20,10 +20,11 @@
  *       ownership — is exercised by Stage A pin (f), which begins two
  *       activations without any epoch allocation in between.)
  *
- *   (i) the legacy alias names (getLoadToken/incrementLoadToken) and the
- *       epoch API advance ONE shared counter. Splitting them back into two
- *       counters would silently re-create the pre-Stage-B sprawl while every
- *       alias-named pin kept passing against the orphaned counter.
+ *   (i) RETIRED 2026-06-12: it pinned "the legacy aliases
+ *       (getLoadToken/incrementLoadToken) and the epoch API advance ONE
+ *       shared counter". The rename-completion pass deleted the aliases from
+ *       _state.ts, so the pinned threat (splitting them back into two
+ *       counters) is now a TypeScript error rather than a runtime trap.
  *
  * Mock surface mirrors concurrency-invariants.test.ts: transport.ts /
  * decode.ts / lifecycle.ts / ownership.ts are REAL; only the audio layer,
@@ -124,10 +125,6 @@ vi.mock('../video.ts', () => ({
 }));
 
 import {
-  getCurrentLoadEpoch,
-  getLoadToken,
-  incrementLoadToken,
-  isCurrentLoadEpoch,
   isPlayPreloadedInProgress,
   newLoadEpoch,
   setCurrentAudioBuffer,
@@ -232,21 +229,5 @@ describe('pin (h) — unrelated epoch bump mid-activation must not strand the fl
   });
 });
 
-// ─── Pin (i): alias and epoch APIs share one counter ─────────────────
-
-describe('pin (i) — legacy token aliases are the SAME counter as the epoch API', () => {
-  it('advances one shared monotonic counter through both name sets', () => {
-    const start = getCurrentLoadEpoch();
-    expect(getLoadToken()).toBe(start);
-
-    const viaAlias = incrementLoadToken();
-    expect(viaAlias).toBe(start + 1);
-    expect(getCurrentLoadEpoch()).toBe(viaAlias);
-    expect(isCurrentLoadEpoch(viaAlias)).toBe(true);
-
-    const viaEpoch = newLoadEpoch();
-    expect(viaEpoch).toBe(start + 2);
-    expect(getLoadToken()).toBe(viaEpoch);
-    expect(isCurrentLoadEpoch(viaAlias)).toBe(false);
-  });
-});
+// Pin (i) retired 2026-06-12 — the legacy aliases were deleted from _state.ts,
+// so "split the aliases back into a second counter" no longer compiles.

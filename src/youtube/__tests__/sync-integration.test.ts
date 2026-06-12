@@ -33,6 +33,7 @@ import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { MSG } from '../../core/constants.ts';
+import { isClockCalibrated } from '../../network/shared-clock.ts';
 import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
 
@@ -127,6 +128,7 @@ vi.mock('../iframe.ts', () => ({
   loadYouTubeVideo: vi.fn(),
   refreshYouTubeDisplay: vi.fn(),
   markYtStateBroadcast: vi.fn(),
+  invalidateYtDurationCache: vi.fn(),
 }));
 
 // search.ts — stub out fetches
@@ -771,6 +773,342 @@ describe('YouTube Sync — Regression Integration', () => {
 
       cancelYtAutoSync();
       expect(getManagedTimer('yt-auto-sync')).toBeNull();
+    });
+  });
+
+  // 12. Late-join snapshot capture BEFORE the readiness guard. Both handlers
+  // deliberately call updateHostSnapshot ahead of the player/mode guard so a
+  // bootstrap frame that lands while the guest is still inside
+  // loadYouTubeVideo (player null, mode not yet YouTube) is not lost — without
+  // it the user's first manual rendezvous hits "No host playback data" until
+  // the next heartbeat seconds later. handleYouTubeSync got this with the
+  // late-join fix; handleYouTubeState is the sibling path (8cbf192 lesson:
+  // patching one of the two paths and missing the other).
+  describe('late-join host snapshot — recorded before player/mode readiness', () => {
+    it('a YOUTUBE_SYNC heartbeat arriving before the player exists still feeds the next rendezvous', async () => {
+      const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      const { guestRendezvousSync } = await importSync();
+      setState('network.hostConn', mockHostConn as never);
+      setPlaybackIdle();
+      getYouTubePlayerMock.mockReturnValue(null);
+
+      // Paused-host heartbeat lands mid-bootstrap: side-effect paths must be
+      // skipped (no player), but the position snapshot must persist.
+      syncHandler(
+        { time: 42, state: 2, subIndex: 0, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+        mockHostConn,
+      );
+
+      // Player + mode become ready; the user hits Sync. The paused-host
+      // alignment must run off the pre-readiness snapshot, not bail no-data.
+      const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 300 });
+      setPlaybackYouTubePlaying();
+      const result = guestRendezvousSync({ silent: true });
+
+      expect(result.status).toBe('completed');
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([42, true]);
+      expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeDefined();
+    });
+
+    it('a YOUTUBE_STATE bootstrap frame arriving before the player exists still feeds the next rendezvous', async () => {
+      const stateHandler = capturedHandlers[MSG.YOUTUBE_STATE];
+      const { guestRendezvousSync } = await importSync();
+      setState('network.hostConn', mockHostConn as never);
+      setPlaybackIdle();
+      getYouTubePlayerMock.mockReturnValue(null);
+
+      stateHandler(
+        { state: 2, time: 33, subIndex: 0, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+        mockHostConn,
+      );
+
+      const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 300 });
+      setPlaybackYouTubePlaying();
+      const result = guestRendezvousSync({ silent: true });
+
+      expect(result.status).toBe('completed');
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([33, true]);
+    });
+  });
+
+  // 13. Out-of-order host commands: "last action wins" + "PAUSE/STOP always
+  // takes priority" (handleYouTubeState). A scheduled play from an earlier
+  // command must never fire after a newer command replaced it.
+  describe('handleYouTubeState — out-of-order host commands', () => {
+    it('a PAUSE arriving during a scheduled-play countdown cancels the pending play entirely', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      setState('network.hostConn', mockHostConn as never);
+
+      // Host PLAY with a 1s countdown — guest pauses, seeks to 5, arms the timer.
+      handler(
+        { state: 1, time: 5, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(400);
+
+      // Host PAUSE before the countdown completes — supersedes the play.
+      handler(
+        { state: 2, time: 6, hostPlayAt: 0, subIndex: 0, videoId: 'FAKE_VIDEO' },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(2000); // well past the original countdown deadline
+
+      // The orphaned yt-clock-action must NOT have fired playVideo.
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(0);
+      // The pause command's own seek (to 6) is the final position.
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
+      expect(seeks[seeks.length - 1].args).toEqual([6, true]);
+    });
+
+    it('a videoId mismatch loads the host video and defers play to the hostPlayAt instant', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      setState('network.hostConn', mockHostConn as never);
+
+      handler(
+        {
+          state: 1,
+          time: 0,
+          hostPlayAt: Date.now() + 1000,
+          subIndex: 2,
+          videoId: 'NEW_VIDEO',
+        },
+        mockHostConn,
+      );
+
+      // Load fires immediately so the iframe can buffer during the countdown;
+      // the tracked sub-index follows the host's payload.
+      expect(player.__log.filter((c) => c.op === 'loadVideoById')).toHaveLength(1);
+      expect(player.__log.find((c) => c.op === 'loadVideoById')?.args).toEqual(['NEW_VIDEO']);
+      expect(getState('youtube.currentSubIndex')).toBe(2);
+
+      // Play waits for the host-clock instant, not the load completion.
+      vi.advanceTimersByTime(999);
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(1);
+    });
+  });
+
+  // 14. handleYouTubeState scheduling boundary values. The three branches
+  // (auto-sync wait / short wait / immediate) are selected by waitMs against
+  // SHORT_WAIT_THRESHOLD_MS (300, inclusive on the short side) and
+  // AUTO_SYNC_MAX_WAIT_MS (3000, exclusive on the auto-sync side).
+  describe('handleYouTubeState — scheduling boundary values', () => {
+    it('waitMs exactly at the short-wait threshold (300ms) seeks to the wait-compensated position', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      setState('network.hostConn', mockHostConn as never);
+
+      // waitMs = 300 → `> SHORT_WAIT_THRESHOLD_MS` is false → short-wait path.
+      handler(
+        { state: 1, time: 10, hostPlayAt: Date.now() + 300, subIndex: 0, videoId: 'FAKE_VIDEO' },
+        mockHostConn,
+      );
+
+      // Short-wait defers ALL player ops to the scheduled instant.
+      expect(player.__log).toHaveLength(0);
+
+      // At +300ms: pause-seek with the target compensated by the wait
+      // (time + waitMs/1000) so the guest lands where the host IS, not was.
+      vi.advanceTimersByTime(300);
+      expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeDefined();
+      const seek = player.__log.find((c) => c.op === 'seekTo');
+      expect(seek?.args?.[0]).toBeCloseTo(10.3, 5);
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(0);
+
+      // playVideo fires SEEK_PLAY_GAP_MS (150ms) after the seek commits.
+      vi.advanceTimersByTime(150);
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(1);
+    });
+
+    it('waitMs at the auto-sync cap (3000ms) falls through to immediate execution', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      setState('network.hostConn', mockHostConn as never);
+
+      // waitMs = 3000 → `< AUTO_SYNC_MAX_WAIT_MS` is false → the rendezvous
+      // window has effectively expired; executeImmediate runs now instead of
+      // holding the guest paused for 3 more seconds.
+      handler(
+        { state: 1, time: 10, hostPlayAt: Date.now() + 3000, subIndex: 0, videoId: 'FAKE_VIDEO' },
+        mockHostConn,
+      );
+
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([10, true]);
+      vi.advanceTimersByTime(150); // SEEK_PLAY_GAP_MS, not the 3s hostPlayAt wait
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(1);
+    });
+
+    it('an uncalibrated shared clock ignores hostPlayAt and executes immediately (late-join, no pongs yet)', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      setState('network.hostConn', mockHostConn as never);
+
+      // Freshly joined guest: getHostNow() is raw Date.now() (offset 0), so a
+      // hostPlayAt countdown would be meaningless — play now, let the periodic
+      // pong calibrate and drift correction clean up.
+      vi.mocked(isClockCalibrated).mockReturnValueOnce(false);
+      handler(
+        { state: 1, time: 10, hostPlayAt: Date.now() + 1000, subIndex: 0, videoId: 'FAKE_VIDEO' },
+        mockHostConn,
+      );
+
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([10, true]);
+      vi.advanceTimersByTime(150); // SEEK_PLAY_GAP_MS only — no 1s countdown
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(1);
+    });
+  });
+
+  // 15. handleYouTubeSync videoId/subIndex reconciliation. Single-video mode:
+  // the guest is always driven via loadVideoById (never the native playlist
+  // engine), and the LOAD_DRIFT_SUPPRESS_MS window keeps the next heartbeats
+  // from interrupting the load they themselves triggered.
+  describe('handleYouTubeSync — videoId/subIndex reconciliation', () => {
+    it('reloads on host videoId mismatch, holds drift during the load window, then resumes correction', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      setState('network.hostConn', mockHostConn as never);
+
+      // Phase 1 — heartbeat carries a different videoId: single-video-mode
+      // reload, and NO drift seek for this frame (the reload supersedes it).
+      handler({ time: 50, state: 1, subIndex: 0, videoId: 'OTHER_VIDEO' }, mockHostConn);
+      expect(player.__log.filter((c) => c.op === 'loadVideoById')).toHaveLength(1);
+      expect(player.__log.find((c) => c.op === 'loadVideoById')?.args).toEqual(['OTHER_VIDEO']);
+      expect(player.__log.filter((c) => c.op === 'seekTo')).toHaveLength(0);
+
+      // Phase 2 — next heartbeat inside LOAD_DRIFT_SUPPRESS_MS (5s): fully
+      // ignored, even with a fresh mismatch — re-calling loadVideoById would
+      // reset buffering and extend the transition window.
+      vi.advanceTimersByTime(1000);
+      handler({ time: 51, state: 1, subIndex: 0, videoId: 'YET_ANOTHER' }, mockHostConn);
+      expect(player.__log.filter((c) => c.op === 'loadVideoById')).toHaveLength(1);
+      expect(player.__log.filter((c) => c.op === 'seekTo')).toHaveLength(0);
+
+      // Phase 3 — window elapsed: normal drift correction is live again
+      // (guest at 0 after the load, host at 60 → corrective seek).
+      vi.advanceTimersByTime(4001);
+      handler({ time: 60, state: 1, subIndex: 0, videoId: 'OTHER_VIDEO' }, mockHostConn);
+      const seeks = player.__log.filter((c) => c.op === 'seekTo');
+      expect(seeks).toHaveLength(1);
+      expect(seeks[0].args).toEqual([60, true]);
+    });
+
+    it('aligns a drifted sub-index by state write alone when the videoId already matches', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      setState('network.hostConn', mockHostConn as never);
+      setState('youtube.currentSubIndex', 0);
+
+      handler({ time: 10.2, state: 1, subIndex: 4, videoId: 'FAKE_VIDEO' }, mockHostConn);
+
+      // State repaired; the iframe is already on the right video, so no
+      // loadVideoById round-trip (and drift is tiny, so no seek either).
+      expect(getState('youtube.currentSubIndex')).toBe(4);
+      expect(player.__log.filter((c) => c.op === 'loadVideoById')).toHaveLength(0);
+      expect(player.__log.filter((c) => c.op === 'seekTo')).toHaveLength(0);
+    });
+
+    it('skips the corrective seek while duration is unreported but still applies play-state sync', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 0 });
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      setState('network.hostConn', mockHostConn as never);
+
+      // duration=0 → the video hasn't buffered enough to trust positions, so
+      // no seek even with 190s of apparent drift; but the host PLAYING vs
+      // guest PAUSED mismatch is corrected unconditionally.
+      handler({ time: 200, state: 1, subIndex: 0, videoId: 'FAKE_VIDEO' }, mockHostConn);
+
+      expect(player.__log.filter((c) => c.op === 'seekTo')).toHaveLength(0);
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(1);
+    });
+  });
+
+  // 16. Host-side sub-video navigation (single-video mode). The 2026-06-07
+  // desync class: a navigation broadcast missing the new subIndex/videoId
+  // leaves guests on the old video. Both broadcast stages must carry the
+  // post-navigation pair, and out-of-range navigation must hand control back
+  // to the queue-level playlist logic via callback(false).
+  describe('sub-video navigation — subIndex/videoId broadcast parity', () => {
+    function seedPlaylistTrack(ids: string[]): void {
+      setState('playlist.currentTrackIndex', 0);
+      setState('playlist.items', [
+        { type: 'youtube', videoId: ids[0], playlistId: 'PL_NAV', name: 'Playlist' },
+      ] as never);
+      setState('youtube.subItemsMap', { PL_NAV: { ids, titles: [] } });
+    }
+
+    it('next sub-video loads by id and both sync stages broadcast the new subIndex + videoId', async () => {
+      // __playlistIdx -1 mirrors single-video mode: after loadVideoById the
+      // iframe loses playlist context, so OUR managed index is authoritative.
+      const player = installPlayer({
+        __state: 1,
+        __currentTime: 5,
+        __duration: 200,
+        __videoId: 'vidA',
+        __playlistIdx: -1,
+      });
+      const { initYouTube } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
+      initYouTube();
+      seedPlaylistTrack(['vidA', 'vidB', 'vidC']);
+      setState('youtube.currentSubIndex', 0);
+
+      const callback = vi.fn();
+      bus.emit('youtube:try-next-internal', callback);
+
+      expect(callback).toHaveBeenCalledWith(true);
+      expect(player.__log.find((c) => c.op === 'loadVideoById')?.args).toEqual(['vidB']);
+      expect(getState('youtube.currentSubIndex')).toBe(1);
+
+      // Stage 1 (YOUTUBE_STATE): guests must learn the new pair immediately.
+      const stage1 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];
+      expect(stage1).toMatchObject({ state: 1, time: 0, subIndex: 1, videoId: 'vidB' });
+
+      // Stage 2 (YOUTUBE_SYNC manual): the precision rendezvous 2s later must
+      // carry the SAME pair, read back from the live player + managed index.
+      vi.advanceTimersByTime(2000);
+      const stage2 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_SYNC)?.[0];
+      expect(stage2).toMatchObject({ isManual: true, subIndex: 1, videoId: 'vidB' });
+    });
+
+    it('prev past the 3s threshold restarts the current video through the synced auto-sync path', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 200 });
+      const { initYouTube } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      const broadcastMock = vi.mocked(broadcast);
+      initYouTube();
+
+      const callback = vi.fn();
+      bus.emit('youtube:try-prev-internal', callback);
+
+      // Standard music-player UX: >3s in, "prev" = restart — and the restart
+      // is broadcast (time 0) instead of a local-only seek.
+      expect(callback).toHaveBeenCalledWith(true);
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([0, true]);
+      expect(player.__log.find((c) => c.op === 'playVideo')).toBeDefined();
+      const stage1 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];
+      expect(stage1).toMatchObject({ state: 1, time: 0 });
+    });
+
+    it('prev on the first sub-video within 3s reports failure so queue-level navigation takes over', async () => {
+      const player = installPlayer({ __state: 1, __currentTime: 1, __duration: 200 });
+      const { initYouTube } = await importPlayer();
+      const { broadcast } = await import('../../network/peer.ts');
+      initYouTube();
+      seedPlaylistTrack(['vidA', 'vidB']);
+      setState('youtube.currentSubIndex', 0);
+
+      const callback = vi.fn();
+      bus.emit('youtube:try-prev-internal', callback);
+
+      // No sub-video to go back to: decline (callback(false)) WITHOUT touching
+      // the player, so playlist.ts runs its own prev/shuffle queue logic.
+      expect(callback).toHaveBeenCalledWith(false);
+      expect(player.__log.filter((c) => c.op === 'loadVideoById')).toHaveLength(0);
+      expect(broadcast).not.toHaveBeenCalled();
     });
   });
 });

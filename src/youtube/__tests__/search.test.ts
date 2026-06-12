@@ -8,8 +8,10 @@ import {
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
   fetchYouTubeSearchResults,
+  getSelectedYouTubeSearchResult,
   getYouTubeInputIntent,
   isYouTubeLiveUrl,
+  searchYouTubeFromInput,
 } from '../search.ts';
 import { fetchOEmbedTitle } from '../oembed.ts';
 
@@ -151,6 +153,117 @@ describe('YouTube input i18n state', () => {
     setLanguageMode('en');
 
     expect(status?.textContent).toBe('Enter a YouTube search term or link');
+  });
+});
+
+describe('YouTube search result normalization', () => {
+  // Pin the response-hardening layer of normalizeSearchResults: the backend
+  // proxy is trusted-ish, but defense-in-depth drops malformed rows, rejects
+  // non-https thumbnails (10차 audit Phase 4 finding — blocks data:/javascript:
+  // if the backend ever drifts), and rebuilds any url that doesn't contain the
+  // row's own videoId from the canonical watch URL.
+  it('drops malformed rows and sanitizes thumbnail/url fields from the search proxy', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        return Response.json({
+          results: [
+            'not-an-object',
+            { videoId: 'tooShort', title: 'invalid id length — dropped' },
+            {
+              videoId: 'AAAAAAAAAAA',
+              title: 'Valid &amp; Co',
+              channelTitle: 'Chan',
+              thumbnailUrl: 'http://i.ytimg.com/vi/AAAAAAAAAAA/insecure.jpg',
+              url: 'https://evil.example/page-without-the-id',
+            },
+            {
+              videoId: 'BBBBBBBBBBB',
+              title: 'Keeps own url',
+              channelTitle: 'Chan B',
+              thumbnailUrl: 'https://i.ytimg.com/vi/BBBBBBBBBBB/mqdefault.jpg',
+              url: 'https://www.youtube.com/watch?v=BBBBBBBBBBB&t=10s',
+            },
+          ],
+        });
+      }),
+    );
+
+    const results = await fetchYouTubeSearchResults('normalize hardening probe 20260613');
+
+    expect(results).toHaveLength(2);
+    // http:// thumbnail rejected → '' (renderer falls back to canonical
+    // mqdefault.jpg); foreign url without the videoId → canonical watch URL.
+    expect(results[0]).toMatchObject({
+      videoId: 'AAAAAAAAAAA',
+      title: 'Valid & Co',
+      thumbnailUrl: '',
+      url: 'https://www.youtube.com/watch?v=AAAAAAAAAAA',
+    });
+    // https thumbnail and an own-videoId url pass through untouched.
+    expect(results[1]).toMatchObject({
+      videoId: 'BBBBBBBBBBB',
+      thumbnailUrl: 'https://i.ytimg.com/vi/BBBBBBBBBBB/mqdefault.jpg',
+      url: 'https://www.youtube.com/watch?v=BBBBBBBBBBB&t=10s',
+    });
+  });
+});
+
+describe('YouTube search result rendering sink', () => {
+  // 544219be decodes HTML entities BEFORE the title reaches the DOM; that is
+  // only safe because every title sink is textContent/innerText (19차 audit
+  // verification). Pin decode-then-textContent: a decoded markup payload must
+  // render as literal text, never as elements — and the auto-selected result
+  // stays bound to the query it was rendered for.
+  it('renders decoded titles through textContent and binds selection to the originating query', async () => {
+    document.body.innerHTML = `
+      <div id="youtube-preview"></div>
+      <div id="youtube-preview-status"></div>
+      <div id="youtube-search-results"></div>
+      <button id="youtube-play-btn"></button>
+    `;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        return Response.json({
+          results: [
+            {
+              videoId: 'CCCCCCCCCCC',
+              title: 'Tom &amp; Jerry &lt;img src=x onerror=boom()&gt;',
+              channelTitle: 'Cartoon &amp; Co',
+              thumbnailUrl: 'https://i.ytimg.com/vi/CCCCCCCCCCC/mqdefault.jpg',
+              url: 'https://www.youtube.com/watch?v=CCCCCCCCCCC',
+            },
+          ],
+        });
+      }),
+    );
+
+    await searchYouTubeFromInput('sink probe 20260613');
+
+    // Entities decoded for display, markup inert: the decoded "<img …>" is
+    // literal text under the title node, and the only <img> in the results
+    // list is the thumbnail itself.
+    const titleEl = document.querySelector('.yt-search-title');
+    expect(titleEl?.textContent).toBe('Tom & Jerry <img src=x onerror=boom()>');
+    expect(titleEl?.children).toHaveLength(0);
+    expect(document.querySelectorAll('#youtube-search-results img')).toHaveLength(1);
+
+    // The first result auto-selects for the query that produced it; a changed
+    // input invalidates the selection (stale-pick guard in the play button path).
+    expect(getSelectedYouTubeSearchResult('sink probe 20260613')?.videoId).toBe('CCCCCCCCCCC');
+    expect(getSelectedYouTubeSearchResult('some other query')).toBeNull();
+
+    clearYouTubeInputState();
+    document.body.innerHTML = '';
   });
 });
 

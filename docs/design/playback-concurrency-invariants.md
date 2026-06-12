@@ -149,6 +149,18 @@ helper is a regression generator. *Pin (e) covers both directions.*
 | `handlePauseMsg` | **clear** | host paused; a finishing download must not auto-start |
 | `_internalPlay` entry / unlock-delay | **consume** (clear, possibly replay) | the mailbox is delivered |
 
+**Completion-consumer order note (2026-06-13, deep-dive accepted):** the two
+pipeline-COMPLETION consumers (`loadPreloadedTrack` / `finalizeGuestFile`)
+run replay-then-clear — the inverse of C6, whose clear-then-replay is scoped
+to the `_internalPlay` unlock-delay consumer. Intentional-by-acceptance: the
+only divergent case is a lock-branch zero-fire (constructible only under an
+engine-init hang >2s spanning a track switch, via the un-raced
+`_internalPlay` initAudio vs the 2s-raced loader initAudio), and there the
+sync bootstrap armed on the same lines recovers at a pong-fresh,
+age-correct position — strictly better than a C6-conforming swap, which
+would replay a stale un-age-compensated value and force a second audible
+drift-correction restart. Do NOT "align" these two sites to C6.
+
 **Writers** (anyone adding a writer must update this table):
 `handlePlayMsg` (defer branches, index-mismatch, name-mismatch, no-buffer),
 `tryFetchDemoForRemote`, `play()` (lock-queue + busy-defer branches),

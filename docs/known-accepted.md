@@ -71,6 +71,12 @@ Some small or secondary UI controls may not meet every desktop keyboard/touch-ta
 
 This is accepted as a product-priority tradeoff for the current mobile-first music-room interface. It should not block stability work, but it belongs in a future accessibility/UI polish phase.
 
+### 10. System-Audio Entry Does Not Cancel A Debounce-Parked File Broadcast
+
+`startSystemAudioCapture` (`src/audio/system-capture.ts`) calls `stopAllMedia({silent, cancelInFlight})` but does not call `cancelPendingBroadcast()`, unlike the local→YouTube switch (`playlist.ts` playTrack YouTube branch). A broadcast parked in the 300ms send debounce when the user confirms the screen-share picker therefore fires during system-audio mode; guests drop every frame (`isExternalOwner` gates in `transfer-receive.ts`), so the cost is one wasted full-file send to local guests, repaired after restore by the normal `REQUEST_CURRENT_FILE` recovery.
+
+This is accepted (2026-06-13 deep-dive). The window is a sub-300ms sliver: most overlap is already closed by the load's own external-owner abort (`decode.ts` post-decode check), and the strictly larger in-flight variant — a broadcast already pumping when system-audio starts — is itself accepted by design (SA-08: "chunks we discard anyway"). Cancelling only the parked sliver would not change the switch's waste profile. If revisited (system-audio becoming a high-frequency flow, or rooms growing past the current warn thresholds), the verified fix is a single `cancelPendingBroadcast()` after the `stopAllMedia` call in `startSystemAudioCapture` — pending-only, NOT `cancelOutgoingFileTransfers` (which would also abort in-flight transfers that can still finalize on guests before SYSTEM_AUDIO_START processes), and NOT inside `stopAllMedia` (HET-6).
+
 ## Retired From The Old Draft
 
 The previous `.workshop/review/known-accepted.md` was written against an older architecture. These items should no longer be carried forward as accepted risks:

@@ -430,20 +430,6 @@ export async function waitForTheme(page: Page, theme: string, timeout = 5_000): 
 }
 
 /**
- * Wait for i18n text to contain a pattern (Korean or English).
- */
-export async function waitForLang(page: Page, lang: 'ko' | 'en', timeout = 5_000): Promise<void> {
-  await page.waitForFunction(
-    (l) => {
-      const text = document.body.textContent || '';
-      return l === 'ko' ? /[\uAC00-\uD7A3]/.test(text) : /settings|audio|connect|play/i.test(text);
-    },
-    lang,
-    { timeout },
-  );
-}
-
-/**
  * Open chat drawer reliably.
  * Replaces inconsistent chat-open patterns across tests.
  */

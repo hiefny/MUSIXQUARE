@@ -433,7 +433,14 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   // is still broadcasting heartbeats for a freshly loaded next track.
   clearManagedTimer('yt-guest-ended-fallback');
 
-  // Manual sync (Host clicks Sync button) ALWAYS bypasses the cooldown
+  // Manual sync (Host clicks Sync button) ALWAYS bypasses the cooldown.
+  // This gate is also what protects the videoId-mismatch block below from
+  // interrupting an in-progress loadVideoById (handleYouTubeState raises
+  // autoSyncUntil when it initiates a load; ITS sibling top-gate was removed
+  // for last-action-wins, so this one must stay). No autoSyncUntil writer
+  // runs between here and the mismatch block within one invocation — the
+  // function has no awaits — so the redundant inner re-check was deleted
+  // 2026-06-13; restore one if this gate is ever relaxed.
   if (!isManual && Date.now() < _rt.autoSyncUntil) return;
 
   try {
@@ -500,15 +507,6 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
     if (hostVideoId && player.getVideoData) {
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
-        // Skip if another handler (handleYouTubeState) already initiated a
-        // video load — calling loadVideoById again would interrupt it,
-        // resetting buffering and extending the transition window.
-        if (Date.now() < _rt.autoSyncUntil) {
-          log.debug(
-            '[YouTube Sync] Video mismatch detected but load already in progress — skipping',
-          );
-          return;
-        }
         log.info(
           `[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`,
         );

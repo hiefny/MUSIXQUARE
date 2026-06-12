@@ -466,6 +466,7 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   //   (2) shuffle — shared row-level Fisher-Yates order
   //   (3) sequential — (failedIdx + 1) % length (when shuffle OFF)
   const isShuffle = getState('playlist.isShuffle');
+  const repeatMode = getState('playlist.repeatMode');
   const preloadIdx = getState('preload.nextTrackIndex');
 
   const isGoodCandidate = (i: number): boolean =>
@@ -483,7 +484,15 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   const shouldUseShuffleOrder = nextIdx === -1 && isShuffle;
 
   if (nextIdx === -1 && !shouldUseShuffleOrder) {
-    for (let probe = 1; probe <= playlist.length; probe++) {
+    // Wrap past the playlist end ONLY under repeat-all. A failure-skip is
+    // not a natural end, but resurrecting from track 0 under repeat OFF
+    // would override the same end-of-playlist semantics SA-01 pinned for
+    // the preload fallback — and the shuffle branch already stops there
+    // (getShuffleNextPlayableIndex returns -1 at pass end). Without this
+    // bound the SAME last-track failure stopped the room in shuffle but
+    // restarted it from track 0 in sequential (mode-sibling parity break).
+    const maxProbe = repeatMode === 1 ? playlist.length : playlist.length - 1 - failedIdx;
+    for (let probe = 1; probe <= maxProbe; probe++) {
       const candidate = (failedIdx + probe) % playlist.length;
       if (isGoodCandidate(candidate)) {
         nextIdx = candidate;
@@ -492,7 +501,10 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
     }
   }
 
-  if (nextIdx !== -1 || shouldUseShuffleOrder) {
+  {
+    // Always schedule the advance: a -1 target falls through to
+    // playNextTrack(), whose canonical end handling (handleEndOfPlaylist)
+    // stops the room — the same exit the shuffle walk takes at pass end.
     // Snapshot the load epoch at scheduling time. If a user action (track
     // click, next/prev) allocates a new epoch during the 600ms backoff, abort
     // — playTrack already cleared this timer at its entry, but the snapshot

@@ -25,6 +25,7 @@ import {
 } from '../playlist.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
 import { getCurrentLoadEpoch } from '../_state.ts';
+import { initDecodeHandlers } from '../decode.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
@@ -300,6 +301,55 @@ describe('remove-track playlist-empty teardown supersedes in-flight loads', () =
 
     expect(getState('playlist.items')).toHaveLength(1);
     expect(getCurrentLoadEpoch()).toBe(before);
+  });
+});
+
+describe('decode-fail advance respects end-of-playlist (mode parity)', () => {
+  // The failure-skip walk must honor the repeat mode the way every sibling
+  // path does: shuffle stops at pass end, natural sequential end stops, so a
+  // last-track decode failure with repeat OFF must end the playlist instead
+  // of restarting the whole room from track 0. Repeat ALL keeps the wrap.
+  // Driven through the OP guest-decode-failed report, which reaches the same
+  // markFailedAndAdvance walk the host's own decode failures use.
+  function setupOpReporter(): ReturnType<typeof vi.fn> {
+    const send = vi.fn();
+    const conn = { peer: 'guest-op', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-op', true), conn }]);
+    initDecodeHandlers();
+    setState('playlist.items', [
+      { type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'b.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'c.mp3', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 2);
+    return send;
+  }
+
+  it('repeat OFF: last-track failure ends the playlist instead of wrapping to track 0', async () => {
+    vi.useFakeTimers();
+    const send = setupOpReporter();
+    setRepeatMode(0, false);
+
+    const opConn = getState('network.connectedPeers')[0].conn!;
+    await handleData({ type: MSG.GUEST_DECODE_FAILED, index: 2 }, opConn);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(getState('playlist.currentTrackIndex')).toBe(-1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PAUSE, endOfPlaylist: true }),
+    );
+  });
+
+  it('repeat ALL: last-track failure still wraps the advance to track 0', async () => {
+    vi.useFakeTimers();
+    setupOpReporter();
+    setRepeatMode(1, false);
+
+    const opConn = getState('network.connectedPeers')[0].conn!;
+    await handleData({ type: MSG.GUEST_DECODE_FAILED, index: 2 }, opConn);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(getState('playlist.currentTrackIndex')).toBe(0);
   });
 });
 

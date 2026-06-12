@@ -45,11 +45,12 @@ test.describe('Linelight demo mode', () => {
     await setupHostAndStart(page);
 
     await page.locator('#dialog-overlay.show').waitFor({ timeout: 10_000 });
-    await expect(page.locator('#dialog-overlay.show')).toContainText('Try MUSIXQUARE');
+    // Prompt copy updated by 2fb1feb6 (demo.prompt_title/_message/_cta)
+    await expect(page.locator('#dialog-overlay.show')).toContainText('Experience MUSIXQUARE');
     await expect(page.locator('#dialog-overlay.show')).toContainText(
-      "Looks like you're new here. Want to try the basics?",
+      'Welcome! Ready for a quick tour of our features?',
     );
-    await expect(page.locator('#btn-dialog-ok')).toHaveText('Try it');
+    await expect(page.locator('#btn-dialog-ok')).toHaveText('Start Tour');
     await page.locator('#btn-dialog-ok').click();
 
     await expect(page.locator('#demo-overlay')).toHaveClass(/active/, { timeout: 15_000 });

@@ -47,6 +47,28 @@ async function hasNonSystemChatContaining(
   }, text);
 }
 
+/**
+ * Wait for the pinned notice banner to show the given text.
+ * Since 9b2824e7, /notice renders ONLY into the #chat-pinned-notice banner
+ * (label + time + text), never as a chat-list bubble.
+ */
+async function waitForPinnedNotice(
+  page: import('@playwright/test').Page,
+  text: string,
+  timeout = 10_000,
+): Promise<void> {
+  await page.waitForFunction(
+    (t) => {
+      const banner = document.getElementById('chat-pinned-notice');
+      if (!banner || banner.hidden) return false;
+      const body = document.getElementById('chat-pinned-notice-text');
+      return body?.textContent?.includes(t) ?? false;
+    },
+    text,
+    { timeout },
+  );
+}
+
 async function isChatInputDisabled(page: import('@playwright/test').Page): Promise<boolean> {
   return page.evaluate(() => {
     const input = document.getElementById('chat-input') as HTMLElement | null;
@@ -268,10 +290,24 @@ test.describe('Chat Commands', () => {
     await openChatDrawer(pair.guestPage);
 
     await sendChat(pair.hostPage, '/notice Vote for next song!');
-    await waitForChatMessage(pair.guestPage, 'Vote for next song!');
 
-    const guestText = await getChatText(pair.guestPage);
-    expect(guestText).toContain('Vote for next song!');
+    // Notices render only in the pinned banner (9b2824e7) — on every device.
+    await waitForPinnedNotice(pair.guestPage, 'Vote for next song!');
+    await waitForPinnedNotice(pair.hostPage, 'Vote for next song!');
+
+    const guestBanner = await pair.guestPage.evaluate(() => ({
+      hidden: document.getElementById('chat-pinned-notice')?.hidden ?? true,
+      label: document.getElementById('chat-pinned-notice-label')?.textContent || '',
+      text: document.getElementById('chat-pinned-notice-text')?.textContent || '',
+    }));
+    expect(guestBanner.hidden).toBe(false);
+    expect(guestBanner.text).toContain('Vote for next song!');
+    // Banner label carries the notice prefix and the sender ("Notice · HOST")
+    expect(guestBanner.label).toContain('HOST');
+
+    // And it must NOT show up as a regular chat-list message anymore.
+    const guestChatText = await getChatText(pair.guestPage);
+    expect(guestChatText).not.toContain('Vote for next song!');
   });
 
   // ── /nick ──────────────────────────────────────────────────────
@@ -297,13 +333,13 @@ test.describe('Chat Commands', () => {
       const container = document.getElementById('chat-messages');
       if (!container) return false;
       const text = container.innerText || '';
-      return text.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /not allowed/i.test(text);
+      return text.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(text);
     }, { timeout: 10_000 });
 
     const guestText = await getChatText(pair.guestPage);
-    // ko: '사용할 수 없는 이름입니다.' or en: 'This name is not allowed.'
+    // ko: '사용할 수 없는 이름이에요.' or en: 'This nickname is reserved.' (copy updated by 2fb1feb6)
     const hasReservedError =
-      guestText.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /not allowed/i.test(guestText);
+      guestText.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(guestText);
     expect(hasReservedError).toBe(true);
   });
 
@@ -317,13 +353,13 @@ test.describe('Chat Commands', () => {
       const container = document.getElementById('chat-messages');
       if (!container) return false;
       const text = container.innerText || '';
-      return text.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /not allowed/i.test(text);
+      return text.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(text);
     }, { timeout: 10_000 });
 
     const guestText = await getChatText(pair.guestPage);
-    // ko: '사용할 수 없는 이름입니다.' or en: 'This name is not allowed.'
+    // ko: '사용할 수 없는 이름이에요.' or en: 'This nickname is reserved.' (copy updated by 2fb1feb6)
     const hasReservedError =
-      guestText.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /not allowed/i.test(guestText);
+      guestText.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(guestText);
     expect(hasReservedError).toBe(true);
   });
 

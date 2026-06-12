@@ -17,7 +17,6 @@ import {
   navigateToSubtab,
   clickAndWaitActive,
   waitForTheme,
-  waitForLang,
   waitForState,
 } from './helpers/wait.ts';
 
@@ -78,19 +77,61 @@ test.describe('Settings Panel', () => {
   });
 
   // ── Language Tests ──────────────────────────────────────────
+  // Language selection moved from inline chips to a dialog (a1269f9e):
+  // "Select" (#btn-language-select) opens #language-dialog-overlay, which
+  // holds .language-option[data-lang] entries. Active state lives on the
+  // chosen option (class "active" + aria-selected) and on the grid button
+  // (#btn-language-select vs #btn-language-system).
+
+  /** Open the language dialog from the settings General panel. */
+  async function openLanguageDialog(page: import('@playwright/test').Page): Promise<void> {
+    await page.locator('#btn-language-select').click();
+    await page.waitForFunction(
+      () =>
+        document.getElementById('language-dialog-overlay')?.classList.contains('show') ?? false,
+      undefined,
+      { timeout: 5_000 },
+    );
+  }
+
+  /** Wait until the i18n module has applied the resolved language to <html lang>. */
+  async function waitForResolvedLang(
+    page: import('@playwright/test').Page,
+    lang: string,
+  ): Promise<void> {
+    await page.waitForFunction((l) => document.documentElement.getAttribute('lang') === l, lang, {
+      timeout: 10_000,
+    });
+  }
 
   test('switching to English changes i18n text', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-lang="en"]');
-    await waitForLang(pair.hostPage, 'en');
+    await openLanguageDialog(pair.hostPage);
 
-    // Some element should now have English text
-    const bodyText = await pair.hostPage.evaluate(() => document.body.textContent || '');
-    // English UI should have common English words
-    expect(bodyText.toLowerCase()).toMatch(/settings|audio|connect|play/);
+    // Round-trip through Korean so picking English provably CHANGES the text
+    // (the app already boots in English under the test browser locale).
+    await clickAndWaitActive(pair.hostPage, '.language-option[data-lang="ko"]');
+    await waitForResolvedLang(pair.hostPage, 'ko');
+
+    await clickAndWaitActive(pair.hostPage, '.language-option[data-lang="en"]');
+    await waitForResolvedLang(pair.hostPage, 'en');
+
+    // Element-specific assertion: whole-body text checks are tautological now
+    // because the always-rendered language list contains native names (한국어…).
+    await pair.hostPage.waitForFunction(
+      () =>
+        document.querySelector('.section-title[data-i18n="settings.language"]')?.textContent ===
+        'Language Settings',
+      undefined,
+      { timeout: 10_000 },
+    );
+    const themeTitle = await pair.hostPage
+      .locator('.section-title[data-i18n="settings.theme"]')
+      .textContent();
+    expect(themeTitle).toBe('Theme');
   });
 
   test('switching to Korean changes i18n text', async () => {
@@ -98,13 +139,24 @@ test.describe('Settings Panel', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-lang="ko"]');
-    await waitForLang(pair.hostPage, 'ko');
+    await openLanguageDialog(pair.hostPage);
 
-    // Some element should have Korean text
-    const bodyText = await pair.hostPage.evaluate(() => document.body.textContent || '');
-    // Korean UI should have Korean characters
-    expect(bodyText).toMatch(/[\uAC00-\uD7A3]/); // Hangul range
+    await clickAndWaitActive(pair.hostPage, '.language-option[data-lang="ko"]');
+    await waitForResolvedLang(pair.hostPage, 'ko');
+
+    // Element-specific assertion against a static UI label (not the language
+    // list, which contains \uD55C\uAD6D\uC5B4 in every locale).
+    await pair.hostPage.waitForFunction(
+      () =>
+        document.querySelector('.section-title[data-i18n="settings.theme"]')?.textContent ===
+        '\uD14C\uB9C8',
+      undefined,
+      { timeout: 10_000 },
+    );
+    const langTitle = await pair.hostPage
+      .locator('.section-title[data-i18n="settings.language"]')
+      .textContent();
+    expect(langTitle).toContain('\uC5B8\uC5B4');
   });
 
   test('language selection shows active class', async () => {
@@ -112,10 +164,25 @@ test.describe('Settings Panel', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-lang="en"]');
+    await openLanguageDialog(pair.hostPage);
 
-    const hasActive = await pair.hostPage.locator('.ch-opt[data-lang="en"]').evaluate(el => el.classList.contains('active'));
-    expect(hasActive).toBe(true);
+    await clickAndWaitActive(pair.hostPage, '.language-option[data-lang="en"]');
+
+    const optionState = await pair.hostPage
+      .locator('.language-option[data-lang="en"]')
+      .evaluate((el) => ({
+        active: el.classList.contains('active'),
+        selected: el.getAttribute('aria-selected'),
+      }));
+    expect(optionState.active).toBe(true);
+    expect(optionState.selected).toBe('true');
+
+    // Explicit selection also marks the grid's "Select" button active
+    // (vs "Use system language").
+    const gridActive = await pair.hostPage
+      .locator('#btn-language-select')
+      .evaluate((el) => el.classList.contains('active'));
+    expect(gridActive).toBe(true);
   });
 
   // ── Virtual Surround Toggle Tests ──────────────────────────────────────

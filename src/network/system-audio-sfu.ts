@@ -622,8 +622,24 @@ function setReceiverDelay(receiver: RTCRtpReceiver): void {
   delayedReceiver.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
 }
 
-async function connectGuestTrack(channel: Channel, track: MediaStreamTrack): Promise<void> {
+async function connectGuestTrack(
+  channel: Channel,
+  track: MediaStreamTrack,
+  pc: RTCPeerConnection,
+): Promise<void> {
   await initAudio();
+  // Post-await identity recheck (blind-spot ⑭): connectGuestTrack is
+  // fire-and-forget, so a teardown (cleanupGuestSfu → guestPc=null) or a new
+  // subscription (guestPc=newPc) landing during initAudio() would otherwise let
+  // this late attach recreate guestMerger + the source and flip
+  // guestReceiving=true — resurrecting a torn-down receive (leaked merger/limit
+  // timer, double audio, masked playback mode). The host publisher guards the
+  // same window with an epoch; pc-identity is the right key here since each
+  // subscription owns exactly one pc. Must run BEFORE any node is created.
+  if (guestPc !== pc) {
+    log.debug('[SysAudioSFU] Stale guest track attach (pc superseded during init) — skipping');
+    return;
+  }
   const ctx = getAudioContext();
   const widener = getWidener();
   if (!widener) {
@@ -773,7 +789,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
 
     setReceiverDelay(receiver);
     log.info(`[SysAudioSFU] Received ${channel} remote track (${reason}, mid=${mid || 'none'})`);
-    connectGuestTrack(channel, track).catch((error) =>
+    connectGuestTrack(channel, track, pc).catch((error) =>
       log.error('[SysAudioSFU] Failed to attach remote track:', error),
     );
   };

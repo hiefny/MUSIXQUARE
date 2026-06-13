@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
@@ -24,7 +24,7 @@ import {
   playTrack,
 } from '../playlist.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
-import { getCurrentLoadEpoch } from '../_state.ts';
+import { getCurrentLoadEpoch, setCurrentAudioBuffer } from '../_state.ts';
 import { initDecodeHandlers } from '../decode.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
@@ -376,6 +376,44 @@ describe('repeat-one ended-advance after a mid-window removal (SA-12)', () => {
 
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.PLAY, time: 0, index: 1 }),
+    );
+  });
+});
+
+describe('fast-replay autoPlayTimer fire-time index (F-2404)', () => {
+  it('broadcasts the index read at FIRE time, not the click-time captured one', async () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
+    initPlaylist();
+
+    // Host (no hostConn) re-clicks the currently-playing local file at index 2.
+    const file = new File([new Uint8Array([1, 2, 3])], 'c.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [
+      { type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'b.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'c.mp3', file, videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 2);
+    setState('player.isFirstTrackLoad', false);
+    // Satisfy the same-track fast-replay gate: a resident buffer whose active
+    // name matches the clicked track.
+    setState('transfer.meta', { name: 'c.mp3', type: 'audio/mpeg', index: 2 });
+    setCurrentAudioBuffer({} as AudioBuffer);
+
+    await playTrack(2);
+    send.mockClear(); // drop the immediate FILE_PREPARE; only the delayed PLAY matters
+
+    // A lower-index removal during the 3s replay window shifts the current
+    // index down. Park the FSM busy so the fire-time play(0) defers (no audio
+    // graph in node env) while the replay broadcast still fires.
+    setState('playlist.currentTrackIndex', 1);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PLAY, time: 0, index: 1, name: 'c.mp3' }),
     );
   });
 });

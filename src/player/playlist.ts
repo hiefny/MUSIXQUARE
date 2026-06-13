@@ -439,7 +439,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       'autoPlayTimer',
       () => {
         play(0);
-        broadcast({ type: MSG.PLAY, time: 0, index, name: file.name });
+        // Fire-time index read (SA-12 / F-2404 parity): a lower-index track
+        // removal during the 3s replay window shifts currentTrackIndex, so the
+        // click-time-captured `index` would desync guests. Re-read at fire time,
+        // matching the normal branch (line ~675). Keep name: file.name — after a
+        // lower-index removal the re-read index still points at this file.
+        const currentIdx = getState('playlist.currentTrackIndex');
+        broadcast({ type: MSG.PLAY, time: 0, index: currentIdx, name: file.name });
       },
       autoPlayDelayMs,
     );

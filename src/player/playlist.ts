@@ -922,7 +922,9 @@ function handleRepeatMode(data: Record<string, unknown>, conn?: DataConnection):
   if (!hostConn || conn !== hostConn) return;
 
   const v = Number(data.value) || 0;
-  setRepeatMode(Math.max(0, Math.min(2, v)));
+  // _bootstrap frames are a re-baseline (join bootstrap / OPERATOR_REVOKE
+  // resync), not a user-visible mode change — skip the toggle toast.
+  setRepeatMode(Math.max(0, Math.min(2, v)), !data._bootstrap);
 }
 
 function handleShuffleMode(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -933,7 +935,8 @@ function handleShuffleMode(data: Record<string, unknown>, conn?: DataConnection)
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
-  setShuffle(!!data.value);
+  // Same _bootstrap semantics as handleRepeatMode above.
+  setShuffle(!!data.value, !data._bootstrap);
 }
 
 function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnection): void {

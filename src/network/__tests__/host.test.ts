@@ -256,4 +256,42 @@ describe('host operator toggle', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
+
+  // OPERATOR_REVOKE re-baseline (23차 P4): the effects snapshot converges a
+  // demoted guest's raced effect applies, but repeat/shuffle go through the
+  // same optimistic-apply → verifyOperator-silent-drop path and were not
+  // covered. The revoke must also resend both as _bootstrap (toast-silent)
+  // frames on the same ordered channel.
+  it('revoke re-baselines the demoted guest: effects resync + repeat/shuffle bootstrap frames', () => {
+    const send = vi.fn();
+    const conn = makeConn(send);
+    setState('network.connectedPeers', [{ ...makePeer(conn), isOp: true }]);
+    setState('playlist.repeatMode', 2);
+    setState('playlist.isShuffle', true);
+    const resyncSpy = vi.fn();
+    bus.on('effects:resync-peer', resyncSpy);
+
+    bus.emit('network:toggle-operator', 'guest-1');
+
+    expect(getState('network.connectedPeers')[0].isOp).toBe(false);
+    expect(send).toHaveBeenCalledWith({ type: MSG.OPERATOR_REVOKE });
+    expect(resyncSpy).toHaveBeenCalledWith(conn);
+    expect(send).toHaveBeenCalledWith({ type: MSG.REPEAT_MODE, value: 2, _bootstrap: true });
+    expect(send).toHaveBeenCalledWith({ type: MSG.SHUFFLE_MODE, value: true, _bootstrap: true });
+  });
+
+  it('grant sends no re-baseline frames (nothing was dropped for a promoted guest)', () => {
+    const send = vi.fn();
+    const conn = makeConn(send);
+    setState('network.connectedPeers', [makePeer(conn)]);
+    const resyncSpy = vi.fn();
+    bus.on('effects:resync-peer', resyncSpy);
+
+    bus.emit('network:toggle-operator', 'guest-1');
+
+    expect(send).toHaveBeenCalledWith({ type: MSG.OPERATOR_GRANT });
+    expect(resyncSpy).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.REPEAT_MODE }));
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.SHUFFLE_MODE }));
+  });
 });

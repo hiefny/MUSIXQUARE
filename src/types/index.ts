@@ -279,8 +279,10 @@ export interface ProtocolMap {
     currentTrackIndex?: number;
     index?: number;
   };
-  'repeat-mode': { value: number };
-  'shuffle-mode': { value: boolean };
+  // _bootstrap marks a re-baseline frame (join bootstrap / OPERATOR_REVOKE
+  // resync) — the receiving handler applies the value but skips the toast.
+  'repeat-mode': { value: number; _bootstrap?: boolean };
+  'shuffle-mode': { value: boolean; _bootstrap?: boolean };
 
   // ── File Transfer ────────────────────────────────────────────────
   'file-start': {

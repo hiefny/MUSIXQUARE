@@ -478,7 +478,23 @@ bus.on('network:toggle-operator', (peerId) => {
     // snapshot resend converges them back to room state. Ordered channel
     // guarantees it lands after OPERATOR_REVOKE. (Bus event, not a direct
     // import: effects.ts → peer.ts → host.ts would cycle.)
-    if (!newOp) bus.emit('effects:resync-peer', conn);
+    if (!newOp) {
+      bus.emit('effects:resync-peer', conn);
+      // Same race class for the playlist toggles: an optimistic repeat/shuffle
+      // REQUEST_SETTING dies silently in verifyOperator after the revoke, and
+      // the effects snapshot doesn't cover these. _bootstrap marks them as a
+      // re-baseline, not a change — the handlers skip the toggle toast.
+      safeSend(conn, {
+        type: MSG.REPEAT_MODE,
+        value: getState('playlist.repeatMode') || 0,
+        _bootstrap: true,
+      });
+      safeSend(conn, {
+        type: MSG.SHUFFLE_MODE,
+        value: !!getState('playlist.isShuffle'),
+        _bootstrap: true,
+      });
+    }
     showToast(
       t('toast.op_status', {
         label: p.label,

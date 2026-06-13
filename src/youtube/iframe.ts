@@ -452,8 +452,15 @@ export function loadYouTubeVideo(
     } catch {
       /* noop */
     }
-    // Light cleanup: reset sync state without destroying the player
+    // Light cleanup: reset sync state without destroying the player.
+    // yt-seek-play must be cleared too (F-2407): the full-teardown path
+    // (stopYouTubeMode) cancels it, but this skip-teardown reuse branch did not,
+    // so a delayed seek-then-play scheduled for the OUTGOING video could fire
+    // against the incoming one. loadYouTubeVideo is the single funnel for every
+    // YT→YT transition, so clearing here covers all of them; the reuse branch
+    // never arms yt-seek-play itself, so no legit in-flight timer is lost.
     clearManagedTimer('yt-clock-action');
+    clearManagedTimer('yt-seek-play');
     clearManagedTimer('yt-auto-sync');
     resetYouTubeSyncState();
 

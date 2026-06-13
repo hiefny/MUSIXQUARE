@@ -291,6 +291,30 @@ describe('scrape poll supersession (F-2401)', () => {
   });
 });
 
+// ─── F-2407: YT→YT reuse cancels the pending seek-play timer ───────────────
+
+describe('YT→YT reuse timer cleanup (F-2407)', () => {
+  it('clears yt-seek-play on the reuse branch so a stale delayed play cannot fire against the new video', async () => {
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    const clearMock = vi.mocked(clearManagedTimer);
+    const player = createMockYtPlayer([]);
+
+    // First load establishes the player (non-reuse construct path).
+    await startHostScrapeLoad(player, 'PL_A');
+    clearMock.mockClear();
+
+    // YT→YT switch to a plain video → skip-teardown reuse branch (player kept).
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    loadYouTubeVideo('vidB000000B', null, false, 0);
+    expect(player.loadVideoById).toHaveBeenCalledWith('vidB000000B');
+
+    // The reuse branch must cancel the pending seek-play timer — parity with
+    // stopYouTubeMode and the adjacent yt-clock-action clear — so a delayed
+    // playVideo scheduled for the outgoing video cannot fire against vidB.
+    expect(clearMock).toHaveBeenCalledWith('yt-seek-play');
+  });
+});
+
 // ─── F-2401: snapshot / fisher fire-time pid identity ──────────────────────
 
 describe('playlist snapshot pid identity (F-2401)', () => {

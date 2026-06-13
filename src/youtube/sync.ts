@@ -1259,10 +1259,12 @@ function executeImmediate(
   if (state === 1 && player.playVideo) {
     if (!subIndexChanged && player.seekTo) {
       // Pause-seek-play: seek while paused, then play after SEEK_PLAY_GAP_MS.
-      // Uses a SEPARATE timer name so a new YOUTUBE_STATE arriving during
-      // the gap doesn't cancel the pending playVideo without scheduling
-      // a replacement (yt-clock-action is cleared at the top of
-      // handleYouTubeState, but yt-seek-play is not).
+      // Uses a dedicated timer name (yt-seek-play) so paths that must cancel a
+      // pending delayed play independently of the clock action can target it —
+      // e.g. the YT→YT reuse branch in iframe.ts (F-2407) and stopYouTubeMode.
+      // The top of handleYouTubeState clears BOTH yt-clock-action and
+      // yt-seek-play, so a new YOUTUBE_STATE during the gap cancels this pending
+      // play and reschedules it here only if the new state warrants.
       player.pauseVideo?.();
       player.seekTo(manualTargetTime, true);
       setManagedTimer(

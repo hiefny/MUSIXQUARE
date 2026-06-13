@@ -1148,8 +1148,9 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   // Approach B: preload is still downloading → delegate to the waiter path
   // (storage:use-preloaded) instead of the old 4× retry / 0%-restart fallback.
   //
-  // The waiter sets transfer.waitingForPreload=true and installs a progress-aware
-  // watchdog in playback.ts. When the remaining PRELOAD_CHUNK / PRELOAD_END
+  // The waiter transitions the FSM to AWAITING_PRELOAD (from which the derived
+  // waitingForPreload is read — the stored transfer flag was removed) and installs
+  // a progress-aware watchdog in playback.ts. When the remaining PRELOAD_CHUNK / PRELOAD_END
   // messages arrive (host has serialized its transfers so they WILL arrive),
   // storage:preload-file-ready auto-triggers playback via use-preloaded again.
   //

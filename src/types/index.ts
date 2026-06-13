@@ -440,6 +440,7 @@ export interface ProtocolMap {
   'chat-whisper': {
     senderId: string;
     senderLabel: string;
+    targetId: string;
     text: string;
     ts: number;
     joinOrder: number;
@@ -645,7 +646,6 @@ export interface StateTree {
      * 0 = no pending time.
      */
     pendingPlayTimeSetAt: number;
-    pendingPausedAt: number | undefined;
     /**
      * The track we're awaiting (recovery, preload-promoted blob, deferred
      * play). Replaces the legacy `recovery.pendingFileIndex` +

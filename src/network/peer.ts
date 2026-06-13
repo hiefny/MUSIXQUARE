@@ -716,7 +716,6 @@ export function leaveSession(): void {
     'playback.loadSource': null,
     'playback.pendingPlayTime': undefined,
     'playback.pendingPlayTimeSetAt': 0,
-    'playback.pendingPausedAt': undefined,
     'playback.pendingRecoveryTarget': null,
     'playback.failedTrackKeys': new Set<string>(),
     // Sync

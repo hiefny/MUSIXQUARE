@@ -12,7 +12,12 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { readState, waitForClass, isVisible, waitForState } from './helpers/wait.ts';
+import {
+  isVisible,
+  readPlaybackProjection,
+  waitForClass,
+  waitForPlaybackProjection,
+} from './helpers/wait.ts';
 
 const YT_VIDEO_1 = 'https://youtu.be/bnh70V0yu2s';
 const YT_VIDEO_2 = 'https://youtu.be/OALIXy23HvI';
@@ -124,7 +129,7 @@ test.describe('YouTube Integration', () => {
     }
   });
 
-  test('loading YouTube video changes appState to PLAYING_YOUTUBE', async () => {
+  test('loading YouTube video changes playback projection to PLAYING_YOUTUBE', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Open YouTube overlay and enter URL
@@ -152,11 +157,11 @@ test.describe('YouTube Integration', () => {
       if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
 
-        // appState should change to PLAYING_YOUTUBE
-        await waitForState(pair.hostPage, 'appState', 'PLAYING_YOUTUBE', 15_000);
+        // playback projection should change to PLAYING_YOUTUBE
+        await waitForPlaybackProjection(pair.hostPage, 'PLAYING_YOUTUBE', 15_000);
 
-        const appState = await readState(pair.hostPage, 'appState');
-        expect(appState).toBe('PLAYING_YOUTUBE');
+        const playbackProjection = await readPlaybackProjection(pair.hostPage);
+        expect(playbackProjection).toBe('PLAYING_YOUTUBE');
       }
     }
   });
@@ -191,7 +196,7 @@ test.describe('YouTube Integration', () => {
         // Wait for state to settle
         await pair.hostPage.waitForFunction(
           () => {
-            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
             if (typeof projected !== 'function') return false;
             const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
@@ -199,8 +204,8 @@ test.describe('YouTube Integration', () => {
           { timeout: 15_000 },
         );
 
-        const appState = await readState(pair.hostPage, 'appState');
-        expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(appState);
+        const playbackProjection = await readPlaybackProjection(pair.hostPage);
+        expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(playbackProjection);
       }
     }
   });
@@ -235,7 +240,7 @@ test.describe('YouTube Integration', () => {
         // Wait for host state to settle
         await pair.hostPage.waitForFunction(
           () => {
-            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
             if (typeof projected !== 'function') return false;
             const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
@@ -246,7 +251,7 @@ test.describe('YouTube Integration', () => {
         // Guest should receive YouTube mode
         await pair.guestPage.waitForFunction(
           () => {
-            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
             if (typeof projected !== 'function') return false;
             const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
@@ -254,7 +259,7 @@ test.describe('YouTube Integration', () => {
           { timeout: 15_000 },
         );
 
-        const guestState = await readState(pair.guestPage, 'appState');
+        const guestState = await readPlaybackProjection(pair.guestPage);
         expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(guestState);
       }
     }
@@ -336,7 +341,7 @@ test.describe('YouTube Integration', () => {
         // Wait for YouTube state
         await pair.hostPage.waitForFunction(
           () => {
-            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
             if (typeof projected !== 'function') return false;
             const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
@@ -344,7 +349,7 @@ test.describe('YouTube Integration', () => {
           { timeout: 15_000 },
         );
 
-        const ytState = await readState(pair.hostPage, 'appState');
+        const ytState = await readPlaybackProjection(pair.hostPage);
         expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(ytState);
 
         // Upload an audio file
@@ -358,14 +363,14 @@ test.describe('YouTube Integration', () => {
         // Wait for state to settle after file upload
         await pair.hostPage.waitForFunction(
           () => {
-            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
             return typeof projected === 'function' && projected() !== undefined;
           },
           { timeout: 10_000 },
         );
 
-        const appState = await readState(pair.hostPage, 'appState');
-        expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_YOUTUBE']).toContain(appState);
+        const playbackProjection = await readPlaybackProjection(pair.hostPage);
+        expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_YOUTUBE']).toContain(playbackProjection);
       }
     }
   });

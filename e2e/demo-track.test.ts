@@ -1,7 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import { cleanupContexts, createHostGuestContexts } from './helpers/context-factory.ts';
-import { readState, waitForToast } from './helpers/wait.ts';
+import {
+  readState,
+  waitForToast,
+} from './helpers/wait.ts';
 
 const DEMO_URL_PATTERN = 'https://demo.musixquare.com/linelight/*.m4a';
 const INFO_URL = 'https://batzerk.bandcamp.com/album/linelight-ost';

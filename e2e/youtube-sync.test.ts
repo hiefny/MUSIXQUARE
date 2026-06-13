@@ -20,7 +20,10 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { readState, waitForState } from './helpers/wait.ts';
+import {
+  readPlaybackProjection,
+  waitForPlaybackProjection,
+} from './helpers/wait.ts';
 import { installFakeYt, readFakeYtLog, clearFakeYtLog } from './helpers/fake-yt.ts';
 
 // Deterministic fake URL — fake-yt stub accepts any videoId
@@ -136,9 +139,9 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     // Host fake player should receive playVideo after the 1-sec countdown
     await waitForYtLogOp(pair.hostPage, 'playVideo', 20_000);
 
-    // Guest appState must have flipped to PLAYING_YOUTUBE (set by
+    // Guest playback projection must have flipped to PLAYING_YOUTUBE (set by
     // setEngineMode inside loadYouTubeVideo when handleYouTubePlay runs)
-    await waitForState(pair.guestPage, 'appState', 'PLAYING_YOUTUBE', 20_000);
+    await waitForPlaybackProjection(pair.guestPage, 'PLAYING_YOUTUBE', 20_000);
 
     // Guest fake player should receive playVideo from the scheduled
     // handleYouTubeState on the PeerJS broadcast
@@ -233,13 +236,13 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
 
     await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
 
-    // Host appState flips first
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_YOUTUBE', 15_000);
+    // Host playback projection flips first
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_YOUTUBE', 15_000);
 
-    // Guest appState should flip to PLAYING_YOUTUBE after receiving YOUTUBE_PLAY
-    await waitForState(pair.guestPage, 'appState', 'PLAYING_YOUTUBE', 20_000);
+    // Guest playback projection should flip to PLAYING_YOUTUBE after receiving YOUTUBE_PLAY
+    await waitForPlaybackProjection(pair.guestPage, 'PLAYING_YOUTUBE', 20_000);
 
-    expect(await readState(pair.guestPage, 'appState')).toBe('PLAYING_YOUTUBE');
+    expect(await readPlaybackProjection(pair.guestPage)).toBe('PLAYING_YOUTUBE');
   });
 
   // ── Test 4: stop mode propagation ────────────────────────────────────
@@ -251,7 +254,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
 
     // Wait for guest to enter YT mode
-    await waitForState(pair.guestPage, 'appState', 'PLAYING_YOUTUBE', 20_000);
+    await waitForPlaybackProjection(pair.guestPage, 'PLAYING_YOUTUBE', 20_000);
 
     // Host triggers stop-mode (listener → stopYouTubeMode → YOUTUBE_STOP broadcast)
     await pair.hostPage.evaluate(() => {
@@ -261,19 +264,19 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
       bus?.emit('youtube:stop-mode');
     });
 
-    // Guest appState should leave PLAYING_YOUTUBE once YOUTUBE_STOP arrives
+    // Guest playback projection should leave PLAYING_YOUTUBE once YOUTUBE_STOP arrives
     // (handleYouTubeStop emits youtube:stop-mode + player:stop-all-media,
-    // which transitions appState out of PLAYING_YOUTUBE)
+    // which transitions playback projection out of PLAYING_YOUTUBE)
     await pair.guestPage.waitForFunction(
       () => {
         const projected = (window as unknown as Record<string, unknown>)
-          .__MUSIXQUARE_GET_PROJECTED_APP_STATE__ as (() => unknown) | undefined;
+          .__MUSIXQUARE_GET_PLAYBACK_PROJECTION__ as (() => unknown) | undefined;
         return typeof projected === 'function' && projected() !== 'PLAYING_YOUTUBE';
       },
       undefined,
       { timeout: 15_000 },
     );
 
-    expect(await readState(pair.guestPage, 'appState')).not.toBe('PLAYING_YOUTUBE');
+    expect(await readPlaybackProjection(pair.guestPage)).not.toBe('PLAYING_YOUTUBE');
   });
 });

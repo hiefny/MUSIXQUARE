@@ -12,7 +12,12 @@ import { test, expect } from '@playwright/test';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, waitForDeviceCount, waitForChatMessage, isVisible, navigateToTab } from './helpers/wait.ts';
+import {
+  isVisible,
+  waitForChatMessage,
+  waitForDeviceCount,
+  waitForPlaylistCount,
+} from './helpers/wait.ts';
 import type { Page, BrowserContext, Browser } from '@playwright/test';
 
 interface MultiGuestSetup {

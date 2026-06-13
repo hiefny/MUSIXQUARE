@@ -13,7 +13,10 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest, setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
-import { waitForDeviceCount, isVisible } from './helpers/wait.ts';
+import {
+  isVisible,
+  waitForDeviceCount,
+} from './helpers/wait.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 
 let pair: HostGuestPair;

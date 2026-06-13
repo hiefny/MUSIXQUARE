@@ -8,10 +8,10 @@ import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
-  waitForChatMessage,
-  readState,
   openChatDrawer,
+  readState,
   sendChat,
+  waitForChatMessage,
   waitForOverlayDismissed,
 } from './helpers/wait.ts';
 

@@ -31,12 +31,14 @@ import { trackPageErrors, getPageErrors } from './helpers/context-factory.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
-  waitForPlaylistCount,
-  waitForDeviceCount,
-  readState,
-  waitForState,
   isVisible,
-  VALID_PROJECTED_PLAYBACK_STATES,
+  readPlaybackProjection,
+  readState,
+  VALID_PLAYBACK_PROJECTIONS,
+  waitForDeviceCount,
+  waitForPlaybackProjection,
+  waitForPlaylistCount,
+  waitForState,
 } from './helpers/wait.ts';
 
 // ─── Local Helpers ───────────────────────────────────────────
@@ -149,7 +151,7 @@ async function waitForPeerCount(page: Page, count: number, timeout = 20_000): Pr
       { timeout: Math.min(timeout, 2_000) },
     );
   } catch {
-    await assertAppStateValid(page);
+    await assertPlaybackProjectionValid(page);
   }
 }
 
@@ -167,18 +169,18 @@ async function waitForPeerCountAtMost(page: Page, count: number, timeout = 20_00
       { timeout: Math.min(timeout, 2_000) },
     );
   } catch {
-    await assertAppStateValid(page);
+    await assertPlaybackProjectionValid(page);
   }
 }
 
-async function waitForProjectedAppStateIn(
+async function waitForPlaybackProjectionIn(
   page: Page,
   allowedStates: readonly string[],
   timeout = 15_000,
 ): Promise<void> {
   await page.waitForFunction(
     (allowed) => {
-      const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+      const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
       return typeof projected === 'function' && allowed.includes(projected());
     },
     [...allowedStates],
@@ -186,10 +188,10 @@ async function waitForProjectedAppStateIn(
   );
 }
 
-async function waitForProjectedAppStateReady(page: Page, timeout = 10_000): Promise<void> {
+async function waitForPlaybackProjectionReady(page: Page, timeout = 10_000): Promise<void> {
   await page.waitForFunction(
     () => {
-      const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+      const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
       return typeof projected === 'function' && projected() !== undefined;
     },
     undefined,
@@ -205,17 +207,17 @@ async function startPlayback(hostPage: Page): Promise<void> {
   );
   await hostPage.click('#play-btn');
   // Accept PLAYING_AUDIO or PAUSED (audio may not fully start in headless environments)
-  await waitForProjectedAppStateIn(hostPage, ['PLAYING_AUDIO', 'PAUSED']);
+  await waitForPlaybackProjectionIn(hostPage, ['PLAYING_AUDIO', 'PAUSED']);
 }
 
-/** Assert a page's appState is a valid enum value (not undefined / null / typo). */
-async function assertAppStateValid(page: Page): Promise<void> {
-  const state = await readState(page, 'appState');
-  expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
+/** Assert a page's playback projection is a valid enum value (not undefined / null / typo). */
+async function assertPlaybackProjectionValid(page: Page): Promise<void> {
+  const state = await readPlaybackProjection(page);
+  expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
 }
 
 /** Assert host is still functional (not crashed) */
-const assertHostAlive = assertAppStateValid;
+const assertHostAlive = assertPlaybackProjectionValid;
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
 const YT_VIDEO_2 = 'https://youtu.be/dQw4w9WgXcQ';
@@ -341,7 +343,7 @@ test.describe('Seek Position Chaos', () => {
       await startPlayback(hostPage);
 
       // Wait for playback to build up seek position
-      await waitForState(hostPage, 'appState', 'PLAYING_AUDIO');
+      await waitForPlaybackProjection(hostPage, 'PLAYING_AUDIO');
 
       // ★ CHAOS: Seek to random position + guest join simultaneously
       const seekPromise = hostPage.evaluate(() => {
@@ -357,8 +359,8 @@ test.describe('Seek Position Chaos', () => {
 
       // Both should be functional
       await assertHostAlive(hostPage);
-      const guestState = await readState(lateGuest.guestPage, 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(lateGuest.guestPage);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});
@@ -389,7 +391,7 @@ test.describe('Seek Position Chaos', () => {
 
       // Both should survive
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
@@ -429,7 +431,7 @@ test.describe('Total Guest Wipeout', () => {
 
       // Host can still pause
       await setup.hostPage.click('#play-btn');
-      await waitForProjectedAppStateIn(setup.hostPage, ['PAUSED', 'IDLE'], 10_000);
+      await waitForPlaybackProjectionIn(setup.hostPage, ['PAUSED', 'IDLE'], 10_000);
 
       // Host can still upload
       await uploadFixture(setup.hostPage, 'test02');
@@ -472,7 +474,7 @@ test.describe('Staggered Disconnect Cascade', () => {
 
       // Host should still be playing or at least alive
       await assertHostAlive(setup.hostPage);
-      const state = await readState(setup.hostPage, 'appState');
+      const state = await readPlaybackProjection(setup.hostPage);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(state);
     } finally {
       await cleanupChaosSetup(setup);
@@ -505,12 +507,12 @@ test.describe('Rapid Play/Pause Cycling', () => {
       }
 
       // Wait for state to settle
-      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
+      await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
 
       // Both should survive
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
 
       // Guest still connected
       const peers = await setup.hostPage.evaluate(() => {
@@ -682,8 +684,8 @@ test.describe('Audio Settings Cascade + Disconnect', () => {
 
       // Surviving guest should be ok
       await assertHostAlive(setup.hostPage);
-      const g2State = await readState(setup.guestPages[1], 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(g2State);
+      const g2State = await readPlaybackProjection(setup.guestPages[1]);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(g2State);
 
       // Final settings should be stable
       const vol = await readState(setup.hostPage, 'audio.masterVolume');
@@ -784,8 +786,8 @@ test.describe('Shuffle Repeat + Late Join', () => {
       await waitForPlaylistCount(lateGuest.guestPage, 1, 30_000);
 
       await assertHostAlive(hostPage);
-      const guestState = await readState(lateGuest.guestPage, 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(lateGuest.guestPage);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});
@@ -1179,13 +1181,13 @@ test.describe('Mode Toggle Storm', () => {
         }
       }
 
-      // Wait for app state to settle
-      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
+      // Wait for playback projection to settle
+      await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
 
       // Both should be alive
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1236,7 +1238,7 @@ test.describe('YouTube URL Switch', () => {
           .waitForFunction(
             () => {
               const get = (window as any).__MUSIXQUARE_GET_STATE__;
-              const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+              const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
               return (
                 typeof projected === 'function' &&
                 (projected() === 'PLAYING_YOUTUBE' || get?.('youtube.videoId'))
@@ -1255,12 +1257,12 @@ test.describe('YouTube URL Switch', () => {
       }
 
       // Wait for state to settle
-      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
+      await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
 
       // Both should be alive
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1630,7 +1632,7 @@ test.describe('EQ Extreme Values', () => {
 
       // Both should survive
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
@@ -1669,8 +1671,8 @@ test.describe('Channel Mode Switching', () => {
       await waitForState(setup.hostPage, 'audio.channelMode', -1);
 
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1751,7 +1753,7 @@ test.describe('Pause During Transfer', () => {
       await waitForPlaylistCount(setup.guestPages[0], 2, 30_000);
 
       // Host should be paused
-      const state = await readState(setup.hostPage, 'appState');
+      const state = await readPlaybackProjection(setup.hostPage);
       expect(['PAUSED', 'IDLE']).toContain(state);
 
       await assertHostAlive(setup.hostPage);
@@ -2005,12 +2007,12 @@ test.describe('Upload During YouTube Mode', () => {
       // ★ CHAOS: Upload file while in YouTube mode
       await uploadFixture(setup.hostPage, 'test01');
       // Wait for app to handle the upload (may switch mode or queue)
-      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
+      await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
 
       // App should handle this gracefully (file may be queued or mode may switch)
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -2040,12 +2042,12 @@ test.describe('Rapid Operator Toggle', () => {
       }
 
       // Wait for state to settle
-      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
+      await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
 
       // Both should survive
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
 
       // Guest should still be connected
       const peers = await setup.hostPage.evaluate(() => {
@@ -2081,9 +2083,9 @@ test.describe('Late Join During Pause + Seek', () => {
       await startPlayback(hostPage);
 
       // Play for a bit then pause
-      await waitForState(hostPage, 'appState', 'PLAYING_AUDIO');
+      await waitForPlaybackProjection(hostPage, 'PLAYING_AUDIO');
       await hostPage.click('#play-btn');
-      await waitForProjectedAppStateIn(hostPage, ['PAUSED', 'IDLE'], 10_000);
+      await waitForPlaybackProjectionIn(hostPage, ['PAUSED', 'IDLE'], 10_000);
 
       // Seek to specific position while paused
       await hostPage.evaluate(() => {
@@ -2096,7 +2098,7 @@ test.describe('Late Join During Pause + Seek', () => {
       await waitForPlaylistCount(lateGuest.guestPage, 1, 30_000);
 
       // Guest should see paused state
-      const guestState = await readState(lateGuest.guestPage, 'appState');
+      const guestState = await readPlaybackProjection(lateGuest.guestPage);
       expect(['PAUSED', 'IDLE']).toContain(guestState);
 
       await assertHostAlive(hostPage);
@@ -2182,11 +2184,11 @@ test.describe('Play Stop Chat Race', () => {
       }
 
       // Wait for state to settle
-      await waitForProjectedAppStateReady(setup.hostPage, 10_000);
+      await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
 
       await assertHostAlive(setup.hostPage);
-      const guestState = await readState(setup.guestPages[0], 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(setup.guestPages[0]);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -2374,14 +2376,14 @@ test.describe('Host Solo Stress', () => {
 
       // Pause, seek, resume
       await hostPage.evaluate(() => (document.getElementById('play-btn') as HTMLElement)?.click());
-      await waitForProjectedAppStateIn(hostPage, ['PAUSED', 'IDLE'], 15_000).catch(() => {});
+      await waitForPlaybackProjectionIn(hostPage, ['PAUSED', 'IDLE'], 15_000).catch(() => {});
       await hostPage.evaluate(() => {
         const set = (window as any).__MUSIXQUARE_SET_STATE__;
         if (set) set('audio.seekTo', 1.0);
       });
       await hostPage.evaluate(() => (document.getElementById('play-btn') as HTMLElement)?.click());
       // After all the rapid controls, audio may or may not resume — accept any non-error state
-      await waitForProjectedAppStateIn(hostPage, ['PLAYING_AUDIO', 'PAUSED', 'IDLE'], 15_000).catch(
+      await waitForPlaybackProjectionIn(hostPage, ['PLAYING_AUDIO', 'PAUSED', 'IDLE'], 15_000).catch(
         () => {},
       );
 
@@ -2500,7 +2502,7 @@ test.describe('Nuclear Meltdown v2', () => {
       await hostPage.click('#btn-next');
       await hostPage.waitForTimeout(500); // intentional rapid-fire delay
       await hostPage.click('#play-btn');
-      await waitForProjectedAppStateIn(hostPage, ['PAUSED', 'IDLE'], 10_000);
+      await waitForPlaybackProjectionIn(hostPage, ['PAUSED', 'IDLE'], 10_000);
 
       // Step 13: Guest4 joins during pause
       const g4 = await joinAsLateGuest(browser, code);
@@ -2513,7 +2515,7 @@ test.describe('Nuclear Meltdown v2', () => {
 
       // Step 15: Resume play + verify
       await hostPage.click('#play-btn');
-      await waitForState(hostPage, 'appState', 'PLAYING_AUDIO');
+      await waitForPlaybackProjection(hostPage, 'PLAYING_AUDIO');
 
       // ★ FINAL ASSERTIONS
       await assertHostAlive(hostPage);
@@ -2534,7 +2536,7 @@ test.describe('Nuclear Meltdown v2', () => {
       expect(g4Idx).toBe(hostIdx);
 
       // Host should be playing
-      const state = await readState(hostPage, 'appState');
+      const state = await readPlaybackProjection(hostPage);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(state);
     } finally {
       for (const g of allGuests) await g.guestContext.close().catch(() => {});
@@ -2612,10 +2614,10 @@ test.describe('Playback End + Late Join', () => {
       });
 
       // Wait for playback to end (seeking past end may take time to process)
-      await waitForProjectedAppStateIn(hostPage, ['IDLE', 'PAUSED'], 30_000).catch(() => {}); // May stay PLAYING if looping
+      await waitForPlaybackProjectionIn(hostPage, ['IDLE', 'PAUSED'], 30_000).catch(() => {}); // May stay PLAYING if looping
 
       // Host should be IDLE or PAUSED after track ends
-      const state = await readState(hostPage, 'appState');
+      const state = await readPlaybackProjection(hostPage);
       expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
 
       // ★ Guest joins after playback ended
@@ -2676,7 +2678,7 @@ test.describe('Full Cycle Stress', () => {
       await allowExtraGuestSlots(hostPage);
 
       // Host should still be playing
-      const midState = await readState(hostPage, 'appState');
+      const midState = await readPlaybackProjection(hostPage);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(midState);
 
       // Phase 6: 3 NEW guests join

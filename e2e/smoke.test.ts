@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import {
+  isVisible,
+} from './helpers/wait.ts';
 
 /** Wait for the app to fully initialize, then dismiss the setup overlay if present. */
 async function waitForAppReady(page: import('@playwright/test').Page) {

@@ -2,7 +2,7 @@
  * E2E: Playback Synchronization Tests
  *
  * Tests synchronized playback between host and guest:
- * - Host play button changes app state
+ * - Host play button changes playback projection
  * - Pause/resume behavior
  * - Play state reflects on host after file load
  *
@@ -17,7 +17,11 @@ import {
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState, waitForState } from './helpers/wait.ts';
+import {
+  readPlaybackProjection,
+  readState,
+  waitForPlaylistCount,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -51,7 +55,7 @@ test.describe('Playback Sync', () => {
     expect(trackIndex).toBe(0);
   });
 
-  test('host play button changes app state', async () => {
+  test('host play button changes playback projection', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -74,14 +78,14 @@ test.describe('Playback Sync', () => {
     // Wait for state to change from IDLE
     await pair.hostPage.waitForFunction(
       () => {
-        const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+        const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
         return typeof projected === 'function' && projected() !== 'IDLE';
       },
       { timeout: 10_000 },
     );
 
-    // Host appState should change from IDLE
-    const hostState = await readState(pair.hostPage, 'appState');
+    // Host playback projection should change from IDLE
+    const hostState = await readPlaybackProjection(pair.hostPage);
     expect(hostState).not.toBe('IDLE');
   });
 
@@ -126,13 +130,13 @@ test.describe('Playback Sync', () => {
     // Wait for state to change from IDLE
     await pair.hostPage.waitForFunction(
       () => {
-        const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+        const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
         return typeof projected === 'function' && projected() !== 'IDLE';
       },
       { timeout: 10_000 },
     );
 
-    const stateAfterPlay = await readState(pair.hostPage, 'appState');
+    const stateAfterPlay = await readPlaybackProjection(pair.hostPage);
 
     // Only test pause if play succeeded
     if (stateAfterPlay !== 'IDLE') {
@@ -142,7 +146,7 @@ test.describe('Playback Sync', () => {
       // Wait for state to change to PAUSED or IDLE
       await pair.hostPage.waitForFunction(
         () => {
-          const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+          const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
           if (typeof projected !== 'function') return false;
           const state = projected();
           return state === 'PAUSED' || state === 'IDLE';
@@ -150,7 +154,7 @@ test.describe('Playback Sync', () => {
         { timeout: 10_000 },
       );
 
-      const stateAfterPause = await readState(pair.hostPage, 'appState');
+      const stateAfterPause = await readPlaybackProjection(pair.hostPage);
       expect(['PAUSED', 'IDLE']).toContain(stateAfterPause);
     }
   });

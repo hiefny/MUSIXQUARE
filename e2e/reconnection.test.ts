@@ -10,7 +10,12 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { waitForDeviceCount, readState, waitForPlaylistCount } from './helpers/wait.ts';
+import {
+  isVisible,
+  readState,
+  waitForDeviceCount,
+  waitForPlaylistCount,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -78,7 +83,7 @@ test.describe('Reconnection & Disconnect', () => {
     expect(String(sessionCode).length).toBe(6);
   });
 
-  test('host app state persists after guest disconnect', async () => {
+  test('host state persists after guest disconnect', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Upload file while connected

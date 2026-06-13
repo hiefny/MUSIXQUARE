@@ -16,16 +16,16 @@ import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import {
-  waitForPlaylistCount,
-  readState,
-  waitForDeviceCount,
-  waitForState,
   isVisible,
-  waitForClass,
   openChatDrawer,
+  readPlaybackProjection,
+  readState,
   sendChat,
+  VALID_PLAYBACK_PROJECTIONS,
   waitForChatMessage,
-  VALID_PROJECTED_PLAYBACK_STATES,
+  waitForDeviceCount,
+  waitForPlaybackProjection,
+  waitForPlaylistCount,
 } from './helpers/wait.ts';
 
 // YouTube test URLs
@@ -192,7 +192,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
     );
 
     await host.hostPage.click('#play-btn');
-    await waitForState(host.hostPage, 'appState', 'PLAYING_AUDIO', 15_000);
+    await waitForPlaybackProjection(host.hostPage, 'PLAYING_AUDIO', 15_000);
 
     // Host is now PLAYING_AUDIO — guest joins late
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
@@ -203,7 +203,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
       // Wait for guest state to settle
       await guestPage.waitForFunction(
         () => {
-          const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+          const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
           if (typeof projected !== 'function') return false;
           const state = projected();
           return state === 'PLAYING_AUDIO' || state === 'PAUSED' || state === 'IDLE';
@@ -211,7 +211,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
         { timeout: 10_000 },
       );
 
-      const guestState = await readState(guestPage, 'appState');
+      const guestState = await readPlaybackProjection(guestPage);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(guestState);
     } finally {
       await guestContext.close();
@@ -231,11 +231,11 @@ test.describe('Late-Join: Guest joins during playback', () => {
     );
 
     await host.hostPage.click('#play-btn');
-    await waitForState(host.hostPage, 'appState', 'PLAYING_AUDIO', 15_000);
+    await waitForPlaybackProjection(host.hostPage, 'PLAYING_AUDIO', 15_000);
 
     await host.hostPage.click('#play-btn'); // pause
 
-    await waitForState(host.hostPage, 'appState', 'PAUSED', 10_000);
+    await waitForPlaybackProjection(host.hostPage, 'PAUSED', 10_000);
 
     // Guest joins while host is paused
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
@@ -246,7 +246,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
       // Wait for guest state to settle
       await guestPage.waitForFunction(
         () => {
-          const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+          const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
           if (typeof projected !== 'function') return false;
           const state = projected();
           return state === 'PAUSED' || state === 'IDLE';
@@ -254,7 +254,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
         { timeout: 10_000 },
       );
 
-      const guestState = await readState(guestPage, 'appState');
+      const guestState = await readPlaybackProjection(guestPage);
       expect(['PAUSED', 'IDLE']).toContain(guestState);
     } finally {
       await guestContext.close();
@@ -299,7 +299,7 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
         // Wait for host state to settle
         await host.hostPage.waitForFunction(
           () => {
-            const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+            const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
             if (typeof projected !== 'function') return false;
             const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
@@ -307,7 +307,7 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
           { timeout: 15_000 },
         );
 
-        const hostState = await readState(host.hostPage, 'appState');
+        const hostState = await readPlaybackProjection(host.hostPage);
         if (hostState === 'PLAYING_YOUTUBE') {
           // Guest joins while YouTube is playing
           const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
@@ -316,7 +316,7 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
             // Wait for guest to receive YouTube state
             await guestPage.waitForFunction(
               () => {
-                const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+                const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
                 if (typeof projected !== 'function') return false;
                 const state = projected();
                 return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
@@ -324,7 +324,7 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
               { timeout: 15_000 },
             );
 
-            const guestState = await readState(guestPage, 'appState');
+            const guestState = await readPlaybackProjection(guestPage);
             expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(guestState);
           } finally {
             await guestContext.close();
@@ -389,8 +389,8 @@ test.describe('Late-Join: Guest joins after settings changed', () => {
       await waitForDeviceCount(host.hostPage, 2);
 
       // Guest's settings are local, but host repeat mode should not affect guest crash
-      const guestState = await readState(guestPage, 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+      const guestState = await readPlaybackProjection(guestPage);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
       await guestContext.close();
     }

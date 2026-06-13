@@ -4,10 +4,10 @@
  */
 import type { Page } from '@playwright/test';
 
-/** E2E-only projected playback labels derived from the current playback state.
+/** E2E-only playback labels derived from the current playback state.
  *  Used by chaos/recovery tests that want to assert "app is in some
  *  legitimate state" without pinning the exact mode/activity/lifecycle. */
-export const VALID_PROJECTED_PLAYBACK_STATES = [
+export const VALID_PLAYBACK_PROJECTIONS = [
   'IDLE',
   'PAUSED',
   'PLAYING_AUDIO',
@@ -16,7 +16,7 @@ export const VALID_PROJECTED_PLAYBACK_STATES = [
   'PLAYING_SYSTEM_AUDIO',
 ] as const;
 
-type ProjectedPlaybackState = (typeof VALID_PROJECTED_PLAYBACK_STATES)[number];
+type PlaybackProjection = (typeof VALID_PLAYBACK_PROJECTIONS)[number];
 
 interface PlaybackSnapshot {
   mode: unknown;
@@ -24,12 +24,9 @@ interface PlaybackSnapshot {
   lifecycle: unknown;
   isReceivingSystemAudio: unknown;
   currentTrackMeta: unknown;
-  projectedState: ProjectedPlaybackState;
 }
 
-function projectPlaybackState(
-  snapshot: Omit<PlaybackSnapshot, 'projectedState'>,
-): ProjectedPlaybackState {
+function projectPlaybackState(snapshot: PlaybackSnapshot): PlaybackProjection {
   const meta = snapshot.currentTrackMeta as { systemAudioPlaceholder?: boolean } | null | undefined;
 
   if (snapshot.mode === 'youtube') return 'PLAYING_YOUTUBE';
@@ -69,56 +66,111 @@ async function readPlaybackSnapshot(page: Page): Promise<PlaybackSnapshot> {
         lifecycle: undefined,
         isReceivingSystemAudio: undefined,
         currentTrackMeta: undefined,
-        projectedState: 'IDLE',
       };
     }
 
-    const snapshot = {
+    return {
       mode: get('playback.mode'),
       activity: get('playback.activity'),
       lifecycle: get('playback.lifecycle'),
       isReceivingSystemAudio: get('systemAudio.isReceiving'),
       currentTrackMeta: get('player.currentTrackMeta'),
     };
-    const meta = snapshot.currentTrackMeta as
-      | { systemAudioPlaceholder?: boolean }
-      | null
-      | undefined;
-    let projectedState: ProjectedPlaybackState = 'IDLE';
-
-    if (snapshot.mode === 'youtube') projectedState = 'PLAYING_YOUTUBE';
-    else if (
-      snapshot.mode === 'system-audio' ||
-      snapshot.isReceivingSystemAudio === true ||
-      meta?.systemAudioPlaceholder === true
-    ) {
-      projectedState = 'PLAYING_SYSTEM_AUDIO';
-    } else if (snapshot.mode === 'file') {
-      if (snapshot.activity === 'playing' || snapshot.lifecycle === 'PLAYING') {
-        projectedState = 'PLAYING_AUDIO';
-      } else if (
-        snapshot.activity === 'paused' ||
-        snapshot.lifecycle === 'PAUSED' ||
-        snapshot.lifecycle === 'READY'
-      ) {
-        projectedState = 'PAUSED';
-      }
-    } else if (snapshot.lifecycle === 'PLAYING') {
-      projectedState = 'PLAYING_AUDIO';
-    } else if (snapshot.lifecycle === 'PAUSED' || snapshot.lifecycle === 'READY') {
-      projectedState = 'PAUSED';
-    }
-
-    return { ...snapshot, projectedState };
   });
 }
 
-async function readProjectedPlaybackState(page: Page): Promise<ProjectedPlaybackState> {
+export async function readPlaybackProjection(page: Page): Promise<PlaybackProjection> {
+  const hookProjection = await page.evaluate(() => {
+    const hook = (window as unknown as Record<string, unknown>)
+      .__MUSIXQUARE_GET_PLAYBACK_PROJECTION__ as (() => unknown) | undefined;
+    return typeof hook === 'function' ? hook() : undefined;
+  });
+
+  if (VALID_PLAYBACK_PROJECTIONS.includes(hookProjection as PlaybackProjection)) {
+    return hookProjection as PlaybackProjection;
+  }
+
   return projectPlaybackState(await readPlaybackSnapshot(page));
 }
 
+export async function waitForPlaybackProjection(
+  page: Page,
+  expected: PlaybackProjection,
+  timeout = 15_000,
+): Promise<void> {
+  await waitForPlaybackProjectionIn(page, [expected], timeout);
+}
+
+export async function waitForPlaybackProjectionIn(
+  page: Page,
+  allowedProjections: readonly PlaybackProjection[],
+  timeout = 15_000,
+): Promise<void> {
+  await page.waitForFunction(
+    (allowed) => {
+      const hook = (window as unknown as Record<string, unknown>)
+        .__MUSIXQUARE_GET_PLAYBACK_PROJECTION__ as (() => unknown) | undefined;
+      if (typeof hook === 'function') return allowed.includes(hook() as PlaybackProjection);
+
+      const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+        | ((p: string) => unknown)
+        | undefined;
+      if (!get) return false;
+
+      const meta = get('player.currentTrackMeta') as
+        | { systemAudioPlaceholder?: boolean }
+        | null
+        | undefined;
+      const mode = get('playback.mode');
+      const activity = get('playback.activity');
+      const lifecycle = get('playback.lifecycle');
+      const isReceivingSystemAudio = get('systemAudio.isReceiving');
+
+      let projection: PlaybackProjection = 'IDLE';
+      if (mode === 'youtube') projection = 'PLAYING_YOUTUBE';
+      else if (
+        mode === 'system-audio' ||
+        isReceivingSystemAudio === true ||
+        meta?.systemAudioPlaceholder === true
+      ) {
+        projection = 'PLAYING_SYSTEM_AUDIO';
+      } else if (mode === 'file') {
+        if (activity === 'playing' || lifecycle === 'PLAYING') projection = 'PLAYING_AUDIO';
+        else if (activity === 'paused' || lifecycle === 'PAUSED' || lifecycle === 'READY') {
+          projection = 'PAUSED';
+        }
+      } else if (lifecycle === 'PLAYING') projection = 'PLAYING_AUDIO';
+      else if (lifecycle === 'PAUSED' || lifecycle === 'READY') projection = 'PAUSED';
+
+      return allowed.includes(projection);
+    },
+    [...allowedProjections],
+    { timeout },
+  );
+}
+
+export async function waitForPlaybackProjectionReady(
+  page: Page,
+  timeout = 10_000,
+): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const hook = (window as unknown as Record<string, unknown>)
+        .__MUSIXQUARE_GET_PLAYBACK_PROJECTION__ as (() => unknown) | undefined;
+      if (typeof hook === 'function') return hook() !== undefined;
+
+      const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+        | ((p: string) => unknown)
+        | undefined;
+      return typeof get === 'function';
+    },
+    undefined,
+    { timeout },
+  );
+}
+
 /**
- * Wait for an app state path to equal the expected value.
+ * Wait for a raw state path to equal the expected value.
  * Accesses the app's internal getState via the module scope.
  */
 export async function waitForState(
@@ -134,40 +186,7 @@ export async function waitForState(
         | ((p: string) => unknown)
         | undefined;
       if (!get) return false;
-      const projected = (window as unknown as Record<string, unknown>)
-        .__MUSIXQUARE_GET_PROJECTED_APP_STATE__ as (() => unknown) | undefined;
-      let current: unknown;
-      if (path === 'appState') {
-        if (projected) {
-          current = projected();
-        } else {
-          const meta = get('player.currentTrackMeta') as
-            | { systemAudioPlaceholder?: boolean }
-            | null
-            | undefined;
-          const mode = get('playback.mode');
-          const activity = get('playback.activity');
-          const lifecycle = get('playback.lifecycle');
-          const isReceivingSystemAudio = get('systemAudio.isReceiving');
-          current = 'IDLE';
-          if (mode === 'youtube') current = 'PLAYING_YOUTUBE';
-          else if (
-            mode === 'system-audio' ||
-            isReceivingSystemAudio === true ||
-            meta?.systemAudioPlaceholder === true
-          ) {
-            current = 'PLAYING_SYSTEM_AUDIO';
-          } else if (mode === 'file') {
-            if (activity === 'playing' || lifecycle === 'PLAYING') current = 'PLAYING_AUDIO';
-            else if (activity === 'paused' || lifecycle === 'PAUSED' || lifecycle === 'READY') {
-              current = 'PAUSED';
-            }
-          } else if (lifecycle === 'PLAYING') current = 'PLAYING_AUDIO';
-          else if (lifecycle === 'PAUSED' || lifecycle === 'READY') current = 'PAUSED';
-        }
-      } else {
-        current = get(path as string);
-      }
+      const current = get(path as string);
       // Deep compare for arrays/objects, strict for primitives
       if (val !== null && typeof val === 'object') {
         return JSON.stringify(current) === JSON.stringify(val);
@@ -333,8 +352,6 @@ export async function waitForChatMessage(
  * Read a state value from the app (one-shot, no waiting).
  */
 export async function readState(page: Page, statePath: string): Promise<unknown> {
-  if (statePath === 'appState') return readProjectedPlaybackState(page);
-
   return page.evaluate((path) => {
     const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
       | ((p: string) => unknown)

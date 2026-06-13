@@ -272,11 +272,10 @@ export function getPlaybackOwnership(): PlaybackOwnership {
 /**
  * E2E projection: collapse the decomposed playback contract (mode/activity/
  * lifecycle + system-audio signals) into a single coarse label. Mirrors the
- * projection in `e2e/helpers/wait.ts` so specs that still read the legacy
- * `appState` path resolve consistently through the test hook exposed below.
- * Not used by product code — playback UIs read mode/activity directly.
+ * projection in `e2e/helpers/wait.ts`. Not used by product code -- playback UIs
+ * read mode/activity directly.
  */
-type ProjectedAppState =
+type PlaybackProjection =
   | 'IDLE'
   | 'PAUSED'
   | 'PLAYING_AUDIO'
@@ -284,7 +283,7 @@ type ProjectedAppState =
   | 'PLAYING_YOUTUBE'
   | 'PLAYING_SYSTEM_AUDIO';
 
-export function getProjectedAppState(): ProjectedAppState {
+export function getPlaybackProjection(): PlaybackProjection {
   const o = getPlaybackOwnership();
   if (o.mode === 'youtube') return 'PLAYING_YOUTUBE';
   if (o.mode === 'system-audio' || o.isReceivingSystemAudio || o.isSystemAudioPlaceholder) {
@@ -597,10 +596,8 @@ export function releasePlaybackOwner(
 }
 
 // ─── E2E Test Hook ─────────────────────────────────────────────────
-// Expose the legacy projected app-state so e2e specs that still assert on the
-// old single-enum `appState` path resolve through wait.ts's compat layer
-// (__MUSIXQUARE_GET_PROJECTED_APP_STATE__). Dev / e2e build / explicit opt-in
-// only — never the normal production bundle.
+// Expose the coarse playback projection used by e2e specs. Dev / e2e build /
+// explicit opt-in only -- never the normal production bundle.
 //
 // The gate mirrors core/state.ts but is read inline from `import.meta.env`
 // rather than importing a shared flag: top-level dependence on a state.ts
@@ -614,10 +611,10 @@ const _shouldExposeTestHooks =
 
 declare global {
   interface Window {
-    __MUSIXQUARE_GET_PROJECTED_APP_STATE__?: typeof getProjectedAppState;
+    __MUSIXQUARE_GET_PLAYBACK_PROJECTION__?: typeof getPlaybackProjection;
   }
 }
 
 if (typeof window !== 'undefined' && _shouldExposeTestHooks) {
-  window.__MUSIXQUARE_GET_PROJECTED_APP_STATE__ = getProjectedAppState;
+  window.__MUSIXQUARE_GET_PLAYBACK_PROJECTION__ = getPlaybackProjection;
 }

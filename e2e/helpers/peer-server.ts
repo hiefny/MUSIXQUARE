@@ -20,11 +20,11 @@ export async function injectPeerServer(page: Page): Promise<void> {
 
     type Getter = (path: string) => unknown;
     const stateHook = '__MUSIXQUARE_GET_STATE__';
-    const projectedHook = '__MUSIXQUARE_GET_PROJECTED_APP_STATE__';
+    const projectionHook = '__MUSIXQUARE_GET_PLAYBACK_PROJECTION__';
     const win = window as unknown as Record<string, unknown>;
     let rawGetState: Getter | undefined;
 
-    const projectAppState = (): string | undefined => {
+    const projectPlayback = (): string | undefined => {
       if (!rawGetState) return undefined;
 
       const mode = rawGetState('playback.mode');
@@ -63,7 +63,6 @@ export async function injectPeerServer(page: Page): Promise<void> {
         if (path === 'files.currentFileBlob' || path === 'network.hostConn') return null;
         return undefined;
       }
-      if (path === 'appState') return projectAppState();
       return rawGetState(path);
     };
 
@@ -75,6 +74,6 @@ export async function injectPeerServer(page: Page): Promise<void> {
       },
     });
 
-    win[projectedHook] = projectAppState;
+    win[projectionHook] = projectPlayback;
   }, PEER_CONFIG);
 }

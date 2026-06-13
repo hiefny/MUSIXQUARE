@@ -9,7 +9,7 @@ import {
   getPlaybackModeActivity,
   getPlaybackModeActivitySnapshot,
   getPlaybackOwnership,
-  getProjectedAppState,
+  getPlaybackProjection,
   isExternalOwner,
   isFileOwner,
   isPlaybackIdle,
@@ -54,38 +54,38 @@ function expectPlaybackModeActivitySlots(mode: string | null, activity: string):
 }
 
 // Locks the production projection (exposed to e2e via
-// __MUSIXQUARE_GET_PROJECTED_APP_STATE__) against the mirror in
-// e2e/helpers/wait.ts, so the legacy single-enum `appState` assertions stay
-// consistent with the decomposed mode/activity/lifecycle contract.
-describe('getProjectedAppState (e2e legacy projection)', () => {
+// __MUSIXQUARE_GET_PLAYBACK_PROJECTION__) against the mirror in
+// e2e/helpers/wait.ts, so coarse playback assertions stay consistent with the
+// decomposed mode/activity/lifecycle contract.
+describe('getPlaybackProjection (e2e projection)', () => {
   it('projects an idle room to IDLE', () => {
-    expect(getProjectedAppState()).toBe('IDLE');
+    expect(getPlaybackProjection()).toBe('IDLE');
   });
 
   it('projects file playback to PLAYING_AUDIO / PAUSED', () => {
     setPlaybackFilePlaying();
-    expect(getProjectedAppState()).toBe('PLAYING_AUDIO');
+    expect(getPlaybackProjection()).toBe('PLAYING_AUDIO');
     setPlaybackFilePaused();
-    expect(getProjectedAppState()).toBe('PAUSED');
+    expect(getPlaybackProjection()).toBe('PAUSED');
   });
 
   it('projects a READY file pipeline (decoded, not yet playing) as PAUSED', () => {
     setPlaybackLifecycleState(PLAYBACK_STATE.READY);
-    expect(getProjectedAppState()).toBe('PAUSED');
+    expect(getPlaybackProjection()).toBe('PAUSED');
   });
 
   it('projects YouTube playback to PLAYING_YOUTUBE', () => {
     setPlaybackYouTubePlaying();
-    expect(getProjectedAppState()).toBe('PLAYING_YOUTUBE');
+    expect(getPlaybackProjection()).toBe('PLAYING_YOUTUBE');
   });
 
   it('projects system audio (sharing and receiving) to PLAYING_SYSTEM_AUDIO', () => {
     setPlaybackSystemAudioPlaying();
-    expect(getProjectedAppState()).toBe('PLAYING_SYSTEM_AUDIO');
+    expect(getPlaybackProjection()).toBe('PLAYING_SYSTEM_AUDIO');
 
     resetState();
     setSystemAudioReceiving(true);
-    expect(getProjectedAppState()).toBe('PLAYING_SYSTEM_AUDIO');
+    expect(getPlaybackProjection()).toBe('PLAYING_SYSTEM_AUDIO');
   });
 });
 

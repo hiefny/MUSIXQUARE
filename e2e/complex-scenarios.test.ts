@@ -23,19 +23,19 @@ import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
-  waitForPlaylistCount,
-  readState,
-  waitForDeviceCount,
-  waitForChatMessage,
-  waitForState,
-  waitForPlayState,
   clickPlayButton,
+  isVisible,
   navigateToTab,
   openChatDrawer,
-  sendChat,
-  isVisible,
-  waitForOverlayDismissed,
-  VALID_PROJECTED_PLAYBACK_STATES,
+  readPlaybackProjection,
+  readState,
+  VALID_PLAYBACK_PROJECTIONS,
+  waitForChatMessage,
+  waitForDeviceCount,
+  waitForPlaybackProjection,
+  waitForPlaylistCount,
+  waitForPlayState,
+  waitForState,
 } from './helpers/wait.ts';
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
@@ -67,7 +67,7 @@ test.describe('Mode Switching Chains', () => {
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
 
     // Phase 2: Switch to YouTube
     await pair.hostPage.evaluate(() => {
@@ -91,7 +91,7 @@ test.describe('Mode Switching Chains', () => {
       if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
         await playBtn.click();
         // Wait for YouTube mode
-        await waitForState(pair.hostPage, 'appState', 'PLAYING_YOUTUBE').catch(() => {});
+        await waitForPlaybackProjection(pair.hostPage, 'PLAYING_YOUTUBE').catch(() => {});
       }
     }
 
@@ -107,7 +107,7 @@ test.describe('Mode Switching Chains', () => {
     expect(count).toBeGreaterThanOrEqual(2);
 
     // App should not be crashed -- state is valid
-    const state = await readState(pair.hostPage, 'appState') as string;
+    const state = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_YOUTUBE']).toContain(state);
   });
 
@@ -124,7 +124,7 @@ test.describe('Mode Switching Chains', () => {
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
 
     // Pause
     await clickPlayButton(pair.hostPage);
@@ -139,7 +139,7 @@ test.describe('Mode Switching Chains', () => {
     await waitForPlayState(pair.hostPage, false);
 
     // State should be consistent
-    const finalState = await readState(pair.hostPage, 'appState') as string;
+    const finalState = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(finalState);
 
     // Playlist should still be intact
@@ -203,7 +203,7 @@ test.describe('Playlist Manipulation During Playback', () => {
     }
 
     // App should not crash -- should switch to remaining track or idle
-    const state = await readState(pair.hostPage, 'appState') as string;
+    const state = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
   });
 
@@ -379,10 +379,10 @@ test.describe('Concurrent Host+Guest Operations', () => {
     await Promise.all([guestTabSwitch, hostThemeChange]);
 
     // Both should be functional
-    const hostState = await readState(pair.hostPage, 'appState');
-    const guestState = await readState(pair.guestPage, 'appState');
-    expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(hostState);
-    expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+    const hostState = await readPlaybackProjection(pair.hostPage);
+    const guestState = await readPlaybackProjection(pair.guestPage);
+    expect(VALID_PLAYBACK_PROJECTIONS).toContain(hostState);
+    expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
   });
 });
 
@@ -411,7 +411,7 @@ test.describe('Settings Changes During Playback', () => {
 
     // Start playing
     await clickPlayButton(pair.hostPage);
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
 
     // Change EQ values via state (no need to navigate to settings tab)
     await pair.hostPage.evaluate(() => {
@@ -432,7 +432,7 @@ test.describe('Settings Changes During Playback', () => {
     );
 
     // Should still be playing
-    const state = await readState(pair.hostPage, 'appState');
+    const state = await readPlaybackProjection(pair.hostPage);
     expect(['PLAYING_AUDIO', 'PAUSED']).toContain(state);
 
     // EQ should be applied
@@ -452,7 +452,7 @@ test.describe('Settings Changes During Playback', () => {
     );
 
     await clickPlayButton(pair.hostPage);
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
 
     // Set volume to 0
     await pair.hostPage.evaluate(() => {
@@ -469,7 +469,7 @@ test.describe('Settings Changes During Playback', () => {
     await waitForState(pair.hostPage, 'audio.masterVolume', 1);
 
     // Should still be playing
-    const state = await readState(pair.hostPage, 'appState');
+    const state = await readPlaybackProjection(pair.hostPage);
     expect(['PLAYING_AUDIO', 'PAUSED']).toContain(state);
   });
 
@@ -485,7 +485,7 @@ test.describe('Settings Changes During Playback', () => {
     );
 
     await clickPlayButton(pair.hostPage);
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
 
     // Enable reverb
     await pair.hostPage.evaluate(() => {
@@ -504,7 +504,7 @@ test.describe('Settings Changes During Playback', () => {
     });
     await waitForState(pair.hostPage, 'audio.reverbMix', 0);
 
-    const state = await readState(pair.hostPage, 'appState');
+    const state = await readPlaybackProjection(pair.hostPage);
     expect(['PLAYING_AUDIO', 'PAUSED']).toContain(state);
   });
 
@@ -520,7 +520,7 @@ test.describe('Settings Changes During Playback', () => {
     );
 
     await clickPlayButton(pair.hostPage);
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO');
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
 
     // Cycle through channel modes
     for (const mode of [1, -1, 2, 0]) {
@@ -531,7 +531,7 @@ test.describe('Settings Changes During Playback', () => {
       await waitForState(pair.hostPage, 'audio.channelMode', mode);
     }
 
-    const state = await readState(pair.hostPage, 'appState');
+    const state = await readPlaybackProjection(pair.hostPage);
     expect(['PLAYING_AUDIO', 'PAUSED']).toContain(state);
   });
 });
@@ -575,7 +575,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
       }
     }
 
-    const state = await readState(pair.hostPage, 'appState') as string;
+    const state = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
   });
 
@@ -717,8 +717,8 @@ test.describe('Operator Privilege Scenarios', () => {
         expect(isOp).toBe(true);
       } else {
         // Operator button might be a toggle that wasn't in grant state
-        const guestState = await readState(pair.guestPage, 'appState');
-        expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+        const guestState = await readPlaybackProjection(pair.guestPage);
+        expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
       }
     }
   });
@@ -768,8 +768,8 @@ test.describe('Operator Privilege Scenarios', () => {
     const isOp = await readState(pair.guestPage, 'network.isOperator');
     expect(isOp).toBe(false);
 
-    const guestState = await readState(pair.guestPage, 'appState');
-    expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(guestState);
+    const guestState = await readPlaybackProjection(pair.guestPage);
+    expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
   });
 });
 
@@ -794,7 +794,7 @@ test.describe('Guest Disconnect During Transfer', () => {
       // Host should still function -- wait for playlist to populate
       await waitForPlaylistCount(pair.hostPage, 1, 15_000);
 
-      const state = await readState(pair.hostPage, 'appState');
+      const state = await readPlaybackProjection(pair.hostPage);
       expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
 
       // Host can still play the file
@@ -805,7 +805,7 @@ test.describe('Guest Disconnect During Transfer', () => {
       await clickPlayButton(pair.hostPage);
       await waitForPlayState(pair.hostPage, true);
 
-      const playState = await readState(pair.hostPage, 'appState');
+      const playState = await readPlaybackProjection(pair.hostPage);
       expect(['PLAYING_AUDIO', 'PAUSED']).toContain(playState);
     } finally {
       await pair.hostContext.close().catch(() => {});
@@ -890,8 +890,8 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
       await openChatDrawer(pair.hostPage).catch(() => {});
 
       // App should handle the overlap gracefully
-      const state = await readState(pair.hostPage, 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
+      const state = await readPlaybackProjection(pair.hostPage);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
     }
   });
 
@@ -1018,7 +1018,7 @@ test.describe('State Consistency After Complex Flows', () => {
     await waitForPlaylistCount(pair.hostPage, 3);
 
     // Final state validation
-    const state = await readState(pair.hostPage, 'appState') as string;
+    const state = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
 
     const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
@@ -1063,7 +1063,7 @@ test.describe('State Consistency After Complex Flows', () => {
     });
     expect(guestPlaylist).toBe(2);
 
-    const guestState = await readState(pair.guestPage, 'appState') as string;
+    const guestState = await readPlaybackProjection(pair.guestPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(guestState);
   });
 
@@ -1125,7 +1125,7 @@ test.describe('State Consistency After Complex Flows', () => {
 
       // All should have valid states
       for (const page of [hostPage, g1Page, g2Page]) {
-        const state = await readState(page, 'appState');
+        const state = await readPlaybackProjection(page);
         expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
       }
 

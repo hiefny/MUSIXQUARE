@@ -19,7 +19,14 @@ import {
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import { waitForPlaylistCount, readState, waitForState } from './helpers/wait.ts';
+import {
+  isVisible,
+  readPlaybackProjection,
+  readState,
+  waitForPlaybackProjection,
+  waitForPlaylistCount,
+  waitForState,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -145,9 +152,9 @@ test.describe('Advanced Playback', () => {
     await pair.hostPage.click('#play-btn');
 
     // Wait for PLAYING_AUDIO state
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO', 15_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 15_000);
 
-    const state = await readState(pair.hostPage, 'appState');
+    const state = await readPlaybackProjection(pair.hostPage);
     expect(state).toBe('PLAYING_AUDIO');
   });
 
@@ -168,13 +175,13 @@ test.describe('Advanced Playback', () => {
 
     // Play
     await pair.hostPage.click('#play-btn');
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO', 15_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 15_000);
 
     // Pause
     await pair.hostPage.click('#play-btn');
-    await waitForState(pair.hostPage, 'appState', 'PAUSED', 10_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PAUSED', 10_000);
 
-    const state = await readState(pair.hostPage, 'appState');
+    const state = await readPlaybackProjection(pair.hostPage);
     expect(state).toBe('PAUSED');
   });
 
@@ -194,15 +201,15 @@ test.describe('Advanced Playback', () => {
 
     // Play → Pause → Resume
     await pair.hostPage.click('#play-btn');
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO', 15_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 15_000);
 
     await pair.hostPage.click('#play-btn'); // pause
-    await waitForState(pair.hostPage, 'appState', 'PAUSED', 10_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PAUSED', 10_000);
 
     await pair.hostPage.click('#play-btn'); // resume
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO', 10_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 10_000);
 
-    const state = await readState(pair.hostPage, 'appState');
+    const state = await readPlaybackProjection(pair.hostPage);
     expect(state).toBe('PLAYING_AUDIO');
   });
 
@@ -279,7 +286,7 @@ test.describe('Advanced Playback', () => {
 
   // ── Guest Sync Tests ──────────────────────────────────────
 
-  test('guest appState updates when host plays real MP3', async () => {
+  test('guest playback projection updates when host plays real MP3', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -294,12 +301,12 @@ test.describe('Advanced Playback', () => {
 
     // Host plays
     await pair.hostPage.click('#play-btn');
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO', 15_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 15_000);
 
     // Guest should receive state update
     await pair.guestPage.waitForFunction(
       () => {
-        const projected = (window as any).__MUSIXQUARE_GET_PROJECTED_APP_STATE__;
+        const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
         if (typeof projected !== 'function') return false;
         const state = projected();
         return state === 'PLAYING_AUDIO' || state === 'PAUSED' || state === 'IDLE';
@@ -307,7 +314,7 @@ test.describe('Advanced Playback', () => {
       { timeout: 15_000 },
     );
 
-    const guestState = await readState(pair.guestPage, 'appState');
+    const guestState = await readPlaybackProjection(pair.guestPage);
     expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(guestState);
   });
 
@@ -325,14 +332,14 @@ test.describe('Advanced Playback', () => {
 
     // Play then pause
     await pair.hostPage.click('#play-btn');
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO', 15_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 15_000);
 
     await pair.hostPage.click('#play-btn'); // pause
 
-    await waitForState(pair.hostPage, 'appState', 'PAUSED', 10_000);
+    await waitForPlaybackProjection(pair.hostPage, 'PAUSED', 10_000);
 
     // Host should be PAUSED
-    const hostState = await readState(pair.hostPage, 'appState');
+    const hostState = await readPlaybackProjection(pair.hostPage);
     expect(hostState).toBe('PAUSED');
   });
 

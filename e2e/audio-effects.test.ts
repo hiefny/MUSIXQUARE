@@ -14,13 +14,12 @@ import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import {
-  waitForPlaylistCount,
-  readState,
-  navigateToTab,
-  navigateToSubtab,
-  waitForState,
-  isVisible,
   clickAndWaitActive,
+  isVisible,
+  navigateToSubtab,
+  navigateToTab,
+  readState,
+  waitForState,
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair;

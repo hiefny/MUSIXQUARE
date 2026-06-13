@@ -9,7 +9,11 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { waitForChatMessage, openChatDrawer, sendChat } from './helpers/wait.ts';
+import {
+  openChatDrawer,
+  sendChat,
+  waitForChatMessage,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 

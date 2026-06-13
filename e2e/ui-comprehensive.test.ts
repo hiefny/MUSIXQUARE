@@ -16,12 +16,12 @@ import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
-  readState,
-  navigateToTab,
-  waitForClass,
-  openChatDrawer,
   isVisible,
+  navigateToTab,
+  openChatDrawer,
+  readState,
   waitForChatMessage,
+  waitForClass,
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair;

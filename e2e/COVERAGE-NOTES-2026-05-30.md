@@ -21,8 +21,8 @@ Expected local-preview noise observed during YouTube E2E: TURN endpoint 401/403 
 The legacy production `appState` state slot is gone, so raw reads inside
 `page.evaluate` / `page.waitForFunction` now bypass the E2E projection and
 resolve to `undefined`. I removed those direct raw reads and routed assertions
-through `window.__MUSIXQUARE_GET_PROJECTED_APP_STATE__` or existing helpers
-that already project `appState`.
+through `window.__MUSIXQUARE_GET_PLAYBACK_PROJECTION__` or existing helpers
+that already read the playback projection.
 
 De-staled files:
 

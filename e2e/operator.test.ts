@@ -10,7 +10,13 @@
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { navigateToTab, waitForDeviceCount, waitForState, readState } from './helpers/wait.ts';
+import {
+  isVisible,
+  navigateToTab,
+  readState,
+  waitForDeviceCount,
+  waitForState,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 

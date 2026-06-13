@@ -18,18 +18,17 @@ import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
-  waitForPlaylistCount,
-  readState,
-  waitForChatMessage,
-  waitForState,
+  isVisible,
   navigateToTab,
   openChatDrawer,
+  readPlaybackProjection,
+  readState,
   sendChat,
-  isVisible,
-  waitForSelectorCount,
-  waitForOverlayActive,
+  VALID_PLAYBACK_PROJECTIONS,
+  waitForChatMessage,
   waitForClass,
-  VALID_PROJECTED_PLAYBACK_STATES,
+  waitForPlaybackProjection,
+  waitForPlaylistCount,
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
@@ -97,7 +96,7 @@ test.describe('Edge Cases', () => {
     }
 
     // Should not crash — state should be valid
-    const state = await readState(pair.hostPage, 'appState') as string;
+    const state = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_VIDEO', 'PLAYING_YOUTUBE']).toContain(state);
   });
 
@@ -128,7 +127,7 @@ test.describe('Edge Cases', () => {
     });
     expect(isDisabled).toBe(true);
 
-    const state = await readState(pair.hostPage, 'appState') as string;
+    const state = await readPlaybackProjection(pair.hostPage) as string;
     expect(state).toBe('IDLE');
   });
 
@@ -150,9 +149,9 @@ test.describe('Edge Cases', () => {
     );
 
     await pair.hostPage.click('#play-btn');
-    await waitForState(pair.hostPage, 'appState', 'PLAYING_AUDIO', 5_000).catch(() => {});
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 5_000).catch(() => {});
 
-    const stateBefore = await readState(pair.hostPage, 'appState') as string;
+    const stateBefore = await readPlaybackProjection(pair.hostPage) as string;
 
     // Upload second file while first is playing/loaded
     await uploadFixture(pair.hostPage, 'test02');
@@ -165,7 +164,7 @@ test.describe('Edge Cases', () => {
     expect(count).toBe(2);
 
     // App should not have crashed
-    const stateAfter = await readState(pair.hostPage, 'appState') as string;
+    const stateAfter = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(stateAfter);
   });
 
@@ -290,8 +289,8 @@ test.describe('Edge Cases', () => {
       await pair.hostPage.locator('#volume-slider').fill('0');
 
       // Verify state is valid after setting volume to 0
-      const state = await readState(pair.hostPage, 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
+      const state = await readPlaybackProjection(pair.hostPage);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
     }
   });
 
@@ -302,8 +301,8 @@ test.describe('Edge Cases', () => {
       await pair.hostPage.locator('#volume-slider').fill('100');
 
       // App still functional
-      const state = await readState(pair.hostPage, 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
+      const state = await readPlaybackProjection(pair.hostPage);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
     }
   });
 
@@ -316,7 +315,7 @@ test.describe('Edge Cases', () => {
       await pair.hostPage.locator('#seek-slider').fill('50');
 
       // App should still be functional
-      const state = await readState(pair.hostPage, 'appState');
+      const state = await readPlaybackProjection(pair.hostPage);
       expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
     }
   });
@@ -340,8 +339,8 @@ test.describe('Edge Cases', () => {
     }
 
     // App should still be functional
-    const state = await readState(pair.hostPage, 'appState');
-    expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
+    const state = await readPlaybackProjection(pair.hostPage);
+    expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
   });
 
   // ── Invite Code Validation ──────────────────────────────────
@@ -379,8 +378,8 @@ test.describe('Edge Cases', () => {
     // the guest-role check.
     const mediaBtnVisible = await isVisible(pair.guestPage, '#btn-media-source');
     if (mediaBtnVisible) {
-      const state = await readState(pair.guestPage, 'appState');
-      expect(VALID_PROJECTED_PLAYBACK_STATES).toContain(state);
+      const state = await readPlaybackProjection(pair.guestPage);
+      expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
     }
   });
 
@@ -422,15 +421,15 @@ test.describe('Edge Cases', () => {
 
   // ── State Consistency ──────────────────────────────────────
 
-  test('host and guest have consistent appState after upload', async () => {
+  test('host and guest have consistent playback projection after upload', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
-    const hostState = await readState(pair.hostPage, 'appState');
-    const guestState = await readState(pair.guestPage, 'appState');
+    const hostState = await readPlaybackProjection(pair.hostPage);
+    const guestState = await readPlaybackProjection(pair.guestPage);
 
     // Both should be in a non-error state
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(hostState);

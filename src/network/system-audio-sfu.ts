@@ -425,7 +425,7 @@ function sendSfuReadyToPeer(peerId: string, publication: HostPublication): void 
   safeSend(peer.conn, makeReadyMessage(publication));
 }
 
-async function publishHostTracks(): Promise<HostPublication | null> {
+async function publishHostTracks(publishEpoch: number): Promise<HostPublication | null> {
   const streamL = getStreamL();
   const streamR = getStreamR();
   const trackL = streamL?.getAudioTracks()[0];
@@ -433,6 +433,13 @@ async function publishHostTracks(): Promise<HostPublication | null> {
   if (!trackL || !trackR) return null;
 
   const pc = new RTCPeerConnection(await loadSfuRtcConfig());
+  if (publishEpoch !== hostPublishEpoch) {
+    // Superseded while the RTC config was loading (share stopped/restarted —
+    // cleanupHostSfu bumped the epoch): adopting this pc into the module slot
+    // would hand a foreign pc to the successor's cleanup. Discard quietly.
+    pc.close();
+    return null;
+  }
   hostPc = pc;
   pc.addEventListener('connectionstatechange', () => {
     log.info(`[SysAudioSFU] Host SFU connection: ${pc.connectionState}`);
@@ -494,6 +501,29 @@ async function publishHostTracks(): Promise<HostPublication | null> {
     },
   ];
 
+  if (publishEpoch !== hostPublishEpoch) {
+    // Superseded mid-publish (the Realtime calls take seconds; the share may
+    // have been stopped or restarted meanwhile). Undo OUR server session
+    // directly instead of via cleanupHostSfu — the module slots may already
+    // belong to a successor publish — and commit nothing.
+    try {
+      pc.close();
+    } catch {
+      /* already closed by the supersession cleanup */
+    }
+    if (hostPc === pc) hostPc = null;
+    const staleTracks = publishedTracks
+      .filter((track) => track.mid)
+      .map((track) => ({ mid: track.mid }));
+    if (staleTracks.length > 0) {
+      callRealtime('tracks-close', {
+        sessionId: session.sessionId,
+        payload: { tracks: staleTracks, force: true },
+      }).catch((error) => log.debug('[SysAudioSFU] Stale publish tracks-close failed:', error));
+    }
+    return null;
+  }
+
   hostSessionId = session.sessionId;
   hostPublishedTracks = publishedTracks;
   log.info(`[SysAudioSFU] Published system audio to Cloudflare SFU (${hostSessionId})`);
@@ -515,9 +545,16 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
   if (hostPublishPromise) return hostPublishPromise;
 
   const publishEpoch = ++hostPublishEpoch;
-  hostPublishPromise = publishHostTracks()
+  hostPublishPromise = publishHostTracks(publishEpoch)
     .then((publication) => {
-      if (publishEpoch !== hostPublishEpoch || !hasRemoteHostPeers()) {
+      // publishHostTracks re-checks the epoch before committing module state
+      // and undoes its own server session when superseded, so a null result
+      // needs no cleanup here.
+      if (!publication) return null;
+      if (publishEpoch !== hostPublishEpoch) return null; // belt — never adopt a stale publication
+      if (!hasRemoteHostPeers()) {
+        // Same epoch: the module slots hold THIS publication, so the full
+        // cleanup (server tracks-close included) is operating on our own state.
         cleanupHostSfu();
         return null;
       }
@@ -525,6 +562,16 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
     })
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
+      if (publishEpoch !== hostPublishEpoch) {
+        // F-2403: a late failure from a publish the world already moved past
+        // (share stopped/restarted — cleanupHostSfu bumped the epoch) must
+        // not poison hostSfuUnavailable for the NEXT share, must not emit a
+        // stale fallback, and must not run cleanupHostSfu against module
+        // slots that may now belong to a successor. The supersession's own
+        // cleanup already closed this attempt's pc.
+        log.debug('[SysAudioSFU] Stale host publish failed after supersession (ignored):', message);
+        return null;
+      }
       hostSfuUnavailable = true;
       if (message.includes('REALTIME_SFU_UNAVAILABLE')) {
         log.info('[SysAudioSFU] Cloudflare Realtime SFU env not configured; using P2P paths only');
@@ -536,7 +583,9 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
       return null;
     })
     .finally(() => {
-      hostPublishPromise = null;
+      // Only the in-flight owner may clear the memo: a stale finally would
+      // null a SUCCESSOR's promise and let a duplicate publish race it.
+      if (publishEpoch === hostPublishEpoch) hostPublishPromise = null;
     });
 
   return hostPublishPromise;

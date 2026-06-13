@@ -843,7 +843,12 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
     log.warn('[Preload] Chunk missing sessionId — falling back to latest:', latestPreloadSessionId);
     sid = latestPreloadSessionId;
   }
-  if (!sid) return;
+  // Sink-side sessionId validation (F-2408): PRELOAD_CHUNK's validator can't
+  // require sessionId (the missing-sid fallback above is pinned), so reject
+  // non-finite/non-positive sids here instead — a forged Infinity/NaN/negative
+  // sid would otherwise key preloadReorderBuffer/sessionState. Parity with
+  // validateSessionId's sid > 0 rule.
+  if (!Number.isFinite(sid) || sid <= 0) return;
 
   // We intentionally DO NOT drop chunks for sid < latestPreloadSessionId.
   // This allows "stale" preloads (like a late-joiner's unicastPreload that

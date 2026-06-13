@@ -128,8 +128,16 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.total as number) <= MAX_FILE_TOTAL,
   [MSG.FILE_END]: (d) => typeof d.name === 'string',
   [MSG.PRELOAD_CHUNK]: (d) => isBoundedChunk(d.chunk) && isNonNegInt(d.index),
+  // sessionId finiteness brings PRELOAD_START to FILE_START parity (F-2408): a
+  // forged Infinity/NaN sid otherwise keys the handler's per-session reorder and
+  // sessionState maps. PRELOAD_CHUNK stays sessionId-optional here (it falls back
+  // to the latest preload session — pinned by the rate-limit test), so its sink
+  // is hardened instead inside handlePreloadChunk.
   [MSG.PRELOAD_START]: (d) =>
-    typeof d.name === 'string' && isNonNegInt(d.total) && (d.total as number) <= MAX_FILE_TOTAL,
+    typeof d.name === 'string' &&
+    isFiniteNumber(d.sessionId) &&
+    isNonNegInt(d.total) &&
+    (d.total as number) <= MAX_FILE_TOTAL,
   // sessionId required — handler uses it to scope sessionState/reorder/storage
   // cleanup. Without the guard, an injected abort with no sid would no-op
   // through every guard in handlePreloadAbort but still consume rate-limit

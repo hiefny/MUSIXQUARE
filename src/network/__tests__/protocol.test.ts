@@ -322,6 +322,26 @@ describe('file-transfer frame validation', () => {
     expect(startHandler).not.toHaveBeenCalled();
     expect(chunkHandler).not.toHaveBeenCalled();
   });
+
+  it('drops PRELOAD_START frames with a non-finite or missing sessionId, but dispatches a finite one (F-2408)', async () => {
+    const startHandler = vi.fn();
+    registerHandler(MSG.PRELOAD_START, startHandler);
+    const conn = makeConnection('peer-preload-hostile');
+
+    // A forged Infinity sid would key the handler's per-session reorder/state
+    // maps; a missing sid no-ops through every handler guard but still burns
+    // dispatch budget. PRELOAD_START requires a finite sessionId, at FILE_START
+    // parity. (PRELOAD_CHUNK stays sid-optional — its sink is hardened instead.)
+    await handleData(
+      { type: MSG.PRELOAD_START, name: 'song.mp3', sessionId: Infinity, total: 10 },
+      conn,
+    );
+    await handleData({ type: MSG.PRELOAD_START, name: 'song.mp3', total: 10 }, conn);
+    expect(startHandler).not.toHaveBeenCalled();
+
+    await handleData({ type: MSG.PRELOAD_START, name: 'song.mp3', sessionId: 4, total: 10 }, conn);
+    expect(startHandler).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('broadcast amplification caps', () => {

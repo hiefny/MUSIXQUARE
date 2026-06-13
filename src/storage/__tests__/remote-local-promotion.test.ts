@@ -214,6 +214,43 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(postCommand).not.toHaveBeenCalled();
   });
 
+  it('does not let the demo FILE_PREPARE cross the system-audio receive placeholder', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+
+    setState('network.connectionType', 'local');
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'system-audio-receiving',
+      systemAudioPlaceholder: true,
+    });
+    setState('playlist.items', [
+      {
+        type: 'file',
+        name: DEMO_TRACK.fileName,
+        title: DEMO_TRACK.title,
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: DEMO_TRACK.fileName,
+        mime: DEMO_TRACK.mime,
+        index: 0,
+        sessionId: 13,
+      },
+      conn,
+    );
+
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('playlist.currentTrackIndex')).toBe(-1);
+    expect(getState('transfer.meta')).toBeNull();
+    expect(postCommand).not.toHaveBeenCalled();
+  });
+
   it('preserves a queued host PLAY when FILE_PREPARE resets receive state for the same track', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
     const { getPendingPlayTime, getPendingPlayTimeSetAt, setPendingPlayTime } =

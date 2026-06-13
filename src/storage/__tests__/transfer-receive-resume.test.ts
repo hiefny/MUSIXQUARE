@@ -269,3 +269,65 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(clearManagedTimer).toHaveBeenCalledWith('prepareWatchdog');
   });
 });
+
+describe('handleFileChunk — reorder buffer OOM bound', () => {
+  const conn = { open: true, peer: 'host-1' } as DataConnection;
+
+  beforeEach(async () => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+    __resetRamStoreForTests();
+    const { clearReceiveState } = await import('../transfer-receive.ts');
+    clearReceiveState();
+    setState('network.hostConn', conn);
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+  });
+
+  it('clears excessive out-of-order chunks and requests recovery without fast-forwarding counters', async () => {
+    const { handleFileStart, handleFileChunk, getTransferMemoryStats } = await import(
+      '../transfer-receive.ts'
+    );
+    const recoverySpy = vi.fn();
+    bus.on('storage:request-recovery', recoverySpy);
+
+    handleFileStart(
+      {
+        type: 'file-start',
+        name: 'gap.mp3',
+        mime: 'audio/mpeg',
+        total: 10_000,
+        size: 10_000,
+        index: 0,
+        sessionId: 9,
+      },
+      conn,
+    );
+
+    // Missing chunk 0 keeps the drain pointer at the true base while future
+    // chunks accumulate. Crossing MAX_REORDER_BUFFER must clear + recover,
+    // not pretend those future chunks were received.
+    for (let index = 1; index <= 502; index++) {
+      handleFileChunk(
+        {
+          type: 'file-chunk',
+          chunk: u8(index % 256),
+          index,
+          sessionId: 9,
+          total: 10_000,
+          name: 'gap.mp3',
+        },
+        conn,
+      );
+    }
+
+    expect(recoverySpy).toHaveBeenCalledOnce();
+    expect(getState('transfer.receivedCount')).toBe(0);
+    expect(getTransferMemoryStats()).toMatchObject({
+      reorderChunks: 0,
+      nextExpectedChunk: 0,
+    });
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+  });
+});

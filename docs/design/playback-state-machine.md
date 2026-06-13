@@ -163,6 +163,7 @@ per Open Question #5 decision below.
 | `preload-file-ready` (blob assembled, index matches) | **DECODING** | ⭐ loadPreloadedTrack(); this is the path currently broken |
 | preload stall watchdog (10s no progress) | DOWNLOADING | emit REQUEST_DATA_RECOVERY; loadSource='fresh' |
 | preload ceiling watchdog (60s absolute) | DOWNLOADING | same |
+| `REMOTE_FILE_UNAVAILABLE` | FAILED | remote host failed to provide the current file; release the wait gate so the next host action can re-drive recovery |
 | `FILE_PREPARE` (same track, dedup) | AWAITING_PRELOAD | ignore — host may resend |
 | `FILE_PREPARE` (different track) | supersede → DOWNLOADING | cancel preload waiter, stopAllMedia |
 | `PLAY_PRELOADED` (same index, dedup) | AWAITING_PRELOAD | ignore duplicate |

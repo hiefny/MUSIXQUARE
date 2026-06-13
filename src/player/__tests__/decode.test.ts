@@ -373,6 +373,75 @@ describe('host preload activation result (SA-05)', () => {
   });
 });
 
+describe('guest preload activation failure recovery', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    clearAllManagedTimers();
+    vi.clearAllMocks();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:guest-preload'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  function stageGuestPreload(file: File): void {
+    setState('network.hostConn', makeConnection('host'));
+    setState('playlist.items', [makeFileTrack(file)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('preload.nextFileBlob', file);
+    setState('preload.meta', { name: file.name, index: 0, sessionId: 7 });
+    setState('preload.nextTrackIndex', 0);
+    setState('transfer.meta', { name: file.name, index: 0, sessionId: 7 });
+  }
+
+  it('requests the current file again after the first live guest preload decode failure', async () => {
+    mocks.decodeAudioData.mockRejectedValue(new Error('partial blob'));
+    const file = new File([new Uint8Array([1, 2, 3])], 'retry-me.mp3', {
+      type: 'audio/mpeg',
+      lastModified: 123,
+    });
+    stageGuestPreload(file);
+
+    const { loadPreloadedTrack } = await import('../decode.ts');
+    const activated = await loadPreloadedTrack(0);
+
+    expect(activated).toBe(false);
+    expect(mocks.transition).toHaveBeenCalledWith({ type: 'DECODE_ERROR' });
+    expect(getState('player.decodeFailureCount')).toBe(1);
+    expect(mocks.sendToHost).toHaveBeenCalledWith({
+      type: MSG.REQUEST_CURRENT_FILE,
+      name: 'retry-me.mp3',
+      index: 0,
+      reason: 'preload_activation_failed',
+    });
+  });
+
+  it('bounds repeated live guest preload decode failures instead of re-requesting forever', async () => {
+    mocks.decodeAudioData.mockRejectedValue(new Error('persistent codec failure'));
+    const file = new File([new Uint8Array([1, 2, 3])], 'broken-remote.mp3', {
+      type: 'audio/mpeg',
+      lastModified: 123,
+    });
+    stageGuestPreload(file);
+    setState('player.decodeFailureCount', 1);
+
+    const { loadPreloadedTrack } = await import('../decode.ts');
+    const activated = await loadPreloadedTrack(0);
+
+    expect(activated).toBe(false);
+    expect(getState('player.decodeFailureCount')).toBe(2);
+    expect(getState('playback.failedTrackKeys').size).toBe(1);
+    expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
+    );
+  });
+});
+
 describe('host decode failure cleanup', () => {
   beforeEach(() => {
     resetState();

@@ -3,7 +3,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
-import { MSG } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type {
@@ -140,6 +140,55 @@ describe('remote file share policy', () => {
 
     expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
     expect(mocks.transition).toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
+  });
+
+  it('releases an active remote-share wait when the host reports the file unavailable', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+    const { getState } = await import('../../core/state.ts');
+    const { showToast } = await import('../../ui/toast.ts');
+
+    setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    setState('playback.pendingRecoveryTarget', { index: 2, name: 'missing.mp3' });
+    setState('transfer.meta', { index: 2, name: 'missing.mp3', sessionId: 11 });
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_UNAVAILABLE,
+        name: 'missing.mp3',
+        index: 2,
+        sessionId: 11,
+      },
+      conn,
+    );
+
+    expect(showToast).toHaveBeenCalledWith('chat.remote_upload_failed_notice');
+    expect(getState('share.remote').download).toMatchObject({
+      status: 'error',
+      progress: 0,
+      blobUrl: null,
+      error: 'chat.remote_upload_failed_notice',
+    });
+    expect(mocks.transition).toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
+  });
+
+  it('ignores stale remote-file-unavailable notices outside the active wait context', async () => {
+    const { handleData } = await import('../../network/protocol.ts');
+
+    setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    setState('playback.pendingRecoveryTarget', { index: 2, name: 'target.mp3' });
+    setState('transfer.meta', { index: 2, name: 'target.mp3', sessionId: 11 });
+
+    await handleData(
+      {
+        type: MSG.REMOTE_FILE_UNAVAILABLE,
+        name: 'old.mp3',
+        index: 1,
+        sessionId: 11,
+      },
+      conn,
+    );
+
+    expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
   });
 
   // EXT-4 (external review 2026-06-11): a same-object descriptor under a NEW

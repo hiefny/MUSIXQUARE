@@ -21,6 +21,8 @@ import {
   advanceToShufflePreviousIndex,
   clearPreloadState,
   initPlaylist,
+  playNextTrack,
+  playPrevTrack,
   playTrack,
 } from '../playlist.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
@@ -124,6 +126,69 @@ describe('shuffle row order helpers', () => {
     setShuffle(true, false);
 
     expect(advanceToShuffleNextIndex()).toBe(0);
+  });
+});
+
+describe('playNext/playPrev mode-branch parity', () => {
+  function setupModeBranch(owner: 'file' | 'youtube', currentIndex: number): void {
+    resetState();
+    bus.clear();
+    setPendingAutoSyncOnReady(false);
+    setState('player.isFirstTrackLoad', false);
+    setState('playlist.currentTrackIndex', currentIndex);
+    setState(
+      'playlist.items',
+      owner === 'youtube'
+        ? [
+            { type: 'youtube', name: 'A', videoId: 'VIDEO_AAAAA', playlistId: null },
+            { type: 'youtube', name: 'B', videoId: 'VIDEO_BBBBB', playlistId: null },
+            { type: 'youtube', name: 'C', videoId: 'VIDEO_CCCCC', playlistId: null },
+          ]
+        : [
+            { type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
+            { type: 'file', name: 'b.mp3', videoId: null, playlistId: null },
+            { type: 'file', name: 'c.mp3', videoId: null, playlistId: null },
+          ],
+    );
+    setRepeatMode(1, false);
+    setShuffle(true, false);
+
+    if (owner === 'youtube') {
+      setPlaybackYouTubePlaying();
+      bus.on('youtube:try-next-internal', (done: (success: boolean) => void) => done(false));
+      bus.on('youtube:try-prev-internal', (done: (success: boolean) => void) => done(false));
+      bus.on('youtube:load', () => {});
+    }
+  }
+
+  it('shuffle Next chooses the same next row in local and YouTube fallback branches', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+
+    setupModeBranch('file', 1);
+    playNextTrack();
+    const localNext = getState('playlist.currentTrackIndex');
+
+    setupModeBranch('youtube', 1);
+    playNextTrack();
+    const youtubeNext = getState('playlist.currentTrackIndex');
+
+    expect(localNext).toBe(2);
+    expect(youtubeNext).toBe(localNext);
+  });
+
+  it('shuffle Prev wraps the same previous row in local and YouTube fallback branches', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+
+    setupModeBranch('file', 0);
+    playPrevTrack();
+    const localPrev = getState('playlist.currentTrackIndex');
+
+    setupModeBranch('youtube', 0);
+    playPrevTrack();
+    const youtubePrev = getState('playlist.currentTrackIndex');
+
+    expect(localPrev).toBe(2);
+    expect(youtubePrev).toBe(localPrev);
   });
 });
 

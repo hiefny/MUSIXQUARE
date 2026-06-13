@@ -288,6 +288,11 @@ describe('lifecycle: from AWAITING_PRELOAD ⭐', () => {
     expect(r).toEqual({ next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH });
   });
 
+  it('REMOTE_FILE_UNAVAILABLE → FAILED (remote share could not provide blob)', () => {
+    const r = step(FROM, { type: 'REMOTE_FILE_UNAVAILABLE' });
+    expect(r).toEqual({ next: PLAYBACK_STATE.FAILED });
+  });
+
   it('FILE_PREPARE same-file (dedup on re-broadcast) → stay', () => {
     const r = step(FROM, { type: 'FILE_PREPARE', variant: 'same-file', index: 0, name: 'a.mp3' });
     expect(r).toEqual({ stay: true });
@@ -687,6 +692,14 @@ describe('regression: preload-handoff bug', () => {
     forceState(PLAYBACK_STATE.AWAITING_PRELOAD);
     const result = transition({ type: 'PRELOAD_FILE_READY', index: 0 });
     expect(result).toBe(PLAYBACK_STATE.DECODING);
+  });
+
+  it('AWAITING_PRELOAD + REMOTE_FILE_UNAVAILABLE → FAILED (remote wait is released)', () => {
+    forceState(PLAYBACK_STATE.AWAITING_PRELOAD);
+    const result = transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
+
+    expect(result).toBe(PLAYBACK_STATE.FAILED);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.FAILED);
   });
 
   it('end-to-end: IDLE → AWAITING_PRELOAD → DECODING → READY → PLAYING', () => {

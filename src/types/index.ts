@@ -247,13 +247,11 @@ export interface ProtocolMap {
     time: number;
     index: number;
     name?: string | null;
-    timestamp?: number;
     hostPlayAt?: number;
   };
   pause: {
     time: number;
     index?: number;
-    timestamp?: number;
     endOfPlaylist?: boolean;
     reason?: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';
   };

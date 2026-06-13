@@ -992,7 +992,6 @@ export function initPlayback(): void {
           time: nowPos,
           index: currentTrackIndex,
           name: itemName,
-          timestamp: Date.now(),
         });
       } else if (!isYouTubeActive) {
         // IDLE or PAUSED: Send pause to sync position
@@ -1000,7 +999,6 @@ export function initPlayback(): void {
           type: MSG.PAUSE,
           time: nowPos,
           index: currentTrackIndex,
-          timestamp: Date.now(),
           reason: isFilePauseLike ? 'pause' : 'stop',
         });
       }

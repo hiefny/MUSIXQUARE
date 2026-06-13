@@ -517,8 +517,12 @@ export function initGuestProtocolHandlers(): void {
     } catch {
       /* ignore */
     }
-    // Optimistic local update
-    setState('network.myDeviceLabel', newName);
+    // No optimistic local apply (F-2404): handleRequestRename rejects
+    // silently (reserved/profanity/duplicate/empty-after-strip) with no NACK
+    // and no corrective broadcast, so an optimistic write would leave this
+    // guest's label diverged from the room until the next device-list churn.
+    // On success the host's broadcastDeviceList() round-trips the accepted
+    // label into handleDeviceListUpdateMsg (~RTT), the single writer for it.
   });
 
   log.info('[Guest] Protocol handlers registered');

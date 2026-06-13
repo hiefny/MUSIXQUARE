@@ -9,7 +9,13 @@ import QRCode from 'qrcode';
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MIN_GUEST_SLOTS, MAX_GUEST_SLOTS_LIMIT, RESERVED_NAMES } from '../core/constants.ts';
+import {
+  DEVICE_LABEL_SANITIZE_RE,
+  MIN_GUEST_SLOTS,
+  MAX_GUEST_SLOTS_LIMIT,
+  RESERVED_NAMES,
+} from '../core/constants.ts';
+import { getOtherDeviceLabels } from '../network/guards.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { containsProfanity } from '../chat/profanity.ts';
@@ -571,7 +577,10 @@ export function initConnect(): void {
         maxLength: 20,
         hint: `${t('connect.rename_current')}: ${currentLabel}`,
         validator: (val) => {
-          const name = val.trim();
+          // Mirror the host's sanitize (handleRequestRename) so a name that
+          // strips into a reserved/duplicate/empty string fails HERE with
+          // feedback instead of being silently rejected by the host (F-2404).
+          const name = val.replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
           if (!name) return t('connect.rename_empty');
           const isHostSelf = !getState('network.hostConn');
           if (RESERVED_NAMES.some((r) => name.toLowerCase() === r.toLowerCase())) {
@@ -598,8 +607,11 @@ export function initConnect(): void {
           ) {
             return t('connect.rename_duplicate');
           }
-          const peers = getState('network.connectedPeers') || [];
-          if (peers.some((p) => p.label.toLowerCase() === name.toLowerCase())) {
+          // Role-aware duplicate check: connectedPeers is host-only state
+          // (ALWAYS empty on a guest) — getOtherDeviceLabels reads the
+          // device-list broadcast on guests, matching what the host's
+          // handleRequestRename will silently reject (F-2404).
+          if (getOtherDeviceLabels().some((l) => l.toLowerCase() === name.toLowerCase())) {
             return t('connect.rename_duplicate');
           }
           return null;
@@ -609,7 +621,8 @@ export function initConnect(): void {
       secondaryText: t('common.cancel'),
     });
     if (result.action !== 'ok') return;
-    const newName = (result.inputValue || '').trim();
+    // Send exactly what the validator validated (same strip as the host's).
+    const newName = (result.inputValue || '').replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
     if (!newName || newName.length > 20) return;
     bus.emit('network:rename-device', newName);
     showToast(t('chat.cmd_nick_changed', { name: newName }));

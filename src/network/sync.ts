@@ -9,6 +9,7 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import {
+  DEVICE_LABEL_SANITIZE_RE,
   MSG,
   MANUAL_SYNC_OFFSET_LIMIT_SEC,
   MAX_MSG_LENGTH,
@@ -448,8 +449,7 @@ function handleRequestRename(data: Record<string, unknown>, conn: DataConnection
   // must not reorder the rendered name. (Render sinks are textContent, so
   // this is anti-spoofing, not XSS.)
   const newLabel = String(data.newLabel || '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, '')
+    .replace(DEVICE_LABEL_SANITIZE_RE, '')
     .trim()
     .slice(0, 20);
   if (!newLabel) return;

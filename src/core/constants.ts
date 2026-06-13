@@ -218,4 +218,16 @@ export const RESERVED_NAMES = [
   '운영자',
 ] as const;
 
+// Control / zero-width / bidi-override characters stripped from device labels
+// BEFORE the reserved/duplicate checks ("HOST"+zero-width-space must not slip
+// past as a visually identical impersonation; U+202E must not reorder the
+// rendered name). Single source of truth: the host's handleRequestRename
+// (network/sync.ts) strips with this exact pattern, and the client-side
+// validators (ui/connect.ts, chat/commands.ts) must apply the SAME strip so a
+// name that sanitizes into a reserved/duplicate/empty string fails locally
+// with feedback instead of being silently rejected by the host (F-2404).
+export const DEVICE_LABEL_SANITIZE_RE =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+
 // ─── Misc ──────────────────────────────────────────────────────────

@@ -8,7 +8,13 @@
 
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, RESERVED_NAMES, HOST_SELF_NAMES } from '../core/constants.ts';
+import {
+  DEVICE_LABEL_SANITIZE_RE,
+  MSG,
+  RESERVED_NAMES,
+  HOST_SELF_NAMES,
+} from '../core/constants.ts';
+import { getOtherDeviceLabels } from '../network/guards.ts';
 import { sendToHost } from '../network/peer.ts';
 import { t } from '../i18n/index.ts';
 import {
@@ -329,7 +335,10 @@ function cmdNotice(_: string[], rawArgs: string): void {
 }
 
 function cmdNick(_: string[], rawArgs: string): void {
-  const newName = rawArgs.trim();
+  // Mirror the host's sanitize (handleRequestRename) so a name that strips
+  // into a reserved/duplicate/empty string fails HERE with feedback instead
+  // of being silently rejected by the host (F-2404).
+  const newName = rawArgs.replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
   if (!newName) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_nick') }));
     return;
@@ -355,8 +364,11 @@ function cmdNick(_: string[], rawArgs: string): void {
     addSystemChatMessage(t('connect.rename_profanity'));
     return;
   }
-  const peers = getState('network.connectedPeers') as ConnectedPeer[];
-  if (peers.some((p) => p.label.toLowerCase() === newName.toLowerCase())) {
+  // Role-aware duplicate check: connectedPeers is host-only state (ALWAYS
+  // empty on a guest) — getOtherDeviceLabels reads the device-list broadcast
+  // on guests, matching what the host's handleRequestRename will silently
+  // reject (F-2404).
+  if (getOtherDeviceLabels().some((label) => label.toLowerCase() === newName.toLowerCase())) {
     addSystemChatMessage(t('connect.rename_duplicate'));
     return;
   }

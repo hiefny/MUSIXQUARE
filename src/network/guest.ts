@@ -14,6 +14,7 @@ import type { I18nKey } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
+import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { registerHandlers } from './protocol.ts';
 import type { DataConnection, DeviceInfo } from '../types/index.ts';
@@ -137,6 +138,18 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     _initNetwork(null)
       .then(() => joinSession(hostId, roomPassword, retryAttempt + 1))
       .catch((e) => {
+        // F-2401: a user-cancelled capability/Turnstile challenge (peer.ts
+        // rethrows it directly) or a back-out that makes network init no longer
+        // active (NETWORK_INIT_CANCELLED) is intentional — it must NOT surface as
+        // a red "network init failed" toast. Restore the join UI silently.
+        if (
+          isCapabilityChallengeCancelled(e) ||
+          (e instanceof Error && e.message === 'NETWORK_INIT_CANCELLED')
+        ) {
+          setState('network.isConnecting', false);
+          bus.emit('setup:guest-join-cancelled');
+          return;
+        }
         log.error('[Join] Failed to init peer', e);
         setState('network.isConnecting', false);
         bus.emit('network:error', new Error('NETWORK_INIT_FAILED'));

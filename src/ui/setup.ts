@@ -357,10 +357,12 @@ export function initSetup(): void {
     }
   });
 
-  bus.on('setup:guest-join-failure', (_error) => {
+  // Restore the guest join UI (re-enable the code input / re-show actions, hide
+  // loader, clear busy) after a failed OR cancelled join. The toast is the
+  // caller's responsibility, so a user-initiated cancel can restore silently.
+  const restoreGuestJoinInputUI = () => {
     setState('network.isConnecting', false);
     updateRoleBadge();
-    showToast(t('network.cant_join'));
 
     // Always hide loader — auto-reconnect flow shows loader before joinSession,
     // so we must hide it on failure to prevent permanent loader display (#103).
@@ -396,6 +398,17 @@ export function initSetup(): void {
       }
     }
     setupSetGuestJoinBusy(false);
+  };
+
+  bus.on('setup:guest-join-failure', (_error) => {
+    restoreGuestJoinInputUI();
+    showToast(t('network.cant_join'));
+  });
+
+  // F-2401: a user-cancelled capability/Turnstile challenge mid-join restores the
+  // join UI WITHOUT a red error toast (the cancel is intentional, not a failure).
+  bus.on('setup:guest-join-cancelled', () => {
+    restoreGuestJoinInputUI();
   });
 
   // App entrance animation trigger

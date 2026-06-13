@@ -956,6 +956,9 @@ interface BaseEventMap {
   // ── Setup ─────────────────────────────────────────────────────────
   'setup:guest-join-success': [];
   'setup:guest-join-failure': [error: unknown];
+  // User-cancelled the capability/Turnstile challenge mid-join — restore the
+  // join UI silently (no red error toast). See guest.ts / setup.ts (F-2401).
+  'setup:guest-join-cancelled': [];
   'setup:app-entrance': [];
 
   // ── App ───────────────────────────────────────────────────────────

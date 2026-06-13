@@ -41,7 +41,7 @@ vi.mock('../sync-worker.ts', async (importOriginal) => {
   };
 });
 
-import { joinSession } from '../guest.ts';
+import { joinSession, setInitNetwork } from '../guest.ts';
 
 type FiringConn = DataConnection & {
   fire: (event: string, ...args: unknown[]) => void;
@@ -195,5 +195,27 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.isConnecting')).toBe(false);
     expect(errors).toHaveBeenCalledTimes(1);
     expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_UNREACHABLE');
+  });
+});
+
+describe('joinSession capability-challenge cancel (F-2401)', () => {
+  it('routes a cancelled init to a silent join-UI restore, not a network:error toast', async () => {
+    mocks.getPeer.mockReturnValue(null); // force the _initNetwork(null) path
+    setInitNetwork(() => Promise.reject(new Error('NETWORK_INIT_CANCELLED')));
+
+    const errors = vi.fn();
+    const cancelled = vi.fn();
+    bus.on('network:error', errors);
+    bus.on('setup:guest-join-cancelled', cancelled);
+
+    joinSession('HOST01');
+    // Flush the _initNetwork(null).then().catch() chain (real timers).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // A deliberate cancel must NOT surface a red error toast...
+    expect(errors).not.toHaveBeenCalled();
+    // ...and must restore the join UI silently via the dedicated event.
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(getState('network.isConnecting')).toBe(false);
   });
 });

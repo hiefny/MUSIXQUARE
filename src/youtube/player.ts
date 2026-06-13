@@ -493,7 +493,16 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
       const targetVideoId = subData.ids[targetIdx];
       setYouTubeSubIndex(targetIdx);
       player.loadVideoById(targetVideoId);
-      scheduleYtAutoSync(0, { subIndex: targetIdx, videoId: targetVideoId, skipSeek: true });
+      scheduleYtAutoSync(0, {
+        subIndex: targetIdx,
+        videoId: targetVideoId,
+        skipSeek: true,
+        // F-2409: a sub-video Next/Prev loads a DIFFERENT video, so guests need
+        // the longer track-transition rendezvous to loadVideoById before the
+        // synced play fires — matching the loadVideoById siblings (player.ts:903,
+        // ~1400), not the 2s STAGE2 default used for same-video restarts.
+        rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
+      });
       callback(true);
       return;
     }

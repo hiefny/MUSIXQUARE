@@ -1067,9 +1067,12 @@ describe('YouTube Sync — Regression Integration', () => {
       const stage1 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];
       expect(stage1).toMatchObject({ state: 1, time: 0, subIndex: 1, videoId: 'vidB' });
 
-      // Stage 2 (YOUTUBE_SYNC manual): the precision rendezvous 2s later must
-      // carry the SAME pair, read back from the live player + managed index.
-      vi.advanceTimersByTime(2000);
+      // Stage 2 (YOUTUBE_SYNC manual): the precision rendezvous fires after the
+      // track-transition delay (4s, F-2409) — longer than the 2s STAGE2 default
+      // because a sub-video Next loads a DIFFERENT video — and must carry the
+      // SAME pair, read back from the live player + managed index.
+      const { TRACK_TRANSITION_RENDEZVOUS_MS } = await import('../constants.ts');
+      vi.advanceTimersByTime(TRACK_TRANSITION_RENDEZVOUS_MS);
       const stage2 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_SYNC)?.[0];
       expect(stage2).toMatchObject({ isManual: true, subIndex: 1, videoId: 'vidB' });
     });

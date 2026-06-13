@@ -15,6 +15,7 @@ import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
+import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
@@ -216,6 +217,10 @@ export function handleRequestYouTubeSubSeek(
       subIndex: subIdx,
       videoId: targetVideoId,
       skipSeek: true,
+      // F-2409: OP sub-seek loads a DIFFERENT video — use the longer
+      // track-transition rendezvous so guests loadVideoById before synced play,
+      // matching navigateSubVideo and the loadVideoById siblings in player.ts.
+      rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
     });
   }
 }

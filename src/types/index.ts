@@ -423,7 +423,6 @@ export interface ProtocolMap {
     senderId: string;
     sender: string;
     senderLabel: string;
-    senderRole: string;
     text: string;
     ts: number;
     joinOrder?: number;

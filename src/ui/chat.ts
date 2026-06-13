@@ -421,8 +421,6 @@ export function sendChatMessage(): void {
   }
 
   const senderLabel = _getChatLabelBase();
-  const channelMode = getState('audio.channelMode') ?? 0;
-  const senderRole = getRoleLabelByChannelMode(channelMode);
   const displayName = formatChatDisplayName(senderLabel);
   const myJoinOrder = getState('network.myJoinOrder') ?? 0;
   addChatMessage(displayName, text, true, isHost ? 'host' : isOp ? 'op' : undefined, myJoinOrder);
@@ -433,7 +431,6 @@ export function sendChatMessage(): void {
     senderId: myId,
     sender: senderLabel,
     senderLabel: senderLabel,
-    senderRole: senderRole,
     isHost,
     isOp,
     text: text,

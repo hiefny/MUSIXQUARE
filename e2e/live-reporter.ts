@@ -18,7 +18,7 @@ interface TestEntry {
   title: string;
   file: string;
   suite: string;
-  status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'running';
+  status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted' | 'running';
   duration: number;
   error?: string;
   errorSnippet?: string;
@@ -79,7 +79,6 @@ class LiveReporter implements Reporter {
   }
 
   onTestEnd(test: TestCase, result: TestResult) {
-    const title = test.titlePath().slice(2).join(' › ');
     const file = path.relative(process.cwd(), test.location.file).replace(/\\/g, '/');
     const suite = test.parent?.title ?? '';
 
@@ -91,7 +90,13 @@ class LiveReporter implements Reporter {
       duration: result.duration,
     };
 
-    if (result.status === 'failed' || result.status === 'timedOut') {
+    // 'interrupted' (run aborted mid-test) counts as failed — it was silently
+    // landing in the passed bucket via the else branch.
+    if (
+      result.status === 'failed' ||
+      result.status === 'timedOut' ||
+      result.status === 'interrupted'
+    ) {
       const err = result.errors[0];
       if (err) {
         entry.error = err.message?.slice(0, 500) ?? 'Unknown error';

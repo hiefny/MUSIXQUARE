@@ -21,7 +21,7 @@
     "guard:import-graph": "node scripts/check-import-graph.mjs",
     "guard:lifecycle-writes": "node scripts/check-lifecycle-writes.mjs",
     "guard:dead-exports": "node scripts/check-dead-exports.mjs",
-    "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json && tsc -p tsconfig.e2e.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.ts\"",

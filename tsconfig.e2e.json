@@ -1,0 +1,21 @@
+{
+  // Static net for e2e/ + playwright.config.ts. These sit OUTSIDE the root
+  // tsconfig (include: src/**) and tsconfig.test.json (src/** too), so until
+  // this config existed nothing ever typechecked them — Playwright transpiles
+  // without checking, and a cross-file rename's only safety was grep.
+  // Wired into `npm run typecheck` (intentionally NOT into e2e CI runs).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // e2e helpers/reporters run in the Playwright node host (path, process,
+    // fileURLToPath, require). @types/node resolves transitively today (via
+    // vite/vitest); pin it as a direct devDependency if resolution breaks.
+    "types": ["node"],
+    // Spec files legitimately keep scaffolding imports/locals around between
+    // coverage passes; this net exists for renames and contract drift, not
+    // hygiene. Strict-unused would also force edits into in-flight e2e
+    // batches just to keep typecheck green.
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

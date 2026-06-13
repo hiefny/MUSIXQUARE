@@ -282,7 +282,16 @@ export function setYouTubeSubIndex(index: number): void {
   setState('youtube.currentSubIndex', index);
 }
 
-/** Reset all module-level variables. Called on full app/session reset. */
+/** Reset the _state.ts module-level slots. TEST-ONLY today: the only callers
+ *  are unit-test beforeEach hooks — the LIVE mode-exit teardown is
+ *  stopYouTubeMode (player.ts). Note this covers _state.ts slots ONLY: the
+ *  sync module (youtube/sync.ts) keeps its own module state (e.g.
+ *  _localYouTubePaused, rendezvous/drift runtime) behind its own
+ *  resetYouTubeSyncState, which stopYouTubeMode also runs. If a future
+ *  in-page "full app reset" wires this function up, it MUST pair it with
+ *  resetYouTubeSyncState (and stopYouTubeMode's managed-timer clears) or a
+ *  locally-paused guest would re-enter YouTube mode still suppressing host
+ *  sync. */
 export function resetYouTubeModuleState(): void {
   _youtubePlayer = null;
   _currentYouTubeSessionId = 0;

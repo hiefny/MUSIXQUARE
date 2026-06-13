@@ -77,6 +77,18 @@ This is accepted as a product-priority tradeoff for the current mobile-first mus
 
 This is accepted (2026-06-13 deep-dive). The window is a sub-300ms sliver: most overlap is already closed by the load's own external-owner abort (`decode.ts` post-decode check), and the strictly larger in-flight variant — a broadcast already pumping when system-audio starts — is itself accepted by design (SA-08: "chunks we discard anyway"). Cancelling only the parked sliver would not change the switch's waste profile. If revisited (system-audio becoming a high-frequency flow, or rooms growing past the current warn thresholds), the verified fix is a single `cancelPendingBroadcast()` after the `stopAllMedia` call in `startSystemAudioCapture` — pending-only, NOT `cancelOutgoingFileTransfers` (which would also abort in-flight transfers that can still finalize on guests before SYSTEM_AUDIO_START processes), and NOT inside `stopAllMedia` (HET-6).
 
+### 11. System-Audio Media-Connection Close Handlers Act By Channel/Key, Not Connection Identity
+
+The guest-side media-call `close` handlers (`src/network/system-audio-guest.ts`) null their channel slot (and, in single-conn modes, run `cleanupGuestSystemAudio`) without checking that the closing connection is still the one occupying the slot; the host-side siblings (`src/network/system-audio-host.ts`) delete `_mediaConns` entries by peer-id key. During a same-channel replacement (host re-call while the old conn drains), the replaced conn's late `close` can consume the replacement's slot or the post-share meta restore.
+
+This is accepted (2026-06-13 23차 triage). Reachability is chained (a re-call must overlap the old conn's close/error delivery), the audible result self-heals (the replacement's stream re-claims; `cleanupCapture` stops zombie senders at the source), and this lifecycle area has a record of fix-plan traps (22차 HET findings). If the code is touched for another reason, apply the same conn-identity guard the data-plane already uses (`activeHostConnByPeerId.get(id) !== conn` shape): `if (_mediaConnL !== mediaConn) return;` / `if (_mediaConns.get(id) === mc)`.
+
+### 12. `startSystemAudioCapture` Mid-Init Failure Leaves The Silent-Stop Shadow Without Restore
+
+Two early-failure points in `src/audio/system-capture.ts` — the `initAudio()` throw and the widener-unavailable return — sit after `stopAllMedia({silent})` (which parks mode/activity as the file/playing shadow) but before `claimPlaybackOwner('system-audio')`, and neither restores from `_preSysAudioState`. The host then shows a playing-shaped UI with no audio until a manual play.
+
+This is accepted (2026-06-13 23차 triage). Reachability is near-zero (the audio graph must fail to initialize on a machine that just granted `getDisplayMedia`), recovery is one tap, and the system-audio restore semantics were deliberately settled in the 21차 SA-02 fix (force-stop = transition, restore only on explicit stop) — adding restore writes to failure paths is not worth re-opening that surface. If revisited: these two paths are provably un-superseded (synchronous within the start flow), so restoring from `_preSysAudioState` there is safe.
+
 ## Retired From The Old Draft
 
 The previous `.workshop/review/known-accepted.md` was written against an older architecture. These items should no longer be carried forward as accepted risks:

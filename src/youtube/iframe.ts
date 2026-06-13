@@ -232,6 +232,12 @@ interface IframeRuntime {
   isScrapingPlaylist: boolean;
   /** Requested starting index for the active scrape/load session. */
   scrapeStartSubIndex: number | null;
+  /** Monotonic load-supersession token for the scrape poll chain. Bumped by
+   *  every createYouTubePlayer entry; a poll step whose captured token no
+   *  longer matches must die (mirror of YtIndexingSession identity). The
+   *  YT→YT reuse path skips stopYouTubeMode (the timer-clear owner), so
+   *  without this a stale chain would _finishScrape against the new track. */
+  scrapeSession: number;
   /** Timestamp when the player first entered a "stuck" (non-playing) state.
    *  Null while the player is PLAYING/PAUSED, or when one of the legitimate-
    *  stall guards applies (iOS gate, tab hidden, scraping). See the
@@ -259,6 +265,7 @@ const _ifr: IframeRuntime = {
   lastPreemptIdx: -1,
   isScrapingPlaylist: false,
   scrapeStartSubIndex: null,
+  scrapeSession: 0,
   unavailableStuckSince: null,
   liveDurationSample: 0,
   liveDurationGrowthFrames: 0,
@@ -603,6 +610,21 @@ function createYouTubePlayer(
     return;
   }
 
+  // Supersede the PREVIOUS load's scrape/snapshot machinery. The YT→YT reuse
+  // path deliberately skips stopYouTubeMode (the usual owner of these clears,
+  // player.ts), so without this a stale scrape poll would _finishScrape
+  // against the new track (force-(re)load from 0:00 / spurious fetch_failed),
+  // and a stale playlist snapshot / first-track fisher would write the NEW
+  // player's list under the OLD pid and broadcast it (cross-device
+  // subItemsMap poisoning). Session bump kills the poll chain even if a step
+  // is already queued; the timer clears are the cheap belt.
+  _ifr.scrapeSession += 1;
+  clearManagedTimer('yt-scrape-poll');
+  clearManagedTimer('yt-scrape-safety');
+  clearManagedTimer('yt-playlist-snapshot');
+  clearManagedTimer('yt-first-track-fisher');
+  clearSnapshotRetries();
+
   // Set autoplay intent BEFORE any player API call — onStateChange
   // checks this flag to pause-back if autoplay was not requested.
   // Fixes: loadPlaylist() is async, so pauseVideo() on UNSTARTED is a no-op.
@@ -846,6 +868,13 @@ function onYouTubePlayerReady(): void {
       setManagedTimer(
         'yt-first-track-fisher',
         () => {
+          // Same fire-time identity check as _triggerPlaylistSnapshot: the
+          // fisher may outlive its arming track — never write another
+          // track's video id under the captured pid.
+          if ((getState('player.currentTrackMeta')?.playlistId as string | undefined) !== pid) {
+            clearManagedTimer('yt-first-track-fisher');
+            return;
+          }
           try {
             const p = getYouTubePlayer();
             const vid = p?.getVideoData?.()?.video_id;
@@ -968,7 +997,13 @@ function _pollIndexingPlaylist(
 const SCRAPE_POLL_INTERVAL_MS = 300;
 const SCRAPE_POLL_MAX_ATTEMPTS = 15; // ~4.5s ceiling
 
-function _pollScrapePlaylist(prevCount: number, attempts: number): void {
+function _pollScrapePlaylist(session: number, prevCount: number, attempts: number): void {
+  // Identity guard (mirror of _pollIndexingPlaylist): if the load this chain
+  // belongs to was superseded since this step was scheduled (any new
+  // createYouTubePlayer bumps scrapeSession — including the YT→YT reuse path
+  // that skips stopYouTubeMode's timer clears), a stale closure must not read
+  // the new player or run _finishScrape against the new track.
+  if (session !== _ifr.scrapeSession) return;
   const player = getYouTubePlayer();
   if (!player?.getPlaylist) {
     _finishScrape(null);
@@ -988,7 +1023,7 @@ function _pollScrapePlaylist(prevCount: number, attempts: number): void {
   }
   setManagedTimer(
     'yt-scrape-poll',
-    () => _pollScrapePlaylist(ids.length, attempts + 1),
+    () => _pollScrapePlaylist(session, ids.length, attempts + 1),
     SCRAPE_POLL_INTERVAL_MS,
   );
 }
@@ -1066,9 +1101,19 @@ function onYouTubePlayerError(event: { data: number }): void {
   // error 150): drop the session so a subsequent Add-playlist attempt for a
   // different ID doesn't fire the stale callback and corrupt the cached
   // sub-items. The loader is already hidden unconditionally above.
-  if (isYtIndexing()) {
+  const wasIndexing = isYtIndexing();
+  if (wasIndexing) {
     clearYtIndexingSession();
   }
+
+  // Mode gate — mirror of onYouTubePlayerStateChange below. stopYouTubeMode
+  // RETAINS the player on iOS (gesture preservation), so a late embed-check
+  // error from an abandoned video can arrive AFTER the room left YouTube
+  // mode; toasting or advancing the file/system-audio world here would skip
+  // the track the user just chose, room-wide. Indexing errors still pass —
+  // the add-playlist flow needs its failure feedback below (but never the
+  // playlist advance; see the wasIndexing return in the unavailable branch).
+  if (!isPlaybackModeYouTube() && !wasIndexing) return;
 
   // Unavailable video (100 = removed/private, 101 & 150 = embed disabled):
   // there is no recovery path on this track — advance past it so the user
@@ -1103,7 +1148,38 @@ function onYouTubePlayerError(event: { data: number }): void {
       );
       return;
     }
+    // Identity guard — generalizes the prime special-case above: when we can
+    // read BOTH which video errored and which video the room currently
+    // intends, a mismatch means the error belongs to a superseded load (the
+    // YT→YT reuse path keeps the player instance, so the old video's late
+    // embed-check error lands on the new track's watch). Advancing here
+    // would skip the just-selected track. Empirically late errors deliver
+    // before getVideoData() flips to the new load (the prime guard relies on
+    // the same ordering), so a provable mismatch is safe to drop; when
+    // either side is unreadable we fall through and keep today's behavior.
+    const intendedTrack = (getState('playlist.items') || [])[
+      getState('playlist.currentTrackIndex')
+    ];
+    const intendedPid = intendedTrack?.playlistId as string | undefined;
+    const intendedSubIdx = getState('youtube.currentSubIndex') ?? 0;
+    const intendedSubIds = intendedPid
+      ? (getState('youtube.subItemsMap') || {})[intendedPid]?.ids || []
+      : [];
+    const intendedVid =
+      (intendedSubIds[intendedSubIdx] as string | undefined) ||
+      (intendedTrack?.videoId as string | undefined) ||
+      '';
+    if (erroredVid && intendedVid && erroredVid !== intendedVid) {
+      log.debug(
+        `[YouTube] Ignoring stale unavailable error ${code} (vid=${erroredVid}, intended=${intendedVid})`,
+      );
+      return;
+    }
     showToast(t('youtube.video_unavailable'));
+    // Add-flow failure (indexing an invalid/unavailable playlist): the error
+    // belongs to the ADD attempt, not the room's current track — feedback
+    // only, never advance the playing queue.
+    if (wasIndexing) return;
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
       let advanced = false;
@@ -1226,7 +1302,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       log.debug('[YouTube] CUED during scrape — polling getPlaylist() for stable list');
       // _ifr.isScrapingPlaylist stays true until _finishScrape runs so a
       // second CUED transition during the poll doesn't double-trigger.
-      _pollScrapePlaylist(-1, 0);
+      _pollScrapePlaylist(_ifr.scrapeSession, -1, 0);
     }
     return;
   } else if (state === YT.PlayerState.ENDED) {
@@ -1829,6 +1905,17 @@ export function clearSnapshotRetries(): void {
 }
 
 function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
+  // Fire-time identity check: this timer (and its 1s retry chain) can outlive
+  // the track that armed it — the YT→YT reuse path keeps the player and skips
+  // stopYouTubeMode's clears. A pid mismatch means getPlaylist() now describes
+  // a DIFFERENT track's list; writing it under the captured pid would poison
+  // subItemsMap on every device via the broadcast below.
+  const livePid = getState('player.currentTrackMeta')?.playlistId as string | undefined;
+  if (livePid !== pid) {
+    _snapshotRetryCounts.delete(pid);
+    return;
+  }
+
   if (!isRetry) _snapshotRetryCounts.set(pid, 0);
 
   try {

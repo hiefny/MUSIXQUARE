@@ -272,6 +272,36 @@ describe('guest file finalization sync', () => {
 
     expect(syncRequest).toHaveBeenCalledOnce();
   });
+
+  it('a superseded finalize (new transfer session mid-decode) is inert in the catch — no wrong-track report (pin j reject twin)', async () => {
+    setState('network.hostConn', makeConnection('host'));
+    setState('transfer.localSessionId', 1);
+    setState('playlist.items', [makeTrack('A.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('player.decodeFailureCount', 0);
+    setState('transfer.receivedCount', 7);
+
+    // A FILE_PREPARE that starts a NEW transfer session lands mid-decode, THEN
+    // decode fails. activeLoadSessionId is intentionally NOT bumped (only the
+    // three load fns write it), so only the transfer-session checkpoint can
+    // catch this superseded finalize — exactly the pin (j) axis. The catch must
+    // be fully inert so it does not clobber the successor's transfer state or
+    // report the WRONG track failed to the host.
+    mocks.decodeAudioData.mockImplementation(async () => {
+      setState('transfer.localSessionId', 2);
+      throw new Error('decode failed');
+    });
+
+    const { finalizeGuestFile } = await import('../decode.ts');
+    await finalizeGuestFile(new File([new Uint8Array([1, 2, 3])], 'A.mp3'));
+
+    expect(mocks.sendToHost).not.toHaveBeenCalled(); // no GUEST_DECODE_FAILED wrong-track report
+    expect(mocks.transition).not.toHaveBeenCalled(); // no DECODE_ERROR stomp on the successor's FSM
+    expect(mocks.sendRecoveryRequest).not.toHaveBeenCalled();
+    expect(getState('player.decodeFailureCount')).toBe(0); // counter untouched
+    expect(getState('transfer.receivedCount')).toBe(7); // successor transfer state untouched
+    expect(mocks.showLoader).toHaveBeenLastCalledWith(false); // finally still runs
+  });
 });
 
 describe('host preload activation result (SA-05)', () => {

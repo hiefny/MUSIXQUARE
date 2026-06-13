@@ -1164,6 +1164,22 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {
+    // Supersession recheck (blind-spot ⑭): mirror the success path's two
+    // checkpoints (load epoch + transfer session) BEFORE touching shared state.
+    // A finalize that lost the race to a FILE_PREPARE / new load started during
+    // decode would otherwise reset the SUCCESSOR track's transfer state
+    // (IDLE + receivedCount 0) and, on the OP-report path, tell the host the
+    // WRONG track failed → a wrong-track room advance. No loadEpoch/M1 check
+    // here: pin (g) keeps finalizeGuestFile immune to watchdog M1 bumps. The
+    // early return still hits finally{showLoader(false)}. Pin (j) reject twin.
+    if (
+      getActiveLoadSessionId() !== myLoadId ||
+      getState('transfer.localSessionId') !== myTransferSid
+    ) {
+      log.debug('[Guest] Decode failed for a superseded finalize — skipping failure side effects.');
+      return;
+    }
+
     log.error('[Guest] Decoding failed', err);
 
     const timedOut = isDecodeTimeout(err);

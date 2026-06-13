@@ -16,7 +16,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { fetchWithCapability } from '../../core/capability.ts';
-import type { ConnectedPeer } from '../../types/index.ts';
+import { MSG } from '../../core/constants.ts';
+import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -90,17 +91,32 @@ let pcInstances: Array<{ close: ReturnType<typeof vi.fn> }>;
 
 class MockRTCPeerConnection {
   close = vi.fn();
-  addEventListener = vi.fn();
+  // Record connectionstatechange listeners so a test can fire a runtime state
+  // transition (F-2403); existing tests that never fire are unaffected.
+  _listeners: Record<string, Array<() => void>> = {};
+  addEventListener = vi.fn((type: string, cb: () => void) => {
+    (this._listeners[type] ||= []).push(cb);
+  });
+  _emit(type: string) {
+    for (const cb of this._listeners[type] || []) cb();
+  }
   connectionState = 'new';
   iceConnectionState = 'new';
   signalingState = 'stable';
+  ontrack: ((event: unknown) => void) | null = null;
   addTransceiver = vi.fn(() => ({
     mid: '0',
     sender: { getParameters: () => ({ encodings: [{}] }), setParameters: async () => {} },
   }));
   createOffer = vi.fn(async () => ({ type: 'offer', sdp: 'sdp' }));
+  createAnswer = vi.fn(async () => ({ type: 'answer', sdp: 'ans' }));
   setLocalDescription = vi.fn(async () => {});
   setRemoteDescription = vi.fn(async () => {});
+  // Guest subscribe reads receiver tracks off the transceivers after
+  // setRemoteDescription; one audio transceiver drives a single connectGuestTrack.
+  getTransceivers = vi.fn(() => [
+    { mid: '0', receiver: { track: { kind: 'audio', id: 'g-track-L' } } },
+  ]);
   constructor() {
     pcInstances.push(this);
   }
@@ -178,6 +194,28 @@ async function waitForNewSessionCalls(expected: number): Promise<void> {
   });
 }
 
+function countNewSessionCalls(): number {
+  return fetchMock.mock.calls.filter(
+    ([url, , init]) =>
+      String(url).includes('cloudflare-realtime') &&
+      init?.body &&
+      (JSON.parse(String(init.body)) as { action: string }).action === 'new-session',
+  ).length;
+}
+
+/** Resolve the first pending Realtime call for `action` with `json`, then let
+ *  the awaiting chain advance. */
+async function resolveRealtime(action: string, json: unknown): Promise<void> {
+  await vi.waitFor(() => {
+    expect(pendingRealtimeCalls.some((c) => c.action === action)).toBe(true);
+  });
+  const idx = pendingRealtimeCalls.findIndex((c) => c.action === action);
+  const [call] = pendingRealtimeCalls.splice(idx, 1);
+  call.resolve(json);
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 beforeEach(() => {
   resetState();
   bus.clear();
@@ -245,5 +283,151 @@ describe('host publish failure × supersession (F-2403)', () => {
     const snapshot = mod.getSystemAudioSfuDebugSnapshot();
     expect(snapshot.host.unavailable).toBe(true);
     expect(fallbackSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('host SFU runtime connection failure (F-2403)', () => {
+  async function publishHostSuccessfully(mod: typeof import('../system-audio-sfu.ts')) {
+    // publishHostTracks builds `new MediaStream([trackL, trackR])`; stub it for
+    // the node test env (the existing tests reject at new-session, before this).
+    (globalThis as Record<string, unknown>).MediaStream = class {
+      constructor(_tracks?: unknown) {}
+    };
+    bus.emit('system-audio:streams-ready');
+    await resolveRealtime('new-session', { sessionId: 'host-sess-1' });
+    await resolveRealtime('tracks-new', {
+      sessionDescription: { type: 'answer', sdp: 'a' },
+      tracks: [
+        { trackName: 'audio-L', mid: '0' },
+        { trackName: 'audio-R', mid: '1' },
+      ],
+    });
+    await vi.waitFor(() => {
+      expect(mod.getSystemAudioSfuDebugSnapshot().host.sessionId).toBe('host-sess-1');
+    });
+  }
+
+  it('a runtime failed connection degrades to fallback and does NOT republish (no storm)', async () => {
+    const mod = await loadSfuModuleAsHostWithRemoteGuest();
+    const fallbackSpy = vi.fn();
+    bus.on('system-audio:sfu-fallback', fallbackSpy);
+
+    await publishHostSuccessfully(mod);
+    const hostPc = pcInstances[pcInstances.length - 1] as unknown as MockRTCPeerConnection;
+
+    // Runtime transport death AFTER a healthy publish (distinct from the
+    // publish-time throw path already covered above).
+    hostPc.connectionState = 'failed';
+    hostPc._emit('connectionstatechange');
+
+    expect(fallbackSpy).toHaveBeenCalledTimes(1);
+    const snap = mod.getSystemAudioSfuDebugSnapshot();
+    expect(snap.host.unavailable).toBe(true);
+    expect(snap.host.sessionId).toBeNull();
+
+    // The hostSfuUnavailable gate must suppress a republish — no new session,
+    // no re-subscribe storm.
+    const before = countNewSessionCalls();
+    bus.emit('system-audio:streams-ready');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(countNewSessionCalls()).toBe(before);
+  });
+
+  it('a failed event from a SUPERSEDED host pc leaves the live state untouched', async () => {
+    const mod = await loadSfuModuleAsHostWithRemoteGuest();
+    await publishHostSuccessfully(mod);
+    const stalePc = pcInstances[pcInstances.length - 1] as unknown as MockRTCPeerConnection;
+
+    // Supersede: stop nulls hostPc (cleanupHostSfu, epoch bump, flag reset).
+    bus.emit('system-audio:stop');
+
+    const fallbackSpy = vi.fn();
+    bus.on('system-audio:sfu-fallback', fallbackSpy);
+    stalePc.connectionState = 'failed';
+    stalePc._emit('connectionstatechange');
+
+    // hostPc !== stalePc → the guard returns: no fallback, flag untouched.
+    expect(fallbackSpy).not.toHaveBeenCalled();
+    expect(mod.getSystemAudioSfuDebugSnapshot().host.unavailable).toBe(false);
+  });
+});
+
+describe('guest SFU reclassify-mid-subscribe (F-2402)', () => {
+  it('a reclassify-to-local during connectGuestTrack must not resurrect a torn-down receive', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop'); // clean baseline
+
+    // Guest with a remote host connection (not local → subscribe is allowed).
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+
+    // Make the audio graph "ready" so that WITHOUT the recheck connectGuestTrack
+    // would recreate the merger + flip receiving=true (the resurrection this
+    // guards). With the fix it returns before touching any of this.
+    const engine = await import('../../audio/engine.ts');
+    const ctxMod = await import('../../audio/context.ts');
+    vi.mocked(engine.getWidener).mockReturnValue({ input: {} } as never);
+    vi.mocked(ctxMod.getAudioContext).mockReturnValue({
+      state: 'running',
+      createChannelMerger: vi.fn(() => ({ connect: vi.fn() })),
+      createMediaStreamSource: vi.fn(() => ({ connect: vi.fn() })),
+    } as never);
+    (globalThis as Record<string, unknown>).MediaStream = class {
+      constructor(_tracks?: unknown) {}
+    };
+
+    // Hold connectGuestTrack at its initAudio await so we can tear down mid-flight.
+    let releaseInit: () => void = () => {};
+    vi.mocked(engine.initAudio).mockImplementation(
+      () => new Promise<void>((resolve) => (releaseInit = () => resolve())),
+    );
+
+    // registerHandler is mocked → capture the SFU-ready handler it registered.
+    const { registerHandler } = await import('../protocol.ts');
+    const sfuReadyHandler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((c) => c[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      | ((data: unknown, conn?: unknown) => void)
+      | undefined;
+    expect(sfuReadyHandler).toBeDefined();
+
+    sfuReadyHandler!(
+      {
+        version: 1,
+        sessionId: 'host-sess',
+        tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+      },
+      hostConn,
+    );
+
+    await resolveRealtime('new-session', { sessionId: 'guest-sess' });
+    await resolveRealtime('tracks-new', {
+      sessionDescription: { type: 'offer', sdp: 'o' },
+      tracks: [{ mid: '0', trackName: 'audio-L' }],
+    });
+    await resolveRealtime('renegotiate', {});
+
+    // connectGuestTrack is now parked at await initAudio with guestPc set.
+    await vi.waitFor(() => {
+      expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).not.toBeNull();
+    });
+
+    // Reclassify to local → cleanupGuestSfu(false) nulls guestPc mid-flight.
+    setState('network.connectionType', 'local');
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
+
+    // Release initAudio: the recheck must bail before recreating anything.
+    releaseInit();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const guest = mod.getSystemAudioSfuDebugSnapshot().guest;
+    expect(guest.merger).toBe(false);
+    expect(guest.receiving).toBe(false);
+    expect(guest.sourceL).toBe(false);
+
+    delete (globalThis as Record<string, unknown>).MediaStream;
   });
 });

@@ -443,6 +443,23 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
   hostPc = pc;
   pc.addEventListener('connectionstatechange', () => {
     log.info(`[SysAudioSFU] Host SFU connection: ${pc.connectionState}`);
+    // F-2403 (blind-spot 4: terminal-state completeness): a RUNTIME 'failed' on
+    // the publisher pc was only logged, leaving remote guests subscribed to a
+    // dead session with no teardown or fallback. Mirror the publish-time
+    // throw-path exactly: mark SFU unavailable, degrade to direct media calls,
+    // and clear the stale publication so late joiners stop getting a dead
+    // session. Setting hostSfuUnavailable (NOT auto-republish) is what prevents
+    // a re-subscribe storm under a persistent fault — ensureHostPublication
+    // gates on it. The hostPc===pc guard keeps a superseded attempt's late
+    // failure from poisoning a successor publish (the listener captures the
+    // local pc const). Only 'failed' is terminal: 'closed' is reached solely via
+    // our own cleanupHostSfu (which nulls hostPc first), so it never matches.
+    if (pc.connectionState === 'failed' && hostPc === pc) {
+      log.warn('[SysAudioSFU] Host SFU connection failed at runtime; degrading to direct media');
+      hostSfuUnavailable = true;
+      bus.emit('system-audio:sfu-fallback', 'HOST_SFU_CONNECTION_FAILED');
+      cleanupHostSfu(false);
+    }
   });
 
   const session = await callRealtime('new-session', {

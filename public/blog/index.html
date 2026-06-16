@@ -307,7 +307,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      border: 1px solid rgba(255, 255, 255, 0.16);
+      border: 0;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.045);
       color: #d7dbe4;
@@ -318,14 +318,13 @@
       cursor: pointer;
       transition:
         background var(--dur-fast) var(--ease-out),
-        border-color var(--dur-fast) var(--ease-out),
         color var(--dur-fast) var(--ease-out),
+        transform var(--dur-fast) var(--ease-out),
         opacity var(--dur-fast) var(--ease-out);
     }
 
     #soro-blog .soro-blog-page-button:hover:not(:disabled) {
       background: rgba(59, 130, 246, 0.12);
-      border-color: rgba(134, 183, 255, 0.42);
       color: var(--text-main);
     }
 
@@ -340,9 +339,26 @@
     }
 
     #soro-blog .soro-blog-page-button[aria-current="page"] {
-      border-color: var(--text-main);
       background: var(--text-main);
       color: #121212;
+    }
+
+    #soro-blog .soro-blog-page-button--nav {
+      min-width: 28px;
+      width: 28px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #d7dbe4;
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    #soro-blog .soro-blog-page-button--nav:hover:not(:disabled) {
+      background: transparent;
+      color: var(--text-main);
+      transform: translateY(-1px);
     }
 
     #soro-blog .soro-blog-page-ellipsis {

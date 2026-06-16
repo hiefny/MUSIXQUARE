@@ -41,6 +41,12 @@
     var button = document.createElement('button');
     button.type = 'button';
     button.className = 'soro-blog-page-button';
+    if (options && options.className) {
+      button.className += ' ' + options.className;
+    }
+    if (options && options.ariaLabel) {
+      button.setAttribute('aria-label', options.ariaLabel);
+    }
     button.textContent = label;
     button.addEventListener('click', function () {
       currentPage = page;
@@ -70,7 +76,11 @@
     var buttons = document.createElement('div');
     buttons.className = 'soro-blog-page-buttons';
 
-    var prev = makeButton('Prev', currentPage - 1, list, { scroll: true });
+    var prev = makeButton('<', currentPage - 1, list, {
+      ariaLabel: 'Previous page',
+      className: 'soro-blog-page-button--nav',
+      scroll: true,
+    });
     prev.disabled = currentPage === 1;
     buttons.appendChild(prev);
 
@@ -90,7 +100,11 @@
       buttons.appendChild(pageButton);
     });
 
-    var next = makeButton('Next', currentPage + 1, list, { scroll: true });
+    var next = makeButton('>', currentPage + 1, list, {
+      ariaLabel: 'Next page',
+      className: 'soro-blog-page-button--nav',
+      scroll: true,
+    });
     next.disabled = currentPage === totalPages;
     buttons.appendChild(next);
 

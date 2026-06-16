@@ -22,9 +22,11 @@ const SORO_RSS_DEFAULT_URL =
 const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
 const SORO_RSS_BACKUP_META_KEY = 'soro-rss-latest-good.meta.json';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
+const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_ARTICLE_HTML_CACHE =
   'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800';
 const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const SORO_IMAGE_FETCH_TIMEOUT_MS = 5000;
 const SORO_IMAGE_ROUTE_PREFIX = '/soro-images/';
 const SORO_IMAGE_R2_PREFIX = 'featured/';
 const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
@@ -1057,6 +1059,16 @@ function sanitizeUrl(value) {
   return '';
 }
 
+async function fetchWithTimeout(resource, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(resource, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function sanitizeSoroImageSource(value) {
   try {
     const url = new URL(value);
@@ -1162,11 +1174,15 @@ async function ensureSoroImageMirror(env, article, options = {}) {
   if (!options.fetchMissing) return 'source';
 
   try {
-    const response = await fetch(sourceUrl, {
-      headers: {
-        Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.8,*/*;q=0.1',
+    const response = await fetchWithTimeout(
+      sourceUrl,
+      {
+        headers: {
+          Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.8,*/*;q=0.1',
+        },
       },
-    });
+      SORO_IMAGE_FETCH_TIMEOUT_MS,
+    );
     if (!response.ok) return existing ? 'cached' : 'fetch-error';
 
     const contentType = response.headers.get('content-type') || '';
@@ -1390,11 +1406,15 @@ async function writeSoroBackup(env, text, articles, previousText, previousArticl
 
 async function fetchLiveSoroRss(env) {
   const rssUrl = String(env.SORO_RSS_URL || SORO_RSS_DEFAULT_URL).trim();
-  const response = await fetch(rssUrl, {
-    headers: {
-      Accept: 'application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1',
+  const response = await fetchWithTimeout(
+    rssUrl,
+    {
+      headers: {
+        Accept: 'application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1',
+      },
     },
-  });
+    SORO_RSS_FETCH_TIMEOUT_MS,
+  );
   if (!response.ok) throw new Error(`Soro RSS HTTP ${response.status}`);
   const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10);
   if (contentLength > SORO_RSS_MAX_BYTES) throw new Error('Soro RSS too large');

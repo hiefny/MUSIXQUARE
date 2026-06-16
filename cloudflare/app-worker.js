@@ -1049,6 +1049,10 @@ function extractSlugFromUrl(link) {
   }
 }
 
+function soroArticlePath(slug) {
+  return `/blog/${slug}`;
+}
+
 function sanitizeUrl(value) {
   try {
     const url = new URL(value);
@@ -1304,7 +1308,7 @@ function renderSoroBlogListHtml(articles, origin, source) {
 
   const cards = articles
     .map((article) => {
-      const href = `/${article.slug}`;
+      const href = soroArticlePath(article.slug);
       const image = soroArticleImageUrl(article, origin, source);
       const displayDate = soroArticleDisplayDate(article.pubDate);
       const isoDate = soroArticleIsoDate(article.pubDate);
@@ -1485,9 +1489,14 @@ function isPotentialSoroArticlePath(pathname) {
   return reserved.has(slug) ? '' : slug;
 }
 
+function isPotentialSoroBlogArticlePath(pathname) {
+  const match = pathname.match(/^\/blog\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
+  return match ? match[1] : '';
+}
+
 function renderSoroArticleHtml(article, requestUrl, source) {
   const url = new URL(requestUrl);
-  const pageUrl = `${url.origin}/${article.slug}`;
+  const pageUrl = `${url.origin}${soroArticlePath(article.slug)}`;
   const blogUrl = `${url.origin}/blog`;
   const title = `${article.title} · MUSIXQUARE`;
   const description = article.description || 'MUSIXQUARE blog article.';
@@ -1628,6 +1637,12 @@ async function serveSoroArticlePage(request, env, slug) {
     new Response(renderSoroArticleHtml(article, request.url, source), { status: 200, headers }),
     headers,
   );
+}
+
+async function hasSoroArticle(env, slug) {
+  const feeds = await loadSoroFeeds(env);
+  const { article } = findSoroArticle(feeds, slug);
+  return Boolean(article);
 }
 
 async function serveSoroBlogIndex(request, env) {
@@ -1811,8 +1826,16 @@ async function serveStatic(request, env) {
   if (request.method === 'GET' || request.method === 'HEAD') {
     if (url.pathname === '/blog' || url.pathname === '/blog/') {
       const post = url.searchParams.get('post') || '';
-      if (isValidSoroSlug(post)) return Response.redirect(new URL(`/${post}`, url), 301);
+      if (isValidSoroSlug(post)) return Response.redirect(new URL(soroArticlePath(post), url), 301);
       return serveSoroBlogIndex(request, env);
+    }
+
+    const soroBlogSlug = isPotentialSoroBlogArticlePath(url.pathname);
+    if (soroBlogSlug) {
+      const canonicalPath = soroArticlePath(soroBlogSlug);
+      if (url.pathname !== canonicalPath) return Response.redirect(new URL(canonicalPath, url), 301);
+      const articleResponse = await serveSoroArticlePage(request, env, soroBlogSlug);
+      return articleResponse || withSecurityHeaders(new Response('Not found', { status: 404 }));
     }
 
     const soroImageKey = soroImageKeyFromPathname(url.pathname);
@@ -1820,8 +1843,9 @@ async function serveStatic(request, env) {
 
     const soroSlug = isPotentialSoroArticlePath(url.pathname);
     if (soroSlug) {
-      const articleResponse = await serveSoroArticlePage(request, env, soroSlug);
-      if (articleResponse) return articleResponse;
+      if (await hasSoroArticle(env, soroSlug)) {
+        return Response.redirect(new URL(soroArticlePath(soroSlug), url), 301);
+      }
     }
   }
 

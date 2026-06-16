@@ -1502,7 +1502,7 @@ function renderSoroArticleBodyHtml(article, image, published, blogUrl, safeConte
   return `<div class="soro-blog">
     <article class="soro-blog-article">
       <div class="soro-blog-header">
-        <a class="soro-blog-back" href="${esc(blogUrl)}">All articles</a>
+        <a class="soro-blog-back" href="${esc(blogUrl)}"><span aria-hidden="true">&larr;</span><span>All articles</span></a>
       </div>
       <header>
         <h1 class="soro-blog-article-title">${esc(article.title)}</h1>
@@ -1621,7 +1621,7 @@ function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
   <link rel="stylesheet" href="/editorial-base.css">
   <style>
     .soro-article-page { max-width: 880px; padding-top: 168px; }
-    .soro-article-back { display: inline-flex; margin-bottom: 34px; color: #c6cbd6; font-size: 14px; font-weight: 800; }
+    .soro-article-back { display: inline-flex; gap: 8px; margin-bottom: 34px; color: #c6cbd6; font-size: 14px; font-weight: 800; text-decoration: underline; text-underline-offset: 4px; }
     .soro-article-title { margin: 0 0 14px; color: var(--text-main); font-size: clamp(38px, 6vw, 72px); line-height: 1.02; letter-spacing: 0; }
     .soro-article-meta { margin: 0 0 32px; color: #9aa3b2; font-size: 14px; font-weight: 800; }
     .soro-article-image { width: 100%; margin: 0 0 38px; display: block; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: var(--surface-2); }
@@ -1663,7 +1663,7 @@ function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
 </nav>
 <main class="page soro-article-page">
   <article>
-    <a class="soro-article-back" href="${esc(blogUrl)}">All articles</a>
+    <a class="soro-article-back" href="${esc(blogUrl)}"><span aria-hidden="true">&larr;</span><span>All articles</span></a>
     <header>
       <h1 class="soro-article-title">${esc(article.title)}</h1>
       ${published ? `<time class="soro-article-meta" datetime="${esc(published)}">${esc(article.pubDate)}</time>` : ''}

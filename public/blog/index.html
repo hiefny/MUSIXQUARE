@@ -143,6 +143,10 @@
         transform var(--dur-fast) var(--ease-out);
     }
 
+    #soro-blog .soro-blog-card[hidden] {
+      display: none !important;
+    }
+
     #soro-blog .soro-blog-card:focus,
     #soro-blog .soro-blog-card:focus-visible {
       outline: 0 !important;
@@ -195,9 +199,16 @@
     }
 
     #soro-blog .soro-blog-back {
+      display: inline-flex !important;
+      align-items: center !important;
       gap: 8px !important;
       color: #c6cbd6 !important;
-      border-color: rgba(255, 255, 255, 0.16) !important;
+      border: 0 !important;
+      background: transparent !important;
+      padding: 0 !important;
+      text-decoration: underline !important;
+      text-underline-offset: 4px;
+      text-decoration-thickness: 1px;
     }
 
     #soro-blog .soro-blog-back:hover {

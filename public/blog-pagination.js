@@ -114,7 +114,7 @@
     if (cards.length <= PAGE_SIZE) {
       cards.forEach(function (card) {
         card.hidden = false;
-        card.style.display = '';
+        card.style.removeProperty('display');
       });
       removeControls(list);
       return;
@@ -127,7 +127,11 @@
       var page = Math.floor(index / PAGE_SIZE) + 1;
       var visible = page === currentPage;
       card.hidden = !visible;
-      card.style.display = visible ? '' : 'none';
+      if (visible) {
+        card.style.removeProperty('display');
+      } else {
+        card.style.setProperty('display', 'none', 'important');
+      }
     });
 
     renderControls(list, totalPages, cards.length);

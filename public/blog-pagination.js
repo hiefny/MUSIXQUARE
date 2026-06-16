@@ -47,12 +47,28 @@
     if (options && options.ariaLabel) {
       button.setAttribute('aria-label', options.ariaLabel);
     }
-    button.textContent = label;
+    if (options && options.icon) {
+      button.appendChild(makeIcon(options.icon));
+    } else {
+      button.textContent = label;
+    }
     button.addEventListener('click', function () {
       currentPage = page;
       updatePagination(list, { scroll: options && options.scroll });
     });
     return button;
+  }
+
+  function makeIcon(direction) {
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    svg.setAttribute('class', 'soro-blog-page-icon');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    path.setAttribute('d', direction === 'next' ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6');
+    svg.appendChild(path);
+    return svg;
   }
 
   function renderControls(list, totalPages, totalCards) {
@@ -76,9 +92,10 @@
     var buttons = document.createElement('div');
     buttons.className = 'soro-blog-page-buttons';
 
-    var prev = makeButton('<', currentPage - 1, list, {
+    var prev = makeButton('', currentPage - 1, list, {
       ariaLabel: 'Previous page',
       className: 'soro-blog-page-button--nav',
+      icon: 'previous',
       scroll: true,
     });
     prev.disabled = currentPage === 1;
@@ -100,9 +117,10 @@
       buttons.appendChild(pageButton);
     });
 
-    var next = makeButton('>', currentPage + 1, list, {
+    var next = makeButton('', currentPage + 1, list, {
       ariaLabel: 'Next page',
       className: 'soro-blog-page-button--nav',
+      icon: 'next',
       scroll: true,
     });
     next.disabled = currentPage === totalPages;

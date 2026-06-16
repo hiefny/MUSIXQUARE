@@ -65,6 +65,25 @@ import {
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
+const SAME_TRACK_REPLAY_RESYNC_DELAY_MS = 1000;
+
+function scheduleSameTrackReplayResync(
+  time: number,
+  incomingIndex: number | undefined,
+  currentTrackIndex: number,
+): void {
+  if (time > 0.001) return;
+  if (incomingIndex === undefined || incomingIndex !== currentTrackIndex) return;
+
+  const hostConn = getState('network.hostConn');
+  if (!hostConn?.open) return;
+
+  setManagedTimer(
+    'playback-repeat-auto-sync',
+    () => bus.emit('sync:force-resync'),
+    SAME_TRACK_REPLAY_RESYNC_DELAY_MS,
+  );
+}
 
 function setFileTrackMetaFromPlaylist(index: number, fallbackName?: string): void {
   const playlist = getState('playlist.items') || [];
@@ -309,15 +328,18 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
           `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, WebAudio)`,
         );
         bus.emit('sync:arm-initial');
+        scheduleSameTrackReplayResync(time, incomingIndex, currentTrackIndex);
       } else {
         log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
         play(time);
         bus.emit('sync:arm-initial');
+        scheduleSameTrackReplayResync(time, incomingIndex, currentTrackIndex);
       }
     } else {
       // Legacy: no hostPlayAt field — play immediately
       play(time);
       bus.emit('sync:arm-initial');
+      scheduleSameTrackReplayResync(time, incomingIndex, currentTrackIndex);
     }
   } else {
     // Remote guest: no file will arrive via P2P. For the demo, fall back

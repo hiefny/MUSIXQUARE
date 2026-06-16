@@ -35,6 +35,7 @@ import {
   getHostNow,
   registerPing,
   processSyncPong,
+  resetClockSamples,
   resetClockState,
   setIsHostClock,
 } from './shared-clock.ts';
@@ -674,6 +675,7 @@ export function initSync(): void {
   bus.on('sync:force-resync', () => {
     const hostConn = getState('network.hostConn');
     if (!hostConn?.open) return;
+    resetClockSamples();
     _needsInitialSync = true;
     bus.emit('sync:request-immediate-ping');
   });

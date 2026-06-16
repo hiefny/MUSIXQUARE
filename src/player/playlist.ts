@@ -54,6 +54,13 @@ import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
+import { getHostNow } from '../network/shared-clock.ts';
+
+const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
+
+function getLocalFileHostPlayAt(): number {
+  return getHostNow() + LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS;
+}
 
 // ─── Shuffle Order (Fisher-Yates) ──────────────────────────────────
 // A persistent permutation of playlist indices so that prev/next in shuffle
@@ -445,7 +452,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         // matching the normal branch (line ~675). Keep name: file.name — after a
         // lower-index removal the re-read index still points at this file.
         const currentIdx = getState('playlist.currentTrackIndex');
-        broadcast({ type: MSG.PLAY, time: 0, index: currentIdx, name: file.name });
+        broadcast({
+          type: MSG.PLAY,
+          time: 0,
+          index: currentIdx,
+          name: file.name,
+          hostPlayAt: getLocalFileHostPlayAt(),
+        });
       },
       autoPlayDelayMs,
     );
@@ -505,7 +518,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       return;
     }
     await play(0);
-    broadcast({ type: MSG.PLAY, time: 0, index, name: fileName });
+    broadcast({
+      type: MSG.PLAY,
+      time: 0,
+      index,
+      name: fileName,
+      hostPlayAt: getLocalFileHostPlayAt(),
+    });
     // SharedClock handles sync
     schedulePreload();
     return;
@@ -678,7 +697,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         () => {
           play(0);
           const currentIdx = getState('playlist.currentTrackIndex');
-          broadcast({ type: MSG.PLAY, time: 0, index: currentIdx, name: file.name });
+          broadcast({
+            type: MSG.PLAY,
+            time: 0,
+            index: currentIdx,
+            name: file.name,
+            hostPlayAt: getLocalFileHostPlayAt(),
+          });
           // SharedClock handles sync
         },
         autoPlayDelayMs,
@@ -812,7 +837,12 @@ function restartCurrentTrackFromStart(currentTrackIndex: number): void {
     return;
   }
   play(0);
-  broadcast({ type: MSG.PLAY, time: 0, index: currentTrackIndex });
+  broadcast({
+    type: MSG.PLAY,
+    time: 0,
+    index: currentTrackIndex,
+    hostPlayAt: getLocalFileHostPlayAt(),
+  });
   // SharedClock handles sync
 }
 
@@ -1331,7 +1361,12 @@ export function initPlaylist(): void {
           // track removal during this 300ms window shifts indices (SA-12) —
           // a captured value would broadcast the pre-splice index and send
           // guests through a pointless index-mismatch recovery.
-          broadcast({ type: MSG.PLAY, time: 0, index: getState('playlist.currentTrackIndex') });
+          broadcast({
+            type: MSG.PLAY,
+            time: 0,
+            index: getState('playlist.currentTrackIndex'),
+            hostPlayAt: getLocalFileHostPlayAt(),
+          });
           // SharedClock handles sync
         },
         300,

@@ -270,6 +270,31 @@ describe('audio activation bootstrap', () => {
 });
 
 describe('background resume recovery', () => {
+  it('drops stale shared-clock samples before forced resync ping', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+    const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;
+    setState('network.hostConn', conn as DataConnection);
+
+    registerPing(1);
+    vi.setSystemTime(1020);
+    expect(processSyncPong(1, 5020)).not.toBeNull();
+    expect(isClockCalibrated()).toBe(true);
+    expect(getClockOffset()).not.toBe(0);
+
+    bus.emit('sync:force-resync');
+
+    expect(isClockCalibrated()).toBe(false);
+    expect(getClockOffset()).toBe(0);
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.SYNC_PING,
+        pingId: expect.any(Number),
+      }),
+    );
+  });
+
   it('requests an immediate host sync for forced resync', () => {
     initSync();
     const conn = { open: true, send: vi.fn() } as Partial<DataConnection>;

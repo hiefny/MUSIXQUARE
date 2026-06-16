@@ -172,10 +172,14 @@ export function processSyncPong(
 /**
  * Reset all clock state. Called by sync.ts on session end / role change.
  */
-export function resetClockState(): void {
+export function resetClockSamples(): void {
   _samples = [];
   _bestOffset = 0;
   _pongsReceived = 0;
   _pendingPings.clear();
+}
+
+export function resetClockState(): void {
+  resetClockSamples();
   _isHostClock = false;
 }

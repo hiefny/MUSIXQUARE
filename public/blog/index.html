@@ -262,6 +262,81 @@
       text-underline-offset: 3px;
     }
 
+    #soro-blog .soro-blog-pagination {
+      margin-top: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    #soro-blog .soro-blog-page-status {
+      color: #9aa3b2;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    #soro-blog .soro-blog-page-buttons {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #soro-blog .soro-blog-page-button {
+      min-width: 38px;
+      height: 38px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.045);
+      color: #d7dbe4;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1;
+      cursor: pointer;
+      transition:
+        background var(--dur-fast) var(--ease-out),
+        border-color var(--dur-fast) var(--ease-out),
+        color var(--dur-fast) var(--ease-out),
+        opacity var(--dur-fast) var(--ease-out);
+    }
+
+    #soro-blog .soro-blog-page-button:hover:not(:disabled) {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(134, 183, 255, 0.42);
+      color: var(--text-main);
+    }
+
+    #soro-blog .soro-blog-page-button:focus-visible {
+      outline: 2px solid #86b7ff;
+      outline-offset: 2px;
+    }
+
+    #soro-blog .soro-blog-page-button:disabled {
+      cursor: default;
+      opacity: 0.42;
+    }
+
+    #soro-blog .soro-blog-page-button[aria-current="page"] {
+      border-color: var(--text-main);
+      background: var(--text-main);
+      color: #121212;
+    }
+
+    #soro-blog .soro-blog-page-ellipsis {
+      min-width: 20px;
+      color: #71717a;
+      font-size: 13px;
+      font-weight: 800;
+      text-align: center;
+    }
+
     @media (max-width: 1023px) {
       .editorial-blog .hero {
         grid-template-columns: 1fr;
@@ -301,6 +376,15 @@
 
       #soro-blog .soro-blog-article-content {
         font-size: 16px !important;
+      }
+
+      #soro-blog .soro-blog-pagination {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      #soro-blog .soro-blog-page-buttons {
+        justify-content: center;
       }
     }
   </style>
@@ -379,5 +463,185 @@
 
 <script src="https://app.trysoro.com/api/embed/a07c133f-e3b9-401e-a076-ee36124598a7" defer></script>
 <script src="/editorial-pages.js"></script>
+<script>
+  (function () {
+    var PAGE_SIZE = 10;
+    var container = document.getElementById('soro-blog');
+    if (!container) return;
+
+    var currentPage = 1;
+    var activeList = null;
+    var scheduled = false;
+
+    function getCards(list) {
+      return Array.prototype.filter.call(list.children, function (child) {
+        return child.classList && child.classList.contains('soro-blog-card');
+      });
+    }
+
+    function clampPage(page, totalPages) {
+      return Math.max(1, Math.min(page, totalPages));
+    }
+
+    function getVisiblePages(totalPages) {
+      var pages = [1, currentPage - 1, currentPage, currentPage + 1, totalPages]
+        .filter(function (page, index, arr) {
+          return page >= 1 && page <= totalPages && arr.indexOf(page) === index;
+        })
+        .sort(function (a, b) {
+          return a - b;
+        });
+
+      var result = [];
+      pages.forEach(function (page) {
+        var previous = result[result.length - 1];
+        if (typeof previous === 'number' && page - previous > 1) {
+          result.push('ellipsis');
+        }
+        result.push(page);
+      });
+      return result;
+    }
+
+    function makeButton(label, page, list, options) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'soro-blog-page-button';
+      button.textContent = label;
+      button.addEventListener('click', function () {
+        currentPage = page;
+        updatePagination(list, { scroll: options && options.scroll });
+      });
+      return button;
+    }
+
+    function renderControls(list, totalPages, totalCards) {
+      var controls = list.parentNode.querySelector('[data-blog-pagination]');
+      if (!controls) {
+        controls = document.createElement('nav');
+        controls.className = 'soro-blog-pagination';
+        controls.setAttribute('data-blog-pagination', '');
+        controls.setAttribute('aria-label', 'Article pages');
+        list.insertAdjacentElement('afterend', controls);
+      }
+
+      controls.textContent = '';
+
+      var start = (currentPage - 1) * PAGE_SIZE + 1;
+      var end = Math.min(currentPage * PAGE_SIZE, totalCards);
+      var status = document.createElement('div');
+      status.className = 'soro-blog-page-status';
+      status.textContent = 'Articles ' + start + '-' + end + ' of ' + totalCards;
+
+      var buttons = document.createElement('div');
+      buttons.className = 'soro-blog-page-buttons';
+
+      var prev = makeButton('Prev', currentPage - 1, list, { scroll: true });
+      prev.disabled = currentPage === 1;
+      buttons.appendChild(prev);
+
+      getVisiblePages(totalPages).forEach(function (item) {
+        if (item === 'ellipsis') {
+          var ellipsis = document.createElement('span');
+          ellipsis.className = 'soro-blog-page-ellipsis';
+          ellipsis.textContent = '...';
+          buttons.appendChild(ellipsis);
+          return;
+        }
+
+        var pageButton = makeButton(String(item), item, list, { scroll: true });
+        if (item === currentPage) {
+          pageButton.setAttribute('aria-current', 'page');
+        }
+        buttons.appendChild(pageButton);
+      });
+
+      var next = makeButton('Next', currentPage + 1, list, { scroll: true });
+      next.disabled = currentPage === totalPages;
+      buttons.appendChild(next);
+
+      controls.appendChild(status);
+      controls.appendChild(buttons);
+    }
+
+    function removeControls(list) {
+      if (!list || !list.parentNode) return;
+      var controls = list.parentNode.querySelector('[data-blog-pagination]');
+      if (controls) controls.remove();
+    }
+
+    function updatePagination(list, options) {
+      var cards = getCards(list);
+      if (activeList !== list) {
+        activeList = list;
+        currentPage = 1;
+      }
+
+      if (cards.length <= PAGE_SIZE) {
+        cards.forEach(function (card) {
+          card.hidden = false;
+          card.style.display = '';
+        });
+        removeControls(list);
+        return;
+      }
+
+      var totalPages = Math.ceil(cards.length / PAGE_SIZE);
+      currentPage = clampPage(currentPage, totalPages);
+
+      cards.forEach(function (card, index) {
+        var page = Math.floor(index / PAGE_SIZE) + 1;
+        var visible = page === currentPage;
+        card.hidden = !visible;
+        card.style.display = visible ? '' : 'none';
+      });
+
+      renderControls(list, totalPages, cards.length);
+
+      if (options && options.scroll) {
+        var section = document.getElementById('articles');
+        if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function scanForList() {
+      scheduled = false;
+      var list = container.querySelector('.soro-blog-list');
+      if (!list) {
+        activeList = null;
+        return;
+      }
+      updatePagination(list);
+    }
+
+    function scheduleScan() {
+      if (scheduled) return;
+      scheduled = true;
+      window.requestAnimationFrame(scanForList);
+    }
+
+    function isPaginationMutation(mutation) {
+      var target = mutation.target;
+      return (
+        target &&
+        target.nodeType === 1 &&
+        target.closest &&
+        target.closest('[data-blog-pagination]')
+      );
+    }
+
+    var observer = new MutationObserver(function (mutations) {
+      if (mutations.length && mutations.every(isPaginationMutation)) return;
+      scheduleScan();
+    });
+    observer.observe(container, { childList: true, subtree: true });
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', scheduleScan);
+    } else {
+      scheduleScan();
+    }
+  })();
+</script>
 </body>
 </html>

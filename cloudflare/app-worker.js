@@ -1502,7 +1502,7 @@ function renderSoroArticleBodyHtml(article, image, published, blogUrl, safeConte
   return `<div class="soro-blog">
     <article class="soro-blog-article">
       <div class="soro-blog-header">
-        <a class="soro-blog-back" href="${esc(blogUrl)}"><span aria-hidden="true">&larr;</span><span>All articles</span></a>
+        <a class="soro-blog-back" href="${esc(blogUrl)}"><span aria-hidden="true">&larr;</span> <span>All articles</span></a>
       </div>
       <header>
         <h1 class="soro-blog-article-title">${esc(article.title)}</h1>
@@ -1663,7 +1663,7 @@ function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
 </nav>
 <main class="page soro-article-page">
   <article>
-    <a class="soro-article-back" href="${esc(blogUrl)}"><span aria-hidden="true">&larr;</span><span>All articles</span></a>
+    <a class="soro-article-back" href="${esc(blogUrl)}"><span aria-hidden="true">&larr;</span> <span>All articles</span></a>
     <header>
       <h1 class="soro-article-title">${esc(article.title)}</h1>
       ${published ? `<time class="soro-article-meta" datetime="${esc(published)}">${esc(article.pubDate)}</time>` : ''}

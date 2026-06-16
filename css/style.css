@@ -1109,7 +1109,6 @@
            target without affecting layout. */
     margin: -4px 0;
     /* 36px visible circle inside 44px touch target */
-    background-image: radial-gradient(circle, var(--surface-2) 18px, transparent 18px);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -1119,16 +1118,34 @@
     position: relative;
   }
 
+  .tab-action-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    transform: translate(-50%, -50%);
+    transition: background 0.2s;
+  }
+
   .tab-action-btn:active {
     transform: scale(0.9);
     background: transparent;
-    background-image: radial-gradient(circle, var(--surface-3) 18px, transparent 18px);
+  }
+
+  .tab-action-btn:active::before {
+    background: var(--surface-3);
   }
 
   .tab-action-btn svg {
     width: 20px;
     height: 20px;
     fill: currentColor;
+    position: relative;
+    z-index: 1;
   }
 
   #btn-repeat svg,
@@ -1140,14 +1157,17 @@
   /* Playlist Controls Active States */
   .tab-action-btn.active {
     background: transparent;
-    background-image: radial-gradient(circle, var(--primary) 18px, transparent 18px);
     color: white;
   }
 
   .tab-action-btn.active-one {
     background: transparent;
-    background-image: radial-gradient(circle, var(--primary) 18px, transparent 18px);
     color: white;
+  }
+
+  .tab-action-btn.active::before,
+  .tab-action-btn.active-one::before {
+    background: var(--primary);
   }
 
   .tab-action-btn.active-one::after {
@@ -1166,6 +1186,7 @@
     align-items: center;
     justify-content: center;
     border: 2px solid var(--bg);
+    z-index: 2;
   }
 
   #tab-play {
@@ -8122,4 +8143,3 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
 .list-empty-state {
   border-radius: 999px !important;
 }
-

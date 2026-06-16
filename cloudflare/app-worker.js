@@ -1114,7 +1114,7 @@ async function readSoroBackup(env) {
   return { text, articles };
 }
 
-async function writeSoroBackup(env, ctx, text, articles, previousText, previousArticles) {
+async function writeSoroBackup(env, text, articles, previousText, previousArticles) {
   if (!env.SORO_RSS_BACKUP || text === previousText) return;
   if (previousArticles.length && articles.length < previousArticles.length) return;
 
@@ -1127,8 +1127,7 @@ async function writeSoroBackup(env, ctx, text, articles, previousText, previousA
     env.SORO_RSS_BACKUP.put(SORO_RSS_BACKUP_KEY, text),
     env.SORO_RSS_BACKUP.put(SORO_RSS_BACKUP_META_KEY, JSON.stringify(metadata)),
   ]);
-  if (ctx?.waitUntil) ctx.waitUntil(write);
-  else await write;
+  await write;
 }
 
 async function fetchLiveSoroRss(env) {
@@ -1148,11 +1147,11 @@ async function fetchLiveSoroRss(env) {
   return { text, articles };
 }
 
-async function loadSoroFeeds(env, ctx) {
+async function loadSoroFeeds(env) {
   const backup = await readSoroBackup(env);
   try {
     const live = await fetchLiveSoroRss(env);
-    await writeSoroBackup(env, ctx, live.text, live.articles, backup.text, backup.articles);
+    await writeSoroBackup(env, live.text, live.articles, backup.text, backup.articles);
     return { live, backup, source: 'live' };
   } catch (error) {
     console.warn('[SoroBlog] live RSS unavailable:', error?.message || error);
@@ -1312,8 +1311,8 @@ function renderSoroArticleHtml(article, requestUrl, source) {
 </html>`;
 }
 
-async function serveSoroArticlePage(request, env, ctx, slug) {
-  const feeds = await loadSoroFeeds(env, ctx);
+async function serveSoroArticlePage(request, env, slug) {
+  const feeds = await loadSoroFeeds(env);
   const { article, source } = findSoroArticle(feeds, slug);
   if (!article) return null;
 
@@ -1423,7 +1422,7 @@ function isLocalHttpHost(hostname) {
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
 }
 
-async function serveStatic(request, env, ctx) {
+async function serveStatic(request, env) {
   const url = new URL(request.url);
   const redirect = redirectTarget(url.pathname);
   if (redirect) return Response.redirect(new URL(redirect, url), 301);
@@ -1450,7 +1449,7 @@ async function serveStatic(request, env, ctx) {
   if (request.method === 'GET' || request.method === 'HEAD') {
     const soroSlug = isPotentialSoroArticlePath(url.pathname);
     if (soroSlug) {
-      const articleResponse = await serveSoroArticlePage(request, env, ctx, soroSlug);
+      const articleResponse = await serveSoroArticlePage(request, env, soroSlug);
       if (articleResponse) return articleResponse;
     }
   }
@@ -1481,10 +1480,10 @@ async function serveStatic(request, env, ctx) {
 
 export default {
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(loadSoroFeeds(env, ctx));
+    ctx.waitUntil(loadSoroFeeds(env));
   },
 
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (url.protocol === 'http:' && !isLocalHttpHost(url.hostname)) {
       url.protocol = 'https:';
@@ -1503,7 +1502,7 @@ export default {
       case '/api/cloudflare-realtime':
         return handleRealtime(request, env);
       default:
-        return serveStatic(request, env, ctx);
+        return serveStatic(request, env);
     }
   },
 };

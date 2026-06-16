@@ -24,6 +24,10 @@ const SORO_RSS_BACKUP_META_KEY = 'soro-rss-latest-good.meta.json';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_ARTICLE_HTML_CACHE =
   'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800';
+const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const SORO_IMAGE_ROUTE_PREFIX = '/soro-images/';
+const SORO_IMAGE_R2_PREFIX = 'featured/';
+const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
@@ -1053,6 +1057,161 @@ function sanitizeUrl(value) {
   return '';
 }
 
+function sanitizeSoroImageSource(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
+function contentTypeToSoroImageExt(contentType) {
+  const type = String(contentType || '').split(';')[0].trim().toLowerCase();
+  switch (type) {
+    case 'image/avif':
+      return 'avif';
+    case 'image/gif':
+      return 'gif';
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    default:
+      return '';
+  }
+}
+
+function imageExtFromUrl(value) {
+  try {
+    const pathname = new URL(value).pathname.toLowerCase();
+    const match = pathname.match(/\.([a-z0-9]+)$/);
+    const ext = match ? match[1] : '';
+    if (['avif', 'gif', 'jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+      return ext === 'jpeg' ? 'jpg' : ext;
+    }
+  } catch {
+    /* invalid URL */
+  }
+  return '';
+}
+
+function isAllowedSoroImageContentType(contentType) {
+  return Boolean(contentTypeToSoroImageExt(contentType));
+}
+
+function soroImageKey(article, contentType = '') {
+  if (!article?.slug || !isValidSoroSlug(article.slug)) return '';
+  const source = sanitizeSoroImageSource(article.image);
+  if (!source) return '';
+  const ext = imageExtFromUrl(source) || contentTypeToSoroImageExt(contentType) || 'webp';
+  return `${SORO_IMAGE_R2_PREFIX}${article.slug}.${ext}`;
+}
+
+function soroImagePublicPath(key) {
+  return `${SORO_IMAGE_ROUTE_PREFIX}${key
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/')}`;
+}
+
+function soroImageKeyFromPathname(pathname) {
+  if (!pathname.startsWith(SORO_IMAGE_ROUTE_PREFIX)) return '';
+  try {
+    const key = decodeURIComponent(pathname.slice(SORO_IMAGE_ROUTE_PREFIX.length));
+    if (!key.startsWith(SORO_IMAGE_R2_PREFIX)) return '';
+    if (key.includes('..') || key.includes('\\')) return '';
+    if (!/^featured\/[a-z0-9]+(?:-[a-z0-9]+)*\.(?:avif|gif|jpg|png|webp)$/.test(key)) {
+      return '';
+    }
+    return key;
+  } catch {
+    return '';
+  }
+}
+
+async function ensureSoroImageMirror(env, article, options = {}) {
+  if (!article?.image) return 'none';
+  const sourceUrl = sanitizeSoroImageSource(article.image);
+  if (!sourceUrl) return 'invalid-source';
+  if (!env.SORO_IMAGE_BUCKET) return 'unbound';
+
+  const key = soroImageKey(article);
+  if (!key) return 'invalid-key';
+  const localPath = soroImagePublicPath(key);
+
+  let existing = null;
+  try {
+    existing = await env.SORO_IMAGE_BUCKET.head(key);
+  } catch {
+    existing = null;
+  }
+
+  if (existing?.customMetadata?.sourceUrl === sourceUrl) {
+    article.localImagePath = localPath;
+    return 'cached';
+  }
+  if (existing && !options.fetchMissing) {
+    article.localImagePath = localPath;
+    return 'cached';
+  }
+  if (!options.fetchMissing) return 'source';
+
+  try {
+    const response = await fetch(sourceUrl, {
+      headers: {
+        Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.8,*/*;q=0.1',
+      },
+    });
+    if (!response.ok) return existing ? 'cached' : 'fetch-error';
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!isAllowedSoroImageContentType(contentType)) return existing ? 'cached' : 'invalid-type';
+
+    const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10);
+    if (contentLength > SORO_IMAGE_MAX_BYTES) return existing ? 'cached' : 'too-large';
+
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > SORO_IMAGE_MAX_BYTES) return existing ? 'cached' : 'too-large';
+
+    await env.SORO_IMAGE_BUCKET.put(key, bytes, {
+      httpMetadata: {
+        contentType: contentType.split(';')[0].trim().toLowerCase(),
+        cacheControl: SORO_IMAGE_CACHE,
+      },
+      customMetadata: {
+        sourceUrl,
+        slug: article.slug,
+        mirroredAt: new Date().toISOString(),
+      },
+    });
+    article.localImagePath = localPath;
+    return existing ? 'updated' : 'written';
+  } catch {
+    if (existing) {
+      article.localImagePath = localPath;
+      return 'cached';
+    }
+    return 'error';
+  }
+}
+
+async function mirrorSoroImages(env, articles, options = {}) {
+  if (!env.SORO_IMAGE_BUCKET) return 'unbound';
+  const counts = {};
+  for (const article of articles) {
+    const status = await ensureSoroImageMirror(env, article, options);
+    counts[status] = (counts[status] || 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([status, count]) => `${status}:${count}`)
+    .join(',');
+}
+
 function firstImageFromHtml(html) {
   const match = String(html).match(/<img\b[^>]*\bsrc=(["'])(.*?)\1/i);
   return match ? sanitizeUrl(decodeXmlText(match[2])) : '';
@@ -1149,7 +1308,7 @@ async function fetchLiveSoroRss(env) {
   return { text, articles };
 }
 
-async function loadSoroFeeds(env) {
+async function loadSoroFeeds(env, options = {}) {
   const backup = await readSoroBackup(env);
   try {
     const live = await fetchLiveSoroRss(env);
@@ -1160,10 +1319,22 @@ async function loadSoroFeeds(env) {
       backup.text,
       backup.articles,
     );
-    return { live, backup, source: 'live', backupStatus };
+    const imageStatus = options.mirrorImages
+      ? await mirrorSoroImages(env, live.articles, { fetchMissing: true })
+      : 'skipped';
+    return { live, backup, source: 'live', backupStatus, imageStatus };
   } catch (error) {
     console.warn('[SoroBlog] live RSS unavailable:', error?.message || error);
-    return { live: { text: '', articles: [] }, backup, source: 'backup', backupStatus: 'live-error' };
+    const imageStatus = options.mirrorImages
+      ? await mirrorSoroImages(env, backup.articles, { fetchMissing: false })
+      : 'skipped';
+    return {
+      live: { text: '', articles: [] },
+      backup,
+      source: 'backup',
+      backupStatus: 'live-error',
+      imageStatus,
+    };
   }
 }
 
@@ -1203,7 +1374,9 @@ function renderSoroArticleHtml(article, requestUrl, source) {
   const blogUrl = `${url.origin}/blog`;
   const title = `${article.title} · MUSIXQUARE`;
   const description = article.description || 'MUSIXQUARE blog article.';
-  const image = article.image || `${url.origin}/og-blog.png`;
+  const image = article.localImagePath
+    ? new URL(article.localImagePath, url.origin).href
+    : article.image || `${url.origin}/og-blog.png`;
   const published = article.pubDate ? new Date(article.pubDate).toISOString() : '';
   const safeContent = sanitizeSoroArticleHtml(article.content);
   const jsonLd = {
@@ -1323,12 +1496,14 @@ async function serveSoroArticlePage(request, env, slug) {
   const feeds = await loadSoroFeeds(env);
   const { article, source } = findSoroArticle(feeds, slug);
   if (!article) return null;
+  const imageStatus = await ensureSoroImageMirror(env, article, { fetchMissing: source === 'live' });
 
   const headers = {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': SORO_ARTICLE_HTML_CACHE,
     'X-Soro-Article-Source': source,
     'X-Soro-Backup-Status': feeds.backupStatus || 'unknown',
+    'X-Soro-Image-Status': imageStatus,
   };
   if (request.method === 'HEAD') {
     return withSecurityHeaders(new Response(null, { status: 200, headers }), headers);
@@ -1338,6 +1513,27 @@ async function serveSoroArticlePage(request, env, slug) {
     new Response(renderSoroArticleHtml(article, request.url, source), { status: 200, headers }),
     headers,
   );
+}
+
+async function serveSoroImage(request, env, key) {
+  if (!env.SORO_IMAGE_BUCKET) {
+    return withSecurityHeaders(new Response('Not found', { status: 404 }));
+  }
+
+  const object = await env.SORO_IMAGE_BUCKET.get(key);
+  if (!object) return withSecurityHeaders(new Response('Not found', { status: 404 }));
+
+  const headers = {
+    'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+    'Cache-Control': object.httpMetadata?.cacheControl || SORO_IMAGE_CACHE,
+  };
+  if (object.httpEtag) headers.ETag = object.httpEtag;
+
+  if (request.method === 'HEAD') {
+    return withSecurityHeaders(new Response(null, { status: 200, headers }), headers);
+  }
+
+  return withSecurityHeaders(new Response(object.body, { status: 200, headers }), headers);
 }
 
 async function fetchAsset(env, request, pathname = null) {
@@ -1456,6 +1652,9 @@ async function serveStatic(request, env) {
   }
 
   if (request.method === 'GET' || request.method === 'HEAD') {
+    const soroImageKey = soroImageKeyFromPathname(url.pathname);
+    if (soroImageKey) return serveSoroImage(request, env, soroImageKey);
+
     const soroSlug = isPotentialSoroArticlePath(url.pathname);
     if (soroSlug) {
       const articleResponse = await serveSoroArticlePage(request, env, soroSlug);
@@ -1489,7 +1688,7 @@ async function serveStatic(request, env) {
 
 export default {
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(loadSoroFeeds(env));
+    ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
   },
 
   async fetch(request, env) {

@@ -20,6 +20,10 @@ run_worker_first = ["/*"]
 [triggers]
 crons = ["0 */6 * * *"]
 
+[[r2_buckets]]
+binding = "SORO_IMAGE_BUCKET"
+bucket_name = "musixquare-soro-images"
+
 [[kv_namespaces]]
 binding = "SORO_RSS_BACKUP"
 id = "fd1a24bab0524b5688d168e9bdb6c038"

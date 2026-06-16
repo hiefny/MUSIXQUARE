@@ -1212,6 +1212,103 @@ async function mirrorSoroImages(env, articles, options = {}) {
     .join(',');
 }
 
+function sortedSoroArticles(articles) {
+  return [...articles].sort((a, b) => {
+    const bTime = Date.parse(b.pubDate || '') || 0;
+    const aTime = Date.parse(a.pubDate || '') || 0;
+    return bTime - aTime;
+  });
+}
+
+function soroArticleDisplayDate(pubDate) {
+  const date = new Date(pubDate || '');
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+function soroArticleIsoDate(pubDate) {
+  const date = new Date(pubDate || '');
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
+function soroArticleExcerpt(article) {
+  return (
+    article.description ||
+    String(article.content || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 180)
+  );
+}
+
+function soroArticleImageUrl(article, origin, source) {
+  if (article.localImagePath) return new URL(article.localImagePath, origin).href;
+  if (source !== 'backup' && article.image) return article.image;
+  return `${origin}/og-blog.png`;
+}
+
+async function hydrateSoroListImages(env, articles, source) {
+  const counts = {};
+  const visibleCount = Math.min(articles.length, 12);
+
+  for (let index = 0; index < articles.length; index += 1) {
+    const article = articles[index];
+    if (!article?.image) {
+      counts.none = (counts.none || 0) + 1;
+      continue;
+    }
+
+    if (index < visibleCount) {
+      const status = await ensureSoroImageMirror(env, article, { fetchMissing: source === 'live' });
+      counts[status] = (counts[status] || 0) + 1;
+      continue;
+    }
+
+    const key = soroImageKey(article);
+    if (key) {
+      article.localImagePath = soroImagePublicPath(key);
+      counts.deferred = (counts.deferred || 0) + 1;
+    }
+  }
+
+  return Object.entries(counts)
+    .map(([status, count]) => `${status}:${count}`)
+    .join(',');
+}
+
+function renderSoroBlogListHtml(articles, origin, source) {
+  if (!articles.length) {
+    return `<div class="soro-blog"><div class="soro-blog-content"><p class="soro-blog-card-excerpt">No articles are available yet.</p></div></div>`;
+  }
+
+  const cards = articles
+    .map((article) => {
+      const href = `/${article.slug}`;
+      const image = soroArticleImageUrl(article, origin, source);
+      const displayDate = soroArticleDisplayDate(article.pubDate);
+      const isoDate = soroArticleIsoDate(article.pubDate);
+      const dateHtml = displayDate
+        ? `<time class="soro-blog-card-date" datetime="${esc(isoDate)}">${esc(displayDate)}</time>`
+        : '';
+      return `<a class="soro-blog-card" href="${esc(href)}">
+        <img class="soro-blog-card-image" src="${esc(image)}" alt="${esc(article.title)}" loading="lazy" decoding="async">
+        <div class="soro-blog-card-content">
+          <h3 class="soro-blog-card-title">${esc(article.title)}</h3>
+          <p class="soro-blog-card-excerpt">${esc(soroArticleExcerpt(article))}</p>
+          ${dateHtml}
+        </div>
+      </a>`;
+    })
+    .join('');
+
+  return `<div class="soro-blog"><div class="soro-blog-content"><div class="soro-blog-list">${cards}</div></div></div>`;
+}
+
 function firstImageFromHtml(html) {
   const match = String(html).match(/<img\b[^>]*\bsrc=(["'])(.*?)\1/i);
   return match ? sanitizeUrl(decodeXmlText(match[2])) : '';
@@ -1374,9 +1471,7 @@ function renderSoroArticleHtml(article, requestUrl, source) {
   const blogUrl = `${url.origin}/blog`;
   const title = `${article.title} · MUSIXQUARE`;
   const description = article.description || 'MUSIXQUARE blog article.';
-  const image = article.localImagePath
-    ? new URL(article.localImagePath, url.origin).href
-    : article.image || `${url.origin}/og-blog.png`;
+  const image = soroArticleImageUrl(article, url.origin, source);
   const published = article.pubDate ? new Date(article.pubDate).toISOString() : '';
   const safeContent = sanitizeSoroArticleHtml(article.content);
   const jsonLd = {
@@ -1511,6 +1606,48 @@ async function serveSoroArticlePage(request, env, slug) {
 
   return withSecurityHeaders(
     new Response(renderSoroArticleHtml(article, request.url, source), { status: 200, headers }),
+    headers,
+  );
+}
+
+async function serveSoroBlogIndex(request, env) {
+  const response = await fetchAsset(env, request, '/blog/index.html');
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('text/html')) return withSecurityHeaders(response);
+
+  const feeds = await loadSoroFeeds(env);
+  const source = feeds.source === 'live' ? 'live' : 'backup';
+  const articles = sortedSoroArticles(
+    source === 'live' ? feeds.live.articles : feeds.backup.articles,
+  );
+  const imageStatus = await hydrateSoroListImages(env, articles, source);
+  const headers = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': SORO_ARTICLE_HTML_CACHE,
+    'X-Soro-Index-Source': source,
+    'X-Soro-Backup-Status': feeds.backupStatus || 'unknown',
+    'X-Soro-Image-Status': imageStatus || 'none',
+  };
+
+  if (request.method === 'HEAD') {
+    return withSecurityHeaders(
+      new Response(null, { status: response.status, headers: response.headers }),
+      headers,
+    );
+  }
+
+  const origin = new URL(request.url).origin;
+  const blogHtml = renderSoroBlogListHtml(articles, origin, source);
+  let html = await response.text();
+  html = html
+    .replace('<div id="soro-blog"></div>', `<div id="soro-blog">${blogHtml}</div>`)
+    .replace(
+      /\n?<script src="https:\/\/app\.trysoro\.com\/api\/embed\/a07c133f-e3b9-401e-a076-ee36124598a7" defer><\/script>/,
+      '',
+    );
+
+  return withSecurityHeaders(
+    new Response(html, { status: response.status, headers: response.headers }),
     headers,
   );
 }
@@ -1652,6 +1789,12 @@ async function serveStatic(request, env) {
   }
 
   if (request.method === 'GET' || request.method === 'HEAD') {
+    if (url.pathname === '/blog' || url.pathname === '/blog/') {
+      const post = url.searchParams.get('post') || '';
+      if (isValidSoroSlug(post)) return Response.redirect(new URL(`/${post}`, url), 301);
+      return serveSoroBlogIndex(request, env);
+    }
+
     const soroImageKey = soroImageKeyFromPathname(url.pathname);
     if (soroImageKey) return serveSoroImage(request, env, soroImageKey);
 

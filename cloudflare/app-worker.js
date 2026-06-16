@@ -17,6 +17,13 @@ const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
 const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
 const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+const SORO_RSS_DEFAULT_URL =
+  'https://app.trysoro.com/api/rss/a07c133f-e3b9-401e-a076-ee36124598a7';
+const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
+const SORO_RSS_BACKUP_META_KEY = 'soro-rss-latest-good.meta.json';
+const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
+const SORO_ARTICLE_HTML_CACHE =
+  'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800';
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
@@ -944,7 +951,7 @@ async function handleRealtime(request, env) {
 }
 
 function esc(value) {
-  return value
+  return String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
@@ -982,6 +989,347 @@ function rewriteInviteMeta(html, code, origin) {
   rewritten = replaceMetaName(rewritten, 'twitter:description', description);
   rewritten = replaceMetaName(rewritten, 'twitter:image', imageUrl);
   return rewritten;
+}
+
+function stripCdata(value) {
+  const text = String(value ?? '').trim();
+  const match = text.match(/^<!\[CDATA\[([\s\S]*)\]\]>$/);
+  return match ? match[1] : text;
+}
+
+function decodeXmlText(value) {
+  return stripCdata(value)
+    .replace(/&#(\d+);/g, (_m, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_m, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function readRssTag(xml, tagName) {
+  const tag = escapeRegExp(tagName);
+  const match = String(xml).match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return match ? decodeXmlText(match[1]) : '';
+}
+
+function readRssAttr(xml, tagPattern, attrName) {
+  const tagMatch = String(xml).match(new RegExp(`<${tagPattern}\\b[^>]*>`, 'i'));
+  if (!tagMatch) return '';
+  const attr = escapeRegExp(attrName);
+  const attrMatch = tagMatch[0].match(new RegExp(`\\b${attr}=["']([^"']+)["']`, 'i'));
+  return attrMatch ? decodeXmlText(attrMatch[1]) : '';
+}
+
+function isValidSoroSlug(slug) {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length <= 120;
+}
+
+function extractSlugFromUrl(link) {
+  try {
+    const url = new URL(link);
+    const post = url.searchParams.get('post') || '';
+    if (isValidSoroSlug(post)) return post;
+    const parts = url.pathname.split('/').filter(Boolean);
+    const slug = parts[parts.length - 1] || '';
+    return isValidSoroSlug(slug) ? slug : '';
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'http:' || url.protocol === 'https:') return url.href;
+  } catch {
+    /* invalid URL */
+  }
+  return '';
+}
+
+function firstImageFromHtml(html) {
+  const match = String(html).match(/<img\b[^>]*\bsrc=(["'])(.*?)\1/i);
+  return match ? sanitizeUrl(decodeXmlText(match[2])) : '';
+}
+
+function sanitizeSoroArticleHtml(html) {
+  return String(html)
+    .replace(/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|meta)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|meta)\b[^>]*\/?>/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s+(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, ' $1="#"');
+}
+
+function parseSoroRss(xml) {
+  const items = [...String(xml).matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)];
+  return items
+    .map((match) => {
+      const item = match[1];
+      const title = readRssTag(item, 'title');
+      const link = readRssTag(item, 'link');
+      const slug = extractSlugFromUrl(link);
+      const description = readRssTag(item, 'description');
+      const pubDate = readRssTag(item, 'pubDate');
+      const guid = readRssTag(item, 'guid');
+      const content = readRssTag(item, 'content:encoded');
+      const mediaImage =
+        sanitizeUrl(readRssAttr(item, 'media:(?:content|thumbnail)', 'url')) ||
+        sanitizeUrl(readRssAttr(item, 'enclosure', 'url'));
+      const image = mediaImage || firstImageFromHtml(content);
+      return {
+        title,
+        slug,
+        link,
+        description,
+        pubDate,
+        guid,
+        content,
+        image,
+      };
+    })
+    .filter((article) => article.title && article.slug && article.content);
+}
+
+function isLikelyValidSoroFeed(xml, articles) {
+  return (
+    typeof xml === 'string' &&
+    xml.length > 0 &&
+    xml.length <= SORO_RSS_MAX_BYTES &&
+    /<rss\b/i.test(xml) &&
+    Array.isArray(articles) &&
+    articles.length > 0
+  );
+}
+
+async function readSoroBackup(env) {
+  if (!env.SORO_RSS_BACKUP) return { text: '', articles: [] };
+  const text = (await env.SORO_RSS_BACKUP.get(SORO_RSS_BACKUP_KEY)) || '';
+  const articles = text ? parseSoroRss(text) : [];
+  return { text, articles };
+}
+
+async function writeSoroBackup(env, ctx, text, articles, previousText, previousArticles) {
+  if (!env.SORO_RSS_BACKUP || text === previousText) return;
+  if (previousArticles.length && articles.length < previousArticles.length) return;
+
+  const metadata = {
+    updatedAt: new Date().toISOString(),
+    itemCount: articles.length,
+    bytes: text.length,
+  };
+  const write = Promise.all([
+    env.SORO_RSS_BACKUP.put(SORO_RSS_BACKUP_KEY, text),
+    env.SORO_RSS_BACKUP.put(SORO_RSS_BACKUP_META_KEY, JSON.stringify(metadata)),
+  ]);
+  if (ctx?.waitUntil) ctx.waitUntil(write);
+  else await write;
+}
+
+async function fetchLiveSoroRss(env) {
+  const rssUrl = String(env.SORO_RSS_URL || SORO_RSS_DEFAULT_URL).trim();
+  const response = await fetch(rssUrl, {
+    headers: {
+      Accept: 'application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1',
+    },
+  });
+  if (!response.ok) throw new Error(`Soro RSS HTTP ${response.status}`);
+  const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10);
+  if (contentLength > SORO_RSS_MAX_BYTES) throw new Error('Soro RSS too large');
+  const text = await response.text();
+  if (text.length > SORO_RSS_MAX_BYTES) throw new Error('Soro RSS too large');
+  const articles = parseSoroRss(text);
+  if (!isLikelyValidSoroFeed(text, articles)) throw new Error('Soro RSS invalid');
+  return { text, articles };
+}
+
+async function loadSoroFeeds(env, ctx) {
+  const backup = await readSoroBackup(env);
+  try {
+    const live = await fetchLiveSoroRss(env);
+    await writeSoroBackup(env, ctx, live.text, live.articles, backup.text, backup.articles);
+    return { live, backup, source: 'live' };
+  } catch (error) {
+    console.warn('[SoroBlog] live RSS unavailable:', error?.message || error);
+    return { live: { text: '', articles: [] }, backup, source: 'backup' };
+  }
+}
+
+function findSoroArticle(feeds, slug) {
+  const liveArticle = feeds.live.articles.find((article) => article.slug === slug);
+  if (liveArticle) return { article: liveArticle, source: 'live' };
+  const backupArticle = feeds.backup.articles.find((article) => article.slug === slug);
+  if (backupArticle) return { article: backupArticle, source: 'backup' };
+  return { article: null, source: '' };
+}
+
+function isPotentialSoroArticlePath(pathname) {
+  const match = pathname.match(/^\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/);
+  if (!match) return '';
+  const slug = match[1];
+  const reserved = new Set([
+    'about',
+    'blog',
+    'privacy',
+    'terms',
+    'faq',
+    'history',
+    'designsystem',
+    'landing',
+    'changelog',
+    'roadmap',
+    'index',
+    'robots',
+    'sitemap',
+  ]);
+  return reserved.has(slug) ? '' : slug;
+}
+
+function renderSoroArticleHtml(article, requestUrl, source) {
+  const url = new URL(requestUrl);
+  const pageUrl = `${url.origin}/${article.slug}`;
+  const blogUrl = `${url.origin}/blog`;
+  const title = `${article.title} · MUSIXQUARE`;
+  const description = article.description || 'MUSIXQUARE blog article.';
+  const image = article.image || `${url.origin}/og-blog.png`;
+  const published = article.pubDate ? new Date(article.pubDate).toISOString() : '';
+  const safeContent = sanitizeSoroArticleHtml(article.content);
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: article.title,
+    description,
+    datePublished: published || undefined,
+    image,
+    url: pageUrl,
+    mainEntityOfPage: pageUrl,
+    publisher: {
+      '@type': 'Organization',
+      name: 'MUSIXQUARE',
+      url: url.origin,
+    },
+  };
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#1a1a1a">
+  <title>${esc(title)}</title>
+  <link rel="canonical" href="${esc(pageUrl)}">
+  <link rel="alternate" type="application/rss+xml" title="MUSIXQUARE Blog RSS" href="${esc(String(SORO_RSS_DEFAULT_URL))}">
+  <meta name="description" content="${esc(description)}">
+  <meta property="og:title" content="${esc(article.title)}">
+  <meta property="og:description" content="${esc(description)}">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="MUSIXQUARE">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="${esc(pageUrl)}">
+  <meta property="og:image" content="${esc(image)}">
+  <meta property="og:image:alt" content="${esc(article.title)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${esc(article.title)}">
+  <meta name="twitter:description" content="${esc(description)}">
+  <meta name="twitter:image" content="${esc(image)}">
+  <link rel="icon" href="/designsystem/assets/favicon.svg">
+  <link rel="preload" href="/designsystem/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css">
+  <link rel="stylesheet" href="/designsystem/colors_and_type.css">
+  <link rel="stylesheet" href="/editorial-base.css">
+  <style>
+    .soro-article-page { max-width: 880px; padding-top: 168px; }
+    .soro-article-back { display: inline-flex; margin-bottom: 34px; color: #c6cbd6; font-size: 14px; font-weight: 800; }
+    .soro-article-title { margin: 0 0 14px; color: var(--text-main); font-size: clamp(38px, 6vw, 72px); line-height: 1.02; letter-spacing: 0; }
+    .soro-article-meta { margin: 0 0 32px; color: #9aa3b2; font-size: 14px; font-weight: 800; }
+    .soro-article-image { width: 100%; margin: 0 0 38px; display: block; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: var(--surface-2); }
+    .soro-article-content { color: #d7dbe4; font-size: 18px; line-height: 1.78; }
+    .soro-article-content p { margin: 0 0 18px; color: #d7dbe4; }
+    .soro-article-content h2, .soro-article-content h3 { color: var(--text-main); letter-spacing: 0; }
+    .soro-article-content h2 { margin: 44px 0 16px; font-size: 31px; line-height: 1.18; }
+    .soro-article-content h3 { margin: 32px 0 14px; font-size: 23px; line-height: 1.25; }
+    .soro-article-content ul, .soro-article-content ol { margin: 0 0 18px; padding-left: 24px; }
+    .soro-article-content li { margin-bottom: 8px; }
+    .soro-article-content a { color: #86b7ff; text-decoration: underline; text-underline-offset: 3px; }
+    .soro-article-content img { max-width: 100%; height: auto; border-radius: 8px; }
+    @media (max-width: 720px) {
+      .soro-article-page { padding-top: 118px; }
+      .soro-article-content { font-size: 16px; }
+      .soro-article-content h2 { font-size: 26px; }
+    }
+  </style>
+  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
+</head>
+<body class="editorial-page editorial-blog" data-soro-source="${esc(source)}">
+<header class="lp-header">
+  <div class="lp-header-progress" aria-hidden="true"></div>
+  <a class="lp-logo" href="https://musixquare.com" aria-label="MUSIXQUARE home">
+    <span class="editorial-wordmark" aria-hidden="true"></span>
+  </a>
+  <a class="lp-try" href="https://musixquare.com" aria-label="Try MUSIXQUARE now">
+    <span class="lp-try__dot" aria-hidden="true"></span>
+    <span>Try it now</span>
+  </a>
+</header>
+<nav class="editorial-site-tabs" aria-label="MUSIXQUARE editorial pages">
+  <div class="editorial-site-tabs__inner">
+    <a class="editorial-site-tab" href="/about">About</a>
+    <a class="editorial-site-tab is-active" href="/blog" aria-current="page">Blog</a>
+    <a class="editorial-site-tab" href="/history">History</a>
+    <a class="editorial-site-tab" href="/designsystem">Design</a>
+  </div>
+</nav>
+<main class="page soro-article-page">
+  <article>
+    <a class="soro-article-back" href="${esc(blogUrl)}">All articles</a>
+    <header>
+      <h1 class="soro-article-title">${esc(article.title)}</h1>
+      ${published ? `<time class="soro-article-meta" datetime="${esc(published)}">${esc(article.pubDate)}</time>` : ''}
+    </header>
+    ${image ? `<img class="soro-article-image" src="${esc(image)}" alt="${esc(article.title)}">` : ''}
+    <div class="soro-article-content">${safeContent}</div>
+  </article>
+</main>
+<footer>
+  <span>
+    © 2026 MUSIXQUARE
+    <span aria-hidden="true">·</span>
+    <a href="mailto:contact@musixquare.com">contact@musixquare.com</a>
+  </span>
+  <span>
+    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
+    <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">GitHub</a>
+    <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer">Discord</a>
+  </span>
+</footer>
+</body>
+</html>`;
+}
+
+async function serveSoroArticlePage(request, env, ctx, slug) {
+  const feeds = await loadSoroFeeds(env, ctx);
+  const { article, source } = findSoroArticle(feeds, slug);
+  if (!article) return null;
+
+  const headers = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': SORO_ARTICLE_HTML_CACHE,
+    'X-Soro-Article-Source': source,
+  };
+  if (request.method === 'HEAD') {
+    return withSecurityHeaders(new Response(null, { status: 200, headers }), headers);
+  }
+
+  return withSecurityHeaders(
+    new Response(renderSoroArticleHtml(article, request.url, source), { status: 200, headers }),
+    headers,
+  );
 }
 
 async function fetchAsset(env, request, pathname = null) {
@@ -1075,7 +1423,7 @@ function isLocalHttpHost(hostname) {
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
 }
 
-async function serveStatic(request, env) {
+async function serveStatic(request, env, ctx) {
   const url = new URL(request.url);
   const redirect = redirectTarget(url.pathname);
   if (redirect) return Response.redirect(new URL(redirect, url), 301);
@@ -1097,6 +1445,14 @@ async function serveStatic(request, env) {
       'Cache-Control': 'public, max-age=86400, s-maxage=604800',
       'X-OG-Source': 'static',
     });
+  }
+
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    const soroSlug = isPotentialSoroArticlePath(url.pathname);
+    if (soroSlug) {
+      const articleResponse = await serveSoroArticlePage(request, env, ctx, soroSlug);
+      if (articleResponse) return articleResponse;
+    }
   }
 
   const assetPathname = routeStaticPath(url.pathname);
@@ -1124,7 +1480,11 @@ async function serveStatic(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(loadSoroFeeds(env, ctx));
+  },
+
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.protocol === 'http:' && !isLocalHttpHost(url.hostname)) {
       url.protocol = 'https:';
@@ -1143,7 +1503,7 @@ export default {
       case '/api/cloudflare-realtime':
         return handleRealtime(request, env);
       default:
-        return serveStatic(request, env);
+        return serveStatic(request, env, ctx);
     }
   },
 };

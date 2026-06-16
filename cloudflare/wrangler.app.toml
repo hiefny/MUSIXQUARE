@@ -17,6 +17,13 @@ binding = "ASSETS"
 html_handling = "none"
 run_worker_first = ["/*"]
 
+[triggers]
+crons = ["0 */6 * * *"]
+
+[[kv_namespaces]]
+binding = "SORO_RSS_BACKUP"
+id = "fd1a24bab0524b5688d168e9bdb6c038"
+
 [vars]
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"

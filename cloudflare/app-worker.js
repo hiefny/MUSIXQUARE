@@ -1115,8 +1115,9 @@ async function readSoroBackup(env) {
 }
 
 async function writeSoroBackup(env, text, articles, previousText, previousArticles) {
-  if (!env.SORO_RSS_BACKUP || text === previousText) return;
-  if (previousArticles.length && articles.length < previousArticles.length) return;
+  if (!env.SORO_RSS_BACKUP) return 'unbound';
+  if (text === previousText) return 'unchanged';
+  if (previousArticles.length && articles.length < previousArticles.length) return 'skip-smaller';
 
   const metadata = {
     updatedAt: new Date().toISOString(),
@@ -1128,6 +1129,7 @@ async function writeSoroBackup(env, text, articles, previousText, previousArticl
     env.SORO_RSS_BACKUP.put(SORO_RSS_BACKUP_META_KEY, JSON.stringify(metadata)),
   ]);
   await write;
+  return 'written';
 }
 
 async function fetchLiveSoroRss(env) {
@@ -1151,11 +1153,17 @@ async function loadSoroFeeds(env) {
   const backup = await readSoroBackup(env);
   try {
     const live = await fetchLiveSoroRss(env);
-    await writeSoroBackup(env, live.text, live.articles, backup.text, backup.articles);
-    return { live, backup, source: 'live' };
+    const backupStatus = await writeSoroBackup(
+      env,
+      live.text,
+      live.articles,
+      backup.text,
+      backup.articles,
+    );
+    return { live, backup, source: 'live', backupStatus };
   } catch (error) {
     console.warn('[SoroBlog] live RSS unavailable:', error?.message || error);
-    return { live: { text: '', articles: [] }, backup, source: 'backup' };
+    return { live: { text: '', articles: [] }, backup, source: 'backup', backupStatus: 'live-error' };
   }
 }
 
@@ -1320,6 +1328,7 @@ async function serveSoroArticlePage(request, env, slug) {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': SORO_ARTICLE_HTML_CACHE,
     'X-Soro-Article-Source': source,
+    'X-Soro-Backup-Status': feeds.backupStatus || 'unknown',
   };
   if (request.method === 'HEAD') {
     return withSecurityHeaders(new Response(null, { status: 200, headers }), headers);

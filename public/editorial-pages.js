@@ -209,6 +209,25 @@
     });
   }
 
+  function initArticleEntryScroll() {
+    if (!document.body || document.body.getAttribute('data-soro-view') !== 'article') return;
+    if (window.location.hash) return;
+
+    var target = document.getElementById('articles');
+    if (!target) return;
+
+    function scrollToArticle() {
+      var y = target.getBoundingClientRect().top + window.pageYOffset;
+      window.scrollTo({ top: Math.max(0, y), behavior: 'auto' });
+      if (updateHeaderProgress) updateHeaderProgress();
+    }
+
+    window.requestAnimationFrame(function () {
+      scrollToArticle();
+      window.setTimeout(scrollToArticle, 120);
+    });
+  }
+
   function boot() {
     syncEditorialThemeChrome();
     initStandaloneMode();
@@ -217,6 +236,7 @@
     initScrollProgress();
     initEditorialPageLoader();
     initSmoothAnchor();
+    initArticleEntryScroll();
   }
 
   if (document.readyState === 'loading') {

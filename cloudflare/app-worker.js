@@ -1342,6 +1342,10 @@ function sanitizeSoroArticleHtml(html) {
     .replace(/\s+(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, ' $1="#"');
 }
 
+function replaceHtmlTag(html, pattern, replacement) {
+  return pattern.test(html) ? html.replace(pattern, replacement) : html;
+}
+
 function parseSoroRss(xml) {
   const items = [...String(xml).matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)];
   return items
@@ -1494,7 +1498,75 @@ function isPotentialSoroBlogArticlePath(pathname) {
   return match ? match[1] : '';
 }
 
-function renderSoroArticleHtml(article, requestUrl, source) {
+function renderSoroArticleBodyHtml(article, image, published, blogUrl, safeContent) {
+  return `<div class="soro-blog">
+    <article class="soro-blog-article">
+      <div class="soro-blog-header">
+        <a class="soro-blog-back" href="${esc(blogUrl)}">All articles</a>
+      </div>
+      <header>
+        <h1 class="soro-blog-article-title">${esc(article.title)}</h1>
+        ${published ? `<time class="soro-blog-article-date" datetime="${esc(published)}">${esc(article.pubDate)}</time>` : ''}
+      </header>
+      ${image ? `<img class="soro-blog-article-image" src="${esc(image)}" alt="${esc(article.title)}">` : ''}
+      <div class="soro-blog-article-content">${safeContent}</div>
+    </article>
+  </div>`;
+}
+
+function renderSoroArticleInBlogShell(templateHtml, article, requestUrl, source) {
+  const url = new URL(requestUrl);
+  const pageUrl = `${url.origin}${soroArticlePath(article.slug)}`;
+  const blogUrl = `${url.origin}/blog`;
+  const title = `${article.title} · MUSIXQUARE`;
+  const description = article.description || 'MUSIXQUARE blog article.';
+  const image = soroArticleImageUrl(article, url.origin, source);
+  const published = article.pubDate ? new Date(article.pubDate).toISOString() : '';
+  const safeContent = sanitizeSoroArticleHtml(article.content);
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: article.title,
+    description,
+    datePublished: published || undefined,
+    image,
+    url: pageUrl,
+    mainEntityOfPage: pageUrl,
+    publisher: {
+      '@type': 'Organization',
+      name: 'MUSIXQUARE',
+      url: url.origin,
+    },
+  };
+  const articleHtml = renderSoroArticleBodyHtml(article, image, published, blogUrl, safeContent);
+
+  let html = templateHtml
+    .replace('<div id="soro-blog"></div>', `<div id="soro-blog">${articleHtml}</div>`)
+    .replace(
+      /\n?<script src="https:\/\/app\.trysoro\.com\/api\/embed\/a07c133f-e3b9-401e-a076-ee36124598a7" defer><\/script>/,
+      '',
+    )
+    .replace('<body class="editorial-page editorial-blog">', `<body class="editorial-page editorial-blog" data-soro-source="${esc(source)}">`)
+    .replace('<h2>Latest articles</h2>', '<h2>Article</h2>');
+
+  html = replaceHtmlTag(html, /<title>[\s\S]*?<\/title>/i, `<title>${esc(title)}</title>`);
+  html = replaceHtmlTag(html, /<link rel="canonical" href="[^"]*">/i, `<link rel="canonical" href="${esc(pageUrl)}">`);
+  html = replaceHtmlTag(html, /<meta name="description" content="[^"]*">/i, `<meta name="description" content="${esc(description)}">`);
+  html = replaceHtmlTag(html, /<meta property="og:title" content="[^"]*">/i, `<meta property="og:title" content="${esc(article.title)}">`);
+  html = replaceHtmlTag(html, /<meta property="og:description" content="[^"]*">/i, `<meta property="og:description" content="${esc(description)}">`);
+  html = replaceHtmlTag(html, /<meta property="og:type" content="[^"]*">/i, '<meta property="og:type" content="article">');
+  html = replaceHtmlTag(html, /<meta property="og:url" content="[^"]*">/i, `<meta property="og:url" content="${esc(pageUrl)}">`);
+  html = replaceHtmlTag(html, /<meta property="og:image" content="[^"]*">/i, `<meta property="og:image" content="${esc(image)}">`);
+  html = replaceHtmlTag(html, /<meta property="og:image:alt" content="[^"]*">/i, `<meta property="og:image:alt" content="${esc(article.title)}">`);
+  html = replaceHtmlTag(html, /<meta name="twitter:title" content="[^"]*">/i, `<meta name="twitter:title" content="${esc(article.title)}">`);
+  html = replaceHtmlTag(html, /<meta name="twitter:description" content="[^"]*">/i, `<meta name="twitter:description" content="${esc(description)}">`);
+  html = replaceHtmlTag(html, /<meta name="twitter:image" content="[^"]*">/i, `<meta name="twitter:image" content="${esc(image)}">`);
+  return html.replace('</head>', `  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>\n</head>`);
+}
+
+function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
+  if (templateHtml) return renderSoroArticleInBlogShell(templateHtml, article, requestUrl, source);
+
   const url = new URL(requestUrl);
   const pageUrl = `${url.origin}${soroArticlePath(article.slug)}`;
   const blogUrl = `${url.origin}/blog`;
@@ -1633,8 +1705,14 @@ async function serveSoroArticlePage(request, env, slug) {
     return withSecurityHeaders(new Response(null, { status: 200, headers }), headers);
   }
 
+  const shellResponse = await fetchAsset(env, request, '/blog/index.html');
+  const shellContentType = shellResponse.headers.get('content-type') || '';
+  const shellHtml = shellContentType.includes('text/html') ? await shellResponse.text() : '';
   return withSecurityHeaders(
-    new Response(renderSoroArticleHtml(article, request.url, source), { status: 200, headers }),
+    new Response(renderSoroArticleHtml(article, request.url, source, shellHtml), {
+      status: 200,
+      headers,
+    }),
     headers,
   );
 }

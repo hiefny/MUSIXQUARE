@@ -242,7 +242,7 @@ const en: Record<I18nKey, string> = {
   'demo.external_playback_stopped':
     'Demo mode stopped the current YouTube or system-audio playback.',
   'setup.how_to_connect': 'How to connect',
-  'setup.set_role': 'Set Device Speaker Channel',
+  'setup.set_role': "Set this device's role",
   'setup.what_sound': 'What should this device play?',
   'setup.change_later': 'You can adjust this anytime in Settings.',
   'setup.welcome_title': 'Welcome',

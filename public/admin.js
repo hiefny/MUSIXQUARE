@@ -39,12 +39,16 @@ async function fetchJson(url, options = {}) {
 }
 
 function showLogin(message = '') {
+  root?.classList.add('is-login');
+  root?.classList.remove('is-dashboard');
   loginPanel.hidden = false;
   dashboard.hidden = true;
   setStatus(message);
 }
 
 function showDashboard() {
+  root?.classList.remove('is-login');
+  root?.classList.add('is-dashboard');
   loginPanel.hidden = true;
   dashboard.hidden = false;
 }

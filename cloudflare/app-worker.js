@@ -796,13 +796,16 @@ function renderAdminPage(request, env) {
 <body>
   <main class="admin-shell" data-admin-configured="${isAdminConfigured(env) ? 'true' : 'false'}">
     <section class="login-panel" data-login-panel>
-      <div class="brand">MUSIXQUARE</div>
-      <h1>Admin dashboard</h1>
+      <span class="admin-wordmark" aria-label="MUSIXQUARE"></span>
+      <h1>Admin Dashboard</h1>
       <form data-login-form>
-        <label for="admin-password">Password</label>
         <div class="login-row">
-          <input id="admin-password" name="password" type="password" autocomplete="current-password" required>
-          <button type="submit">Enter</button>
+          <input id="admin-password" class="login-password" name="password" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
+          <button class="login-submit" type="submit" aria-label="Log in">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.59 5.58L12 20l8-8-8-8z"></path>
+            </svg>
+          </button>
         </div>
         <p class="status" data-login-status></p>
       </form>
@@ -811,7 +814,7 @@ function renderAdminPage(request, env) {
     <section class="dashboard" data-dashboard hidden>
       <header class="dashboard-header">
         <div>
-          <div class="brand">MUSIXQUARE</div>
+          <span class="admin-wordmark admin-wordmark-small" aria-label="MUSIXQUARE"></span>
           <h1>Operations</h1>
           <p data-updated-at>Loading metrics...</p>
         </div>

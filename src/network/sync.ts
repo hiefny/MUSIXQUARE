@@ -55,13 +55,25 @@ import {
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
 let _wasPlaying = false;
+let _softFileDriftDirection: -1 | 0 | 1 = 0;
+let _softFileDriftSamples = 0;
+let _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
 
 const YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS = 1000;
 const FILE_SYNC_END_FENCE_SEC = 0.1;
+const FILE_HARD_RESYNC_DRIFT_SEC = 2;
+const FILE_SOFT_RESYNC_DRIFT_SEC = 0.05;
+const FILE_SOFT_RESYNC_REQUIRED_SAMPLES = 3;
+const FILE_SOFT_RESYNC_COOLDOWN_MS = 10_000;
 
 interface SyncPongPlaybackState {
   mode: PlaybackModeValue;
   activity: PlaybackActivityValue;
+}
+
+function resetSoftFileResyncState(): void {
+  _softFileDriftDirection = 0;
+  _softFileDriftSamples = 0;
 }
 
 function resetSyncClockRuntime(): void {
@@ -70,6 +82,8 @@ function resetSyncClockRuntime(): void {
   resetClockState();
   _syncPingCounter = 0;
   _needsInitialSync = false;
+  resetSoftFileResyncState();
+  _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
   // Drop any lingering local lock-screen pause so a fresh/reconnected guest is
   // not stuck suppressing its own bootstrap resume.
   setLocalFilePaused(false);
@@ -261,6 +275,40 @@ function getPlayableFileSyncPosition(estimatedHostPos: number): number | null {
   return syncPosition;
 }
 
+function maybeSoftResyncFile(syncPosition: number, localPosition: number): boolean {
+  const signedDrift = syncPosition - localPosition;
+  const absDrift = Math.abs(signedDrift);
+
+  if (absDrift < FILE_SOFT_RESYNC_DRIFT_SEC) {
+    resetSoftFileResyncState();
+    return false;
+  }
+
+  const now = Date.now();
+  if (now - _lastSoftFileResyncAt < FILE_SOFT_RESYNC_COOLDOWN_MS) {
+    resetSoftFileResyncState();
+    return false;
+  }
+
+  const direction: -1 | 1 = signedDrift > 0 ? 1 : -1;
+  if (direction === _softFileDriftDirection) {
+    _softFileDriftSamples += 1;
+  } else {
+    _softFileDriftDirection = direction;
+    _softFileDriftSamples = 1;
+  }
+
+  if (_softFileDriftSamples < FILE_SOFT_RESYNC_REQUIRED_SAMPLES) return false;
+
+  log.info(
+    `[Sync] Soft file resync: drift=${Math.round(signedDrift * 1000)}ms, samples=${_softFileDriftSamples}`,
+  );
+  _lastSoftFileResyncAt = now;
+  resetSoftFileResyncState();
+  play(syncPosition);
+  return true;
+}
+
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
   // 1. Liveness update (from old handleHeartbeat)
   try {
@@ -357,8 +405,14 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   //       cleared. Without bootstrap, the guest sits at 0:00 until the
   //       host pauses/seeks/re-plays — exactly the "first remote download
   //       won't auto-play" symptom.
-  if (!isSyncPongPlayingFile(data)) return;
-  if (!Number.isFinite(position)) return;
+  if (!isSyncPongPlayingFile(data)) {
+    resetSoftFileResyncState();
+    return;
+  }
+  if (!Number.isFinite(position)) {
+    resetSoftFileResyncState();
+    return;
+  }
 
   // A non-OP guest who locally paused (lock screen / hardware media button —
   // see media-session.ts) must not be auto-resumed by the host's SYNC_PONG
@@ -366,12 +420,16 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   // stays calibrated for when it resumes. Mirrors youtube/sync.ts's
   // isLocalYouTubePaused guard; cleared by the authoritative host PLAY/PAUSE
   // handlers (playback.ts) and on sync reset (resetSyncClockRuntime).
-  if (isLocalFilePaused()) return;
+  if (isLocalFilePaused()) {
+    resetSoftFileResyncState();
+    return;
+  }
 
   const hostElapsed = (getHostNow() - hostTime) / 1000;
   const estimatedHostPos = position + hostElapsed;
 
   if (!isPlaybackPlayingFile()) {
+    resetSoftFileResyncState();
     const lifecycle = getState('playback.lifecycle');
     if (
       lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
@@ -421,14 +479,21 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   // First pong after play start: unconditionally lock to host
   if (_needsInitialSync) {
     _needsInitialSync = false;
+    resetSoftFileResyncState();
     play(syncPosition);
     return;
   }
-  // Ongoing: correct if drift > 2s
-  const drift = Math.abs(syncPosition - getTrackPosition());
-  if (drift > 2) {
+  // Ongoing: hard-correct large divergence immediately; soft-correct stable
+  // small drift only after repeated same-direction observations to avoid
+  // chasing packet jitter with audible buffer restarts.
+  const localPosition = getTrackPosition();
+  const drift = Math.abs(syncPosition - localPosition);
+  if (drift > FILE_HARD_RESYNC_DRIFT_SEC) {
+    resetSoftFileResyncState();
     play(syncPosition);
+    return;
   }
+  maybeSoftResyncFile(syncPosition, localPosition);
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -573,6 +638,9 @@ function _resolveTargetForHost(arg: string): { peerId: string; label: string } |
 }
 
 export function initSync(): void {
+  resetSoftFileResyncState();
+  _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
+
   registerHandlers({
     [MSG.SYNC_PING]: handleSyncPing,
     [MSG.SYNC_PONG]: handleSyncPong,

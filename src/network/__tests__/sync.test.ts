@@ -313,6 +313,29 @@ describe('background resume recovery', () => {
 });
 
 describe('local-file sync correction', () => {
+  async function deliverPlayingFilePong(
+    conn: DataConnection,
+    pingId: number,
+    sentAtMs: number,
+    hostPositionSec: number,
+  ): Promise<void> {
+    vi.setSystemTime(sentAtMs);
+    registerPing(pingId);
+    vi.setSystemTime(sentAtMs + 50);
+
+    await handleData(
+      {
+        type: MSG.SYNC_PONG,
+        pingId,
+        hostTime: sentAtMs + 50,
+        position: hostPositionSec,
+        mode: 'file',
+        activity: 'playing',
+      },
+      conn,
+    );
+  }
+
   it('does not seek a guest to the decoded track end while waiting for host repeat', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);
@@ -389,6 +412,57 @@ describe('local-file sync correction', () => {
     );
 
     expect(transportMocks.play).toHaveBeenCalled();
+  });
+
+  it('soft-resyncs after three same-direction 50ms+ drift samples', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setPlaybackFilePlaying();
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+
+    // With a 50ms RTT sample and hostTime captured at receive time, the best
+    // shared-clock offset is +25ms. Host position 0.040s therefore estimates
+    // to 0.065s locally, while this jsdom transport has local position 0.
+    await deliverPlayingFilePong(hostConn, 101, 1000, 0.04);
+    await deliverPlayingFilePong(hostConn, 102, 2000, 0.04);
+    expect(transportMocks.play).not.toHaveBeenCalled();
+
+    await deliverPlayingFilePong(hostConn, 103, 3000, 0.04);
+
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+    expect(transportMocks.play.mock.calls[0][0]).toBeCloseTo(0.065, 3);
+  });
+
+  it('suppresses repeated soft-resync attempts during the cooldown window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setPlaybackFilePlaying();
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+
+    await deliverPlayingFilePong(hostConn, 201, 1000, 0.04);
+    await deliverPlayingFilePong(hostConn, 202, 2000, 0.04);
+    await deliverPlayingFilePong(hostConn, 203, 3000, 0.04);
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+
+    await deliverPlayingFilePong(hostConn, 204, 4000, 0.04);
+    await deliverPlayingFilePong(hostConn, 205, 5000, 0.04);
+    await deliverPlayingFilePong(hostConn, 206, 6000, 0.04);
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+
+    await deliverPlayingFilePong(hostConn, 207, 14_000, 0.04);
+    await deliverPlayingFilePong(hostConn, 208, 15_000, 0.04);
+    await deliverPlayingFilePong(hostConn, 209, 16_000, 0.04);
+    expect(transportMocks.play).toHaveBeenCalledTimes(2);
   });
 });
 

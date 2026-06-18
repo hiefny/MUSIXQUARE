@@ -311,26 +311,36 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     // READY — see Section 4 of the design doc.
     transition({ type: 'PLAY', time, index: incomingIndex, sameTrack: true });
 
-    // Shared Clock: schedule play at the host-specified time
+    // Shared Clock: schedule play at the host-specified time.
+    //
+    // hostPlayAt is produced as "host command time + SCHEDULE_AHEAD_MS" after
+    // the host has already started or retimed its own local-file playback.
+    // At the guest's actual start moment, the host position is therefore
+    // `time + elapsed since that host command`, not just `time + remaining
+    // wait`. Using only the remaining wait left guests behind by the message's
+    // one-way delivery time on Next/auto-advance/replay.
     const hostPlayAt = Number(data.hostPlayAt) || 0;
     if (hostPlayAt > 0) {
       const now = getHostNow();
-      const waitMs = Math.max(0, hostPlayAt - now);
+      const waitMsRaw = hostPlayAt - now;
+      const waitMs = Math.max(0, waitMsRaw);
       const offset = getClockOffset();
       const bestRtt = getClockBestRtt();
 
-      if (waitMs > 0 && waitMs < 2000) {
-        // Compensate: host has been playing during waitMs, so advance position
-        const compensatedTime = time + waitMs / 1000;
+      if (Math.abs(waitMsRaw) < 2000) {
+        const hostCommandAt = hostPlayAt - SCHEDULE_AHEAD_MS;
+        const guestStartAtHostTime = now + waitMs;
+        const elapsedSinceHostCommand = Math.max(0, guestStartAtHostTime - hostCommandAt);
+        const compensatedTime = time + elapsedSinceHostCommand / 1000;
         // Web Audio hardware-timed start — sub-ms precision (no setTimeout jitter)
         play(compensatedTime, waitMs / 1000);
         log.debug(
-          `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, WebAudio)`,
+          `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, commandAge=${elapsedSinceHostCommand.toFixed(0)}ms, WebAudio)`,
         );
         bus.emit('sync:arm-initial');
         scheduleSameTrackReplayResync(time, incomingIndex, currentTrackIndex);
       } else {
-        log.warn(`[SharedClock] waitMs out of range (${waitMs}ms), playing immediately`);
+        log.warn(`[SharedClock] waitMs out of range (${waitMsRaw}ms), playing immediately`);
         play(time);
         bus.emit('sync:arm-initial');
         scheduleSameTrackReplayResync(time, incomingIndex, currentTrackIndex);

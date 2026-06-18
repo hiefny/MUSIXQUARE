@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -183,15 +184,16 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   it('rejects Turnstile tokens solved on an unexpected hostname', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            success: true,
-            action: 'mxqr-capability',
-            hostname: 'evil.example',
-          }),
-          { headers: { 'Content-Type': 'application/json' } },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              action: 'mxqr-capability',
+              hostname: 'evil.example',
+            }),
+            { headers: { 'Content-Type': 'application/json' } },
+          ),
       ),
     );
     const env = {
@@ -220,15 +222,16 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   it('mints capability tokens for valid Turnstile action and hostname', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            success: true,
-            action: 'mxqr-capability',
-            hostname: 'musixquare.com',
-          }),
-          { headers: { 'Content-Type': 'application/json' } },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              action: 'mxqr-capability',
+              hostname: 'musixquare.com',
+            }),
+            { headers: { 'Content-Type': 'application/json' } },
+          ),
       ),
     );
     const env = {
@@ -258,15 +261,16 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   it('honors configured Turnstile hostname wildcard allowlists', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            success: true,
-            action: 'mxqr-capability',
-            hostname: 'preview.musixquare.com',
-          }),
-          { headers: { 'Content-Type': 'application/json' } },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              action: 'mxqr-capability',
+              hostname: 'preview.musixquare.com',
+            }),
+            { headers: { 'Content-Type': 'application/json' } },
+          ),
       ),
     );
     const env = {
@@ -580,6 +584,87 @@ describe('Cloudflare app worker YouTube search proxy', () => {
     expect(response.status).toBe(200);
     expect(payload.results?.[0]?.title).toBe('Ain\'t & "Too Cool" <Live> \u2019');
     expect(payload.results?.[0]?.channelTitle).toBe('LunchMoney & Crew');
+  });
+});
+
+describe('Cloudflare app worker admin dashboard', () => {
+  function createMetricsDb(rows: Array<{ bucket_minute: number; event: string; count: number }>) {
+    return {
+      prepare: vi.fn(() => ({
+        bind: vi.fn((sinceMinute: number) => ({
+          all: vi.fn(async () => ({
+            results: rows.filter((row) => row.bucket_minute >= sinceMinute),
+          })),
+        })),
+      })),
+    };
+  }
+
+  it('sets an HttpOnly admin session cookie and serves D1-backed metrics', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const nowMinute = Math.floor(Date.now() / 60000);
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MUSIXQUARE_ADMIN_DB: createMetricsDb([
+        { bucket_minute: nowMinute - 5, event: 'room_opened', count: 3 },
+        { bucket_minute: nowMinute - 4, event: 'guest_joined', count: 7 },
+        { bucket_minute: nowMinute - 3, event: 'guest_auth_failed', count: 1 },
+      ]),
+    };
+
+    const unauthenticated = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/metrics'),
+      env,
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.81' },
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie') || '';
+
+    expect(login.status).toBe(200);
+    expect(cookie).toContain('__Host-mxqr_admin=');
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Strict');
+    expect(cookie).toContain('Secure');
+
+    const metrics = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/metrics', {
+        headers: { Cookie: cookie.split(';')[0] },
+      }),
+      env,
+    );
+    const payload = (await metrics.json()) as {
+      cards?: Array<{ key: string; value: number }>;
+      summary?: { last24?: Record<string, number> };
+    };
+
+    expect(metrics.status).toBe(200);
+    expect(payload.summary?.last24?.room_opened).toBe(3);
+    expect(payload.summary?.last24?.guest_joined).toBe(7);
+    expect(payload.cards?.find((card) => card.key === 'guest_per_room')?.value).toBe(2.33);
+  });
+
+  it('keeps /admin unindexed and no-store cached', async () => {
+    const response = await appWorker.fetch(new Request('https://musixquare.com/admin'), {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+    });
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
+    expect(html).toContain('/admin.js');
   });
 });
 

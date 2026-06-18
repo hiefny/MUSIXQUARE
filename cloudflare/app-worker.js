@@ -30,6 +30,18 @@ const SORO_IMAGE_FETCH_TIMEOUT_MS = 5000;
 const SORO_IMAGE_ROUTE_PREFIX = '/soro-images/';
 const SORO_IMAGE_R2_PREFIX = 'featured/';
 const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
+const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
+const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
+const ADMIN_METRICS_TABLE = 'mxqr_metric_buckets';
+const ADMIN_METRIC_EVENTS = [
+  { key: 'room_opened', label: 'Rooms opened' },
+  { key: 'guest_joined', label: 'Guest joins' },
+  { key: 'host_reconnected', label: 'Host reconnects' },
+  { key: 'guest_host_unavailable', label: 'Guest host-missing errors' },
+  { key: 'guest_auth_pending', label: 'Password prompts' },
+  { key: 'guest_auth_failed', label: 'Password failures' },
+  { key: 'guest_auth_timeout', label: 'Password timeouts' },
+];
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
@@ -448,6 +460,405 @@ async function verifyCapabilityToken(token, request, env, requiredScope) {
 
   const expectedIp = await capabilityIpHash(secret, request);
   return constantTimeEqual(String(payload.ip || ''), expectedIp);
+}
+
+function getAdminPassword(env) {
+  return String(env.MXQR_ADMIN_PASSWORD || env.ADMIN_PASSWORD || '').trim();
+}
+
+function getAdminPasswordHash(env) {
+  return String(env.MXQR_ADMIN_PASSWORD_SHA256 || env.ADMIN_PASSWORD_SHA256 || '')
+    .trim()
+    .replace(/^sha256:/i, '')
+    .toLowerCase();
+}
+
+function getAdminSessionSecret(env) {
+  return String(env.MXQR_ADMIN_SESSION_SECRET || env.ADMIN_SESSION_SECRET || '').trim();
+}
+
+function isAdminConfigured(env) {
+  return !!((getAdminPassword(env) || getAdminPasswordHash(env)) && getAdminSessionSecret(env));
+}
+
+function getAdminDb(env) {
+  return env.MUSIXQUARE_ADMIN_DB || env.ADMIN_METRICS_DB || null;
+}
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function verifyAdminPassword(password, env) {
+  if (typeof password !== 'string' || !password) return false;
+  const storedHash = getAdminPasswordHash(env);
+  if (storedHash) return constantTimeEqual(await sha256Hex(password), storedHash);
+  const storedPassword = getAdminPassword(env);
+  return !!storedPassword && constantTimeEqual(password, storedPassword);
+}
+
+function readCookies(request) {
+  const header = request.headers.get('Cookie') || '';
+  const cookies = new Map();
+  for (const part of header.split(';')) {
+    const index = part.indexOf('=');
+    if (index <= 0) continue;
+    const name = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (name) cookies.set(name, value);
+  }
+  return cookies;
+}
+
+function adminCookieHeader(token, request, maxAge = ADMIN_SESSION_TTL_SECONDS) {
+  void request;
+  return `${ADMIN_SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${maxAge}`;
+}
+
+function clearAdminCookieHeader(request) {
+  return adminCookieHeader('', request, 0);
+}
+
+async function createAdminSessionToken(env) {
+  const now = Math.floor(Date.now() / 1000);
+  const random = new Uint8Array(16);
+  crypto.getRandomValues(random);
+  const payload = {
+    v: 1,
+    iat: now,
+    exp: now + ADMIN_SESSION_TTL_SECONDS,
+    nonce: bytesToBase64Url(random),
+  };
+  const payloadPart = stringToBase64Url(JSON.stringify(payload));
+  const signature = await hmacSha256(getAdminSessionSecret(env), payloadPart);
+  return `${payloadPart}.${signature}`;
+}
+
+async function verifyAdminSession(request, env) {
+  if (!isAdminConfigured(env)) return false;
+  const token = readCookies(request).get(ADMIN_SESSION_COOKIE) || '';
+  const parts = token.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+  const expectedSignature = await hmacSha256(getAdminSessionSecret(env), parts[0]);
+  if (!constantTimeEqual(expectedSignature, parts[1])) return false;
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlToString(parts[0]));
+  } catch {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  return (
+    payload?.v === 1 &&
+    typeof payload.iat === 'number' &&
+    typeof payload.exp === 'number' &&
+    payload.iat <= now + 60 &&
+    payload.exp > now
+  );
+}
+
+function adminApiMethodAllowed(request, methods) {
+  if (methods.includes(request.method)) return null;
+  return json({ error: 'METHOD_NOT_ALLOWED' }, 405, {
+    Allow: methods.join(', '),
+  });
+}
+
+async function handleAdminLogin(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['POST', 'OPTIONS']);
+  if (methodError) return methodError;
+  if (request.method === 'OPTIONS') return withSecurityHeaders(new Response(null, { status: 204 }));
+  if (!isAdminConfigured(env)) return json({ error: 'ADMIN_NOT_CONFIGURED' }, 503);
+  if (!(await checkRateLimit(request, 'admin-login', 10, 60))) {
+    return rateLimitResponse({});
+  }
+
+  const body = await request.json().catch(() => null);
+  const password = typeof body?.password === 'string' ? body.password : '';
+  if (!(await verifyAdminPassword(password, env))) {
+    return json({ error: 'INVALID_PASSWORD' }, 401);
+  }
+
+  const token = await createAdminSessionToken(env);
+  return json(
+    {
+      ok: true,
+      expiresIn: ADMIN_SESSION_TTL_SECONDS,
+    },
+    200,
+    {
+      'Set-Cookie': adminCookieHeader(token, request),
+    },
+  );
+}
+
+async function handleAdminLogout(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['POST']);
+  if (methodError) return methodError;
+  void env;
+  return json({ ok: true }, 200, {
+    'Set-Cookie': clearAdminCookieHeader(request),
+  });
+}
+
+async function handleAdminSession(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
+  if (methodError) return methodError;
+  const authenticated = await verifyAdminSession(request, env);
+  return json({
+    authenticated,
+    configured: isAdminConfigured(env),
+    databaseConfigured: !!getAdminDb(env),
+  });
+}
+
+function emptyAdminCounters() {
+  return Object.fromEntries(ADMIN_METRIC_EVENTS.map((event) => [event.key, 0]));
+}
+
+function addMetricCount(target, event, count) {
+  if (!Object.prototype.hasOwnProperty.call(target, event)) return;
+  target[event] += count;
+}
+
+function buildAdminMetricBuckets(rows, nowMs) {
+  const last24 = emptyAdminCounters();
+  const previous24 = emptyAdminCounters();
+  const last7 = emptyAdminCounters();
+  const hourStartMs = Math.floor(nowMs / 3600000) * 3600000;
+  const dayStartMs = Math.floor(nowMs / 86400000) * 86400000;
+  const hourly = [];
+  const daily = [];
+
+  for (let i = 23; i >= 0; i -= 1) {
+    const startMs = hourStartMs - i * 3600000;
+    hourly.push({
+      start: new Date(startMs).toISOString(),
+      events: emptyAdminCounters(),
+    });
+  }
+
+  for (let i = 6; i >= 0; i -= 1) {
+    const startMs = dayStartMs - i * 86400000;
+    daily.push({
+      start: new Date(startMs).toISOString(),
+      events: emptyAdminCounters(),
+    });
+  }
+
+  const last24Start = nowMs - 24 * 3600000;
+  const previous24Start = nowMs - 48 * 3600000;
+  const last7Start = nowMs - 7 * 86400000;
+
+  for (const row of rows) {
+    const event = String(row.event || '');
+    const count = Number(row.count || 0);
+    const bucketMs = Number(row.bucket_minute || 0) * 60000;
+    if (!event || !Number.isFinite(count) || !Number.isFinite(bucketMs)) continue;
+    if (bucketMs >= last7Start && bucketMs <= nowMs) addMetricCount(last7, event, count);
+    if (bucketMs >= last24Start && bucketMs <= nowMs) addMetricCount(last24, event, count);
+    else if (bucketMs >= previous24Start && bucketMs < last24Start) {
+      addMetricCount(previous24, event, count);
+    }
+  }
+
+  for (const row of rows) {
+    const event = String(row.event || '');
+    const count = Number(row.count || 0);
+    const bucketMs = Number(row.bucket_minute || 0) * 60000;
+    if (!event || !Number.isFinite(count) || !Number.isFinite(bucketMs)) continue;
+
+    for (const bucket of hourly) {
+      const startMs = Date.parse(bucket.start);
+      if (bucketMs >= startMs && bucketMs < startMs + 3600000) {
+        addMetricCount(bucket.events, event, count);
+        break;
+      }
+    }
+
+    for (const bucket of daily) {
+      const startMs = Date.parse(bucket.start);
+      if (bucketMs >= startMs && bucketMs < startMs + 86400000) {
+        addMetricCount(bucket.events, event, count);
+        break;
+      }
+    }
+  }
+
+  return { last24, previous24, last7, hourly, daily };
+}
+
+function metricDelta(current, previous) {
+  if (!previous) return current ? 100 : 0;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+async function readAdminMetrics(env) {
+  const db = getAdminDb(env);
+  if (!db?.prepare) return { error: 'ADMIN_DB_NOT_CONFIGURED', status: 503 };
+
+  const nowMs = Date.now();
+  const nowMinute = Math.floor(nowMs / 60000);
+  const sinceMinute = nowMinute - 7 * 24 * 60;
+  let result;
+  try {
+    result = await db
+      .prepare(
+        `SELECT bucket_minute, event, count
+         FROM ${ADMIN_METRICS_TABLE}
+         WHERE bucket_minute >= ?1
+         ORDER BY bucket_minute ASC`,
+      )
+      .bind(sinceMinute)
+      .all();
+  } catch (error) {
+    const message = String(error?.message || error || '');
+    if (/no such table/i.test(message)) {
+      return { error: 'ADMIN_METRICS_SCHEMA_MISSING', status: 503 };
+    }
+    return { error: 'ADMIN_METRICS_QUERY_FAILED', status: 500 };
+  }
+
+  const rows = Array.isArray(result?.results) ? result.results : [];
+  const buckets = buildAdminMetricBuckets(rows, nowMs);
+  const roomCount = buckets.last24.room_opened || 0;
+  const guestCount = buckets.last24.guest_joined || 0;
+  const authFailures =
+    (buckets.last24.guest_auth_failed || 0) + (buckets.last24.guest_auth_timeout || 0);
+
+  return {
+    generatedAt: new Date(nowMs).toISOString(),
+    events: ADMIN_METRIC_EVENTS,
+    cards: [
+      {
+        key: 'room_opened',
+        label: 'Rooms opened',
+        value: roomCount,
+        previous: buckets.previous24.room_opened || 0,
+        delta: metricDelta(roomCount, buckets.previous24.room_opened || 0),
+      },
+      {
+        key: 'guest_joined',
+        label: 'Guest joins',
+        value: guestCount,
+        previous: buckets.previous24.guest_joined || 0,
+        delta: metricDelta(guestCount, buckets.previous24.guest_joined || 0),
+      },
+      {
+        key: 'guest_per_room',
+        label: 'Guests per room',
+        value: roomCount ? Number((guestCount / roomCount).toFixed(2)) : 0,
+        previous: buckets.previous24.room_opened
+          ? Number((buckets.previous24.guest_joined / buckets.previous24.room_opened).toFixed(2))
+          : 0,
+      },
+      {
+        key: 'auth_issues',
+        label: 'Password issues',
+        value: authFailures,
+        previous:
+          (buckets.previous24.guest_auth_failed || 0) +
+          (buckets.previous24.guest_auth_timeout || 0),
+      },
+    ],
+    summary: buckets,
+  };
+}
+
+async function handleAdminMetrics(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+  const metrics = await readAdminMetrics(env);
+  if (metrics.error) return json({ error: metrics.error }, metrics.status || 500);
+  return json(metrics);
+}
+
+function renderAdminPage(request, env) {
+  const body =
+    request.method === 'HEAD'
+      ? null
+      : `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>MUSIXQUARE Admin</title>
+  <link rel="stylesheet" href="/admin.css">
+  <script src="/admin.js" defer></script>
+</head>
+<body>
+  <main class="admin-shell" data-admin-configured="${isAdminConfigured(env) ? 'true' : 'false'}">
+    <section class="login-panel" data-login-panel>
+      <div class="brand">MUSIXQUARE</div>
+      <h1>Admin dashboard</h1>
+      <form data-login-form>
+        <label for="admin-password">Password</label>
+        <div class="login-row">
+          <input id="admin-password" name="password" type="password" autocomplete="current-password" required>
+          <button type="submit">Enter</button>
+        </div>
+        <p class="status" data-login-status></p>
+      </form>
+    </section>
+
+    <section class="dashboard" data-dashboard hidden>
+      <header class="dashboard-header">
+        <div>
+          <div class="brand">MUSIXQUARE</div>
+          <h1>Operations</h1>
+          <p data-updated-at>Loading metrics...</p>
+        </div>
+        <div class="header-actions">
+          <button type="button" data-refresh>Refresh</button>
+          <button type="button" data-logout>Logout</button>
+        </div>
+      </header>
+      <section class="metric-grid" data-metric-cards></section>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Last 24 hours</h2>
+          <span>Room and guest activity by hour</span>
+        </div>
+        <div class="chart" data-hourly-chart></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Seven day trend</h2>
+          <span>Daily room opens and guest joins</span>
+        </div>
+        <div class="trend-list" data-daily-list></div>
+      </section>
+      <section class="panel compact">
+        <div class="panel-head">
+          <h2>Signals</h2>
+          <span>Password prompts, failures, host-missing guest attempts</span>
+        </div>
+        <div class="signal-grid" data-signal-grid></div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>`;
+
+  return withSecurityHeaders(
+    new Response(body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    }),
+    {
+      'X-Robots-Tag': 'noindex, nofollow',
+    },
+  );
 }
 
 async function verifyTurnstileToken(turnstileToken, request, env) {
@@ -1084,7 +1495,10 @@ function sanitizeSoroImageSource(value) {
 }
 
 function contentTypeToSoroImageExt(contentType) {
-  const type = String(contentType || '').split(';')[0].trim().toLowerCase();
+  const type = String(contentType || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
   switch (type) {
     case 'image/avif':
       return 'avif';
@@ -1336,8 +1750,14 @@ function firstImageFromHtml(html) {
 
 function sanitizeSoroArticleHtml(html) {
   return String(html)
-    .replace(/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|meta)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-    .replace(/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|meta)\b[^>]*\/?>/gi, '')
+    .replace(
+      /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|meta)\b[\s\S]*?<\s*\/\s*\1\s*>/gi,
+      '',
+    )
+    .replace(
+      /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|meta)\b[^>]*\/?>/gi,
+      '',
+    )
     .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/\s+(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, ' $1="#"');
 }
@@ -1546,22 +1966,72 @@ function renderSoroArticleInBlogShell(templateHtml, article, requestUrl, source)
       /\n?<script src="https:\/\/app\.trysoro\.com\/api\/embed\/a07c133f-e3b9-401e-a076-ee36124598a7" defer><\/script>/,
       '',
     )
-    .replace('<body class="editorial-page editorial-blog">', `<body class="editorial-page editorial-blog" data-soro-source="${esc(source)}" data-soro-view="article">`)
+    .replace(
+      '<body class="editorial-page editorial-blog">',
+      `<body class="editorial-page editorial-blog" data-soro-source="${esc(source)}" data-soro-view="article">`,
+    )
     .replace('<h2>Latest articles</h2>', '<h2>Article</h2>');
 
   html = replaceHtmlTag(html, /<title>[\s\S]*?<\/title>/i, `<title>${esc(title)}</title>`);
-  html = replaceHtmlTag(html, /<link rel="canonical" href="[^"]*">/i, `<link rel="canonical" href="${esc(pageUrl)}">`);
-  html = replaceHtmlTag(html, /<meta name="description" content="[^"]*">/i, `<meta name="description" content="${esc(description)}">`);
-  html = replaceHtmlTag(html, /<meta property="og:title" content="[^"]*">/i, `<meta property="og:title" content="${esc(article.title)}">`);
-  html = replaceHtmlTag(html, /<meta property="og:description" content="[^"]*">/i, `<meta property="og:description" content="${esc(description)}">`);
-  html = replaceHtmlTag(html, /<meta property="og:type" content="[^"]*">/i, '<meta property="og:type" content="article">');
-  html = replaceHtmlTag(html, /<meta property="og:url" content="[^"]*">/i, `<meta property="og:url" content="${esc(pageUrl)}">`);
-  html = replaceHtmlTag(html, /<meta property="og:image" content="[^"]*">/i, `<meta property="og:image" content="${esc(image)}">`);
-  html = replaceHtmlTag(html, /<meta property="og:image:alt" content="[^"]*">/i, `<meta property="og:image:alt" content="${esc(article.title)}">`);
-  html = replaceHtmlTag(html, /<meta name="twitter:title" content="[^"]*">/i, `<meta name="twitter:title" content="${esc(article.title)}">`);
-  html = replaceHtmlTag(html, /<meta name="twitter:description" content="[^"]*">/i, `<meta name="twitter:description" content="${esc(description)}">`);
-  html = replaceHtmlTag(html, /<meta name="twitter:image" content="[^"]*">/i, `<meta name="twitter:image" content="${esc(image)}">`);
-  return html.replace('</head>', `  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>\n</head>`);
+  html = replaceHtmlTag(
+    html,
+    /<link rel="canonical" href="[^"]*">/i,
+    `<link rel="canonical" href="${esc(pageUrl)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta name="description" content="[^"]*">/i,
+    `<meta name="description" content="${esc(description)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta property="og:title" content="[^"]*">/i,
+    `<meta property="og:title" content="${esc(article.title)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta property="og:description" content="[^"]*">/i,
+    `<meta property="og:description" content="${esc(description)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta property="og:type" content="[^"]*">/i,
+    '<meta property="og:type" content="article">',
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta property="og:url" content="[^"]*">/i,
+    `<meta property="og:url" content="${esc(pageUrl)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta property="og:image" content="[^"]*">/i,
+    `<meta property="og:image" content="${esc(image)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta property="og:image:alt" content="[^"]*">/i,
+    `<meta property="og:image:alt" content="${esc(article.title)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta name="twitter:title" content="[^"]*">/i,
+    `<meta name="twitter:title" content="${esc(article.title)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta name="twitter:description" content="[^"]*">/i,
+    `<meta name="twitter:description" content="${esc(description)}">`,
+  );
+  html = replaceHtmlTag(
+    html,
+    /<meta name="twitter:image" content="[^"]*">/i,
+    `<meta name="twitter:image" content="${esc(image)}">`,
+  );
+  return html.replace(
+    '</head>',
+    `  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>\n</head>`,
+  );
 }
 
 function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
@@ -1693,7 +2163,9 @@ async function serveSoroArticlePage(request, env, slug) {
   const feeds = await loadSoroFeeds(env);
   const { article, source } = findSoroArticle(feeds, slug);
   if (!article) return null;
-  const imageStatus = await ensureSoroImageMirror(env, article, { fetchMissing: source === 'live' });
+  const imageStatus = await ensureSoroImageMirror(env, article, {
+    fetchMissing: source === 'live',
+  });
 
   const headers = {
     'Content-Type': 'text/html; charset=utf-8',
@@ -1912,7 +2384,8 @@ async function serveStatic(request, env) {
     const soroBlogSlug = isPotentialSoroBlogArticlePath(url.pathname);
     if (soroBlogSlug) {
       const canonicalPath = soroArticlePath(soroBlogSlug);
-      if (url.pathname !== canonicalPath) return Response.redirect(new URL(canonicalPath, url), 301);
+      if (url.pathname !== canonicalPath)
+        return Response.redirect(new URL(canonicalPath, url), 301);
       const articleResponse = await serveSoroArticlePage(request, env, soroBlogSlug);
       return articleResponse || withSecurityHeaders(new Response('Not found', { status: 404 }));
     }
@@ -1964,6 +2437,13 @@ export default {
       return withSecurityHeaders(Response.redirect(url, 308));
     }
 
+    if (
+      (url.pathname === '/admin' || url.pathname === '/admin/') &&
+      (request.method === 'GET' || request.method === 'HEAD')
+    ) {
+      return renderAdminPage(request, env);
+    }
+
     switch (url.pathname) {
       case '/api/security-config':
         return handleSecurityConfig(request, env);
@@ -1975,6 +2455,14 @@ export default {
         return handleTurnConfig(request, env);
       case '/api/cloudflare-realtime':
         return handleRealtime(request, env);
+      case '/api/admin/login':
+        return handleAdminLogin(request, env);
+      case '/api/admin/logout':
+        return handleAdminLogout(request, env);
+      case '/api/admin/session':
+        return handleAdminSession(request, env);
+      case '/api/admin/metrics':
+        return handleAdminMetrics(request, env);
       default:
         return serveStatic(request, env);
     }

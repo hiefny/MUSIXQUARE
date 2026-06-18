@@ -3,7 +3,10 @@ import { resolve } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type WorkerModule = {
-  MusixquareRoom: new (state: FakeDurableObjectState) => {
+  MusixquareRoom: new (
+    state: FakeDurableObjectState,
+    env?: Record<string, unknown>,
+  ) => {
     fetch(request: Request): Promise<Response>;
     webSocketMessage(ws: FakeSocket, raw: string): Promise<void>;
     webSocketClose(ws: FakeSocket): Promise<void>;
@@ -211,6 +214,24 @@ function sent(ws: FakeSocket): unknown[] {
   return ws.sent.map((item) => JSON.parse(item));
 }
 
+function createMetricsEnv() {
+  const events: Array<{ bucketMinute: number; event: string }> = [];
+  return {
+    events,
+    env: {
+      MUSIXQUARE_ADMIN_DB: {
+        prepare: vi.fn(() => ({
+          bind: vi.fn((bucketMinute: number, event: string) => ({
+            run: vi.fn(async () => {
+              events.push({ bucketMinute, event });
+            }),
+          })),
+        })),
+      },
+    },
+  };
+}
+
 async function createHostRoom(): Promise<{
   room: InstanceType<WorkerModule['MusixquareRoom']>;
   state: FakeDurableObjectState;
@@ -329,6 +350,22 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       auth: 'ok',
     });
     expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
+  });
+
+  it('records aggregate room and guest metrics when a D1 binding exists', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+
+    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+
+    expect(metrics.events).toEqual([
+      { bucketMinute: Math.floor(Date.now() / 60000), event: 'room_opened' },
+      { bucketMinute: Math.floor(Date.now() / 60000), event: 'guest_joined' },
+    ]);
   });
 
   it('preserves guest-to-host and host-to-guest signaling wire shapes', async () => {

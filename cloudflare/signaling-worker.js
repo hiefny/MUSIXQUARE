@@ -4,6 +4,7 @@ const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
 const ATTACHMENT_VERSION = 1;
 const WS_RATE_LIMIT_PER_MINUTE = 120;
+const METRICS_TABLE = 'mxqr_metric_buckets';
 const SECURITY_HEADERS = {
   'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
   'x-content-type-options': 'nosniff',
@@ -97,6 +98,29 @@ function closeWithError(ws, errorType, message) {
   }
 }
 
+function getMetricsDb(env) {
+  return env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB || null;
+}
+
+async function recordMetric(env, event, now = Date.now()) {
+  const db = getMetricsDb(env);
+  if (!db?.prepare || typeof event !== 'string' || !event) return;
+  const bucketMinute = Math.floor(now / 60000);
+  try {
+    await db
+      .prepare(
+        `INSERT INTO ${METRICS_TABLE} (bucket_minute, event, count)
+         VALUES (?1, ?2, 1)
+         ON CONFLICT(bucket_minute, event)
+         DO UPDATE SET count = count + 1`,
+      )
+      .bind(bucketMinute, event)
+      .run();
+  } catch (error) {
+    console.warn('[Metrics] Failed to record signaling metric', event, error);
+  }
+}
+
 function defaultRoomMeta() {
   return {
     v: 1,
@@ -177,8 +201,9 @@ function closeSocket(ws, code, reason) {
 }
 
 export class MusixquareRoom {
-  constructor(state) {
+  constructor(state, env = {}) {
     this.state = state;
+    this.env = env;
     this.roomMeta = null;
     this.host = null;
     this.hostPeerId = null;
@@ -211,10 +236,7 @@ export class MusixquareRoom {
       // If the DO slept past the pending guest's authDeadline, don't leak
       // the slot — close immediately on hibernation wake so a real guest
       // can take its place. (10차 audit Phase 6 finding.)
-      if (
-        typeof attachment.authDeadline === 'number' &&
-        Date.now() > attachment.authDeadline
-      ) {
+      if (typeof attachment.authDeadline === 'number' && Date.now() > attachment.authDeadline) {
         try {
           ws.close(1011, 'auth timeout (hibernation)');
         } catch {
@@ -302,6 +324,7 @@ export class MusixquareRoom {
       return;
     }
 
+    const isNewRoom = !meta.roomSecret;
     if (this.host && this.host !== ws) {
       closeSocket(this.host, 1012, 'HOST_REPLACED');
     }
@@ -323,6 +346,7 @@ export class MusixquareRoom {
       hostPeerId: peerId,
       hostReleaseAt: 0,
     });
+    await recordMetric(this.env, isNewRoom ? 'room_opened' : 'host_reconnected');
     send(ws, { type: 'peer-open', peerId: roomId, roomId });
   }
 
@@ -330,16 +354,18 @@ export class MusixquareRoom {
     const meta = await this.loadRoomMeta();
     if (!this.host) {
       this.acceptSocket(ws, null, ['role:guest']);
+      await recordMetric(this.env, 'guest_host_unavailable');
       closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
       return;
     }
 
     if (meta.roomPassword) {
+      await recordMetric(this.env, 'guest_auth_pending');
       this.acceptPendingGuest(ws, roomId, peerId);
       return;
     }
 
-    this.completeGuestAccept(ws, roomId, peerId, false);
+    await this.completeGuestAccept(ws, roomId, peerId, false);
   }
 
   acceptPendingGuest(ws, roomId, peerId) {
@@ -390,6 +416,7 @@ export class MusixquareRoom {
       const att = readAttachment(sock);
       if (typeof att?.authDeadline === 'number' && now > att.authDeadline) {
         this.pendingGuests.delete(peerId);
+        await recordMetric(this.env, 'guest_auth_timeout');
         try {
           sock.close(1011, 'auth timeout (sweep)');
         } catch {
@@ -401,7 +428,7 @@ export class MusixquareRoom {
     this.scheduleAuthSweep();
   }
 
-  completeGuestAccept(ws, roomId, peerId, alreadyAccepted) {
+  async completeGuestAccept(ws, roomId, peerId, alreadyAccepted) {
     const previous = this.guests.get(peerId);
     if (previous && previous !== ws) {
       closeSocket(previous, 1012, 'GUEST_REPLACED');
@@ -423,6 +450,7 @@ export class MusixquareRoom {
 
     this.pendingGuests.delete(peerId);
     this.guests.set(peerId, ws);
+    await recordMetric(this.env, 'guest_joined');
     send(ws, { type: 'peer-open', peerId, roomId });
   }
 
@@ -454,6 +482,7 @@ export class MusixquareRoom {
     }
     if (Date.now() > attachment.authDeadline) {
       this.pendingGuests.delete(attachment.peerId);
+      await recordMetric(this.env, 'guest_auth_timeout');
       closeWithError(ws, 'room-password-auth-timeout', 'ROOM_PASSWORD_AUTH_TIMEOUT');
       return;
     }
@@ -465,16 +494,18 @@ export class MusixquareRoom {
     const password = typeof message.password === 'string' ? message.password : '';
     if (!password) {
       this.pendingGuests.delete(attachment.peerId);
+      await recordMetric(this.env, 'guest_auth_failed');
       closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
       return;
     }
     if (password !== meta.roomPassword) {
       this.pendingGuests.delete(attachment.peerId);
+      await recordMetric(this.env, 'guest_auth_failed');
       closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
       return;
     }
 
-    this.completeGuestAccept(ws, attachment.roomId, attachment.peerId, true);
+    await this.completeGuestAccept(ws, attachment.roomId, attachment.peerId, true);
   }
 
   handleGuestMessage(peerId, raw) {

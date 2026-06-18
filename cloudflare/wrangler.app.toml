@@ -28,6 +28,12 @@ bucket_name = "musixquare-soro-images"
 binding = "SORO_RSS_BACKUP"
 id = "fd1a24bab0524b5688d168e9bdb6c038"
 
+# Admin dashboard metrics shared with the signaling Worker.
+[[d1_databases]]
+binding = "MUSIXQUARE_ADMIN_DB"
+database_name = "musixquare-admin-metrics"
+database_id = "d6cc9ceb-f0b6-40e4-99aa-8f28bec412ed"
+
 [vars]
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"

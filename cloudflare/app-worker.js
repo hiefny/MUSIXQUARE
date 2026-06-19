@@ -804,6 +804,7 @@ function renderAdminPage(request, env) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>MUSIXQUARE Admin</title>
+  <link rel="icon" href="/designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="/admin.css">
   <script src="/admin.js" defer></script>
 </head>
@@ -841,28 +842,24 @@ function renderAdminPage(request, env) {
       <section class="panel">
         <div class="panel-head">
           <h2>Last 24 hours</h2>
-          <span>Room and guest activity by hour</span>
         </div>
         <div class="chart" data-hourly-chart></div>
       </section>
       <section class="panel">
         <div class="panel-head">
           <h2>Seven day trend</h2>
-          <span>Daily room opens and guest joins</span>
         </div>
         <div class="trend-list" data-daily-list></div>
       </section>
       <section class="panel">
         <div class="panel-head">
           <h2>Thirty day trend</h2>
-          <span>Daily activity scaled to the busiest day</span>
         </div>
         <div class="spectrum-chart" data-monthly-chart></div>
       </section>
       <section class="panel compact">
         <div class="panel-head">
           <h2>Signals</h2>
-          <span>Password prompts, failures, host-missing guest attempts</span>
         </div>
         <div class="signal-grid" data-signal-grid></div>
       </section>

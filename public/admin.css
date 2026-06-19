@@ -409,6 +409,83 @@ p {
   background: var(--warn);
 }
 
+.spectrum-chart {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 12px;
+  min-height: 230px;
+}
+
+.spectrum-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2px 0 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.spectrum-bars {
+  display: grid;
+  grid-template-columns: repeat(30, minmax(7px, 1fr));
+  align-items: end;
+  gap: 5px;
+  min-width: 0;
+  min-height: 206px;
+  padding: 2px 0 0;
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 2px / 100% 50%,
+    linear-gradient(to top, var(--divider), var(--divider)) 0 calc(100% - 24px) / 100% 1px no-repeat;
+}
+
+.spectrum-bar {
+  display: grid;
+  grid-template-rows: 1fr 18px;
+  align-items: end;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  overflow: visible;
+}
+
+.spectrum-column {
+  align-self: end;
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
+  min-height: 3%;
+  overflow: hidden;
+  border-radius: var(--radius-pill) var(--radius-pill) 3px 3px;
+  background: var(--surface-2);
+  box-shadow: 0 0 18px rgba(var(--primary-rgb), 0.08);
+}
+
+.spectrum-fill {
+  display: block;
+  width: 100%;
+}
+
+.spectrum-fill.rooms {
+  background: linear-gradient(to top, rgba(var(--primary-rgb), 0.68), var(--primary));
+}
+
+.spectrum-fill.guests {
+  background: linear-gradient(to top, rgba(74, 222, 128, 0.65), var(--pass));
+}
+
+.spectrum-date {
+  justify-self: center;
+  width: 34px;
+  overflow: visible;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .signal-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -448,6 +525,14 @@ p {
   .signal-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .spectrum-chart {
+    grid-template-columns: 36px 1fr;
+  }
+
+  .spectrum-bars {
+    gap: 3px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -465,6 +550,31 @@ p {
   .panel-head {
     align-items: start;
     flex-direction: column;
+  }
+
+  .spectrum-chart {
+    grid-template-columns: 32px 1fr;
+    min-height: 190px;
+  }
+
+  .spectrum-axis {
+    padding-bottom: 20px;
+    font-size: 10px;
+  }
+
+  .spectrum-bars {
+    grid-template-columns: repeat(30, minmax(4px, 1fr));
+    gap: 2px;
+    min-height: 170px;
+  }
+
+  .spectrum-bar {
+    grid-template-rows: 1fr 14px;
+    gap: 4px;
+  }
+
+  .spectrum-date {
+    font-size: 9px;
   }
 }
 

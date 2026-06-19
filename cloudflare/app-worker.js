@@ -17,8 +17,7 @@ const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
 const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
 const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
-const SORO_RSS_DEFAULT_URL =
-  'https://app.trysoro.com/api/rss/a07c133f-e3b9-401e-a076-ee36124598a7';
+const SORO_RSS_DEFAULT_URL = 'https://app.trysoro.com/api/rss/a07c133f-e3b9-401e-a076-ee36124598a7';
 const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
 const SORO_RSS_BACKUP_META_KEY = 'soro-rss-latest-good.meta.json';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
@@ -331,9 +330,7 @@ function allowTrustedOriginCapabilityFallback(env) {
 }
 
 function allowUnguardedPaidApis(env) {
-  const raw = String(
-    env.MXQR_ALLOW_UNGUARDED_PAID_APIS ?? env.ALLOW_UNGUARDED_PAID_APIS ?? 'false',
-  )
+  const raw = String(env.MXQR_ALLOW_UNGUARDED_PAID_APIS ?? env.ALLOW_UNGUARDED_PAID_APIS ?? 'false')
     .trim()
     .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes';
@@ -634,6 +631,7 @@ function buildAdminMetricBuckets(rows, nowMs) {
   const dayStartMs = Math.floor(nowMs / 86400000) * 86400000;
   const hourly = [];
   const daily = [];
+  const daily30 = [];
 
   for (let i = 23; i >= 0; i -= 1) {
     const startMs = hourStartMs - i * 3600000;
@@ -646,6 +644,14 @@ function buildAdminMetricBuckets(rows, nowMs) {
   for (let i = 6; i >= 0; i -= 1) {
     const startMs = dayStartMs - i * 86400000;
     daily.push({
+      start: new Date(startMs).toISOString(),
+      events: emptyAdminCounters(),
+    });
+  }
+
+  for (let i = 29; i >= 0; i -= 1) {
+    const startMs = dayStartMs - i * 86400000;
+    daily30.push({
       start: new Date(startMs).toISOString(),
       events: emptyAdminCounters(),
     });
@@ -688,9 +694,17 @@ function buildAdminMetricBuckets(rows, nowMs) {
         break;
       }
     }
+
+    for (const bucket of daily30) {
+      const startMs = Date.parse(bucket.start);
+      if (bucketMs >= startMs && bucketMs < startMs + 86400000) {
+        addMetricCount(bucket.events, event, count);
+        break;
+      }
+    }
   }
 
-  return { last24, previous24, last7, hourly, daily };
+  return { last24, previous24, last7, hourly, daily, daily30 };
 }
 
 function metricDelta(current, previous) {
@@ -704,7 +718,7 @@ async function readAdminMetrics(env) {
 
   const nowMs = Date.now();
   const nowMinute = Math.floor(nowMs / 60000);
-  const sinceMinute = nowMinute - 7 * 24 * 60;
+  const sinceMinute = nowMinute - 30 * 24 * 60;
   let result;
   try {
     result = await db
@@ -837,6 +851,13 @@ function renderAdminPage(request, env) {
           <span>Daily room opens and guest joins</span>
         </div>
         <div class="trend-list" data-daily-list></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Thirty day trend</h2>
+          <span>Daily activity scaled to the busiest day</span>
+        </div>
+        <div class="spectrum-chart" data-monthly-chart></div>
       </section>
       <section class="panel compact">
         <div class="panel-head">

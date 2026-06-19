@@ -6,6 +6,7 @@ const loginStatus = document.querySelector('[data-login-status]');
 const cardsEl = document.querySelector('[data-metric-cards]');
 const hourlyEl = document.querySelector('[data-hourly-chart]');
 const dailyEl = document.querySelector('[data-daily-list]');
+const monthlyEl = document.querySelector('[data-monthly-chart]');
 const signalEl = document.querySelector('[data-signal-grid]');
 const updatedAtEl = document.querySelector('[data-updated-at]');
 const refreshBtn = document.querySelector('[data-refresh]');
@@ -90,6 +91,11 @@ function dayLabel(iso) {
   }).format(new Date(iso));
 }
 
+function compactDayLabel(iso) {
+  const date = new Date(iso);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
 function renderHourlyChart(hourly) {
   const max = Math.max(
     1,
@@ -141,6 +147,51 @@ function renderDailyList(daily) {
   );
 }
 
+function renderMonthlyChart(daily30) {
+  if (!monthlyEl) return;
+  const totals = daily30.map((bucket) => {
+    const rooms = bucket.events.room_opened || 0;
+    const guests = bucket.events.guest_joined || 0;
+    return rooms + guests;
+  });
+  const max = Math.max(1, ...totals);
+  const mid = Math.ceil(max / 2);
+  const ticks = max > 1 ? [max, mid, 0] : [1, 0];
+
+  const axis = document.createElement('div');
+  axis.className = 'spectrum-axis';
+  axis.setAttribute('aria-hidden', 'true');
+  axis.innerHTML = ticks.map((tick) => `<span>${formatter.format(tick)}</span>`).join('');
+
+  const bars = document.createElement('div');
+  bars.className = 'spectrum-bars';
+  bars.setAttribute('role', 'list');
+
+  daily30.forEach((bucket, index) => {
+    const rooms = bucket.events.room_opened || 0;
+    const guests = bucket.events.guest_joined || 0;
+    const total = rooms + guests;
+    const label = compactDayLabel(bucket.start);
+    const bar = document.createElement('div');
+    bar.className = 'spectrum-bar';
+    bar.setAttribute('role', 'listitem');
+    bar.setAttribute(
+      'aria-label',
+      `${label}: ${formatter.format(total)} total activity, ${formatter.format(rooms)} rooms, ${formatter.format(guests)} guest joins`,
+    );
+    bar.innerHTML = `
+      <span class="spectrum-column" style="height:${Math.max(3, (total / max) * 100)}%">
+        <span class="spectrum-fill rooms" style="height:${total ? (rooms / total) * 100 : 0}%"></span>
+        <span class="spectrum-fill guests" style="height:${total ? (guests / total) * 100 : 0}%"></span>
+      </span>
+      <span class="spectrum-date">${index % 5 === 0 || index === daily30.length - 1 ? label : ''}</span>
+    `;
+    bars.appendChild(bar);
+  });
+
+  monthlyEl.replaceChildren(axis, bars);
+}
+
 function renderSignals(summary) {
   const last24 = summary.last24 || {};
   const signals = [
@@ -167,6 +218,7 @@ async function loadMetrics() {
   renderCards(metrics.cards || []);
   renderHourlyChart(metrics.summary?.hourly || []);
   renderDailyList(metrics.summary?.daily || []);
+  renderMonthlyChart(metrics.summary?.daily30 || []);
   renderSignals(metrics.summary || {});
   updatedAtEl.textContent = `Updated ${new Date(metrics.generatedAt).toLocaleString()}`;
 }

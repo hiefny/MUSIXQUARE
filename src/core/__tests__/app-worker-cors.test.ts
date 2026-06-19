@@ -608,6 +608,8 @@ describe('Cloudflare app worker admin dashboard', () => {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
       MUSIXQUARE_ADMIN_DB: createMetricsDb([
+        { bucket_minute: nowMinute - 31 * 24 * 60, event: 'guest_joined', count: 99 },
+        { bucket_minute: nowMinute - 29 * 24 * 60, event: 'guest_joined', count: 4 },
         { bucket_minute: nowMinute - 5, event: 'room_opened', count: 3 },
         { bucket_minute: nowMinute - 4, event: 'guest_joined', count: 7 },
         { bucket_minute: nowMinute - 3, event: 'guest_auth_failed', count: 1 },
@@ -644,12 +646,22 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const payload = (await metrics.json()) as {
       cards?: Array<{ key: string; value: number }>;
-      summary?: { last24?: Record<string, number> };
+      summary?: {
+        last24?: Record<string, number>;
+        daily?: Array<{ events: Record<string, number> }>;
+        daily30?: Array<{ events: Record<string, number> }>;
+      };
     };
 
     expect(metrics.status).toBe(200);
     expect(payload.summary?.last24?.room_opened).toBe(3);
     expect(payload.summary?.last24?.guest_joined).toBe(7);
+    expect(payload.summary?.daily).toHaveLength(7);
+    expect(payload.summary?.daily30).toHaveLength(30);
+    expect(payload.summary?.daily30?.[0]?.events.guest_joined).toBe(4);
+    expect(
+      payload.summary?.daily30?.reduce((sum, bucket) => sum + bucket.events.guest_joined, 0),
+    ).toBe(11);
     expect(payload.cards?.find((card) => card.key === 'guest_per_room')?.value).toBe(2.33);
   });
 

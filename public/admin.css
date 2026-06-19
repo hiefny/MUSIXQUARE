@@ -441,6 +441,7 @@ p {
 }
 
 .spectrum-bar {
+  position: relative;
   display: grid;
   grid-template-rows: 1fr 18px;
   align-items: end;
@@ -455,6 +456,8 @@ p {
   display: flex;
   flex-direction: column-reverse;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 3%;
   overflow: hidden;
   border-radius: var(--radius-pill) var(--radius-pill) 3px 3px;
@@ -476,13 +479,16 @@ p {
 }
 
 .spectrum-date {
-  justify-self: center;
-  width: 34px;
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: max-content;
   overflow: visible;
   color: var(--text-muted);
   font-size: 10px;
   line-height: 1.2;
   text-align: center;
+  transform: translateX(-50%);
   white-space: nowrap;
 }
 

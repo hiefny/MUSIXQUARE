@@ -1,6 +1,7 @@
 const root = document.querySelector('.admin-shell');
 const loginPanel = document.querySelector('[data-login-panel]');
 const dashboard = document.querySelector('[data-dashboard]');
+const dashboardTitle = document.querySelector('[data-dashboard-title]');
 const loginForm = document.querySelector('[data-login-form]');
 const loginStatus = document.querySelector('[data-login-status]');
 const cardsEl = document.querySelector('[data-metric-cards]');
@@ -8,11 +9,18 @@ const hourlyEl = document.querySelector('[data-hourly-chart]');
 const dailyEl = document.querySelector('[data-daily-list]');
 const monthlyEl = document.querySelector('[data-monthly-chart]');
 const signalEl = document.querySelector('[data-signal-grid]');
+const adminTabs = [...document.querySelectorAll('[data-admin-tab]')];
+const adminViews = [...document.querySelectorAll('[data-admin-view]')];
+const articleListEl = document.querySelector('[data-article-list]');
+const articleStatusEl = document.querySelector('[data-article-status]');
+const articlesRefreshBtn = document.querySelector('[data-articles-refresh]');
 const updatedAtEl = document.querySelector('[data-updated-at]');
 const refreshBtn = document.querySelector('[data-refresh]');
 const logoutBtn = document.querySelector('[data-logout]');
 
 const formatter = new Intl.NumberFormat();
+let currentAdminTab = 'operations';
+let articlesLoaded = false;
 
 function setStatus(message, isError = false) {
   if (!loginStatus) return;
@@ -58,6 +66,32 @@ function formatDelta(value) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '';
   if (value === 0) return 'same as previous 24h';
   return `${value > 0 ? '+' : ''}${value}% vs previous 24h`;
+}
+
+function formatArticleDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+function setActiveTab(tab) {
+  currentAdminTab = tab;
+  adminTabs.forEach((button) => {
+    const active = button.dataset.adminTab === tab;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  adminViews.forEach((view) => {
+    const active = view.dataset.adminView === tab;
+    view.hidden = !active;
+    view.classList.toggle('is-active', active);
+  });
+  if (dashboardTitle) dashboardTitle.textContent = tab === 'articles' ? 'Articles' : 'Operations';
 }
 
 function renderCards(cards) {
@@ -215,12 +249,90 @@ async function loadMetrics() {
   updatedAtEl.textContent = 'Refreshing...';
   const metrics = await fetchJson('/api/admin/metrics');
   showDashboard();
+  setActiveTab('operations');
   renderCards(metrics.cards || []);
   renderHourlyChart(metrics.summary?.hourly || []);
   renderDailyList(metrics.summary?.daily || []);
   renderMonthlyChart(metrics.summary?.daily30 || []);
   renderSignals(metrics.summary || {});
   updatedAtEl.textContent = `Updated ${new Date(metrics.generatedAt).toLocaleString()}`;
+}
+
+function renderArticleRow(article) {
+  const item = document.createElement('article');
+  item.className = 'article-item';
+  item.classList.toggle('is-hidden', Boolean(article.hidden));
+
+  const body = document.createElement('div');
+  body.className = 'article-body';
+
+  const title = document.createElement('strong');
+  title.textContent = article.title || article.slug;
+
+  const meta = document.createElement('span');
+  const parts = [formatArticleDate(article.pubDate), article.slug, article.source].filter(Boolean);
+  meta.textContent = parts.join(' · ');
+
+  body.append(title, meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'article-actions';
+
+  const open = document.createElement('a');
+  open.href = article.href || `/blog/${article.slug}`;
+  open.target = '_blank';
+  open.rel = 'noopener noreferrer';
+  open.textContent = 'Open';
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'article-toggle';
+  toggle.textContent = article.hidden ? 'Restore' : 'Hide';
+  toggle.addEventListener('click', async () => {
+    toggle.disabled = true;
+    toggle.textContent = article.hidden ? 'Restoring...' : 'Hiding...';
+    try {
+      await fetchJson('/api/admin/articles/visibility', {
+        method: 'POST',
+        body: JSON.stringify({ slug: article.slug, hidden: !article.hidden }),
+      });
+      await loadArticles();
+    } catch (error) {
+      toggle.disabled = false;
+      toggle.textContent = article.hidden ? 'Restore' : 'Hide';
+      if (articleStatusEl) articleStatusEl.textContent = error.message || 'Article update failed.';
+    }
+  });
+
+  actions.append(open, toggle);
+  item.append(body, actions);
+  return item;
+}
+
+function renderArticles(payload) {
+  const articles = payload.articles || [];
+  const visibleCount = articles.filter((article) => !article.hidden).length;
+  const hiddenCount = articles.length - visibleCount;
+  if (articleStatusEl) {
+    articleStatusEl.textContent = `${formatter.format(visibleCount)} visible · ${formatter.format(hiddenCount)} hidden`;
+  }
+  if (!articleListEl) return;
+  if (!articles.length) {
+    const empty = document.createElement('p');
+    empty.className = 'article-empty';
+    empty.textContent = 'No articles found.';
+    articleListEl.replaceChildren(empty);
+    return;
+  }
+  articleListEl.replaceChildren(...articles.map(renderArticleRow));
+}
+
+async function loadArticles() {
+  if (articleStatusEl) articleStatusEl.textContent = 'Refreshing...';
+  const payload = await fetchJson('/api/admin/articles');
+  renderArticles(payload);
+  articlesLoaded = true;
+  updatedAtEl.textContent = `Updated ${new Date(payload.generatedAt).toLocaleString()}`;
 }
 
 async function init() {
@@ -259,8 +371,27 @@ loginForm?.addEventListener('submit', async (event) => {
 });
 
 refreshBtn?.addEventListener('click', () => {
-  loadMetrics().catch((error) => {
+  const load = currentAdminTab === 'articles' ? loadArticles : loadMetrics;
+  load().catch((error) => {
     updatedAtEl.textContent = error.message || 'Refresh failed.';
+  });
+});
+
+articlesRefreshBtn?.addEventListener('click', () => {
+  loadArticles().catch((error) => {
+    if (articleStatusEl) articleStatusEl.textContent = error.message || 'Refresh failed.';
+  });
+});
+
+adminTabs.forEach((button) => {
+  button.addEventListener('click', () => {
+    const tab = button.dataset.adminTab || 'operations';
+    setActiveTab(tab);
+    if (tab === 'articles' && !articlesLoaded) {
+      loadArticles().catch((error) => {
+        if (articleStatusEl) articleStatusEl.textContent = error.message || 'Refresh failed.';
+      });
+    }
   });
 });
 

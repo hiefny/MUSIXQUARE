@@ -20,6 +20,7 @@ const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v
 const SORO_RSS_DEFAULT_URL = 'https://app.trysoro.com/api/rss/a07c133f-e3b9-401e-a076-ee36124598a7';
 const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
 const SORO_RSS_BACKUP_META_KEY = 'soro-rss-latest-good.meta.json';
+const SORO_HIDDEN_SLUGS_KEY = 'soro-hidden-slugs.json';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_ARTICLE_HTML_CACHE =
@@ -793,6 +794,70 @@ async function handleAdminMetrics(request, env) {
   return json(metrics);
 }
 
+function buildAdminArticleRows(feeds, hiddenSlugs) {
+  const bySlug = new Map();
+  const addArticle = (article, source) => {
+    if (!article?.slug || !isValidSoroSlug(article.slug)) return;
+    const existing = bySlug.get(article.slug);
+    if (!existing || source === 'live') {
+      bySlug.set(article.slug, {
+        title: article.title || article.slug,
+        slug: article.slug,
+        pubDate: article.pubDate || '',
+        description: article.description || '',
+        image: article.image || '',
+        href: soroArticlePath(article.slug),
+        source,
+        hidden: hiddenSlugs.has(article.slug),
+      });
+      return;
+    }
+    existing.source = existing.source === source ? source : 'live+backup';
+  };
+
+  for (const article of feeds.backup.articles) addArticle(article, 'backup');
+  for (const article of feeds.live.articles) addArticle(article, 'live');
+
+  return sortedSoroArticles([...bySlug.values()]);
+}
+
+async function handleAdminArticles(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+  const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
+  const articles = buildAdminArticleRows(feeds, hiddenSlugs);
+  return json({
+    generatedAt: new Date().toISOString(),
+    source: feeds.source,
+    backupStatus: feeds.backupStatus || 'unknown',
+    hiddenCount: articles.filter((article) => article.hidden).length,
+    articles,
+  });
+}
+
+async function handleAdminArticleVisibility(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const body = await request.json().catch(() => null);
+  const slug = String(body?.slug || '').trim();
+  if (!isValidSoroSlug(slug)) return json({ error: 'INVALID_SLUG' }, 400);
+
+  const hiddenSlugs = await readSoroHiddenSlugs(env);
+  if (body?.hidden === false) hiddenSlugs.delete(slug);
+  else hiddenSlugs.add(slug);
+
+  const status = await writeSoroHiddenSlugs(env, hiddenSlugs);
+  if (status === 'unbound') return json({ error: 'SORO_BACKUP_NOT_CONFIGURED' }, 503);
+  return json({
+    ok: true,
+    slug,
+    hidden: hiddenSlugs.has(slug),
+  });
+}
+
 function renderAdminPage(request, env) {
   const body =
     request.method === 'HEAD'
@@ -830,7 +895,7 @@ function renderAdminPage(request, env) {
       <header class="dashboard-header">
         <div>
           <span class="admin-wordmark admin-wordmark-small" aria-label="MUSIXQUARE"></span>
-          <h1>Operations</h1>
+          <h1 data-dashboard-title>Operations</h1>
           <p data-updated-at>Loading metrics...</p>
         </div>
         <div class="header-actions">
@@ -838,30 +903,46 @@ function renderAdminPage(request, env) {
           <button type="button" data-logout>Logout</button>
         </div>
       </header>
-      <section class="metric-grid" data-metric-cards></section>
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Last 24 hours</h2>
-        </div>
-        <div class="chart" data-hourly-chart></div>
+      <nav class="admin-tabs" aria-label="Admin sections">
+        <button class="is-active" type="button" data-admin-tab="operations">Operations</button>
+        <button type="button" data-admin-tab="articles">Articles</button>
+      </nav>
+      <section class="admin-view is-active" data-admin-view="operations">
+        <section class="metric-grid" data-metric-cards></section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Last 24 hours</h2>
+          </div>
+          <div class="chart" data-hourly-chart></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Seven day trend</h2>
+          </div>
+          <div class="trend-list" data-daily-list></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Thirty day trend</h2>
+          </div>
+          <div class="spectrum-chart" data-monthly-chart></div>
+        </section>
+        <section class="panel compact">
+          <div class="panel-head">
+            <h2>Signals</h2>
+          </div>
+          <div class="signal-grid" data-signal-grid></div>
+        </section>
       </section>
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Seven day trend</h2>
-        </div>
-        <div class="trend-list" data-daily-list></div>
-      </section>
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Thirty day trend</h2>
-        </div>
-        <div class="spectrum-chart" data-monthly-chart></div>
-      </section>
-      <section class="panel compact">
-        <div class="panel-head">
-          <h2>Signals</h2>
-        </div>
-        <div class="signal-grid" data-signal-grid></div>
+      <section class="admin-view" data-admin-view="articles" hidden>
+        <section class="panel articles-panel">
+          <div class="panel-head">
+            <h2>Articles</h2>
+            <button class="panel-action" type="button" data-articles-refresh>Refresh</button>
+          </div>
+          <p class="article-status" data-article-status>Loading articles...</p>
+          <div class="article-list" data-article-list></div>
+        </section>
       </section>
     </section>
   </main>
@@ -1835,6 +1916,30 @@ async function readSoroBackup(env) {
   return { text, articles };
 }
 
+async function readSoroHiddenSlugs(env) {
+  if (!env.SORO_RSS_BACKUP) return new Set();
+  const text = (await env.SORO_RSS_BACKUP.get(SORO_HIDDEN_SLUGS_KEY)) || '[]';
+  try {
+    const slugs = JSON.parse(text);
+    if (!Array.isArray(slugs)) return new Set();
+    return new Set(slugs.filter((slug) => typeof slug === 'string' && isValidSoroSlug(slug)));
+  } catch {
+    return new Set();
+  }
+}
+
+async function writeSoroHiddenSlugs(env, hiddenSlugs) {
+  if (!env.SORO_RSS_BACKUP) return 'unbound';
+  const slugs = [...hiddenSlugs].filter(isValidSoroSlug).sort();
+  await env.SORO_RSS_BACKUP.put(SORO_HIDDEN_SLUGS_KEY, JSON.stringify(slugs, null, 2));
+  return 'written';
+}
+
+function filterVisibleSoroArticles(articles, hiddenSlugs) {
+  if (!hiddenSlugs?.size) return articles;
+  return articles.filter((article) => !hiddenSlugs.has(article.slug));
+}
+
 async function writeSoroBackup(env, text, articles, previousText, previousArticles) {
   if (!env.SORO_RSS_BACKUP) return 'unbound';
   if (text === previousText) return 'unchanged';
@@ -2181,7 +2286,8 @@ function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
 }
 
 async function serveSoroArticlePage(request, env, slug) {
-  const feeds = await loadSoroFeeds(env);
+  const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
+  if (hiddenSlugs.has(slug)) return null;
   const { article, source } = findSoroArticle(feeds, slug);
   if (!article) return null;
   const imageStatus = await ensureSoroImageMirror(env, article, {
@@ -2212,7 +2318,8 @@ async function serveSoroArticlePage(request, env, slug) {
 }
 
 async function hasSoroArticle(env, slug) {
-  const feeds = await loadSoroFeeds(env);
+  const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
+  if (hiddenSlugs.has(slug)) return false;
   const { article } = findSoroArticle(feeds, slug);
   return Boolean(article);
 }
@@ -2222,10 +2329,13 @@ async function serveSoroBlogIndex(request, env) {
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/html')) return withSecurityHeaders(response);
 
-  const feeds = await loadSoroFeeds(env);
+  const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
   const source = feeds.source === 'live' ? 'live' : 'backup';
   const articles = sortedSoroArticles(
-    source === 'live' ? feeds.live.articles : feeds.backup.articles,
+    filterVisibleSoroArticles(
+      source === 'live' ? feeds.live.articles : feeds.backup.articles,
+      hiddenSlugs,
+    ),
   );
   const imageStatus = await hydrateSoroListImages(env, articles, source);
   const headers = {
@@ -2398,7 +2508,11 @@ async function serveStatic(request, env) {
   if (request.method === 'GET' || request.method === 'HEAD') {
     if (url.pathname === '/blog' || url.pathname === '/blog/') {
       const post = url.searchParams.get('post') || '';
-      if (isValidSoroSlug(post)) return Response.redirect(new URL(soroArticlePath(post), url), 301);
+      if (isValidSoroSlug(post)) {
+        const hiddenSlugs = await readSoroHiddenSlugs(env);
+        if (!hiddenSlugs.has(post))
+          return Response.redirect(new URL(soroArticlePath(post), url), 301);
+      }
       return serveSoroBlogIndex(request, env);
     }
 
@@ -2484,6 +2598,10 @@ export default {
         return handleAdminSession(request, env);
       case '/api/admin/metrics':
         return handleAdminMetrics(request, env);
+      case '/api/admin/articles':
+        return handleAdminArticles(request, env);
+      case '/api/admin/articles/visibility':
+        return handleAdminArticleVisibility(request, env);
       default:
         return serveStatic(request, env);
     }

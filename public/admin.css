@@ -251,6 +251,38 @@ p {
   color: var(--text-main);
 }
 
+.admin-tabs {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-1);
+}
+
+.admin-tabs button {
+  min-width: 94px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 800;
+  transition:
+    color 0.2s,
+    background 0.2s;
+}
+
+.admin-tabs button:hover,
+.admin-tabs button.is-active {
+  background: var(--surface-2);
+  color: var(--text-main);
+}
+
+.admin-view {
+  display: grid;
+  gap: 24px;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -309,6 +341,116 @@ p {
 
 .panel-head span {
   font-size: 12px;
+}
+
+.panel-action {
+  padding: 7px 13px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.panel-action:hover {
+  color: var(--text-main);
+}
+
+.article-status {
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.article-list {
+  display: grid;
+  gap: 8px;
+}
+
+.article-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 68px;
+  padding: 13px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.article-item.is-hidden {
+  opacity: 0.58;
+}
+
+.article-body {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.article-body strong,
+.article-body span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.article-body strong {
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.article-body span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.article-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.article-actions a,
+.article-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.article-actions a {
+  color: var(--text-sub);
+}
+
+.article-actions button {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--fail);
+}
+
+.article-item.is-hidden .article-actions button {
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--pass);
+}
+
+.article-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.article-empty {
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 .chart {
@@ -526,6 +668,15 @@ p {
     flex-direction: column;
   }
 
+  .article-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .article-actions {
+    justify-content: flex-start;
+  }
+
   .metric-grid,
   .trend-list,
   .signal-grid {
@@ -556,6 +707,15 @@ p {
   .panel-head {
     align-items: start;
     flex-direction: column;
+  }
+
+  .admin-tabs {
+    width: 100%;
+  }
+
+  .admin-tabs button {
+    flex: 1;
+    min-width: 0;
   }
 
   .spectrum-chart {

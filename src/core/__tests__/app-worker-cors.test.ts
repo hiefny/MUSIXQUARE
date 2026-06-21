@@ -600,6 +600,38 @@ describe('Cloudflare app worker admin dashboard', () => {
     };
   }
 
+  function createKvStore() {
+    const store = new Map<string, string>();
+    return {
+      get: vi.fn(async (key: string) => store.get(key) || null),
+      put: vi.fn(async (key: string, value: string) => {
+        store.set(key, value);
+      }),
+    };
+  }
+
+  function createSoroRss() {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Visible Article</title>
+      <link>https://musixquare.com/blog?post=visible-article</link>
+      <description>Visible description</description>
+      <pubDate>Thu, 18 Jun 2026 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>Visible body</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Hidden Article</title>
+      <link>https://musixquare.com/blog?post=hidden-article</link>
+      <description>Hidden description</description>
+      <pubDate>Wed, 17 Jun 2026 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>Hidden body</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>`;
+  }
+
   it('sets an HttpOnly admin session cookie and serves D1-backed metrics', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
@@ -663,6 +695,82 @@ describe('Cloudflare app worker admin dashboard', () => {
       payload.summary?.daily30?.reduce((sum, bucket) => sum + bucket.events.guest_joined, 0),
     ).toBe(11);
     expect(payload.cards?.find((card) => card.key === 'guest_per_room')?.value).toBe(2.33);
+  });
+
+  it('lets admins hide Soro articles without mutating the RSS backup', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(createSoroRss(), {
+            headers: { 'Content-Type': 'application/rss+xml' },
+          }),
+      ),
+    );
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      SORO_RSS_BACKUP: createKvStore(),
+      ASSETS: {
+        fetch: vi.fn(
+          async () =>
+            new Response('<html><body><div id="soro-blog"></div></body></html>', {
+              headers: { 'Content-Type': 'text/html' },
+            }),
+        ),
+      },
+    };
+
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.82' },
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+
+    const articles = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/articles', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    const before = (await articles.json()) as {
+      articles?: Array<{ slug: string; hidden: boolean }>;
+    };
+
+    expect(articles.status).toBe(200);
+    expect(before.articles?.map((article) => article.slug)).toEqual([
+      'visible-article',
+      'hidden-article',
+    ]);
+
+    const hide = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/articles/visibility', {
+        method: 'POST',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: 'hidden-article', hidden: true }),
+      }),
+      env,
+    );
+
+    expect(hide.status).toBe(200);
+
+    const blog = await appWorker.fetch(new Request('https://musixquare.com/blog'), env);
+    const blogHtml = await blog.text();
+    const hiddenArticle = await appWorker.fetch(
+      new Request('https://musixquare.com/blog/hidden-article'),
+      env,
+    );
+    const backupXml = await env.SORO_RSS_BACKUP.get('soro-rss-latest-good.xml');
+
+    expect(blog.status).toBe(200);
+    expect(blogHtml).toContain('Visible Article');
+    expect(blogHtml).not.toContain('Hidden Article');
+    expect(hiddenArticle.status).toBe(404);
+    expect(backupXml).toContain('Hidden Article');
   });
 
   it('keeps /admin unindexed and no-store cached', async () => {

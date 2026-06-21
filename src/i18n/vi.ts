@@ -56,7 +56,7 @@ const vi: Record<I18nKey, string> = {
 
   // Navigation
   'nav.home': 'Trang chủ',
-  'nav.playlist': 'Danh sách phát',
+  'nav.playlist': 'Playlist',
   'nav.settings': 'Cài đặt',
   'nav.help': 'Trợ giúp',
   'nav.connect': 'Kết nối',
@@ -87,8 +87,8 @@ const vi: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Âm thanh nâng cao',
   'settings.spatial_audio': 'Âm thanh không gian',
   'settings.reverb_title': 'Reverb',
-  'settings.host_ctrl': 'Điều khiển host',
-  'settings.self_ctrl': 'Điều khiển cục bộ',
+  'settings.host_ctrl': 'HOST-CTRL',
+  'settings.self_ctrl': 'SELF-CTRL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Sân khấu',
   'settings.rvb_advanced': 'Nâng cao',
@@ -503,7 +503,7 @@ const vi: Record<I18nKey, string> = {
   'chat.title': 'Chat',
   'chat.close': 'Đóng chat',
   'chat.open': 'Mở chat',
-  'chat.placeholder': 'Nhập tin nhắn hoặc gõ "/" để xem lệnh...',
+  'chat.placeholder': 'Tin nhắn hoặc / để xem lệnh...',
   'chat.input_label': 'Nhập tin nhắn chat',
   'chat.send': 'Gửi tin nhắn',
   'chat.start': 'Chưa có tin nhắn. Nhập gì đó để bắt đầu trò chuyện!',

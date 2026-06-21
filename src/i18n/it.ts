@@ -56,7 +56,7 @@ const it: Record<I18nKey, string> = {
   'nav.playlist': 'Playlist',
   'nav.settings': 'Impostazioni',
   'nav.help': 'Aiuto',
-  'nav.connect': 'Connessione',
+  'nav.connect': 'Connetti',
   'nav.go_home': 'Vai alla schermata principale',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -126,8 +126,8 @@ const it: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Audio avanzato',
   'settings.spatial_audio': 'Audio spaziale',
   'settings.reverb_title': 'Riverbero',
-  'settings.host_ctrl': 'Controllo gestore',
-  'settings.self_ctrl': 'Controllo locale',
+  'settings.host_ctrl': 'HOST-CTRL',
+  'settings.self_ctrl': 'SELF-CTRL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Sala da concerto',
   'settings.rvb_advanced': 'Avanzato',
@@ -171,7 +171,7 @@ const it: Record<I18nKey, string> = {
   'settings.invite_share': 'Invito e condivisione',
   'settings.subtab.general': 'Generale',
   'settings.subtab.audio': 'Audio',
-  'settings.subtab.connect': 'Connessione',
+  'settings.subtab.connect': 'Connetti',
   'settings.subtab.help': 'Aiuto',
 
   // ─── Connect ───────────────────────────────────────────────────
@@ -274,7 +274,7 @@ const it: Record<I18nKey, string> = {
   'chat.title': 'Chat',
   'chat.close': 'Chiudi la chat',
   'chat.open': 'Apri la chat',
-  'chat.placeholder': 'Invia un messaggio o digita "/" per i comandi...',
+  'chat.placeholder': 'Messaggio o / per comandi...',
   'chat.input_label': 'Messaggio di chat',
   'chat.send': 'Invia',
   'chat.start': 'Non ci sono ancora messaggi. Scrivi qualcosa per iniziare!',

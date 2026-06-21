@@ -2121,6 +2121,9 @@
     padding: 4px 10px;
     border-radius: 100px;
     letter-spacing: -0.2px;
+    line-height: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .host-ctrl-locked {
@@ -4747,6 +4750,14 @@
     color: var(--text-muted);
     opacity: 0.5;
     pointer-events: none;
+  }
+
+  .chat-input:empty::before {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Disabled state (muted) */

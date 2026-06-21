@@ -56,7 +56,7 @@ const ru: Record<I18nKey, string> = {
   'nav.playlist': 'Плейлист',
   'nav.settings': 'Настройки',
   'nav.help': 'Помощь',
-  'nav.connect': 'Подключение',
+  'nav.connect': 'Связь',
   'nav.go_home': 'Перейти на главную страницу',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -126,8 +126,8 @@ const ru: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Улучшенный звук',
   'settings.spatial_audio': 'Пространственный звук',
   'settings.reverb_title': 'Реверберация',
-  'settings.host_ctrl': 'Управление хоста',
-  'settings.self_ctrl': 'Локальное управление',
+  'settings.host_ctrl': 'HOST-CTRL',
+  'settings.self_ctrl': 'SELF-CTRL',
   'settings.rvb_studio': 'Студия',
   'settings.rvb_arena': 'Концертный зал',
   'settings.rvb_advanced': 'Расширенный',
@@ -171,7 +171,7 @@ const ru: Record<I18nKey, string> = {
   'settings.invite_share': 'Приглашения и общий доступ',
   'settings.subtab.general': 'Общие',
   'settings.subtab.audio': 'Аудио',
-  'settings.subtab.connect': 'Подключение',
+  'settings.subtab.connect': 'Связь',
   'settings.subtab.help': 'Помощь',
 
   // ─── Connect ───────────────────────────────────────────────────
@@ -274,7 +274,7 @@ const ru: Record<I18nKey, string> = {
   'chat.title': 'Чат',
   'chat.close': 'Закрыть чат',
   'chat.open': 'Открыть чат',
-  'chat.placeholder': 'Напишите сообщение или введите «/» для просмотра команд...',
+  'chat.placeholder': 'Сообщение или / для команд...',
   'chat.input_label': 'Ввод сообщения',
   'chat.send': 'Отправить',
   'chat.start': 'Сообщений пока нет. Напишите что-нибудь для начала!',

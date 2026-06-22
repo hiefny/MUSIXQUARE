@@ -3366,8 +3366,8 @@
   }
 
   .language-dialog {
-    width: min(420px, 100%);
-    max-height: min(560px, calc(var(--app-height, 100dvh) - 48px));
+    width: min(380px, 100%);
+    max-height: min(500px, calc(var(--app-height, 100dvh) - 48px));
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -3377,12 +3377,12 @@
     --language-list-fade-size: 28px;
     flex: 1 1 auto;
     min-height: 0;
-    max-height: min(392px, calc(var(--app-height, 100dvh) - 196px));
-    margin: 18px 28px 0;
+    max-height: min(326px, calc(var(--app-height, 100dvh) - 186px));
+    margin: 16px 28px 0;
     padding: 0 4px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     overflow-y: auto;
     transition: mask-image 0.16s ease;
   }
@@ -3436,8 +3436,14 @@
 
   .language-dialog .dialog-actions {
     flex-shrink: 0;
-    margin-top: 18px;
+    margin-top: 16px;
     padding-top: 0;
+    justify-content: stretch;
+  }
+
+  .language-dialog .dialog-primary {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .language-dialog > .cscroll-track {
@@ -3447,8 +3453,8 @@
 
   .language-option {
     width: 100%;
-    min-height: 56px;
-    padding: 10px 16px;
+    min-height: 52px;
+    padding: 9px 14px;
     display: flex;
     align-items: center;
     justify-content: space-between;

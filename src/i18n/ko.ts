@@ -234,7 +234,7 @@ const ko = {
   'demo.effects_step_title': '고급 음향을 만들어보세요.',
   'demo.effects_step_subtitle': '나중에 더 세세한 설정을 할 수 있어요.',
   'demo.finish_step_title': '이제 다 준비됐어요!',
-  'demo.finish_step_subtitle': '바로 들어가서 다 같이 재생해보세요!',
+  'demo.finish_step_subtitle': '앱으로 돌아가서 함께 재생해보세요.',
   'demo.track_list_label': '데모 트랙 목록',
   'demo.host_only_exit': '방장만 누를 수 있어요',
   'demo.external_playback_stopped':

@@ -36,6 +36,16 @@ import { syncOverlayState } from './dom.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
+const HOST_CTRL_LOCK_IDS = [
+  'grid-reverb',
+  'reverb-sliders-area',
+  'grid-eq',
+  'eq-sliders-area',
+  'grid-surround',
+  'grid-vbass',
+  'grid-exciter',
+] as const;
+
 /** Returns true if user is a non-OP guest (should be blocked from host-ctrl settings) */
 function _isGuestLocked(): boolean {
   const hostConn = getState('network.hostConn');
@@ -43,31 +53,43 @@ function _isGuestLocked(): boolean {
   return !getState('network.isOperator');
 }
 
+function _showHostCtrlLockedToast(): void {
+  showToast(t('toast.operator_required'));
+}
+
 /** Show toast + return true if guest is locked */
 function _guardHostCtrl(): boolean {
   if (_isGuestLocked()) {
-    showToast(t('toast.operator_required'));
+    _showHostCtrlLockedToast();
     return true;
   }
   return false;
 }
 
+function _handleHostCtrlLockedAttempt(event: Event): void {
+  if (!_isGuestLocked()) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  _showHostCtrlLockedToast();
+}
+
+function _bindHostCtrlLockedAttemptToasts(): void {
+  HOST_CTRL_LOCK_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.hostCtrlToastBound === '1') return;
+    el.dataset.hostCtrlToastBound = '1';
+    el.addEventListener('click', _handleHostCtrlLockedAttempt, { capture: true });
+  });
+}
+
 /** Apply or remove visual lock on host-ctrl sections */
 function _updateHostCtrlLockUI(): void {
   const locked = _isGuestLocked();
-  const hostCtrlIds = [
-    'grid-reverb',
-    'reverb-sliders-area',
-    'grid-eq',
-    'eq-sliders-area',
-    'grid-surround',
-    'grid-vbass',
-    'grid-exciter',
-  ];
-  hostCtrlIds.forEach((id) => {
+  HOST_CTRL_LOCK_IDS.forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
       el.classList.toggle('host-ctrl-locked', locked);
+      el.setAttribute('aria-disabled', locked ? 'true' : 'false');
       // Disable range inputs to prevent visual desync (slider moves but audio unchanged)
       el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((input) => {
         input.disabled = locked;
@@ -749,6 +771,8 @@ export function initSettings(): void {
     if (el) el.addEventListener(evt, fn);
   };
 
+  _bindHostCtrlLockedAttemptToasts();
+
   // Theme grid
   document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]').forEach((opt) => {
     opt.addEventListener('click', () => setTheme(opt.dataset.theme!));
@@ -998,6 +1022,7 @@ export function initSettings(): void {
 
   // Update lock state when connection/role changes (fires on connect, OP grant/revoke, session start)
   _busScope.on('network:role-badge-update', () => _updateHostCtrlLockUI());
+  _updateHostCtrlLockUI();
 
   // Device list events
   _busScope.on('network:device-list-update', (list: unknown[]) => {

@@ -6,6 +6,7 @@ import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode } from '../../i18n/index.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 // Mock player-controls.ts (transitive dep)
 vi.mock('../player-controls.ts', () => ({
@@ -334,6 +335,27 @@ describe('initSettings effect slider fill sync', () => {
     expect(document.getElementById('reverb-sliders-area')?.classList.contains('collapsed')).toBe(
       false,
     );
+  });
+
+  it('explains locked global audio settings to non-admin guests', () => {
+    installEffectSettingsDom();
+    setState('network.hostConn', { open: true } as DataConnection);
+    setState('network.isOperator', false);
+    initSettings();
+
+    document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
+
+    expect(showToast).toHaveBeenCalledWith('Only admins can change global settings');
+    expect(
+      document
+        .querySelector('#grid-reverb .ch-opt[data-rvb-type="arena"]')
+        ?.classList.contains('active'),
+    ).toBe(false);
+    expect(document.getElementById('grid-reverb')?.classList.contains('host-ctrl-locked')).toBe(
+      true,
+    );
+    expect(document.getElementById('grid-reverb')?.getAttribute('aria-disabled')).toBe('true');
+    expect((document.getElementById('reverb-slider') as HTMLInputElement).disabled).toBe(true);
   });
 
   it('detects host-synced reverb presets from the audio preset constants', () => {

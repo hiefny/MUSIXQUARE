@@ -2128,8 +2128,12 @@
 
   .host-ctrl-locked {
     opacity: 0.4;
-    pointer-events: none;
+    cursor: not-allowed;
     user-select: none;
+  }
+
+  .host-ctrl-locked input[type='range'] {
+    pointer-events: none;
   }
 
   .section-row {

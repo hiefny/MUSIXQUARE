@@ -794,6 +794,9 @@ describe('Cloudflare app worker admin dashboard', () => {
       SORO_RSS_BACKUP: createKvStore(),
     };
 
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+
     const login = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
@@ -803,6 +806,22 @@ describe('Cloudflare app worker admin dashboard', () => {
       env,
     );
     const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+
+    const pastExpiry = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: true,
+          message: 'Maintenance starts in five minutes.',
+          expiresAt: '2026-06-18T11:59:00.000Z',
+        }),
+      }),
+      env,
+    );
+
+    expect(pastExpiry.status).toBe(400);
+    expect(await pastExpiry.json()).toEqual({ error: 'EXPIRES_AT_IN_PAST' });
 
     const save = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/announcement', {
@@ -846,8 +865,6 @@ describe('Cloudflare app worker admin dashboard', () => {
       message: 'Maintenance starts in five minutes.',
     });
 
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
     const current = await appWorker.fetch(
       new Request('https://musixquare.com/api/announcement/current'),
       env,
@@ -874,7 +891,6 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
 
     expect(await expired.json()).toEqual({ enabled: false });
-    vi.useRealTimers();
 
     const clear = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/announcement', {
@@ -897,6 +913,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       enabled: true,
       message: 'Maintenance starts in five minutes.',
     });
+    vi.useRealTimers();
   });
 
   it('keeps /admin unindexed and no-store cached', async () => {

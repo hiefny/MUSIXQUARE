@@ -1014,6 +1014,9 @@ async function handleAdminAnnouncement(request, env) {
   if (expiresAtRaw && Number.isNaN(expiresAt.getTime())) {
     return json({ error: 'INVALID_EXPIRES_AT' }, 400);
   }
+  if (expiresAt && expiresAt.getTime() <= Date.now()) {
+    return json({ error: 'EXPIRES_AT_IN_PAST' }, 400);
+  }
 
   const announcement = normalizeAnnouncementRecord({
     id: createAnnouncementId(),

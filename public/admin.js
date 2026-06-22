@@ -133,12 +133,24 @@ function parseAnnouncementExpiresValue(value) {
       date.getHours() === Number(hour) &&
       date.getMinutes() === Number(minute)
     ) {
+      if (date.getTime() <= Date.now()) throw new Error('Expires must be in the future.');
       return date.toISOString();
     }
   }
   const fallback = new Date(text);
-  if (!Number.isNaN(fallback.getTime())) return fallback.toISOString();
+  if (!Number.isNaN(fallback.getTime())) {
+    if (fallback.getTime() <= Date.now()) throw new Error('Expires must be in the future.');
+    return fallback.toISOString();
+  }
   throw new Error('Use YYYY-MM-DD HH:MM for Expires.');
+}
+
+function adminErrorMessage(error, fallback) {
+  const message = error?.message || '';
+  if (message === 'EXPIRES_AT_IN_PAST') return 'Expires must be in the future.';
+  if (message === 'INVALID_EXPIRES_AT') return 'Use YYYY-MM-DD HH:MM for Expires.';
+  if (message === 'INVALID_PASSWORD') return 'Invalid password.';
+  return message || fallback;
 }
 
 function formatAnnouncementAction(action) {
@@ -566,7 +578,7 @@ loginForm?.addEventListener('submit', async (event) => {
     loginForm.reset();
     await loadMetrics({ activateOperations: true });
   } catch (error) {
-    setStatus(error.message === 'INVALID_PASSWORD' ? 'Invalid password.' : error.message, true);
+    setStatus(adminErrorMessage(error, 'Login failed.'), true);
   }
 });
 
@@ -597,13 +609,15 @@ adminTabs.forEach((button) => {
 announcementForm?.addEventListener('submit', (event) => {
   event.preventDefault();
   saveAnnouncement().catch((error) => {
-    if (announcementStatusEl) announcementStatusEl.textContent = error.message || 'Save failed.';
+    if (announcementStatusEl)
+      announcementStatusEl.textContent = adminErrorMessage(error, 'Save failed.');
   });
 });
 
 announcementClearBtn?.addEventListener('click', () => {
   saveAnnouncement({ clear: true }).catch((error) => {
-    if (announcementStatusEl) announcementStatusEl.textContent = error.message || 'Clear failed.';
+    if (announcementStatusEl)
+      announcementStatusEl.textContent = adminErrorMessage(error, 'Clear failed.');
   });
 });
 

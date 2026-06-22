@@ -381,6 +381,7 @@ const zhHant: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} 權限 {{status}}',
   'toast.file_read_error': '檔案讀取錯誤：{{name}}',
   'toast.host_ended_connection': '主持人已結束連線',
+  'toast.announcement_available': '有新的公告。\n請查看聊天視窗。',
   'toast.copy_failed': '無法複製',
   'toast.email_copied': '電子郵件地址已複製！',
   'toast.host_only': '只有主持人可以執行此操作。',

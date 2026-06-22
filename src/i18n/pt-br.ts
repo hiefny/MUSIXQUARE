@@ -394,6 +394,7 @@ const ptBr: Record<I18nKey, string> = {
   'toast.op_status': 'Permissão de {{label}} {{status}}',
   'toast.file_read_error': 'Erro ao ler arquivo: {{name}}',
   'toast.host_ended_connection': 'O host encerrou a conexão',
+  'toast.announcement_available': 'Há um novo aviso.\nConfira o chat.',
   'toast.copy_failed': 'Não foi possível copiar',
   'toast.email_copied': 'Endereço de e-mail copiado!',
   'toast.host_only': 'Só o host pode executar isso.',

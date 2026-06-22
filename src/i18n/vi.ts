@@ -388,6 +388,7 @@ const vi: Record<I18nKey, string> = {
   'toast.op_status': 'Quyền của {{label}} {{status}}',
   'toast.file_read_error': 'Lỗi đọc tệp: {{name}}',
   'toast.host_ended_connection': 'Host đã kết thúc kết nối',
+  'toast.announcement_available': 'Có thông báo mới.\nHãy kiểm tra khung chat.',
   'toast.copy_failed': 'Không thể sao chép',
   'toast.email_copied': 'Đã sao chép địa chỉ email!',
   'toast.host_only': 'Chỉ host mới có thể làm việc này.',

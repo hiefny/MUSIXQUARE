@@ -416,6 +416,7 @@ const it: Record<I18nKey, string> = {
   'toast.op_status': 'Permessi di {{label}} {{status}}',
   'toast.file_read_error': 'Errore di lettura del file: {{name}}',
   'toast.host_ended_connection': 'Il gestore ha chiuso la connessione',
+  'toast.announcement_available': 'Nuovo avviso.\nControlla la chat.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Copia non riuscita',

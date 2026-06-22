@@ -389,6 +389,7 @@ const ja: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} 権限 {{status}}',
   'toast.file_read_error': 'ファイル読み込みエラー: {{name}}',
   'toast.host_ended_connection': 'ホストが接続を終了しました',
+  'toast.announcement_available': '新しいお知らせがあります。\nチャット欄を確認してください。',
   'toast.copy_failed': 'コピーできませんでした',
   'toast.email_copied': 'メールアドレスをコピーしました！',
   'toast.host_only': 'ホストだけが実行できます。',

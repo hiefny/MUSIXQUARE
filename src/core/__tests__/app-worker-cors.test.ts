@@ -787,6 +787,75 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(backupXml).toContain('Hidden Article');
   });
 
+  it('lets admins publish a session announcement for active clients', async () => {
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      SORO_RSS_BACKUP: createKvStore(),
+    };
+
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.82' },
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+
+    const save = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: true,
+          message: 'Maintenance starts in five minutes.',
+          expiresAt: '2026-06-18T13:00:00.000Z',
+        }),
+      }),
+      env,
+    );
+    const saved = (await save.json()) as {
+      announcement?: { id?: string; enabled?: boolean; message?: string };
+    };
+
+    expect(save.status).toBe(200);
+    expect(saved.announcement?.enabled).toBe(true);
+    expect(saved.announcement?.message).toBe('Maintenance starts in five minutes.');
+    expect(saved.announcement?.id).toMatch(/^[A-Za-z0-9._:-]+$/);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const current = await appWorker.fetch(
+      new Request('https://musixquare.com/api/announcement/current'),
+      env,
+    );
+    const payload = (await current.json()) as {
+      enabled?: boolean;
+      id?: string;
+      message?: string;
+    };
+
+    expect(current.status).toBe(200);
+    expect(current.headers.get('Cache-Control')).toBe('public, max-age=30');
+    expect(payload).toEqual({
+      enabled: true,
+      id: saved.announcement?.id,
+      message: 'Maintenance starts in five minutes.',
+      expiresAt: '2026-06-18T13:00:00.000Z',
+    });
+
+    vi.setSystemTime(new Date('2026-06-18T13:00:01.000Z'));
+    const expired = await appWorker.fetch(
+      new Request('https://musixquare.com/api/announcement/current'),
+      env,
+    );
+
+    expect(await expired.json()).toEqual({ enabled: false });
+    vi.useRealTimers();
+  });
+
   it('keeps /admin unindexed and no-store cached', async () => {
     const response = await appWorker.fetch(new Request('https://musixquare.com/admin'), {
       MXQR_ADMIN_PASSWORD: 'admin-pass',

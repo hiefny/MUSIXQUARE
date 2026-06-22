@@ -51,7 +51,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -440,6 +441,119 @@ p {
   font-size: 13px;
 }
 
+.announcement-management {
+  display: grid;
+  gap: 18px;
+  max-width: 720px;
+}
+
+.announcement-form {
+  display: grid;
+  gap: 16px;
+}
+
+.announcement-field {
+  display: grid;
+  gap: 8px;
+}
+
+.announcement-field span,
+.announcement-check span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.announcement-field textarea,
+.announcement-field input {
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 13px 14px;
+  background: var(--surface-1);
+  color: var(--text-main);
+  outline: none;
+}
+
+.announcement-field textarea {
+  min-height: 132px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.announcement-field textarea:focus,
+.announcement-field input:focus {
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.5);
+}
+
+.announcement-row {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(220px, 1fr);
+  align-items: end;
+  gap: 14px;
+}
+
+.announcement-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+}
+
+.announcement-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.announcement-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.announcement-actions button {
+  min-width: 88px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.announcement-actions button:first-child {
+  background: var(--primary);
+  color: #fff;
+}
+
+.announcement-status {
+  min-height: 1.4em;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.announcement-preview {
+  display: grid;
+  gap: 8px;
+  width: min(420px, 100%);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: var(--surface-1);
+}
+
+.announcement-preview span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.announcement-preview p {
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 .chart {
   display: grid;
   gap: 8px;
@@ -664,6 +778,10 @@ p {
     justify-content: flex-start;
   }
 
+  .announcement-row {
+    grid-template-columns: 1fr;
+  }
+
   .metric-grid,
   .trend-list,
   .signal-grid {
@@ -703,6 +821,8 @@ p {
   .admin-tabs button {
     flex: 1;
     min-width: 0;
+    padding-inline: 8px;
+    font-size: 12px;
   }
 
   .spectrum-chart {

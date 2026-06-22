@@ -417,6 +417,7 @@ const en: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} permission {{status}}',
   'toast.file_read_error': 'File read error: {{name}}',
   'toast.host_ended_connection': 'The host has ended the connection',
+  'toast.announcement_available': 'New announcement.\nCheck the chat panel.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': "Couldn't copy",

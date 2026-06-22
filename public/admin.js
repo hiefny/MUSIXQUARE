@@ -13,6 +13,13 @@ const adminTabs = [...document.querySelectorAll('[data-admin-tab]')];
 const adminViews = [...document.querySelectorAll('[data-admin-view]')];
 const articleListEl = document.querySelector('[data-article-list]');
 const articleStatusEl = document.querySelector('[data-article-status]');
+const announcementForm = document.querySelector('[data-announcement-form]');
+const announcementMessageEl = document.querySelector('[data-announcement-message]');
+const announcementEnabledEl = document.querySelector('[data-announcement-enabled]');
+const announcementExpiresEl = document.querySelector('[data-announcement-expires]');
+const announcementStatusEl = document.querySelector('[data-announcement-status]');
+const announcementPreviewEl = document.querySelector('[data-announcement-preview]');
+const announcementClearBtn = document.querySelector('[data-announcement-clear]');
 const updatedAtEl = document.querySelector('[data-updated-at]');
 const refreshBtn = document.querySelector('[data-refresh]');
 const logoutBtn = document.querySelector('[data-logout]');
@@ -20,6 +27,7 @@ const logoutBtn = document.querySelector('[data-logout]');
 const formatter = new Intl.NumberFormat();
 let currentAdminTab = 'operations';
 let articlesLoaded = false;
+let announcementLoaded = false;
 
 function setStatus(message, isError = false) {
   if (!loginStatus) return;
@@ -78,6 +86,27 @@ function formatArticleDate(value) {
   }).format(date);
 }
 
+function formatAnnouncementDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString();
+}
+
+function toDatetimeLocalValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function announcementTitle(tab) {
+  if (tab === 'articles') return 'Articles';
+  if (tab === 'announcements') return 'Announcements';
+  return 'Operations';
+}
+
 function setActiveTab(tab) {
   currentAdminTab = tab;
   adminTabs.forEach((button) => {
@@ -90,7 +119,7 @@ function setActiveTab(tab) {
     view.hidden = !active;
     view.classList.toggle('is-active', active);
   });
-  if (dashboardTitle) dashboardTitle.textContent = tab === 'articles' ? 'Articles' : 'Operations';
+  if (dashboardTitle) dashboardTitle.textContent = announcementTitle(tab);
 }
 
 function renderCards(cards) {
@@ -338,12 +367,71 @@ async function loadArticles(options = {}) {
   }
 }
 
+function renderAnnouncement(payload) {
+  const announcement = payload.announcement || {};
+  const message = announcement.message || '';
+  if (announcementMessageEl) announcementMessageEl.value = message;
+  if (announcementEnabledEl) announcementEnabledEl.checked = Boolean(announcement.enabled);
+  if (announcementExpiresEl)
+    announcementExpiresEl.value = toDatetimeLocalValue(announcement.expiresAt);
+
+  const statusParts = [];
+  statusParts.push(announcement.enabled ? 'Enabled' : 'Disabled');
+  if (announcement.expiresAt)
+    statusParts.push(`expires ${formatAnnouncementDate(announcement.expiresAt)}`);
+  if (announcement.updatedAt)
+    statusParts.push(`updated ${formatAnnouncementDate(announcement.updatedAt)}`);
+  if (announcementStatusEl) announcementStatusEl.textContent = statusParts.join(' · ');
+
+  if (!announcementPreviewEl) return;
+  if (!message) {
+    announcementPreviewEl.hidden = true;
+    announcementPreviewEl.textContent = '';
+    return;
+  }
+  announcementPreviewEl.hidden = false;
+  announcementPreviewEl.innerHTML = `
+    <span>공지 · MUSIXQUARE</span>
+    <p></p>
+  `;
+  announcementPreviewEl.querySelector('p').textContent = message;
+}
+
+async function loadAnnouncement(options = {}) {
+  if (announcementStatusEl) announcementStatusEl.textContent = 'Refreshing...';
+  const payload = await fetchJson('/api/admin/announcement');
+  renderAnnouncement(payload);
+  announcementLoaded = true;
+  if (options.updateTimestamp !== false) {
+    updatedAtEl.textContent = `Updated ${new Date(payload.generatedAt).toLocaleString()}`;
+  }
+}
+
+async function saveAnnouncement({ clear = false } = {}) {
+  const message = clear ? '' : String(announcementMessageEl?.value || '').trim();
+  const enabled = clear ? false : Boolean(announcementEnabledEl?.checked);
+  const expiresValue = clear ? '' : String(announcementExpiresEl?.value || '').trim();
+  if (announcementStatusEl) announcementStatusEl.textContent = clear ? 'Clearing...' : 'Saving...';
+  const payload = await fetchJson('/api/admin/announcement', {
+    method: 'POST',
+    body: JSON.stringify({
+      message,
+      enabled,
+      expiresAt: expiresValue ? new Date(expiresValue).toISOString() : null,
+    }),
+  });
+  renderAnnouncement(payload);
+  announcementLoaded = true;
+  updatedAtEl.textContent = `Updated ${new Date().toLocaleString()}`;
+}
+
 async function refreshAllDashboardData() {
   const activeTab = currentAdminTab;
   updatedAtEl.textContent = 'Refreshing...';
   await Promise.all([
     loadMetrics({ updateTimestamp: false }),
     loadArticles({ updateTimestamp: false }),
+    loadAnnouncement({ updateTimestamp: false }),
   ]);
   setActiveTab(activeTab);
   updatedAtEl.textContent = `Updated ${new Date().toLocaleString()}`;
@@ -399,6 +487,25 @@ adminTabs.forEach((button) => {
         if (articleStatusEl) articleStatusEl.textContent = error.message || 'Refresh failed.';
       });
     }
+    if (tab === 'announcements' && !announcementLoaded) {
+      loadAnnouncement().catch((error) => {
+        if (announcementStatusEl)
+          announcementStatusEl.textContent = error.message || 'Refresh failed.';
+      });
+    }
+  });
+});
+
+announcementForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveAnnouncement().catch((error) => {
+    if (announcementStatusEl) announcementStatusEl.textContent = error.message || 'Save failed.';
+  });
+});
+
+announcementClearBtn?.addEventListener('click', () => {
+  saveAnnouncement({ clear: true }).catch((error) => {
+    if (announcementStatusEl) announcementStatusEl.textContent = error.message || 'Clear failed.';
   });
 });
 

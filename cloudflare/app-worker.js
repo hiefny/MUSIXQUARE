@@ -22,6 +22,7 @@ const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
 const SORO_RSS_BACKUP_META_KEY = 'soro-rss-latest-good.meta.json';
 const SORO_HIDDEN_SLUGS_KEY = 'soro-hidden-slugs.json';
 const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
+const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BLOG_HTML_CACHE = 'public, max-age=30, s-maxage=86400, stale-while-revalidate=604800';
@@ -865,6 +866,125 @@ async function handleAdminArticleVisibility(request, env) {
   });
 }
 
+function getAdminConfigStore(env) {
+  return env.MUSIXQUARE_ADMIN_CONFIG || env.SORO_RSS_BACKUP || null;
+}
+
+function createAnnouncementId() {
+  const suffix = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 12);
+  return `${Date.now().toString(36)}-${suffix}`;
+}
+
+function normalizeAnnouncementRecord(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const message = String(source.message || '')
+    .trim()
+    .slice(0, 280);
+  const id = typeof source.id === 'string' && source.id.trim() ? source.id.trim() : '';
+  const updatedAt =
+    typeof source.updatedAt === 'string' && source.updatedAt ? source.updatedAt : '';
+  const expiresAt =
+    typeof source.expiresAt === 'string' && !Number.isNaN(new Date(source.expiresAt).getTime())
+      ? new Date(source.expiresAt).toISOString()
+      : null;
+  return {
+    id,
+    message,
+    enabled: Boolean(source.enabled) && Boolean(message),
+    expiresAt,
+    updatedAt,
+  };
+}
+
+function isAnnouncementActive(announcement, now = Date.now()) {
+  if (!announcement.enabled || !announcement.message) return false;
+  if (!announcement.expiresAt) return true;
+  return new Date(announcement.expiresAt).getTime() > now;
+}
+
+async function readAdminAnnouncement(env) {
+  const store = getAdminConfigStore(env);
+  if (!store) return { status: 'unbound', announcement: normalizeAnnouncementRecord({}) };
+  const text = await store.get(ADMIN_ANNOUNCEMENT_KEY);
+  if (!text) return { status: 'missing', announcement: normalizeAnnouncementRecord({}) };
+  try {
+    return {
+      status: 'ok',
+      announcement: normalizeAnnouncementRecord(JSON.parse(text)),
+    };
+  } catch {
+    return { status: 'invalid', announcement: normalizeAnnouncementRecord({}) };
+  }
+}
+
+async function writeAdminAnnouncement(env, announcement) {
+  const store = getAdminConfigStore(env);
+  if (!store) return 'unbound';
+  await store.put(ADMIN_ANNOUNCEMENT_KEY, JSON.stringify(announcement, null, 2));
+  return 'written';
+}
+
+function announcementPublicPayload(announcement) {
+  if (!isAnnouncementActive(announcement)) {
+    return { enabled: false };
+  }
+  return {
+    enabled: true,
+    id: announcement.id,
+    message: announcement.message,
+    expiresAt: announcement.expiresAt,
+  };
+}
+
+async function handleAdminAnnouncement(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    const { status, announcement } = await readAdminAnnouncement(env);
+    if (status === 'unbound') return json({ error: 'ADMIN_CONFIG_NOT_CONFIGURED' }, 503);
+    return json({
+      generatedAt: new Date().toISOString(),
+      announcement,
+    });
+  }
+
+  const body = await request.json().catch(() => null);
+  const message = String(body?.message || '')
+    .trim()
+    .slice(0, 280);
+  const enabled = Boolean(body?.enabled) && Boolean(message);
+  const expiresAtRaw = String(body?.expiresAt || '').trim();
+  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw) : null;
+  if (expiresAtRaw && Number.isNaN(expiresAt.getTime())) {
+    return json({ error: 'INVALID_EXPIRES_AT' }, 400);
+  }
+
+  const announcement = normalizeAnnouncementRecord({
+    id: createAnnouncementId(),
+    message,
+    enabled,
+    expiresAt: expiresAt ? expiresAt.toISOString() : null,
+    updatedAt: new Date().toISOString(),
+  });
+  const status = await writeAdminAnnouncement(env, announcement);
+  if (status === 'unbound') return json({ error: 'ADMIN_CONFIG_NOT_CONFIGURED' }, 503);
+  return json({
+    ok: true,
+    announcement,
+  });
+}
+
+async function handlePublicAnnouncement(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
+  if (methodError) return methodError;
+  const { announcement } = await readAdminAnnouncement(env);
+  return json(announcementPublicPayload(announcement), 200, {
+    'Cache-Control': 'public, max-age=30',
+  });
+}
+
 function renderAdminPage(request, env) {
   const body =
     request.method === 'HEAD'
@@ -913,6 +1033,7 @@ function renderAdminPage(request, env) {
       <nav class="admin-tabs" aria-label="Admin sections">
         <button class="is-active" type="button" data-admin-tab="operations">Operations</button>
         <button type="button" data-admin-tab="articles">Articles</button>
+        <button type="button" data-admin-tab="announcements">Announcements</button>
       </nav>
       <section class="admin-view is-active" data-admin-view="operations">
         <section class="metric-grid" data-metric-cards></section>
@@ -945,6 +1066,32 @@ function renderAdminPage(request, env) {
         <section class="article-management">
           <p class="article-status" data-article-status>Loading articles...</p>
           <div class="article-list" data-article-list></div>
+        </section>
+      </section>
+      <section class="admin-view" data-admin-view="announcements" hidden>
+        <section class="announcement-management">
+          <form class="announcement-form" data-announcement-form>
+            <label class="announcement-field">
+              <span>Message</span>
+              <textarea name="message" rows="4" maxlength="280" placeholder="공지 내용을 입력하세요" data-announcement-message></textarea>
+            </label>
+            <div class="announcement-row">
+              <label class="announcement-check">
+                <input type="checkbox" name="enabled" data-announcement-enabled>
+                <span>Enabled</span>
+              </label>
+              <label class="announcement-field announcement-expires">
+                <span>Expires</span>
+                <input type="datetime-local" name="expiresAt" data-announcement-expires>
+              </label>
+            </div>
+            <div class="announcement-actions">
+              <button type="submit" data-announcement-save>Save</button>
+              <button type="button" data-announcement-clear>Clear</button>
+            </div>
+            <p class="announcement-status" data-announcement-status>Loading announcement...</p>
+          </form>
+          <article class="announcement-preview" data-announcement-preview hidden></article>
         </section>
       </section>
     </section>
@@ -2666,6 +2813,8 @@ export default {
         return handleTurnConfig(request, env);
       case '/api/cloudflare-realtime':
         return handleRealtime(request, env);
+      case '/api/announcement/current':
+        return handlePublicAnnouncement(request, env);
       case '/api/admin/login':
         return handleAdminLogin(request, env);
       case '/api/admin/logout':
@@ -2678,6 +2827,8 @@ export default {
         return handleAdminArticles(request, env);
       case '/api/admin/articles/visibility':
         return handleAdminArticleVisibility(request, env);
+      case '/api/admin/announcement':
+        return handleAdminAnnouncement(request, env);
       default:
         return serveStatic(request, env);
     }

@@ -392,6 +392,7 @@ const id: Record<I18nKey, string> = {
   'toast.op_status': 'Izin {{label}} {{status}}',
   'toast.file_read_error': 'Kesalahan membaca file: {{name}}',
   'toast.host_ended_connection': 'Host telah mengakhiri koneksi',
+  'toast.announcement_available': 'Ada pengumuman baru.\nPeriksa panel chat.',
   'toast.copy_failed': 'Tidak dapat menyalin',
   'toast.email_copied': 'Alamat email disalin!',
   'toast.host_only': 'Hanya host yang dapat menjalankan ini.',

@@ -391,6 +391,7 @@ const de: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} Berechtigung {{status}}',
   'toast.file_read_error': 'Dateilesefehler: {{name}}',
   'toast.host_ended_connection': 'Der Host hat die Verbindung beendet',
+  'toast.announcement_available': 'Neue Ankündigung.\nBitte Chatfenster prüfen.',
   'toast.copy_failed': 'Kopieren fehlgeschlagen',
   'toast.email_copied': 'E-Mail-Adresse kopiert!',
   'toast.host_only': 'Nur der Host kann das ausführen.',

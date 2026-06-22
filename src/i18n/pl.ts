@@ -416,6 +416,7 @@ const pl: Record<I18nKey, string> = {
   'toast.op_status': 'Uprawnienia dla {{label}} zostały {{status}}',
   'toast.file_read_error': 'Błąd odczytu pliku: {{name}}',
   'toast.host_ended_connection': 'Host zamknął połączenie',
+  'toast.announcement_available': 'Nowe ogłoszenie.\nSprawdź panel czatu.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Kopiowanie nie powiodło się',

@@ -416,6 +416,7 @@ const ru: Record<I18nKey, string> = {
   'toast.op_status': 'Права для {{label}} были {{status}}',
   'toast.file_read_error': 'Ошибка чтения файла: {{name}}',
   'toast.host_ended_connection': 'Хост разорвал соединение',
+  'toast.announcement_available': 'Есть новое объявление.\nПроверьте чат.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Копирование не удалось',

@@ -416,6 +416,7 @@ const th: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} {{status}}',
   'toast.file_read_error': 'ข้อผิดพลาดอ่านไฟล์: {{name}}',
   'toast.host_ended_connection': 'โฮสต์สิ้นสุดการเชื่อมต่อแล้ว',
+  'toast.announcement_available': 'มีประกาศใหม่\nโปรดตรวจสอบแชท',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'คัดลอกไม่ได้',

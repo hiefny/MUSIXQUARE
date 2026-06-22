@@ -124,14 +124,10 @@ function formatToastLine(line: string): string {
 }
 
 function formatToastText(text: string): string {
-  return text
-    .replace(/\r\n?/g, '\n')
-    .split('\n')
-    .map(formatToastLine)
-    .join('\n');
+  return text.replace(/\r\n?/g, '\n').split('\n').map(formatToastLine).join('\n');
 }
 
-export function showToast(msg: unknown): void {
+export function showToast(msg: unknown, options: { durationMs?: number } = {}): void {
   try {
     const t = document.getElementById('toast');
     const msgEl = document.getElementById('toast-msg');
@@ -164,7 +160,7 @@ export function showToast(msg: unknown): void {
           /* noop */
         }
       },
-      2000,
+      Math.max(1000, options.durationMs || 2000),
     );
   } catch {
     console.info('[Toast fallback]', msg);

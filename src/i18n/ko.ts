@@ -415,6 +415,7 @@ const ko = {
   'toast.op_status': '{{label}} 권한 {{status}}',
   'toast.file_read_error': '파일 읽기 오류: {{name}}',
   'toast.host_ended_connection': '방장이 연결을 종료했어요',
+  'toast.announcement_available': '새로운 공지가 있어요.\n채팅창을 확인해주세요.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': '복사하지 못했어요',

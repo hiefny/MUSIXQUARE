@@ -51,10 +51,7 @@ import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
 import { initRemoteShare } from './share/remote-share.ts';
-import {
-  handleSyncWorkerFailure,
-  setSyncWorker,
-} from './network/sync-worker.ts';
+import { handleSyncWorkerFailure, setSyncWorker } from './network/sync-worker.ts';
 
 // ── Player ──
 import { initPlayback } from './player/playback.ts';
@@ -83,6 +80,7 @@ import { initSettings } from './ui/settings.ts';
 import { initConnect } from './ui/connect.ts';
 import { initSetup } from './ui/setup.ts';
 import { initDemoMode } from './demo/mode.ts';
+import { initAnnouncementPolling } from './ui/announcement.ts';
 
 // ── Service Worker ──
 import { registerServiceWorker } from './sw-register.ts';
@@ -464,6 +462,7 @@ async function bootstrap(): Promise<void> {
   safeInit('CustomScrollbars', initAllCustomScrollbars);
   safeInit('Setup', initSetup);
   safeInit('DemoMode', initDemoMode);
+  safeInit('AnnouncementPolling', initAnnouncementPolling);
 
   // 9. Service Worker
   safeInit('ServiceWorker', registerServiceWorker);

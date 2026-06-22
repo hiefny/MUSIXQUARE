@@ -416,6 +416,7 @@ const tr: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} yetkisi {{status}}',
   'toast.file_read_error': 'Dosya okuma hatası: {{name}}',
   'toast.host_ended_connection': 'Oda sahibi bağlantıyı kapattı',
+  'toast.announcement_available': 'Yeni bir duyuru var.\nSohbet panelini kontrol edin.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Kopyalanamadı',

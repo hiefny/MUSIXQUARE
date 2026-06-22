@@ -394,6 +394,7 @@ const es: Record<I18nKey, string> = {
   'toast.op_status': 'Permiso de {{label}} {{status}}',
   'toast.file_read_error': 'Error al leer archivo: {{name}}',
   'toast.host_ended_connection': 'El host terminó la conexión',
+  'toast.announcement_available': 'Hay un nuevo aviso.\nRevisa el chat.',
   'toast.copy_failed': 'No se pudo copiar',
   'toast.email_copied': '¡Correo copiado!',
   'toast.host_only': 'Solo el host puede hacer esto.',

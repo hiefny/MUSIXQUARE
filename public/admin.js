@@ -20,6 +20,8 @@ const announcementExpiresEl = document.querySelector('[data-announcement-expires
 const announcementStatusEl = document.querySelector('[data-announcement-status]');
 const announcementPreviewEl = document.querySelector('[data-announcement-preview]');
 const announcementClearBtn = document.querySelector('[data-announcement-clear]');
+const announcementHistoryStatusEl = document.querySelector('[data-announcement-history-status]');
+const announcementHistoryListEl = document.querySelector('[data-announcement-history-list]');
 const updatedAtEl = document.querySelector('[data-updated-at]');
 const refreshBtn = document.querySelector('[data-refresh]');
 const logoutBtn = document.querySelector('[data-logout]');
@@ -79,26 +81,71 @@ function formatArticleDate(value) {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   }).format(date);
 }
 
-function formatAnnouncementDate(value) {
+function formatAdminDateTime(value) {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString();
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
 }
 
 function toDatetimeLocalValue(value) {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+}
+
+function parseAnnouncementExpiresValue(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})(?::(\d{1,2}))?)?$/);
+  if (match) {
+    const [, year, month, day, hour = '23', minute = '59'] = match;
+    const date = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+    );
+    if (
+      date.getFullYear() === Number(year) &&
+      date.getMonth() === Number(month) - 1 &&
+      date.getDate() === Number(day) &&
+      date.getHours() === Number(hour) &&
+      date.getMinutes() === Number(minute)
+    ) {
+      return date.toISOString();
+    }
+  }
+  const fallback = new Date(text);
+  if (!Number.isNaN(fallback.getTime())) return fallback.toISOString();
+  throw new Error('Use YYYY-MM-DD HH:MM for Expires.');
+}
+
+function formatAnnouncementAction(action) {
+  if (action === 'published') return 'Published';
+  if (action === 'disabled') return 'Disabled';
+  if (action === 'cleared') return 'Cleared';
+  return 'Updated';
 }
 
 function announcementTitle(tab) {
@@ -140,14 +187,15 @@ function renderCards(cards) {
 }
 
 function hourLabel(iso) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat('en-US', {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   }).format(new Date(iso));
 }
 
 function dayLabel(iso) {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
   }).format(new Date(iso));
@@ -284,7 +332,7 @@ async function loadMetrics(options = {}) {
   renderMonthlyChart(metrics.summary?.daily30 || []);
   renderSignals(metrics.summary || {});
   if (options.updateTimestamp !== false) {
-    updatedAtEl.textContent = `Updated ${new Date(metrics.generatedAt).toLocaleString()}`;
+    updatedAtEl.textContent = `Updated ${formatAdminDateTime(metrics.generatedAt)}`;
   }
 }
 
@@ -363,7 +411,7 @@ async function loadArticles(options = {}) {
   renderArticles(payload);
   articlesLoaded = true;
   if (options.updateTimestamp !== false) {
-    updatedAtEl.textContent = `Updated ${new Date(payload.generatedAt).toLocaleString()}`;
+    updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt)}`;
   }
 }
 
@@ -378,10 +426,10 @@ function renderAnnouncement(payload) {
   const statusParts = [];
   statusParts.push(announcement.enabled ? 'Enabled' : 'Disabled');
   if (announcement.expiresAt)
-    statusParts.push(`expires ${formatAnnouncementDate(announcement.expiresAt)}`);
+    statusParts.push(`expires ${formatAdminDateTime(announcement.expiresAt)}`);
   if (announcement.updatedAt)
-    statusParts.push(`updated ${formatAnnouncementDate(announcement.updatedAt)}`);
-  if (announcementStatusEl) announcementStatusEl.textContent = statusParts.join(' · ');
+    statusParts.push(`updated ${formatAdminDateTime(announcement.updatedAt)}`);
+  if (announcementStatusEl) announcementStatusEl.textContent = statusParts.join(' - ');
 
   if (!announcementPreviewEl) return;
   if (!message) {
@@ -391,19 +439,68 @@ function renderAnnouncement(payload) {
   }
   announcementPreviewEl.hidden = false;
   announcementPreviewEl.innerHTML = `
-    <span>공지 · MUSIXQUARE</span>
+    <span>Notice - MUSIXQUARE</span>
     <p></p>
   `;
   announcementPreviewEl.querySelector('p').textContent = message;
+}
+
+function renderAnnouncementHistory(payload) {
+  const history = Array.isArray(payload.history) ? payload.history : [];
+  if (announcementHistoryStatusEl) {
+    announcementHistoryStatusEl.textContent = history.length
+      ? `${formatter.format(history.length)} records`
+      : 'No records';
+  }
+  if (!announcementHistoryListEl) return;
+  if (!history.length) {
+    const empty = document.createElement('p');
+    empty.className = 'announcement-history-empty';
+    empty.textContent = 'No announcement history yet.';
+    announcementHistoryListEl.replaceChildren(empty);
+    return;
+  }
+
+  announcementHistoryListEl.replaceChildren(
+    ...history.map((entry) => {
+      const item = document.createElement('article');
+      const action = String(entry.action || 'updated');
+      item.className = `announcement-history-item action-${action}`;
+
+      const meta = document.createElement('div');
+      meta.className = 'announcement-history-meta';
+
+      const actionEl = document.createElement('strong');
+      actionEl.textContent = formatAnnouncementAction(action);
+      meta.appendChild(actionEl);
+
+      const timeEl = document.createElement('span');
+      timeEl.textContent = formatAdminDateTime(entry.updatedAt);
+      meta.appendChild(timeEl);
+
+      if (entry.expiresAt) {
+        const expiresEl = document.createElement('small');
+        expiresEl.textContent = `expires ${formatAdminDateTime(entry.expiresAt)}`;
+        meta.appendChild(expiresEl);
+      }
+
+      const body = document.createElement('p');
+      body.textContent = entry.message || 'No message';
+
+      item.append(meta, body);
+      return item;
+    }),
+  );
 }
 
 async function loadAnnouncement(options = {}) {
   if (announcementStatusEl) announcementStatusEl.textContent = 'Refreshing...';
   const payload = await fetchJson('/api/admin/announcement');
   renderAnnouncement(payload);
+  renderAnnouncementHistory(payload);
   announcementLoaded = true;
   if (options.updateTimestamp !== false) {
-    updatedAtEl.textContent = `Updated ${new Date(payload.generatedAt).toLocaleString()}`;
+    updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt)}`;
   }
 }
 
@@ -417,12 +514,13 @@ async function saveAnnouncement({ clear = false } = {}) {
     body: JSON.stringify({
       message,
       enabled,
-      expiresAt: expiresValue ? new Date(expiresValue).toISOString() : null,
+      expiresAt: parseAnnouncementExpiresValue(expiresValue),
     }),
   });
   renderAnnouncement(payload);
+  renderAnnouncementHistory(payload);
   announcementLoaded = true;
-  updatedAtEl.textContent = `Updated ${new Date().toLocaleString()}`;
+  updatedAtEl.textContent = `Updated ${formatAdminDateTime(Date.now())}`;
 }
 
 async function refreshAllDashboardData() {
@@ -434,7 +532,7 @@ async function refreshAllDashboardData() {
     loadAnnouncement({ updateTimestamp: false }),
   ]);
   setActiveTab(activeTab);
-  updatedAtEl.textContent = `Updated ${new Date().toLocaleString()}`;
+  updatedAtEl.textContent = `Updated ${formatAdminDateTime(Date.now())}`;
 }
 
 async function init() {

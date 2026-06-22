@@ -23,6 +23,8 @@ const SORO_RSS_BACKUP_META_KEY = 'soro-rss-latest-good.meta.json';
 const SORO_HIDDEN_SLUGS_KEY = 'soro-hidden-slugs.json';
 const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
+const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
+const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BLOG_HTML_CACHE = 'public, max-age=30, s-maxage=86400, stale-while-revalidate=604800';
@@ -896,6 +898,56 @@ function normalizeAnnouncementRecord(value) {
   };
 }
 
+function getAnnouncementHistoryAction(announcement) {
+  if (announcement.enabled && announcement.message) return 'published';
+  if (announcement.message) return 'disabled';
+  return 'cleared';
+}
+
+function normalizeAnnouncementHistoryEntry(value) {
+  const announcement = normalizeAnnouncementRecord(value);
+  const source = value && typeof value === 'object' ? value : {};
+  const action = ['published', 'disabled', 'cleared'].includes(source.action)
+    ? source.action
+    : getAnnouncementHistoryAction(announcement);
+  return {
+    ...announcement,
+    action,
+  };
+}
+
+async function readAdminAnnouncementHistory(env) {
+  const store = getAdminConfigStore(env);
+  if (!store) return { status: 'unbound', history: [] };
+  const text = await store.get(ADMIN_ANNOUNCEMENT_HISTORY_KEY);
+  if (!text) return { status: 'missing', history: [] };
+  try {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) return { status: 'invalid', history: [] };
+    return {
+      status: 'ok',
+      history: parsed
+        .map(normalizeAnnouncementHistoryEntry)
+        .slice(0, ADMIN_ANNOUNCEMENT_HISTORY_LIMIT),
+    };
+  } catch {
+    return { status: 'invalid', history: [] };
+  }
+}
+
+async function appendAdminAnnouncementHistory(env, announcement) {
+  const store = getAdminConfigStore(env);
+  if (!store) return { status: 'unbound', history: [] };
+  const { history } = await readAdminAnnouncementHistory(env);
+  const entry = normalizeAnnouncementHistoryEntry({
+    ...announcement,
+    action: getAnnouncementHistoryAction(announcement),
+  });
+  const nextHistory = [entry, ...history].slice(0, ADMIN_ANNOUNCEMENT_HISTORY_LIMIT);
+  await store.put(ADMIN_ANNOUNCEMENT_HISTORY_KEY, JSON.stringify(nextHistory, null, 2));
+  return { status: 'written', history: nextHistory };
+}
+
 function isAnnouncementActive(announcement, now = Date.now()) {
   if (!announcement.enabled || !announcement.message) return false;
   if (!announcement.expiresAt) return true;
@@ -944,9 +996,11 @@ async function handleAdminAnnouncement(request, env) {
   if (request.method === 'GET' || request.method === 'HEAD') {
     const { status, announcement } = await readAdminAnnouncement(env);
     if (status === 'unbound') return json({ error: 'ADMIN_CONFIG_NOT_CONFIGURED' }, 503);
+    const { history } = await readAdminAnnouncementHistory(env);
     return json({
       generatedAt: new Date().toISOString(),
       announcement,
+      history,
     });
   }
 
@@ -970,9 +1024,11 @@ async function handleAdminAnnouncement(request, env) {
   });
   const status = await writeAdminAnnouncement(env, announcement);
   if (status === 'unbound') return json({ error: 'ADMIN_CONFIG_NOT_CONFIGURED' }, 503);
+  const { history } = await appendAdminAnnouncementHistory(env, announcement);
   return json({
     ok: true,
     announcement,
+    history,
   });
 }
 
@@ -1071,20 +1127,21 @@ function renderAdminPage(request, env) {
       <section class="admin-view" data-admin-view="announcements" hidden>
         <section class="announcement-management">
           <form class="announcement-form" data-announcement-form>
-            <label class="announcement-field">
-              <span>Message</span>
-              <textarea name="message" rows="4" maxlength="280" placeholder="공지 내용을 입력하세요" data-announcement-message></textarea>
-            </label>
-            <div class="announcement-row">
-              <label class="announcement-check">
+            <div class="announcement-topline">
+              <label class="announcement-switch">
                 <input type="checkbox" name="enabled" data-announcement-enabled>
-                <span>Enabled</span>
-              </label>
-              <label class="announcement-field announcement-expires">
-                <span>Expires</span>
-                <input type="datetime-local" name="expiresAt" data-announcement-expires>
+                <span class="announcement-switch-track" aria-hidden="true"></span>
+                <span>Active</span>
               </label>
             </div>
+            <label class="announcement-field">
+              <span>Message</span>
+              <textarea name="message" rows="4" maxlength="280" placeholder="Write an announcement" data-announcement-message></textarea>
+            </label>
+            <label class="announcement-field announcement-expires">
+              <span>Expires</span>
+              <input type="text" name="expiresAt" inputmode="numeric" autocomplete="off" placeholder="YYYY-MM-DD HH:MM" data-announcement-expires>
+            </label>
             <div class="announcement-actions">
               <button type="submit" data-announcement-save>Save</button>
               <button type="button" data-announcement-clear>Clear</button>
@@ -1092,6 +1149,13 @@ function renderAdminPage(request, env) {
             <p class="announcement-status" data-announcement-status>Loading announcement...</p>
           </form>
           <article class="announcement-preview" data-announcement-preview hidden></article>
+          <section class="announcement-history" aria-label="Announcement history">
+            <div class="announcement-history-head">
+              <span>History</span>
+              <small data-announcement-history-status></small>
+            </div>
+            <div class="announcement-history-list" data-announcement-history-list></div>
+          </section>
         </section>
       </section>
     </section>

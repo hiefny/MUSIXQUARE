@@ -7,7 +7,6 @@ import { showToast } from './toast.ts';
 
 const ANNOUNCEMENT_POLL_TIMER = 'announcement:poll';
 const ANNOUNCEMENT_POLL_MS = 60_000;
-const ANNOUNCEMENT_STORAGE_KEY = 'musixquare-seen-announcement-id';
 const ANNOUNCEMENT_TOAST_MS = 5_000;
 const ANNOUNCEMENT_SENDER = 'MUSIXQUARE';
 
@@ -26,20 +25,11 @@ function isSessionActive(): boolean {
 }
 
 function readSeenId(): string {
-  try {
-    return localStorage.getItem(ANNOUNCEMENT_STORAGE_KEY) || memorySeenId;
-  } catch {
-    return memorySeenId;
-  }
+  return memorySeenId;
 }
 
 function rememberSeenId(id: string): void {
   memorySeenId = id;
-  try {
-    localStorage.setItem(ANNOUNCEMENT_STORAGE_KEY, id);
-  } catch {
-    /* memory fallback */
-  }
 }
 
 function shouldShowAnnouncement(

@@ -80,5 +80,6 @@ describe('announcement polling', () => {
         timestamp: new Date('2026-06-22T08:00:00.000Z').getTime(),
       },
     ]);
+    expect(localStorage.getItem('musixquare-seen-announcement-id')).toBeNull();
   });
 });

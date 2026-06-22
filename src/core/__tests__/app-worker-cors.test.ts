@@ -818,12 +818,33 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const saved = (await save.json()) as {
       announcement?: { id?: string; enabled?: boolean; message?: string };
+      history?: Array<{ action?: string; enabled?: boolean; message?: string }>;
     };
 
     expect(save.status).toBe(200);
     expect(saved.announcement?.enabled).toBe(true);
     expect(saved.announcement?.message).toBe('Maintenance starts in five minutes.');
     expect(saved.announcement?.id).toMatch(/^[A-Za-z0-9._:-]+$/);
+    expect(saved.history?.[0]).toMatchObject({
+      action: 'published',
+      enabled: true,
+      message: 'Maintenance starts in five minutes.',
+    });
+
+    const adminRead = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    const adminPayload = (await adminRead.json()) as {
+      history?: Array<{ action?: string; enabled?: boolean; message?: string }>;
+    };
+    expect(adminPayload.history?.[0]).toMatchObject({
+      action: 'published',
+      enabled: true,
+      message: 'Maintenance starts in five minutes.',
+    });
 
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
@@ -854,6 +875,28 @@ describe('Cloudflare app worker admin dashboard', () => {
 
     expect(await expired.json()).toEqual({ enabled: false });
     vi.useRealTimers();
+
+    const clear = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: false, message: '', expiresAt: null }),
+      }),
+      env,
+    );
+    const cleared = (await clear.json()) as {
+      history?: Array<{ action?: string; enabled?: boolean; message?: string }>;
+    };
+    expect(cleared.history?.[0]).toMatchObject({
+      action: 'cleared',
+      enabled: false,
+      message: '',
+    });
+    expect(cleared.history?.[1]).toMatchObject({
+      action: 'published',
+      enabled: true,
+      message: 'Maintenance starts in five minutes.',
+    });
   });
 
   it('keeps /admin unindexed and no-store cached', async () => {

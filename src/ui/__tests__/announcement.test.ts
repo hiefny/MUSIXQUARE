@@ -12,7 +12,7 @@ vi.mock('../../core/log.ts', () => ({
 
 vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) =>
-    key === 'toast.announcement_available' ? '새로운 공지가 있어요.\n채팅창을 확인해주세요.' : key,
+    key === 'toast.announcement_available' ? 'New announcement.\nCheck the chat panel.' : key,
   ),
 }));
 
@@ -43,14 +43,23 @@ describe('announcement polling', () => {
     bus.clear();
   });
 
-  it('shows a short toast and pins MUSIXQUARE announcements in chat', async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json({
-        enabled: true,
-        id: 'announcement-1',
-        message: 'Server maintenance starts soon.',
-      }),
-    );
+  it('pins initial announcements silently and toasts only for later updates', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          enabled: true,
+          id: 'announcement-1',
+          message: 'Server maintenance starts soon.',
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          enabled: true,
+          id: 'announcement-2',
+          message: 'Maintenance is live now.',
+        }),
+      );
     vi.stubGlobal('fetch', fetchMock);
 
     const notices: Array<{ sender: string; text: string; timestamp?: number }> = [];
@@ -70,7 +79,19 @@ describe('announcement polling', () => {
       credentials: 'same-origin',
       headers: { Accept: 'application/json' },
     });
-    expect(showToast).toHaveBeenCalledWith('새로운 공지가 있어요.\n채팅창을 확인해주세요.', {
+    expect(showToast).not.toHaveBeenCalled();
+    expect(notices).toEqual([
+      {
+        sender: 'MUSIXQUARE',
+        text: 'Server maintenance starts soon.',
+        timestamp: new Date('2026-06-22T08:00:00.000Z').getTime(),
+      },
+    ]);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flushAnnouncementCheck();
+
+    expect(showToast).toHaveBeenCalledWith('New announcement.\nCheck the chat panel.', {
       durationMs: 5000,
     });
     expect(notices).toEqual([
@@ -78,6 +99,11 @@ describe('announcement polling', () => {
         sender: 'MUSIXQUARE',
         text: 'Server maintenance starts soon.',
         timestamp: new Date('2026-06-22T08:00:00.000Z').getTime(),
+      },
+      {
+        sender: 'MUSIXQUARE',
+        text: 'Maintenance is live now.',
+        timestamp: new Date('2026-06-22T08:01:00.000Z').getTime(),
       },
     ]);
     expect(localStorage.getItem('musixquare-seen-announcement-id')).toBeNull();

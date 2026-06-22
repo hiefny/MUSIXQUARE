@@ -38,7 +38,7 @@ function shouldShowAnnouncement(
   return Boolean(payload.enabled && payload.id && payload.message);
 }
 
-async function checkAnnouncement(): Promise<void> {
+async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): Promise<void> {
   if (!isSessionActive() || inFlight) return;
   inFlight = true;
   try {
@@ -53,7 +53,9 @@ async function checkAnnouncement(): Promise<void> {
     if (readSeenId() === payload.id) return;
 
     rememberSeenId(payload.id);
-    showToast(t('toast.announcement_available'), { durationMs: ANNOUNCEMENT_TOAST_MS });
+    if (notify) {
+      showToast(t('toast.announcement_available'), { durationMs: ANNOUNCEMENT_TOAST_MS });
+    }
     bus.emit('chat:notice-message', ANNOUNCEMENT_SENDER, payload.message, Date.now());
   } catch (error) {
     log.debug('[Announcement] check failed:', error);
@@ -65,7 +67,7 @@ async function checkAnnouncement(): Promise<void> {
 function startAnnouncementPolling(): void {
   if (active) return;
   active = true;
-  void checkAnnouncement();
+  void checkAnnouncement({ notify: false });
   setManagedTimer(
     ANNOUNCEMENT_POLL_TIMER,
     () => {

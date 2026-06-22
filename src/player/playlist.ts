@@ -1585,11 +1585,11 @@ export function initPlaylist(): void {
     try {
       // Repeat mode
       const repeatMode = getState('playlist.repeatMode') || 0;
-      conn.send({ type: MSG.REPEAT_MODE, value: repeatMode });
+      conn.send({ type: MSG.REPEAT_MODE, value: repeatMode, _bootstrap: true });
 
       // Shuffle mode
       const isShuffle = getState('playlist.isShuffle');
-      conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle });
+      conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle, _bootstrap: true });
 
       // Full playlist metadata
       const playlist = getState('playlist.items') || [];

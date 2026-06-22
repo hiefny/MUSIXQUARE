@@ -342,7 +342,9 @@ describe('remove-track playlist-empty teardown supersedes in-flight loads', () =
   // audible autoplay. The inert-decode half is pinned in decode.test.ts.
   it('bumps the load epoch when the last track is removed', () => {
     initPlaylist();
-    setState('playlist.items', [{ type: 'file', name: 'only.mp3', videoId: null, playlistId: null }]);
+    setState('playlist.items', [
+      { type: 'file', name: 'only.mp3', videoId: null, playlistId: null },
+    ]);
     setState('playlist.currentTrackIndex', 0);
 
     const before = getCurrentLoadEpoch();
@@ -366,6 +368,33 @@ describe('remove-track playlist-empty teardown supersedes in-flight loads', () =
 
     expect(getState('playlist.items')).toHaveLength(1);
     expect(getCurrentLoadEpoch()).toBe(before);
+  });
+});
+
+describe('late-join playlist bootstrap', () => {
+  it('marks repeat and shuffle mode frames as bootstrap so guests do not toast', () => {
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    initPlaylist();
+    setState('playlist.repeatMode', 2);
+    setState('playlist.isShuffle', false);
+    setState('playlist.items', [
+      { type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
+      { type: 'file', name: 'b.mp3', videoId: null, playlistId: null },
+    ]);
+    setState('playlist.currentTrackIndex', 1);
+
+    bus.emit('network:peer-connected', conn);
+
+    expect(send).toHaveBeenCalledWith({ type: MSG.REPEAT_MODE, value: 2, _bootstrap: true });
+    expect(send).toHaveBeenCalledWith({
+      type: MSG.SHUFFLE_MODE,
+      value: false,
+      _bootstrap: true,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PLAYLIST_UPDATE, currentTrackIndex: 1 }),
+    );
   });
 });
 

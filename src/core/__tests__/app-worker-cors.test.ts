@@ -773,9 +773,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     const backupXml = await env.SORO_RSS_BACKUP.get('soro-rss-latest-good.xml');
 
     expect(blog.status).toBe(200);
-    expect(blog.headers.get('Cache-Control')).toBe(
-      'public, max-age=30, s-maxage=86400, stale-while-revalidate=604800',
-    );
+    expect(blog.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+    expect(blog.headers.get('CDN-Cache-Control')).toBe('no-store');
+    expect(blog.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
+    expect(blog.headers.get('Pragma')).toBe('no-cache');
+    expect(blog.headers.get('Expires')).toBe('0');
     expect(blog.headers.get('X-Soro-Blog-Cache-Version')).toBe(hidePayload.cacheVersion);
     expect(blog.headers.get('ETag')).toBe(`W/"soro-blog-${hidePayload.cacheVersion}"`);
     expect(blogHtml).toContain(

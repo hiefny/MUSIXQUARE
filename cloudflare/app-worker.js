@@ -27,7 +27,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
-const SORO_BLOG_HTML_CACHE = 'public, max-age=30, s-maxage=86400, stale-while-revalidate=604800';
+const SORO_BLOG_HTML_CACHE = 'no-store, max-age=0, must-revalidate';
 const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const SORO_IMAGE_FETCH_TIMEOUT_MS = 5000;
 const SORO_IMAGE_ROUTE_PREFIX = '/soro-images/';
@@ -2190,6 +2190,10 @@ function soroBlogCacheHeaders(cacheVersion) {
   const version = normalizeSoroBlogCacheVersion(cacheVersion);
   return {
     'Cache-Control': SORO_BLOG_HTML_CACHE,
+    'CDN-Cache-Control': 'no-store',
+    'Cloudflare-CDN-Cache-Control': 'no-store',
+    Expires: '0',
+    Pragma: 'no-cache',
     'X-Soro-Blog-Cache-Version': version,
     ETag: `W/"soro-blog-${version}"`,
   };

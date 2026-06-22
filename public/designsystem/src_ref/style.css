@@ -2697,11 +2697,15 @@
         flex-direction: column;
     }
 
+    .dialog:not(.language-dialog) {
+        max-width: 380px;
+    }
+
     .dialog-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 24px 28px 12px;
+        padding: 30px 32px 6px;
     }
 
     .dialog-title {
@@ -2712,10 +2716,10 @@
     }
 
     .dialog-message {
-        padding: 12px 28px 24px;
+        padding: 6px 32px 20px;
         font-size: 15px;
         color: var(--text-sub);
-        line-height: 1.6;
+        line-height: 1.58;
         white-space: pre-wrap;
         word-break: keep-all;
     }
@@ -2763,10 +2767,21 @@
     }
 
     .dialog-actions {
-        padding: 0 28px 32px;
+        padding: 0 32px 30px;
         display: flex;
         justify-content: flex-end;
         gap: 10px;
+    }
+
+    .dialog-secondary[hidden] + .dialog-primary {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .dialog-actions > .dialog-secondary:not([hidden]),
+    .dialog-actions > .dialog-secondary:not([hidden]) + .dialog-primary {
+        flex: 1 1 0;
+        min-width: 0;
     }
 
     .dialog-secondary {
@@ -2774,7 +2789,8 @@
         background: var(--surface-2);
         color: var(--text-main);
         border-radius: 18px;
-        padding: 16px 24px;
+        min-height: 54px;
+        padding: 0 28px;
         font-size: 15px;
         font-weight: 700;
         cursor: pointer;
@@ -2792,8 +2808,9 @@
         background: var(--primary);
         color: #fff;
         border-radius: 18px;
-        padding: 16px 32px;
-        font-size: 16px;
+        min-height: 54px;
+        padding: 0 28px;
+        font-size: 15px;
         font-weight: 700;
         cursor: pointer;
         min-width: 100px;

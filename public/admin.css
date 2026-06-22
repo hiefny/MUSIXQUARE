@@ -343,21 +343,8 @@ p {
   font-size: 12px;
 }
 
-.panel-action {
-  padding: 7px 13px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  color: var(--text-sub);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.panel-action:hover {
-  color: var(--text-main);
-}
-
 .article-status {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   color: var(--text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;

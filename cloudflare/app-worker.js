@@ -21,10 +21,10 @@ const SORO_RSS_DEFAULT_URL = 'https://app.trysoro.com/api/rss/a07c133f-e3b9-401e
 const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
 const SORO_RSS_BACKUP_META_KEY = 'soro-rss-latest-good.meta.json';
 const SORO_HIDDEN_SLUGS_KEY = 'soro-hidden-slugs.json';
+const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
-const SORO_ARTICLE_HTML_CACHE =
-  'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800';
+const SORO_BLOG_HTML_CACHE = 'public, max-age=30, s-maxage=86400, stale-while-revalidate=604800';
 const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const SORO_IMAGE_FETCH_TIMEOUT_MS = 5000;
 const SORO_IMAGE_ROUTE_PREFIX = '/soro-images/';
@@ -846,15 +846,22 @@ async function handleAdminArticleVisibility(request, env) {
   if (!isValidSoroSlug(slug)) return json({ error: 'INVALID_SLUG' }, 400);
 
   const hiddenSlugs = await readSoroHiddenSlugs(env);
+  const wasHidden = hiddenSlugs.has(slug);
   if (body?.hidden === false) hiddenSlugs.delete(slug);
   else hiddenSlugs.add(slug);
+  const isHidden = hiddenSlugs.has(slug);
 
   const status = await writeSoroHiddenSlugs(env, hiddenSlugs);
   if (status === 'unbound') return json({ error: 'SORO_BACKUP_NOT_CONFIGURED' }, 503);
+  const cacheVersion =
+    wasHidden === isHidden
+      ? await readSoroBlogCacheVersion(env)
+      : await touchSoroBlogCacheVersion(env, 'visibility');
   return json({
     ok: true,
     slug,
-    hidden: hiddenSlugs.has(slug),
+    hidden: isHidden,
+    cacheVersion,
   });
 }
 
@@ -935,11 +942,7 @@ function renderAdminPage(request, env) {
         </section>
       </section>
       <section class="admin-view" data-admin-view="articles" hidden>
-        <section class="panel articles-panel">
-          <div class="panel-head">
-            <h2>Articles</h2>
-            <button class="panel-action" type="button" data-articles-refresh>Refresh</button>
-          </div>
+        <section class="article-management">
           <p class="article-status" data-article-status>Loading articles...</p>
           <div class="article-list" data-article-list></div>
         </section>
@@ -1935,6 +1938,55 @@ async function writeSoroHiddenSlugs(env, hiddenSlugs) {
   return 'written';
 }
 
+function normalizeSoroBlogCacheVersion(value) {
+  const version = String(value || '').trim();
+  if (!version || version.length > 160 || !/^[A-Za-z0-9._:-]+$/.test(version)) return '0';
+  return version;
+}
+
+async function readSoroBlogCacheVersion(env) {
+  if (!env.SORO_RSS_BACKUP) return 'unbound';
+  const text = await env.SORO_RSS_BACKUP.get(SORO_BLOG_CACHE_VERSION_KEY);
+  if (!text) return '0';
+  try {
+    const data = JSON.parse(text);
+    return normalizeSoroBlogCacheVersion(data?.version);
+  } catch {
+    return normalizeSoroBlogCacheVersion(text);
+  }
+}
+
+function createSoroBlogCacheVersion() {
+  const suffix = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 12);
+  return `${Date.now().toString(36)}-${suffix}`;
+}
+
+async function touchSoroBlogCacheVersion(env, reason = 'content') {
+  if (!env.SORO_RSS_BACKUP) return 'unbound';
+  const updatedAt = new Date().toISOString();
+  const version = createSoroBlogCacheVersion();
+  await env.SORO_RSS_BACKUP.put(
+    SORO_BLOG_CACHE_VERSION_KEY,
+    JSON.stringify({ version, updatedAt, reason }),
+  );
+  return version;
+}
+
+function soroBlogCacheHeaders(cacheVersion) {
+  const version = normalizeSoroBlogCacheVersion(cacheVersion);
+  return {
+    'Cache-Control': SORO_BLOG_HTML_CACHE,
+    'X-Soro-Blog-Cache-Version': version,
+    ETag: `W/"soro-blog-${version}"`,
+  };
+}
+
+function injectSoroBlogCacheVersion(html, cacheVersion) {
+  const version = normalizeSoroBlogCacheVersion(cacheVersion);
+  const meta = `  <meta name="soro-blog-cache-version" content="${esc(version)}">`;
+  return html.includes('</head>') ? html.replace('</head>', `${meta}\n</head>`) : html;
+}
+
 function filterVisibleSoroArticles(articles, hiddenSlugs) {
   if (!hiddenSlugs?.size) return articles;
   return articles.filter((article) => !hiddenSlugs.has(article.slug));
@@ -1950,9 +2002,15 @@ async function writeSoroBackup(env, text, articles, previousText, previousArticl
     itemCount: articles.length,
     bytes: text.length,
   };
+  const cacheVersion = {
+    version: createSoroBlogCacheVersion(),
+    updatedAt: metadata.updatedAt,
+    reason: 'rss-backup',
+  };
   const write = Promise.all([
     env.SORO_RSS_BACKUP.put(SORO_RSS_BACKUP_KEY, text),
     env.SORO_RSS_BACKUP.put(SORO_RSS_BACKUP_META_KEY, JSON.stringify(metadata)),
+    env.SORO_RSS_BACKUP.put(SORO_BLOG_CACHE_VERSION_KEY, JSON.stringify(cacheVersion)),
   ]);
   await write;
   return 'written';
@@ -2287,6 +2345,7 @@ function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
 
 async function serveSoroArticlePage(request, env, slug) {
   const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
+  const cacheVersion = await readSoroBlogCacheVersion(env);
   if (hiddenSlugs.has(slug)) return null;
   const { article, source } = findSoroArticle(feeds, slug);
   if (!article) return null;
@@ -2296,7 +2355,7 @@ async function serveSoroArticlePage(request, env, slug) {
 
   const headers = {
     'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': SORO_ARTICLE_HTML_CACHE,
+    ...soroBlogCacheHeaders(cacheVersion),
     'X-Soro-Article-Source': source,
     'X-Soro-Backup-Status': feeds.backupStatus || 'unknown',
     'X-Soro-Image-Status': imageStatus,
@@ -2308,8 +2367,12 @@ async function serveSoroArticlePage(request, env, slug) {
   const shellResponse = await fetchAsset(env, request, '/blog/index.html');
   const shellContentType = shellResponse.headers.get('content-type') || '';
   const shellHtml = shellContentType.includes('text/html') ? await shellResponse.text() : '';
+  const html = injectSoroBlogCacheVersion(
+    renderSoroArticleHtml(article, request.url, source, shellHtml),
+    cacheVersion,
+  );
   return withSecurityHeaders(
-    new Response(renderSoroArticleHtml(article, request.url, source, shellHtml), {
+    new Response(html, {
       status: 200,
       headers,
     }),
@@ -2330,6 +2393,7 @@ async function serveSoroBlogIndex(request, env) {
   if (!contentType.includes('text/html')) return withSecurityHeaders(response);
 
   const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
+  const cacheVersion = await readSoroBlogCacheVersion(env);
   const source = feeds.source === 'live' ? 'live' : 'backup';
   const articles = sortedSoroArticles(
     filterVisibleSoroArticles(
@@ -2340,7 +2404,7 @@ async function serveSoroBlogIndex(request, env) {
   const imageStatus = await hydrateSoroListImages(env, articles, source);
   const headers = {
     'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': SORO_ARTICLE_HTML_CACHE,
+    ...soroBlogCacheHeaders(cacheVersion),
     'X-Soro-Index-Source': source,
     'X-Soro-Backup-Status': feeds.backupStatus || 'unknown',
     'X-Soro-Image-Status': imageStatus || 'none',
@@ -2362,6 +2426,7 @@ async function serveSoroBlogIndex(request, env) {
       /\n?<script src="https:\/\/app\.trysoro\.com\/api\/embed\/a07c133f-e3b9-401e-a076-ee36124598a7" defer><\/script>/,
       '',
     );
+  html = injectSoroBlogCacheVersion(html, cacheVersion);
 
   return withSecurityHeaders(
     new Response(html, { status: response.status, headers: response.headers }),
@@ -2477,8 +2542,19 @@ function cacheHeadersForPath(pathname, assetPathname = pathname) {
 }
 
 function isLocalHttpHost(hostname) {
-  const normalized = hostname.toLowerCase();
+  const normalized = String(hostname)
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/:\d+$/, '');
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+}
+
+function isLocalHttpRequest(request, url) {
+  return (
+    isLocalHttpHost(url.hostname) ||
+    isLocalHttpHost(url.host) ||
+    isLocalHttpHost(request.headers.get('host'))
+  );
 }
 
 async function serveStatic(request, env) {
@@ -2567,7 +2643,7 @@ export default {
 
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.protocol === 'http:' && !isLocalHttpHost(url.hostname)) {
+    if (url.protocol === 'http:' && !isLocalHttpRequest(request, url)) {
       url.protocol = 'https:';
       return withSecurityHeaders(Response.redirect(url, 308));
     }

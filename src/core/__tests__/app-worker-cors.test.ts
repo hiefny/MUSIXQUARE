@@ -714,7 +714,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       ASSETS: {
         fetch: vi.fn(
           async () =>
-            new Response('<html><body><div id="soro-blog"></div></body></html>', {
+            new Response('<html><head></head><body><div id="soro-blog"></div></body></html>', {
               headers: { 'Content-Type': 'text/html' },
             }),
         ),
@@ -757,6 +757,12 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
 
     expect(hide.status).toBe(200);
+    const hidePayload = (await hide.json()) as {
+      cacheVersion?: string;
+      hidden?: boolean;
+    };
+    expect(hidePayload.hidden).toBe(true);
+    expect(hidePayload.cacheVersion).toMatch(/^[A-Za-z0-9._:-]+$/);
 
     const blog = await appWorker.fetch(new Request('https://musixquare.com/blog'), env);
     const blogHtml = await blog.text();
@@ -767,6 +773,14 @@ describe('Cloudflare app worker admin dashboard', () => {
     const backupXml = await env.SORO_RSS_BACKUP.get('soro-rss-latest-good.xml');
 
     expect(blog.status).toBe(200);
+    expect(blog.headers.get('Cache-Control')).toBe(
+      'public, max-age=30, s-maxage=86400, stale-while-revalidate=604800',
+    );
+    expect(blog.headers.get('X-Soro-Blog-Cache-Version')).toBe(hidePayload.cacheVersion);
+    expect(blog.headers.get('ETag')).toBe(`W/"soro-blog-${hidePayload.cacheVersion}"`);
+    expect(blogHtml).toContain(
+      `name="soro-blog-cache-version" content="${hidePayload.cacheVersion}"`,
+    );
     expect(blogHtml).toContain('Visible Article');
     expect(blogHtml).not.toContain('Hidden Article');
     expect(hiddenArticle.status).toBe(404);

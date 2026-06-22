@@ -13,7 +13,6 @@ const adminTabs = [...document.querySelectorAll('[data-admin-tab]')];
 const adminViews = [...document.querySelectorAll('[data-admin-view]')];
 const articleListEl = document.querySelector('[data-article-list]');
 const articleStatusEl = document.querySelector('[data-article-status]');
-const articlesRefreshBtn = document.querySelector('[data-articles-refresh]');
 const updatedAtEl = document.querySelector('[data-updated-at]');
 const refreshBtn = document.querySelector('[data-refresh]');
 const logoutBtn = document.querySelector('[data-logout]');
@@ -245,17 +244,19 @@ function renderSignals(summary) {
   );
 }
 
-async function loadMetrics() {
+async function loadMetrics(options = {}) {
   updatedAtEl.textContent = 'Refreshing...';
   const metrics = await fetchJson('/api/admin/metrics');
   showDashboard();
-  setActiveTab('operations');
+  if (options.activateOperations) setActiveTab('operations');
   renderCards(metrics.cards || []);
   renderHourlyChart(metrics.summary?.hourly || []);
   renderDailyList(metrics.summary?.daily || []);
   renderMonthlyChart(metrics.summary?.daily30 || []);
   renderSignals(metrics.summary || {});
-  updatedAtEl.textContent = `Updated ${new Date(metrics.generatedAt).toLocaleString()}`;
+  if (options.updateTimestamp !== false) {
+    updatedAtEl.textContent = `Updated ${new Date(metrics.generatedAt).toLocaleString()}`;
+  }
 }
 
 function renderArticleRow(article) {
@@ -327,12 +328,25 @@ function renderArticles(payload) {
   articleListEl.replaceChildren(...articles.map(renderArticleRow));
 }
 
-async function loadArticles() {
+async function loadArticles(options = {}) {
   if (articleStatusEl) articleStatusEl.textContent = 'Refreshing...';
   const payload = await fetchJson('/api/admin/articles');
   renderArticles(payload);
   articlesLoaded = true;
-  updatedAtEl.textContent = `Updated ${new Date(payload.generatedAt).toLocaleString()}`;
+  if (options.updateTimestamp !== false) {
+    updatedAtEl.textContent = `Updated ${new Date(payload.generatedAt).toLocaleString()}`;
+  }
+}
+
+async function refreshAllDashboardData() {
+  const activeTab = currentAdminTab;
+  updatedAtEl.textContent = 'Refreshing...';
+  await Promise.all([
+    loadMetrics({ updateTimestamp: false }),
+    loadArticles({ updateTimestamp: false }),
+  ]);
+  setActiveTab(activeTab);
+  updatedAtEl.textContent = `Updated ${new Date().toLocaleString()}`;
 }
 
 async function init() {
@@ -347,7 +361,7 @@ async function init() {
       showLogin();
       return;
     }
-    await loadMetrics();
+    await loadMetrics({ activateOperations: true });
   } catch (error) {
     showLogin(error.message || 'Failed to load admin session.');
   }
@@ -364,22 +378,15 @@ loginForm?.addEventListener('submit', async (event) => {
       body: JSON.stringify({ password }),
     });
     loginForm.reset();
-    await loadMetrics();
+    await loadMetrics({ activateOperations: true });
   } catch (error) {
     setStatus(error.message === 'INVALID_PASSWORD' ? 'Invalid password.' : error.message, true);
   }
 });
 
 refreshBtn?.addEventListener('click', () => {
-  const load = currentAdminTab === 'articles' ? loadArticles : loadMetrics;
-  load().catch((error) => {
+  refreshAllDashboardData().catch((error) => {
     updatedAtEl.textContent = error.message || 'Refresh failed.';
-  });
-});
-
-articlesRefreshBtn?.addEventListener('click', () => {
-  loadArticles().catch((error) => {
-    if (articleStatusEl) articleStatusEl.textContent = error.message || 'Refresh failed.';
   });
 });
 

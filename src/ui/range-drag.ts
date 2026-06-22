@@ -72,6 +72,8 @@ export function installRangeDragGuard(root: ParentNode = document): void {
     syncRangeProgress(range);
     range.addEventListener('input', () => syncRangeProgress(range));
     range.addEventListener('change', () => syncRangeProgress(range));
+    range.addEventListener('blur', () => range.classList.remove('is-pointer-focused'));
+    range.addEventListener('keydown', () => range.classList.remove('is-pointer-focused'));
 
     const finishDrag = (event?: PointerEvent) => {
       if (activePointerId === null) return;
@@ -95,6 +97,7 @@ export function installRangeDragGuard(root: ParentNode = document): void {
 
       activePointerId = event.pointerId;
       range.classList.add('is-dragging');
+      range.classList.add('is-pointer-focused');
       range.focus({ preventScroll: true });
 
       try {

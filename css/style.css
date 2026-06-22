@@ -1385,7 +1385,6 @@
     width: 100%;
     display: block;
     background: transparent;
-    outline: none;
     --range-fill: var(--range-fill-idle);
     --range-progress: 0%;
     cursor: pointer;
@@ -1398,9 +1397,12 @@
   }
 
   input[type='range']:active,
-  input[type='range'].is-dragging,
-  input[type='range']:focus-visible {
+  input[type='range'].is-dragging {
     --range-fill: var(--range-fill-active);
+  }
+
+  input[type='range'].is-pointer-focused:focus-visible {
+    outline: none;
   }
 
   input[type='range']::-webkit-slider-runnable-track {

@@ -3238,7 +3238,7 @@
   }
 
   .dialog-message {
-    padding: 6px 32px 28px;
+    padding: 6px 32px 20px;
     font-size: 15px;
     color: var(--text-sub);
     line-height: 1.58;

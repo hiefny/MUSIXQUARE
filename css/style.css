@@ -3235,6 +3235,7 @@
     font-weight: var(--font-weight-display);
     letter-spacing: -0.02em;
     color: var(--text-main);
+    min-width: 0;
   }
 
   .dialog-message {
@@ -3379,6 +3380,10 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .language-dialog-beta-badge {
+    margin-left: 14px;
   }
 
   .language-list {
@@ -6511,14 +6516,14 @@
     min-width: 0;
   }
 
-  .file-select-btn .media-source-beta-badge {
+  .file-select-btn .media-source-beta-badge,
+  .language-dialog-beta-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
     min-width: 42px;
-    height: var(--media-source-beta-height);
-    margin-left: auto;
+    height: 20px;
     padding: 0 10px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.08);
@@ -6531,11 +6536,16 @@
     white-space: nowrap;
   }
 
+  .file-select-btn .media-source-beta-badge {
+    height: var(--media-source-beta-height);
+    margin-left: auto;
+  }
+
   #btn-system-audio.unsupported .media-source-beta-badge {
     display: none;
   }
 
-  html[data-theme='light'] .file-select-btn .media-source-beta-badge {
+  html[data-theme='light'] .media-source-beta-badge {
     background: rgba(48, 53, 64, 0.08);
     color: #6b7280;
   }

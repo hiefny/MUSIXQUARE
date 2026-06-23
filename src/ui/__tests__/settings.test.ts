@@ -108,6 +108,9 @@ function installLanguageSettingsDom(): void {
         <div class="dialog language-dialog">
           <div class="dialog-header">
             <span class="dialog-title" id="language-dialog-title">Select Language</span>
+            <span class="media-source-beta-badge language-dialog-beta-badge" aria-label="Beta">
+              BETA
+            </span>
           </div>
           <div
             class="language-list"
@@ -281,6 +284,7 @@ describe('initSettings language controls', () => {
     );
     expect(document.querySelectorAll('.language-option')).toHaveLength(LANGUAGE_OPTIONS.length);
     expect(document.querySelector('.language-dialog > .cscroll-track')).not.toBeNull();
+    expect(document.querySelector('.language-dialog-beta-badge')?.textContent?.trim()).toBe('BETA');
     expect(document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang).toBe('ko');
   });
 

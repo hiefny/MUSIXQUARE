@@ -536,7 +536,7 @@ const de: Record<I18nKey, string> = {
   'chat.system_audio_started_notice':
     'Systemaudio-Freigabe gestartet. Etwas Verzögerung zwischen Host und Teilnehmern ist normal, daher sollte der Host die Lautstärke des Quellgeräts möglichst weit senken.',
   'chat.system_audio_stopped_notice':
-    'Systemaudio-Freigabe beendet. Host, erhöhe die Lautstärke wieder, um als Lautsprecher mitzuspielen.',
+    'Systemaudio-Freigabe beendet. Host, erhöhe die Lautstärke wieder, um als Lautsprecher zu fungieren.',
   'chat.remote_guest_detected_notice':
     'Ein Remote-Teilnehmer ist beigetreten. Die Verbindungsqualität kann je nach Netzwerkbedingungen variieren.',
   'chat.remote_upload_limited_notice':

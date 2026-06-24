@@ -546,6 +546,10 @@ const nl: Record<I18nKey, string> = {
   'dialog.large_room_sysaudio.message':
     'Systeem-audio delen ondersteunt lokale en externe deelnemers, maar tot ongeveer 4 deelnemers wordt aanbevolen vanwege hostbelasting en vertraging.\n\nDoorgaan?',
   'dialog.continue': 'Doorgaan',
+  'connect.slot_guide.aria': 'Aanbevolen limiet voor deelnemers bekijken',
+  'connect.slot_guide.title': 'Aantal deelnemers',
+  'connect.slot_guide.body':
+    'Hoe meer deelnemers er verbinden, hoe minder stabiel het systeem wordt.\n\n• Samen YouTube: tot 32\n• Lokaal bestanden delen: tot 8\n• Systeem-audio delen: tot 4 aanbevolen',
   'dialog.return_home_title': 'Sessie verlaten',
   'dialog.return_home_msg': 'Terug naar het startscherm?',
   'dialog.return_home_detail': 'Je wordt losgekoppeld van de huidige sessie.',

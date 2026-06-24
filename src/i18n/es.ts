@@ -184,7 +184,8 @@ const es: Record<I18nKey, string> = {
   'connect.device_list_one': '{{count}} dispositivo conectado',
   'connect.no_session': 'Crea una sala primero',
   'connect.generating_qr': 'Generando código QR...',
-  'connect.cannot_reduce': 'No se puede reducir la capacidad: ya hay {{count}} dispositivos conectados',
+  'connect.cannot_reduce':
+    'No se puede reducir la capacidad: ya hay {{count}} dispositivos conectados',
   'connect.kick_title': 'Expulsar dispositivo',
   'connect.kick_message': '¿Eliminar este dispositivo de la sala?',
   'connect.kick_yes': 'Expulsar',
@@ -367,7 +368,8 @@ const es: Record<I18nKey, string> = {
     'El audio del sistema funciona mejor con hasta 4 participantes.\nMás dispositivos pueden añadir latencia o cortes.',
   'system_audio.host_channel_locked':
     'No se pueden cambiar roles durante la compartición de audio del sistema.',
-  'system_audio.effects_guest_only': 'Audio del sistema activo.\nLos efectos solo se aplican a los dispositivos participantes.',
+  'system_audio.effects_guest_only':
+    'Audio del sistema activo.\nLos efectos solo se aplican a los dispositivos participantes.',
   'system_audio.desktop_only':
     'Solo disponible en navegadores de escritorio basados en Chrome (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
@@ -518,7 +520,7 @@ const es: Record<I18nKey, string> = {
   'chat.placeholder': 'Mensaje o / para comandos...',
   'chat.input_label': 'Mensaje',
   'chat.send': 'Enviar mensaje',
-  'chat.start': 'Aún no hay mensajes. ¡Escribe algo para empezar!',
+  'chat.start': '¡Escribe algo para empezar!',
   'chat.muted_placeholder': 'Estás silenciado',
   'chat.cmd_frozen': 'El chat fue congelado',
   'chat.cmd_unfrozen': 'El chat fue descongelado',
@@ -533,8 +535,7 @@ const es: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Espera {{sec}}s antes de enviar',
   'chat.cmd_notice_prefix': 'Aviso',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice':
-    'Pista omitida: formato no compatible en algunos dispositivos.',
+  'chat.decode_skip_notice': 'Pista omitida: formato no compatible en algunos dispositivos.',
   'chat.system_audio_started_notice':
     'Se inició la compartición de audio del sistema. Es normal que haya una leve latencia entre el host y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo host para evitar ecos.',
   'chat.system_audio_stopped_notice':
@@ -627,8 +628,7 @@ const es: Record<I18nKey, string> = {
     'Define el rol de cada dispositivo.<br>Reproduce audio izquierdo y derecho por separado<br>y siente graves profundos con el woofer.',
   'setup.advanced_audio_desc_html':
     'Replica los ajustes del host<br>con reverb, EQ, efectos virtuales<br>y más en todo el sistema.',
-  'youtube.enter_link_desc_html':
-    'Solo se pueden reproducir videos públicos o playlists públicas.',
+  'youtube.enter_link_desc_html': 'Solo se pueden reproducir videos públicos o playlists públicas.',
   'legal.title': 'Notas del servicio',
   'legal.content_html':
     '<strong>Política de privacidad</strong><br>En la misma red, los datos de sesión van directamente entre dispositivos; solo la IP y los detalles de conexión pasan por señalización. Compartir archivos remotos y audio del sistema enruta datos por Cloudflare; los archivos remotos se cifran, se conservan hasta 24 horas y se almacenan sin la clave de descifrado. MUSIXQUARE no ve, analiza ni almacena datos fuera de lo necesario para sus funciones. <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>Aviso de copyright</strong><br>El contenido compartido mediante MUSIXQUARE pertenece a sus respectivos titulares. Compartir audio del sistema y archivos está pensado para uso personal. Los usuarios son responsables de cualquier distribución o transmisión pública no autorizada de contenido protegido. YouTube se comparte mediante su estructura oficial de reproducción, y las vistas y derechos siguen las políticas de ese servicio y la configuración de sus titulares. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>Descargo de responsabilidad</strong><br>MUSIXQUARE se ofrece gratis. Algunas funciones dependen de servicios externos como YouTube o Cloudflare, por lo que pueden ocurrir limitaciones temporales si esos servicios cambian o dejan de estar disponibles. La sincronización de audio en tiempo real y la calidad de uso remoto pueden variar mucho según red, políticas del navegador y rendimiento del dispositivo. Pueden aplicarse cargos de datos móviles si no usas Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',

@@ -99,7 +99,8 @@ const pl: Record<I18nKey, string> = {
   'playlist.remove_no': 'Nie',
   'playlist.video_fallback': 'Ładowanie...',
   'playlist.track_fallback': 'Utwór {{idx}}',
-  'playlist.deferred_load_hint': 'Uruchom odtwarzanie, aby załadować informacje o wszystkich utworach',
+  'playlist.deferred_load_hint':
+    'Uruchom odtwarzanie, aby załadować informacje o wszystkich utworach',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Głośnik centralny',
@@ -181,7 +182,8 @@ const pl: Record<I18nKey, string> = {
   'connect.device_list_one': '{{count}} połączone urządzenie',
   'connect.no_session': 'Najpierw utwórz pokój',
   'connect.generating_qr': 'Generowanie kodu QR...',
-  'connect.cannot_reduce': 'Nie można zmniejszyć pojemności poniżej liczby połączonych urządzeń ({{count}})',
+  'connect.cannot_reduce':
+    'Nie można zmniejszyć pojemności poniżej liczby połączonych urządzeń ({{count}})',
   'connect.kick_title': 'Odłącz urządzenie',
   'connect.kick_message': 'Czy chcesz usunąć to urządzenie z pokoju?',
   'connect.kick_yes': 'Usuń',
@@ -233,7 +235,8 @@ const pl: Record<I18nKey, string> = {
     'Liczba połączonych urządzeń: {{count}}.\nPrzypisz rolę do każdego urządzenia.',
   'demo.session_body_alone': 'Obecnie gra tylko to urządzenie.\nZaproś teraz kolejne urządzenie.',
   'demo.effects_step_title': 'Kształtuj bogatszy dźwięk.',
-  'demo.effects_step_subtitle': 'Szczegółowe ustawienia możesz dostosować w dowolnej chwili w Ustawieniach.',
+  'demo.effects_step_subtitle':
+    'Szczegółowe ustawienia możesz dostosować w dowolnej chwili w Ustawieniach.',
   'demo.finish_step_title': 'Wszystko gotowe!',
   'demo.finish_step_subtitle': 'Dołącz i słuchajcie razem!',
   'demo.track_list_label': 'Lista utworów demo',
@@ -262,13 +265,17 @@ const pl: Record<I18nKey, string> = {
   'help.need_help': 'Potrzebujesz pomocy?',
   'help.install_app': 'Zainstaluj aplikację webową',
   'help.local_recommended': 'Zalecana sieć lokalna',
-  'help.connect_all_wifi': 'Połączenie jest najbardziej stabilne, gdy wszystkie urządzenia korzystają z tej samej sieci Wi-Fi',
+  'help.connect_all_wifi':
+    'Połączenie jest najbardziej stabilne, gdy wszystkie urządzenia korzystają z tej samej sieci Wi-Fi',
   'help.local_file': 'Wybierz plik lokalny',
   'help.load_local': 'Załaduj plik lokalny',
   'help.youtube_compat': 'YouTube (Tryb zgodności)',
-  'help.youtube_no_effects': 'W trybie YouTube zaawansowane efekty dźwiękowe i zarządzanie rolami głośników są niedostępne.',
-  'help.media_synced_detail': 'Wybrane utwory odtwarzają się w idealnej synchronizacji na wszystkich połączonych urządzeniach.',
-  'help.wifi_hotspot': 'Możesz również użyć mobilnego punktu dostępowego (Hotspot), aby połączyć wszystkie urządzenia do jednej sieci',
+  'help.youtube_no_effects':
+    'W trybie YouTube zaawansowane efekty dźwiękowe i zarządzanie rolami głośników są niedostępne.',
+  'help.media_synced_detail':
+    'Wybrane utwory odtwarzają się w idealnej synchronizacji na wszystkich połączonych urządzeniach.',
+  'help.wifi_hotspot':
+    'Możesz również użyć mobilnego punktu dostępowego (Hotspot), aby połączyć wszystkie urządzenia do jednej sieci',
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Czat',
@@ -277,7 +284,7 @@ const pl: Record<I18nKey, string> = {
   'chat.placeholder': 'Wiadomość lub / dla poleceń...',
   'chat.input_label': 'Wiadomość na czacie',
   'chat.send': 'Wyślij',
-  'chat.start': 'Brak wiadomości. Napisz coś, aby rozpocząć czat!',
+  'chat.start': 'Napisz coś, aby rozpocząć czat!',
 
   // ─── Chat Commands ──────────────────────────────────────────────
   'chat.muted_placeholder': 'Nie możesz wysyłać wiadomości na tym czacie',
@@ -294,7 +301,8 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Poczekaj {{sec}} s przed wysłaniem kolejnej wiadomości',
   'chat.cmd_notice_prefix': 'Ogłoszenie',
   'chat.system_sender': 'System',
-  'chat.decode_skip_notice': 'Niektóre urządzenia nie mogły odtworzyć tego utworu. Przejście do kolejnego utworu...',
+  'chat.decode_skip_notice':
+    'Niektóre urządzenia nie mogły odtworzyć tego utworu. Przejście do kolejnego utworu...',
   'chat.system_audio_started_notice':
     'Rozpoczęto udostępnianie dźwięku systemowego. Ponieważ opóźnienie między hostem a gośćmi jest nieuniknione, zalecamy hostowi maksymalne zmniejszenie głośności swojego urządzenia.',
   'chat.system_audio_stopped_notice':
@@ -353,7 +361,8 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_d_unmute': 'Cofa blokadę pisania na czacie wskazanemu urządzeniu',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Wyświetla systemowe informacje debugowania',
-  'chat.debug_copied': 'Informacje debugowania zostały skopiowane do schowka.\nJeśli napotkasz błędy, prześlij je programiście.',
+  'chat.debug_copied':
+    'Informacje debugowania zostały skopiowane do schowka.\nJeśli napotkasz błędy, prześlij je programiście.',
   'chat.seek_to': 'Przejdź do {{time}}',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -368,7 +377,8 @@ const pl: Record<I18nKey, string> = {
   'youtube.video_unavailable': 'Wideo niedostępne. Przejście do kolejnego utworu...',
   'youtube.load_timeout': 'Przekroczono limit czasu ładowania YouTube.\nSpróbuj ponownie.',
   'youtube.invalid_link': 'Niepoprawny link z YouTube',
-  'youtube.effects_disabled': 'Wspólne oglądanie YouTube.\nZaawansowane efekty dźwiękowe są wyłączone.',
+  'youtube.effects_disabled':
+    'Wspólne oglądanie YouTube.\nZaawansowane efekty dźwiękowe są wyłączone.',
   'youtube.enter_link_placeholder': 'Wklej link do wideo lub playlisty',
   'youtube.enter_source_toast': 'Wpisz hasło wyszukiwania lub link z YouTube',
   'youtube.fetching_info': 'Pobieranie informacji o wideo...',
@@ -451,10 +461,12 @@ const pl: Record<I18nKey, string> = {
   'toast.playing_in_3s': 'Odtwarzanie rozpocznie się za 3 sekundy...',
   'toast.hprecision_sync': 'Synchronizacja o wysokiej precyzji: wczytywanie audio...',
   'toast.file_ready': 'Plik jest gotowy!\nNaciśnij przycisk Odtwórz.',
-  'toast.host_sync_not_recommended': 'Zalecamy regulację synchronizacji bezpośrednio na urządzeniu gościa',
+  'toast.host_sync_not_recommended':
+    'Zalecamy regulację synchronizacji bezpośrednio na urządzeniu gościa',
   'toast.host_sync_requested':
     'Zażądano precyzyjnej synchronizacji. Skonfiguruj ręczną synchronizację na urządzeniu gościa.',
-  'toast.sync_not_in_system_audio': 'Synchronizacja nie jest obsługiwana w trybie udostępniania dźwięku systemowego',
+  'toast.sync_not_in_system_audio':
+    'Synchronizacja nie jest obsługiwana w trybie udostępniania dźwięku systemowego',
   'toast.sync_not_ready': 'Jeszcze nie gotowe.\nSpróbuj ponownie za chwilę',
   'toast.host_ad': 'Host pokoju prawdopodobnie ogląda teraz reklamę',
   'toast.yt_sync_start': 'Synchronizowanie...',
@@ -495,13 +507,17 @@ const pl: Record<I18nKey, string> = {
   'share.remote.timeout': 'Przekroczono limit czasu udostępniania zdalnego',
   'share.remote.too_large': 'Plik przekracza dozwolony limit (maks. 200 MB)',
   'share.remote.network_error': 'Błąd sieci podczas udostępniania zdalnego',
-  'share.remote.rate_limited': 'Zbyt wiele żądań udostępniania zdalnego.\nSpróbuj ponownie za chwilę',
-  'share.remote.auth_failed': 'Autoryzacja udostępniania zdalnego nie powiodła się.\nSprawdź ustawienia Workera.',
+  'share.remote.rate_limited':
+    'Zbyt wiele żądań udostępniania zdalnego.\nSpróbuj ponownie za chwilę',
+  'share.remote.auth_failed':
+    'Autoryzacja udostępniania zdalnego nie powiodła się.\nSprawdź ustawienia Workera.',
   'share.remote.expired': 'Link do pliku zdalnego wygasł.\nUdostępnij go ponownie.',
   'share.remote.unavailable': 'Udostępnianie zdalne niedostępne.\nSpróbuj ponownie za chwilę.',
-  'transfer.preload_fail': 'Nie udało się odtworzyć wstępnie wczytanego pliku. Ponowne wczytywanie...',
+  'transfer.preload_fail':
+    'Nie udało się odtworzyć wstępnie wczytanego pliku. Ponowne wczytywanie...',
   'transfer.download_finishing': 'Kończenie pobierania...',
-  'transfer.preparation_delayed': 'Opóźnienie wczytywania...\nŻądanie przywrócenia wysłane do hosta.',
+  'transfer.preparation_delayed':
+    'Opóźnienie wczytywania...\nŻądanie przywrócenia wysłane do hosta.',
   'transfer.receiving_0pct': 'Odbieranie w toku... 0%',
   'transfer.check_conn_type': 'Sprawdzanie typu połączenia...',
   'transfer.preload_pending': 'Oczekiwanie na wstępne wczytanie: {{name}}',
@@ -515,8 +531,10 @@ const pl: Record<I18nKey, string> = {
   'error.load_failed': 'Wczytywanie nie powiodło się: {{msg}}',
   'error.audio_decode_fail': 'Dekodowanie audio nie powiodło się!',
   'error.audio_memory': 'Wczytywanie dźwięku do pamięci...',
-  'error.decode_timeout': 'Dekodowanie „{{name}}” trwa zbyt długo.\nPrzejście do kolejnego utworu...',
-  'error.local_decode_wait': 'To urządzenie nie mogło zdekodować utworu.\nOczekiwanie na kolejny utwór.',
+  'error.decode_timeout':
+    'Dekodowanie „{{name}}” trwa zbyt długo.\nPrzejście do kolejnego utworu...',
+  'error.local_decode_wait':
+    'To urządzenie nie mogło zdekodować utworu.\nOczekiwanie na kolejny utwór.',
   'error.all_tracks_failed': 'Brak odtwarzalnych utworów na playliście.',
   'error.audio_engine_prepare': 'Nie można uruchomić silnika audio',
   'error.session_create_fail': 'Nie udało się utworzyć pokoju',
@@ -531,7 +549,8 @@ const pl: Record<I18nKey, string> = {
   'error.peer_unavailable': 'Pokój nie został znaleziony.\nSprawdź wprowadzony kod.',
   'error.host_left': 'Wygląda na to, że host opuścił pokój',
   'error.network_issue': 'Wykryto problem z siecią.\nSprawdź połączenie internetowe.',
-  'error.signal_server_fail': 'Nie można połączyć się z serwerem sygnalizacyjnym.\nSpróbuj ponownie za chwilę.',
+  'error.signal_server_fail':
+    'Nie można połączyć się z serwerem sygnalizacyjnym.\nSpróbuj ponownie za chwilę.',
   'error.server_disconnected': 'Odłączono od serwera.',
   'error.session_id_unavailable': 'Identyfikator pokoju jest niedostępny.\nSpróbuj ponownie.',
   'error.webrtc_failed': 'Połączenie WebRTC nie powiodło się.\nSprawdź ustawienia przeglądarki.',
@@ -603,17 +622,21 @@ const pl: Record<I18nKey, string> = {
   'system_audio.sharing': 'Udostępnianie dźwięku systemowego',
   'system_audio.receiving': 'Odbieranie dźwięku systemowego',
   'system_audio.capture_denied': 'Udostępnianie dźwięku zostało anulowane.',
-  'system_audio.no_audio_track': 'Opcja „Udostępnij dźwięk” nie została włączona.\nSpróbuj ponownie.',
+  'system_audio.no_audio_track':
+    'Opcja „Udostępnij dźwięk” nie została włączona.\nSpróbuj ponownie.',
   'system_audio.stop': 'Zatrzymaj udostępnianie',
   'system_audio.started':
     'Dźwięk systemowy może charakteryzować się niewielkim opóźnieniem.\nZalecamy hostowi maksymalne zmniejszenie głośności swojego urządzenia.',
-  'system_audio.stopped': 'Udostępnianie dźwięku systemowego zostało zakończone.\nWznawianie playlisty.',
+  'system_audio.stopped':
+    'Udostępnianie dźwięku systemowego zostało zakończone.\nWznawianie playlisty.',
   'system_audio.many_devices_warning':
     'Dźwięk systemowy działa optymalnie przy maksymalnie 4 gościach.\nWiększa liczba może powodować opóźnienia lub zacinanie.',
-  'system_audio.host_channel_locked': 'Nie można zmienić ról głośników podczas udostępniania dźwięku systemowego.',
+  'system_audio.host_channel_locked':
+    'Nie można zmienić ról głośników podczas udostępniania dźwięku systemowego.',
   'system_audio.effects_guest_only':
     'Udostępnianie dźwięku systemowego aktywne.\nZaawansowane efekty dźwiękowe mają zastosowanie wyłącznie do urządzeń gości.',
-  'system_audio.desktop_only': 'Dostępne wyłącznie w przeglądarkach desktopowych opartych na Chrome (Chrome, Edge itp.).',
+  'system_audio.desktop_only':
+    'Dostępne wyłącznie w przeglądarkach desktopowych opartych na Chrome (Chrome, Edge itp.).',
   'system_audio.receive_failed':
     'Nie udało się odebrać dźwięku systemowego.\nPoproś hosta o ponowne uruchomienie udostępniania.',
   'system_audio.remote_receive_limit':

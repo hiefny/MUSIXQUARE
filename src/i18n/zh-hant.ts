@@ -495,7 +495,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.placeholder': '訊息，或 / 使用指令...',
   'chat.input_label': '輸入聊天訊息',
   'chat.send': '傳送訊息',
-  'chat.start': '還沒有訊息。傳送訊息開始聊天吧！',
+  'chat.start': '傳送訊息開始聊天吧！',
   'chat.muted_placeholder': '你已被禁言',
   'chat.cmd_frozen': '聊天已凍結',
   'chat.cmd_unfrozen': '聊天已解除凍結',

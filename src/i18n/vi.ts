@@ -363,7 +363,8 @@ const vi: Record<I18nKey, string> = {
   'system_audio.host_channel_locked': 'Không thể đổi vai trò khi chia sẻ âm thanh hệ thống.',
   'system_audio.effects_guest_only':
     'Đang chia sẻ âm thanh hệ thống.\nHiệu ứng chỉ áp dụng cho người tham gia.',
-  'system_audio.desktop_only': 'Chỉ dùng được trên trình duyệt máy tính dựa trên Chrome (Chrome, Edge, v.v.).',
+  'system_audio.desktop_only':
+    'Chỉ dùng được trên trình duyệt máy tính dựa trên Chrome (Chrome, Edge, v.v.).',
   'system_audio.receive_failed':
     'Không nhận được âm thanh hệ thống.\nHãy nhờ host bắt đầu chia sẻ lại.',
   'system_audio.remote_receive_limit':
@@ -507,7 +508,7 @@ const vi: Record<I18nKey, string> = {
   'chat.placeholder': 'Tin nhắn hoặc / để xem lệnh...',
   'chat.input_label': 'Nhập tin nhắn chat',
   'chat.send': 'Gửi tin nhắn',
-  'chat.start': 'Chưa có tin nhắn. Nhập gì đó để bắt đầu trò chuyện!',
+  'chat.start': 'Nhập gì đó để bắt đầu trò chuyện!',
   'chat.muted_placeholder': 'Bạn đã bị tắt tiếng',
   'chat.cmd_frozen': 'Chat đã bị đóng băng',
   'chat.cmd_unfrozen': 'Chat đã được mở lại',

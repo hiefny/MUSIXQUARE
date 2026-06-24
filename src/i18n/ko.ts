@@ -276,7 +276,7 @@ const ko = {
   'chat.placeholder': '메시지 또는 / 명령어',
   'chat.input_label': '채팅 메시지 입력',
   'chat.send': '메시지 보내기',
-  'chat.start': '채팅을 시작하세요',
+  'chat.start': '채팅을 시작해보세요!',
 
   // ─── Chat Commands ──────────────────────────────────────────────
   'chat.muted_placeholder': '채팅이 제한되었어요',
@@ -611,7 +611,8 @@ const ko = {
     '시스템 오디오 공유는 최대 4명 정도를 권장해요.\n인원이 많으면 지연이나 끊김이 늘 수 있어요.',
   'system_audio.host_channel_locked': '시스템 오디오 공유 중에는 역할을 변경할 수 없어요.',
   'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 참여자에게만 적용돼요',
-  'system_audio.desktop_only': '데스크톱의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요.',
+  'system_audio.desktop_only':
+    '데스크톱의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요.',
   'system_audio.receive_failed': '시스템 오디오를 수신하지 못했어요.\n공유를 다시 시작해 주세요.',
   'system_audio.remote_receive_limit':
     '원격 시스템 오디오 수신이 2시간 후 자동 종료되었어요.\n계속 들으려면 방에 다시 입장해주세요.',

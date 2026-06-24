@@ -458,7 +458,8 @@ const zhHans: Record<I18nKey, string> = {
 
   // Dialog
   'dialog.large_room_file.title': '大房间中的文件共享',
-  'dialog.large_room_file.message': '在同一网络下，本地文件共享在约 8 位参与者以内较为稳定。\n\n继续吗？',
+  'dialog.large_room_file.message':
+    '在同一网络下，本地文件共享在约 8 位参与者以内较为稳定。\n\n继续吗？',
   'dialog.large_room_sysaudio.title': '大房间中的系统音频',
   'dialog.large_room_sysaudio.message':
     '系统音频共享支持本地和远程参与者，但考虑主持人设备负载和延迟，建议最多约 4 位参与者。\n\n继续吗？',
@@ -494,7 +495,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.placeholder': '消息，或 / 使用命令...',
   'chat.input_label': '输入聊天消息',
   'chat.send': '发送消息',
-  'chat.start': '暂无消息。发送消息以开始！',
+  'chat.start': '发送消息以开始！',
   'chat.muted_placeholder': '你已被禁言',
   'chat.cmd_frozen': '聊天已冻结',
   'chat.cmd_unfrozen': '聊天已解除冻结',

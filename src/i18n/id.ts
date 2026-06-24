@@ -512,7 +512,7 @@ const id: Record<I18nKey, string> = {
   'chat.placeholder': 'Pesan atau / untuk perintah...',
   'chat.input_label': 'Ketik pesan chat',
   'chat.send': 'Kirim pesan',
-  'chat.start': 'Belum ada pesan. Ketik sesuatu untuk memulai!',
+  'chat.start': 'Ketik sesuatu untuk memulai!',
   'chat.muted_placeholder': 'Anda dibisukan',
   'chat.cmd_frozen': 'Chat telah dibekukan',
   'chat.cmd_unfrozen': 'Chat telah dibuka kembali',

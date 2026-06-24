@@ -184,7 +184,8 @@ const de: Record<I18nKey, string> = {
   'connect.device_list_one': '{{count}} verbundenes Gerät',
   'connect.no_session': 'Starte zuerst einen Raum',
   'connect.generating_qr': 'QR-Code wird erstellt...',
-  'connect.cannot_reduce': 'Kapazität kann nicht reduziert werden: {{count}} Geräte sind bereits verbunden',
+  'connect.cannot_reduce':
+    'Kapazität kann nicht reduziert werden: {{count}} Geräte sind bereits verbunden',
   'connect.kick_title': 'Gerät entfernen',
   'connect.kick_message': 'Dieses Gerät aus dem Raum entfernen?',
   'connect.kick_yes': 'Entfernen',
@@ -337,7 +338,8 @@ const de: Record<I18nKey, string> = {
   'share.remote.too_large': 'Datei zu groß (max. 200 MB)',
   'share.remote.network_error': 'Netzwerkfehler während der Remote-Freigabe',
   'share.remote.rate_limited': 'Zu viele Remote-Uploads.\nBitte gleich erneut versuchen',
-  'share.remote.auth_failed': 'Remote-Freigabeautorisierung fehlgeschlagen.\nWorker-Einstellungen prüfen',
+  'share.remote.auth_failed':
+    'Remote-Freigabeautorisierung fehlgeschlagen.\nWorker-Einstellungen prüfen',
   'share.remote.expired': 'Remote-Dateilink ist abgelaufen.\nBitte erneut freigeben.',
   'share.remote.unavailable': 'Remote-Freigabe fehlgeschlagen.\nBitte gleich erneut versuchen.',
   'transfer.preload_fail': 'Vorab-Wiedergabe fehlgeschlagen, wird neu geladen',
@@ -366,7 +368,8 @@ const de: Record<I18nKey, string> = {
     'Rollen können während der Systemaudio-Freigabe nicht geändert werden.',
   'system_audio.effects_guest_only':
     'Systemaudio wird geteilt.\nEffekte werden nur auf Gäste angewendet.',
-  'system_audio.desktop_only': 'Nur in Chrome-basierten Desktop-Browsern verfügbar (Chrome, Edge usw.).',
+  'system_audio.desktop_only':
+    'Nur in Chrome-basierten Desktop-Browsern verfügbar (Chrome, Edge usw.).',
   'system_audio.receive_failed':
     'Systemaudio konnte nicht empfangen werden.\nBitte den Host, die Freigabe neu zu starten.',
   'system_audio.remote_receive_limit':
@@ -513,7 +516,7 @@ const de: Record<I18nKey, string> = {
   'chat.placeholder': 'Nachricht oder / für Befehle...',
   'chat.input_label': 'Chatnachricht eingeben',
   'chat.send': 'Nachricht senden',
-  'chat.start': 'Noch keine Nachrichten. Schreibe etwas, um anzufangen!',
+  'chat.start': 'Schreibe etwas, um anzufangen!',
   'chat.muted_placeholder': 'Du bist stummgeschaltet',
   'chat.cmd_frozen': 'Chat wurde eingefroren',
   'chat.cmd_unfrozen': 'Chat wurde freigegeben',

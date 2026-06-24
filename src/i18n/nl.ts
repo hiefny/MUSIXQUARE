@@ -282,7 +282,7 @@ const nl: Record<I18nKey, string> = {
   'chat.placeholder': "Bericht of '/' voor opdrachten...",
   'chat.input_label': 'Chatbericht invoeren',
   'chat.send': 'Bericht sturen',
-  'chat.start': 'Nog geen berichten. Stuur het eerste bericht!',
+  'chat.start': 'Stuur het eerste bericht!',
   'chat.muted_placeholder': 'Je bent gedempt',
   'chat.cmd_frozen': 'Chat is bevroren',
   'chat.cmd_unfrozen': 'Chat is weer vrijgegeven',

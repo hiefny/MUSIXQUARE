@@ -206,7 +206,7 @@ const tr: Record<I18nKey, string> = {
   'setup.host_button': 'Oda Oluştur',
   'setup.guest_button': 'Odaya Katıl',
   'setup.demo_button': 'Uygulamayı Dene (Demo)',
-  'demo.prompt_title': 'MUSIXQUARE\'i Keşfedin',
+  'demo.prompt_title': "MUSIXQUARE'i Keşfedin",
   'demo.prompt_message': 'Hoş geldiniz! Özelliklerimizi keşfetmek için kısa bir tura ne dersiniz?',
   'demo.prompt_cta': 'Tura Başla',
   'demo.prompt_later': 'Daha Sonra',
@@ -233,7 +233,8 @@ const tr: Record<I18nKey, string> = {
     'Şu anda {{count}} cihaz bağlı.\nHer bir cihaz için bir ses kanalı rolü belirleyin.',
   'demo.session_body_alone': 'Şu anda tek başınıza çalıyorsunuz.\nŞimdi yeni cihazlar davet edin.',
   'demo.effects_step_title': 'Kendi premium ses deneyiminizi yaratın.',
-  'demo.effects_step_subtitle': 'Daha detaylı ayarları dilediğiniz zaman Ayarlar sekmesinden yapabilirsiniz.',
+  'demo.effects_step_subtitle':
+    'Daha detaylı ayarları dilediğiniz zaman Ayarlar sekmesinden yapabilirsiniz.',
   'demo.finish_step_title': 'Her şey hazır!',
   'demo.finish_step_subtitle': 'Hemen katılın ve birlikte dinleyin!',
   'demo.track_list_label': 'Demo Şarkı Listesi',
@@ -243,7 +244,7 @@ const tr: Record<I18nKey, string> = {
   'setup.how_to_connect': 'Nasıl Bağlanılır',
   'setup.set_role': 'Bu cihazın rolünü ayarlayın',
   'setup.what_sound': 'Bu cihaz neyi oynatmalı?',
-  'setup.change_later': 'Bunu dilediğiniz zaman Ayarlar\'dan değiştirebilirsiniz.',
+  'setup.change_later': "Bunu dilediğiniz zaman Ayarlar'dan değiştirebilirsiniz.",
   'setup.welcome_title': 'Hoş Geldiniz',
   'setup.join_session_subtitle': '{{code}} numaralı odaya katılmak üzeresiniz',
   'setup.select_role': 'Lütfen bir rol seçin',
@@ -266,9 +267,12 @@ const tr: Record<I18nKey, string> = {
   'help.local_file': 'Yerel Dosya Seç',
   'help.load_local': 'Yerel Dosyayı Yükle',
   'help.youtube_compat': 'YouTube (Uyumlu Mod)',
-  'help.youtube_no_effects': 'YouTube birlikte izleme modunda, gelişmiş ses efektleri ve rol ayarları kullanılamaz.',
-  'help.media_synced_detail': 'Seçilen müzik, bağlı olan tüm cihazlarda tam olarak senkronize şekilde oynatılır.',
-  'help.wifi_hotspot': 'Cihazları aynı ağa bağlamak için mobil erişim noktasını (Hotspot) da kullanabilirsiniz',
+  'help.youtube_no_effects':
+    'YouTube birlikte izleme modunda, gelişmiş ses efektleri ve rol ayarları kullanılamaz.',
+  'help.media_synced_detail':
+    'Seçilen müzik, bağlı olan tüm cihazlarda tam olarak senkronize şekilde oynatılır.',
+  'help.wifi_hotspot':
+    'Cihazları aynı ağa bağlamak için mobil erişim noktasını (Hotspot) da kullanabilirsiniz',
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Sohbet',
@@ -277,7 +281,7 @@ const tr: Record<I18nKey, string> = {
   'chat.placeholder': 'Mesaj veya komutlar için /...',
   'chat.input_label': 'Sohbet Mesajı',
   'chat.send': 'Gönder',
-  'chat.start': 'Henüz mesaj yok. Sohbeti başlatmak için bir şeyler yazın!',
+  'chat.start': 'Sohbeti başlatmak için bir şeyler yazın!',
 
   // ─── Chat Commands ──────────────────────────────────────────────
   'chat.muted_placeholder': 'Bu sohbette mesaj yazma izniniz yok',
@@ -294,7 +298,8 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Yeni bir mesaj göndermek için lütfen {{sec}} saniye bekleyin',
   'chat.cmd_notice_prefix': 'Duyuru',
   'chat.system_sender': 'Sistem',
-  'chat.decode_skip_notice': 'Bazı cihazlar şarkının kodunu çözemediğinden sonraki şarkıya geçiliyor',
+  'chat.decode_skip_notice':
+    'Bazı cihazlar şarkının kodunu çözemediğinden sonraki şarkıya geçiliyor',
   'chat.system_audio_started_notice':
     'Sistem sesi paylaşımı başladı. Oda sahibi ile misafir cihazlar arasında hafif bir gecikme olması normaldir. Yankıyı önlemek için oda sahibinin cihaz sesini kısması önerilir.',
   'chat.system_audio_stopped_notice':
@@ -353,7 +358,8 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_d_unmute': 'Belirtilen cihazın sohbet yazma engelini kaldırır',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Sistem hata ayıklama bilgilerini gösterir',
-  'chat.debug_copied': 'Hata ayıklama bilgileri panoya kopyalandı.\nHerhangi bir hata ile karşılaşırsanız geliştiriciye iletin.',
+  'chat.debug_copied':
+    'Hata ayıklama bilgileri panoya kopyalandı.\nHerhangi bir hata ile karşılaşırsanız geliştiriciye iletin.',
   'chat.seek_to': '{{time}} konumuna git',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -362,13 +368,14 @@ const tr: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Bir YouTube linki girin veya arama yapın',
   'youtube.enter_source_placeholder': 'Arama terimi veya link (https://youtube.com/...)',
   'youtube.watch_together': 'YouTube Birlikte İzleme',
-  'youtube.ready': 'YouTube hazır!\nBaşlatmak için Oynat\'a basın.',
+  'youtube.ready': "YouTube hazır!\nBaşlatmak için Oynat'a basın.",
   'youtube.thumbnail': 'YouTube Önizleme Görseli',
-  'youtube.load_fail': 'YouTube API\'si yüklenemedi.\nİnternet bağlantınızı kontrol edin!',
+  'youtube.load_fail': "YouTube API'si yüklenemedi.\nİnternet bağlantınızı kontrol edin!",
   'youtube.video_unavailable': 'Video kullanılamıyor. Sonraki şarkıya geçiliyor...',
   'youtube.load_timeout': 'YouTube yükleme işlemi zaman aşımına uğradı.\nLütfen tekrar deneyin.',
   'youtube.invalid_link': 'Geçersiz YouTube linki',
-  'youtube.effects_disabled': 'YouTube birlikte izleme modunda\ngelişmiş ses efektleri devre dışı bırakılır.',
+  'youtube.effects_disabled':
+    'YouTube birlikte izleme modunda\ngelişmiş ses efektleri devre dışı bırakılır.',
   'youtube.enter_link_placeholder': 'Bir video veya çalma listesi linki girin',
   'youtube.enter_source_toast': 'Bir YouTube linki girin veya arama yapın',
   'youtube.fetching_info': 'Video bilgileri alınıyor...',
@@ -380,7 +387,7 @@ const tr: Record<I18nKey, string> = {
   'youtube.loading_large_playlist': 'Büyük çalma listesi yükleniyor...',
   'youtube.indexing_playlist': 'Çalma listesi analiz ediliyor...',
   'youtube.search_button': 'Ara',
-  'youtube.search_prompt': 'Videoları bulmak için Enter\'a basın veya Ara\'yı seçin',
+  'youtube.search_prompt': "Videoları bulmak için Enter'a basın veya Ara'yı seçin",
   'youtube.searching': 'YouTube üzerinde aranıyor...',
   'youtube.search_no_results': 'Sonuç bulunamadı',
   'youtube.search_failed': 'YouTube arama işlevi şu anda kullanılamıyor',
@@ -451,7 +458,8 @@ const tr: Record<I18nKey, string> = {
   'toast.playing_in_3s': 'Oynatma 3 saniye içinde başlayacak...',
   'toast.hprecision_sync': 'Yüksek hassasiyetli senkronizasyon: ses hazırlanıyor...',
   'toast.file_ready': 'Dosyanız hazır!\nOynat butonuna basın.',
-  'toast.host_sync_not_recommended': 'Senkronizasyonu misafir cihazı üzerinden ayarlamanız önerilir',
+  'toast.host_sync_not_recommended':
+    'Senkronizasyonu misafir cihazı üzerinden ayarlamanız önerilir',
   'toast.host_sync_requested':
     'Hassas senkronizasyon talep edildi.\nLütfen senkronizasyon ayarını misafir cihazından yapın.',
   'toast.sync_not_in_system_audio': 'Sistem sesi paylaşım modunda senkronizasyon kullanılamaz',
@@ -495,10 +503,13 @@ const tr: Record<I18nKey, string> = {
   'share.remote.timeout': 'Uzak dosya paylaşım süresi doldu',
   'share.remote.too_large': 'Dosya limiti aşıldı (en fazla 200 MB)',
   'share.remote.network_error': 'Uzak paylaşım sırasında ağ hatası oluştu',
-  'share.remote.rate_limited': 'Çok fazla uzaktan paylaşım isteği var.\nLütfen birazdan tekrar deneyin',
-  'share.remote.auth_failed': 'Uzaktan paylaşım kimlik doğrulaması başarısız oldu.\nLütfen Worker ayarlarını kontrol edin',
+  'share.remote.rate_limited':
+    'Çok fazla uzaktan paylaşım isteği var.\nLütfen birazdan tekrar deneyin',
+  'share.remote.auth_failed':
+    'Uzaktan paylaşım kimlik doğrulaması başarısız oldu.\nLütfen Worker ayarlarını kontrol edin',
   'share.remote.expired': 'Uzak dosya linkinin süresi doldu.\nLütfen tekrar paylaşın.',
-  'share.remote.unavailable': 'Uzaktan paylaşım şu anda kullanılamıyor.\nLütfen kısa süre sonra tekrar deneyin.',
+  'share.remote.unavailable':
+    'Uzaktan paylaşım şu anda kullanılamıyor.\nLütfen kısa süre sonra tekrar deneyin.',
   'transfer.preload_fail': 'Ön yüklemeli oynatma başarısız oldu. Yeniden yükleniyor...',
   'transfer.download_finishing': 'İndirme tamamlanıyor...',
   'transfer.preparation_delayed': 'Hazırlık gecikiyor...\nOda sahibinden kurtarma talep ediliyor.',
@@ -510,13 +521,15 @@ const tr: Record<I18nKey, string> = {
   'transfer.recovery_failed': 'Dosya kurtarılamadı.\nLütfen tekrar deneyin.',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'HTTPS Gereklidir: Bu özellik yalnızca güvenli bağlantı üzerinden çalışır.',
+  'error.https_required':
+    'HTTPS Gereklidir: Bu özellik yalnızca güvenli bağlantı üzerinden çalışır.',
   'error.browser_update': 'Lütfen tarayıcınızı güncelleyin (iOS 15.2+, Chrome 86+)',
   'error.load_failed': 'Yüklenemedi: {{msg}}',
   'error.audio_decode_fail': 'Ses kodu çözme hatası!',
   'error.audio_memory': 'Ses belleğe yükleniyor...',
   'error.decode_timeout': '"{{name}}" şarkısının kodu çözülemedi.\nSonraki şarkıya geçiliyor...',
-  'error.local_decode_wait': 'Bu cihaz şarkının kodunu çözemedi.\nLütfen bir sonraki şarkıyı bekleyin.',
+  'error.local_decode_wait':
+    'Bu cihaz şarkının kodunu çözemedi.\nLütfen bir sonraki şarkıyı bekleyin.',
   'error.all_tracks_failed': 'Çalma listesinde oynatılabilecek şarkı bulunmuyor.',
   'error.audio_engine_prepare': 'Ses motoru başlatılamadı',
   'error.session_create_fail': 'Oda oluşturulamadı',
@@ -530,8 +543,10 @@ const tr: Record<I18nKey, string> = {
   'error.no_host_id': 'Oda sahibi kimliği bulunamadı',
   'error.peer_unavailable': 'Oda bulunamadı.\nLütfen kodu tekrar kontrol edin.',
   'error.host_left': 'Oda sahibi odadan ayrılmış görünüyor',
-  'error.network_issue': 'Ağ bağlantısı sorunu yaşanıyor.\nLütfen internet bağlantınızı kontrol edin.',
-  'error.signal_server_fail': 'Sinyalleşme sunucusuna bağlanılamıyor.\nLütfen kısa süre sonra tekrar deneyin.',
+  'error.network_issue':
+    'Ağ bağlantısı sorunu yaşanıyor.\nLütfen internet bağlantınızı kontrol edin.',
+  'error.signal_server_fail':
+    'Sinyalleşme sunucusuna bağlanılamıyor.\nLütfen kısa süre sonra tekrar deneyin.',
   'error.server_disconnected': 'Sunucuyla bağlantı koptu.',
   'error.session_id_unavailable': 'Oda kimliği alınamadı.\nLütfen tekrar deneyin.',
   'error.webrtc_failed': 'WebRTC bağlantısı başarısız oldu.\nTarayıcı ayarlarınızı kontrol edin.',
@@ -596,7 +611,8 @@ const tr: Record<I18nKey, string> = {
     'Her cihaz için rol belirleyin.<br>Sol ve sağ sesleri ayrı cihazlarda oynatın<br>ve subwoofer moduyla basları hissedin.',
   'setup.advanced_audio_desc_html':
     'Oda sahibinin ayarlarıyla eşleşen<br>yankı, EQ, sanal efektler ve daha fazlasını<br>tüm ses sisteminde uygulayın.',
-  'youtube.enter_link_desc_html': 'Yalnızca herkese açık videolar veya çalma listeleri oynatılabilir.',
+  'youtube.enter_link_desc_html':
+    'Yalnızca herkese açık videolar veya çalma listeleri oynatılabilir.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Sistem Sesi',
@@ -613,7 +629,8 @@ const tr: Record<I18nKey, string> = {
   'system_audio.host_channel_locked': 'Sistem sesi paylaşımı sırasında roller değiştirilemez.',
   'system_audio.effects_guest_only':
     'Sistem sesi paylaşımı aktif.\nSes efektleri yalnızca misafirlere uygulanır.',
-  'system_audio.desktop_only': 'Yalnızca Chrome tabanlı masaüstü tarayıcılarında kullanılabilir (Chrome, Edge vb.).',
+  'system_audio.desktop_only':
+    'Yalnızca Chrome tabanlı masaüstü tarayıcılarında kullanılabilir (Chrome, Edge vb.).',
   'system_audio.receive_failed':
     'Sistem sesi alınamadı.\nOda sahibinden paylaşıma yeniden başlamasını isteyin.',
   'system_audio.remote_receive_limit':

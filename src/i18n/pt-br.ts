@@ -184,7 +184,8 @@ const ptBr: Record<I18nKey, string> = {
   'connect.device_list_one': '{{count}} dispositivo conectado',
   'connect.no_session': 'Crie uma sala primeiro',
   'connect.generating_qr': 'Gerando código QR...',
-  'connect.cannot_reduce': 'Não é possível reduzir a capacidade: {{count}} dispositivos já estão conectados',
+  'connect.cannot_reduce':
+    'Não é possível reduzir a capacidade: {{count}} dispositivos já estão conectados',
   'connect.kick_title': 'Expulsar dispositivo',
   'connect.kick_message': 'Remover este dispositivo da sala?',
   'connect.kick_yes': 'Expulsar',
@@ -517,7 +518,7 @@ const ptBr: Record<I18nKey, string> = {
   'chat.placeholder': 'Mensagem ou / para comandos...',
   'chat.input_label': 'Digite uma mensagem de chat',
   'chat.send': 'Enviar mensagem',
-  'chat.start': 'Nenhuma mensagem ainda. Escreva algo para começar!',
+  'chat.start': 'Escreva algo para começar!',
   'chat.muted_placeholder': 'Você está silenciado',
   'chat.cmd_frozen': 'O chat foi congelado',
   'chat.cmd_unfrozen': 'O chat foi descongelado',

@@ -278,7 +278,7 @@ const en: Record<I18nKey, string> = {
   'chat.placeholder': "Message or '/' for commands...",
   'chat.input_label': 'Message input',
   'chat.send': 'Send message',
-  'chat.start': 'No messages yet. Send a message to start!',
+  'chat.start': 'Send a message to start!',
 
   // ─── Chat Commands ──────────────────────────────────────────────
   'chat.muted_placeholder': 'You are muted',
@@ -453,8 +453,7 @@ const en: Record<I18nKey, string> = {
   'toast.hprecision_sync': 'High-precision sync: preparing audio\u2026',
   'toast.file_ready': 'Your file is ready!\nPress Play.',
   'toast.host_sync_not_recommended': 'Adjust sync on a guest device',
-  'toast.host_sync_requested':
-    'Precision sync requested.\nAdjust manual sync on a guest device.',
+  'toast.host_sync_requested': 'Precision sync requested.\nAdjust manual sync on a guest device.',
   'toast.sync_not_in_system_audio': 'Sync is unavailable in system audio sharing mode',
   'toast.sync_not_ready': 'Not ready yet.\nTry again in a moment',
   'toast.host_ad': 'The host seems to be watching an ad',
@@ -615,8 +614,10 @@ const en: Record<I18nKey, string> = {
   'system_audio.many_devices_warning':
     'System audio is best with up to 4 participants.\nMore devices may add latency or stutter.',
   'system_audio.host_channel_locked': 'Cannot change roles during system audio sharing.',
-  'system_audio.effects_guest_only': 'System audio active.\nSound effects apply to guest devices only.',
-  'system_audio.desktop_only': 'Only available in Chrome-based desktop browsers (Chrome, Edge, etc.).',
+  'system_audio.effects_guest_only':
+    'System audio active.\nSound effects apply to guest devices only.',
+  'system_audio.desktop_only':
+    'Only available in Chrome-based desktop browsers (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
     'Could not receive system audio.\nAsk the host to start sharing again.',
   'system_audio.remote_receive_limit':

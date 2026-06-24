@@ -184,7 +184,8 @@ const fr: Record<I18nKey, string> = {
   'connect.device_list_one': '{{count}} appareil connecté',
   'connect.no_session': 'Créez d’abord une salle',
   'connect.generating_qr': 'Génération du code QR...',
-  'connect.cannot_reduce': 'Impossible de réduire la capacité : {{count}} appareils sont déjà connectés',
+  'connect.cannot_reduce':
+    'Impossible de réduire la capacité : {{count}} appareils sont déjà connectés',
   'connect.kick_title': 'Expulser un appareil',
   'connect.kick_message': 'Retirer cet appareil de la salle ?',
   'connect.kick_yes': 'Expulser',
@@ -213,7 +214,8 @@ const fr: Record<I18nKey, string> = {
   'demo.prompt_message': 'Bienvenue ! Prêt pour une visite guidée de nos fonctionnalités ?',
   'demo.prompt_cta': 'Commencer la visite',
   'demo.prompt_later': 'Plus tard',
-  'demo.try_later_toast': 'Vous pouvez commencer la visite quand vous le souhaitez depuis l’onglet Aide.',
+  'demo.try_later_toast':
+    'Vous pouvez commencer la visite quand vous le souhaitez depuis l’onglet Aide.',
   'demo.track_info': 'Infos de piste',
   'demo.exit': 'Terminer la visite',
   'demo.credit': 'Piste de démo',
@@ -237,7 +239,8 @@ const fr: Record<I18nKey, string> = {
   'demo.session_body_alone':
     'Seul cet appareil lit actuellement.\nInvitez un autre appareil maintenant.',
   'demo.effects_step_title': 'Créez votre propre expérience sonore premium.',
-  'demo.effects_step_subtitle': 'Vous pouvez affiner ces effets avancés à tout moment dans les Réglages.',
+  'demo.effects_step_subtitle':
+    'Vous pouvez affiner ces effets avancés à tout moment dans les Réglages.',
   'demo.finish_step_title': 'Tout est prêt !',
   'demo.finish_step_subtitle': 'Lancez-vous dès maintenant et écoutez ensemble.',
   'demo.track_list_label': 'Liste des pistes de démo',
@@ -340,7 +343,8 @@ const fr: Record<I18nKey, string> = {
   'share.remote.network_error': 'Erreur réseau pendant le partage distant',
   'share.remote.rate_limited':
     'Trop d’envois de partage distant.\nVeuillez réessayer dans un instant',
-  'share.remote.auth_failed': 'Échec de l’autorisation du partage distant.\nVérifiez les réglages du Worker',
+  'share.remote.auth_failed':
+    'Échec de l’autorisation du partage distant.\nVérifiez les réglages du Worker',
   'share.remote.expired': 'Le lien du fichier distant a expiré.\nPartagez-le à nouveau.',
   'share.remote.unavailable': 'Échec du partage distant.\nVeuillez réessayer dans un instant.',
   'transfer.preload_fail': 'Échec de la lecture préchargée, rechargement',
@@ -367,7 +371,8 @@ const fr: Record<I18nKey, string> = {
     'L’audio système fonctionne mieux avec 4 participants maximum.\nAu-delà, de la latence ou des coupures peuvent survenir.',
   'system_audio.host_channel_locked':
     'Impossible de changer de rôle pendant le partage audio système.',
-  'system_audio.effects_guest_only': 'Audio système actif.\nLes effets s’appliquent uniquement aux invités.',
+  'system_audio.effects_guest_only':
+    'Audio système actif.\nLes effets s’appliquent uniquement aux invités.',
   'system_audio.desktop_only':
     'Disponible uniquement dans les navigateurs de bureau basés sur Chrome (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
@@ -520,7 +525,7 @@ const fr: Record<I18nKey, string> = {
   'chat.placeholder': 'Message ou / pour commandes...',
   'chat.input_label': 'Message',
   'chat.send': 'Envoyer le message',
-  'chat.start': 'Aucun message pour l’instant. Écrivez quelque chose pour commencer !',
+  'chat.start': 'Écrivez quelque chose pour commencer !',
   'chat.muted_placeholder': 'Vous êtes muet',
   'chat.cmd_frozen': 'Le chat a été gelé',
   'chat.cmd_unfrozen': 'Le chat a été dégelé',

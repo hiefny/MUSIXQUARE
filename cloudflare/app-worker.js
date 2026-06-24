@@ -27,6 +27,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
+const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
 const SORO_BLOG_HTML_CACHE = 'no-store, max-age=0, must-revalidate';
 const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const SORO_IMAGE_FETCH_TIMEOUT_MS = 5000;
@@ -45,6 +46,9 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'guest_auth_failed', label: 'Password failures' },
   { key: 'guest_auth_timeout', label: 'Password timeouts' },
 ];
+
+let soroBackgroundRefreshPromise = null;
+let soroBackgroundRefreshStartedAt = 0;
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
@@ -2005,7 +2009,7 @@ function soroArticleImageUrl(article, origin, source) {
   return `${origin}/og-blog.png`;
 }
 
-async function hydrateSoroListImages(env, articles, source) {
+function mapSoroListImagePaths(articles) {
   const counts = {};
   const visibleCount = Math.min(articles.length, 12);
 
@@ -2016,22 +2020,28 @@ async function hydrateSoroListImages(env, articles, source) {
       continue;
     }
 
-    if (index < visibleCount) {
-      const status = await ensureSoroImageMirror(env, article, { fetchMissing: source === 'live' });
-      counts[status] = (counts[status] || 0) + 1;
+    const key = soroImageKey(article);
+    if (!key) {
+      counts.invalid = (counts.invalid || 0) + 1;
       continue;
     }
 
-    const key = soroImageKey(article);
-    if (key) {
-      article.localImagePath = soroImagePublicPath(key);
-      counts.deferred = (counts.deferred || 0) + 1;
-    }
+    article.localImagePath = soroImagePublicPath(key);
+    const status = index < visibleCount ? 'mapped' : 'deferred';
+    counts[status] = (counts[status] || 0) + 1;
   }
 
   return Object.entries(counts)
     .map(([status, count]) => `${status}:${count}`)
     .join(',');
+}
+
+function mapSoroArticleImagePath(article) {
+  if (!article?.image) return 'none';
+  const key = soroImageKey(article);
+  if (!key) return 'invalid';
+  article.localImagePath = soroImagePublicPath(key);
+  return 'mapped';
 }
 
 function renderSoroBlogListHtml(articles, origin, source) {
@@ -2283,6 +2293,44 @@ async function loadSoroFeeds(env, options = {}) {
       imageStatus,
     };
   }
+}
+
+function queueSoroBackgroundRefresh(env, ctx) {
+  if (!ctx?.waitUntil || !env.SORO_RSS_BACKUP) return;
+  const now = Date.now();
+  if (
+    soroBackgroundRefreshPromise &&
+    now - soroBackgroundRefreshStartedAt < SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS
+  ) {
+    ctx.waitUntil(soroBackgroundRefreshPromise);
+    return;
+  }
+  if (now - soroBackgroundRefreshStartedAt < SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS) return;
+
+  soroBackgroundRefreshStartedAt = now;
+  const refresh = loadSoroFeeds(env, { mirrorImages: true }).catch((error) => {
+    console.warn('[SoroBlog] background refresh unavailable:', error?.message || error);
+  });
+  const tracked = refresh.finally(() => {
+    if (soroBackgroundRefreshPromise === tracked) soroBackgroundRefreshPromise = null;
+  });
+  soroBackgroundRefreshPromise = tracked;
+  ctx.waitUntil(tracked);
+}
+
+async function loadSoroFeedsForPublic(env, ctx, options = {}) {
+  const backup = await readSoroBackup(env);
+  if (backup.articles.length > 0) {
+    queueSoroBackgroundRefresh(env, ctx);
+    return {
+      live: { text: '', articles: [] },
+      backup,
+      source: 'backup',
+      backupStatus: 'cached',
+    };
+  }
+
+  return loadSoroFeeds(env, { mirrorImages: Boolean(options.mirrorImages) });
 }
 
 function findSoroArticle(feeds, slug) {
@@ -2561,15 +2609,21 @@ function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
 </html>`;
 }
 
-async function serveSoroArticlePage(request, env, slug) {
-  const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
+async function serveSoroArticlePage(request, env, slug, ctx) {
+  let [feeds, hiddenSlugs] = await Promise.all([
+    loadSoroFeedsForPublic(env, ctx),
+    readSoroHiddenSlugs(env),
+  ]);
   const cacheVersion = await readSoroBlogCacheVersion(env);
   if (hiddenSlugs.has(slug)) return null;
-  const { article, source } = findSoroArticle(feeds, slug);
+  let { article, source } = findSoroArticle(feeds, slug);
+  if (!article && feeds.source === 'backup') {
+    feeds = await loadSoroFeeds(env);
+    ({ article, source } = findSoroArticle(feeds, slug));
+    if (hiddenSlugs.has(slug)) return null;
+  }
   if (!article) return null;
-  const imageStatus = await ensureSoroImageMirror(env, article, {
-    fetchMissing: source === 'live',
-  });
+  const imageStatus = mapSoroArticleImagePath(article);
 
   const headers = {
     'Content-Type': 'text/html; charset=utf-8',
@@ -2598,19 +2652,41 @@ async function serveSoroArticlePage(request, env, slug) {
   );
 }
 
-async function hasSoroArticle(env, slug) {
-  const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
+async function hasSoroArticlePublic(env, ctx, slug) {
+  const [feeds, hiddenSlugs] = await Promise.all([
+    loadSoroFeedsForPublic(env, ctx),
+    readSoroHiddenSlugs(env),
+  ]);
   if (hiddenSlugs.has(slug)) return false;
   const { article } = findSoroArticle(feeds, slug);
   return Boolean(article);
 }
 
-async function serveSoroBlogIndex(request, env) {
+async function findSoroImageArticleForKey(env, key) {
+  const backup = await readSoroBackup(env);
+  let article = backup.articles.find((candidate) => soroImageKey(candidate) === key);
+  if (article) return article;
+
+  try {
+    const feeds = await loadSoroFeeds(env);
+    article = [...feeds.live.articles, ...feeds.backup.articles].find(
+      (candidate) => soroImageKey(candidate) === key,
+    );
+    return article || null;
+  } catch {
+    return null;
+  }
+}
+
+async function serveSoroBlogIndex(request, env, ctx) {
   const response = await fetchAsset(env, request, '/blog/index.html');
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/html')) return withSecurityHeaders(response);
 
-  const [feeds, hiddenSlugs] = await Promise.all([loadSoroFeeds(env), readSoroHiddenSlugs(env)]);
+  const [feeds, hiddenSlugs] = await Promise.all([
+    loadSoroFeedsForPublic(env, ctx),
+    readSoroHiddenSlugs(env),
+  ]);
   const cacheVersion = await readSoroBlogCacheVersion(env);
   const source = feeds.source === 'live' ? 'live' : 'backup';
   const articles = sortedSoroArticles(
@@ -2619,7 +2695,7 @@ async function serveSoroBlogIndex(request, env) {
       hiddenSlugs,
     ),
   );
-  const imageStatus = await hydrateSoroListImages(env, articles, source);
+  const imageStatus = mapSoroListImagePaths(articles);
   const headers = {
     'Content-Type': 'text/html; charset=utf-8',
     ...soroBlogCacheHeaders(cacheVersion),
@@ -2657,7 +2733,14 @@ async function serveSoroImage(request, env, key) {
     return withSecurityHeaders(new Response('Not found', { status: 404 }));
   }
 
-  const object = await env.SORO_IMAGE_BUCKET.get(key);
+  let object = await env.SORO_IMAGE_BUCKET.get(key);
+  if (!object && request.method !== 'HEAD') {
+    const article = await findSoroImageArticleForKey(env, key);
+    if (article) {
+      await ensureSoroImageMirror(env, article, { fetchMissing: true });
+      object = await env.SORO_IMAGE_BUCKET.get(key);
+    }
+  }
   if (!object) return withSecurityHeaders(new Response('Not found', { status: 404 }));
 
   const headers = {
@@ -2775,7 +2858,7 @@ function isLocalHttpRequest(request, url) {
   );
 }
 
-async function serveStatic(request, env) {
+async function serveStatic(request, env, ctx) {
   const url = new URL(request.url);
   const redirect = redirectTarget(url.pathname);
   if (redirect) return Response.redirect(new URL(redirect, url), 301);
@@ -2807,7 +2890,7 @@ async function serveStatic(request, env) {
         if (!hiddenSlugs.has(post))
           return Response.redirect(new URL(soroArticlePath(post), url), 301);
       }
-      return serveSoroBlogIndex(request, env);
+      return serveSoroBlogIndex(request, env, ctx);
     }
 
     const soroBlogSlug = isPotentialSoroBlogArticlePath(url.pathname);
@@ -2815,7 +2898,7 @@ async function serveStatic(request, env) {
       const canonicalPath = soroArticlePath(soroBlogSlug);
       if (url.pathname !== canonicalPath)
         return Response.redirect(new URL(canonicalPath, url), 301);
-      const articleResponse = await serveSoroArticlePage(request, env, soroBlogSlug);
+      const articleResponse = await serveSoroArticlePage(request, env, soroBlogSlug, ctx);
       return articleResponse || withSecurityHeaders(new Response('Not found', { status: 404 }));
     }
 
@@ -2824,7 +2907,7 @@ async function serveStatic(request, env) {
 
     const soroSlug = isPotentialSoroArticlePath(url.pathname);
     if (soroSlug) {
-      if (await hasSoroArticle(env, soroSlug)) {
+      if (await hasSoroArticlePublic(env, ctx, soroSlug)) {
         return Response.redirect(new URL(soroArticlePath(soroSlug), url), 301);
       }
     }
@@ -2859,7 +2942,7 @@ export default {
     ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.protocol === 'http:' && !isLocalHttpRequest(request, url)) {
       url.protocol = 'https:';
@@ -2901,7 +2984,7 @@ export default {
       case '/api/admin/announcement':
         return handleAdminAnnouncement(request, env);
       default:
-        return serveStatic(request, env);
+        return serveStatic(request, env, ctx);
     }
   },
 };

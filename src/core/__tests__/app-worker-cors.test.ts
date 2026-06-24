@@ -632,6 +632,22 @@ describe('Cloudflare app worker admin dashboard', () => {
 </rss>`;
   }
 
+  function createSoroRssWithImage() {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Fast Article</title>
+      <link>https://musixquare.com/blog?post=fast-article</link>
+      <description>Fast description</description>
+      <pubDate>Thu, 18 Jun 2026 12:00:00 GMT</pubDate>
+      <enclosure url="https://app.trysoro.com/images/fast-article.webp" type="image/webp" />
+      <content:encoded><![CDATA[<p>Fast body</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>`;
+  }
+
   it('sets an HttpOnly admin session cookie and serves D1-backed metrics', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
@@ -787,6 +803,53 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(blogHtml).not.toContain('Hidden Article');
     expect(hiddenArticle.status).toBe(404);
     expect(backupXml).toContain('Hidden Article');
+  });
+
+  it('serves the public blog from RSS backup without blocking on live RSS or image R2 checks', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>(() => {
+            /* keep the background live refresh pending */
+          }),
+      ),
+    );
+    const env = {
+      SORO_RSS_BACKUP: createKvStore(),
+      SORO_IMAGE_BUCKET: {
+        head: vi.fn(async () => {
+          throw new Error('hot path must not head image objects');
+        }),
+        get: vi.fn(),
+      },
+      ASSETS: {
+        fetch: vi.fn(
+          async () =>
+            new Response('<html><head></head><body><div id="soro-blog"></div></body></html>', {
+              headers: { 'Content-Type': 'text/html' },
+            }),
+        ),
+      },
+    };
+    await env.SORO_RSS_BACKUP.put('soro-rss-latest-good.xml', createSoroRssWithImage());
+
+    const waitUntil = vi.fn();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/blog'),
+      env,
+      { waitUntil } as any,
+    );
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Soro-Index-Source')).toBe('backup');
+    expect(response.headers.get('X-Soro-Backup-Status')).toBe('cached');
+    expect(response.headers.get('X-Soro-Image-Status')).toBe('mapped:1');
+    expect(html).toContain('Fast Article');
+    expect(html).toContain('/soro-images/featured/fast-article.webp');
+    expect(env.SORO_IMAGE_BUCKET.head).not.toHaveBeenCalled();
+    expect(waitUntil).toHaveBeenCalledTimes(1);
   });
 
   it('lets admins publish a session announcement for active clients', async () => {

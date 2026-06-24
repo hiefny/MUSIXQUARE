@@ -70,6 +70,11 @@
     var targets = document.querySelectorAll('[data-animate]');
     if (!targets.length) return;
 
+    if (document.body && document.body.getAttribute('data-soro-view') === 'article') {
+      var articleSection = document.getElementById('articles');
+      if (articleSection) articleSection.classList.add('is-visible');
+    }
+
     if (!('IntersectionObserver' in window)) {
       targets.forEach(function (el) {
         el.classList.add('is-visible');

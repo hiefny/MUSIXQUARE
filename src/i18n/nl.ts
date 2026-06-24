@@ -301,7 +301,7 @@ const nl: Record<I18nKey, string> = {
   'chat.system_audio_started_notice':
     'Systeem-audio delen is gestart. Een kleine vertraging tussen host en gasten is normaal. Zet het volume van de host zo laag mogelijk om echo te voorkomen.',
   'chat.system_audio_stopped_notice':
-    'Systeem-audio delen is gestopt. Host, zet je volume gerust weer hoger om als speaker te fungeren.',
+    'Systeem-audio delen is gestopt. Host, zet je volume gerust weer hoger om weer als luidspreker te fungeren.',
   'chat.remote_guest_detected_notice':
     'Een externe deelnemer is gejoined. De verbindingskwaliteit kan per netwerk verschillen.',
   'chat.remote_upload_limited_notice':

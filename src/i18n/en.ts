@@ -299,7 +299,7 @@ const en: Record<I18nKey, string> = {
   'chat.system_audio_started_notice':
     'System audio sharing has started. A slight latency between host and guest devices is normal. We recommend lowering the host device volume to avoid echoes.',
   'chat.system_audio_stopped_notice':
-    'System audio sharing has ended. Host, feel free to turn your volume back up to play as a speaker.',
+    'System audio sharing has ended. Host, feel free to turn your volume back up so this device can act as a speaker again.',
   'chat.remote_guest_detected_notice':
     'A remote participant joined. Connection quality may vary depending on network conditions.',
   'chat.remote_upload_limited_notice':

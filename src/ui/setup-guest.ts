@@ -18,7 +18,6 @@ import {
   showToast,
   updateRoleBadge,
   updateInviteCodeUI,
-  activateNoSleep,
   selectStandardChannelButton,
   BACK_SVG,
   getPendingGuestRoleMode,
@@ -40,8 +39,8 @@ import {
 import { animateTransition } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from './dialog.ts';
-import { markAppUsed } from '../demo/storage.ts';
-import { primeYouTubePlayer, precreateYouTubePlayer } from '../youtube/player.ts';
+import { precreateYouTubePlayer } from '../youtube/player.ts';
+import { prepareSetupStartFromGesture } from './setup-start.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -59,8 +58,6 @@ export function setGuestGoBack(fn: () => void): void {
 setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 
 export function startGuestFlow(): void {
-  markAppUsed();
-  bus.emit('audio:activate');
   _pendingPasswordJoin = null;
   _roomPasswordPromptOpen = false;
 
@@ -96,7 +93,6 @@ export function startGuestFlow(): void {
 
   try {
     selectStandardChannelButton(DEFAULT_SETUP_ROLE);
-    bus.emit('audio:set-channel-mode', DEFAULT_SETUP_ROLE);
     setupHighlightJoinRole(DEFAULT_SETUP_ROLE);
   } catch (e) {
     log.warn('[Setup] set default guest role failed', e);
@@ -167,12 +163,11 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
     return;
   }
 
-  primeYouTubePlayer();
+  prepareSetupStartFromGesture();
 
   setPendingGuestRoleMode(mode);
   setState('network.lastJoinCode', autoCode);
   updateInviteCodeUI();
-  activateNoSleep();
 
   try {
     selectStandardChannelButton(mode);
@@ -261,11 +256,10 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
     return;
   }
 
-  primeYouTubePlayer();
+  prepareSetupStartFromGesture();
 
   setState('network.lastJoinCode', code);
   updateInviteCodeUI();
-  activateNoSleep();
 
   try {
     selectStandardChannelButton(mode);

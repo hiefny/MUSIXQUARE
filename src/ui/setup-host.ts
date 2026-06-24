@@ -35,8 +35,8 @@ import {
   hideSetupOverlay,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
-import { markAppUsed } from '../demo/storage.ts';
-import { primeYouTubePlayer, precreateYouTubePlayer } from '../youtube/player.ts';
+import { precreateYouTubePlayer } from '../youtube/player.ts';
+import { prepareSetupStartFromGesture } from './setup-start.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
@@ -49,9 +49,7 @@ export function setHostGoBack(fn: () => void): void {
 }
 
 export function startHostFlow(): void {
-  markAppUsed();
   incrementHostCodeFlowId();
-  bus.emit('audio:activate');
 
   setState('network.appRole', 'host');
   setState('setup.sessionStarted', false);
@@ -64,7 +62,6 @@ export function startHostFlow(): void {
   // Keep setup-role-area wired so explicit role selection can return later.
   try {
     selectStandardChannelButton(DEFAULT_SETUP_ROLE);
-    bus.emit('audio:set-channel-mode', DEFAULT_SETUP_ROLE);
     setupHighlightJoinRole(DEFAULT_SETUP_ROLE);
   } catch (e) {
     log.warn(e);
@@ -97,7 +94,6 @@ async function proceedToHostCode(mode: number): Promise<void> {
 
   try {
     selectStandardChannelButton(mode);
-    bus.emit('audio:set-channel-mode', mode);
   } catch (e) {
     log.warn(e);
   }
@@ -143,7 +139,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
           id: 'btn-setup-confirm',
           text: t('common.start'),
           kind: 'primary',
-          onClick: () => startSessionFromHost(),
+          onClick: () => startSessionFromHost(mode),
         },
       ],
       'horizontal-with-back',
@@ -158,11 +154,18 @@ async function proceedToHostCode(mode: number): Promise<void> {
   }
 }
 
-function startSessionFromHost(): void {
+function startSessionFromHost(mode: number = DEFAULT_SETUP_ROLE): void {
   const appRole = getState('network.appRole');
   if (appRole !== 'host' || getState('setup.sessionStarted')) return;
 
-  primeYouTubePlayer();
+  prepareSetupStartFromGesture();
+
+  try {
+    selectStandardChannelButton(mode);
+    bus.emit('audio:set-channel-mode', mode);
+  } catch (e) {
+    log.warn(e);
+  }
 
   // The pinned-notice cache is module-scoped, so a new host session starts clean.
   clearLatestPinnedNotice();

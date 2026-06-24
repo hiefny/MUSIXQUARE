@@ -263,11 +263,17 @@ export function setSurroundChannel(idx: number): void {
 }
 
 /**
- * Set channel mode with audio init (called from UI).
+ * Set channel mode from UI.
+ *
+ * Persist the selected role before audio init so synchronous join/session
+ * metadata reads see the user's choice even while the graph is still waking.
  */
 async function setChannel(mode: number): Promise<void> {
-  if (!getMasterGain()) await initAudio();
   setChannelMode(mode);
+  if (!getMasterGain()) {
+    await initAudio();
+    setChannelMode(mode);
+  }
 }
 
 // ─── Bus Event Handlers ─────────────────────────────────────────

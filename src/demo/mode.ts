@@ -20,7 +20,7 @@ import {
 import { getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { applySettingsAsync } from '../audio/effects.ts';
-import { getHostNow } from '../network/shared-clock.ts';
+import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { hideSetupOverlay } from '../ui/setup-shared.ts';
@@ -78,6 +78,7 @@ type PendingDemoPlay = {
   index: number;
   time: number;
   hostPlayAt: number;
+  receivedAt: number;
 };
 
 const FLAT_EQ = [0, 0, 0, 0, 0];
@@ -907,12 +908,20 @@ function applyPendingDemoPlay(): void {
   _pendingDemoPlay = null;
 
   const hostPlayAt = Number(pending.hostPlayAt) || 0;
-  const now = getHostNow();
-  const waitMs = Math.max(0, hostPlayAt - now);
-  if (hostPlayAt > 0 && waitMs > 0 && waitMs < 2000) {
-    void play(pending.time + waitMs / 1000, waitMs / 1000);
+  if (hostPlayAt > 0 && isClockCalibrated()) {
+    const now = getHostNow();
+    const waitMs = Math.max(0, hostPlayAt - now);
+    if (waitMs > 0 && waitMs < 2000) {
+      void play(pending.time + waitMs / 1000, waitMs / 1000);
+    } else {
+      const elapsed = Math.max(0, now - hostPlayAt) / 1000;
+      void play(pending.time + elapsed);
+    }
   } else {
-    const elapsed = hostPlayAt > 0 ? Math.max(0, now - hostPlayAt) / 1000 : 0;
+    if (hostPlayAt > 0) {
+      log.warn('[Demo] SharedClock uncalibrated - ignoring hostPlayAt for demo play');
+    }
+    const elapsed = Math.max(0, Date.now() - pending.receivedAt) / 1000;
     void play(pending.time + elapsed);
   }
   if (getState('network.hostConn')?.open) {
@@ -1253,6 +1262,7 @@ function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnect
     index,
     time: Math.max(0, Number(data.time) || 0),
     hostPlayAt: Number(data.hostPlayAt) || 0,
+    receivedAt: Date.now(),
   };
 
   if (!getState('demo.active') || _demoTrackIndex !== index || !getCurrentAudioBuffer()) {

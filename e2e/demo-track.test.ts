@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
+import { connectHostAndGuest, setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import { cleanupContexts, createHostGuestContexts } from './helpers/context-factory.ts';
 import {
   readState,
@@ -514,6 +514,68 @@ test.describe('Linelight demo mode', () => {
       await expect(pair.guestPage.locator('body')).not.toHaveClass(/mode-demo/, {
         timeout: 10_000,
       });
+    } finally {
+      await cleanupContexts(pair);
+    }
+  });
+
+  test('late-joining guest joins active host demo playback', async ({ browser }) => {
+    const pair = await createHostGuestContexts(browser);
+    try {
+      await Promise.all([
+        pair.hostPage.addInitScript(() => {
+          localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
+        }),
+        pair.guestPage.addInitScript(() => {
+          localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
+        }),
+      ]);
+      await Promise.all([
+        mockDemoTrack(pair.hostPage),
+        mockDemoTrack(pair.guestPage),
+      ]);
+
+      const code = await setupHostAndStart(pair.hostPage);
+      await pair.hostPage.evaluate(() => {
+        const bus = (window as unknown as Record<string, { emit?: (...args: unknown[]) => void }>)
+          .__MUSIXQUARE_BUS__;
+        bus?.emit?.('demo:enter');
+      });
+
+      await expect
+        .poll(() => readState(pair.hostPage, 'playback.activity'), { timeout: 15_000 })
+        .toBe('playing');
+      await pair.hostPage.waitForTimeout(1200);
+
+      await setupGuest(pair.guestPage, code);
+
+      await expect(pair.guestPage.locator('#demo-overlay')).toHaveClass(/active/, {
+        timeout: 15_000,
+      });
+      await expect
+        .poll(() => readState(pair.guestPage, 'demo.active'), { timeout: 15_000 })
+        .toBe(true);
+      await expect
+        .poll(() => readState(pair.guestPage, 'playlist.currentTrackIndex'), { timeout: 15_000 })
+        .toBe(0);
+      await expect
+        .poll(
+          async () => Boolean(await readState(pair.guestPage, 'files.currentFileBlob')),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await expect
+        .poll(() => readState(pair.guestPage, 'playback.activity'), { timeout: 15_000 })
+        .toBe('playing');
+      await expect
+        .poll(
+          async () => {
+            const pausedAt = await readState(pair.guestPage, 'player.pausedAt');
+            return typeof pausedAt === 'number' ? pausedAt : 0;
+          },
+          { timeout: 10_000 },
+        )
+        .toBeGreaterThan(0.5);
     } finally {
       await cleanupContexts(pair);
     }

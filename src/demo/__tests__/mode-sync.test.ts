@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   stopAllMedia: vi.fn(),
   getTrackPosition: vi.fn(() => 12),
   getHostNow: vi.fn(() => 10_000),
+  isClockCalibrated: vi.fn(() => true),
   broadcast: vi.fn(),
   safeSend: vi.fn(),
 }));
@@ -29,6 +30,7 @@ vi.mock('../../player/transport.ts', () => ({
 
 vi.mock('../../network/shared-clock.ts', () => ({
   getHostNow: mocks.getHostNow,
+  isClockCalibrated: mocks.isClockCalibrated,
 }));
 
 vi.mock('../../network/peer.ts', () => ({
@@ -74,6 +76,8 @@ describe('demo playback sync bootstrap', () => {
     bus.clear();
     clearAllManagedTimers();
     vi.clearAllMocks();
+    mocks.getHostNow.mockReturnValue(10_000);
+    mocks.isClockCalibrated.mockReturnValue(true);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     const { initDemoMode } = await import('../mode.ts');
@@ -111,5 +115,28 @@ describe('demo playback sync bootstrap', () => {
     await vi.advanceTimersByTimeAsync(250);
 
     expect(immediateSync).toHaveBeenCalledOnce();
+  });
+
+  it('ignores hostPlayAt while the shared clock is uncalibrated', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    mocks.getHostNow.mockReturnValue(100_000);
+    mocks.isClockCalibrated.mockReturnValue(false);
+
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    setState('demo.active', true);
+
+    await handleData(
+      {
+        type: MSG.DEMO_PLAY,
+        index: 0,
+        time: 42,
+        hostPlayAt: 9_000,
+      },
+      hostConn,
+    );
+
+    expect(mocks.play).toHaveBeenCalledWith(42);
+    expect(mocks.getHostNow).not.toHaveBeenCalled();
   });
 });

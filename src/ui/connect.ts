@@ -398,7 +398,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       orderBadge.textContent = `${idx}`;
       row.appendChild(orderBadge);
 
-      // Device name + short ID + OP badge
+      // Device name + short ID + admin badge
       const name = document.createElement('span');
       name.className = 'd-name';
       name.textContent = String(p.label || t('common.peer'));
@@ -406,7 +406,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       if (p.isOp) {
         const op = document.createElement('span');
         op.className = 'd-op-badge';
-        op.textContent = 'OP';
+        op.textContent = 'ADMIN';
         name.appendChild(document.createTextNode(' '));
         name.appendChild(op);
       }

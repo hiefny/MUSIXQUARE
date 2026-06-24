@@ -440,7 +440,7 @@ function cmdUsers(): void {
     const isMe = d.id === myId;
     const flags: string[] = [];
     if (d.isHost) flags.push('HOST');
-    if (d.isOp && !d.isHost) flags.push('OP');
+    if (d.isOp && !d.isHost) flags.push('ADMIN');
     if (isMe) flags.push(t('chat.cmd_users_me'));
 
     const suffix = flags.length ? ` [${flags.join(', ')}]` : '';

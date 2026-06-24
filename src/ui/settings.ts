@@ -592,7 +592,7 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
     if (p.isOp) {
       const op = document.createElement('span');
       op.style.cssText = 'color:var(--primary); font-size:10px; font-weight:bold; margin-left:4px;';
-      op.textContent = 'OP';
+      op.textContent = 'ADMIN';
       name.appendChild(document.createTextNode(' '));
       name.appendChild(op);
     }

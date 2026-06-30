@@ -139,6 +139,10 @@ function initSmoothAnchor(): void {
       const target = document.getElementById(id);
       if (!target) return;
       e.preventDefault();
+      if (id === 'top') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });

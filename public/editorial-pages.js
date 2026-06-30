@@ -209,6 +209,10 @@
         var target = document.getElementById(id);
         if (!target) return;
         event.preventDefault();
+        if (id === 'top') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     });

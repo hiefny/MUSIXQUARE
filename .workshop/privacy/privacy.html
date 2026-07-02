@@ -39,142 +39,155 @@
 
 <body>
   <header class="policy-header">
-    <a class="policy-logo" href="https://musixquare.com" data-i18n-attr="aria-label:header.logo_aria"
+    <a class="policy-logo" href="https://musixquare.com"
       aria-label="MUSIXQUARE home">
       <span class="policy-wordmark" aria-hidden="true"></span>
     </a>
-    <a class="policy-home" href="https://musixquare.com" data-i18n="header.app">App</a>
+    <a class="policy-home" href="https://musixquare.com">App</a>
   </header>
 
   <main class="policy-shell">
     <section class="policy-hero">
-      <h1 data-i18n="hero.title">Privacy Policy</h1>
-      <p class="policy-date" data-i18n="hero.date">Effective date: May 25, 2026</p>
+      <h1>Privacy Policy</h1>
+      <p class="policy-date">Effective date: July 3, 2026</p>
     </section>
 
     <article class="policy-doc">
       <section>
-        <h2 data-i18n="section.general.title">1. General</h2>
-        <p data-i18n="section.general.p1">
-          MUSIXQUARE is a browser-based real-time audio sync and sharing service that can be used without creating an
-          account.
+        <h2>1. About This Service</h2>
+        <p>
+          MUSIXQUARE is an independently operated, non-commercial browser service for real-time audio synchronization
+          and shared playback. It is provided free of charge and can be used without creating an account.
         </p>
-        <p data-i18n="section.general.p2">
-          MUSIXQUARE does not directly collect account data such as names, addresses, phone numbers, login credentials,
-          or payment information. Some connection and session data may be processed temporarily to provide device
-          connection, remote sharing, and service reliability.
+        <p>
+          MUSIXQUARE does not require legal names, postal addresses, phone numbers, account passwords, or payment
+          information. Limited technical and session data is processed only when needed to provide, secure, and improve
+          the service.
         </p>
       </section>
 
       <section>
-        <h2 data-i18n="section.data.title">2. Data We Process</h2>
-        <p data-i18n="section.data.intro">MUSIXQUARE may process the following data to provide the service.</p>
+        <h2>2. Data We Process</h2>
         <dl>
           <div>
-            <dt data-i18n="section.data.connection.term">Connection setup data</dt>
-            <dd data-i18n="section.data.connection.desc">
-              Room codes, temporary device IDs, IP addresses, connection status, and WebRTC signaling data may be
-              processed to create and maintain rooms.
+            <dt>Room and connection data</dt>
+            <dd>
+              Room codes, optional room passwords, temporary device or peer identifiers, IP and WebRTC connection
+              information, connection status, and related signaling data may be processed to create and maintain rooms.
             </dd>
           </div>
           <div>
-            <dt data-i18n="section.data.local.term">Local session data</dt>
-            <dd data-i18n="section.data.local.desc">
-              On the same network, session data is sent directly between devices. Only IP and connection details may
-              pass through the signaling server.
+            <dt>Session content</dt>
+            <dd>
+              Device names, playback commands, chat messages, and local session data are normally exchanged directly
+              between participating devices and are not stored in a MUSIXQUARE application database.
             </dd>
           </div>
           <div>
-            <dt data-i18n="section.data.remote.term">Remote sharing data</dt>
-            <dd data-i18n="section.data.remote.desc">
-              Remote file sharing and remote system audio sharing route actual data through Cloudflare. Remote system
-              audio is relayed for real-time delivery and is not stored by MUSIXQUARE.
+            <dt>Remote system audio</dt>
+            <dd>
+              When participants connect remotely, system audio may be relayed through Cloudflare infrastructure for
+              real-time delivery. MUSIXQUARE does not intentionally record or store this audio.
             </dd>
           </div>
           <div>
-            <dt data-i18n="section.data.files.term">Remote file data</dt>
-            <dd data-i18n="section.data.files.desc">
-              Remote file data is encrypted before upload and may be stored temporarily for delivery. The decryption key
-              is not stored.
+            <dt>Remote file data</dt>
+            <dd>
+              Files needed by remote participants are encrypted in the host's browser before upload. Cloudflare R2
+              temporarily stores the encrypted object; the decryption key is not stored with the object.
             </dd>
           </div>
           <div>
-            <dt data-i18n="section.data.analytics.term">Aggregate analytics data</dt>
-            <dd data-i18n="section.data.analytics.desc">
-              Page paths, referrers, browser, OS, device type, and approximate region may be collected through
-              Cloudflare Web Analytics to understand traffic patterns. No cookies are used and no personally
-              identifying information is stored.
+            <dt>YouTube data</dt>
+            <dd>
+              YouTube search terms are sent through the MUSIXQUARE service to the YouTube Data API. Video identifiers,
+              playback requests, and player interactions may be processed by YouTube or Google when YouTube features
+              are used.
+            </dd>
+          </div>
+          <div>
+            <dt>Website analytics</dt>
+            <dd>
+              Page paths, referrers, browser, operating system, device type, performance measurements, and approximate
+              region may be processed through Cloudflare Web Analytics. Cloudflare Web Analytics is cookie-free and is
+              designed not to collect visitors' personal data.
             </dd>
           </div>
         </dl>
       </section>
 
       <section>
-        <h2 data-i18n="section.purpose.title">3. Purpose of Processing</h2>
-        <p data-i18n="section.purpose.p1">
-          Data is processed only to establish rooms, synchronize playback, deliver remote sharing features, maintain
-          connections, and operate MUSIXQUARE safely.
+        <h2>3. Why We Process Data</h2>
+        <p>
+          Data is processed to establish and protect rooms, synchronize playback, deliver requested sharing features,
+          diagnose failures, prevent abuse, and understand aggregate service reliability.
         </p>
-        <p data-i18n="section.purpose.p2">
-          MUSIXQUARE does not use shared data for advertising, profiling, resale, or unrelated analytics.
+        <p>MUSIXQUARE does not sell user data or use shared content for advertising or profiling.</p>
+      </section>
+
+      <section>
+        <h2>4. Retention and Deletion</h2>
+        <p>
+          Active room and connection state is kept only as needed to operate the room. Closing a room or ending a
+          connection removes the corresponding live session state from the application.
+        </p>
+        <p>
+          Access to encrypted remote-file objects normally expires after one hour. A bucket-level R2 lifecycle rule
+          automatically deletes remote-share objects, with a maximum intended retention of 24 hours. Expired objects
+          cannot be downloaded through MUSIXQUARE.
+        </p>
+        <p>
+          Infrastructure providers may retain limited security and operational metadata under their own service
+          settings and policies.
         </p>
       </section>
 
       <section>
-        <h2 data-i18n="section.retention.title">4. Retention and Deletion</h2>
-        <p data-i18n="section.retention.p1">
-          Encrypted data uploaded for remote file sharing is stored for up to 24 hours and then automatically deleted.
+        <h2>5. Service Providers and International Processing</h2>
+        <p>
+          MUSIXQUARE uses Cloudflare for website delivery, signaling, relay services, remote system audio, temporary
+          encrypted file delivery, security, and aggregate web analytics. Cloudflare may process technical data in the
+          countries and regions where its network and service providers operate.
         </p>
-        <p data-i18n="section.retention.p2">
-          Connection and session data is processed only while needed for room operation or connection maintenance.
-          MUSIXQUARE does not view, analyze, or store data outside providing its features.
-        </p>
-      </section>
-
-      <section>
-        <h2 data-i18n="section.third.title">5. Third-Party Services</h2>
-        <p data-i18n="section.third.p1">
-          MUSIXQUARE does not sell user data or provide it to third parties for advertising or marketing.
-        </p>
-        <p data-i18n="section.third.p2">
-          Some features rely on external infrastructure. Cloudflare may be used for signaling, remote sharing, TURN, SFU,
-          and temporary encrypted file delivery. YouTube sharing uses YouTube's official playback structure.
+        <p>
+          YouTube features use YouTube API Services and the YouTube embedded player. Their use is also subject to the
+          <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a>
+          and the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.
+          Google account permissions can be reviewed at
+          <a href="https://security.google.com/settings/security/permissions" target="_blank" rel="noopener noreferrer">Google Security Settings</a>.
         </p>
       </section>
 
       <section>
-        <h2 data-i18n="section.security.title">6. Security Measures</h2>
-        <p data-i18n="section.security.p1">
-          MUSIXQUARE uses HTTPS, browser security features, WebRTC, and Cloudflare infrastructure to provide encrypted
-          transport where applicable.
+        <h2>6. Security</h2>
+        <p>
+          MUSIXQUARE uses HTTPS, WebRTC transport security, browser security controls, restricted service capabilities,
+          and Cloudflare infrastructure. Remote files use client-side AES-GCM encryption before upload.
         </p>
-        <p data-i18n="section.security.p2">
-          For remote file sharing, files are encrypted before upload and the decryption key is not stored in storage.
-          Connection quality and security behavior may still vary by network, browser policy, and device settings.
+        <p>
+          No internet service can guarantee absolute security. Users should share room codes and passwords only with
+          people they trust and should not share content they are not authorized to distribute.
         </p>
       </section>
 
       <section>
-        <h2 data-i18n="section.rights.title">7. User Requests</h2>
-        <p data-i18n="section.rights.p1">
-          MUSIXQUARE does not provide account-based user profiles, so account lookup or profile editing features are not
-          available.
+        <h2>7. Your Choices and Requests</h2>
+        <p>
+          MUSIXQUARE has no account profile to inspect or edit. You can stop processing live session data by leaving or
+          closing a room. Browser storage used for local preferences can be cleared through your browser settings.
         </p>
-        <p data-i18n-html="section.rights.p2">
-          For privacy questions, deletion requests, or related concerns, contact
+        <p>
+          For privacy questions, access or deletion requests, or concerns about the handling of data, contact
           <a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com">contact@musixquare.com</a>.
-          MUSIXQUARE will review requests and take action where reasonably possible.
+          Requests will be reviewed and addressed where technically and legally applicable.
         </p>
       </section>
 
       <section>
-        <h2 data-i18n="section.changes.title">8. Changes</h2>
-        <p data-i18n="section.changes.p1">
-          This Privacy Policy may be updated when MUSIXQUARE features, infrastructure, or related legal requirements
-          change.
-        </p>
-        <p data-i18n="section.changes.p2">
-          Important changes may be announced through the MUSIXQUARE website or service screen.
+        <h2>8. Changes</h2>
+        <p>
+          This policy may be updated when MUSIXQUARE's features, infrastructure, or legal obligations change. Material
+          changes will be reflected by a new effective date and may also be announced through the website or app.
         </p>
       </section>
     </article>

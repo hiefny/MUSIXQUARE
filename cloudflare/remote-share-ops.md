@@ -33,6 +33,9 @@ Downloads do not write to KV.
 - Signed upload session and completion tokens.
 - Direct-to-R2 presigned PUT upload path.
 - R2 object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour by default.
+- The production R2 bucket also has a bucket-level lifecycle rule that automatically
+  expires remote-share objects. This setting lives in R2 rather than this repository
+  and must remain configured for a maximum intended retention of 24 hours.
 - Max upload size: `MAX_UPLOAD_BYTES`, currently 200 MiB by default.
 - KV rate limit:
   - `IP_UPLOADS_PER_WINDOW`: default 60 upload sessions per IP per hour.

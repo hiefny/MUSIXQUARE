@@ -2417,8 +2417,9 @@ function renderSoroArticleInBlogShell(templateHtml, article, requestUrl, source)
       '',
     )
     .replace(
-      '<body class="editorial-page editorial-blog">',
-      `<body class="editorial-page editorial-blog" data-soro-source="${esc(source)}" data-soro-view="article">`,
+      /<body\b([^>]*)>/i,
+      (_match, attributes) =>
+        `<body${attributes} data-soro-source="${esc(source)}" data-soro-view="article">`,
     )
     .replace('<h2>Latest articles</h2>', '<h2>Article</h2>');
 

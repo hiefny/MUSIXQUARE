@@ -730,9 +730,12 @@ describe('Cloudflare app worker admin dashboard', () => {
       ASSETS: {
         fetch: vi.fn(
           async () =>
-            new Response('<html><head></head><body><div id="soro-blog"></div></body></html>', {
-              headers: { 'Content-Type': 'text/html' },
-            }),
+            new Response(
+              '<html><head></head><body id="top" class="editorial-page editorial-blog"><div id="soro-blog"></div></body></html>',
+              {
+                headers: { 'Content-Type': 'text/html' },
+              },
+            ),
         ),
       },
     };
@@ -786,6 +789,11 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/blog/hidden-article'),
       env,
     );
+    const visibleArticle = await appWorker.fetch(
+      new Request('https://musixquare.com/blog/visible-article'),
+      env,
+    );
+    const visibleArticleHtml = await visibleArticle.text();
     const backupXml = await env.SORO_RSS_BACKUP.get('soro-rss-latest-good.xml');
 
     expect(blog.status).toBe(200);
@@ -802,6 +810,10 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(blogHtml).toContain('Visible Article');
     expect(blogHtml).not.toContain('Hidden Article');
     expect(hiddenArticle.status).toBe(404);
+    expect(visibleArticle.status).toBe(200);
+    expect(visibleArticleHtml).toContain(
+      '<body id="top" class="editorial-page editorial-blog" data-soro-source="backup" data-soro-view="article">',
+    );
     expect(backupXml).toContain('Hidden Article');
   });
 

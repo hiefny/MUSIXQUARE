@@ -198,6 +198,54 @@ function hideYouTubeContainerResident(container: HTMLElement): void {
   container.style.overflow = 'hidden';
 }
 
+/**
+ * Keep the timers and side effects required by an ACTIVE YouTube player in
+ * one place. A freshly-created iframe reaches this through onPlayerReady,
+ * while the persistent iOS iframe reaches it immediately after a successful
+ * loadVideoById/loadPlaylist call (onPlayerReady does not fire again when an
+ * existing YT.Player instance is reused).
+ *
+ * stopYouTubeMode is the matching deactivation owner: it clears both loops.
+ * This symmetry is important for persistent players because the player
+ * instance can outlive several playback modes and even room sessions.
+ */
+function startYouTubeHostHeartbeat(): void {
+  setManagedTimer(
+    'youtubeSyncLoop',
+    () => {
+      bus.emit('youtube:broadcast-sync');
+    },
+    HEARTBEAT_INTERVAL_MS,
+    { interval: true },
+  );
+}
+
+function ensureYouTubePlaybackRuntime(): void {
+  if (!isPlaybackModeYouTube()) return;
+
+  if (!getManagedTimer('youtubeUILoop')) {
+    setManagedTimer('youtubeUILoop', updateYouTubeUI, UI_LOOP_INTERVAL_MS, { interval: true });
+  }
+
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) {
+    if (!getManagedTimer('youtubeSyncLoop')) startYouTubeHostHeartbeat();
+  } else {
+    // A retained iframe can cross a leave/rejoin role change. Never let a
+    // former host's broadcaster survive after the same page becomes a guest.
+    clearManagedTimer('youtubeSyncLoop');
+  }
+
+  bus.emit('audio:apply-youtube-volume');
+}
+
+/** Re-arm a missing host heartbeat from the independently-owned UI loop. */
+function healYouTubeHostHeartbeat(): void {
+  if (getState('network.hostConn') || getManagedTimer('youtubeSyncLoop')) return;
+  startYouTubeHostHeartbeat();
+  log.warn('[YouTube] Host heartbeat was missing; restarted from the UI runtime');
+}
+
 const LIVE_DURATION_GROWTH_MIN_SEC = 0.2;
 const LIVE_DURATION_GROWTH_FRAMES = 3;
 
@@ -349,9 +397,23 @@ export function precreateYouTubePlayer(): void {
   if (YOUTUBE_PRIME_MODE !== 'B' || !YOUTUBE_PRIME_VIDEO_ID) return;
   if (isYtPrimed() || isYtPriming() || isYtPrimeReady()) return;
 
-  if (getYouTubePlayer()) {
-    setYtPrimeReady(true);
-    return;
+  const residentPlayer = getYouTubePlayer();
+  if (residentPlayer) {
+    // An unprimed resident can be left behind when a previous gesture bounce
+    // or real playback never reached PLAYING. Reusing that arbitrary stopped
+    // video as the next room's "silent" gesture bounce can produce an audible
+    // flash and still does not prove that WebKit unlocked it. Rebuild only
+    // this failed/unproven case; a genuinely primed resident returned above.
+    try {
+      residentPlayer.stopVideo?.();
+      residentPlayer.destroy?.();
+    } catch (e) {
+      log.debug('[YouTube Prime] Failed to discard unprimed resident player:', e);
+    }
+    clearManagedTimer('youtubeUILoop');
+    clearManagedTimer('youtubeSyncLoop');
+    resetYouTubeSyncState();
+    setYouTubePlayer(null);
   }
 
   const container = ensureYouTubePlayerContainer();
@@ -464,25 +526,6 @@ export function loadYouTubeVideo(
     clearManagedTimer('yt-auto-sync');
     resetYouTubeSyncState();
 
-    // Restart UI loop if it was cleared by the ENDED handler.
-    // The ENDED→playTrack→loadYouTubeVideo path clears youtubeUILoop
-    // in onStateChange(ENDED), but the YT-to-YT reuse path skips
-    // onYouTubePlayerReady (which normally starts the loop).
-    if (!getManagedTimer('youtubeUILoop')) {
-      setManagedTimer('youtubeUILoop', updateYouTubeUI, UI_LOOP_INTERVAL_MS, { interval: true });
-    }
-    // Same for host sync loop
-    const hostConn = getState('network.hostConn');
-    if (!hostConn && !getManagedTimer('youtubeSyncLoop')) {
-      setManagedTimer(
-        'youtubeSyncLoop',
-        () => {
-          bus.emit('youtube:broadcast-sync');
-        },
-        HEARTBEAT_INTERVAL_MS,
-        { interval: true },
-      );
-    }
   } else {
     // Guard: destroy previous player to prevent concurrent player instances
     if (isYtLoadInProgress() && player) {
@@ -684,14 +727,6 @@ function createYouTubePlayer(
     }
 
     log.debug('[YouTube] Re-using existing player instance');
-    // A reused player skips onYouTubePlayerReady, which is where a freshly
-    // created player starts the UI loop — and the iOS tap-to-play watchdog
-    // lives inside that loop. A PRIMED player reused here for real playback
-    // would otherwise sit UNSTARTED with no watchdog running → no tap-to-play
-    // fallback → frozen iframe on iOS. Mirror onReady / the YT-to-YT path.
-    if (!getManagedTimer('youtubeUILoop')) {
-      setManagedTimer('youtubeUILoop', updateYouTubeUI, UI_LOOP_INTERVAL_MS, { interval: true });
-    }
     try {
       if ((needsScrape || indexing) && playlistId) {
         existingPlayer.cuePlaylist({
@@ -750,6 +785,11 @@ function createYouTubePlayer(
       if (!autoplay) {
         suppressDriftUntil(LOAD_DRIFT_SUPPRESS_MS);
       }
+      // Persistent players do not emit onReady again. Activate the same
+      // runtime that a fresh iframe gets in onYouTubePlayerReady; omitting
+      // the host heartbeat here made the first manual sync work (one fresh
+      // snapshot) and every later sync fail after the 10s snapshot TTL.
+      ensureYouTubePlaybackRuntime();
       return;
     } catch (e) {
       log.warn('[YouTube] Failed to reuse player, recreating...', e);
@@ -906,25 +946,7 @@ function onYouTubePlayerReady(): void {
     }
   }
 
-  // Start UI update loop
-  clearManagedTimer('youtubeUILoop');
-  setManagedTimer('youtubeUILoop', updateYouTubeUI, UI_LOOP_INTERVAL_MS, { interval: true });
-
-  // Only Host runs sync loop
-  clearManagedTimer('youtubeSyncLoop');
-  if (!hostConn) {
-    setManagedTimer(
-      'youtubeSyncLoop',
-      () => {
-        bus.emit('youtube:broadcast-sync');
-      },
-      HEARTBEAT_INTERVAL_MS,
-      { interval: true },
-    );
-  }
-
-  // Apply volume
-  bus.emit('audio:apply-youtube-volume');
+  ensureYouTubePlaybackRuntime();
 
   // Notify anyone waiting for the player to become usable (e.g. the URL
   // input path in player.ts that wants to trigger a 1-sec rendezvous sync
@@ -1221,9 +1243,41 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     return;
   }
 
+  // The persistent iframe can deliver the silent prime video's final
+  // PLAYING/PAUSED transition after loadYouTubeVideo has already cleared the
+  // bounce flag and claimed YouTube mode for a real track. Never project that
+  // stale transition into room playback state or broadcast the prime video to
+  // guests. A PLAYING straggler is paused defensively to avoid an audio flash.
+  let stateVideoId = '';
+  try {
+    stateVideoId = player.getVideoData?.()?.video_id || '';
+  } catch {
+    /* unreadable transition identity; use the normal guarded path below */
+  }
+  const intendedTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+  const intendedVideoId =
+    (intendedTrack?.videoId as string | undefined) ||
+    (getState('player.currentTrackMeta')?.videoId as string | undefined) ||
+    '';
+  if (
+    isPlaybackModeYouTube() &&
+    YOUTUBE_PRIME_VIDEO_ID &&
+    stateVideoId === YOUTUBE_PRIME_VIDEO_ID &&
+    intendedVideoId !== YOUTUBE_PRIME_VIDEO_ID
+  ) {
+    if (state === YT.PlayerState.PLAYING) player.pauseVideo?.();
+    log.debug(`[YouTube Prime] Ignoring stale state ${state} after real-video takeover`);
+    return;
+  }
+
   if (!isPlaybackModeYouTube() && !indexing) return;
 
   if (state === YT.PlayerState.PLAYING) {
+    // A successful PLAYING transition proves that this persistent iOS iframe
+    // has crossed WebKit's user-gesture gate. Record it for future mode and
+    // room transitions instead of relying on stopYouTubeMode to guess.
+    if (IS_IOS) setYtPrimed(true);
+
     // Host: If playlist sub-item data is still missing, attempt immediate snapshot.
     // This allows immediate Next/Prev navigation and highlights as soon as playback starts.
     const hostConn = getState('network.hostConn');
@@ -1319,9 +1373,9 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // suppression (pause + wait for host) needs the loop running to detect
     // the sub-index change.
     //
-    // NOTE: We deliberately do NOT touch youtubeSyncLoop here. Heartbeat
-    // ownership is single-source: onYouTubePlayerReady starts it,
-    // stopYouTubeMode stops it. ENDED is a transient state during
+    // NOTE: We deliberately do NOT touch youtubeSyncLoop here. The active
+    // playback runtime starts/reconciles it, while stopYouTubeMode stops it.
+    // ENDED is a transient state during
     // sub-video advance — clearing here would have to be paired with a
     // restart in every recovery branch, and missing one (the `advanced`
     // branch) was the exact cause of the "host playback data not found
@@ -1431,6 +1485,11 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
 function updateYouTubeUI(): void {
   const player = getYouTubePlayer();
   if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) return;
+
+  // The UI loop and heartbeat have separate timer keys. If any unrelated
+  // cleanup accidentally clears only the heartbeat, keep an active host from
+  // silently running until every guest snapshot expires.
+  healYouTubeHostHeartbeat();
 
   // Crash detection: if getCurrentTime() throws repeatedly, the iframe
   // process has died (sad face icon). YouTube API events stop firing

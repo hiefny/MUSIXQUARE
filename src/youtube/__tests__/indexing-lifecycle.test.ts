@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
-import { setManagedTimer } from '../../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { showLoader } from '../../ui/toast.ts';
 import { broadcast } from '../../network/peer.ts';
 import { setPlaybackFilePlaying } from '../../player/ownership.ts';
@@ -108,6 +108,7 @@ vi.mock('../../ui/dom.ts', () => ({
 // ─── Harness ───────────────────────────────────────────────────────────────
 
 const setManagedTimerMock = vi.mocked(setManagedTimer);
+const clearManagedTimerMock = vi.mocked(clearManagedTimer);
 const showLoaderMock = vi.mocked(showLoader);
 const broadcastMock = vi.mocked(broadcast);
 
@@ -225,6 +226,78 @@ async function armIndexingViaDeferredNavigation(
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 describe('YouTube indexing session lifecycle', () => {
+  it('activates the complete host runtime when a retained player is reused', async () => {
+    const stateMod = await import('../_state.ts');
+    const syncMod = await import('../sync.ts');
+    const { initYouTube, loadYouTubeVideo } = await import('../player.ts');
+    const player = createMockYtPlayer();
+    const volumeApply = vi.fn();
+
+    installYtNamespace(player);
+    stateMod.setYouTubePlayer(player);
+    stateMod.setYtPrimed(true); // Retention path used by the persistent iOS iframe.
+    setPlaybackFilePlaying();
+    setState('network.appRole', 'host');
+    bus.on('audio:apply-youtube-volume', volumeApply);
+    initYouTube();
+    wireStopAllMediaChain();
+
+    loadYouTubeVideo('persistent1', null, true, 0);
+
+    expect(player.destroy).not.toHaveBeenCalled();
+    expect(player.loadVideoById).toHaveBeenCalledWith('persistent1');
+    expect(lastTimerCallback('youtubeUILoop')).toBeTypeOf('function');
+    expect(lastTimerCallback('youtubeSyncLoop')).toBeTypeOf('function');
+    expect(volumeApply).toHaveBeenCalledTimes(1);
+
+    lastTimerCallback('youtubeSyncLoop')?.();
+    expect(syncMod.broadcastYouTubeSync).toHaveBeenCalledWith(false);
+  });
+
+  it('does not inherit the host heartbeat when a retained player is reused as a guest', async () => {
+    const stateMod = await import('../_state.ts');
+    const { initYouTube, loadYouTubeVideo } = await import('../player.ts');
+    const player = createMockYtPlayer();
+
+    installYtNamespace(player);
+    stateMod.setYouTubePlayer(player);
+    stateMod.setYtPrimed(true);
+    setPlaybackFilePlaying();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as never);
+    initYouTube();
+    wireStopAllMediaChain();
+
+    loadYouTubeVideo('persistent2', null, false, 0);
+
+    expect(lastTimerCallback('youtubeUILoop')).toBeTypeOf('function');
+    expect(lastTimerCallback('youtubeSyncLoop')).toBeUndefined();
+    expect(clearManagedTimerMock).toHaveBeenCalledWith('youtubeSyncLoop');
+  });
+
+  it('self-heals a missing host heartbeat while the retained UI runtime is alive', async () => {
+    const stateMod = await import('../_state.ts');
+    const { initYouTube, loadYouTubeVideo } = await import('../player.ts');
+    const player = createMockYtPlayer();
+
+    installYtNamespace(player);
+    stateMod.setYouTubePlayer(player);
+    stateMod.setYtPrimed(true);
+    setPlaybackFilePlaying();
+    setState('network.appRole', 'host');
+    initYouTube();
+    wireStopAllMediaChain();
+    loadYouTubeVideo('persistent3', null, true, 0);
+
+    const uiTick = lastTimerCallback('youtubeUILoop');
+    expect(uiTick).toBeTypeOf('function');
+    setManagedTimerMock.mockClear();
+
+    uiTick?.();
+
+    expect(lastTimerCallback('youtubeSyncLoop')).toBeTypeOf('function');
+  });
+
   it('real mode exit clears the live indexing session and hides its loader (gated)', async () => {
     const stateMod = await import('../_state.ts');
     const { stopYouTubeMode } = await import('../player.ts');

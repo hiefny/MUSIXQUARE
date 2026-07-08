@@ -396,8 +396,6 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
     if (!retainPlayer) {
       setYouTubePlayer(null);
       setYtPrimed(false);
-    } else {
-      setYtPrimed(true);
     }
   }
 

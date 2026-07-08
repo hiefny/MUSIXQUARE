@@ -34,7 +34,11 @@ import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
 import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
-import { isPlaybackPlayingFile, isPlaybackPlayingYouTube } from './player/ownership.ts';
+import {
+  isPlaybackModeYouTube,
+  isPlaybackPlayingFile,
+  isPlaybackPlayingYouTube,
+} from './player/ownership.ts';
 
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
@@ -211,9 +215,14 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
 
   const hostConn = getState('network.hostConn');
 
-  if (isPlaybackPlayingYouTube()) {
+  if (isPlaybackModeYouTube()) {
     if (hostConn?.open) {
       guestRendezvousSync({ silent: true });
+    } else {
+      // Mobile WebKit suspends interval timers while hidden. Publish a fresh
+      // host snapshot immediately on return instead of making guests wait for
+      // the next 3s heartbeat (their cached snapshot expires after 10s).
+      bus.emit('youtube:broadcast-sync');
     }
     return;
   }

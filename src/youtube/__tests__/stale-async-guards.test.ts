@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
+import { YOUTUBE_PRIME_VIDEO_ID } from '../constants.ts';
 import { setManagedTimer } from '../../core/timers.ts';
 import { showToast } from '../../ui/toast.ts';
 import { broadcast } from '../../network/peer.ts';
@@ -479,5 +480,32 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     expect(stateMod.isYtIndexing()).toBe(false);
     expect(showToastMock).toHaveBeenCalledWith('youtube.video_unavailable');
     expect(nextTrack).not.toHaveBeenCalled();
+  });
+});
+
+describe('persistent prime transition supersession', () => {
+  it('does not project a late silent-prime PLAYING event into the real room track', async () => {
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      { type: 'youtube', name: 'Real', videoId: 'realVideo01' } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentTrackIndex', 0);
+    loadYouTubeVideo('realVideo01', null, true, 0);
+
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: YOUTUBE_PRIME_VIDEO_ID });
+    vi.mocked(player.pauseVideo!).mockClear();
+    broadcastMock.mockClear();
+
+    handle.fireStateChange(1);
+
+    expect(player.pauseVideo).toHaveBeenCalledTimes(1);
+    expect(broadcastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.YOUTUBE_STATE }),
+    );
   });
 });

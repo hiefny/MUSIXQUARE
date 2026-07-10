@@ -8,7 +8,7 @@
 
 // IMPORTANT: bump this when deploying changes to app shell assets
 // so existing clients don't stay pinned to stale cached JS/CSS.
-const CACHE_VERSION = "v129";
+const CACHE_VERSION = "v131";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 
@@ -19,6 +19,7 @@ const APP_SHELL = [
   "./",
   "./index.html",
   "./dummy_audio.mp3",
+  "./designsystem/fonts/PretendardVariable.woff2",
   "./icons/icon-512.png",
   "./favicon.ico",
   "./favicon.svg"

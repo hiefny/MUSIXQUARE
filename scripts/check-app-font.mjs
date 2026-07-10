@@ -45,7 +45,7 @@ async function collectFiles(directory) {
   return files;
 }
 
-const [sourceFont, publicFont, fontCss, styleCss, appHtml, landingHtml, packageJson] =
+const [sourceFont, publicFont, fontCss, styleCss, appHtml, landingHtml, serviceWorker, packageJson] =
   await Promise.all([
     readFile(sourceFontPath),
     readFile(publicFontPath),
@@ -53,6 +53,7 @@ const [sourceFont, publicFont, fontCss, styleCss, appHtml, landingHtml, packageJ
     readFile(path.join(repoRoot, 'css', 'style.css'), 'utf8'),
     readFile(path.join(repoRoot, 'index.html'), 'utf8'),
     readFile(path.join(repoRoot, '.workshop', 'landing', 'landing.html'), 'utf8'),
+    readFile(path.join(repoRoot, 'public', 'service-worker.js'), 'utf8'),
     readFile(path.join(repoRoot, 'package.json'), 'utf8'),
   ]);
 
@@ -83,6 +84,10 @@ for (const fallback of [
 
 check(hasFontPreload(appHtml), 'app HTML does not preload the complete Pretendard face');
 check(hasFontPreload(landingHtml), 'landing HTML does not preload the complete Pretendard face');
+check(
+  serviceWorker.includes(`".${fontUrl}"`),
+  'service worker app shell does not include the complete Pretendard face',
+);
 check(
   !/font:subset|guard:font-subsets|subset-app-font/u.test(packageJson),
   'package scripts still expose app font subsetting',

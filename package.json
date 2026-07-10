@@ -24,7 +24,7 @@
     "guard:font-assets": "node scripts/check-app-font.mjs",
     "guard:font-build": "node scripts/check-app-font.mjs --dist",
     "smoke:live:signaling": "node scripts/live-signaling-smoke.mjs",
-    "smoke:live:remote-share": "node scripts/live-remote-share-smoke.mjs",
+    "smoke:live:remote-share": "tsx scripts/live-remote-share-smoke.ts",
     "smoke:live": "npm run smoke:live:signaling && npm run smoke:live:remote-share",
     "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json && tsc -p tsconfig.e2e.json",
     "lint": "eslint src/",

@@ -1,0 +1,280 @@
+#!/usr/bin/env node
+
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+
+import { decryptToFile, encryptFile } from '../src/share/crypto.js';
+
+const APP_ORIGIN = 'https://musixquare.com';
+const REMOTE_ORIGIN = 'https://share.musixquare.com';
+const DEFAULT_BYTES = 32;
+const MAX_SMOKE_BYTES = 1024 * 1024;
+const FILE_NAME = 'live-remote-share-smoke.wav';
+const FILE_MIME = 'audio/wav';
+
+interface RemoteShareSession {
+  uploadUrl: string;
+  uploadHeaders: Record<string, string>;
+  completeToken: string;
+  objectId: string;
+  downloadUrl: string;
+  cleanupToken: string;
+}
+
+function parseByteCount(): number {
+  const option = process.argv.find((value) => value.startsWith('--bytes='));
+  const value = Number(option?.slice('--bytes='.length) || DEFAULT_BYTES);
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_SMOKE_BYTES) {
+    throw new Error(`--bytes must be an integer between 1 and ${MAX_SMOKE_BYTES}`);
+  }
+  return value;
+}
+
+function assertAllowedOrigin(response: Response, label: string): void {
+  const allowedOrigin = response.headers.get('access-control-allow-origin');
+  if (allowedOrigin !== APP_ORIGIN) {
+    throw new Error(`${label} CORS origin mismatch: ${String(allowedOrigin)}`);
+  }
+}
+
+async function readJson(response: Response, label: string): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`${label} HTTP ${response.status}: ${text.slice(0, 300)}`);
+  }
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`${label} returned invalid JSON`);
+  }
+}
+
+async function requestCapabilityToken(): Promise<string> {
+  if (process.env.MXQR_CAPABILITY_TOKEN) return process.env.MXQR_CAPABILITY_TOKEN.trim();
+
+  const config = await readJson(
+    await fetch(`${APP_ORIGIN}/api/security-config`, {
+      headers: { Accept: 'application/json', Origin: APP_ORIGIN },
+    }),
+    'security config',
+  );
+  if (config.capabilityRequired !== true) return '';
+
+  const response = await fetch(`${APP_ORIGIN}/api/capability-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
+    body: JSON.stringify({ scopes: ['remote-share'] }),
+  });
+  const payload = await readJson(response, 'capability token');
+  if (typeof payload.token !== 'string' || !payload.token) {
+    throw new Error('capability token missing');
+  }
+  return payload.token;
+}
+
+async function requestSession(
+  token: string,
+  roomId: string,
+  sourceFile: File,
+  encryptedBlob: Blob,
+): Promise<RemoteShareSession> {
+  const response = await fetch(`${REMOTE_ORIGIN}/session`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: APP_ORIGIN,
+      ...(token ? { 'X-MXQR-Capability': token } : {}),
+    },
+    body: JSON.stringify({
+      roomId,
+      sessionId: Date.now(),
+      index: 0,
+      name: sourceFile.name,
+      mime: sourceFile.type,
+      size: sourceFile.size,
+      encryptedSize: encryptedBlob.size,
+    }),
+  });
+  assertAllowedOrigin(response, 'remote-share session');
+  const session = await readJson(response, 'remote-share session');
+  if (
+    typeof session.uploadUrl !== 'string' ||
+    typeof session.completeToken !== 'string' ||
+    typeof session.objectId !== 'string' ||
+    typeof session.downloadUrl !== 'string' ||
+    typeof session.cleanupToken !== 'string' ||
+    !session.uploadHeaders ||
+    typeof session.uploadHeaders !== 'object' ||
+    Array.isArray(session.uploadHeaders) ||
+    !Object.values(session.uploadHeaders).every((value) => typeof value === 'string')
+  ) {
+    throw new Error('invalid remote-share session response');
+  }
+  return session as unknown as RemoteShareSession;
+}
+
+function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): void {
+  const normalized = Object.fromEntries(
+    Object.entries(session.uploadHeaders).map(([name, value]) => [name.toLowerCase(), value]),
+  );
+  const expected: Record<string, string> = {
+    'content-type': 'application/octet-stream',
+    // The Worker percent-encodes metadata before signing it so R2 headers stay
+    // ASCII-safe; the download path decodes these values for product use.
+    'x-amz-meta-name': encodeURIComponent(sourceFile.name),
+    'x-amz-meta-mime': encodeURIComponent(sourceFile.type),
+    'x-amz-meta-size-bytes': String(sourceFile.size),
+  };
+  for (const [name, value] of Object.entries(expected)) {
+    if (normalized[name] !== value) {
+      throw new Error(`remote-share upload metadata mismatch for ${name}`);
+    }
+  }
+}
+
+async function assertUploadCors(session: RemoteShareSession): Promise<void> {
+  const requestedHeaders = Object.keys(session.uploadHeaders).join(',');
+  const response = await fetch(session.uploadUrl, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: APP_ORIGIN,
+      'Access-Control-Request-Method': 'PUT',
+      'Access-Control-Request-Headers': requestedHeaders,
+    },
+  });
+  if (!response.ok) throw new Error(`R2 CORS preflight HTTP ${response.status}`);
+  assertAllowedOrigin(response, 'R2 CORS preflight');
+  const methods = new Set(
+    (response.headers.get('access-control-allow-methods') || '')
+      .toLowerCase()
+      .split(',')
+      .map((value) => value.trim()),
+  );
+  if (!methods.has('put')) throw new Error('R2 CORS does not allow PUT');
+  const headers = new Set(
+    (response.headers.get('access-control-allow-headers') || '')
+      .toLowerCase()
+      .split(',')
+      .map((value) => value.trim()),
+  );
+  for (const name of Object.keys(session.uploadHeaders)) {
+    if (!headers.has(name.toLowerCase())) throw new Error(`R2 CORS does not allow ${name}`);
+  }
+}
+
+async function completeUpload(
+  session: RemoteShareSession,
+  roomId: string,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${REMOTE_ORIGIN}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
+    body: JSON.stringify({
+      roomId,
+      objectId: session.objectId,
+      completeToken: session.completeToken,
+    }),
+  });
+  assertAllowedOrigin(response, 'remote-share complete');
+  return readJson(response, 'remote-share complete');
+}
+
+async function cleanup(session: RemoteShareSession, roomId: string): Promise<Response> {
+  return fetch(`${REMOTE_ORIGIN}/object/${roomId}/${session.objectId}`, {
+    method: 'DELETE',
+    headers: {
+      Origin: APP_ORIGIN,
+      'X-MXQR-Cleanup-Token': session.cleanupToken,
+    },
+  });
+}
+
+async function main(): Promise<void> {
+  const byteCount = parseByteCount();
+  const roomId = `live-smoke-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const sourceBytes = new Uint8Array(randomBytes(byteCount));
+  const sourceFile = new File([sourceBytes], FILE_NAME, {
+    type: FILE_MIME,
+  });
+  const expectedSha256 = createHash('sha256').update(sourceBytes).digest('hex');
+  const encrypted = await encryptFile(sourceFile);
+  const token = await requestCapabilityToken();
+  let session: RemoteShareSession | undefined;
+  let cleaned = false;
+
+  try {
+    session = await requestSession(token, roomId, sourceFile, encrypted.encryptedBlob);
+    assertUploadMetadata(session, sourceFile);
+    await assertUploadCors(session);
+
+    const upload = await fetch(session.uploadUrl, {
+      method: 'PUT',
+      headers: { ...session.uploadHeaders, Origin: APP_ORIGIN },
+      body: encrypted.encryptedBlob,
+    });
+    if (!upload.ok) throw new Error(`R2 direct PUT HTTP ${upload.status}`);
+    assertAllowedOrigin(upload, 'R2 direct PUT');
+
+    const completed = await completeUpload(session, roomId);
+    if (
+      completed.objectId !== session.objectId ||
+      typeof completed.downloadUrl !== 'string' ||
+      !completed.downloadUrl
+    ) {
+      throw new Error('invalid remote-share completion response');
+    }
+
+    const download = await fetch(completed.downloadUrl, { headers: { Origin: APP_ORIGIN } });
+    assertAllowedOrigin(download, 'remote-share download');
+    if (!download.ok) throw new Error(`remote-share download HTTP ${download.status}`);
+    const downloadedEncrypted = await download.arrayBuffer();
+    if (downloadedEncrypted.byteLength !== encrypted.encryptedBlob.size) {
+      throw new Error('remote-share encrypted download size mismatch');
+    }
+    const decrypted = await decryptToFile(
+      downloadedEncrypted,
+      encrypted.keyB64,
+      encrypted.ivB64,
+      sourceFile.name,
+      sourceFile.type,
+    );
+    const decryptedBytes = new Uint8Array(await decrypted.arrayBuffer());
+    const actualSha256 = createHash('sha256').update(decryptedBytes).digest('hex');
+    if (decryptedBytes.byteLength !== sourceBytes.byteLength || actualSha256 !== expectedSha256) {
+      throw new Error('remote-share decrypted plaintext mismatch');
+    }
+    if (decrypted.name !== sourceFile.name || decrypted.type !== sourceFile.type) {
+      throw new Error('remote-share decrypted file metadata mismatch');
+    }
+
+    const deleted = await cleanup(session, roomId);
+    assertAllowedOrigin(deleted, 'remote-share cleanup');
+    await readJson(deleted, 'remote-share cleanup');
+    cleaned = true;
+
+    const afterDelete = await fetch(completed.downloadUrl, { headers: { Origin: APP_ORIGIN } });
+    assertAllowedOrigin(afterDelete, 'remote-share deleted-object lookup');
+    if (afterDelete.status !== 404) {
+      throw new Error(`deleted object returned HTTP ${afterDelete.status}, expected 404`);
+    }
+
+    console.log(
+      JSON.stringify({
+        ok: true,
+        bytes: sourceFile.size,
+        encryptedBytes: encrypted.encryptedBlob.size,
+        directR2Put: true,
+        corsPreflight: true,
+        workerCors: ['session', 'complete', 'download', 'cleanup', 'deleted-object'],
+        productCryptoRoundTrip: true,
+        plaintextSha256Match: true,
+        metadataMatch: true,
+        cleanupStatus: deleted.status,
+        afterCleanupStatus: afterDelete.status,
+      }),
+    );
+  } finally {
+    if (session && !cleaned) await cleanup(session, roomId).catch(() => undefined);
+  }
+}
+
+await main();

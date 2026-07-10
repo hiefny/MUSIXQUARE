@@ -43,7 +43,10 @@ The public repository does not include production secrets, API keys, TURN creden
 - **PeerJS Fallback**: PeerJS remains available as a fallback transport and for local development when no Cloudflare signaling URL is configured.
 - **Remote Share Worker**: Cloudflare Worker + R2 path for encrypted temporary remote file sharing.
 - **STUN + TURN**: Browser ICE with Cloudflare TURN support and optional Metered fallback.
-- **RAM-first playback**: Local playback buffers and received chunks stay in browser memory.
+- **RAM-only media storage**: Local playback buffers and received chunks stay in browser memory.
+
+The production browser-media storage boundary and the conditions for revisiting
+OPFS are documented in [the RAM-only storage ADR](./docs/design/browser-media-storage-policy.md).
 
 ---
 

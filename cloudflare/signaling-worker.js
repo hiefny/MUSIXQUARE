@@ -290,6 +290,17 @@ function normalizeAttachment(value) {
     };
   }
 
+  const guestMessageBucket =
+    Number.isFinite(value.guestMessageTokens) && Number.isFinite(value.guestMessageUpdatedAt)
+      ? {
+          guestMessageTokens: Math.min(
+            GUEST_MESSAGE_BUCKET_CAPACITY,
+            Math.max(0, value.guestMessageTokens),
+          ),
+          guestMessageUpdatedAt: Math.max(0, value.guestMessageUpdatedAt),
+        }
+      : {};
+
   if (value.auth === 'ok') {
     return {
       v: ATTACHMENT_VERSION,
@@ -297,6 +308,7 @@ function normalizeAttachment(value) {
       roomId: value.roomId,
       peerId: value.peerId,
       auth: 'ok',
+      ...guestMessageBucket,
     };
   }
 
@@ -308,6 +320,7 @@ function normalizeAttachment(value) {
       peerId: value.peerId,
       auth: 'pending',
       authDeadline: Number.isFinite(value.authDeadline) ? value.authDeadline : 0,
+      ...guestMessageBucket,
     };
   }
 
@@ -339,7 +352,6 @@ export class MusixquareRoom {
     this.hostPeerId = null;
     this.guests = new Map();
     this.pendingGuests = new Map();
-    this.guestMessageBuckets = new WeakMap();
     this.rehydrateSockets();
   }
 
@@ -348,20 +360,33 @@ export class MusixquareRoom {
   }
 
   consumeGuestMessageToken(ws, now = Date.now()) {
-    const previous = this.guestMessageBuckets.get(ws) || {
-      tokens: GUEST_MESSAGE_BUCKET_CAPACITY,
-      updatedAt: now,
-    };
-    const elapsed = Math.max(0, now - previous.updatedAt);
+    const attachment = readAttachment(ws);
+    if (!attachment || attachment.role !== 'guest') return false;
+    const previousTokens = Number.isFinite(attachment.guestMessageTokens)
+      ? attachment.guestMessageTokens
+      : GUEST_MESSAGE_BUCKET_CAPACITY;
+    const previousUpdatedAt = Number.isFinite(attachment.guestMessageUpdatedAt)
+      ? attachment.guestMessageUpdatedAt
+      : now;
+    const elapsed = Math.max(0, now - previousUpdatedAt);
     const tokens = Math.min(
       GUEST_MESSAGE_BUCKET_CAPACITY,
-      previous.tokens + elapsed * GUEST_MESSAGE_REFILL_PER_MS,
+      previousTokens + elapsed * GUEST_MESSAGE_REFILL_PER_MS,
     );
+    const remainingTokens = tokens < 1 ? tokens : tokens - 1;
+    // WebSocket attachments survive Durable Object hibernation, unlike an
+    // in-memory Map/WeakMap. Persisting this tiny bucket state on each frame
+    // keeps one active guest from receiving a fresh burst after rehydration.
+    // A genuinely new connection still starts a new burst; reconnect churn is
+    // separately bounded by the outer per-IP `ws-open` limiter.
+    ws.serializeAttachment({
+      ...attachment,
+      guestMessageTokens: remainingTokens,
+      guestMessageUpdatedAt: now,
+    });
     if (tokens < 1) {
-      this.guestMessageBuckets.set(ws, { tokens, updatedAt: now });
       return false;
     }
-    this.guestMessageBuckets.set(ws, { tokens: tokens - 1, updatedAt: now });
     return true;
   }
 
@@ -537,6 +562,8 @@ export class MusixquareRoom {
 
   acceptPendingGuest(ws, roomId, peerId) {
     const previousPending = this.pendingGuests.get(peerId);
+    const previousAccepted = this.guests.get(peerId);
+    const previousAttachment = readAttachment(previousPending || previousAccepted);
     if (previousPending && previousPending !== ws) {
       closeSocket(previousPending, 1012, 'GUEST_REPLACED');
     }
@@ -548,6 +575,13 @@ export class MusixquareRoom {
       peerId,
       auth: 'pending',
       authDeadline: Date.now() + GUEST_AUTH_TIMEOUT_MS,
+      ...(Number.isFinite(previousAttachment?.guestMessageTokens) &&
+      Number.isFinite(previousAttachment?.guestMessageUpdatedAt)
+        ? {
+            guestMessageTokens: previousAttachment.guestMessageTokens,
+            guestMessageUpdatedAt: previousAttachment.guestMessageUpdatedAt,
+          }
+        : {}),
     };
     this.acceptSocket(ws, attachment, ['role:guest', `peer:${peerId}`, 'auth:pending']);
     this.pendingGuests.set(peerId, ws);
@@ -597,6 +631,11 @@ export class MusixquareRoom {
 
   async completeGuestAccept(ws, roomId, peerId, alreadyAccepted) {
     const previous = this.guests.get(peerId);
+    const currentAttachment = readAttachment(ws);
+    const previousAttachment = readAttachment(previous);
+    const bucketAttachment = Number.isFinite(currentAttachment?.guestMessageTokens)
+      ? currentAttachment
+      : previousAttachment;
     if (previous && previous !== ws) {
       closeSocket(previous, 1012, 'GUEST_REPLACED');
     }
@@ -611,6 +650,13 @@ export class MusixquareRoom {
       roomId,
       peerId,
       auth: 'ok',
+      ...(Number.isFinite(bucketAttachment?.guestMessageTokens) &&
+      Number.isFinite(bucketAttachment?.guestMessageUpdatedAt)
+        ? {
+            guestMessageTokens: bucketAttachment.guestMessageTokens,
+            guestMessageUpdatedAt: bucketAttachment.guestMessageUpdatedAt,
+          }
+        : {}),
     };
     if (alreadyAccepted) ws.serializeAttachment(attachment);
     else this.acceptSocket(ws, attachment, ['role:guest', `peer:${peerId}`]);

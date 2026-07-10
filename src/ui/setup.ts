@@ -431,6 +431,7 @@ export function initSetup(): void {
       msg === 'ROOM_PASSWORD_INVALID' || peerType === 'room-password-invalid';
     const isRoomPasswordAuthTimeout =
       msg === 'ROOM_PASSWORD_AUTH_TIMEOUT' || peerType === 'room-password-auth-timeout';
+    const isRoomFull = msg === 'ROOM_GUEST_LIMIT_REACHED' || peerType === 'room-full';
 
     if (isRoomPasswordRequired || isRoomPasswordInvalid || isRoomPasswordAuthTimeout) {
       setState('network.isConnecting', false);
@@ -451,7 +452,8 @@ export function initSetup(): void {
     }
 
     // Our custom error messages
-    if (msg === 'HOST_UNREACHABLE') userMsg = t('error.host_unreachable');
+    if (isRoomFull) userMsg = t('network.session_full');
+    else if (msg === 'HOST_UNREACHABLE') userMsg = t('error.host_unreachable');
     else if (msg === 'HOST_DISCONNECTED') userMsg = t('error.host_disconnected');
     else if (msg === 'HOST_CONNECTION_ERROR') userMsg = t('error.host_conn_error');
     else if (msg === 'CONNECT_FAILED') userMsg = t('error.connect_failed');

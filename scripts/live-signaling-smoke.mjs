@@ -106,6 +106,9 @@ async function closeSocket(socket) {
 }
 
 async function runRoom(password) {
+  if (password && !/^\d{8}$/.test(password)) {
+    throw new Error('protected-room smoke password must be exactly eight digits');
+  }
   const roomId = String(randomInt(100_000, 1_000_000));
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
   const hostPeerId = `host-${suffix}`;
@@ -179,5 +182,5 @@ async function runRoom(password) {
 
 const rooms = [];
 rooms.push(await runRoom(''));
-rooms.push(await runRoom('smoke-pass-2026'));
+rooms.push(await runRoom('24681357'));
 console.log(JSON.stringify({ ok: true, rooms }));

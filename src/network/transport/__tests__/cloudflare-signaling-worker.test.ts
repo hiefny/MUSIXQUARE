@@ -603,6 +603,49 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
   });
 
+  it('preserves a depleted guest message bucket across DO hibernation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
+    const { room, state } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'guest', 'noisy'));
+    const noisy = lastServer();
+    const ignoredFrame = JSON.stringify({ type: 'future-client-hint', to: 'host' });
+
+    for (let index = 0; index < 120; index++) {
+      await room.webSocketMessage(noisy, ignoredFrame);
+    }
+
+    const rehydratedRoom = new workerModule.MusixquareRoom(state);
+    await rehydratedRoom.webSocketMessage(noisy, ignoredFrame);
+
+    expect(noisy.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'SIGNALING_RATE_LIMITED',
+    });
+  });
+
+  it('carries a guest message bucket onto a same-peer replacement socket', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
+    const { room } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'guest', 'noisy'));
+    const firstSocket = lastServer();
+    const ignoredFrame = JSON.stringify({ type: 'future-client-hint', to: 'host' });
+
+    for (let index = 0; index < 120; index++) {
+      await room.webSocketMessage(firstSocket, ignoredFrame);
+    }
+    await room.fetch(wsRequest('123456', 'guest', 'noisy'));
+    const replacement = lastServer();
+    await room.webSocketMessage(replacement, ignoredFrame);
+
+    expect(firstSocket.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+    expect(replacement.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'SIGNALING_RATE_LIMITED',
+    });
+  });
+
   it('admits at most 32 unique accepted or password-pending guests', async () => {
     const { room, host } = await createHostRoom();
 
@@ -654,12 +697,14 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({ type: 'guest-auth', password: '12345678' }),
     );
 
-    expect(guest.deserializeAttachment()).toEqual({
+    expect(guest.deserializeAttachment()).toMatchObject({
       v: 1,
       role: 'guest',
       roomId: '123456',
       peerId: 'guest-1',
       auth: 'ok',
+      guestMessageTokens: 119,
+      guestMessageUpdatedAt: expect.any(Number),
     });
     expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
   });

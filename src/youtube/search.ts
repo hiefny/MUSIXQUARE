@@ -32,7 +32,12 @@ const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
 const YOUTUBE_SEARCH_CACHE_MAX = 25;
 const YOUTUBE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
 
-type YouTubeInputKind = 'empty' | 'video-url' | 'playlist-url' | 'search-query' | 'invalid-url';
+type YouTubeInputKind =
+  | 'empty'
+  | 'video-url'
+  | 'playlist-url'
+  | 'search-query'
+  | 'invalid-url';
 
 interface YouTubeInputIntent {
   kind: YouTubeInputKind;
@@ -240,7 +245,10 @@ function updateSearchScrollMask(): void {
   const scrollTop = resultsEl.scrollTop;
 
   resultsEl.classList.toggle('can-scroll-up', hasOverflow && scrollTop > 2);
-  resultsEl.classList.toggle('can-scroll-down', hasOverflow && scrollTop < maxScrollTop - 2);
+  resultsEl.classList.toggle(
+    'can-scroll-down',
+    hasOverflow && scrollTop < maxScrollTop - 2,
+  );
 }
 
 function bindSearchScrollMask(): void {

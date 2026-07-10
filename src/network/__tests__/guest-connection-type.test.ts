@@ -171,10 +171,10 @@ describe('guest connection type authority', () => {
 
     mocks.showToast.mockClear();
     setState('network.isOperator', true);
-    await handleData({ type: MSG.OPERATOR_TOAST, text: 'operator notice' }, {
-      open: true,
-      peer: 'guest-a',
-    } as DataConnection);
+    await handleData(
+      { type: MSG.OPERATOR_TOAST, text: 'operator notice' },
+      { open: true, peer: 'guest-a' } as DataConnection,
+    );
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
 });

@@ -10,14 +10,7 @@ import { SessionScope } from '../core/session-scope.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import {
-  MSG,
-  CHUNK_SIZE,
-  DELAY,
-  TRANSFER_STATE,
-  PLAYBACK_STATE,
-  REMOTE_SHARE_STREAM_THRESHOLD_BYTES,
-} from '../core/constants.ts';
+import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import { postCommand, readStoredFile } from './storage.ts';
@@ -36,20 +29,12 @@ import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remot
 import { transition } from '../player/lifecycle.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
 import { isSystemAudioOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
-import {
-  assertEncodedAudioWithinMemoryBudget,
-  isAudioMemoryLimitError,
-} from '../player/media-memory.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
 const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
 let latestPreloadSessionId = 0;
 const MAX_EARLY_PRELOAD_CHUNKS = 128;
-const MAX_REJECTED_PRELOAD_SESSIONS = 32;
-// Kept outside preload.sessionState because normal stale-session cleanup may
-// evict skipped entries before late network frames arrive.
-const rejectedPreloadSessionIds = new Set<number>();
 let _activePlayPreloadedIndex: number | undefined;
 let _preloadScope: SessionScope | null = null;
 /** Per-peer unicast preload abort controls (key: peerId).
@@ -81,16 +66,6 @@ let _preloadGeneration = 0;
  * Clean up reorder buffers and session state for stale (non-current) sessions.
  */
 const PRELOAD_SESSION_MAX = 20;
-
-function rememberRejectedPreloadSession(sessionId: number): void {
-  rejectedPreloadSessionIds.delete(sessionId);
-  rejectedPreloadSessionIds.add(sessionId);
-  while (rejectedPreloadSessionIds.size > MAX_REJECTED_PRELOAD_SESSIONS) {
-    const oldest = rejectedPreloadSessionIds.values().next().value as number | undefined;
-    if (oldest === undefined) break;
-    rejectedPreloadSessionIds.delete(oldest);
-  }
-}
 
 function cleanupStalePreloadSessions(keepSessionId: number): void {
   // Clean up reorder buffers for old sessions
@@ -433,10 +408,6 @@ const PRELOAD_BROADCAST_BACKPRESSURE_LIMIT = 256 * 1024;
 const PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 async function backgroundTransfer(file: File, index: number, sessionId: number): Promise<void> {
-  if (file.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES) {
-    log.info('[Preload] Large file kept as host File handle; guest bytes wait for R2 range share');
-    return;
-  }
   // Approach B: caller (preloadNextTrack) has already awaited the prior
   // in-flight transfer, so we create a fresh scope WITHOUT disposing the
   // previous one. cancelPreloadTransfer is the only path that aborts a
@@ -543,13 +514,6 @@ export async function unicastPreload(
     return;
   }
 
-  if (file.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES) {
-    log.info('[Preload Unicast] Skipped large RAM preload; active track will use R2 ranges');
-    scope.dispose();
-    _activePreloadUnicasts.delete(unicastKey);
-    return;
-  }
-
   // Transport guard: block remote/unknown peers
   if (!(await canSendFileTo(conn))) {
     log.info('[Preload Unicast] Skipped — remote/unknown peer');
@@ -633,7 +597,6 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     log.warn('[Preload] Start message missing sessionId. Ignoring.');
     return;
   }
-  if (rejectedPreloadSessionIds.has(sid)) return;
 
   clearManagedTimer('prepareWatchdog');
 
@@ -672,62 +635,6 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   // Validate required metadata
   if (!data.name || !data.total || (data.total as number) <= 0) {
     log.error('[Preload] Start message has invalid metadata:', data);
-    return;
-  }
-
-  const declaredSize = Number(data.size);
-  try {
-    // Older protocol senders may omit `size`. Defer to finalized-blob
-    // validation when unavailable, while rejecting a known oversized payload
-    // before any receiver storage is allocated.
-    if (Number.isFinite(declaredSize) && declaredSize >= 0) {
-      if (declaredSize >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES) {
-        throw new Error('REMOTE_SHARE_RANGE_STREAM_REQUIRED');
-      }
-      assertEncodedAudioWithinMemoryBudget(declaredSize, data.name as string);
-    }
-  } catch (error) {
-    if (
-      !isAudioMemoryLimitError(error) &&
-      (!(error instanceof Error) || error.message !== 'REMOTE_SHARE_RANGE_STREAM_REQUIRED')
-    ) {
-      throw error;
-    }
-
-    // Persist an explicit skipped session before returning. PRELOAD_CHUNK and
-    // PRELOAD_END already consult this map, so every in-flight frame for the
-    // rejected sid is absorbed without entering the reorder buffer or store.
-    const rejectedSessions = new Map(getState('preload.sessionState'));
-    rejectedSessions.set(sid, {
-      skipped: true,
-      progress: 0,
-      total: (data.total as number) || 0,
-      name: data.name as string,
-      index: (data.index as number) || 0,
-      size: Number(data.size) || 0,
-      mime: (data.mime as string) || '',
-      nextExpectedChunk: 0,
-      finalized: false,
-    });
-    setState('preload.sessionState', rejectedSessions);
-    rememberRejectedPreloadSession(sid);
-    preloadReorderBuffer.delete(sid);
-    clearManagedTimer(`preload-drain-${sid}`);
-    clearManagedTimer(`preload-end-deferred-${sid}`);
-    clearManagedTimer('preloadWatchdog');
-    postCommand({
-      command: 'STORAGE_RESET_SESSION',
-      isPreload: true,
-      sessionId: validateSessionId(sid),
-    });
-    setState('preload.nextFileBlob', null);
-    setState('preload.meta', null);
-    setState('preload.nextTrackIndex', -1);
-    showLoader(false);
-    showToast(t('error.audio_memory_limit', { name: data.name as string }));
-    log.warn(
-      `[Preload] Rejected oversized PRELOAD_START for sid ${sid}: ${String(data.name)} (${String(data.size)} bytes)`,
-    );
     return;
   }
 
@@ -942,7 +849,6 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
   // sid would otherwise key preloadReorderBuffer/sessionState. Parity with
   // validateSessionId's sid > 0 rule.
   if (!Number.isFinite(sid) || sid <= 0) return;
-  if (rejectedPreloadSessionIds.has(sid)) return;
 
   // We intentionally DO NOT drop chunks for sid < latestPreloadSessionId.
   // This allows "stale" preloads (like a late-joiner's unicastPreload that
@@ -992,7 +898,6 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
 
   const sid = data.sessionId as number;
   if (!sid) return;
-  if (rejectedPreloadSessionIds.has(sid)) return;
 
   const sessionState = getState('preload.sessionState');
   const session = sessionState.get(sid);
@@ -1544,7 +1449,6 @@ export function initPreload(): void {
     if (!code) {
       latestPreloadSessionId = 0;
       preloadReorderBuffer.clear();
-      rejectedPreloadSessionIds.clear();
       _activePlayPreloadedIndex = undefined;
       _preloadScope?.dispose();
       _preloadScope = null;

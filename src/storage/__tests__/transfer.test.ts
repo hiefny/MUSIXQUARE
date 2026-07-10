@@ -6,28 +6,12 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, TRANSFER_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
   resetState();
   bus.clear();
 });
-
-function makeConnectedPeer(id: string, conn: DataConnection, joinOrder: number): ConnectedPeer {
-  return {
-    id,
-    slot: joinOrder - 1,
-    label: id,
-    isOp: false,
-    preloadedIndexes: new Set<number>(),
-    status: 'connected',
-    conn,
-    isDataTarget: true,
-    connectionType: 'local',
-    joinOrder,
-    lastHeartbeat: 0,
-  };
-}
 
 // ─── TRANSFER_STATE Constants ─────────────────────────────────────────
 
@@ -123,26 +107,6 @@ describe('transfer module exports', () => {
 });
 
 describe('host outgoing transfer routing', () => {
-  it('never starts a RAM-backed P2P stream for a large file handle', async () => {
-    const { broadcastFile } = await import('../transfer.ts');
-    const conn = {
-      open: true,
-      peer: 'peer-local',
-      send: vi.fn(),
-      peerConnection: { connectionState: 'connected' },
-      dataChannel: { readyState: 'open', bufferedAmount: 0 },
-    } as unknown as DataConnection;
-    setState('network.connectedPeers', [makeConnectedPeer('peer-local', conn, 1)]);
-    setState('network.activeHostConnByPeerId', new Map([['peer-local', conn]]));
-    const file = new File(['handle-only'], 'podcast.wav', { type: 'audio/wav' });
-    Object.defineProperty(file, 'size', { configurable: true, value: 32 * 1024 * 1024 });
-
-    await broadcastFile(file, 1);
-
-    expect(conn.send).not.toHaveBeenCalled();
-    expect(getState('transfer.activeBroadcastSession')).toBeNull();
-  });
-
   it('stops sending chunks to a peer that disconnects after FILE_START', async () => {
     const { broadcastFile } = await import('../transfer.ts');
     const currentConn = {
@@ -155,15 +119,38 @@ describe('host outgoing transfer routing', () => {
       peer: 'peer-stale',
       send: vi.fn((msg: Record<string, unknown>) => {
         if (msg.type !== MSG.FILE_START) return;
-        setState('network.connectedPeers', [makeConnectedPeer('peer-current', currentConn, 1)]);
+        setState('network.connectedPeers', [
+          {
+            id: 'peer-current',
+            status: 'connected',
+            conn: currentConn,
+            isDataTarget: true,
+            connectionType: 'local',
+            joinOrder: 1,
+          },
+        ]);
         setState('network.activeHostConnByPeerId', new Map([['peer-current', currentConn]]));
       }),
     } as unknown as DataConnection;
 
     setState('playlist.currentTrackIndex', 0);
     setState('network.connectedPeers', [
-      makeConnectedPeer('peer-current', currentConn, 1),
-      makeConnectedPeer('peer-stale', staleConn, 2),
+      {
+        id: 'peer-current',
+        status: 'connected',
+        conn: currentConn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 1,
+      },
+      {
+        id: 'peer-stale',
+        status: 'connected',
+        conn: staleConn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 2,
+      },
     ]);
     setState(
       'network.activeHostConnByPeerId',
@@ -216,8 +203,22 @@ describe('host outgoing transfer routing', () => {
 
       setState('playlist.currentTrackIndex', 0);
       setState('network.connectedPeers', [
-        makeConnectedPeer('peer-slow', slowConn, 1),
-        makeConnectedPeer('peer-healthy', healthyConn, 2),
+        {
+          id: 'peer-slow',
+          status: 'connected',
+          conn: slowConn,
+          isDataTarget: true,
+          connectionType: 'local',
+          joinOrder: 1,
+        },
+        {
+          id: 'peer-healthy',
+          status: 'connected',
+          conn: healthyConn,
+          isDataTarget: true,
+          connectionType: 'local',
+          joinOrder: 2,
+        },
       ]);
       setState(
         'network.activeHostConnByPeerId',
@@ -275,8 +276,22 @@ describe('host outgoing transfer routing', () => {
 
     setState('playlist.currentTrackIndex', 0);
     setState('network.connectedPeers', [
-      makeConnectedPeer('peer-live', liveConn, 1),
-      makeConnectedPeer('peer-disconnected', disconnectedConn, 2),
+      {
+        id: 'peer-live',
+        status: 'connected',
+        conn: liveConn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 1,
+      },
+      {
+        id: 'peer-disconnected',
+        status: 'connected',
+        conn: disconnectedConn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 2,
+      },
     ]);
     setState(
       'network.activeHostConnByPeerId',
@@ -308,7 +323,16 @@ describe('debounced broadcast cancellation', () => {
       peerConnection: { connectionState: 'connected' },
       dataChannel: { readyState: 'open', bufferedAmount: 0 },
     } as unknown as DataConnection;
-    setState('network.connectedPeers', [makeConnectedPeer(id, conn, 1)]);
+    setState('network.connectedPeers', [
+      {
+        id,
+        status: 'connected',
+        conn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 1,
+      },
+    ]);
     setState('network.activeHostConnByPeerId', new Map([[id, conn]]));
     return send;
   }
@@ -319,8 +343,7 @@ describe('debounced broadcast cancellation', () => {
     // cancelOutgoingFileTransfers expecting NO file traffic afterwards.
     vi.useFakeTimers();
     try {
-      const { broadcastFileDebounced, cancelOutgoingFileTransfers } =
-        await import('../transfer.ts');
+      const { broadcastFileDebounced, cancelOutgoingFileTransfers } = await import('../transfer.ts');
       const send = installHealthyPeer('peer-1');
       setState('playlist.currentTrackIndex', 0);
 

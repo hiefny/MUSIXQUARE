@@ -8,13 +8,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { handleData } from '../../network/protocol.ts';
-import {
-  getCurrentAudioBuffer,
-  getCurrentLoadEpoch,
-  getPendingPlayTime,
-  newLoadEpoch,
-  setPendingPlayTime,
-} from '../_state.ts';
+import { getCurrentLoadEpoch, getPendingPlayTime, newLoadEpoch, setPendingPlayTime } from '../_state.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 
@@ -30,16 +24,6 @@ const mocks = vi.hoisted(() => ({
   showLoader: vi.fn(),
   showToast: vi.fn(),
   transition: vi.fn(),
-  commitPreparedMediaElementSource: vi.fn(),
-  disposeActiveMediaElementSource: vi.fn(),
-  disposePreparedMediaElementSource: vi.fn(),
-  hasActiveMediaElementSource: vi.fn(() => false),
-  prepareMediaElementSource: vi.fn().mockResolvedValue({
-    duration: 3600,
-    fileName: 'large-audio',
-  }),
-  isRemoteMediaFile: vi.fn(() => false),
-  prepareRemoteMediaFileSource: vi.fn(),
 }));
 
 vi.mock('../../audio/engine.ts', () => ({
@@ -69,11 +53,6 @@ vi.mock('../../storage/transfer.ts', () => ({
 
 vi.mock('../../share/remote-share.ts', () => ({
   shareRemoteFileIfNeeded: vi.fn(),
-}));
-
-vi.mock('../../share/remote-media.ts', () => ({
-  isRemoteMediaFile: mocks.isRemoteMediaFile,
-  prepareRemoteMediaFileSource: mocks.prepareRemoteMediaFileSource,
 }));
 
 vi.mock('../../storage/preload.ts', () => ({
@@ -112,14 +91,6 @@ vi.mock('../lifecycle.ts', () => ({
 
 vi.mock('../video.ts', () => ({
   setEngineMode: vi.fn(),
-}));
-
-vi.mock('../media-element.ts', () => ({
-  commitPreparedMediaElementSource: mocks.commitPreparedMediaElementSource,
-  disposeActiveMediaElementSource: mocks.disposeActiveMediaElementSource,
-  disposePreparedMediaElementSource: mocks.disposePreparedMediaElementSource,
-  hasActiveMediaElementSource: mocks.hasActiveMediaElementSource,
-  prepareMediaElementSource: mocks.prepareMediaElementSource,
 }));
 
 function makeConnection(peer: string): DataConnection {
@@ -638,143 +609,5 @@ describe('clearPreviousTrackState lifecycle guard (DV-1)', () => {
 
     expect(getState('playback.mode')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
-  });
-});
-
-describe('large-file streaming fallback integration', () => {
-  const oversizedDecodedBuffer = {
-    duration: 3600,
-    length: 100_000_000,
-    numberOfChannels: 2,
-    sampleRate: 48_000,
-  } as AudioBuffer;
-
-  beforeEach(() => {
-    resetState();
-    bus.clear();
-    clearAllManagedTimers();
-    vi.clearAllMocks();
-    mocks.decodeAudioData.mockResolvedValue(oversizedDecodedBuffer);
-    mocks.hasActiveMediaElementSource.mockReturnValue(false);
-    mocks.prepareMediaElementSource.mockResolvedValue({
-      duration: 3600,
-      fileName: 'large-audio',
-    });
-  });
-
-  it('streams a threshold-sized host File without allocating an encoded ArrayBuffer', async () => {
-    const file = new File(['bounded fixture'], 'threshold.wav', { type: 'audio/wav' });
-    Object.defineProperty(file, 'size', {
-      configurable: true,
-      value: 32 * 1024 * 1024,
-    });
-    setState('playlist.items', [makeFileTrack(file)]);
-    setState('playlist.currentTrackIndex', 0);
-
-    const { loadAndBroadcastFile } = await import('../decode.ts');
-    const loaded = await loadAndBroadcastFile(file, null, getCurrentLoadEpoch());
-
-    expect(loaded).toBe(true);
-    expect(mocks.decodeAudioData).not.toHaveBeenCalled();
-    expect(mocks.prepareMediaElementSource).toHaveBeenCalledWith(file, 'threshold.wav');
-    expect(mocks.commitPreparedMediaElementSource).toHaveBeenCalledOnce();
-  });
-
-  it('publishes a host file through MediaElement when decoded PCM exceeds the budget', async () => {
-    const file = new File(['small compressed payload'], 'podcast.mp3', { type: 'audio/mpeg' });
-    setState('playlist.items', [makeFileTrack(file)]);
-    setState('playlist.currentTrackIndex', 0);
-
-    const { loadAndBroadcastFile } = await import('../decode.ts');
-    const loaded = await loadAndBroadcastFile(file, null, getCurrentLoadEpoch());
-
-    expect(loaded).toBe(true);
-    expect(mocks.prepareMediaElementSource).toHaveBeenCalledWith(file, 'podcast.mp3');
-    expect(mocks.commitPreparedMediaElementSource).toHaveBeenCalledOnce();
-    expect(getCurrentAudioBuffer()).toBeNull();
-    expect(getState('files.currentFileBlob')).toBe(file);
-  });
-
-  it('activates a large preloaded guest file without requiring an AudioBuffer', async () => {
-    const file = new File(['small compressed payload'], 'long-set.mp3', { type: 'audio/mpeg' });
-    setState('network.hostConn', makeConnection('host'));
-    setState('playlist.items', [makeFileTrack(file)]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('preload.nextFileBlob', file);
-    setState('preload.meta', { name: file.name, type: file.type, index: 0 });
-    setState('preload.nextTrackIndex', 0);
-
-    const { loadPreloadedTrack } = await import('../decode.ts');
-    const activated = await loadPreloadedTrack(0, getCurrentLoadEpoch());
-
-    expect(activated).toBe(true);
-    expect(mocks.commitPreparedMediaElementSource).toHaveBeenCalledOnce();
-    expect(getCurrentAudioBuffer()).toBeNull();
-    expect(getState('preload.nextFileBlob')).toBeNull();
-  });
-
-  it('activates a large finalized guest download through MediaElement', async () => {
-    const file = new File(['small compressed payload'], 'guest-podcast.mp3', {
-      type: 'audio/mpeg',
-    });
-    setState('network.hostConn', makeConnection('host'));
-    setState('playlist.items', [makeFileTrack(file)]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('transfer.meta', { name: file.name, type: file.type, index: 0 });
-
-    const { finalizeGuestFile } = await import('../decode.ts');
-    await finalizeGuestFile(file);
-
-    expect(mocks.commitPreparedMediaElementSource).toHaveBeenCalledOnce();
-    expect(getCurrentAudioBuffer()).toBeNull();
-    expect(getState('files.currentFileBlob')).toBe(file);
-    expect(getState('transfer.state')).toBe('READY');
-  });
-
-  it('commits a bounded download directly to AudioBuffer mode', async () => {
-    const file = new File(['encoded payload'], 'bounded.mp3', { type: 'audio/mpeg' });
-    const decoded = {
-      duration: 120,
-      length: 5_760_000,
-      numberOfChannels: 2,
-      sampleRate: 48_000,
-    } as AudioBuffer;
-    mocks.decodeAudioData.mockResolvedValueOnce(decoded);
-    setState('network.hostConn', makeConnection('host'));
-    setState('playlist.items', [makeFileTrack(file)]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('transfer.meta', { name: file.name, type: file.type, index: 0 });
-
-    const { finalizeGuestFile } = await import('../decode.ts');
-    await finalizeGuestFile(file);
-
-    expect(getCurrentAudioBuffer()).toBe(decoded);
-    expect(mocks.commitPreparedMediaElementSource).not.toHaveBeenCalled();
-  });
-
-  it('disposes but never commits a streaming source prepared by a superseded host load', async () => {
-    const file = new File(['small compressed payload'], 'stale-podcast.mp3', {
-      type: 'audio/mpeg',
-    });
-    setState('playlist.items', [makeFileTrack(file)]);
-    setState('playlist.currentTrackIndex', 0);
-    const prepared = { duration: 3600, fileName: file.name };
-    let resolvePreparation!: (value: typeof prepared) => void;
-    mocks.prepareMediaElementSource.mockImplementationOnce(
-      () => new Promise((resolve) => (resolvePreparation = resolve)),
-    );
-
-    const { loadAndBroadcastFile } = await import('../decode.ts');
-    const epoch = getCurrentLoadEpoch();
-    const loading = loadAndBroadcastFile(file, null, epoch);
-    await vi.waitFor(() => expect(mocks.prepareMediaElementSource).toHaveBeenCalledOnce());
-
-    newLoadEpoch();
-    resolvePreparation(prepared);
-
-    await expect(loading).resolves.toBe(false);
-    expect(mocks.commitPreparedMediaElementSource).not.toHaveBeenCalled();
-    expect(mocks.disposePreparedMediaElementSource).toHaveBeenCalledWith(prepared);
-    expect(getState('files.currentFileBlob')).toBeNull();
   });
 });

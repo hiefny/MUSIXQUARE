@@ -34,16 +34,8 @@ needs them:
 - Thai: `css/fonts/noto-thai.css`
 - Russian: `css/fonts/noto-cyrillic.css`
 
-Latin and Korean both use the complete `PretendardVariable.woff2` face. This is
-intentional: arbitrary user-entered Korean (including chat messages) must not
-fall back glyph-by-glyph to a platform font. Japanese, Simplified/Traditional
-Chinese, Thai, and Cyrillic keep their locale-specific Noto fallback faces for
-characters Pretendard does not cover.
-
-`fonts/PretendardVariable.woff2` is the canonical source copy. The deployed copy
-at `public/designsystem/fonts/PretendardVariable.woff2` must be byte-identical;
-`npm run guard:font-assets` verifies the font, CSS stacks, and preload links;
-`npm run guard:font-build` also verifies the production artifact.
+Latin, digits, and shared symbols keep Pretendard metrics through
+`Pretendard UI Core`; Korean uses the full `Pretendard` face.
 
 ## Notes
 

@@ -38,16 +38,6 @@ const transportMocks = vi.hoisted(() => ({
   play: vi.fn(),
 }));
 
-function makeConnection(peer = 'host'): DataConnection {
-  return {
-    peer,
-    open: true,
-    send: vi.fn(),
-    close: vi.fn(),
-    on: vi.fn(),
-  };
-}
-
 vi.mock('../../player/transport.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../player/transport.ts')>();
   return {
@@ -174,7 +164,7 @@ describe('SYNC_PING playback snapshot', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
     setState('playlist.currentTrackIndex', 2);
 
-    const conn = makeConnection('guest-audible');
+    const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
     await handleData({ type: MSG.SYNC_PING, pingId: 7 }, conn);
 
     expect(conn.send).toHaveBeenCalledTimes(1);
@@ -188,7 +178,7 @@ describe('SYNC_PING playback snapshot', () => {
         trackIndex: 2,
       }),
     );
-    expect(vi.mocked(conn.send).mock.calls[0][0]).not.toHaveProperty('appState');
+    expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
   });
 
   it('emits decomposed playback fields for audible file playback', async () => {
@@ -203,7 +193,7 @@ describe('SYNC_PING playback snapshot', () => {
       activity: 'playing',
     });
 
-    const conn = makeConnection('guest-audible');
+    const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
     await handleData({ type: MSG.SYNC_PING, pingId: 8 }, conn);
 
     expect(conn.send).toHaveBeenCalledWith(
@@ -216,7 +206,7 @@ describe('SYNC_PING playback snapshot', () => {
         trackIndex: 3,
       }),
     );
-    expect(vi.mocked(conn.send).mock.calls[0][0]).not.toHaveProperty('appState');
+    expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
   });
 
   it('prefers decomposed mode/activity when deciding whether a sync pong is file playback', () => {
@@ -351,7 +341,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = makeConnection('host-1');
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
     setState('network.hostConn', hostConn);
     setPlaybackFilePlaying();
     setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
@@ -380,7 +370,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = makeConnection('host-1');
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
     setState('network.hostConn', hostConn);
     // Guest locally paused: file/paused (PAUSED lifecycle, not a decode state)
     // with a decoded buffer — without the flag the SYNC_PONG bootstrap resumes
@@ -393,14 +383,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1050);
 
     await handleData(
-      {
-        type: MSG.SYNC_PONG,
-        pingId: 88,
-        hostTime: 1050,
-        position: 30,
-        mode: 'file',
-        activity: 'playing',
-      },
+      { type: MSG.SYNC_PONG, pingId: 88, hostTime: 1050, position: 30, mode: 'file', activity: 'playing' },
       hostConn,
     );
 
@@ -412,7 +395,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = makeConnection('host-1');
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
     setState('network.hostConn', hostConn);
     // Identical to the case above except the local-pause flag is clear, so the
     // bootstrap must fire (proves the guard above is what suppresses it).
@@ -424,14 +407,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1050);
 
     await handleData(
-      {
-        type: MSG.SYNC_PONG,
-        pingId: 89,
-        hostTime: 1050,
-        position: 30,
-        mode: 'file',
-        activity: 'playing',
-      },
+      { type: MSG.SYNC_PONG, pingId: 89, hostTime: 1050, position: 30, mode: 'file', activity: 'playing' },
       hostConn,
     );
 
@@ -443,7 +419,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = makeConnection('host-1');
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
     setState('network.hostConn', hostConn);
     setPlaybackFilePlaying();
     setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
@@ -467,7 +443,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = makeConnection('host-1');
+    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
     setState('network.hostConn', hostConn);
     setPlaybackFilePlaying();
     setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);

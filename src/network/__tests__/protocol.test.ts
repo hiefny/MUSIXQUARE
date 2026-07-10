@@ -2,17 +2,9 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { resetState, getState, setState } from '../../core/state.ts';
+import { resetState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import {
-  MSG,
-  CHUNK_SIZE,
-  REMOTE_SHARE_CRYPTO_CHUNK_BYTES,
-  REMOTE_SHARE_GCM_TAG_BYTES,
-  REMOTE_SHARE_MAX_ENCRYPTED_BYTES,
-  REMOTE_SHARE_MAX_PLAINTEXT_BYTES,
-  type MsgType,
-} from '../../core/constants.ts';
+import { MSG, CHUNK_SIZE } from '../../core/constants.ts';
 import {
   validateMessage,
   registerHandlers,
@@ -22,7 +14,7 @@ import {
   handleData,
   initProtocol,
 } from '../protocol.ts';
-import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.ts';
 
 beforeEach(() => {
   resetState();
@@ -169,19 +161,15 @@ describe('verifyOperator', () => {
   it('returns false when peer is found but isOp is false', () => {
     const conn = makeConnection('peer-456');
     // Manually set state to include a non-operator peer
-    setState('network.connectedPeers', [
-      ...getState('network.connectedPeers'),
-      makeConnectedPeer('peer-456', false),
-    ]);
+    const peers = getState('network.connectedPeers');
+    peers.push(makeConnectedPeer('peer-456', false));
     expect(verifyOperator(conn)).toBe(false);
   });
 
   it('returns true when peer is found and isOp is true', () => {
     const conn = makeConnection('peer-789');
-    setState('network.connectedPeers', [
-      ...getState('network.connectedPeers'),
-      makeConnectedPeer('peer-789', true),
-    ]);
+    const peers = getState('network.connectedPeers');
+    peers.push(makeConnectedPeer('peer-789', true));
     expect(verifyOperator(conn)).toBe(true);
   });
 });
@@ -353,86 +341,6 @@ describe('file-transfer frame validation', () => {
 
     await handleData({ type: MSG.PRELOAD_START, name: 'song.mp3', sessionId: 4, total: 10 }, conn);
     expect(startHandler).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('remote-share descriptor validation', () => {
-  const maxEncryptedBytes = REMOTE_SHARE_MAX_ENCRYPTED_BYTES;
-  const maxRemoteShareBytes = REMOTE_SHARE_MAX_PLAINTEXT_BYTES;
-  const chunkCount = Math.ceil(maxRemoteShareBytes / REMOTE_SHARE_CRYPTO_CHUNK_BYTES);
-  const validDescriptor = {
-    type: MSG.REMOTE_FILE_SHARE,
-    roomId: 'room-1',
-    objectId: 'object-1',
-    keyB64: 'a2V5',
-    ivB64: 'aXY=',
-    name: 'song.mp3',
-    mime: 'audio/mpeg',
-    index: 0,
-    sessionId: 3,
-    size: maxRemoteShareBytes,
-    encryptedSize: maxEncryptedBytes,
-    expiresAt: Date.now() + 60_000,
-    cryptoVersion: 2,
-    chunkSize: REMOTE_SHARE_CRYPTO_CHUNK_BYTES,
-    chunkCount,
-    tagBytes: REMOTE_SHARE_GCM_TAG_BYTES,
-  };
-
-  it('dispatches a descriptor at the five-GiB multipart product limit', async () => {
-    const handler = vi.fn();
-    registerHandler(MSG.REMOTE_FILE_SHARE, handler);
-
-    await handleData(validDescriptor, makeConnection('peer-remote-valid'));
-
-    expect(handler).toHaveBeenCalledOnce();
-  });
-
-  it('drops negative, fractional, and over-limit descriptor sizes', async () => {
-    const handler = vi.fn();
-    registerHandler(MSG.REMOTE_FILE_SHARE, handler);
-    const conn = makeConnection('peer-remote-hostile');
-    const hostileDescriptors = [
-      { ...validDescriptor, size: -1 },
-      { ...validDescriptor, size: 0 },
-      { ...validDescriptor, size: 1.5 },
-      { ...validDescriptor, size: maxRemoteShareBytes + 1 },
-      { ...validDescriptor, encryptedSize: -1 },
-      { ...validDescriptor, encryptedSize: 0 },
-      { ...validDescriptor, encryptedSize: 1.5 },
-      { ...validDescriptor, encryptedSize: maxEncryptedBytes + 1 },
-      { ...validDescriptor, chunkCount: chunkCount + 1 },
-      { ...validDescriptor, chunkSize: REMOTE_SHARE_CRYPTO_CHUNK_BYTES / 2 },
-      { ...validDescriptor, tagBytes: 12 },
-      { ...validDescriptor, downloadUrl: `https://example.test/${'x'.repeat(2049)}` },
-    ];
-
-    for (const descriptor of hostileDescriptors) {
-      await handleData(descriptor, conn);
-    }
-
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it('keeps whole-file legacy AES-GCM descriptors below the bounded RAM ceiling', async () => {
-    const handler = vi.fn();
-    registerHandler(MSG.REMOTE_FILE_SHARE, handler);
-    const base = {
-      ...validDescriptor,
-      cryptoVersion: 1,
-      chunkSize: undefined,
-      chunkCount: undefined,
-      tagBytes: undefined,
-    };
-    await handleData(
-      { ...base, size: 64 * 1024 * 1024, encryptedSize: 64 * 1024 * 1024 + 16 },
-      makeConnection('peer-legacy-ok'),
-    );
-    await handleData(
-      { ...base, size: 64 * 1024 * 1024 + 1, encryptedSize: 64 * 1024 * 1024 + 17 },
-      makeConnection('peer-legacy-too-large'),
-    );
-    expect(handler).toHaveBeenCalledOnce();
   });
 });
 

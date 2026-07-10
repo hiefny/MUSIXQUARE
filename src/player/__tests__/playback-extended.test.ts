@@ -34,7 +34,7 @@ import {
 } from '../ownership.ts';
 import { broadcast, sendToHost } from '../../network/peer.ts';
 import { handleData } from '../../network/protocol.ts';
-import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
@@ -326,19 +326,7 @@ describe('handleRequestPlay file pipeline guard', () => {
 
     const opConn = { open: true, peer: 'op-1' } as DataConnection;
     setState('network.connectedPeers', [
-      {
-        id: 'op-1',
-        slot: 0,
-        label: 'OP',
-        isOp: true,
-        conn: opConn,
-        preloadedIndexes: new Set<number>(),
-        status: 'connected',
-        isDataTarget: true,
-        joinOrder: 0,
-        connectionType: 'unknown',
-        lastHeartbeat: 0,
-      } satisfies ConnectedPeer,
+      { id: 'op-1', label: 'OP', isOp: true, conn: opConn },
     ]);
 
     initPlayback();
@@ -500,9 +488,7 @@ describe('late-join playback bootstrap', () => {
     initPlayback();
     setPlaybackFilePlaying();
     setState('playlist.currentTrackIndex', 0);
-    setState('playlist.items', [
-      { type: 'file', name: 'song.mp3', videoId: null, playlistId: null },
-    ]);
+    setState('playlist.items', [{ name: 'song.mp3' }]);
 
     const send = emitPeerConnected();
 
@@ -521,9 +507,7 @@ describe('late-join playback bootstrap', () => {
     setPlaybackFilePlaying();
     setState('demo.active', true);
     setState('playlist.currentTrackIndex', 0);
-    setState('playlist.items', [
-      { type: 'file', name: 'demo.mp3', videoId: null, playlistId: null },
-    ]);
+    setState('playlist.items', [{ name: 'demo.mp3' }]);
 
     const send = emitPeerConnected();
 

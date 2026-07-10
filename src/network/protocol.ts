@@ -7,15 +7,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import {
-  MSG,
-  CHUNK_SIZE,
-  REMOTE_SHARE_CRYPTO_CHUNK_BYTES,
-  REMOTE_SHARE_GCM_TAG_BYTES,
-  REMOTE_SHARE_LEGACY_MAX_PLAINTEXT_BYTES,
-  REMOTE_SHARE_MAX_ENCRYPTED_BYTES,
-  REMOTE_SHARE_MAX_PLAINTEXT_BYTES,
-} from '../core/constants.ts';
+import { MSG, CHUNK_SIZE } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import type { AnyProtocolMsg, DataConnection, ProtocolMsg } from '../types/index.ts';
 
@@ -57,12 +49,10 @@ const isArrayBufferLike = (v: unknown): boolean =>
 // and a malicious peer could send index=Infinity to explode a reorder buffer Map.
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isNonNegInt = (v: unknown): v is number => isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
-const isPositiveInt = (v: unknown): v is number => isNonNegInt(v) && v > 0;
 
 // Max 200,000 chunks ≈ 12.8 GB at 64 KB/chunk — prevents DoS via unbounded total
 const MAX_FILE_TOTAL = 200_000;
-const MAX_REMOTE_SHARE_ENCRYPTED_BYTES = REMOTE_SHARE_MAX_ENCRYPTED_BYTES;
-const MAX_REMOTE_SHARE_BYTES = REMOTE_SHARE_MAX_PLAINTEXT_BYTES;
+const MAX_REMOTE_SHARE_BYTES = 300 * 1024 * 1024;
 
 // Per-chunk byte cap. Host always sends exactly CHUNK_SIZE (or smaller for
 // the tail chunk via file.slice()), so anything larger is a malformed or
@@ -72,29 +62,6 @@ const isBoundedChunk = (v: unknown): boolean =>
   isArrayBufferLike(v) && (v as ArrayBuffer | Uint8Array).byteLength <= MAX_CHUNK_BYTES;
 const isBoundedNumber = (v: unknown, min: number, max: number): boolean =>
   isFiniteNumber(v) && v >= min && v <= max;
-const hasValidRemoteCryptoMetadata = (d: Record<string, unknown>): boolean => {
-  if (d.cryptoVersion === undefined || d.cryptoVersion === 1) {
-    return (
-      (d.cryptoVersion === undefined || d.cryptoVersion === 1) &&
-      Number(d.size) <= REMOTE_SHARE_LEGACY_MAX_PLAINTEXT_BYTES &&
-      Number(d.encryptedSize) === Number(d.size) + REMOTE_SHARE_GCM_TAG_BYTES &&
-      d.chunkSize === undefined &&
-      d.chunkCount === undefined &&
-      d.tagBytes === undefined
-    );
-  }
-  if (d.cryptoVersion !== 2) return false;
-  const size = Number(d.size);
-  const encryptedSize = Number(d.encryptedSize);
-  const expectedChunks = Math.ceil(size / REMOTE_SHARE_CRYPTO_CHUNK_BYTES);
-  return (
-    d.chunkSize === REMOTE_SHARE_CRYPTO_CHUNK_BYTES &&
-    d.tagBytes === REMOTE_SHARE_GCM_TAG_BYTES &&
-    d.chunkCount === expectedChunks &&
-    expectedChunks > 0 &&
-    encryptedSize === size + expectedChunks * REMOTE_SHARE_GCM_TAG_BYTES
-  );
-};
 const isReverbPreset = (v: unknown): boolean => v === 'off' || v === 'studio' || v === 'arena';
 const isRepeatMode = (v: unknown): boolean => v === 0 || v === 1 || v === 2;
 
@@ -243,30 +210,23 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.limited === undefined || typeof d.limited === 'boolean'),
   [MSG.REMOTE_FILE_SHARE]: (d) =>
     typeof d.roomId === 'string' &&
-    d.roomId.length > 0 &&
     d.roomId.length <= 80 &&
     typeof d.objectId === 'string' &&
-    d.objectId.length > 0 &&
     d.objectId.length <= 160 &&
-    (d.downloadUrl === undefined ||
-      (typeof d.downloadUrl === 'string' && d.downloadUrl.length <= 2048)) &&
+    (d.downloadUrl === undefined || typeof d.downloadUrl === 'string') &&
     typeof d.keyB64 === 'string' &&
     d.keyB64.length <= 128 &&
     typeof d.ivB64 === 'string' &&
     d.ivB64.length <= 64 &&
     typeof d.name === 'string' &&
-    d.name.length > 0 &&
-    d.name.length <= 512 &&
     typeof d.mime === 'string' &&
-    d.mime.length <= 256 &&
     isNonNegInt(d.index) &&
     isFiniteNumber(d.sessionId) &&
-    isPositiveInt(d.size) &&
+    isFiniteNumber(d.size) &&
     (d.size as number) <= MAX_REMOTE_SHARE_BYTES &&
-    isPositiveInt(d.encryptedSize) &&
-    (d.encryptedSize as number) <= MAX_REMOTE_SHARE_ENCRYPTED_BYTES &&
-    isFiniteNumber(d.expiresAt) &&
-    hasValidRemoteCryptoMetadata(d),
+    isFiniteNumber(d.encryptedSize) &&
+    (d.encryptedSize as number) <= MAX_REMOTE_SHARE_BYTES + 4096 &&
+    isFiniteNumber(d.expiresAt),
   // Without `name`, a malicious peer can send file-resume with no name to
   // poison the host's transfer.localSessionId (handler at transfer-receive.ts:685
   // bumps it from any incoming sessionId), blocking subsequent legitimate inbound

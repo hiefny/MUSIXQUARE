@@ -487,7 +487,7 @@ const nl: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Extern delen mislukt: {{msg}}',
   'share.remote.download_failed': 'Extern bestand downloaden mislukt: {{msg}}',
   'share.remote.timeout': 'Extern delen duurde te lang',
-  'share.remote.too_large': 'Bestand is te groot voor delen op afstand',
+  'share.remote.too_large': 'Bestand te groot (max. 200 MB)',
   'share.remote.network_error': 'Netwerkfout tijdens extern delen',
   'share.remote.rate_limited': 'Te veel uploads voor extern delen.\nProbeer het zo opnieuw',
   'share.remote.auth_failed':
@@ -510,8 +510,6 @@ const nl: Record<I18nKey, string> = {
   'error.load_failed': 'Laden mislukt: {{msg}}',
   'error.audio_decode_fail': 'Audio decoderen mislukt!',
   'error.audio_memory': 'Audio in geheugen laden...',
-  'error.audio_memory_limit':
-    '‘{{name}}’ is te groot of te lang om veilig op dit apparaat af te spelen.',
   'error.decode_timeout': 'Decoderen van "{{name}}" duurde te lang.\nNaar volgend nummer.',
   'error.local_decode_wait':
     'Dit apparaat kon het nummer niet decoderen.\nWacht op het volgende nummer.',

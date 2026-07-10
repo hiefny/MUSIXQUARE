@@ -61,7 +61,7 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
-import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './autoplay-intent.ts';
+import { consumePendingAutoSyncOnReady, setPendingAutoSyncOnReady } from './player.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import {
   UI_LOOP_INTERVAL_MS,
@@ -525,6 +525,7 @@ export function loadYouTubeVideo(
     clearManagedTimer('yt-seek-play');
     clearManagedTimer('yt-auto-sync');
     resetYouTubeSyncState();
+
   } else {
     // Guard: destroy previous player to prevent concurrent player instances
     if (isYtLoadInProgress() && player) {

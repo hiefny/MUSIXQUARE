@@ -444,7 +444,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
           }
         } else {
           const pick =
-            defaultFocus === 'secondary' && hasSecondary && secondaryBtn ? secondaryBtn : okBtn;
+            defaultFocus === 'secondary' && hasSecondary && secondaryBtn
+              ? secondaryBtn
+              : okBtn;
           (pick || okBtn)!.focus();
         }
       } catch {

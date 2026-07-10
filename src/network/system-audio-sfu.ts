@@ -31,11 +31,6 @@ import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const REMOTE_GUEST_SFU_LIMIT_MS = 2 * 60 * 60 * 1000;
 const REMOTE_GUEST_SFU_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
-const HOST_OWNER_REFRESH_TIMER = 'system-audio-sfu-host-owner-refresh';
-const GUEST_OWNER_REFRESH_TIMER = 'system-audio-sfu-guest-owner-refresh';
-const OWNER_REFRESH_SKEW_MS = 60_000;
-const OWNER_REFRESH_RETRY_MS = 15_000;
-const OWNER_REFRESH_ACTION = 'session-owner-refresh';
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 type Channel = 'L' | 'R';
@@ -59,8 +54,6 @@ interface RealtimeResponse {
   errorCode?: string;
   errorDescription?: string;
   sessionId?: string;
-  sessionOwnerToken?: string;
-  sessionOwnerExpiresAt?: number;
   sessionDescription?: RealtimeSessionDescription;
   requiresImmediateRenegotiation?: boolean;
   tracks?: RealtimeTrack[];
@@ -90,8 +83,6 @@ interface HostPublication {
 
 let hostPc: RTCPeerConnection | null = null;
 let hostSessionId: string | null = null;
-let hostSessionOwnerToken: string | null = null;
-let hostSessionOwnerExpiresAt: number | null = null;
 let hostPublishedTracks: SfuReadyTrack[] = [];
 let hostPublishPromise: Promise<HostPublication | null> | null = null;
 let hostSfuUnavailable = false;
@@ -99,11 +90,8 @@ let hostPublishEpoch = 0;
 
 let guestPc: RTCPeerConnection | null = null;
 let guestSessionId: string | null = null;
-let guestSessionOwnerToken: string | null = null;
-let guestSessionOwnerExpiresAt: number | null = null;
 let guestSubscriptionKey: string | null = null;
 let guestConnectPromise: Promise<void> | null = null;
-let guestSubscriptionEpoch = 0;
 let guestSourceL: MediaStreamAudioSourceNode | null = null;
 let guestSourceR: MediaStreamAudioSourceNode | null = null;
 let guestMerger: ChannelMergerNode | null = null;
@@ -123,8 +111,6 @@ export function getSystemAudioSfuDebugSnapshot() {
           }
         : null,
       sessionId: hostSessionId,
-      ownerTokenPresent: !!hostSessionOwnerToken,
-      ownerTokenExpiresAt: hostSessionOwnerExpiresAt,
       publishedTracks: hostPublishedTracks,
       publishInFlight: !!hostPublishPromise,
       unavailable: hostSfuUnavailable,
@@ -139,11 +125,8 @@ export function getSystemAudioSfuDebugSnapshot() {
           }
         : null,
       sessionId: guestSessionId,
-      ownerTokenPresent: !!guestSessionOwnerToken,
-      ownerTokenExpiresAt: guestSessionOwnerExpiresAt,
       subscriptionKey: guestSubscriptionKey,
       connectInFlight: !!guestConnectPromise,
-      subscriptionEpoch: guestSubscriptionEpoch,
       sourceL: !!guestSourceL,
       sourceR: !!guestSourceR,
       merger: !!guestMerger,
@@ -302,7 +285,6 @@ async function callRealtime(
   action: string,
   options: {
     sessionId?: string;
-    sessionOwnerToken?: string;
     payload?: Record<string, unknown>;
     correlationId?: string;
   } = {},
@@ -317,7 +299,6 @@ async function callRealtime(
         body: JSON.stringify({
           action,
           sessionId: options.sessionId,
-          sessionOwnerToken: options.sessionOwnerToken,
           correlationId: options.correlationId,
           payload: options.payload || {},
         }),
@@ -363,104 +344,6 @@ function assertRealtimeOk(payload: RealtimeResponse, trackCount = 0): void {
         `${failedTrack.errorCode}: ${failedTrack.errorDescription || 'Realtime track failed'}`,
       );
     }
-  }
-}
-
-type OwnerKind = 'host' | 'guest';
-
-function readOwnerCredential(
-  payload: RealtimeResponse,
-  label: string,
-): { token: string; expiresAt: number } {
-  const token = payload.sessionOwnerToken;
-  const expiresAt = Number(payload.sessionOwnerExpiresAt);
-  if (!token) throw new Error(`Realtime API did not return a ${label} session owner token`);
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() / 1000) {
-    throw new Error(`Realtime API returned an invalid ${label} owner-token expiry`);
-  }
-  return { token, expiresAt };
-}
-
-function ownerRefreshTimerName(kind: OwnerKind): string {
-  return kind === 'host' ? HOST_OWNER_REFRESH_TIMER : GUEST_OWNER_REFRESH_TIMER;
-}
-
-function currentOwnerCredential(kind: OwnerKind): {
-  sessionId: string | null;
-  token: string | null;
-  expiresAt: number | null;
-} {
-  return kind === 'host'
-    ? {
-        sessionId: hostSessionId,
-        token: hostSessionOwnerToken,
-        expiresAt: hostSessionOwnerExpiresAt,
-      }
-    : {
-        sessionId: guestSessionId,
-        token: guestSessionOwnerToken,
-        expiresAt: guestSessionOwnerExpiresAt,
-      };
-}
-
-function replaceOwnerCredential(kind: OwnerKind, token: string, expiresAt: number): void {
-  if (kind === 'host') {
-    hostSessionOwnerToken = token;
-    hostSessionOwnerExpiresAt = expiresAt;
-  } else {
-    guestSessionOwnerToken = token;
-    guestSessionOwnerExpiresAt = expiresAt;
-  }
-}
-
-function scheduleOwnerRefresh(kind: OwnerKind): void {
-  const current = currentOwnerCredential(kind);
-  const timerName = ownerRefreshTimerName(kind);
-  clearManagedTimer(timerName);
-  if (!current.sessionId || !current.token || !current.expiresAt) return;
-
-  const delayMs = Math.max(0, current.expiresAt * 1000 - Date.now() - OWNER_REFRESH_SKEW_MS);
-  const expectedSessionId = current.sessionId;
-  const expectedToken = current.token;
-  setManagedTimer(
-    timerName,
-    () => {
-      void refreshOwnerCredential(kind, expectedSessionId, expectedToken);
-    },
-    delayMs,
-  );
-}
-
-async function refreshOwnerCredential(
-  kind: OwnerKind,
-  expectedSessionId: string,
-  expectedToken: string,
-): Promise<void> {
-  try {
-    const response = await callRealtime(OWNER_REFRESH_ACTION, {
-      sessionId: expectedSessionId,
-      sessionOwnerToken: expectedToken,
-    });
-    assertRealtimeOk(response);
-    const refreshed = readOwnerCredential(response, kind);
-    const current = currentOwnerCredential(kind);
-    if (current.sessionId !== expectedSessionId || current.token !== expectedToken) return;
-    replaceOwnerCredential(kind, refreshed.token, refreshed.expiresAt);
-    scheduleOwnerRefresh(kind);
-  } catch (error) {
-    const current = currentOwnerCredential(kind);
-    if (current.sessionId !== expectedSessionId || current.token !== expectedToken) return;
-    const remainingMs = (current.expiresAt || 0) * 1000 - Date.now();
-    if (remainingMs > 1000) {
-      setManagedTimer(
-        ownerRefreshTimerName(kind),
-        () => {
-          void refreshOwnerCredential(kind, expectedSessionId, expectedToken);
-        },
-        Math.min(OWNER_REFRESH_RETRY_MS, Math.max(1000, remainingMs - 1000)),
-      );
-    }
-    log.warn(`[SysAudioSFU] ${kind} owner-token refresh failed:`, error);
   }
 }
 
@@ -584,8 +467,6 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
   });
   assertRealtimeOk(session);
   if (!session.sessionId) throw new Error('Realtime API did not return a sessionId');
-  const ownerCredential = readOwnerCredential(session, 'host');
-  const sessionOwnerToken = ownerCredential.token;
 
   const syncedStream = new MediaStream([trackL, trackR]);
   const txL = pc.addTransceiver(trackL, {
@@ -612,7 +493,6 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
 
   const tracksResponse = await callRealtime('tracks-new', {
     sessionId: session.sessionId,
-    sessionOwnerToken,
     payload: {
       sessionDescription: offerDescription,
       tracks: requestedTracks,
@@ -655,7 +535,6 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
     if (staleTracks.length > 0) {
       callRealtime('tracks-close', {
         sessionId: session.sessionId,
-        sessionOwnerToken,
         payload: { tracks: staleTracks, force: true },
       }).catch((error) => log.debug('[SysAudioSFU] Stale publish tracks-close failed:', error));
     }
@@ -663,10 +542,7 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
   }
 
   hostSessionId = session.sessionId;
-  hostSessionOwnerToken = sessionOwnerToken;
-  hostSessionOwnerExpiresAt = ownerCredential.expiresAt;
   hostPublishedTracks = publishedTracks;
-  scheduleOwnerRefresh('host');
   log.info(`[SysAudioSFU] Published system audio to Cloudflare SFU (${hostSessionId})`);
   return { sessionId: hostSessionId, tracks: publishedTracks };
 }
@@ -734,7 +610,6 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
 
 function cleanupHostSfu(closeRemoteTracks = true): void {
   hostPublishEpoch += 1;
-  clearManagedTimer(HOST_OWNER_REFRESH_TIMER);
 
   if (closeRemoteTracks && hostSessionId && hostPublishedTracks.length > 0) {
     const tracks = hostPublishedTracks
@@ -743,7 +618,6 @@ function cleanupHostSfu(closeRemoteTracks = true): void {
     if (tracks.length > 0) {
       callRealtime('tracks-close', {
         sessionId: hostSessionId,
-        sessionOwnerToken: hostSessionOwnerToken || undefined,
         payload: { tracks, force: true },
       }).catch((error) => log.debug('[SysAudioSFU] tracks-close failed:', error));
     }
@@ -754,8 +628,6 @@ function cleanupHostSfu(closeRemoteTracks = true): void {
     hostPc = null;
   }
   hostSessionId = null;
-  hostSessionOwnerToken = null;
-  hostSessionOwnerExpiresAt = null;
   hostPublishedTracks = [];
   hostPublishPromise = null;
   if (closeRemoteTracks) hostSfuUnavailable = false;
@@ -771,7 +643,6 @@ async function connectGuestTrack(
   channel: Channel,
   track: MediaStreamTrack,
   pc: RTCPeerConnection,
-  subscriptionEpoch: number,
 ): Promise<void> {
   await initAudio();
   // Post-await identity recheck (blind-spot ⑭): connectGuestTrack is
@@ -782,7 +653,7 @@ async function connectGuestTrack(
   // timer, double audio, masked playback mode). The host publisher guards the
   // same window with an epoch; pc-identity is the right key here since each
   // subscription owns exactly one pc. Must run BEFORE any node is created.
-  if (!isGuestSubscriptionCurrent(subscriptionEpoch, pc)) {
+  if (guestPc !== pc) {
     log.debug('[SysAudioSFU] Stale guest track attach (pc superseded during init) — skipping');
     return;
   }
@@ -828,14 +699,12 @@ async function connectGuestTrack(
 }
 
 function cleanupGuestSfu(updateState = true): void {
-  guestSubscriptionEpoch += 1;
   const shouldCleanupGuestReceiveState = guestReceiving && updateState;
   const pc = guestPc;
   guestPc = null;
   guestReceiving = false;
 
   clearGuestLimitTimer();
-  clearManagedTimer(GUEST_OWNER_REFRESH_TIMER);
   if (guestSourceL) {
     try {
       guestSourceL.disconnect();
@@ -866,8 +735,6 @@ function cleanupGuestSfu(updateState = true): void {
   }
 
   guestSessionId = null;
-  guestSessionOwnerToken = null;
-  guestSessionOwnerExpiresAt = null;
   guestSubscriptionKey = null;
   guestConnectPromise = null;
   if (shouldCleanupGuestReceiveState) {
@@ -877,22 +744,6 @@ function cleanupGuestSfu(updateState = true): void {
 
 function buildSubscriptionKey(payload: SfuReadyPayload): string {
   return `${payload.sessionId}:${payload.tracks.map((track) => track.trackName).join(',')}`;
-}
-
-function isGuestSubscriptionCurrent(subscriptionEpoch: number, pc?: RTCPeerConnection): boolean {
-  return guestSubscriptionEpoch === subscriptionEpoch && (!pc || guestPc === pc);
-}
-
-function isGuestConnectCurrent(
-  subscriptionEpoch: number,
-  connectPromise: Promise<void> | null,
-  pc?: RTCPeerConnection,
-): boolean {
-  return (
-    connectPromise !== null &&
-    guestConnectPromise === connectPromise &&
-    isGuestSubscriptionCurrent(subscriptionEpoch, pc)
-  );
 }
 
 function normalizeSfuReadyPayload(
@@ -909,20 +760,14 @@ function normalizeSfuReadyPayload(
   return { version: 1, sessionId: data.sessionId, tracks };
 }
 
-async function subscribeGuestToSfu(
-  payload: SfuReadyPayload,
-  subscriptionEpoch: number,
-  getConnectPromise: () => Promise<void> | null,
-): Promise<void> {
-  const rtcConfig = await loadSfuRtcConfig();
-  if (!isGuestConnectCurrent(subscriptionEpoch, getConnectPromise())) return;
+async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
+  const subscriptionKey = buildSubscriptionKey(payload);
+  if (guestSubscriptionKey === subscriptionKey && guestPc) return;
+  cleanupGuestSfu(false);
 
-  const pc = new RTCPeerConnection(rtcConfig);
-  if (!isGuestConnectCurrent(subscriptionEpoch, getConnectPromise())) {
-    pc.close();
-    return;
-  }
+  const pc = new RTCPeerConnection(await loadSfuRtcConfig());
   guestPc = pc;
+  guestSubscriptionKey = subscriptionKey;
 
   const channelByTrackName = new Map<string, Channel>();
   const channelByMid = new Map<string, Channel>();
@@ -933,10 +778,7 @@ async function subscribeGuestToSfu(
 
   pc.addEventListener('connectionstatechange', () => {
     log.info(`[SysAudioSFU] Guest SFU connection: ${pc.connectionState}`);
-    if (
-      isGuestSubscriptionCurrent(subscriptionEpoch, pc) &&
-      (pc.connectionState === 'failed' || pc.connectionState === 'closed')
-    ) {
+    if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
       cleanupGuestSfu();
     }
   });
@@ -952,7 +794,6 @@ async function subscribeGuestToSfu(
     reason: string,
     mid?: string | null,
   ) => {
-    if (!isGuestSubscriptionCurrent(subscriptionEpoch, pc)) return;
     if (!channel) {
       log.warn(`[SysAudioSFU] Received track with unknown mid: ${mid || 'none'}`);
       return;
@@ -965,11 +806,9 @@ async function subscribeGuestToSfu(
 
     setReceiverDelay(receiver);
     log.info(`[SysAudioSFU] Received ${channel} remote track (${reason}, mid=${mid || 'none'})`);
-    connectGuestTrack(channel, track, pc, subscriptionEpoch).catch((error) => {
-      if (isGuestSubscriptionCurrent(subscriptionEpoch, pc)) {
-        log.error('[SysAudioSFU] Failed to attach remote track:', error);
-      }
-    });
+    connectGuestTrack(channel, track, pc).catch((error) =>
+      log.error('[SysAudioSFU] Failed to attach remote track:', error),
+    );
   };
 
   const attachExistingReceiverTracks = (reason: string) => {
@@ -993,16 +832,9 @@ async function subscribeGuestToSfu(
   const session = await callRealtime('new-session', {
     correlationId: buildCorrelationId('guest-system-audio'),
   });
-  if (!isGuestConnectCurrent(subscriptionEpoch, getConnectPromise(), pc)) return;
   assertRealtimeOk(session);
   if (!session.sessionId) throw new Error('Realtime API did not return a guest sessionId');
-  const ownerCredential = readOwnerCredential(session, 'guest');
-  const sessionId = session.sessionId;
-  const sessionOwnerToken = ownerCredential.token;
-  guestSessionId = sessionId;
-  guestSessionOwnerToken = sessionOwnerToken;
-  guestSessionOwnerExpiresAt = ownerCredential.expiresAt;
-  scheduleOwnerRefresh('guest');
+  guestSessionId = session.sessionId;
 
   const trackRequests: RealtimeTrack[] = payload.tracks.map((track) => ({
     location: 'remote',
@@ -1011,11 +843,9 @@ async function subscribeGuestToSfu(
   }));
 
   const tracksResponse = await callRealtime('tracks-new', {
-    sessionId,
-    sessionOwnerToken,
+    sessionId: guestSessionId,
     payload: { tracks: trackRequests },
   });
-  if (!isGuestConnectCurrent(subscriptionEpoch, getConnectPromise(), pc)) return;
   assertRealtimeOk(tracksResponse, trackRequests.length);
 
   for (const track of tracksResponse.tracks || []) {
@@ -1030,24 +860,19 @@ async function subscribeGuestToSfu(
   }
 
   await pc.setRemoteDescription(offer);
-  if (!isGuestConnectCurrent(subscriptionEpoch, getConnectPromise(), pc)) return;
   attachExistingReceiverTracks('remote-description');
   const answer = await pc.createAnswer();
-  if (!isGuestConnectCurrent(subscriptionEpoch, getConnectPromise(), pc)) return;
   const answerDescription = sessionDescriptionFromInit(answer);
   await pc.setLocalDescription(answerDescription);
-  if (!isGuestConnectCurrent(subscriptionEpoch, getConnectPromise(), pc)) return;
 
   const renegotiate = await callRealtime('renegotiate', {
-    sessionId,
-    sessionOwnerToken,
+    sessionId: guestSessionId,
     payload: { sessionDescription: answerDescription },
   });
-  if (!isGuestConnectCurrent(subscriptionEpoch, getConnectPromise(), pc)) return;
   assertRealtimeOk(renegotiate);
   attachExistingReceiverTracks('renegotiate');
 
-  log.info(`[SysAudioSFU] Subscribed to host system audio via Cloudflare SFU (${sessionId})`);
+  log.info(`[SysAudioSFU] Subscribed to host system audio via Cloudflare SFU (${guestSessionId})`);
 }
 
 function handleSfuReady(
@@ -1067,30 +892,15 @@ function handleSfuReady(
   const payload = normalizeSfuReadyPayload(data);
   if (!payload) return;
 
-  const subscriptionKey = buildSubscriptionKey(payload);
-  if (
-    guestSubscriptionKey === subscriptionKey &&
-    (guestConnectPromise !== null || guestPc !== null)
-  ) {
-    return;
-  }
-
-  cleanupGuestSfu(false);
-  const subscriptionEpoch = guestSubscriptionEpoch;
-  guestSubscriptionKey = subscriptionKey;
-  let connectPromise: Promise<void> | null = null;
-  connectPromise = subscribeGuestToSfu(payload, subscriptionEpoch, () => connectPromise)
+  if (guestConnectPromise) return;
+  guestConnectPromise = subscribeGuestToSfu(payload)
     .catch((error) => {
-      if (!isGuestConnectCurrent(subscriptionEpoch, connectPromise)) return;
       log.warn('[SysAudioSFU] Guest subscribe failed:', error);
       cleanupGuestSfu();
     })
     .finally(() => {
-      if (isGuestConnectCurrent(subscriptionEpoch, connectPromise)) {
-        guestConnectPromise = null;
-      }
+      guestConnectPromise = null;
     });
-  guestConnectPromise = connectPromise;
 }
 
 export function registerSystemAudioSfuListeners(): void {
@@ -1147,14 +957,14 @@ export function registerSystemAudioSfuListeners(): void {
 
   bus.on('state:network.connectionType', (value: unknown) => {
     if (getState('network.appRole') !== 'guest') return;
-    if (value !== 'local' || (!guestPc && !guestConnectPromise)) return;
+    if (value !== 'local' || !guestPc) return;
     log.info('[SysAudioSFU] Guest reclassified as local; switching away from SFU');
     cleanupGuestSfu(false);
   });
 
   bus.on('system-audio:incoming-call', () => {
     if (getState('network.appRole') !== 'guest') return;
-    if (!guestPc && !guestConnectPromise) return;
+    if (!guestPc) return;
     log.info('[SysAudioSFU] Local P2P system audio arrived; switching away from SFU');
     cleanupGuestSfu(false);
   });

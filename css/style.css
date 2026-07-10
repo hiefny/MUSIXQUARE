@@ -28,20 +28,25 @@
     --radius-m: 20px;
     --radius-s: 14px;
     --font-sans-ui:
-      'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      'Pretendard UI Core', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-sans-ko:
       'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
       'Noto Sans KR', sans-serif;
     --font-sans-ja:
-      'Pretendard', 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+      'Pretendard UI Core', 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo',
+      'Pretendard', sans-serif;
     --font-sans-cjk-sc:
-      'Pretendard', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+      'Pretendard UI Core', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', 'Pretendard',
+      sans-serif;
     --font-sans-cjk-tc:
-      'Pretendard', 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+      'Pretendard UI Core', 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', 'Pretendard',
+      sans-serif;
     --font-sans-th:
-      'Pretendard', 'Noto Sans Thai', 'Leelawadee UI', 'Tahoma', sans-serif;
+      'Pretendard UI Core', 'Noto Sans Thai', 'Leelawadee UI', 'Tahoma', 'Pretendard',
+      sans-serif;
     --font-sans-cyrillic:
-      'Pretendard', 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      'Pretendard UI Core', 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      sans-serif;
     --font-sans: var(--font-sans-ko);
     --font-weight-display: 800;
 

@@ -74,17 +74,6 @@ import {
 import { getAudioContext, getCurrentTime, ensureRunning } from '../audio/context.ts';
 import { showToast } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
-import {
-  disposeActiveMediaElementSource,
-  getActiveMediaElementPosition,
-  getFilePlaybackDuration,
-  hasActiveMediaElementSource,
-  hasFilePlaybackSource,
-  isActiveMediaElementEnded,
-  pauseActiveMediaElement,
-  playActiveMediaElement,
-  seekActiveMediaElement,
-} from './media-element.ts';
 
 // ─── Format Helpers ────────────────────────────────────────────────
 
@@ -147,21 +136,16 @@ export function getTrackPosition(): number {
 
   if (isFileTransportInactive()) return pausedAt;
 
-  const duration = getFilePlaybackDuration();
+  const _currentAudioBuffer = getCurrentAudioBuffer();
+  const duration =
+    _currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration)
+      ? _currentAudioBuffer.duration
+      : 0;
 
   let pos = 0;
   const startedAt = getState('player.startedAt') || 0;
   const manualOffset = getState('sync.localOffset') || 0;
   const localOffset = getEffectiveLocalFileOutputOffset();
-
-  if (hasActiveMediaElementSource()) {
-    if (isActiveMediaElementEnded()) return duration;
-    let position = getActiveMediaElementPosition() - localOffset;
-    if (!Number.isFinite(position)) position = 0;
-    if (position < 0) position = 0;
-    if (duration > 0 && position > duration) position = duration;
-    return position;
-  }
 
   const startedAtValid =
     typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
@@ -271,10 +255,6 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   if (isSystemAudioActive()) {
     bus.emit('system-audio:force-stop');
   }
-
-  // The streaming fallback owns its object URL independently from
-  // BlobURLManager, so detach and revoke it before clearing generic URLs.
-  disposeActiveMediaElementSource();
 
   try {
     BlobURLManager.revoke();
@@ -430,7 +410,6 @@ export function seekTo(time: number): void {
     });
   } else {
     // Paused: update position + broadcast
-    seekActiveMediaElement(time);
     setState('player.pausedAt', time);
     broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex, reason: 'seek' });
   }
@@ -476,7 +455,6 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         setPlayLocked(false);
         setPendingPlayTime(undefined);
         stopPlayerNode();
-        pauseActiveMediaElement();
         // Allocate a new load epoch so any in-flight _internalPlay aborts at
         // its next await checkpoint instead of overwriting the post-watchdog
         // IDLE state with PLAYING_AUDIO and starting a phantom
@@ -553,7 +531,10 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     return;
   }
 
-  if (!hasFilePlaybackSource()) {
+  const _currentAudioBuffer = getCurrentAudioBuffer();
+  const hasBufferSource = !!_currentAudioBuffer;
+
+  if (!hasBufferSource) {
     log.warn('[Play] No media source available');
     // Surface the empty state to the user so the play button doesn't
     // silently no-op. Hits in two situations:
@@ -585,13 +566,6 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     return;
   }
 
-  // Re-read after the async engine initialization. A guest finalize or track
-  // switch may have replaced the source without sharing this play call's
-  // await window; never start the pre-await AudioBuffer/source snapshot.
-  const _currentAudioBuffer = getCurrentAudioBuffer();
-  const hasStreamingSource = hasActiveMediaElementSource();
-  if (!_currentAudioBuffer && !hasStreamingSource) return;
-
   const ctx = getAudioContext();
 
   // 1. Get the current output sync offset (manual nudge + hidden platform compensation)
@@ -600,17 +574,13 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   // 2. Sanitize offset
   let safeOffset = Number(offset);
   if (!Number.isFinite(safeOffset) || safeOffset < 0) safeOffset = 0;
-  const duration = getFilePlaybackDuration();
+  const duration =
+    _currentAudioBuffer && Number.isFinite(_currentAudioBuffer.duration)
+      ? _currentAudioBuffer.duration
+      : 0;
   if (duration > 0) {
     if (safeOffset > duration) safeOffset = duration;
     if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.1);
-  }
-
-  // Apply manual nudge to the audible start position.
-  const nudgeOffset = safeOffset + localOffset;
-  let finalStartPos = nudgeOffset;
-  if (duration > 0) {
-    finalStartPos = Math.max(0, Math.min(duration - 0.001, nudgeOffset));
   }
 
   // Buffer Mode playback
@@ -642,20 +612,14 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     // Determine the exact audio-context time to start
     const startWhen = scheduleDelay > 0 ? ctx.currentTime + scheduleDelay : 0;
 
+    // Apply manual nudge to the audible start position
+    const nudgeOffset = safeOffset + localOffset;
+    let finalStartPos = nudgeOffset;
+    if (duration > 0) {
+      finalStartPos = Math.max(0, Math.min(duration - 0.001, nudgeOffset));
+    }
+
     newNode.start(startWhen, finalStartPos);
-  } else if (hasStreamingSource) {
-    stopPlayerNode();
-    const started = await playActiveMediaElement(finalStartPos, scheduleDelay);
-    if (!started) {
-      if (hasFilePlaybackSource() && isCurrentLoadEpoch(myLoadEpoch) && !isExternalOwner()) {
-        showToast(t('error.audio_engine_prepare'));
-      }
-      return;
-    }
-    if (!isCurrentLoadEpoch(myLoadEpoch) || isExternalOwner()) {
-      pauseActiveMediaElement();
-      return;
-    }
   }
 
   // Update timing
@@ -697,8 +661,6 @@ export function pause(
   }
 
   stopPlayerNode();
-  pauseActiveMediaElement();
-  if (typeof forcedTime === 'number') seekActiveMediaElement(pausePos);
 
   if (opts?.holdVisualizer ?? forcedTime === undefined) {
     bus.emit('visualizer:hold-frame');
@@ -721,7 +683,15 @@ export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
 
-  const duration = getFilePlaybackDuration();
+  const _currentAudioBuffer = getCurrentAudioBuffer();
+
+  const hasBufferDuration = !!(
+    _currentAudioBuffer &&
+    Number.isFinite(_currentAudioBuffer.duration) &&
+    _currentAudioBuffer.duration > 0.1
+  );
+
+  const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
   if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
   if (isFileTransportInactive()) return;
   if (isExternalOwner()) return;
@@ -915,9 +885,11 @@ export function skipTime(sec: number): void {
     return;
   }
 
+  const _currentAudioBuffer = getCurrentAudioBuffer();
   const current = getTrackPosition();
   let target = current + sec;
-  const duration = getFilePlaybackDuration();
+  const rawBufDur = _currentAudioBuffer?.duration;
+  const duration = rawBufDur != null && Number.isFinite(rawBufDur) && rawBufDur > 0 ? rawBufDur : 0;
 
   if (target < 0) target = 0;
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
@@ -934,7 +906,6 @@ export function skipTime(sec: number): void {
       hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
     });
   } else {
-    seekActiveMediaElement(target);
     setState('player.pausedAt', target);
     broadcast({ type: MSG.PAUSE, time: target, reason: 'seek' });
   }

@@ -6,7 +6,7 @@
 
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, DELAY, REMOTE_SHARE_STREAM_THRESHOLD_BYTES } from '../core/constants.ts';
+import { MSG, CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import { delay, setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { filterEligiblePeers, canSendFileTo, broadcast } from '../network/peer.ts';
 import { SessionScope } from '../core/session-scope.ts';
@@ -156,13 +156,7 @@ export async function broadcastFile(
       sessionId,
     };
 
-    // Whole-file P2P reception is RAM-backed. Large tracks therefore use the
-    // same encrypted R2 range source even for LAN guests; this guard runs
-    // before a single file chunk can enter an iPhone's reorder/ramstore path.
-    const eligiblePeers =
-      file.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES
-        ? []
-        : filterEligiblePeers().filter(isBulkTransferWritablePeer);
+    const eligiblePeers = filterEligiblePeers().filter(isBulkTransferWritablePeer);
 
     // 12-13: no eligible peers — the ownership-conditional finally below
     // clears activeBroadcastSession (the old early return cleared it inline).
@@ -254,11 +248,6 @@ export async function unicastFile(
 ): Promise<void> {
   if (!conn || !conn.open) {
     log.error('[Unicast] Connection is not open');
-    return;
-  }
-
-  if (file.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES) {
-    log.info('[Unicast] Skipped large RAM transfer; encrypted range share is required');
     return;
   }
 

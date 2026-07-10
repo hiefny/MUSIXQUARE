@@ -57,13 +57,13 @@ describe('page-lifecycle flag', () => {
 describe('initPageLifecycleHandlers — beforeunload', () => {
   let handle: PageLifecycleHandle;
   let role: string;
-  let leaveSession: ReturnType<typeof vi.fn<() => void>>;
-  let reload: ReturnType<typeof vi.fn<() => void>>;
+  let leaveSession: ReturnType<typeof vi.fn>;
+  let reload: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     role = 'idle';
-    leaveSession = vi.fn<() => void>();
-    reload = vi.fn<() => void>();
+    leaveSession = vi.fn();
+    reload = vi.fn();
     handle = initPageLifecycleHandlers({
       getRole: () => role,
       leaveSession,
@@ -109,11 +109,11 @@ describe('initPageLifecycleHandlers — beforeunload', () => {
 describe('initPageLifecycleHandlers — pagehide', () => {
   let handle: PageLifecycleHandle;
   let role: string;
-  let leaveSession: ReturnType<typeof vi.fn<() => void>>;
+  let leaveSession: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     role = 'host';
-    leaveSession = vi.fn<() => void>();
+    leaveSession = vi.fn();
     handle = initPageLifecycleHandlers({
       getRole: () => role,
       leaveSession,
@@ -156,11 +156,11 @@ describe('initPageLifecycleHandlers — pagehide', () => {
 describe('initPageLifecycleHandlers — pageshow', () => {
   let handle: PageLifecycleHandle;
   let role: string;
-  let reload: ReturnType<typeof vi.fn<() => void>>;
+  let reload: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     role = 'host';
-    reload = vi.fn<() => void>();
+    reload = vi.fn();
     handle = initPageLifecycleHandlers({
       getRole: () => role,
       leaveSession: vi.fn(),
@@ -212,8 +212,8 @@ describe('initPageLifecycleHandlers — pageshow', () => {
 
 describe('initPageLifecycleHandlers — dispose', () => {
   it('detaches all three listeners when dispose() is called', () => {
-    const leaveSession = vi.fn<() => void>();
-    const reload = vi.fn<() => void>();
+    const leaveSession = vi.fn();
+    const reload = vi.fn();
     const { dispose } = initPageLifecycleHandlers({
       getRole: () => 'host',
       leaveSession,

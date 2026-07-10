@@ -2,12 +2,6 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { I18nKey } from '../index.ts';
-
-/** Explicit escape hatch for runtime fallback/interpolation test cases. */
-function uncheckedKey(key: string): I18nKey {
-  return key as I18nKey;
-}
 
 // i18n/index.ts reads localStorage and navigator.languages at module scope.
 // We test via dynamic import after setting up mocks.
@@ -46,7 +40,7 @@ describe('i18n functions', () => {
       });
       const { t, initI18n } = await import('../index.ts');
       await initI18n();
-      expect(t(uncheckedKey('nonexistent.key.here'))).toBe('nonexistent.key.here');
+      expect(t('nonexistent.key.here')).toBe('nonexistent.key.here');
     });
 
     it('interpolates {{param}} placeholders', async () => {
@@ -58,7 +52,7 @@ describe('i18n functions', () => {
       await initI18n();
       // Use a key that has a placeholder — we test the mechanism
       // Even if key doesn't exist, interpolation still works on fallback
-      const result = t(uncheckedKey('test.{{name}}.greeting'), { name: 'World' });
+      const result = t('test.{{name}}.greeting', { name: 'World' });
       expect(result).toBe('test.World.greeting');
     });
 
@@ -69,7 +63,7 @@ describe('i18n functions', () => {
       });
       const { t } = await import('../index.ts');
       // Key doesn't exist → returns key with placeholders replaced
-      const result = t(uncheckedKey('{{a}} and {{b}}'), { a: 'X', b: 'Y' });
+      const result = t('{{a}} and {{b}}', { a: 'X', b: 'Y' });
       expect(result).toBe('X and Y');
     });
 
@@ -79,7 +73,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { t } = await import('../index.ts');
-      const result = t(uncheckedKey('count: {{n}}'), { n: 42 });
+      const result = t('count: {{n}}', { n: 42 });
       expect(result).toBe('count: 42');
     });
   });
@@ -91,9 +85,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml(uncheckedKey('hello {{name}}'), {
-        name: '<script>alert("xss")</script>',
-      });
+      const result = tHtml('hello {{name}}', { name: '<script>alert("xss")</script>' });
       expect(result).not.toContain('<script>');
       expect(result).toContain('&lt;script&gt;');
     });
@@ -101,21 +93,21 @@ describe('i18n functions', () => {
     it('escapes ampersands', async () => {
       Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml(uncheckedKey('{{val}}'), { val: 'A & B' });
+      const result = tHtml('{{val}}', { val: 'A & B' });
       expect(result).toBe('A &amp; B');
     });
 
     it('escapes quotes', async () => {
       Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml(uncheckedKey('{{val}}'), { val: 'say "hello"' });
+      const result = tHtml('{{val}}', { val: 'say "hello"' });
       expect(result).toContain('&quot;');
     });
 
     it('escapes single quotes', async () => {
       Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml(uncheckedKey('{{val}}'), { val: "it's" });
+      const result = tHtml('{{val}}', { val: "it's" });
       expect(result).toContain('&#39;');
     });
   });
@@ -366,8 +358,7 @@ describe('i18n functions', () => {
       try {
         // Late ja resolution must hit the `_resolved !== resolved` stale-guard
         // in _translateLoadedLanguage and leave the newer selection untouched.
-        const release = releaseSlowJa as (() => void) | null;
-        release?.();
+        releaseSlowJa?.();
         await vi.waitFor(() => {
           expect(lateJaModuleLoaded).toBe(true);
         });

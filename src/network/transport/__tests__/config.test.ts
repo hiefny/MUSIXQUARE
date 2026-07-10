@@ -29,9 +29,9 @@ describe('transport config', () => {
     expect(resolveTransportProviderForHost('peerjs', undefined, 'musixquare.com')).toBe(
       'cloudflare',
     );
-    expect(
-      resolveTransportProviderForHost('peerjs', undefined, 'musixquare.apps.tossmini.com'),
-    ).toBe('cloudflare');
+    expect(resolveTransportProviderForHost('peerjs', undefined, 'musixquare.apps.tossmini.com')).toBe(
+      'cloudflare',
+    );
   });
 
   it('preserves local transport override behavior', () => {

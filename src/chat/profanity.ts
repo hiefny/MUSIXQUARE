@@ -1,18 +1,58 @@
 /**
  * MUSIXQUARE — Profanity Filter
  *
- * Lightweight filter using a generated word list derived from content-shield.
+ * Lightweight filter using word lists from content-shield.
  * Replaces matched words with asterisks.
  * Only runs on host side in handleChatMessage().
  */
 
-// The generator keeps only severity >= 2 words and variations, avoiding the
-// much larger metadata dictionaries in every browser session.
-import { PROFANITY_WORDS } from './profanity-words.generated.ts';
+// Word lists extracted from content-shield at build time.
+// KO uses .profanity[], EN uses .words[] — different structures.
+// We collect all variations for severity >= 2 (moderate+).
+import { KO } from 'content-shield/languages/ko';
+import { EN } from 'content-shield/languages/en';
+
+interface KoreanProfanityEntry {
+  severity: number;
+  variations: readonly string[];
+}
+
+interface EnglishProfanityEntry {
+  severity: number;
+  word: string;
+  variations: readonly string[];
+}
+
+interface KoreanProfanityDictionary {
+  profanity: readonly KoreanProfanityEntry[];
+}
+
+interface EnglishProfanityDictionary {
+  words: readonly EnglishProfanityEntry[];
+}
 
 // ─── Build word set ─────────────────────────────────────────────
 
-const _profanitySet = new Set<string>(PROFANITY_WORDS);
+const _profanitySet = new Set<string>();
+
+// Korean: severity >= 2
+for (const entry of (KO as KoreanProfanityDictionary).profanity) {
+  if (entry.severity >= 2) {
+    for (const v of entry.variations) {
+      _profanitySet.add(v.toLowerCase());
+    }
+  }
+}
+
+// English: severity >= 2
+for (const entry of (EN as EnglishProfanityDictionary).words) {
+  if (entry.severity >= 2) {
+    _profanitySet.add(entry.word.toLowerCase());
+    for (const v of entry.variations) {
+      _profanitySet.add(v.toLowerCase());
+    }
+  }
+}
 
 // ─── Precompiled Regex ──────────────────────────────────────────
 

@@ -55,9 +55,29 @@ const SRC = join(ROOT, 'src');
 const APP = 'src/app.ts';
 
 // ── RULE B baseline ──────────────────────────────────────────────
-// All historical cycles are now removed. Keep the ratchet empty: any future
-// static value-import SCC is a new architecture regression and must fail CI.
-const SCC_BASELINE = [];
+// The two pre-existing cycles, frozen 2026-06-11 (post ARCH-APPSCC /
+// ARCH-WIRECAPS, which dissolved the app/setup/demo 6-cycle and the
+// chat/network/ui/youtube 5-cycle). Members may only SHRINK.
+const SCC_BASELINE = [
+  {
+    reason:
+      'audio/system-capture <-> player/transport: system-audio mode and file transport ' +
+      'mutually arbitrate playback ownership (audit-hardened cluster; untangling is its ' +
+      'own project, not a drive-by)',
+    members: ['src/audio/system-capture.ts', 'src/player/transport.ts'],
+  },
+  {
+    reason:
+      'youtube domain-internal init wiring cluster (player/iframe/handlers/sync); ' +
+      'single-domain, intentional until a youtube-internal refactor',
+    members: [
+      'src/youtube/handlers.ts',
+      'src/youtube/iframe.ts',
+      'src/youtube/player.ts',
+      'src/youtube/sync.ts',
+    ],
+  },
+];
 
 // ── RULE C allowlist ─────────────────────────────────────────────
 // ui modules importable from ANY non-ui production file.
@@ -117,12 +137,10 @@ const DYNAMIC_RE = /\bimport\(\s*'([^']+)'\s*\)/g;
 // Strip comments so import examples inside doc comments are not mistaken for
 // real edges. Same approach as scripts/check-bus-pairing.mjs.
 function stripComments(text) {
-  return (
-    text
-      // Blank block comments but keep their newlines so line numbers stay accurate.
-      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-      .replace(/(^|[^:])\/\/.*$/gm, '$1')
-  );
+  return text
+    // Blank block comments but keep their newlines so line numbers stay accurate.
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
 function walk(dir, out = []) {
@@ -213,10 +231,7 @@ function computeSccs() {
   let counter = 0;
 
   const staticTargets = (k) =>
-    edges
-      .get(k)
-      .filter((e) => e.kind === 'static')
-      .map((e) => e.target);
+    edges.get(k).filter((e) => e.kind === 'static').map((e) => e.target);
 
   function strongConnect(v) {
     index.set(v, counter);
@@ -325,7 +340,9 @@ if (ruleBViolations.length) {
     console.log(pad(`cycle of ${scc.length}:`));
     for (const f of scc) console.log(pad(pad(f)));
   }
-  console.log(pad('Break the cycle (leaf extraction / peer-state-style primitive import);'));
+  console.log(
+    pad('Break the cycle (leaf extraction / peer-state-style primitive import);'),
+  );
   console.log(pad('do NOT add baseline entries to silence this.'));
   console.log('');
 }

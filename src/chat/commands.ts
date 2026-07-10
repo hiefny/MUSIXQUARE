@@ -7,7 +7,6 @@
  */
 
 import { bus } from '../core/events.ts';
-import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import {
   DEVICE_LABEL_SANITIZE_RE,
@@ -26,6 +25,7 @@ import {
 import { containsProfanity } from './profanity.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 import { rememberPinnedNotice } from './protocol.ts';
+import { cmdDebug } from './debug-console.ts';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -450,12 +450,6 @@ function cmdUsers(): void {
   addSystemChatMessage(lines.join('\n'));
 }
 
-function cmdDebugLazy(args: string[]): void {
-  void import('./debug-console.ts')
-    .then(({ cmdDebug }) => cmdDebug(args))
-    .catch((error) => log.error('[Chat] Failed to load debug tools:', error));
-}
-
 // ─── Command Registry ───────────────────────────────────────────
 
 // usage/description use i18n keys, resolved at access time via getAvailableCommands()
@@ -548,7 +542,7 @@ const COMMANDS_DEF: Record<
   },
   debug: {
     permission: 'all',
-    execute: cmdDebugLazy,
+    execute: cmdDebug,
     usageKey: 'chat.cmd_u_debug',
     descKey: 'chat.cmd_d_debug',
   },

@@ -191,7 +191,7 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
     executeCommand(cmd!);
   }
 
-  it("rejects another device's name locally (was: always passed, host silently dropped)", () => {
+  it('rejects another device\'s name locally (was: always passed, host silently dropped)', () => {
     setupGuestRoom(['Alice']);
     const renameSpy = vi.fn();
     bus.on('network:rename-device', renameSpy);

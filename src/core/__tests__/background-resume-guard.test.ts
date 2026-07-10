@@ -29,14 +29,14 @@ interface InitOptions {
 describe('initBackgroundResumeGuard', () => {
   let now: number;
   let handle: BackgroundResumeGuardHandle | null;
-  let recover: ReturnType<typeof vi.fn<(event: { hiddenMs: number }) => void>>;
-  let warn: ReturnType<typeof vi.fn<(event: { hiddenMs: number }) => void>>;
+  let recover: ReturnType<typeof vi.fn>;
+  let warn: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     now = 1_000;
     handle = null;
-    recover = vi.fn<(event: { hiddenMs: number }) => void>();
-    warn = vi.fn<(event: { hiddenMs: number }) => void>();
+    recover = vi.fn();
+    warn = vi.fn();
     setVisibility('visible');
   });
 

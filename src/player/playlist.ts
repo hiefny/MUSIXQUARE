@@ -20,8 +20,12 @@ import {
   isFilePipelineBusyForPlay,
 } from './transport.ts';
 import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
-import { newLoadEpoch, isCurrentLoadEpoch, setCurrentAudioBuffer } from './_state.ts';
-import { disposeActiveMediaElementSource, hasFilePlaybackSource } from './media-element.ts';
+import {
+  newLoadEpoch,
+  isCurrentLoadEpoch,
+  getCurrentAudioBuffer,
+  setCurrentAudioBuffer,
+} from './_state.ts';
 import { isMediaVideo } from './video.ts';
 import { transition } from './lifecycle.ts';
 
@@ -41,7 +45,7 @@ import {
   cancelPendingBroadcast,
 } from '../storage/transfer.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
-import { setPendingAutoSyncOnReady } from '../youtube/autoplay-intent.ts';
+import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
@@ -401,7 +405,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     (getState('transfer.meta')?.name as string | undefined) ||
     (getState('files.currentFileBlob') as File | null)?.name;
   const _bufferMatchesTrack =
-    hasFilePlaybackSource() &&
+    !!getCurrentAudioBuffer() &&
     !!_activeBufferTrackName &&
     _activeBufferTrackName === _item?.file?.name;
 
@@ -1236,9 +1240,6 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
     if (isMediaVideo(file)) {
       rejected.push(file.name);
     } else {
-      // A selected File is a browser-owned handle, not a heap copy. The
-      // activation path chooses AudioBuffer only when safe and otherwise uses
-      // MediaElement streaming; remote guests use encrypted R2 ranges.
       accepted.push(file);
     }
   }
@@ -1569,7 +1570,6 @@ export function initPlaylist(): void {
       // host would play the deleted track's audio for ~3s under the new
       // track's title.
       setCurrentAudioBuffer(null);
-      disposeActiveMediaElementSource();
       playTrack(newIdx);
     }
   });

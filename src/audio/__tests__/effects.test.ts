@@ -131,10 +131,7 @@ describe('request-eq-reset authorization', () => {
 
   it('allows operators', async () => {
     const conn = makeConnection('guest-op');
-    setState('network.connectedPeers', [
-      ...getState('network.connectedPeers'),
-      makeConnectedPeer(conn.peer, true),
-    ]);
+    getState('network.connectedPeers').push(makeConnectedPeer(conn.peer, true));
     setState('audio.eqValues', [1, 2, 3, 4, 5]);
     setState('audio.userPreampGain', 2);
 

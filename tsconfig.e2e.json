@@ -1,5 +1,5 @@
 {
-  // Static net for e2e/ + all Playwright configs. These sit OUTSIDE the root
+  // Static net for e2e/ + playwright.config.ts. These sit OUTSIDE the root
   // tsconfig (include: src/**) and tsconfig.test.json (src/** too), so until
   // this config existed nothing ever typechecked them — Playwright transpiles
   // without checking, and a cross-file rename's only safety was grep.
@@ -17,5 +17,5 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["e2e/**/*.ts", "playwright*.config.ts"]
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
 }

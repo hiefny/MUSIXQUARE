@@ -68,11 +68,6 @@ export interface RemoteFileSharePayload {
   index: number;
   sessionId: number;
   expiresAt: number;
-  /** Whole-file AES-GCM is legacy v1; multipart/range AES-GCM records are v2. */
-  cryptoVersion?: 1 | 2;
-  chunkSize?: number;
-  chunkCount?: number;
-  tagBytes?: number;
   /**
    * Legacy compatibility flag. Remote speculative preload is disabled in
    * current clients; incoming descriptors with preload=true are ignored.
@@ -767,12 +762,11 @@ interface BaseEventMap {
   // ── Player ────────────────────────────────────────────────────────
   'player:ended': [];
   'player:toggle-play': [];
-  'player:stop-all-media': [options?: { silent?: boolean; cancelInFlight?: boolean }];
+  'player:stop-all-media': [];
   'playback:replay-current': [delayMs?: number];
   'playback:refresh-current-position': [];
   'player:check-ended': [];
   'player:buffer-changed': [];
-  'player:media-element-ended': [];
 
   // ── Playlist ──────────────────────────────────────────────────────
   'playlist:prev-track': [];
@@ -841,17 +835,6 @@ interface BaseEventMap {
   ];
   'youtube:toggle-play': [];
   'youtube:local-toggle-play': [];
-  'youtube:schedule-auto-sync': [
-    targetTime: number,
-    overrides?: {
-      subIndex?: number;
-      videoId?: string;
-      skipSeek?: boolean;
-      rendezvousDelayMs?: number;
-      state?: number;
-    },
-  ];
-  'youtube:invalidate-duration-cache': [];
   // isTrackTransition=true: caller is a block-to-block YT-to-YT track switch
   // (existing player ran loadVideoById on a different video). Handler pauses
   // the host and uses TRACK_TRANSITION_RENDEZVOUS_MS so guests get a 4s

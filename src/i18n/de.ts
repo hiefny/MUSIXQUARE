@@ -335,7 +335,7 @@ const de: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Remote-Dateifreigabe fehlgeschlagen: {{msg}}',
   'share.remote.download_failed': 'Remote-Dateidownload fehlgeschlagen: {{msg}}',
   'share.remote.timeout': 'Remote-Dateifreigabe hat zu lange gedauert',
-  'share.remote.too_large': 'Datei ist für die Remote-Freigabe zu groß',
+  'share.remote.too_large': 'Datei zu groß (max. 200 MB)',
   'share.remote.network_error': 'Netzwerkfehler während der Remote-Freigabe',
   'share.remote.rate_limited': 'Zu viele Remote-Uploads.\nBitte gleich erneut versuchen',
   'share.remote.auth_failed':
@@ -445,8 +445,6 @@ const de: Record<I18nKey, string> = {
   'error.load_failed': 'Laden fehlgeschlagen: {{msg}}',
   'error.audio_decode_fail': 'Audiodekodierung fehlgeschlagen!',
   'error.audio_memory': 'Audio wird in den Speicher geladen...',
-  'error.audio_memory_limit':
-    '„{{name}}“ ist für eine sichere Wiedergabe auf diesem Gerät zu groß oder zu lang.',
   'error.decode_timeout':
     'Dekodieren von "{{name}}" dauerte zu lange.\nSpringe zum nächsten Titel.',
   'error.local_decode_wait':

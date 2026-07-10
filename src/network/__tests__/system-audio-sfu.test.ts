@@ -17,8 +17,6 @@ import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { fetchWithCapability } from '../../core/capability.ts';
 import { MSG } from '../../core/constants.ts';
-import { setManagedTimer } from '../../core/timers.ts';
-import { safeSend } from '../peer-state.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 vi.mock('../../core/log.ts', () => ({
@@ -125,8 +123,7 @@ class MockRTCPeerConnection {
 }
 
 function installFetchRouting(): void {
-  fetchMock.mockImplementation((input, _cap, init) => {
-    const url = input instanceof Request ? input.url : String(input);
+  fetchMock.mockImplementation((url: string, _cap: string, init?: RequestInit) => {
     if (url.includes('get-turn-config')) {
       // Both TURN endpoints fail fast → base STUN config, no extra suspense.
       return Promise.resolve({ ok: false } as Response);
@@ -297,11 +294,7 @@ describe('host SFU runtime connection failure (F-2403)', () => {
       constructor(_tracks?: unknown) {}
     };
     bus.emit('system-audio:streams-ready');
-    await resolveRealtime('new-session', {
-      sessionId: 'host-sess-1',
-      sessionOwnerToken: 'host-owner-token',
-      sessionOwnerExpiresAt: Math.floor(Date.now() / 1000) + 10_800,
-    });
+    await resolveRealtime('new-session', { sessionId: 'host-sess-1' });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'answer', sdp: 'a' },
       tracks: [
@@ -340,69 +333,6 @@ describe('host SFU runtime connection failure (F-2403)', () => {
     expect(countNewSessionCalls()).toBe(before);
   });
 
-  it('uses the host owner token for its SFU calls but never publishes it to guests', async () => {
-    const mod = await loadSfuModuleAsHostWithRemoteGuest();
-    await publishHostSuccessfully(mod);
-
-    const realtimeBodies = fetchMock.mock.calls
-      .filter(([url]) => String(url).includes('cloudflare-realtime'))
-      .map(([, , init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(realtimeBodies.find((body) => body.action === 'tracks-new')).toMatchObject({
-      sessionId: 'host-sess-1',
-      sessionOwnerToken: 'host-owner-token',
-    });
-
-    await vi.waitFor(() => expect(safeSend).toHaveBeenCalled());
-    const publishedMessage = vi.mocked(safeSend).mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(publishedMessage).toMatchObject({ sessionId: 'host-sess-1' });
-    expect(publishedMessage).not.toHaveProperty('sessionOwnerToken');
-    expect(JSON.stringify(publishedMessage)).not.toContain('host-owner-token');
-  });
-
-  it('refreshes the host owner token before expiry and closes with the latest token', async () => {
-    const mod = await loadSfuModuleAsHostWithRemoteGuest();
-    await publishHostSuccessfully(mod);
-
-    const refreshTimer = vi
-      .mocked(setManagedTimer)
-      .mock.calls.filter(([name]) => name === 'system-audio-sfu-host-owner-refresh')
-      .at(-1);
-    expect(refreshTimer).toBeDefined();
-    const refreshCallback = refreshTimer?.[1];
-    refreshCallback?.();
-
-    await resolveRealtime('session-owner-refresh', {
-      sessionId: 'host-sess-1',
-      sessionOwnerToken: 'host-owner-token-refreshed',
-      sessionOwnerExpiresAt: Math.floor(Date.now() / 1000) + 10_800,
-    });
-    await vi.waitFor(() => {
-      expect(mod.getSystemAudioSfuDebugSnapshot().host.ownerTokenExpiresAt).toBeGreaterThan(
-        Date.now() / 1000,
-      );
-    });
-
-    const refreshBody = fetchMock.mock.calls
-      .filter(([, , init]) => init?.body)
-      .map(([, , init]) => JSON.parse(String(init?.body)) as Record<string, unknown>)
-      .find((body) => body.action === 'session-owner-refresh');
-    expect(refreshBody).toMatchObject({
-      sessionId: 'host-sess-1',
-      sessionOwnerToken: 'host-owner-token',
-    });
-
-    bus.emit('system-audio:stop');
-    const closeBody = fetchMock.mock.calls
-      .filter(([, , init]) => init?.body)
-      .map(([, , init]) => JSON.parse(String(init?.body)) as Record<string, unknown>)
-      .filter((body) => body.action === 'tracks-close')
-      .at(-1);
-    expect(closeBody).toMatchObject({
-      sessionId: 'host-sess-1',
-      sessionOwnerToken: 'host-owner-token-refreshed',
-    });
-  });
-
   it('a failed event from a SUPERSEDED host pc leaves the live state untouched', async () => {
     const mod = await loadSfuModuleAsHostWithRemoteGuest();
     await publishHostSuccessfully(mod);
@@ -422,127 +352,7 @@ describe('host SFU runtime connection failure (F-2403)', () => {
   });
 });
 
-async function loadSfuModuleAsRemoteGuest() {
-  const mod = await import('../system-audio-sfu.ts');
-  mod.registerSystemAudioSfuListeners();
-  bus.emit('system-audio:stop');
-
-  const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
-  setState('network.appRole', 'guest');
-  setState('network.hostConn', hostConn);
-  setState('network.connectionType', 'remote');
-
-  const { registerHandler } = await import('../protocol.ts');
-  const sfuReadyHandler = vi
-    .mocked(registerHandler)
-    .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-    | ((data: unknown, conn?: unknown) => void)
-    | undefined;
-  expect(sfuReadyHandler).toBeDefined();
-
-  return { mod, hostConn, sfuReadyHandler: sfuReadyHandler! };
-}
-
-function makeSfuReadyPayload(sessionId: string, trackName: string) {
-  return {
-    version: 1 as const,
-    sessionId,
-    tracks: [{ trackName, channel: 'L' as const, mid: '0' }],
-  };
-}
-
 describe('guest SFU reclassify-mid-subscribe (F-2402)', () => {
-  it('stops an in-flight subscription when guest cleanup lands during new-session', async () => {
-    const { mod, hostConn, sfuReadyHandler } = await loadSfuModuleAsRemoteGuest();
-
-    sfuReadyHandler(makeSfuReadyPayload('host-sess-old', 'audio-old'), hostConn);
-    await vi.waitFor(() => {
-      expect(pendingRealtimeCalls.some((call) => call.action === 'new-session')).toBe(true);
-      expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).not.toBeNull();
-    });
-    const stalePc = pcInstances[0];
-
-    bus.emit('system-audio:host-stopped');
-    expect(stalePc.close).toHaveBeenCalledTimes(1);
-    expect(mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
-      pcState: null,
-      sessionId: null,
-      subscriptionKey: null,
-      connectInFlight: false,
-      receiving: false,
-    });
-
-    await resolveRealtime('new-session', {
-      sessionId: 'guest-sess-stale',
-      sessionOwnerToken: 'guest-owner-stale',
-      sessionOwnerExpiresAt: Math.floor(Date.now() / 1000) + 10_800,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(pendingRealtimeCalls.some((call) => call.action === 'tracks-new')).toBe(false);
-    expect(mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
-      pcState: null,
-      sessionId: null,
-      subscriptionKey: null,
-      connectInFlight: false,
-    });
-  });
-
-  it('a stale listener, catch, and finally cannot tear down a successor subscription', async () => {
-    const { mod, hostConn, sfuReadyHandler } = await loadSfuModuleAsRemoteGuest();
-
-    sfuReadyHandler(makeSfuReadyPayload('host-sess-old', 'audio-old'), hostConn);
-    await vi.waitFor(() => {
-      expect(pendingRealtimeCalls.filter((call) => call.action === 'new-session')).toHaveLength(1);
-    });
-    const stalePc = pcInstances[0] as unknown as MockRTCPeerConnection;
-
-    sfuReadyHandler(makeSfuReadyPayload('host-sess-new', 'audio-new'), hostConn);
-    await vi.waitFor(() => {
-      expect(pcInstances).toHaveLength(2);
-      expect(pendingRealtimeCalls.filter((call) => call.action === 'new-session')).toHaveLength(2);
-    });
-    const successorPc = pcInstances[1] as unknown as MockRTCPeerConnection;
-    expect(stalePc.close).toHaveBeenCalledTimes(1);
-    expect(successorPc.close).not.toHaveBeenCalled();
-
-    const [staleFirstCall] = pendingRealtimeCalls.splice(0, 1);
-    staleFirstCall.reject(new Error('STALE_FIRST_ENDPOINT'));
-    await vi.waitFor(() => {
-      expect(pendingRealtimeCalls.filter((call) => call.action === 'new-session')).toHaveLength(2);
-    });
-    const [staleRetry] = pendingRealtimeCalls.splice(1, 1);
-    staleRetry.reject(new Error('STALE_SECOND_ENDPOINT'));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    stalePc.connectionState = 'failed';
-    stalePc._emit('connectionstatechange');
-    expect(mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
-      subscriptionKey: 'host-sess-new:audio-new',
-      connectInFlight: true,
-    });
-    expect(successorPc.close).not.toHaveBeenCalled();
-
-    await resolveRealtime('new-session', {
-      sessionId: 'guest-sess-new',
-      sessionOwnerToken: 'guest-owner-new',
-      sessionOwnerExpiresAt: Math.floor(Date.now() / 1000) + 10_800,
-    });
-    await resolveRealtime('tracks-new', {
-      sessionDescription: { type: 'offer', sdp: 'o' },
-      tracks: [{ mid: '0', trackName: 'audio-new' }],
-    });
-    await resolveRealtime('renegotiate', {});
-    await vi.waitFor(() => {
-      expect(mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
-        sessionId: 'guest-sess-new',
-        subscriptionKey: 'host-sess-new:audio-new',
-        connectInFlight: false,
-      });
-    });
-    expect(successorPc.close).not.toHaveBeenCalled();
-  });
-
   it('a reclassify-to-local during connectGuestTrack must not resurrect a torn-down receive', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
@@ -593,33 +403,12 @@ describe('guest SFU reclassify-mid-subscribe (F-2402)', () => {
       hostConn,
     );
 
-    await resolveRealtime('new-session', {
-      sessionId: 'guest-sess',
-      sessionOwnerToken: 'guest-owner-token',
-      sessionOwnerExpiresAt: Math.floor(Date.now() / 1000) + 10_800,
-    });
+    await resolveRealtime('new-session', { sessionId: 'guest-sess' });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'offer', sdp: 'o' },
       tracks: [{ mid: '0', trackName: 'audio-L' }],
     });
     await resolveRealtime('renegotiate', {});
-
-    const guestBodies = fetchMock.mock.calls
-      .filter(([url]) => String(url).includes('cloudflare-realtime'))
-      .map(([, , init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
-    expect(guestBodies.find((body) => body.action === 'tracks-new')).toMatchObject({
-      sessionId: 'guest-sess',
-      sessionOwnerToken: 'guest-owner-token',
-    });
-    expect(guestBodies.find((body) => body.action === 'renegotiate')).toMatchObject({
-      sessionId: 'guest-sess',
-      sessionOwnerToken: 'guest-owner-token',
-    });
-    expect(
-      vi
-        .mocked(setManagedTimer)
-        .mock.calls.some(([name]) => name === 'system-audio-sfu-guest-owner-refresh'),
-    ).toBe(true);
 
     // connectGuestTrack is now parked at await initAudio with guestPc set.
     await vi.waitFor(() => {

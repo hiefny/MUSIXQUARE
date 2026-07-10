@@ -93,8 +93,6 @@ const prioritizeStylesheetsInHtml = (): Plugin => ({
   },
 });
 
-let foundationChunkIds: Set<string> | undefined;
-
 export default defineConfig({
   root: '.',
   publicDir: 'public',
@@ -117,65 +115,8 @@ export default defineConfig({
         faq: resolve(__dirname, '.workshop/faq/faq.html'),
       },
       output: {
-        // Build one dependency-closed foundation chunk from the static source
-        // DAG. A prefix of a dependencies-first topological order cannot form
-        // a chunk cycle with the remaining entry graph. Dynamic entries (demo,
-        // debug tools, locale dictionaries) retain their natural lazy chunks.
-        onlyExplicitManualChunks: true,
-        manualChunks(id, { getModuleIds, getModuleInfo }) {
-          const normalized = id.replace(/\\/g, '/');
-          if (normalized.includes('vite/preload-helper')) return 'app-foundation';
-          if (normalized.includes('commonjsHelpers')) return 'vendor';
-          if (normalized.includes('/node_modules/peerjs/')) return 'peerjs';
-          if (normalized.includes('/node_modules/')) return 'vendor';
-
-          if (!foundationChunkIds) {
-            const candidates = new Set(
-              [...getModuleIds()].filter((moduleId) => {
-                const modulePath = moduleId.replace(/\\/g, '/');
-                const info = getModuleInfo(moduleId);
-                return (
-                  modulePath.includes('/src/') &&
-                  modulePath.endsWith('.ts') &&
-                  !modulePath.includes('/src/workers/') &&
-                  !info?.isDynamicEntry
-                );
-              }),
-            );
-            const ordered: string[] = [];
-            const visiting = new Set<string>();
-            const visited = new Set<string>();
-            const visit = (moduleId: string): void => {
-              if (visited.has(moduleId) || visiting.has(moduleId)) return;
-              visiting.add(moduleId);
-              const dependencies = (getModuleInfo(moduleId)?.importedIds ?? [])
-                .filter((dependency) => candidates.has(dependency))
-                .sort();
-              for (const dependency of dependencies) visit(dependency);
-              visiting.delete(moduleId);
-              visited.add(moduleId);
-              ordered.push(moduleId);
-            };
-            for (const moduleId of [...candidates].sort()) visit(moduleId);
-
-            const totalCodeSize = ordered.reduce(
-              (sum, moduleId) => sum + (getModuleInfo(moduleId)?.code?.length ?? 0),
-              0,
-            );
-            // Leave headroom under the 500 kB minified warning as the project
-            // grows; the entry chunk is intentionally the larger remainder.
-            const targetSize = totalCodeSize * 0.42;
-            let foundationSize = 0;
-            foundationChunkIds = new Set<string>();
-            for (const moduleId of ordered) {
-              if (foundationSize >= targetSize) break;
-              foundationChunkIds.add(moduleId);
-              foundationSize += getModuleInfo(moduleId)?.code?.length ?? 0;
-            }
-          }
-
-          if (foundationChunkIds.has(id)) return 'app-foundation';
-          return undefined;
+        manualChunks: {
+          peerjs: ['peerjs'],
         },
       },
     },
@@ -183,6 +124,7 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    allowedHosts: true,
     proxy: {
       '/api/security-config': {
         target: 'https://musixquare.com',
@@ -190,11 +132,6 @@ export default defineConfig({
         secure: true,
       },
       '/api/capability-token': {
-        target: 'https://musixquare.com',
-        changeOrigin: true,
-        secure: true,
-      },
-      '/api/capability-challenge': {
         target: 'https://musixquare.com',
         changeOrigin: true,
         secure: true,

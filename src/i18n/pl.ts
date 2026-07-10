@@ -505,7 +505,7 @@ const pl: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Udostępnianie zdalne nie powiodło się: {{msg}}',
   'share.remote.download_failed': 'Pobieranie pliku zdalnego nie powiodło się: {{msg}}',
   'share.remote.timeout': 'Przekroczono limit czasu udostępniania zdalnego',
-  'share.remote.too_large': 'Plik jest za duży do udostępniania zdalnego',
+  'share.remote.too_large': 'Plik przekracza dozwolony limit (maks. 200 MB)',
   'share.remote.network_error': 'Błąd sieci podczas udostępniania zdalnego',
   'share.remote.rate_limited':
     'Zbyt wiele żądań udostępniania zdalnego.\nSpróbuj ponownie za chwilę',
@@ -531,8 +531,6 @@ const pl: Record<I18nKey, string> = {
   'error.load_failed': 'Wczytywanie nie powiodło się: {{msg}}',
   'error.audio_decode_fail': 'Dekodowanie audio nie powiodło się!',
   'error.audio_memory': 'Wczytywanie dźwięku do pamięci...',
-  'error.audio_memory_limit':
-    '„{{name}}” jest zbyt duży lub długi, aby bezpiecznie odtworzyć go na tym urządzeniu.',
   'error.decode_timeout':
     'Dekodowanie „{{name}}” trwa zbyt długo.\nPrzejście do kolejnego utworu...',
   'error.local_decode_wait':

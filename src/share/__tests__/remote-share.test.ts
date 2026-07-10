@@ -76,14 +76,10 @@ function descriptor(overrides: Partial<RemoteFileSharePayload> = {}): RemoteFile
     name: 'song.mp3',
     mime: 'audio/mpeg',
     size: 4,
-    encryptedSize: 20,
+    encryptedSize: 4,
     index: 0,
     sessionId: 7,
     expiresAt: Date.now() + 300_000,
-    cryptoVersion: 2,
-    chunkSize: 8 * 1024 * 1024,
-    chunkCount: 1,
-    tagBytes: 16,
     ...overrides,
   };
 }
@@ -95,7 +91,7 @@ describe('remote file share policy', () => {
     // context gate, active download) registered by prior initRemoteShare
     // calls — module state would otherwise leak across tests.
     const { bus } = await import('../../core/events.ts');
-    bus.emit('state:network.sessionCode', null, 'network.sessionCode');
+    bus.emit('state:network.sessionCode', null);
     vi.clearAllMocks();
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -493,10 +489,6 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     return { type: 'file', file, name: file.name, videoId: null, playlistId: null };
   }
 
-  function localPeer(): ConnectedPeer {
-    return { ...remotePeer(), id: 'local-1', connectionType: 'local', isDataTarget: true };
-  }
-
   let resolveUpload!: (d: RemoteFileSharePayload) => void;
 
   beforeEach(async () => {
@@ -505,7 +497,7 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     // descriptor cache) registered by prior initRemoteShare calls — module
     // state would otherwise leak across tests.
     const { bus } = await import('../../core/events.ts');
-    bus.emit('state:network.sessionCode', null, 'network.sessionCode');
+    bus.emit('state:network.sessionCode', null);
     vi.clearAllMocks();
 
     // Host role: no hostConn, one connected remote guest as broadcast target.
@@ -635,26 +627,5 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
         index: 0,
       }),
     );
-  });
-
-  it('routes large LAN files through object share but leaves small LAN files on P2P', async () => {
-    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
-    setState('network.connectedPeers', [localPeer()]);
-
-    const small = new File(['small'], 'small.mp3', { type: 'audio/mpeg' });
-    setState('playlist.items', [fileItem(small)]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', small);
-    await shareRemoteFileIfNeeded(small, 10);
-    expect(mocks.uploadRemoteFile).not.toHaveBeenCalled();
-
-    const large = new File(['handle-only'], 'podcast.wav', { type: 'audio/wav' });
-    Object.defineProperty(large, 'size', { configurable: true, value: 32 * 1024 * 1024 });
-    setState('playlist.items', [fileItem(large)]);
-    setState('files.currentFileBlob', large);
-    const sharing = shareRemoteFileIfNeeded(large, 11);
-    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
-    resolveUpload(descriptor({ name: large.name, size: large.size, sessionId: 11 }));
-    await sharing;
   });
 });

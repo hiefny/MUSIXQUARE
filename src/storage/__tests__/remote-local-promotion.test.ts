@@ -1,12 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import {
-  LOAD_SOURCE,
-  PLAYBACK_STATE,
-  REMOTE_SHARE_STREAM_THRESHOLD_BYTES,
-  TRANSFER_STATE,
-} from '../../core/constants.ts';
+import { LOAD_SOURCE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
@@ -74,32 +69,6 @@ describe('remote-share to local direct transfer promotion', () => {
     const { clearReceiveState } = await import('../transfer-receive.ts');
     clearReceiveState();
     setState('network.hostConn', conn);
-  });
-
-  it('routes a threshold-sized LAN FILE_PREPARE straight to encrypted Range waiting', async () => {
-    const { handleFilePrepare } = await import('../transfer-receive.ts');
-    const { prepareRemoteShareWait } = await import('../../share/remote-share.ts');
-    const { setManagedTimer } = await import('../../core/timers.ts');
-    const { postCommand } = await import('../storage.ts');
-    setState('network.connectionType', 'local');
-
-    await handleFilePrepare(
-      {
-        type: 'file-prepare',
-        name: 'long-session.wav',
-        mime: 'audio/wav',
-        size: REMOTE_SHARE_STREAM_THRESHOLD_BYTES,
-        index: 2,
-        sessionId: 9,
-      },
-      conn,
-    );
-
-    expect(prepareRemoteShareWait).toHaveBeenCalledWith(2, 'long-session.wav', 9);
-    expect(setManagedTimer).not.toHaveBeenCalledWith('prepareWatchdog', expect.anything(), 15000);
-    expect(postCommand).not.toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'STORAGE_START' }),
-    );
   });
 
   it('accepts local FILE_START after a remote-share wait was armed before localSessionId advanced', async () => {
@@ -389,7 +358,9 @@ describe('remote-share to local direct transfer promotion', () => {
     );
 
     expect(clearSpy).toHaveBeenCalled();
-    expect(postCommand).toHaveBeenCalledWith(expect.objectContaining({ command: 'STORAGE_RESET' }));
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_RESET' }),
+    );
     expect(getState('transfer.localSessionId')).toBe(8);
   });
 

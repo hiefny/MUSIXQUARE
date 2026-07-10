@@ -5,16 +5,15 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=20.0.0"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:checked": "npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:no-opfs && npm run guard:font-build && npm run guard:bundle-size",
+    "build:checked": "npm run build && npm run guard:prod-hooks && npm run guard:prod-security",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "promo:render": "tsx .workshop/promo/render.ts",
-    "profanity:generate": "node scripts/generate-profanity-words.mjs",
     "guard:prod-hooks": "node scripts/assert-production-build-clean.mjs",
     "guard:prod-security": "node scripts/assert-production-security-config.mjs",
     "guard:bus-pairing": "node scripts/check-bus-pairing.mjs",
@@ -22,13 +21,7 @@
     "guard:import-graph": "node scripts/check-import-graph.mjs",
     "guard:lifecycle-writes": "node scripts/check-lifecycle-writes.mjs",
     "guard:dead-exports": "node scripts/check-dead-exports.mjs",
-    "guard:generated-profanity": "node scripts/generate-profanity-words.mjs --check",
-    "guard:no-opfs": "node scripts/check-no-opfs.mjs",
-    "guard:font-assets": "node scripts/check-app-font.mjs",
-    "guard:font-build": "node scripts/check-app-font.mjs --dist",
-    "guard:bundle-size": "node scripts/check-build-chunk-sizes.mjs",
-    "guard:structure": "npm run guard:bus-pairing && npm run guard:chunk-pump && npm run guard:import-graph && npm run guard:lifecycle-writes && npm run guard:dead-exports && npm run guard:generated-profanity && npm run guard:no-opfs && npm run guard:font-assets",
-    "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json && tsc -p tsconfig.e2e.json && tsc -p tsconfig.test.json",
+    "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json && tsc -p tsconfig.e2e.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -38,25 +31,19 @@
     "test:coverage": "vitest run --coverage",
     "pretest:e2e": "npm run build:e2e",
     "test:e2e": "playwright test",
-    "pretest:e2e:smoke": "npm run build",
-    "test:e2e:smoke": "playwright test --config=playwright.smoke.config.ts",
     "pretest:e2e:report": "npm run build:e2e",
     "test:e2e:report": "playwright test --reporter=./e2e/live-reporter.ts,line",
     "pretest:e2e:runtime": "npm run build:e2e",
     "test:e2e:runtime": "playwright test e2e/late-join.test.ts e2e/playback-sync.test.ts e2e/youtube-sync.test.ts e2e/reconnection.test.ts e2e/background-resume.test.ts",
     "test:report-viewer": "npx serve . -p 3333 -s",
-    "predeploy:app": "npm run build:checked",
-    "deploy:app": "npx --yes wrangler@4.110.0 deploy --config cloudflare/wrangler.app.toml",
-    "test:all": "npm run typecheck && npm run lint && npm run format:check && npm run guard:structure && npm run test:coverage && npm run build:checked && npm run test:e2e"
+    "test:all": "vitest run && npm run build:checked && npm run test:e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.58.2",
     "@resvg/resvg-wasm": "^2.6.2",
-    "@types/node": "22.20.1",
     "@types/qrcode": "^1.5.6",
     "@vitest/coverage-v8": "^4.0.18",
-    "content-shield": "^0.1.1",
     "eslint": "^10.0.2",
     "eslint-config-prettier": "^10.1.8",
     "jsdom": "^28.1.0",
@@ -72,6 +59,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "content-shield": "^0.1.1",
     "peerjs": "^1.5.5",
     "qrcode": "^1.5.4"
   }

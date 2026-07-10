@@ -14,7 +14,10 @@ describe('demo exit snapshot restore guard', () => {
 
   it('does not restore stale media over a YouTube load started during exit', () => {
     expect(
-      shouldRestoreDemoSnapshotMedia({ mode: 'youtube', activity: 'pending' }, PLAYBACK_STATE.IDLE),
+      shouldRestoreDemoSnapshotMedia(
+        { mode: 'youtube', activity: 'pending' },
+        PLAYBACK_STATE.IDLE,
+      ),
     ).toBe(false);
   });
 

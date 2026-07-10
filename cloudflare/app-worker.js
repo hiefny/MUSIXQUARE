@@ -16,29 +16,6 @@ const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
 const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
-const CAPABILITY_POW_DIFFICULTY_DEFAULT = 16;
-const CAPABILITY_POW_DIFFICULTY_MIN = 8;
-const CAPABILITY_POW_DIFFICULTY_MAX = 24;
-const CAPABILITY_POW_TTL_DEFAULT = 2 * SECONDS_PER_MINUTE;
-const CAPABILITY_POW_TTL_MIN = 30;
-const CAPABILITY_POW_TTL_MAX = 5 * SECONDS_PER_MINUTE;
-const REALTIME_OWNER_REFRESH_ACTION = 'session-owner-refresh';
-const REALTIME_OWNER_ACTIONS = [
-  'tracks-new',
-  'renegotiate',
-  'tracks-close',
-  REALTIME_OWNER_REFRESH_ACTION,
-];
-const REALTIME_OWNER_TTL_DEFAULT = 3 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
-const REALTIME_OWNER_TTL_MIN = 5 * SECONDS_PER_MINUTE;
-const REALTIME_OWNER_TTL_MAX = 6 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
-const REALTIME_OWNER_ABSOLUTE_TTL_DEFAULT = 12 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
-const REALTIME_OWNER_ABSOLUTE_TTL_MIN = REALTIME_OWNER_TTL_MIN;
-const REALTIME_OWNER_ABSOLUTE_TTL_MAX = 24 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
-const MIN_HMAC_SECRET_BYTES = 32;
-const CAPABILITY_JSON_BODY_MAX_BYTES = 8 * 1024;
-const ADMIN_JSON_BODY_MAX_BYTES = 8 * 1024;
-const REALTIME_JSON_BODY_MAX_BYTES = 128 * 1024;
 const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const SORO_RSS_DEFAULT_URL = 'https://app.trysoro.com/api/rss/a07c133f-e3b9-401e-a076-ee36124598a7';
 const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
@@ -82,7 +59,7 @@ const SECURITY_HEADERS = {
   'Permissions-Policy':
     'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://*.trysoro.com https://*.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: wss://0.peerjs.com:443 https://0.peerjs.com:443 wss://*.peerjs.com https://*.peerjs.com https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; frame-src https://www.youtube.com https://challenges.cloudflare.com https://app.trysoro.com https://*.trysoro.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://*.trysoro.com https://*.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: wss://0.peerjs.com:443 https://0.peerjs.com:443 wss://*.peerjs.com https://*.peerjs.com https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; frame-src https://www.youtube.com https://challenges.cloudflare.com https://app.trysoro.com https://*.trysoro.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
 };
 
 function json(body, status = 200, headers = {}) {
@@ -96,56 +73,6 @@ function json(body, status = 200, headers = {}) {
       },
     }),
   );
-}
-
-async function readJsonBodyLimited(request, maxBytes) {
-  const contentLengthHeader = request.headers.get('Content-Length');
-  if (contentLengthHeader !== null) {
-    if (!/^\d+$/.test(contentLengthHeader.trim())) return { error: 'invalid' };
-    if (Number(contentLengthHeader) > maxBytes) return { error: 'too-large' };
-  }
-
-  if (!request.body) return { error: 'invalid' };
-  const reader = request.body.getReader();
-  const chunks = [];
-  let totalBytes = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
-      totalBytes += bytes.byteLength;
-      if (totalBytes > maxBytes) {
-        await reader.cancel('JSON_BODY_TOO_LARGE').catch(() => {});
-        return { error: 'too-large' };
-      }
-      chunks.push(bytes);
-    }
-  } catch {
-    return { error: 'invalid' };
-  } finally {
-    reader.releaseLock();
-  }
-
-  if (totalBytes === 0) return { error: 'invalid' };
-  const bodyBytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bodyBytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return { value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bodyBytes)) };
-  } catch {
-    return { error: 'invalid' };
-  }
-}
-
-function jsonBodyError(result, headers) {
-  if (result.error === 'too-large') {
-    return json({ error: 'Request body too large' }, 413, headers);
-  }
-  return json({ error: 'Invalid JSON body' }, 400, headers);
 }
 
 function withSecurityHeaders(response, extraHeaders = {}) {
@@ -248,113 +175,22 @@ function getClientIp(request) {
 }
 
 // Per-IP rate limit for sensitive endpoints (paid Cloudflare TURN/SFU /
-// YouTube quota). Production uses a conditional D1 UPSERT so concurrent edge
-// requests cannot all observe and increment a stale Cache API value. The
-// Cache fallback is retained only for local/unit runtimes without the checked
-// production D1 binding.
-const rateLimitSchemaPromises = new WeakMap();
-const rateLimitCleanupTimes = new WeakMap();
-
-async function ensureRateLimitSchema(db) {
-  let pending = rateLimitSchemaPromises.get(db);
-  if (!pending) {
-    pending = db
-      .prepare(
-        `CREATE TABLE IF NOT EXISTS mxqr_api_rate_limits (
-          bucket_key TEXT PRIMARY KEY,
-          window_id INTEGER NOT NULL,
-          count INTEGER NOT NULL,
-          expires_at INTEGER NOT NULL
-        )`,
-      )
-      .run();
-    rateLimitSchemaPromises.set(db, pending);
-  }
-  try {
-    await pending;
-  } catch (error) {
-    rateLimitSchemaPromises.delete(db);
-    throw error;
-  }
-}
-
-async function checkAtomicD1RateLimit(db, bucketKey, windowId, expiresAt, limit) {
-  await ensureRateLimitSchema(db);
-  await cleanupExpiredRateLimits(db).catch((error) => {
-    console.warn('[RateLimit] Expired-row cleanup deferred', error);
-  });
-  const row = await db
-    .prepare(
-      `INSERT INTO mxqr_api_rate_limits (bucket_key, window_id, count, expires_at)
-       VALUES (?, ?, 1, ?)
-       ON CONFLICT(bucket_key) DO UPDATE SET
-         window_id = excluded.window_id,
-         count = CASE
-           WHEN window_id = excluded.window_id THEN count + 1
-           ELSE 1
-         END,
-         expires_at = excluded.expires_at
-       WHERE window_id != excluded.window_id OR count < ?
-       RETURNING count`,
-    )
-    .bind(bucketKey, windowId, expiresAt, limit)
-    .first();
-  return !!row;
-}
-
-async function cleanupExpiredRateLimits(db, options = {}) {
-  if (!db) return;
-  const nowSec = Math.floor(Date.now() / 1000);
-  const lastCleanup = rateLimitCleanupTimes.get(db) || 0;
-  if (!options.force && nowSec - lastCleanup < 300) return;
-  // Set before awaiting so concurrent requests share the five-minute cleanup
-  // window instead of issuing a DELETE storm from one isolate.
-  rateLimitCleanupTimes.set(db, nowSec);
-  await ensureRateLimitSchema(db);
-  await db.prepare('DELETE FROM mxqr_api_rate_limits WHERE expires_at < ?').bind(nowSec).run();
-}
-
-function getRateLimitHashSecret(env) {
-  const secret = String(
-    env.MXQR_RATE_LIMIT_HASH_SECRET || getCapabilitySecret(env) || getAdminSessionSecret(env) || '',
-  ).trim();
-  return new TextEncoder().encode(secret).byteLength >= MIN_HMAC_SECRET_BYTES ? secret : '';
-}
-
-async function pseudonymousRateLimitClientKey(request, env) {
-  const secret = getRateLimitHashSecret(env);
-  if (!secret) return '';
-  return hmacSha256(secret, `rate-limit-ip:v1:${getClientIp(request)}`);
-}
-
-async function checkRateLimit(request, env, endpoint, limit = 60, windowSec = 60) {
-  const ip = getClientIp(request);
-  const window = Math.floor(Date.now() / (windowSec * 1000));
-  const db = env.MUSIXQUARE_ADMIN_DB;
-  if (db) {
-    const clientKey = await pseudonymousRateLimitClientKey(request, env);
-    if (!clientKey) {
-      console.warn('[RateLimit] D1 pseudonym secret unavailable; failing closed');
-      return false;
-    }
-    try {
-      return await checkAtomicD1RateLimit(
-        db,
-        `${endpoint}\u001f${clientKey}`,
-        window,
-        (window + 1) * windowSec,
-        limit,
-      );
-    } catch (error) {
-      console.warn('[RateLimit] D1 coordinator unavailable; failing closed', error);
-      return false;
-    }
-  }
-
-  // Local/unit fallback. scripts/assert-production-security-config.mjs pins
-  // MUSIXQUARE_ADMIN_DB in the production Wrangler configuration.
+// YouTube quota). 13차 audit finding 1: header-based CORS is bypassable by
+// curl spoofing Origin or Sec-Fetch-Site, so paid-resource endpoints need
+// a separate defense layer. Uses Cache API (no extra binding needed) keyed
+// on CF-Connecting-IP + endpoint + window minute. Atomicity is best-effort
+// — concurrent requests within the same minute can each pass with a stale
+// count, but the worst-case overshoot is bounded by edge node concurrency
+// per IP. Adequate for paid-resource leak prevention; not for strict abuse
+// quotas.
+async function checkRateLimit(request, endpoint, limit = 60, windowSec = 60) {
+  // Graceful bypass if the runtime doesn't expose Cache API (e.g. jsdom unit
+  // tests that invoke the worker directly). Production Cloudflare workers
+  // always have `caches.default`.
   if (typeof caches === 'undefined' || !caches?.default) return true;
 
+  const ip = getClientIp(request);
+  const window = Math.floor(Date.now() / (windowSec * 1000));
   // Use a synthetic cache URL so the key is opaque to upstream caches.
   const cacheKey = new Request(
     `https://ratelimit.internal/${encodeURIComponent(endpoint)}/${encodeURIComponent(ip)}/${window}`,
@@ -397,10 +233,7 @@ function rateLimitResponse(headers) {
 }
 
 function getCapabilitySecret(env) {
-  const secret = String(
-    env.MXQR_CAPABILITY_SECRET || env.CAPABILITY_HMAC_SECRET || env.CAPABILITY_SECRET || '',
-  ).trim();
-  return new TextEncoder().encode(secret).byteLength >= MIN_HMAC_SECRET_BYTES ? secret : '';
+  return env.MXQR_CAPABILITY_SECRET || env.CAPABILITY_HMAC_SECRET || env.CAPABILITY_SECRET || '';
 }
 
 function isCapabilityAuthEnabled(env) {
@@ -492,6 +325,18 @@ function allowInferredCapabilityFallback(env) {
   return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
+function allowTrustedOriginCapabilityFallback(env) {
+  const raw = String(
+    env.MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK ??
+      env.MXQR_ALLOW_HEADER_CAPABILITY_FALLBACK ??
+      env.ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK ??
+      'false',
+  )
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 function allowUnguardedPaidApis(env) {
   const raw = String(env.MXQR_ALLOW_UNGUARDED_PAID_APIS ?? env.ALLOW_UNGUARDED_PAID_APIS ?? 'false')
     .trim()
@@ -505,42 +350,6 @@ function parseCapabilityTtl(env) {
   return Math.min(CAPABILITY_TOKEN_TTL_MAX, Math.max(CAPABILITY_TOKEN_TTL_MIN, parsed));
 }
 
-function parseCapabilityPowDifficulty(env) {
-  const parsed = Number.parseInt(
-    env.MXQR_CAPABILITY_POW_DIFFICULTY || env.CAPABILITY_POW_DIFFICULTY || '',
-    10,
-  );
-  if (!Number.isFinite(parsed)) return CAPABILITY_POW_DIFFICULTY_DEFAULT;
-  return Math.min(CAPABILITY_POW_DIFFICULTY_MAX, Math.max(CAPABILITY_POW_DIFFICULTY_MIN, parsed));
-}
-
-function parseCapabilityPowTtl(env) {
-  const parsed = Number.parseInt(env.MXQR_CAPABILITY_POW_TTL || env.CAPABILITY_POW_TTL || '', 10);
-  if (!Number.isFinite(parsed)) return CAPABILITY_POW_TTL_DEFAULT;
-  return Math.min(CAPABILITY_POW_TTL_MAX, Math.max(CAPABILITY_POW_TTL_MIN, parsed));
-}
-
-function parseRealtimeOwnerTtl(env) {
-  const parsed = Number.parseInt(
-    env.MXQR_REALTIME_SESSION_OWNER_TTL || env.REALTIME_SESSION_OWNER_TTL || '',
-    10,
-  );
-  if (!Number.isFinite(parsed)) return REALTIME_OWNER_TTL_DEFAULT;
-  return Math.min(REALTIME_OWNER_TTL_MAX, Math.max(REALTIME_OWNER_TTL_MIN, parsed));
-}
-
-function parseRealtimeOwnerAbsoluteTtl(env) {
-  const parsed = Number.parseInt(
-    env.MXQR_REALTIME_SESSION_OWNER_ABSOLUTE_TTL || env.REALTIME_SESSION_OWNER_ABSOLUTE_TTL || '',
-    10,
-  );
-  if (!Number.isFinite(parsed)) return REALTIME_OWNER_ABSOLUTE_TTL_DEFAULT;
-  return Math.min(
-    REALTIME_OWNER_ABSOLUTE_TTL_MAX,
-    Math.max(REALTIME_OWNER_ABSOLUTE_TTL_MIN, parsed),
-  );
-}
-
 function parseRequestedScopes(value) {
   if (!Array.isArray(value)) return [];
   const scopes = [];
@@ -549,7 +358,7 @@ function parseRequestedScopes(value) {
       scopes.push(scope);
     }
   }
-  return scopes.sort();
+  return scopes;
 }
 
 function bytesToBase64Url(bytes) {
@@ -593,92 +402,8 @@ async function hmacSha256(secret, value) {
   return bytesToBase64Url(new Uint8Array(signature));
 }
 
-async function sha256Bytes(value) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return new Uint8Array(digest);
-}
-
-function hasLeadingZeroBits(bytes, difficulty) {
-  let remaining = difficulty;
-  for (const byte of bytes) {
-    if (remaining <= 0) return true;
-    const bits = Math.min(8, remaining);
-    if ((byte & (0xff << (8 - bits))) !== 0) return false;
-    remaining -= bits;
-  }
-  return remaining <= 0;
-}
-
 async function capabilityIpHash(secret, request) {
   return hmacSha256(secret, `ip:${getClientIp(request)}`);
-}
-
-function randomNonce(byteLength = 16) {
-  const bytes = new Uint8Array(byteLength);
-  crypto.getRandomValues(bytes);
-  return bytesToBase64Url(bytes);
-}
-
-async function createCapabilityPowChallenge(scopes, request, env) {
-  const secret = getCapabilitySecret(env);
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    v: 1,
-    scopes,
-    iat: now,
-    exp: now + parseCapabilityPowTtl(env),
-    ip: await capabilityIpHash(secret, request),
-    difficulty: parseCapabilityPowDifficulty(env),
-    capabilityTtl: parseCapabilityTtl(env),
-    nonce: randomNonce(),
-  };
-  const payloadPart = stringToBase64Url(JSON.stringify(payload));
-  const signature = await hmacSha256(secret, `capability-pow:${payloadPart}`);
-  return {
-    challenge: `${payloadPart}.${signature}`,
-    difficulty: payload.difficulty,
-    expiresAt: payload.exp,
-    algorithm: 'sha256-leading-zero-bits',
-  };
-}
-
-async function verifyCapabilityPowProof(proof, scopes, request, env) {
-  if (!proof || typeof proof !== 'object') return null;
-  const challenge = typeof proof.challenge === 'string' ? proof.challenge : '';
-  const solution = typeof proof.solution === 'string' ? proof.solution : '';
-  if (!challenge || !/^\d{1,20}$/.test(solution)) return null;
-
-  const parts = challenge.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  const secret = getCapabilitySecret(env);
-  const expectedSignature = await hmacSha256(secret, `capability-pow:${parts[0]}`);
-  if (!constantTimeEqual(expectedSignature, parts[1])) return null;
-
-  let payload;
-  try {
-    payload = JSON.parse(base64UrlToString(parts[0]));
-  } catch {
-    return null;
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (payload?.v !== 1) return null;
-  if (!Array.isArray(payload.scopes) || JSON.stringify(payload.scopes) !== JSON.stringify(scopes)) {
-    return null;
-  }
-  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return null;
-  if (typeof payload.exp !== 'number' || payload.exp <= now) return null;
-  if (payload.exp - payload.iat !== parseCapabilityPowTtl(env)) return null;
-  if (payload.difficulty !== parseCapabilityPowDifficulty(env)) return null;
-  if (payload.capabilityTtl !== parseCapabilityTtl(env)) return null;
-  if (typeof payload.nonce !== 'string' || !payload.nonce) return null;
-
-  const expectedIp = await capabilityIpHash(secret, request);
-  if (!constantTimeEqual(String(payload.ip || ''), expectedIp)) return null;
-
-  const digest = await sha256Bytes(`mxqr-pow-v1:${challenge}:${solution}`);
-  if (!hasLeadingZeroBits(digest, payload.difficulty)) return null;
-  return payload;
 }
 
 function readCapabilityToken(request) {
@@ -689,24 +414,23 @@ function readCapabilityToken(request) {
   return match ? match[1].trim() : '';
 }
 
-async function createCapabilityToken(scopes, request, env, method, anchor = null) {
+async function createCapabilityToken(scopes, request, env, method) {
   const secret = getCapabilitySecret(env);
   const ttl = parseCapabilityTtl(env);
   const now = Math.floor(Date.now() / 1000);
   // `method` is kept as a function argument for server-side logging hooks
   // but intentionally NOT embedded in the token payload. Tokens are
   // base64url-encoded (not encrypted) and any client can decode them, so
-  // leaking which path issued the token (Turnstile / PoW / local inferred
-  // fallback) hands attackers free reconnaissance about the environment's
-  // authorization mode.
+  // leaking which fallback path issued the token (turnstile / inferred /
+  // trusted-origin) hands attackers free reconnaissance about the
+  // environment's bypass flags.
   void method;
   const payload = {
     v: 1,
     scopes,
-    iat: anchor?.iat ?? now,
-    exp: (anchor?.iat ?? now) + ttl,
+    iat: now,
+    exp: now + ttl,
     ip: await capabilityIpHash(secret, request),
-    ...(anchor?.jti ? { jti: anchor.jti } : {}),
   };
   const payloadPart = stringToBase64Url(JSON.stringify(payload));
   const signature = await hmacSha256(secret, payloadPart);
@@ -735,13 +459,7 @@ async function verifyCapabilityToken(token, request, env, requiredScope) {
 
   const now = Math.floor(Date.now() / 1000);
   if (payload?.v !== 1) return false;
-  if (
-    !Array.isArray(payload.scopes) ||
-    payload.scopes.length !== 1 ||
-    payload.scopes[0] !== requiredScope
-  ) {
-    return false;
-  }
+  if (!Array.isArray(payload.scopes) || !payload.scopes.includes(requiredScope)) return false;
   if (typeof payload.iat !== 'number' || payload.iat > now + 60) return false;
   if (typeof payload.exp !== 'number' || payload.exp <= now) return false;
 
@@ -861,13 +579,11 @@ async function handleAdminLogin(request, env) {
   if (methodError) return methodError;
   if (request.method === 'OPTIONS') return withSecurityHeaders(new Response(null, { status: 204 }));
   if (!isAdminConfigured(env)) return json({ error: 'ADMIN_NOT_CONFIGURED' }, 503);
-  if (!(await checkRateLimit(request, env, 'admin-login', 10, 60))) {
+  if (!(await checkRateLimit(request, 'admin-login', 10, 60))) {
     return rateLimitResponse({});
   }
 
-  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
-  if (parsedBody.error) return jsonBodyError(parsedBody, {});
-  const body = parsedBody.value;
+  const body = await request.json().catch(() => null);
   const password = typeof body?.password === 'string' ? body.password : '';
   if (!(await verifyAdminPassword(password, env))) {
     return json({ error: 'INVALID_PASSWORD' }, 401);
@@ -1132,9 +848,7 @@ async function handleAdminArticleVisibility(request, env) {
   if (methodError) return methodError;
   if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
 
-  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
-  if (parsedBody.error) return jsonBodyError(parsedBody, {});
-  const body = parsedBody.value;
+  const body = await request.json().catch(() => null);
   const slug = String(body?.slug || '').trim();
   if (!isValidSoroSlug(slug)) return json({ error: 'INVALID_SLUG' }, 400);
 
@@ -1294,9 +1008,7 @@ async function handleAdminAnnouncement(request, env) {
     });
   }
 
-  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
-  if (parsedBody.error) return jsonBodyError(parsedBody, {});
-  const body = parsedBody.value;
+  const body = await request.json().catch(() => null);
   const message = String(body?.message || '')
     .trim()
     .slice(0, 280);
@@ -1507,29 +1219,24 @@ async function guardSensitiveRequest(
   rateLimitKey,
   rateLimit,
 ) {
-  // Reject untrusted browser origins before authentication or rate accounting.
-  // Otherwise a cross-site page can spend the visitor's IP bucket without
-  // possessing a capability token, causing a one-minute NAT/user denial.
-  if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, trust.headers);
-
   if (!isCapabilityAuthEnabled(env)) {
+    if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, trust.headers);
     if (!allowUnguardedPaidApis(env)) {
       return json({ error: 'CAPABILITY_NOT_CONFIGURED' }, 503, trust.headers);
     }
-    if (!(await checkRateLimit(request, env, rateLimitKey, rateLimit, 60))) {
+    if (!(await checkRateLimit(request, rateLimitKey, rateLimit, 60))) {
       return rateLimitResponse(trust.headers);
     }
     return null;
   }
 
-  const token = readCapabilityToken(request);
-  if (!(await verifyCapabilityToken(token, request, env, capabilityScope))) {
-    return json({ error: 'CAPABILITY_REQUIRED' }, 401, trust.headers);
-  }
-  if (!(await checkRateLimit(request, env, rateLimitKey, rateLimit, 60))) {
+  if (!(await checkRateLimit(request, rateLimitKey, rateLimit, 60))) {
     return rateLimitResponse(trust.headers);
   }
-  return null;
+
+  const token = readCapabilityToken(request);
+  if (await verifyCapabilityToken(token, request, env, capabilityScope)) return null;
+  return json({ error: 'CAPABILITY_REQUIRED' }, 401, trust.headers);
 }
 
 async function handleSecurityConfig(request, env) {
@@ -1542,47 +1249,20 @@ async function handleSecurityConfig(request, env) {
 
   const turnstileConfigured = isTurnstileConfigured(env);
   const inferredFallback = allowInferredCapabilityFallback(env);
-  const capabilityRequired = isCapabilityAuthEnabled(env);
-  const proofOfWorkRequired = capabilityRequired && !turnstileConfigured && !inferredFallback;
+  const trustedOriginFallback = !turnstileConfigured && allowTrustedOriginCapabilityFallback(env);
 
   return json(
     {
-      capabilityRequired,
-      turnstileSiteKey: turnstileConfigured ? getTurnstileSiteKey(env) : '',
-      turnstileRequired: capabilityRequired && turnstileConfigured && !inferredFallback,
-      proofOfWorkRequired,
-      proofOfWorkDifficulty: proofOfWorkRequired ? parseCapabilityPowDifficulty(env) : 0,
-      proofOfWorkTtl: proofOfWorkRequired ? parseCapabilityPowTtl(env) : 0,
+      capabilityRequired: isCapabilityAuthEnabled(env),
+      turnstileSiteKey: isTurnstileConfigured(env) ? getTurnstileSiteKey(env) : '',
+      turnstileRequired:
+        isCapabilityAuthEnabled(env) && !inferredFallback && !trustedOriginFallback,
       inferredFallback,
       ttl: parseCapabilityTtl(env),
     },
     200,
     headers,
   );
-}
-
-async function handleCapabilityChallenge(request, env) {
-  const trust = trustedCors(request, 'POST, OPTIONS', env, { allowInferred: true });
-  const { headers } = trust;
-  if (request.method === 'OPTIONS') {
-    return withSecurityHeaders(new Response(null, { status: 204, headers }));
-  }
-  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
-  if (!isCapabilityAuthEnabled(env)) {
-    return json({ capabilityRequired: false }, 200, headers);
-  }
-  if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
-  if (isTurnstileConfigured(env)) return json({ error: 'TURNSTILE_REQUIRED' }, 409, headers);
-  if (!(await checkRateLimit(request, env, 'capability-challenge', 30, 60))) {
-    return rateLimitResponse(headers);
-  }
-
-  const parsedBody = await readJsonBodyLimited(request, CAPABILITY_JSON_BODY_MAX_BYTES);
-  if (parsedBody.error) return jsonBodyError(parsedBody, headers);
-  const body = parsedBody.value;
-  const scopes = parseRequestedScopes(body?.scopes);
-  if (scopes.length !== 1) return json({ error: 'Exactly one scope is required' }, 400, headers);
-  return json(await createCapabilityPowChallenge(scopes, request, env), 200, headers);
 }
 
 async function handleCapabilityToken(request, env) {
@@ -1595,15 +1275,13 @@ async function handleCapabilityToken(request, env) {
     return json({ capabilityRequired: false }, 200, headers);
   }
   if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
-  if (!(await checkRateLimit(request, env, 'capability-token', 30, 60))) {
+  if (!(await checkRateLimit(request, 'capability-token', 30, 60))) {
     return rateLimitResponse(headers);
   }
 
-  const parsedBody = await readJsonBodyLimited(request, CAPABILITY_JSON_BODY_MAX_BYTES);
-  if (parsedBody.error) return jsonBodyError(parsedBody, headers);
-  const body = parsedBody.value;
+  const body = await request.json().catch(() => null);
   const scopes = parseRequestedScopes(body?.scopes);
-  if (scopes.length !== 1) return json({ error: 'Exactly one scope is required' }, 400, headers);
+  if (scopes.length === 0) return json({ error: 'Invalid scopes' }, 400, headers);
 
   let method = '';
   if (isTurnstileConfigured(env) && typeof body?.turnstileToken === 'string') {
@@ -1613,20 +1291,12 @@ async function handleCapabilityToken(request, env) {
     method = 'turnstile';
   } else if (trust.sameOriginInferred && allowInferredCapabilityFallback(env)) {
     method = 'same-origin-inferred';
-  } else if (!isTurnstileConfigured(env)) {
-    const challenge = await verifyCapabilityPowProof(body?.proofOfWork, scopes, request, env);
-    if (!challenge) return json({ error: 'PROOF_OF_WORK_FAILED' }, 403, headers);
-    // Anchor the capability lifetime and token identity to the challenge. A
-    // replay from the same IP/scopes is therefore idempotent: it returns the
-    // same token and cannot roll its expiration window forward.
-    return json(
-      await createCapabilityToken(scopes, request, env, 'proof-of-work', {
-        iat: challenge.iat,
-        jti: challenge.nonce,
-      }),
-      200,
-      headers,
-    );
+  } else if (
+    !isTurnstileConfigured(env) &&
+    trust.isTrusted &&
+    allowTrustedOriginCapabilityFallback(env)
+  ) {
+    method = 'trusted-origin';
   } else {
     return json({ error: 'TURNSTILE_REQUIRED' }, 403, headers);
   }
@@ -1748,7 +1418,7 @@ function getClientStatusForUpstreamError(status, reason) {
 }
 
 async function handleYoutubeSearch(request, env) {
-  const trust = trustedCors(request, 'GET, OPTIONS', env, { allowInferred: true });
+  const trust = trustedCors(request, 'GET, OPTIONS', env);
   const { headers } = trust;
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
@@ -1892,7 +1562,7 @@ function getMeteredFallbackIceServers(env) {
 }
 
 async function handleTurnConfig(request, env) {
-  const trust = trustedCors(request, 'GET, OPTIONS', env, { allowInferred: true });
+  const trust = trustedCors(request, 'GET, OPTIONS', env);
   const { headers } = trust;
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
@@ -1927,79 +1597,6 @@ function getRealtimeEnv(env) {
       env.CLOUDFLARE_SFU_API_TOKEN ||
       '',
   };
-}
-
-function getRealtimeOwnerSecret(env) {
-  const secret = String(
-    env.MXQR_REALTIME_SESSION_OWNER_SECRET ||
-      env.REALTIME_SESSION_OWNER_SECRET ||
-      getCapabilitySecret(env) ||
-      '',
-  ).trim();
-  return new TextEncoder().encode(secret).byteLength >= MIN_HMAC_SECRET_BYTES ? secret : '';
-}
-
-async function createRealtimeOwnerToken(sessionId, env, anchor = null) {
-  const secret = getRealtimeOwnerSecret(env);
-  const now = Math.floor(Date.now() / 1000);
-  const originalIssuedAt = anchor?.originalIssuedAt ?? now;
-  const absoluteExpiresAt = anchor?.absoluteExpiresAt ?? now + parseRealtimeOwnerAbsoluteTtl(env);
-  const payload = {
-    v: 2,
-    sid: sessionId,
-    actions: REALTIME_OWNER_ACTIONS,
-    iat: now,
-    exp: Math.min(now + parseRealtimeOwnerTtl(env), absoluteExpiresAt),
-    orig: originalIssuedAt,
-    abs: absoluteExpiresAt,
-  };
-  const payloadPart = stringToBase64Url(JSON.stringify(payload));
-  const signature = await hmacSha256(secret, `realtime-owner:${payloadPart}`);
-  return {
-    token: `${payloadPart}.${signature}`,
-    expiresAt: payload.exp,
-  };
-}
-
-async function verifyRealtimeOwnerToken(token, action, sessionId, env) {
-  if (
-    typeof token !== 'string' ||
-    !token ||
-    !REALTIME_OWNER_ACTIONS.includes(action) ||
-    !sessionId
-  ) {
-    return null;
-  }
-  const secret = getRealtimeOwnerSecret(env);
-  if (!secret) return null;
-  const parts = token.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  const expectedSignature = await hmacSha256(secret, `realtime-owner:${parts[0]}`);
-  if (!constantTimeEqual(expectedSignature, parts[1])) return null;
-
-  let payload;
-  try {
-    payload = JSON.parse(base64UrlToString(parts[0]));
-  } catch {
-    return null;
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if ((payload?.v !== 1 && payload?.v !== 2) || payload.sid !== sessionId) return null;
-  if (!Array.isArray(payload.actions) || !payload.actions.includes(action)) return null;
-  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return null;
-  if (typeof payload.exp !== 'number' || payload.exp <= now) return null;
-  if (payload.exp - payload.iat > REALTIME_OWNER_TTL_MAX) return null;
-
-  // Legacy v1 tokens have no renewable lifetime. They remain valid for their
-  // original TTL during a rolling deploy, but a refresh cannot extend them.
-  const originalIssuedAt = payload.v === 2 ? payload.orig : payload.iat;
-  const absoluteExpiresAt = payload.v === 2 ? payload.abs : payload.exp;
-  if (typeof originalIssuedAt !== 'number' || originalIssuedAt > payload.iat) return null;
-  if (typeof absoluteExpiresAt !== 'number' || absoluteExpiresAt <= now) return null;
-  if (payload.exp > absoluteExpiresAt) return null;
-  if (absoluteExpiresAt - originalIssuedAt > REALTIME_OWNER_ABSOLUTE_TTL_MAX) return null;
-  return { originalIssuedAt, absoluteExpiresAt };
 }
 
 function buildRealtimeRequest(action, appId, sessionId, correlationId) {
@@ -2042,7 +1639,7 @@ function shouldSendPayloadBody(action, payload) {
 }
 
 async function handleRealtime(request, env) {
-  const trust = trustedCors(request, 'POST, OPTIONS', env, { allowInferred: true });
+  const trust = trustedCors(request, 'POST, OPTIONS', env);
   const { headers } = trust;
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
@@ -2052,43 +1649,16 @@ async function handleRealtime(request, env) {
 
   const { appId, appSecret } = getRealtimeEnv(env);
   if (!appId || !appSecret) return json({ error: 'REALTIME_SFU_UNAVAILABLE' }, 503, headers);
-  if (!getRealtimeOwnerSecret(env)) {
-    return json({ error: 'REALTIME_SESSION_OWNERSHIP_NOT_CONFIGURED' }, 503, headers);
-  }
 
-  const parsedBody = await readJsonBodyLimited(request, REALTIME_JSON_BODY_MAX_BYTES);
-  if (parsedBody.error) return jsonBodyError(parsedBody, headers);
-  const body = parsedBody.value;
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return json({ error: 'Invalid JSON body' }, 400, headers);
-  }
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object') return json({ error: 'Invalid JSON body' }, 400, headers);
 
   const action = typeof body.action === 'string' ? body.action : '';
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
-  const isOwnerRefresh = action === REALTIME_OWNER_REFRESH_ACTION;
-  const realtimeRequest = isOwnerRefresh
-    ? null
-    : buildRealtimeRequest(action, appId, sessionId, body.correlationId);
-  if (!isOwnerRefresh && !realtimeRequest) {
-    return json({ error: 'Unsupported action' }, 400, headers);
-  }
+  const realtimeRequest = buildRealtimeRequest(action, appId, sessionId, body.correlationId);
+  if (!realtimeRequest) return json({ error: 'Unsupported action' }, 400, headers);
   if (action !== 'new-session' && !sessionId)
     return json({ error: 'Missing sessionId' }, 400, headers);
-  const ownerClaims =
-    action === 'new-session'
-      ? null
-      : await verifyRealtimeOwnerToken(body.sessionOwnerToken, action, sessionId, env);
-  if (action !== 'new-session' && !ownerClaims) {
-    return json({ error: 'SESSION_OWNERSHIP_REQUIRED' }, 403, headers);
-  }
-  if (isOwnerRefresh) {
-    const owner = await createRealtimeOwnerToken(sessionId, env, ownerClaims);
-    return json(
-      { sessionId, sessionOwnerToken: owner.token, sessionOwnerExpiresAt: owner.expiresAt },
-      200,
-      headers,
-    );
-  }
 
   try {
     const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
@@ -2110,18 +1680,6 @@ async function handleRealtime(request, env) {
     } catch {
       responseBody = { raw: text };
     }
-    if (
-      action === 'new-session' &&
-      cfResponse.ok &&
-      responseBody &&
-      typeof responseBody === 'object' &&
-      typeof responseBody.sessionId === 'string' &&
-      responseBody.sessionId
-    ) {
-      const owner = await createRealtimeOwnerToken(responseBody.sessionId, env);
-      responseBody.sessionOwnerToken = owner.token;
-      responseBody.sessionOwnerExpiresAt = owner.expiresAt;
-    }
     return json(responseBody, cfResponse.status, headers);
   } catch (error) {
     return json(
@@ -2138,18 +1696,6 @@ function esc(value) {
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-}
-
-function serializeJsonForHtmlScript(value) {
-  // JSON is data, but an HTML parser still recognizes a literal </script>
-  // inside a script element. Escape HTML-significant/code-separator code
-  // points so untrusted RSS metadata can never terminate the JSON-LD block.
-  return JSON.stringify(value)
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
 }
 
 function replaceMetaProperty(html, property, content) {
@@ -2935,7 +2481,7 @@ function renderSoroArticleInBlogShell(templateHtml, article, requestUrl, source)
   );
   return html.replace(
     '</head>',
-    `  <script type="application/ld+json">${serializeJsonForHtmlScript(jsonLd)}</script>\n</head>`,
+    `  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>\n</head>`,
   );
 }
 
@@ -3016,7 +2562,7 @@ function renderSoroArticleHtml(article, requestUrl, source, templateHtml = '') {
       .soro-article-content h2 { font-size: 26px; }
     }
   </style>
-  <script type="application/ld+json">${serializeJsonForHtmlScript(jsonLd)}</script>
+  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
 </head>
 <body class="editorial-page editorial-blog" data-soro-source="${esc(source)}" data-soro-view="article">
 <header class="lp-header">
@@ -3395,11 +2941,6 @@ async function serveStatic(request, env, ctx) {
 export default {
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
-    ctx.waitUntil(
-      cleanupExpiredRateLimits(env.MUSIXQUARE_ADMIN_DB, { force: true }).catch((error) => {
-        console.warn('[RateLimit] Scheduled expired-row cleanup failed', error);
-      }),
-    );
   },
 
   async fetch(request, env, ctx) {
@@ -3419,8 +2960,6 @@ export default {
     switch (url.pathname) {
       case '/api/security-config':
         return handleSecurityConfig(request, env);
-      case '/api/capability-challenge':
-        return handleCapabilityChallenge(request, env);
       case '/api/capability-token':
         return handleCapabilityToken(request, env);
       case '/api/youtube-search':

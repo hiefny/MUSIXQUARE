@@ -15,7 +15,6 @@ import {
   RECOVERY_BACKOFF,
   TRANSFER_STATE,
   PLAYBACK_STATE,
-  REMOTE_SHARE_STREAM_THRESHOLD_BYTES,
 } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -219,17 +218,12 @@ async function handleRequestCurrentFile(
   // shareRemoteFileIfNeeded reuses the fresh descriptor cache (cheap), and
   // re-uploads only when expired. TURN cost policy holds — only a
   // control-plane descriptor rides the connection; bytes go via R2.
-  const requiresRangeShare = fileToSend.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES;
-  if (!requiresRangeShare && (await canSendFileTo(conn))) {
+  if (await canSendFileTo(conn)) {
     await unicastFile(conn, fileToSend, 0, sid, true);
     return;
   }
   if (!conn.open) return;
-  if (
-    isRemoteShareConfigured() &&
-    fileToSend instanceof File &&
-    !isDemoTrackName(fileToSend.name)
-  ) {
+  if (isRemoteShareConfigured() && fileToSend instanceof File && !isDemoTrackName(fileToSend.name)) {
     void shareRemoteFileIfNeeded(
       fileToSend,
       sid,

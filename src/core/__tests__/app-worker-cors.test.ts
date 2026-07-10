@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFile } from 'node:fs/promises';
 import appWorker from '../../../cloudflare/app-worker.js';
 
 afterEach(() => {
@@ -13,131 +12,7 @@ function requestWithOrigin(origin: string): Request {
   });
 }
 
-function base64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function decodeTokenPayload(token: string): Record<string, unknown> {
-  const encoded = token.split('.')[0] || '';
-  const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-  return JSON.parse(
-    new TextDecoder().decode(Uint8Array.from(atob(padded), (c) => c.charCodeAt(0))),
-  ) as Record<string, unknown>;
-}
-
-async function hmacSha256(secret: string, value: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  return base64Url(
-    new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))),
-  );
-}
-
-async function signCapabilityToken(secret: string, ip: string, scopes: string[]): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    v: 1,
-    scopes,
-    iat: now,
-    exp: now + 600,
-    ip: await hmacSha256(secret, `ip:${ip}`),
-  };
-  const payloadPart = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
-  return `${payloadPart}.${await hmacSha256(secret, payloadPart)}`;
-}
-
-async function solveProofOfWork(challenge: string, difficulty: number): Promise<string> {
-  const encoder = new TextEncoder();
-  for (let solution = 0; solution < 10_000_000; solution += 1) {
-    const digest = new Uint8Array(
-      await crypto.subtle.digest('SHA-256', encoder.encode(`mxqr-pow-v1:${challenge}:${solution}`)),
-    );
-    let remaining = difficulty;
-    let valid = true;
-    for (const byte of digest) {
-      if (remaining <= 0) break;
-      const bits = Math.min(8, remaining);
-      if ((byte & (0xff << (8 - bits))) !== 0) {
-        valid = false;
-        break;
-      }
-      remaining -= bits;
-    }
-    if (valid && remaining <= 0) return String(solution);
-  }
-  throw new Error('test proof-of-work solution not found');
-}
-
-async function requestProofOfWork(
-  env: Record<string, unknown>,
-  scopes: string[],
-  ip: string,
-): Promise<{ challenge: string; solution: string; expiresAt: number; difficulty: number }> {
-  const response = await appWorker.fetch(
-    new Request('https://musixquare.com/api/capability-challenge', {
-      method: 'POST',
-      headers: {
-        Origin: 'https://musixquare.com',
-        'Content-Type': 'application/json',
-        'CF-Connecting-IP': ip,
-      },
-      body: JSON.stringify({ scopes }),
-    }),
-    env,
-  );
-  const payload = (await response.json()) as {
-    challenge: string;
-    expiresAt: number;
-    difficulty: number;
-  };
-  expect(response.status).toBe(200);
-  return {
-    ...payload,
-    solution: await solveProofOfWork(payload.challenge, payload.difficulty),
-  };
-}
-
-async function mintWithProofOfWork(
-  env: Record<string, unknown>,
-  scopes: string[],
-  ip: string,
-  proof?: { challenge: string; solution: string },
-): Promise<Response> {
-  const resolvedProof = proof || (await requestProofOfWork(env, scopes, ip));
-  return appWorker.fetch(
-    new Request('https://musixquare.com/api/capability-token', {
-      method: 'POST',
-      headers: {
-        Origin: 'https://musixquare.com',
-        'Content-Type': 'application/json',
-        'CF-Connecting-IP': ip,
-      },
-      body: JSON.stringify({ scopes, proofOfWork: resolvedProof }),
-    }),
-    env,
-  );
-}
-
 describe('Cloudflare app worker CORS gate', () => {
-  it('keeps workers.dev and preview URL exposure disabled in production config', async () => {
-    const wrangler = await readFile(
-      new URL('../../../cloudflare/wrangler.app.toml', import.meta.url),
-      'utf8',
-    );
-
-    expect(wrangler).toMatch(/^workers_dev\s*=\s*false$/m);
-    expect(wrangler).toMatch(/^preview_urls\s*=\s*false$/m);
-    expect(wrangler).not.toMatch(/^MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK\s*=\s*true$/m);
-  });
-
   it('rejects broad Cloudflare preview origins by default', async () => {
     const pagesResponse = await appWorker.fetch(
       requestWithOrigin('https://random-preview.pages.dev'),
@@ -192,19 +67,6 @@ describe('Cloudflare app worker CORS gate', () => {
     expect(denied.status).toBe(403);
     expect(denied.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
-
-  it('sets anti-framing and same-origin form CSP directives on Worker responses', async () => {
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/api/security-config', {
-        headers: { Origin: 'https://musixquare.com' },
-      }),
-      {},
-    );
-    const csp = response.headers.get('Content-Security-Policy') || '';
-
-    expect(csp).toContain("form-action 'self'");
-    expect(csp).toContain("frame-ancestors 'none'");
-  });
 });
 
 describe('Cloudflare app worker sensitive endpoint rate limit', () => {
@@ -221,37 +83,6 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
         }),
       },
     });
-  }
-
-  function createAtomicRateLimitDb() {
-    const buckets = new Map<string, { window: number; count: number }>();
-    return {
-      bucketKeys: buckets,
-      prepare: vi.fn((sql: string) => {
-        if (sql.includes('CREATE TABLE IF NOT EXISTS mxqr_api_rate_limits')) {
-          return { run: vi.fn(async () => ({ success: true })) };
-        }
-        if (sql.includes('INSERT INTO mxqr_api_rate_limits')) {
-          return {
-            bind: vi.fn((key: string, window: number, _expiresAt: number, limit: number) => ({
-              first: vi.fn(async () => {
-                const current = buckets.get(key);
-                if (current?.window === window && current.count >= limit) return null;
-                const count = current?.window === window ? current.count + 1 : 1;
-                buckets.set(key, { window, count });
-                return { count };
-              }),
-            })),
-          };
-        }
-        if (sql.includes('DELETE FROM mxqr_api_rate_limits')) {
-          return {
-            bind: vi.fn(() => ({ run: vi.fn(async () => ({ success: true })) })),
-          };
-        }
-        throw new Error(`unexpected statement: ${sql}`);
-      }),
-    };
   }
 
   it('fails closed for paid endpoints when capability auth is not configured', async () => {
@@ -306,79 +137,9 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     });
   });
 
-  it('uses the atomic D1 coordinator for concurrent paid-resource requests', async () => {
-    const env = {
-      MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
-      MXQR_RATE_LIMIT_HASH_SECRET: 'test-rate-limit-hash-secret-at-least-32-bytes',
-      MUSIXQUARE_ADMIN_DB: createAtomicRateLimitDb(),
-    };
-    const responses = await Promise.all(
-      Array.from({ length: 61 }, () =>
-        appWorker.fetch(
-          new Request('https://musixquare.com/api/get-turn-config', {
-            headers: {
-              Origin: 'https://musixquare.com',
-              'CF-Connecting-IP': '203.0.113.91',
-            },
-          }),
-          env,
-        ),
-      ),
-    );
-
-    expect(responses.filter((response) => response.status === 200)).toHaveLength(60);
-    expect(responses.filter((response) => response.status === 429)).toHaveLength(1);
-  });
-
-  it('stores only an HMAC-pseudonymous IP bucket and deletes expired rows', async () => {
-    const ip = '203.0.113.191';
-    const db = createAtomicRateLimitDb();
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/api/get-turn-config', {
-        headers: { Origin: 'https://musixquare.com', 'CF-Connecting-IP': ip },
-      }),
-      {
-        MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-        MXQR_RATE_LIMIT_HASH_SECRET: 'test-rate-limit-hash-secret-at-least-32-bytes',
-        TURN_USER: 'turn-user',
-        TURN_PASS: 'turn-pass',
-        MUSIXQUARE_ADMIN_DB: db,
-      },
-    );
-
-    expect(response.status).toBe(200);
-    const [bucketKey] = [...db.bucketKeys.keys()];
-    expect(bucketKey).toMatch(/^turn-config\u001f[A-Za-z0-9_-]{43}$/);
-    expect(bucketKey).not.toContain(ip);
-    expect(db.prepare).toHaveBeenCalledWith(
-      'DELETE FROM mxqr_api_rate_limits WHERE expires_at < ?',
-    );
-  });
-
-  it('rejects cross-site requests before touching the authenticated quota bucket', async () => {
-    const db = createAtomicRateLimitDb();
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/api/get-turn-config', {
-        headers: {
-          Origin: 'https://attacker.example',
-          'CF-Connecting-IP': '203.0.113.92',
-        },
-      }),
-      {
-        MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
-        MUSIXQUARE_ADMIN_DB: db,
-      },
-    );
-
-    expect(response.status).toBe(403);
-    expect(db.prepare).not.toHaveBeenCalled();
-  });
-
   it('requires a capability token when capability auth is enabled', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       TURN_USER: 'turn-user',
       TURN_PASS: 'turn-pass',
     };
@@ -397,73 +158,9 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(await response.json()).toEqual({ error: 'CAPABILITY_REQUIRED' });
   });
 
-  it('fails closed when a configured capability HMAC secret is shorter than 32 bytes', async () => {
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/api/get-turn-config', {
-        headers: { Origin: 'https://musixquare.com' },
-      }),
-      {
-        MXQR_CAPABILITY_SECRET: 'weak-secret',
-        TURN_USER: 'turn-user',
-        TURN_PASS: 'turn-pass',
-      },
-    );
-
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: 'CAPABILITY_NOT_CONFIGURED' });
-  });
-
-  it('rejects multi-scope capability issuance and legacy multi-scope tokens', async () => {
-    const secret = 'test-capability-secret-at-least-32-bytes';
-    const ip = '203.0.113.93';
+  it('reports Turnstile as required when capability auth has no fallback', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: secret,
-      MXQR_TURNSTILE_DISABLED: 'true',
-      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
-    };
-    const headers = {
-      Origin: 'https://musixquare.com',
-      'Content-Type': 'application/json',
-      'CF-Connecting-IP': ip,
-    };
-    const challenge = await appWorker.fetch(
-      new Request('https://musixquare.com/api/capability-challenge', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ scopes: ['turn', 'realtime'] }),
-      }),
-      env,
-    );
-    const mint = await appWorker.fetch(
-      new Request('https://musixquare.com/api/capability-token', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ scopes: ['turn', 'realtime'] }),
-      }),
-      env,
-    );
-    const legacyToken = await signCapabilityToken(secret, ip, ['turn', 'realtime']);
-    const useLegacy = await appWorker.fetch(
-      new Request('https://musixquare.com/api/get-turn-config', {
-        headers: {
-          Origin: 'https://musixquare.com',
-          'CF-Connecting-IP': ip,
-          'X-MXQR-Capability': legacyToken,
-        },
-      }),
-      env,
-    );
-
-    expect(challenge.status).toBe(400);
-    expect(mint.status).toBe(400);
-    expect(useLegacy.status).toBe(401);
-  });
-
-  it('reports transparent proof-of-work when Turnstile is not configured', async () => {
-    const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
     };
 
     const response = await appWorker.fetch(
@@ -479,10 +176,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(await response.json()).toMatchObject({
       capabilityRequired: true,
       turnstileSiteKey: '',
-      turnstileRequired: false,
-      proofOfWorkRequired: true,
-      proofOfWorkDifficulty: 16,
-      proofOfWorkTtl: 120,
+      turnstileRequired: true,
       inferredFallback: false,
     });
   });
@@ -503,7 +197,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       ),
     );
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
     };
@@ -541,7 +235,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       ),
     );
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
     };
@@ -580,7 +274,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       ),
     );
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
       MXQR_TURNSTILE_ALLOWED_HOSTNAMES: '*.musixquare.com',
@@ -606,7 +300,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('rejects spoofable trusted-origin token minting by default when Turnstile is absent', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       TURN_USER: 'turn-user',
       TURN_PASS: 'turn-pass',
     };
@@ -627,12 +321,12 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     );
 
     expect(mint.status).toBe(403);
-    expect(await mint.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
+    expect(await mint.json()).toEqual({ error: 'TURNSTILE_REQUIRED' });
   });
 
-  it('never treats a trusted Origin header as capability proof, even with the legacy flag', async () => {
+  it('mints short-lived capability tokens for trusted origins only with explicit fallback', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
       TURN_USER: 'turn-user',
       TURN_PASS: 'turn-pass',
@@ -650,13 +344,31 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       }),
       env,
     );
-    expect(mint.status).toBe(403);
-    expect(await mint.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
+    const payload = (await mint.json()) as { token?: string };
+
+    expect(mint.status).toBe(200);
+    expect(payload.token).toMatch(/\./);
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/get-turn-config', {
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': ip,
+          'X-MXQR-Capability': payload.token || '',
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as unknown).toMatchObject({
+      provider: 'metered-fallback',
+    });
   });
 
   it('rejects same-origin-inferred capability fallback by default when Turnstile is configured', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
       TURN_USER: 'turn-user',
@@ -694,7 +406,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('allows same-origin-inferred capability fallback only when explicitly enabled', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK: 'true',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
@@ -733,12 +445,11 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(allowed.status).toBe(200);
   });
 
-  it('reports configured proof-of-work parameters while Turnstile is disabled', async () => {
+  it('reports Turnstile as disabled during the grace period even when keys exist', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       MXQR_TURNSTILE_DISABLED: 'true',
-      MXQR_CAPABILITY_POW_DIFFICULTY: '9',
-      MXQR_CAPABILITY_POW_TTL: '45',
+      MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
     };
@@ -757,18 +468,15 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       capabilityRequired: true,
       turnstileSiteKey: '',
       turnstileRequired: false,
-      proofOfWorkRequired: true,
-      proofOfWorkDifficulty: 9,
-      proofOfWorkTtl: 45,
       inferredFallback: false,
     });
   });
 
-  it('mints and accepts an IP-bound proof-of-work capability while Turnstile is disabled', async () => {
+  it('mints trusted-origin capability tokens while Turnstile is disabled', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       MXQR_TURNSTILE_DISABLED: 'true',
-      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+      MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
       TURN_USER: 'turn-user',
@@ -776,7 +484,18 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     };
     const ip = '203.0.113.28';
 
-    const mint = await mintWithProofOfWork(env, ['turn'], ip);
+    const mint = await appWorker.fetch(
+      new Request('https://musixquare.com/api/capability-token', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+        },
+        body: JSON.stringify({ scopes: ['turn'] }),
+      }),
+      env,
+    );
     const payload = (await mint.json()) as { token?: string };
 
     expect(mint.status).toBe(200);
@@ -793,74 +512,6 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       env,
     );
     expect(allowed.status).toBe(200);
-  });
-
-  it('binds proof-of-work challenges to the exact scope set and client IP', async () => {
-    const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
-      MXQR_TURNSTILE_DISABLED: 'true',
-      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
-    };
-    const proof = await requestProofOfWork(env, ['turn'], '203.0.113.40');
-
-    const wrongScope = await mintWithProofOfWork(env, ['realtime'], '203.0.113.40', proof);
-    const wrongIp = await mintWithProofOfWork(env, ['turn'], '203.0.113.41', proof);
-
-    expect(wrongScope.status).toBe(403);
-    expect(await wrongScope.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
-    expect(wrongIp.status).toBe(403);
-    expect(await wrongIp.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
-  });
-
-  it('makes same-proof reuse idempotent instead of extending capability expiry', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
-    const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
-      MXQR_TURNSTILE_DISABLED: 'true',
-      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
-    };
-    const ip = '203.0.113.42';
-    const proof = await requestProofOfWork(env, ['turn'], ip);
-    const first = await mintWithProofOfWork(env, ['turn'], ip, proof);
-    const firstPayload = (await first.json()) as { token?: string; expiresAt?: number };
-
-    vi.setSystemTime(new Date('2026-07-10T00:01:00.000Z'));
-    const replay = await mintWithProofOfWork(env, ['turn'], ip, proof);
-    const replayPayload = (await replay.json()) as { token?: string; expiresAt?: number };
-
-    expect(first.status).toBe(200);
-    expect(replay.status).toBe(200);
-    expect(replayPayload).toEqual(firstPayload);
-  });
-
-  it('rejects expired proof-of-work and clamps unsafe env parameters', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
-    const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
-      MXQR_TURNSTILE_DISABLED: 'true',
-      MXQR_CAPABILITY_POW_DIFFICULTY: '1',
-      MXQR_CAPABILITY_POW_TTL: '1',
-    };
-    const config = await appWorker.fetch(
-      new Request('https://musixquare.com/api/security-config', {
-        headers: { Origin: 'https://musixquare.com' },
-      }),
-      env,
-    );
-    expect(await config.json()).toMatchObject({
-      proofOfWorkDifficulty: 8,
-      proofOfWorkTtl: 30,
-    });
-
-    const ip = '203.0.113.43';
-    const proof = await requestProofOfWork(env, ['turn'], ip);
-    vi.setSystemTime(new Date('2026-07-10T00:00:31.000Z'));
-    const expired = await mintWithProofOfWork(env, ['turn'], ip, proof);
-
-    expect(expired.status).toBe(403);
-    expect(await expired.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
   });
 
   it('serves rate-limit rejections with the shared security headers', async () => {
@@ -888,279 +539,6 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(blocked.headers.get('Strict-Transport-Security')).toContain('max-age=');
     expect(blocked.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
     expect(await blocked.json()).toEqual({ error: 'Too Many Requests' });
-  });
-});
-
-describe('Cloudflare app worker bounded JSON bodies', () => {
-  const capabilityEnv = {
-    MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32-bytes',
-    MXQR_TURNSTILE_DISABLED: 'true',
-  };
-  const realtimeEnv = {
-    MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-    MXQR_REALTIME_SESSION_OWNER_SECRET: 'realtime-owner-secret-for-tests-at-least-32-bytes',
-    CLOUDFLARE_REALTIME_APP_ID: 'realtime-app-id',
-    CLOUDFLARE_REALTIME_APP_SECRET: 'realtime-app-secret',
-  };
-  const adminEnv = {
-    MXQR_ADMIN_PASSWORD: 'admin-password',
-    MXQR_ADMIN_SESSION_SECRET: 'admin-session-secret-for-tests',
-  };
-  const cases = [
-    ['/api/capability-challenge', capabilityEnv],
-    ['/api/capability-token', capabilityEnv],
-    ['/api/cloudflare-realtime', realtimeEnv],
-    ['/api/admin/login', adminEnv],
-  ] as const;
-
-  it('rejects an oversized Content-Length before consuming the request stream', async () => {
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/api/capability-challenge', {
-        method: 'POST',
-        headers: {
-          Origin: 'https://musixquare.com',
-          'Content-Type': 'application/json',
-          'Content-Length': '999999',
-        },
-        body: '{}',
-      }),
-      capabilityEnv,
-    );
-
-    expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: 'Request body too large' });
-  });
-
-  it.each(cases)('counts the actual streamed bytes for %s', async (path, env) => {
-    const response = await appWorker.fetch(
-      new Request(`https://musixquare.com${path}`, {
-        method: 'POST',
-        headers: {
-          Origin: 'https://musixquare.com',
-          'Content-Type': 'application/json',
-          // Deliberately lie low: the stream counter, not this hint, must win.
-          'Content-Length': '2',
-        },
-        body: JSON.stringify({ padding: 'x'.repeat(140 * 1024) }),
-      }),
-      env,
-    );
-
-    expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: 'Request body too large' });
-  });
-
-  it.each(cases)('returns a stable invalid-JSON error for %s', async (path, env) => {
-    const response = await appWorker.fetch(
-      new Request(`https://musixquare.com${path}`, {
-        method: 'POST',
-        headers: { Origin: 'https://musixquare.com', 'Content-Type': 'application/json' },
-        body: '{',
-      }),
-      env,
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: 'Invalid JSON body' });
-  });
-});
-
-describe('Cloudflare Realtime session ownership', () => {
-  const env = {
-    MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-    MXQR_REALTIME_SESSION_OWNER_SECRET: 'realtime-owner-secret-for-tests-at-least-32-bytes',
-    CLOUDFLARE_REALTIME_APP_ID: 'realtime-app-id',
-    CLOUDFLARE_REALTIME_APP_SECRET: 'realtime-app-secret',
-  };
-
-  function proxyRequest(body: Record<string, unknown>, ip = '203.0.113.60'): Request {
-    return new Request('https://musixquare.com/api/cloudflare-realtime', {
-      method: 'POST',
-      headers: {
-        Origin: 'https://musixquare.com',
-        'Content-Type': 'application/json',
-        'CF-Connecting-IP': ip,
-      },
-      body: JSON.stringify(body),
-    });
-  }
-
-  it('rejects cross-session BOLA while allowing a legitimate IP handoff', async () => {
-    let sessionCounter = 0;
-    const upstreamFetch = vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input).includes('/sessions/new')) {
-        sessionCounter += 1;
-        return Response.json({ sessionId: `session-${sessionCounter}` });
-      }
-      return Response.json({ ok: true });
-    });
-    vi.stubGlobal('fetch', upstreamFetch);
-
-    const first = await appWorker.fetch(proxyRequest({ action: 'new-session' }), env);
-    const second = await appWorker.fetch(proxyRequest({ action: 'new-session' }), env);
-    const firstPayload = (await first.json()) as {
-      sessionId?: string;
-      sessionOwnerToken?: string;
-    };
-    const secondPayload = (await second.json()) as {
-      sessionId?: string;
-      sessionOwnerToken?: string;
-    };
-
-    expect(first.status).toBe(200);
-    expect(firstPayload).toMatchObject({ sessionId: 'session-1' });
-    expect(firstPayload.sessionOwnerToken).toMatch(/\./);
-    expect(secondPayload.sessionOwnerToken).toMatch(/\./);
-
-    const upstreamCallsBeforeBola = upstreamFetch.mock.calls.length;
-    const crossSession = await appWorker.fetch(
-      proxyRequest({
-        action: 'tracks-close',
-        sessionId: firstPayload.sessionId,
-        sessionOwnerToken: secondPayload.sessionOwnerToken,
-        payload: { tracks: [{ mid: '0' }] },
-      }),
-      env,
-    );
-    const crossIp = await appWorker.fetch(
-      proxyRequest(
-        {
-          action: 'renegotiate',
-          sessionId: firstPayload.sessionId,
-          sessionOwnerToken: firstPayload.sessionOwnerToken,
-          payload: { sessionDescription: { type: 'answer', sdp: 'test' } },
-        },
-        '203.0.113.61',
-      ),
-      env,
-    );
-    const missing = await appWorker.fetch(
-      proxyRequest({ action: 'tracks-new', sessionId: firstPayload.sessionId, payload: {} }),
-      env,
-    );
-
-    expect(crossSession.status).toBe(403);
-    expect(await crossSession.json()).toEqual({ error: 'SESSION_OWNERSHIP_REQUIRED' });
-    expect(crossIp.status).toBe(200);
-    expect(missing.status).toBe(403);
-    expect(upstreamFetch).toHaveBeenCalledTimes(upstreamCallsBeforeBola + 1);
-
-    const owned = await appWorker.fetch(
-      proxyRequest({
-        action: 'tracks-close',
-        sessionId: firstPayload.sessionId,
-        sessionOwnerToken: firstPayload.sessionOwnerToken,
-        payload: { tracks: [{ mid: '0' }] },
-      }),
-      env,
-    );
-    expect(owned.status).toBe(200);
-    expect(upstreamFetch).toHaveBeenCalledTimes(upstreamCallsBeforeBola + 2);
-  });
-
-  it('renews an owned session across IP changes without extending an expired token', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
-    const shortEnv = {
-      ...env,
-      MXQR_REALTIME_SESSION_OWNER_TTL: '300',
-      MXQR_REALTIME_SESSION_OWNER_ABSOLUTE_TTL: '600',
-    };
-    const upstreamFetch = vi.fn(async (input: RequestInfo | URL) =>
-      String(input).includes('/sessions/new')
-        ? Response.json({ sessionId: 'session-refresh' })
-        : Response.json({ ok: true }),
-    );
-    vi.stubGlobal('fetch', upstreamFetch);
-
-    const created = await appWorker.fetch(proxyRequest({ action: 'new-session' }), shortEnv);
-    const original = (await created.json()) as {
-      sessionOwnerToken: string;
-      sessionOwnerExpiresAt: number;
-    };
-
-    vi.setSystemTime(new Date('2026-07-10T00:04:00.000Z'));
-    const renewed = await appWorker.fetch(
-      proxyRequest(
-        {
-          action: 'session-owner-refresh',
-          sessionId: 'session-refresh',
-          sessionOwnerToken: original.sessionOwnerToken,
-        },
-        '203.0.113.61',
-      ),
-      shortEnv,
-    );
-    const refreshed = (await renewed.json()) as {
-      sessionOwnerToken: string;
-      sessionOwnerExpiresAt: number;
-    };
-
-    expect(renewed.status).toBe(200);
-    expect(refreshed.sessionOwnerToken).toMatch(/\./);
-    expect(refreshed.sessionOwnerToken).not.toBe(original.sessionOwnerToken);
-    expect(refreshed.sessionOwnerExpiresAt).toBeGreaterThan(original.sessionOwnerExpiresAt);
-    const originalClaims = decodeTokenPayload(original.sessionOwnerToken);
-    const refreshedClaims = decodeTokenPayload(refreshed.sessionOwnerToken);
-    expect(refreshedClaims.orig).toBe(originalClaims.orig);
-    expect(refreshedClaims.abs).toBe(originalClaims.abs);
-    expect(Number(refreshedClaims.abs) - Number(refreshedClaims.orig)).toBe(600);
-    // Refresh is local authorization work; it never reaches Cloudflare Realtime.
-    expect(upstreamFetch).toHaveBeenCalledTimes(1);
-
-    vi.setSystemTime(new Date('2026-07-10T00:05:01.000Z'));
-    const expired = await appWorker.fetch(
-      proxyRequest({
-        action: 'tracks-close',
-        sessionId: 'session-refresh',
-        sessionOwnerToken: original.sessionOwnerToken,
-        payload: { tracks: [{ mid: '0' }] },
-      }),
-      shortEnv,
-    );
-    const current = await appWorker.fetch(
-      proxyRequest(
-        {
-          action: 'tracks-close',
-          sessionId: 'session-refresh',
-          sessionOwnerToken: refreshed.sessionOwnerToken,
-          payload: { tracks: [{ mid: '0' }] },
-        },
-        '203.0.113.62',
-      ),
-      shortEnv,
-    );
-
-    expect(expired.status).toBe(403);
-    expect(current.status).toBe(200);
-    expect(upstreamFetch).toHaveBeenCalledTimes(2);
-
-    vi.setSystemTime(new Date('2026-07-10T00:08:00.000Z'));
-    const finalWindow = await appWorker.fetch(
-      proxyRequest({
-        action: 'session-owner-refresh',
-        sessionId: 'session-refresh',
-        sessionOwnerToken: refreshed.sessionOwnerToken,
-      }),
-      shortEnv,
-    );
-    const finalCredential = (await finalWindow.json()) as {
-      sessionOwnerToken: string;
-      sessionOwnerExpiresAt: number;
-    };
-    expect(finalWindow.status).toBe(200);
-    expect(finalCredential.sessionOwnerExpiresAt).toBe(Number(originalClaims.abs));
-
-    vi.setSystemTime(new Date('2026-07-10T00:10:01.000Z'));
-    const pastAbsoluteLifetime = await appWorker.fetch(
-      proxyRequest({
-        action: 'session-owner-refresh',
-        sessionId: 'session-refresh',
-        sessionOwnerToken: finalCredential.sessionOwnerToken,
-      }),
-      shortEnv,
-    );
-    expect(pastAbsoluteLifetime.status).toBe(403);
   });
 });
 
@@ -1211,38 +589,14 @@ describe('Cloudflare app worker YouTube search proxy', () => {
 
 describe('Cloudflare app worker admin dashboard', () => {
   function createMetricsDb(rows: Array<{ bucket_minute: number; event: string; count: number }>) {
-    const rateLimits = new Map<string, { window: number; count: number }>();
     return {
-      prepare: vi.fn((sql: string) => {
-        if (sql.includes('CREATE TABLE IF NOT EXISTS mxqr_api_rate_limits')) {
-          return { run: vi.fn(async () => ({ success: true })) };
-        }
-        if (sql.includes('INSERT INTO mxqr_api_rate_limits')) {
-          return {
-            bind: vi.fn((key: string, window: number, _expiresAt: number, limit: number) => ({
-              first: vi.fn(async () => {
-                const current = rateLimits.get(key);
-                if (current?.window === window && current.count >= limit) return null;
-                const count = current?.window === window ? current.count + 1 : 1;
-                rateLimits.set(key, { window, count });
-                return { count };
-              }),
-            })),
-          };
-        }
-        if (sql.includes('DELETE FROM mxqr_api_rate_limits')) {
-          return {
-            bind: vi.fn(() => ({ run: vi.fn(async () => ({ success: true })) })),
-          };
-        }
-        return {
-          bind: vi.fn((sinceMinute: number) => ({
-            all: vi.fn(async () => ({
-              results: rows.filter((row) => row.bucket_minute >= sinceMinute),
-            })),
+      prepare: vi.fn(() => ({
+        bind: vi.fn((sinceMinute: number) => ({
+          all: vi.fn(async () => ({
+            results: rows.filter((row) => row.bucket_minute >= sinceMinute),
           })),
-        };
-      }),
+        })),
+      })),
     };
   }
 
@@ -1294,21 +648,6 @@ describe('Cloudflare app worker admin dashboard', () => {
 </rss>`;
   }
 
-  function createSoroRssWithJsonLdBreakout() {
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
-  <channel>
-    <item>
-      <title><![CDATA[Escape </script><style id="rss-pwned">body{display:none}</style>]]></title>
-      <link>https://musixquare.com/blog?post=json-ld-breakout</link>
-      <description><![CDATA[Description </script><script>globalThis.pwned=true</script>]]></description>
-      <pubDate>Thu, 18 Jun 2026 12:00:00 GMT</pubDate>
-      <content:encoded><![CDATA[<p>Safe body</p>]]></content:encoded>
-    </item>
-  </channel>
-</rss>`;
-  }
-
   it('sets an HttpOnly admin session cookie and serves D1-backed metrics', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
@@ -1316,7 +655,6 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
-      MXQR_RATE_LIMIT_HASH_SECRET: 'test-rate-limit-hash-secret-at-least-32-bytes',
       MUSIXQUARE_ADMIN_DB: createMetricsDb([
         { bucket_minute: nowMinute - 31 * 24 * 60, event: 'guest_joined', count: 99 },
         { bucket_minute: nowMinute - 29 * 24 * 60, event: 'guest_joined', count: 4 },
@@ -1509,9 +847,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     await env.SORO_RSS_BACKUP.put('soro-rss-latest-good.xml', createSoroRssWithImage());
 
     const waitUntil = vi.fn();
-    const response = await appWorker.fetch(new Request('https://musixquare.com/blog'), env, {
-      waitUntil,
-    } as any);
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/blog'),
+      env,
+      { waitUntil } as any,
+    );
     const html = await response.text();
 
     expect(response.status).toBe(200);
@@ -1522,49 +862,6 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(html).toContain('/soro-images/featured/fast-article.webp');
     expect(env.SORO_IMAGE_BUCKET.head).not.toHaveBeenCalled();
     expect(waitUntil).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps hostile RSS metadata inside JSON-LD in both shell and fallback renderers', async () => {
-    const rss = createSoroRssWithJsonLdBreakout();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(rss, { headers: { 'Content-Type': 'application/rss+xml' } })),
-    );
-
-    for (const shellHtml of [
-      '<html><head><title>Blog</title></head><body><div id="soro-blog"></div></body></html>',
-      '',
-    ]) {
-      const backup = createKvStore();
-      await backup.put('soro-rss-latest-good.xml', rss);
-      const response = await appWorker.fetch(
-        new Request('https://musixquare.com/blog/json-ld-breakout'),
-        {
-          SORO_RSS_BACKUP: backup,
-          ASSETS: {
-            fetch: vi.fn(async () =>
-              shellHtml
-                ? new Response(shellHtml, { headers: { 'Content-Type': 'text/html' } })
-                : new Response('not found', {
-                    status: 404,
-                    headers: { 'Content-Type': 'text/plain' },
-                  }),
-            ),
-          },
-        },
-      );
-      const html = await response.text();
-      const jsonLd = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
-
-      expect(response.status).toBe(200);
-      expect(html).not.toContain('</script><style id="rss-pwned">');
-      expect(html).not.toContain('</script><script>globalThis.pwned=true</script>');
-      expect(jsonLd).toContain('\\u003c/script\\u003e');
-      expect(JSON.parse(jsonLd || '{}')).toMatchObject({
-        headline: 'Escape </script><style id="rss-pwned">body{display:none}</style>',
-        description: 'Description </script><script>globalThis.pwned=true</script>',
-      });
-    }
   });
 
   it('lets admins publish a session announcement for active clients', async () => {

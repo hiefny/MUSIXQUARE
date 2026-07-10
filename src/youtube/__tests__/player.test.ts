@@ -306,11 +306,7 @@ describe('YouTube Player', () => {
 
       initYouTube();
 
-      const conn = {
-        open: true,
-        peer: 'guest-1',
-        send: vi.fn(),
-      } as unknown as DataConnection;
+      const conn = { open: true, peer: 'guest-1', send: vi.fn() } as DataConnection;
       bus.emit('network:peer-connected', conn);
 
       expect(safeSend).toHaveBeenCalledWith(

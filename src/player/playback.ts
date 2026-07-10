@@ -29,6 +29,7 @@ import type { DataConnection } from '../types/index.ts';
 import { getDemoTrackForPlayback, isDemoTrackName } from '../demo/tracks.ts';
 
 import {
+  getCurrentAudioBuffer,
   getPlayerNode,
   newLoadEpoch,
   setPendingPlayTime,
@@ -37,7 +38,6 @@ import {
   setLastClearedTrackName,
   setLocalFilePaused,
 } from './_state.ts';
-import { hasFilePlaybackSource, reconnectActiveMediaElementSource } from './media-element.ts';
 
 import {
   play,
@@ -304,7 +304,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     return;
   }
 
-  if (hasFilePlaybackSource()) {
+  if (getCurrentAudioBuffer()) {
     // Lifecycle: we have a decoded buffer → we're in
     // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
     // transition() handles same-track seek, resume from PAUSED, restart from
@@ -675,8 +675,8 @@ export function initPlayback(): void {
   });
 
   // Stop all media (called from youtube player before loading)
-  bus.on('player:stop-all-media', (options) => {
-    stopAllMedia(options);
+  bus.on('player:stop-all-media', () => {
+    stopAllMedia();
   });
 
   // Replay current track from start (repeat-one: guest already has file).
@@ -684,7 +684,7 @@ export function initPlayback(): void {
   // so don't start playing until then" — prevents the 3-second drift
   // window when host re-clicks a currently-playing track.
   bus.on('playback:replay-current', (delayMs?: number) => {
-    if (!hasFilePlaybackSource()) return;
+    if (!getCurrentAudioBuffer()) return;
 
     const doReplay = () => {
       log.debug('[Guest] Replaying current track from start');
@@ -710,7 +710,7 @@ export function initPlayback(): void {
   // Long background resume recovery: rebuild the current AudioBufferSourceNode
   // at the current logical position without surfacing a manual-sync toast.
   bus.on('playback:refresh-current-position', () => {
-    if (!hasFilePlaybackSource()) return;
+    if (!getCurrentAudioBuffer()) return;
     if (!isPlaybackPlayingFile()) return;
     // SA-04 sibling: a long background resume can land inside a track
     // change (stopAllMedia({silent}) keeps mode=file/playing while the new
@@ -732,7 +732,6 @@ export function initPlayback(): void {
         /* may not be connected */
       }
     }
-    reconnectActiveMediaElementSource();
   });
 
   // Surround mode toggled during playback: restart at current position
@@ -745,10 +744,6 @@ export function initPlayback(): void {
   // Safety polling: periodically check if track ended (called from UI loop)
   bus.on('player:check-ended', () => {
     handleEnded();
-  });
-
-  bus.on('player:media-element-ended', () => {
-    if (isPlaybackPlayingFile()) handleEnded();
   });
 
   // Clear previous track state (called from transfer module during track switch)

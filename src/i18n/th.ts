@@ -494,7 +494,7 @@ const th: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'แชร์ไฟล์ระยะไกลไม่สำเร็จ: {{msg}}',
   'share.remote.download_failed': 'ดาวน์โหลดไฟล์ระยะไกลไม่สำเร็จ: {{msg}}',
   'share.remote.timeout': 'แชร์ไฟล์ระยะไกลหมดเวลา',
-  'share.remote.too_large': 'ไฟล์ใหญ่เกินไปสำหรับการแชร์ระยะไกล',
+  'share.remote.too_large': 'ไฟล์ใหญ่เกินไป (สูงสุด 200 MB)',
   'share.remote.network_error': 'เกิดข้อผิดพลาดเครือข่ายระหว่างแชร์ระยะไกล',
   'share.remote.rate_limited': 'มีการอัปโหลดระยะไกลมากเกินไป\nโปรดลองอีกครั้งภายหลัง',
   'share.remote.auth_failed': 'ยืนยันสิทธิ์แชร์ระยะไกลไม่สำเร็จ\nโปรดตรวจสอบการตั้งค่า Worker',
@@ -516,8 +516,6 @@ const th: Record<I18nKey, string> = {
   'error.load_failed': 'โหลดไม่สำเร็จ: {{msg}}',
   'error.audio_decode_fail': 'ถอดรหัสเสียงไม่สำเร็จ!',
   'error.audio_memory': 'กำลังโหลดเสียงลงหน่วยความจำ...',
-  'error.audio_memory_limit':
-    '“{{name}}” มีขนาดใหญ่หรือยาวเกินไปสำหรับการเล่นอย่างปลอดภัยบนอุปกรณ์นี้',
   'error.decode_timeout': 'ถอดรหัส "{{name}}" นานเกินไป\nกำลังข้ามไปแทร็กถัดไป',
   'error.local_decode_wait': 'อุปกรณ์นี้ถอดรหัสแทร็กไม่ได้\nโปรดรอแทร็กถัดไป',
   'error.all_tracks_failed': 'ไม่มีแทร็กที่เล่นได้ในเพลย์ลิสต์',

@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import {
+  isVisible,
+} from './helpers/wait.ts';
 
 /** Wait for the app to fully initialize, then dismiss the setup overlay if present. */
 async function waitForAppReady(page: import('@playwright/test').Page) {
@@ -13,12 +16,6 @@ async function waitForAppReady(page: import('@playwright/test').Page) {
     if (el) el.classList.remove('active');
     document.body.classList.remove('overlay-open');
   });
-
-  // A service worker from a previously previewed build can legitimately show
-  // the "new version" dialog. It is unrelated to navigation smoke coverage,
-  // so dismiss it through the same secondary action a user would choose.
-  const secondaryDialogAction = page.locator('#dialog-overlay.show #btn-dialog-secondary');
-  if (await secondaryDialogAction.isVisible()) await secondaryDialogAction.click();
 }
 
 test.describe('MUSIXQUARE Smoke Test', () => {
@@ -64,12 +61,7 @@ test.describe('MUSIXQUARE Smoke Test', () => {
 
     // Filter out known non-critical errors (e.g. service worker in preview mode)
     const critical = errors.filter(
-      (e) =>
-        !e.includes('service-worker') &&
-        !e.includes('ServiceWorker') &&
-        // Cloudflare Web Analytics cannot POST its RUM beacon from localhost;
-        // WebKit surfaces that third-party CORS rejection as a page error.
-        !e.includes('cloudflareinsights.com/cdn-cgi/rum'),
+      (e) => !e.includes('service-worker') && !e.includes('ServiceWorker'),
     );
     expect(critical).toHaveLength(0);
   });

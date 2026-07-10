@@ -29,8 +29,6 @@ import {
 } from './core/page-lifecycle.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
-import { MSG } from './core/constants.ts';
-import type { DataConnection } from './types/index.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
@@ -43,7 +41,7 @@ import {
 } from './player/ownership.ts';
 
 // ── Network ──
-import { initProtocol, registerHandlers } from './network/protocol.ts';
+import { initProtocol } from './network/protocol.ts';
 import { initPeerHandlers, leaveSession } from './network/peer.ts';
 import { initSync } from './network/sync.ts';
 import { initOrchestrator } from './network/orchestrator.ts';
@@ -61,6 +59,7 @@ import { handleSyncWorkerFailure, setSyncWorker } from './network/sync-worker.ts
 
 // ── Player ──
 import { initPlayback } from './player/playback.ts';
+import { initPlaylist } from './player/playlist.ts';
 import { initDecodeHandlers } from './player/decode.ts';
 import { initMediaSession } from './player/media-session.ts';
 
@@ -84,6 +83,7 @@ import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
 import { initSettings } from './ui/settings.ts';
 import { initConnect } from './ui/connect.ts';
 import { initSetup } from './ui/setup.ts';
+import { initDemoMode } from './demo/mode.ts';
 import { initAnnouncementPolling } from './ui/announcement.ts';
 
 // ── Service Worker ──
@@ -94,76 +94,6 @@ declare global {
   interface Window {
     __MXQR?: unknown;
   }
-}
-
-let demoModeReady = false;
-let demoModeLoad: Promise<void> | null = null;
-let pendingDemoEnter = false;
-let replayDeferredDemoMessage:
-  | ((data: Record<string, unknown>, conn?: DataConnection) => void)
-  | null = null;
-let demoProtocolReplay = Promise.resolve();
-
-function ensureDemoModeLoaded(): Promise<void> {
-  if (demoModeReady) return Promise.resolve();
-  if (demoModeLoad) return demoModeLoad;
-  demoModeLoad = import('./demo/mode.ts')
-    .then(({ initDemoMode, replayDeferredDemoProtocolMessage }) => {
-      initDemoMode();
-      replayDeferredDemoMessage = replayDeferredDemoProtocolMessage;
-      demoModeReady = true;
-    })
-    .catch((error) => {
-      demoModeLoad = null;
-      throw error;
-    });
-  return demoModeLoad;
-}
-
-function initLazyDemoMode(): void {
-  const deferProtocolMessage = (data: Record<string, unknown>, conn?: DataConnection): void => {
-    // Serialize replay so ENTER/PLAY/PAUSE/EXIT order remains identical while
-    // the lazy chunk is in flight. initDemoMode replaces these registry
-    // adapters with the full handlers before the replay callback runs.
-    demoProtocolReplay = demoProtocolReplay
-      .then(async () => {
-        await ensureDemoModeLoaded();
-        replayDeferredDemoMessage?.(data, conn);
-      })
-      .catch((error) => log.error('[App] Deferred demo protocol replay failed:', error));
-  };
-  registerHandlers({
-    [MSG.DEMO_ENTER]: deferProtocolMessage,
-    [MSG.DEMO_PLAY]: deferProtocolMessage,
-    [MSG.DEMO_PAUSE]: deferProtocolMessage,
-    [MSG.DEMO_EXIT]: deferProtocolMessage,
-  });
-
-  // Coalesce clicks that arrive before the deferred chunk is ready, then
-  // replay one typed event after initDemoMode has installed its real handler.
-  bus.on('demo:enter', () => {
-    if (demoModeReady) return;
-    pendingDemoEnter = true;
-    void ensureDemoModeLoaded()
-      .then(() => {
-        if (!pendingDemoEnter) return;
-        pendingDemoEnter = false;
-        bus.emit('demo:enter');
-      })
-      .catch((error) => log.error('[App] DemoMode lazy init failed:', error));
-  });
-
-  // Keep first-run prompt behavior, but move parsing/downloading off the
-  // render-critical module graph.
-  setManagedTimer(
-    'demo-module-load',
-    () => {
-      void ensureDemoModeLoaded().catch((error) =>
-        log.error('[App] DemoMode deferred init failed:', error),
-      );
-    },
-    250,
-  );
 }
 
 // Tee console output into a ring buffer so `/debug console` can surface it on
@@ -481,10 +411,7 @@ async function bootstrap(): Promise<void> {
 
   // 3. Player & Media
   safeInit('Playback', initPlayback);
-  await safeInitAsync('Playlist', async () => {
-    const { initPlaylist } = await import('./player/playlist.ts');
-    initPlaylist();
-  });
+  safeInit('Playlist', initPlaylist);
   safeInit('DecodeHandlers', initDecodeHandlers);
   safeInit('MediaSession', initMediaSession);
 
@@ -543,7 +470,7 @@ async function bootstrap(): Promise<void> {
   safeInit('Connect', initConnect);
   safeInit('CustomScrollbars', initAllCustomScrollbars);
   safeInit('Setup', initSetup);
-  safeInit('DemoModeLoader', initLazyDemoMode);
+  safeInit('DemoMode', initDemoMode);
   safeInit('AnnouncementPolling', initAnnouncementPolling);
 
   // 9. Service Worker

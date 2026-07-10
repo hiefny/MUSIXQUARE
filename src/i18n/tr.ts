@@ -501,7 +501,7 @@ const tr: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Uzaktan paylaşım başarısız oldu: {{msg}}',
   'share.remote.download_failed': 'Uzak dosya indirilemedi: {{msg}}',
   'share.remote.timeout': 'Uzak dosya paylaşım süresi doldu',
-  'share.remote.too_large': 'Dosya uzaktan paylaşım için çok büyük',
+  'share.remote.too_large': 'Dosya limiti aşıldı (en fazla 200 MB)',
   'share.remote.network_error': 'Uzak paylaşım sırasında ağ hatası oluştu',
   'share.remote.rate_limited':
     'Çok fazla uzaktan paylaşım isteği var.\nLütfen birazdan tekrar deneyin',
@@ -527,8 +527,6 @@ const tr: Record<I18nKey, string> = {
   'error.load_failed': 'Yüklenemedi: {{msg}}',
   'error.audio_decode_fail': 'Ses kodu çözme hatası!',
   'error.audio_memory': 'Ses belleğe yükleniyor...',
-  'error.audio_memory_limit':
-    '“{{name}}” bu cihazda güvenli şekilde oynatılamayacak kadar büyük veya uzun.',
   'error.decode_timeout': '"{{name}}" şarkısının kodu çözülemedi.\nSonraki şarkıya geçiliyor...',
   'error.local_decode_wait':
     'Bu cihaz şarkının kodunu çözemedi.\nLütfen bir sonraki şarkıyı bekleyin.',

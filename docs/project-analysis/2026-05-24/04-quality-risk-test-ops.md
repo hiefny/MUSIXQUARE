@@ -306,11 +306,6 @@ Files:
 
 Observed config:
 
-> **Resolved 2026-07-10:** The grace-period fallback described below is historical.
-> Production configuration now keeps Turnstile disabled without trusting browser
-> origin headers: capability issuance uses signed proof-of-work challenges, paid API
-> quotas are enforced atomically in D1, and the production guard rejects this flag.
-
 - `MXQR_TURNSTILE_DISABLED = "true"` in app Wrangler config.
 - `MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK = "true"` is allowed by production security guard during Turnstile grace period.
 - Build guard prints that this policy is allowed and then passes.
@@ -412,3 +407,4 @@ Potential future work:
 ## Current Bottom Line
 
 The project is healthy under fast static/unit/build gates. The most actionable confirmed issue is stale E2E state assumptions. The biggest production risk class is not ordinary syntax/type failure, but real browser/network timing across multiple devices and media backends.
+

@@ -1,12 +1,6 @@
 name = "musixquare-signaling"
 main = "signaling-worker.js"
 compatibility_date = "2026-05-04"
-workers_dev = false
-preview_urls = false
-
-[[routes]]
-pattern = "signal.musixquare.com"
-custom_domain = true
 
 [[durable_objects.bindings]]
 name = "MUSIXQUARE_ROOMS"

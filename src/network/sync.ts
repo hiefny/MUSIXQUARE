@@ -28,8 +28,7 @@ import {
   adjustSync,
   setLocalManualSyncOffset,
 } from '../player/transport.ts';
-import { isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
-import { getFilePlaybackDuration, hasFilePlaybackSource } from '../player/media-element.ts';
+import { getCurrentAudioBuffer, isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import {
@@ -112,7 +111,7 @@ function canApplyManualSyncAction(): boolean {
   const hostConn = getState('network.hostConn');
   if (!hostConn?.open) return false;
   if (isPlaybackModeYouTube()) return true;
-  return isPlaybackModeFile() && hasFilePlaybackSource();
+  return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
 function rejectManualSyncAction(): void {
@@ -258,9 +257,10 @@ function getSafeSyncPongPosition(isFilePlaying: boolean): number {
 function getPlayableFileSyncPosition(estimatedHostPos: number): number | null {
   if (!Number.isFinite(estimatedHostPos)) return null;
 
-  if (!hasFilePlaybackSource()) return null;
+  const buffer = getCurrentAudioBuffer();
+  if (!buffer) return null;
 
-  const duration = getFilePlaybackDuration();
+  const duration = Number.isFinite(buffer.duration) ? buffer.duration : 0;
   const syncPosition = Math.max(0, estimatedHostPos);
   if (duration <= 0) return syncPosition;
 

@@ -16,6 +16,9 @@ const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
 const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
+const CAPABILITY_JSON_BODY_MAX_BYTES = 8 * 1024;
+const ADMIN_JSON_BODY_MAX_BYTES = 8 * 1024;
+const REALTIME_JSON_BODY_MAX_BYTES = 128 * 1024;
 const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const SORO_RSS_DEFAULT_URL = 'https://app.trysoro.com/api/rss/a07c133f-e3b9-401e-a076-ee36124598a7';
 const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
@@ -73,6 +76,57 @@ function json(body, status = 200, headers = {}) {
       },
     }),
   );
+}
+
+async function readJsonBodyLimited(request, maxBytes) {
+  const contentLength = request.headers.get('Content-Length');
+  if (contentLength !== null) {
+    const normalized = contentLength.trim();
+    if (!/^\d+$/.test(normalized)) return { error: 'invalid' };
+    if (Number(normalized) > maxBytes) return { error: 'too-large' };
+  }
+
+  if (!request.body) return { error: 'invalid' };
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      totalBytes += bytes.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel('JSON_BODY_TOO_LARGE').catch(() => {});
+        return { error: 'too-large' };
+      }
+      chunks.push(bytes);
+    }
+  } catch {
+    return { error: 'invalid' };
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (totalBytes === 0) return { error: 'invalid' };
+  const bodyBytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return { value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bodyBytes)) };
+  } catch {
+    return { error: 'invalid' };
+  }
+}
+
+function jsonBodyError(result, headers = {}) {
+  if (result.error === 'too-large') {
+    return json({ error: 'Request body too large' }, 413, headers);
+  }
+  return json({ error: 'Invalid JSON body' }, 400, headers);
 }
 
 function withSecurityHeaders(response, extraHeaders = {}) {
@@ -583,7 +637,9 @@ async function handleAdminLogin(request, env) {
     return rateLimitResponse({});
   }
 
-  const body = await request.json().catch(() => null);
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
   const password = typeof body?.password === 'string' ? body.password : '';
   if (!(await verifyAdminPassword(password, env))) {
     return json({ error: 'INVALID_PASSWORD' }, 401);
@@ -848,7 +904,9 @@ async function handleAdminArticleVisibility(request, env) {
   if (methodError) return methodError;
   if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
 
-  const body = await request.json().catch(() => null);
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
   const slug = String(body?.slug || '').trim();
   if (!isValidSoroSlug(slug)) return json({ error: 'INVALID_SLUG' }, 400);
 
@@ -1008,7 +1066,9 @@ async function handleAdminAnnouncement(request, env) {
     });
   }
 
-  const body = await request.json().catch(() => null);
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
   const message = String(body?.message || '')
     .trim()
     .slice(0, 280);
@@ -1279,7 +1339,9 @@ async function handleCapabilityToken(request, env) {
     return rateLimitResponse(headers);
   }
 
-  const body = await request.json().catch(() => null);
+  const parsedBody = await readJsonBodyLimited(request, CAPABILITY_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody, headers);
+  const body = parsedBody.value;
   const scopes = parseRequestedScopes(body?.scopes);
   if (scopes.length === 0) return json({ error: 'Invalid scopes' }, 400, headers);
 
@@ -1650,8 +1712,12 @@ async function handleRealtime(request, env) {
   const { appId, appSecret } = getRealtimeEnv(env);
   if (!appId || !appSecret) return json({ error: 'REALTIME_SFU_UNAVAILABLE' }, 503, headers);
 
-  const body = await request.json().catch(() => null);
-  if (!body || typeof body !== 'object') return json({ error: 'Invalid JSON body' }, 400, headers);
+  const parsedBody = await readJsonBodyLimited(request, REALTIME_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody, headers);
+  const body = parsedBody.value;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return json({ error: 'Invalid JSON body' }, 400, headers);
+  }
 
   const action = typeof body.action === 'string' ? body.action : '';
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';

@@ -132,4 +132,37 @@ describe('remote-share Worker capability gate', () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: 'invalid json' });
   });
+
+  it('rejects oversized session JSON after capability verification', async () => {
+    const token = await createCapabilityToken();
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: JSON.stringify({ roomId: 'room', padding: 'x'.repeat(8192) }),
+      }),
+      env({ MXQR_CAPABILITY_SECRET: CAPABILITY_SECRET }),
+    );
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: 'request body too large' });
+  });
+
+  it('rejects oversized completion JSON before token verification', async () => {
+    const response = await workerModule.default.fetch(
+      request('/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: 'room', padding: 'x'.repeat(8192) }),
+      }),
+      env({ REMOTE_SHARE_BUCKET: {} }),
+    );
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: 'request body too large' });
+  });
 });

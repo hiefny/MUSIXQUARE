@@ -542,6 +542,80 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   });
 });
 
+describe('Cloudflare app worker JSON body limits', () => {
+  it('rejects oversized capability and admin bodies before parsing', async () => {
+    const capability = await appWorker.fetch(
+      new Request('https://musixquare.com/api/capability-token', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.90',
+        },
+        body: JSON.stringify({ scopes: ['remote-share'], padding: 'x'.repeat(8192) }),
+      }),
+      {
+        MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+        MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
+      },
+    );
+    const admin = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.91',
+        },
+        body: JSON.stringify({ password: 'admin-pass', padding: 'x'.repeat(8192) }),
+      }),
+      {
+        MXQR_ADMIN_PASSWORD: 'admin-pass',
+        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      },
+    );
+
+    expect(capability.status).toBe(413);
+    expect(await capability.json()).toEqual({ error: 'Request body too large' });
+    expect(admin.status).toBe(413);
+    expect(await admin.json()).toEqual({ error: 'Request body too large' });
+  });
+
+  it('bounds chunked realtime JSON even without a Content-Length header', async () => {
+    const oversized = JSON.stringify({
+      action: 'new-session',
+      payload: { padding: 'x'.repeat(128 * 1024) },
+    });
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const bytes = new TextEncoder().encode(oversized);
+        controller.enqueue(bytes.slice(0, 64 * 1024));
+        controller.enqueue(bytes.slice(64 * 1024));
+        controller.close();
+      },
+    });
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/cloudflare-realtime', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.92',
+        },
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      {
+        MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+        CLOUDFLARE_REALTIME_APP_ID: 'test-app',
+        CLOUDFLARE_REALTIME_APP_SECRET: 'test-secret',
+      },
+    );
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: 'Request body too large' });
+  });
+});
+
 describe('Cloudflare app worker YouTube search proxy', () => {
   it('decodes HTML entities in YouTube result metadata', async () => {
     vi.stubGlobal(

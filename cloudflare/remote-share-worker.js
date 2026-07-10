@@ -37,6 +37,8 @@ const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 0;
 const DEFAULT_R2_BUCKET_NAME = 'musixquare-remote-share';
 const CAPABILITY_SCOPE = 'remote-share';
 const CAPABILITY_TOKEN_TTL_DEFAULT = 600;
+const SESSION_JSON_BODY_MAX_BYTES = 8 * 1024;
+const COMPLETE_JSON_BODY_MAX_BYTES = 8 * 1024;
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
@@ -112,6 +114,57 @@ function json(request, env, body, status = 200, extraHeaders = {}) {
       'cache-control': 'no-store',
     },
   });
+}
+
+async function readJsonBodyLimited(request, maxBytes) {
+  const contentLength = request.headers.get('content-length');
+  if (contentLength !== null) {
+    const normalized = contentLength.trim();
+    if (!/^\d+$/.test(normalized)) return { error: 'invalid' };
+    if (Number(normalized) > maxBytes) return { error: 'too-large' };
+  }
+
+  if (!request.body) return { error: 'invalid' };
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      totalBytes += bytes.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel('JSON_BODY_TOO_LARGE').catch(() => {});
+        return { error: 'too-large' };
+      }
+      chunks.push(bytes);
+    }
+  } catch {
+    return { error: 'invalid' };
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (totalBytes === 0) return { error: 'invalid' };
+  const bodyBytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return { value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bodyBytes)) };
+  } catch {
+    return { error: 'invalid' };
+  }
+}
+
+function jsonBodyError(request, env, result) {
+  if (result.error === 'too-large') {
+    return json(request, env, { error: 'request body too large' }, 413);
+  }
+  return json(request, env, { error: 'invalid json' }, 400);
 }
 
 function parseLimit(value, fallback) {
@@ -482,12 +535,9 @@ async function handleSession(request, env) {
   const capabilityError = await requireSessionCapability(request, env);
   if (capabilityError) return capabilityError;
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json(request, env, { error: 'invalid json' }, 400);
-  }
+  const parsedBody = await readJsonBodyLimited(request, SESSION_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(request, env, parsedBody);
+  const body = parsedBody.value;
 
   const roomId = safeRoomId(body?.roomId);
   const sessionId = Number(body?.sessionId);
@@ -617,12 +667,9 @@ async function handleComplete(request, env) {
   const secret = getSigningSecret(env);
   if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return json(request, env, { error: 'invalid json' }, 400);
-  }
+  const parsedBody = await readJsonBodyLimited(request, COMPLETE_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(request, env, parsedBody);
+  const body = parsedBody.value;
 
   const payload = await verifySignedToken(body?.completeToken, secret);
   const roomId = safeRoomId(body?.roomId);

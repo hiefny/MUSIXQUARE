@@ -14,7 +14,6 @@ import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
-import { scheduleYtAutoSync } from './player.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { clearReceiveState } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
@@ -28,6 +27,22 @@ import type { DataConnection } from '../types/index.ts';
 
 import type { YTNamespace } from './_state.ts';
 declare const YT: YTNamespace;
+
+function scheduleYtAutoSync(
+  targetTime: number,
+  overrides?: {
+    subIndex?: number;
+    videoId?: string;
+    skipSeek?: boolean;
+    rendezvousDelayMs?: number;
+    state?: number;
+  },
+): void {
+  // The coordinator owns timer/broadcast orchestration. A synchronous typed
+  // event keeps protocol handlers independent from player.ts and breaks the
+  // player <-> handlers import cycle without changing call timing.
+  bus.emit('youtube:schedule-auto-sync', targetTime, overrides);
+}
 
 // ─── Network Handlers ──────────────────────────────────────────────
 

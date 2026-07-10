@@ -122,7 +122,9 @@ describe('detectConnectionType', () => {
     ]);
     const conn = makeConnection({
       open: true,
-      peerConnection: { getStats: vi.fn().mockResolvedValue(stats) },
+      peerConnection: {
+        getStats: vi.fn().mockResolvedValue(stats),
+      } as unknown as RTCPeerConnection,
     });
 
     await expect(detectConnectionType(conn)).resolves.toBe('local');
@@ -136,7 +138,9 @@ describe('detectConnectionType', () => {
     ]);
     const conn = makeConnection({
       open: true,
-      peerConnection: { getStats: vi.fn().mockResolvedValue(stats) },
+      peerConnection: {
+        getStats: vi.fn().mockResolvedValue(stats),
+      } as unknown as RTCPeerConnection,
     });
 
     const result = detectConnectionType(conn);

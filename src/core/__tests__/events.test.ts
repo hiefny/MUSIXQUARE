@@ -1,5 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { bus } from '../events.ts';
+import { bus as typedBus } from '../events.ts';
+
+type RuntimeListener = (...args: unknown[]) => void;
+
+// These tests intentionally exercise runtime mechanics with synthetic names.
+// Production callers continue to use the EventMap-constrained singleton.
+const bus = typedBus as unknown as {
+  on(event: string, fn: RuntimeListener): () => void;
+  once(event: string, fn: RuntimeListener): () => void;
+  off(event: string, fn: RuntimeListener): void;
+  emit(event: string, ...args: unknown[]): void;
+  clear(event?: string): void;
+  debug(): Record<string, number>;
+};
 
 beforeEach(() => {
   bus.clear();

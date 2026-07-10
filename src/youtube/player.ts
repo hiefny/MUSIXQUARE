@@ -34,15 +34,11 @@ import {
   PREV_TRACK_RESTART_THRESHOLD_SEC,
   BROADCAST_SYNC_MIN_INTERVAL_MS,
 } from './constants.ts';
-
-interface PendingAutoSyncOptions {
-  isTrackTransition?: boolean;
-  targetTime?: number;
-  subIndex?: number;
-  videoId?: string;
-  skipSeek?: boolean;
-  rendezvousDelayMs?: number;
-}
+import {
+  consumePendingAutoSyncOnReady,
+  setPendingAutoSyncOnReady,
+  type PendingAutoSyncOptions,
+} from './autoplay-intent.ts';
 
 // YouTube rendezvous-autoplay intent: set by any caller that loaded a track
 // with autoplay=false but wants playback to start once the player (or its
@@ -53,26 +49,6 @@ interface PendingAutoSyncOptions {
 // Both route through 'youtube:auto-play' → scheduleYtAutoSync so the 1-sec
 // rendezvous countdown keeps host/guest aligned instead of each device
 // running its own autoplay timing.
-let _pendingAutoSyncOnReady = false;
-let _pendingAutoSyncOptions: PendingAutoSyncOptions | null = null;
-export function setPendingAutoSyncOnReady(
-  v: boolean,
-  options: PendingAutoSyncOptions | null = null,
-): void {
-  _pendingAutoSyncOnReady = v;
-  _pendingAutoSyncOptions = v ? options : null;
-}
-export function getPendingAutoSyncOnReady(): boolean {
-  return _pendingAutoSyncOnReady;
-}
-export function consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null {
-  if (!_pendingAutoSyncOnReady) return null;
-  _pendingAutoSyncOnReady = false;
-  const options = _pendingAutoSyncOptions ?? {};
-  _pendingAutoSyncOptions = null;
-  return options;
-}
-
 function isCompatIdle(): boolean {
   return isPlaybackIdleCompat();
 }
@@ -119,6 +95,7 @@ import {
   loadYouTubeVideo,
   refreshYouTubeDisplay,
   markYtStateBroadcast,
+  invalidateYtDurationCache,
   clearSnapshotRetries,
   showLiveStreamSyncWarning,
 } from './iframe.ts';
@@ -143,6 +120,11 @@ declare const YT: YTNamespace;
 
 export { getYouTubePlayer } from './_state.ts';
 export { loadYouTubeVideo, primeYouTubePlayer, precreateYouTubePlayer } from './iframe.ts';
+export {
+  consumePendingAutoSyncOnReady,
+  getPendingAutoSyncOnReady,
+  setPendingAutoSyncOnReady,
+} from './autoplay-intent.ts';
 
 // ─── YouTube Auto-Sync (SharedClock) ──────────────────────────────
 // Every play/seek action delays 1s so all devices start simultaneously.
@@ -523,6 +505,10 @@ export function initYouTube(): void {
   });
 
   // Bus event handlers from other modules
+  bus.on('youtube:schedule-auto-sync', (targetTime, overrides) => {
+    scheduleYtAutoSync(targetTime, overrides);
+  });
+  bus.on('youtube:invalidate-duration-cache', invalidateYtDurationCache);
   bus.on('youtube:stop-mode', (opts) => stopYouTubeMode(opts));
 
   bus.on('youtube:restore-room-playback', (payload) => {

@@ -248,11 +248,15 @@ function privateMaps(peer: CloudflareSignalingPeer): {
   connections: Map<string, TransportDataConnection>;
   roomSockets: Map<string, FakeWebSocket>;
   guestRooms: Map<string, { conn: TransportDataConnection; authFailed: boolean }>;
+  pendingCandidates: Map<string, { candidates: RTCIceCandidateInit[]; bytes: number }>;
+  pendingCandidateBytes: number;
 } {
   return peer as unknown as {
     connections: Map<string, TransportDataConnection>;
     roomSockets: Map<string, FakeWebSocket>;
     guestRooms: Map<string, { conn: TransportDataConnection; authFailed: boolean }>;
+    pendingCandidates: Map<string, { candidates: RTCIceCandidateInit[]; bytes: number }>;
+    pendingCandidateBytes: number;
   };
 }
 
@@ -419,13 +423,112 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       close,
       peerConnection: { connectionState: 'connected' },
     };
-    (peer as unknown as { connections: Map<string, unknown> }).connections.set('guest-1', conn);
+    const maps = privateMaps(peer);
+    maps.connections.set('guest-1', conn as unknown as TransportDataConnection);
+    maps.pendingCandidates.set('guest-1', {
+      candidates: [{ candidate: 'queued-before-departure' }],
+      bytes: 32,
+    });
+    maps.pendingCandidateBytes = 32;
 
     await (peer as unknown as { handleHostMessage(raw: string): Promise<void> }).handleHostMessage(
       JSON.stringify({ type: 'peer-left', peerId: 'guest-1' }),
     );
 
     expect(close).not.toHaveBeenCalled();
+    expect(maps.pendingCandidates.has('guest-1')).toBe(false);
+    expect(maps.pendingCandidateBytes).toBe(0);
+  });
+
+  it('caps pre-offer ICE candidates by count and bytes per peer', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+
+    for (let index = 0; index < 100; index += 1) {
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'signal-candidate',
+          from: 'guest-1',
+          candidate: { candidate: `candidate-${index}` },
+        }),
+      );
+    }
+    await flushAsync();
+
+    const queued = privateMaps(peer).pendingCandidates.get('guest-1');
+    expect(queued?.candidates).toHaveLength(64);
+    expect(queued?.bytes).toBeLessThanOrEqual(64 * 1024);
+
+    // A second peer has an independent bounded queue.
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-candidate',
+        from: 'guest-2',
+        candidate: { candidate: 'other-peer' },
+      }),
+    );
+    await flushAsync();
+    expect(privateMaps(peer).pendingCandidates.get('guest-2')?.candidates).toHaveLength(1);
+  });
+
+  it('caps pending ICE peer identities and total bytes against peerId rotation', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+
+    for (let index = 0; index < 96; index += 1) {
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'signal-candidate',
+          from: `rotating-${index}`,
+          candidate: { candidate: `candidate-${index}` },
+        }),
+      );
+    }
+    await flushAsync();
+
+    const maps = privateMaps(peer);
+    expect(maps.pendingCandidates.size).toBe(32);
+    expect(maps.pendingCandidates.has('rotating-31')).toBe(true);
+    expect(maps.pendingCandidates.has('rotating-32')).toBe(false);
+    expect(maps.pendingCandidateBytes).toBe(
+      [...maps.pendingCandidates.values()].reduce((sum, queued) => sum + queued.bytes, 0),
+    );
+    expect(maps.pendingCandidateBytes).toBeLessThanOrEqual(32 * 64 * 1024);
+  });
+
+  it('clears pending ICE whenever the current signaling socket closes', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    const maps = privateMaps(peer);
+    maps.pendingCandidates.set('guest-1', {
+      candidates: [{ candidate: 'queued' }],
+      bytes: 24,
+    });
+    maps.pendingCandidateBytes = 24;
+
+    socket.close();
+
+    expect(maps.pendingCandidates.size).toBe(0);
+    expect(maps.pendingCandidateBytes).toBe(0);
   });
 });
 
@@ -434,9 +537,11 @@ describe('Cloudflare guest signaling reconnect', () => {
     const { peer, conn, socket } = await establishGuest('12345678');
     const onDisconnected = vi.fn();
     peer.on('disconnected', onDisconnected);
+    const initialReconnectSecret = new URL(socket.url).searchParams.get('secret');
 
     expect(conn.open).toBe(true);
     expect(sentOfType(socket, 'signal-offer')).toHaveLength(1);
+    expect(initialReconnectSecret).toMatch(/^[A-Za-z0-9_-]{32}$/);
 
     socket.close();
 
@@ -450,8 +555,10 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
     const reopened = FakeWebSocket.instances[1];
     expect(reopened.url).toContain('role=guest');
+    expect(new URL(reopened.url).searchParams.get('secret')).toBe(initialReconnectSecret);
     reopened.dispatch('open');
     expect(sentOfType(reopened, 'guest-auth')[0]?.password).toBe('12345678');
+    expect(reopened.sent.join('\n')).not.toContain(initialReconnectSecret);
 
     reopened.dispatch(
       'message',

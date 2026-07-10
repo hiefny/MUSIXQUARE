@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import type { TransportDataConnection } from '../../network/transport/types.ts';
 
 const mocks = vi.hoisted(() => ({
   addSystemChatMessage: vi.fn(),
@@ -21,6 +22,16 @@ vi.mock('../debug-console.ts', () => ({ cmdDebug: mocks.cmdDebug }));
 vi.mock('../protocol.ts', () => ({ rememberPinnedNotice: mocks.rememberPinnedNotice }));
 
 import { parseCommand, executeCommand, getAvailableCommands } from '../commands.ts';
+
+function makeConnection(peer: string): TransportDataConnection {
+  return {
+    peer,
+    open: true,
+    send: vi.fn(),
+    close: vi.fn(),
+    on: vi.fn(),
+  };
+}
 
 beforeEach(() => {
   resetState();
@@ -55,16 +66,16 @@ describe('parseCommand', () => {
 
 describe('executeCommand permission gating', () => {
   it('rejects a host-only command from a guest without running its effect', () => {
-    setState('network.hostConn', { peer: 'host', open: true }); // guest: hostConn present → not host
+    setState('network.hostConn', makeConnection('host')); // guest: hostConn present → not host
     executeCommand({ name: 'kick', args: ['someone'], rawArgs: 'someone' });
     expect(mocks.sendToHost).not.toHaveBeenCalled();
     expect(mocks.addSystemChatMessage).toHaveBeenCalledTimes(1); // the no-permission notice
   });
 
-  it('routes /debug (permission "all") to the extracted debug-console entry point', () => {
-    setState('network.hostConn', { peer: 'host', open: true }); // even a guest may /debug
+  it('routes /debug (permission "all") to the lazy debug-console entry point', async () => {
+    setState('network.hostConn', makeConnection('host')); // even a guest may /debug
     executeCommand({ name: 'debug', args: ['screen'], rawArgs: 'screen' });
-    expect(mocks.cmdDebug).toHaveBeenCalledWith(['screen'], 'screen');
+    await vi.waitFor(() => expect(mocks.cmdDebug).toHaveBeenCalledWith(['screen']));
   });
 
   it('reports an unknown command', () => {
@@ -76,7 +87,7 @@ describe('executeCommand permission gating', () => {
 
 describe('getAvailableCommands permission filtering', () => {
   it('hides host-only commands from a guest but lists them for the host', () => {
-    setState('network.hostConn', { peer: 'host', open: true }); // guest
+    setState('network.hostConn', makeConnection('host')); // guest
     const guestCmds = getAvailableCommands().map((c) => c.name);
     expect(guestCmds).not.toContain('kick');
     expect(guestCmds).toContain('users'); // an "all" command stays available

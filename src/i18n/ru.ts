@@ -506,7 +506,7 @@ const ru: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Удаленный общий доступ не удался: {{msg}}',
   'share.remote.download_failed': 'Скачивание удаленного файла не удалось: {{msg}}',
   'share.remote.timeout': 'Истекло время ожидания удаленного общего доступа',
-  'share.remote.too_large': 'Файл превышает лимит (макс. 200 МБ)',
+  'share.remote.too_large': 'Файл слишком большой для удалённого доступа',
   'share.remote.network_error': 'Ошибка сети при удаленном общем доступе',
   'share.remote.rate_limited':
     'Слишком много запросов удаленного общего доступа.\nПопробуйте еще раз через минуту',
@@ -532,6 +532,8 @@ const ru: Record<I18nKey, string> = {
   'error.load_failed': 'Загрузка не удалась: {{msg}}',
   'error.audio_decode_fail': 'Декодирование аудио не удалось!',
   'error.audio_memory': 'Загрузка звука в память...',
+  'error.audio_memory_limit':
+    '«{{name}}» слишком большой или длинный для безопасного воспроизведения на этом устройстве.',
   'error.decode_timeout':
     'Декодирование «{{name}}» занимает слишком много времени.\nПереход к следующему треку...',
   'error.local_decode_wait':

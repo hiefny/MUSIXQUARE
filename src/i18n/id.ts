@@ -334,7 +334,7 @@ const id: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Berbagi file jarak jauh gagal: {{msg}}',
   'share.remote.download_failed': 'Unduhan file jarak jauh gagal: {{msg}}',
   'share.remote.timeout': 'Berbagi file jarak jauh kehabisan waktu',
-  'share.remote.too_large': 'File terlalu besar (maks. 200 MB)',
+  'share.remote.too_large': 'File terlalu besar untuk dibagikan dari jarak jauh',
   'share.remote.network_error': 'Kesalahan jaringan saat berbagi jarak jauh',
   'share.remote.rate_limited':
     'Terlalu banyak unggahan berbagi jarak jauh.\nCoba lagi sebentar lagi',
@@ -443,6 +443,8 @@ const id: Record<I18nKey, string> = {
   'error.load_failed': 'Gagal memuat: {{msg}}',
   'error.audio_decode_fail': 'Gagal mendekode audio!',
   'error.audio_memory': 'Memuat audio ke memori...',
+  'error.audio_memory_limit':
+    '"{{name}}" terlalu besar atau panjang untuk diputar dengan aman di perangkat ini.',
   'error.decode_timeout': 'Mendekode "{{name}}" terlalu lama.\nMelewati ke track berikutnya.',
   'error.local_decode_wait':
     'Perangkat ini tidak dapat mendekode track.\nTunggu sampai track berikutnya.',

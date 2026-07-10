@@ -1,19 +1,34 @@
 name = "musixquare-remote-share"
 main = "remote-share-worker.js"
 compatibility_date = "2026-05-03"
+workers_dev = false
+preview_urls = false
+
+[[routes]]
+pattern = "share.musixquare.com"
+custom_domain = true
 
 [vars]
 R2_BUCKET_NAME = "musixquare-remote-share"
-MAX_UPLOAD_BYTES = "209715200"
-OBJECT_TTL_SECONDS = "3600"
+# R2's single-request ceiling (5 GiB - 5 MiB) minus the 16-byte AES-GCM tag.
+MAX_UPLOAD_BYTES = "5363466224"
+# V4 uses 640 direct multipart parts of one 8 MiB plaintext AES-GCM record each.
+MAX_MULTIPART_UPLOAD_BYTES = "5368709120"
+MULTIPART_PART_URL_BATCH_SIZE = "64"
+# Logical availability after the upload allowance; the bucket lifecycle remains
+# a separate 24-hour cleanup safety net.
+OBJECT_TTL_SECONDS = "43200"
 RATE_LIMIT_WINDOW_SECONDS = "3600"
+IP_SESSIONS_PER_WINDOW = "60"
 IP_UPLOADS_PER_WINDOW = "60"
-ROOM_UPLOADS_PER_WINDOW = "0"
+IP_UPLOAD_BYTES_PER_WINDOW = "21474836480"
 ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
 
 # Required secrets, set outside this file:
-# npx wrangler secret put R2_ACCOUNT_ID --config cloudflare/wrangler.remote-share.toml
+# REMOTE_SHARE_SIGNING_SECRET and MXQR_CAPABILITY_SECRET must each contain at
+# least 32 random bytes. The R2 S3 credentials should be scoped to this bucket.
 # npx wrangler secret put REMOTE_SHARE_SIGNING_SECRET --config cloudflare/wrangler.remote-share.toml
+# npx wrangler secret put R2_ACCOUNT_ID --config cloudflare/wrangler.remote-share.toml
 # npx wrangler secret put R2_ACCESS_KEY_ID --config cloudflare/wrangler.remote-share.toml
 # npx wrangler secret put R2_SECRET_ACCESS_KEY --config cloudflare/wrangler.remote-share.toml
 # Required for capability gate (set to same value as app worker MXQR_CAPABILITY_SECRET
@@ -24,6 +39,11 @@ ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://loca
 binding = "REMOTE_SHARE_BUCKET"
 bucket_name = "musixquare-remote-share"
 
-[[kv_namespaces]]
-binding = "REMOTE_SHARE_RATE_LIMIT"
-id = "ccf776d532e44e2daed916e7304542cd"
+[durable_objects]
+bindings = [
+  { name = "REMOTE_SHARE_RATE_LIMITER", class_name = "RemoteShareRateLimiter" },
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RemoteShareRateLimiter"]

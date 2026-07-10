@@ -103,7 +103,12 @@ function makeRect(height: number): DOMRect {
   };
 }
 
-type Scrollbox = ReturnType<typeof createScrollbox>;
+interface Scrollbox {
+  container: HTMLDivElement;
+  rectSpy: ReturnType<typeof vi.fn<() => DOMRect>>;
+  setClientHeight(px: number): void;
+  track(): HTMLElement;
+}
 
 const _boxes: Scrollbox[] = [];
 
@@ -113,7 +118,7 @@ const _boxes: Scrollbox[] = [];
  * branch: track height = clientHeight, no bottom-nav / transform-block walk.
  * rectSpy counts updateLayout runs (called exactly once per layout pass).
  */
-function createScrollbox(id: string) {
+function createScrollbox(id: string): Scrollbox {
   const parent = document.createElement('div');
   const container = document.createElement('div');
   container.id = id;

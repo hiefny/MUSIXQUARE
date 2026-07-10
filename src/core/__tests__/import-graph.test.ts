@@ -10,9 +10,7 @@ import { fileURLToPath } from 'node:url';
 // also runnable via `node scripts/check-import-graph.mjs`). We invoke it as
 // a subprocess so this .ts test doesn't depend on .mjs type resolution; a
 // non-zero exit means findings, and we surface the script's report.
-const script = fileURLToPath(
-  new URL('../../../scripts/check-import-graph.mjs', import.meta.url),
-);
+const script = fileURLToPath(new URL('../../../scripts/check-import-graph.mjs', import.meta.url));
 
 describe('Production import graph', () => {
   it('has no bootstrap back-imports, new cycles, or ui-layering violations', () => {

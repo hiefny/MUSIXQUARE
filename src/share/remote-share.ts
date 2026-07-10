@@ -1,8 +1,9 @@
 /**
  * Remote file sharing over temporary encrypted object storage.
  *
- * This is intentionally a side path: LAN P2P transfer remains the primary
- * path, while remote/unknown guests receive an encrypted R2 descriptor.
+ * Small LAN files retain the low-latency P2P path. Remote guests and every
+ * guest receiving a large file use an encrypted R2 range descriptor so no
+ * receiver has to assemble the whole file in RAM or persistent storage.
  *
  * MSG.REMOTE_FILE_SHARE carries only the active CURRENT track descriptor.
  * Remote speculative preload is intentionally disabled: mobile guests avoid
@@ -17,7 +18,7 @@
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
+import { MSG, PLAYBACK_STATE, REMOTE_SHARE_STREAM_THRESHOLD_BYTES } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { sendSystemNotice } from '../chat/protocol.ts';
@@ -35,12 +36,16 @@ import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { uploadRemoteFile } from './remote-upload.ts';
 import { downloadRemoteFile } from './remote-download.ts';
 import { isRemoteShareConfigured } from './r2-client.ts';
+import { isRemoteMediaFile, releaseRemoteMediaFile } from './remote-media.ts';
 import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { isDemoTrackName } from '../demo/tracks.ts';
 import type { AnyProtocolMsg, DataConnection, RemoteFileSharePayload } from '../types/index.ts';
 
 const REMOTE_WAIT_TIMER = 'remote-share-wait-timeout';
-const REMOTE_WAIT_MS = 5 * 60_000 + 15_000;
+// A five-GiB upload at the supported 1 MiB/s floor can legitimately take
+// well over an hour. Keep the guest wait aligned with the upload lease while
+// still allowing a newer track/session to cancel it immediately.
+const REMOTE_WAIT_MS = 2 * 60 * 60_000 + 15 * 60_000;
 const REMOTE_UPLOAD_LOADER = 'remote-share-upload';
 // Treat a descriptor as expired if it would expire within this window —
 // avoids handing out a 30-second-window URL to a guest who'd race the TTL.
@@ -48,6 +53,7 @@ const EXPIRY_SAFETY_MARGIN_MS = 30_000;
 
 interface UploadEntry {
   key: string;
+  file: File;
   promise: Promise<RemoteFileSharePayload>;
   abort: AbortController;
 }
@@ -68,7 +74,7 @@ interface DownloadEntry {
 // DELIBERATE: there is NO per-track navigate-away cancel. In-flight uploads
 // run to completion even when the host moves on — staleness is enforced at
 // COMPLETION time by the broadcast-gate triplet in shareRemoteFileIfNeeded
-// (hasRemoteTargets / isHostActiveFile / isExternalOwner, HET-3) and
+// (hasObjectShareTargets / isHostActiveFile / isExternalOwner, HET-3) and
 // absorbed guest-side by the monotonic context gates (EXT-5/6/7). The
 // abandoned-upload bandwidth is the accepted price for (a) descriptor-cache
 // warm-up — a rapid A↔B re-selection re-shares instantly instead of
@@ -93,8 +99,7 @@ let _activeDownload: DownloadEntry | null = null;
 // REQUEST_CURRENT_FILE response can land AFTER _activeDownload was cleared —
 // it must not rewind the wait or start a redundant re-download. Reset on any
 // session boundary (a new host's sessionId space restarts).
-let _lastAdoptedRemoteContext: { objectId: string; index: number; sessionId: number } | null =
-  null;
+let _lastAdoptedRemoteContext: { objectId: string; index: number; sessionId: number } | null = null;
 
 function adoptRemoteContext(descriptor: RemoteFileSharePayload): void {
   _lastAdoptedRemoteContext = {
@@ -112,6 +117,12 @@ function rawRemoteShareError(error: unknown): string {
 function clearStaleRemotePlayback(reason: string): void {
   const pendingTime = getPendingPlayTime();
   const pendingSetAt = getPendingPlayTimeSetAt();
+  const preloadBlob = getState('preload.nextFileBlob');
+  const currentBlob = getState('files.currentFileBlob');
+  if (isRemoteMediaFile(preloadBlob)) releaseRemoteMediaFile(preloadBlob);
+  if (isRemoteMediaFile(currentBlob) && currentBlob !== preloadBlob) {
+    releaseRemoteMediaFile(currentBlob);
+  }
   bus.emit('storage:clear-previous-track', reason);
   if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
 }
@@ -135,14 +146,28 @@ function toRemoteFileUnavailableMessage(
   } as AnyProtocolMsg;
 }
 
-function hasRemoteTargets(): boolean {
-  const peers = getState('network.connectedPeers') || [];
-  return peers.some(
-    (peer) =>
-      peer.status === 'connected' &&
-      peer.conn?.open &&
-      (peer.connectionType === 'remote' || peer.connectionType === 'unknown'),
+function peerNeedsObjectShare(
+  peer: { status: string; conn?: DataConnection | null; connectionType?: string },
+  file: File,
+): boolean {
+  return (
+    peer.status === 'connected' &&
+    !!peer.conn?.open &&
+    (peer.connectionType === 'remote' ||
+      peer.connectionType === 'unknown' ||
+      file.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES)
   );
+}
+
+function hasObjectShareTargets(file: File): boolean {
+  const peers = getState('network.connectedPeers') || [];
+  return peers.some((peer) => peerNeedsObjectShare(peer, file));
+}
+
+function targetNeedsObjectShare(file: File, targetConn: DataConnection): boolean {
+  const peers = getState('network.connectedPeers') || [];
+  const peer = peers.find((candidate) => candidate.conn === targetConn);
+  return !!peer && peerNeedsObjectShare(peer, file);
 }
 
 function isDescriptorFresh(descriptor: RemoteFileSharePayload | null): boolean {
@@ -197,66 +222,41 @@ function showUploadProgress(message: string, progress = 0): void {
   updateLoader(Math.round(progress * 100));
 }
 
-/**
- * Map internal error codes to user-facing toast messages. Falls back to the
- * raw message if no mapping exists — better to show something than nothing,
- * but keeps internal tokens out of the UI for the common cases.
- */
+/** Map transport failures to localized copy without leaking protocol codes. */
 function friendlyErrorMessage(error: unknown): string {
   const raw = rawRemoteShareError(error);
-  if (raw === 'REMOTE_SHARE_FILE_TOO_LARGE') return t('share.remote.too_large');
+  if (raw === 'REMOTE_SHARE_FILE_TOO_LARGE' || raw === 'REMOTE_SHARE_LEGACY_TOO_LARGE') {
+    return t('share.remote.too_large');
+  }
   if (
-    raw === 'REMOTE_SHARE_UPLOAD_NETWORK' ||
-    raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' ||
-    raw === 'REMOTE_SHARE_UPLOAD_TIMEOUT' ||
-    raw === 'REMOTE_SHARE_DOWNLOAD_TIMEOUT' ||
-    raw === 'REMOTE_SHARE_SESSION_NETWORK' ||
-    raw === 'REMOTE_SHARE_COMPLETE_NETWORK'
+    /^REMOTE_SHARE_(?:UPLOAD|DOWNLOAD|SESSION|COMPLETE|PART_URL)_(?:NETWORK|TIMEOUT)$/.test(raw)
   ) {
     return t('share.remote.network_error');
   }
-  if (
-    raw === 'REMOTE_SHARE_UPLOAD_HTTP_429' ||
-    raw === 'REMOTE_SHARE_SESSION_HTTP_429' ||
-    raw === 'REMOTE_SHARE_COMPLETE_HTTP_429' ||
-    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429'
-  ) {
+  if (/^REMOTE_SHARE_(?:UPLOAD|SESSION|COMPLETE|DIRECT_UPLOAD|PART_URL)_HTTP_429$/.test(raw)) {
     return t('share.remote.rate_limited');
   }
+  if (/^REMOTE_SHARE_(?:UPLOAD|SESSION|COMPLETE|DIRECT_UPLOAD|PART_URL)_HTTP_413$/.test(raw)) {
+    return t('share.remote.too_large');
+  }
   if (
-    raw === 'REMOTE_SHARE_BAD_SESSION_RESPONSE' ||
-    raw === 'REMOTE_SHARE_BAD_COMPLETE_RESPONSE' ||
-    raw === 'REMOTE_SHARE_SESSION_HTTP_403' ||
-    raw === 'REMOTE_SHARE_SESSION_HTTP_404' ||
-    raw === 'REMOTE_SHARE_SESSION_HTTP_500' ||
-    raw === 'REMOTE_SHARE_UPLOAD_HTTP_403' ||
-    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_403' ||
-    raw === 'REMOTE_SHARE_COMPLETE_HTTP_403' ||
-    raw === 'REMOTE_SHARE_COMPLETE_HTTP_404' ||
-    raw === 'REMOTE_SHARE_COMPLETE_HTTP_500'
+    /^REMOTE_SHARE_(?:UPLOAD|SESSION|COMPLETE|DIRECT_UPLOAD|PART_URL)_HTTP_(?:401|403)$/.test(raw)
   ) {
     return t('share.remote.auth_failed');
   }
-  if (raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_413' || raw === 'REMOTE_SHARE_COMPLETE_HTTP_413') {
-    return t('share.remote.too_large');
-  }
   if (raw.startsWith('REMOTE_SHARE_DOWNLOAD_HTTP_404')) return t('share.remote.expired');
+  if (raw.startsWith('REMOTE_MEDIA_SW_')) return t('share.remote.unavailable');
   if (raw === 'REMOTE_SHARE_ABORTED') return raw; // never user-visible
-  return raw;
+  return t('share.remote.unavailable');
 }
 
 function isUploadLimitError(error: unknown): boolean {
   const raw = rawRemoteShareError(error);
-  return (
-    raw === 'REMOTE_SHARE_UPLOAD_HTTP_429' ||
-    raw === 'REMOTE_SHARE_SESSION_HTTP_429' ||
-    raw === 'REMOTE_SHARE_COMPLETE_HTTP_429' ||
-    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429'
-  );
+  return /^REMOTE_SHARE_(?:UPLOAD|SESSION|COMPLETE|DIRECT_UPLOAD|PART_URL)_HTTP_429$/.test(raw);
 }
 
-function getRemoteNoticeTargets(targetConn?: DataConnection): DataConnection[] {
-  if (targetConn?.open) return [targetConn];
+function getRemoteNoticeTargets(file: File, targetConn?: DataConnection): DataConnection[] {
+  if (targetConn?.open && targetNeedsObjectShare(file, targetConn)) return [targetConn];
 
   const peers = getState('network.connectedPeers') || [];
   return peers
@@ -264,7 +264,9 @@ function getRemoteNoticeTargets(targetConn?: DataConnection): DataConnection[] {
       (peer) =>
         peer.status === 'connected' &&
         peer.conn?.open &&
-        (peer.connectionType === 'remote' || peer.connectionType === 'unknown'),
+        (peer.connectionType === 'remote' ||
+          peer.connectionType === 'unknown' ||
+          file.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES),
     )
     .map((peer) => peer.conn as DataConnection);
 }
@@ -277,7 +279,7 @@ function maybeNotifyRemoteUploadFailure(
   targetConn?: DataConnection,
 ): void {
   const now = Date.now();
-  const targets = getRemoteNoticeTargets(targetConn);
+  const targets = getRemoteNoticeTargets(file, targetConn);
   if (targets.length === 0) return;
 
   const limited = isUploadLimitError(error);
@@ -333,16 +335,19 @@ function resetRemoteUploadState(message: string | null = null): void {
 
 function abortActiveUploadsIfNoRemoteTargets(reason: string): void {
   if (getState('network.hostConn')) return;
-  if (hasRemoteTargets()) return;
   if (_activeUploads.size === 0) return;
 
-  for (const entry of _activeUploads.values()) {
+  let aborted = 0;
+  for (const [key, entry] of _activeUploads) {
+    if (hasObjectShareTargets(entry.file)) continue;
     entry.abort.abort();
+    _activeUploads.delete(key);
+    aborted += 1;
   }
-  _activeUploads.clear();
+  if (aborted === 0) return;
   resetRemoteUploadState();
   showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
-  log.info(`[RemoteShare] Active upload cancelled (${reason})`);
+  log.info(`[RemoteShare] ${aborted} active upload(s) cancelled (${reason})`);
 }
 
 export function cancelRemoteShareWait(reason: string): void {
@@ -392,7 +397,8 @@ export async function shareRemoteFileIfNeeded(
   if (getState('network.hostConn')) return;
   if (!isRemoteShareConfigured()) return;
   if (sessionId === null) return;
-  if (!targetConn && !hasRemoteTargets()) return;
+  if (targetConn && !targetNeedsObjectShare(file, targetConn)) return;
+  if (!targetConn && !hasObjectShareTargets(file)) return;
 
   const index =
     options?.index !== undefined
@@ -431,7 +437,7 @@ export async function shareRemoteFileIfNeeded(
           },
         });
 
-        const entry: UploadEntry = { key: uploadKey, promise, abort };
+        const entry: UploadEntry = { key: uploadKey, file, promise, abort };
         _activeUploads.set(uploadKey, entry);
 
         showToast(t('share.remote.encrypting'));
@@ -452,9 +458,9 @@ export async function shareRemoteFileIfNeeded(
     // the upload, suppress the broadcast so guests don't get a descriptor
     // for a track they already advanced past.
     if (!targetConn) {
-      if (!hasRemoteTargets()) {
+      if (!hasObjectShareTargets(file)) {
         log.debug(
-          '[RemoteShare] Upload completed but no remote targets remain; descriptor not broadcast',
+          '[RemoteShare] Upload completed but no object-share targets remain; descriptor not broadcast',
         );
         return;
       }
@@ -631,10 +637,11 @@ async function handleRemoteFileShare(
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
+  const requiresRangeShare = descriptor.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES;
   if (getState('network.connectionType') === 'unknown') {
     const resolved = await waitForGuestConnectionType(3000);
-    if (resolved === 'local') return;
-  } else if (!isRemoteGuest()) {
+    if (resolved === 'local' && !requiresRangeShare) return;
+  } else if (!isRemoteGuest() && !requiresRangeShare) {
     return;
   }
 
@@ -715,8 +722,7 @@ async function handleRemoteFileShare(
     // object under the same sid/index — that re-issue must pass or the
     // guest can never recover. Rewind protection only needs to block a
     // DIFFERENT index at a same/older sessionId.
-    const isSameContextResend =
-      descriptor.index === last.index && incomingSid === last.sessionId;
+    const isSameContextResend = descriptor.index === last.index && incomingSid === last.sessionId;
     if (!isNewerContext && !isSameContextResend) {
       log.debug(
         `[RemoteShare] Stale descriptor context ignored (index ${descriptor.index}, sid ${descriptor.sessionId} ≤ adopted ${last.sessionId})`,
@@ -808,7 +814,7 @@ async function handleRemoteFileShare(
     // failed download was terminal — silent until the host changed tracks.
     // Non-transient errors (404/expired/429), supersede-aborts, and expired
     // descriptors never retry.
-    let file: File;
+    let file: Blob;
     for (let attempt = 1; ; attempt++) {
       try {
         file = await downloadRemoteFile(descriptor, onDownloadProgress, abort.signal);
@@ -837,7 +843,7 @@ async function handleRemoteFileShare(
 
     // No object URL here on purpose: share.remote.download.blobUrl had ZERO
     // consumers, and createObjectURL pinned the full decrypted file until
-    // document unload — one leaked track (up to 200MB) per remote→remote
+    // document unload — one leaked track (up to 64 MiB) per remote→remote
     // switch, because the next descriptor's fetch-start nulled the field
     // without revoking. Playback consumes the File via preload.nextFileBlob →
     // storage:use-preloaded → decode.ts, which manages its own URL.
@@ -902,7 +908,6 @@ async function handleRemoteFileShare(
 function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataConnection): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
-  if (!isRemoteGuest() && getState('network.connectionType') !== 'unknown') return;
 
   const index = Number(data.index);
   const sessionId = Number(data.sessionId);
@@ -956,10 +961,11 @@ export function initRemoteShare(): void {
     const peers = getState('network.connectedPeers') || [];
     const peer = peers.find((item) => item.id === peerId);
     if (!peer?.conn?.open) return;
-    if (peer.connectionType === 'local') return;
-
     const currentBlob = getState('files.currentFileBlob');
     if (!(currentBlob instanceof File)) return;
+    if (peer.connectionType === 'local' && currentBlob.size < REMOTE_SHARE_STREAM_THRESHOLD_BYTES) {
+      return;
+    }
     const sessionId = getState('transfer.currentSessionId') || getState('transfer.localSessionId');
     void shareRemoteFileIfNeeded(currentBlob, sessionId || null, peer.conn);
   });
@@ -974,6 +980,12 @@ export function initRemoteShare(): void {
     // a reconnect can change the code truthy→truthy (M13).
     _lastAdoptedRemoteContext = null;
     if (!code) {
+      const preloadBlob = getState('preload.nextFileBlob');
+      const currentBlob = getState('files.currentFileBlob');
+      if (isRemoteMediaFile(preloadBlob)) releaseRemoteMediaFile(preloadBlob);
+      if (isRemoteMediaFile(currentBlob) && currentBlob !== preloadBlob) {
+        releaseRemoteMediaFile(currentBlob);
+      }
       // Tear down any in-flight uploads/downloads so a new session starts clean.
       for (const entry of _activeUploads.values()) entry.abort.abort();
       _activeUploads.clear();

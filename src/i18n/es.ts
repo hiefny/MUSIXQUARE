@@ -338,7 +338,7 @@ const es: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Error al compartir archivo remoto: {{msg}}',
   'share.remote.download_failed': 'Error al descargar archivo remoto: {{msg}}',
   'share.remote.timeout': 'La compartición remota agotó el tiempo',
-  'share.remote.too_large': 'Archivo demasiado grande (máximo 200 MB)',
+  'share.remote.too_large': 'El archivo es demasiado grande para compartirlo de forma remota',
   'share.remote.network_error': 'Error de red durante la compartición remota',
   'share.remote.rate_limited': 'Demasiadas subidas remotas.\nInténtalo de nuevo en un momento',
   'share.remote.auth_failed': 'Falló la autorización remota.\nRevisa la configuración del Worker',
@@ -449,6 +449,8 @@ const es: Record<I18nKey, string> = {
   'error.load_failed': 'Error de carga: {{msg}}',
   'error.audio_decode_fail': '¡Falló la decodificación de audio!',
   'error.audio_memory': 'Cargando audio en memoria...',
+  'error.audio_memory_limit':
+    '«{{name}}» es demasiado grande o largo para reproducirlo de forma segura en este dispositivo.',
   'error.decode_timeout': 'Decodificar "{{name}}" tardó demasiado.\nSaltando a la siguiente pista.',
   'error.local_decode_wait':
     'Este dispositivo no pudo decodificar la pista.\nEspera a la siguiente pista.',

@@ -340,7 +340,9 @@ describe('YouTube indexing session lifecycle', () => {
 
     // Non-empty queue: without the stale-indexing flag, a chat add must NOT
     // take the isIdle takeover branch.
-    setState('playlist.items', [{ type: 'file', name: 'song.mp3' }] satisfies PlaylistItem[]);
+    setState('playlist.items', [
+      { type: 'file', name: 'song.mp3', videoId: null, playlistId: null },
+    ] satisfies PlaylistItem[]);
     const trackIndexBefore = getState('playlist.currentTrackIndex');
 
     await armIndexingViaDeferredNavigation('vidEntry', 'PL_MID');
@@ -414,7 +416,9 @@ describe('YouTube indexing session lifecycle', () => {
     // isIdle is false, so the takeover below rides exclusively on the
     // `|| isYtIndexing()` term — the index-then-autoplay contract. It only
     // holds because the poll clears the session AFTER the callback runs.
-    setState('playlist.items', [{ type: 'file', name: 'song.mp3' }] satisfies PlaylistItem[]);
+    setState('playlist.items', [
+      { type: 'file', name: 'song.mp3', videoId: null, playlistId: null },
+    ] satisfies PlaylistItem[]);
 
     const url = 'https://www.youtube.com/watch?v=ibaEntry000&list=PL_IBA';
     const input = document.createElement('div');
@@ -486,9 +490,9 @@ describe('YouTube indexing session lifecycle', () => {
     setManagedTimerMock.mockClear();
     yt.fireStateChange(5);
 
-    expect(
-      setManagedTimerMock.mock.calls.some(([name]) => name === 'yt-indexing-poll'),
-    ).toBe(false);
+    expect(setManagedTimerMock.mock.calls.some(([name]) => name === 'yt-indexing-poll')).toBe(
+      false,
+    );
     expect(getState('youtube.subItemsMap')['PL_STALE']).toBeUndefined();
     expect(broadcastMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.YOUTUBE_PLAYLIST_INFO }),
@@ -517,9 +521,9 @@ describe('YouTube indexing session lifecycle', () => {
     yt.fireStateChange(5);
 
     expect(player.getPlaylist).not.toHaveBeenCalled();
-    expect(
-      setManagedTimerMock.mock.calls.some(([name]) => name === 'yt-indexing-poll'),
-    ).toBe(false);
+    expect(setManagedTimerMock.mock.calls.some(([name]) => name === 'yt-indexing-poll')).toBe(
+      false,
+    );
     expect(broadcastMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.YOUTUBE_PLAYLIST_INFO }),
     );

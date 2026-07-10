@@ -299,8 +299,8 @@ describe('YouTube title entity decoding', () => {
     expect(results[0]?.title).toBe('Ain\'t & "Too Cool" <Live> \u2019');
     expect(results[0]?.channelTitle).toBe('LunchMoney & Crew');
 
-    await expect(
-      fetchOEmbedTitle('https://www.youtube.com/watch?v=entityDecode01'),
-    ).resolves.toBe('Rock & Roll \'Tonight\' \u2014 Live');
+    await expect(fetchOEmbedTitle('https://www.youtube.com/watch?v=entityDecode01')).resolves.toBe(
+      "Rock & Roll 'Tonight' \u2014 Live",
+    );
   });
 });

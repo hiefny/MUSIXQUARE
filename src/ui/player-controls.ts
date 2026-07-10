@@ -26,8 +26,7 @@ import {
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { getTrackPosition, isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
-import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
-import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { hasFilePlaybackSource } from '../player/media-element.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
@@ -471,7 +470,7 @@ function canUseManualSyncPanel(): boolean {
   if (!hostConn?.open) return false;
   if (isPlaybackModeSystemAudio()) return false;
   if (isPlaybackModeYouTube()) return true;
-  return isPlaybackModeFile() && !!getCurrentAudioBuffer();
+  return isPlaybackModeFile() && hasFilePlaybackSource();
 }
 
 function handleMainSyncBtn(): void {
@@ -1071,11 +1070,11 @@ export function initPlayerControls(): void {
 
   // Playlist actions
   _busScope.on('playlist:toggle-repeat', () => {
-    toggleRepeat();
+    void import('../player/playlist.ts').then(({ toggleRepeat }) => toggleRepeat());
   });
 
   _busScope.on('playlist:toggle-shuffle', () => {
-    toggleShuffle();
+    void import('../player/playlist.ts').then(({ toggleShuffle }) => toggleShuffle());
   });
 
   // Metadata update (track title in player UI)

@@ -332,7 +332,7 @@ const ja: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'リモートファイル共有に失敗: {{msg}}',
   'share.remote.download_failed': 'リモートファイルのダウンロードに失敗: {{msg}}',
   'share.remote.timeout': 'リモートファイル共有がタイムアウトしました',
-  'share.remote.too_large': 'ファイルが大きすぎます（最大200 MB）',
+  'share.remote.too_large': 'リモート共有にはファイルが大きすぎます',
   'share.remote.network_error': 'リモート共有中にネットワークエラーが発生しました',
   'share.remote.rate_limited':
     'リモート共有のアップロードが多すぎます。\nしばらくしてからお試しください',
@@ -364,7 +364,8 @@ const ja: Record<I18nKey, string> = {
   'system_audio.host_channel_locked': 'システムオーディオ共有中は役割を変更できません。',
   'system_audio.effects_guest_only':
     'システムオーディオ共有中です。\n効果は参加者側にのみ適用されます。',
-  'system_audio.desktop_only': 'デスクトップのChrome系ブラウザ（Chrome、Edgeなど）でのみ利用できます。',
+  'system_audio.desktop_only':
+    'デスクトップのChrome系ブラウザ（Chrome、Edgeなど）でのみ利用できます。',
   'system_audio.receive_failed':
     'システムオーディオを受信できませんでした。\nホストに共有を再開してもらってください。',
   'system_audio.remote_receive_limit':
@@ -440,6 +441,8 @@ const ja: Record<I18nKey, string> = {
   'error.load_failed': '読み込み失敗: {{msg}}',
   'error.audio_decode_fail': 'オーディオのデコードに失敗しました！',
   'error.audio_memory': 'オーディオをメモリに読み込み中...',
+  'error.audio_memory_limit':
+    '「{{name}}」は、この端末で安全に再生するにはサイズが大きすぎるか、長すぎます。',
   'error.decode_timeout':
     '"{{name}}" のデコードに時間がかかりすぎています。\n次のトラックへ進みます。',
   'error.local_decode_wait':

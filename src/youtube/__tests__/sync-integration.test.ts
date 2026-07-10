@@ -35,7 +35,7 @@ import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { MSG } from '../../core/constants.ts';
 import { isClockCalibrated } from '../../network/shared-clock.ts';
 import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
-import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
+import { makeFakeYtPlayer, type FakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -92,9 +92,9 @@ vi.mock('../../network/shared-clock.ts', () => ({
 }));
 
 // fake player swap — each test sets its own via getYouTubePlayerMock.mockReturnValue
-const getYouTubePlayerMock = vi.fn<[], FakeYtPlayer | null>(() => null);
+const getYouTubePlayerMock = vi.fn<() => FakeYtPlayer | null>(() => null);
 vi.mock('../_state.ts', () => ({
-  getYouTubePlayer: (...args: unknown[]) => getYouTubePlayerMock(...(args as [])),
+  getYouTubePlayer: () => getYouTubePlayerMock(),
   setYouTubePlayer: vi.fn(),
   getCurrentSessionId: vi.fn(() => 1),
   incrementSessionId: vi.fn(),
@@ -240,6 +240,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(broadcast).toHaveBeenCalledTimes(1);
       const msg = broadcastMock.mock.calls[0][0];
       expect(msg.type).toBe(MSG.YOUTUBE_STATE);
+      if (msg.type !== MSG.YOUTUBE_STATE) throw new Error('expected youtube-state');
       expect(msg.state).toBe(1);
       expect(msg.time).toBe(10);
       expect(msg.videoId).toBe('NEW_VID');
@@ -273,6 +274,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(broadcast).toHaveBeenCalled();
       const stage2 = broadcastMock.mock.calls[0][0];
       expect(stage2.type).toBe(MSG.YOUTUBE_SYNC);
+      if (stage2.type !== MSG.YOUTUBE_SYNC) throw new Error('expected youtube-sync');
       expect(stage2.isManual).toBe(true);
     });
 
@@ -318,7 +320,7 @@ describe('YouTube Sync — Regression Integration', () => {
       bus.emit('youtube:player-ready');
 
       expect(getPendingAutoSyncOnReady()).toBe(false);
-      expect(player.__log.some((c) => c.op === 'seekTo' && c.args[0] === 37)).toBe(true);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 37)).toBe(true);
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
 
       const stage1 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];

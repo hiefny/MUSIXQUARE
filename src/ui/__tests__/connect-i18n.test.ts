@@ -73,9 +73,7 @@ describe('connect i18n refresh', () => {
     setLanguageMode('en');
 
     expect(document.querySelector<HTMLElement>('.d-name')?.textContent).toContain('Peer');
-    expect(document.querySelector<HTMLButtonElement>('.d-op-btn')?.textContent).toBe(
-      'Grant admin',
-    );
+    expect(document.querySelector<HTMLButtonElement>('.d-op-btn')?.textContent).toBe('Grant admin');
     expect(document.querySelector<HTMLButtonElement>('.btn-kick-device')?.ariaLabel).toBe(
       'Kick device',
     );
@@ -127,7 +125,8 @@ describe('connect permission toasts', () => {
 
     initConnect();
     const beforeSlots = getState('network.maxGuestSlots');
-    document.querySelector<HTMLButtonElement>('#max-device-stepper .stepper-btn[data-dir="1"]')
+    document
+      .querySelector<HTMLButtonElement>('#max-device-stepper .stepper-btn[data-dir="1"]')
       ?.click();
 
     expect(showToast).toHaveBeenCalledWith('방장만 이 설정을 변경할 수 있어요');

@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
 import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
-import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { getFilePlaybackDuration } from '../player/media-element.ts';
 import { syncRangeProgress } from './range-drag.ts';
 
 function isSeekUnavailable(): boolean {
@@ -280,10 +280,10 @@ function initSeekBarBusHandlers(): void {
       if (tc) tc.innerText = '0:00';
       if (tDur) tDur.innerText = '0:00';
     } else if (mode === 'file') {
-      const buf = getCurrentAudioBuffer();
-      if (buf && Number.isFinite(buf.duration) && buf.duration > 0) {
-        if (slider) setSeekSliderMax(slider, String(buf.duration));
-        if (tDur) tDur.innerText = fmtTime(buf.duration);
+      const duration = getFilePlaybackDuration();
+      if (duration > 0) {
+        if (slider) setSeekSliderMax(slider, String(duration));
+        if (tDur) tDur.innerText = fmtTime(duration);
       }
     }
   });

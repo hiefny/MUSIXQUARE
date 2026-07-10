@@ -540,7 +540,10 @@ describe('request-setting authorization', () => {
 
   it('still allows operators to apply full request-setting effects', async () => {
     const conn = makeConnection('guest-op');
-    getState('network.connectedPeers').push(makeConnectedPeer(conn.peer, true));
+    setState('network.connectedPeers', [
+      ...getState('network.connectedPeers'),
+      makeConnectedPeer(conn.peer, true),
+    ]);
 
     await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_DECAY, value: 8 }, conn);
 

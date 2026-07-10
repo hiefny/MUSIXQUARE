@@ -1,38 +1,17 @@
-/* Pretendard base (self-hosted)
+/* Pretendard Variable (self-hosted)
  *
- * The app uses Pretendard as the default Latin/Korean family. Japanese,
- * Chinese, and Thai webfont shards are loaded per locale.
- * Pretendard UI Core keeps shared Latin/digits/symbols on Pretendard metrics
- * while letting locale scripts come from their dedicated fallback fonts.
+ * The complete face is intentionally used for Latin and Korean so arbitrary
+ * user-entered chat text cannot switch to a system font within a sentence.
+ * Locale-specific Noto faces remain later in the font stacks for scripts that
+ * Pretendard does not cover.
  *
  * License: fonts/PRETENDARD_LICENSE.txt (SIL Open Font License 1.1)
  */
 
 @font-face {
   font-family: "Pretendard";
-  /* WOFF2 only: modern browsers/WebViews support it, and this repo
-   * intentionally does not ship a WOFF fallback.
-   */
-  src: url("../fonts/PretendardVariable.woff2") format("woff2");
+  src: url("/designsystem/fonts/PretendardVariable.woff2") format("woff2");
   font-weight: 45 920;
   font-style: normal;
   font-display: swap;
-}
-
-@font-face {
-  font-family: "Pretendard UI Core";
-  src: url("../fonts/PretendardVariable.woff2") format("woff2");
-  font-weight: 45 920;
-  font-style: normal;
-  font-display: swap;
-  unicode-range:
-    U+0000-024F,
-    U+1E00-1EFF,
-    U+2000-206F,
-    U+2070-209F,
-    U+20A0-20CF,
-    U+2100-214F,
-    U+2190-22FF,
-    U+2460-24FF,
-    U+25A0-27BF;
 }

@@ -4,16 +4,17 @@
  * Routes STORAGE_* commands to the in-memory ramstore. Encoded chunks
  * live in `Uint8Array[]` per session, blobs are built with `new Blob([…])`
  * on finalize, and reads slice from the cached blob. There is no worker
- * hop, no `navigator.storage.getDirectory()` writes, no disk persistence.
+ * hop, no persistent file-system writes, no disk persistence.
  *
  * Memory characteristics
  * ──────────────────────
  *   - Active main blob:    ~5–15 MB typical mp3, up to ~50 MB hi-res
  *   - Preload blobs:       depth × track size (preload depth is 1–2)
  *   - Decoded AudioBuffer: ~80 MB / 4-min song
- * Foreground footprint typically lands at 100–150 MB — well inside the
- * iOS PWA budget. Long podcasts can still crash on AudioBuffer decode;
- * that's a hard ceiling no storage strategy softens.
+ * Foreground footprint typically lands at 100–150 MB. player/media-memory.ts
+ * bounds encoded inputs, probes duration before decodeAudioData(), and checks
+ * the resulting PCM buffer so long compressed media is rejected instead of
+ * exhausting the browser process.
  */
 
 import { log } from '../core/log.ts';

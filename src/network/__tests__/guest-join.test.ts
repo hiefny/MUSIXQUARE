@@ -68,7 +68,11 @@ function makeFakeConn(peerId: string): FiringConn {
   } as unknown as FiringConn;
 }
 
-function makeFakePeer(): { peer: PeerInstance; conns: FiringConn[]; connect: ReturnType<typeof vi.fn> } {
+function makeFakePeer(): {
+  peer: PeerInstance;
+  conns: FiringConn[];
+  connect: ReturnType<typeof vi.fn>;
+} {
   const conns: FiringConn[] = [];
   const connect = vi.fn((hostId: string) => {
     const conn = makeFakeConn(hostId);

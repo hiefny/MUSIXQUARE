@@ -50,7 +50,9 @@ describe('same-track zero replay resync', () => {
     const forceResync = vi.fn();
 
     setState('network.hostConn', hostConn);
-    setState('playlist.items', [{ type: 'file', name: 'loop.mp3', videoId: null, playlistId: null }]);
+    setState('playlist.items', [
+      { type: 'file', name: 'loop.mp3', videoId: null, playlistId: null },
+    ]);
     setState('playlist.currentTrackIndex', 0);
     setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
@@ -71,7 +73,9 @@ describe('hostPlayAt local-file scheduling', () => {
   function arrangePlayableGuest(): DataConnection {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);
-    setState('playlist.items', [{ type: 'file', name: 'song.mp3', videoId: null, playlistId: null }]);
+    setState('playlist.items', [
+      { type: 'file', name: 'song.mp3', videoId: null, playlistId: null },
+    ]);
     setState('playlist.currentTrackIndex', 0);
     setPlaybackLifecycleState(PLAYBACK_STATE.READY);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);

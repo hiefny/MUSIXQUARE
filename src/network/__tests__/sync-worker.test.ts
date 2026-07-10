@@ -26,7 +26,7 @@ function makeFakeWorker(): FakeWorker {
 }
 
 function setFakeSyncWorker(worker: FakeWorker): void {
-  setSyncWorker(worker as Worker);
+  setSyncWorker(worker as unknown as Worker);
 }
 
 beforeEach(() => {

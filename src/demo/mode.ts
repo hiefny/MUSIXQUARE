@@ -6,11 +6,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { MSG } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { loadDemoFile } from '../player/decode.ts';
-import {
-  getCurrentAudioBuffer,
-  newLoadEpoch,
-  setCurrentAudioBuffer,
-} from '../player/_state.ts';
+import { getCurrentAudioBuffer, newLoadEpoch, setCurrentAudioBuffer } from '../player/_state.ts';
 import {
   getPlaybackModeActivitySnapshot,
   setPlaybackFilePaused,
@@ -1266,8 +1262,8 @@ function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnect
   };
 
   if (!getState('demo.active') || _demoTrackIndex !== index || !getCurrentAudioBuffer()) {
-    void enterDemoMode({ index, autoplay: false, broadcastEntry: false }).catch(
-      (error: unknown) => log.warn('[Demo] Guest demo play-enter failed:', error),
+    void enterDemoMode({ index, autoplay: false, broadcastEntry: false }).catch((error: unknown) =>
+      log.warn('[Demo] Guest demo play-enter failed:', error),
     );
     return;
   }
@@ -1286,6 +1282,27 @@ function handleDemoPauseMessage(data: Record<string, unknown>, conn?: DataConnec
 function handleDemoExitMessage(_data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isTrustedDemoHostMessage(conn)) return;
   exitDemoMode({ broadcastExit: false });
+}
+
+/** Replay a protocol frame captured by app.ts while this lazy module loaded. */
+export function replayDeferredDemoProtocolMessage(
+  data: Record<string, unknown>,
+  conn?: DataConnection,
+): void {
+  switch (data.type) {
+    case MSG.DEMO_ENTER:
+      handleDemoEnterMessage(data, conn);
+      break;
+    case MSG.DEMO_PLAY:
+      handleDemoPlayMessage(data, conn);
+      break;
+    case MSG.DEMO_PAUSE:
+      handleDemoPauseMessage(data, conn);
+      break;
+    case MSG.DEMO_EXIT:
+      handleDemoExitMessage(data, conn);
+      break;
+  }
 }
 
 function bindDemoDom(): void {
@@ -1448,4 +1465,10 @@ export function initDemoMode(): void {
   }
 
   clearManagedTimer('demo-first-run-prompt');
+  // The lazy chunk may finish after setup.sessionStarted transitioned. Event
+  // listeners do not replay state, so explicitly schedule the same prompt from
+  // the current snapshot instead of silently losing the first-run flow.
+  if (getState('setup.sessionStarted') && getState('network.appRole') === 'host') {
+    setManagedTimer('demo-first-run-prompt', maybeShowFirstRunPrompt, 700);
+  }
 }

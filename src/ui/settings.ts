@@ -487,9 +487,7 @@ function detectEqPreset(): string {
 function syncEqPresetFromCurrentSliders(): void {
   const detected = detectEqPreset();
   clearEqChipActive();
-  document
-    .querySelector(`#grid-eq .ch-opt[data-eq-type="${detected}"]`)
-    ?.classList.add('active');
+  document.querySelector(`#grid-eq .ch-opt[data-eq-type="${detected}"]`)?.classList.add('active');
   setEqSlidersVisible(detected === 'advanced');
 }
 

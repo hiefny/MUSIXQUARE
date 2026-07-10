@@ -33,12 +33,23 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm test
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Check structural invariants
+        run: npm run guard:structure
+
+      - name: Test with coverage thresholds
+        run: npm run test:coverage
 
       - name: Build and verify production bundle
         run: npm run build:checked
 
-      # E2E suite lives in its own workflow (e2e.yml, manual dispatch).
-      # Serial 300-test run burns ~30 min per PR; keep fast CI gating
-      # to typecheck + lint + unit tests + build, and run E2E on demand.
+      - name: Install smoke-test browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Browser-security smoke tests
+        run: npm run test:e2e:smoke
+
+      # The serial full suite stays in e2e.yml (scheduled/manual). This fast
+      # gate deliberately keeps web security enabled in Chromium and WebKit.

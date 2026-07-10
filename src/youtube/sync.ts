@@ -32,7 +32,6 @@ import {
   setLocalYouTubePaused,
 } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
-import { invalidateYtDurationCache } from './iframe.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -515,7 +514,9 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
           // The new video's duration isn't reported until the iframe buffers
           // it. Invalidate the cache now so the seekbar doesn't keep showing
           // the previous video's total time during the load window.
-          invalidateYtDurationCache();
+          // iframe.ts owns its UI-loop cache. Route invalidation through the
+          // coordinator to keep sync.ts independent of the iframe module.
+          bus.emit('youtube:invalidate-duration-cache');
           if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
           }

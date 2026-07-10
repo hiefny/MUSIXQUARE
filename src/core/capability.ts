@@ -4,6 +4,9 @@ interface SecurityConfig {
   capabilityRequired: boolean;
   turnstileSiteKey: string;
   turnstileRequired: boolean;
+  proofOfWorkRequired: boolean;
+  proofOfWorkDifficulty: number;
+  proofOfWorkTtl: number;
   inferredFallback: boolean;
   ttl: number;
 }
@@ -11,6 +14,13 @@ interface SecurityConfig {
 interface CapabilityTokenResponse {
   token?: string;
   expiresAt?: number;
+}
+
+interface ProofOfWorkChallengeResponse {
+  challenge?: string;
+  difficulty?: number;
+  expiresAt?: number;
+  algorithm?: string;
 }
 
 interface TurnstileOptions {
@@ -41,29 +51,20 @@ const SECURITY_CONFIG_CACHE_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_SECONDS = 30;
 const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
 const TURNSTILE_OVERLAY_FADE_MS = 180;
-const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const TURNSTILE_SCRIPT_SRC =
+  'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_STYLE_ID = 'mxqr-turnstile-style';
 const CAPABILITY_CHALLENGE_CANCELLED = 'CapabilityChallengeCancelled';
+const POW_BATCH_SIZE = 128;
 const VALID_SCOPES = new Set<CapabilityScope>([
   'turn',
   'realtime',
   'youtube-search',
   'remote-share',
 ]);
-// Bundle every paid scope into a single mint so Turnstile fires at most once
-// per ~10min session (vs once per scope). Cache key is bundle-based so any
-// scope request hits the same cache entry. Token leak surface widens by 3
-// scopes, but IP binding + 10min TTL + per-endpoint rate limits keep the
-// practical risk equivalent to the single-scope design.
-const BUNDLE_SCOPES: CapabilityScope[] = [
-  'realtime',
-  'remote-share',
-  'turn',
-  'youtube-search',
-];
-
 const configCache = new Map<string, { expiresAt: number; value: SecurityConfig }>();
 const tokenCache = new Map<string, { expiresAt: number; token: string }>();
+const tokenRequestCache = new Map<string, Promise<string>>();
 let turnstileLoadPromise: Promise<void> | null = null;
 let turnstileExecution: Promise<string> | null = null;
 let turnstileWidgetId: string | null = null;
@@ -113,6 +114,16 @@ function normalizeSecurityConfig(value: unknown): SecurityConfig {
     capabilityRequired: payload.capabilityRequired === true,
     turnstileSiteKey: typeof payload.turnstileSiteKey === 'string' ? payload.turnstileSiteKey : '',
     turnstileRequired: payload.turnstileRequired === true,
+    proofOfWorkRequired: payload.proofOfWorkRequired === true,
+    proofOfWorkDifficulty:
+      typeof payload.proofOfWorkDifficulty === 'number' &&
+      Number.isInteger(payload.proofOfWorkDifficulty)
+        ? payload.proofOfWorkDifficulty
+        : 0,
+    proofOfWorkTtl:
+      typeof payload.proofOfWorkTtl === 'number' && Number.isFinite(payload.proofOfWorkTtl)
+        ? payload.proofOfWorkTtl
+        : 0,
     inferredFallback: payload.inferredFallback === true,
     ttl: typeof payload.ttl === 'number' && Number.isFinite(payload.ttl) ? payload.ttl : 600,
   };
@@ -138,6 +149,9 @@ async function getSecurityConfig(apiBase: string): Promise<SecurityConfig> {
       capabilityRequired: false,
       turnstileSiteKey: '',
       turnstileRequired: false,
+      proofOfWorkRequired: false,
+      proofOfWorkDifficulty: 0,
+      proofOfWorkTtl: 0,
       inferredFallback: false,
       ttl: 600,
     };
@@ -370,10 +384,8 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
           appearance: 'interaction-only',
           callback: (token) => finish(() => resolve(token)),
           'before-interactive-callback': showTurnstileOverlay,
-          'error-callback': () =>
-            finish(() => reject(new Error('Turnstile challenge failed'))),
-          'expired-callback': () =>
-            finish(() => reject(new Error('Turnstile challenge expired'))),
+          'error-callback': () => finish(() => reject(new Error('Turnstile challenge failed'))),
+          'expired-callback': () => finish(() => reject(new Error('Turnstile challenge expired'))),
         });
         turnstile.execute(turnstileWidgetId);
       } catch (error) {
@@ -387,6 +399,85 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
   } finally {
     turnstileExecution = null;
   }
+}
+
+function hasLeadingZeroBits(bytes: Uint8Array, difficulty: number): boolean {
+  let remaining = difficulty;
+  for (const byte of bytes) {
+    if (remaining <= 0) return true;
+    const bits = Math.min(8, remaining);
+    if ((byte & (0xff << (8 - bits))) !== 0) return false;
+    remaining -= bits;
+  }
+  return remaining <= 0;
+}
+
+async function solveCapabilityProofOfWork(
+  challenge: string,
+  difficulty: number,
+  expiresAt: number,
+): Promise<string> {
+  if (!challenge || !Number.isInteger(difficulty) || difficulty < 8 || difficulty > 24) {
+    throw new Error('Invalid capability proof-of-work challenge');
+  }
+
+  const encoder = new TextEncoder();
+  const prefix = `mxqr-pow-v1:${challenge}:`;
+  for (let start = 0; start < Number.MAX_SAFE_INTEGER; start += POW_BATCH_SIZE) {
+    if (Date.now() / 1000 >= expiresAt) {
+      throw new Error('Capability proof-of-work challenge expired');
+    }
+
+    // WebCrypto performs the hashing outside the JS main thread. Small batches
+    // keep the event loop responsive while avoiding a visible/user-operated
+    // challenge and work consistently in WebViews without Worker support.
+    const digests = await Promise.all(
+      Array.from({ length: POW_BATCH_SIZE }, (_, offset) =>
+        crypto.subtle.digest('SHA-256', encoder.encode(`${prefix}${start + offset}`)),
+      ),
+    );
+    for (let offset = 0; offset < digests.length; offset += 1) {
+      if (hasLeadingZeroBits(new Uint8Array(digests[offset]), difficulty)) {
+        return String(start + offset);
+      }
+    }
+  }
+  throw new Error('Capability proof-of-work solution unavailable');
+}
+
+async function getCapabilityProofOfWork(
+  apiBase: string,
+  scopes: CapabilityScope[],
+  config: SecurityConfig,
+): Promise<{ challenge: string; solution: string }> {
+  const response = await fetch(`${apiBase}/api/capability-challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scopes }),
+  });
+  if (!response.ok) throw new Error(`capability challenge HTTP ${response.status}`);
+
+  const payload = (await response.json()) as ProofOfWorkChallengeResponse;
+  const nowSeconds = Date.now() / 1000;
+  if (
+    !payload.challenge ||
+    payload.algorithm !== 'sha256-leading-zero-bits' ||
+    typeof payload.difficulty !== 'number' ||
+    payload.difficulty !== config.proofOfWorkDifficulty ||
+    typeof payload.expiresAt !== 'number' ||
+    payload.expiresAt <= nowSeconds ||
+    payload.expiresAt > nowSeconds + config.proofOfWorkTtl + 5
+  ) {
+    throw new Error('Invalid capability proof-of-work response');
+  }
+  return {
+    challenge: payload.challenge,
+    solution: await solveCapabilityProofOfWork(
+      payload.challenge,
+      payload.difficulty,
+      payload.expiresAt,
+    ),
+  };
 }
 
 async function requestCapabilityToken(
@@ -407,12 +498,18 @@ async function requestCapabilityToken(
     throw new Error('Turnstile required');
   }
 
+  const proofOfWork =
+    config.proofOfWorkRequired && !turnstileToken
+      ? await getCapabilityProofOfWork(apiBase, scopes, config)
+      : null;
+
   const response = await fetch(`${apiBase}/api/capability-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       scopes,
       ...(turnstileToken ? { turnstileToken } : {}),
+      ...(proofOfWork ? { proofOfWork } : {}),
     }),
   });
   if (!response.ok) throw new Error(`capability token HTTP ${response.status}`);
@@ -438,7 +535,7 @@ export async function getCapabilityHeaders(
   const config = await getSecurityConfig(apiBase);
   if (!config.capabilityRequired) return {};
 
-  const cacheKey = tokenCacheKey(apiBase, BUNDLE_SCOPES);
+  const cacheKey = tokenCacheKey(apiBase, normalizedScopes);
   const cached = tokenCache.get(cacheKey);
   const nowSeconds = Date.now() / 1000;
   if (cached && cached.expiresAt > nowSeconds + TOKEN_REFRESH_SKEW_SECONDS) {
@@ -446,11 +543,16 @@ export async function getCapabilityHeaders(
   }
 
   try {
-    // Always mint the bundle even if the caller asked for a subset — see
-    // BUNDLE_SCOPES comment. normalizedScopes is kept above only as an
-    // argument-validation gate (empty -> no-op).
-    void normalizedScopes;
-    const token = await requestCapabilityToken(apiBase, BUNDLE_SCOPES, config);
+    // Cache and coalesce only the exact minimum scope set requested by the
+    // caller. A token for one paid API never grants access to the others.
+    let request = tokenRequestCache.get(cacheKey);
+    if (!request) {
+      request = requestCapabilityToken(apiBase, normalizedScopes, config).finally(() => {
+        if (tokenRequestCache.get(cacheKey) === request) tokenRequestCache.delete(cacheKey);
+      });
+      tokenRequestCache.set(cacheKey, request);
+    }
+    const token = await request;
     return { 'X-MXQR-Capability': token };
   } catch (error) {
     if (isCapabilityChallengeCancelled(error)) throw error;
@@ -459,11 +561,12 @@ export async function getCapabilityHeaders(
 }
 
 export function invalidateCapabilityToken(input: RequestInfo | URL): void {
-  // Drop the cached bundle token so the next getCapabilityHeaders() call
-  // re-mints. Use when a downstream endpoint returns 401 even though we sent
-  // a token — usually means the cached token was minted before a new scope
-  // was added to the bundle (post-deploy transient).
-  tokenCache.delete(tokenCacheKey(apiBaseFor(input), BUNDLE_SCOPES));
+  // External callers do not always retain the original scope. Invalidate all
+  // minimum-scope tokens for this API origin; replacements remain isolated.
+  const prefix = `${apiBaseFor(input)}:`;
+  for (const key of tokenCache.keys()) {
+    if (key.startsWith(prefix)) tokenCache.delete(key);
+  }
 }
 
 export async function fetchWithCapability(
@@ -486,7 +589,7 @@ export async function fetchWithCapability(
   // never reaches here (it won't 401), and the server still rejects a truly
   // invalid token — this widens recovery, not access.
   invalidateSecurityConfig(apiBase);
-  tokenCache.delete(tokenCacheKey(apiBase, BUNDLE_SCOPES));
+  tokenCache.delete(tokenCacheKey(apiBase, scopes));
   const retryHeaders = new Headers(init.headers);
   const retryCapabilityHeaders = await getCapabilityHeaders(input, scopes);
   for (const [name, value] of Object.entries(retryCapabilityHeaders)) {

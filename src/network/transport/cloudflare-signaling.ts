@@ -72,6 +72,10 @@ interface GuestRoomRecord {
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const CONTROL_CHANNEL_LABEL = 'musixquare-control';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
+const MAX_PENDING_ICE_CANDIDATES_PER_PEER = 64;
+const MAX_PENDING_ICE_BYTES_PER_PEER = 64 * 1024;
+const MAX_PENDING_ICE_PEERS = 32;
+const MAX_PENDING_ICE_TOTAL_BYTES = MAX_PENDING_ICE_PEERS * MAX_PENDING_ICE_BYTES_PER_PEER;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -415,13 +419,29 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private readonly connections = new Map<string, CloudflareDataConnection>();
   private readonly mediaCalls = new Map<string, CloudflareMediaConnection>();
-  private readonly pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
+  private readonly pendingCandidates = new Map<
+    string,
+    { candidates: RTCIceCandidateInit[]; bytes: number }
+  >();
+  private pendingCandidateBytes = 0;
   private readonly roomSockets = new Map<string, WebSocket>();
   private readonly guestRooms = new Map<string, GuestRoomRecord>();
   private hostSocket: WebSocket | null = null;
   private readonly hostRoomId: string | null;
   private readonly hostSecret = randomBase64Url(24);
+  private readonly guestReconnectSecret = randomBase64Url(24);
   private roomPassword: string | null = null;
+
+  private deletePendingCandidates(peerId: string): void {
+    const queued = this.pendingCandidates.get(peerId);
+    if (queued) this.pendingCandidateBytes = Math.max(0, this.pendingCandidateBytes - queued.bytes);
+    this.pendingCandidates.delete(peerId);
+  }
+
+  private clearPendingCandidates(): void {
+    this.pendingCandidates.clear();
+    this.pendingCandidateBytes = 0;
+  }
 
   constructor(
     requestedId: string | null,
@@ -463,7 +483,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (this.guestRooms.get(roomId)?.conn === conn) this.guestRooms.delete(roomId);
       if (this.connections.get(roomId) === conn) {
         this.connections.delete(roomId);
-        this.pendingCandidates.delete(roomId);
+        this.deletePendingCandidates(roomId);
       }
     });
     // Deliberately NOT ensureGuestSocket: a re-join over a still-open socket
@@ -549,6 +569,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     for (const conn of this.connections.values()) conn.close();
     this.connections.clear();
     this.guestRooms.clear();
+    this.clearPendingCandidates();
     for (const mediaConn of this.mediaCalls.values()) mediaConn.closeFromRemote();
     this.mediaCalls.clear();
     this.clear();
@@ -650,6 +671,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     socket.addEventListener('close', () => {
       if (this.destroyed) return;
       if (this.hostSocket === socket) {
+        this.clearPendingCandidates();
         this.open = false;
         this.disconnected = true;
         this.emit('disconnected');
@@ -695,7 +717,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const { conn, metadata, password } = record;
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.buildSocketUrl(roomId, 'guest', this.id));
+      socket = new WebSocket(
+        this.buildSocketUrl(roomId, 'guest', this.id, this.guestReconnectSecret),
+      );
     } catch (error) {
       queueMicrotask(() => conn.emit('error', error));
       return;
@@ -718,6 +742,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (this.destroyed) return;
       if (this.roomSockets.get(roomId) === socket) {
         this.roomSockets.delete(roomId);
+        this.deletePendingCandidates(roomId);
         if (conn.peerConnection) {
           this.disconnected = true;
           this.emit('disconnected');
@@ -779,6 +804,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-left') {
+      // Signaling departure always ends ICE trickle for this socket identity,
+      // even when the already-established data channel is intentionally kept.
+      this.deletePendingCandidates(message.peerId);
       const conn = this.connections.get(message.peerId);
       if (this.isDataConnectionAlive(conn)) {
         log.info(
@@ -861,6 +889,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-left') {
+      this.deletePendingCandidates(roomId);
       if (this.isDataConnectionAlive(conn)) {
         log.info('[Transport] Ignoring signaling peer-left for host; data channel is still alive');
         return;
@@ -912,7 +941,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       // closes the old conn before installing the new one).
       if (this.connections.get(peerId) === conn) {
         this.connections.delete(peerId);
-        this.pendingCandidates.delete(peerId);
+        this.deletePendingCandidates(peerId);
       }
     });
 
@@ -1084,8 +1113,31 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const conn = this.connections.get(peerId);
     const pc = conn?.peerConnection;
     if (!pc || !pc.remoteDescription) {
-      const queued = this.pendingCandidates.get(peerId) ?? [];
-      queued.push(candidate);
+      let candidateBytes: number;
+      try {
+        candidateBytes = textEncoder.encode(JSON.stringify(candidate)).byteLength;
+      } catch {
+        log.warn('[Transport] Dropping non-serializable ICE candidate');
+        return;
+      }
+      const existing = this.pendingCandidates.get(peerId);
+      if (!existing && this.pendingCandidates.size >= MAX_PENDING_ICE_PEERS) {
+        log.warn('[Transport] Pending ICE peer limit reached; dropping candidate');
+        return;
+      }
+      const queued = existing ?? { candidates: [], bytes: 0 };
+      if (
+        queued.candidates.length >= MAX_PENDING_ICE_CANDIDATES_PER_PEER ||
+        candidateBytes > MAX_PENDING_ICE_BYTES_PER_PEER ||
+        queued.bytes + candidateBytes > MAX_PENDING_ICE_BYTES_PER_PEER ||
+        this.pendingCandidateBytes + candidateBytes > MAX_PENDING_ICE_TOTAL_BYTES
+      ) {
+        log.warn(`[Transport] Pending ICE limit reached for ${peerId}; dropping candidate`);
+        return;
+      }
+      queued.candidates.push(candidate);
+      queued.bytes += candidateBytes;
+      this.pendingCandidateBytes += candidateBytes;
       this.pendingCandidates.set(peerId, queued);
       return;
     }
@@ -1100,8 +1152,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const conn = this.connections.get(peerId);
     const pc = conn?.peerConnection;
     if (!pc) return;
-    const queued = this.pendingCandidates.get(peerId) ?? [];
-    this.pendingCandidates.delete(peerId);
+    const queued = this.pendingCandidates.get(peerId)?.candidates ?? [];
+    this.deletePendingCandidates(peerId);
     for (const candidate of queued) {
       try {
         await pc.addIceCandidate(candidate);

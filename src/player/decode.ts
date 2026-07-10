@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG, REMOTE_SHARE_STREAM_THRESHOLD_BYTES, TRANSFER_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, delay } from '../core/timers.ts';
 import { BlobURLManager } from '../core/blob-manager.ts';
 import { initAudio } from '../audio/engine.ts';
@@ -25,6 +25,7 @@ import { setEngineMode } from './video.ts';
 import { postCommand, cleanupStoredFile } from '../storage/storage.ts';
 import { broadcastFileDebounced } from '../storage/transfer.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
+import { isRemoteMediaFile, prepareRemoteMediaFileSource } from '../share/remote-media.ts';
 import type { AnyProtocolMsg, TrackMeta } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
@@ -60,6 +61,19 @@ import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
 import { isDemoTrackName } from '../demo/tracks.ts';
+import {
+  assertAudioBlobWithinMemoryBudget,
+  assertDecodedAudioWithinMemoryBudget,
+  isAudioMemoryLimitError,
+} from './media-memory.ts';
+import {
+  commitPreparedMediaElementSource,
+  disposeActiveMediaElementSource,
+  disposePreparedMediaElementSource,
+  hasActiveMediaElementSource,
+  prepareMediaElementSource,
+  type PreparedMediaElementSource,
+} from './media-element.ts';
 
 // ─── Decode Timeout Helper ─────────────────────────────────────────
 // 10s is a generous upper bound for legitimate audio/video decoding. Normal
@@ -137,6 +151,69 @@ async function decodeWithTimeout(arrayBuffer: ArrayBuffer, label = 'decode'): Pr
   }
 }
 
+async function decodeBlobWithinMemoryBudget(
+  blob: Blob,
+  label: string,
+  fileName = '',
+): Promise<AudioBuffer> {
+  await assertAudioBlobWithinMemoryBudget(blob, { fileName });
+  // Keep the encoded ArrayBuffer scoped to this helper so it becomes
+  // collectible as soon as decodeAudioData resolves instead of surviving the
+  // rest of the track activation path.
+  const audioBuffer = await decodeWithTimeout(await blob.arrayBuffer(), label);
+  assertDecodedAudioWithinMemoryBudget(audioBuffer, fileName);
+  return audioBuffer;
+}
+
+type PreparedFilePlaybackSource =
+  | { kind: 'buffer'; audioBuffer: AudioBuffer; duration: number }
+  | { kind: 'media-element'; mediaSource: PreparedMediaElementSource; duration: number };
+
+async function prepareFilePlaybackSource(
+  blob: Blob,
+  label: string,
+  fileName = '',
+): Promise<PreparedFilePlaybackSource> {
+  if (isRemoteMediaFile(blob)) {
+    const mediaSource = await prepareRemoteMediaFileSource(blob);
+    return { kind: 'media-element', mediaSource, duration: mediaSource.duration };
+  }
+  if (blob.size >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES) {
+    log.info(`[MediaElement] ${fileName || label} uses bounded streaming playback`);
+    const mediaSource = await prepareMediaElementSource(blob, fileName);
+    return { kind: 'media-element', mediaSource, duration: mediaSource.duration };
+  }
+  try {
+    const audioBuffer = await decodeBlobWithinMemoryBudget(blob, label, fileName);
+    return { kind: 'buffer', audioBuffer, duration: audioBuffer.duration };
+  } catch (error) {
+    if (!isAudioMemoryLimitError(error)) throw error;
+
+    log.info(
+      `[MediaElement] ${fileName || label} exceeds the PCM memory budget; using streaming playback`,
+    );
+    const mediaSource = await prepareMediaElementSource(blob, fileName);
+    return { kind: 'media-element', mediaSource, duration: mediaSource.duration };
+  }
+}
+
+function commitFilePlaybackSource(source: PreparedFilePlaybackSource): number {
+  if (source.kind === 'buffer') {
+    disposeActiveMediaElementSource();
+    setCurrentAudioBuffer(source.audioBuffer);
+  } else {
+    commitPreparedMediaElementSource(source.mediaSource);
+    setCurrentAudioBuffer(null);
+  }
+  return source.duration;
+}
+
+function disposeUncommittedFilePlaybackSource(source: PreparedFilePlaybackSource | null): void {
+  if (source?.kind === 'media-element') {
+    disposePreparedMediaElementSource(source.mediaSource);
+  }
+}
+
 function isDecodeTimeout(err: unknown): boolean {
   return err instanceof Error && err.message.includes(DECODE_TIMEOUT_TAG);
 }
@@ -151,6 +228,8 @@ export async function loadAndBroadcastFile(
 ): Promise<boolean> {
   const myLoadId = incrementLoadSessionId();
   const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
+  let preparedSource: PreparedFilePlaybackSource | null = null;
+  let sourceCommitted = false;
 
   showLoader(true, t('toast.preparing', { name: file.name }));
   stopAllMedia({ silent: true });
@@ -185,14 +264,18 @@ export async function loadAndBroadcastFile(
     // would resolve to currentFileBlob with the PREVIOUS track's meta,
     // causing recovery.ts findMatchingBlob() to match the wrong file or
     // fall through its no-hint branch with stale metadata.
-    BlobURLManager.create(file);
-
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
     showToast(t('toast.hprecision_sync'));
 
-    // Decode audio (with 10s timeout to avoid hanging on pathological files)
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await decodeWithTimeout(arrayBuffer, 'host-load');
+    // The previous decoded track is no longer playable after stopAllMedia().
+    // Release it before allocating the successor to avoid a two-AudioBuffer
+    // peak on memory-constrained browsers.
+    if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
+
+    // Decode into AudioBuffer when it is safe, otherwise prepare a bounded
+    // HTMLMediaElement source. Neither source is published until all stale
+    // load/session checks below pass.
+    preparedSource = await prepareFilePlaybackSource(file, 'host-load', file.name);
 
     // Re-verify after async decode
     if (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) {
@@ -208,28 +291,27 @@ export async function loadAndBroadcastFile(
       return false;
     }
 
-    // Dispose old buffer
-    if (getCurrentAudioBuffer()) {
-      setCurrentAudioBuffer(null);
-    }
-
     if (myLoadId !== getActiveLoadSessionId()) {
       log.debug('[Load] Stale loading session detected. Aborting.');
       return false;
     }
 
-    // Load into state
-    setCurrentAudioBuffer(audioBuffer);
-    log.debug(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
+    const sourceKind = preparedSource.kind;
+    const duration = commitFilePlaybackSource(preparedSource);
+    sourceCommitted = true;
+    log.debug(
+      sourceKind === 'buffer'
+        ? `[BufferMode] Loaded ${duration.toFixed(2)}s into RAM.`
+        : `[MediaElement] Prepared ${duration.toFixed(2)}s for bounded streaming playback.`,
+    );
 
     // Lifecycle: host-side decode completed → READY.
     // Host is also a guest-of-itself for this machine; transition() is a
     // no-op in non-audio modes (guards inside the helper).
     transition({ type: 'DECODE_SUCCESS' });
 
-    // Emit duration immediately from decoded buffer (primary source)
-    if (audioBuffer.duration && Number.isFinite(audioBuffer.duration)) {
-      bus.emit('ui:duration-update', audioBuffer.duration);
+    if (duration && Number.isFinite(duration)) {
+      bus.emit('ui:duration-update', duration);
     }
 
     const currentTrackIndex = getState('playlist.currentTrackIndex');
@@ -240,7 +322,10 @@ export async function loadAndBroadcastFile(
     setState('transfer.meta', { name: file.name, type: file.type, index: currentTrackIndex });
     setState('files.currentFileBlob', file);
 
-    BlobURLManager.confirm();
+    if (sourceKind === 'buffer') {
+      BlobURLManager.create(file);
+      BlobURLManager.confirm();
+    }
 
     // Enable play button
     const hostConn = getState('network.hostConn');
@@ -290,15 +375,18 @@ export async function loadAndBroadcastFile(
     setState('files.currentFileBlob', null);
 
     const timedOut = isDecodeTimeout(err);
+    const memoryLimited = isAudioMemoryLimitError(err);
     // Lifecycle: decode failed → FAILED. markTrackFailed
     // below handles the failed-set; the state machine distinguishes only
     // "decoded OK vs decode failed" here, so the timeout/error variants
     // share the same transition.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     showToast(
-      timedOut
-        ? t('error.decode_timeout', { name: file.name })
-        : t('error.load_failed', { msg: (err as Error).message }),
+      memoryLimited
+        ? t('error.audio_memory_limit', { name: file.name })
+        : timedOut
+          ? t('error.decode_timeout', { name: file.name })
+          : t('error.load_failed', { msg: (err as Error).message }),
     );
 
     // Auto-advance to the next playable track (host only — guests follow host).
@@ -311,6 +399,7 @@ export async function loadAndBroadcastFile(
     }
     return false;
   } finally {
+    if (!sourceCommitted) disposeUncommittedFilePlaybackSource(preparedSource);
     if (myLoadId === getActiveLoadSessionId()) {
       showLoader(false);
       setState('player.pausedAt', 0);
@@ -362,10 +451,10 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
     }
     if (getAudioContext().state !== 'running') await ensureRunning();
 
+    if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
     BlobURLManager.create(file);
 
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await decodeWithTimeout(arrayBuffer, 'demo-load');
+    const audioBuffer = await decodeBlobWithinMemoryBudget(file, 'demo-load', file.name);
 
     if (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) {
       if (myLoadId === getActiveLoadSessionId()) showLoader(false);
@@ -377,7 +466,6 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
       return;
     }
 
-    if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
     if (myLoadId !== getActiveLoadSessionId()) return;
 
     setCurrentAudioBuffer(audioBuffer);
@@ -516,7 +604,9 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
       'decode-fail-advance',
       () => {
         if (!isCurrentLoadEpoch(advanceEpoch)) {
-          log.debug('[Decode] Skipping auto-advance — load epoch advanced (user action superseded)');
+          log.debug(
+            '[Decode] Skipping auto-advance — load epoch advanced (user action superseded)',
+          );
           return;
         }
         // Dynamic import to avoid a static cycle with playlist.ts
@@ -686,6 +776,8 @@ export async function loadPreloadedTrack(
   const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
   const localBlob = getState('preload.nextFileBlob');
   const localMeta = nextMeta ? { ...nextMeta } : null;
+  let preparedSource: PreparedFilePlaybackSource | null = null;
+  let sourceCommitted = false;
 
   if (!localBlob) {
     log.warn('[Preload] No preloaded blob found in cache!');
@@ -736,8 +828,8 @@ export async function loadPreloadedTrack(
     log.debug('[Preload] Decoding audio for Buffer Mode...');
     showToast(t('toast.decoding_audio'));
 
-    const arrayBuffer = await localBlob.arrayBuffer();
-    const audioBuffer = await decodeWithTimeout(arrayBuffer, 'preload');
+    const preloadName = (localBlob as File).name || (localMeta?.name as string) || '';
+    preparedSource = await prepareFilePlaybackSource(localBlob, 'preload', preloadName);
 
     // Re-verify after async decode
     if (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) {
@@ -790,11 +882,18 @@ export async function loadPreloadedTrack(
       setState('files.currentTrack', { name: newName });
     }
 
+    const sourceKind = preparedSource.kind;
+    const duration = commitFilePlaybackSource(preparedSource);
+    sourceCommitted = true;
+
     // Update global state
     setState('files.currentFileBlob', localBlob);
     setState('transfer.meta', activeMeta);
-    setCurrentAudioBuffer(audioBuffer);
-    log.debug(`[BufferMode] Preloaded ${audioBuffer.duration.toFixed(2)}s decoded.`);
+    log.debug(
+      sourceKind === 'buffer'
+        ? `[BufferMode] Preloaded ${duration.toFixed(2)}s decoded.`
+        : `[MediaElement] Preloaded ${duration.toFixed(2)}s for bounded streaming playback.`,
+    );
 
     // Guest: refresh track title from playlist — finalizeGuestFile sets this
     // on the P2P download path, but the preload/demo path never did, leaving
@@ -812,13 +911,13 @@ export async function loadPreloadedTrack(
 
     setEngineMode('buffer');
 
-    BlobURLManager.create(localBlob);
-
-    const dur = audioBuffer.duration;
-    if (Number.isFinite(dur)) {
-      bus.emit('ui:duration-update', dur);
+    if (Number.isFinite(duration)) {
+      bus.emit('ui:duration-update', duration);
     }
-    BlobURLManager.confirm();
+    if (sourceKind === 'buffer') {
+      BlobURLManager.create(localBlob);
+      BlobURLManager.confirm();
+    }
 
     // Clear preload state
     setState('preload.nextFileBlob', null);
@@ -855,8 +954,8 @@ export async function loadPreloadedTrack(
       let target = pendingTime + age;
 
       // Wrap target time for demo tracks to avoid seeking past the end (silence)
-      if (isDemoTrackName(localMeta?.name) && audioBuffer.duration > 0) {
-        target = target % audioBuffer.duration;
+      if (isDemoTrackName(localMeta?.name) && duration > 0) {
+        target = target % duration;
       }
 
       log.info(
@@ -895,11 +994,18 @@ export async function loadPreloadedTrack(
     showLoader(false);
 
     const timedOut = isDecodeTimeout(e);
+    const memoryLimited = isAudioMemoryLimitError(e);
     const meta = getState('transfer.meta');
     const name = (meta?.name as string) || '';
     // Lifecycle: preload decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
-    showToast(timedOut ? t('error.decode_timeout', { name }) : t('transfer.preload_fail'));
+    showToast(
+      memoryLimited
+        ? t('error.audio_memory_limit', { name })
+        : timedOut
+          ? t('error.decode_timeout', { name })
+          : t('transfer.preload_fail'),
+    );
 
     setState('preload.nextFileBlob', null);
     setState('preload.meta', null);
@@ -942,7 +1048,9 @@ export async function loadPreloadedTrack(
     const failureCount = (getState('player.decodeFailureCount') || 0) + 1;
     setState('player.decodeFailureCount', failureCount);
     if (failureCount >= 2) {
-      log.warn('[Preload] Activation failed twice for the same track — marking failed, no re-request');
+      log.warn(
+        '[Preload] Activation failed twice for the same track — marking failed, no re-request',
+      );
       markTrackFailed(getTrackKeyFromFile(localBlob));
       return false;
     }
@@ -955,6 +1063,8 @@ export async function loadPreloadedTrack(
       reason: 'preload_activation_failed',
     });
     return false;
+  } finally {
+    if (!sourceCommitted) disposeUncommittedFilePlaybackSource(preparedSource);
   }
 }
 
@@ -992,6 +1102,7 @@ export function clearPreviousTrackState(reason = ''): void {
     log.debug('[State Clear] Clearing currentAudioBuffer');
     setCurrentAudioBuffer(null);
   }
+  disposeActiveMediaElementSource();
   stopPlayerNode();
 
   // Don't clear pendingPlayTime for 'new-session-start' — late-join flow sends
@@ -1066,6 +1177,9 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
   // (not a live re-read at the checkpoints' call time) keeps the 2026-04-25
   // rapid A→B→A name-match fallback intact. Pin (j).
   const myTransferSid = getState('transfer.localSessionId');
+  let detachedPreviousBuffer: AudioBuffer | null = null;
+  let preparedSource: PreparedFilePlaybackSource | null = null;
+  let playbackSourceCommitted = false;
   showLoader(true, t('error.audio_memory'));
 
   try {
@@ -1079,7 +1193,10 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       return;
     }
 
-    const arrayBuffer = await file.arrayBuffer();
+    // The old decoded track cannot resume once a new transfer is finalized.
+    // Drop it before allocating encoded + decoded copies for the successor.
+    detachedPreviousBuffer = getCurrentAudioBuffer();
+    if (detachedPreviousBuffer) setCurrentAudioBuffer(null);
     if (getActiveLoadSessionId() !== myLoadId) {
       log.debug('[Guest] Stale finalize (pre-decode), aborting');
       return;
@@ -1088,7 +1205,8 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       log.debug('[Guest] Stale finalize (new transfer session pre-decode), aborting');
       return;
     }
-    const audioBuffer = await decodeWithTimeout(arrayBuffer, 'guest-finalize');
+    const fileName = (file as File).name || getState('transfer.meta')?.name || '';
+    preparedSource = await prepareFilePlaybackSource(file, 'guest-finalize', fileName);
     if (getActiveLoadSessionId() !== myLoadId) {
       log.debug('[Guest] Stale finalize (post-decode), aborting');
       return;
@@ -1104,10 +1222,9 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       return;
     }
 
-    if (getCurrentAudioBuffer()) {
-      setCurrentAudioBuffer(null);
-    }
-    setCurrentAudioBuffer(audioBuffer);
+    const sourceKind = preparedSource.kind;
+    const duration = commitFilePlaybackSource(preparedSource);
+    playbackSourceCommitted = true;
 
     // Lifecycle: main-transfer file decoded → READY.
     transition({ type: 'DECODE_SUCCESS' });
@@ -1115,12 +1232,13 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     setState('files.currentFileBlob', file);
     setEngineMode('buffer');
 
-    BlobURLManager.create(file);
-
-    if (audioBuffer.duration && Number.isFinite(audioBuffer.duration)) {
-      bus.emit('ui:duration-update', audioBuffer.duration);
+    if (duration && Number.isFinite(duration)) {
+      bus.emit('ui:duration-update', duration);
     }
-    BlobURLManager.confirm();
+    if (sourceKind === 'buffer') {
+      BlobURLManager.create(file);
+      BlobURLManager.confirm();
+    }
 
     // Reset guards
     setPlaybackTransferState(TRANSFER_STATE.READY);
@@ -1144,12 +1262,8 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
       let target = pendingTime + age;
       const fileName =
         currentPlaylistItem?.name || (file as File).name || getState('transfer.meta')?.name;
-      if (
-        isDemoTrackName(fileName) &&
-        Number.isFinite(audioBuffer.duration) &&
-        audioBuffer.duration > 0
-      ) {
-        target = target % audioBuffer.duration;
+      if (isDemoTrackName(fileName) && Number.isFinite(duration) && duration > 0) {
+        target = target % duration;
       }
       log.debug(`[Guest] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
       play(target);
@@ -1183,6 +1297,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     log.error('[Guest] Decoding failed', err);
 
     const timedOut = isDecodeTimeout(err);
+    const memoryLimited = isAudioMemoryLimitError(err);
     // Lifecycle: guest main-transfer decode failed → FAILED.
     transition({ type: timedOut ? 'DECODE_TIMEOUT' : 'DECODE_ERROR' });
     // Reset transfer state so recovery can start fresh (prevents infinite loop)
@@ -1198,8 +1313,14 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     const failureCount = (getState('player.decodeFailureCount') || 0) + 1;
     setState('player.decodeFailureCount', failureCount);
 
-    if (timedOut || failureCount >= 2) {
-      showToast(t('error.local_decode_wait'));
+    if (timedOut || memoryLimited || failureCount >= 2) {
+      showToast(
+        memoryLimited
+          ? t('error.audio_memory_limit', {
+              name: (file as File).name || getState('transfer.meta')?.name || '',
+            })
+          : t('error.local_decode_wait'),
+      );
       const failedIdx = getState('playlist.currentTrackIndex');
       if (failedIdx >= 0) {
         sendToHost({ type: MSG.GUEST_DECODE_FAILED, index: failedIdx });
@@ -1214,6 +1335,19 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     // counter trips on entry to this catch on the second pass.
     sendRecoveryRequest(0);
   } finally {
+    if (!playbackSourceCommitted) disposeUncommittedFilePlaybackSource(preparedSource);
+    // Compare-before-restore preserves the stale-finalize invariant: release
+    // the previous PCM buffer during the expensive decode, but put it back if
+    // this activation failed/superseded and no successor has committed its own
+    // buffer in the meantime.
+    if (
+      !playbackSourceCommitted &&
+      detachedPreviousBuffer &&
+      !getCurrentAudioBuffer() &&
+      !hasActiveMediaElementSource()
+    ) {
+      setCurrentAudioBuffer(detachedPreviousBuffer);
+    }
     showLoader(false);
   }
 }

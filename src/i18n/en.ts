@@ -493,7 +493,7 @@ const en: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Remote file share failed: {{msg}}',
   'share.remote.download_failed': 'Remote file download failed: {{msg}}',
   'share.remote.timeout': 'Remote file share timed out',
-  'share.remote.too_large': 'File too large (200 MB max)',
+  'share.remote.too_large': 'File too large for remote sharing',
   'share.remote.network_error': 'Network error during remote share',
   'share.remote.rate_limited': 'Too many remote share uploads.\nPlease try again in a moment',
   'share.remote.auth_failed':
@@ -516,6 +516,7 @@ const en: Record<I18nKey, string> = {
   'error.load_failed': 'Load Failed: {{msg}}',
   'error.audio_decode_fail': 'Audio decode failed!',
   'error.audio_memory': 'Loading audio into memory...',
+  'error.audio_memory_limit': '"{{name}}" is too large or long for safe playback on this device.',
   'error.decode_timeout': 'Decoding "{{name}}" took too long.\nSkipping to next track.',
   'error.local_decode_wait':
     "This device couldn't decode the track.\nPlease wait for the next track.",

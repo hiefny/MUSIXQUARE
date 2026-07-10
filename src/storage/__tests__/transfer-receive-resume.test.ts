@@ -15,15 +15,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import type { DataConnection } from '../../types/index.ts';
-import {
-  ramStart,
-  ramWrite,
-  ramEnd,
-  ramReadBlob,
-  __resetRamStoreForTests,
-} from '../ramstore.ts';
+import { ramStart, ramWrite, ramEnd, ramReadBlob, __resetRamStoreForTests } from '../ramstore.ts';
 
 vi.mock('../storage.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../storage.ts')>();
@@ -69,6 +63,127 @@ vi.mock('../../core/timers.ts', () => ({
 const flushStorage = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 const u8 = (...bytes: number[]) => new Uint8Array(bytes);
+
+describe('declared-size receive budget', () => {
+  const conn = { open: true, peer: 'host-budget' } as DataConnection;
+
+  beforeEach(async () => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+    __resetRamStoreForTests();
+    const { clearReceiveState } = await import('../transfer-receive.ts');
+    clearReceiveState();
+    setState('network.hostConn', conn);
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState('transfer.state', TRANSFER_STATE.RECEIVING);
+  });
+
+  it('rejects an oversized FILE_START before storage and absorbs every later frame', async () => {
+    const {
+      getTransferMemoryStats,
+      handleFileChunk,
+      handleFileEnd,
+      handleFileResume,
+      handleFileStart,
+    } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+    const { sendToHost } = await import('../../network/peer.ts');
+    const { showToast } = await import('../../ui/toast.ts');
+    const oversized = 256 * 1024 * 1024;
+
+    handleFileStart(
+      {
+        type: MSG.FILE_START,
+        name: 'oversized.mp3',
+        size: oversized,
+        total: 2,
+        sessionId: 41,
+        index: 3,
+      },
+      conn,
+    );
+
+    expect(getState('transfer.localSessionId')).toBe(41);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
+    expect(postCommand).toHaveBeenCalledWith({ command: 'STORAGE_RESET', isPreload: false });
+    expect(postCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_START', sessionId: 41 }),
+    );
+    expect(sendToHost).toHaveBeenCalledWith({ type: MSG.GUEST_DECODE_FAILED, index: 3 });
+    expect(showToast).toHaveBeenCalledWith('error.audio_memory_limit');
+
+    handleFileChunk(
+      {
+        type: MSG.FILE_CHUNK,
+        name: 'oversized.mp3',
+        chunk: u8(1, 2, 3),
+        index: 0,
+        total: 2,
+        sessionId: 41,
+      },
+      conn,
+    );
+    handleFileResume(
+      {
+        type: MSG.FILE_RESUME,
+        name: 'oversized.mp3',
+        size: oversized,
+        total: 2,
+        startChunk: 0,
+        sessionId: 41,
+      },
+      conn,
+    );
+    handleFileEnd({ type: MSG.FILE_END, name: 'oversized.mp3', total: 2, sessionId: 41 }, conn);
+
+    expect(getTransferMemoryStats()).toMatchObject({
+      reorderChunks: 0,
+      reorderBytes: 0,
+      pendingEarlyChunks: 0,
+      pendingEarlyBytes: 0,
+    });
+    expect(postCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_WRITE', sessionId: 41 }),
+    );
+
+    // A newer valid header clears the single active rejection marker. A late
+    // chunk from sid 41 must still be rejected as stale before the early queue.
+    handleFileStart(
+      { type: MSG.FILE_START, name: 'small.mp3', size: 3, total: 1, sessionId: 42, index: 4 },
+      conn,
+    );
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    handleFileChunk(
+      {
+        type: MSG.FILE_CHUNK,
+        name: 'oversized.mp3',
+        chunk: u8(9),
+        index: 0,
+        total: 2,
+        sessionId: 41,
+      },
+      conn,
+    );
+    expect(getTransferMemoryStats().pendingEarlyChunks).toBe(0);
+  });
+
+  it('keeps legacy FILE_START payloads without a declared size compatible', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+
+    handleFileStart(
+      { type: MSG.FILE_START, name: 'legacy.mp3', total: 1, sessionId: 51, index: 0 },
+      conn,
+    );
+
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_START', sessionId: 51 }),
+    );
+  });
+});
 
 describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () => {
   const conn = { open: true, peer: 'host-1' } as DataConnection;
@@ -286,9 +401,8 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
   });
 
   it('clears excessive out-of-order chunks and requests recovery without fast-forwarding counters', async () => {
-    const { handleFileStart, handleFileChunk, getTransferMemoryStats } = await import(
-      '../transfer-receive.ts'
-    );
+    const { handleFileStart, handleFileChunk, getTransferMemoryStats } =
+      await import('../transfer-receive.ts');
     const recoverySpy = vi.fn();
     bus.on('storage:request-recovery', recoverySpy);
 

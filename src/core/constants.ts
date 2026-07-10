@@ -48,6 +48,25 @@ export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
 
 // ─── File Transfer ─────────────────────────────────────────────────
 export const CHUNK_SIZE = 64 * 1024; // 64KB per chunk
+
+// Remote R2 payload limits. Protocol v4 uploads one independently authenticated
+// 8 MiB record per R2 multipart part, so the browser never creates a second
+// whole-file copy. Five GiB is a product guardrail rather than a Worker body or
+// R2 single-PUT limit.
+const REMOTE_SHARE_MIB = 1024 * 1024;
+const REMOTE_SHARE_GIB = 1024 * REMOTE_SHARE_MIB;
+export const REMOTE_SHARE_CRYPTO_CHUNK_BYTES = 8 * REMOTE_SHARE_MIB;
+export const REMOTE_SHARE_GCM_TAG_BYTES = 16;
+export const REMOTE_SHARE_MAX_PLAINTEXT_BYTES = 5 * REMOTE_SHARE_GIB;
+const REMOTE_SHARE_MAX_CHUNK_COUNT = Math.ceil(
+  REMOTE_SHARE_MAX_PLAINTEXT_BYTES / REMOTE_SHARE_CRYPTO_CHUNK_BYTES,
+);
+export const REMOTE_SHARE_MAX_ENCRYPTED_BYTES =
+  REMOTE_SHARE_MAX_PLAINTEXT_BYTES + REMOTE_SHARE_MAX_CHUNK_COUNT * REMOTE_SHARE_GCM_TAG_BYTES;
+/** Above this size every guest, including LAN guests, uses R2 range streaming. */
+export const REMOTE_SHARE_STREAM_THRESHOLD_BYTES = 32 * REMOTE_SHARE_MIB;
+/** Rolling whole-file AES-GCM compatibility is intentionally memory bounded. */
+export const REMOTE_SHARE_LEGACY_MAX_PLAINTEXT_BYTES = 64 * REMOTE_SHARE_MIB;
 export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog
 
 export const MAX_RECOVERY_RETRIES = 3;

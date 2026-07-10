@@ -28,7 +28,10 @@ function makeTrack(name: string): PlaylistItem {
   return { type: 'file', name, title: name, videoId: null, playlistId: null };
 }
 
-function makePeerWithSpy(id: string, isOp: boolean): { peer: ConnectedPeer; send: ReturnType<typeof vi.fn> } {
+function makePeerWithSpy(
+  id: string,
+  isOp: boolean,
+): { peer: ConnectedPeer; send: ReturnType<typeof vi.fn> } {
   const send = vi.fn();
   const conn = { peer: id, open: true, send } as unknown as DataConnection;
   return {

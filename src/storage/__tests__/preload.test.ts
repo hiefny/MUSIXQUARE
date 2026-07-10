@@ -7,9 +7,9 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
-import { initPreload, schedulePreload } from '../preload.ts';
+import { getPreloadMemoryStats, initPreload, schedulePreload } from '../preload.ts';
 import { setRepeatMode, setShuffle } from '../../player/playlist.ts';
-import type { DataConnection, PlaylistItem } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 
 beforeEach(() => {
   resetState();
@@ -148,14 +148,21 @@ function makeBulkConn(peer: string, bufferedAmount = 0, readyState = 'open'): Da
 function connectBulkPeers(conns: DataConnection[]): void {
   setState(
     'network.connectedPeers',
-    conns.map((conn, i) => ({
-      id: conn.peer,
-      status: 'connected',
-      conn,
-      isDataTarget: true,
-      connectionType: 'local',
-      joinOrder: i + 1,
-    })),
+    conns.map(
+      (conn, i): ConnectedPeer => ({
+        id: conn.peer,
+        slot: i,
+        label: conn.peer,
+        isOp: false,
+        preloadedIndexes: new Set<number>(),
+        status: 'connected',
+        conn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: i + 1,
+        lastHeartbeat: 0,
+      }),
+    ),
   );
   setState('network.activeHostConnByPeerId', new Map(conns.map((conn) => [conn.peer, conn])));
 }
@@ -240,6 +247,93 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
     expect(msgsOf(healthyConn, MSG.PRELOAD_START)).toHaveLength(1);
     expect(msgsOf(healthyConn, MSG.PRELOAD_CHUNK)).toHaveLength(2);
     expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
+  });
+});
+
+describe('declared-size preload budget', () => {
+  let conn: DataConnection;
+
+  beforeEach(() => {
+    initPreload();
+    // Exercise the module-local disconnect cleanup so rejected-session memory
+    // from a prior test cannot affect this one.
+    setState('network.sessionCode', 'budget-test');
+    setState('network.sessionCode', '');
+    conn = makeBulkConn('host-budget');
+    setState('network.hostConn', conn);
+    setState('network.connectionType', 'local');
+  });
+
+  it('rejects before storage and keeps absorbing late chunks after skipped-state cleanup', async () => {
+    const rejectedSid = 901;
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        name: 'oversized-next.mp3',
+        size: 256 * 1024 * 1024,
+        total: 2,
+        index: 1,
+        sessionId: rejectedSid,
+      },
+      conn,
+    );
+
+    expect(getState('preload.sessionState').get(rejectedSid)?.skipped).toBe(true);
+    expect(getState('preload.nextFileBlob')).toBeNull();
+    expect(getPreloadMemoryStats()).toMatchObject({ reorderChunks: 0, reorderBytes: 0 });
+
+    // A newer valid start evicts the skipped sessionState entry. The bounded
+    // rejected-sid set must remain authoritative for late old frames.
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        name: 'small-next.mp3',
+        size: 1,
+        total: 1,
+        index: 2,
+        sessionId: 902,
+      },
+      conn,
+    );
+    expect(getState('preload.sessionState').has(rejectedSid)).toBe(false);
+
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        chunk: new Uint8Array([7]),
+        index: 0,
+        sessionId: rejectedSid,
+      },
+      conn,
+    );
+    await handleData(
+      { type: MSG.PRELOAD_END, name: 'oversized-next.mp3', index: 1, sessionId: rejectedSid },
+      conn,
+    );
+
+    expect(getPreloadMemoryStats()).toMatchObject({
+      reorderChunks: 0,
+      reorderBytes: 0,
+    });
+  });
+
+  it('keeps legacy PRELOAD_START payloads without a declared size compatible', async () => {
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        name: 'legacy-next.mp3',
+        total: 1,
+        index: 1,
+        sessionId: 911,
+      },
+      conn,
+    );
+
+    expect(getState('preload.sessionState').get(911)?.skipped).toBe(false);
+    expect(getState('preload.meta')).toMatchObject({
+      name: 'legacy-next.mp3',
+      sessionId: 911,
+    });
   });
 });
 

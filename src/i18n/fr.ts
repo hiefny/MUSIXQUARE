@@ -339,7 +339,7 @@ const fr: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Échec du partage de fichier distant : {{msg}}',
   'share.remote.download_failed': 'Échec du téléchargement du fichier distant : {{msg}}',
   'share.remote.timeout': 'Le partage de fichier distant a expiré',
-  'share.remote.too_large': 'Fichier trop volumineux (200 Mo max)',
+  'share.remote.too_large': 'Fichier trop volumineux pour le partage à distance',
   'share.remote.network_error': 'Erreur réseau pendant le partage distant',
   'share.remote.rate_limited':
     'Trop d’envois de partage distant.\nVeuillez réessayer dans un instant',
@@ -452,6 +452,8 @@ const fr: Record<I18nKey, string> = {
   'error.load_failed': 'Échec du chargement : {{msg}}',
   'error.audio_decode_fail': 'Échec du décodage audio !',
   'error.audio_memory': 'Chargement de l’audio en mémoire...',
+  'error.audio_memory_limit':
+    '« {{name}} » est trop volumineux ou trop long pour être lu sans risque sur cet appareil.',
   'error.decode_timeout':
     'Le décodage de "{{name}}" a pris trop de temps.\nPassage à la piste suivante.',
   'error.local_decode_wait':

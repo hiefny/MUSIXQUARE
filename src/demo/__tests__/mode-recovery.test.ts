@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
   safeSend: vi.fn(),
   loadDemoFile: vi.fn(),
+  showDialog: vi.fn(),
 }));
 
 vi.mock('../../player/transport.ts', () => ({
@@ -56,7 +57,7 @@ vi.mock('../../audio/effects.ts', () => ({
 }));
 
 vi.mock('../../ui/dialog.ts', () => ({
-  showDialog: vi.fn(),
+  showDialog: mocks.showDialog,
 }));
 
 vi.mock('../../ui/setup-shared.ts', () => ({
@@ -113,6 +114,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     resetState();
     bus.clear();
     clearAllManagedTimers();
+    localStorage.clear();
     vi.clearAllMocks();
     FakeXHR.pending = [];
     vi.stubGlobal('XMLHttpRequest', FakeXHR);
@@ -136,6 +138,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     // Real stopAllMedia releases playback to idle — the restore policy
     // depends on it.
     mocks.stopAllMedia.mockImplementation(() => setPlaybackIdle());
+    mocks.showDialog.mockResolvedValue({ action: 'cancel' });
 
     const { initDemoMode } = await import('../mode.ts');
     initDemoMode();
@@ -197,9 +200,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     // Track 0 load finishes → the queued index must re-dispatch a load of 1.
     FakeXHR.pending[0].resolveOk();
     await flush(50);
-    const followUp = FakeXHR.pending.find(
-      (x, i) => i > 0 && x.onload !== null,
-    );
+    const followUp = FakeXHR.pending.find((x, i) => i > 0 && x.onload !== null);
     expect(followUp).toBeDefined();
     followUp!.resolveOk();
     await flush(50);
@@ -212,5 +213,41 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
 
   it('keeps DEMO_TRACKS non-trivial so the advance scenario stays meaningful', () => {
     expect(DEMO_TRACKS.length).toBeGreaterThan(1);
+  });
+
+  it('replays a demo protocol frame captured before the lazy module initialized', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    const { replayDeferredDemoProtocolMessage } = await import('../mode.ts');
+
+    replayDeferredDemoProtocolMessage(
+      {
+        type: MSG.DEMO_ENTER,
+        index: 0,
+        reverbOn: false,
+        bassBoostOn: false,
+        trebleBoostOn: false,
+        surroundOn: false,
+      },
+      hostConn,
+    );
+    await flush();
+    FakeXHR.pending.at(-1)?.resolveOk();
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(true);
+    expect(mocks.loadDemoFile).toHaveBeenCalled();
+  });
+
+  it('re-evaluates an already-started host session when lazy init finishes', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    const { initDemoMode } = await import('../mode.ts');
+
+    initDemoMode();
+    await flush(700);
+
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
   });
 });

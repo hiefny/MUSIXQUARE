@@ -335,7 +335,7 @@ const ptBr: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'Falha no compartilhamento remoto: {{msg}}',
   'share.remote.download_failed': 'Falha ao baixar arquivo remoto: {{msg}}',
   'share.remote.timeout': 'Compartilhamento remoto expirou',
-  'share.remote.too_large': 'Arquivo grande demais (máximo 200 MB)',
+  'share.remote.too_large': 'Arquivo grande demais para compartilhamento remoto',
   'share.remote.network_error': 'Erro de rede durante o compartilhamento remoto',
   'share.remote.rate_limited':
     'Muitos uploads de compartilhamento remoto.\nTente novamente em instantes',
@@ -448,6 +448,8 @@ const ptBr: Record<I18nKey, string> = {
   'error.load_failed': 'Falha ao carregar: {{msg}}',
   'error.audio_decode_fail': 'Falha ao decodificar áudio!',
   'error.audio_memory': 'Carregando áudio na memória...',
+  'error.audio_memory_limit':
+    '“{{name}}” é grande ou longo demais para reprodução segura neste dispositivo.',
   'error.decode_timeout': 'Decodificar "{{name}}" demorou demais.\nPulando para a próxima faixa.',
   'error.local_decode_wait':
     'Este dispositivo não conseguiu decodificar a faixa.\nAguarde a próxima faixa.',

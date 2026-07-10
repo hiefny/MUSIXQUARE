@@ -15,6 +15,7 @@ import {
   WATCHDOG_TIMEOUT,
   PLAYBACK_STATE,
   LOAD_SOURCE,
+  REMOTE_SHARE_STREAM_THRESHOLD_BYTES,
 } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -47,6 +48,10 @@ import {
   setPendingRecoveryTarget,
 } from '../player/_state.ts';
 import { createDemoTrackMeta, getDemoTrackForPlayback, isDemoTrackName } from '../demo/tracks.ts';
+import {
+  assertEncodedAudioWithinMemoryBudget,
+  isAudioMemoryLimitError,
+} from '../player/media-memory.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -55,6 +60,73 @@ let nextExpectedChunk = 0;
 let lastChunkTime = 0;
 let _demoFetchPromise: { key: string; promise: Promise<void> } | null = null;
 const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
+/** Main-transfer session rejected before STORAGE_START because its declared
+ * encoded size exceeds this receiver's memory budget. Main transfers are
+ * serialized, so one monotonic sid is sufficient; adopting it into
+ * transfer.localSessionId also makes older frames stale. */
+let _rejectedFileSessionId = 0;
+
+function dropPendingEarlyChunksForSession(sessionId: number): void {
+  for (let i = _pendingEarlyChunks.length - 1; i >= 0; i--) {
+    if ((_pendingEarlyChunks[i]?.sessionId as number) === sessionId) {
+      _pendingEarlyChunks.splice(i, 1);
+    }
+  }
+}
+
+function rejectOversizedFileSession(data: Record<string, unknown>, sessionId: number): boolean {
+  const fileName = typeof data.name === 'string' ? data.name : '';
+  const declaredSize = Number(data.size);
+
+  // `size` was optional in older wire payloads. If it is absent or cannot be
+  // interpreted yet, preserve compatibility and let the finalized-blob check
+  // enforce the budget once the encoded byte size is known.
+  if (!Number.isFinite(declaredSize) || declaredSize < 0) return false;
+
+  try {
+    if (declaredSize >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES) {
+      throw new Error('REMOTE_SHARE_RANGE_STREAM_REQUIRED');
+    }
+    assertEncodedAudioWithinMemoryBudget(declaredSize, fileName);
+    return false;
+  } catch (error) {
+    if (
+      !isAudioMemoryLimitError(error) &&
+      (!(error instanceof Error) || error.message !== 'REMOTE_SHARE_RANGE_STREAM_REQUIRED')
+    ) {
+      throw error;
+    }
+
+    _rejectedFileSessionId = sessionId;
+    setState('transfer.localSessionId', Math.max(getState('transfer.localSessionId'), sessionId));
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    fileReorderBuffer.delete(sessionId);
+    dropPendingEarlyChunksForSession(sessionId);
+    nextExpectedChunk = 0;
+
+    // A same-session recovery may already own a partial main slot. Resetting
+    // is idempotent for a fresh start and prevents retained chunks in both
+    // cases. No STORAGE_START is issued for the rejected header.
+    postCommand({ command: 'STORAGE_RESET', isPreload: false });
+    setPlaybackIdle();
+    setState('transfer.receivedCount', 0);
+    setState('transfer.meta', {});
+    setState('files.currentTrack', { name: null });
+    setPendingRecoveryTarget(null, null);
+    showLoader(false);
+    showToast(t('error.audio_memory_limit', { name: fileName }));
+
+    const index = data.index;
+    if (typeof index === 'number' && Number.isInteger(index) && index >= 0) {
+      sendToHost({ type: MSG.GUEST_DECODE_FAILED, index });
+    }
+    log.warn(
+      `[Transfer] Rejected oversized FILE_START for sid ${sessionId}: ${fileName} (${String(data.size)} bytes)`,
+    );
+    return true;
+  }
+}
 
 type PendingPlaySnapshot = {
   time: number;
@@ -467,12 +539,13 @@ export async function handleFilePrepare(
   // send on the replay fast path.
   if (replayLoadedSameFile(data)) return;
 
-  // Remote guests (no local P2P path): demo → HTTP fetch from server,
-  // other files → guide UI. Local guests always fall through to the
-  // normal P2P receive path below (even for the demo), so the host's
-  // broadcastFile has one coherent audience.
-  if (isRemoteGuest()) {
-    let confirmedRemote = true;
+  // Remote guests have no P2P file path. Large LAN files deliberately use
+  // the same R2 Range path so neither side builds a whole-file RAM copy.
+  const declaredSize = Number(data.size);
+  const requiresRangeShare =
+    Number.isSafeInteger(declaredSize) && declaredSize >= REMOTE_SHARE_STREAM_THRESHOLD_BYTES;
+  let confirmedRemote = isRemoteGuest();
+  if (confirmedRemote) {
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
       log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
@@ -484,47 +557,50 @@ export async function handleFilePrepare(
         confirmedRemote = false;
       }
     }
+  }
 
-    if (confirmedRemote) {
-      if (isDemoTrackName(data.name)) {
-        // Demo files go through a preload-like path (HTTP fetch +
-        // storage:use-preloaded) so we enter AWAITING_PRELOAD —
-        // shouldSkipIncomingFile() returns true automatically.
-        transition({
-          type: 'FILE_PREPARE',
-          variant: 'demo',
-          index: Number(data.index) || 0,
-          name: data.name as string,
-        });
+  if (confirmedRemote || requiresRangeShare) {
+    if (isDemoTrackName(data.name)) {
+      // Demo files go through a preload-like path (HTTP fetch +
+      // storage:use-preloaded) so we enter AWAITING_PRELOAD —
+      // shouldSkipIncomingFile() returns true automatically.
+      transition({
+        type: 'FILE_PREPARE',
+        variant: 'demo',
+        index: Number(data.index) || 0,
+        name: data.name as string,
+      });
 
-        // Preserve pendingPlayTime before stopAllMedia clears it, since we
-        // won't send a REQUEST_RETRANSMIT to get a fresh MSG.PLAY from the host.
-        const pendingTime = getPendingPlayTime();
-        const pendingSetAt = getPendingPlayTimeSetAt();
-        bus.emit('player:stop-all-media');
+      // Preserve pendingPlayTime before stopAllMedia clears it, since we
+      // won't send a REQUEST_RETRANSMIT to get a fresh MSG.PLAY from the host.
+      const pendingTime = getPendingPlayTime();
+      const pendingSetAt = getPendingPlayTimeSetAt();
+      bus.emit('player:stop-all-media');
 
-        const demoIndex = Number(data.index);
-        const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
-        if (data.index !== undefined) {
-          setState('playlist.currentTrackIndex', safeDemoIndex);
-        }
-
-        fetchDemoFromServer(safeDemoIndex, pendingTime, pendingSetAt, data.name);
-        return;
+      const demoIndex = Number(data.index);
+      const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
+      if (data.index !== undefined) {
+        setState('playlist.currentTrackIndex', safeDemoIndex);
       }
-      if (shouldWaitForRemoteShare()) {
-        const idx = Number(data.index);
-        const safeIndex = Number.isFinite(idx) && idx >= 0 ? idx : 0;
-        prepareRemoteShareWait(
-          safeIndex,
-          (data.name as string) || '',
-          (data.sessionId as number) || getState('transfer.localSessionId') || 0,
-        );
-        return;
-      }
-      showRemoteUnavailableUI(data);
+
+      fetchDemoFromServer(safeDemoIndex, pendingTime, pendingSetAt, data.name);
       return;
     }
+    if (shouldWaitForRemoteShare()) {
+      const idx = Number(data.index);
+      const safeIndex = Number.isFinite(idx) && idx >= 0 ? idx : 0;
+      prepareRemoteShareWait(
+        safeIndex,
+        (data.name as string) || '',
+        (data.sessionId as number) || getState('transfer.localSessionId') || 0,
+      );
+      if (requiresRangeShare && !confirmedRemote) {
+        log.info('[Transfer] Large LAN file routed to encrypted range streaming');
+      }
+      return;
+    }
+    showRemoteUnavailableUI(data);
+    return;
   }
 
   // Lifecycle is authoritative. If we were AWAITING_PRELOAD, the transition()
@@ -929,6 +1005,9 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     log.warn(`[file-start] Stale session ignored. Current: ${localSid}, Received: ${incomingSid}`);
     return;
   }
+  if (incomingSid === _rejectedFileSessionId) return;
+  if (rejectOversizedFileSession(data, incomingSid)) return;
+  _rejectedFileSessionId = 0;
 
   // Already-loaded same-file short-circuit. A guest who received the current
   // track via the remote-share (R2) path never wrote transfer.localSessionId
@@ -1067,6 +1146,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   const localSid = getState('transfer.localSessionId');
 
   if (!incomingSid || incomingSid < localSid) return;
+  if (incomingSid === _rejectedFileSessionId) return;
   if (shouldSkipIncomingFile(data.name as string | undefined)) {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
@@ -1111,8 +1191,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   // posture as the file-prepare same-content promote); on mismatch the
   // resume degrades to a fresh start from 0.
   const meta = getState('transfer.meta');
-  const identityOk =
-    meta?.name === data.name && Number(data.size) > 0 && meta?.size === data.size;
+  const identityOk = meta?.name === data.name && Number(data.size) > 0 && meta?.size === data.size;
   const base = identityOk
     ? Math.min(startChunk, ramContiguousCount((data.name as string) || '', false))
     : 0;
@@ -1182,9 +1261,43 @@ export function handleFileChunk(data: Record<string, unknown>, conn?: DataConnec
   applyFileChunk(data);
 }
 
+function rejectStaleFileChunk(incomingSid: number): boolean {
+  const localSid = getState('transfer.localSessionId');
+  if (incomingSid >= localSid) return false;
+
+  // This check runs before the early-chunk queue so an old rejected session
+  // cannot regain memory after a newer FILE_START has been accepted.
+  const now = Date.now();
+  const burstStart = getState('transfer.staleChunkBurstStart');
+  const burstCount = getState('transfer.staleChunkBurstCount');
+
+  if (burstStart === 0 || now - burstStart > 5000) {
+    setState('transfer.staleChunkBurstStart', now);
+    setState('transfer.staleChunkBurstCount', 1);
+  } else {
+    const newCount = burstCount + 1;
+    setState('transfer.staleChunkBurstCount', newCount);
+
+    const burstDuration = now - burstStart;
+    const rc = getState('transfer.receivedCount');
+    if (burstDuration > 3000 && newCount >= 20 && rc === 0) {
+      log.warn(
+        `[file-chunk] Stale-session burst detected (${newCount} rejects over ${burstDuration}ms) — requesting early recovery`,
+      );
+      setState('transfer.staleChunkBurstStart', 0);
+      setState('transfer.staleChunkBurstCount', 0);
+      clearManagedTimer('chunkWatchdog');
+      bus.emit('storage:request-recovery');
+    }
+  }
+
+  return true;
+}
+
 function applyFileChunk(data: Record<string, unknown>): void {
   const incomingSid = data.sessionId as number;
   if (!incomingSid) return;
+  if (incomingSid === _rejectedFileSessionId) return;
 
   // 13-8: Guard against undefined/null chunk → would create 0-byte Uint8Array
   if (data.chunk == null) {
@@ -1197,6 +1310,8 @@ function applyFileChunk(data: Record<string, unknown>): void {
     log.warn('[Transfer] Invalid chunk type received, ignoring');
     return;
   }
+
+  if (rejectStaleFileChunk(incomingSid)) return;
 
   // Skip if using preloaded file
   if (shouldSkipIncomingFile(data.name as string | undefined)) {
@@ -1269,41 +1384,6 @@ function applyFileChunk(data: Record<string, unknown>): void {
       }
       startChunkWatchdog();
     }
-  }
-
-  if (incomingSid < localSid) {
-    // Stale chunk from a superseded session. Usually harmless — but if the
-    // host just flipped sessions rapidly (e.g. 4→5→4→5) and the new
-    // session's chunks are stuck behind backpressure, the guest can sit
-    // idle while stale chunks pile up. Detect the burst and short-circuit
-    // the 12s chunkWatchdog by requesting recovery after 3s of stale flood.
-    const now = Date.now();
-    const burstStart = getState('transfer.staleChunkBurstStart');
-    const burstCount = getState('transfer.staleChunkBurstCount');
-
-    if (burstStart === 0 || now - burstStart > 5000) {
-      // New burst window
-      setState('transfer.staleChunkBurstStart', now);
-      setState('transfer.staleChunkBurstCount', 1);
-    } else {
-      const newCount = burstCount + 1;
-      setState('transfer.staleChunkBurstCount', newCount);
-
-      // Threshold: 3s of stale-only traffic AND at least 20 rejections
-      // (avoids tripping on a single straggler chunk)
-      const burstDuration = now - burstStart;
-      const rc = getState('transfer.receivedCount');
-      if (burstDuration > 3000 && newCount >= 20 && rc === 0) {
-        log.warn(
-          `[file-chunk] Stale-session burst detected (${newCount} rejects over ${burstDuration}ms) — requesting early recovery`,
-        );
-        setState('transfer.staleChunkBurstStart', 0);
-        setState('transfer.staleChunkBurstCount', 0);
-        clearManagedTimer('chunkWatchdog');
-        bus.emit('storage:request-recovery');
-      }
-    }
-    return;
   }
 
   // Valid chunk (session matches) — reset stale-burst tracking
@@ -1499,6 +1579,7 @@ export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnecti
 
   // Ignore stale FILE_END from old sessions
   const incomingSid = data.sessionId as number;
+  if (incomingSid === _rejectedFileSessionId) return;
   const localSid = getState('transfer.localSessionId');
   if (incomingSid && incomingSid < localSid) return;
 
@@ -1627,6 +1708,7 @@ export function getTransferMemoryStats(): {
 export function clearReceiveState(): void {
   fileReorderBuffer.clear();
   _pendingEarlyChunks.length = 0;
+  _rejectedFileSessionId = 0;
   nextExpectedChunk = 0;
   setState('transfer.staleChunkBurstStart', 0);
   setState('transfer.staleChunkBurstCount', 0);
@@ -1651,6 +1733,7 @@ export function cancelIncomingFileTransfer(reason: string): void {
 
   fileReorderBuffer.clear();
   _pendingEarlyChunks.length = 0;
+  _rejectedFileSessionId = 0;
   nextExpectedChunk = 0;
 
   setPlaybackTransferState(TRANSFER_STATE.IDLE);

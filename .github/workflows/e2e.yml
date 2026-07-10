@@ -1,13 +1,13 @@
 name: E2E
 
-# Manual-dispatch only: the Playwright suite runs serially (workers: 1
-# due to shared PeerJS signaling) and takes ~30 min. Kicking it off on
-# every push/PR burns GitHub Actions minutes without gating value while
-# the suite has stale scenarios. Trigger from the Actions tab when you
-# want to verify E2E after fixing stale tests.
+# The Playwright suite runs serially (workers: 1 due to shared PeerJS
+# signaling) and takes roughly 30 minutes. PRs use the focused smoke gate in
+# ci.yml; this full compatibility run remains scheduled and manually runnable.
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * 1'
 
 jobs:
   e2e:

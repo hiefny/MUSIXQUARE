@@ -29,8 +29,7 @@ export const IS_WINDOWS: boolean =
   /^Win/i.test(installNavigator.userAgentData?.platform ?? navigator.platform ?? '');
 
 /** Desktop Chromium browser (Chrome, Edge, Opera, etc.) — supports getDisplayMedia with audio */
-const IS_DESKTOP_CHROMIUM: boolean =
-  !IS_IOS && !IS_ANDROID && /Chrome\//.test(navigator.userAgent);
+const IS_DESKTOP_CHROMIUM: boolean = !IS_IOS && !IS_ANDROID && /Chrome\//.test(navigator.userAgent);
 
 /** Runtime check for system audio capture support */
 export function canCaptureSystemAudio(): boolean {

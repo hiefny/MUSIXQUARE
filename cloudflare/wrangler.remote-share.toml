@@ -1,6 +1,12 @@
 name = "musixquare-remote-share"
 main = "remote-share-worker.js"
 compatibility_date = "2026-05-03"
+workers_dev = false
+preview_urls = false
+
+[[routes]]
+pattern = "share.musixquare.com"
+custom_domain = true
 
 [vars]
 R2_BUCKET_NAME = "musixquare-remote-share"
@@ -27,3 +33,15 @@ bucket_name = "musixquare-remote-share"
 [[kv_namespaces]]
 binding = "REMOTE_SHARE_RATE_LIMIT"
 id = "ccf776d532e44e2daed916e7304542cd"
+
+# Migration history is append-only in Cloudflare. v1 created an experimental
+# Durable Object rate limiter on 2026-07-10; the restored production path kept
+# using REMOTE_SHARE_RATE_LIMIT (KV). v2 permanently retires that unused class.
+# There is intentionally no active Durable Object binding in this Worker.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RemoteShareRateLimiter"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["RemoteShareRateLimiter"]

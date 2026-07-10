@@ -56,9 +56,10 @@ AudioBuffer playback engine.
 
 The accepted tradeoff is to reject a file that cannot fit the supported memory
 budget rather than introduce a storage or playback fallback with different
-synchronization behavior. Large-file upload/transfer components may be kept as
-research artifacts, but they must not imply that a file is playable on every
-supported device.
+synchronization behavior. The discarded large-file/OPFS implementation is not
+retained in production code or Cloudflare resources. Any future reconsideration
+starts as a separate proposal and implementation; it must not revive the
+discarded branch or wire old artifacts into the browser media path.
 
 ## OPFS Re-evaluation Gate
 

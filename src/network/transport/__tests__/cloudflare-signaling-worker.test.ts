@@ -8,7 +8,7 @@ type WorkerModule = {
     env?: Record<string, unknown>,
   ) => {
     fetch(request: Request): Promise<Response>;
-    webSocketMessage(ws: FakeSocket, raw: string): Promise<void>;
+    webSocketMessage(ws: FakeSocket, raw: unknown): Promise<void>;
     webSocketClose(ws: FakeSocket): Promise<void>;
     alarm(): Promise<void>;
   };
@@ -419,6 +419,219 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         sdp: { type: 'offer', sdp: 'media-sdp' },
       },
     ]);
+  });
+
+  it('allows forward-compatible extra fields and ignores one unknown or malformed message', async () => {
+    const { room, host } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const guest = lastServer();
+    const hostMessagesBefore = host.sent.length;
+
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({ type: 'future-client-hint', to: 'host', enabled: true }),
+    );
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({ type: 'signal-candidate', to: 'host', candidate: { sdpMid: '0' } }),
+    );
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        sdp: { type: 'answer', sdp: 'wrong-required-type' },
+      }),
+    );
+
+    expect(guest.closed).toBe(false);
+    expect(host.sent).toHaveLength(hostMessagesBefore);
+
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        sdp: { type: 'offer', sdp: 'offer-sdp', futureSdpField: true },
+        metadata: { label: 'data' },
+        futureMessageField: 'preserved',
+      }),
+    );
+
+    expect(guest.closed).toBe(false);
+    expect(sent(host).at(-1)).toEqual({
+      type: 'signal-offer',
+      from: 'guest-1',
+      sdp: { type: 'offer', sdp: 'offer-sdp', futureSdpField: true },
+      metadata: { label: 'data' },
+      futureMessageField: 'preserved',
+    });
+
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'signal-answer',
+        to: 'guest-1',
+        sdp: { type: 'answer', sdp: 'answer-sdp', futureSdpField: true },
+        futureMessageField: 'preserved',
+      }),
+    );
+    expect(sent(guest).at(-1)).toEqual({
+      type: 'signal-answer',
+      from: 'host-1',
+      sdp: { type: 'answer', sdp: 'answer-sdp', futureSdpField: true },
+      futureMessageField: 'preserved',
+    });
+  });
+
+  it('closes an oversized UTF-8 WebSocket frame with an explicit policy code', async () => {
+    const { room } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const guest = lastServer();
+
+    await room.webSocketMessage(
+      guest,
+      // Fewer than 64 Ki JavaScript code units, but more than 64 Ki on wire.
+      JSON.stringify({ type: 'future-message', padding: '가'.repeat(22 * 1024) }),
+    );
+
+    expect(sent(guest).at(-1)).toEqual({
+      type: 'error',
+      errorType: 'message-too-large',
+      message: 'SIGNALING_MESSAGE_TOO_LARGE',
+    });
+    expect(guest.closeEvents.at(-1)).toEqual({
+      code: 1009,
+      reason: 'SIGNALING_MESSAGE_TOO_LARGE',
+    });
+  });
+
+  it.each([
+    {
+      label: 'SDP',
+      message: {
+        type: 'signal-offer',
+        to: 'host',
+        sdp: { type: 'offer', sdp: 's'.repeat(48 * 1024 + 1) },
+      },
+    },
+    {
+      label: 'ICE candidate',
+      message: {
+        type: 'signal-candidate',
+        to: 'host',
+        candidate: { candidate: 'c'.repeat(4 * 1024 + 1) },
+      },
+    },
+  ])('closes an oversized $label payload instead of relaying it', async ({ message }) => {
+    const { room, host } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'guest', 'guest-1'));
+    const guest = lastServer();
+
+    await room.webSocketMessage(guest, JSON.stringify(message));
+
+    expect(
+      sent(host).some(
+        (relayed) => (relayed as { type?: string }).type === (message as { type: string }).type,
+      ),
+    ).toBe(false);
+    expect(guest.closeEvents.at(-1)?.code).toBe(1009);
+    expect(sent(guest).at(-1)).toMatchObject({
+      type: 'error',
+      errorType: 'message-too-large',
+    });
+  });
+
+  it('rate-limits one abusive guest without closing the host or another guest', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-10T00:00:00.000Z'));
+    const { room, host } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'guest', 'noisy'));
+    const noisy = lastServer();
+    await room.fetch(wsRequest('123456', 'guest', 'healthy'));
+    const healthy = lastServer();
+
+    for (let index = 0; index < 120; index++) {
+      await room.webSocketMessage(
+        noisy,
+        JSON.stringify({
+          type: 'signal-candidate',
+          to: 'host',
+          candidate: { candidate: `candidate-${index}` },
+        }),
+      );
+    }
+    vi.advanceTimersByTime(500);
+    await room.webSocketMessage(
+      noisy,
+      JSON.stringify({
+        type: 'signal-candidate',
+        to: 'host',
+        candidate: { candidate: 'candidate-after-refill' },
+      }),
+    );
+    expect(noisy.closed).toBe(false);
+
+    await room.webSocketMessage(
+      noisy,
+      JSON.stringify({
+        type: 'signal-candidate',
+        to: 'host',
+        candidate: { candidate: 'candidate-over-limit' },
+      }),
+    );
+
+    expect(noisy.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'SIGNALING_RATE_LIMITED',
+    });
+    expect(host.closed).toBe(false);
+    expect(healthy.closed).toBe(false);
+
+    await room.webSocketMessage(
+      healthy,
+      JSON.stringify({
+        type: 'signal-candidate',
+        to: 'host',
+        candidate: { candidate: 'healthy-candidate' },
+      }),
+    );
+    expect(sent(host).at(-1)).toMatchObject({
+      type: 'signal-candidate',
+      from: 'healthy',
+      candidate: { candidate: 'healthy-candidate' },
+    });
+  });
+
+  it('admits at most 32 unique accepted or password-pending guests', async () => {
+    const { room, host } = await createHostRoom();
+
+    for (let index = 0; index < 16; index++) {
+      await room.fetch(wsRequest('123456', 'guest', `guest-${index}`));
+      expect(lastServer().closed).toBe(false);
+    }
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+    );
+    for (let index = 16; index < 32; index++) {
+      await room.fetch(wsRequest('123456', 'guest', `guest-${index}`));
+      expect(lastServer().closed).toBe(false);
+    }
+
+    await room.fetch(wsRequest('123456', 'guest', 'guest-over-limit'));
+    const rejected = lastServer();
+
+    expect(sent(rejected).at(-1)).toEqual({
+      type: 'error',
+      errorType: 'room-full',
+      message: 'ROOM_GUEST_LIMIT_REACHED',
+    });
+    expect(rejected.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'ROOM_GUEST_LIMIT_REACHED',
+    });
+    expect(host.closed).toBe(false);
   });
 
   it('keeps password-protected guests pending until valid guest-auth', async () => {

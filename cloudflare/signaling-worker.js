@@ -4,6 +4,12 @@ const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
 const ATTACHMENT_VERSION = 1;
 const WS_RATE_LIMIT_PER_MINUTE = 120;
+const WS_MESSAGE_MAX_BYTES = 64 * 1024;
+const SDP_MAX_BYTES = 48 * 1024;
+const ICE_CANDIDATE_MAX_BYTES = 4 * 1024;
+const MAX_ROOM_GUESTS = 32;
+const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
+const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
 const METRICS_TABLE = 'mxqr_metric_buckets';
 const SECURITY_HEADERS = {
   'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
@@ -52,6 +58,130 @@ function isValidPeerId(peerId) {
   return typeof peerId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(peerId);
 }
 
+function isRecord(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function utf8ByteLength(value) {
+  if (typeof value !== 'string') return null;
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function rawMessageByteLength(raw) {
+  if (typeof raw === 'string') {
+    // UTF-8 is never shorter than the JavaScript code-unit length, so avoid
+    // allocating a second huge buffer once the limit is already exceeded.
+    if (raw.length > WS_MESSAGE_MAX_BYTES) return raw.length;
+    return utf8ByteLength(raw);
+  }
+  if (raw instanceof ArrayBuffer) return raw.byteLength;
+  if (ArrayBuffer.isView(raw)) return raw.byteLength;
+  return null;
+}
+
+function isValidSdp(value, expectedType) {
+  if (!isRecord(value) || value.type !== expectedType || typeof value.sdp !== 'string') {
+    return false;
+  }
+  const bytes = utf8ByteLength(value.sdp);
+  return bytes !== null && bytes <= SDP_MAX_BYTES;
+}
+
+function isOversizedSdp(value) {
+  if (!isRecord(value) || typeof value.sdp !== 'string') return false;
+  const bytes = utf8ByteLength(value.sdp);
+  return bytes !== null && bytes > SDP_MAX_BYTES;
+}
+
+function isValidIceCandidate(value) {
+  if (!isRecord(value) || typeof value.candidate !== 'string') return false;
+  const candidateBytes = utf8ByteLength(value.candidate);
+  if (candidateBytes === null || candidateBytes > ICE_CANDIDATE_MAX_BYTES) return false;
+  if (value.sdpMid !== undefined && value.sdpMid !== null && typeof value.sdpMid !== 'string') {
+    return false;
+  }
+  if (
+    value.sdpMLineIndex !== undefined &&
+    value.sdpMLineIndex !== null &&
+    (!Number.isInteger(value.sdpMLineIndex) || value.sdpMLineIndex < 0)
+  ) {
+    return false;
+  }
+  if (
+    value.usernameFragment !== undefined &&
+    value.usernameFragment !== null &&
+    typeof value.usernameFragment !== 'string'
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isOversizedIceCandidate(value) {
+  if (!isRecord(value) || typeof value.candidate !== 'string') return false;
+  const bytes = utf8ByteLength(value.candidate);
+  return bytes !== null && bytes > ICE_CANDIDATE_MAX_BYTES;
+}
+
+function validateIncomingMessage(message, role) {
+  if (!isRecord(message) || typeof message.type !== 'string' || message.type.length > 64) {
+    return 'ignore';
+  }
+
+  if (role === 'pending') {
+    if (message.type !== 'guest-auth') return 'ignore';
+    return typeof message.password === 'string' ? 'valid' : 'ignore';
+  }
+
+  if (role === 'guest') {
+    // The current client sends this on every guest socket, including rooms
+    // without a password. Once the guest is admitted it is intentionally a
+    // harmless no-op, preserving the existing wire contract.
+    if (message.type === 'guest-auth') return 'ignore';
+    if (message.to !== 'host') return 'ignore';
+    if (message.type === 'signal-offer') {
+      if (isOversizedSdp(message.sdp)) return 'oversized';
+      return isValidSdp(message.sdp, 'offer') ? 'valid' : 'ignore';
+    }
+    if (message.type === 'signal-candidate') {
+      if (isOversizedIceCandidate(message.candidate)) return 'oversized';
+      return isValidIceCandidate(message.candidate) ? 'valid' : 'ignore';
+    }
+    if (message.type === 'media-answer') {
+      if (isOversizedSdp(message.sdp)) return 'oversized';
+      return isValidPeerId(message.callId) && isValidSdp(message.sdp, 'answer')
+        ? 'valid'
+        : 'ignore';
+    }
+    if (message.type === 'media-close') {
+      return isValidPeerId(message.callId) ? 'valid' : 'ignore';
+    }
+    return 'ignore';
+  }
+
+  if (role !== 'host') return 'ignore';
+  if (message.type === 'room-password-set') {
+    return typeof message.password === 'string' ? 'valid' : 'ignore';
+  }
+  if (!isValidPeerId(message.to)) return 'ignore';
+  if (message.type === 'signal-answer') {
+    if (isOversizedSdp(message.sdp)) return 'oversized';
+    return isValidSdp(message.sdp, 'answer') ? 'valid' : 'ignore';
+  }
+  if (message.type === 'signal-candidate') {
+    if (isOversizedIceCandidate(message.candidate)) return 'oversized';
+    return isValidIceCandidate(message.candidate) ? 'valid' : 'ignore';
+  }
+  if (message.type === 'media-offer') {
+    if (isOversizedSdp(message.sdp)) return 'oversized';
+    return isValidPeerId(message.callId) && isValidSdp(message.sdp, 'offer') ? 'valid' : 'ignore';
+  }
+  if (message.type === 'media-close') {
+    return isValidPeerId(message.callId) ? 'valid' : 'ignore';
+  }
+  return 'ignore';
+}
+
 function getClientIp(request) {
   return (
     request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown'
@@ -89,10 +219,10 @@ function send(ws, message) {
   }
 }
 
-function closeWithError(ws, errorType, message) {
+function closeWithError(ws, errorType, message, code = 1011) {
   send(ws, { type: 'error', errorType, message });
   try {
-    ws.close(1011, message);
+    ws.close(code, message);
   } catch {
     /* noop */
   }
@@ -209,7 +339,30 @@ export class MusixquareRoom {
     this.hostPeerId = null;
     this.guests = new Map();
     this.pendingGuests = new Map();
+    this.guestMessageBuckets = new WeakMap();
     this.rehydrateSockets();
+  }
+
+  admittedGuestIds() {
+    return new Set([...this.guests.keys(), ...this.pendingGuests.keys()]);
+  }
+
+  consumeGuestMessageToken(ws, now = Date.now()) {
+    const previous = this.guestMessageBuckets.get(ws) || {
+      tokens: GUEST_MESSAGE_BUCKET_CAPACITY,
+      updatedAt: now,
+    };
+    const elapsed = Math.max(0, now - previous.updatedAt);
+    const tokens = Math.min(
+      GUEST_MESSAGE_BUCKET_CAPACITY,
+      previous.tokens + elapsed * GUEST_MESSAGE_REFILL_PER_MS,
+    );
+    if (tokens < 1) {
+      this.guestMessageBuckets.set(ws, { tokens, updatedAt: now });
+      return false;
+    }
+    this.guestMessageBuckets.set(ws, { tokens: tokens - 1, updatedAt: now });
+    return true;
   }
 
   rehydrateSockets() {
@@ -226,6 +379,11 @@ export class MusixquareRoom {
     if (attachment.role === 'host') {
       this.host = ws;
       this.hostPeerId = attachment.peerId;
+      return;
+    }
+    const admitted = this.admittedGuestIds();
+    if (!admitted.has(attachment.peerId) && admitted.size >= MAX_ROOM_GUESTS) {
+      closeWithError(ws, 'room-full', 'ROOM_GUEST_LIMIT_REACHED', 1008);
       return;
     }
     if (attachment.auth === 'ok') {
@@ -359,9 +517,18 @@ export class MusixquareRoom {
       return;
     }
 
+    const admitted = this.admittedGuestIds();
+    if (!admitted.has(peerId) && admitted.size >= MAX_ROOM_GUESTS) {
+      this.acceptSocket(ws, null, ['role:guest', 'rejected:room-full']);
+      closeWithError(ws, 'room-full', 'ROOM_GUEST_LIMIT_REACHED', 1008);
+      await recordMetric(this.env, 'guest_room_full');
+      return;
+    }
+
     if (meta.roomPassword) {
-      await recordMetric(this.env, 'guest_auth_pending');
+      // Reserve the slot before metrics I/O can yield to another request.
       this.acceptPendingGuest(ws, roomId, peerId);
+      await recordMetric(this.env, 'guest_auth_pending');
       return;
     }
 
@@ -455,26 +622,56 @@ export class MusixquareRoom {
   }
 
   async webSocketMessage(ws, raw) {
-    await this.loadRoomMeta();
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
+    const rawBytes = rawMessageByteLength(raw);
+    if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
+      closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
+      await this.webSocketClose(ws);
+      await recordMetric(this.env, 'ws_message_oversized');
+      return;
+    }
+
+    if (attachment.role === 'guest' && !this.consumeGuestMessageToken(ws)) {
+      closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
+      await this.webSocketClose(ws);
+      await recordMetric(this.env, 'ws_message_rate_limited');
+      return;
+    }
+
+    const message = this.parse(raw);
+    if (!message) return;
+    const role =
+      attachment.role === 'host' ? 'host' : attachment.auth === 'pending' ? 'pending' : 'guest';
+    const validation = validateIncomingMessage(message, role);
+    if (validation === 'oversized') {
+      closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
+      await this.webSocketClose(ws);
+      await recordMetric(this.env, 'ws_message_oversized');
+      return;
+    }
+    if (validation !== 'valid') return;
+
+    await this.loadRoomMeta();
+
     if (attachment.role === 'host') {
       if (this.host !== ws) return;
-      await this.handleHostMessage(ws, raw, attachment);
+      await this.handleHostMessage(ws, message, attachment);
       return;
     }
 
     if (attachment.auth === 'pending') {
-      await this.handleGuestAuth(ws, raw, attachment);
+      if (this.pendingGuests.get(attachment.peerId) !== ws) return;
+      await this.handleGuestAuth(ws, message, attachment);
       return;
     }
 
     if (this.guests.get(attachment.peerId) !== ws) return;
-    this.handleGuestMessage(attachment.peerId, raw);
+    this.handleGuestMessage(attachment.peerId, message);
   }
 
-  async handleGuestAuth(ws, raw, attachment) {
+  async handleGuestAuth(ws, message, attachment) {
     if (!this.host) {
       this.pendingGuests.delete(attachment.peerId);
       closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
@@ -486,9 +683,6 @@ export class MusixquareRoom {
       closeWithError(ws, 'room-password-auth-timeout', 'ROOM_PASSWORD_AUTH_TIMEOUT');
       return;
     }
-
-    const message = this.parse(raw);
-    if (!message || message.type !== 'guest-auth') return;
 
     const meta = await this.loadRoomMeta();
     const password = typeof message.password === 'string' ? message.password : '';
@@ -508,18 +702,14 @@ export class MusixquareRoom {
     await this.completeGuestAccept(ws, attachment.roomId, attachment.peerId, true);
   }
 
-  handleGuestMessage(peerId, raw) {
+  handleGuestMessage(peerId, message) {
     if (!this.host) return;
-    const message = this.parse(raw);
-    if (!message) return;
-    if (message.to !== 'host') return;
     const { to: _to, ...rest } = message;
     send(this.host, { ...rest, from: peerId });
   }
 
-  async handleHostMessage(ws, raw, attachment) {
-    const message = this.parse(raw);
-    if (message?.type === 'room-password-set') {
+  async handleHostMessage(ws, message, attachment) {
+    if (message.type === 'room-password-set') {
       const password = typeof message.password === 'string' ? message.password : '';
       const meta = await this.loadRoomMeta();
       await this.saveRoomMeta({
@@ -528,7 +718,6 @@ export class MusixquareRoom {
       });
       return;
     }
-    if (!message || typeof message.to !== 'string') return;
     if (this.host !== ws) return;
     const guest = this.guests.get(message.to);
     if (!guest) return;

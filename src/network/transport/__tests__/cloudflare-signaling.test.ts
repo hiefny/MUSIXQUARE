@@ -191,6 +191,75 @@ class FakeRTCPeerConnection {
   }
 }
 
+class ContractWorkerSocket {
+  closed = false;
+  sent: string[] = [];
+  private attachment: unknown = null;
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.closed = true;
+  }
+
+  serializeAttachment(value: unknown): void {
+    this.attachment = structuredClone(value);
+  }
+
+  deserializeAttachment(): unknown {
+    return structuredClone(this.attachment);
+  }
+}
+
+class ContractWorkerState {
+  readonly sockets: ContractWorkerSocket[] = [];
+  readonly values = new Map<string, unknown>();
+  readonly storage = {
+    get: async (key: string): Promise<unknown> => structuredClone(this.values.get(key)),
+    put: async (key: string, value: unknown): Promise<void> => {
+      this.values.set(key, structuredClone(value));
+    },
+    setAlarm: async (): Promise<void> => {},
+  };
+
+  acceptWebSocket(socket: ContractWorkerSocket): void {
+    this.sockets.push(socket);
+  }
+
+  getWebSockets(): ContractWorkerSocket[] {
+    return this.sockets.filter((socket) => !socket.closed);
+  }
+}
+
+type ContractWorkerRoom = {
+  acceptHost(
+    socket: ContractWorkerSocket,
+    roomId: string,
+    peerId: string,
+    secret: string,
+  ): Promise<void>;
+  acceptGuest(socket: ContractWorkerSocket, roomId: string, peerId: string): Promise<void>;
+  webSocketMessage(socket: ContractWorkerSocket, raw: string): Promise<void>;
+};
+
+async function createContractWorkerRoom(): Promise<ContractWorkerRoom> {
+  const workerModule = (await import('../../../../cloudflare/signaling-worker.js')) as unknown as {
+    MusixquareRoom: new (state: ContractWorkerState) => ContractWorkerRoom;
+  };
+  return new workerModule.MusixquareRoom(new ContractWorkerState());
+}
+
+function workerSentOfType(
+  socket: ContractWorkerSocket,
+  type: string,
+): Array<Record<string, unknown>> {
+  return socket.sent
+    .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+    .filter((message) => message.type === type);
+}
+
 function installFakeWebSocket(): void {
   FakeWebSocket.instances = [];
   Object.defineProperty(globalThis, 'WebSocket', {
@@ -306,6 +375,105 @@ afterEach(() => {
     configurable: true,
     value: originalMediaStream,
   });
+});
+
+describe('Cloudflare client/Worker signaling contract', () => {
+  it.each([
+    { label: 'passwordless', roomPassword: '' },
+    { label: 'password-protected', roomPassword: '12345678' },
+  ])(
+    'joins a $label room and relays the first client-generated offer and answer',
+    async ({ roomPassword }) => {
+      installFakeWebSocket();
+      installFakeRTCPeerConnection();
+      const room = await createContractWorkerRoom();
+
+      const hostPeer = createHostPeer();
+      hostPeer.setRoomPassword(roomPassword || null);
+      await Promise.resolve();
+      const hostClientSocket = FakeWebSocket.instances[0];
+      hostClientSocket.dispatch('open');
+      const hostUrl = new URL(hostClientSocket.url);
+      const hostServerSocket = new ContractWorkerSocket();
+      await room.acceptHost(
+        hostServerSocket,
+        '123456',
+        hostUrl.searchParams.get('peerId') || '',
+        hostUrl.searchParams.get('secret') || '',
+      );
+
+      hostClientSocket.dispatch('message', hostServerSocket.sent[0]);
+      await flushAsync();
+      const passwordFrame = sentOfType(hostClientSocket, 'room-password-set')[0];
+      expect(passwordFrame).toEqual({ type: 'room-password-set', password: roomPassword });
+      await room.webSocketMessage(hostServerSocket, JSON.stringify(passwordFrame));
+
+      const guestPeer = createGuestPeer();
+      guestPeer.connect(
+        '123456',
+        roomPassword
+          ? { roomPassword, metadata: { contract: true } }
+          : { metadata: { contract: true } },
+      );
+      const guestClientSocket = FakeWebSocket.instances[1];
+      const guestUrl = new URL(guestClientSocket.url);
+      const guestServerSocket = new ContractWorkerSocket();
+      await room.acceptGuest(
+        guestServerSocket,
+        '123456',
+        guestUrl.searchParams.get('peerId') || '',
+      );
+
+      guestClientSocket.dispatch('open');
+      const authFrame = sentOfType(guestClientSocket, 'guest-auth')[0];
+      expect(authFrame).toEqual({ type: 'guest-auth', password: roomPassword });
+      await room.webSocketMessage(guestServerSocket, JSON.stringify(authFrame));
+
+      // In a passwordless room the Worker admitted the guest before the
+      // client's no-op guest-auth; in a protected room it admits after auth.
+      // Both paths must converge on the same peer-open/offer contract.
+      expect(guestServerSocket.closed).toBe(false);
+      const peerOpen = workerSentOfType(guestServerSocket, 'peer-open')[0];
+      expect(peerOpen).toMatchObject({ type: 'peer-open', roomId: '123456' });
+      guestClientSocket.dispatch('message', JSON.stringify(peerOpen));
+      await flushAsync();
+
+      const offerFrame = sentOfType(guestClientSocket, 'signal-offer')[0];
+      expect(offerFrame).toMatchObject({
+        type: 'signal-offer',
+        to: 'host',
+        sdp: { type: 'offer', sdp: 'fake-offer' },
+        metadata: { contract: true },
+      });
+      await room.webSocketMessage(guestServerSocket, JSON.stringify(offerFrame));
+
+      const forwardedOffer = workerSentOfType(hostServerSocket, 'signal-offer')[0];
+      expect(forwardedOffer).toMatchObject({
+        type: 'signal-offer',
+        from: guestUrl.searchParams.get('peerId'),
+        sdp: { type: 'offer', sdp: 'fake-offer' },
+      });
+      hostClientSocket.dispatch('message', JSON.stringify(forwardedOffer));
+      await flushAsync();
+
+      const answerFrame = sentOfType(hostClientSocket, 'signal-answer')[0];
+      expect(answerFrame).toMatchObject({
+        type: 'signal-answer',
+        to: guestUrl.searchParams.get('peerId'),
+        sdp: { type: 'answer', sdp: 'fake-answer' },
+      });
+      await room.webSocketMessage(hostServerSocket, JSON.stringify(answerFrame));
+
+      expect(workerSentOfType(guestServerSocket, 'signal-answer')[0]).toMatchObject({
+        type: 'signal-answer',
+        from: '123456',
+        sdp: { type: 'answer', sdp: 'fake-answer' },
+      });
+
+      guestPeer.destroy();
+      hostPeer.destroy();
+    },
+  );
 });
 
 describe('Cloudflare signaling/data-channel boundary', () => {

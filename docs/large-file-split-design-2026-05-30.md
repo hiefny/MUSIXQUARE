@@ -1,8 +1,15 @@
-# Large File Split Design - 2026-05-30
+# Large Source-File Split Design - 2026-05-30
+
+> **Historical design snapshot.** “Large file” here means TypeScript source
+> files over 1,000 lines. It has no relationship to media-upload limits,
+> multipart uploads, OPFS, or the discarded large-media design. The proposed
+> extraction order is retained as review history, not as an active roadmap.
 
 ## Scope
 
-This document is a design-only pass over the TypeScript files above 1000 lines that were named in `scratch/agent-prompts/03-large-file-split-design.md`. No code changes are proposed as part of this prompt.
+This document is a design-only pass over the TypeScript files above 1000 lines
+that were named by the original, now-untracked audit prompt. No code changes
+were made as part of that pass.
 
 The goal is to identify low-risk extraction boundaries that reduce file size without weakening the race-defense behavior around room sync, transfer state, playback state, timers, and singleton browser APIs.
 

@@ -9,8 +9,6 @@ import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
-// ─── Mocks ───────────────────────────────────────────────────────────────
-
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -98,7 +96,6 @@ beforeEach(() => {
   bus.clear();
   vi.useFakeTimers();
 
-  // Create required DOM elements
   const container = document.createElement('div');
   container.id = 'youtube-container';
   document.body.appendChild(container);
@@ -115,8 +112,6 @@ afterEach(() => {
   delete (window as unknown as { YT?: unknown }).YT;
   delete (window as unknown as { onYouTubeIframeAPIReady?: unknown }).onYouTubeIframeAPIReady;
 });
-
-// ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('YouTube Player', () => {
   describe('Module Exports', () => {
@@ -204,18 +199,15 @@ describe('YouTube Player', () => {
   });
 
   describe('Duration Caching Logic', () => {
-    // Test the duration cache stickiness behavior
     let cachedDuration = 0;
     let cachedSubIndex = -1;
 
     function getDuration(playerDuration: number, currentSubIndex: number): number {
-      // Reset cache on sub-index change
       if (currentSubIndex !== cachedSubIndex) {
         cachedDuration = 0;
         cachedSubIndex = currentSubIndex;
       }
 
-      // Lock on first valid read
       if (cachedDuration <= 0 && playerDuration > 0) {
         cachedDuration = playerDuration;
       }
@@ -229,7 +221,6 @@ describe('YouTube Player', () => {
 
     it('caches first valid duration', () => {
       expect(getDuration(120, 0)).toBe(120);
-      // Subsequent different values should be ignored
       expect(getDuration(130, 0)).toBe(120);
     });
 
@@ -239,12 +230,11 @@ describe('YouTube Player', () => {
 
     it('resets on sub-index change', () => {
       getDuration(120, 0);
-      expect(getDuration(200, 1)).toBe(200); // new sub-index → reset → cache new
+      expect(getDuration(200, 1)).toBe(200);
     });
 
     it('prevents flickering duration', () => {
       getDuration(120, 0);
-      // Even if player briefly reports 0, cache persists
       expect(getDuration(0, 0)).toBe(120);
     });
   });

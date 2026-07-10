@@ -1,40 +1,21 @@
 /**
  * MUSIXQUARE — Shared Backpressure-Aware Chunk Pump
  *
- * THE single multi-peer chunk-streaming engine, used by both broadcast
- * senders: transfer-send.ts (broadcastFile) and preload.ts
- * (backgroundTransfer).
- *
- * Why this exists (threat model / history): the chunk pump used to exist as
- * hand-rolled per-module copies. Flow-control hardening then landed where the
- * symptom was reported — commit 36f8fbf2 (2026-05-09) added per-peer
- * backpressure exclusion (timedOutPeers) to broadcastFile ONLY, leaving
- * preload's broadcast with a single GLOBAL congested flag: one slow peer
- * stalled the entire preload broadcast for every guest, and after the
- * timeout the loop kept queuing chunks onto the non-draining channel
- * (browsers hard-close an SCTP channel on send-buffer overflow, escalating a
- * slow guest into a dropped guest). Identical control loop, divergent
- * hardening — sibling-parity blind spot. Factoring the pump into one engine
- * makes that divergence structurally impossible, and
- * scripts/check-chunk-pump.mjs statically enforces that no new hand-rolled
- * multi-peer pump can appear.
+ * Shared by the active-file and preload broadcast senders. Centralizing the
+ * loop keeps their per-peer backpressure and exclusion behavior consistent;
+ * scripts/check-chunk-pump.mjs prevents additional multi-peer pumps.
  *
  * Design contract:
  *   - The engine is SIDE-EFFECT-FREE with respect to the state tree: it never
  *     imports setState and its pump body reads nothing from state. The
- *     supersession/abort predicate (shouldContinue) and the peer-health check
- *     (isWritable) are caller-supplied. All state writes stay in the
- *     audit-hardened wrappers, which protects their aborted-vs-superseded
- *     cleanup semantics.
+ *     supersession/abort predicate (shouldContinue) and peer-health check
+ *     (isWritable) are caller-supplied. State writes stay in the wrappers.
  *   - Callbacks must be TOTAL (never throw): every send goes through
  *     safeSend and every per-peer exit path is a plain return, so the
  *     per-chunk Promise.all can never reject — a rejection would abort
  *     sibling peers' sends mid-chunk and bubble into wrapper catch paths.
- *   - The unicast pair (unicastFile, unicastPreload) is intentionally NOT
- *     routed through this engine: single-peer return-on-timeout is the
- *     correct degenerate case, and they carry distinct semantics
- *     (FILE_RESUME startChunk, currentTrackIndex abort, the
- *     _activePreloadUnicasts registry). Documented divergence, not drift.
+ *   - Unicast paths remain separate because they terminate on one peer's
+ *     timeout and carry resume or per-peer cancellation semantics.
  */
 
 import { log } from '../core/log.ts';
@@ -44,7 +25,7 @@ import { delay } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
 import type { AnyProtocolMsg, ConnectedPeer, DataConnection } from '../types/index.ts';
 
-// ─── Peer-health helpers (moved from transfer-send.ts) ───────────────
+// ─── Peer-health helpers ────────────────────────────────────────────
 // These DO read the state tree — they are wrapper-supplied parameters and
 // deliberately live OUTSIDE the pump body, which stays state-free.
 
@@ -102,10 +83,8 @@ interface ChunkPumpOptions {
    */
   isWritable: (peer: ConnectedPeer) => boolean;
   /**
-   * Supersession/abort predicate, evaluated ONCE per chunk at iteration top
-   * (parity with both pre-refactor loops). Per-peer waits do NOT re-check
-   * it — a superseded session exits at the next chunk boundary. Must not
-   * throw.
+   * Supersession/abort predicate, evaluated once at each chunk boundary.
+   * Per-peer waits do not re-check it. Must not throw.
    */
   shouldContinue: () => boolean;
   /**
@@ -118,12 +97,8 @@ interface ChunkPumpOptions {
 
 interface ChunkPumpResult {
   /**
-   * 'stopped' ONLY when shouldContinue() failed (abort/supersession) —
-   * wrappers skip their completion fanout and let the canceller own state.
-   * 'complete' otherwise, INCLUDING the all-peers-excluded early break, so
-   * wrappers run their normal completion guards (the fanout then filters to
-   * an empty survivor set — observably identical to the pre-refactor
-   * send-to-nobody tail).
+   * `stopped` means the caller's abort/supersession predicate failed.
+   * `complete` also covers the case where every peer was excluded.
    */
   status: 'complete' | 'stopped';
   /** Ids of peers excluded mid-stream (backpressure timeout / unwritable). */
@@ -215,8 +190,7 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
       }),
     );
 
-    // Main-thread breathing room, including i=0 (parity with the
-    // pre-refactor transfer-send loop; preload inherits this pacing).
+    // Yield periodically so chunk preparation does not monopolize the thread.
     if (i % 50 === 0) await delay(DELAY.TICK);
   }
 

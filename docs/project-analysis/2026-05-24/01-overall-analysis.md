@@ -1,5 +1,9 @@
 # 1st Pass: Project-Wide Analysis
 
+> **Historical snapshot (2026-05-24).** Read with
+> [00-index.md](00-index.md); “current” means the audited baseline, not today's
+> source tree.
+
 ## Executive Summary
 
 MUSIXQUARE is a TypeScript/Vite browser application for synchronized media playback across devices. Its apparent product goal is to let a host create a room, let guests join from other devices, and then coordinate one of several media paths:
@@ -291,4 +295,3 @@ This layer is security and cost critical.
 ## 1st-Pass Conclusion
 
 The project is currently in good fast-CI health, and its recent state architecture appears intentionally hardened. The main short-term concern is not failing TypeScript or unit tests; it is stale E2E coverage and the difficulty of validating real-time cross-device flows. Future analysis and changes should treat the state/protocol contracts as sacred, then target one runtime path at a time with small, verified changes.
-

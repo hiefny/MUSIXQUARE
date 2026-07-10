@@ -1,8 +1,12 @@
 # Known And Accepted Risks
 
-Reviewed on 2026-05-12 after the app-state decomposition and playback ownership refactor.
+Originally opened on 2026-05-12 after the app-state decomposition and playback
+ownership refactor; later entries carry their own acceptance dates. Paths and
+the continued reachability of the listed tradeoffs were statically rechecked on
+2026-07-11. Static review does not replace the real-browser checks called out
+below.
 
-This document prevents future audits from repeatedly reporting intentional tradeoffs. It is not a bug backlog. Anything here should still be revisited if MUSIXQUARE becomes a larger public multi-tenant service, adds untrusted peers, or introduces a new app bootstrap lifecycle.
+This document prevents future audits from repeatedly reporting intentional tradeoffs. It is not a bug backlog. Anything here should still be revisited if MUSIXQUARE becomes a larger public multi-tenant service, adds discoverable public rooms, or introduces a new app bootstrap lifecycle.
 
 ## Current Accepted Items
 
@@ -24,7 +28,7 @@ The app intentionally keeps some resources for the full page lifetime:
 
 - singleton `AudioContext`
 - app-level bus listeners registered during bootstrap
-- sync/transfer workers or worker bridges
+- the sync worker and in-process storage bridge
 - service-worker registration update timer
 
 This is accepted under the current contract: `app.ts` bootstraps once per page lifetime. If the app ever supports runtime re-bootstrap, micro-frontends, or hot-swapping the root app without a reload, this item must be reopened.
@@ -43,9 +47,9 @@ This is accepted only while host/session/current-track guards remain in place. D
 
 ### 6. Partial Runtime Schema Validation
 
-P2P and transport messages are not all validated through a full schema library. The code instead uses targeted origin/session/current-track checks and numeric guards on high-risk fields.
+P2P and transport messages are not all validated through a full schema library. The code instead treats session participants as untrusted at sensitive handlers and uses targeted connection/session/current-track checks plus numeric guards on high-risk fields.
 
-This is accepted for the current friends/session-room threat model. Reopen before treating arbitrary peers as hostile, exposing public rooms, or adding server-mediated persistence.
+This is accepted for the current invite-code session-room threat model. Reopen before exposing discoverable public rooms or adding server-mediated persistence.
 
 ### 7. Browser-Only API Test Gaps
 
@@ -91,7 +95,8 @@ This is accepted (2026-06-13 23차 triage). Reachability is near-zero (the audio
 
 ## Retired From The Old Draft
 
-The previous `.workshop/review/known-accepted.md` was written against an older architecture. These items should no longer be carried forward as accepted risks:
+A previous untracked workshop draft was written against an older architecture.
+These items should no longer be carried forward as accepted risks:
 
 | Old item | Current status |
 | --- | --- |

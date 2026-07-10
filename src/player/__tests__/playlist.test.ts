@@ -194,7 +194,7 @@ describe('playNext/playPrev mode-branch parity', () => {
 
 describe('clearPreloadState', () => {
   it('resets preload.nextTrackIndex to -1', () => {
-    setRepeatMode(0, false); // ensure state initialized
+    setRepeatMode(0, false);
     clearPreloadState();
     expect(getState('preload.nextTrackIndex')).toBe(-1);
   });
@@ -289,10 +289,8 @@ describe('playTrack YouTube auto-rendezvous', () => {
   });
 
   it('drops a local-file broadcast parked in the debounce window when switching to YouTube', async () => {
-    // local→YouTube inside the 300ms send-debounce window: without
-    // cancelPendingBroadcast in the YouTube branch, the timer fires after the
-    // switch and pumps the full superseded local file to guests during
-    // YouTube playback (guest handleFileStart has no mode gate).
+    // A mode switch within the send debounce must cancel the pending local
+    // transfer; otherwise guests can receive stale file traffic in YouTube mode.
     vi.useFakeTimers();
     const send = vi.fn();
     const conn = {
@@ -313,7 +311,6 @@ describe('playTrack YouTube auto-rendezvous', () => {
     ]);
     bus.on('youtube:load', () => {});
 
-    // Arm the send-side debounce exactly as decode.ts does after a local decode.
     broadcastFileDebounced(new File(['abc'], 'local.mp3', { type: 'audio/mpeg' }), 1, {
       type: MSG.FILE_PREPARE,
       name: 'local.mp3',
@@ -325,21 +322,16 @@ describe('playTrack YouTube auto-rendezvous', () => {
     await playTrack(1);
     await vi.advanceTimersByTimeAsync(301);
 
-    // The pending local-file announce + chunk stream never fire...
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
-    // ...while the YouTube switch itself still reached the guest.
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.YOUTUBE_PLAY }));
   });
 });
 
 describe('remove-track playlist-empty teardown supersedes in-flight loads', () => {
-  // Removing the ONLY track can land inside that track's own decode window
-  // (click → remove within 0.1–10s). The empty branch must bump the load
-  // epoch (stopAllMedia({cancelInFlight:true})) so the resolving decode dies
-  // at its epoch checkpoint instead of resurrecting the deleted track —
-  // blob/meta(index -1) republish, play re-enable, FILE_START(-1) broadcast,
-  // audible autoplay. The inert-decode half is pinned in decode.test.ts.
+  // Removing the final track during its decode window must advance the load
+  // epoch so that a late decode cannot republish or play the deleted track.
+  // decode.test.ts covers the corresponding stale-decode checkpoint.
   it('bumps the load epoch when the last track is removed', () => {
     initPlaylist();
     setState('playlist.items', [
@@ -399,12 +391,8 @@ describe('late-join playlist bootstrap', () => {
 });
 
 describe('decode-fail advance respects end-of-playlist (mode parity)', () => {
-  // The failure-skip walk must honor the repeat mode the way every sibling
-  // path does: shuffle stops at pass end, natural sequential end stops, so a
-  // last-track decode failure with repeat OFF must end the playlist instead
-  // of restarting the whole room from track 0. Repeat ALL keeps the wrap.
-  // Driven through the OP guest-decode-failed report, which reaches the same
-  // markFailedAndAdvance walk the host's own decode failures use.
+  // Guest-reported and host decode failures share the same advance path, so
+  // the guest report pins repeat-mode behavior at the end of the playlist.
   function setupOpReporter(): ReturnType<typeof vi.fn> {
     const send = vi.fn();
     const conn = { peer: 'guest-op', open: true, send } as unknown as DataConnection;
@@ -482,7 +470,6 @@ describe('fast-replay autoPlayTimer fire-time index (F-2404)', () => {
     setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
     initPlaylist();
 
-    // Host (no hostConn) re-clicks the currently-playing local file at index 2.
     const file = new File([new Uint8Array([1, 2, 3])], 'c.mp3', { type: 'audio/mpeg' });
     setState('playlist.items', [
       { type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
@@ -491,13 +478,14 @@ describe('fast-replay autoPlayTimer fire-time index (F-2404)', () => {
     ]);
     setState('playlist.currentTrackIndex', 2);
     setState('player.isFirstTrackLoad', false);
-    // Satisfy the same-track fast-replay gate: a resident buffer whose active
-    // name matches the clicked track.
+    // A matching resident buffer selects the fast-replay path under test.
     setState('transfer.meta', { name: 'c.mp3', type: 'audio/mpeg', index: 2 });
     setCurrentAudioBuffer({} as AudioBuffer);
 
     await playTrack(2);
-    send.mockClear(); // drop the immediate FILE_PREPARE; only the delayed PLAY matters
+    // Ignore the immediate preparation frame; the delayed PLAY carries the
+    // fire-time index under test.
+    send.mockClear();
 
     // A lower-index removal during the 3s replay window shifts the current
     // index down. Park the FSM busy so the fire-time play(0) defers (no audio

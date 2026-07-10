@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState } from '../../core/state.ts';
 
-// Mock session.ts to provide stable INSTANCE_ID
+// storage.ts captures INSTANCE_ID at import time, so keep it deterministic.
 vi.mock('../../core/session.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../core/session.ts')>();
   return {
@@ -25,7 +25,7 @@ describe('ensureNamedFile', () => {
   it('returns File as-is if it already has a name', () => {
     const file = new File(['data'], 'existing.mp3', { type: 'audio/mpeg' });
     const result = ensureNamedFile(file, 'fallback');
-    expect(result).toBe(file); // same reference
+    expect(result).toBe(file);
   });
 
   it('wraps Blob in File with fallback name', () => {
@@ -57,7 +57,6 @@ describe('ensureNamedFile', () => {
 
 describe('postCommand', () => {
   it('returns early for null/undefined payload', () => {
-    // Should not throw
     postCommand(null as never);
     postCommand(undefined as never);
   });

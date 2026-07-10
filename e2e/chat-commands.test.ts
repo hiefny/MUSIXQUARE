@@ -49,7 +49,7 @@ async function hasNonSystemChatContaining(
 
 /**
  * Wait for the pinned notice banner to show the given text.
- * Since 9b2824e7, /notice renders ONLY into the #chat-pinned-notice banner
+ * /notice renders only into the #chat-pinned-notice banner
  * (label + time + text), never as a chat-list bubble.
  */
 async function waitForPinnedNotice(
@@ -291,7 +291,7 @@ test.describe('Chat Commands', () => {
 
     await sendChat(pair.hostPage, '/notice Vote for next song!');
 
-    // Notices render only in the pinned banner (9b2824e7) — on every device.
+    // Notices render only in the pinned banner on every device.
     await waitForPinnedNotice(pair.guestPage, 'Vote for next song!');
     await waitForPinnedNotice(pair.hostPage, 'Vote for next song!');
 
@@ -337,7 +337,7 @@ test.describe('Chat Commands', () => {
     }, { timeout: 10_000 });
 
     const guestText = await getChatText(pair.guestPage);
-    // ko: '사용할 수 없는 이름이에요.' or en: 'This nickname is reserved.' (copy updated by 2fb1feb6)
+    // Accept either the Korean or English localized reserved-name message.
     const hasReservedError =
       guestText.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(guestText);
     expect(hasReservedError).toBe(true);
@@ -357,7 +357,7 @@ test.describe('Chat Commands', () => {
     }, { timeout: 10_000 });
 
     const guestText = await getChatText(pair.guestPage);
-    // ko: '사용할 수 없는 이름이에요.' or en: 'This nickname is reserved.' (copy updated by 2fb1feb6)
+    // Accept either the Korean or English localized reserved-name message.
     const hasReservedError =
       guestText.includes('\uC0AC\uC6A9\uD560 \uC218 \uC5C6\uB294') || /nickname is reserved/i.test(guestText);
     expect(hasReservedError).toBe(true);

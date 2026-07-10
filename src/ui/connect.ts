@@ -73,8 +73,8 @@ async function generateQR(containerId: string): Promise<void> {
   try {
     // QR: uppercase alphanumeric mode for smallest QR
     const qrUrl = `MUSIXQUARE.COM/${sessionCode}`;
-    // Clipboard: normal readable URL. Invite OG cards are
-    // English-only now, so no per-host-lang query suffix.
+    // Clipboard: normal readable URL. Invite OG cards use English copy, so the
+    // URL needs no per-host-language query suffix.
     const shareUrl = `${location.origin}/${sessionCode}`;
 
     // Generate SVG string — transparent background, currentColor-friendly
@@ -391,7 +391,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       const row = document.createElement('div');
       row.className = 'device-row';
 
-      // Join order number (replaces old status dot)
+      // Join order number
       const orderBadge = document.createElement('span');
       orderBadge.className = 'd-order';
       const idx = typeof p.joinOrder === 'number' ? p.joinOrder : '?';
@@ -579,12 +579,12 @@ export function initConnect(): void {
         validator: (val) => {
           // Mirror the host's sanitize (handleRequestRename) so a name that
           // strips into a reserved/duplicate/empty string fails HERE with
-          // feedback instead of being silently rejected by the host (F-2404).
+          // feedback instead of being silently rejected by the host.
           const name = val.replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
           if (!name) return t('connect.rename_empty');
           const isHostSelf = !getState('network.hostConn');
           if (RESERVED_NAMES.some((r) => name.toLowerCase() === r.toLowerCase())) {
-            // HOST가 "host"/"방장"/"호스트"로 되돌리는 건 허용
+            // Let the host restore one of its reserved default labels.
             if (!isHostSelf || !['host', '방장', '호스트'].includes(name.toLowerCase())) {
               return t('connect.rename_reserved');
             }
@@ -592,13 +592,12 @@ export function initConnect(): void {
           if (/^#\d+$/.test(name)) {
             return t('connect.rename_reserved');
           }
-          // HOST가 "host"/"방장"/"호스트"로 되돌릴 때는 profanity 체크 스킵
+          // Reserved default host labels bypass the profanity dictionary.
           const isHostRestore =
             isHostSelf && ['host', '방장', '호스트'].includes(name.toLowerCase());
           if (!isHostRestore && containsProfanity(name)) {
             return t('connect.rename_profanity');
           }
-          // Check against host's own label + all peers
           const hostLabel = getState('network.myDeviceLabel') || '';
           if (
             hostLabel &&
@@ -610,7 +609,7 @@ export function initConnect(): void {
           // Role-aware duplicate check: connectedPeers is host-only state
           // (ALWAYS empty on a guest) — getOtherDeviceLabels reads the
           // device-list broadcast on guests, matching what the host's
-          // handleRequestRename will silently reject (F-2404).
+          // handleRequestRename will silently reject.
           if (getOtherDeviceLabels().some((l) => l.toLowerCase() === name.toLowerCase())) {
             return t('connect.rename_duplicate');
           }

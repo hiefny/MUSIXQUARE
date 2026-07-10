@@ -56,19 +56,16 @@ test.describe('Edge Cases', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
 
-    // Rapid-fire next clicks
     for (let i = 0; i < 10; i++) {
       await pair.hostPage.click('#btn-next');
       await pair.hostPage.waitForTimeout(100); // intentional rapid-fire delay
     }
 
-    // Rapid-fire prev clicks
     for (let i = 0; i < 10; i++) {
       await pair.hostPage.click('#btn-prev');
       await pair.hostPage.waitForTimeout(100); // intentional rapid-fire delay
     }
 
-    // App should still be functional — verify state is valid
     const index = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
     expect(index).toBeGreaterThanOrEqual(0);
     expect(index).toBeLessThan(3);
@@ -80,7 +77,6 @@ test.describe('Edge Cases', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Wait for file to be ready
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -89,13 +85,11 @@ test.describe('Edge Cases', () => {
       { timeout: 15_000 },
     );
 
-    // Rapid play/pause toggling
     for (let i = 0; i < 8; i++) {
       await pair.hostPage.click('#play-btn');
       await pair.hostPage.waitForTimeout(150); // intentional rapid-fire delay
     }
 
-    // Should not crash — state should be valid
     const state = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_VIDEO', 'PLAYING_YOUTUBE']).toContain(state);
   });
@@ -105,11 +99,9 @@ test.describe('Edge Cases', () => {
   test('next/prev on empty playlist does not crash', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // No files uploaded — playlist is empty
     await pair.hostPage.click('#btn-next');
     await pair.hostPage.click('#btn-prev');
 
-    // App should still be functional
     const index = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
     expect(index).toBeLessThanOrEqual(0);
   });
@@ -136,7 +128,6 @@ test.describe('Edge Cases', () => {
   test('uploading new file while playing does not interrupt current track', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload and start playing first file
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
@@ -153,17 +144,14 @@ test.describe('Edge Cases', () => {
 
     const stateBefore = await readPlaybackProjection(pair.hostPage) as string;
 
-    // Upload second file while first is playing/loaded
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    // Playlist should now have 2 items
     const count = await pair.hostPage.evaluate(() => {
       return document.getElementById('playlist-ui')?.children.length ?? 0;
     });
     expect(count).toBe(2);
 
-    // App should not have crashed
     const stateAfter = await readPlaybackProjection(pair.hostPage) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(stateAfter);
   });
@@ -197,7 +185,8 @@ test.describe('Edge Cases', () => {
       await chatInput.fill('');
       await pair.hostPage.locator('#btn-chat-send').click();
 
-      // Brief wait then verify no messages appeared
+      // A negative assertion needs a bounded observation window because no DOM
+      // event fires when an empty message is correctly ignored.
       await pair.hostPage.waitForTimeout(300); // intentional brief settle for negative assertion
       const msgCount = await pair.hostPage.evaluate(() => {
         const msgs = document.getElementById('chat-messages');
@@ -216,7 +205,6 @@ test.describe('Edge Cases', () => {
       const longMsg = 'A'.repeat(600);
       await sendChat(pair.hostPage, longMsg);
 
-      // Wait for message to appear
       await pair.hostPage.waitForFunction(
         () => {
           const msgs = document.getElementById('chat-messages');
@@ -229,7 +217,6 @@ test.describe('Edge Cases', () => {
         const msgs = document.getElementById('chat-messages');
         return msgs?.textContent || '';
       });
-      // Either the full message or a truncated version should be present
       expect(msgText.length).toBeGreaterThan(0);
     }
   });
@@ -248,8 +235,6 @@ test.describe('Edge Cases', () => {
         const msgs = document.getElementById('chat-messages');
         return msgs?.textContent || '';
       });
-      // Script tags should be escaped/sanitized, not executed
-      // Korean and emoji should be preserved
       expect(msgText).toContain('한국어');
     }
   });
@@ -260,7 +245,6 @@ test.describe('Edge Cases', () => {
     if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
       await openChatDrawer(pair.hostPage);
 
-      // Send 5 messages rapidly
       for (let i = 1; i <= 5; i++) {
         await sendChat(pair.hostPage, `Rapid msg ${i}`);
         await pair.hostPage.waitForTimeout(200); // intentional rapid-fire delay
@@ -273,7 +257,6 @@ test.describe('Edge Cases', () => {
         return msgs?.textContent || '';
       });
 
-      // All 5 messages should appear
       for (let i = 1; i <= 5; i++) {
         expect(msgText).toContain(`Rapid msg ${i}`);
       }
@@ -288,7 +271,6 @@ test.describe('Edge Cases', () => {
     if (await isVisible(pair.hostPage, '#volume-slider')) {
       await pair.hostPage.locator('#volume-slider').fill('0');
 
-      // Verify state is valid after setting volume to 0
       const state = await readPlaybackProjection(pair.hostPage);
       expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
     }
@@ -300,7 +282,6 @@ test.describe('Edge Cases', () => {
     if (await isVisible(pair.hostPage, '#volume-slider')) {
       await pair.hostPage.locator('#volume-slider').fill('100');
 
-      // App still functional
       const state = await readPlaybackProjection(pair.hostPage);
       expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
     }
@@ -314,7 +295,6 @@ test.describe('Edge Cases', () => {
     if (await isVisible(pair.hostPage, '#seek-slider')) {
       await pair.hostPage.locator('#seek-slider').fill('50');
 
-      // App should still be functional
       const state = await readPlaybackProjection(pair.hostPage);
       expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
     }
@@ -327,7 +307,6 @@ test.describe('Edge Cases', () => {
 
     const tabs = ['play', 'connect', 'settings'];
 
-    // Switch tabs rapidly 5 times through all tabs
     for (let round = 0; round < 5; round++) {
       for (const tab of tabs) {
         const navItem = pair.hostPage.locator(`.nav-item[data-tab="${tab}"]`);
@@ -338,7 +317,6 @@ test.describe('Edge Cases', () => {
       }
     }
 
-    // App should still be functional
     const state = await readPlaybackProjection(pair.hostPage);
     expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
   });
@@ -371,11 +349,9 @@ test.describe('Edge Cases', () => {
   test('guest file input is not visible or disabled', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // The media-source button may or may not be visible on guest depending
-    // on UI variant; when visible, the upload workflow is blocked at click
-    // time rather than via a `disabled` attribute (so we can't pin the
-    // exact mechanism here). Verify the guest didn't crash as a result of
-    // the guest-role check.
+    // UI variants may hide the guest media-source button. When visible, the
+    // role guard blocks at click time rather than through `disabled`, so assert
+    // the guest remains valid instead of pinning one presentation mechanism.
     const mediaBtnVisible = await isVisible(pair.guestPage, '#btn-media-source');
     if (mediaBtnVisible) {
       const state = await readPlaybackProjection(pair.guestPage);
@@ -388,14 +364,13 @@ test.describe('Edge Cases', () => {
   test('guest detects when host page navigates away', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Get guest's initial connection state
     const connBefore = await readState(pair.guestPage, 'network.appRole');
     expect(connBefore).toBe('guest');
 
-    // Host navigates away (simulates disconnect)
+    // Navigating the host away simulates an ungraceful disconnect.
     await pair.hostPage.goto('about:blank');
 
-    // Wait for guest to detect disconnection (WebRTC timeout)
+    // WebRTC disconnect detection is asynchronous.
     await pair.guestPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -406,7 +381,6 @@ test.describe('Edge Cases', () => {
       { timeout: 15_000 },
     ).catch(() => {});
 
-    // Guest should detect disconnection eventually
     const hostConn = await pair.guestPage.evaluate(() => {
       const get = (window as any).__MUSIXQUARE_GET_STATE__;
       if (!get) return 'no_getter';
@@ -414,8 +388,8 @@ test.describe('Edge Cases', () => {
       return conn === null ? 'null' : 'connected';
     });
 
-    // After host leaves, hostConn should become null
-    // (may take time for WebRTC to detect, so we check both possibilities)
+    // WebRTC close detection is asynchronous, so allow the valid transient
+    // state while rejecting runtime failure.
     expect(['null', 'connected']).toContain(hostConn);
   });
 
@@ -431,7 +405,6 @@ test.describe('Edge Cases', () => {
     const hostState = await readPlaybackProjection(pair.hostPage);
     const guestState = await readPlaybackProjection(pair.guestPage);
 
-    // Both should be in a non-error state
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(hostState);
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(guestState);
   });
@@ -441,17 +414,14 @@ test.describe('Edge Cases', () => {
   test('dialog OK/Cancel buttons function correctly', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Trigger a dialog via track removal
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Ensure play tab
     await navigateToTab(pair.hostPage, 'play');
 
     if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
       await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
 
-      // Dialog should appear
       await waitForClass(pair.hostPage, '#dialog-overlay', 'active', true, 3_000).catch(() => {});
 
       const dialogActive = await pair.hostPage.evaluate(() => {
@@ -460,12 +430,10 @@ test.describe('Edge Cases', () => {
       });
 
       if (dialogActive) {
-        // Cancel the dialog
         if (await isVisible(pair.hostPage, '#btn-dialog-cancel')) {
           await pair.hostPage.locator('#btn-dialog-cancel').click();
           await waitForClass(pair.hostPage, '#dialog-overlay', 'active', false, 3_000).catch(() => {});
 
-          // Playlist should still have 1 item (cancel didn't remove)
           const count = await pair.hostPage.evaluate(() => {
             return document.getElementById('playlist-ui')?.children.length ?? 0;
           });
@@ -480,16 +448,12 @@ test.describe('Edge Cases', () => {
   test('navigating tabs during file upload does not break upload', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Start upload
     await uploadFixture(pair.hostPage, 'test01');
 
-    // Immediately switch to settings tab
     await navigateToTab(pair.hostPage, 'settings');
 
-    // Switch back to play tab
     await navigateToTab(pair.hostPage, 'play');
 
-    // File should still have been processed
     await waitForPlaylistCount(pair.hostPage, 1, 15_000);
     const count = await pair.hostPage.evaluate(() => {
       return document.getElementById('playlist-ui')?.children.length ?? 0;
@@ -503,12 +467,11 @@ test.describe('Edge Cases', () => {
     test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Click repeat button to change mode (use JS fallback for CSS-hidden buttons)
+    // Use a DOM click because responsive CSS may hide the desktop control.
     const repeatExists = await pair.hostPage.evaluate(() => !!document.getElementById('btn-repeat'));
     if (repeatExists) {
       await pair.hostPage.evaluate(() => (document.getElementById('btn-repeat') as HTMLElement)?.click());
 
-      // Wait for state to update
       await pair.hostPage.waitForFunction(
         () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -519,11 +482,9 @@ test.describe('Edge Cases', () => {
 
       const repeatAfterClick = await readState(pair.hostPage, 'playlist.repeatMode');
 
-      // Switch tabs and come back
       await navigateToTab(pair.hostPage, 'settings', 15_000);
       await navigateToTab(pair.hostPage, 'play', 15_000);
 
-      // Repeat mode should persist
       const repeatAfterSwitch = await readState(pair.hostPage, 'playlist.repeatMode');
       expect(repeatAfterSwitch).toBe(repeatAfterClick);
     }
@@ -535,12 +496,11 @@ test.describe('Edge Cases', () => {
     test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Use JS fallback for CSS-hidden buttons
+    // Use a DOM click because responsive CSS may hide the desktop control.
     const shuffleExists = await pair.hostPage.evaluate(() => !!document.getElementById('btn-shuffle'));
     if (shuffleExists) {
       await pair.hostPage.evaluate(() => (document.getElementById('btn-shuffle') as HTMLElement)?.click());
 
-      // Wait for state to update
       await pair.hostPage.waitForFunction(
         () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -551,7 +511,6 @@ test.describe('Edge Cases', () => {
 
       const shuffleAfterClick = await readState(pair.hostPage, 'playlist.isShuffle');
 
-      // Switch tabs
       await navigateToTab(pair.hostPage, 'settings', 15_000);
       await navigateToTab(pair.hostPage, 'play', 15_000);
 
@@ -569,7 +528,6 @@ test.describe('Edge Cases', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
-    // Guest should not have remove buttons
     const removeBtns = pair.guestPage.locator('#playlist-ui .btn-playlist-remove');
     const count = await removeBtns.count();
     expect(count).toBe(0);
@@ -583,7 +541,6 @@ test.describe('Edge Cases', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Wait for track title to populate
     await pair.hostPage.waitForFunction(
       () => {
         const el = document.getElementById('track-title') || document.querySelector('.track-title');
@@ -592,7 +549,6 @@ test.describe('Edge Cases', () => {
       { timeout: 10_000 },
     );
 
-    // Check if track title element has content
     const titleText = await pair.hostPage.evaluate(() => {
       const el = document.getElementById('track-title') || document.querySelector('.track-title');
       return el?.textContent?.trim() || '';
@@ -606,10 +562,8 @@ test.describe('Edge Cases', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     if (await isVisible(pair.hostPage, '#vol-icon-btn')) {
-      // Click to mute
       await pair.hostPage.locator('#vol-icon-btn').click();
 
-      // Wait for volume state to update
       await pair.hostPage.waitForFunction(
         () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -620,7 +574,6 @@ test.describe('Edge Cases', () => {
 
       const volAfterMute = await pair.hostPage.locator('#volume-slider').inputValue().catch(() => '50');
 
-      // Click again to unmute
       await pair.hostPage.locator('#vol-icon-btn').click();
 
       await pair.hostPage.waitForFunction(
@@ -633,8 +586,6 @@ test.describe('Edge Cases', () => {
 
       const volAfterUnmute = await pair.hostPage.locator('#volume-slider').inputValue().catch(() => '50');
 
-      // Mute should set volume to 0 or change the value
-      // At minimum, both operations should not crash and one value should differ
       const muteVal = Number(volAfterMute);
       const unmuteVal = Number(volAfterUnmute);
       expect(muteVal === 0 || muteVal !== unmuteVal).toBe(true);
@@ -646,23 +597,19 @@ test.describe('Edge Cases', () => {
   test('host message appears on guest chat', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open chat on host
     if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
       await openChatDrawer(pair.hostPage);
       await sendChat(pair.hostPage, 'Hello from host edge-case');
       await waitForChatMessage(pair.hostPage, 'Hello from host edge-case');
 
-      // Open chat on guest
       if (await isVisible(pair.guestPage, '#chat-preview-btn')) {
         await openChatDrawer(pair.guestPage);
 
-        // Guest should see host's message
         await waitForChatMessage(pair.guestPage, 'Hello from host edge-case', 15_000);
         const guestMsgs = await pair.guestPage.evaluate(() => {
           const el = document.getElementById('chat-messages');
           return el?.textContent || '';
         });
-        // Message should have arrived (WebRTC relay)
         expect(guestMsgs).toContain('Hello from host edge-case');
       }
     }
@@ -671,13 +618,11 @@ test.describe('Edge Cases', () => {
   test('guest message appears on host chat', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open chat on guest
     if (await isVisible(pair.guestPage, '#chat-preview-btn')) {
       await openChatDrawer(pair.guestPage);
       await sendChat(pair.guestPage, 'Hello from guest edge-case');
       await waitForChatMessage(pair.guestPage, 'Hello from guest edge-case');
 
-      // Open chat on host
       if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
         await openChatDrawer(pair.hostPage);
 
@@ -735,7 +680,6 @@ test.describe('Stress Tests', () => {
   test('upload all 3 files, navigate through all, verify indices', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload all 3
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
@@ -745,14 +689,13 @@ test.describe('Stress Tests', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
 
-    // Navigate forward through entire playlist (3 tracks, no repeat →
-    // 3 iterations collects [0, 1, 2]; a 4th would hit end-of-playlist = -1)
+    // Three transitions visit indices 0, 1, and 2; a fourth would reach the
+    // end-of-playlist sentinel.
     const indices: number[] = [];
     for (let i = 0; i < 3; i++) {
       const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
       indices.push(idx);
       await pair.hostPage.click('#btn-next');
-      // Wait for track index to change after clicking next
       await pair.hostPage.waitForFunction(
         (prevIdx) => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -765,7 +708,6 @@ test.describe('Stress Tests', () => {
       ).catch(() => {});
     }
 
-    // All indices should be valid (0-2)
     for (const idx of indices) {
       expect(idx).toBeGreaterThanOrEqual(0);
       expect(idx).toBeLessThan(3);
@@ -775,21 +717,18 @@ test.describe('Stress Tests', () => {
   test('remove all tracks one by one reduces playlist count', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload 2 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    // Ensure play tab
     await navigateToTab(pair.hostPage, 'play');
 
     const countBefore = await pair.hostPage.evaluate(() => {
       return document.getElementById('playlist-ui')?.children.length ?? 0;
     });
 
-    // Remove one track
     if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
       await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
 
@@ -797,7 +736,6 @@ test.describe('Stress Tests', () => {
       await okBtn.waitFor({ state: 'visible', timeout: 5000 });
       await okBtn.click();
 
-      // Wait for playlist count to decrease
       await pair.hostPage.waitForFunction(
         (before) => {
           const list = document.getElementById('playlist-ui');
@@ -820,7 +758,6 @@ test.describe('Stress Tests', () => {
     if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
       await openChatDrawer(pair.hostPage);
 
-      // Send 10 numbered messages
       for (let i = 1; i <= 10; i++) {
         await sendChat(pair.hostPage, `Order test #${i}`);
         await pair.hostPage.waitForTimeout(300); // intentional rapid-fire delay
@@ -833,12 +770,10 @@ test.describe('Stress Tests', () => {
         return msgs?.textContent || '';
       });
 
-      // Check ordering — each number should appear
       for (let i = 1; i <= 10; i++) {
         expect(msgText).toContain(`Order test #${i}`);
       }
 
-      // Check order: #1 should appear before #10
       const pos1 = msgText.indexOf('Order test #1');
       const pos10 = msgText.indexOf('Order test #10');
       if (pos1 !== -1 && pos10 !== -1) {

@@ -443,10 +443,8 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
   hostPc = pc;
   pc.addEventListener('connectionstatechange', () => {
     log.info(`[SysAudioSFU] Host SFU connection: ${pc.connectionState}`);
-    // F-2403 (blind-spot 4: terminal-state completeness): a RUNTIME 'failed' on
-    // the publisher pc was only logged, leaving remote guests subscribed to a
-    // dead session with no teardown or fallback. Mirror the publish-time
-    // throw-path exactly: mark SFU unavailable, degrade to direct media calls,
+    // A runtime 'failed' state is terminal. Mirror the publish-time throw path:
+    // mark SFU unavailable, degrade to direct media calls,
     // and clear the stale publication so late joiners stop getting a dead
     // session. Setting hostSfuUnavailable (NOT auto-republish) is what prevents
     // a re-subscribe storm under a persistent fault — ensureHostPublication
@@ -580,9 +578,9 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       if (publishEpoch !== hostPublishEpoch) {
-        // F-2403: a late failure from a publish the world already moved past
+        // A late failure from a publish the world already moved past
         // (share stopped/restarted — cleanupHostSfu bumped the epoch) must
-        // not poison hostSfuUnavailable for the NEXT share, must not emit a
+        // not poison hostSfuUnavailable for the next share, must not emit a
         // stale fallback, and must not run cleanupHostSfu against module
         // slots that may now belong to a successor. The supersession's own
         // cleanup already closed this attempt's pc.
@@ -645,7 +643,7 @@ async function connectGuestTrack(
   pc: RTCPeerConnection,
 ): Promise<void> {
   await initAudio();
-  // Post-await identity recheck (blind-spot ⑭): connectGuestTrack is
+  // Re-check identity after the await: connectGuestTrack is
   // fire-and-forget, so a teardown (cleanupGuestSfu → guestPc=null) or a new
   // subscription (guestPc=newPc) landing during initAudio() would otherwise let
   // this late attach recreate guestMerger + the source and flip

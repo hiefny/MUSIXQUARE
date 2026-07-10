@@ -93,9 +93,9 @@ describe('copyTextToClipboard', () => {
 
   it('uses fallback textarea when clipboard API not available', async () => {
     Object.assign(navigator, { clipboard: undefined });
-    // jsdom doesn't support execCommand well, but it shouldn't throw
+    // jsdom does not provide a reliable execCommand result; this case verifies
+    // that the fallback remains safe and preserves its boolean contract.
     const result = await copyTextToClipboard('test');
-    // Result depends on execCommand support in jsdom
     expect(typeof result).toBe('boolean');
   });
 });
@@ -146,7 +146,6 @@ describe('initOverlayObservers', () => {
   it('can be called multiple times without error (reinit)', () => {
     initOverlayObservers();
     initOverlayObservers();
-    // Should not throw — disconnects previous observer
   });
 
   it('toggles body.overlay-open on fullscreen overlay activation', async () => {

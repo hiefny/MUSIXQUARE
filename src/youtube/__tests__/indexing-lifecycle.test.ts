@@ -1,13 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * Pin tests for the playlist-indexing session lifecycle (YT-INDEXING fix,
- * 2026-06-11). Indexing used to be pre-armed, unscoped module globals
- * (boolean + bare callback) that survived mid-index teardown: the stale flag
- * flipped the next YouTube add into the auto-play takeover branch, and the
- * stale callback fired with the wrong playlist's IDs. It is now a session
- * object armed INSIDE loadYouTubeVideo (clear-then-arm) and cleared
- * unconditionally by stopYouTubeMode; the poll chain identity-guards itself.
+ * Regression tests for the playlist-indexing session lifecycle. Indexing state
+ * is armed inside loadYouTubeVideo as a clear-then-arm session object, cleared
+ * unconditionally by stopYouTubeMode, and identity-guarded throughout the poll
+ * chain. Stale state must never route the next YouTube add through auto-play or
+ * invoke a callback with another playlist's IDs.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
@@ -312,7 +310,7 @@ describe('YouTube indexing session lifecycle', () => {
     expect(stateMod.isYtIndexing()).toBe(false);
     expect(showLoaderMock).toHaveBeenCalledWith(false);
 
-    // Gate pin: a stop with no live indexing session must NOT hide the loader
+    // Contract: a stop with no live indexing session must not hide the loader
     // (a plain track switch would otherwise stomp the incoming flow's loader).
     showLoaderMock.mockClear();
     stopYouTubeMode();

@@ -9,9 +9,8 @@
  * Falls back to a 3s timeout in case the stylesheet never loads (offline /
  * network failure) so the page isn't permanently blank.
  *
- * Earlier version manipulated an inline `<style id="fouc-guard">` element;
- * that inlined CSS forced `style-src 'unsafe-inline'` in the CSP, so the
- * guard was moved into style.css proper. This script just toggles the class.
+ * The guard lives in style.css so the CSP does not require inline styles;
+ * this script only toggles the reveal class.
  */
 
 (function () {

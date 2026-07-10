@@ -107,12 +107,12 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
   return self;
 }
 
-/** Helper: return only the operations (drops args + timing) for compact assertions. */
+/** Return operation names without arguments or timestamps. */
 export function ops(player: FakeYtPlayer): string[] {
   return player.__log.map((c) => c.op);
 }
 
-/** Helper: return ops filtered to mutation calls (ignores getters, which aren't logged). */
+/** Return behavior operations while excluding teardown. */
 export function mutationOps(player: FakeYtPlayer): string[] {
   return player.__log.filter((c) => c.op !== 'destroy').map((c) => c.op);
 }

@@ -1,8 +1,7 @@
 /**
  * MUSIXQUARE — Network Permission Guards
  *
- * Centralized permission checks extracted from scattered inline checks
- * across player, playlist, and UI modules.
+ * Centralized permission checks shared by player, playlist, and UI modules.
  */
 
 import { getState } from '../core/state.ts';
@@ -35,7 +34,7 @@ export function isGuestBlocked(): boolean {
  * includes the host's own entry — is the only truthful source. Rename
  * validation must read this: checking connectedPeers on a guest passes any
  * duplicate locally, and the host's handleRequestRename then rejects the
- * request silently with no NACK (F-2404).
+ * request silently with no NACK.
  */
 export function getOtherDeviceLabels(): string[] {
   const hostConn = getState('network.hostConn');

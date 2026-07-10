@@ -307,7 +307,7 @@ function cmdNotice(_: string[], rawArgs: string): void {
 function cmdNick(_: string[], rawArgs: string): void {
   // Mirror the host's sanitize (handleRequestRename) so a name that strips
   // into a reserved/duplicate/empty string fails HERE with feedback instead
-  // of being silently rejected by the host (F-2404).
+  // of being silently rejected by the host.
   const newName = rawArgs.replace(DEVICE_LABEL_SANITIZE_RE, '').trim();
   if (!newName) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_nick') }));
@@ -337,7 +337,7 @@ function cmdNick(_: string[], rawArgs: string): void {
   // Role-aware duplicate check: connectedPeers is host-only state (ALWAYS
   // empty on a guest) — getOtherDeviceLabels reads the device-list broadcast
   // on guests, matching what the host's handleRequestRename will silently
-  // reject (F-2404).
+  // reject.
   if (getOtherDeviceLabels().some((label) => label.toLowerCase() === newName.toLowerCase())) {
     addSystemChatMessage(t('connect.rename_duplicate'));
     return;

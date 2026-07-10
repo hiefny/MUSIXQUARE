@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 4.0 — System Audio Capture
+ * MUSIXQUARE — System Audio Capture
  *
  * Host-side module for capturing system audio via getDisplayMedia.
  * Splits into L/R mono MediaStreams for WebRTC transmission
@@ -41,9 +41,8 @@ let _streamL: MediaStream | null = null;
 let _streamR: MediaStream | null = null;
 let _destL: MediaStreamAudioDestinationNode | null = null;
 let _destR: MediaStreamAudioDestinationNode | null = null;
-// M15: Track intermediate graph nodes so cleanupCapture can disconnect them.
-// Previously these were local variables in startSystemAudioCapture, leaking
-// connected AudioNodes on each start/stop cycle.
+// Retain intermediate graph nodes so cleanupCapture can disconnect every
+// connection created by a capture session.
 let _splitter: ChannelSplitterNode | null = null;
 let _stereoUpmix: GainNode | null = null;
 let _debugLastCaptureStartedAt = 0;
@@ -295,16 +294,10 @@ export async function startSystemAudioCapture(): Promise<void> {
 /**
  * Stop system audio capture.
  *
- * `restore` (default true) controls whether the pre-share playback snapshot
- * is restored. Explicit user stops (공유 중지 button, browser "Stop sharing",
- * error cleanup) restore. The `system-audio:force-stop` path passes
- * restore:false — force-stop only ever fires from TRANSITION/teardown
- * contexts (stopAllMedia during a track/mode change, demo entry,
- * leaveSession) where another playback flow is already taking over.
- * Restoring there ran synchronously INSIDE that flow and stomped it:
- * pre-share YouTube resurrected room-wide while the clicked file's decode
- * aborted on the external-owner gate (SA-02,
- * docs/scenario-audit-2026-06-10.md).
+ * `restore` controls whether the pre-share playback snapshot is restored.
+ * Explicit user stops and error cleanup restore by default. Transition and
+ * teardown callers pass `restore:false` because another playback flow already
+ * owns the target state; restoring the snapshot would overwrite that flow.
  */
 export function stopSystemAudioCapture(opts?: { restore?: boolean }): void {
   if (!isSystemAudioActive() && !_capturedStream) return;
@@ -413,7 +406,7 @@ function cleanupCapture(): void {
     }
     _sourceNode = null;
   }
-  // M15: Disconnect intermediate graph nodes that were previously leaked
+  // Disconnect every intermediate node retained for this capture session.
   if (_splitter) {
     try {
       _splitter.disconnect();
@@ -466,9 +459,8 @@ export function registerSystemCaptureListeners(): void {
   bus.on('system-audio:stop', () => {
     stopSystemAudioCapture();
   });
-  // force-stop = transition/teardown semantics (stopAllMedia track/mode
-  // change, demo entry, leaveSession): another flow is taking over playback,
-  // so never restore the pre-share snapshot here (SA-02).
+  // force-stop is transition/teardown semantics: another flow is taking over,
+  // so the pre-share snapshot must not be restored.
   bus.on('system-audio:force-stop', () => {
     stopSystemAudioCapture({ restore: false });
   });

@@ -46,10 +46,9 @@ const HOST_CTRL_LOCK_IDS = [
   'grid-exciter',
 ] as const;
 
-/** Returns true if user is a non-OP guest (should be blocked from host-ctrl settings) */
 function _isGuestLocked(): boolean {
   const hostConn = getState('network.hostConn');
-  if (!hostConn) return false; // Host — never locked
+  if (!hostConn) return false;
   return !getState('network.isOperator');
 }
 
@@ -57,7 +56,6 @@ function _showHostCtrlLockedToast(): void {
   showToast(t('toast.operator_required'));
 }
 
-/** Show toast + return true if guest is locked */
 function _guardHostCtrl(): boolean {
   if (_isGuestLocked()) {
     _showHostCtrlLockedToast();
@@ -82,7 +80,6 @@ function _bindHostCtrlLockedAttemptToasts(): void {
   });
 }
 
-/** Apply or remove visual lock on host-ctrl sections */
 function _updateHostCtrlLockUI(): void {
   const locked = _isGuestLocked();
   HOST_CTRL_LOCK_IDS.forEach((id) => {
@@ -112,7 +109,6 @@ export function setTheme(mode: string, save = true): void {
 
   document.documentElement.setAttribute('data-theme', mode);
 
-  // Persist preference
   if (save) {
     try {
       localStorage.setItem('musixquare-theme', originalMode);
@@ -145,7 +141,6 @@ export function selectStandardChannelButton(mode: number): void {
   if (el) el.classList.add('active');
   syncRoleDiagrams(mode);
 
-  // Sync woofer cutoff slider visibility
   const wooferCtrl = document.getElementById('woofer-cutoff-control');
   if (wooferCtrl) {
     if (mode === 2) {
@@ -237,7 +232,6 @@ function _notifyGuestOnlyEffects(): boolean {
 }
 
 function updateAudioEffect(type: string, param: string, value: number, isPreview = false): void {
-  // Update value display
   if (type === 'reverb') formatReverbValDisp(param, value);
   else if (type === 'cutoff') _setDisp('val-cutoff', value + ' Hz');
 
@@ -347,7 +341,6 @@ function syncReverbSlidersToPreset(type: string): void {
   clearReverbChipActive();
 
   if (type === 'off') {
-    // Off: reset reverb, reset slider values to defaults, hide sliders
     setRangeValueById('reverb-slider', REVERB_DEFAULTS.mix);
     setRangeValueById('reverb-decay-slider', REVERB_DEFAULTS.decay);
     setRangeValueById('reverb-predelay-slider', REVERB_DEFAULTS.predelay);
@@ -364,7 +357,6 @@ function syncReverbSlidersToPreset(type: string): void {
   }
 
   if (type === 'advanced') {
-    // Advanced: show sliders, mark chip active
     document
       .querySelector('#grid-reverb .ch-opt[data-rvb-type="advanced"]')
       ?.classList.add('active');
@@ -375,28 +367,24 @@ function syncReverbSlidersToPreset(type: string): void {
   const preset = REVERB_PRESETS[type];
   if (!preset) return;
 
-  // Update slider positions (for when user switches to Advanced later)
   setRangeValueById('reverb-slider', preset.mix);
   setRangeValueById('reverb-decay-slider', preset.decay);
   setRangeValueById('reverb-predelay-slider', preset.predelay);
   setRangeValueById('reverb-lowcut-slider', preset.lowcut);
   setRangeValueById('reverb-highcut-slider', preset.highcut);
 
-  // Update value displays
   formatReverbValDisp('mix', preset.mix);
   formatReverbValDisp('decay', preset.decay);
   formatReverbValDisp('predelay', preset.predelay);
   formatReverbValDisp('lowcut', preset.lowcut);
   formatReverbValDisp('highcut', preset.highcut);
 
-  // Update chip active state + hide sliders
   document.querySelector(`#grid-reverb .ch-opt[data-rvb-type="${type}"]`)?.classList.add('active');
   setReverbSlidersVisible(false);
 }
 
 function resetEQ(): void {
   bus.emit('audio:reset-eq');
-  // Reset slider UI
   for (let i = 0; i < 5; i++) {
     setRangeValueById(`eq-slider-${i}`, 0);
     _setDisp(`eq-val-${i}`, '0');
@@ -432,7 +420,6 @@ function syncEqSlidersToPreset(type: string): void {
 
   if (type === 'off') {
     document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.classList.add('active');
-    // Zero all slider DOM values so switching to Advanced shows flat EQ
     for (let i = 0; i < 5; i++) {
       setRangeValueById(`eq-slider-${i}`, 0);
       _setDisp(`eq-val-${i}`, '0');
@@ -450,7 +437,6 @@ function syncEqSlidersToPreset(type: string): void {
   const preset = EQ_PRESETS[type];
   if (!preset) return;
 
-  // Update slider positions (for when user switches to Advanced later)
   for (let i = 0; i < 5; i++) {
     setRangeValueById(`eq-slider-${i}`, preset[i]);
     const v = preset[i];
@@ -504,11 +490,10 @@ function setSurroundOn(on: boolean): void {
     .querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
     ?.classList.add('active');
 
-  // Guard: skip if already in requested state (prevents dblclick duplicate toast)
+  // Avoid duplicate feedback from repeated activation of the selected chip.
   const currentWidth = getState('audio.stereoWidth');
   const alreadyOn = currentWidth > 1;
   if (on === alreadyOn) return;
-  // ON: 120%, OFF: 100%
   bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
   if (on) {
     // Host sharing system audio: route to guest-only notice instead of
@@ -535,7 +520,6 @@ function setVBassOn(on: boolean): void {
   document
     .querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
     ?.classList.add('active');
-  // ON: 60%, OFF: 0%
   bus.emit('audio:update-effect', 'vbass', 'mix', on ? 60 : 0, false);
   if (on) {
     if (!_notifyGuestOnlyEffects()) showToast(t('toast.distortion_warn'));

@@ -1,8 +1,8 @@
 /**
  * MUSIXQUARE About page language preference bootstrap.
  *
- * About keeps the page copy in English, but resolves the user's language
- * preference early so the footer selector renders in the right state.
+ * Resolves the language before first paint so localized About copy and the
+ * footer selector start in the same state.
  */
 
 (function () {
@@ -19,7 +19,7 @@
         try {
           stored = localStorage.getItem('mxqr-landing-lang');
         } catch (e) {
-          /* private mode */
+          /* Storage may be unavailable in private or restricted contexts. */
         }
         if (stored === 'en' || stored === 'ko') {
           lang = stored;
@@ -30,7 +30,7 @@
       }
     }
   } catch (e) {
-    /* defensive fallback */
+    /* Keep the English document default when language APIs fail. */
   }
 
   document.documentElement.lang = window.MXQRStaticLang ? window.MXQRStaticLang.htmlLang(lang) : lang;
@@ -45,7 +45,7 @@
     }
     if (standalone) document.documentElement.classList.add('standalone');
   } catch (e) {
-    /* noop */
+    /* Standalone detection is optional. */
   }
 
   window.__landingLang = lang;

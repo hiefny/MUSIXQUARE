@@ -1,8 +1,12 @@
 # Production Hotfix And Rollback Procedure
 
-Reviewed against `public/service-worker.js` `CACHE_VERSION = "v116"` and `src/sw-register.ts` on 2026-05-16.
+Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the three
+Wrangler configs, and the live-smoke scripts on 2026-07-11. Read the current
+`CACHE_VERSION` from the service-worker source rather than copying a number
+from this procedure.
 
-This document is the canonical production hotfix note. The older working copy in `.workshop/review` was a pre-refactor draft and should not be used as the source of truth.
+This document is the canonical production hotfix note. Untracked workshop
+drafts are not release instructions.
 
 ## Normal Hotfix
 
@@ -17,14 +21,43 @@ git pull origin main
 npm run typecheck
 npm run lint
 npm test
-npm run build
+npm run build:checked
 
 git add <files>
 git commit -m "fix(domain): describe the fix"
 git push origin main
 ```
 
-Cloudflare's GitHub integration builds and deploys `main` automatically. For an out-of-band push, run `npx wrangler deploy --config cloudflare/wrangler.app.toml`. After the deploy is live, verify the production URL in a fresh browser session.
+The repository's GitHub Actions workflows run CI/E2E; they do not constitute a
+production deployment. Do not treat a successful push as proof that Cloudflare
+is current. For an app-only hotfix, deploy the already verified build explicitly:
+
+```bash
+npx wrangler deploy --config cloudflare/wrangler.app.toml --message "Hotfix: <summary>"
+npm run smoke:live:app-session
+```
+
+After the deploy is live, verify the production URL in a fresh browser session
+and confirm the active version with
+`npx wrangler deployments status --config cloudflare/wrangler.app.toml`.
+
+### Worker scope and order
+
+Deploy only the Workers changed by the hotfix. For a backward-compatible change
+that touches all three, use this order so the existing browser remains usable
+while backends roll forward:
+
+1. `cloudflare/wrangler.remote-share.toml`, then
+   `npm run smoke:live:remote-share`;
+2. `cloudflare/wrangler.signaling.toml`, then
+   `npm run smoke:live:signaling`;
+3. rebuild with `npm run build:checked`, deploy
+   `cloudflare/wrangler.app.toml`, then run `npm run smoke:live` and browser QA.
+
+Before each deploy, save the version reported by
+`npx wrangler deployments status --config <config> --json`. Confirm that the
+saved version is compatible with every migration already applied before using
+it as the immediate rollback target.
 
 ## Client Update Behavior
 
@@ -37,7 +70,7 @@ Current behavior:
 | New visitor or fresh navigation | Navigation is network-first, so the user should receive the latest deployed app shell immediately unless offline. |
 | Existing open tab | `src/sw-register.ts` performs an immediate update check after registration and then checks every 60 minutes. When a waiting worker is found, the app shows the service-worker update dialog. |
 | User accepts update dialog | The page sends `SKIP_WAITING`, records a 30-second cooldown in `sessionStorage`, marks the navigation intentional, and reloads once. |
-| Other same-origin tabs when one tab accepts | `controllerchange` fires in every controlled tab. Idle tabs (`network.appRole === 'idle'`) auto-reload; tabs with a live session show an update-ready toast and defer the reload to their next natural load (22차 audit CATCH-1 — auto-reload silently killed live sessions). |
+| Other same-origin tabs when one tab accepts | `controllerchange` fires in every controlled tab. Idle tabs (`network.appRole === 'idle'`) auto-reload; tabs with a live session show an update-ready toast and defer the reload to their next natural load so an update cannot silently terminate a room. |
 | Update found during cooldown | The waiting worker is activated silently to avoid a reload-dialog loop. In-session tabs still defer per the rule above, so a hotfix-on-hotfix is not guaranteed to reach them until they reload naturally. |
 | User dismisses update dialog | The waiting worker is not activated by app code. The update applies on a later natural load/update path. |
 | PWA/background tab | Delivery depends on when the browser wakes the page and allows the update check. Treat this as browser-controlled. |
@@ -56,11 +89,12 @@ Use this when stale clients are likely to keep hitting a severe bug.
 npm run typecheck
 npm run lint
 npm test
-npm run build
+npm run build:checked
 ```
 
 4. Commit and push to `main`.
-5. After Cloudflare deploys, verify:
+5. Deploy the affected Worker explicitly as described above.
+6. After Cloudflare deploys, verify:
    - fresh production load
    - an already-open production tab
    - service-worker update dialog or cooldown behavior
@@ -80,13 +114,25 @@ git revert <bad-commit-sha>
 npm run typecheck
 npm run lint
 npm test
-npm run build
+npm run build:checked
 git push origin main
 ```
 
-3. If the rollback changes app-shell behavior or users may be pinned to stale cached assets, include a `CACHE_VERSION` bump in the rollback commit.
+3. Explicitly deploy the reverted Worker scope and rerun its live smoke; a
+   revert push alone does not update Cloudflare.
+4. If the rollback changes app-shell behavior or users may be pinned to stale cached assets, include a `CACHE_VERSION` bump in the rollback commit.
 
 Avoid `git reset --hard` plus force push on `main` unless there is no reasonable alternative.
+
+For a CLI rollback, deploy the saved known-good version at 100%:
+
+```bash
+npx wrangler versions deploy <known-good-version-id>@100% --config <worker-config> --yes --message "Rollback: <reason>"
+```
+
+Cloudflare migration history is append-only. In particular, the removed
+remote-share Durable Object must not be "restored" by selecting a version from
+before its deletion migration; use a known-good post-deletion version.
 
 ## External Dependency Incidents
 
@@ -94,7 +140,7 @@ Treat these separately from app hotfixes unless the app has a confirmed code-lev
 
 | Dependency | User symptom | Current response |
 | --- | --- | --- |
-| PeerJS-compatible signaling / Cloudflare signaling | New sessions or remote peers fail to connect. | Check the configured transport and service status. Prefer transport fallback or a small compatibility patch over broad session rewrites. |
+| PeerJS-compatible signaling / Cloudflare signaling | New sessions or remote peers fail to connect. | Check the configured transport and service status. Prefer rollback or a small isolated compatibility patch over broad session rewrites; public production hosts do not automatically fall back to PeerJS. |
 | TURN credential endpoint / Cloudflare Worker | Remote peers may fall back to STUN-only and fail across restrictive NATs. | Confirm `/api/get-turn-config` response and Cloudflare status. Do not cache TURN credentials. |
 | YouTube IFrame API | YouTube mode fails while file playback still works. | Confirm iframe/API availability. File mode remains the fallback user path. |
 | Browser audio/WebRTC policy changes | iOS/Safari/Chrome-specific playback or connection drift. | Reproduce on the affected real device/browser. Unit tests cannot prove this class of issue. |
@@ -102,6 +148,8 @@ Treat these separately from app hotfixes unless the app has a confirmed code-lev
 ## Post-Hotfix Checklist
 
 - Confirm production behavior on a fresh load and an already-open client.
+- Confirm the active Cloudflare version for every deployed Worker.
+- Run the live smoke that covers every deployed Worker.
 - Record the root cause and the exact user symptom.
 - Add or update a regression test when the issue is representable in unit/jsdom tests.
 - Add a manual verification note when the issue is browser/device-specific.

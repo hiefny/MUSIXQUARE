@@ -39,18 +39,15 @@ test.describe('Operator Mode', () => {
   test('host can grant operator to guest via device list', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Navigate to connect tab
     await navigateToTab(pair.hostPage, 'connect');
 
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // Find operator toggle button for guest (not host row)
     const opBtn = pair.hostPage.locator('.d-op-btn').first();
     if (await opBtn.isVisible()) {
       await opBtn.click();
       await waitForState(pair.guestPage, 'network.isOperator', true);
 
-      // Guest should now be operator
       const isOp = await readState(pair.guestPage, 'network.isOperator');
       expect(isOp).toBe(true);
     }
@@ -65,11 +62,9 @@ test.describe('Operator Mode', () => {
 
     const opBtn = pair.hostPage.locator('.d-op-btn').first();
     if (await opBtn.isVisible()) {
-      // Grant
       await opBtn.click();
       await waitForState(pair.guestPage, 'network.isOperator', true);
 
-      // Revoke
       await opBtn.click();
       await waitForState(pair.guestPage, 'network.isOperator', false);
 
@@ -90,12 +85,10 @@ test.describe('Operator Mode', () => {
       await opBtn.click();
       await waitForState(pair.guestPage, 'network.isOperator', true);
 
-      // Check for OP badge in device list
       const hasBadge = await pair.hostPage.evaluate(() => {
         const badges = document.querySelectorAll('.d-op-badge');
         return badges.length > 0;
       });
-      // Host always has OP, guest should now also have it
       expect(hasBadge).toBe(true);
     }
   });
@@ -107,13 +100,11 @@ test.describe('Operator Mode', () => {
 
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // Grant operator
     const opBtn = pair.hostPage.locator('.d-op-btn').first();
     if (await opBtn.isVisible()) {
       await opBtn.click();
       await waitForState(pair.guestPage, 'network.isOperator', true);
 
-      // Guest's role badge should show OP
       const guestRoleText = await pair.guestPage.evaluate(() => {
         const badge = document.getElementById('role-text');
         return badge?.textContent?.trim() || '';

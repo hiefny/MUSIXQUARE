@@ -310,7 +310,7 @@ function maybeSoftResyncFile(syncPosition: number, localPosition: number): boole
 }
 
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
-  // 1. Liveness update (from old handleHeartbeat)
+  // 1. Liveness update
   try {
     if (conn?.peer) {
       const connectedPeers = getState('network.connectedPeers');
@@ -369,10 +369,9 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   // it on the legitimate path, and a guest only receives it from hostConn.
   // Without this guard, any non-host peer could inject a fake
   // hostTime/position which feeds processSyncPong (clock-offset poisoning)
-  // and play() at L155/161 (file-mode position jump).
-  // pingId matching in processSyncPong gives partial protection but pingIds
-  // are sequential (L30 _syncPingCounter) and predictable. SYNC_PONG is
-  // per-handler defense is required.
+  // and the file-mode play correction (position jump).
+  // pingId matching in processSyncPong gives partial protection, but pingIds
+  // are sequential and predictable, so per-handler source validation is required.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -384,7 +383,7 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   const result = processSyncPong(pingId, hostTime);
   if (!result) return;
 
-  // 2. Latency history update (from old handlePongLatency)
+  // 2. Latency history update
   const ms = result.rtt;
   const latencyHistory = getState('sync.latencyHistory');
   const updated = [...latencyHistory, ms];
@@ -648,7 +647,7 @@ export function initSync(): void {
     [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });
 
-  // SharedClock role management (replaces old initSharedClock)
+  // SharedClock role management
   bus.on('state:network.appRole', () => {
     const role = getState('network.appRole');
     setIsHostClock(role === 'host');

@@ -61,30 +61,20 @@ describe('setChannelMode', () => {
 });
 
 describe('toggleSurroundMode', () => {
-  // Note: toggleSurroundMode sets state first, then calls ensureSurroundNodes()
-  // which requires real Web Audio nodes (unavailable in jsdom). We wrap in
-  // try/catch and verify the state update that happens before graph setup.
-
   it('enabling surround sets audio.isSurroundMode to true', () => {
     try {
       toggleSurroundMode(true);
-    } catch {
-      /* Web Audio node creation fails in jsdom */
-    }
+    } catch {}
     expect(getState('audio.isSurroundMode')).toBe(true);
   });
 
   it('disabling surround sets audio.isSurroundMode to false', () => {
     try {
       toggleSurroundMode(true);
-    } catch {
-      /* Web Audio */
-    }
+    } catch {}
     try {
       toggleSurroundMode(false);
-    } catch {
-      /* Web Audio */
-    }
+    } catch {}
     expect(getState('audio.isSurroundMode')).toBe(false);
   });
 
@@ -96,15 +86,11 @@ describe('toggleSurroundMode', () => {
     expect(getState('audio.isSurroundMode')).toBe(false);
     try {
       toggleSurroundMode(true);
-    } catch {
-      /* Web Audio */
-    }
+    } catch {}
     expect(getState('audio.isSurroundMode')).toBe(true);
     try {
       toggleSurroundMode(false);
-    } catch {
-      /* Web Audio */
-    }
+    } catch {}
     expect(getState('audio.isSurroundMode')).toBe(false);
   });
 
@@ -164,10 +150,8 @@ describe('surround channel index state', () => {
   });
 
   it('toggleSurroundMode(true) sets isSurroundMode and defaults to Center channel', () => {
-    // toggleSurroundMode(true) → setState('audio.isSurroundMode', true)
-    // → ensureSurroundNodes() (mocked) → idx === -1 → setSurroundChannel(2) (Center default)
     toggleSurroundMode(true);
     expect(getState('audio.isSurroundMode')).toBe(true);
-    expect(getState('audio.surroundChannelIndex')).toBe(2); // defaults to Center
+    expect(getState('audio.surroundChannelIndex')).toBe(2);
   });
 });

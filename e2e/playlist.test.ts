@@ -41,14 +41,12 @@ test.describe('Playlist Management', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
 
-    // Guest should eventually see all 3
     await waitForPlaylistCount(pair.guestPage, 3, 30_000);
   });
 
   test('host track navigation updates current index via state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload 3 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
@@ -68,7 +66,7 @@ test.describe('Playlist Management', () => {
     const initialIndex = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
     expect(initialIndex).toBe(0);
 
-    // Click next track via JS fallback (button may be CSS-hidden)
+    // Use a DOM click because responsive CSS can hide the desktop control.
     await pair.hostPage.evaluate(() => (document.getElementById('btn-next') as HTMLElement)?.click());
     await pair.hostPage.waitForFunction(
       (prev) => {
@@ -83,7 +81,6 @@ test.describe('Playlist Management', () => {
     const afterNext = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
     expect(afterNext).toBe(1);
 
-    // Click next again to go to index 2 (so prev can go back to 1)
     await pair.hostPage.evaluate(() => (document.getElementById('btn-next') as HTMLElement)?.click());
     await pair.hostPage.waitForFunction(
       (prev) => {
@@ -97,9 +94,8 @@ test.describe('Playlist Management', () => {
     const afterNext2 = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
     expect(afterNext2).toBe(2);
 
-    // Click prev track via JS fallback
-    // playPrevTrack restarts current track if position > 3s; since we haven't
-    // actually played audio, position is 0 so it goes to the previous track.
+    // With no playback progress, Previous navigates instead of restarting the
+    // current track.
     await pair.hostPage.evaluate(() => (document.getElementById('btn-prev') as HTMLElement)?.click());
     await pair.hostPage.waitForFunction(
       (prev) => {
@@ -118,32 +114,27 @@ test.describe('Playlist Management', () => {
   test('host can remove tracks from playlist', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload 2 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    // Ensure play tab is visible
     const playNav = pair.hostPage.locator('.nav-item[data-tab="play"]');
     if (await playNav.isVisible()) {
       await navigateToTab(pair.hostPage, 'play');
     }
 
-    // Click remove button on the last track
     const removeBtns = pair.hostPage.locator('#playlist-ui .btn-playlist-remove');
     const btnCount = await removeBtns.count();
 
     if (btnCount > 0) {
       await removeBtns.last().click();
 
-      // Confirm the removal dialog (showDialog produces a dialog with #btn-dialog-ok)
       const okBtn = pair.hostPage.locator('#btn-dialog-ok');
       await okBtn.waitFor({ state: 'visible', timeout: 5000 });
       await okBtn.click();
 
-      // Wait for playlist count to actually drop below 2
       await pair.hostPage.waitForFunction(
         () => {
           const list = document.getElementById('playlist-ui');
@@ -168,7 +159,6 @@ test.describe('Playlist Management', () => {
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    // Guest should see 2 tracks
     await waitForPlaylistCount(pair.guestPage, 2, 25_000);
 
     const [hostCount, guestCount] = await Promise.all([

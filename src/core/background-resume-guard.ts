@@ -1,30 +1,14 @@
 /**
- * MUSIXQUARE — Background Resume Guard
- *
- * Browsers can return from a hidden tab with media timing that looks fine
- * to JS but is no longer trustworthy at the output pipeline. Mobile is
- * the worst offender: even a brief switch to a chat app can leave the
- * audio context interrupted or the wake lock released.
- *
- * The signal fans into two tiers so we can be aggressive about silent
- * recovery without nagging the user every time they peek at a notification.
- *
- *   recover()  Silent housekeeping (resume audio context, reacquire wake
- *              lock, nudge sync). Cheap and idempotent, so we run it on
- *              every return from hidden, even after a five-second swap.
- *
- *   warn()     User-facing modal. Interrupts flow and offers "leave
- *              session", so it only fires after a meaningful absence
- *              where a restart hint actually helps.
+ * Converts a hidden-to-visible transition into two policy callbacks: quiet
+ * recovery after short absences and a user-facing warning after longer ones.
+ * Media state, AudioContext state, and wake locks can all change while a page
+ * is hidden, so elapsed visibility time is only the trigger, not proof of drift.
  */
 
-/** recover() runs on any return from hidden, however brief. */
+/** Default to recovery on every hidden-to-visible transition. */
 const DEFAULT_RECOVER_THRESHOLD_MS = 0;
 
-/**
- * warn() only fires after a one-minute absence. Short tab swaps for chat
- * replies and notification checks recover silently underneath.
- */
+/** Reserve the disruptive warning for absences of at least one minute. */
 export const DEFAULT_WARN_THRESHOLD_MS = 60 * 1000;
 
 interface BackgroundResumeEvent {
@@ -114,7 +98,6 @@ export function initBackgroundResumeGuard(
     const hiddenMs = now - hiddenAt;
     hiddenAt = null;
 
-    // Skip the closure entirely when neither tier could fire.
     if (hiddenMs < Math.min(recoverThresholdMs, warnThresholdMs)) return;
 
     void handleResume({ hiddenMs });

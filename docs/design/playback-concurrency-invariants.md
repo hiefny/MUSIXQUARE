@@ -21,6 +21,13 @@
 >   `playback-extended.test.ts` (token arithmetic ±0/+1, lifecycle gate, SA-03),
 >   `decode.test.ts` (SA-05, DV-1), `playback-remote-wait.test.ts` (DV-2),
 >   `lifecycle.test.ts` (FSM table, mirrored with `playback-state-machine.md`).
+>
+> **Review note (2026-07-11):** all executable anchors named above still
+> exist. Exact call-site counts and line-oriented inventory entries are review
+> snapshots; when prose and code differ, the current guard scripts and pinned
+> tests are authoritative. `playback-state-machine.md` is a historical design,
+> not a second live specification. The reference to deferred “Stage C” records
+> the old plan; it is not an active roadmap item.
 
 ## 1. Mechanism inventory
 

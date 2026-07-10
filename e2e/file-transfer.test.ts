@@ -29,10 +29,8 @@ test.describe('File Transfer', () => {
   test('host uploads file and it appears in playlist', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload a file on host
     await uploadFixture(pair.hostPage, 'test01');
 
-    // Wait for playlist to have 1 item on host
     await waitForPlaylistCount(pair.hostPage, 1);
 
     const hostPlaylistCount = await pair.hostPage.evaluate(() => {
@@ -45,13 +43,10 @@ test.describe('File Transfer', () => {
   test('guest receives file after host uploads', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload file on host
     await uploadFixture(pair.hostPage, 'test01');
 
-    // Wait for host playlist
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Guest should also get the playlist update
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
     const guestPlaylistCount = await pair.guestPage.evaluate(() => {
@@ -64,15 +59,12 @@ test.describe('File Transfer', () => {
   test('host uploads multiple files', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload first file
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Upload second file
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    // Guest should see both
     await waitForPlaylistCount(pair.guestPage, 2, 25_000);
   });
 
@@ -82,7 +74,6 @@ test.describe('File Transfer', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Wait for transfer to complete on guest
     await pair.guestPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as

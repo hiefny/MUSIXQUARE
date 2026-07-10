@@ -1,5 +1,12 @@
 # Manual QA Checklist — Pre-Launch (Playback State Machine Refactor)
 
+> **Historical pre-launch checklist.** This was written for the April 2026
+> `mxqr_temp` migration. Its branch name, test count, remote-guest assumptions,
+> UI copy, and launch criteria are frozen evidence and must not be used as the
+> current release checklist. Use
+> [runtime-scenario-verification-2026-05-31.md](../runtime-scenario-verification-2026-05-31.md)
+> plus the current automated suites for release work.
+
 **Target launch:** 2026-04-28 (Tue)
 **Stabilization window:** 2026-04-21 → 2026-04-27 (1 week)
 **Scope:** verify the state-machine refactor + recent hardening (repeat/shuffle,
@@ -336,7 +343,7 @@ git grep "transfer.skipIncomingFile"
 
 When logging a regression, use this format:
 
-```
+````markdown
 ### Scenario N — [short title]
 
 **Environment:** host=[browser/device], guest=[browser/device], network=[wifi/remote]
@@ -358,7 +365,7 @@ window.__musixquare_state?.playback
 window.__musixquare_state?.transfer
 window.__musixquare_state?.preload
 ```
-```
+````
 
 ---
 

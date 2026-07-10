@@ -54,7 +54,7 @@ import {
 
 // ─── Apply All Settings ────────────────────────────────────────────
 
-/** Fire-and-forget wrapper — prevents unhandled promise rejection from applySettings */
+/** Apply settings without exposing a rejected promise to synchronous callers. */
 export function applySettingsAsync(): void {
   applySettings().catch((e) => log.warn('[Effects] applySettings failed:', e));
 }
@@ -166,7 +166,7 @@ export async function applySettings(): Promise<void> {
     rampParam(mg.gain, masterVolume, RAMP_TIME);
   }
 
-  // Reverb IR regeneration (SYNCHRONOUS — no async/retry needed!)
+  // Regenerate the synchronous reverb impulse response when its shape changes.
   const rev = getReverb();
   if (rev) {
     // Check if decay or preDelay actually changed by comparing with stored values
@@ -429,10 +429,8 @@ bus.on('audio:ready', () => {
  * every frame suppresses the receiver's "host changed a setting" toast —
  * a snapshot is a re-baseline, not a change.
  *
- * includeVolume is true only for the join bootstrap: guests own their
- * personal volume mid-session (player-controls.ts applies set-volume locally
- * without broadcasting), so a mid-session resync (e.g. on OPERATOR_REVOKE)
- * must NOT stomp it.
+ * `includeVolume` is true only for the join bootstrap. Guest volume is local
+ * after joining, so a mid-session resync must not overwrite it.
  */
 function sendEffectsSnapshot(conn: DataConnection, includeVolume: boolean): void {
   try {
@@ -492,10 +490,8 @@ bus.on('network:peer-connected', (conn) => {
   sendEffectsSnapshot(conn, true);
 });
 
-// Re-baseline a demoted OP's effects (emitted by host.ts on OPERATOR_REVOKE):
-// their optimistic local applies may have raced the revoke and been silently
-// dropped by verifyOperator — without this they'd stay desynced until the
-// same parameter next changes room-wide. Volume excluded (guest-personal).
+// Re-baseline a demoted operator after any optimistic local changes that the
+// host rejected during revocation. Volume remains guest-local.
 bus.on('effects:resync-peer', (conn) => {
   if (getState('network.hostConn')) return; // host only
   if (!conn?.open) return;
@@ -506,12 +502,8 @@ bus.on('effects:resync-peer', (conn) => {
 
 /**
  * Reject broadcast frames not arriving via hostConn. Effects messages flow
- * host→guest only — host triggers them through UI bus events / setState
- * (player-controls.ts:138, settings.ts handlers, etc.) and broadcasts to
- * guests; the host's own dispatcher never receives them on the legitimate
- * path. A raw frame at host means a malicious guest sent it directly to
- * mutate host's audio state. A raw frame at a guest from any conn other
- * than hostConn means a peer is spoofing host broadcasts.
+ * host→guest only. A raw frame received by the host, or by a guest from any
+ * connection other than `hostConn`, is not an authorized broadcast.
  */
 function isHostBroadcast(conn: DataConnection | undefined): boolean {
   const hostConn = getState('network.hostConn');
@@ -579,14 +571,9 @@ function handleReverbMsg(data: Record<string, unknown>, conn?: DataConnection): 
   _notifyHostChanged(data);
 }
 
-// Trusted local-apply path for reverb preset selection. Called by both the
-// network handler (after the isHostBroadcast auth guard) and the host's own
-// `audio:reverb-type-change` bus listener at L362, which fires from host UI
-// clicks (settings.ts:559,562) and from REQUEST_SETTING forwarded by an OP
-// guest (playlist.ts:964). Extracting this avoids routing the host's own
-// trusted action through the network handler — that path is now gated by
-// isHostBroadcast(conn) which always returns false on host (hostConn=null),
-// so calling handleReverbTypeMsg locally would silently no-op.
+// Shared trusted apply path for host-local preset changes and authenticated
+// host broadcasts. Keeping it separate from the network handler avoids
+// subjecting host-local actions to the guest-side broadcast guard.
 function applyReverbType(type: string): void {
   switch (type) {
     case 'off':

@@ -28,7 +28,6 @@ describe('i18n functions', () => {
       const { t, initI18n } = await import('../index.ts');
       await initI18n();
       const result = t('common.ok');
-      // Should return Korean string, not the key itself
       expect(result).not.toBe('common.ok');
       expect(typeof result).toBe('string');
     });
@@ -50,8 +49,6 @@ describe('i18n functions', () => {
       });
       const { t, initI18n } = await import('../index.ts');
       await initI18n();
-      // Use a key that has a placeholder — we test the mechanism
-      // Even if key doesn't exist, interpolation still works on fallback
       const result = t('test.{{name}}.greeting', { name: 'World' });
       expect(result).toBe('test.World.greeting');
     });
@@ -62,7 +59,6 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { t } = await import('../index.ts');
-      // Key doesn't exist → returns key with placeholders replaced
       const result = t('{{a}} and {{b}}', { a: 'X', b: 'Y' });
       expect(result).toBe('X and Y');
     });
@@ -232,7 +228,6 @@ describe('i18n functions', () => {
       });
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
       await initI18n();
-      // Saved 'en' overrides system 'ko'
       expect(getResolvedLanguage()).toBe('en');
     });
 
@@ -294,11 +289,10 @@ describe('i18n functions', () => {
       expect(document.querySelector('button')?.textContent).toBe(en['setup.host_button']);
       expect(getResolvedLanguage()).toBe('ja');
 
-      // Re-selecting the locale must re-run the import: absence = retryable.
-      // A poisoned _dicts entry (the old `_dicts[code] = en` negative cache)
-      // would short-circuit the load gates and pin English until full reload.
+      // A failed locale must remain absent from the dictionary cache so a
+      // later selection retries the chunk instead of pinning the fallback.
       failJaImport = false;
-      setLanguageMode('ja'); // fire-and-forget (void _setLanguageMode)
+      setLanguageMode('ja');
       await vi.waitFor(() => {
         expect(t('setup.host_button')).toBe(ja['setup.host_button']);
       });
@@ -322,9 +316,8 @@ describe('i18n functions', () => {
           releaseSlowJa = () => resolve();
         });
         const mod = await importOriginal();
-        // Completion marker: the assertions below must sample AFTER the late
-        // ja module has actually been delivered, otherwise a broken stale-
-        // guard could stomp ko after the test already passed (vacuous pin).
+        // The test must sample after the delayed module is delivered; sampling
+        // earlier would miss a stale completion overwriting the newer locale.
         lateJaModuleLoaded = true;
         return mod;
       });
@@ -333,39 +326,33 @@ describe('i18n functions', () => {
       const { bus } = await import('../../core/events.ts');
       const { default: ko } = await vi.importActual<typeof import('../ko.ts')>('../ko.ts');
 
-      await initI18n(); // ja chunk fails: English frame, retry stays possible
+      await initI18n();
 
       jaBehavior = 'slow';
-      setLanguageMode('ja'); // retry import now pending inside the mock factory
+      setLanguageMode('ja');
       await vi.waitFor(() => {
         expect(releaseSlowJa).toBeTypeOf('function');
       });
 
-      // User switches away before the slow retry resolves. Preloaded ko takes
-      // the synchronous fast path (zero awaits before DOM translation).
+      // Switch to a preloaded locale while the retry is still unresolved.
       setLanguageMode('ko');
       expect(t('setup.host_button')).toBe(ko['setup.host_button']);
       expect(document.querySelector('button')?.textContent).toBe(ko['setup.host_button']);
 
-      // Capture emissions from here on. Pure DELETION of the stale-guard is
-      // invisible to DOM/getResolvedLanguage (the late subtree re-translation
-      // reads the dict for the current _resolved, still ko) and is observable
-      // ONLY as a spurious 'i18n:changed' carrying 'ja'.
+      // A stale completion can leave the DOM looking correct yet still emit a
+      // spurious change event, so the event stream is part of the contract.
       const emissions: string[] = [];
       const off = bus.on('i18n:changed', (lang) => {
         emissions.push(lang);
       });
       try {
-        // Late ja resolution must hit the `_resolved !== resolved` stale-guard
-        // in _translateLoadedLanguage and leave the newer selection untouched.
+        // Releasing the stale request must not replace or re-announce Korean.
         releaseSlowJa?.();
         await vi.waitFor(() => {
           expect(lateJaModuleLoaded).toBe(true);
         });
-        // Past the marker, the remaining continuations (.then dict store,
-        // .finally in-flight cleanup, Promise.all, the _applyLanguage tail
-        // into _translateLoadedLanguage) are pure microtasks; one macrotask
-        // flush guarantees the would-be stomp has landed before sampling.
+        // Cross a macrotask boundary so all promise continuations settle before
+        // sampling the final language and event stream.
         await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(getResolvedLanguage()).toBe('ko');
@@ -400,8 +387,8 @@ describe('i18n functions', () => {
       expect(t('setup.host_button')).toBe(en['setup.host_button']);
       expect(getResolvedLanguage()).toBe('ja');
 
-      // Network recovers: the gated 'online' listener retries without any
-      // user action (saved-locale startup pin had no re-select to heal it).
+      // The online listener is the only retry trigger for a failed saved
+      // locale when the user makes no subsequent selection.
       failJaImport = false;
       window.dispatchEvent(new Event('online'));
       await vi.waitFor(() => {
@@ -419,16 +406,15 @@ describe('i18n functions', () => {
 
       const { initI18n } = await import('../index.ts');
       const { bus } = await import('../../core/events.ts');
-      await initI18n(); // real ja dict loads successfully (no mock here)
+      await initI18n();
 
       const emissions: string[] = [];
       const off = bus.on('i18n:changed', (lang) => {
         emissions.push(lang);
       });
       try {
-        // Connectivity flap with the dict present must not re-apply the
-        // language: an ungated listener would re-emit 'i18n:changed' and
-        // churn every re-render subscriber on each flap.
+        // Once loaded, connectivity changes must not re-announce the locale
+        // and churn every translation subscriber.
         window.dispatchEvent(new Event('online'));
         await new Promise((resolve) => setTimeout(resolve, 0));
         await new Promise((resolve) => setTimeout(resolve, 0));

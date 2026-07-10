@@ -105,7 +105,6 @@ describe('isRemoteGuest', () => {
   });
 
   it('returns true when connectionType is unknown (default)', () => {
-    // default connectionType is 'unknown'
     expect(isRemoteGuest()).toBe(true);
   });
 

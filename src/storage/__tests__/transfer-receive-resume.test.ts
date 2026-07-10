@@ -1,5 +1,5 @@
 /**
- * STO-RESUME pin tests — handleFileResume store-authoritative baseline.
+ * Store-authoritative FILE_RESUME tests.
  *
  * The FILE_RESUME handler is the ONLY site where transfer.receivedCount is
  * set from a protocol message field. These tests pin the reconciliation
@@ -129,11 +129,8 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(recoverySpy).not.toHaveBeenCalled();
   });
 
-  // The original STO-RESUME shape: host re-broadcast advanced the session,
-  // FILE_RESUME(newSid, k) arrives while the guest's slot still holds the
-  // prefix under the OLD sid. The slot must be re-keyed (not recreated
-  // empty), and the whole transfer must pass the STORAGE_END integrity gate
-  // — pre-fix this exact flow looped forever on INTEGRITY_FAIL.
+  // A newer resume session may reuse the prefix held under the prior session.
+  // Re-key the slot in place and preserve finalization integrity.
   it('preserves the guest prefix across a cross-session resume end-to-end', async () => {
     const { handleFileResume, handleFileChunk } = await import('../transfer-receive.ts');
     const recoverySpy = vi.fn();
@@ -237,11 +234,8 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(recoverySpy).not.toHaveBeenCalled();
   });
 
-  // STO-RESUME sibling (red-team finding): a recovery backoff armed before
-  // finalization can fire after it — the resulting FILE_RESUME must not flip
-  // the completed transfer back to RECEIVING (writes against a finalized
-  // slot are silently dropped, so the drain re-counts a tail that never
-  // lands and STORAGE_END integrity-fails forever).
+  // A recovery timer armed before finalization may fire afterward. Its resume
+  // response must not reopen an already finalized transfer.
   it('drops a resume against an already-finalized slot without re-entering RECEIVING', async () => {
     const { handleFileResume } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');

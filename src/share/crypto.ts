@@ -3,6 +3,17 @@
  *
  * Encrypts local files before they leave the host browser. The AES key is
  * delivered over WebRTC, not through object storage.
+ *
+ * This is a whole-file Web Crypto path. Encryption can temporarily retain the
+ * source Blob, its plaintext ArrayBuffer, the ciphertext ArrayBuffer, and the
+ * returned Blob's backing bytes at the same time; decryption similarly overlaps
+ * the encrypted ArrayBuffer, plaintext ArrayBuffer, and returned File bytes.
+ * Browsers decide whether Blob/File backing storage shares or copies those
+ * bytes and when unreachable buffers are collected.
+ *
+ * SubtleCrypto operations are not abortable here. Once file.arrayBuffer() or a
+ * crypto operation starts, abandoning its Promise prevents no work and does not
+ * guarantee immediate memory release.
  */
 
 interface RemoteEncryptionResult {

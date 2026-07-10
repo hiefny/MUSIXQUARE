@@ -2,8 +2,8 @@
  * E2E: YouTube Integration Tests
  *
  * Tests YouTube video/playlist loading, playback, and host-guest sync.
- * Note: YouTube IFrame API may be blocked in headless Chromium.
- * Tests are designed to gracefully handle API unavailability.
+ * The YouTube IFrame API may be blocked in headless Chromium, so assertions
+ * accept the documented unavailable state.
  */
 import { test, expect } from '@playwright/test';
 import {
@@ -37,19 +37,16 @@ test.describe('YouTube Integration', () => {
   test('YouTube source button opens URL overlay', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open media source popup
     const mediaBtn = pair.hostPage.locator('#btn-media-source');
     if (await mediaBtn.isVisible()) {
       await mediaBtn.click();
       await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
     }
 
-    // Click YouTube source button
     const ytBtn = pair.hostPage.locator('#btn-youtube-source');
     if (await ytBtn.isVisible()) {
       await ytBtn.click();
 
-      // YouTube URL overlay should appear
       await expect(pair.hostPage.locator('#youtube-url-overlay')).toBeVisible({ timeout: 5000 });
       await expect(pair.hostPage.locator('#youtube-url-input')).toBeVisible();
       await expect(pair.hostPage.locator('#youtube-play-btn')).toBeVisible();
@@ -59,7 +56,6 @@ test.describe('YouTube Integration', () => {
   test('YouTube URL input shows preview', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Navigate to YouTube overlay
     await pair.hostPage.evaluate(() => {
       const overlay = document.getElementById('youtube-url-overlay');
       if (overlay) overlay.classList.add('active');
@@ -69,10 +65,8 @@ test.describe('YouTube Integration', () => {
     const ytInput = pair.hostPage.locator('#youtube-url-input');
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_VIDEO_1);
-      // Trigger input event for preview
       await ytInput.dispatchEvent('input');
 
-      // Wait for preview to potentially load (oEmbed fetch)
       await pair.hostPage.waitForFunction(
         () => {
           const preview = document.getElementById('youtube-preview');
@@ -86,7 +80,6 @@ test.describe('YouTube Integration', () => {
         { timeout: 10_000 },
       );
 
-      // Preview container should appear or status should update
       const previewVisible = await pair.hostPage.evaluate(() => {
         const preview = document.getElementById('youtube-preview');
         const status = document.getElementById('youtube-preview-status');
@@ -96,7 +89,6 @@ test.describe('YouTube Integration', () => {
         };
       });
 
-      // Either preview shows or status has a message
       expect(
         previewVisible.previewDisplay === 'block' ||
           previewVisible.previewDisplay === 'flex' ||
@@ -108,7 +100,6 @@ test.describe('YouTube Integration', () => {
   test('cancel button closes YouTube overlay', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open YouTube overlay
     await pair.hostPage.evaluate(() => {
       const overlay = document.getElementById('youtube-url-overlay');
       if (overlay) overlay.classList.add('active');
@@ -119,7 +110,6 @@ test.describe('YouTube Integration', () => {
     if (await cancelBtn.isVisible()) {
       await cancelBtn.click();
 
-      // Overlay should be dismissed
       await waitForClass(pair.hostPage, '#youtube-url-overlay', 'active', false);
 
       const isActive = await pair.hostPage.evaluate(() =>
@@ -132,7 +122,6 @@ test.describe('YouTube Integration', () => {
   test('loading YouTube video changes playback projection to PLAYING_YOUTUBE', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open YouTube overlay and enter URL
     await pair.hostPage.evaluate(() => {
       const overlay = document.getElementById('youtube-url-overlay');
       if (overlay) overlay.classList.add('active');
@@ -143,7 +132,6 @@ test.describe('YouTube Integration', () => {
       await ytInput.fill(YT_VIDEO_1);
       await ytInput.dispatchEvent('input');
 
-      // Wait for preview/play button to become enabled
       await pair.hostPage.waitForFunction(
         () => {
           const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
@@ -152,12 +140,10 @@ test.describe('YouTube Integration', () => {
         { timeout: 10_000 },
       );
 
-      // Click play button
       const playBtn = pair.hostPage.locator('#youtube-play-btn');
       if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
 
-        // playback projection should change to PLAYING_YOUTUBE
         await waitForPlaybackProjection(pair.hostPage, 'PLAYING_YOUTUBE', 15_000);
 
         const playbackProjection = await readPlaybackProjection(pair.hostPage);
@@ -169,7 +155,6 @@ test.describe('YouTube Integration', () => {
   test('YouTube video loads and changes to PLAYING_YOUTUBE mode', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open overlay and load video via UI
     await pair.hostPage.evaluate(() => {
       const overlay = document.getElementById('youtube-url-overlay');
       if (overlay) overlay.classList.add('active');
@@ -180,7 +165,6 @@ test.describe('YouTube Integration', () => {
       await ytInput.fill(YT_VIDEO_1);
       await ytInput.dispatchEvent('input');
 
-      // Wait for play button to become enabled
       await pair.hostPage.waitForFunction(
         () => {
           const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
@@ -193,7 +177,6 @@ test.describe('YouTube Integration', () => {
       if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
 
-        // Wait for state to settle
         await pair.hostPage.waitForFunction(
           () => {
             const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -213,7 +196,6 @@ test.describe('YouTube Integration', () => {
   test('guest receives YouTube mode state from host', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Host opens YouTube overlay and enters URL
     await pair.hostPage.evaluate(() => {
       const overlay = document.getElementById('youtube-url-overlay');
       if (overlay) overlay.classList.add('active');
@@ -224,7 +206,6 @@ test.describe('YouTube Integration', () => {
       await ytInput.fill(YT_VIDEO_1);
       await ytInput.dispatchEvent('input');
 
-      // Wait for play button to become enabled
       await pair.hostPage.waitForFunction(
         () => {
           const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
@@ -237,7 +218,6 @@ test.describe('YouTube Integration', () => {
       if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
 
-        // Wait for host state to settle
         await pair.hostPage.waitForFunction(
           () => {
             const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -248,7 +228,6 @@ test.describe('YouTube Integration', () => {
           { timeout: 15_000 },
         );
 
-        // Guest should receive YouTube mode
         await pair.guestPage.waitForFunction(
           () => {
             const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -278,7 +257,6 @@ test.describe('YouTube Integration', () => {
       await ytInput.fill(YT_PLAYLIST);
       await ytInput.dispatchEvent('input');
 
-      // Wait for play button to become enabled
       await pair.hostPage.waitForFunction(
         () => {
           const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
@@ -291,7 +269,6 @@ test.describe('YouTube Integration', () => {
       if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
 
-        // Wait for playlist to be populated
         await pair.hostPage.waitForFunction(
           () => {
             const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -314,7 +291,6 @@ test.describe('YouTube Integration', () => {
   test('switching from YouTube to audio mode changes state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // First enter YouTube mode
     await pair.hostPage.evaluate(() => {
       const overlay = document.getElementById('youtube-url-overlay');
       if (overlay) overlay.classList.add('active');
@@ -325,7 +301,6 @@ test.describe('YouTube Integration', () => {
       await ytInput.fill(YT_VIDEO_1);
       await ytInput.dispatchEvent('input');
 
-      // Wait for play button to become enabled
       await pair.hostPage.waitForFunction(
         () => {
           const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
@@ -338,7 +313,6 @@ test.describe('YouTube Integration', () => {
       if (await isVisible(pair.hostPage, '#youtube-play-btn')) {
         await playBtn.click();
 
-        // Wait for YouTube state
         await pair.hostPage.waitForFunction(
           () => {
             const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -352,7 +326,6 @@ test.describe('YouTube Integration', () => {
         const ytState = await readPlaybackProjection(pair.hostPage);
         expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(ytState);
 
-        // Upload an audio file
         const fileInput = pair.hostPage.locator('#file-input');
         const path = await import('path');
         const { fileURLToPath } = await import('url');
@@ -360,7 +333,6 @@ test.describe('YouTube Integration', () => {
         const fixturePath = path.resolve(__dirname, 'fixtures', 'test-01.mp3');
         await fileInput.setInputFiles(fixturePath);
 
-        // Wait for state to settle after file upload
         await pair.hostPage.waitForFunction(
           () => {
             const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;

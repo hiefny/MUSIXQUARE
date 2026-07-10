@@ -256,7 +256,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
         break;
       }
 
-      // Legacy response shape kept for older local functions and quick rollbacks.
+      // Compatibility with credential-only TURN responses.
       if (typeof payload.username === 'string' && typeof payload.credential === 'string') {
         iceServers.push(...buildLegacyMeteredIceServers(payload.username, payload.credential));
         log.info(`[Network] TURN credentials loaded (Metered.ca legacy) via ${url}`);
@@ -331,9 +331,9 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     newPeer.on('open', onOpen);
     newPeer.on('error', onError);
 
-    // Cloudflare guest peers can be locally ready before initNetwork attaches
-    // this waiter. PeerJS normally opens asynchronously, but the transport
-    // facade must tolerate either timing so setup never waits forever.
+    // A transport may be locally ready before initNetwork attaches this
+    // waiter. The facade must tolerate either timing so setup never waits
+    // forever.
     if (newPeer.open && newPeer.id) {
       onOpen(newPeer.id);
       return;
@@ -500,8 +500,8 @@ function setupPeerEvents(): void {
     // and survive this — only NEW peer connections are blocked. So a
     // signaling drop alone does NOT mean the session is dead.
     //
-    // The original e7c31d4 commit incorrectly assumed "other peers tear
-    // down their data connections" on signaling drop, which produced a
+    // Do not assume other peers tear down their data connections on a
+    // signaling drop; that assumption produces a
     // false-positive dialog: signaling blip → 5s grace → dialog appears
     // even though host/guest data channels are still alive and audio is
     // playing fine.
@@ -609,7 +609,7 @@ export function leaveSession(): void {
   bus.emit('system-audio:force-stop');
 
   // ── 1. Stop all background timers ──
-  // Guest started the worker `'sync'` timer on session join (guest.ts:220);
+  // The guest starts the worker `'sync'` timer on session join;
   // without an explicit STOP, the worker keeps ticking after leave and the
   // tick handler runs every second as a guarded noop (hostConn=null). Tell
   // the worker to drop the timer so the noop traffic stops.
@@ -711,7 +711,7 @@ export function leaveSession(): void {
     // Preload
     'preload.nextFileBlob': null,
     'preload.meta': null,
-    // Playback lifecycle (new state machine — reset on session leave)
+    // Playback lifecycle
     'playback.lifecycle': PLAYBACK_STATE.IDLE,
     'playback.loadSource': null,
     'playback.pendingPlayTime': undefined,

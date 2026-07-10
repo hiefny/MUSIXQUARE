@@ -1,13 +1,11 @@
 /**
  * MUSIXQUARE — Channel Mode Routing
  *
- * Manages channel routing (Stereo/Left/Right/Sub) for the standard per-device
- * speaker role feature (exposed in the UI as "Role: Stereo / Left / Right / Sub").
+ * Manages channel routing (stereo/left/right/subwoofer) for the per-device
+ * speaker roles exposed as Center, Left, Right, and Subwoofer.
  *
- * Also contains a **fully-implemented but intentionally hidden** 7.1 Surround
- * engine — see the "7.1 Surround Mode" section below for details.
- *
- * Direct imports from engine.ts (same domain).
+ * It also owns the dormant multichannel routing primitives described in the
+ * "7.1 Surround Mode" section below.
  */
 
 import { log } from '../core/log.ts';
@@ -100,49 +98,18 @@ export function setChannelMode(mode: number): void {
   applySettingsAsync();
 }
 
-// ─── 7.1 Surround Mode (HIDDEN — not wired to any UI) ─────────────
-//
-// Status: WIP / intentionally hidden as of 2026-04.
-//
-// What this is:
-//   Per-device multichannel routing for a true 7.1 layout — each device picks
-//   one channel (FL/FR/C/LFE/SL/SR/BL/BR) from the source and plays only that
-//   channel. Designed to turn a room full of phones into a physical 7.1 array.
-//
-// Implementation status: COMPLETE at the engine level.
-//   - State: audio.isSurroundMode, audio.surroundChannelIndex
-//   - Engine: ensureSurroundNodes / getSurroundSplitter / getSurroundGain (engine.ts)
-//   - Bus events: audio:connect-surround, audio:disconnect-surround, audio:surround-toggled
-//   - Playback integration: transport.ts:333, playback.ts:336
-//   - 5.1 compatibility folding: BL+SL, BR+SR (see setSurroundChannel below)
-//   - LFE channel automatically routes through the global lowpass
-//
-// Why it's hidden:
-//   1. Source material: almost nobody has 7.1/5.1-mixed local audio/video files.
-//      Streaming sources (Spotify/YouTube/Apple Music) are stereo-first.
-//      With a stereo source, channels 2-7 of the ChannelSplitter are silent,
-//      so enabling the mode would look like a broken "no audio" bug to users.
-//   2. Deployment friction: requires 6-8 devices with deliberate room placement,
-//      which conflicts with MUSIXQUARE's casual "throw a few phones together"
-//      use case. The existing Stereo/Left/Right/Sub role covers casual surround.
-//   3. Channel assignment UX: asking the user to label each phone as "Rear Left"
-//      etc. needs a calibration flow (test tone → "that device is BL") that
-//      isn't built yet.
-//
-// How to re-enable:
-//   - Add a `toggleSurroundMode(bool)` entry point from the Settings UI.
-//   - Add a channel-picker (0-7) that calls `setSurroundChannel(idx)`.
-//   - Optionally: a stereo→pseudo-5.1 upmixer (center = (L+R)/2, rear = L-R
-//     with delay/highcut, LFE = (L+R) lowpass) to make stereo sources audible
-//     on non-FL/FR channels.
-//
-// Do NOT delete this code without an explicit decision — it is a feature
-// in cold storage, not dead code.
+// ─── 7.1 Surround Mode (dormant; no production UI) ────────────────
+// Each device may select one source channel from FL/FR/C/LFE/SL/SR/BL/BR.
+// The graph, state, and bus integration are implemented, including 5.1 rear
+// folding and LFE low-pass routing, but the feature remains hidden because
+// stereo sources leave most channels silent and the product has no placement
+// or calibration flow. Exposing it requires an explicit product decision and
+// UI for enabling the mode and assigning channels.
 
 /**
  * Toggle 7.1 surround mode on/off.
  *
- * @internal Not currently called from any UI. See the "HIDDEN" notice above.
+ * @internal Not called from the production UI.
  */
 export function toggleSurroundMode(enabled: boolean): void {
   setState('audio.isSurroundMode', enabled);
@@ -179,8 +146,7 @@ export function toggleSurroundMode(enabled: boolean): void {
  * 5.1 Layout: L(0), R(1), C(2), LFE(3), SL(4), SR(5)
  * 7.1 Layout: L(0), R(1), C(2), LFE(3), SL(4), SR(5), BL(6), BR(7)
  *
- * @internal Not currently called from any UI. See the "HIDDEN" notice above
- *           `toggleSurroundMode`.
+ * @internal Not called from the production UI.
  */
 export function setSurroundChannel(idx: number): void {
   // Validate channel index (0-7 for 7.1 surround)

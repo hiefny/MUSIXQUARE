@@ -229,10 +229,8 @@ export function hideSetupOverlay(): void {
 
 // Bare DOM-toggling primitives. Callers that change MULTIPLE areas in
 // a row (role flow entry, welcome return, etc.) MUST wrap the batch in
-// a single animateTransition() — each area function used to self-wrap,
-// which meant a 4-step setup transition kicked off 4 separate
-// startViewTransition() calls, with each superseding/aborting the last
-// and spamming "InvalidStateError: Transition was aborted" rejections.
+// a single animateTransition(). Multiple startViewTransition() calls in one
+// setup change supersede each other and produce aborted-transition errors.
 export function setupShowCodeArea(show: boolean): void {
   const box = setupEl('setup-code-area');
   if (box) box.style.display = show ? 'flex' : 'none';
@@ -400,9 +398,9 @@ export function prevObSlide(): void {
 export function handleSetupRolePreview(mode: number): void {
   const appRole = getState('network.appRole');
   if (appRole !== 'guest' && appRole !== 'host') return;
-  // NOTE: this preview is visual-only — it propagates NOTHING to the join
-  // path. Reinstating the parked role picker requires wiring the tapped mode
-  // into setPendingGuestRoleMode + bus.emit('audio:set-channel-mode').
+  // This preview is visual-only and does not change the join path. Any UI that
+  // exposes role choices must also update setPendingGuestRoleMode and emit
+  // audio:set-channel-mode.
   setupHighlightJoinRole(mode);
   showPlacementToastForChannel(mode);
 

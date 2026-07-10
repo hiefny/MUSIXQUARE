@@ -52,7 +52,7 @@ describe('initial preload state', () => {
   });
 });
 
-// ─── Shuffle end-of-pass preload (SA-01) ─────────────────────────────
+// ─── Shuffle end-of-pass preload ─────────────────────────────────────
 
 function makeFileTrack(name: string): PlaylistItem {
   return {
@@ -85,8 +85,7 @@ describe('preloadNextTrack shuffle target (SA-01)', () => {
     schedulePreload(0);
     await vi.advanceTimersByTimeAsync(600);
 
-    // Pre-fix this staged a random index (0 or 1), which playNextTrack's
-    // preferredIndex fast-accept then used to bypass handleEndOfPlaylist.
+    // No preload target may be staged after a non-repeating shuffle pass ends.
     expect(getState('preload.nextTrackIndex')).toBe(-1);
     expect(getState('preload.nextFileBlob')).toBeNull();
     expect(getState('preload.isPreloading')).toBe(false);
@@ -117,7 +116,7 @@ describe('preloadNextTrack shuffle target (SA-01)', () => {
   });
 });
 
-// ─── Per-peer backpressure exclusion (STO-BACKPRESSURE) ──────────────
+// ─── Per-peer backpressure exclusion ────────────────────────
 //
 // Pins the shared chunk-pump behavior in backgroundTransfer: one
 // backpressure-stalled peer must neither stall the whole preload broadcast

@@ -729,7 +729,7 @@ describe('Cloudflare guest signaling reconnect', () => {
     );
     await flushAsync();
 
-    // Pinned UX: pre-establishment rejections drive the password dialog /
+    // UX contract: pre-establishment rejections drive the password dialog /
     // join failure and must keep reaching the connection error handler.
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(

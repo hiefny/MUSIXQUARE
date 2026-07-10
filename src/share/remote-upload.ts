@@ -16,7 +16,7 @@ export async function uploadRemoteFile(
   index: number,
   options?: UploadRemoteFileOptions | ((progress: number) => void),
 ): Promise<RemoteFileSharePayload> {
-  // Backward-compat: callers used to pass onUploadProgress directly as the 4th arg.
+  // Accept both the callback shorthand and the options object.
   const opts: UploadRemoteFileOptions =
     typeof options === 'function' ? { onUploadProgress: options } : (options ?? {});
   const { onUploadProgress, signal } = opts;

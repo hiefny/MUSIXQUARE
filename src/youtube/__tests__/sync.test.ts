@@ -3,8 +3,6 @@ import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import type { DataConnection } from '../../types/index.ts';
 
-// ─── Mocks ───────────────────────────────────────────────────────────────
-
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -37,8 +35,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
-// ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('YouTube Sync', () => {
   describe('broadcastYouTubeSync()', () => {
@@ -90,13 +86,11 @@ describe('YouTube Sync', () => {
     it('resets all ad detection state', async () => {
       const { resetAdDetection } = await import('../sync.ts');
       resetAdDetection();
-      // No error thrown
     });
   });
 
   describe('Ad Detection — stale time threshold', () => {
-    // The ad detection logic: if hostTime doesn't move for 3 consecutive syncs
-    // while hostState === 1 (playing), it's detected as an ad
+    // Boundary table for the production stale-frame threshold state machine.
     const HOST_AD_STALE_THRESHOLD = 3;
 
     function simulateAdDetection(
@@ -146,14 +140,14 @@ describe('YouTube Sync', () => {
 
     it('resets when time moves again', () => {
       const result = simulateAdDetection([10.0, 10.0, 10.0, 10.0, 15.0], [1, 1, 1, 1, 1]);
-      expect(result.adActive).toBe(false); // recovered
+      expect(result.adActive).toBe(false);
       expect(result.staleCount).toBe(0);
     });
 
     it('resets when host explicitly pauses', () => {
       const result = simulateAdDetection(
         [10.0, 10.0, 10.0],
-        [1, 1, 2], // third frame is paused
+        [1, 1, 2], // explicit pause resets the stale-frame detector
       );
       expect(result.adActive).toBe(false);
       expect(result.staleCount).toBe(0);
@@ -172,7 +166,6 @@ describe('YouTube Sync', () => {
   });
 
   describe('Drift Correction Logic', () => {
-    // Drift correction: if |currentTime - compensatedTime| > 2, seek
     function shouldSeek(
       currentTime: number,
       hostTime: number,
@@ -197,14 +190,10 @@ describe('YouTube Sync', () => {
     });
 
     it('accounts for sync offsets', () => {
-      // hostTime=10, autoOffset=3, localOffset=1 → compensated=14
-      // currentTime=10 → drift=4 → seek
       expect(shouldSeek(10, 10, 3, 1)).toBe(true);
     });
 
     it('no seek with compensating offsets', () => {
-      // hostTime=10, autoOffset=-1, localOffset=0 → compensated=9
-      // currentTime=10 → drift=1 → no seek
       expect(shouldSeek(10, 10, -1, 0)).toBe(false);
     });
   });

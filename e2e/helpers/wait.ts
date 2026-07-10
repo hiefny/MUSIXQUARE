@@ -181,13 +181,11 @@ export async function waitForState(
 ): Promise<void> {
   await page.waitForFunction(
     ([path, val]) => {
-      // Access getState through the global debug hook
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
         | ((p: string) => unknown)
         | undefined;
       if (!get) return false;
       const current = get(path as string);
-      // Deep compare for arrays/objects, strict for primitives
       if (val !== null && typeof val === 'object') {
         return JSON.stringify(current) === JSON.stringify(val);
       }
@@ -238,7 +236,6 @@ export async function waitForDeviceCount(
 ): Promise<void> {
   await page.waitForFunction(
     (min) => {
-      // Check both mobile and desktop device lists
       const mobile = document.getElementById('connect-device-list');
       const desktop = document.getElementById('desktop-device-list');
       const list = mobile || desktop;
@@ -262,7 +259,6 @@ export async function waitForPlayState(
     (isPlaying) => {
       const btn = document.getElementById('play-btn');
       if (!btn) return false;
-      // The play button toggles classes based on state
       return isPlaying
         ? btn.classList.contains('playing') || btn.getAttribute('aria-label')?.includes('Pause')
         : !btn.classList.contains('playing') || btn.getAttribute('aria-label')?.includes('Play');
@@ -364,11 +360,9 @@ export async function readState(page: Page, statePath: string): Promise<unknown>
 // ─── Additional Helpers ─────────────────────────────────────────
 
 /**
- * Navigate to a tab, waiting for the tab to become active.
- * Replaces patterns like: click nav + waitForTimeout(500)
+ * Navigate to a tab and wait for the corresponding panel to become active.
  */
 export async function navigateToTab(page: Page, tabName: string, timeout = 10_000): Promise<void> {
-  // Ensure setup overlay is dismissed before clicking nav
   await page.waitForFunction(
     () => !document.getElementById('setup-overlay')?.classList.contains('active'),
     undefined,
@@ -397,8 +391,7 @@ export async function navigateToTab(page: Page, tabName: string, timeout = 10_00
 }
 
 /**
- * Navigate to a settings subtab, waiting for the panel to become active.
- * Replaces patterns like: click subtab pill + waitForTimeout(300)
+ * Navigate to a settings subtab and wait for its panel to become active.
  */
 export async function navigateToSubtab(
   page: Page,
@@ -419,7 +412,6 @@ export async function navigateToSubtab(
 
 /**
  * Click an option and wait for it to become active.
- * Replaces patterns like: click option + waitForTimeout(300-500) + check active class
  */
 export async function clickAndWaitActive(
   page: Page,
@@ -447,17 +439,14 @@ export async function waitForTheme(page: Page, theme: string, timeout = 5_000): 
 }
 
 /**
- * Open chat drawer reliably.
- * Replaces inconsistent chat-open patterns across tests.
+ * Open the chat drawer across desktop and mobile layouts.
  */
 export async function openChatDrawer(page: Page, timeout = 5_000): Promise<void> {
-  // Ensure setup overlay is dismissed first
   await page.waitForFunction(
     () => !document.getElementById('setup-overlay')?.classList.contains('active'),
     undefined,
     { timeout },
   );
-  // Try chat preview button first, then nav item
   const chatBtn = page.locator('#chat-preview-btn, .nav-item[data-tab="chat"]').first();
   try {
     await chatBtn.waitFor({ state: 'visible', timeout: 3_000 });
@@ -516,8 +505,7 @@ export async function waitForOverlayActive(page: Page, timeout = 10_000): Promis
 }
 
 /**
- * Safe visibility check — returns false if element doesn't exist.
- * Replaces `.isVisible().catch(() => false)` patterns.
+ * Safe visibility check that returns false when the element does not exist.
  */
 export async function isVisible(page: Page, selector: string, timeout = 2_000): Promise<boolean> {
   try {

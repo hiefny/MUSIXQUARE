@@ -4,14 +4,11 @@
  *
  * Static ratchet guard for the shared chunk-pump engine.
  *
- * History: the multi-peer chunk pump used to exist as hand-rolled copies in
- * transfer-send.ts (broadcastFile) and preload.ts (backgroundTransfer).
- * Backpressure hardening (per-peer exclusion, commit 36f8fbf2) then landed
- * on ONE copy only — the sibling-parity blind spot in its purest form: one
- * slow peer stalled the entire preload broadcast while broadcastFile had
- * long been fixed. The copies were unified into src/storage/chunk-pump.ts
- * (pumpChunksToPeers). This guard converts that unification from a memory
- * into a CI invariant:
+ * The multi-peer chunk pump once existed as separate copies in
+ * transfer-send.ts (broadcastFile) and preload.ts (backgroundTransfer), so
+ * backpressure behavior could diverge between the sibling paths. The copies
+ * were unified into src/storage/chunk-pump.ts (pumpChunksToPeers). This guard
+ * keeps that shared-engine design as a CI invariant:
  *
  *   CHECK 1 (ratchet): `bufferedAmount` — the telltale of an inline
  *     backpressure pump — may appear only in allowlisted files, each with an

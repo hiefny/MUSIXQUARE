@@ -1,5 +1,11 @@
 # E2E Coverage Notes - 2026-05-30
 
+> **Historical verification snapshot.** Commands, pass counts, durations,
+> covered files, and statements about the suite describe the 2026-05-30/31
+> baseline. They are retained as test-evolution evidence, not as current suite
+> totals or a current coverage claim. Use the present Playwright configuration
+> and a fresh run for release decisions.
+
 ## Runs
 
 - Full baseline before edits: `npm run test:e2e` -> 303 passed in 54.6m.

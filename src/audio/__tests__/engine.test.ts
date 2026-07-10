@@ -113,15 +113,11 @@ describe('all getter functions return null before initAudio', () => {
 
 describe('initAudio idempotency', () => {
   it('calling initAudio without a real AudioContext does not corrupt module state', async () => {
-    // initAudio requires browser Web Audio primitives that are not available in jsdom.
-    // Verify that after a failed attempt, getters still return safe defaults.
+    // jsdom does not provide the Web Audio primitives needed for initialization.
     const { initAudio } = await import('../engine.ts');
     try {
       await initAudio();
-    } catch {
-      // Expected: AudioContext missing or context not running.
-    }
-    // Module state should remain in pre-init defaults
+    } catch {}
     expect(isAudioReady()).toBe(false);
     expect(getMasterGain()).toBeNull();
     expect(getEqNodes()).toEqual([]);

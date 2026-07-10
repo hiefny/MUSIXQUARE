@@ -1,3 +1,8 @@
+/* Archived design-system extraction snapshot. This file is not registered by
+ * the app and is not synchronized automatically. Use /service-worker.js for
+ * the current production worker.
+ */
+
 /* service-worker.js
  * MUSIXQUARE PWA Service Worker (App Shell Cache)
  * - Caches core static assets for faster loads + basic offline support

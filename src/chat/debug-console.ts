@@ -1,8 +1,7 @@
 /**
  * MUSIXQUARE — Debug Console (/debug subsystem)
  *
- * Extracted from chat/commands.ts (24th-audit decomposition). This is the
- * developer diagnostics tool reached via the `/debug` command: UA/OS parsing,
+ * Developer diagnostics reached through the `/debug` command: UA/OS parsing,
  * the text/screen debug overlays, and the live memory profiler with canvas
  * graphing. It is the ONLY part of the chat domain that imports audio / storage
  * / player internals, so it is isolated here; commands.ts re-exposes it through
@@ -164,7 +163,7 @@ export function cmdDebug(args: string[]): void {
     `[FX] EQ:${eqActive ? 'ON' : 'off'} | reverb:${reverbMix > 0 ? `${Math.round(reverbMix * 100)}%` : 'off'} | vbass:${vbass > 0 ? 'ON' : 'off'}`,
   );
 
-  // AudioContext info (engine init 후에만)
+  // AudioContext does not exist before the engine initializes.
   if (isAudioReady()) {
     try {
       const ctx = getAudioContext();
@@ -597,9 +596,8 @@ async function cmdDebugMemory(): Promise<void> {
   // Replaces any in-flight session — single-overlay invariant preserved.
   startDebugMemorySession(snapshot);
 
-  // Original /debug memory toast + clipboard copy is one-shot — repeated
-  // ticks would spam, and the user can re-run the command if they want a
-  // fresh clipboard payload.
+  // Clipboard copy and its toast are intentionally one-shot; repeating them
+  // on every sampling tick would spam the user.
   try {
     navigator.clipboard
       .writeText(snapshot.lines.join('\n'))
@@ -771,9 +769,9 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
         plFileCount++;
       }
     }
-    // playlist file refs counted only if they have a measurable size.
-    // RAM-only: both host-uploaded Files and guest-side ramstore-wrapped
-    // Files are RAM-backed, so size maps directly to heap pressure.
+    // This is a logical retained-media byte inventory, not a heap measurement.
+    // Browsers may externally back File/Blob data, and one object can appear in
+    // multiple slots below, so the estimate can double-count references.
     trackedBytes += plBytes;
     lines.push(
       `[Playlist] ${playlist.length} items, ${plFileCount} with file ref, ~${(plBytes / 1048576).toFixed(0)}MB total`,
@@ -869,11 +867,10 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     /* ignore */
   }
 
-  // ── Tracked Total (sum of all measurable allocations above) ──
-  // Lower bound — doesn't capture engine internals, AudioContext nodes,
-  // bus subscriptions, DOM, etc. But monotonic growth here is a clear
-  // signal of leak in our own code. On Safari this is the primary
-  // proxy for heap pressure since performance.memory is unavailable.
+  // ── Tracked Total (sum of the logical byte counters above) ──
+  // This is diagnostic inventory, not a heap lower bound: backing storage may
+  // be external, references may be counted twice, and engine/DOM costs are not
+  // included. Compare component lines and post-cleanup baselines together.
   lines.push(`[Tracked] sum of above: ${(trackedBytes / 1048576).toFixed(1)}MB`);
 
   return { lines, heapMB, storageMB };

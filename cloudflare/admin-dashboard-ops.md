@@ -4,6 +4,9 @@ The `/admin` dashboard is served by `musixquare-app` and reads aggregate room
 metrics from a shared D1 database. The signaling Worker writes minute-level
 counters when rooms and guests connect.
 
+The production database identity, region, and schema presence were last
+verified with Wrangler on 2026-07-11.
+
 ## Data Model
 
 Only aggregate counters are stored. Room codes, peer IDs, IP addresses, and user

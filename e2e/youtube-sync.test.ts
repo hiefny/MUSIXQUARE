@@ -1,5 +1,5 @@
 /**
- * E2E: YouTube Sync / Drift Correction Tests — Route B of the drift-regression plan.
+ * E2E: YouTube sync and drift-correction tests.
  *
  * These tests drive two real browser contexts (host + guest) connected over
  * a local PeerJS broker, with a deterministic fake `window.YT` installed
@@ -8,7 +8,7 @@
  * host → PeerJS → guest path without touching the real YouTube iframe.
  *
  * These complement the vitest sync-integration.test.ts: those tests cover
- * the logic-order fixes in isolation, these cover the PeerJS round-trip.
+ * the logic-order behavior in isolation, these cover the PeerJS round-trip.
  *
  * Companion to src/youtube/__tests__/sync-integration.test.ts.
  */
@@ -51,7 +51,7 @@ async function hostLoadYouTube(page: Page, url: string): Promise<void> {
     // Natural entry point — same path chat-link clicks use. Runs the full
     // _addYouTubeToPlaylist pipeline: playlist.items update → loadYouTubeVideo
     // with autoplay=false → _pendingAutoSyncOnReady → onReady fires →
-    // youtube:auto-play → scheduleYtAutoSync (1-sec countdown).
+    // youtube:auto-play → the standard two-stage scheduleYtAutoSync path.
     bus.emit('youtube:load-from-chat', u);
   }, url);
 }
@@ -74,7 +74,7 @@ function attachConsoleCapture(page: Page, label: string): void {
   page.on('console', (msg) => {
     const type = msg.type();
     if (type === 'error' || type === 'warning') {
-      // Only log for debugging — don't fail the test
+      // Surface browser diagnostics without turning warnings into assertions.
       // eslint-disable-next-line no-console
       console.log(`[${label}] ${type}:`, msg.text());
     }
@@ -122,7 +122,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
   });
 
   // ── Test 2: full sync flow end-to-end ────────────────────────────────
-  test('host play routes through 1-sec rendezvous and guest player pauses/seeks/plays', async () => {
+  test('host play routes through two-stage rendezvous and guest player seeks/plays', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForBus(pair.hostPage);
     await waitForBus(pair.guestPage);
@@ -132,19 +132,18 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
 
     // Host kicks off the natural YT load flow via the chat-link entry point.
     // This runs _addYouTubeToPlaylist → loadYouTubeVideo → onReady →
-    // youtube:auto-play → scheduleYtAutoSync (1-sec countdown) and broadcasts
-    // YOUTUBE_PLAY + YOUTUBE_STATE to the guest.
+    // youtube:auto-play → scheduleYtAutoSync and broadcasts the rough Stage 1
+    // state before the later precision rendezvous.
     await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
 
-    // Host fake player should receive playVideo after the 1-sec countdown
+    // The host action is immediate; the later Stage 2 aligns guests.
     await waitForYtLogOp(pair.hostPage, 'playVideo', 20_000);
 
     // Guest playback projection must have flipped to PLAYING_YOUTUBE (set by
     // setEngineMode inside loadYouTubeVideo when handleYouTubePlay runs)
     await waitForPlaybackProjection(pair.guestPage, 'PLAYING_YOUTUBE', 20_000);
 
-    // Guest fake player should receive playVideo from the scheduled
-    // handleYouTubeState on the PeerJS broadcast
+    // Guest fake player should receive playVideo from handleYouTubeState.
     await waitForYtLogOp(pair.guestPage, 'playVideo', 20_000);
 
     const hostLog = await readFakeYtLog(pair.hostPage);
@@ -160,7 +159,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     // guests whose initial reaction drifted.
     expect(hostOps).toContain('playVideo');
 
-    // Guest side: handleYouTubeState schedules playVideo at hostPlayAt.
+    // Guest side: Stage 1 applies the rough play state before Stage 2 correction.
     expect(guestOps).toContain('playVideo');
   });
 

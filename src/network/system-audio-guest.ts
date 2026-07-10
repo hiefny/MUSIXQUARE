@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 4.0 — System Audio Guest (Dual-Stream WebRTC Receiver)
+ * MUSIXQUARE — System Audio Guest (Dual-Stream WebRTC Receiver)
  *
  * Receives L and R mono streams from host via separate MediaConnections,
  * merges them into stereo via ChannelMerger, connects to audio graph.
@@ -46,13 +46,12 @@ import {
 // hint on every receiver nudges them all toward the same effective delay,
 // narrowing the cross-device variance.
 //
-// Tuning rationale (heuristic — verify on real devices):
+// Tuning rationale:
 //   < 200ms — NetEq's natural adaptive range often exceeds this anyway, so
 //             the hint doesn't cap anything and we get the same drift.
 //   > 600ms — host pause/skip becomes obviously laggy on guests.
-//   300-500ms — hint actually caps adaptation, while keeping responsiveness
-//               acceptable. 0.4s as the starting point; revisit after real-
-//               device tests on typical home routers.
+//   300-500ms — hint caps adaptation while keeping responsiveness acceptable.
+//   500ms favors lower cross-device variance at the upper end of that range.
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const SYSTEM_AUDIO_RECEIVE_WATCHDOG = 'sys-audio-guest-receive-watchdog';
 const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 12_000;
@@ -384,7 +383,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     // Pin every audio receiver to the same playout-delay target so NetEq's
     // adaptive jitter buffer doesn't drift independently per device. See the
     // SYSTEM_AUDIO_PLAYOUT_DELAY_S comment for the rationale + tuning notes.
-    // PeerJS/Cloudflare adapters expose the underlying RTCPeerConnection here.
+    // Direct-call adapters expose the underlying RTCPeerConnection here.
     const pc = mediaConn.peerConnection;
     if (pc) {
       for (const r of pc.getReceivers()) {
@@ -571,7 +570,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   });
 
   // Register stream/close/error handlers before answer(). Fast local desktop
-  // peers can emit the PeerJS stream event immediately after answering.
+  // peers can emit the stream event immediately after answering.
   try {
     mediaConn.answer();
     debug.answerAt = Date.now();
@@ -584,7 +583,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
 // ─── Cleanup ──────────────────────────────────────────────────────
 
-// Shared by the PeerJS and SFU receive adapters; this module owns the
+// Shared by the direct-call and SFU receive adapters; this module owns the
 // placeholder and previous-track metadata restoration contract.
 export function cleanupGuestSystemAudio(): void {
   _debugLastCleanupAt = Date.now();
@@ -717,7 +716,7 @@ export function registerSystemAudioGuestListeners(): void {
       _debugLastStartIgnoredReason = '';
       _prevTrackMeta = currentMeta;
       stopAllMedia({ silent: true, cancelInFlight: true });
-      // SA-08: mirror the youtube switch's cancelInFlightTransfer. The share
+      // Mirror the YouTube switch's cancelInFlightTransfer. The share
       // takes over the receive path (incoming chunks are dropped via the
       // external-owner gate), so tear down any in-flight main download —
       // otherwise the still-armed chunk/prepare watchdogs keep firing

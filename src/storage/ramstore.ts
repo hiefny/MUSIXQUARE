@@ -4,15 +4,12 @@
  * Sessions accumulate chunks until STORAGE_END, after which a Blob is
  * available for read. No `navigator.storage` access, no worker.
  *
- * Memory ceiling
- * ──────────────
- * Bounded by the active set of held blobs:
- *   - One main-channel blob (~5–15 MB typical mp3, up to ~50 MB hi-res)
- *   - A handful of preload blobs (preload depth × track size)
- *   - Plus the decoded AudioBuffer for the playing track (~80 MB / 4-min)
- * Typical foreground footprint lands around 100–150 MB, well inside the
- * iOS PWA budget (~600 MB+). Long podcasts can still crash on
- * AudioBuffer decode — a hard ceiling at the audio layer, not here.
+ * Memory use scales with the active encoded blob, retained preload blobs, and
+ * the decoded AudioBuffer owned by playback. The store has no persistent
+ * spill path. Callers own capacity policy and obsolete-session release; the
+ * current admission gap is recorded in the ADR below.
+ * Policy source (repository path, not a runtime URL):
+ * docs/design/browser-media-storage-policy.md
  */
 
 import { log } from '../core/log.ts';
@@ -79,15 +76,9 @@ export function ramStart(
   }
 
   if (!isPreload) {
-    // If keepExisting + same filename + same-or-newer session → resume.
-    // A strictly newer sid re-keys the slot in place (STO-RESUME): the host
-    // re-broadcast advanced the session, but chunk bytes of the same logical
-    // file are sid-invariant, so the guest's received prefix stays valid.
-    // Direction guard: an OLDER sid must NOT re-key — upstream monotonic
-    // gates make that unreachable today, but the store must not rely on
-    // caller discipline (a backwards re-key would let a stale stream stomp
-    // newer-session writes via 'Session mismatch' rejection of the live
-    // one), so it falls through to recreate, matching prior behavior.
+    // Resume may re-key an identical file to a newer session because its
+    // received prefix is session-independent. Never re-key backwards: stale
+    // traffic must not displace writes for the current session.
     if (
       keepExisting &&
       mainSlot &&
@@ -220,19 +211,13 @@ export function ramEnd(
 
 /**
  * Contiguous-from-0 chunk count of the slot holding `filename` (0 if no
- * matching slot). Data-plane truth used to reconcile control-plane counters
- * (transfer.receivedCount / recovery asks) at the resume and recovery seams
- * (STO-RESUME): no resume baseline and no recovery ask may exceed this value.
+ * matching slot). This is the data-plane bound for resume counters and
+ * recovery requests; neither may advance beyond the contiguous prefix.
  * Finalized slots report their full chunk count — the store holds every byte.
  *
- * Constraint: this is a SYNCHRONOUS read. Do NOT call it from inside the
- * storage command drain path — postCommand defers dispatch via queueMicrotask
- * (storage.ts routeStorageCommand), so a read in the same stack as a
- * just-posted STORAGE_WRITE sees stale state. Production callers are the
- * FILE_RESUME handler and the recovery backoff callback, both plain tasks
- * with no write in flight. The preload branch exists for parity of the
- * lookup contract only; production use is main-channel only (preload has no
- * resume path).
+ * This is a synchronous read. A caller in the same stack as a queued
+ * STORAGE_WRITE will observe the state before that write drains. Main-channel
+ * resume and recovery call it only after pending command work has yielded.
  */
 export function ramContiguousCount(filename: string, isPreload: boolean): number {
   if (!filename) return 0;
@@ -250,7 +235,7 @@ export function ramContiguousCount(filename: string, isPreload: boolean): number
 // ─── Read Path ──────────────────────────────────────────────────
 
 /**
- * Read a chunk from the slot. Mirrors the worker's STORAGE_READ contract:
+ * Read a chunk from the slot using the STORAGE_READ contract:
  * caller passes chunk index, we slice from the finalized blob (or live
  * chunks if not yet finalized).
  */

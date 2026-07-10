@@ -7,10 +7,9 @@ import { t, getResolvedLanguage } from '../index.ts';
 describe('t() translation function', () => {
   it('returns Korean value for known key', () => {
     const result = t('common.ok');
-    // Should return '확인' (ko) or 'OK' (en) depending on resolved language
     expect(typeof result).toBe('string');
     expect(result.length).toBeGreaterThan(0);
-    expect(result).not.toBe('common.ok'); // should not fall back to key
+    expect(result).not.toBe('common.ok');
   });
 
   it('returns key itself for unknown key', () => {
@@ -35,7 +34,6 @@ describe('t() translation function', () => {
   });
 
   it('interpolates multiple parameters', () => {
-    // Find a key with multiple params or test with a known one
     const result = t('toast.device_connected', { name: 'Test' });
     expect(result).toContain('Test');
   });

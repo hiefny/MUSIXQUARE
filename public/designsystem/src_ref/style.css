@@ -1,5 +1,9 @@
 @layer base, desktop;
 
+/* Archived design-system extraction snapshot. This file is not loaded by the
+   app and is not synchronized automatically. Use /css/style.css for current
+   production behavior and comments. */
+
 @layer base {
 
     :root {

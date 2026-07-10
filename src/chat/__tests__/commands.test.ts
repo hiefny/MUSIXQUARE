@@ -55,14 +55,14 @@ describe('parseCommand', () => {
 
 describe('executeCommand permission gating', () => {
   it('rejects a host-only command from a guest without running its effect', () => {
-    setState('network.hostConn', { peer: 'host', open: true }); // guest: hostConn present → not host
+    setState('network.hostConn', { peer: 'host', open: true });
     executeCommand({ name: 'kick', args: ['someone'], rawArgs: 'someone' });
     expect(mocks.sendToHost).not.toHaveBeenCalled();
-    expect(mocks.addSystemChatMessage).toHaveBeenCalledTimes(1); // the no-permission notice
+    expect(mocks.addSystemChatMessage).toHaveBeenCalledTimes(1);
   });
 
   it('routes /debug (permission "all") to the extracted debug-console entry point', () => {
-    setState('network.hostConn', { peer: 'host', open: true }); // even a guest may /debug
+    setState('network.hostConn', { peer: 'host', open: true });
     executeCommand({ name: 'debug', args: ['screen'], rawArgs: 'screen' });
     expect(mocks.cmdDebug).toHaveBeenCalledWith(['screen'], 'screen');
   });
@@ -76,12 +76,12 @@ describe('executeCommand permission gating', () => {
 
 describe('getAvailableCommands permission filtering', () => {
   it('hides host-only commands from a guest but lists them for the host', () => {
-    setState('network.hostConn', { peer: 'host', open: true }); // guest
+    setState('network.hostConn', { peer: 'host', open: true });
     const guestCmds = getAvailableCommands().map((c) => c.name);
     expect(guestCmds).not.toContain('kick');
-    expect(guestCmds).toContain('users'); // an "all" command stays available
+    expect(guestCmds).toContain('users');
 
-    setState('network.hostConn', null); // host
+    setState('network.hostConn', null);
     const hostCmds = getAvailableCommands().map((c) => c.name);
     expect(hostCmds).toContain('kick');
   });

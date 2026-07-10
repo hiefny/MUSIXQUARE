@@ -1,16 +1,10 @@
 /**
- * MUSIXQUARE - Sync Worker Bridge
- *
- * Owns the lifecycle of the background sync worker (`src/workers/sync.worker.ts`)
- * and exposes a simple `startWorkerTimer` / `stopWorkerTimer` API. The worker
- * exists for one reason: setInterval in a backgrounded tab is throttled to
- * once-per-minute (or worse) on most browsers, but a dedicated worker keeps
- * ticking at the requested cadence. Guest-to-host SYNC_PING needs the steady
- * cadence to keep clock skew measurements warm even with the screen locked.
- *
- * Tick events are surfaced via `bus.emit('worker:timer-tick', id)` so
- * network/sync.ts (the actual SYNC_PING sender) can stay decoupled from
- * worker plumbing.
+ * Bridges named recurring timers to a dedicated worker with a main-thread
+ * fallback. A worker is usually throttled less aggressively than window
+ * timers, but browsers may still suspend it in the background or under screen
+ * lock; consumers must treat ticks as best-effort rather than exact cadence.
+ * Timer ticks are emitted on the application bus so synchronization logic does
+ * not depend on Worker message plumbing.
  */
 
 import { log } from '../core/log.ts';
@@ -26,10 +20,8 @@ function fallbackTimerName(id: string): string {
 }
 
 /**
- * Wire the sync worker. Called once during app bootstrap (app.ts) after
- * `new Worker(new URL('../workers/sync.worker.ts', import.meta.url), ...)`.
- * `onerror` is intentionally NOT assigned here; app.ts owns it for the
- * single-owner convention.
+ * Install the worker and replay active timers. Bootstrap retains ownership of
+ * `onerror` so worker failure has a single recovery path.
  */
 export function setSyncWorker(worker: Worker): void {
   _syncWorker = worker;
@@ -41,7 +33,6 @@ export function setSyncWorker(worker: Worker): void {
   }
 }
 
-/** Start a recurring timer in the worker, falling back to the main thread. */
 export function startWorkerTimer(id: string, intervalMs: number): void {
   _activeTimers.set(id, intervalMs);
   if (!_syncWorker) {
@@ -53,7 +44,6 @@ export function startWorkerTimer(id: string, intervalMs: number): void {
   }
 }
 
-/** Stop a worker-managed or fallback timer. Safe to call when not running. */
 export function stopWorkerTimer(id: string): void {
   _activeTimers.delete(id);
   stopFallbackTimer(id);

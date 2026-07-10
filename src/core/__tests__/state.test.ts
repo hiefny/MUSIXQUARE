@@ -44,7 +44,7 @@ describe('State Store', () => {
     it('does not emit when value is unchanged', () => {
       const fn = vi.fn();
       bus.on('state:setup.sessionStarted', fn);
-      setState('setup.sessionStarted', false); // same as default
+      setState('setup.sessionStarted', false);
       expect(fn).not.toHaveBeenCalled();
     });
   });
@@ -75,7 +75,6 @@ describe('State Store', () => {
     it('deduplicates events for same path', () => {
       const fn = vi.fn();
       bus.on('state:player.startedAt', fn);
-      // batchSetState with same path won't duplicate since it's a Record
       batchSetState({ 'player.startedAt': 1 });
       expect(fn).toHaveBeenCalledTimes(1);
     });

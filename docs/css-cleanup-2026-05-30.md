@@ -1,5 +1,9 @@
 # CSS Cleanup - 2026-05-30
 
+> **Historical snapshot.** This records the CSS cleanup and browser captures
+> made on 2026-05-30. Line counts, selectors, and verification results are tied
+> to that revision and are not claims about the current stylesheet.
+
 ## Scope
 
 Target file: `css/style.css`

@@ -15,21 +15,21 @@ import { log } from '../core/log.ts';
 
 // ─── Constants ────────────────────────────────────────────────────
 
-const MAX_SAMPLES = 60; // Keep last 60 RTT samples (~1min window)
+const MAX_SAMPLES = 60;
 
 // ─── State ────────────────────────────────────────────────────────
 
 interface ClockSample {
   rtt: number;
-  offset: number; // hostTime - localTime (corrected for half RTT)
+  offset: number; // hostTime - localTime, corrected for half RTT
   timestamp: number;
 }
 
 let _isHostClock = false;
 let _samples: ClockSample[] = [];
-let _bestOffset = 0; // Current best estimate of (hostTime - localTime)
+let _bestOffset = 0;
 let _pongsReceived = 0;
-const _pendingPings = new Map<number, number>(); // pingId → sentAt
+const _pendingPings = new Map<number, number>();
 
 // ─── Getters ──────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ const _pendingPings = new Map<number, number>(); // pingId → sentAt
  * This is the core API — all playback timing uses this.
  */
 export function getHostNow(): number {
-  if (_isHostClock) return Date.now(); // Host IS the clock
+  if (_isHostClock) return Date.now();
   if (_samples.length === 0)
     log.warn('[SharedClock] getHostNow called with no samples — offset may be inaccurate');
   return Date.now() + _bestOffset;

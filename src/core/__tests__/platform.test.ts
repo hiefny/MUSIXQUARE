@@ -3,8 +3,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// platform.ts reads navigator.userAgent at module scope, so we must mock
-// before importing. We test via dynamic import with vi.resetModules().
+// platform.ts reads navigator.userAgent at import time, so each case installs
+// its browser inputs before dynamically importing a reset module.
 
 describe('Platform Detection', () => {
   beforeEach(() => {
@@ -120,7 +120,6 @@ describe('Platform Detection', () => {
         value: 'Mozilla/5.0 (Windows NT 10.0)',
         configurable: true,
       });
-      // matchMedia returns false by default in jsdom
       const { isStandaloneDisplayMode } = await import('../platform.ts');
       expect(isStandaloneDisplayMode()).toBe(false);
     });

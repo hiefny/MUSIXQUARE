@@ -106,7 +106,6 @@ function updateLayout(state: ScrollbarState): void {
   }
   thumb.style.display = '';
 
-  // Position track to match container's visible area
   const containerRect = container.getBoundingClientRect();
   let visibleHeight = clientHeight;
   const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
@@ -121,7 +120,6 @@ function updateLayout(state: ScrollbarState): void {
     const bottomNav = document.querySelector('.bottom-nav') as HTMLElement;
     if (bottomNav) {
       const navRect = bottomNav.getBoundingClientRect();
-      // Subtract if the container overlaps the bottom nav
       if (navRect.height > 0 && containerRect.bottom > navRect.top) {
         const overlap = containerRect.bottom - navRect.top;
         visibleHeight = Math.max(0, clientHeight - overlap);
@@ -131,7 +129,6 @@ function updateLayout(state: ScrollbarState): void {
 
   state.visibleHeight = visibleHeight;
   if (isDesktop || isContained) {
-    // Desktop: track is position:absolute inside parent — offset by container's position within parent
     const parentRect = container.parentElement?.getBoundingClientRect();
     const offsetTop = parentRect ? containerRect.top - parentRect.top : 0;
     track.style.top = `${offsetTop}px`;
@@ -179,13 +176,10 @@ function updateScroll(state: ScrollbarState): void {
 
   let h = thumbHeight;
 
-  // Overscroll top: clamp at 0, shrink thumb
   if (thumbTop < 0) {
     h = Math.max(THUMB_MIN_HEIGHT * 0.5, thumbHeight + thumbTop);
     thumbTop = 0;
-  }
-  // Overscroll bottom: clamp at bottom edge, shrink thumb
-  else if (thumbTop > maxThumbTop) {
+  } else if (thumbTop > maxThumbTop) {
     const overflow = thumbTop - maxThumbTop;
     h = Math.max(THUMB_MIN_HEIGHT * 0.5, thumbHeight - overflow);
     thumbTop = visibleHeight - h;
@@ -197,7 +191,6 @@ function updateScroll(state: ScrollbarState): void {
 }
 
 export function initCustomScrollbar(container: HTMLElement): void {
-  // Skip if already initialized
   if (_instances.has(container)) return;
 
   // Track must be a sibling of the container (not inside it, or it scrolls with content).
@@ -208,7 +201,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
   const parentPos = getComputedStyle(parent).position;
   if (parentPos === 'static') parent.style.position = 'relative';
 
-  // Create track + thumb elements
   const track = document.createElement('div');
   track.className = 'cscroll-track';
   if (container.hasAttribute('data-custom-scroll-contained')) {
@@ -262,7 +254,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
   };
   container.addEventListener('scroll', onScroll, { passive: true });
 
-  // Content mutations → update layout
   state.observer = new MutationObserver(() => updateLayout(state));
   state.observer.observe(container, {
     childList: true,
@@ -272,7 +263,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
     attributeFilter: ['class', 'style'],
   });
 
-  // Resize → update layout
   state.resizeObserver = new ResizeObserver(() => updateLayout(state));
   state.resizeObserver.observe(container);
 
@@ -287,7 +277,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
   // callers must signal a relayout when they animate visibility.
   const cleanupRelayoutBus = bus.on('ui:scrollbar-relayout', () => updateLayout(state));
 
-  // Drag thumb to scroll
   thumb.addEventListener('mousedown', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -372,7 +361,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
     cleanupRelayoutBus,
   ];
 
-  // Click on track → jump
   track.addEventListener('mousedown', (e) => {
     if (e.target === thumb) return;
     const rect = track.getBoundingClientRect();
@@ -382,7 +370,6 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   _instances.set(container, state);
 
-  // Initial update
   updateLayout(state);
 }
 

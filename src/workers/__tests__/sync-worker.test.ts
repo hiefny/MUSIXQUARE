@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// ─── Worker Simulation Helpers ───────────────────────────────────────────
-// The sync worker operates as a DedicatedWorkerGlobalScope.
-// We extract and test its pure logic functions directly.
-
-// ─── Pure function reimplementations (mirrors sync.worker.ts logic) ──────
+// These local replicas describe the expected worker behavior but do not import
+// the production implementation. A follow-up should extract shared pure
+// helpers or exercise the worker module itself so the test cannot drift.
 function toId(v: unknown): string {
   if (v === null || v === undefined) return '';
   return String(v);
@@ -91,7 +89,6 @@ describe('Sync Worker — normalizeIntervalMs()', () => {
 });
 
 describe('Sync Worker — Timer Management (integration)', () => {
-  // Simulate the worker's timer management
   let timers: Map<string, ReturnType<typeof setInterval>>;
   let messages: Array<{ type: string; id?: string }>;
 
@@ -142,15 +139,14 @@ describe('Sync Worker — Timer Management (integration)', () => {
     vi.advanceTimersByTime(200);
     stopTimer('test');
     vi.advanceTimersByTime(200);
-    // Only 2 ticks before stop
     expect(messages.filter((m) => m.id === 'test')).toHaveLength(2);
   });
 
   it('replaces timer when starting same id', () => {
     startTimer('dup', 100);
-    vi.advanceTimersByTime(150); // 1 tick
-    startTimer('dup', 200); // replaces — old timer cleared
-    vi.advanceTimersByTime(250); // 1 more tick at 200ms interval
+    vi.advanceTimersByTime(150);
+    startTimer('dup', 200);
+    vi.advanceTimersByTime(250);
     expect(messages.filter((m) => m.id === 'dup')).toHaveLength(2);
   });
 
@@ -166,7 +162,7 @@ describe('Sync Worker — Timer Management (integration)', () => {
   it('stops all timers at once', () => {
     startTimer('A', 100);
     startTimer('B', 200);
-    vi.advanceTimersByTime(100); // 1 tick for A
+    vi.advanceTimersByTime(100);
     stopAllTimers();
     vi.advanceTimersByTime(500);
 
@@ -178,7 +174,7 @@ describe('Sync Worker — Timer Management (integration)', () => {
   it('stopAllTimers is idempotent', () => {
     startTimer('A', 100);
     stopAllTimers();
-    stopAllTimers(); // should not throw
+    stopAllTimers();
     expect(timers.size).toBe(0);
   });
 
@@ -196,7 +192,6 @@ describe('Sync Worker — Timer Management (integration)', () => {
 
   it('applies interval normalization', () => {
     startTimer('fast', NaN as unknown as number);
-    // NaN → fallback 1000ms
     vi.advanceTimersByTime(2500);
     expect(messages.filter((m) => m.id === 'fast')).toHaveLength(2);
   });
@@ -204,15 +199,12 @@ describe('Sync Worker — Timer Management (integration)', () => {
 
 describe('Sync Worker — Message Handler', () => {
   it('handles missing command gracefully', () => {
-    // Simulate the switch-default path
     const data = {} as { command?: string };
     const command = data.command;
-    // default case: no action, no error
     expect(command).toBeUndefined();
   });
 
   it('handles INIT_INSTANCE as no-op', () => {
-    // INIT_INSTANCE case does nothing — just verifying no crash
     const command = 'INIT_INSTANCE';
     expect(command).toBe('INIT_INSTANCE');
   });

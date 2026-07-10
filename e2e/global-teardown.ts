@@ -9,7 +9,6 @@ async function globalTeardown() {
     const peerApp = (globalThis as Record<string, unknown>).__PEER_APP__;
     if (peerApp && typeof peerApp === 'object') {
       const app = peerApp as Record<string, unknown>;
-      // PeerServer stores the http server internally
       const httpServer = app._server || app.server;
       if (httpServer && typeof (httpServer as Record<string, unknown>).close === 'function') {
         await new Promise<void>((resolve) => {
@@ -18,7 +17,7 @@ async function globalTeardown() {
       }
     }
   } catch {
-    // Ignore — Playwright will kill the process anyway
+    // Process shutdown remains the final cleanup fallback.
   }
   console.log('[E2E] PeerJS server cleanup complete');
 }

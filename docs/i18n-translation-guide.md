@@ -1,5 +1,7 @@
 # MUSIXQUARE — Translation Guide
 
+Last reviewed against the locale loader and translation tests on 2026-07-11.
+
 A reference for translating `src/i18n/<lang>.ts` locale files — whether by AI, a
 contributor, or a native reviewer. Born from a real failure: machine translations
 rendered context-free one-word UI labels with the **wrong sense** of a homonym
@@ -207,7 +209,8 @@ Their current English sources — paste into the §5 prompt if re-doing them:
 
 ## 7. QA checklist (after any translation)
 
-- [ ] `npx tsc --noEmit` passes (no missing keys, no unescaped quotes).
+- [ ] `npm run typecheck` passes (no missing keys or unescaped quotes).
+- [ ] `npx vitest run src/i18n/__tests__` passes.
 - [ ] Every `{{placeholder}}` from the English source still present, unaltered.
 - [ ] No `…` characters (`grep -n '…'` should be empty).
 - [ ] Spot-check **every key in the §4 glossary** for the right sense.

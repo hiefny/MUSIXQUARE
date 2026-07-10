@@ -6,8 +6,8 @@
 
 'use strict';
 
-// IMPORTANT: bump this when deploying changes to app shell assets
-// so existing clients don't stay pinned to stale cached JS/CSS.
+// Bump this whenever a stable-path app-shell asset changes so existing clients
+// migrate to a fresh cache.
 const CACHE_VERSION = "v131";
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
@@ -29,10 +29,9 @@ self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(STATIC_CACHE);
 
-    // cache.addAll() fails the *entire* install if any request fails.
-    // That is desirable for core app shell assets, but NOT for optional
-    // cross-origin assets (e.g., CDN webfonts) which may be blocked by
-    // CSP / captive portals / in-app WebView policies.
+    // Core shell failures abort installation. Fonts and any future
+    // cross-origin extras are best-effort so an optional asset cannot strand
+    // clients on an older worker.
     const core = [];
     const optional = [];
 
@@ -40,7 +39,7 @@ self.addEventListener('install', (event) => {
       try {
         const url = new URL(asset, self.location.href);
         if (url.origin === self.location.origin) {
-          // Font files are nice-to-have; don't fail SW install if they're missing.
+          // A missing font should not prevent the functional shell from updating.
           if (url.pathname.includes('/fonts/') || /\.(?:woff2?|ttf|otf)$/i.test(url.pathname)) {
             optional.push(asset);
           } else {
@@ -50,15 +49,15 @@ self.addEventListener('install', (event) => {
           optional.push(asset);
         }
       } catch (_) {
-        // Relative URLs like './' end up here in some browsers; treat as core.
+        // Preserve fail-fast behavior for an invalid core entry.
         core.push(asset);
       }
     }
 
-    // 1) Core app shell (same-origin): must succeed
+    // Core app shell: must succeed.
     await cache.addAll(core);
 
-    // 2) Optional (cross-origin): best-effort, never fail install
+    // Optional assets: best-effort.
     await Promise.allSettled(optional.map(async (assetUrl) => {
       try {
         const req = new Request(assetUrl, { mode: 'no-cors' });
@@ -67,13 +66,13 @@ self.addEventListener('install', (event) => {
           await cache.put(req, res);
         }
       } catch (_) {
-        // ignore
+        // Optional fetch failure.
       }
     }));
   })());
 });
 
-// Allow the page to trigger immediate activation after an update
+// The page may opt into immediate activation after presenting its update UI.
 self.addEventListener('message', (event) => {
   if (event && event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
@@ -94,21 +93,16 @@ self.addEventListener('activate', (event) => {
 
 function isCacheableRequest(request) {
   if (request.method !== 'GET') return false;
-  // Range 요청(Partial Content 206)은 Cache.put 지원이 제한적이라 캐싱하지 않음
-  // (iOS/인앱 웹뷰에서 특히 자주 발생)
+  // Range responses are not safe Cache.put candidates across Safari and
+  // embedded WebViews.
   if (request.headers && request.headers.has('range')) return false;
   const url = new URL(request.url);
 
-  // Don't intercept cross-origin requests at all. Opaque responses
-  // returned from the SW for cross-origin assets render as broken-image
-  // icons on some WebView/Safari builds (launch-day report: YouTube
-  // paste-preview thumbnail from i.ytimg.com working in dev — no SW —
-  // but breaking in prod). We get no real cache-hit benefit for assets
-  // that are already CDN-cached at origin, so just stay out of the way.
+  // Leave cross-origin assets to their own HTTP caches. Returning opaque
+  // responses through this worker has broken media previews on Safari and
+  // embedded WebViews.
   if (url.origin !== self.location.origin) return false;
 
-  // Never cache dynamic endpoints (app is fully self-contained)
-  // Avoid caching large media downloads (demo media / user content)
   const path = url.pathname || '';
 
   // Never cache backend functions — they return per-request data (e.g.
@@ -116,12 +110,11 @@ function isCacheableRequest(request) {
   // so the only safe move is to skip them entirely from the SW pipeline.
   if (path.startsWith('/api/')) return false;
 
-  // Always allow the tiny built-in dummy audio used for iOS/AudioContext keep-alive.
-  // (If we block all .mp3, offline mode would fail even though it's in APP_SHELL.)
+  // Keep the tiny iOS AudioContext primer available offline despite the media
+  // extension exclusion below.
   if (path.endsWith('dummy_audio.mp3')) return true;
 
   const ext = path.split('.').pop().toLowerCase();
-  // NOTE: Range requests are already excluded above.
   // Exclude common audio/video containers to prevent storage bloat.
   if (['mp4', 'webm', 'mkv', 'mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'].includes(ext)) return false;
 
@@ -141,7 +134,7 @@ self.addEventListener('fetch', (event) => {
       try {
         const fresh = await fetch(request);
         const cache = await caches.open(RUNTIME_CACHE);
-        // Cache in background (don't block response, avoid unhandled rejections)
+        // Populate the fallback without delaying the network response.
         cache.put(request, fresh.clone()).catch(() => { /* ignore */ });
         return fresh;
       } catch (_) {
@@ -159,11 +152,10 @@ self.addEventListener('fetch', (event) => {
     const fetchAndUpdate = (async () => {
       try {
         const response = await fetch(request);
-        // Cache opaque + basic responses
-        // NOTE: status 206(Partial Content)은 Cache.put에서 예외가 날 수 있으므로 제외
+        // Partial responses must never enter the static cache.
         if (response && response.status !== 206 && (response.ok || response.type === 'opaque')) {
           const cache = await caches.open(url.origin === self.location.origin ? STATIC_CACHE : RUNTIME_CACHE);
-          // Cache in background (avoid unhandled rejections)
+          // Cache without surfacing a background-write rejection.
           cache.put(request, response.clone()).catch(() => { /* ignore */ });
         }
         return response;
@@ -173,7 +165,7 @@ self.addEventListener('fetch', (event) => {
     })();
 
     if (cached) {
-      // update in background
+      // Revalidate a cache hit in the background.
       event.waitUntil(fetchAndUpdate);
       return cached;
     }

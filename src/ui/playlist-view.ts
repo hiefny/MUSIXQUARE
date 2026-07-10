@@ -40,7 +40,6 @@ function toggleExpansion(idx: number): void {
   const timerKey = `sub-items-timeout-${playlistId}`;
 
   if (expanding) {
-    // Clear any stale loadError flag from a previous failed attempt
     const subMap = getState('youtube.subItemsMap') || {};
     const existing = subMap[playlistId];
     if (existing?.loadError) {
@@ -95,7 +94,6 @@ export function updatePlaylistUI(): void {
     return;
   }
 
-  // Preserve scroll position across rebuild
   const savedScrollTop = ul.scrollTop;
   ul.replaceChildren();
   if (playlist.length === 0) {
@@ -166,7 +164,6 @@ export function updatePlaylistUI(): void {
     `;
     ul.appendChild(li);
 
-    // Bind expand toggle
     const exp = li.querySelector('.expand-toggle[data-expand-idx]');
     if (exp) {
       exp.addEventListener('click', (e) => {
@@ -176,7 +173,6 @@ export function updatePlaylistUI(): void {
       });
     }
 
-    // Bind remove button (host only)
     const removeBtn = li.querySelector('.btn-playlist-remove');
     if (removeBtn) {
       removeBtn.addEventListener('click', (e) => {
@@ -186,7 +182,6 @@ export function updatePlaylistUI(): void {
       });
     }
 
-    // Sub-items
     if (item.playlistId && item.isExpanded) {
       // Wrap the sub-playlist <ul> in a host <li> so it lives as a valid
       // child of the parent <ul>. Without the wrapper iOS Safari (and
@@ -278,7 +273,6 @@ export function updatePlaylistUI(): void {
     _lastScrolledSubIndex = currentYouTubeSubIndex;
   }
 
-  // Restore scroll position after DOM rebuild
   if (shouldAutoScroll) {
     const activeLi = ul.querySelector('li.active') as HTMLElement | null;
     if (activeLi) {
@@ -300,7 +294,7 @@ const _busScope = createBusScope();
 export function initPlaylistView(): void {
   _busScope.dispose();
 
-  // Subscribe to playlist state changes (debounced via rAF to batch rapid updates)
+  // Batch bursts of playlist state changes into one DOM rebuild per frame.
   const debouncedUpdate = () => {
     if (_pendingPlaylistUpdate) return;
     _pendingPlaylistUpdate = true;
@@ -318,7 +312,6 @@ export function initPlaylistView(): void {
   _busScope.on('i18n:changed', debouncedUpdate);
 
   _busScope.on('ui:playlist-tab-opened', () => {
-    // Reset indices to force scroll on the next UI update
     _lastScrolledTrackIndex = -1;
     _lastScrolledSubIndex = -1;
     updatePlaylistUI();

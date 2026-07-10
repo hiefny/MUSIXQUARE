@@ -86,18 +86,12 @@
     <script src="/fouc-cleanup.js"></script>
 
     <!-- Apply wordmark animation timing (data-wt/data-wd → CSS custom props).
-         Replaces the previous inline style="--wt:Xms;--wd:Yms" approach.
          Source: public/wordmark-anim.js -->
     <script src="/wordmark-anim.js" defer></script>
-
-    <!-- Setup overlay viewport-safe height clamps moved into css/style.css.
-         (Search for ".onboarding-overlay" and "viewport-safe" comment.) -->
   </head>
 
   <body>
     <a href="#tab-play" class="skip-link">Skip to content</a>
-
-    <!-- (Removed) Mobile portrait-only overlay: we support landscape/tablet usage. -->
 
     <noscript>
       <div class="noscript-fallback">
@@ -159,7 +153,7 @@
       <div class="header-right header-default-content flex-row-center">
         <div class="role-badge" id="role-badge">
           <div class="role-dot"></div>
-          <!-- Role badge text is intentionally English — see player-controls.ts updateRoleBadge() -->
+          <!-- Role badges intentionally use compact protocol-style English labels. -->
           <span id="role-text">OFFLINE</span>
         </div>
         <button
@@ -196,8 +190,7 @@
           ></canvas>
         </div>
 
-        <!-- Container for the YouTube iframe (injected at runtime). Kept
-                 for its historical class so YouTube wiring stays untouched. -->
+          <!-- Runtime insertion point; its id and class are part of the YouTube wiring contract. -->
         <div class="video-wrapper">
           <button
             class="fullscreen-btn"
@@ -311,7 +304,6 @@
             </div>
           </div>
 
-          <!-- Chat Preview Button -->
           <button
             type="button"
             class="chat-preview-btn"
@@ -332,7 +324,6 @@
             </div>
           </button>
 
-          <!-- Buttons Row: SYNC (left) + Media (right) -->
           <div class="play-action-buttons play-actions-row">
             <button class="file-select-btn file-select-btn-large flex-1" id="btn-sync">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -410,7 +401,6 @@
         </div>
       </div>
       <div class="tab-body tab-body-anchor" data-custom-scroll>
-        <!-- System Audio overlay (shown during system audio sharing) -->
         <div class="system-audio-playlist-note" id="system-audio-playlist-note">
           <span data-i18n="system_audio.sharing"></span>
         </div>
@@ -439,7 +429,6 @@
         </div>
       </div>
       <div class="tab-body" data-custom-scroll>
-        <!-- QR Code -->
         <div class="section-group">
           <div class="section-header-row">
             <span class="section-title" data-i18n="connect.qr_title">QR 코드로 참가</span>
@@ -449,7 +438,6 @@
           </div>
         </div>
 
-        <!-- Room Password -->
         <div class="section-group room-password-section">
           <div class="section-header-row">
             <span class="section-title" data-i18n="connect.room_password_title"
@@ -484,7 +472,6 @@
           </div>
         </div>
 
-        <!-- Max Devices -->
         <div class="section-group max-guests-section">
           <div class="section-header-row">
             <span class="section-title" data-i18n="connect.max_devices">접속 가능한 기기 수</span>
@@ -519,7 +506,6 @@
           </div>
         </div>
 
-        <!-- Connected Devices -->
         <div class="section-group">
           <div class="section-header-row">
             <span class="section-title" id="connect-device-title">연결된 기기 0대</span>
@@ -636,9 +622,7 @@
           </div>
           <div class="help-desc" data-i18n-html="help.need_help_html"></div>
         </div>
-        <!-- Ends help-block -->
 
-        <!-- Demo / Try the app (mobile) -->
         <button class="rename-device-btn divider-narrower" id="btn-demo-media-mobile">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -648,7 +632,6 @@
           <span data-i18n="setup.demo_button"></span>
         </button>
 
-        <!-- Legal: Copyright · Privacy · Disclaimer -->
         <div class="help-block legal-block">
           <div class="help-title">
             <span data-i18n="legal.title"></span>
@@ -656,9 +639,7 @@
           <div class="help-desc legal-desc" data-i18n-html="legal.content_html"></div>
         </div>
       </div>
-      <!-- Ends tab-body -->
     </div>
-    <!-- Ends tab-guide -->
 
     <div
       id="tab-settings"
@@ -679,7 +660,6 @@
         </div>
       </div>
 
-      <!-- Desktop sub-tab pill navigation (outside scroll area) -->
       <div class="settings-subtab-nav">
         <button
           class="subtab-pill active"
@@ -700,7 +680,6 @@
       </div>
 
       <div class="tab-body" data-custom-scroll>
-        <!-- Sub-panel: General -->
         <div class="settings-subtab-panel active" data-panel="general">
           <div class="section-group">
             <div class="section-header-row">
@@ -788,7 +767,6 @@
             </div>
           </div>
 
-          <!-- Visualizer Mode -->
           <div class="section-group">
             <div class="section-header-row">
               <span class="section-title" data-i18n="settings.visualizer">비주얼라이저</span>
@@ -825,7 +803,6 @@
           </div>
         </div>
 
-        <!-- Sub-panel: Audio -->
         <div class="settings-subtab-panel" data-panel="audio">
           <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
           <div
@@ -835,16 +812,14 @@
             data-i18n="help.youtube_no_effects"
           ></div>
 
-          <!-- Everything below (except Theme) will be blurred/disabled in YouTube mode -->
+          <!-- File-only controls are disabled while YouTube owns playback. -->
           <div id="youtube-settings-disabled-wrap">
-            <!-- 1. Speaker Role -->
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="setup.set_role"></span>
                 <span class="badge-host-ctrl" data-i18n="settings.self_ctrl"></span>
               </div>
 
-              <!-- Standard Channel Grid (Stereo/L/R/Woofer) -->
               <div
                 class="setup-graphic-container settings-role-diagram"
                 data-role-diagram="settings"
@@ -937,7 +912,6 @@
                   ><span data-i18n="role.center"></span>
                 </button>
               </div>
-              <!-- Woofer Control -->
               <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
                 <div class="slider-wrap">
                   <div class="slider-header">
@@ -957,7 +931,6 @@
               </div>
             </div>
 
-            <!-- 2. Reverb -->
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="settings.reverb_title"></span>
@@ -1013,7 +986,6 @@
                   />
                 </div>
 
-                <!-- Decay Slider -->
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
@@ -1034,7 +1006,6 @@
                   />
                 </div>
 
-                <!-- Pre-Delay Slider -->
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
@@ -1055,7 +1026,6 @@
                   />
                 </div>
 
-                <!-- Low Cut Slider -->
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
@@ -1076,7 +1046,6 @@
                   />
                 </div>
 
-                <!-- High Cut Slider -->
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
@@ -1099,7 +1068,6 @@
               </div>
             </div>
 
-            <!-- 3. Equalizer -->
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="settings.eq_title"></span>
@@ -1206,7 +1174,6 @@
               </div>
             </div>
 
-            <!-- 4. Virtual Surround -->
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="settings.surround_title"></span>
@@ -1230,7 +1197,6 @@
               </div>
             </div>
 
-            <!-- 5. Virtual Bass -->
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="settings.bass_title"></span>
@@ -1254,7 +1220,6 @@
               </div>
             </div>
 
-            <!-- 6. Virtual Treble -->
             <div class="section-group" id="last-setting-section">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="settings.exciter_title"></span>
@@ -1279,7 +1244,7 @@
               </div>
             </div>
 
-            <!-- 7. Connected Devices (desktop only — mobile uses #tab-connect) -->
+            <!-- Desktop mirrors the mobile connection list rendered in #tab-connect. -->
             <div class="section-group settings-device-section">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="settings.devices_title"></span>
@@ -1287,14 +1252,11 @@
               <div id="device-list"></div>
             </div>
           </div>
-          <!-- End of youtube-settings-disabled-wrap -->
         </div>
-        <!-- End of sub-panel: Audio -->
 
-        <!-- Sub-panel: Connect (desktop only, mirrors #tab-connect) -->
+        <!-- Desktop mirror of the mobile connection panel. -->
         <div class="settings-subtab-panel" data-panel="connect">
           <div id="desktop-connect-content">
-            <!-- QR Code -->
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="connect.qr_title">QR 코드로 참가</span>
@@ -1304,7 +1266,6 @@
               </div>
             </div>
 
-            <!-- Room Password -->
             <div class="section-group room-password-section">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="connect.room_password_title"
@@ -1341,7 +1302,6 @@
               </div>
             </div>
 
-            <!-- Max Devices -->
             <div class="section-group max-guests-section">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="connect.max_devices"
@@ -1378,7 +1338,6 @@
               </div>
             </div>
 
-            <!-- Connected Devices -->
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" id="desktop-device-title">연결된 기기 0대</span>
@@ -1404,7 +1363,6 @@
           </div>
         </div>
 
-        <!-- Sub-panel: Help -->
         <div class="settings-subtab-panel" data-panel="help">
           <div class="desktop-help-section">
             <div class="help-block">
@@ -1476,9 +1434,7 @@
               </div>
               <div class="help-desc" data-i18n-html="help.need_help_html"></div>
             </div>
-            <!-- Ends help-block -->
 
-            <!-- Demo / Try the app -->
             <button class="rename-device-btn divider-narrow" id="btn-demo-media">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -1488,7 +1444,6 @@
               <span data-i18n="setup.demo_button"></span>
             </button>
 
-            <!-- Legal: Copyright · Privacy · Disclaimer -->
             <div class="help-block legal-block">
               <div class="help-title">
                 <span data-i18n="legal.title"></span>
@@ -1496,18 +1451,12 @@
               <div class="help-desc legal-desc" data-i18n-html="legal.content_html"></div>
             </div>
           </div>
-          <!-- Ends desktop-help-section -->
         </div>
-        <!-- Ends sub-panel: Help -->
       </div>
-      <!-- Ends tab-body -->
     </div>
-    <!-- Ends tab-settings -->
 
-    <!-- Chat Backdrop (tap to close on mobile) -->
     <div class="chat-backdrop" id="chat-backdrop"></div>
 
-    <!-- Slide-up Chat Drawer -->
     <div class="chat-drawer" id="chat-drawer">
       <div class="chat-drawer-header">
         <span class="chat-drawer-title" data-i18n="chat.title"></span>
@@ -1621,7 +1570,7 @@
       </div>
     </div>
 
-    <!-- Blur halo: blurs content around tab bar (mask-image, iOS-optimized) -->
+    <!-- Masked blur keeps content legible around the fixed tab bar on iOS. -->
     <div class="nav-blur-halo" aria-hidden="true"></div>
 
     <nav class="bottom-nav" role="tablist">
@@ -1706,7 +1655,6 @@
 
     <div id="setup-overlay" class="onboarding-overlay">
       <div class="onboarding-card setup-card full-screen">
-        <!-- PC Desktop Brand Section -->
         <div id="setup-desktop-brand" class="setup-desktop-brand">
           <div class="brand-content">
             <svg
@@ -1746,19 +1694,14 @@
             </svg>
             <p class="brand-tagline" data-i18n-html="setup.brand_tagline_html"></p>
           </div>
-          <!-- Desktop: dynamic step header (mirrored from right panel via JS) -->
+          <!-- JS mirrors the active setup step into the desktop presentation panel. -->
           <div id="desktop-step-header" class="desktop-step-header"></div>
-          <!-- Desktop: diagram/slider area (moved from right panel via JS) -->
           <div id="desktop-diagram-area" class="desktop-diagram-area"></div>
         </div>
 
-        <!-- Mobile UI / PC Right Panel Wrapper -->
         <div class="setup-mobile-view" data-custom-scroll>
           <div class="setup-header-pill" hidden></div>
-          <!-- Reserved for any extra header info -->
 
-          <!-- Welcome Slides (Shown first) -->
-          <!-- Welcome Area (Header + Slider) -->
           <div id="setup-welcome-area" class="setup-welcome-wrap">
             <div id="setup-welcome-header" class="setup-header-text">
               <svg
@@ -2224,23 +2167,19 @@
             </div>
           </div>
 
-          <!-- Host: Connection Guide + Short Code -->
           <div id="setup-code-area" class="setup-code-area" hidden>
             <div class="setup-header-text">
               <h2 data-i18n="setup.last_step"></h2>
               <p data-i18n="setup.connect_devices"></p>
             </div>
             <div class="setup-guide-unified">
-              <!-- Method 1: WiFi -->
               <div class="setup-unified-item">
                 <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
-                  <!-- Material WiFi Icon Centered -->
                   <path
                     transform="translate(88, 10) scale(1)"
                     fill="var(--primary)"
                     d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"
                   />
-                  <!-- Connecting Lines -->
                   <line
                     x1="100"
                     y1="36"
@@ -2273,7 +2212,6 @@
                     class="graphic-line-active"
                     stroke-opacity="0.5"
                   />
-                  <!-- Devices -->
                   <rect
                     x="32"
                     y="50"
@@ -2289,7 +2227,6 @@
                 <div class="setup-inner-desc" data-i18n="help.connect_all_wifi"></div>
               </div>
 
-              <!-- Method 2: Hotspot -->
               <div class="setup-unified-item">
                 <svg class="setup-graphic-svg h-70" viewBox="0 0 200 90">
                   <g transform="translate(0, 5)">
@@ -2326,14 +2263,12 @@
             </div>
           </div>
 
-          <!-- Guest: Connection Guide + Input -->
           <div id="setup-join-area" class="setup-area-block" hidden>
             <div class="setup-header-text">
               <h2 data-i18n="setup.last_step"></h2>
               <p data-i18n="setup.enter_host_code_alt"></p>
             </div>
             <div class="setup-guide-unified">
-              <!-- Method 1: WiFi -->
               <div class="setup-unified-item">
                 <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
                   <path
@@ -2370,7 +2305,6 @@
                 <div class="setup-inner-desc" data-i18n="help.connect_all_wifi"></div>
               </div>
 
-              <!-- Method 2: Hotspot -->
               <div class="setup-unified-item">
                 <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
                   <g transform="translate(0, 5)">
@@ -2415,7 +2349,6 @@
             </div>
           </div>
 
-          <!-- Invite/reconnect: direct entry confirmation -->
           <div id="setup-auto-join-area" class="setup-area-block setup-auto-join-area" hidden>
             <div class="setup-header-text">
               <h2 data-i18n="setup.welcome_title"></h2>
@@ -2423,9 +2356,7 @@
             </div>
           </div>
 
-          <!-- Host/Guest: role picker is currently parked. The flow auto-selects
-               the center speaker role, but this screen is kept so we can bring
-               explicit role selection back if product positioning needs it. -->
+          <!-- Reserved for an explicit role picker; the current flow assigns the center role. -->
           <div id="setup-role-area" class="setup-area-block is-relative" hidden>
             <div class="setup-header-text">
               <h2 data-i18n="setup.what_sound"></h2>
@@ -2452,53 +2383,39 @@
                     <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
                   </linearGradient>
                 </defs>
-                <!-- Room Perspective -->
                 <g class="graphic-room">
-                  <!-- Back Wall (Solid) -->
                   <rect x="40" y="30" width="260" height="90" />
-                  <!-- Corner Lines (Gradients) -->
                   <line x1="40" y1="30" x2="0" y2="0" stroke="url(#grad-tl)" />
                   <line x1="300" y1="30" x2="340" y2="0" stroke="url(#grad-tr)" />
                   <line x1="300" y1="120" x2="340" y2="170" stroke="url(#grad-br)" />
                   <line x1="40" y1="120" x2="0" y2="170" stroke="url(#grad-bl)" />
                 </g>
 
-                <!-- TV (Decor) -->
                 <rect class="graphic-tv" x="115" y="38" width="110" height="62" rx="2" />
 
-                <!-- Listener Removed -->
 
-                <!-- Speakers (Larger Size) -->
                 <!-- FL (Front Left) -->
                 <g id="svg-spk-l" class="graphic-speaker" data-role-mode="-1">
-                  <!-- Cabinet -->
                   <rect x="50" y="60" width="20" height="68" rx="2" />
-                  <!-- Drivers -->
                   <circle cx="60" cy="75" r="3.5" class="spk-driver" />
                   <circle cx="60" cy="92" r="4.5" class="spk-driver" />
                   <circle cx="60" cy="112" r="4.5" class="spk-driver" />
-                  <!-- Base -->
                   <rect x="49" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
                 </g>
 
                 <!-- FR (Front Right) -->
                 <g id="svg-spk-r" class="graphic-speaker" data-role-mode="1">
-                  <!-- Cabinet -->
                   <rect x="272" y="60" width="20" height="68" rx="2" />
-                  <!-- Drivers -->
                   <circle cx="282" cy="75" r="3.5" class="spk-driver" />
                   <circle cx="282" cy="92" r="4.5" class="spk-driver" />
                   <circle cx="282" cy="112" r="4.5" class="spk-driver" />
-                  <!-- Base -->
                   <rect x="271" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
                 </g>
 
                 <!-- Center (C) -->
                 <g id="svg-spk-center" class="graphic-speaker" data-role-mode="0">
-                  <!-- Feet -->
                   <rect x="155" y="140" width="4" height="3" class="svg-fill-sub-08" />
                   <rect x="181" y="140" width="4" height="3" class="svg-fill-sub-08" />
-                  <!-- Cabinet -->
                   <rect x="145" y="125" width="50" height="15" rx="2" />
                   <circle cx="170" cy="132.5" r="3.5" class="spk-driver" />
                   <circle cx="155" cy="132.5" r="4" class="spk-driver" />
@@ -2507,12 +2424,9 @@
 
                 <!-- Woofer (SW) -->
                 <g id="svg-spk-woofer" class="graphic-speaker" data-role-mode="2">
-                  <!-- Feet -->
                   <rect x="111" y="140" width="4" height="3" class="svg-fill-sub-08" />
                   <rect x="133" y="140" width="4" height="3" class="svg-fill-sub-08" />
-                  <!-- Cabinet -->
                   <rect x="108" y="108" width="32" height="32" rx="3" />
-                  <!-- Driver -->
                   <circle cx="124" cy="124" r="9" class="spk-driver svg-stroke-divider" />
                 </g>
               </svg>
@@ -2554,11 +2468,10 @@
             <!-- JS will populate -->
           </div>
         </div>
-        <!-- End of .setup-mobile-view -->
       </div>
     </div>
 
-    <!-- App Dialog (Non-blocking, replaces alert()) -->
+    <!-- App-owned dialog keeps session flows non-blocking. -->
     <div class="dialog-overlay" id="dialog-overlay" aria-hidden="true">
       <div
         class="dialog"

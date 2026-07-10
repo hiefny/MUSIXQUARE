@@ -1,4 +1,3 @@
-// Playlist tab
 function Playlist({ tracks, activeIdx, onPick, onAdd }) {
   return (
     <>

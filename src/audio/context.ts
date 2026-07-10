@@ -1,8 +1,7 @@
 /**
  * MUSIXQUARE — AudioContext Singleton
  *
- * Replaces Tone.js context management with a direct AudioContext.
- * All audio modules import from here instead of Tone.
+ * Owns the lazily created native AudioContext shared by all audio modules.
  */
 
 import { delay } from '../core/timers.ts';
@@ -21,14 +20,14 @@ export function getAudioContext(): AudioContext {
 }
 
 /**
- * Current audio clock time (replacement for Tone.now()).
+ * Return the current audio clock time, or zero before initialization.
  */
 export function getCurrentTime(): number {
   return _ctx ? _ctx.currentTime : 0;
 }
 
 /**
- * Ensure AudioContext is running (replacement for Tone.start()).
+ * Ensure the shared AudioContext is running.
  * Must be called from a user gesture on iOS/Safari.
  */
 export async function ensureRunning(): Promise<void> {

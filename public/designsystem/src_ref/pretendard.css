@@ -1,18 +1,15 @@
-/* Pretendard (self-hosted)
+/* Pretendard Variable (self-hosted public-page copy)
  *
- * This project previously loaded Pretendard from a CDN.
- * To self-host the font files:
- *   1) Run scripts/fetch-pretendard.(sh|ps1)
- *   2) The font files will be placed into /fonts
+ * Blog, History, and Design System pages load this stylesheet directly. It
+ * supplies Latin and Korean glyphs; their font stacks fall back to installed
+ * system sans fonts for scripts not covered by this face.
  *
  * License: fonts/PRETENDARD_LICENSE.txt (SIL Open Font License 1.1)
  */
 
 @font-face {
   font-family: "Pretendard";
-  /* WOFF2 only: modern browsers/WebViews support it, and this repo
-   * intentionally does not ship a WOFF fallback.
-   */
+  /* The supported browser matrix accepts WOFF2, so no WOFF copy is shipped. */
   src: url("../fonts/PretendardVariable.woff2") format("woff2");
   font-weight: 45 920;
   font-style: normal;

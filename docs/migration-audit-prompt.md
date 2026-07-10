@@ -1,5 +1,9 @@
 # Migration Semantic Audit Prompt
 
+> **Reusable template, reviewed 2026-07-11.** The MUSIXQUARE Phase 5 examples
+> explain the failure pattern that motivated this prompt; they are historical
+> examples, not claims that the migration is still in progress.
+
 A reusable prompt for asking an AI to audit a state/enum migration for hidden semantic regressions. Paste the entire "Prompt" section below into Claude/ChatGPT/Gemini after filling in the bracketed inputs.
 
 The prompt is designed to find the specific kind of bug where a refactor "looks right" because tests pass and the diff is mechanical, but quietly changes an external effect (browser API, network payload, persisted data) for a state that has no old equivalent.

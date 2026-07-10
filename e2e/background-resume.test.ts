@@ -1,9 +1,9 @@
 /**
  * E2E: Mobile background resume behavior.
  *
- * Exercises the browser-level visibilitychange path in a mobile guest context:
- * a long hidden interval should silently request playback recovery and then
- * surface the user-facing resume warning.
+ * Exercises the browser-level visibilitychange path in a mobile guest context.
+ * A long hidden interval requests playback recovery and then surfaces the
+ * user-facing resume warning.
  */
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';

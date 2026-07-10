@@ -39,22 +39,17 @@ export function primeWebRtcAudioDecoder(
   if (current?.streamKey === streamKey) return current;
   cleanupWebRtcAudioDecoderPrimer(current);
 
-  // WebRTC remote streams require an HTMLMediaElement (like <audio>) playing the stream
-  // in order for browsers (such as Chrome on Windows/Android, and Safari on iOS/macOS)
-  // to start decoding the stream. Otherwise, the track remains in a "muted" state in Web Audio.
+  // Some browsers do not begin decoding a remote WebRTC audio track for Web
+  // Audio until the stream is attached to a playing media element.
   if (tracks.length === 0) return null;
 
   const audioEl = document.createElement('audio');
   audioEl.autoplay = true;
   audioEl.controls = false;
-  // muted + volume 0 = silent without bypassing the app graph. The primer's
-  // only job is to wake the WebRTC audio decoder; the real audio path is the
-  // parallel Web Audio MediaStreamAudioSourceNode. Chrome / Safari autoplay
-  // policy allows muted autoplay without a user gesture, so the primer works
-  // on fresh tab / hidden-tab / late-join paths where no gesture is in scope.
-  // Without `muted = true` the primer can hit NotAllowedError on those paths
-  // and the WebRTC track stays at readyState=live but muted=true — the exact
-  // Android symptom this primer is here to prevent.
+  // Muting keeps this element from bypassing the application graph; audible
+  // output still comes from the parallel MediaStreamAudioSourceNode. Muted
+  // autoplay has the best chance of succeeding without a user gesture, but
+  // play() failure remains non-fatal and is logged below.
   audioEl.muted = true;
   audioEl.volume = 0;
   audioEl.setAttribute('playsinline', 'true');

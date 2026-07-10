@@ -128,16 +128,9 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       }
 
       // Re-read receivedCount after backoff — more chunks may have arrived during delay.
-      // STO-RESUME: receivedCount is a control-plane counter and can exceed
-      // data-plane truth (phantom from a cross-session resume, a silently
-      // dropped write, any future desync). Asking past store truth makes the
-      // host resend only the tail forever (its clamp is total-1), so the
-      // integrity gate fails every round — clamp the ask to the store's
-      // contiguous prefix instead, and any phantom self-heals in one round.
-      // A missing slot / empty name yields contiguous 0 → ask 0 = full
-      // resend, which IS the correct self-heal, not a case to skip the clamp
-      // for. forceChunk stays unclamped: it is store-derived by construction
-      // (handleFileResume) or an explicit caller decision (decode fallback 0).
+      // Clamp the control-plane counter to ramstore's contiguous prefix. A
+      // missing slot correctly requests a full resend; an explicit forceChunk
+      // is already store-derived or intentionally supplied by the caller.
       let chunkToAsk = forceChunk;
       if (chunkToAsk === null) {
         const counterAsk = getState('transfer.receivedCount') || 0;
@@ -211,13 +204,8 @@ async function handleRequestCurrentFile(
   const fileToSend = ensureNamedFile(blob, fallbackName);
   if (!fileToSend) return;
 
-  // Route by transport eligibility. unicastFile's own guard silently DROPS
-  // remote/unknown peers (and since the blob was found, no FILE_WAIT went out
-  // either) — a remote guest whose R2 download/decode failed was left
-  // permanently silent. Re-send the descriptor instead: targeted
-  // shareRemoteFileIfNeeded reuses the fresh descriptor cache (cheap), and
-  // re-uploads only when expired. TURN cost policy holds — only a
-  // control-plane descriptor rides the connection; bytes go via R2.
+  // Direct unicast is local-only. Remote guests receive a refreshed descriptor;
+  // the encrypted bytes continue to travel through object storage.
   if (await canSendFileTo(conn)) {
     await unicastFile(conn, fileToSend, 0, sid, true);
     return;
@@ -344,20 +332,14 @@ export function initRecovery(): void {
     [MSG.REQUEST_DATA_RECOVERY]: handleRequestDataRecovery,
   });
 
-  // Listen for recovery events from other modules. forceChunk arrives only
-  // from handleFileResume's store-derived rebase; the 7 plain emit sites pass
-  // no args, so the listener receives undefined — normalize to null here
-  // (sendRecoveryRequest's forceChunk gate is `=== null`; forwarding
-  // undefined verbatim would send nextChunk: undefined on every ordinary
-  // recovery ask).
+  // Normalize the optional forced offset because ordinary recovery events do
+  // not include one.
   bus.on('storage:request-recovery', (forceChunk?: number) => {
     sendRecoveryRequest(typeof forceChunk === 'number' ? forceChunk : null);
   });
 
-  // Clear recovery state on session leave OR new session (reconnect) to
-  // prevent stale pending flag from blocking all future recovery requests.
-  // M13: Previously only fired when code became falsy (session leave), but
-  // reconnect changes code from one truthy value to another, skipping reset.
+  // Reset on every session-code change, including reconnects between two
+  // non-empty codes, so pending state cannot cross session boundaries.
   bus.on('state:network.sessionCode', () => {
     setState('recovery.pending', false);
     setState('recovery.retryCount', 0);

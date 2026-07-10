@@ -87,7 +87,6 @@ const BG_DARK    = 0x0a0a0a;
 
 const canvas = document.getElementById('scene');
 
-// ─── Renderer ─────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -96,7 +95,6 @@ renderer.toneMapping = THREE.NoToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-// ─── Scene & Camera ───────────────────────────────────
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(BG_DARK);
 
@@ -106,12 +104,10 @@ const camera = new THREE.PerspectiveCamera(
 const DEFAULT_CAM = new THREE.Vector3(6, 4, 75);
 camera.position.copy(DEFAULT_CAM);
 
-// ─── Environment (PBR reflections) ────────────────────
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
-// ─── Lights ──────────────────────────────────────────
-// Glass needs environmental light to refract/reflect
+// Environment and direct light give the glass visible reflections and refraction.
 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
 keyLight.position.set(6, 10, 8);
@@ -172,7 +168,6 @@ grid.rotation.x = Math.PI / 2;  // rotate from XZ (floor) to XY (wall)
 grid.position.z = -15;
 scene.add(grid);
 
-// ─── Controls ────────────────────────────────────────
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
@@ -181,7 +176,6 @@ controls.autoRotateSpeed = 1.2;
 controls.minDistance = 25;
 controls.maxDistance = 120;
 
-// ─── Post: Bloom + Output ────────────────────────────
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
@@ -194,7 +188,6 @@ const bloom = new UnrealBloomPass(
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-// ─── Animate ─────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
@@ -202,7 +195,6 @@ function animate() {
 }
 animate();
 
-// ─── Interactions ────────────────────────────────────
 let darkMode = true;
 document.body.classList.add('dark');
 document.body.style.background = '#0a0a0a';
@@ -233,7 +225,6 @@ window.addEventListener('keydown', e => {
   }
 });
 
-// ─── Resize ──────────────────────────────────────────
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h;

@@ -59,7 +59,7 @@ describe('setPreamp', () => {
 
   it('20 dB → clamped to 12 dB → gain ≈ 3.98', () => {
     setPreamp(20);
-    // Clamped to max +12 dB: Math.pow(10, 12/20) ≈ 3.981
+    // Values above the public range are clamped before conversion to linear gain.
     expect(getState('audio.userPreampGain')).toBeCloseTo(3.981, 2);
   });
 });

@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState } from '../../core/state.ts';
 
-// Mock dom.ts animateTransition to execute callback synchronously
+// View transitions are outside this unit; run their callback synchronously.
 vi.mock('../dom.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../dom.ts')>();
   return {

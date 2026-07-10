@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE temporary encrypted file-share Worker.
+ * MUSIXQUARE encrypted file-share Worker.
  *
  * Required bindings:
  * - REMOTE_SHARE_BUCKET: R2 bucket

@@ -17,11 +17,11 @@ export type TransferStateValue = (typeof TRANSFER_STATE)[keyof typeof TRANSFER_S
 
 // ─── Playback Lifecycle State ──────────────────────────────────────
 // Guest-side track lifecycle. Orthogonal to playback mode/activity; this describes
-// WHAT PHASE within the local-file/video mode we're in. For YouTube and
+// WHAT PHASE within local-file mode we're in. For YouTube and
 // system-audio modes this stays at IDLE (they have their own lifecycle paths).
 //
-// See docs/design/playback-state-machine.md for the full transition
-// table and migration plan. Every transition goes through
+// Current invariants are documented in
+// docs/design/playback-concurrency-invariants.md. Every transition goes through
 // src/player/lifecycle.ts::transition(); direct setState calls to
 // playback.lifecycle outside that helper are forbidden.
 export const PLAYBACK_STATE = {
@@ -47,7 +47,7 @@ export const LOAD_SOURCE = {
 export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
 
 // ─── File Transfer ─────────────────────────────────────────────────
-export const CHUNK_SIZE = 64 * 1024; // 64KB per chunk
+export const CHUNK_SIZE = 64 * 1024; // 64 KiB per chunk
 export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog
 
 export const MAX_RECOVERY_RETRIES = 3;
@@ -71,7 +71,8 @@ export const MIN_GUEST_SLOTS = 1;
 export const MAX_GUEST_SLOTS_LIMIT = 32;
 /** Show "this mode is recommended for small rooms" dialog only when the host
  *  has opted into a larger room (slot cap ≥ this). Users sticking to the
- *  default 3 won't see the warning for file-share / system-audio entry. */
+ *  default room limit won't trigger the warning for file-share or
+ *  system-audio entry. */
 export const WARN_WHEN_MAX_SLOTS_AT_LEAST = 6;
 export const PEER_NAME_PREFIX = 'Peer';
 
@@ -79,7 +80,7 @@ export const PEER_NAME_PREFIX = 'Peer';
 // Cross-client WIRE CONTRACT — keep bit-identical across releases (deployed
 // clients truncate with these exact values; drift desyncs sender-side vs
 // receiver-side truncation). Used by:
-//   - chat/protocol.ts   inbound truncation + host fan-out write-back (CHAT-1)
+//   - chat/protocol.ts   inbound truncation + host fan-out write-back
 //   - network/sync.ts    OP /notice cap before broadcast, so an OP can't
 //                        amplify a 10MB arg to N peers
 //   - ui/chat.ts         input clamp / paste-merge clamp
@@ -109,8 +110,6 @@ export const MSG = {
   DEMO_EXIT: 'demo-exit',
   DEMO_PAUSE: 'demo-pause',
   DEMO_PLAY: 'demo-play',
-  // GET_SYNC_TIME removed — dead code (no sender, no handler)
-  // GLOBAL_RESYNC_REQUEST removed — dead code (no sender, no handler)
   PAUSE: 'pause',
   PLAY: 'play',
   PLAYLIST_UPDATE: 'playlist-update',
@@ -125,7 +124,6 @@ export const MSG = {
   REQUEST_CURRENT_FILE: 'request-current-file',
   REQUEST_DATA_RECOVERY: 'request-data-recovery',
   REQUEST_EQ_RESET: 'request-eq-reset',
-  // REQUEST_REVERB_RESET removed — dead code (no sender, no handler)
   REQUEST_NEXT_TRACK: 'request-next-track',
   REQUEST_PAUSE: 'request-pause',
   REQUEST_PLAY: 'request-play',
@@ -147,10 +145,7 @@ export const MSG = {
   REVERB_PREDELAY: 'reverb-predelay',
   REVERB_TYPE: 'reverb-type',
   SHUFFLE_MODE: 'shuffle-mode',
-  // STATUS_SYNC removed — dead code (no sender, no handler)
   STEREO_WIDTH: 'stereo-width',
-  // SYNC_RESPONSE removed — dead code (no sender, no handler)
-  // FORCE_SYNC_PLAY removed — dead code (no sender, no handler)
   OPERATOR_GRANT: 'operator-grant',
   OPERATOR_REVOKE: 'operator-revoke',
   VBASS: 'vbass',
@@ -167,9 +162,6 @@ export const MSG = {
   // ── Shared Clock ───────────────────────────────────────────────
   SYNC_PING: 'sync-ping',
   SYNC_PONG: 'sync-pong',
-  // SYNC_REQUEST removed — dead code (host sync button now broadcasts PLAY/PAUSE directly)
-
-  // SYS_TOAST removed — dead code (no sender, no handler)
   KICK_DEVICE: 'kick-device',
   OPERATOR_TOAST: 'operator-toast',
 
@@ -225,7 +217,7 @@ export const RESERVED_NAMES = [
 // (network/sync.ts) strips with this exact pattern, and the client-side
 // validators (ui/connect.ts, chat/commands.ts) must apply the SAME strip so a
 // name that sanitizes into a reserved/duplicate/empty string fails locally
-// with feedback instead of being silently rejected by the host (F-2404).
+// with feedback instead of being silently rejected by the host.
 export const DEVICE_LABEL_SANITIZE_RE =
   // eslint-disable-next-line no-control-regex
   /[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;

@@ -118,8 +118,8 @@ export function initMediaSession(): void {
         // paused via lock screen / BT button while the host kept playing —
         // SYNC_PONG re-locks position after resume). If the flag is clear,
         // the pause is ROOM-level (host PAUSE cleared it in playback.ts):
-        // a lone guest resuming would play solo in a multi-device room
-        // (SA-09). The room resumes via the host's next PLAY broadcast.
+        // a lone guest resuming would play solo in a multi-device room. The
+        // room resumes via the host's next PLAY broadcast.
         if (!isLocalFilePaused()) return;
         // Clear the flag so the next SYNC_PONG re-locks this guest to the
         // host position (network/sync.ts).
@@ -195,15 +195,9 @@ export function initMediaSession(): void {
     }
   });
 
-  // !! CRITICAL — DO NOT REMOVE
-  // Sync playbackState with playback activity. This explicitly tells the OS
-  // that media is playing, which has a crucial side effect on iOS PWA:
-  // iOS keeps the AudioContext alive in the background when
-  // playbackState === 'playing', enabling background audio playback.
-  // Without this, iOS suspends the AudioContext when the app goes to
-  // the background or the screen turns off, killing audio immediately.
-  // Web Audio apps need this because the browser can't
-  // infer playback state from an <audio> element.)
+  // Keep the Media Session state aligned with playback activity. Web Audio has
+  // no media element from which the browser can infer this state; the explicit
+  // value also allows iOS to preserve background playback for an active PWA.
   bus.on('state:playback.activity', (activity) => {
     if (!('mediaSession' in navigator)) return;
     if (!isPlaybackActivityValue(activity)) return;

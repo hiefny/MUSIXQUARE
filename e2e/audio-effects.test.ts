@@ -38,20 +38,17 @@ test.describe('Audio Effects', () => {
   test('EQ sliders exist and are adjustable', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Navigate to settings → audio subtab
     await navigateToTab(pair.hostPage, 'settings');
 
-    // Navigate to audio subtab if it exists
     if (await isVisible(pair.hostPage, '.subtab-pill[data-subtab="audio"]')) {
       await navigateToSubtab(pair.hostPage, 'audio');
     }
 
-    // Check EQ sliders exist
     for (let i = 0; i < 5; i++) {
       await expect(pair.hostPage.locator(`#eq-slider-${i}`)).toBeAttached();
     }
 
-    // Adjust first EQ band (60Hz) to +6dB — use evaluate since slider may not be visible
+    // Dispatch through the DOM because responsive layout may hide the slider.
     const eqSlider0 = pair.hostPage.locator('#eq-slider-0');
     await eqSlider0.evaluate((el: HTMLInputElement) => {
       el.value = '6';
@@ -59,10 +56,8 @@ test.describe('Audio Effects', () => {
       el.dispatchEvent(new Event('change', { bubbles: true }));
     });
 
-    // Wait for state to reflect the slider change
     await waitForState(pair.hostPage, 'audio.eqValues', [6, 0, 0, 0, 0]);
 
-    // Verify state updated
     const eqValues = await readState(pair.hostPage, 'audio.eqValues') as number[];
     expect(eqValues[0]).toBe(6);
   });
@@ -72,12 +67,10 @@ test.describe('Audio Effects', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    // Click "Bright" preset
     const brightBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="bright"]');
     if (await brightBtn.isVisible()) {
       await brightBtn.click();
 
-      // Bright preset: [0, -2, 0, 4, 6]
       await waitForState(pair.hostPage, 'audio.eqValues', [0, -2, 0, 4, 6]);
       const eqValues = await readState(pair.hostPage, 'audio.eqValues') as number[];
       expect(eqValues).toEqual([0, -2, 0, 4, 6]);
@@ -93,7 +86,6 @@ test.describe('Audio Effects', () => {
     if (await warmBtn.isVisible()) {
       await warmBtn.click();
 
-      // Warm preset: [5, 3, 0, -2, -3]
       await waitForState(pair.hostPage, 'audio.eqValues', [5, 3, 0, -2, -3]);
       const eqValues = await readState(pair.hostPage, 'audio.eqValues') as number[];
       expect(eqValues).toEqual([5, 3, 0, -2, -3]);
@@ -105,14 +97,12 @@ test.describe('Audio Effects', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    // First set to bright
     const brightBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="bright"]');
     if (await brightBtn.isVisible()) {
       await brightBtn.click();
       await waitForState(pair.hostPage, 'audio.eqValues', [0, -2, 0, 4, 6]);
     }
 
-    // Then reset to off
     const offBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="off"]');
     if (await offBtn.isVisible()) {
       await offBtn.click();
@@ -128,24 +118,21 @@ test.describe('Audio Effects', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    // Need to be in advanced mode to see sliders
+    // Sliders are rendered only in advanced mode.
     const advBtn = pair.hostPage.locator('#grid-eq .ch-opt[data-eq-type="advanced"]');
     if (await advBtn.isVisible()) {
       await clickAndWaitActive(pair.hostPage, '#grid-eq .ch-opt[data-eq-type="advanced"]');
     }
 
-    // Set slider to -8
     const eqSlider2 = pair.hostPage.locator('#eq-slider-2');
     if (await eqSlider2.isVisible()) {
       await eqSlider2.fill('-8');
       await eqSlider2.dispatchEvent('input');
 
-      // Wait for value display to update
       await pair.hostPage.waitForFunction(
         () => document.getElementById('eq-val-2')?.textContent?.includes('-8') ?? false,
       );
 
-      // Check value display
       const valText = await pair.hostPage.locator('#eq-val-2').textContent();
       expect(valText).toContain('-8');
     }
@@ -158,7 +145,7 @@ test.describe('Audio Effects', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    // Need advanced reverb mode
+    // The mix slider is rendered only in advanced mode.
     const advBtn = pair.hostPage.locator('#grid-reverb .ch-opt[data-rvb-type="advanced"]');
     if (await advBtn.isVisible()) {
       await clickAndWaitActive(pair.hostPage, '#grid-reverb .ch-opt[data-rvb-type="advanced"]');
@@ -184,7 +171,6 @@ test.describe('Audio Effects', () => {
     if (await studioBtn.isVisible()) {
       await studioBtn.click();
 
-      // Wait for reverbMix to become > 0
       await pair.hostPage.waitForFunction(
         () => {
           const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
@@ -206,7 +192,6 @@ test.describe('Audio Effects', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    // Set studio first
     const studioBtn = pair.hostPage.locator('#grid-reverb .ch-opt[data-rvb-type="studio"]');
     if (await studioBtn.isVisible()) {
       await studioBtn.click();
@@ -222,7 +207,6 @@ test.describe('Audio Effects', () => {
       );
     }
 
-    // Reset
     const offBtn = pair.hostPage.locator('#grid-reverb .ch-opt[data-rvb-type="off"]');
     if (await offBtn.isVisible()) {
       await offBtn.click();
@@ -267,7 +251,6 @@ test.describe('Audio Effects', () => {
     if (await onBtn.isVisible()) {
       await onBtn.click();
 
-      // Wait for stereo width to change from initial value
       await pair.hostPage.waitForFunction(
         (initial) => {
           const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
@@ -291,7 +274,6 @@ test.describe('Audio Effects', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    // Enable first
     const onBtn = pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="on"]');
     if (await onBtn.isVisible()) {
       await onBtn.click();
@@ -307,7 +289,6 @@ test.describe('Audio Effects', () => {
       );
     }
 
-    // Disable
     const offBtn = pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="off"]');
     if (await offBtn.isVisible()) {
       await offBtn.click();
@@ -329,7 +310,6 @@ test.describe('Audio Effects', () => {
     if (await onBtn.isVisible()) {
       await onBtn.click();
 
-      // Wait for virtualBass to become > 0
       await pair.hostPage.waitForFunction(
         () => {
           const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
@@ -351,7 +331,6 @@ test.describe('Audio Effects', () => {
 
     await navigateToTab(pair.hostPage, 'settings');
 
-    // Enable
     const onBtn = pair.hostPage.locator('#grid-vbass .ch-opt[data-toggle="on"]');
     if (await onBtn.isVisible()) {
       await onBtn.click();
@@ -367,7 +346,6 @@ test.describe('Audio Effects', () => {
       );
     }
 
-    // Disable
     const offBtn = pair.hostPage.locator('#grid-vbass .ch-opt[data-toggle="off"]');
     if (await offBtn.isVisible()) {
       await offBtn.click();
@@ -427,14 +405,13 @@ test.describe('Audio Effects', () => {
   test('subwoofer cutoff slider visible in sub mode', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Switch to subwoofer mode first (from audio-channel)
+    // The cutoff control exists only in subwoofer mode.
     await pair.hostPage.evaluate(() => {
       const setState = (window as any).__MUSIXQUARE_SET_STATE__;
       if (setState) setState('audio.channelMode', 2);
     });
     await waitForState(pair.hostPage, 'audio.channelMode', 2);
 
-    // Check cutoff slider visibility or existence
     const cutoffSlider = pair.hostPage.locator('#cutoff-slider');
     await expect(cutoffSlider).toBeAttached();
   });
@@ -442,7 +419,7 @@ test.describe('Audio Effects', () => {
   test('subwoofer cutoff changes subFreq state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Set sub mode
+    // The cutoff control exists only in subwoofer mode.
     await pair.hostPage.evaluate(() => {
       const setState = (window as any).__MUSIXQUARE_SET_STATE__;
       if (setState) setState('audio.channelMode', 2);

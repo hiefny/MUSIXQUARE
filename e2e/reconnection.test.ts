@@ -32,12 +32,11 @@ test.describe('Reconnection & Disconnect', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // Close guest context (simulates disconnect)
+    // Closing the browser context simulates an ungraceful network loss.
     await pair.guestContext.close();
-    // Mark as closed so cleanup doesn't double-close
+    // Prevent afterEach from closing the same context twice.
     (pair as any)._guestClosed = true;
 
-    // Wait for host to detect disconnect
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -59,11 +58,9 @@ test.describe('Reconnection & Disconnect', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // Disconnect guest
     await pair.guestContext.close();
     (pair as any)._guestClosed = true;
 
-    // Wait for host to detect disconnect
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -74,7 +71,6 @@ test.describe('Reconnection & Disconnect', () => {
       { timeout: 20_000 },
     );
 
-    // Host should still have a valid session
     const appRole = await readState(pair.hostPage, 'network.appRole');
     expect(appRole).toBe('host');
 
@@ -86,17 +82,14 @@ test.describe('Reconnection & Disconnect', () => {
   test('host state persists after guest disconnect', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload file while connected
     const { uploadFixture } = await import('./helpers/file-upload.ts');
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Disconnect guest
     await pair.guestContext.close();
     (pair as any)._guestClosed = true;
 
-    // Wait for host to detect disconnect
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -107,7 +100,6 @@ test.describe('Reconnection & Disconnect', () => {
       { timeout: 20_000 },
     );
 
-    // Host playlist should still have the file
     const playlistCount = await pair.hostPage.evaluate(() => {
       const list = document.getElementById('playlist-ui');
       return list?.children.length ?? 0;
@@ -119,14 +111,11 @@ test.describe('Reconnection & Disconnect', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // Get session code
     const code = await readState(pair.hostPage, 'network.sessionCode') as string;
 
-    // Disconnect first guest
     await pair.guestContext.close();
     (pair as any)._guestClosed = true;
 
-    // Wait for host to detect disconnect
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -137,7 +126,6 @@ test.describe('Reconnection & Disconnect', () => {
       { timeout: 20_000 },
     );
 
-    // Create new guest
     const { injectPeerServer } = await import('./helpers/peer-server.ts');
     const { setupGuest } = await import('./helpers/setup-flow.ts');
 
@@ -148,11 +136,10 @@ test.describe('Reconnection & Disconnect', () => {
     try {
       await setupGuest(newGuestPage, code);
 
-      // Host should see new guest
       await waitForDeviceCount(pair.hostPage, 2);
 
-      // New guest successfully joined — device list shows at least 2 (host + new guest)
-      // connectedPeers may include stale entries briefly, just verify new guest joined
+      // A replaced connection can remain briefly in connectedPeers, so assert
+      // successful admission rather than an exact transient count.
       const deviceRows = await pair.hostPage.evaluate(() => {
         const list = document.getElementById('connect-device-list') || document.getElementById('desktop-device-list');
         return list?.querySelectorAll('.device-row').length ?? 0;
@@ -167,10 +154,9 @@ test.describe('Reconnection & Disconnect', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // Click leave button on guest (this reloads the page)
+    // The leave action reloads the guest page.
     const leaveBtn = pair.guestPage.locator('#btn-leave-session, #desktop-btn-leave-session');
     if (await leaveBtn.first().isVisible()) {
-      // Set intentional disconnect flag check
       await pair.guestPage.evaluate(() => {
         const setState = (window as any).__MUSIXQUARE_SET_STATE__;
         if (setState) setState('network.isIntentionalDisconnect', true);

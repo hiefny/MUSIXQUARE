@@ -1,5 +1,5 @@
 /**
- * MUSIXQUARE 4.0 — System Audio Host (Dual-Stream WebRTC)
+ * MUSIXQUARE — System Audio Host (Dual-Stream WebRTC)
  *
  * Sends L and R channels as separate mono MediaConnections.
  * Each stream is mono Opus (Chrome's default) — two mono = true stereo.
@@ -30,7 +30,7 @@ function boostAudioSenders(pc: RTCPeerConnection): void {
   pc.getSenders().forEach((sender) => {
     if (sender.track?.kind === 'audio') {
       const track = sender.track;
-      // 1. Disable browser noise handling on the track itself
+      // Preserve music dynamics instead of applying microphone-oriented DSP.
       try {
         track
           .applyConstraints({
@@ -45,7 +45,7 @@ function boostAudioSenders(pc: RTCPeerConnection): void {
         /* noop */
       }
 
-      // 2. Lift bitrate limit manually (128kbps per track)
+      // Give each mono track an explicit 128 kbps ceiling.
       try {
         const params = sender.getParameters();
         if (!params.encodings) params.encodings = [{}];
@@ -64,14 +64,14 @@ function applySdpMunge(mc: MediaConnection): void {
   const pc = mc.peerConnection;
   if (!pc) return;
 
-  // Intercept setLocalDescription
+  // The media-call adapter owns offer creation, so patch this seam to apply the
+  // product SDP contract before the browser accepts the local description.
   const originalSetLocal = pc.setLocalDescription.bind(pc);
   pc.setLocalDescription = async (desc: RTCSessionDescriptionInit) => {
     if (desc && desc.sdp) {
       desc.sdp = forceStereoSdp(desc.sdp);
     }
     const result = await originalSetLocal(desc);
-    // After setting local description, we can boost the senders
     boostAudioSenders(pc);
     return result;
   };

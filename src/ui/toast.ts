@@ -1,8 +1,4 @@
-/**
- * MUSIXQUARE — Toast & Loader
- *
- * Manages: Toast notifications, header loading bar.
- */
+/** Toast notifications and the shared header progress indicator. */
 
 import { log } from '../core/log.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -21,11 +17,8 @@ export function updateLoader(percent: number): void {
   }
 }
 
-// Ref-counted loader holders. Each unique `id` is one "hold"; the loader
-// stays visible while any hold is active. Callers without an explicit id
-// share a default slot — existing single-slot usage is unchanged. Callers
-// that need to overlap with other flows should pass a unique id so one
-// flow's hide doesn't prematurely close another flow's loader.
+// Each unique ID owns one visibility hold. Overlapping flows must use distinct
+// IDs so one flow cannot hide the loader while another still needs it.
 const _loaderHolders = new Set<string>();
 const DEFAULT_LOADER_ID = '_default';
 

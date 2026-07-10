@@ -63,7 +63,7 @@ import {
   setPendingAutoJoinCode,
 } from './setup-shared.ts';
 
-// ─── Role Selection Buttons ──────────────────────────────────────
+// ─── Host / Guest Choice ─────────────────────────────────────────
 
 function showRoleSelectionButtons(): void {
   setupRenderActions(
@@ -325,7 +325,7 @@ export function initSetup(): void {
     });
   }
 
-  // PeerJS ready (peer ID assigned)
+  // Network peer ready (signaling identity assigned).
   bus.on('network:peer-ready', () => {
     updateRoleBadge();
   });
@@ -338,10 +338,10 @@ export function initSetup(): void {
     // Mark session as started so guests can see QR / invite link in Connect tab
     setState('setup.sessionStarted', true);
     const joinCode = getState('network.lastJoinCode');
-    // Defense-in-depth: every legitimate writer of lastJoinCode (setup-guest.ts:174, 263)
+    // Defense-in-depth: every legitimate writer of lastJoinCode in setup-guest.ts
     // already gates on /^\d{6}$/, but re-check at the sessionCode sink so a future
     // joinSession() caller that skips the format check can't poison the session
-    // code that gets composed into the share URL at connect.ts:71.
+    // code that gets composed into the share URL in connect.ts.
     if (joinCode && /^\d{6}$/.test(joinCode)) setState('network.sessionCode', joinCode);
 
     updateRoleBadge();
@@ -364,12 +364,12 @@ export function initSetup(): void {
     setState('network.isConnecting', false);
     updateRoleBadge();
 
-    // Always hide loader — auto-reconnect flow shows loader before joinSession,
-    // so we must hide it on failure to prevent permanent loader display (#103).
+    // Always hide the loader: auto-reconnect shows it before joinSession, so a
+    // failure must clear it rather than leave the setup UI permanently busy.
     showLoader(false);
 
     if (getPendingAutoJoinCode()) {
-      // Invite-link flow: go back to role selection (no code input step)
+      // Invite-link flow: restore the URL-code confirmation screen.
       startGuestFlow();
     } else {
       // Normal flow: re-show code input with editable field
@@ -404,11 +404,11 @@ export function initSetup(): void {
     restoreGuestJoinInputUI();
     // network:error already selected and displayed the specific failure
     // (missing room, password, signaling outage, etc.) before emitting this
-    // UI-reset event. A second generic toast here used to overwrite that
-    // diagnosis with "session not found", hiding protocol/deploy regressions.
+    // UI-reset event. Do not replace that diagnosis with a second generic
+    // "session not found" toast.
   });
 
-  // F-2401: a user-cancelled capability/Turnstile challenge mid-join restores the
+  // A user-cancelled capability/Turnstile challenge mid-join restores the
   // join UI WITHOUT a red error toast (the cancel is intentional, not a failure).
   bus.on('setup:guest-join-cancelled', () => {
     restoreGuestJoinInputUI();
@@ -460,7 +460,7 @@ export function initSetup(): void {
     else if (msg === 'PEER_NOT_READY') userMsg = t('error.peer_not_ready');
     else if (msg === 'NETWORK_INIT_FAILED') userMsg = t('error.network_init_failed');
     else if (msg === 'NO_HOST_ID') userMsg = t('error.no_host_id');
-    // PeerJS native error types
+    // Provider-compatible connection error types.
     else if (peerType === 'peer-unavailable') {
       // Context-aware: if this is a post-reconnect attempt (flag set by the
       // dialog handler before the hard-reset reload), the user clicked
@@ -507,7 +507,7 @@ export function initSetup(): void {
           if (res.action === 'ok') {
             // Hard-reset reconnect: reload the page and auto-join via the
             // /CODE path. This guarantees a pristine state — no stale timers,
-            // PeerJS connections, audio contexts, or sync runtime leftovers.
+            // transport connections, audio contexts, or sync runtime leftovers.
             // The auto-join URL detection in initSetupOverlay picks up the
             // code on bootstrap and enters guest flow automatically.
             const lastCode = getState('network.lastJoinCode') || '';
@@ -553,8 +553,8 @@ export function initSetup(): void {
         .catch((e) => log.warn('[Setup] Reconnect dialog error:', e));
     } else {
       showToast(userMsg);
-      // If we're in guest setup flow but isConnecting was already cleared
-      // (race condition), still reset the UI so the user isn't stuck (#102).
+      // If guest setup already cleared isConnecting in a race, still reset the
+      // UI so the user is not left in a non-interactive state.
       const appRole = getState('network.appRole');
       if (appRole === 'guest' && !getState('setup.sessionStarted')) {
         bus.emit('setup:guest-join-failure', err);
@@ -622,7 +622,7 @@ export function initSetup(): void {
       log.info(`[Setup] Auto-join code detected: ${joinCode}`);
       setPendingAutoJoinCode(joinCode);
 
-      // Show overlay first, then jump to guest role selection
+      // Show the overlay first, then open the URL-code guest flow.
       setManagedTimer(
         'auto-join-start',
         () => {

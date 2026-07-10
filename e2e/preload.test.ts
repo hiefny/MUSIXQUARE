@@ -2,7 +2,7 @@
  * E2E: Preload System Tests
  *
  * Tests the background preload mechanism.
- * Note: Preload requires successful audio decode + ramstore finalize.
+ * Preload requires successful audio decode and ramstore finalization.
  * These tests verify the preload scheduling and state management
  * at the host level, since headless Chromium may not decode synthetic MP3s.
  */
@@ -29,7 +29,6 @@ test.describe('Preload System', () => {
   test('preload state initializes correctly', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Initial preload state should be clean
     const nextTrackIndex = await readState(pair.hostPage, 'preload.nextTrackIndex');
     const isPreloading = await readState(pair.hostPage, 'preload.isPreloading');
 
@@ -40,14 +39,12 @@ test.describe('Preload System', () => {
   test('host playlist with multiple files sets preload meta', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload 2 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    // Wait for preload state to potentially update (nextTrackIndex or isPreloading should change)
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -58,7 +55,6 @@ test.describe('Preload System', () => {
       { timeout: 10_000 },
     );
 
-    // Verify playlist has 2 items
     const playlist = await pair.hostPage.evaluate(() => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
         | ((p: string) => unknown)
@@ -72,7 +68,6 @@ test.describe('Preload System', () => {
   test('backward navigation clears preload state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Upload 3 files
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
@@ -89,7 +84,7 @@ test.describe('Preload System', () => {
       if (set) set('playlist.currentTrackIndex', 0);
     });
 
-    // Navigate forward via JS fallback (button may be CSS-hidden)
+    // Use a DOM click because responsive CSS can hide the desktop control.
     await pair.hostPage.evaluate(() => (document.getElementById('btn-next') as HTMLElement)?.click());
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentTrackIndex') !== 0,
@@ -99,18 +94,15 @@ test.describe('Preload System', () => {
     const afterNext = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
     expect(afterNext).toBe(1);
 
-    // Navigate backward via JS fallback
-    // playPrevTrack restarts current track if position > 3s; position is 0 here
-    // so it goes to the previous track (index 0).
+    // With no playback progress, Previous navigates instead of restarting the
+    // current track.
     await pair.hostPage.evaluate(() => (document.getElementById('btn-prev') as HTMLElement)?.click());
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentTrackIndex') === 0,
       { timeout: 15_000 },
     );
 
-    // After backward nav, preload state should be cleared/reset
     const nextBlob = await readState(pair.hostPage, 'preload.nextFileBlob');
-    // nextFileBlob should be null after clearPreloadState
     expect(nextBlob).toBeNull();
   });
 
@@ -125,7 +117,6 @@ test.describe('Preload System', () => {
     await waitForPlaylistCount(pair.hostPage, 2);
     await waitForPlaylistCount(pair.guestPage, 2, 20_000);
 
-    // Guest should have both tracks in playlist state
     const guestPlaylist = await pair.guestPage.evaluate(() => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
         | ((p: string) => unknown)

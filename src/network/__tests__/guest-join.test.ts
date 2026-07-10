@@ -155,10 +155,10 @@ describe('joinSession reconnect racing', () => {
 
     joinSession('HOST01');
     const first = conns[0];
-    first.fire('open'); // conn1 owns hostConn; close/error handlers attached
+    first.fire('open');
 
-    // Transport blip undetected, user rejoins: joinSession closes + clears
-    // conn1 and starts conn2 (isConnecting=true while conn2 is mid-connect).
+    // Rejoining during an undetected transport failure replaces the stale
+    // connection while the successor is still connecting.
     first.open = false;
     joinSession('HOST01');
     expect(getState('network.isConnecting')).toBe(true);
@@ -172,7 +172,7 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.isConnecting')).toBe(true);
     expect(errors).not.toHaveBeenCalled();
 
-    joinSession('HOST01'); // duplicate guard still holds
+    joinSession('HOST01');
     expect(connect).toHaveBeenCalledTimes(2);
   });
 
@@ -200,7 +200,7 @@ describe('joinSession reconnect racing', () => {
 
 describe('joinSession capability-challenge cancel (F-2401)', () => {
   it('routes a cancelled init to a silent join-UI restore, not a network:error toast', async () => {
-    mocks.getPeer.mockReturnValue(null); // force the _initNetwork(null) path
+    mocks.getPeer.mockReturnValue(null);
     setInitNetwork(() => Promise.reject(new Error('NETWORK_INIT_CANCELLED')));
 
     const errors = vi.fn();
@@ -212,9 +212,8 @@ describe('joinSession capability-challenge cancel (F-2401)', () => {
     // Flush the _initNetwork(null).then().catch() chain (real timers).
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // A deliberate cancel must NOT surface a red error toast...
+    // Cancellation restores the join UI without surfacing a connection error.
     expect(errors).not.toHaveBeenCalled();
-    // ...and must restore the join UI silently via the dedicated event.
     expect(cancelled).toHaveBeenCalledTimes(1);
     expect(getState('network.isConnecting')).toBe(false);
   });

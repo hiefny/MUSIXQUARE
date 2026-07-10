@@ -61,7 +61,7 @@ type DemoSnapshot = {
   // overwrites transfer.meta with the demo track's meta, and the host's
   // recovery blob-matcher (findMatchingBlob) keys on it — without capturing
   // it, every post-demo REQUEST_CURRENT_FILE failed both name and index
-  // match and guests stayed on FILE_WAIT forever (DEMO-4).
+  // match and guests stayed on FILE_WAIT forever.
   transferMeta: Partial<FileMeta>;
   currentAudioBuffer: AudioBuffer | null;
   pausedAt: number;
@@ -101,13 +101,12 @@ let _demoStep = 1;
 let _demoTrackIndex = 0;
 let _demoLoadToken = 0;
 let _pendingDemoPlay: PendingDemoPlay | null = null;
-// DEMO_ENTER/PLAY that arrived while a demo track load was in flight — the
-// demo.loading guard silently dropped them, stranding guests on the previous
-// track while SYNC_PONG synced the wrong audio to the host's timeline (DEMO-1).
+// Hold DEMO_ENTER/PLAY received during a demo track load. Dropping them would
+// leave guests on the prior track while SYNC_PONG follows the host's timeline.
 let _queuedDemoEnterIndex: number | null = null;
 // Exit-completion closure (snapshot restore + DOM teardown). Token-style:
 // nulled on first run so the curtain onfinish, the fallback timer, and a
-// racing re-entry can never run it twice (DEMO-2 / CATCH-3).
+// racing re-entry can never run it twice.
 let _pendingDemoExitFinish: (() => void) | null = null;
 let _demoEnterRevealRaf = 0;
 let _demoCurtainAnimation: Animation | null = null;
@@ -232,7 +231,7 @@ function stopPlaybackForDemoEntry(playback: PlaybackModeActivity): void {
 
   stopAllMedia({ silent: true, cancelInFlight: true });
 
-  // SA-13: the demo takes over the room. Guests drop any still-streaming
+  // The demo takes over the room. Guests drop any still-streaming
   // file chunks via their lifecycle gates anyway — cancel the host's
   // outgoing broadcast/unicast loops so the share doesn't burn bandwidth
   // for the entire demo session.
@@ -273,7 +272,6 @@ function cancelDemoBlobRequests(): void {
 // lifecycles (curtain animation / first-time prompt) and are cleared at
 // their own call sites. Don't fold them in here — exitDemoMode immediately
 // re-schedules demo-overlay-exit via setDemoDomActive(false).
-// (10차 audit Phase 2 finding — design intent annotation.)
 function clearDemoRuntimeWork(): void {
   clearManagedTimer('demo-effect-state-sync');
   clearDemoLayoutRefreshTimers();
@@ -603,7 +601,7 @@ function setDemoDomActive(active: boolean, options: { afterCovered?: () => void 
       setManagedTimer(
         DEMO_OVERLAY_EXIT_TIMER,
         () => {
-          // CATCH-3: cancel the curtain animation so a deferred onfinish
+          // Cancel the curtain animation so a deferred onfinish
           // can't fire again after visibility returns.
           stopDemoCurtainAnimation();
           finishExit();
@@ -702,20 +700,19 @@ function syncDemoSessionCopy(): void {
 let _demoQrGeneration = 0;
 // Last code whose SVG actually committed to the DOM. Same-code calls are
 // no-ops: syncDemoSessionCopy re-runs on every connectedPeers/device-list
-// event, and regenerating an identical QR per event is pure waste (PERF-1).
+// event, and regenerating an identical QR per event is pure waste.
 let _lastQrRenderedCode: string | null = null;
 async function renderDemoQRCode(code: string): Promise<void> {
   const container = document.getElementById('demo-session-qr');
   if (!container) return;
 
   // Dedup BEFORE the generation bump so a deduped call is equivalent to
-  // never having been made (preserves the 13차 stale-async token semantics).
+  // never having been made, preserving stale-async token semantics.
   if (code === _lastQrRenderedCode) return;
 
   // Bump generation BEFORE validating, so a later invalid-code call invalidates
   // a pending valid-code await — without this, a stale SVG from the prior valid
   // code could clobber the placeholder set on the subsequent invalid call.
-  // (13차 audit finding 4 — fixes 12차 L-10 partial token coverage.)
   const gen = ++_demoQrGeneration;
 
   if (!/^\d{6}$/.test(code)) {
@@ -955,7 +952,7 @@ type EnterDemoOptions = {
  * Called at the top of a fresh demo entry: without it the old exit's curtain
  * callback fires MID-new-demo (restoring stale settings into it), and the new
  * entry's snapshot — captured before the pending restore ran — would record
- * demo-flavored settings as "pre-demo", losing the user's originals (DEMO-2).
+ * demo-flavored settings as "pre-demo", losing the user's originals.
  */
 function finishPendingDemoExitRestore(): void {
   if (!_pendingDemoExitFinish) return;
@@ -965,7 +962,7 @@ function finishPendingDemoExitRestore(): void {
 
 /**
  * Re-dispatch the newest host track command that was dropped by the
- * demo.loading guard while a load was in flight (DEMO-1). Consumed before
+ * demo.loading guard while a load was in flight. Consumed before
  * dispatch, so a drain → enterDemoMode → drain chain is bounded.
  */
 function drainQueuedDemoEnter(): void {
@@ -989,7 +986,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
     // Reload also when the buffer is missing: a guest whose own fetch failed
     // would otherwise be stranded — the same-index skip plus
     // applyPendingDemoPlay's null-buffer abort leave nothing to re-trigger
-    // the load (DEMO-3 guest sibling).
+    // the load.
     if (nextIndex !== _demoTrackIndex || !getCurrentAudioBuffer()) {
       setState('demo.loading', true);
       try {
@@ -999,10 +996,9 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
         showLoader(false);
       }
     }
-    // Post-await re-check: 11차 H-3 listener exits demo if hostConn drops
+    // Re-check after the await because the listener exits demo if hostConn drops
     // mid-load. Without this guard, setDemoDomActive(true) would force the
     // DOM back into demo state while state.demo.active is already false.
-    // (12차 audit Phase 1 finding.)
     if (!getState('demo.active')) return;
     setDemoDomActive(true);
     applyPendingDemoPlay();
@@ -1171,7 +1167,7 @@ function toggleDemoPlay(): void {
   // before the load, and a same-index re-enter skips the load): refetch and
   // broadcast DEMO_PLAY only AFTER success. A bare play() here no-ops with a
   // misleading "add media" toast while guests whose fetch succeeded start
-  // playing — splitting the room (DEMO-3).
+  // playing — splitting the room.
   if (!getCurrentAudioBuffer()) {
     setState('demo.loading', true);
     void loadDemoTrack(_demoTrackIndex, { autoplay: false })
@@ -1220,7 +1216,7 @@ function playNextDemoTrack(): void {
 function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isTrustedDemoHostMessage(conn)) return;
   const index = normalizeDemoTrackIndex(data.index);
-  // DEMO-1: a load in flight drops the enterDemoMode call below on its
+  // A load in flight drops the enterDemoMode call below on its
   // demo.loading guard — queue the index so the post-load drain converges.
   if (getState('demo.loading')) _queuedDemoEnterIndex = index;
   stopDemoPlaybackForIncomingTrack(index);
@@ -1234,7 +1230,7 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
     syncEffectButtons();
   };
 
-  // PERF-2: effect-toggle rebroadcasts (already active, same loaded track)
+  // Effect-toggle rebroadcasts (already active, same loaded track)
   // must not re-run the full enterDemoMode DOM path — that fired ~5 synthetic
   // resize storms per toggle on every guest. Flags-only apply.
   if (
@@ -1255,7 +1251,7 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
 function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isTrustedDemoHostMessage(conn)) return;
   const index = normalizeDemoTrackIndex(data.index);
-  // DEMO-1: see handleDemoEnterMessage — same dropped-while-loading queue.
+  // See handleDemoEnterMessage: this uses the same dropped-while-loading queue.
   if (getState('demo.loading')) _queuedDemoEnterIndex = index;
   stopDemoPlaybackForIncomingTrack(index);
   _pendingDemoPlay = {
@@ -1409,7 +1405,7 @@ export function initDemoMode(): void {
   _busScope.on('network:peer-connected', (conn) => sendDemoBootstrap(conn as DataConnection));
   // HOT path: the host rewrites connectedPeers on every guest SYNC_PING
   // (1/s per guest) — without the demo.active gate this regenerated the
-  // hidden demo panel's QR + DOM continuously for the whole session (PERF-1).
+  // hidden demo panel's QR + DOM continuously for the whole session.
   // Demo entry itself calls syncDemoSessionCopy via setDemoDomActive.
   _busScope.on('state:network.connectedPeers', () => {
     if (getState('demo.active')) syncDemoSessionCopy();
@@ -1421,7 +1417,6 @@ export function initDemoMode(): void {
   // Broadcast=false since there's no host to receive a DEMO_EXIT anyway.
   // Host's own demo path is unaffected — host has no hostConn so this
   // listener only fires for guests on hostConn null transition.
-  // (10차 audit Phase 2 finding.)
   _busScope.on('state:network.hostConn', (hc) => {
     if (!hc && getState('demo.active')) {
       exitDemoMode({ broadcastExit: false });

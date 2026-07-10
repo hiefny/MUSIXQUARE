@@ -162,8 +162,7 @@ function hasFilePipeline(
 // drive their own surfaces (iframe player state, capture stream events). So any
 // non-IDLE lifecycle value implies `mode: 'file'` by construction — the two
 // helpers below intentionally hard-code that mapping rather than inspect the
-// current mode. If a future playback mode starts writing to this FSM, audit
-// these functions first.
+// current mode. Any new writer to this FSM must extend these mappings.
 function modeActivityForLifecycle(lifecycle: PlaybackStateValue): PlaybackModeActivity {
   if (lifecycle === PLAYBACK_STATE.IDLE) return { mode: null, activity: 'idle' };
   if (lifecycle === PLAYBACK_STATE.PLAYING) return OWNER_MODE_ACTIVITY.file;
@@ -408,7 +407,7 @@ for (const event of [
   });
 }
 
-// Read: mode/activity predicates (new decomposed playback contract)
+// Read: mode/activity predicates
 
 export function isPlaybackModeFile(): boolean {
   return getState('playback.mode') === 'file';

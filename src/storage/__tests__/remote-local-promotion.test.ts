@@ -289,10 +289,8 @@ describe('remote-share to local direct transfer promotion', () => {
     });
   });
 
-  // HET-1 (22차 domain audit): a guest who loaded the current track via the
-  // R2 remote path never wrote transfer.localSessionId — the promotion
-  // unicast's FILE_START must NOT register as a new session and destroy the
-  // playing buffer mid-track.
+  // A remote-loaded guest has no local transfer session. The first promotion
+  // FILE_START must adopt its session without destroying the playing buffer.
   it('skips re-transfer and preserves loaded audio when a promoted guest receives FILE_START for the already-loaded track', async () => {
     const { handleFileStart } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');
@@ -364,11 +362,8 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('transfer.localSessionId')).toBe(8);
   });
 
-  // External-review finding (2026-06-10): the index-mismatch branch clears
-  // the preload STATE, but the match booleans/blob were captured before it —
-  // a same-name-different-index FILE_PREPARE (duplicate filenames) entered
-  // the preload-match path anyway, then stalled on the now-null blob while
-  // shouldSkipIncomingFile() dropped the real transfer.
+  // Match booleans captured before a mismatch cleanup must not route a
+  // same-name/different-index request through the cleared preload slot.
   it('does not enter preload-match for a same-name DIFFERENT-index track after the mismatch clear', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 
@@ -392,9 +387,8 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
-  // DV-1 same-content promote: identical name AND byte size = the preloaded
-  // blob IS this track (duplicate playlist entries) — re-point instead of
-  // discarding + re-downloading the same bytes.
+  // Duplicate entries with the same name and byte size may re-point the
+  // retained preload instead of downloading it again.
   it('promotes a byte-identical preload to the requested index instead of re-downloading', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 
@@ -517,11 +511,8 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
-  // EXT-3 (external review 2026-06-11): the new-session reset arms the
-  // chunkWatchdog BEFORE the reuse fast-paths are evaluated. Both no-chunk
-  // returns must disarm it — left running it fires at 12s with
-  // receivedCount=0, requests recovery from chunk 0, and the host re-streams
-  // the entire file only for the guest to discard it.
+  // New-session setup arms the chunk watchdog before reuse is evaluated. Both
+  // no-chunk fast paths must disarm it.
   it('disarms the chunk watchdog when the duplicate-entry reuse skips the download', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
     const { setManagedTimer, clearManagedTimer } = await import('../../core/timers.ts');

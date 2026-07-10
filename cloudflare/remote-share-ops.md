@@ -4,6 +4,10 @@ This note records the current operating decision for Cloudflare-backed remote
 file sharing. It is intentionally practical: what to watch, when to upgrade,
 and which guardrails are meant to solve which problem.
 
+Cloudflare plan limits were last checked against the official Workers, Workers
+KV, and WAF documentation on 2026-07-11. Recheck those sources before making a
+cost or upgrade decision.
+
 ## Current Decision
 
 - Start on Cloudflare Workers Free.
@@ -35,7 +39,8 @@ Downloads do not write to KV.
 - R2 object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour by default.
 - The production R2 bucket also has a bucket-level lifecycle rule that automatically
   expires remote-share objects. This setting lives in R2 rather than this repository
-  and must remain configured for a maximum intended retention of 24 hours.
+  and must remain configured for a maximum intended retention of 24 hours. Wrangler
+  last confirmed the enabled one-day `room/` expiry rule on 2026-07-11.
 - Max upload size: `MAX_UPLOAD_BYTES`, currently 200 MiB by default.
 - KV rate limit:
   - `IP_UPLOADS_PER_WINDOW`: default 60 upload sessions per IP per hour.
@@ -53,12 +58,16 @@ Move from Workers Free to Workers Paid if any of these become normal rather than
 temporary test noise:
 
 - KV writes approach the Free limit of 1,000 writes per day.
-- Worker requests approach the Free limit.
+- Worker requests approach the Free limit of 100,000 requests per day.
 - Users see upload-session 429 responses during normal use.
 - Remote share uploads fail because of Cloudflare platform limits.
 
 Paid Workers are expected to be enough for a long time. The main reason to add
 WAF after that is abuse control, not normal-cost optimization.
+
+References: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
+[Workers KV pricing](https://developers.cloudflare.com/kv/platform/pricing/),
+and [WAF rate-limiting availability](https://developers.cloudflare.com/waf/rate-limiting-rules/).
 
 ## WAF Rate Limiting Plan
 

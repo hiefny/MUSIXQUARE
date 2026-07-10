@@ -1,11 +1,8 @@
 /**
  * MUSIXQUARE — Sync Worker (Background Timers)
- * Ported from js/sync.worker.js
  *
  * Timer & Heartbeat background tasks with robust error handling.
  */
-
-// self is already typed as DedicatedWorkerGlobalScope in WebWorker lib
 
 const timers = new Map<string, ReturnType<typeof setInterval>>();
 

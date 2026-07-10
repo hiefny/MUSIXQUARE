@@ -231,7 +231,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
     // Overwrite untrusted identity + badge fields before broadcast. Without
     // overwriting senderId/senderLabel/joinOrder, a malicious peer that pushed
     // a raw CHAT frame with someone else's senderId would have the spoofed
-    // identity reach every downstream guest verbatim — mirrors WHISPER L243-245.
+    // identity reach every downstream guest verbatim. Mirror the WHISPER handler.
     data.isHost = false;
     data.isOp = isOp;
     data.senderId = senderPeerId;
@@ -258,7 +258,7 @@ function handleChatMessage(data: Record<string, unknown>, conn: DataConnection):
 
 function handleChatMute(data: Record<string, unknown>, conn?: DataConnection): void {
   // Host should never receive a raw chat-mute — legitimate path is the
-  // host's own REQUEST_CHAT_COMMAND 'mute' branch in sync.ts:222 which
+  // host's own REQUEST_CHAT_COMMAND 'mute' branch in network/sync.ts, which
   // calls setState + broadcast directly. A raw frame at host with
   // targetId === hostId triggers a fake muted-state UI flip + spams
   // addSystemChatMessage. isFromHost on host returns true (no hostConn),
@@ -294,9 +294,9 @@ function handleChatFreeze(_data: Record<string, unknown>, conn?: DataConnection)
   // host's own cmdFreeze() which calls setState directly. A raw frame at
   // host means a malicious guest sent it over their own DataConnection
   // to flip network.chatFrozen=true, which then silently drops every
-  // non-OP guest's message in handleChatMessage L128-133 — disabling
-  // chat for the whole session. isFromHost(conn) returns true on host
-  // (L83 `!hostConn`), so the guest-side guard alone doesn't cover us.
+  // non-OP guest's message in handleChatMessage, disabling chat for the whole
+  // session. isFromHost(conn) returns true on a host with no hostConn, so the
+  // guest-side guard alone doesn't cover us.
   if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
   (setState as (p: string, v: boolean) => void)('network.chatFrozen', true);
@@ -313,7 +313,7 @@ function handleChatUnfreeze(_data: Record<string, unknown>, conn?: DataConnectio
 
 function handleChatClear(_data: Record<string, unknown>, conn?: DataConnection): void {
   // Host should never receive a raw chat-clear — legitimate path is the
-  // host's own REQUEST_CHAT_COMMAND 'clear' branch in sync.ts:247 which
+  // host's own REQUEST_CHAT_COMMAND 'clear' branch in network/sync.ts, which
   // calls bus.emit('chat:clear-all') directly. A single raw frame at
   // host wipes the host's entire chat UI. isFromHost on host returns
   // true (no hostConn), so the guest-side guard alone doesn't cover us.
@@ -414,8 +414,8 @@ function handleChatSlowmode(data: Record<string, unknown>, conn?: DataConnection
   // Host should never receive a raw chat-slowmode — legitimate path is
   // host's own cmdSlowmode() which calls setState directly. A raw frame
   // at host lets a malicious guest set network.slowmodeSeconds, and the
-  // host's WELCOME payload (network/host.ts:234) propagates it to every
-  // future joiner — locking new guests out of chat (ui/chat.ts:288). Mirrors
+  // host's WELCOME payload propagates it to every future joiner, locking new
+  // guests out of chat. Mirrors
   // handleChatFreeze / handleChatUnfreeze / handleChatFilter; isFromHost on
   // host returns true, so the guest-side guard alone doesn't cover us.
   if (!getState('network.hostConn')) return;
@@ -432,7 +432,7 @@ function handleChatFilter(data: Record<string, unknown>, conn?: DataConnection):
   // host's own cmdFilter() which calls setState directly. A raw frame
   // at host lets a malicious guest flip network.filterEnabled, either
   // forcing profanity censorship on every chat or silently disabling
-  // it (handleChatMessage L144-147 reads this flag). isFromHost on
+  // it (handleChatMessage reads this flag). isFromHost on
   // host returns true, so the guest-side guard alone doesn't cover us.
   if (!getState('network.hostConn')) return;
   if (!isFromHost(conn)) return;
@@ -473,7 +473,7 @@ function handleChatSystem(data: Record<string, unknown>, conn?: DataConnection):
  * clients without the host needing to know each guest's locale. The host's own
  * chat is updated locally (broadcast() doesn't loopback) using the host's
  * locale via the `chat:notice-message` bus event — same pattern as
- * sync.ts:285-287's OP /notice command.
+ * network/sync.ts's OP /notice command.
  *
  * `text` is sent in the host's locale as a fallback so any older client that
  * doesn't have the i18nKey yet still displays a readable message instead of

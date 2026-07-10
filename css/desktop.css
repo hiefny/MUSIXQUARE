@@ -1,7 +1,6 @@
 /* ==========================================================================
-   Desktop / Tablet Responsive Dashboard Layout (Premium 4-Column Design)
-   Active on screens wider than 1280px.
-   Layout: [ Play (Main) ] | [ Chat ] | [ Playlist ] | [ Settings ]
+   Wide desktop dashboard, active from 1280px.
+   Layout: [ Play ] | [ Playlist / Chat ] | [ Settings ]
    ========================================================================== */
 
 @layer desktop {
@@ -19,10 +18,8 @@
             "tab-play tab-playlist tab-settings"
             "tab-play tab-chat tab-settings";
         gap: 0;
-        /* Gaps emulated through panel paddings so vertical dividers function cleanly */
         padding: 0;
         background: var(--bg);
-        /* Deepest background for the outer space */
         overflow: hidden;
         /* Use JS-measured visible viewport height when available.
            Prevents clipping on Android tablets where 100vh may include the
@@ -41,9 +38,7 @@
         box-shadow: none;
         background: var(--surface-1);
         border-bottom: none;
-        /* Seamless header */
         margin-bottom: 0;
-        /* Stopped underlap */
     }
 
     /* ---------------------------------------------------
@@ -70,10 +65,8 @@
     #tab-guide,
     #tab-connect {
         padding-top: 0;
-        /* Panels have internal headers now */
         display: flex;
         flex-direction: column;
-        /* Vertical column layout */
         opacity: 1;
         visibility: visible;
         pointer-events: auto;
@@ -84,8 +77,8 @@
         left: 0;
         width: 100%;
 
-    /* Override YouTube mode's off-screen hack (base layer hides #tab-play
-       when not .active with left:-100vw, opacity:0) — desktop shows all panels */
+    /* The wide dashboard keeps every panel visible, including the play panel
+       that mobile parks off-screen while YouTube owns playback. */
     }
     body.mode-youtube #tab-play:not(.active) {
         position: relative;
@@ -102,10 +95,9 @@
         border-right: 1px solid var(--divider);
         box-shadow: none;
         overflow: hidden;
-        /* Parent NO LONGER scrolls */
     }
 
-    /* New Scrolling Architecture: Bodies handle the scroll */
+    /* Panel bodies own scrolling while headers remain fixed in the grid. */
     .tab-body,
     .chat-drawer-messages {
         flex: 1;
@@ -125,13 +117,12 @@
         padding-bottom: 40px;
     }
 
-    /* Panel Headers: Fixed at the top, No Background Mask needed anymore! */
+    /* Panel headers stay outside their scrolling bodies. */
     .tab-header,
     .chat-drawer-header {
         flex: none;
         padding: 32px 32px 16px;
         position: relative;
-        /* No longer sticky */
         background: transparent;
         z-index: 10;
         border-bottom: none;
@@ -145,12 +136,11 @@
         padding-left: 36px;
     }
 
-    /* Harmonize Header Typographies (Title, Menu, Chat, etc) */
+    /* Shared panel-title metrics keep header rows aligned. */
     .tab-title,
     .chat-drawer-title,
     .track-title {
         font-size: 24px;
-        /* Beautifully unified and properly proportioned */
         font-weight: var(--font-weight-display);
         letter-spacing: -0.02em;
         color: var(--text-main);
@@ -170,9 +160,8 @@
         flex-direction: column;
         justify-content: flex-start;
         align-items: center;
-        /* Wide column (1fr ≈ 660px at 1500 viewport) gets 8px breathing,
-           twice the 4px used on the narrow 420px columns (playlist/settings)
-           so every panel's content feels proportionally inset. */
+        /* The wide column uses twice the inset of the narrow 420px columns so
+           panel spacing remains proportional. */
         padding: 0 8px;
         border-right: 1px solid var(--divider);
         min-width: 0;
@@ -184,8 +173,8 @@
     }
 
     #tab-playlist {
-        /* Narrow 420px column — half of tab-play's 8px so the inset feels
-           proportional. chat-drawer shares this column and keeps padding: 0
+        /* The narrow 420px column uses half of tab-play's inset. chat-drawer
+           shares this column and keeps padding: 0
            (compensated via .chat-drawer-header padding-left). */
         padding: 0 4px;
         border-right: 1px solid var(--divider);
@@ -197,7 +186,7 @@
         border-right: 1px solid var(--divider);
         background: transparent;
         box-shadow: none;
-        /* Reset mobile slide-up drawer properties for desktop grid layout */
+        /* Reset the mobile slide-up drawer into a grid panel. */
         position: relative;
         visibility: visible;
         height: 100%;
@@ -228,7 +217,6 @@
         margin-right: auto;
         gap: 12px;
         margin-top: auto;
-        /* Pushes to bottom of flex column naturally */
         padding-bottom: 0px;
         flex-shrink: 0;
         justify-content: center;
@@ -260,9 +248,9 @@
 
     .video-wrapper {
         width: 100%;
-        /* Prevent infinite scaling on wide monitors, also respect vertical space for controls */
+        /* Bound video size by both horizontal and vertical control space. */
         max-width: min(90%, 1080px, calc((100vh - 360px) * 16 / 9));
-        /* Center vertically in remaining space above controls (like visualizer) */
+        /* Center in the space above the controls. */
         margin: auto auto 0 auto;
         border-radius: 20px;
         box-shadow: none;
@@ -345,7 +333,7 @@
     }
 
     /* ---------------------------------------------------
-       8. Guide & Connect (모바일 전용 탭 — 데스크톱에서 숨김)
+       8. Mobile-only Guide and Connect Tabs
        --------------------------------------------------- */
     #tab-guide,
     #tab-connect {
@@ -503,7 +491,7 @@
         height: 22px;
     }
 
-    /* Desktop-only: prevent horizontal overflow from mobile inline CSS */
+    /* Reset narrow-layout offsets on the role diagram. */
     #setup-role-area .setup-graphic-container {
         margin-left: 0;
         margin-right: 0;
@@ -576,14 +564,14 @@
         flex-direction: column;
     }
 
-    /* Prevent horizontal overflow from mobile inline CSS hacks */
+    /* Keep the role diagram within the desktop panel. */
     #setup-role-area .setup-graphic-container {
         margin-left: 0;
         margin-right: 0;
         width: 100%;
     }
 
-    /* Wrap contents nicely and prevent them from shrinking weirdly */
+    /* Overlay sections retain their intrinsic height. */
     .setup-card.full-screen>* {
         flex-shrink: 0;
     }
@@ -595,7 +583,7 @@
         padding-right: 40px;
     }
 
-    /* Override the mobile-specific padding dynamically but keep top/bottom */
+    /* Use desktop horizontal padding while preserving the action-bar rhythm. */
     #media-source-overlay .setup-card.full-screen .ob-actions,
     #youtube-url-overlay .setup-card.full-screen .ob-actions {
         background: transparent;
@@ -643,7 +631,7 @@
         display: none;
     }
 
-    /* Completely Flatten Layout for Desktop (No boxes, no dividers) */
+    /* Desktop section groups use a divider-only treatment. */
     .section-group {
         background: transparent;
         margin: 0 12px;
@@ -660,13 +648,11 @@
 
     #tab-settings .channel-grid {
         padding: 12px 20px 12px;
-        /* Standardized for desktop */
     }
 
     .section-header-row {
         border-bottom: none;
         padding: 44px 20px 16px;
-        /* Symmetric 44px top start and 28px gap to content */
     }
 
     .rename-device-btn,
@@ -693,7 +679,7 @@
         margin-right: 0;
     }
 
-    /* Role Selection: Match the default 44px top padding of other sections */
+    /* Align the first audio section with the other settings sections. */
     #youtube-settings-disabled-wrap .section-group:first-of-type .section-header-row {
         padding-top: 44px;
     }
@@ -703,7 +689,6 @@
         font-weight: 700;
         color: var(--text-main);
         text-transform: none;
-        /* Remove uppercase if it was applied */
         letter-spacing: normal;
     }
 
@@ -713,12 +698,11 @@
 
 
 
-    /* Soften the settings text so title stands out */
+    /* Subdue control labels so section titles retain hierarchy. */
     .slider-header {
         font-weight: 500;
         color: var(--text-sub);
         margin-bottom: 8px;
-        /* Bring text closer to its own slider line */
     }
 
     .slider-header>span {
@@ -765,9 +749,8 @@
         position: absolute;
     }
 
-    /* Chat scroll: desktop layout. Padding is symmetric now that the custom
-       overlay scrollbar sits fixed and doesn't eat content width (was 24/16
-       in the native-scrollbar era). */
+    /* Symmetric padding is safe because the overlay scrollbar does not consume
+       content width. */
     .chat-drawer-messages {
         overflow-y: auto;
         overflow-x: hidden;
@@ -802,19 +785,18 @@
         padding: 0 16px;
         border-radius: 20px;
         flex: none !important;
-        /* Defeat inline style flex:1 from html */
+        /* Override the shared flex utility used by mobile actions. */
         justify-content: center;
         align-items: center;
     }
 
-    /* Bring back the text and align it nicely next to the icon */
+    /* Desktop action buttons show labels beside their icons. */
     .play-action-buttons span {
         display: block;
         font-size: 15px;
         font-weight: 600;
     }
 
-    /* Size the SVG icon correctly */
     .play-action-buttons .file-select-btn svg {
         width: 22px;
         height: 22px;

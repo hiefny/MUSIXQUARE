@@ -62,35 +62,20 @@ import { transition } from './lifecycle.ts';
 import { isDemoTrackName } from '../demo/tracks.ts';
 
 // ─── Decode Timeout Helper ─────────────────────────────────────────
-// 10s is a generous upper bound for legitimate audio/video decoding. Normal
-// MP3/AAC decodes in <500ms; lossless FLAC in a few seconds; even a 30-hour
-// podcast decodes fine because the browser streams-decodes. What DOES fall
-// into the timeout bucket: pathological bitrates (e.g., 50,000 kbps WAV),
-// corrupt headers, or codec/container mismatches that cause the decoder to
-// hang. In those cases we'd rather skip than freeze the tab.
+// decodeAudioData decodes the complete in-memory input, and completion time
+// varies with format, duration, device, and browser. This timeout bounds how
+// long the playback pipeline waits; it cannot cancel decoder work already in
+// progress.
 
 const DECODE_TIMEOUT_MS = 10_000;
 const DECODE_TIMEOUT_TAG = '__decode_timeout__';
 
-// Preload-activation owner handle (mechanism M4 in
-// docs/design/playback-concurrency-invariants.md). Exists solely so a
-// SUPERSEDED activation cannot clear the playPreloadedInProgress flag the
-// superseding one set (compare-before-clear). Every begin takes ownership;
-// finish is a no-op unless the caller still owns the activation. The flag has
-// one other sanctioned writer: stopAllMedia's flag-only clear (contract C4) —
-// benign because finishPreloadActivation is idempotent. Pinned by
-// __tests__/concurrency-invariants.test.ts (pins a, f).
-//
-// Stage B (PLAYER-SPRAWL): the former private `_preloadActivationSeq` counter
-// is gone — the handle records the owning LOAD EPOCH (M1) instead. Ownership
-// comparison is by handle identity, NOT by epoch equality: comparing epochs
-// would let (a) an unrelated epoch bump (watchdog fire mid-activation) strand
-// the flag true forever, and (b) two begins that erroneously share one epoch
-// stomp each other's clear — handle identity preserves the exact pre-Stage-B
-// compare-before-clear semantics while the epoch field keeps the owner
-// attributable to its logical run. Every prod begin receives a FRESHLY
-// allocated epoch (all three loadPreloadedTrack call sites bump first); the
-// warn in begin trips if a future caller skips its entry-point bump.
+// Preload-activation owner handle (M4 in the playback concurrency design).
+// A superseded activation must not clear the flag owned by its successor, so
+// finish compares handle identity rather than epoch equality. The epoch keeps
+// each owner attributable to its logical run and detects callers that skipped
+// entry-point allocation. stopAllMedia may also clear the flag; finish remains
+// idempotent after that teardown.
 interface PreloadActivation {
   /** The load epoch (M1) that owned the pipeline when this activation began. */
   readonly epoch: number;
@@ -177,20 +162,15 @@ export async function loadAndBroadcastFile(
     }
     if (getAudioContext().state !== 'running') await ensureRunning();
 
-    // Create blob URL eagerly for video element; actual state publication
-    // of files.currentFileBlob is deferred until AFTER decode succeeds so
-    // that (files.currentFileBlob, transfer.meta) are always published as
-    // an atomic pair. Previously, blob was set pre-decode and meta post-
-    // decode — a recovery request arriving in the intervening async window
-    // would resolve to currentFileBlob with the PREVIOUS track's meta,
-    // causing recovery.ts findMatchingBlob() to match the wrong file or
-    // fall through its no-hint branch with stale metadata.
+    // Publish files.currentFileBlob only after decoding, together with matching
+    // transfer metadata, so recovery cannot observe a blob/meta pair from
+    // different tracks.
     BlobURLManager.create(file);
 
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
     showToast(t('toast.hprecision_sync'));
 
-    // Decode audio (with 10s timeout to avoid hanging on pathological files)
+    // Bound the pipeline wait for decodeAudioData.
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await decodeWithTimeout(arrayBuffer, 'host-load');
 
@@ -208,7 +188,6 @@ export async function loadAndBroadcastFile(
       return false;
     }
 
-    // Dispose old buffer
     if (getCurrentAudioBuffer()) {
       setCurrentAudioBuffer(null);
     }
@@ -268,16 +247,8 @@ export async function loadAndBroadcastFile(
   } catch (err: unknown) {
     log.error(err);
 
-    // Supersession guard: everything below mutates SHARED state — blob
-    // clear, FSM transition, failed-mark + auto-advance keyed on the
-    // CURRENT track index/epoch. A superseded load that fails late (decode
-    // timeout after the user already clicked another track, or after the
-    // playlist-empty teardown bumped the epoch) would aim all of that at
-    // the SUCCESSOR: null its published blob, knock its FSM to FAILED, and
-    // 600ms later auto-advance the whole room off the track the user
-    // actually chose. Mirrors loadPreloadedTrack's catch-path
-    // isCurrentPreloadActivation guard; same checkpoint pair as the
-    // success path above (epoch optional, sessionId always).
+    // Failure side effects target shared state for the current track. A stale
+    // load must not clear, fail, or auto-advance its successor.
     if (
       (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) ||
       myLoadId !== getActiveLoadSessionId()
@@ -316,9 +287,7 @@ export async function loadAndBroadcastFile(
       setState('player.pausedAt', 0);
     }
 
-    // Superseded loads must not touch the play button either: a successor
-    // load owns it (rapid A→B click), and after the playlist-empty teardown
-    // (epoch bumped, NO successor) the soft-disable must survive this finally.
+    // Only the current load owns the play-button state.
     if (
       !(loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) &&
       myLoadId === getActiveLoadSessionId()
@@ -436,10 +405,7 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   const failedKey = getTrackKeyFromFile(file) ?? getTrackKeyFromItem(playlist[failedIdx]);
   markTrackFailed(failedKey);
 
-  // Count playable (non-failed) tracks remaining. If none — including the
-  // single-track-failed case (formerly `playlist.length > 1` skipped this
-  // path entirely, leaving the iPhone host with one bad track stuck on a
-  // toast and no way back to idle) — stop and return to IDLE.
+  // If no playable track remains, stop and return to IDLE.
   const playableCount = playlist.reduce(
     (n, item) => n + (isTrackFailed(getTrackKeyFromItem(item)) ? 0 : 1),
     0,
@@ -484,13 +450,8 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   const shouldUseShuffleOrder = nextIdx === -1 && isShuffle;
 
   if (nextIdx === -1 && !shouldUseShuffleOrder) {
-    // Wrap past the playlist end ONLY under repeat-all. A failure-skip is
-    // not a natural end, but resurrecting from track 0 under repeat OFF
-    // would override the same end-of-playlist semantics SA-01 pinned for
-    // the preload fallback — and the shuffle branch already stops there
-    // (getShuffleNextPlayableIndex returns -1 at pass end). Without this
-    // bound the SAME last-track failure stopped the room in shuffle but
-    // restarted it from track 0 in sequential (mode-sibling parity break).
+    // Wrap past the playlist end only under repeat-all. Sequential and shuffle
+    // failure paths must both stop at the end of a non-repeating pass.
     const maxProbe = repeatMode === 1 ? playlist.length : playlist.length - 1 - failedIdx;
     for (let probe = 1; probe <= maxProbe; probe++) {
       const candidate = (failedIdx + probe) % playlist.length;
@@ -502,15 +463,9 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   }
 
   {
-    // Always schedule the advance: a -1 target falls through to
-    // playNextTrack(), whose canonical end handling (handleEndOfPlaylist)
-    // stops the room — the same exit the shuffle walk takes at pass end.
-    // Snapshot the load epoch at scheduling time. If a user action (track
-    // click, next/prev) allocates a new epoch during the 600ms backoff, abort
-    // — playTrack already cleared this timer at its entry, but the snapshot
-    // guards the timer-fire-vs-clear race (clearManagedTimer just above
-    // the new playTrack's allocation happens *after* the timer's setTimeout
-    // body has already begun executing in some browsers' microtask ordering).
+    // A -1 target falls through to the canonical end-of-playlist handler.
+    // Snapshot the load epoch so a user action during the backoff supersedes
+    // this scheduled advance even if timer clearing races with its callback.
     const advanceEpoch = getCurrentLoadEpoch();
     setManagedTimer(
       'decode-fail-advance',
@@ -538,23 +493,11 @@ function markFailedAndAdvance(file: File | Blob | null, failedIdx: number): void
   }
 }
 
-// Host-side handler for guest's "I can't decode this track" report. OP
-// reports trigger the same advance path the host uses for its own decode
-// failures. Non-OP reports are held unless independent guests corroborate,
-// so one failing device waits locally instead of getting room-wide skip power.
-// Stale reports (host already advanced) are ignored.
-//
-// This is a data-plane recovery message that any guest (including non-OP)
-// may send, because iOS Safari can fail to decode a file Chrome can play.
-// However, a single non-OP report must not get room-wide track control: that
-// is equivalent to a one-frame "skip current track" DoS. OP reports still
-// act immediately; non-OP reports require independent corroboration.
-//
-// In a host + single-guest room the quorum is intentionally unreachable:
-// the host keeps playing while only the failing guest sees the local-wait
-// toast, and the host advances at track end (or via manual skip after the
-// operator-only toast prompt). Earlier "advance when sole non-OP fails"
-// effectively let one device act as a room-wide skipper.
+// Guest decoders can reject a track the host can play. An operator report may
+// advance immediately; non-operator reports require two connected peers so a
+// single guest cannot turn a decode report into room-wide skip control. Stale
+// and duplicate reports are ignored. In a single-guest room the host therefore
+// continues until an operator skips or the track ends.
 const NON_OP_DECODE_FAILURE_QUORUM = 2;
 const _reportedDecodeFailures = new Map<number, Set<string>>();
 const _advancedGuestDecodeFailureTracks = new Set<number>();
@@ -671,10 +614,8 @@ export function initDecodeHandlers(): void {
  *
  * Returns `true` only when the activation fully succeeded (buffer swapped,
  * lifecycle at READY). Every abort/supersede/failure path returns `false` so
- * callers that follow up with play()+broadcast (host fast path in
- * playlist.ts) can bail instead of broadcasting a PLAY for audio the host
- * never loaded (SA-05, docs/scenario-audit-2026-06-10.md). Mirrors the
- * boolean contract of loadAndBroadcastFile above.
+ * callers that follow up with play()+broadcast can avoid announcing audio the
+ * host did not load. This mirrors loadAndBroadcastFile's boolean contract.
  */
 export async function loadPreloadedTrack(
   expectedIndex?: number,
@@ -710,13 +651,8 @@ export async function loadPreloadedTrack(
         `[Preload] Index mismatch! Expected ${targetIndex}, current is ${currentTrackIndex}. Aborting.`,
       );
       finishPreloadActivation(activationOwner);
-      // Preserve pendingPlayTime — it belongs to the LATEST MSG.PLAY (which
-      // updated currentTrackIndex), so the matching loadPreloadedTrack call
-      // for the current target needs it. Clearing here would leave the
-      // correct-track decode without a play signal, leaving the guest
-      // silently stalled with the blob loaded but never started — exactly
-      // the "downloads but doesn't sync-play" symptom on remote-share track
-      // switching.
+      // pendingPlayTime belongs to the latest PLAY target; its matching loader
+      // must retain it across a superseded activation.
       return false;
     }
 
@@ -728,7 +664,6 @@ export async function loadPreloadedTrack(
       return false;
     }
 
-    // Dispose old buffer
     if (getCurrentAudioBuffer()) {
       setCurrentAudioBuffer(null);
     }
@@ -767,16 +702,9 @@ export async function loadPreloadedTrack(
 
     const activeMeta = localMeta || getState('transfer.meta');
 
-    // Storage rotation — release the previous track's stored chunks before
-    // overwriting currentFileBlob. handleFileStart already does this for
-    // the main-transfer path; the preload-promoted path didn't, which
-    // accumulated one ramstore slot per track and grew the heap unbounded
-    // until iOS killed the tab.
-    //
-    // We attempt cleanup with both isPreload variants because the prior
-    // track's slot could live in either pool (came via main transfer
-    // vs. preload promote). cleanupStoredFile is idempotent — the
-    // wrong-pool call is a silent no-op.
+    // Release the prior track's RAM slot before publishing the promoted blob.
+    // The prior slot may belong to either pool; cleanupStoredFile is
+    // idempotent, so probing both variants is safe.
     const newName = (activeMeta?.name as string) || '';
     const prevTrackName = getState('files.currentTrack')?.name;
     if (prevTrackName && prevTrackName !== newName) {
@@ -872,12 +800,9 @@ export async function loadPreloadedTrack(
       );
     } else {
       log.info('[Preload] No pending play time, requesting initial sync from host');
-      // First-load case: a remote-share download finished but no MSG.PLAY
-      // landed for this track (host had played BEFORE we joined / before
-      // the encrypted blob was ready). Kick the sync ping immediately so
-      // SYNC_PONG's bootstrap path can start playback at the host's
-      // current position — otherwise we wait up to 1s for the next worker
-      // tick and the user perceives a stuck-at-0:00 first track.
+      // A remote-share download may finish without a PLAY for this track.
+      // Request sync immediately so bootstrap can start at the host position
+      // without waiting for the next periodic sync.
       bus.emit('sync:request-immediate-ping');
     }
 
@@ -909,36 +834,23 @@ export async function loadPreloadedTrack(
     const hostConn = getState('network.hostConn');
     const failedIdx = getState('playlist.currentTrackIndex');
 
-    // HOST: this was the preloaded-fast-path activation of the host's own
-    // file — there is no one to request recovery FROM (the old
-    // sendToHost below was a silent no-op on host, leaving the host stuck
-    // while guests played; SA-05). Route through the same
-    // failed-mark + auto-advance path that loadAndBroadcastFile failures use.
+    // A host cannot request recovery from itself; use the normal host
+    // failed-track and auto-advance path.
     if (!hostConn) {
       markFailedAndAdvance(localBlob, failedIdx);
       return false;
     }
 
-    // GUEST, decode timeout: the file itself is unplayable — asking host for
-    // a recovery copy would just re-trigger the same timeout. Skip recovery
-    // and wait for host to advance to the next track on its own.
-    //
-    // Also mark the track as failed so that a subsequent manual click on the
-    // same entry (while still in this session) doesn't re-run the 10s timeout
-    // loop. The failed-set is keyed by file identity (name+size+lastModified)
-    // so uploading a different file with the same playlist slot still retries.
+    // A timeout is not repaired by downloading the same bytes again. Mark this
+    // blob failed for the session and wait for the host to advance.
     if (timedOut) {
       const failedKey = getTrackKeyFromFile(localBlob);
       markTrackFailed(failedKey);
       return false;
     }
 
-    // GUEST, non-timeout failure (e.g. partial download, network error) —
-    // request recovery from host. The LOCAL pipeline's recovery has its own
-    // retry ceiling, but a REMOTE guest's request now routes to a descriptor
-    // re-send (recovery.ts) which re-triggers this very activation: bound the
-    // loop at 2 attempts per track, or a persistent (codec) decode failure
-    // would download the full file from R2 forever.
+    // A non-timeout failure may be recoverable. Bound descriptor re-sends to
+    // two activation attempts so persistent decode failures cannot loop.
     const failureCount = (getState('player.decodeFailureCount') || 0) + 1;
     setState('player.decodeFailureCount', failureCount);
     if (failureCount >= 2) {
@@ -963,7 +875,7 @@ export async function loadPreloadedTrack(
 export function clearPreviousTrackState(reason = ''): void {
   log.debug(`[State Clear] Clearing previous track state. Reason: ${reason}`);
 
-  // Edge Case: skip redundant clears for same track
+  // Skip redundant clears for the same track.
   const playlist = getState('playlist.items') || [];
   const currentTrackIndex = getState('playlist.currentTrackIndex');
   const meta = getState('transfer.meta');
@@ -987,7 +899,7 @@ export function clearPreviousTrackState(reason = ''): void {
   setState('transfer.meta', {});
   setState('files.currentFileBlob', null);
 
-  // CRITICAL: Clear audio buffer to prevent previous track from replaying
+  // Clear the resident buffer before the next track can start.
   if (getCurrentAudioBuffer()) {
     log.debug('[State Clear] Clearing currentAudioBuffer');
     setCurrentAudioBuffer(null);
@@ -1002,15 +914,10 @@ export function clearPreviousTrackState(reason = ''): void {
     setPendingPlayTime(undefined);
   }
 
-  // Reset active or pending file playback to idle — but NOT while the file
-  // pipeline is mid-engagement (DOWNLOADING/AWAITING_PRELOAD/DECODING).
-  // handleFilePrepare's fresh branch transitions the FSM to DOWNLOADING and
-  // emits 'storage:clear-previous-track' ONE statement later; idling here
-  // clobbered that just-written state, leaving lifecycle=IDLE for the whole
-  // download. With the FSM disengaged, handlePlayMsg's DOWNLOADING defer-gate
-  // never fired and its SA-03 no-buffer branch sent REQUEST_CURRENT_FILE on
-  // the host's first PLAY mid-transfer — the host's unicast-from-0 response
-  // then reset the partial download to 0% (DV-1, device-test find).
+  // Reset file playback to idle only when no load pipeline is active. A fresh
+  // FILE_PREPARE enters DOWNLOADING before emitting this cleanup event, and
+  // that lifecycle must remain engaged so PLAY is deferred instead of
+  // requesting a replacement transfer.
   const playback = getPlaybackModeActivity();
   if (isPlaybackNonIdleFile(playback) && !isFilePipelineBusyForPlay()) {
     setPlaybackIdle();
@@ -1055,16 +962,11 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
   log.debug('[Guest] Finalizing with Buffer Mode...');
   const myLoadId = incrementLoadSessionId();
-  // Transfer-session snapshot: a FILE_PREPARE that starts a NEW transfer
-  // session mid-decode bumps NEITHER the load epoch (§5 immunity is about
-  // epoch bumps, not this) NOR activeLoadSessionId (its only writers are the
-  // three load fns), so the sessionId checkpoints below cannot see it.
-  // Without this, a stale finalize lands READY + watchdog-clears + the OLD
-  // buffer onto the NEW track's active download — every remaining chunk is
-  // then dropped by transfer-receive's stale-completed guard with no watchdog
-  // left to recover: a silent wedge until the next session. Entry snapshot
-  // (not a live re-read at the checkpoints' call time) keeps the 2026-04-25
-  // rapid A→B→A name-match fallback intact. Pin (j).
+  // Snapshot the transfer session at entry. FILE_PREPARE can replace a transfer
+  // during decode without changing the load epoch or activeLoadSessionId; the
+  // snapshot prevents the old finalize from publishing into the new pipeline.
+  // Use the entry value at every checkpoint so same-target A→B→A recovery
+  // remains attributable to the finalize that actually began.
   const myTransferSid = getState('transfer.localSessionId');
   showLoader(true, t('error.audio_memory'));
 
@@ -1127,7 +1029,7 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
 
-    // Set track metadata from playlist (missing in download path — fixes title display)
+    // Publish guest track metadata from the playlist.
     const hostConn = getState('network.hostConn');
     const playlist = getState('playlist.items') || [];
     const idx = getState('playlist.currentTrackIndex');
@@ -1164,14 +1066,9 @@ export async function finalizeGuestFile(file: File | Blob): Promise<void> {
 
     bus.emit('ui:play-btn-state', true);
   } catch (err: unknown) {
-    // Supersession recheck (blind-spot ⑭): mirror the success path's two
-    // checkpoints (load epoch + transfer session) BEFORE touching shared state.
-    // A finalize that lost the race to a FILE_PREPARE / new load started during
-    // decode would otherwise reset the SUCCESSOR track's transfer state
-    // (IDLE + receivedCount 0) and, on the OP-report path, tell the host the
-    // WRONG track failed → a wrong-track room advance. No loadEpoch/M1 check
-    // here: pin (g) keeps finalizeGuestFile immune to watchdog M1 bumps. The
-    // early return still hits finally{showLoader(false)}. Pin (j) reject twin.
+    // Validate both finalize ownership and the entry transfer session before
+    // failure side effects. Do not check the load epoch here: watchdog epoch
+    // bumps intentionally do not abort guest finalization.
     if (
       getActiveLoadSessionId() !== myLoadId ||
       getState('transfer.localSessionId') !== myTransferSid

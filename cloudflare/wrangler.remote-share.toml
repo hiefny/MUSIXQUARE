@@ -35,8 +35,8 @@ binding = "REMOTE_SHARE_RATE_LIMIT"
 id = "ccf776d532e44e2daed916e7304542cd"
 
 # Migration history is append-only in Cloudflare. v1 created an experimental
-# Durable Object rate limiter on 2026-07-10; the restored production path kept
-# using REMOTE_SHARE_RATE_LIMIT (KV). v2 permanently retires that unused class.
+# Durable Object rate limiter; the production path continued using
+# REMOTE_SHARE_RATE_LIMIT (KV). v2 permanently retires that unused class.
 # There is intentionally no active Durable Object binding in this Worker.
 [[migrations]]
 tag = "v1"

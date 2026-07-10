@@ -1,21 +1,15 @@
 /**
  * MUSIXQUARE — wordmark animation timing wiring
  *
- * The setup-screen wordmark is built out of 36 SVG <rect>/<polygon>
- * shards, each with its own staggered animation `--wt` (delay) and
- * `--wd` (duration). These used to live as inline `style="--wt:Xms;
- * --wd:Yms"` attributes, but inline style requires CSP `style-src
- * 'unsafe-inline'`. To drop that, the values were moved to
- * `data-wt` / `data-wd` integer attributes (milliseconds), and this
- * script copies them onto the element's CSS custom properties at boot.
+ * The setup-screen wordmark is built from SVG shards with staggered
+ * `data-wt` and `data-wd` timing values. This script copies those integer
+ * milliseconds into CSS custom properties at boot, keeping static style
+ * attributes out of the CSP-controlled document.
  *
  * element.style.setProperty() is not classified as inline-style by the
- * CSP spec — it's a JS-mediated style mutation, which CSP gates via
- * `script-src` (already 'self' since Phase A2). No 'unsafe-hashes'
- * needed.
+ * CSP spec; it is a JS-mediated style mutation governed by `script-src`.
  *
- * Idempotent: if called twice (HMR / reload races), setProperty just
- * overwrites with the same value.
+ * Repeated execution is safe because each property receives the same value.
  */
 
 (function () {

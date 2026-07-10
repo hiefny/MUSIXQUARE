@@ -1,23 +1,31 @@
 # Third-Party Notices
 
-MUSIXQUARE includes several open-source software libraries. This file provides the necessary licensing and copyright information for those libraries to comply with their respective licenses.
+MUSIXQUARE includes open-source software and visual assets. This file records
+the licensing and copyright information distributed with those components.
 
 ---
 
-## 1. PeerJS (Fallback WebRTC Transport)
+## 1. PeerJS (Local And Explicit-Development WebRTC Transport)
 
 - **License**: MIT License
-- **Copyright**: Copyright (c) 2015-2024 PeerJS Team
+- **Copyright**: Copyright (c) 2015 Michelle Bu and Eric Zhang
 
 ## 2. node-qrcode (QR Code Generation)
 
 - **License**: MIT License
-- **Copyright**: Copyright (c) 2012-2024 Ryan Day
+- **Copyright**: Copyright (c) 2012 Ryan Day
 
 ## 3. content-shield (Chat Filtering)
 
 - **License**: MIT License
-- **Copyright**: Copyright (c) 2024 hiefny
+- **Copyright**: Copyright (c) 2025 ZachHandley
+
+## 4. Google Material Icons (Selected Inline SVG Paths)
+
+- **License**: Apache License 2.0
+- **Source**: https://github.com/google/material-design-icons
+- **License text**:
+  [public/licenses/material-icons-apache-2.0.txt](public/licenses/material-icons-apache-2.0.txt)
 
 ---
 
@@ -30,4 +38,5 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-*This file was generated to provide proper attribution for used third-party components.*
+This notice covers application runtime dependencies. Development and build
+tooling remains subject to the licenses distributed with those packages.

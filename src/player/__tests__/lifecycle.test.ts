@@ -1,11 +1,9 @@
 /**
  * Tests for src/player/lifecycle.ts — the playback state machine.
  *
- * Coverage goal: every row of the transition table in
- * docs/design/playback-state-machine.md Section 4.
- *
- * Organized by source state so a failing test points directly at the design
- * doc row that's off.
+ * Coverage goal: every implemented transition and rejection branch. Tests are
+ * organized by source state so a failure identifies the affected lifecycle
+ * edge directly.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -260,7 +258,7 @@ describe('lifecycle: from DOWNLOADING', () => {
   });
 });
 
-// ─── FROM AWAITING_PRELOAD (the bug-fix state) ─────────────────────
+// ─── FROM AWAITING_PRELOAD ────────────────────────────────────
 
 describe('lifecycle: from AWAITING_PRELOAD ⭐', () => {
   const FROM = PLAYBACK_STATE.AWAITING_PRELOAD;
@@ -672,7 +670,7 @@ describe('transition() state tree integration', () => {
   });
 });
 
-// ─── Regression: the exact bug sequence ────────────────────────────
+// ─── Preload handoff invariants ───────────────────────────────────
 
 describe('regression: preload-handoff bug', () => {
   it('AWAITING_PRELOAD + PLAY does NOT trigger stale-audio recovery path', () => {
@@ -682,9 +680,7 @@ describe('regression: preload-handoff bug', () => {
     // Host sends PLAY while the blob is still being written to storage.
     const result = transition({ type: 'PLAY', time: 0, index: 0, sameTrack: true });
 
-    // Before the fix, this would have triggered stale-audio-recovery → full
-    // re-download. After the fix, we stay in AWAITING_PRELOAD and the
-    // handler is responsible for storing pendingPlayTime.
+    // Stay in AWAITING_PRELOAD; the handler stores pendingPlayTime.
     expect(result).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
   });
 
@@ -720,9 +716,10 @@ describe('regression: preload-handoff bug', () => {
   });
 });
 
-// ─── Integration scenarios: the three cases from the design doc ────
+// Integration scenarios retained from the original state-machine acceptance
+// cases; the assertions here are now authoritative.
 
-describe('integration: design-doc acceptance scenarios', () => {
+describe('integration: lifecycle acceptance scenarios', () => {
   // Scenario (a): preload completes BEFORE host advances.
   // Expected flow: IDLE → DECODING → READY → PLAYING. No AWAITING_PRELOAD.
   it('(a) preload completes before advance → DECODING straight from IDLE', () => {
@@ -741,10 +738,10 @@ describe('integration: design-doc acceptance scenarios', () => {
     expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(PLAYBACK_STATE.PLAYING);
   });
 
-  // Scenario (b): advance DURING preload — the bug we're fixing.
+  // Scenario (b): advance during preload.
   // Expected flow: IDLE → AWAITING_PRELOAD → [stall while chunks arrive]
   //                → DECODING → READY → PLAYING.
-  // Critical invariant: PLAY arriving mid-AWAITING_PRELOAD does NOT leave
+  // PLAY arriving mid-AWAITING_PRELOAD does not leave
   //                     AWAITING_PRELOAD (no stale-audio recovery trip).
   it('(b) ⭐ advance during preload → stays in AWAITING_PRELOAD until blob ready', () => {
     forceState(PLAYBACK_STATE.IDLE);
@@ -758,7 +755,7 @@ describe('integration: design-doc acceptance scenarios', () => {
     expect(transition({ type: 'PRELOAD_CHUNK' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
     expect(transition({ type: 'PRELOAD_CHUNK' })).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
 
-    // Host's PLAY arrives while we're still awaiting. THE FIX: we stay
+    // Host PLAY arrives while the guest is still awaiting; the state stays
     // in AWAITING_PRELOAD. Before the refactor this would have armed the
     // stale-audio-recovery timer and torpedoed the preload.
     expect(transition({ type: 'PLAY', time: 0, sameTrack: true })).toBe(

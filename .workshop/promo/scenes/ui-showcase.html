@@ -703,7 +703,7 @@ window.__promoSetTime = function(ms) {
       if (ms < st) return;
       setClipPath(el, dir, Math.min((ms - st) / wd, 1));
     });
-    // No tagline during Phase A (removed "함께 완성하는 서라운드 사운드")
+    // Phase A intentionally presents the wordmark without a tagline.
     tagline.style.opacity = '0';
     if (ms >= GLOW_START) {
       const p = Math.min((ms - GLOW_START) / 1200, 1);

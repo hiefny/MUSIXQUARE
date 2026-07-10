@@ -428,11 +428,8 @@
     }
   }
 
-  /* Boot stabilization (all platforms):
-   - prevent "shaking" caused by multiple viewport/inset recalculations
-   - avoid backdrop-filter first-paint artifacts by disabling filters briefly
-   - is-booting is added by initPlatform() and removed after height calcs settle
-*/
+  /* initPlatform() keeps transitions and backdrop filters off while initial
+     viewport and safe-area measurements settle. */
   html.is-booting *,
   html.is-booting *::before,
   html.is-booting *::after {
@@ -502,26 +499,22 @@
     right: 0;
     z-index: 2500;
     overflow: hidden;
-    /* Important for masking animations */
     transition: background-color 0.3s ease;
-    /* iOS Safari: Force hardware acceleration to isolate from background video layers */
+    /* Isolate the fixed header from Safari video compositing. */
     transform: translateZ(0);
     -webkit-transform: translateZ(0);
     will-change: transform;
   }
 
-  /* Header Loading State - Progress Background */
+  /* Header loading progress */
   .header-progress-bg {
     position: absolute;
     top: 0;
     left: 0;
     bottom: 0;
     width: 0%;
-    /* Animates from 0 to 100% */
     background-color: var(--primary);
-    /* System Theme Color */
     opacity: 0;
-    /* Hidden by default */
     z-index: 1;
     transition:
       width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -529,16 +522,13 @@
     pointer-events: none;
   }
 
-  /* Show progress bar only when loading */
   header.loading .header-progress-bg {
     opacity: 0.15;
-    /* Transparent but visible */
   }
 
-  /* Header Content Wrapper for relative positioning */
   .header-content-wrapper {
     position: relative;
-    /* Ensure it overlays the progress bg if needed, though they are siblings */
+    /* Keep content above the sibling progress surface. */
     z-index: 5;
     display: flex;
     flex-direction: column;
@@ -546,8 +536,7 @@
     height: 100%;
   }
 
-  /* Default Content (Logo, Help, Badge) */
-  /* We target .header-default-content for the up/down animation */
+  /* Logo, Help, and role badge share the loading transition. */
   .header-default-content {
     transition:
       transform 1s cubic-bezier(0.08, 0.82, 0.17, 1),
@@ -783,18 +772,15 @@
   /* --- Loading Active State (Applied to <header>) --- */
   header.loading .header-default-content {
     transform: translateY(-150%);
-    /* Move up and out */
     opacity: 0;
   }
 
   header.loading .header-loading-text {
     transform: translateY(0);
-    /* Move to center */
     opacity: 1;
   }
 
-  /* Update Header Right to be relative or fixed depending on need */
-  /* In the HTML update, we moved .header-right inside header, so we adjust CSS */
+  /* Header actions participate in the header's flex layout. */
   .header-right {
     position: relative;
     top: auto;
@@ -859,10 +845,9 @@
     display: none;
     flex-direction: column;
     overflow: hidden;
-    /* Parent no longer scrolls directly */
     overscroll-behavior-y: contain;
     padding-top: var(--header-height);
-    /* Notch protection for all tabs in landscape */
+    /* Protect tab content from landscape safe-area insets. */
     padding-left: var(--safe-left);
     padding-right: var(--safe-right);
   }
@@ -889,7 +874,6 @@
     min-height: 0;
     width: 100%;
     overflow-y: auto;
-    /* Bodies handle the scroll */
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
     /* Bottom-nav clearance + breathing room inside the scroll container.
@@ -903,8 +887,8 @@
     );
   }
 
-  /* Structural Fix: Targeted Persistence Hack.
-   Only the Play tab stays "alive" off-screen when YouTube is active in the background. */
+  /* Keep the YouTube-owning play tab mounted off-screen so its iframe and
+     playback state survive navigation to another tab. */
   body.mode-youtube #tab-play:not(.active) {
     display: flex;
     position: absolute;
@@ -916,7 +900,6 @@
     visibility: hidden;
     pointer-events: none;
     z-index: -1;
-    /* Ensure it's off the main compositor path */
     transform: translate3d(-100vw, 0, -1px);
   }
 
@@ -927,7 +910,6 @@
 
   .tab-header {
     padding: 32px 32px 12px;
-    /* Increased side padding for a more spacious, premium feel */
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1262,21 +1244,14 @@
 
   body.mode-youtube .video-wrapper {
     display: flex;
-    /* Restore for video mode */
     height: auto;
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
   }
 
-  /* Mobile portrait: edge-to-edge rectangular video player (both local
-       video files and YouTube). Drops the 600px cap and 20px corner
-       rounding so the iframe/video fills the viewport width flush to
-       the screen edges — maximizes area on narrow portrait screens.
-       Safe for vertical content because .video-wrapper's aspect-ratio is
-       hard-locked to 16/9, so portrait videos letterbox inside the box
-       (height = viewport_width × 9/16, never overgrown). Landscape and
-       desktop keep the rounded constrained box. */
+  /* Mobile portrait: let the 16:9 YouTube frame span the viewport width.
+       Landscape and desktop keep the rounded, constrained presentation. */
   @media (orientation: portrait) and (max-width: 1279px) {
     .video-wrapper {
       max-width: none;
@@ -1300,10 +1275,8 @@
     position: relative;
     width: calc(100% + (var(--track-title-bleed) * 2));
     height: 32px;
-    /* Fixed height to prevent control shift */
     margin: 0 calc(var(--track-title-bleed) * -1) 6px;
     overflow: hidden;
-    /* Mask on the static wrapper */
     -webkit-mask-image: linear-gradient(
       to right,
       transparent 0,
@@ -1326,28 +1299,23 @@
     color: var(--text-main);
     letter-spacing: -0.5px;
     line-height: 32px;
-    /* Fixed vertical alignment */
-
-    /* Layout for scrolling */
     display: inline-block;
     white-space: nowrap;
     width: auto;
     min-width: 100%;
     text-align: center;
     padding: 0 24px;
-    /* Padding inside mask */
     box-sizing: border-box;
   }
 
   .track-title.marquee {
-    /* Animation logic remains, but width/mask handled by wrapper */
     width: auto;
     animation: marquee-pingpong var(--marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1) infinite;
     will-change: transform;
   }
 
-  /* NOTE: track-artist is currently hidden. Un-hide by removing display:none
-   when artist metadata display is enabled. JS already sets innerText. */
+  /* Artist metadata is populated by JS but intentionally hidden until the
+     player design exposes a dedicated artist row. */
   .track-artist {
     display: none;
     font-size: 15px;
@@ -1383,10 +1351,10 @@
     --range-fill: var(--range-fill-idle);
     --range-progress: 0%;
     cursor: pointer;
-    /* 폰에서 터치 영역을 대폭 확보하기 위해 input 자체의 높이를 32px로 확장 */
+    /* Preserve a 32px touch target around the thinner visual track. */
     height: 32px;
     margin: 0;
-    /* Prevent ANY browser gestures (swipe to go back, scroll) while dragging sliders, forcing 100% control to the slider thumb */
+    /* Slider drags must not become page scroll or back-swipe gestures. */
     touch-action: none !important;
     overflow: visible;
   }
@@ -1410,7 +1378,6 @@
       var(--surface-2) var(--range-progress),
       var(--surface-2) 100%
     );
-    /* 트랙의 시인성을 높이기 위해 살짝 굵게 6px 및 surface-2 사용 */
     border-radius: 100px;
     border: none;
     transition: height 0.16s ease;
@@ -1479,7 +1446,6 @@
   input[type='range']:active::-webkit-slider-thumb,
   input[type='range'].is-dragging::-webkit-slider-thumb {
     transform: scale(1);
-    /* 물리적 크기가 원래대로 돌아왔으므로 약간 더 반응성 있게 설정 */
     filter: none;
     box-shadow: none !important;
   }
@@ -1541,7 +1507,7 @@
 
   #volume-slider::-webkit-slider-runnable-track {
     height: 4px;
-    /* 볼륨 트랙은 UI 특성상 좀 더 얇은게 세련됨 */
+    /* Volume stays visually lighter than the effect sliders. */
   }
 
   #volume-slider::-moz-range-track {
@@ -1614,10 +1580,8 @@
     transform: scale(0.92);
   }
 
-  /* Soft-disabled: aria-disabled keeps the button clickable so the
-       click handler can show a "미디어를 추가해주세요" toast, but
-       visually it reads as disabled. Real `disabled` would suppress
-       the click event entirely. */
+  /* aria-disabled preserves the click that explains why playback cannot
+     start; the native disabled attribute would suppress that feedback. */
   .play-fab[aria-disabled='true'] {
     background: var(--play-fab-bg-disabled);
     opacity: 1;
@@ -1669,8 +1633,6 @@
     margin-right: -4px;
   }
 
-  /* Speaker Active State — see canonical definition near line 4885+ */
-
   .playlist-ul {
     list-style: none;
     padding: 0 16px;
@@ -1679,7 +1641,6 @@
     flex-direction: column;
     gap: 8px;
     flex: 1;
-    /* Fill the container */
   }
 
   .track-item {
@@ -1846,9 +1807,8 @@
   }
 
   /* ── Playlist Remove Button (host only) ────────────────────────── */
-  /* Always visible — touch devices have no hover state, and the
-       prior hover-only design relied on @media (hover: none) which
-       misfires on hybrid/stylus devices. */
+  /* Keep removal visible because touch and hybrid devices cannot depend on
+     hover discovery. */
   .btn-playlist-remove {
     display: flex;
     align-items: center;
@@ -1903,17 +1863,15 @@
     padding-bottom: 44px;
   }
 
-  /* Also ensure device list items don't overflow if list is the last child */
+  /* Clip the final device row to the inherited section radius. */
   #device-list:last-child {
     border-bottom-left-radius: inherit;
     border-bottom-right-radius: inherit;
     overflow: hidden;
-    /* Only clip the list itself if needed, or rely on item radius below */
   }
 
   .section-header-row {
     padding: 44px 0 16px;
-    /* 44px Top gap | 16+12=28px Gap to first content */
     border-bottom: none;
     display: flex;
     justify-content: space-between;
@@ -2100,7 +2058,6 @@
 
   #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
     padding-top: 56px;
-    /* Increased gap from the divider above to avoid "sticking" feel */
   }
 
   .section-title {
@@ -2108,7 +2065,6 @@
     font-weight: 700;
     color: var(--text-main);
     text-transform: none;
-    /* No uppercase for a more modern, minimal feel */
     letter-spacing: -0.5px;
   }
 
@@ -2188,7 +2144,7 @@
     pointer-events: none;
     visibility: hidden;
     /* Override just the visibility channel to delay until collapse finishes;
-           keeps max-height/opacity/padding-top on their original easing. */
+           keeps max-height, opacity, and padding on their existing easing. */
     transition:
       max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.25s ease,
@@ -2204,28 +2160,22 @@
     height: 160px;
   }
 
-  /* Vertical Slider Compact Logic */
+  /* Rotate a wide range input while retaining a large touch target. */
   input[type='range'].eq-slider {
     -webkit-appearance: none;
     appearance: none;
     background: transparent;
     cursor: pointer;
 
-    /* Rotation Logic */
     width: 100px;
-    /* 원래 길이 복구 */
     height: 32px;
-    /* 터치 영역 개선을 위해 input 박스 크기를 키움 */
     transform: rotate(-90deg);
 
-    /* Absolute Positioning to ignore layout width */
     position: absolute;
     top: 50%;
     left: 50%;
     margin-left: -50px;
-    /* Half of 100px width */
     margin-top: -16px;
-    /* Half of 32px height */
   }
 
   /* Track */
@@ -2239,7 +2189,6 @@
       var(--surface-2) var(--range-progress),
       var(--surface-2) 100%
     );
-    /* 메인 슬라이더와 통일된 두께 및 색상 */
     border-radius: 3px;
     cursor: pointer;
     transition: height 0.16s ease;
@@ -2316,48 +2265,34 @@
 
   .eq-band {
     position: relative;
-    /* Anchor for slider */
+    /* Anchor the rotated range input between its value and label. */
     height: 160px;
-    /* Fixed height for zone */
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    /* Val at top, Label at bottom */
     align-items: center;
     flex: 1;
-    /* Distribute equally */
     min-width: 0;
-    /* Allow shrinking */
     padding: 10px 0;
   }
 
   .eq-val {
     margin-bottom: auto;
-    /* Push to top */
     z-index: 2;
     font-size: 11px;
-    /* Smaller font */
     color: var(--primary);
-    /* Match preamp blue */
     font-weight: 700;
   }
 
   .eq-label {
     margin-top: auto;
-    /* Push to bottom */
     z-index: 2;
     font-size: 11px;
-    /* Smaller font */
     color: var(--text-sub);
-    /* Gray color */
     font-weight: 500;
   }
 
-  /*
-   The Unified Symmetry System:
-   Content units use consistent padding.
-   Sliders use tighter 6px padding (12px total gap) for a professional layout.
-*/
+  /* Effect controls share a compact 12px vertical rhythm. */
   .slider-wrap {
     padding: 6px 0;
   }
@@ -2368,13 +2303,12 @@
     padding-right: 0;
   }
 
-  /* Global Grid System: Used in both Settings and Setup/Onboarding */
+  /* Shared channel grid for Settings and setup. */
   .channel-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
     padding: 12px 0;
-    /* Fallback padding */
   }
 
   .ch-opt {
@@ -2756,7 +2690,7 @@
     user-select: none;
   }
 
-  /* Draw −/+ with pseudo-elements for pixel-perfect centering */
+  /* Draw −/+ with pseudo-elements for stable optical centering. */
   .stepper-btn::before {
     content: '';
     position: absolute;
@@ -2841,7 +2775,7 @@
     display: none;
   }
 
-  /* Mobile: show ALL sub-tab panels (just stacked, scrollable) */
+  /* Mobile stacks every settings sub-panel in one scroll view. */
   .settings-subtab-panel {
     display: block;
   }
@@ -2851,7 +2785,7 @@
     border-bottom: 1px solid var(--divider);
   }
 
-  /* Desktop connect sub-panel — hidden on mobile (duplicate of mobile #tab-connect) */
+  /* The desktop Connect mirror is hidden while mobile #tab-connect is active. */
   .settings-subtab-panel[data-panel='connect'] {
     display: none;
   }
@@ -2861,7 +2795,7 @@
     display: none;
   }
 
-  /* Desktop help sub-panel — hidden on mobile (duplicate of mobile #tab-guide) */
+  /* The desktop Help mirror is hidden while mobile #tab-guide is active. */
   .settings-subtab-panel[data-panel='help'] {
     display: none;
   }
@@ -2927,14 +2861,13 @@
     display: none;
   }
 
-  /* NOTE: play-header-desktop — hidden in both mobile (here) and desktop.css.
-   Reserved for future desktop-specific player header. */
+  /* The shared player header is used on every layout. */
   .play-header-desktop {
     display: none;
   }
 
   /* =============================================
-   Bottom Nav — Toss Quick_Tabbar (Floating Pill)
+   Bottom Navigation
    ============================================= */
   .bottom-nav {
     position: fixed;
@@ -2975,7 +2908,6 @@
     transition: none !important;
   }
 
-  /* Blur halo (Removed since nav is now a solid edge-to-edge block) */
   .nav-blur-halo {
     display: none;
   }
@@ -2998,7 +2930,7 @@
     border: none;
   }
 
-  /* --- Nav Items (Toss adaptive grey) --- */
+  /* --- Navigation items --- */
   .nav-item {
     background: none;
     border: none;
@@ -3607,11 +3539,8 @@
   .onboarding-overlay {
     position: fixed;
     inset: 0;
-    /* Do NOT set explicit height here!
-       inset:0 already defines top:0 + bottom:0 which stretches the element
-       to the viewport height automatically. Adding height:100vh would OVERRIDE
-       the bottom:0 constraint and cause the overlay to extend behind the
-       Android soft navigation bar. */
+    /* inset: 0 establishes height without a 100vh override that could extend
+       behind Android system navigation. */
     /* Cap to the actually visible viewport height.
        On some Android tablets / WebViews, 100vh (or viewport-fit=cover contexts)
        can include the area behind the system navigation bar, causing the
@@ -3624,7 +3553,6 @@
     flex-direction: column;
     overflow: hidden;
     padding-top: calc(var(--safe-top) + 16px);
-    /* Use safe-area only, no header height */
   }
 
   /* Hide header behind fullscreen overlays */
@@ -3632,7 +3560,6 @@
   body:has(#media-source-overlay.active) header,
   body:has(#youtube-url-overlay.active) header {
     z-index: 1;
-    /* Below onboarding overlay so header is hidden */
   }
 
   /* Hide mobile bottom navigation to prevent peeking in PWA mode */
@@ -3678,10 +3605,9 @@
     transform: translateY(20px) !important;
   }
 
-  /* Base styles for the new split layout of setup overlay */
+  /* Mobile setup uses one column; desktop.css promotes it to a split layout. */
   #setup-desktop-brand {
     display: none;
-    /* Hidden on mobile */
   }
 
   .setup-mobile-view {
@@ -3700,8 +3626,6 @@
     margin-bottom: 20px;
   }
 
-  /* Removed fadeInFadeOnly to use View Transitions API */
-
   .onboarding-overlay.active {
     display: flex;
   }
@@ -3713,14 +3637,12 @@
     flex-direction: column;
     background: transparent;
     overflow: hidden;
-    /* Parent does not scroll */
     position: relative;
     padding: 0;
     margin: 0;
   }
 
-  /* Content Area - This should scroll only if content overflows */
-  /* Content Area - Natural flow by default */
+  /* Setup sections use natural flow; their owning area controls overflow. */
   .onboarding-card > div:not(.ob-actions) {
     flex: none;
     padding: 0 28px;
@@ -3737,7 +3659,7 @@
   #setup-auto-join-area,
   #setup-role-area {
     display: none;
-    /* Controlled by JS. Welcome starts visible via JS init */
+    /* The setup controller activates exactly one area at a time. */
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
@@ -3746,17 +3668,13 @@
     flex-direction: column;
   }
 
-  /* Welcome Header — now uses shared .setup-header-text margin-bottom: 56px */
-
-  /* 스피커 선택 화면: 다이어그램 SVG 상단 여백이 시각적 간격을 만들어
-   다른 화면(56px)과 동일하게 보이도록 착시 보정 (-14px) */
+  /* The role diagram has built-in SVG whitespace; compensate so its header gap
+     aligns optically with the other setup screens. */
   #setup-role-area .setup-header-text {
     margin-bottom: 42px;
   }
 
-  /* Standard Header Text — canonical definition is below in .setup-step section */
-
-  /* Footer Area - This is pinned at the bottom */
+  /* Keep setup actions outside the scrollable step body. */
   .ob-actions {
     flex: none;
     display: flex;
@@ -3764,12 +3682,10 @@
     gap: 12px;
     padding: 16px 28px calc(24px + env(safe-area-inset-bottom, 0));
     margin-top: auto;
-    /* Natural flow to the bottom */
     background: var(--bg);
     width: 100%;
     z-index: 100;
     border-top: none;
-    /* Removed subtle line */
   }
 
   .onboarding-card.full-screen {
@@ -3780,7 +3696,6 @@
 
   .setup-card {
     padding: 32px 28px 24px;
-    /* Slightly more balanced padding for fixed height */
   }
 
   .ob-slider-viewport {
@@ -4083,7 +3998,6 @@
     font-size: 24px;
     font-weight: var(--font-weight-display);
     margin-bottom: 8px;
-    /* Reduced from 12px */
     letter-spacing: -0.03em;
     color: var(--text-main);
     line-height: 1.2;
@@ -4096,7 +4010,7 @@
     word-break: keep-all;
   }
 
-  /* --- Setup Overlay (Toss In-App) --- */
+  /* --- Setup overlay --- */
   .setup-code-label {
     text-align: center;
     width: 100%;
@@ -4114,13 +4028,11 @@
     width: 100%;
     height: auto;
     min-height: 120px;
-    /* Reduced from 180px */
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     margin-bottom: 16px;
-    /* Reduced from 24px */
     position: relative;
     background: transparent;
     border-radius: 0;
@@ -4154,7 +4066,6 @@
   .setup-unified-item .setup-inner-desc {
     margin-top: 6px;
     font-size: 12px;
-    /* Smaller font */
     color: var(--text-sub);
     font-weight: 600;
     line-height: 1.4;
@@ -4163,7 +4074,6 @@
 
   .setup-code-area-bottom {
     margin-top: 40px;
-    /* Perfectly identical distance for both Host and Guest */
     padding: 16px 0 32px;
     border-top: none;
     text-align: center;
@@ -4188,8 +4098,8 @@
     padding: 0 10px;
   }
 
-  /* Parked setup role picker. The current onboarding auto-selects center,
-     but these styles stay with the hidden picker for a possible return. */
+  /* The hidden role picker remains styled so an explicit selection step can
+     be enabled without changing the setup layout. */
   #setup-role-grid.channel-grid {
     padding: 0 8px;
     margin-top: 12px;
@@ -4198,9 +4108,7 @@
 
   #setup-role-grid .ch-opt {
     background: var(--surface-2);
-    /* Setup overlay uses slightly different background depth */
     border: 2px solid transparent;
-    /* Match selected state width to prevent shift */
   }
 
   #setup-role-grid .ch-opt:active {
@@ -4213,9 +4121,6 @@
     border-color: rgba(var(--primary-rgb), 0.75);
     box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.15);
   }
-
-  /* Speaker Active State — canonical definition is near line 4885+.
-   Removed duplicate !important rules that caused translucent fill override. */
 
   .setup-graphic-svg {
     width: 100%;
@@ -4254,14 +4159,11 @@
     border-radius: 0;
     padding: 8px 0;
     font-size: 32px;
-    /* Increased font size for code visibility */
     font-weight: 900;
     letter-spacing: 0.12em;
-    /* Adjusted letter spacing */
     color: var(--text-main);
     caret-color: var(--text-main);
     align-self: center;
-    /* Keep centered */
     font-family: inherit;
     font-variant-numeric: tabular-nums;
     transition: border-bottom-color 0.3s ease;
@@ -4343,8 +4245,6 @@
     background: var(--surface-3);
   }
 
-  /* Navigation Arrows (removed duplicate .ob-arrow — see line ~2770 for canonical definition) */
-
   /* Minimalist Room Diagram */
   .graphic-room {
     opacity: 0.9;
@@ -4394,7 +4294,6 @@
   .graphic-speaker.active {
     stroke: var(--primary);
     fill: #000000;
-    /* filter: drop-shadow(0 4px 12px rgba(var(--primary-rgb), 0.2)); */
   }
 
   .spk-driver {
@@ -4421,7 +4320,6 @@
 
   .list-empty-state {
     padding: 20px;
-    /* Removed large top padding to allow flex centering */
   }
 
   .chat-group {
@@ -4481,7 +4379,7 @@
     border-bottom-right-radius: 4px;
   }
 
-  /* Mine: last bubble in group — top-right sharp, bottom-right round (restore) */
+  /* Mine: the last grouped bubble restores the outer bottom radius. */
   .chat-group .chat-row + .chat-row:last-child .chat-bubble.mine {
     border-top-right-radius: 4px;
     border-bottom-right-radius: var(--radius-m);
@@ -4493,7 +4391,7 @@
     border-bottom-left-radius: 4px;
   }
 
-  /* Others: last bubble in group — top-left sharp, bottom-left round (restore) */
+  /* Others: the last grouped bubble restores the outer bottom radius. */
   .chat-group .chat-row + .chat-row:last-child .chat-bubble.others {
     border-top-left-radius: 4px;
     border-bottom-left-radius: var(--radius-m);
@@ -4524,7 +4422,7 @@
     border-bottom-left-radius: var(--radius-m);
   }
 
-  /* Redesign: When bubble contains YouTube, strip its own background/padding */
+  /* The embedded YouTube card supplies its own bubble surface. */
   .chat-bubble:has(.chat-youtube-btn),
   .chat-bubble.has-youtube {
     background: transparent;
@@ -4958,14 +4856,13 @@
     position: fixed;
     left: 0;
     right: 0;
-    /* iOS PWA: keep drawer anchored to the physical bottom.
-       If we offset by safe-bottom AND translateY(100%), a visible "peek" strip can remain. */
+    /* iOS PWA: keep the drawer at the physical bottom. Combining a safe-area
+       offset with translateY(100%) can leave a visible strip. */
     bottom: 0;
-    /* 모든 경우에 화면 절반만 사용 */
+    /* Keep chat within the lower half of the viewport. */
     height: 50vh;
     max-height: calc(var(--app-height, 100dvh) * 0.5);
     background: var(--surface-1);
-    /* Themed background */
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
@@ -5060,7 +4957,7 @@
     fill: currentColor;
   }
 
-  /* Mobile only: title & close hidden — MUST come after .chat-drawer-close base styles */
+  /* Cascade after the base close-button rule so mobile keeps the drawer chrome hidden. */
   @media (max-width: 1279px) {
     .chat-drawer-title,
     .chat-drawer-close {
@@ -5369,7 +5266,6 @@
   .chat-youtube-btn:active {
     transform: scale(0.97);
     background: #d90000;
-    /* Slightly darker red on active */
   }
 
   /* Chat Timestamp Link */
@@ -5383,7 +5279,6 @@
 
   .chat-bubble.mine .chat-timestamp {
     color: white;
-    /* Visibility fix */
   }
 
   .chat-timestamp:active {
@@ -6435,9 +6330,7 @@
     font-size: 15px;
   }
 
-  /* Media Source Overlay Styles */
-  /* Consolidated with global .setup-header-text above */
-
+  /* Media source choices */
   .file-select-btn {
     display: flex;
     align-items: center;
@@ -6588,7 +6481,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    /* Use currentColor so icon/text stay perfectly consistent across themes */
+    /* currentColor keeps icon and label colors synchronized across themes. */
     color: var(--text-sub);
   }
 
@@ -7114,7 +7007,7 @@
         width: 100% !important;
       }
 
-      /* New help button for super-compact mode */
+      /* Compact landscape exposes Help beside the role badge. */
       html:not(.keyboard-open) .header-help-btn {
         display: flex !important;
         background: transparent !important;
@@ -7125,9 +7018,8 @@
         border-radius: 12px !important;
         align-items: center !important;
         justify-content: center !important;
-        /* No margin-left needed because of space-between */
         margin-left: 0 !important;
-        /* Distance from screen edge: 16px (header padding) + 13px (this margin) = 29px */
+        /* Match the 29px visual inset used by the compact sidebar. */
         margin-right: 13px !important;
         transition:
           color 0.15s,
@@ -7542,9 +7434,7 @@
 /* end @layer base */
 
 /* ─── FOUC guard ──────────────────────────────────────────────
-   Replaces the inline <style id="fouc-guard"> that used to live in
-   index.html. Hides body until the bootstrap finishes (fouc-cleanup.js
-   adds .fouc-loaded once style.css has parsed and --bg resolves).
+   fouc-cleanup.js adds .fouc-loaded after style.css parses and --bg resolves.
    Unlayered rules so they take precedence over the body rules inside
    @layer base. This file itself is the stylesheet whose load gates the
    reveal — style.css cannot be parsed without these rules existing,
@@ -7559,7 +7449,7 @@ body.fouc-loaded {
   opacity: 1;
 }
 
-/* ─── Viewport-safe height clamps (was inline <style id="viewport-safe">) ───
+/* ─── Viewport-safe height clamps ──────────────────────────────
    iOS standalone (PWA) is excluded from the body clamp because CSS units
    (100%, 100dvh) exclude safe-area-inset-top — platform.ts handles it via
    JS instead. */
@@ -7582,7 +7472,7 @@ html:not(.ios-standalone) body {
   overflow-y: auto;
 }
 
-/* ─── noscript fallback (was inline style on the <div> in <noscript>) ─── */
+/* ─── noscript fallback ──────────────────────────────────────── */
 .noscript-fallback {
   padding: 16px;
   background: #111;
@@ -7595,10 +7485,9 @@ html:not(.ios-standalone) body {
     sans-serif;
 }
 
-/* ─── Inline-style refactor utilities ─────────────────────────────────
-   Replaces style="..." attributes that previously needed
-   `style-src 'unsafe-inline'`. Most are 1:1 named classes for the spot
-   they replace (kept literal so a future grep can map them back). */
+/* ─── CSP-safe utility classes ─────────────────────────────────
+   Named classes keep static presentation out of style attributes so the
+   production CSP does not need `style-src 'unsafe-inline'`. */
 
 /* Stereo / top-of-tab "invite code mini display" cluster (#tab-play, etc) */
 .invite-meta-cluster {
@@ -7626,7 +7515,7 @@ html:not(.ios-standalone) body {
   text-align: right;
 }
 
-/* Setup-screen role hint label (small "(중앙)" text) */
+/* Compact setup-role hint such as "(중앙)". */
 .role-hint-label {
   font-size: 10px;
   color: var(--text-sub);
@@ -7719,7 +7608,7 @@ html:not(.ios-standalone) body {
   position: relative;
 }
 
-/* Onboarding welcome wrapper (was inline width/flex on a setup container) */
+/* Onboarding welcome wrapper */
 .setup-welcome-wrap {
   width: 100%;
   display: flex;
@@ -7809,10 +7698,7 @@ html:not(.ios-standalone) body {
   flex: 1;
 }
 
-/* Setup area body wrap (id=setup-join-area, setup-role-area, ...).
-   Initial state is hidden (HTML5 [hidden]); JS toggles display via
-   el.style.display = 'flex' which overrides the [hidden] default
-   without needing inline-style allowed by CSP. */
+/* Setup areas start hidden; the setup controller activates one at a time. */
 .setup-area-block {
   width: 100%;
 }
@@ -7821,7 +7707,7 @@ html:not(.ios-standalone) body {
   position: relative;
 }
 
-/* Code input "active" / focused look (was an inline override on a span) */
+/* Active code-input appearance */
 .code-input-active {
   border-bottom: 2px solid transparent;
   opacity: 1;
@@ -8059,10 +7945,7 @@ html:not(.ios-standalone) body {
 }
 
 /* ─── Debug Memory Overlay ─────────────────────────────────────
- * Full-screen translucent surface for /debug memory output.
- * Tap or press ESC to dismiss. Created and removed dynamically by
- * commands.ts — no static markup. Hidden from view in CSS audits
- * by living at the bottom of the file with no usage comment elsewhere.
+ * /debug memory creates this full-screen, dismissible diagnostics surface.
  */
 .debug-memory-overlay {
   position: fixed;

@@ -1,5 +1,9 @@
 # Runtime Flow Analysis
 
+> **Historical flow snapshot (2026-05-24).** This preserves the audit's flow
+> reasoning; it is not a guarantee that every named module, message, or step is
+> unchanged today.
+
 This file traces major user/runtime flows at the level needed to plan safe changes.
 
 ## Flow 1: App Boot
@@ -415,4 +419,3 @@ These invariants should be preserved in future changes:
 8. Production bundle must not expose test hooks.
 9. Cloudflare capability-protected endpoints must fail closed unless an explicit guarded fallback is configured.
 10. E2E should observe semantic playback state, not legacy `appState`.
-

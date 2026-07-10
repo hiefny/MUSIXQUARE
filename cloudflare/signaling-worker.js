@@ -418,7 +418,7 @@ export class MusixquareRoom {
     if (attachment.auth === 'pending') {
       // If the DO slept past the pending guest's authDeadline, don't leak
       // the slot — close immediately on hibernation wake so a real guest
-      // can take its place. (10차 audit Phase 6 finding.)
+      // can take its place.
       if (typeof attachment.authDeadline === 'number' && Date.now() > attachment.authDeadline) {
         try {
           ws.close(1011, 'auth timeout (hibernation)');

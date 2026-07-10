@@ -21,7 +21,7 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-empty-function': 'off',
       'no-console': 'warn',
-      // 3.0: raw setTimeout/setInterval 금지 — setManagedTimer() 또는 delay() 사용
+      // Application timers must be registered for lifecycle cleanup.
       'no-restricted-globals': ['error',
         { name: 'setTimeout', message: 'Use setManagedTimer() from core/timers.ts or delay() for awaitable delays.' },
         { name: 'setInterval', message: 'Use setManagedTimer(name, fn, ms, { interval: true }) from core/timers.ts.' },
@@ -33,7 +33,7 @@ export default tseslint.config(
     rules: { 'no-console': 'off' },
   },
   {
-    // timers.ts is the managed timer implementation — it must use raw setTimeout/setInterval
+    // Managed-timer and delayed Blob URL cleanup internals require the native timer APIs.
     files: ['src/core/timers.ts', 'src/core/blob-manager.ts'],
     rules: { 'no-restricted-globals': 'off' },
   },

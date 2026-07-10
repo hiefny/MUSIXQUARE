@@ -1,12 +1,9 @@
 /**
- * MUSIXQUARE landing — i18n dictionary + apply
+ * Locale dictionary and DOM bindings for the About page.
  *
- * Runs at end of body so the DOM exists. Korean copy is hand-written and
- * preserves intentional English UI labels such as HOST, Peer 1, App, and
- * protocol/platform names.
- *
- * Extracted from inline <script> in landing.html so the production CSP
- * can drop `script-src 'unsafe-inline'`.
+ * This external script runs after the page markup so the production CSP does
+ * not need `script-src 'unsafe-inline'`. Translations intentionally preserve
+ * product and protocol names where localizing them would reduce clarity.
  */
 
 (function () {
@@ -1369,7 +1366,7 @@
       try {
         localStorage.setItem(STORE_KEY, selected);
       } catch (e) {
-        /* ignore quota / disabled */
+        /* Language persistence is optional when storage is unavailable. */
       }
     }
     applyLang(selected);
@@ -1381,7 +1378,7 @@
         else url.searchParams.delete('lang');
         history.replaceState(null, '', url.toString());
       } catch (e) {
-        /* old browser without URL constructor — silent */
+        /* URL reflection is optional when the URL API is unavailable. */
       }
     }
   }

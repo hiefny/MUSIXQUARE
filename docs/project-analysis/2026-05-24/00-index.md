@@ -1,7 +1,13 @@
 # MUSIXQUARE Project Analysis Index
 
+> **Historical repository snapshot.** This entire directory is frozen to the
+> 2026-05-24 analysis baseline. Commands, test totals, paths, findings, and next
+> actions were accurate or proposed for that snapshot; they are not the current
+> release status or backlog. See [../../README.md](../../README.md) for current
+> documentation.
+
 Date: 2026-05-24
-Workspace: `C:\Users\HEVC\Desktop\musixquare`
+Workspace: repository root (local Windows checkout)
 Scope: repository-wide architecture, runtime flow, quality gates, risk register, and follow-up plan.
 
 This analysis intentionally does not modify production code. The only repository changes made for this pass are Markdown analysis notes under this directory.

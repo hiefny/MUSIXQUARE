@@ -83,7 +83,6 @@ import GUI from 'https://esm.sh/lil-gui@0.19.2';
 
 const canvas = document.getElementById('scene');
 
-// ─── Renderer ─────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.max(window.devicePixelRatio, 3));  // supersample for capture
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -92,15 +91,12 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-// ─── Scene & Camera ───────────────────────────────────
 const scene = new THREE.Scene();
-// background handled by body CSS gradient (controllable via GUI)
 
 const camera = new THREE.PerspectiveCamera(10, window.innerWidth / window.innerHeight, 0.1, 1000);
 const DEFAULT_CAM = new THREE.Vector3(0, 0.5, 90);
 camera.position.copy(DEFAULT_CAM);
 
-// ─── Environment ──────────────────────────────────────
 const pmrem = new THREE.PMREMGenerator(renderer);
 
 function makeStudioScene() {
@@ -140,7 +136,6 @@ const envTextures = {
 };
 scene.environment = envTextures.Studio;
 
-// ─── Lights ──────────────────────────────────────────
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambientLight);
 const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -164,7 +159,6 @@ const PANELS = [
 const ASSET_PATH = '../assets/screenshots-desktop/';
 const BASE_WIDTH = 6.0; // unit-width for scale=1.0
 
-// ─── Load textures, build panels ─────────────────────
 const loader = new THREE.TextureLoader();
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
@@ -325,7 +319,6 @@ Promise.all(PANELS.map(p => loadTexture(p.file).then(tex => ({ tex, cfg: p }))))
     document.getElementById('loading').textContent = 'Failed to load screenshots';
   });
 
-// ─── Controls ────────────────────────────────────────
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
@@ -498,7 +491,6 @@ async function captureAt(w, h) {
 
   const dataUrl = out.toDataURL('image/png');
 
-  // Restore live view
   renderer.setPixelRatio(origRatio);
   renderer.setSize(origSize.x, origSize.y, false);
   camera.aspect = origAspect;
@@ -609,7 +601,7 @@ canvas.addEventListener('pointerup', e => {
   if (!downPos) return;
   const dx = e.clientX - downPos.x, dy = e.clientY - downPos.y;
   downPos = null;
-  if (Math.hypot(dx, dy) > 4) return; // treat as drag, ignore
+  if (Math.hypot(dx, dy) > 4) return;
   const idx = pickFromEvent(e);
   if (idx >= 0) {
     selectedIndex = idx;
@@ -639,7 +631,6 @@ function animate() {
 }
 animate();
 
-// ─── Interactions ────────────────────────────────────
 let uiHidden = false;
 window.addEventListener('keydown', e => {
   if (e.code === 'Space') {
@@ -658,7 +649,6 @@ window.addEventListener('keydown', e => {
   }
 });
 
-// ─── Resize ──────────────────────────────────────────
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h;

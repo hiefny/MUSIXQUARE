@@ -20,7 +20,7 @@ function isPortInUse(port: number, host: string): Promise<boolean> {
 }
 
 async function globalSetup() {
-  // If port 9000 is already in use, assume an external PeerJS server is running
+  // Reuse a listener already bound to the configured PeerJS port.
   if (await isPortInUse(PEER_PORT, '127.0.0.1')) {
     console.log(`[E2E] Port ${PEER_PORT} already in use — reusing existing PeerJS server`);
     (globalThis as Record<string, unknown>).__PEER_APP__ = null;
@@ -31,10 +31,10 @@ async function globalSetup() {
 
   const peerApp = PeerServer({ port: PEER_PORT, host: '127.0.0.1', path: '/' });
 
-  // Wait for server to bind
+  // PeerServer exposes no readiness promise; give the listener a bounded bind
+  // window before tests begin.
   await new Promise<void>((resolve) => setTimeout(resolve, 500));
 
-  // Store ref for teardown
   (globalThis as Record<string, unknown>).__PEER_APP__ = peerApp;
 
   console.log(`[E2E] PeerJS signaling server started on port ${PEER_PORT}`);

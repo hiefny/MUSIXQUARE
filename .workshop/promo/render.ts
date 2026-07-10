@@ -18,7 +18,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ffmpeg installed via winget — may not be on PATH in current shell
+// FFMPEG_PATH overrides the common WinGet installation used by this local
+// rendering tool.
 const FFMPEG_BIN = process.env.FFMPEG_PATH ||
   path.join(
     process.env.LOCALAPPDATA || '',
@@ -154,15 +155,15 @@ async function captureFrames(
     console.log('  Iframe ready.');
   }
 
-  // Kill any CSS animations (we drive everything via JS __promoSetTime)
+  // Cancel CSS animations because __promoSetTime drives a deterministic clock.
   await page.evaluate(() => {
     document.getAnimations().forEach(a => a.cancel());
-    // Also cancel animations inside iframe if present
+    // The embedded app must use the same deterministic frame clock.
     const iframe = document.getElementById('app-frame') as HTMLIFrameElement;
     if (iframe?.contentDocument) {
       iframe.contentDocument.getAnimations().forEach(a => a.cancel());
     }
-    // Init promo timeline at t=0
+    // Initialize the scene timeline at t=0.
     if (typeof (window as any).__promoSetTime === 'function') {
       (window as any).__promoSetTime(0);
     }

@@ -24,8 +24,8 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 
 // ─── Target text (every glyph used anywhere in the OG card family) ─
-// English-only since the invite card's Korean variant was dropped.
-// Shared by invite-og (dynamic), og-roadmap, og-changelog, og-designsystem.
+// Invite OG card copy is English-only.
+// Shared by invite-og (dynamic), og-history, and og-designsystem.
 // Full Latin A–Z / a–z / 0–9 plus common punctuation — adds ~8 KB per
 // weight but buys flexibility if card copy changes.
 const TARGET_TEXT = [

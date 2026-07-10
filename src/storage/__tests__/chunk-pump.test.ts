@@ -188,9 +188,8 @@ describe('pumpChunksToPeers — totality', () => {
 
 describe('chunk-pump — state-free contract', () => {
   it('the engine module never imports setState (all state writes stay in wrappers)', async () => {
-    // The engine being side-effect-free w.r.t. the state tree is what
-    // protects the wrappers' audit-hardened aborted-vs-superseded cleanup
-    // semantics. Pin it statically: no import binding of setState.
+    // The shared engine must remain state-tree independent; wrappers own
+    // abort and supersession cleanup.
     const source = (await import('../chunk-pump.ts?raw')).default as string;
     expect(source).not.toMatch(/import\s*\{[^}]*\bsetState\b/);
   });

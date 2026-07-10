@@ -41,24 +41,9 @@ let _pendingBroadcast: {
 } | null = null;
 
 /**
- * Debounced wrapper around broadcastFile. Coalesces rapid consecutive calls
- * (e.g. user clicking next-next-next within ~300ms) so only the last stable
- * track actually starts a chunk broadcast. Prevents the dataChannel buffer
- * from accumulating chunks from superseded broadcasts — a stuck buffer is
- * what surfaces on the receiver as reorder-buffer overflow, decode failures,
- * and infinite recovery loops, since WebRTC reliable+ordered keeps the
- * stale chunks in the queue ahead of the new track's FILE_START.
- *
- * The optional prepareMsg parameter coalesces the FILE_PREPARE announcement
- * with the chunk broadcast so guests don't get a flood of metadata updates
- * for tracks the user already left. Without this, the receiver pipeline
- * would reset on every prepareMsg, race against PLAY messages still in
- * flight, and surface as "Name mismatch on PLAY" with the guest stuck
- * waiting for a FILE_PREPARE that already arrived as a stale earlier one.
- *
- * setManagedTimer is name-keyed: a second call within the window cancels the
- * previous pending fire and replaces _pendingBroadcast with the new file,
- * so the queued broadcast always reflects the latest user intent.
+ * Coalesce rapid track selections so only the latest settled file and its
+ * optional FILE_PREPARE announcement enter the ordered data channel. The
+ * name-keyed timer and `_pendingBroadcast` must always describe the same call.
  */
 export function broadcastFileDebounced(
   file: File,
@@ -88,20 +73,8 @@ export function broadcastFileDebounced(
 }
 
 /**
- * Drop any pending (queued-not-yet-fired) debounced broadcast. Called from:
- * - cancelOutgoingFileTransfers() below — "cancel outgoing transfers" must
- *   also cover the broadcast still parked in the 300ms debounce window
- *   (playlist-empty teardown, demo entry).
- * - playTrack's YouTube branch (player/playlist.ts) — switching local→YouTube
- *   inside the debounce window must not pump the superseded local file to
- *   guests during YouTube playback.
- * leaveSession needs no call here: peer.ts runs clearAllManagedTimers(),
- * which already kills the debounce timer (the stale _pendingBroadcast value
- * is inert — the next broadcastFileDebounced overwrites it).
- *
- * Both halves must stay paired: clearing only the timer leaves a stale
- * _pendingBroadcast for the next fire; nulling only _pendingBroadcast leaves
- * a timer that fires into the early-return (harmless but misleading).
+ * Drop a queued broadcast before it starts. Clear both the payload and timer
+ * so teardown cannot resurrect a superseded file transfer.
  */
 export function cancelPendingBroadcast(): void {
   _pendingBroadcast = null;
@@ -158,8 +131,7 @@ export async function broadcastFile(
 
     const eligiblePeers = filterEligiblePeers().filter(isBulkTransferWritablePeer);
 
-    // 12-13: no eligible peers — the ownership-conditional finally below
-    // clears activeBroadcastSession (the old early return cleared it inline).
+    // The ownership-conditional finally block clears this session.
     if (eligiblePeers.length === 0) return;
 
     // Send header (raw conn.send + try/catch, deliberately NOT safeSend —
@@ -172,10 +144,8 @@ export async function broadcastFile(
       }
     });
 
-    // Per-peer backpressure + exclusion lives in the shared engine. Peers
-    // that hit the backpressure timeout are skipped for ALL remaining chunks
-    // to avoid creating permanent chunk holes that force a full recovery
-    // re-transfer (36f8fbf2).
+    // A peer excluded for backpressure receives no later chunks from this
+    // stream; recovery handles its missing suffix.
     const { excluded } = await pumpChunksToPeers({
       file,
       chunkSize: CHUNK,
@@ -213,20 +183,8 @@ export async function broadcastFile(
       });
     }
   } finally {
-    // OWNERSHIP-CONDITIONAL session clear — threat model: a successor
-    // broadcastFile B aborts THIS loop via SessionScope.replace AFTER it has
-    // already re-pointed transfer.activeBroadcastSession to its own
-    // sessionId. The pre-refactor abort exit cleared the state
-    // unconditionally, so a loop parked in a backpressure wait (or in
-    // file.slice().arrayBuffer()) when B started would wake aborted and
-    // stomp B's session — B then died at its own supersession check before
-    // sending FILE_END. Clearing only when we still OWN the session
-    // preserves the deliberate aborted-vs-superseded asymmetry
-    // (cancelOutgoingFileTransfers nulls the state itself, so the old
-    // abort-path clear was redundant-at-best) and eliminates the
-    // successor-stomp class. Also covers the 12-13 early return above and
-    // slice() throws (which previously leaked the session until the next
-    // broadcast).
+    // A superseded loop may finish after its successor has claimed the state.
+    // Clear only the session this invocation still owns.
     if (getState('transfer.activeBroadcastSession') === sessionId) {
       setState('transfer.activeBroadcastSession', null);
     }

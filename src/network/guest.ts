@@ -100,8 +100,8 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     setState('network.hostConn', null);
   }
 
-  // M-2: Clear ICE fallback timer from previous connection — prevents stale
-  // timers from overwriting the new connection's ICE classification.
+  // Clear the previous connection's ICE fallback timer so it cannot overwrite
+  // the new connection's ICE classification.
   clearManagedTimer('guest-ice-fallback');
   _hostReportedConnectionType = null;
 
@@ -138,7 +138,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     _initNetwork(null)
       .then(() => joinSession(hostId, roomPassword, retryAttempt + 1))
       .catch((e) => {
-        // F-2401: a user-cancelled capability/Turnstile challenge (peer.ts
+        // A user-cancelled capability/Turnstile challenge (peer.ts
         // rethrows it directly) or a back-out that makes network init no longer
         // active (NETWORK_INIT_CANCELLED) is intentional — it must NOT surface as
         // a red "network init failed" toast. Restore the join UI silently.
@@ -182,7 +182,8 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     return;
   }
 
-  // Own flag — don't trust conn.open (PeerJS can set it true before 'open' event fires)
+  // Track the observed event; an adapter may expose conn.open before its open
+  // callback has completed.
   let dataChannelOpened = false;
 
   const handlePreOpenError = (err: unknown) => {
@@ -234,8 +235,8 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
 
     // close/error handlers are intentionally inside 'open' callback:
     // Before 'open' fires, the join-timeout timer handles failures.
-    // Registering them here avoids premature cleanup from PeerJS
-    // internal close events that can fire before the channel opens.
+    // Registering them here avoids premature cleanup from adapter close events
+    // that can fire before the channel opens.
     _handledConnectionErrors.delete(conn);
 
     conn.on('close', () => {
@@ -340,12 +341,8 @@ function handleWelcome(data: Record<string, unknown>, conn?: DataConnection): vo
   if (data.label) {
     setState('network.myDeviceLabel', String(data.label));
   }
-  // Ratchet: the host always recreates peers with isOp=false, so a (future)
-  // in-place rejoin must not inherit a stale local OP flag — the host
-  // re-grants explicitly via OPERATOR_GRANT, so this can never strip a
-  // legitimate OP. Today every disconnect path hard-reloads, making this a
-  // no-op; it exists so a transparent-reconnect feature can't silently ship
-  // a permanent fake-OP UI.
+  // WELCOME is authoritative and starts every guest with isOp=false. Always
+  // clear a stale local flag; the host re-grants through OPERATOR_GRANT.
   if (getState('network.isOperator')) {
     setState('network.isOperator', false);
   }
@@ -362,10 +359,9 @@ function handleWelcome(data: Record<string, unknown>, conn?: DataConnection): vo
 function handleSessionFull(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop frames not arriving via hostConn. Without this, a malicious guest
   // (same session, raw frame over their own DataConnection) can send
-  // {type:'session-full'} to the host — handleData routes it here, the
-  // bus.emit below triggers setup.ts:503 startGuestFlow(), and the host's
-  // entire session UI swaps to guest-flow. Same threat vector that the
-  // chat handlers already defend against (4157237/dcd3472).
+  // {type:'session-full'} to the host. handleData routes it here, and the
+  // event below triggers setup.ts startGuestFlow(), swapping the host's
+  // entire session UI to guest-flow.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -396,7 +392,7 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>, conn?: DataCon
   // Drop frames not arriving via hostConn. Without this, a malicious guest
   // can send {type:'device-list-update', list:[]} to any guest — the
   // amIStillConnected check below sees an empty list, fires
-  // 'network:kicked-from-session', and setup.ts:510 reloads the page in
+  // 'network:kicked-from-session', and setup.ts reloads the page in
   // 300ms. Single raw frame → forced session leave for the target.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
@@ -432,8 +428,8 @@ function handleForceCloseDuplicate(_data: Record<string, unknown>, conn?: DataCo
   // Drop frames not arriving via hostConn. Without this, a peer can inject
   // {type:'force-close-duplicate'} to set
   // isIntentionalDisconnect=true on the target, suppressing the
-  // HOST_DISCONNECTED error UI when the connection actually drops. Same
-  // sibling class as handleWelcome / 4838a0c SYNC_PONG.
+  // HOST_DISCONNECTED error UI when the connection actually drops. The same
+  // trust-boundary rule applies to handleWelcome and SYNC_PONG.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -445,11 +441,11 @@ function handleForceCloseDuplicate(_data: Record<string, unknown>, conn?: DataCo
 function handleOperatorGrant(_data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop frames not arriving via hostConn. Without this, a peer can inject
   // {type:'operator-grant'} to flip the target's
-  // network.isOperator=true client-side. Host's verifyOperator (sync.ts:206
-  // path) blocks actual privilege escalation, but the UI flip exposes OP
+  // network.isOperator=true client-side. Host-side verifyOperator in sync.ts
+  // blocks actual privilege escalation, but the UI flip exposes OP
   // controls and shows a fake "OP granted" toast — sociotechnical confusion
   // + potential request flood as the user clicks newly-visible OP actions.
-  // Same sibling class as 4838a0c SYNC_PONG.
+  // Apply the same trust-boundary rule as SYNC_PONG.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -464,8 +460,8 @@ function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnect
   // a legitimate OP guest's privileges client-side
   // (UI flip + fake "OP revoked" toast). Host still has the authoritative
   // OP list in connectedPeers, so requests would still authenticate, but
-  // the user loses access to OP UI and is misled about their state. Same
-  // sibling class as handleOperatorGrant.
+  // the user loses access to OP UI and is misled about their state. Apply the
+  // same trust-boundary rule as handleOperatorGrant.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -478,7 +474,7 @@ function handleOperatorRevoke(_data: Record<string, unknown>, conn?: DataConnect
 function handleKickDeviceMsg(_data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop frames not arriving via hostConn. Without this, a malicious guest
   // can send {type:'kick-device'} to the host — the bus.emit below triggers
-  // setup.ts:524 which calls window.location.reload() in 300ms. Single raw
+  // setup.ts, which calls window.location.reload() in 300ms. Single raw
   // frame from any session participant terminates the host's whole session.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
@@ -530,7 +526,7 @@ export function initGuestProtocolHandlers(): void {
     } catch {
       /* ignore */
     }
-    // No optimistic local apply (F-2404): handleRequestRename rejects
+    // Do not apply optimistically: handleRequestRename rejects
     // silently (reserved/profanity/duplicate/empty-after-strip) with no NACK
     // and no corrective broadcast, so an optimistic write would leave this
     // guest's label diverged from the room until the next device-list churn.

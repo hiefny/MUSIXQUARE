@@ -39,15 +39,17 @@ database_id = "d6cc9ceb-f0b6-40e4-99aa-8f28bec412ed"
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"
 CLOUDFLARE_TURN_TTL = "172800"
-# Turnstile grace period: keep capability tokens + per-IP rate limits, but skip
-# human verification while early traffic is low and room entry speed matters.
+# Human verification is disabled; capability tokens and per-IP rate limits
+# remain active without adding challenge latency to room entry.
 MXQR_TURNSTILE_DISABLED = "true"
+# This permits spoofable Origin/Sec-Fetch/Host trust only for minting an
+# IP-bound, short-lived token. It is not origin authentication.
 MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK = "true"
 # Optional comma/space-separated exact origins for trusted deploy previews.
 # TRUSTED_CORS_ORIGINS = "https://example-preview.pages.dev"
 # Required production secrets:
 # - MXQR_CAPABILITY_SECRET
-# Paused during Turnstile grace period; remove MXQR_TURNSTILE_DISABLED to re-enable.
+# Required only if MXQR_TURNSTILE_DISABLED is removed:
 # - TURNSTILE_SITE_KEY
 # - TURNSTILE_SECRET_KEY
 # Local/emergency only:

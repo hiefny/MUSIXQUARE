@@ -15,7 +15,7 @@ import { escapeHtml, escapeAttr } from './dom.ts';
 import { t } from '../i18n/index.ts';
 // Import the pure oEmbed fetcher leaf, NOT youtube/search.ts — the search
 // module pulls in the network/peer facade (broadcast) and would re-create
-// the ui/network/chat/youtube import cycle dissolved in ARCH-WIRECAPS.
+// the ui/network/chat/youtube import cycle.
 import { fetchOEmbedTitle } from '../youtube/oembed.ts';
 
 // Render-owned DOM prune cap. The chat WIRE caps (MAX_MSG_LENGTH,
@@ -184,7 +184,6 @@ export function addChatMessage(
         (!isMine && lastGroup.classList.contains('others')));
 
     if (canGroup && lastGroup) {
-      // Remove time from the previous row's last bubble
       const prevRows = lastGroup.querySelectorAll('.chat-row');
       const prevLastRow = prevRows[prevRows.length - 1];
       if (prevLastRow) {
@@ -192,7 +191,6 @@ export function addChatMessage(
         if (prevTime) prevTime.remove();
       }
 
-      // Add new row to existing group
       const row = document.createElement('div');
       row.className = 'chat-row';
 
@@ -223,7 +221,6 @@ export function addChatMessage(
       lastGroup.appendChild(row);
       lastGroup.dataset.timeStr = timeStr;
     } else {
-      // Create new group
       const group = document.createElement('div');
       group.className = `chat-group ${isMine ? 'mine' : 'others'}`;
       group.dataset.senderId = sender;
@@ -425,7 +422,7 @@ function formatNoticeTime(timestamp: number | undefined): string {
 export function addNoticeChatMessage(sender: string, text: string, timestamp?: number): void {
   setPinnedNotice(sender, text, timestamp);
 
-  // Notices now live only in the pinned banner. Keep preview/unread behavior
+  // Notices live only in the pinned banner. Keep preview/unread behavior
   // so users still notice a room-wide announcement while the drawer is closed.
   bus.emit('chat:message-rendered', sender || t('chat.cmd_notice_prefix'), text, false);
 }

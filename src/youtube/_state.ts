@@ -79,7 +79,7 @@ let _ytScope: SessionScope | null = null;
 let _ytLoadInProgress = false;
 
 /**
- * In-flight playlist-indexing session (Fix: stale-indexing lifecycle, 2026-06-11).
+ * In-flight playlist-indexing session.
  *
  * Threat model: indexing is an async takeover of the iframe (cuePlaylist →
  * CUED → getPlaylist() poll chain) whose completion callback mutates the
@@ -282,7 +282,7 @@ export function setYouTubeSubIndex(index: number): void {
   setState('youtube.currentSubIndex', index);
 }
 
-/** Reset the _state.ts module-level slots. TEST-ONLY today: the only callers
+/** Reset the _state.ts module-level slots. TEST-ONLY: the only callers
  *  are unit-test beforeEach hooks — the LIVE mode-exit teardown is
  *  stopYouTubeMode (player.ts). Note this covers _state.ts slots ONLY: the
  *  sync module (youtube/sync.ts) keeps its own module state (e.g.

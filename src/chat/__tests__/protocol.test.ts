@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Host fan-out truncation pin (CHAT-1, 22차 domain audit): the host must
+ * Host fan-out truncation contract: the host must
  * write the truncated text back onto the relayed payload — renderers cap at
  * MAX_MSG_LENGTH, but without the write-back the wire relayed the original
  * oversized text to N-1 guests (amplification). The 4000-char validator cap
@@ -15,9 +15,9 @@ import { handleData } from '../../network/protocol.ts';
 import { registerChatProtocolHandlers } from '../protocol.ts';
 import type { DataConnection } from '../../types/index.ts';
 
-// Render-fn mocks only. The wire caps (MAX_MSG_LENGTH/MAX_SENDER_LABEL_LENGTH)
-// now come from core/constants.ts (real values, unmocked) — mocking them here
-// previously drifted (phantom label cap 24 vs real 30).
+// Mock renderer functions only. Keep the wire caps
+// (MAX_MSG_LENGTH/MAX_SENDER_LABEL_LENGTH) unmocked so tests exercise the
+// authoritative values from core/constants.ts.
 vi.mock('../../ui/chat-render.ts', () => ({
   addChatMessage: vi.fn(),
   addSystemChatMessage: vi.fn(),

@@ -28,12 +28,10 @@ interface MultiGuestSetup {
 }
 
 async function createMultiGuestSetup(browser: Browser, guestCount = 3): Promise<MultiGuestSetup> {
-  // Create host
   const hostContext = await browser.newContext();
   const hostPage = await hostContext.newPage();
   await injectPeerServer(hostPage);
 
-  // Create guests
   const guestContexts: BrowserContext[] = [];
   const guestPages: Page[] = [];
 
@@ -67,12 +65,10 @@ test.describe('Multi-Guest', () => {
 
     const code = await setupHostAndStart(setup.hostPage);
 
-    // Connect all 3 guests sequentially
     for (const guestPage of setup.guestPages) {
       await setupGuest(guestPage, code);
     }
 
-    // Host should see 4 devices (self + 3 guests)
     await waitForDeviceCount(setup.hostPage, 4);
 
     const deviceCount = await setup.hostPage.evaluate(() => {
@@ -93,11 +89,9 @@ test.describe('Multi-Guest', () => {
     }
     await waitForDeviceCount(setup.hostPage, 4);
 
-    // Upload file
     await uploadFixture(setup.hostPage, 'test01');
     await waitForPlaylistCount(setup.hostPage, 1);
 
-    // All guests should receive playlist
     for (let i = 0; i < setup.guestPages.length; i++) {
       await waitForPlaylistCount(setup.guestPages[i], 1, 30_000);
     }
@@ -160,14 +154,12 @@ test.describe('Multi-Guest', () => {
     }
     await waitForDeviceCount(setup.hostPage, 4);
 
-    // Upload 2 files
     await uploadFixture(setup.hostPage, 'test01');
     await waitForPlaylistCount(setup.hostPage, 1);
 
     await uploadFixture(setup.hostPage, 'test02');
     await waitForPlaylistCount(setup.hostPage, 2);
 
-    // All guests should have 2 items
     for (const guestPage of setup.guestPages) {
       await waitForPlaylistCount(guestPage, 2, 30_000);
 
@@ -188,13 +180,11 @@ test.describe('Multi-Guest', () => {
     }
     await waitForDeviceCount(setup.hostPage, 3);
 
-    // Host sends chat message
     const chatInput = setup.hostPage.locator('#chat-input');
     if (await chatInput.isVisible()) {
       await chatInput.fill('Hello all guests!');
       await setup.hostPage.locator('#btn-chat-send').click();
 
-      // Both guests should receive
       for (const guestPage of setup.guestPages) {
         await waitForChatMessage(guestPage, 'Hello all guests!');
       }
@@ -210,14 +200,12 @@ test.describe('Multi-Guest', () => {
     }
     await waitForDeviceCount(setup.hostPage, 3);
 
-    // Navigate to connect tab
     const connectNav = setup.hostPage.locator('.nav-item[data-tab="connect"]');
     if (await connectNav.isVisible()) {
       await connectNav.click();
       await setup.hostPage.locator('#tab-connect').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
     }
 
-    // Kick first guest
     const kickBtn = setup.hostPage.locator('.btn-kick-device').first();
     if (await kickBtn.isVisible()) {
       await kickBtn.click();
@@ -227,7 +215,6 @@ test.describe('Multi-Guest', () => {
         await confirmBtn.click();
       }
 
-      // Wait for peer count to decrease to 1
       await setup.hostPage.waitForFunction(
         () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -254,7 +241,6 @@ test.describe('Multi-Guest', () => {
 
     const code = await setupHostAndStart(setup.hostPage);
 
-    // Connect guests one by one and verify count increases
     await setupGuest(setup.guestPages[0], code);
     await waitForDeviceCount(setup.hostPage, 2);
 
@@ -264,7 +250,6 @@ test.describe('Multi-Guest', () => {
     await setupGuest(setup.guestPages[2], code);
     await waitForDeviceCount(setup.hostPage, 4);
 
-    // Navigate to connect tab and verify rows
     const connectNav = setup.hostPage.locator('.nav-item[data-tab="connect"]');
     if (await connectNav.isVisible()) {
       await connectNav.click();

@@ -1,5 +1,10 @@
 # MUSIXQUARE Full Project Audit
 
+> **Historical audit snapshot.** This report is preserved for its architecture
+> reasoning and audit trail. Every “current” statement, path, line number, test
+> total, risk rating, and recommendation is scoped to the baseline and date
+> below; it is not the current backlog or release assessment.
+
 Audit baseline: `e278f1e` (`docs: explain FILE-only invariant in lifecycle mode/activity derivation`) on branch `codex/playback-ownership-refactor`.
 
 Comparison baseline for the playback refactor: `ec18221..HEAD`.

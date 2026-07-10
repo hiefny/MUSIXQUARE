@@ -271,7 +271,7 @@ export function updateRoleBadge(): void {
     const latency = getState('sync.lastLatencyMs') || 0;
     // Escape required: myDeviceLabel comes from rename dialog (connect.ts) whose
     // validator only checks reserved/duplicate/profanity (no HTML strip), AND
-    // from host broadcast in guest.ts:270/329. Without escape, a label like
+    // from a host broadcast in network/guest.ts. Without escape, a label like
     // "<svg onload=...>" (≤20 chars passes maxLength) would execute on the
     // labeled device's own role badge. Stored-XSS surface for guests too.
     const ping = document.createElement('span');
@@ -504,7 +504,7 @@ function handleMainSyncBtn(): void {
   }
 
   if (!hostConn) {
-    // SA-04 variant: during track prep (DOWNLOADING/AWAITING_PRELOAD/
+    // During track prep (DOWNLOADING/AWAITING_PRELOAD/
     // DECODING) getTrackPosition() reads 0 and the resident buffer is the
     // previous track's — broadcasting PLAY/PAUSE(time 0, new index) would
     // bounce ready guests to 0:00 while the host is still preparing.
@@ -586,7 +586,7 @@ async function handleLogoReturnToMain(): Promise<void> {
   }
 }
 
-// ─── Android Range Scroll Fix ────────────────────────────────────
+// ─── Android Range Drag Guard ────────────────────────────────────
 
 function installAndroidRangeScrollFix(): void {
   if (!IS_ANDROID) return;
@@ -615,7 +615,7 @@ function installAndroidRangeScrollFix(): void {
   }
 }
 
-// ─── Seek Bar (extracted to src/ui/seekbar.ts) ──────────────────
+// ─── Seek Bar Delegation ────────────────────────────────────────
 
 // ─── Volume Sync ─────────────────────────────────────────────────
 
@@ -846,7 +846,7 @@ export function initPlayerControls(): void {
 
   syncVolumeSlider();
 
-  // Android fix
+  // Prevent range drags from scrolling the containing tab on Android.
   installAndroidRangeScrollFix();
 
   // Volume sync
@@ -962,9 +962,6 @@ export function initPlayerControls(): void {
   _busScope.on('ui:show-toast', (message) => {
     showToast(message);
   });
-
-  // Loader — driven directly via showLoader()/updateLoader() imports.
-  // bus.on handlers removed: no module emits these events.
 
   // Play button state (enabled/disabled)
   // aria-disabled instead of HTML `disabled` so the click handler still

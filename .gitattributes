@@ -1,10 +1,7 @@
-# Normalize all text files to LF in the repo and the working tree.
-# eol=lf wins over core.autocrlf, so the "LF will be replaced by CRLF" warning
-# (caused by CRLF blobs that crept into history under autocrlf=true) is gone for
-# good and every checkout is LF regardless of each machine's git config.
+# Keep text files on LF across contributor Git configurations.
 * text=auto eol=lf
 
-# Binary assets: never touch line endings or attempt text diffs.
+# Binary assets must not receive line-ending conversion or text diffs.
 *.ico  binary
 *.png  binary
 *.mp3  binary

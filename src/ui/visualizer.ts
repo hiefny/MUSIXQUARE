@@ -84,7 +84,7 @@ let _lastCircularFrame: CircularFrame | null = null;
 let _lastSpectrumFrame: SpectrumFrame | null = null;
 let _visualizerRunToken = 0;
 
-// ─── (Frame throttle removed — runs at display's native refresh rate) ───
+// ─── Display-rate Frame Loop ─────────────────────────────────────
 
 // ─── Cached values (avoid per-frame DOM reads) ──────────────────
 let _cachedIsLight = false;

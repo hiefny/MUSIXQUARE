@@ -217,7 +217,7 @@ export function handleRequestYouTubeSubSeek(
       subIndex: subIdx,
       videoId: targetVideoId,
       skipSeek: true,
-      // F-2409: OP sub-seek loads a DIFFERENT video — use the longer
+      // OP sub-seek loads a different video, so use the longer
       // track-transition rendezvous so guests loadVideoById before synced play,
       // matching navigateSubVideo and the loadVideoById siblings in player.ts.
       rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,

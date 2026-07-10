@@ -1,6 +1,13 @@
 # Playback State Machine — Design Doc (v2)
 
-**Status:** VERIFIED — transitions cross-checked against a comprehensive code audit
+> **Historical implementation design.** This document explains the April 2026
+> refactor and preserves its original branch, launch target, migration plan,
+> and test totals. It is not the current rollout plan. Current behavior is
+> defined by `src/player/lifecycle.ts`, its tests, and
+> [playback-concurrency-invariants.md](playback-concurrency-invariants.md).
+
+**Historical status at completion:** VERIFIED — transitions were cross-checked
+against the April 2026 code audit
 **Branch:** `mxqr_temp`
 **Launch target (revised):** 2026-04-28 (Tue)
 **Author:** hiefny + Claude
@@ -465,7 +472,9 @@ Explicit list of things we are **not** doing, to prevent scope creep:
 - `5b1c24e`: 10s decode timeout + auto-skip
 - `fb5d5f0`: repeat/shuffle hardening (Fisher-Yates)
 - `6dca780`: sync popup UI tweak
-- `<pending>`: fix `markTrackFailed` gap in preload timeout catch block (Section 9 / audit finding #7). This is a 3-line fix committed alongside this design doc so the refactor starts from a clean slate.
+- Historical prep item: fix the `markTrackFailed` gap in the preload-timeout
+  catch block described in Section 9. The current decode paths and tests
+  supersede the original `<pending>` placeholder.
 
 ---
 

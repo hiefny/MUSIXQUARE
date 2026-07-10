@@ -178,7 +178,7 @@ export async function initI18n(): Promise<void> {
     // locale 404s during a startup network blip and the user never re-opens
     // the language dialog). The `!_dicts[_resolved]` gate is load-bearing:
     // it makes ordinary connectivity flaps a strict no-op, so 'i18n:changed'
-    // is never re-emitted (and its 5 re-render subscribers never churn)
+    // is never re-emitted (and its re-render subscribers never churn)
     // unless a previously-requested locale is genuinely missing.
     window.addEventListener('online', () => {
       if (!_dicts[_resolved] && _localeLoaders[_resolved]) void _applyLanguage(_resolved);

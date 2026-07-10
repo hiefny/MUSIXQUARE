@@ -1,10 +1,10 @@
 /**
  * @vitest-environment jsdom
  *
- * Pin tests for the guest-rename divergence fix (F-2404, 2026-06-13).
+ * Regression tests for guest-rename convergence.
  *
- * Before the fix the guest applied `network.myDeviceLabel` optimistically on
- * send while the host's handleRequestRename rejected silently (reserved /
+ * A guest must not apply `network.myDeviceLabel` optimistically because the
+ * host's handleRequestRename can reject silently (reserved /
  * profanity / duplicate / empty-after-strip) with no NACK and no corrective
  * broadcast — the guest's identity UI diverged from the room until the next
  * device-list churn. Worse, the client-side duplicate pre-check read
@@ -12,8 +12,8 @@
  * guest, so renaming to another guest's name passed locally 100% of the time
  * and was rejected by the host 100% of the time.
  *
- * The fix: no optimistic apply (DEVICE_LIST_UPDATE round-trips the accepted
- * label, the single writer), plus role-aware client validation that mirrors
+ * DEVICE_LIST_UPDATE round-trips the accepted label as the single writer.
+ * Role-aware client validation mirrors
  * the host's char-strip and duplicate criteria so rejections happen locally
  * with feedback.
  */
@@ -176,7 +176,7 @@ describe('guest rename request (no optimistic apply)', () => {
     bus.emit('network:rename-device', 'NewName');
 
     expect(hostConn.send).toHaveBeenCalledWith({ type: MSG.REQUEST_RENAME, newLabel: 'NewName' });
-    // THE pin: before the fix this was optimistically flipped to 'NewName',
+    // Core assertion: this must not be optimistically flipped to 'NewName',
     // diverging from the room whenever the host silently rejected.
     expect(getState('network.myDeviceLabel')).toBe('Peer 1');
   });
@@ -226,7 +226,7 @@ describe('/nick guest-side validation mirrors the host (F-2404)', () => {
     bus.on('network:rename-device', renameSpy);
 
     // 'HO' + U+200B + 'ST' — trim() alone leaves the zero-width space, so the
-    // pre-fix validator let this through and the host silently rejected it.
+    // The client validator must reject this before the host silently does.
     const spoofed = `HO${String.fromCharCode(0x200b)}ST`;
     runNick(spoofed);
 

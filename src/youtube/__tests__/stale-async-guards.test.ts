@@ -1,18 +1,16 @@
 /**
  * @vitest-environment jsdom
  *
- * Pin tests for the YouTube stale-async guards (F-2401 / F-2402, 2026-06-13).
+ * Regression tests for YouTube stale-async guards.
  *
  * The YT→YT reuse path deliberately skips stopYouTubeMode (gesture
  * preservation), which is the timer-clear owner for the scrape poll, the
- * playlist snapshot, and the first-track fisher. Before the fix, those
- * survived a track switch: the stale scrape poll force-(re)loaded whatever
- * track was current, and the stale snapshot/fisher wrote the NEW player's
- * list under the OLD pid and broadcast it (cross-device subItemsMap
- * poisoning). Likewise onYouTubePlayerError had no mode gate (its sibling
- * onYouTubePlayerStateChange does) and no errored-vs-intended identity
- * check, so a late embed-check error from an abandoned video advanced the
- * room playlist out from under the track the user just chose.
+ * playlist snapshot, and the first-track fisher. Those tasks must be canceled
+ * or identity-guarded across a track switch so they cannot reload the current
+ * track or write a new player's list under the prior playlist ID. Likewise,
+ * onYouTubePlayerError needs the same mode and video-identity gates as its
+ * state-change sibling so an abandoned video's late error cannot advance the
+ * active room playlist.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
@@ -242,7 +240,7 @@ async function startHostScrapeLoad(
   return handle;
 }
 
-// ─── F-2401: scrape poll supersession ──────────────────────────────────────
+// ─── Scrape poll supersession ──────────────────────────────────────────────
 
 describe('scrape poll supersession (F-2401)', () => {
   it('a stale scrape poll step must not touch the player after the load was superseded', async () => {
@@ -292,7 +290,7 @@ describe('scrape poll supersession (F-2401)', () => {
   });
 });
 
-// ─── F-2407: YT→YT reuse cancels the pending seek-play timer ───────────────
+// ─── YT→YT reuse cancels the pending seek-play timer ───────────────────────
 
 describe('YT→YT reuse timer cleanup (F-2407)', () => {
   it('clears yt-seek-play on the reuse branch so a stale delayed play cannot fire against the new video', async () => {
@@ -316,7 +314,7 @@ describe('YT→YT reuse timer cleanup (F-2407)', () => {
   });
 });
 
-// ─── F-2401: snapshot / fisher fire-time pid identity ──────────────────────
+// ─── Snapshot / fisher fire-time pid identity ──────────────────────────────
 
 describe('playlist snapshot pid identity (F-2401)', () => {
   async function armSnapshotForPidA(player: YouTubePlayerInstance): Promise<YtTestHandle> {
@@ -386,7 +384,7 @@ describe('playlist snapshot pid identity (F-2401)', () => {
   });
 });
 
-// ─── F-2402: onYouTubePlayerError gating ───────────────────────────────────
+// ─── onYouTubePlayerError gating ───────────────────────────────────────────
 
 describe('onYouTubePlayerError supersession gates (F-2402)', () => {
   async function createPlayerInYouTubeMode(player: YouTubePlayerInstance): Promise<YtTestHandle> {

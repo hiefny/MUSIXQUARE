@@ -1,5 +1,9 @@
 # Playback State Consumption Contract
 
+Last statically reviewed against the source tree on 2026-07-11. The executable
+contract tests in `src/player/__tests__/playback-state-contract.test.ts` take
+precedence if this prose drifts.
+
 MUSIXQUARE no longer exports legacy `APP_STATE` from core, and the global state tree no longer stores `state.appState`. The remaining compatibility surface is a narrow `isPlaybackIdleCompat()` predicate for historical strict-IDLE semantics. This document defines the contract for how modules consume playback state during and after the ownership refactor.
 
 ## Core Problem
@@ -69,7 +73,7 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
 | A | rAF/timer immediate freshness reads | Pattern 2 or mode/activity poll | `seekbar`, `visualizer`, sync timers |
 | B | one-shot event handler gates | Pattern 2 or mode/activity poll | `app.ts`, chat, settings, setup |
 | C | UI render and labels | Pattern 3 | `player-controls`, selected visualizer reactions |
-| D | audio bridges | one pattern per module | `beat-detector`, `channel`, `system-capture` |
+| D | audio bridges | one pattern per module | `channel`, `system-capture` |
 | E | playback-domain residuals | Pattern 1 or 2 | `playback`, `playlist`, YouTube bridge code |
 
 ## Migration Summary
@@ -89,8 +93,6 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
 
 ### Audio Domain Contract
 
-- Normalize `beat-detector`, `channel`, and `system-capture`.
-- `beat-detector` keeps a module-local file-playing cache fed by `state:playback.mode` and `state:playback.activity`, with explicit freshness refresh on buffer-change paths.
 - `channel` uses playback mode/activity predicates at graph mutation time when the question is "is there active playback to refresh?".
 - `system-capture` is the explicit snapshot exception: it keeps pre-capture `playback.mode/activity` restore data and must not read live predicates during restore, because restore must answer "what was playing before capture started?", not "what is playing now?".
 
@@ -110,7 +112,7 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
 - `owner` and `mode` are not guaranteed to match. Example: paused local-file playback has no active owner but still records `mode: file`; YouTube pause lives in the YouTube player state instead.
 - `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question.
 - If a caller already has a scoped playback snapshot, pass that snapshot into the matching predicate instead of re-polling state.
-- The full decomposition roadmap (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document is the migration plan; this one remains the read/write contract reference.
+- The full decomposition record (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document records the completed migration; this one remains the read/write contract reference.
 
 ## Verification Gate
 
@@ -120,6 +122,7 @@ Playback-state changes should keep these green:
 - targeted tests near changed modules
 - `npm run lint`
 - `npm test`
-- `npm run build`
+- `npm run build:checked`
 
-Known acceptable warning: Vite chunk-size / mixed static-dynamic import warning for `playlist.ts`.
+Build warnings must be evaluated against the current output; this document does
+not permanently waive a named warning or bundle size.

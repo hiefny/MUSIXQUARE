@@ -6,7 +6,7 @@
  * - Pause/resume behavior
  * - Play state reflects on host after file load
  *
- * Note: Audio decode of synthetic MP3 files may fail in headless Chromium.
+ * Audio decode of synthetic MP3 files may fail in headless Chromium.
  * These tests verify the transport/state layer rather than actual audio output.
  */
 import { test, expect } from '@playwright/test';
@@ -40,7 +40,6 @@ test.describe('Playback Sync', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Host should have currentTrackIndex set to 0
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
@@ -61,7 +60,6 @@ test.describe('Playback Sync', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Wait for file to be loaded (currentFileBlob should be set)
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
@@ -72,10 +70,8 @@ test.describe('Playback Sync', () => {
       { timeout: 15_000 },
     );
 
-    // Click play
     await pair.hostPage.click('#play-btn');
 
-    // Wait for state to change from IDLE
     await pair.hostPage.waitForFunction(
       () => {
         const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -84,7 +80,6 @@ test.describe('Playback Sync', () => {
       { timeout: 10_000 },
     );
 
-    // Host playback projection should change from IDLE
     const hostState = await readPlaybackProjection(pair.hostPage);
     expect(hostState).not.toBe('IDLE');
   });
@@ -96,7 +91,6 @@ test.describe('Playback Sync', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
-    // Guest should have the same playlist
     const guestPlaylist = await pair.guestPage.evaluate(() => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
         | ((p: string) => unknown)
@@ -113,7 +107,6 @@ test.describe('Playback Sync', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Wait for file blob
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
@@ -124,10 +117,8 @@ test.describe('Playback Sync', () => {
       { timeout: 15_000 },
     );
 
-    // Play
     await pair.hostPage.click('#play-btn');
 
-    // Wait for state to change from IDLE
     await pair.hostPage.waitForFunction(
       () => {
         const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -138,12 +129,11 @@ test.describe('Playback Sync', () => {
 
     const stateAfterPlay = await readPlaybackProjection(pair.hostPage);
 
-    // Only test pause if play succeeded
+    // Synthetic MP3 decode can fail in headless Chromium, so pause assertions
+    // apply only when transport reached an active state.
     if (stateAfterPlay !== 'IDLE') {
-      // Click play again to pause
       await pair.hostPage.click('#play-btn');
 
-      // Wait for state to change to PAUSED or IDLE
       await pair.hostPage.waitForFunction(
         () => {
           const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;

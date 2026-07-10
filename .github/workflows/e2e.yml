@@ -1,10 +1,8 @@
 name: E2E
 
-# Manual-dispatch only: the Playwright suite runs serially (workers: 1
-# due to shared PeerJS signaling) and takes ~30 min. Kicking it off on
-# every push/PR burns GitHub Actions minutes without gating value while
-# the suite has stale scenarios. Trigger from the Actions tab when you
-# want to verify E2E after fixing stale tests.
+# Manual-dispatch only: the Playwright suite runs serially (workers: 1 due to
+# shared signaling) and is intentionally long-running. Run it from the Actions
+# tab for release candidates or changes that affect cross-device behavior.
 
 on:
   workflow_dispatch:

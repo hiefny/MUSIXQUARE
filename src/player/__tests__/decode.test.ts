@@ -281,12 +281,9 @@ describe('guest file finalization sync', () => {
     setState('player.decodeFailureCount', 0);
     setState('transfer.receivedCount', 7);
 
-    // A FILE_PREPARE that starts a NEW transfer session lands mid-decode, THEN
-    // decode fails. activeLoadSessionId is intentionally NOT bumped (only the
-    // three load fns write it), so only the transfer-session checkpoint can
-    // catch this superseded finalize — exactly the pin (j) axis. The catch must
-    // be fully inert so it does not clobber the successor's transfer state or
-    // report the WRONG track failed to the host.
+    // FILE_PREPARE starts a replacement transfer during decode without bumping
+    // activeLoadSessionId. The transfer-session checkpoint must make the stale
+    // catch inert so it cannot change successor state or report the wrong track.
     mocks.decodeAudioData.mockImplementation(async () => {
       setState('transfer.localSessionId', 2);
       throw new Error('decode failed');
@@ -477,14 +474,8 @@ describe('host decode failure cleanup', () => {
   });
 });
 
-// Superseded host loads must be INERT in both directions (2026-06-13):
-// the success path's epoch checkpoint already refuses to publish, and the
-// failure catch must equally refuse its side effects — otherwise a load that
-// fails AFTER the user moved on (decode timeout, corrupt file) nulls the
-// successor's published blob, knocks the FSM to FAILED, and 600ms later
-// auto-advances the whole room off the track the user actually chose. The
-// remove-track playlist-empty teardown (stopAllMedia({cancelInFlight}) in
-// playlist.ts) relies on the same two checkpoints to kill resurrection.
+// Superseded host loads are inert on both success and failure. Neither path may
+// publish, fail, auto-advance, or restore a track after playlist teardown.
 describe('superseded host load is inert (rapid-click / remove-track supersession)', () => {
   function deferredDecode(): {
     promise: Promise<{ duration: number }>;
@@ -575,11 +566,8 @@ describe('superseded host load is inert (rapid-click / remove-track supersession
   });
 });
 
-// DV-1 (device-test find): clearPreviousTrackState ran ONE bus-hop after
-// handleFilePrepare's fresh branch transitioned the FSM to DOWNLOADING and
-// knocked it back to IDLE — disengaging the PLAY defer-gate for the whole
-// download. The guard must keep mid-engagement pipelines intact while still
-// idling genuinely active/pending playback in non-busy lifecycles.
+// clearPreviousTrackState must preserve an engaged download lifecycle while
+// still idling file playback when no pipeline is busy.
 describe('clearPreviousTrackState lifecycle guard (DV-1)', () => {
   beforeEach(() => {
     resetState();

@@ -96,18 +96,10 @@ export function animateTransition(callback: () => void): void {
 //      topmost shown overlay gets `inert`, so keyboard Tab is trapped
 //      inside the active modal and pointer hits can't fall through.
 //
-// History
-// ───────
-// [a3c84db] introduced the inert focus-trap with a flat allowlist of
-// the three fullscreen onboarding overlays. dialog-overlay was a body
-// child too, so when the SW update prompt opened over the setup screen
-// the dialog rendered correctly but was itself inerted — taps fell
-// through to setup ([1b09816]). The first cut at this rewrite fixed
-// the click-through with a LIFO modal stack ([f0848c7]) but kept two
-// MutationObservers watching the same element set for two effects.
-// This pass collapses them into one observer + one registry: change
-// detection runs once per class mutation, both effects derive from the
-// same `OVERLAYS` array.
+// A flat overlay allowlist can inert a dialog opened above another overlay,
+// making taps fall through to the screen underneath. Keep a LIFO modal stack
+// and derive both chrome visibility and inert state from one observer and the
+// same `OVERLAYS` registry.
 
 interface OverlayDef {
   id: string;

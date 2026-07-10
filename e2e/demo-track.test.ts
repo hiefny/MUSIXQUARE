@@ -48,7 +48,7 @@ test.describe('Linelight demo mode', () => {
     await setupHostAndStart(page);
 
     await page.locator('#dialog-overlay.show').waitFor({ timeout: 10_000 });
-    // Prompt copy updated by 2fb1feb6 (demo.prompt_title/_message/_cta)
+    // Prompt copy comes from the localized demo prompt keys.
     await expect(page.locator('#dialog-overlay.show')).toContainText('Experience MUSIXQUARE');
     await expect(page.locator('#dialog-overlay.show')).toContainText(
       'Welcome! Ready for a quick tour of our features?',

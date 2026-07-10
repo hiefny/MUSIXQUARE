@@ -3,13 +3,9 @@
  *
  * Why this module exists
  * ======================
- * The wake-lock state machine used to live in `app.ts`. That made the
- * bootstrap module the only import source for feature code that wants
- * "keep the screen awake once a session starts" (ui/setup-shared.ts), and
- * the resulting back-import (setup-shared.ts -> app.ts) collapsed the whole
- * app/setup/demo cluster into one strongly-connected component containing
- * the composition root. Extracted following the core leaf-service precedent
- * (core/page-lifecycle.ts, core/background-resume-guard.ts). The invariant
+ * Keep this state machine outside `app.ts` so feature modules such as
+ * ui/setup-shared.ts never back-import the composition root and create a
+ * bootstrap dependency cycle. The invariant
  * "app.ts is import-terminal" is enforced by scripts/check-import-graph.mjs.
  *
  * Constraints:
@@ -19,9 +15,8 @@
  *     recovery. Enabled once when a session starts, never disabled.
  *   - `activateNoSleep()` must stay safely callable from inside a
  *     user-gesture call stack (setup-guest join handlers fire it
- *     synchronously BEFORE the async join). Do NOT make it async or
- *     bus-driven — see the ROLE-1 message-stomp lesson on eventifying
- *     direct calls.
+ *     synchronously before the async join). Do not make it async or
+ *     bus-driven; it must remain in the user-gesture call stack.
  *   - The visibilitychange re-acquire wiring stays in app.ts (bootstrap
  *     owns listener installation); it calls `reacquireWakeLockIfActive()`.
  */

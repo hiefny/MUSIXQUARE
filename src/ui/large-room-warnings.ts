@@ -1,12 +1,4 @@
-/**
- * MUSIXQUARE — Large-room warning memory
- *
- * Tracks whether the user has already acknowledged the "this mode is stable
- * for small rooms only" dialog for each data-plane feature (file share,
- * system audio) during the current session.
- *
- * Resets on session leave / re-host so a fresh connection prompts again.
- */
+/** Per-session acknowledgement state for large-room data-plane warnings. */
 
 import { bus } from '../core/events.ts';
 
@@ -29,8 +21,8 @@ export function markSysAudioWarned(): void {
   _sysAudioWarned = true;
 }
 
-// Session lifecycle: reset flags when sessionCode becomes empty (leave) or
-// when a new session starts. Either event is a clean boundary for "ask again".
+// Leaving and starting are separate state transitions, so either one resets
+// the acknowledgement for the next session.
 bus.on('state:network.sessionCode', (code: unknown) => {
   if (!code) {
     _fileShareWarned = false;

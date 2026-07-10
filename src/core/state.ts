@@ -16,11 +16,9 @@ import {
 } from './constants.ts';
 import { log } from './log.ts';
 
-// 3.0: StateTree, StatePath, StatePathValue, ShallowImmutable moved to types/index.ts
-// to enable typed state:${StatePath} events without circular dependency.
-// StateTree is re-exported here for backward compatibility with existing
-// importers; the other three lost their last external importer and are now
-// imported (below) for this module's own signatures only.
+// Keep shared state types in types/index.ts to avoid a circular dependency.
+// StateTree remains re-exported for compatibility; the other types are local
+// signature imports only.
 export type { StateTree } from '../types/index.ts';
 import type { StateTree, StatePath, StatePathValue, ShallowImmutable } from '../types/index.ts';
 
@@ -66,8 +64,8 @@ function createInitialState(): StateTree {
       currentTrackMeta: null,
       // Consecutive decode failures for the current track (reset on FILE_PREPARE).
       // After 2 failures the guest gives up and signals host via GUEST_DECODE_FAILED
-      // instead of looping recovery → re-decode → fail forever (iOS Safari can't
-      // decode mp4-as-mp3, the original symptom that surfaced this gap).
+      // instead of looping recovery → re-decode → fail forever. For example,
+      // iOS Safari cannot decode content mislabeled as mp4-as-mp3.
       decodeFailureCount: 0,
     },
 
@@ -98,7 +96,7 @@ function createInitialState(): StateTree {
       activeBroadcastSession: null,
       lastReceivedCountSnapshot: 0,
       // waitingForPreload + skipIncomingFile are derived from playback.lifecycle
-      // now (see transfer-receive.ts shouldSkipIncomingFile).
+      // (see transfer-receive.ts shouldSkipIncomingFile).
       staleChunkBurstStart: 0,
       staleChunkBurstCount: 0,
     },
@@ -145,7 +143,6 @@ function createInitialState(): StateTree {
       youtubeLocalOffset: 0,
       lastLatencyMs: 0,
       latencyHistory: [],
-      // resyncTimer removed — managed timers registry handles this via 'global-resync' key
     },
 
     network: {

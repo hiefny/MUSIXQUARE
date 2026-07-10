@@ -309,9 +309,8 @@ describe('togglePlay file pipeline guard', () => {
 });
 
 // ─── handleRequestPlay file pipeline guard ──────────────────────────
-// Sibling of togglePlay's guard (4901b9cd): host receiving an OP guest's
-// REQUEST_PLAY while its own file pipeline is preparing must not play the
-// stale resident buffer + broadcast PLAY with the NEW track index.
+// A host receiving REQUEST_PLAY during file preparation must not start the
+// resident buffer under the new track index.
 
 describe('handleRequestPlay file pipeline guard', () => {
   it('drops OP REQUEST_PLAY while the next file is decoding', async () => {
@@ -379,13 +378,10 @@ describe('handlePlayMsg lifecycle gate', () => {
   });
 });
 
-// ─── handlePlayMsg orphaned-pipeline recovery (SA-03) ────────────────
-// A mode switch (e.g. system-audio session) can kill an in-flight download:
-// chunks get dropped via the external-owner gate, and after the mode ends
-// the guest sits with no buffer, lifecycle IDLE, and an index that matches
-// the host's. A later plain PLAY used to only store pendingPlayTime — with
-// no inbound pipeline and no SYNC_PONG bootstrap (needs a buffer), the
-// guest stayed silent until the host changed tracks.
+// ─── handlePlayMsg orphaned-pipeline recovery ──────────────────────
+// A mode switch can end an inbound pipeline while leaving the selected index.
+// A later PLAY must request the current file because no live pipeline can
+// consume pendingPlayTime and sync bootstrap requires a buffer.
 
 describe('handlePlayMsg orphaned-pipeline recovery', () => {
   it('requests the current file when PLAY arrives with no buffer and no inbound pipeline', async () => {
@@ -432,10 +428,8 @@ describe('handlePlayMsg orphaned-pipeline recovery', () => {
     );
   });
 
-  // DV-1 belt (device-test find): the lifecycle FSM was disengaged (IDLE)
-  // during fresh downloads, so PLAY mid-transfer hit this branch and the
-  // host's unicast-from-0 response reset the partial download to 0%. Even
-  // with the FSM fix, a LIVE transfer.state must keep SA-03 inert.
+  // A live transfer state must suppress orphan recovery even if lifecycle
+  // temporarily reads IDLE; restarting would discard partial progress.
   it('does not fire the recovery request while transfer.state is RECEIVING even if lifecycle reads IDLE', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);

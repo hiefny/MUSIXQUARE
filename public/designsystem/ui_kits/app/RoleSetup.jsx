@@ -1,4 +1,5 @@
-// RoleSetup — role picker overlay after hosting. Copy: setup.set_role / role.*
+// Prototype-only role picker. Production currently assigns Center during setup
+// and exposes role changes after joining.
 function RoleSetup({ selected, onSelect, onDone }) {
   const roles = [
     { id: 'center', name: 'Center',    hint: 'Stereo output',    icon: I.center },

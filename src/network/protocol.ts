@@ -50,7 +50,7 @@ const isArrayBufferLike = (v: unknown): boolean =>
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isNonNegInt = (v: unknown): v is number => isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
 
-// Max 200,000 chunks ≈ 12.8 GB at 64 KB/chunk — prevents DoS via unbounded total
+// Max 200,000 chunks ≈ 12.2 GiB at 64 KiB/chunk; prevents an unbounded total.
 const MAX_FILE_TOTAL = 200_000;
 const MAX_REMOTE_SHARE_BYTES = 300 * 1024 * 1024;
 
@@ -118,9 +118,9 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isBoundedChunk(d.chunk) && isNonNegInt(d.index) && isFiniteNumber(d.sessionId),
   // sessionId must be a finite number — without this guard, a malicious peer
   // can send sessionId=Infinity to poison transfer.localSessionId, after which
-  // the localSid<incomingSid guards (transfer-receive.ts:569,678,790,825) reject
-  // every legitimate inbound transfer until session leave. Mirrors FILE_RESUME
-  // sessionId check (6173597) — brings FILE_START to parity.
+  // the localSid<incomingSid guards in transfer-receive.ts reject
+  // every legitimate inbound transfer until session leave. This keeps
+  // FILE_START aligned with FILE_RESUME.
   [MSG.FILE_START]: (d) =>
     typeof d.name === 'string' &&
     isFiniteNumber(d.sessionId) &&
@@ -128,7 +128,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.total as number) <= MAX_FILE_TOTAL,
   [MSG.FILE_END]: (d) => typeof d.name === 'string',
   [MSG.PRELOAD_CHUNK]: (d) => isBoundedChunk(d.chunk) && isNonNegInt(d.index),
-  // sessionId finiteness brings PRELOAD_START to FILE_START parity (F-2408): a
+  // sessionId finiteness brings PRELOAD_START to FILE_START parity: a
   // forged Infinity/NaN sid otherwise keys the handler's per-session reorder and
   // sessionState maps. PRELOAD_CHUNK stays sessionId-optional here (it falls back
   // to the latest preload session — pinned by the rate-limit test), so its sink
@@ -171,14 +171,14 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isNonNegInt(d.subIdx) &&
     (d.subIdx as number) < 5000 &&
     typeof d.title === 'string',
-  // Without per-element validation a compromised host (or any peer that
-  // bypasses isHostBroadcast in some future regression) could populate ids[]
-  // with attacker-controlled strings — youtube/handlers.ts:209 then calls
+  // Without per-element validation a compromised host or a caller that
+  // bypasses the host trust boundary could populate ids[]
+  // with attacker-controlled strings; youtube/handlers.ts then calls
   // player.loadVideoById(ids[subIdx]) with whatever's there. videoId is
   // always 11 chars URL-safe base64 in YouTube's spec; matches search.ts
   // search-result normalization. Length cap = 5000 (YouTube's own playlist
   // max), not 200 — large playlists are a first-class app feature (see
-  // index-before-add flow). (10차 audit Phase 4 + 13차 finding 3 cap fix.)
+  // index-before-add flow).
   [MSG.YOUTUBE_PLAYLIST_INFO]: (d) => {
     const ids = d.ids;
     const titles = d.titles;
@@ -228,13 +228,14 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.encryptedSize as number) <= MAX_REMOTE_SHARE_BYTES + 4096 &&
     isFiniteNumber(d.expiresAt),
   // Without `name`, a malicious peer can send file-resume with no name to
-  // poison the host's transfer.localSessionId (handler at transfer-receive.ts:685
+  // poison the host's transfer.localSessionId (the transfer-receive handler
   // bumps it from any incoming sessionId), blocking subsequent legitimate inbound
-  // transfers via the localSid guards at transfer-receive.ts:678,754,765,790.
+  // transfers via the localSid guards in transfer-receive.ts.
   // FILE_START (above) already requires `name` — this brings FILE_RESUME to parity.
   [MSG.FILE_RESUME]: (d) =>
     typeof d.name === 'string' && isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
-  // Guest → host recovery ask (previously unvalidated — blind spot ⑥).
+  // Validate the guest-to-host recovery request before its indices reach
+  // transfer math.
   // nextChunk feeds the host's startChunk math and must be a sane index;
   // every field is OPTIONAL on the wire: the FILE_WAIT-timeout
   // (transfer-receive.ts), playback-stall (playback.ts) and preload-decode
@@ -250,9 +251,9 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.name === undefined || typeof d.name === 'string') &&
     (d.index === undefined || isFiniteNumber(d.index)),
 
-  // Chat — validate text field exists and cap length. The wire cap (4000) is
-  // deliberately well above the 500-char render cap so legitimate near-cap
-  // multibyte messages never trip it; its job is killing multi-KB/MB
+  // Chat — validate text field exists and cap length. This validator ceiling
+  // (4000) is deliberately above the shared 500-character message cap; its job
+  // is killing multi-KB/MB
   // amplification frames at the door (defense-in-depth behind the host-side
   // write-back truncation in chat/protocol.ts).
   [MSG.CHAT]: (d) => typeof d.text === 'string' && d.text.length <= 4000,

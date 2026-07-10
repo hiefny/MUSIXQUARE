@@ -290,9 +290,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   okBtn.textContent = buttonText;
 
   if (secondaryBtn) {
-    // The static markup uses the HTML5 `hidden` attribute (since CSP Phase B2
-    // / f8c6d47 swapped `style="display:none"` for `hidden` to drop inline
-    // styles). User-agent CSS resolves `[hidden] { display: none }`, so a
+    // The static markup uses the HTML5 `hidden` attribute to avoid inline
+    // styles. User-agent CSS resolves `[hidden] { display: none }`, so a
     // bare `style.display = ''` doesn't show the button — the attribute is
     // still on. Toggle the property directly; that removes the attribute and
     // also clears any stale inline display from earlier dialogs.

@@ -1,5 +1,9 @@
 # Performance & Memory Audit - 2026-05-30
 
+> **Historical audit snapshot.** Measurements, line numbers, priorities, and
+> references to “current code” describe the 2026-05-30 baseline only. Re-measure
+> the present build before using any value as a capacity or release decision.
+
 Scope: `src/player/playlist.ts`, `src/storage/preload.ts`,
 `src/storage/transfer-receive.ts`, `src/storage/ramstore.ts`,
 `src/core/blob-manager.ts`, `src/audio/engine.ts`, `src/audio/effects.ts`,

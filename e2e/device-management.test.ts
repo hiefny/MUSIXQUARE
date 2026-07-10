@@ -33,16 +33,13 @@ test.describe('Device Management', () => {
   test('host device list shows connected guest', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Navigate to connect tab
     const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
     if (await connectNav.isVisible()) {
       await connectNav.click();
     }
 
-    // Wait for device list to show host + guest
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // Check that device rows exist
     const deviceRows = await pair.hostPage.evaluate(() => {
       const list =
         document.getElementById('connect-device-list') ||
@@ -77,13 +74,11 @@ test.describe('Device Management', () => {
     if (await kickBtn.isVisible()) {
       await kickBtn.click();
 
-      // Confirm kick dialog if present
       const confirmBtn = pair.hostPage.locator('#btn-dialog-ok');
       if (await isVisible(pair.hostPage, '#btn-dialog-ok', 3000)) {
         await confirmBtn.click();
       }
 
-      // Guest should see the kick dialog or be returned to setup
       await pair.guestPage.waitForFunction(
         () => {
           const dialog = document.querySelector('.dialog-overlay.active, .dialog-backdrop.active');
@@ -96,7 +91,6 @@ test.describe('Device Management', () => {
   });
 
   test('session full rejects extra guest', async ({ browser }) => {
-    // Start host session first
     const code = await setupHostAndStart(pair.hostPage);
 
     // Restrict to 1 guest slot immediately (before any guest connects)
@@ -109,13 +103,10 @@ test.describe('Device Management', () => {
       }
     });
 
-    // First guest joins (should succeed — slot 1 of 1)
     await setupGuest(pair.guestPage, code);
 
-    // Confirm first guest is connected before second guest tries
     await waitForDeviceCount(pair.hostPage, 2);
 
-    // Create a second guest
     const guest2Context = await browser.newContext();
     const guest2Page = await guest2Context.newPage();
     await injectPeerServer(guest2Page);
@@ -129,7 +120,6 @@ test.describe('Device Management', () => {
       await guest2Page.fill('#setup-join-code', code);
       await guest2Page.click('#btn-setup-confirm');
 
-      // Wait for SESSION_FULL — guest2 should see dialog or remain on setup overlay
       await guest2Page.waitForFunction(
         () => {
           const overlay = document.getElementById('setup-overlay');

@@ -63,12 +63,11 @@ export function switchTab(tabId: string): void {
 // ─── Init ────────────────────────────────────────────────────────
 
 export function initTabs(): void {
-  // Bottom navigation
   const navItems = Array.from(
     document.querySelectorAll<HTMLElement>('.bottom-nav .nav-item[data-tab]'),
   );
 
-  // Set up WAI-ARIA roles and tabindex
+  // Maintain the roving tabindex required by the WAI-ARIA tabs pattern.
   navItems.forEach((el) => {
     el.setAttribute('role', 'tab');
     if (el.classList.contains('active')) {
@@ -126,7 +125,7 @@ export function initTabs(): void {
     });
   });
 
-  // New compact help button (landscape < 315px)
+  // Very short landscape viewports use a compact help entry point.
   const compactHelpBtn = document.getElementById('btn-help-compact');
   if (compactHelpBtn) {
     compactHelpBtn.addEventListener('click', () => {
@@ -134,7 +133,6 @@ export function initTabs(): void {
     });
   }
 
-  // Programmatic tab switch via bus (e.g. from playlist.ts on track play)
   bus.on('ui:switch-tab', (tabId) => {
     switchTab(tabId);
   });

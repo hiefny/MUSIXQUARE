@@ -74,7 +74,7 @@ export default defineConfig({
         // Chat uses DOM rendering + DataConnection.
         'src/chat/commands.ts',
         'src/chat/protocol.ts',
-        // Workers run in dedicated Worker context and are tested via mocked wrappers.
+        // Dedicated-worker globals are not instrumented by the Node coverage harness.
         'src/workers/sync.worker.ts',
         'src/workers/transfer.worker.ts',
         // Platform module-scope constants depend on navigator.

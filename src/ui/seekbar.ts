@@ -4,7 +4,7 @@
  * Manages: Seek slider, rAF interpolation loop, time display,
  * duration updates, YouTube time sync, ended-check polling.
  *
- * Extracted from player-controls.ts for single-responsibility.
+ * Keeps seek and time-display state isolated from the broader player controls.
  */
 
 import { bus, createBusScope } from '../core/events.ts';

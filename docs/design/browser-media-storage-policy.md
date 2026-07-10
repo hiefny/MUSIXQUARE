@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Decision date:** 2026-07-10
+- **Last implementation check:** 2026-07-11
 - **Applies to:** production file-transfer, preload, remote-share receive, and
   file-playback paths
 
@@ -15,8 +16,9 @@ unacceptable memory growth and WebContent/PWA crashes.
 
 The current implementation keeps incoming encoded chunks, finalized media
 blobs, preloads, and decoded playback buffers in memory. That design has a
-clearer lifetime: leaving or replacing a session releases its browser-local
-media working set without a disk-recovery path.
+clearer lifetime: leaving or replacing a session drops app-owned references and
+makes its browser-local working set eligible for browser reclamation, without a
+disk-recovery path. The browser still controls the actual reclamation timing.
 
 Temporary encrypted objects in Cloudflare R2 are outside the scope of this
 decision. They are server-side handoff objects with their own TTL and cleanup
@@ -53,6 +55,13 @@ RAM-only media has a device-dependent capacity ceiling. File admission must
 therefore account for the decoded audio footprint, not merely the encoded file
 size. Persistent storage would not remove the memory required by the current
 AudioBuffer playback engine.
+
+**Implementation note (2026-07-11):** the current file-selection path does not
+yet estimate decoded PCM footprint per device. It admits a selected local file
+and relies on the browser's decode/allocation result; remote upload has a fixed
+200 MiB source-file limit. This is a UX and memory-safety follow-up, not an
+exception to the RAM-only decision: no persistent-media or alternate playback
+fallback is used.
 
 The accepted tradeoff is to reject a file that cannot fit the supported memory
 budget rather than introduce a storage or playback fallback with different

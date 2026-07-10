@@ -2,18 +2,15 @@
  * MUSIXQUARE — RAM-only storage adapter
  *
  * Routes STORAGE_* commands to the in-memory ramstore. Encoded chunks
- * live in `Uint8Array[]` per session, blobs are built with `new Blob([…])`
+ * live in `Map<number, Uint8Array>` per session, blobs are built with `new Blob([…])`
  * on finalize, and reads slice from the cached blob. There is no worker
  * hop, no `navigator.storage.getDirectory()` writes, no disk persistence.
  *
- * Memory characteristics
- * ──────────────────────
- *   - Active main blob:    ~5–15 MB typical mp3, up to ~50 MB hi-res
- *   - Preload blobs:       depth × track size (preload depth is 1–2)
- *   - Decoded AudioBuffer: ~80 MB / 4-min song
- * Foreground footprint typically lands at 100–150 MB — well inside the
- * iOS PWA budget. Long podcasts can still crash on AudioBuffer decode;
- * that's a hard ceiling no storage strategy softens.
+ * Memory scales with the encoded active/preload blobs and the decoded PCM
+ * retained by playback. There is no persistent fallback. Callers own cleanup
+ * and capacity policy; the ADR records the current admission gap.
+ * Policy source (repository path, not a runtime URL):
+ * docs/design/browser-media-storage-policy.md
  */
 
 import { log } from '../core/log.ts';
@@ -37,7 +34,6 @@ import {
 } from './ramstore.ts';
 
 // ─── Instance ID (same as core session) ─────────────────────────────
-// INSTANCE_ID used directly (no alias needed)
 
 // ─── Command Dispatch ───────────────────────────────────────────────
 
@@ -77,13 +73,9 @@ export function postCommand(payload: StorageCommand): void {
 
 // ─── In-Process Bridge ──────────────────────────────────────────────
 //
-// Runs STORAGE_* commands against the ramstore and synthesizes the same
-// response messages a worker would have posted, so the existing
-// `handleStorageResponse` switch (and downstream bus events)
-// stay unchanged. We `queueMicrotask` the dispatch to preserve the
-// async-postMessage semantics consumers rely on — without it, ack
-// callbacks could land before the calling stack frame returns and
-// surprise call-chain logic.
+// Runs STORAGE_* commands against ramstore and emits the established
+// StorageEvent contract. queueMicrotask preserves asynchronous acknowledgement
+// ordering for callers.
 
 function routeStorageCommand(payload: StorageCommand): void {
   queueMicrotask(() => {
@@ -164,8 +156,8 @@ function runStorageCommand(payload: StorageCommand): void {
           code: 'SESSION_MISMATCH',
         });
       }
-      // Other failure modes (Session not found / Filename mismatch /
-      // Already finalized) are silently dropped, matching the worker.
+      // Other write failures are intentionally silent; their sessions are no
+      // longer writable and recovery owns any follow-up.
       return;
     }
 
@@ -203,10 +195,10 @@ function runStorageCommand(payload: StorageCommand): void {
     }
 
     case 'STORAGE_RESET_SESSION': {
-      // RAM-only contract: per-sid cleanup is preload-only (mirrors the
-      // worker behaviour where this command targets `preloadSlots`).
+      // Per-session cleanup targets preload slots; the main slot is reset as a
+      // whole by STORAGE_RESET.
       ramResetSession(sessionId, true);
-      // No response — matches worker.
+      // Per-session reset has no response event by contract.
       return;
     }
 
@@ -265,9 +257,7 @@ function runStorageCommand(payload: StorageCommand): void {
 }
 
 /**
- * Synthesize the MessageEvent shape that `handleStorageResponse`
- * expects, so all the existing bus.emit / state mutation logic in that
- * switch keeps running unchanged.
+ * Wrap a StorageEvent in the MessageEvent-shaped internal dispatch contract.
  */
 function dispatchStorageEvent(response: StorageEvent): void {
   handleStorageResponse({
@@ -316,9 +306,8 @@ export function cleanupStoredFile(filename: string, isPreload: boolean): void {
 }
 
 /**
- * Read a finalized file from the ramstore. Wrapped as a `File` so callers
- * that introspect `.name` continue to work — same return-type contract as
- * the worker branch where `getFile()` already gave them a File.
+ * Read a finalized file from the ramstore. Wrap it as a `File` so callers can
+ * rely on the storage API's named-file return contract.
  */
 export async function readStoredFile(filename: string, isPreload: boolean): Promise<File | null> {
   if (!filename) return null;
@@ -332,15 +321,13 @@ export async function readStoredFile(filename: string, isPreload: boolean): Prom
   }
 }
 
-// ─── Worker Message Handlers ────────────────────────────────────────
+// ─── Storage Event Handlers ────────────────────────────────────────
 
 function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
   const data = e.data;
   if (!data || !data.type) return;
 
-  // Wrap entire switch in try/catch — an uncaught exception here kills
-  // ALL subsequent worker message processing, permanently breaking file
-  // transfer for the rest of the session.
+  // Keep one malformed response from breaking later storage event handling.
   try {
     switch (data.type) {
       case 'STORAGE_STARTED':
@@ -358,8 +345,7 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
         break;
 
       case 'STORAGE_READ_COMPLETE':
-        // No bus consumer — the former 'storage:read-complete' emit was dead
-        // wiring. Kept as an explicit no-op so the response is acknowledged.
+        // Reads resolve through readStoredFile; this event needs no bus fanout.
         break;
 
       case 'STORAGE_WRITE_ERROR':
@@ -391,7 +377,7 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
           } else if (data.code === 'START_FAILED' || data.code === 'LOCKED') {
             // Lock acquisition failed — reset transfer state to prevent stuck loader.
             // Check both RECEIVING and PROCESSING: with fast transfers, main thread
-            // may detect completion (PROCESSING) before the worker reports START_FAILED.
+            // may detect completion (PROCESSING) before storage reports START_FAILED.
             const transferState = getState('transfer.state');
             if (
               transferState === TRANSFER_STATE.RECEIVING ||
@@ -415,15 +401,8 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
         if (!isPreload) {
           bus.emit('storage:session-mismatch', data);
 
-          // Safety net: if STORAGE_END was dropped while state is PROCESSING,
-          // the transfer is stuck forever (no watchdog, no STORAGE_FILE_READY).
-          // Reset state so the UI doesn't stay on "수신 중... 100%".
-          //
-          // Use IDLE (not READY) for symmetry with the START_FAILED/LOCKED
-          // branch above: the worker dropped the END command, so the file
-          // on disk is unfinalized and NOT actually playable. Marking READY
-          // would lie about playability; any caller that keys off transfer
-          // state would think the file is ready when it isn't.
+          // A rejected STORAGE_END leaves the RAM slot unfinalized. Return to
+          // IDLE rather than advertising an unplayable file as READY.
           if (data.command === 'STORAGE_END') {
             const transferState = getState('transfer.state');
             if (transferState === TRANSFER_STATE.PROCESSING) {
@@ -446,11 +425,8 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
 
       case 'STORAGE_CLEANUP_COMPLETE':
         if (data.skipped) {
-          // The worker held a lock on this filename and bailed without removing
-          // it. The file stays on disk; without a follow-up the entry orphans.
-          // The fire-and-forget caller already moved on, so the best we can do
-          // here is log loudly. Real recovery happens when the next STORAGE_RESET
-          // for this file releases the lock and a subsequent cleanup succeeds.
+          // The slot is still in use. The fire-and-forget caller has moved on,
+          // so retain it and report the skipped cleanup.
           log.warn(`[Storage] Cleanup skipped (file still locked): ${data.filename}`);
         } else {
           log.debug(`[Storage] Cleanup complete: ${data.filename}`);

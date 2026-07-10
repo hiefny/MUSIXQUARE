@@ -1,13 +1,8 @@
 /**
  * MUSIXQUARE — Web Audio Helpers
  *
- * Utility functions replacing Tone.js abstractions:
- * - rampParam: replaces .rampTo()
- * - safeDisconnect: replaces .dispose()
- * - generateReverbIR: replaces Tone.Reverb.generate()
- * - createCrossFade: replaces Tone.CrossFade
- * - createStereoWidener: replaces Tone.StereoWidener
- * - createCascadedFilter: replaces Tone.Filter with rolloff > -12
+ * Native Web Audio utilities for parameter ramps, graph cleanup, impulse
+ * responses, crossfades, stereo width, and cascaded filters.
  */
 
 import { getAudioContext } from './context.ts';
@@ -41,7 +36,6 @@ export function clampFilterFrequency(frequency: number, sampleRate?: number): nu
 
 /**
  * Smoothly ramp an AudioParam to a target value over time.
- * Replacement for Tone.js `.rampTo(value, time)`.
  */
 export function rampParam(param: AudioParam, targetValue: number, rampTime: number): void {
   const ctx = getAudioContext();
@@ -58,7 +52,7 @@ export function rampParam(param: AudioParam, targetValue: number, rampTime: numb
 // ─── Node Cleanup ───────────────────────────────────────────────
 
 /**
- * Safely disconnect an AudioNode (replacement for .dispose()).
+ * Safely disconnect an AudioNode.
  * Native nodes are garbage-collected after disconnect + deref.
  */
 export function safeDisconnect(node: AudioNode | null): void {
@@ -74,7 +68,7 @@ export function safeDisconnect(node: AudioNode | null): void {
 
 /**
  * Generate a stereo impulse response buffer for ConvolverNode.
- * Replaces Tone.Reverb.generate() — this is SYNCHRONOUS (no async needed).
+ * Generation is synchronous.
  *
  * @param decay - Reverb tail length in seconds (e.g. 5.0)
  * @param preDelay - Silence before reverb onset in seconds (e.g. 0.1)
@@ -185,7 +179,6 @@ export function generateReverbIR(decay: number, preDelay: number): AudioBuffer {
 
 /**
  * Equal-power crossfade between two signal paths.
- * Replaces Tone.CrossFade.
  *
  * fade=0 → fully A (dry), fade=1 → fully B (wet)
  */
@@ -219,7 +212,6 @@ export function setCrossFade(cf: CrossFadeGraph, fade: number, rampTime: number)
 
 /**
  * Mid/Side stereo widener.
- * Replaces Tone.StereoWidener.
  *
  * width=0 → mono, width=0.5 → normal stereo, width=1 → max width
  */
@@ -322,7 +314,6 @@ export function createStereoWidener(initialWidth = 0.5): StereoWidenerGraph {
 
 /**
  * Create cascaded BiquadFilterNodes for steeper rolloff.
- * Replaces Tone.Filter with rolloff > -12dB/oct.
  *
  * -12dB/oct = 1 stage (native default)
  * -24dB/oct = 2 stages cascaded

@@ -4,9 +4,9 @@
  *
  * Static ratchet guard for dead exports in production source.
  *
- * The 2026-06-11 full-project analysis found ~130 exported symbols in src/
- * with no production importer. A fix batch deleted the worst offenders; this
- * script freezes the remainder so the set can only SHRINK:
+ * A full-project review found many exported symbols with no production
+ * importer. This script freezes the reviewed remainder so the set can only
+ * SHRINK:
  *
  *   FULLY-DEAD : exported symbol with ZERO token references outside its own
  *                declaration site(s) anywhere in src/, e2e/, scripts/,
@@ -30,10 +30,9 @@
  *                classification precedence: a symbol with BOTH in-file uses
  *                and unit-test references lands here (not in TEST-ONLY), so
  *                a SELF-ONLY entry's `export` keyword is NOT automatically
- *                removable — check for test importers first. The 2026-06-11
- *                sweep removed the keyword from all 62 removable cases; the
- *                52 survivors are test-imported (46) or src/types/index.ts
- *                barrel members (6, exports there are the point). Frozen
+ *                removable — check for test importers first. The current
+ *                survivors are test-imported or src/types/index.ts barrel
+ *                members, where exports are the point. The frozen
  *                COUNT ratchet mirroring TEST-ONLY: the check fails only if
  *                the count GROWS above SELF_ONLY_BASELINE_COUNT; shrink
  *                updates are manual.
@@ -72,32 +71,27 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 
 // ── FULLY-DEAD baseline ──────────────────────────────────────────
-// Frozen 2026-06-11 from the current tree, after the same-day deletion batch
-// removed the mechanically-safe ones. Shrink-only: remove an entry when the
-// symbol (or its export) is deleted; adding entries requires an explicit
+// Reviewed against the current tree after mechanically safe removals.
+// Shrink-only: remove an entry when the symbol (or its export) is deleted;
+// adding entries requires an explicit
 // owner decision recorded in the reason. Format: { symbol, file, reason }.
 const FULLY_DEAD_BASELINE = [
-  // Empty as of 2026-06-11 (same-day triage): cancelPendingBroadcast turned
-  // out to be a MISSING cancel-propagation call and was wired into
-  // cancelOutgoingFileTransfers + playTrack's YouTube branch (now live);
-  // getPendingSetupRole was a vestigial write-only slot orphaned when the
-  // role picker was parked (2747bc7d) and was deleted as a unit.
+  // Intentionally empty: newly detected fully dead exports must be removed,
+  // not added to this baseline.
 ];
 
 // ── TEST-ONLY count baseline ─────────────────────────────────────
 // Number of exports referenced only by unit tests (excluding the sanctioned
 // /ForTests$/ seams). Fails only if the count GROWS; update manually when it
-// shrinks. Frozen 2026-06-11; lowered 18 → 17 on 2026-06-12 (getLoadToken
-// alias deleted with the Stage B rename-completion pass).
+// shrinks. The reviewed baseline is 17.
 const TEST_ONLY_BASELINE_COUNT = 17;
 
 // ── SELF-ONLY count baseline ─────────────────────────────────────
 // Number of exports with no live reference outside their defining file(s).
-// After the 2026-06-11 export-keyword sweep the remainder is exactly the
-// set that must STAY exported: unit-test-imported symbols (self-ref
+// The reviewed remainder is exactly the set that must stay exported:
+// unit-test-imported symbols (self-ref
 // precedence places them here, not in TEST-ONLY) plus the types/index.ts
 // barrel. Fails only if the count GROWS; update manually when it shrinks.
-// Frozen 2026-06-11.
 const SELF_ONLY_BASELINE_COUNT = 52;
 
 // ── Walk / strip helpers (mirrors check-bus-pairing.mjs) ─────────

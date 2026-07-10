@@ -50,7 +50,7 @@ import { registerSystemAudioHostListeners } from './network/system-audio-host.ts
 import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
 import { registerSystemAudioSfuListeners } from './network/system-audio-sfu.ts';
 // ── Storage ──
-// RAM-only dispatches STORAGE_* commands in-process — no transfer worker.
+// RAM-only storage dispatches STORAGE_* commands in-process.
 import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
@@ -266,7 +266,7 @@ window.addEventListener('unhandledrejection', (e) => {
 //
 // `beforeunload` above can't actually catch the back button cleanly — by the
 // time the dialog shows, the browser has already begun tearing down the
-// page (PeerJS DataChannel / RTCPeerConnection get pulled out from under
+// page (the data channel / RTCPeerConnection gets pulled out from under
 // us, and even if the user picks "stay", the session is unrecoverable).
 //
 // History API trick: when a session goes active, push one guard entry onto
@@ -321,8 +321,9 @@ function initBackButtonGuard(): void {
     void (async () => {
       try {
         const result = await showDialog({
-          // "어디로" 돌아가는지는 브라우저 history에 따라 사용자마다 다르니
-          // (랜딩, 외부 사이트, 빈 탭…) 문구는 "무엇이" 일어나는지만 말한다.
+          // Browser history may lead to the landing page, another site, or a
+          // blank tab, so the copy describes the action without naming a
+          // destination.
           title: t('dialog.return_home_title'),
           message: t('dialog.return_home_detail'),
           buttonText: t('common.leave'),
@@ -419,8 +420,8 @@ async function bootstrap(): Promise<void> {
   // Engine, effects, channel register bus listeners at import time
   safeInit('EffectsHandlers', initEffectsHandlers);
 
-  // 5. Network (registers bus listeners; PeerJS init deferred to host/guest flow)
-  // initNetwork() is called from setup.ts via createHostSessionWithShortCode() or joinSession()
+  // 5. Network (registers listeners; transport startup is deferred to the
+  // host/guest flow in setup.ts).
   safeInit('Protocol', initProtocol);
   safeInit('PeerHandlers', initPeerHandlers);
   safeInit('Sync', initSync);
@@ -429,8 +430,6 @@ async function bootstrap(): Promise<void> {
   safeInit('SystemAudioHost', registerSystemAudioHostListeners);
   safeInit('SystemAudioGuest', registerSystemAudioGuestListeners);
   safeInit('SystemAudioSFU', registerSystemAudioSfuListeners);
-  // SharedClock init removed — managed by sync.ts (unified sync)
-
   // 6. Workers & Storage
   try {
     const syncW = new Worker(new URL('./workers/sync.worker.ts', import.meta.url), {
@@ -448,10 +447,10 @@ async function bootstrap(): Promise<void> {
     handleSyncWorkerFailure(e);
   }
 
-  // RAM-only: the transfer worker is gone. STORAGE_* commands are
-  // dispatched in-process by storage/storage.ts → ramstore.ts.
-  // Transfer / Preload / Recovery init unconditionally — there's no
-  // worker readiness gate to fail.
+  // RAM-only STORAGE_* commands are dispatched in-process by
+  // storage/storage.ts → ramstore.ts.
+  // Transfer / Preload / Recovery initialize unconditionally because storage
+  // dispatch is already available in-process.
   safeInit('Transfer', initTransfer);
   safeInit('Preload', initPreload);
   safeInit('Recovery', initRecovery);

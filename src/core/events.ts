@@ -9,7 +9,7 @@ import type { EventMap } from '../types/index.ts';
 
 // ── Type-level helpers ──────────────────────────────────────────
 
-// 3.0: Escape hatch removed — only declared EventMap keys + state:${StatePath} are valid.
+// Only declared EventMap keys and state:${StatePath} events are valid.
 // Typos like bus.emit('audo:ready') → compile error.
 type EventKey = keyof EventMap;
 

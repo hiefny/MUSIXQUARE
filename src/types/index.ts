@@ -2,8 +2,7 @@
  * MUSIXQUARE — Shared Type Definitions
  */
 
-// NOTE: TransferState and other shared value constants live in core/constants.ts.
-//       Removed duplicate const enums that were never imported.
+// TransferState and other shared value constants live in core/constants.ts.
 
 import type {
   TransferStateValue,
@@ -25,7 +24,7 @@ import type {
 /** App data channel connection. PeerJS is only one possible provider. */
 export type DataConnection = TransportDataConnection;
 
-/** App media connection abstraction. PeerJS media calls are a fallback provider. */
+/** App media connection abstraction, implemented by the configured call adapter. */
 export type MediaConnection = TransportMediaConnection;
 
 /** Network peer/signaling provider instance. */
@@ -141,19 +140,14 @@ export type StorageEventType =
   | 'SESSION_MISMATCH'
   | 'WORKER_ERROR';
 
-/**
- * Events emitted by the storage layer. On the slot-pool branch these
- * came from `transfer.worker.ts` postMessage; on RAM-only the in-process
- * bridge synthesizes the same wire shape so consumers stay unchanged.
- */
+/** Events emitted by the in-process RAM storage bridge. */
 export interface StorageEvent {
   type: StorageEventType;
   filename?: string;
   sessionId?: number;
   index?: number;
-  // STORAGE_READ_COMPLETE delivers chunks as Uint8Array (with .buffer
-  // transferred). Allow either shape so the in-process RAM bridge and a
-  // worker-backed implementation both satisfy this contract.
+  // Binary consumers normalize either ArrayBuffer or Uint8Array at this
+  // boundary; the current RAM bridge emits Uint8Array.
   chunk?: ArrayBuffer | Uint8Array;
   isPreload?: boolean;
   requestId?: string;
@@ -327,9 +321,6 @@ export interface ProtocolMap {
   'preload-ack': { index: number };
   'preload-abort': { sessionId: number };
 
-  // 'sync-response', 'get-sync-time', 'global-resync-request' removed — dead code
-  // 'heartbeat', 'heartbeat-ack', 'ping-latency', 'pong-latency' removed — replaced by sync-ping/pong
-
   // ── Network ─────────────────────────────────────────────────────
   'device-list-update': {
     list: Array<{
@@ -451,8 +442,7 @@ export interface ProtocolMap {
     // their own locale instead of using `text`. Lets system notices (e.g.
     // "skipped a track that one device couldn't decode") be localized
     // per-recipient even though the host doesn't know each guest's lang.
-    // Sender still fills `text` as a fallback so older clients (or notices
-    // without a known key) still display something readable.
+    // Sender also fills `text` so notices with an unknown key remain readable.
     i18nKey?: string;
     i18nParams?: Record<string, string | number>;
   };
@@ -510,8 +500,8 @@ export interface StateTree {
     lastReceivedCountSnapshot: number;
     /**
      * `waitingForPreload` and `skipIncomingFile` are derived from
-     * `playback.lifecycle` now (see
-     * `shouldSkipIncomingFile()` in transfer-receive.ts).
+     * `playback.lifecycle` (see `shouldSkipIncomingFile()` in
+     * transfer-receive.ts).
      */
     /** Timestamp (ms) when a burst of stale-session chunks started arriving. 0 = no burst. */
     staleChunkBurstStart: number;
@@ -623,11 +613,11 @@ export interface StateTree {
   systemAudio: { isReceiving: boolean };
   /**
    * Guest-side track playback lifecycle. Orthogonal to playback mode/activity.
-   * Every transition MUST go through `src/player/lifecycle.ts::transition()`.
-   * See `docs/design/playback-state-machine.md` for the full table.
+   * Every transition MUST go through `src/player/lifecycle.ts::transition()`;
+   * its lifecycle tests are the executable transition table.
    *
    * `transfer.waitingForPreload` and `transfer.skipIncomingFile` are derived
-   * from this field now. New flags here would just resurrect the same divergence
+   * from this field. New flags here would resurrect the same divergence
    * problem; if you're tempted to add one, ask whether it can instead
    * be a derived helper that reads lifecycle + loadSource.
    */
@@ -646,9 +636,8 @@ export interface StateTree {
     pendingPlayTimeSetAt: number;
     /**
      * The track we're awaiting (recovery, preload-promoted blob, deferred
-     * play). Replaces the legacy `recovery.pendingFileIndex` +
-     * `recovery.pendingFileName` pair so consumers read one atomic
-     * snapshot instead of two fields that could disagree mid-update.
+     * play). Consumers read one atomic snapshot instead of separate index and
+     * name fields that could disagree mid-update.
      * `null` = no recovery target.
      */
     pendingRecoveryTarget: { index: number; name: string } | null;
@@ -784,7 +773,6 @@ interface BaseEventMap {
   'ui:sync-vbass': [on: boolean];
   'ui:sync-exciter': [on: boolean];
   'ui:show-toast': [message: string];
-  // ui:show-loader / ui:update-loader removed — driven via direct function imports
   'ui:play-btn-state': [enabled: boolean];
   'ui:update-play-state': [playing: boolean];
   'ui:duration-update': [duration: number];
@@ -863,14 +851,13 @@ interface BaseEventMap {
   /**
    * Emitted by iframe.ts when the YouTube IFrame auto-advances between
    * sub-videos in a playlist (ENDED does not fire for intra-playlist
-   * transitions). Listened by player.ts to re-apply the 1-second
-   * rendezvous sync so guests stay aligned across the sub-video boundary.
+   * transitions). player.ts listens and starts the transition rendezvous so
+   * guests stay aligned across the sub-video boundary.
    */
   'youtube:sub-video-advanced': [];
   /**
-   * Emitted by iframe.ts from onYouTubePlayerReady. Used by the URL-input
-   * path in player.ts to defer its 1-sec rendezvous sync trigger until
-   * the freshly created player instance is actually usable.
+   * Emitted by iframe.ts from onYouTubePlayerReady. The URL-input path waits
+   * for this event before starting rendezvous sync on a fresh player.
    */
   'youtube:player-ready': [];
   'youtube:broadcast-sync': [];
@@ -913,7 +900,7 @@ interface BaseEventMap {
   // ── Storage ───────────────────────────────────────────────────────
   'storage:transfer-progress': [progress: number, total: number];
   'storage:preload-ready': [index: number];
-  // forceChunk: store-derived resume base from handleFileResume (STO-RESUME).
+  // forceChunk is the store-derived resume base from handleFileResume.
   // Plain emits (no arg) mean "ask from the counter"; the recovery listener
   // normalizes undefined → null before forwarding to sendRecoveryRequest.
   'storage:request-recovery': [forceChunk?: number];
@@ -938,7 +925,6 @@ interface BaseEventMap {
   'sync:close-manual': [];
   'sync:request-immediate-ping': [];
   'sync:force-resync': [];
-  // 'sync:get-position', 'sync:response' removed — no emitter exists
   'sync:latency-update': [ms: number];
 
   // ── Orchestrator ────────────────────────────────────────────────
@@ -955,7 +941,7 @@ interface BaseEventMap {
   'setup:guest-join-success': [];
   'setup:guest-join-failure': [error: unknown];
   // User-cancelled the capability/Turnstile challenge mid-join — restore the
-  // join UI silently (no red error toast). See guest.ts / setup.ts (F-2401).
+  // join UI silently (no red error toast). See guest.ts and setup.ts.
   'setup:guest-join-cancelled': [];
   'setup:app-entrance': [];
 

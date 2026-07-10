@@ -77,7 +77,7 @@ test.describe('Settings Panel', () => {
   });
 
   // ── Language Tests ──────────────────────────────────────────
-  // Language selection moved from inline chips to a dialog (a1269f9e):
+  // Language selection uses a dialog rather than inline chips:
   // "Select" (#btn-language-select) opens #language-dialog-overlay, which
   // holds .language-option[data-lang] entries. Active state lives on the
   // chosen option (class "active" + aria-selected) and on the grid button
@@ -196,7 +196,7 @@ test.describe('Settings Panel', () => {
     // Navigate to audio subtab where surround toggle lives
     await navigateToSubtab(pair.hostPage, 'audio');
 
-    // Use #grid-surround as the on/off toggle (battery saver grid was removed)
+    // Use #grid-surround as the on/off toggle.
     await clickAndWaitActive(pair.hostPage, '#grid-surround .ch-opt[data-toggle="on"]');
 
     const hasActive = await pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="on"]').evaluate(el => el.classList.contains('active'));

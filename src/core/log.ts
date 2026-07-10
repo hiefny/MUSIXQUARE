@@ -1,7 +1,3 @@
-/**
- * MUSIXQUARE — Logging System
- */
-
 const LOG_LEVEL = {
   DEBUG: 0,
   INFO: 1,
@@ -43,7 +39,6 @@ function getConfiguredLogLevel(): LogLevelValue | null {
 
 let _logLevel: LogLevelValue = import.meta.env?.PROD ? LOG_LEVEL.WARN : LOG_LEVEL.INFO;
 
-// Auto-enable DEBUG on localhost
 try {
   const host = globalThis.location?.hostname;
   if (
@@ -59,9 +54,7 @@ try {
 const configuredLogLevel = getConfiguredLogLevel();
 if (configuredLogLevel !== null) _logLevel = configuredLogLevel;
 
-/**
- * Change log level at runtime (e.g., from browser console: `setLogLevel('debug')`).
- */
+/** Change the runtime threshold; the same function is exposed to the developer console. */
 export function setLogLevel(level: LogLevelName | Lowercase<LogLevelName>): void {
   const v = parseLogLevel(level);
   if (v !== null) _logLevel = v;
@@ -72,7 +65,6 @@ declare global {
   var setLogLevel: ((level: LogLevelName | Lowercase<LogLevelName>) => void) | undefined;
 }
 
-// Expose to browser console for runtime debugging
 try {
   globalThis.setLogLevel = setLogLevel;
 } catch {

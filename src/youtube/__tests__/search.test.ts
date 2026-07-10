@@ -157,10 +157,10 @@ describe('YouTube input i18n state', () => {
 });
 
 describe('YouTube search result normalization', () => {
-  // Pin the response-hardening layer of normalizeSearchResults: the backend
+  // Exercise the response-hardening layer of normalizeSearchResults: the
   // proxy is trusted-ish, but defense-in-depth drops malformed rows, rejects
-  // non-https thumbnails (10차 audit Phase 4 finding — blocks data:/javascript:
-  // if the backend ever drifts), and rebuilds any url that doesn't contain the
+  // non-https thumbnails to block data:/javascript: if the backend ever drifts,
+  // and rebuilds any URL that doesn't contain the
   // row's own videoId from the canonical watch URL.
   it('drops malformed rows and sanitizes thumbnail/url fields from the search proxy', async () => {
     vi.stubGlobal(
@@ -214,9 +214,9 @@ describe('YouTube search result normalization', () => {
 });
 
 describe('YouTube search result rendering sink', () => {
-  // 544219be decodes HTML entities BEFORE the title reaches the DOM; that is
-  // only safe because every title sink is textContent/innerText (19차 audit
-  // verification). Pin decode-then-textContent: a decoded markup payload must
+  // HTML entities are decoded BEFORE the title reaches the DOM; that is only
+  // safe because every title sink is textContent/innerText. Exercise that
+  // decode-then-textContent contract: a decoded markup payload must
   // render as literal text, never as elements — and the auto-selected result
   // stays bound to the query it was rendered for.
   it('renders decoded titles through textContent and binds selection to the originating query', async () => {

@@ -125,7 +125,7 @@ export function toggleChatDrawer(): void {
     resetUnread();
     const messages = document.getElementById('chat-messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
-    // Removed automatic focus to prevent the keyboard from opening immediately.
+    // Do not auto-focus: that would open the keyboard immediately.
   }
 
   // Custom scrollbars inside the drawer track viewport coordinates via
@@ -444,7 +444,7 @@ export function sendChatMessage(): void {
     sendToHost(chatMsg);
   }
 
-  // iOS Korean IME leak fix: a contentEditable toggle alone leaves the
+  // iOS Korean IME reset: a contentEditable toggle alone leaves the
   // OS-level composition buffer with the last committed char of the
   // previous message ("요안녕하세요" instead of "안녕하세요" on the next
   // send). Transferring focus to an off-screen dummy <input> for one
@@ -453,17 +453,13 @@ export function sendChatMessage(): void {
   // Keyboard stays up because iOS preserves it across focusable
   // elements inside the same user-gesture stack.
   //
-  // See .workshop/iosinputtest.html for the A/B that landed on this
-  // (variant 15: dummySwapSync). Simpler alternatives (compositionend
-  // dispatch, Selection.removeAllRanges, contenteditable removeAttr)
-  // either didn't stop the leak or dropped post-send focus.
   const dummy = document.getElementById('chat-ime-dummy') as HTMLInputElement | null;
   if (dummy) {
     dummy.focus();
     input.replaceChildren();
     input.focus();
   } else {
-    // Fallback for unexpected DOM: legacy toggle (leak still possible on iOS).
+    // Last-resort reset for unexpected DOM; it may not fully clear the iOS buffer.
     input.contentEditable = 'false';
     input.replaceChildren();
     void input.offsetHeight;
@@ -807,9 +803,9 @@ export function initChat(): void {
 
       // Normal Enter: send message
       if (e.key === 'Enter' && !e.shiftKey) {
-        // Mac/iOS IME Fix: If the user is currently composing a character (Korean/Japanese/etc),
-        // we flag that we want to send it as soon as the composition is finished.
-        // This achieves "Enter once = Send" without the duplicated character bug.
+        // On macOS/iOS, defer Enter while IME composition is active and send as
+        // soon as composition finishes. This preserves one-press send without
+        // duplicating the committed character.
         if (e.isComposing) {
           _isConfirmingIME = true;
           return;
@@ -846,9 +842,9 @@ export function initChat(): void {
       attributeFilter: ['lang'],
     });
 
-    // keyboard-open class is now managed by platform.ts via visualViewport
-    // detection — fires proactively before focus, preventing layout thrashing.
-    // Blur handler retained as safety-net cleanup (delayed) in case the
+    // platform.ts manages keyboard-open through visualViewport detection before
+    // focus, preventing layout thrashing. Keep the delayed blur handler as
+    // safety-net cleanup in case the
     // visualViewport.resize event doesn't fire (e.g. external keyboard).
     chatInput.addEventListener('blur', () => {
       setManagedTimer(
@@ -934,10 +930,5 @@ export function initChat(): void {
     }
   });
 
-  // Custom scrollbar (desktop only — floats above content)
-  // Custom scrollbar now handled globally by custom-scrollbar.ts
-
   log.info('[Chat] Initialized');
 }
-
-// Custom scrollbar is now handled by src/ui/custom-scrollbar.ts

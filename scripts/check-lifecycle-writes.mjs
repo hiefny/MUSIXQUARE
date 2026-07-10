@@ -3,11 +3,10 @@
  * check-lifecycle-writes.mjs
  *
  * Static ratchet guard for the playback concurrency-control write discipline
- * (PLAYER-SPRAWL Stage A — see docs/design/playback-concurrency-invariants.md).
+ * documented in docs/design/playback-concurrency-invariants.md.
  *
- * lifecycle.ts's header contract used to claim direct setState writes were
- * "grep-enforced in CI" while no such guard existed. This script makes the
- * claim true, and extends it to the other statically-checkable writer sets
+ * The lifecycle contract requires direct state writes to be enforced in CI.
+ * This script also covers the other statically checkable writer sets
  * the invariant matrix names:
  *
  *   CHECK 1: zero direct `setState('playback.lifecycle', ...)` calls in prod.
@@ -33,20 +32,18 @@
  *   CHECK 5: newLoadEpoch() prod callers ⊆ {player/playlist.ts,
  *     player/playback.ts, player/transport.ts, demo/mode.ts}. Epoch
  *     allocation is ENTRY-POINT-ONLY discipline — a load function allocating
- *     an epoch would self-abort at its own post-decode checkpoint (trap 1 in
- *     the PLAYER-SPRAWL briefing). File-level allowlist on purpose: line
- *     numbers churn, ordering/protocol invariants are the pin tests' job
+ *     an epoch would self-abort at its own post-decode checkpoint. The
+ *     allowlist is intentionally file-level because line numbers churn;
+ *     ordering/protocol invariants belong to the concurrency tests
  *     (src/player/__tests__/concurrency-invariants.test.ts), and an eager
  *     static rule here would fight the deliberate supersession-window
- *     semantics (HET-3 guard-vs-pin class). Legacy-name tombstone: the
- *     Stage B aliases (getLoadToken/incrementLoadToken) were DELETED
- *     2026-06-12 when the pinned tests were renamed to the epoch API; an
- *     empty-allowlist check on the old call name stays behind so the name
+ *     semantics. The aliases getLoadToken/incrementLoadToken were removed;
+ *     an empty-allowlist check on the old call name remains so the name
  *     cannot be reintroduced as a fresh export + prod call.
  *
  * Deliberately NOT checked statically: clear-iff-current ordering, the
  * flag-stomp window, pendingPlayTime preserve/clear policy — those are
- * timing/protocol invariants covered by pins, not grep-able shapes.
+ * timing/protocol invariants covered by tests, not grep-able shapes.
  *
  * Scope / mechanics (mirrors check-bus-pairing.mjs / check-chunk-pump.mjs):
  *   - Comments stripped before matching (doc comments mention these symbols).
@@ -101,7 +98,7 @@ const BATCH_KEY_RE = /['"]playback\.lifecycle['"]\s*:/g;
 const LIFECYCLE_SETTER_CALL_RE = /(?<!function )\bsetPlaybackLifecycleState\s*\(/g;
 const PRELOADED_FLAG_CALL_RE = /(?<!function )\bsetPlayPreloadedInProgress\s*\(/g;
 const LOAD_EPOCH_CALL_RE = /(?<!function )\bnewLoadEpoch\s*\(/g;
-// Legacy-name tombstone (Stage B migration; alias exports deleted 2026-06-12).
+// Legacy-name tombstone for the removed load-token alias.
 // The symbol no longer exists anywhere in src — this regex can only fire if
 // someone reintroduces the NAME as a fresh definition and calls it in prod.
 const LOAD_TOKEN_ALIAS_CALL_RE = /(?<!function )\bincrementLoadToken\s*\(/g;
@@ -199,9 +196,8 @@ const CALLER_CHECKS = [
   },
   {
     name: 'incrementLoadToken (legacy alias)',
-    // Empty allowlist tombstone: the alias export was deleted from _state.ts
-    // on 2026-06-12 (rename-completion pass). Any call under the old name
-    // means the symbol was reintroduced — that is a regression by definition.
+    // Empty allowlist tombstone: the alias export no longer exists. Any call
+    // under the old name means the symbol was reintroduced.
     re: LOAD_TOKEN_ALIAS_CALL_RE,
     allow: new Set(),
     hint:

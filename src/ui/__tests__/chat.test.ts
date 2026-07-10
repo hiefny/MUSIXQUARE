@@ -6,14 +6,11 @@ import { resetState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 
-// ─── Global stubs ────────────────────────────────────────────────────────
 window.matchMedia =
   window.matchMedia ||
   vi
     .fn()
     .mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
-
-// ─── Mocks ───────────────────────────────────────────────────────────────
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -42,9 +39,8 @@ vi.mock('../player-controls.ts', () => ({
   updateInviteCodeUI: vi.fn(),
 }));
 
-// chat-render.ts imports the oEmbed fetcher from the youtube/oembed.ts leaf
-// (not search.ts). Without this mock, the setManagedTimer('yt-chat-title-*')
-// callbacks fire REAL oEmbed fetches in jsdom — flaky timer-leak failures.
+// Chat title timers call the oEmbed leaf directly; isolate them from network
+// access and from timers that could outlive a test.
 vi.mock('../../youtube/oembed.ts', () => ({
   fetchOEmbedTitle: vi.fn(async () => 'Mock Title'),
 }));
@@ -59,8 +55,6 @@ afterEach(() => {
   clearAllManagedTimers();
   vi.restoreAllMocks();
 });
-
-// ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('Chat Module', () => {
   describe('Module Exports', () => {
@@ -177,7 +171,6 @@ describe('Chat Module', () => {
   });
 
   describe('Timestamp Parsing Logic', () => {
-    // Reimplement the parseTimestamp logic for testing
     function parseTimestamp(str: string): number {
       const parts = str.split(':').map(Number);
       if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
@@ -202,9 +195,8 @@ describe('Chat Module', () => {
     });
 
     it('handles invalid parts gracefully', () => {
-      // NaN parts still compute (returns NaN via arithmetic)
       const result = parseTimestamp('abc');
-      expect(result).toBe(0); // single part → 0
+      expect(result).toBe(0);
     });
   });
 
@@ -257,7 +249,6 @@ describe('Chat Module', () => {
   });
 
   describe('HTML Escaping', () => {
-    // The chat module must escape HTML to prevent XSS
     function escapeHtml(str: string): string {
       const div = document.createElement('div');
       div.textContent = str;
@@ -330,7 +321,6 @@ describe('Chat Module', () => {
   });
 
   describe('Chat Label Logic', () => {
-    // The label logic: if device label is a reserved word, use prefix instead
     function getChatLabel(deviceLabel: string, hostConn: unknown, reservedNames: string[]): string {
       if (!hostConn) return 'Host';
 

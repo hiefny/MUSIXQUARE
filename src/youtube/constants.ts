@@ -182,7 +182,7 @@ export const CRASH_FAIL_THRESHOLD = 6;
 /** YouTube API script load timeout — guards against infinite "loading..." UI. */
 export const SCRIPT_LOAD_TIMEOUT_MS = 15000;
 
-/** Display-refresh hack delay — forces a reflow after iframe creation to
+/** Display-refresh workaround delay — forces a reflow after iframe creation to
  *  avoid the "black frame" bug on some browsers. */
 export const REFRESH_DISPLAY_DELAY_MS = 500;
 

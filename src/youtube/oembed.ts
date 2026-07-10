@@ -1,7 +1,7 @@
 /**
  * MUSIXQUARE — YouTube oEmbed Fetcher (leaf module)
  *
- * Pure fetch utilities extracted from youtube/search.ts (ARCH-WIRECAPS):
+ * Pure fetch utilities kept separate from youtube/search.ts:
  * fetchWithTimeout, the oEmbed title fetch with its LRU+TTL cache, and
  * external-title normalization. ui/chat-render.ts depends on THIS module —
  * not on search.ts, which pulls in the network/peer facade (broadcast) and

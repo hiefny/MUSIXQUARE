@@ -341,9 +341,8 @@ export function clearPreloadState(): void {
   }
   setState('preload.isPreloading', false);
 
-  // Host side: clear peers' preloadedIndexes cache — guests reset their
-  // storage on track change, so the host must not assume they still have
-  // old files
+  // Guests reset preload storage on track change, so invalidate the host's
+  // per-peer preload cache as well.
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     const connectedPeers = getState('network.connectedPeers') || [];
@@ -371,11 +370,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
-  // Cancel any pending auto-advance from a prior track's decode failure.
-  // Without this, a user click during the 600ms backoff window gets stomped
-  // by the timer's playTrack(nextIdx) call. Defense-in-depth — the timer
-  // also performs its own load-epoch check (see decode.ts), but cancelling
-  // here makes the user's intent strictly authoritative on every entry.
+  // A direct track choice supersedes any scheduled decode-failure advance.
+  // The timer also validates its load epoch when it fires.
   clearManagedTimer('decode-fail-advance');
 
   const hostConn = getState('network.hostConn');
@@ -386,17 +382,9 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   // with autoPlayDelayMs which routes through their same-file replay
   // branch — no re-download.
   //
-  // Gating on `currentAudioBuffer` existence alone is unsafe: rapid
-  // playlist clicking aborts every in-flight decode via load-epoch
-  // supersession in decode.ts, and that abort path leaves the previous
-  // track's `currentAudioBuffer` in place (so the previously-playing
-  // track stays audible for the rest of the click burst). When the
-  // user finally double-clicks track X, `currentTrackIndex === X` but
-  // the still-resident buffer belongs to the pre-burst track A. Without
-  // verifying that the buffer actually corresponds to X, fast path
-  // would skip X's decode entirely and play A — sound + 3 s delay +
-  // guests stranded with a fetched-but-never-played X file.
-  // Cross-checking the active filename closes the race.
+  // Buffer existence alone does not establish ownership: superseded loads may
+  // leave the previous track resident while currentTrackIndex has advanced.
+  // Require the active filename to match before taking the replay fast path.
   const _currentIdx = getState('playlist.currentTrackIndex');
   const _item = playlist[index];
   const _isSameTrack = index === _currentIdx;
@@ -424,8 +412,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       name: file.name,
       index,
       sessionId,
-      // size lets the guest's same-name-different-index branch promote a
-      // byte-identical preloaded blob instead of re-downloading (DV-1).
+      // Size lets the guest's same-name/different-index branch reuse a preload
+      // when the name and byte length match.
       size: file.size,
       mime: file.type,
       autoPlayDelayMs,
@@ -446,11 +434,9 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       'autoPlayTimer',
       () => {
         play(0);
-        // Fire-time index read (SA-12 / F-2404 parity): a lower-index track
-        // removal during the 3s replay window shifts currentTrackIndex, so the
-        // click-time-captured `index` would desync guests. Re-read at fire time,
-        // matching the normal branch (line ~675). Keep name: file.name — after a
-        // lower-index removal the re-read index still points at this file.
+        // Read the index when the timer fires because removing an earlier item
+        // during the replay window shifts currentTrackIndex. The file name
+        // remains stable across that shift.
         const currentIdx = getState('playlist.currentTrackIndex');
         broadcast({
           type: MSG.PLAY,
@@ -506,12 +492,9 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     // subsequent DECODE_SUCCESS lands cleanly on READY.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name: fileName });
 
-    // SA-05: only play+broadcast when the activation actually succeeded AND
-    // this invocation is still current. On failure loadPreloadedTrack already
-    // routed the host into markFailedAndAdvance (failed-mark + auto-advance);
-    // playing here would emit the empty-buffer toast and broadcast a PLAY
-    // that only guests can honor. On epoch supersession a newer playTrack
-    // owns playback — a stale PLAY(old index) broadcast would flap guests back.
+    // Play and broadcast only after the current activation succeeds. Failure
+    // owns its auto-advance path; supersession transfers playback ownership to
+    // the newer playTrack invocation.
     const activated = await loadPreloadedTrack(index, myLoadEpoch);
     if (!activated || !isCurrentLoadEpoch(myLoadEpoch)) {
       log.debug('[Host] Preloaded activation failed or superseded — skipping play/broadcast');
@@ -544,12 +527,9 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     setState('preload.meta', null);
     setState('preload.nextTrackIndex', -1);
 
-    // Drop a local-file broadcast still parked in the 300ms debounce window:
-    // without this, local→YouTube within the window pumps the full superseded
-    // file to guests during YouTube playback (guest handleFileStart has no
-    // mode gate). Pending only — an IN-FLIGHT broadcast deliberately survives
-    // the switch (the same-file short-circuit makes the completed download
-    // useful when returning to that track).
+    // Cancel a debounced local-file broadcast before entering YouTube. An
+    // already in-flight transfer may finish because its bytes remain reusable
+    // if the room returns to that file.
     cancelPendingBroadcast();
 
     if (!hostConn) {
@@ -559,26 +539,15 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       const isYtToYt = isYouTubeOwner();
       if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
 
-      // Single-video broadcast: send the resolved videoId (NOT the playlist
-      // ID array). The guest loads via loadVideoById only — its iframe never
-      // sees a multi-item playlist context, so the native playlist engine
-      // stays dormant. Original playlistId string is sent for UI context
-      // only (guest's handleYouTubePlay treats videoId as primary when both
-      // are present). For previously-snapshotted playlists we use the
-      // snapshot's first ID; for first-play, item.videoId is already the
-      // entry-point video.
+      // Broadcast one resolved videoId; playlistId is UI/navigation context,
+      // not an instruction to start YouTube's native playlist engine. Prefer
+      // the host's sub-item snapshot when available.
       const subMap = getState('youtube.subItemsMap') || {};
       const hostIds = subMap[item.playlistId as string]?.ids;
       const broadcastVideoId = (hostIds && hostIds[subIndex ?? 0]) || (item.videoId ?? null);
 
-      // Decide autoplay up-front so the broadcast and the host's own
-      // youtube:load emit agree. Only the very first YouTube entry of a
-      // fresh app session waits for an explicit play tap (the
-      // 'youtube.ready' toast below). Every other path — auto-advance
-      // from a finished local/YT track, user clicking a different YT
-      // entry mid-session — must autoplay; otherwise the iframe sits
-      // idle and YouTube eventually flags the video as unplayable and
-      // skips to the next one (~15s on Windows desktop).
+      // Compute autoplay once so the host iframe and guest broadcast agree.
+      // Only the first YouTube entry in a fresh session waits for a user tap.
       const isFirstTrackLoad = getState('player.isFirstTrackLoad');
       const isAlreadyYt = isYouTubeOwner();
       const shouldAutoplay = !(isFirstTrackLoad && !isAlreadyYt);
@@ -639,11 +608,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         });
       }
 
-      // Mirror the local-file branch's preload trigger. Without this, the
-      // hybrid playlist case (e.g. local→YT→local) never warmed the next
-      // local file because YouTube playback skipped scheduling entirely.
-      // preloadNextTrack's scan-forward will jump over consecutive YT
-      // entries and land on the next preloadable local file.
+      // Keep hybrid playlists warm; preload scanning skips YouTube entries and
+      // selects the next preloadable local file.
       schedulePreload();
     }
     return;
@@ -679,7 +645,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       name: file.name,
       index,
       sessionId,
-      // size: see the fast-replay broadcast above (DV-1 same-content promote).
+      // Name and size are the receiver's preload-reuse heuristic.
       size: file.size,
       mime: file.type,
       autoPlayDelayMs,
@@ -721,13 +687,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
  * UI state ("미디어 없음") is internally consistent with transport state.
  * Broadcasts MSG.PAUSE{endOfPlaylist:true} so guests mirror the reset.
  *
- * Why clear currentAudioBuffer + reset currentTrackIndex:
- * - Before this fix, stopAllMedia left the decoded AudioBuffer resident and
- *   currentTrackIndex still pointed at the last track. Pressing play would
- *   silently resume the last track's audio while the title stayed "미디어
- *   없음" — an inconsistent phantom state. With this cleanup, togglePlay
- *   detects the deselected state (currentTrackIndex === -1) and redirects
- *   to playTrack(0), giving a clean "restart from top" UX.
+ * Clearing the resident buffer and selecting index -1 ensures a later Play
+ * restarts from the top instead of resuming an unselected final track.
  */
 function handleEndOfPlaylist(reason: string): void {
   log.debug(`[Host] End of playlist: ${reason}. Resetting to deselected state.`);
@@ -758,15 +719,14 @@ export function playNextTrack(): void {
   // Host: YouTube internal navigation
   const repeatMode = getState('playlist.repeatMode') || 0;
 
-  // NOTE on repeat-one: we intentionally do NOT short-circuit to "replay
+  // Repeat-one intentionally does not short-circuit to "replay
   // current track" here. Natural track-end handles its own repeat-one
   // replay — for local files, the `player:ended` listener at the bottom
   // of this module; for YouTube, the iframe ENDED handler in
   // youtube/iframe.ts. Reaching this function therefore means either
   //   (a) a manual Next button / media-session skip, or
   //   (b) a YouTube error-recovery bus emit on an unavailable video.
-  // In both cases the user/system expects us to actually advance, not
-  // sit on the same track — matching Spotify / Apple Music behaviour.
+  // In both cases the command must advance rather than replay the same track.
 
   if (isYouTubeOwner()) {
     let handled = false;
@@ -823,13 +783,8 @@ export function playNextTrack(): void {
  * Restart the resident buffer from 0:00 and broadcast (Prev-button
  * "restart current track" semantics).
  *
- * SA-04 sibling of togglePlay's guard (4901b9cd/F-1701): during
- * DOWNLOADING/AWAITING_PRELOAD/DECODING the resident AudioBuffer is the
- * PREVIOUS track's — restarting it would play stale audio under the new
- * track's index AND broadcast that index to guests. During track prep
- * getTrackPosition() reads 0, so Prev lands on these restart branches
- * instead of the pos>3 path; drop and let the post-decode autoPlayTimer
- * own the start.
+ * During file preparation the resident AudioBuffer belongs to the prior track.
+ * Ignore restart in that window and let decode completion own the new start.
  */
 function restartCurrentTrackFromStart(currentTrackIndex: number): void {
   if (isFilePipelineBusyForPlay()) {
@@ -947,13 +902,8 @@ export function playPrevTrack(): void {
 // ─── Network Handlers ──────────────────────────────────────────────
 
 function handleRepeatMode(data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop REPEAT_MODE frames not arriving via hostConn. Sibling to
-  // handlePlaylistUpdate (874a860): host→guest authoritative broadcast.
-  // Host triggers via toggleRepeatMode (broadcast from L130) or
-  // handleRequestSetting (broadcast from L916) — both bypass the network
-  // handler. Without this guard, a peer can inject a raw frame to flip a
-  // target's repeat-mode UI and playback behavior.
-  // Same threat class as the rest of the post-fe32164 sweep.
+  // REPEAT_MODE is an authoritative host→guest broadcast. Host-local changes
+  // bypass this handler, and peer frames must not change another client.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -964,10 +914,7 @@ function handleRepeatMode(data: Record<string, unknown>, conn?: DataConnection):
 }
 
 function handleShuffleMode(data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop SHUFFLE_MODE frames not arriving via hostConn. Sibling to
-  // handleRepeatMode — same host→guest broadcast path. Without this
-  // guard, a single raw frame flips shuffle state and recomputes the
-  // shuffle order on the target, scrambling next-track playback.
+  // SHUFFLE_MODE is an authoritative host→guest broadcast.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -976,19 +923,12 @@ function handleShuffleMode(data: Record<string, unknown>, conn?: DataConnection)
 }
 
 function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop PLAYLIST_UPDATE frames not arriving via hostConn. Without this,
-  // a malicious guest can send {type:'playlist-update', list:[]} to the
-  // host — the empty-list branch below wipes host's playlist.items, calls
-  // stopAllMedia(), clearPreloadState(), cancelIncomingFileTransfer(),
-  // and clears player.currentTrackMeta. Single raw frame from any session
-  // participant deletes the host's loaded tracks and stops playback. A
-  // non-empty `list:[{name:'fake'}]` payload likewise overwrites the
-  // host's playlist with attacker-supplied entries (item validator only
-  // checks name is a string). Mirrors handlePauseMsg defense.
+  // PLAYLIST_UPDATE is an authoritative host→guest snapshot. Peer frames must
+  // not replace another participant's queue or trigger its empty-list cleanup.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
-  // Backward-compat: legacy may send `playlist` instead of `list`
+  // Accept either protocol field used by playlist snapshots.
   const incoming = Array.isArray(data.list)
     ? data.list
     : Array.isArray(data.playlist)
@@ -1022,11 +962,8 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
   const prevLength = (getState('playlist.items') || []).length;
   setState('playlist.items', incoming);
 
-  // Playlist emptied — stop media and clear ALL stale audio state on guest.
-  // CRITICAL: must clear files.currentFileBlob and audio buffer, otherwise when
-  // a new track is added at the same index, handleFilePrepare's same-track check
-  // (isSameTrackByIndex) matches and the guest replays the old audio instead of
-  // downloading the new file.
+  // Empty snapshots clear every resident file/buffer identity. Otherwise a new
+  // item at the same index could satisfy the same-track check with stale audio.
   if (incoming.length === 0 && prevLength > 0) {
     stopAllMedia();
     clearPreloadState();
@@ -1357,10 +1294,8 @@ export function initPlaylist(): void {
           play(0).catch(() => {
             /* noop */
           });
-          // Read the index at FIRE time, not capture time: a non-current
-          // track removal during this 300ms window shifts indices (SA-12) —
-          // a captured value would broadcast the pre-splice index and send
-          // guests through a pointless index-mismatch recovery.
+          // Read the index when the timer fires because removing another track
+          // during the window can shift playlist indices.
           broadcast({
             type: MSG.PLAY,
             time: 0,
@@ -1407,14 +1342,9 @@ export function initPlaylist(): void {
 
     const currentTrackIndex = getState('playlist.currentTrackIndex');
     const isCurrentTrack = index === currentTrackIndex;
-    // Snapshot the removed track BEFORE splice — we need its type later to
-    // decide whether to tear down the YouTube iframe. Using playback mode here
-    // would miss paused/indexed YouTube cases; track type is the unambiguous signal:
-    // if the active track is type='youtube', the iframe is mounted, full
-    // stop. stopAllMedia / playTrack only touch audio nodes — the YouTube
-    // iframe is owned by the youtube module, so without an explicit
-    // stop-mode emit it stays mounted as a stale empty player while the
-    // playlist moves on.
+    // Snapshot type before splice. Track type, rather than current playback
+    // activity, determines whether the YouTube module owns an iframe that must
+    // be stopped explicitly.
     const removedTrack = playlist[index];
     const wasYoutubeActive = isCurrentTrack && removedTrack?.type === 'youtube';
 
@@ -1430,25 +1360,16 @@ export function initPlaylist(): void {
     let newIdx = currentTrackIndex;
 
     if (playlist.length === 0) {
-      // Empty playlist — stop everything and clear all stale state.
-      // cancelInFlight: the removed track may STILL BE DECODING (click the
-      // only track, then remove it inside the decode window). Without the
-      // epoch bump the resolving decode re-publishes blob/meta with index -1,
-      // re-enables play, broadcasts FILE_START(-1) to guests 300ms later, and
-      // the autoPlayTimer audibly resurrects the deleted track. The other
-      // removal branches don't need it: current-track removal supersedes via
-      // playTrack's own epoch allocation.
+      // Removing the final item cancels in-flight work so a resolving decode
+      // cannot republish the deleted track. Other current-track removals are
+      // superseded by the replacement playTrack invocation.
       stopAllMedia({ cancelInFlight: true });
       clearPreloadState();
       // Abort any in-flight broadcast/unicast so guests aren't forced to
       // finish downloading a file that's no longer in the playlist.
       cancelOutgoingFileTransfers();
-      // Clear the decoded buffer too. Without this, togglePlay's "no
-      // current track? redirect to playTrack(0)" path is fine, but a
-      // direct play() call (e.g. media-session, keyboard) finds the
-      // last-played track's AudioBuffer still resident and silently
-      // resumes that audio under a "미디어 없음" UI. Mirrors the
-      // handleEndOfPlaylist cleanup for the same reason.
+      // Clear the decoded buffer so direct transport calls cannot resume audio
+      // after the playlist becomes empty.
       setCurrentAudioBuffer(null);
       setState('playlist.currentTrackIndex', -1);
       setPlaybackTrackMeta(null);

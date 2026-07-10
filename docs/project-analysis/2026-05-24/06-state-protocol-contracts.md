@@ -1,5 +1,9 @@
 # State and Protocol Contracts
 
+> **Historical contract snapshot (2026-05-24).** The invariants remain useful
+> review context, but field names and wire shapes must be checked against the
+> current types, validators, and tests before a change.
+
 This file captures the cross-module contracts that future code changes should preserve.
 
 ## Core Rule
@@ -432,4 +436,3 @@ Recommended permission-gated remediation:
 
 - Migrate E2E helper language to mode/activity/lifecycle.
 - Avoid re-adding appState as a compatibility shim unless there is an explicit reason. A shim would hide stale tests instead of making them match production semantics.
-

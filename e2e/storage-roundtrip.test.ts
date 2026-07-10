@@ -35,7 +35,6 @@ test.describe('Storage Round-Trip', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    // Wait for the guest's transfer pipeline to finalize (lands in READY).
     await pair.guestPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as

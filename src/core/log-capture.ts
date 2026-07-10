@@ -1,11 +1,7 @@
 /**
- * MUSIXQUARE — Console capture ring buffer
- *
- * Tees console.{log,info,warn,error,debug} (and uncaught errors / rejections)
- * into a bounded in-memory ring buffer so the output can be shown on-device via
- * `/debug console`. This is the only practical way to read the console on iOS,
- * where Safari Web Inspector needs a tethered Mac. The tee always calls the
- * original method, so normal logging is unchanged.
+ * Mirrors console output and uncaught failures into a bounded RAM buffer for
+ * the on-device `/debug console` view. Patched methods still invoke their
+ * originals, so capture does not replace normal browser logging.
  */
 
 const MAX_ENTRIES = 300;
@@ -32,7 +28,7 @@ function push(level: string, args: unknown[]): void {
 type ConsoleMethod = 'log' | 'info' | 'warn' | 'error' | 'debug';
 type MutableConsole = Record<ConsoleMethod, (...args: unknown[]) => void>;
 
-/** Install once, as early as possible at boot. Idempotent. */
+/** Install early enough to capture boot failures; repeated calls are harmless. */
 export function installConsoleCapture(): void {
   if (_installed) return;
   _installed = true;
@@ -51,8 +47,8 @@ export function installConsoleCapture(): void {
     };
   }
 
-  // Uncaught errors / unhandled rejections are usually the most useful and
-  // never reach console.error in a way we'd otherwise tee.
+  // Browsers do not consistently route these events through patched console
+  // methods, so capture them explicitly.
   try {
     window.addEventListener('error', (e) => {
       push('UNCAUGHT', [e.message, e.filename ? `${e.filename}:${e.lineno}:${e.colno}` : '']);

@@ -1,9 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * SA-04 ratchet (docs/scenario-audit-2026-06-10.md): every control entry
- * point that can start file playback must drop the action while the file
- * pipeline is preparing (DOWNLOADING / AWAITING_PRELOAD / DECODING) — the
+ * Every control entry point that can start file playback must drop the action
+ * while the pipeline is preparing (DOWNLOADING / AWAITING_PRELOAD / DECODING) — the
  * resident AudioBuffer still belongs to the PREVIOUS track during that
  * window, so playing would emit stale audio and broadcast the NEW index.
  *
@@ -49,8 +48,7 @@ function makePeerWithSpy(id: string, isOp: boolean): { peer: ConnectedPeer; send
   };
 }
 
-/** Host mid track-change: lifecycle DOWNLOADING while stopAllMedia({silent})
- *  left mode/activity at file/playing — the exact SA-04 window. */
+/** Enter a host track-change window with the previous file mode still active. */
 function enterBusyWindow(index = 1, name = 'next.mp3'): void {
   transition({ type: 'FILE_PREPARE', variant: 'fresh', index, name });
   setPlaybackFilePlaying();

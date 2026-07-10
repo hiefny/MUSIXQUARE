@@ -220,7 +220,7 @@ function updateAppHeightNow(): void {
   // baseline). Those false positives re-add the keyboard-open class
   // immediately after the orientationchange handler clears it, the
   // shouldFreezeAppHeight gate re-engages, and --app-height gets stuck at
-  // the previous orientation's value — the iOS 17 chaos repro.
+  // the previous orientation's value on iOS.
   if ((IS_IOS || IS_ANDROID) && vv && Date.now() >= _kbDetectionLockedUntil) {
     const kbVvH = Math.round(vv.height);
     const wasKbOpen = root.classList.contains('keyboard-open');

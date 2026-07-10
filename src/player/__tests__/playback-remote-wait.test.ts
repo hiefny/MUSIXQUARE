@@ -1,12 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * DV-2 (device-test find): a remote guest entering the remote-share wait
- * from a bare host PLAY (post-demo resume, missed descriptor) was a passive
- * dead-end — nothing was sent to the host, no descriptor re-broadcast ever
- * came, and the guest sat on AWAITING_PRELOAD forever. The wait branches
- * must escalate NEW waits via REQUEST_CURRENT_FILE (the host routes remote
- * requesters to a targeted descriptor re-send) and stay quiet on repeats.
+ * A remote guest entering remote-share wait from a host PLAY must notify the
+ * host via REQUEST_CURRENT_FILE so the descriptor can be resent. Existing
+ * waits remain deduplicated.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';

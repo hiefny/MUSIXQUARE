@@ -1,13 +1,13 @@
 /**
  * @vitest-environment jsdom
  *
- * 22차 domain audit pins:
- * - DEMO-4: the demo snapshot must round-trip transfer.meta — loadDemoFile
+ * Recovery contracts:
+ * - The demo snapshot must round-trip transfer.meta — loadDemoFile
  *   overwrites it with the demo track's meta, and without restore the host's
  *   recovery blob-matcher fails post-demo (guests FILE_WAIT forever).
- * - DEMO-1: a host track command arriving while a guest's demo load is in
- *   flight must be queued and re-dispatched after the load (the demo.loading
- *   guard used to drop it silently, leaving the guest on the wrong track).
+ * - A host track command arriving while a guest's demo load is in flight must
+ *   be queued and re-dispatched after the load so it cannot be lost to the
+ *   demo.loading guard.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
@@ -189,8 +189,8 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('demo.loading')).toBe(true);
     expect(FakeXHR.pending.length).toBe(1);
 
-    // Host advances to track 1 while the guest is still loading track 0 —
-    // these used to be silently dropped by the demo.loading guard.
+    // Host advances to track 1 while the guest is still loading track 0; both
+    // messages must survive the demo.loading guard.
     await handleData({ type: MSG.DEMO_ENTER, index: 1, ...flags }, hostConn);
     await handleData({ type: MSG.DEMO_PLAY, index: 1, time: 0, hostPlayAt: 0 }, hostConn);
 

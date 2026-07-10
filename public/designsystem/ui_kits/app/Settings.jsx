@@ -1,4 +1,3 @@
-// Settings tab — theme, audio effects
 function Settings({ theme, onTheme, reverb, onReverb, volume, onVolume }) {
   return (
     <>

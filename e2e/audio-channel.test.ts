@@ -1,9 +1,7 @@
 /**
  * E2E: Audio Channel Selection Tests
  *
- * Tests channel mode selection during setup:
- * - Guest selects Left/Right/Center/Subwoofer channel
- * - Verify channel mode state after connection
+ * Tests per-peer Left/Right/Center/Subwoofer channel state after connection.
  */
 import { test, expect } from '@playwright/test';
 import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
@@ -35,7 +33,6 @@ test.describe('Audio Channel Selection', () => {
       const code = await setupHostAndStart(pair.hostPage, 0); // Host on center
       await setupGuest(pair.guestPage, code, mode);
 
-      // Verify guest channel mode is set
       const guestChannel = await readState(pair.guestPage, 'audio.channelMode');
       expect(guestChannel).toBe(mode);
     });

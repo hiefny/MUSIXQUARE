@@ -1,10 +1,4 @@
-/**
- * MUSIXQUARE — Email Copy Handler
- *
- * Delegated click listener for [data-copy-email] anchors (e.g. the contact
- * email in legal.content_html). Copies the address to the clipboard and
- * shows a toast instead of opening the user's mail client.
- */
+/** Copy delegated `[data-copy-email]` links without navigating to a mail client. */
 
 import { copyTextToClipboard } from './dom.ts';
 import { showToast } from './toast.ts';

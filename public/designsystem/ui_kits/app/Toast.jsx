@@ -1,4 +1,4 @@
-// Glass pill toast
+// Pill toast prototype.
 function Toast({ message }) {
   if (!message) return null;
   return (

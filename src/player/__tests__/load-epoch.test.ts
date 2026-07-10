@@ -1,13 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * PLAYER-SPRAWL Stage B pins — load-epoch consolidation specifics.
+ * Load-epoch and preload-activation ownership invariants.
  *
- * Stage A's concurrency-invariants.test.ts pins the cross-mechanism protocol
- * (pins a–g, all of which must keep passing unchanged). This file pins the
- * corner that became a live trap when `loadToken` + the preload-
- * activation owner seq merged into ONE load epoch
- * (docs/design/playback-concurrency-invariants.md §1 M1/M4):
+ * concurrency-invariants.test.ts covers the wider protocol. This file covers
+ * the M1/M4 ownership corner documented in
+ * docs/design/playback-concurrency-invariants.md:
  *
  *   (h) activation ownership is compared by handle IDENTITY, not epoch
  *       currency: an unrelated epoch allocation mid-activation (watchdog
@@ -15,21 +13,13 @@
  *       activation's own abort path from clearing playPreloadedInProgress.
  *       Deriving "is current owner" from `epoch === latest` would strand the
  *       flag true forever here — every subsequent PLAY queues into the
- *       mailbox and file playback wedges permanently. (The complementary
- *       corner — two begins SHARING one epoch must still have distinct
- *       ownership — is exercised by Stage A pin (f), which begins two
- *       activations without any epoch allocation in between.)
- *
- *   (i) RETIRED 2026-06-12: it pinned "the legacy aliases
- *       (getLoadToken/incrementLoadToken) and the epoch API advance ONE
- *       shared counter". The rename-completion pass deleted the aliases from
- *       _state.ts, so the pinned threat (splitting them back into two
- *       counters) is now a TypeScript error rather than a runtime trap.
+ *       mailbox and file playback remains blocked. The complementary case,
+ *       two activations sharing one epoch, is covered in the main suite.
  *
  * Mock surface mirrors concurrency-invariants.test.ts: transport.ts /
  * decode.ts / lifecycle.ts / ownership.ts are REAL; only the audio layer,
  * network peer, storage, share, chat, and toast seams are mocked. Module
- * boundaries unchanged.
+ * boundaries remain unchanged.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
@@ -223,11 +213,8 @@ describe('pin (h) — unrelated epoch bump mid-activation must not strand the fl
 
     // The aborting OWNER must clear its own flag (handle-identity match in
     // finishPreloadActivation). An "is current = epoch equality" owner check
-    // would no-op here and strand the flag true — wedging every future PLAY
+    // would no-op here and strand the flag true, blocking every future PLAY
     // behind handlePlayMsg's flag gate.
     expect(isPlayPreloadedInProgress()).toBe(false);
   });
 });
-
-// Pin (i) retired 2026-06-12 — the legacy aliases were deleted from _state.ts,
-// so "split the aliases back into a second counter" no longer compiles.

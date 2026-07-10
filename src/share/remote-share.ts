@@ -7,8 +7,7 @@
  * MSG.REMOTE_FILE_SHARE carries only the active CURRENT track descriptor.
  * Remote speculative preload is intentionally disabled: mobile guests avoid
  * extra R2 downloads, decrypted Blob retention, battery/GC churn, and URL
- * expiry races. Legacy `preload: true` descriptors are accepted on the wire
- * for compatibility but ignored by this client.
+ * expiry races. Descriptors with `preload: true` are ignored by this client.
  *
  * Concurrency: only ONE active descriptor download runs at a time. A newer
  * active descriptor cancels the in-flight one via AbortController.
@@ -54,30 +53,17 @@ interface UploadEntry {
 
 interface DownloadEntry {
   objectId: string;
-  /** Latest descriptor received for this object — the PUBLISH context.
-   *  Same objectId = same bytes, but the playback context (index/sessionId)
-   *  can move mid-download when the host re-selects a duplicate playlist
-   *  entry; completion must publish under the latest context (EXT-4). */
+  /** Latest playback context for this object. The bytes may stay the same while
+   * index/sessionId advances, so completion publishes through this descriptor. */
   descriptor: RemoteFileSharePayload;
   abort: AbortController;
 }
 
-// Upload tracking stays keyed by playback request so existing cancellation
-// semantics remain narrow while an upload is still in flight.
-//
-// DELIBERATE: there is NO per-track navigate-away cancel. In-flight uploads
-// run to completion even when the host moves on — staleness is enforced at
-// COMPLETION time by the broadcast-gate triplet in shareRemoteFileIfNeeded
-// (hasRemoteTargets / isHostActiveFile / isExternalOwner, HET-3) and
-// absorbed guest-side by the monotonic context gates (EXT-5/6/7). The
-// abandoned-upload bandwidth is the accepted price for (a) descriptor-cache
-// warm-up — a rapid A↔B re-selection re-shares instantly instead of
-// re-encrypting + re-uploading — and (b) the shared in-flight promise that
-// targeted recovery sends await (HET-6): aborting an entry would reject ALL
-// awaiters, and isAbortError swallows that silently (no toast, no
-// REMOTE_FILE_UNAVAILABLE) — a remote-guest dead end. The only upload aborts
-// are the true teardown boundaries: no-remote-targets-remain
-// (abortActiveUploadsIfNoRemoteTargets) and session-code teardown.
+// Upload tracking stays keyed by playback request. Navigating to another
+// track does not cancel an upload: completion-time gates suppress stale
+// broadcasts, while the finished descriptor warms the cache and the shared
+// promise remains available to recovery callers. Uploads are aborted only
+// when no remote targets remain or the session is torn down.
 const _activeUploads = new Map<string, UploadEntry>();
 // Completed descriptors are keyed by file fingerprint so revisiting a track
 // can reuse the already-encrypted R2 object until it expires.
@@ -87,12 +73,9 @@ const _descriptorCache = new Map<string, RemoteFileSharePayload>();
 // the in-flight one via abort.
 let _activeDownload: DownloadEntry | null = null;
 
-// Monotonic context gate that outlives the in-flight window (EXT-6): the
-// last playback context adopted from any descriptor. R2 completion timing is
-// independent of control-message order, so a late composed-stale
-// REQUEST_CURRENT_FILE response can land AFTER _activeDownload was cleared —
-// it must not rewind the wait or start a redundant re-download. Reset on any
-// session boundary (a new host's sessionId space restarts).
+// Last adopted playback context. This survives download completion so late
+// control responses cannot rewind the active index or trigger another fetch.
+// It resets at every session boundary because sessionId ordering is per host.
 let _lastAdoptedRemoteContext: { objectId: string; index: number; sessionId: number } | null =
   null;
 
@@ -296,9 +279,7 @@ function maybeNotifyRemoteUploadFailure(
 
 function isAbortError(error: unknown): boolean {
   if (error instanceof Error && error.message === 'REMOTE_SHARE_ABORTED') return true;
-  // Treat a Turnstile cancel the same as an abort: user-initiated dismiss,
-  // no toast, no failure notice to peers. Pairs with the cancel propagation
-  // added in r2-client.requestUploadSession (15차 audit F-1601).
+  // A user-cancelled capability challenge follows the silent abort path.
   return isCapabilityChallengeCancelled(error);
 }
 
@@ -464,14 +445,10 @@ export async function shareRemoteFileIfNeeded(
         );
         return;
       }
-      // Mode sibling of the check above: isHostActiveFile passes on blob
-      // identity even after a file→YouTube/system-audio switch (the switch
-      // doesn't clear files.currentFileBlob), which would broadcast a
-      // descriptor for a track nobody is playing — remote guests would stomp
-      // their index/title UI and burn mobile data on a download that aborts
-      // at activation. If the host flips back to file mode before the upload
-      // completes, this stays false and the broadcast proceeds (and the
-      // descriptor cache makes the return-to-file re-share instant).
+      // Blob identity can remain current across an external-owner switch.
+      // Require file ownership as well so completion cannot broadcast an
+      // inactive file descriptor. Returning to file mode before completion is
+      // valid and may publish the cached result.
       if (isExternalOwner()) {
         log.debug(
           '[RemoteShare] Upload completed but external playback mode owns the room; descriptor not broadcast',
@@ -515,10 +492,8 @@ export async function shareRemoteFileIfNeeded(
 export function prepareRemoteShareWait(index: number, name: string, sessionId: number): void {
   if (!shouldWaitForRemoteShare()) return;
 
-  // Idempotent: if we're already AWAITING_PRELOAD for this same index, don't
-  // re-arm timers / re-fire the transition. FILE_PREPARE and REMOTE_FILE_SHARE
-  // both arrive on the wire and both used to call this — without idempotency,
-  // the watchdog reset and lifecycle re-entry made debugging confusing.
+  // FILE_PREPARE and REMOTE_FILE_SHARE may both establish the same wait.
+  // Preserve the existing lifecycle and watchdog for an identical index.
   const lifecycle = getState('playback.lifecycle');
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
   const alreadyWaiting =
@@ -582,10 +557,7 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
       log.warn('[RemoteShare] Wait timed out before descriptor/download completed');
       showToast(t('share.remote.timeout'));
       showLoader(false);
-      // Release the lifecycle gate (DV-2 hardening): without this the guest
-      // stayed AWAITING_PRELOAD forever — every later PLAY deferred, the
-      // SYNC_PONG bootstrap skipped, and the local play button busy-blocked.
-      // FAILED is inert and lets the next host PLAY re-drive recovery.
+      // Release AWAITING_PRELOAD so later host playback can drive recovery.
       if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
         transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
       }
@@ -638,8 +610,8 @@ async function handleRemoteFileShare(
     return;
   }
 
-  // Remote speculative preload is disabled. Ignore legacy descriptors from
-  // mixed-version hosts; the active descriptor will arrive when selected.
+  // Remote speculative preload is disabled; the active descriptor arrives
+  // when the track is selected.
   if (descriptor.preload === true) {
     log.debug('[RemoteShare] Ignoring remote preload descriptor; policy is active-only');
     return;
@@ -699,22 +671,14 @@ async function handleRemoteFileShare(
     return;
   }
 
-  // Monotonic context gate beyond the in-flight window (EXT-6): a late
-  // composed-stale response (same/older sessionId, different index) arriving
-  // after _activeDownload was cleared would otherwise enter the fresh-download
-  // path below and rewind the wait via prepareRemoteShareWait — plus re-fetch
-  // bytes already on device. A re-send of the SAME playback context stays
-  // allowed so failure recovery (e.g. decode-failure re-request) can retry.
+  // Reject a different index from the same or an older session even after the
+  // previous download completed. The identical context remains retryable.
   if (_lastAdoptedRemoteContext) {
     const last = _lastAdoptedRemoteContext;
     const incomingSid = Number(descriptor.sessionId);
     const isNewerContext = Number.isFinite(incomingSid) && incomingSid > last.sessionId;
-    // Same playback context = same index + sessionId. objectId is
-    // deliberately NOT compared (EXT-7): when the host's descriptor cache
-    // expired, the recovery path re-uploads the SAME track as a NEW R2
-    // object under the same sid/index — that re-issue must pass or the
-    // guest can never recover. Rewind protection only needs to block a
-    // DIFFERENT index at a same/older sessionId.
+    // Context identity is index + sessionId, not objectId. Recovery may upload
+    // the same track as a new object without advancing the playback context.
     const isSameContextResend =
       descriptor.index === last.index && incomingSid === last.sessionId;
     if (!isNewerContext && !isSameContextResend) {
@@ -730,23 +694,9 @@ async function handleRemoteFileShare(
   // in-flight download but must adopt the NEW playback context.
   if (_activeDownload) {
     if (_activeDownload.objectId === descriptor.objectId) {
-      // Same bytes — keep downloading. But a duplicate playlist entry or a
-      // host re-click re-sends the cached descriptor rebased to a new
-      // index/sessionId; dropping it wholesale made completion publish the
-      // ORIGINAL context, so the guest adopted a stale track identity and
-      // the wait timer (keyed on the new index) fired a spurious timeout
-      // toast (EXT-4). Re-point the publish context + wait machinery
-      // (prepareRemoteShareWait is idempotent for an identical context).
-      //
-      // Adopt only a STRICTLY NEWER context (EXT-5): host re-selection
-      // always bumps sessionId, while a late targeted REQUEST_CURRENT_FILE
-      // response is composed as (current sid, requested — possibly stale —
-      // index): findMatchingBlob name-matches across indices and targeted
-      // sends bypass the broadcast-only stale-track guard. Adopting it
-      // unconditionally would rewind the wait to the old index. The channel
-      // is ordered, so a genuinely newer broadcast always lands before any
-      // later-composed response — strict monotonic sid covers every
-      // interleaving.
+      // Keep the in-flight bytes and move their publish context only when the
+      // session advances. Equal-session targeted responses may name an older
+      // index and therefore must not re-point the wait.
       const trackedSid = Number(_activeDownload.descriptor.sessionId);
       const incomingSid = Number(descriptor.sessionId);
       const isNewerContext =
@@ -803,11 +753,8 @@ async function handleRemoteFileShare(
       });
     };
 
-    // One bounded retry on transient failures (network blip / timeout): the
-    // local P2P pipeline gets a 3-retry recovery loop, but a remote guest's
-    // failed download was terminal — silent until the host changed tracks.
-    // Non-transient errors (404/expired/429), supersede-aborts, and expired
-    // descriptors never retry.
+    // Retry one transient network failure. Policy, expiry, rate-limit, and
+    // supersession failures are terminal for this descriptor.
     let file: File;
     for (let attempt = 1; ; attempt++) {
       try {
@@ -835,16 +782,10 @@ async function handleRemoteFileShare(
       return;
     }
 
-    // No object URL here on purpose: share.remote.download.blobUrl had ZERO
-    // consumers, and createObjectURL pinned the full decrypted file until
-    // document unload — one leaked track (up to 200MB) per remote→remote
-    // switch, because the next descriptor's fetch-start nulled the field
-    // without revoking. Playback consumes the File via preload.nextFileBlob →
-    // storage:use-preloaded → decode.ts, which manages its own URL.
-    // Publish under the LATEST context received for this object — a
-    // same-object descriptor may have re-pointed it mid-download (EXT-4).
-    // The closure `descriptor` is only the transport context (URL/key);
-    // track identity comes from the active entry.
+    // Do not create an object URL here; playback consumes the File through the
+    // preload/decode path, which owns any URL lifecycle. Publish with the
+    // latest context because a same-object descriptor may advance it while the
+    // download is running.
     const publishDescriptor =
       _activeDownload?.objectId === descriptor.objectId ? _activeDownload.descriptor : descriptor;
 
@@ -969,9 +910,8 @@ export function initRemoteShare(): void {
   });
 
   bus.on('state:network.sessionCode', (code) => {
-    // Any session boundary invalidates the adopted-context gate — a new
-    // host's sessionId space restarts. Not keyed on the falsy branch below:
-    // a reconnect can change the code truthy→truthy (M13).
+    // A new host owns a new sessionId ordering, including truthy-to-truthy
+    // session-code changes, so reset the adopted-context gate unconditionally.
     _lastAdoptedRemoteContext = null;
     if (!code) {
       // Tear down any in-flight uploads/downloads so a new session starts clean.

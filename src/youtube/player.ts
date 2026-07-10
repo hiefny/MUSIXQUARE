@@ -50,9 +50,8 @@ interface PendingAutoSyncOptions {
 //   1. 'youtube:player-ready' (new player instance just initialized)
 //   2. iframe.ts onStateChange PLAYING branch (existing player, async
 //      loadPlaylist/loadVideoById completed)
-// Both route through 'youtube:auto-play' → scheduleYtAutoSync so the 1-sec
-// rendezvous countdown keeps host/guest aligned instead of each device
-// running its own autoplay timing.
+// Both route through 'youtube:auto-play' → scheduleYtAutoSync so host and
+// guests use the same two-stage rendezvous instead of independent autoplay.
 let _pendingAutoSyncOnReady = false;
 let _pendingAutoSyncOptions: PendingAutoSyncOptions | null = null;
 export function setPendingAutoSyncOnReady(
@@ -145,7 +144,7 @@ export { getYouTubePlayer } from './_state.ts';
 export { loadYouTubeVideo, primeYouTubePlayer, precreateYouTubePlayer } from './iframe.ts';
 
 // ─── YouTube Auto-Sync (SharedClock) ──────────────────────────────
-// Every play/seek action delays 1s so all devices start simultaneously.
+// Host actions run immediately, then a two-stage broadcast aligns guests.
 
 /**
  * Host action + 2-stage broadcast for guest sync.
@@ -159,10 +158,9 @@ export { loadYouTubeVideo, primeYouTubePlayer, precreateYouTubePlayer } from './
  *    using a host snapshot that has had time to settle past the iframe's
  *    seek-buffer window.
  *
- * History: a previous Path A optimization fired the precision rendezvous
- * immediately (skipping Stage 1) for same-video PLAY/SEEK. It was reverted
- * because the iframe's getPlayerState()/getCurrentTime() async race + the
- * variable seek-buffer window (150ms-2s+ depending on device/network)
+ * Do not fire the precision rendezvous immediately for same-video PLAY/SEEK.
+ * Skipping Stage 1 exposes the iframe's getPlayerState()/getCurrentTime() race
+ * and variable seek-buffer window (150ms-2s+ depending on device/network),
  * made the broadcast carry stale state or position too often. The 2-stage
  * delay always-on is slower but predictable across device + network mixes.
  */
@@ -340,7 +338,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   clearManagedTimer('yt-playlist-snapshot');
   cancelYtAutoSync(); // Clear pending auto-sync timer + loading state
 
-  // M2: Clear the guest-side yt-clock-action timer (scheduled by
+  // Clear the guest-side yt-clock-action timer (scheduled by
   // handleYouTubeState for delayed play/pause). Without this, the timer
   // fires after the player is destroyed and calls playVideo/pauseVideo
   // on a null player, producing console errors and orphaned toasts.
@@ -495,10 +493,10 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
         subIndex: targetIdx,
         videoId: targetVideoId,
         skipSeek: true,
-        // F-2409: a sub-video Next/Prev loads a DIFFERENT video, so guests need
+        // A sub-video Next/Prev loads a different video, so guests need
         // the longer track-transition rendezvous to loadVideoById before the
-        // synced play fires — matching the loadVideoById siblings (player.ts:903,
-        // ~1400), not the 2s STAGE2 default used for same-video restarts.
+        // synced play fires, matching the other loadVideoById paths rather than
+        // the 2s STAGE2 default used for same-video restarts.
         rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
       });
       callback(true);
@@ -792,8 +790,8 @@ export function initYouTube(): void {
       return;
     }
 
-    // First-time URL-input load or pause-back path: host hasn't been
-    // playing the new video yet, so STAGE2 (2s) is enough.
+    // First-time URL-input load or pause-back path: the player is ready when
+    // this handler runs, so use the standard Stage 2 allowance.
     // Flip intent BEFORE scheduleYtAutoSync so its final playVideo()
     // doesn't get caught by onStateChange's pause-back guard (the guard
     // was armed by loadYouTubeVideo's autoplay=false default).
@@ -807,8 +805,6 @@ export function initYouTube(): void {
     // skipSeek:true — the freshly loaded video is already at position 0,
     // so seekTo(0) would be a wasted round-trip (and may trigger an
     // unwanted BUFFERING transition on CUED players).
-    // playTrack already waited ~1s (or on_ready took at least ~1s), so
-    // STAGE2_RENDEZVOUS_BROADCAST_MS (2s) leaves ~3s total safe delay.
     scheduleYtAutoSync(options.targetTime ?? 0, {
       subIndex: options.subIndex,
       videoId: options.videoId,
@@ -820,16 +816,16 @@ export function initYouTube(): void {
   // YouTube sub-video auto-advance inside a playlist: iframe.ts's
   // updateYouTubeUI detects the sub-index transition and emits this event
   // (ENDED does not fire for intra-playlist boundaries, so the normal
-  // playlist:next-track path is bypassed). We re-apply the 1-sec rendezvous
-  // sync here so guests stay aligned across the sub-video boundary.
+  // playlist:next-track path is bypassed). Re-apply the transition rendezvous
+  // here so guests stay aligned across the sub-video boundary.
   bus.on('youtube:sub-video-advanced', () => {
     const player = getYouTubePlayer();
     if (!player?.playVideo) return;
 
     // Force-pause the host regardless of current state. At the moment of
     // detection the player may be in BUFFERING or PLAYING; we want it
-    // paused so the 1-sec countdown has a clean starting point. pauseVideo
-    // on a non-playing player is a safe no-op per YT IFrame API.
+    // paused so the transition rendezvous has a deterministic starting point.
+    // pauseVideo on a non-playing player is a safe no-op per YT IFrame API.
     try {
       player.pauseVideo?.();
     } catch {
@@ -848,12 +844,12 @@ export function initYouTube(): void {
       }
     })();
 
-    // M7: Explicitly extract the new videoId from the playlist array instead of
+    // Explicitly extract the new videoId from the playlist array instead of
     // relying on player.getVideoData() inside scheduleYtAutoSync. The IFrame API
     // updates getPlaylistIndex() slightly before getVideoData(), causing the host
     // to accidentally broadcast the OLD video's ID with the NEW subIndex. Guests
     // receiving the old ID interpret it as a mismatch, explicitly load the OLD
-    // video via loadVideoById(), and wait 3s at the start of the previous track.
+    // video via loadVideoById(), and wait through a rendezvous on the wrong track.
     let nextIdx = -1;
     let nextVideoId: string | undefined;
     try {
@@ -880,20 +876,19 @@ export function initYouTube(): void {
       }
     }
 
-    // Hijack native auto-advance: load the next videoId via loadVideoById
-    // and broadcast sync immediately, skipping the 3s scheduleYtAutoSync
-    // delay used for host-initiated transitions.
+    // Hijack native auto-advance: load the next videoId via loadVideoById and
+    // broadcast immediately instead of starting another transition rendezvous.
     if (nextVideoId && nextIdx > 0) {
       log.debug('[YouTube] Hijacking native auto-advance');
       setYouTubeSubIndex(nextIdx); // update highlight immediately
       player.loadVideoById?.(nextVideoId);
 
-      // Broadcast new video + index to guests without the usual 3s delay.
+      // Broadcast the new video and index without a transition delay.
       // stateOverride=PLAYING — at this instant getPlayerState() reads the
       // post-pauseVideo / pre-loadVideoById state (PAUSED or BUFFERING),
       // which would trip guests' guestRendezvousSync "host paused" branch
-      // and stall them until the next 3s heartbeat. Mirror the Stage-2
-      // pattern above (line 168).
+      // and stall them until the next 3s heartbeat. Mirror the Stage-2 state
+      // override used by the rendezvous path above.
       broadcastYouTubeSync(true, YT.PlayerState.PLAYING);
       return;
     }
@@ -901,8 +896,8 @@ export function initYouTube(): void {
     setYtAutoplayIntent(true); // avoid pause-back guard firing post-sync
     // skipSeek:true — host is already at currentTime after the force-pause,
     // re-seeking would only introduce an extra BUFFERING round-trip.
-    // 3s countdown for track transitions — guest needs time to load the
-    // new video via loadVideoById before the synchronized play fires.
+    // Track transitions use the longer rendezvous allowance so guests can load
+    // the new video via loadVideoById before precision synchronization.
     scheduleYtAutoSync(currentTime, {
       subIndex: nextIdx !== -1 ? nextIdx : undefined,
       videoId: nextVideoId,
@@ -911,9 +906,8 @@ export function initYouTube(): void {
     });
   });
 
-  // URL-input path: the player finished initializing — if _addYouTubeToPlaylist
-  // set the pending flag, kick off the 1-sec rendezvous sync now. This replaces
-  // the old autoplay=true raw-play path so guests stay aligned on first load.
+  // URL-input path: once the player initializes, a pending playlist add starts
+  // the standard two-stage rendezvous so guests align on first load.
   bus.on('youtube:player-ready', () => {
     const pending = consumePendingAutoSyncOnReady();
     if (!pending) return;
@@ -1122,9 +1116,8 @@ export function initYouTube(): void {
     setState('playlist.items', updatedPlaylist);
     const newIndex = updatedPlaylist.length - 1;
 
-    // UI Triggers: Reveal the track list.
-    // Note: setYouTubeSubIndex(0) is now correctly restored inside the isIdle block
-    // to avoid clobbering sub-indices of already-playing media.
+    // Reveal the track list. Initialize sub-index only in the idle block so
+    // already-playing media keeps its managed sub-index.
     if (playlistId) {
       bus.emit('youtube:populate-sub-items', playlistId, newIndex);
     }
@@ -1150,7 +1143,7 @@ export function initYouTube(): void {
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
       setPlaybackTrackMeta(newTrack);
-      setYouTubeSubIndex(0); // Moved back inside: only for new active tracks
+      setYouTubeSubIndex(0); // Initialize only a newly active track.
 
       // Load YouTube with autoplay=FALSE for sync coordination.
       loadYouTubeVideo(finalVideoId, finalPlaylistId, false);

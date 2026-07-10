@@ -543,7 +543,7 @@ test.describe('Late-Join: Chat history', () => {
   test('late guest receives the latest pinned notice', async ({ browser }) => {
     host = await setupHostOnly(browser);
 
-    // Notices render only in the pinned banner since 9b2824e7 — wait on the
+    // Notices render only in the pinned banner, so wait on the
     // banner, not the chat message list.
     const waitForPinnedNotice = async (page: Page, text: string): Promise<void> => {
       await page.waitForFunction(

@@ -2,7 +2,7 @@
  * MUSIXQUARE — Playback Transport
  *
  * Manages: play/pause/stop/seek, native Web Audio API buffer lifecycle,
- * video sync, track position calculation.
+ * supported playback-mode routing, and track position calculation.
  */
 
 import { log } from '../core/log.ts';
@@ -34,10 +34,10 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 
-/** Schedule playback slightly in the future so the message arrives before play time */
+/** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
 
-/** Windows WebAudio output tends to land a hair late in local-file sync. */
+/** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
 
 function getPlatformLocalFileOutputOffset(): number {
@@ -150,9 +150,8 @@ export function getTrackPosition(): number {
   const startedAtValid =
     typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
   if (startedAtValid && getCurrentTime() > 0) {
-    // Guard: schedule offset reset if drift exceeds 30 seconds.
-    // 30s is unreachable in normal usage (adjustSync = ±0.1s per click).
-    // Deferred to avoid setState inside a getter (side-effect in read path).
+    // Recover an out-of-range manual offset asynchronously so this getter does
+    // not write state during a read.
     // _offsetResetQueued prevents duplicate microtasks when getTrackPosition()
     // is called multiple times in the same frame (seek bar, sync, broadcast).
     if (Math.abs(manualOffset) > 30 && !_offsetResetQueued) {
@@ -192,29 +191,11 @@ export function updatePlayState(playing: boolean): void {
 /**
  * Stop and release the active source node.
  *
- * iOS WebKit retention quirk
- * ──────────────────────────
- * `setPlayerNode(null)` drops the JS reference to the AudioBufferSourceNode,
- * but the node still holds `.buffer` referencing its AudioBuffer (Web Audio
- * spec makes `buffer` set-once, so we can't reassign). On iOS during active
- * playback the audio rendering thread is lazy about reclaiming retired
- * nodes, so the old node + its ~80 MB AudioBuffer linger until JSC GC. Five
- * track switches in a row stack ~400 MB of invisible RAM that never shows
- * up in `[Audio]` (we only count the *current* buffer) — which is the
- * shape of the iOS-only crash beta-tester confirmed.
- *
- * Mitigations applied here, all best-effort:
- *
- *   - `disconnect()` before `stop()` — order helps iOS realise the node
- *     is leaving the graph synchronously, before the rendering thread
- *     queues another frame.
- *   - Try to assign `buffer = null` and an empty `onended`. Safari has
- *     historically accepted post-start `buffer` writes despite spec
- *     saying it should throw `InvalidStateError`; if it accepts, the
- *     node→buffer back-reference dies immediately. Chrome / spec-strict
- *     engines throw and we ignore.
- *   - Clear `onended` so any closure captured there (and whatever it
- *     transitively holds) is eligible for collection straight away.
+ * A retired AudioBufferSourceNode can keep its AudioBuffer and callback
+ * closures reachable until the rendering engine releases it, notably on
+ * WebKit. Disconnect and stop first, clear onended, and best-effort clear the
+ * buffer reference. Engines that reject a post-start buffer assignment throw
+ * InvalidStateError, which teardown intentionally ignores.
  */
 export function stopPlayerNode(): void {
   const node = getPlayerNode();
@@ -267,35 +248,21 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
     log.debug('[Transport] BlobURL flush:', e);
   }
 
-  // 2. Stop YouTube — propagate silent flag so stopYouTubeMode skips the
+  // Stop YouTube. Propagate silent so stopYouTubeMode skips the
   // IDLE bounce when the caller is mid-transition to PLAYING_AUDIO (avoids
   // a brief body.mode-youtube → no-mode → mode-audio flash on YT→Local).
   bus.emit('youtube:stop-mode', { silent: !!opts?.silent });
 
-  // 3. Clear pending triggers
+  // Clear pending triggers.
   clearManagedTimer('preloadScheduleTimer');
   clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
-  // Guest-side deferred replay (FILE_PREPARE same-file with autoPlayDelayMs).
-  // Without this, a host's same-track re-click followed by a different track
-  // leaves the deferred replay timer alive — it fires after the new track's
-  // buffer has been swapped in and plays the new audio from 0:00 while the
-  // host is still preparing its own playback.
+  // A deferred same-file replay must not survive into a replacement buffer.
   clearManagedTimer('playback-replay-defer');
-  // Release the play-lock + cancel its watchdog. _internalPlay's finally
-  // also unlocks (idempotent), but if stopAllMedia is called *during* its
-  // await window — e.g. user mashes Next while a track decode is in flight
-  // — the lock would otherwise stay held until the 15s watchdog fires.
-  // pendingPlayTime is cleared right after, so the queued-request consumer
-  // in _internalPlay's finally sees a consistent (no pending) state.
-  //
-  // MUST-RESET-TOGETHER (contract C4, docs/design/
-  // playback-concurrency-invariants.md): lock + watchdog timer +
-  // pendingPlayTime + playPreloadedInProgress reset as one unit. The flag
-  // clear below deliberately bypasses decode.ts's finishPreloadActivation
-  // (silent-path clear; the activation register stays nonzero — benign via
-  // finish idempotence). Pinned by concurrency-invariants.test.ts (pin c).
+  // Reset the play lock, watchdog, deferred play, and preload-activation flag
+  // as one teardown unit. _internalPlay and preload activation finishers are
+  // idempotent if they later observe this reset.
   clearManagedTimer('navigator-lock-watchdog');
   setPlayLocked(false);
   setPendingPlayTime(undefined);
@@ -321,31 +288,12 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
   setState('player.startedAt', 0);
   setState('player.pausedAt', 0);
 
-  // Always reset the seekbar on stop. The silent guard used to skip this
-  // to avoid a 0:00 flash during track change, since the rAF loop would
-  // re-paint the thumb between the stop and the next loop-start. After
-  // c80abcc the rAF loop skips thumb updates outside PLAYING_AUDIO, so
-  // it no longer produces that flash on its own — but it also no longer
-  // clears the stale thumb position. Without this emit, switching tracks
-  // mid-playback leaves the previous track's position painted on the
-  // seekbar throughout the new track's decode. The seek-reset handler
-  // sets slider.value = 0 directly, which is now the only path that
-  // clears stale thumb during a silent transition.
+  // Reset the seekbar even for silent transitions; the position loop does not
+  // repaint while file playback is pending.
   bus.emit('ui:seek-reset');
 
-  // Mirror the stop on guests. Without this, a host-side stopAllMedia
-  // ({silent:true}) — used by every track-change / preload-swap /
-  // system-audio-swap path — leaves guests still playing the previous
-  // track via SharedClock for the duration of the host's autoPlayDelay
-  // window (~3s). The host's player.startedAt resets locally but isn't
-  // broadcast, so guests interpret the wall clock as "host is replaying
-  // the previous track from 0:00" until MSG.PLAY arrives. handleEnded
-  // and stopPlayback already emit their own MSG.PAUSE — those are
-  // explicit terminal stops, not the silent transition path. Duplicate
-  // PAUSEs from those callers are no-ops on guests.
-  //
-  // Host-only: stopAllMedia is also called from system-audio-guest.ts
-  // on the guest side, and guests must not broadcast playback state.
+  // A host mirrors the stop so guests do not continue the previous track while
+  // a replacement is prepared. Guest-side callers never broadcast.
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     // silent=true is the track-change / preload-swap / system-audio-swap path
@@ -359,8 +307,7 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
 // ─── Seek ──────────────────────────────────────────────────────────
 
 /**
- * Unified seek handler. Replaces player:seek + player:seek-to-time events.
- * Handles all roles (host, OP guest, regular guest) and modes (audio, video, YouTube).
+ * Unified seek handler for every role and supported playback mode.
  */
 export function seekTo(time: number): void {
   if (isGuestBlocked()) return;
@@ -388,11 +335,8 @@ export function seekTo(time: number): void {
   // System audio: no seek (live stream)
   if (isSystemAudioOwner()) return;
 
-  // SA-04 sibling of togglePlay's guard (4901b9cd/F-1701): during
-  // DOWNLOADING/AWAITING_PRELOAD/DECODING the resident buffer is the
-  // PREVIOUS track's — seeking would play stale audio AND broadcast the
-  // NEW index (the host's own seekbar reaches here unguarded, see
-  // seekbar.ts 'change'). Drop; the post-decode autoPlayTimer owns playback.
+  // A busy file pipeline still holds the previous track's buffer. Ignore seek;
+  // decode completion owns playback for the newly selected track.
   if (isFilePipelineBusyForPlay()) {
     log.debug('[Seek] Ignoring seek while file pipeline is preparing');
     return;
@@ -423,14 +367,9 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
     setPendingPlayTime(offset);
     return;
   }
-  // SA-04 source-level safety net: during DOWNLOADING/AWAITING_PRELOAD/
-  // DECODING the resident AudioBuffer still belongs to the PREVIOUS track —
-  // starting it would emit stale audio under the new track's index. Every
-  // known entry point guards this itself (togglePlay, handleRequestPlay,
-  // seekTo, skipTime, ...), so this only catches future callers. Queue as
-  // pendingPlayTime (same contract as the play-lock branch above): the
-  // pipeline-completion paths in decode.ts consume it, and _internalPlay
-  // clears it at the start of the next legitimate play.
+  // Source-level guard for callers that reach play during a file load. The
+  // resident buffer belongs to the previous track, so queue the requested time
+  // for the pipeline-completion path instead of starting stale audio.
   if (isFilePipelineBusyForPlay()) {
     log.warn('[Play] Deferred: file pipeline busy — queuing as pendingPlayTime');
     setPendingPlayTime(offset);
@@ -446,12 +385,9 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         log.warn(
           `[Play] Lock Timeout: Forcing unlock after 15s (locked at ${new Date(lockStartTime).toISOString()})`,
         );
-        // FULL RESET TUPLE (contract C3, docs/design/
-        // playback-concurrency-invariants.md): unlock + clear pendingPlayTime
-        // + stopPlayerNode + epoch bump + semantic IDLE — all five together.
-        // pendingPlayTime is cleared BEFORE unlocking so the unlock-delay
-        // consumer (contract C6) sees a consistent no-pending state. Pinned
-        // by concurrency-invariants.test.ts (pin b).
+        // Reset the lock, deferred play, source node, load epoch, and semantic
+        // playback state together. Clear pendingPlayTime before unlocking so
+        // the queued-request consumer observes a consistent empty mailbox.
         setPlayLocked(false);
         setPendingPlayTime(undefined);
         stopPlayerNode();
@@ -459,10 +395,8 @@ export async function play(offset: number, scheduleDelay = 0): Promise<void> {
         // its next await checkpoint instead of overwriting the post-watchdog
         // IDLE state with PLAYING_AUDIO and starting a phantom
         // AudioBufferSourceNode.
-        // KILL-SET NOTE (owner decision, pinned by pin g): this bump does NOT
-        // abort an in-flight finalizeGuestFile — finalize checks only
-        // activeLoadSessionId (M2), keeping late-join downloads immune to
-        // watchdog fires. Do not "unify" that without reading §5 of the doc.
+        // Guest finalization intentionally ignores this epoch and checks its
+        // own load/transfer session ownership instead.
         newLoadEpoch();
         // Reset playback to IDLE to prevent stuck "playing" UI.
         if (!isCompatIdle()) {
@@ -521,11 +455,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
   }
 
   // ── Post-await mode re-check ──────────────────────────────────────
-  // While we awaited ensureRunning/initAudio, the user may have switched
-  // to YouTube mode. Without this guard, _internalPlay continues to
-  // create an AudioBufferSourceNode and mark file playback as playing,
-  // overwriting PLAYING_YOUTUBE — causing double-audio and a broken UI
-  // state that requires a page reload.
+  // Another playback mode may have taken ownership during asynchronous audio
+  // setup, so validate again before creating a file source node.
   if (isExternalOwner()) {
     log.warn('[Audio] Aborted play() - app switched to an external mode during async init');
     return;
@@ -536,12 +467,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
 
   if (!hasBufferSource) {
     log.warn('[Play] No media source available');
-    // Surface the empty state to the user so the play button doesn't
-    // silently no-op. Hits in two situations:
-    //   - Fresh boot, user taps play before adding anything.
-    //   - User cleared every track via the X button, then taps play.
-    // The hint copy ("미디어를 추가해주세요.") matches the empty-list
-    // placeholder shown in the playlist tab for a consistent UX.
+    // Surface an empty playlist instead of silently ignoring Play.
     showToast(t('playlist.empty_hint'));
     return;
   }
@@ -825,12 +751,8 @@ export function stopPlayback(): void {
   }
 
   if (isYouTubeOwner()) {
-    // Broadcast YOUTUBE_STOP explicitly: stopYouTubeMode cannot do it on this
-    // path because its wasInYouTube check reads playback.mode AFTER the
-    // setPlaybackIdle() below has nulled it. Without this, guests stay stuck
-    // in YT mode forever (every subsequent FILE_PREPARE dropped by their
-    // YT-owner guard) when the host stops via the OS media key. hostConn is
-    // provably null here (OP guests returned above) — guard is convention.
+    // Broadcast before clearing local ownership; stopYouTubeMode cannot infer
+    // the prior mode after setPlaybackIdle, and guests need the explicit stop.
     if (!hostConn) broadcast({ type: MSG.YOUTUBE_STOP });
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
     // from triggering playlist:next-track (its guard checks YouTube playback mode).
@@ -878,8 +800,7 @@ export function skipTime(sec: number): void {
     return;
   }
 
-  // SA-04 sibling guard — see seekTo above. Reachable via media-session
-  // seekforward/seekbackward and REQUEST_SKIP_TIME during track prep.
+  // Ignore skip requests while the resident buffer belongs to a prior track.
   if (isFilePipelineBusyForPlay()) {
     log.debug('[Skip] Ignoring skip while file pipeline is preparing');
     return;
@@ -916,18 +837,10 @@ export function skipTime(sec: number): void {
 /**
  * How long to wait after the last nudge click before re-playing the audio.
  *
- * Why debounce: each nudge bumps sync.localOffset synchronously (so the
- * displayed value reacts instantly), but we also need to restart the
- * AudioBufferSourceNode so the actual audio jumps to the new offset
- * position. If the user mashes the button, a naïve "call play() per click"
- * runs into the play-lock queue — and that queue captures getTrackPosition()
- * at CLICK TIME. By the time the lock releases (100-300ms later) the
- * captured position is stale; playing from it drops the audio behind
- * wall-clock by the elapsed amount. Symptom: "reset doesn't line up".
- *
- * Instead, every click just updates localOffset + resets a 60ms timer.
- * The final timer firing reads a FRESH getTrackPosition() and calls
- * play() once. One node re-creation per burst, always at the right spot.
+ * Each nudge updates sync.localOffset immediately, then a short debounce
+ * rebuilds the AudioBufferSourceNode once for the burst. Reading the track
+ * position at timer fire avoids replaying a click-time position that became
+ * stale while the play lock was held.
  */
 const NUDGE_REPLAY_DEBOUNCE_MS = 60;
 

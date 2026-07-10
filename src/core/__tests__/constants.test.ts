@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../constants.ts';
 
 /**
- * Wire-contract pin (ARCH-WIRECAPS): the chat caps are a CROSS-CLIENT
+ * Wire-contract test: the chat caps are a cross-client
  * truncation contract — deployed clients ship these exact values, and
  * sender-side (network/sync.ts OP /notice) and receiver-side
  * (chat/protocol.ts) truncation must agree. A "while we're here" value tweak

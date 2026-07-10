@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// log.ts sets _logLevel at module scope based on globalThis.location.hostname.
-// In vitest (node), globalThis.location is undefined → level stays INFO.
-// We re-import per test via dynamic import where needed.
+// log.ts resolves its level from location.hostname at import time. The Node
+// environment has no location, so tests that change this input re-import it.
 
 describe('log', () => {
   beforeEach(() => {
@@ -42,7 +41,6 @@ describe('log', () => {
     const spy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const { log } = await import('../log.ts');
     log.debug('should not appear');
-    // In node (no globalThis.location.hostname), level = INFO → debug suppressed
     expect(spy).not.toHaveBeenCalled();
   });
 

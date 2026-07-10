@@ -2,7 +2,7 @@
 /**
  * check-import-graph.mjs
  *
- * Static guard for the production import graph (ARCH-APPSCC / ARCH-WIRECAPS).
+ * Static guard for the production import graph.
  *
  * Three rules over src/ production files:
  *
@@ -27,8 +27,8 @@
  *
  *   RULE C — ui layering (allowlist of importer -> ui-module pairs).
  *     Files outside src/ui/ may import from src/ui/ only via the entries
- *     below. This encodes the ARCH-WIRECAPS class: network/sync.ts
- *     importing wire caps from ui/chat-render.ts was ACYCLIC, so no SCC
+ *     below. For example, network/sync.ts importing wire caps from
+ *     ui/chat-render.ts was acyclic, so no SCC
  *     rule can catch its reintroduction — only a layering rule can.
  *     src/app.ts is exempt as importer (the composition root imports
  *     everything by design). Allowlist is shrink-only: remove entries when
@@ -55,9 +55,8 @@ const SRC = join(ROOT, 'src');
 const APP = 'src/app.ts';
 
 // ── RULE B baseline ──────────────────────────────────────────────
-// The two pre-existing cycles, frozen 2026-06-11 (post ARCH-APPSCC /
-// ARCH-WIRECAPS, which dissolved the app/setup/demo 6-cycle and the
-// chat/network/ui/youtube 5-cycle). Members may only SHRINK.
+// The two reviewed pre-existing cycles are frozen as a shrink-only baseline.
+// Any new member or cycle fails the guard.
 const SCC_BASELINE = [
   {
     reason:

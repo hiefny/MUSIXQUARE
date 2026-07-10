@@ -1,9 +1,15 @@
 ---
 name: musixquare-design
-description: Use this skill to generate well-branded interfaces and assets for MUSIXQUARE (multi-device synchronized audio web app), either for production or throwaway prototypes/mocks/etc. Contains essential design guidelines, colors, type, fonts, assets, and UI kit components for protoyping.
+description: Use this guide to create interfaces and visual assets that follow the MUSIXQUARE product design system.
 user-invocable: true
 ---
 
-Read the README.md file within this skill, and explore the other available files.
-If creating visual artifacts (slides, mocks, throwaway prototypes, etc), copy assets out and create static HTML files for the user to view. If working on production code, you can copy assets and read the rules here to become an expert in designing with this brand.
-If the user invokes this skill without any other guidance, ask them what they want to build or design, ask some questions, and act as an expert designer who outputs HTML artifacts _or_ production code, depending on the need.
+Read `README.md` completely before producing a MUSIXQUARE interface or visual
+artifact. Treat the production sources listed there as authoritative; files in
+`src_ref/` are archival extraction snapshots unless the README explicitly says
+otherwise.
+
+For production work, preserve the existing accessibility, localization,
+responsive-layout, and synchronization constraints. For disposable mockups or
+presentations, reuse the provided brand assets and label the result as a
+prototype rather than implying that it is production UI.

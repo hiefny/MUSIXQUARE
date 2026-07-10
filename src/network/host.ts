@@ -157,10 +157,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   assignPeerSlot(peerId, slot);
   const deviceName = getPeerLabelBySlot(slot);
 
-  // Track label (immutable update to trigger state events)
+  // Publish a new map so state subscribers observe the label assignment.
   setState('network.peerLabels', { ...getState('network.peerLabels'), [peerId]: deviceName });
 
-  // New connection becomes active
   const activeConns = new Map(getState('network.activeHostConnByPeerId'));
   activeConns.set(peerId, conn);
   setState('network.activeHostConnByPeerId', activeConns);
@@ -284,9 +283,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     // Emit event for other modules to send late-join bootstrap data
     bus.emit('network:peer-connected', conn);
 
-    // Detect local vs remote for this guest.
-    // The detectConnectionType function now internally polls until ICE stabilizes
-    // (up to 10 seconds) to guarantee accurate classification.
+    // Poll for up to 10 seconds while ICE stabilizes, then classify this guest
+    // as local or remote.
     detectConnectionType(conn)
       .then((type) => {
         const peers = getState('network.connectedPeers');
@@ -566,8 +564,8 @@ bus.on('network:max-guests-changed', (max: number) => {
       // releasePeerSlot first (the old out-of-range index no longer exists
       // in the truncated array).
       assignPeerSlot(peerId, free);
-      // Keep the ConnectedPeer record's slot in sync — no prod reader today,
-      // but a stale field is a future-bug magnet. label/joinOrder stay AS-IS
+      // Keep the ConnectedPeer record aligned with the canonical slot map.
+      // label/joinOrder stay as-is
       // on purpose: label is join-time identity (rename semantics) and
       // joinOrder is join order, not slot. The device list exposes neither
       // slot nor anything relocation changes, so no re-broadcast needed.

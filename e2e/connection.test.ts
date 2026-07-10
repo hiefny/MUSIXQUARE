@@ -44,7 +44,6 @@ test.describe('Host-Guest Connection', () => {
     const code = await setupHostAndStart(pair.hostPage);
     expect(code).toMatch(/^\d{6}$/);
 
-    // Verify overlay is gone
     const overlayActive = await pair.hostPage.evaluate(() =>
       document.getElementById('setup-overlay')?.classList.contains('active'),
     );
@@ -55,7 +54,6 @@ test.describe('Host-Guest Connection', () => {
     const code = await setupHostAndStart(pair.hostPage);
     await setupGuest(pair.guestPage, code);
 
-    // Guest overlay should be dismissed
     const guestOverlay = await pair.guestPage.evaluate(() =>
       document.getElementById('setup-overlay')?.classList.contains('active'),
     );
@@ -65,13 +63,11 @@ test.describe('Host-Guest Connection', () => {
   test('host sees guest in device list after connection', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Navigate host to connect tab to see device list
     const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
     if (await connectNav.isVisible()) {
       await connectNav.click();
     }
 
-    // Host should see at least 2 devices (host + guest)
     await waitForDeviceCount(pair.hostPage, 2);
 
     const deviceCount = await pair.hostPage.evaluate(() => {
@@ -86,7 +82,6 @@ test.describe('Host-Guest Connection', () => {
   test('guest with invalid code sees error', async () => {
     await setupHostAndStart(pair.hostPage);
 
-    // Try to join with wrong code
     await pair.guestPage.goto('/');
     await pair.guestPage.waitForLoadState('networkidle');
     await pair.guestPage.waitForSelector('#btn-setup-guest', { state: 'visible', timeout: 15_000 });
@@ -95,9 +90,8 @@ test.describe('Host-Guest Connection', () => {
     await pair.guestPage.fill('#setup-join-code', '999999');
     await pair.guestPage.click('#btn-setup-confirm');
 
-    // Should remain on setup overlay (connection failed).
-    // Brief wait is intentional: we're asserting that the overlay does NOT close,
-    // so there's no DOM event to await — we just verify it's still active after a delay.
+    // A negative assertion needs a bounded observation window because there is
+    // no DOM event for an overlay that correctly remains open.
     await pair.guestPage.waitForTimeout(2_000);
     const overlayStillActive = await pair.guestPage.evaluate(() =>
       document.getElementById('setup-overlay')?.classList.contains('active'),
@@ -110,7 +104,6 @@ test.describe('Host-Guest Connection', () => {
     const code = await setupHostAndStart(pair.hostPage, 0);
     await setupGuest(pair.guestPage, code, -1);
 
-    // Both overlays should be closed
     const [hostOverlay, guestOverlay] = await Promise.all([
       pair.hostPage.evaluate(() =>
         document.getElementById('setup-overlay')?.classList.contains('active'),

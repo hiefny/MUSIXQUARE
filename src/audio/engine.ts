@@ -5,11 +5,7 @@
  *   Player → Widener → Preamp → Split → Channel Routing → Merge
  *     → GlobalLowPass → EQ(5-band) → Reverb(wet/dry) → MasterGain → Analyser → Destination
  *     + Virtual Bass parallel chain
- *
- * Tone.js has been fully replaced with native Web Audio API for:
- * - Smaller bundle size (~200KB savings)
- * - Better OS Media Session compatibility
- * - Simpler AudioContext lifecycle management
+ * The graph uses native Web Audio nodes and the shared context from context.ts.
  */
 
 import { log } from '../core/log.ts';
@@ -221,7 +217,7 @@ export function isAudioReady(): boolean {
   return _graph.masterGain !== null;
 }
 
-// Re-exported from context.ts for backward compatibility
+// Public audio-domain facade for the shared context helpers.
 export { getAudioContext } from './context.ts';
 
 // For surround mode setup (creates nodes only; connected later in setSurroundChannel)
@@ -280,7 +276,7 @@ async function _doInitAudio(): Promise<void> {
   }
   if (_graph.masterGain) return;
 
-  // Clean up leftover nodes from previous failed init
+  // Clean up a partially initialized graph before retrying.
   if (_graph.toneSplit || _graph.preamp || _graph.reverb || _graph.widener) {
     _cleanupAllNodes();
     log.warn('[Audio] Cleaned up leftover nodes from previous failed init');
@@ -316,7 +312,7 @@ async function _doInitAudio(): Promise<void> {
   _graph.preamp = ctx.createGain();
   _graph.widener = createStereoWidener(0.5); // applySettings() overwrites with state default
 
-  // Reverb (synchronous IR generation — no async needed!)
+  // Reverb uses a synchronously generated impulse response.
   _graph.reverb = ctx.createConvolver();
   _graph.reverb.buffer = generateReverbIR(REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY);
 

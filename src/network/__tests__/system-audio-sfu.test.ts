@@ -1,16 +1,13 @@
 /**
  * @vitest-environment jsdom
  *
- * Pin tests for the host-publish supersession semantics in the Cloudflare
- * Realtime SFU bridge (F-2403, 2026-06-13).
+ * Contract tests for host-publish supersession in the Cloudflare Realtime SFU
+ * bridge.
  *
- * publishHostTracks dangles in its Realtime fetch chain for seconds. Before
- * the fix, a publish that failed AFTER the share was stopped (supersession —
- * cleanupHostSfu bumps hostPublishEpoch and resets hostSfuUnavailable)
- * re-poisoned hostSfuUnavailable=true from its catch, with cleanupHostSfu(false)
- * deliberately preserving the flag. The NEXT share's ensureHostPublication then
- * returned null immediately — no publish attempt, no sfu-fallback emit — and
- * remote guests sat on the receive watchdog until "receive failed".
+ * publishHostTracks can remain in its Realtime fetch chain for seconds. A
+ * failure after supersession must not set hostSfuUnavailable for the next
+ * share or run cleanup against successor state; otherwise the next publication
+ * returns null and remote guests wait until the receive watchdog expires.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
@@ -91,8 +88,7 @@ let pcInstances: Array<{ close: ReturnType<typeof vi.fn> }>;
 
 class MockRTCPeerConnection {
   close = vi.fn();
-  // Record connectionstatechange listeners so a test can fire a runtime state
-  // transition (F-2403); existing tests that never fire are unaffected.
+  // Record connectionstatechange listeners so tests can fire runtime states.
   _listeners: Record<string, Array<() => void>> = {};
   addEventListener = vi.fn((type: string, cb: () => void) => {
     (this._listeners[type] ||= []).push(cb);
@@ -262,9 +258,8 @@ describe('host publish failure × supersession (F-2403)', () => {
     bus.emit('system-audio:stop');
     await rejectAllRealtimeCalls();
 
-    // Restarted share: before the fix this returned null at the
-    // hostSfuUnavailable gate — no publish attempt, no fallback, remote
-    // guests starved until the receive watchdog.
+    // A restarted share must pass the hostSfuUnavailable gate; otherwise there
+    // is no publish attempt or fallback and remote guests wait for the watchdog.
     bus.emit('system-audio:streams-ready');
     await waitForNewSessionCalls(2);
 
@@ -366,7 +361,7 @@ describe('guest SFU reclassify-mid-subscribe (F-2402)', () => {
 
     // Make the audio graph "ready" so that WITHOUT the recheck connectGuestTrack
     // would recreate the merger + flip receiving=true (the resurrection this
-    // guards). With the fix it returns before touching any of this.
+    // guards), so it must return before touching any of this.
     const engine = await import('../../audio/engine.ts');
     const ctxMod = await import('../../audio/context.ts');
     vi.mocked(engine.getWidener).mockReturnValue({ input: {} } as never);

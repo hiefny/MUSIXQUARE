@@ -762,15 +762,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.fetch(wsRequest('123456', 'guest', 'silent-guest'));
     const guest = lastServer();
 
-    // Guest connected but never sent guest-auth. Force its deadline past, as if
-    // GUEST_AUTH_TIMEOUT_MS elapsed with zero traffic — the case that previously
-    // left the socket OPEN until something else happened to wake the DO.
+    // Expire a silent guest without delivering another message; the alarm must
+    // enforce the authentication deadline independently of socket traffic.
     guest.serializeAttachment({
       ...(guest.deserializeAttachment() as Record<string, unknown>),
       authDeadline: Date.now() - 1,
     });
 
-    // The DO alarm fires on its own; the guest sends nothing.
     await room.alarm();
 
     expect(guest.closed).toBe(true);

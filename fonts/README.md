@@ -3,17 +3,13 @@
 This project is set up to **self-host Pretendard** and locale-specific Noto
 fallback fonts.
 
-## Quick setup
+## Managed assets
 
-- macOS/Linux:
-  - Run: `./scripts/fetch-pretendard.sh`
-
-- Windows (PowerShell):
-  - Run: `./scripts/fetch-pretendard.ps1`
-
-This will download:
-- `fonts/PretendardVariable.woff2`
-- `fonts/PRETENDARD_LICENSE.txt`
+Font binaries and their license files are tracked in this repository; a fresh
+checkout does not require a download step. When replacing Pretendard, use the
+complete upstream variable WOFF2 face, update its license if needed, copy the
+same bytes to the deployed design-system font path, and run the font guards
+described below.
 
 ## Noto fallback fonts
 
@@ -41,13 +37,19 @@ Chinese, Thai, and Cyrillic keep their locale-specific Noto fallback faces for
 characters Pretendard does not cover.
 
 `fonts/PretendardVariable.woff2` is the canonical source copy. The deployed copy
-at `public/designsystem/fonts/PretendardVariable.woff2` must be byte-identical;
-`npm run guard:font-assets` verifies the font, CSS stacks, and preload links;
-`npm run guard:font-build` also verifies the production artifact.
+at `public/designsystem/fonts/PretendardVariable.woff2` must be byte-identical.
 
-## Notes
+## Verification
 
-- The site will still work without the font files, but it will fall back to system fonts.
+- `npm run guard:font-assets` verifies source and deployed font copies, CSS
+  stacks, and preload links.
+- `npm run guard:font-build` performs the same checks against a production
+  build artifact.
+
+## Licensing and fallback behavior
+
+- A missing font does not prevent the app shell from loading, but affected text
+  falls back to the configured locale or system font.
 - The font is licensed under **SIL Open Font License 1.1** (see `PRETENDARD_LICENSE.txt`).
 - Noto fonts are licensed under **SIL Open Font License 1.1** (see the Noto
   license files in this directory).

@@ -1,11 +1,9 @@
 /**
  * MUSIXQUARE — Playback mode & state helpers
  *
- * Audio + YouTube are the only engines. Local <video> playback was dropped
- * because container/codec compatibility (notably iPhone .mov via HEVC/QT)
- * was too fragile to justify its own code path. Videos now ship exclusively
- * through the YouTube flow. The module keeps its historical filename so
- * existing imports resolve — rename later if desired.
+ * Audio and YouTube are the supported engines. Local video files are rejected
+ * at upload because browser container and codec support is inconsistent. The
+ * exported mode helpers remain in this module to preserve its import contract.
  */
 
 import { bus } from '../core/events.ts';

@@ -1,13 +1,7 @@
 /**
- * MUSIXQUARE Peer Routing Orchestrator (Host-side)
- *
- * Evaluates each peer after ICE detection and decides whether the host may
- * send local file data directly.
- *
- * Routing policy:
- *   - Local peers receive file data directly from the host.
- *   - Remote peers stay connected for control/chat/YouTube and use the
- *     encrypted remote-share path for local files.
+ * Host-side data-plane routing after ICE classification. Local peers receive
+ * file bytes directly; remote peers retain the control connection and obtain
+ * local files through encrypted remote share.
  */
 
 import { log } from '../core/log.ts';

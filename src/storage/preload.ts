@@ -47,12 +47,9 @@ interface UnicastEntry {
 }
 const _activePreloadUnicasts = new Map<string, UnicastEntry>();
 
-// ─── Approach B: Serialized Preload Transfers ──────────────────────
-// Track the in-flight backgroundTransfer promise so the next preload
-// can await it rather than aborting it mid-stream. This preserves
-// partial preload data on guests when the host advances to the
-// preloaded track before transfer is complete — avoiding the
-// 0%-restart penalty and resulting "수신중" loader flicker.
+// ─── Serialized Preload Transfers ─────────────────────────────────
+// Let the current background transfer finish before starting its successor so
+// guests can consume a partially completed preload without restarting it.
 let _inFlightBackgroundTransfer: Promise<void> | null = null;
 /**
  * Monotonic counter incremented on every schedulePreload/cancelPreloadTransfer
@@ -106,22 +103,10 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
  * Called by clearPreloadState() during backward navigation to prevent stale
  * preload data from reaching guests after the host changes tracks.
  *
- * Sends PRELOAD_ABORT to receivers BEFORE disposing the scopes so guests
- * can release their preload slot, sessionState entry, and reorder buffer
- * for this sid. Without the explicit abort signal, a mid-stream cancel
- * leaves guests with `finalized=false, skipped=false` zombie sessions —
- * cleanupStalePreloadSessions only purges finalized/skipped, so they sit
- * until the PRELOAD_SESSION_MAX=20 cap evicts oldest, while the
- * ramstore preload slot keeps the partial chunk Map until a same-
- * filename preempt or session leave releases it.
- * The abort path tells guests to tear down immediately.
- *
- * Order matters — send first, then dispose. The data channel is FIFO,
- * so the ABORT lands BEFORE any chunk that the loop might still send
- * after dispose (loop checks scope.aborted only at iteration top, so
- * one chunk in flight is possible). Guest's handlePreloadAbort marks
- * the session skipped; subsequent chunks for that sid hit the existing
- * skipped guard at handlePreloadChunk:814 and are dropped.
+ * Send PRELOAD_ABORT before disposing each scope so receivers can release
+ * partial buffers immediately. Because the channel is ordered, any chunk
+ * already in flight arrives before the abort; later chunks are dropped by the
+ * receiver's skipped-session guard.
  */
 export function cancelPreloadTransfer(): void {
   // Supersede any pending preloadNextTrack that is still awaiting a prior
@@ -192,17 +177,9 @@ function clearPreloadCacheState(): void {
 /**
  * Preload the next track in the playlist (host-only).
  *
- * Approach B: serialization
- * ─────────────────────────
- * Before starting a new backgroundTransfer, await any prior in-flight
- * backgroundTransfer so it can complete naturally. This prevents the
- * old behavior where advancing to the preloaded track would cancel
- * the old transfer mid-stream, forcing guests to restart from 0%.
- *
- * Pitfall guarded: during the await, another schedulePreload (or a
- * cancelPreloadTransfer) may bump _preloadGeneration. We snapshot
- * myGeneration up-front and re-check after the await; if superseded,
- * we exit without starting a new transfer.
+ * Await the prior background transfer before publishing the next preload.
+ * A generation snapshot prevents a schedule or cancellation that occurs
+ * during that wait from starting stale work afterward.
  */
 async function preloadNextTrack(): Promise<void> {
   const myGeneration = _preloadGeneration;
@@ -222,13 +199,8 @@ async function preloadNextTrack(): Promise<void> {
     // Ask playlist.ts for the next slot in its Fisher-Yates permutation so
     // the preload matches exactly what playNextTrack will pick.
     //
-    // hinted === -1 means the shuffle pass has ENDED (repeat OFF): there is
-    // no legitimate next track. The old "safe random pick" fallback here was
-    // SA-01 (docs/scenario-audit-2026-06-10.md): the staged random index fed
-    // playNextTrack's preferredIndex fast-accept and bypassed
-    // handleEndOfPlaylist('shuffle-end') — shuffle+repeat-off never ended.
-    // No next track → no preload. Same contract as the sequential branch's
-    // nextIdx = -1 path below.
+    // -1 means the non-repeating shuffle pass is complete, so there is no
+    // legitimate preload target.
     try {
       const mod = await import('../player/playlist.ts');
       const hinted = mod.getShuffleNextIndex();
@@ -313,10 +285,7 @@ async function preloadNextTrack(): Promise<void> {
   const file = item.file as File;
   if (!file) return;
 
-  // Serialize: wait for any prior backgroundTransfer to finish naturally
-  // before starting a new one. This is the core of Approach B — it lets
-  // in-progress preloads reach their PRELOAD_END on guests instead of
-  // being torn down and forcing a 0%-restart recovery.
+  // Let the prior preload reach PRELOAD_END before starting another.
   //
   // NOTE: we do NOT mutate preload.* state before this await. Publishing
   // nextFileBlob early (while preload.meta is still stale from the prior
@@ -395,23 +364,15 @@ async function preloadNextTrack(): Promise<void> {
 
 // ─── Host: Background Transfer ──────────────────────────────────────
 
-// Preload broadcast backpressure: DOCUMENTED DIVERGENCE from broadcastFile's
-// 512KB/5s (BROADCAST_BACKPRESSURE_* in transfer-send.ts). The bulk
-// dataChannel is SHARED with concurrent main-transfer broadcasts and unicast
-// recovery streams, so a perfectly healthy peer can legitimately show
-// bufferedAmount > 256KB for many seconds while a foreign stream drains.
-// Preload is background work — it must tolerate long foreign congestion
-// before excluding a peer, because a premature exclusion silently downgrades
-// that guest to a 0%-restart on the next track advance. Do NOT align these
-// to the broadcast constants for symmetry.
+// Preload deliberately tolerates congestion longer than active-file broadcast.
+// Both share the bulk channel, and prematurely excluding background work would
+// force that guest to restart the next track from zero.
 const PRELOAD_BROADCAST_BACKPRESSURE_LIMIT = 256 * 1024;
 const PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 async function backgroundTransfer(file: File, index: number, sessionId: number): Promise<void> {
-  // Approach B: caller (preloadNextTrack) has already awaited the prior
-  // in-flight transfer, so we create a fresh scope WITHOUT disposing the
-  // previous one. cancelPreloadTransfer is the only path that aborts a
-  // scope; it operates on the current _preloadScope reference.
+  // The caller serialized prior work, so only explicit cancellation disposes
+  // this fresh scope.
   const scope = new SessionScope();
   _preloadScope = scope;
 
@@ -447,10 +408,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     safeSend(conn, { ...header, skipped: !needsChunks });
   });
 
-  // Shared engine: PER-PEER backpressure + exclusion (parity with
-  // broadcastFile's 36f8fbf2 hardening). One slow peer no longer stalls the
-  // whole preload broadcast for every guest, and no longer keeps receiving
-  // chunks onto a non-draining channel after timing out.
+  // Per-peer backpressure prevents one stalled guest from blocking the room.
   const { status, excluded } = await pumpChunksToPeers({
     file,
     chunkSize: CHUNK,
@@ -460,14 +418,8 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
     isWritable: isBulkTransferWritablePeer,
     shouldContinue: () => !scope.aborted && getState('preload.sessionId') === sessionId,
-    // Targeted teardown for the excluded peer ONLY — never session-level:
-    // no scope dispose, no preload.sessionId bump, no rejection. One stalled
-    // guest must not kill the preload session for everyone (that would be
-    // the original global-stall bug wearing a fix costume). The ABORT rides
-    // the control channel (no `chunk` field), so it overtakes the congested
-    // bulk queue; the guest's handlePreloadAbort releases its slot/buffers,
-    // and its sanctioned recovery path is the AWAITING_PRELOAD stall
-    // watchdog in playback.ts — do NOT add eager recovery here.
+    // Tear down only the excluded peer. PRELOAD_ABORT uses the control channel,
+    // and the normal AWAITING_PRELOAD watchdog owns any later recovery.
     onPeerExcluded: (p) => {
       safeSend(p.conn, { type: MSG.PRELOAD_ABORT, sessionId });
     },
@@ -692,8 +644,8 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     size: CHUNK_SIZE,
   });
 
-  // Drain any chunks that arrived before PRELOAD_START (unordered delivery)
-  // Use setTimeout(0) to let the worker process STORAGE_START before receiving WRITE commands
+  // Drain chunks that arrived before PRELOAD_START after the start state has
+  // been published for this event turn.
   setManagedTimer(
     'preload-drain-' + sid,
     () => {
@@ -742,7 +694,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   while (sessionBuffer.has(nextChunkPtr)) {
     const chunk = sessionBuffer.get(nextChunkPtr)!;
 
-    // Clone chunk to prevent detachment issues before handing it to the worker.
+    // Give the storage command an independent buffer from the reorder map.
     const chunkClone = new Uint8Array(chunk);
     const fileName = session.name;
 
@@ -843,11 +795,10 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
     log.warn('[Preload] Chunk missing sessionId — falling back to latest:', latestPreloadSessionId);
     sid = latestPreloadSessionId;
   }
-  // Sink-side sessionId validation (F-2408): PRELOAD_CHUNK's validator can't
-  // require sessionId (the missing-sid fallback above is pinned), so reject
-  // non-finite/non-positive sids here instead — a forged Infinity/NaN/negative
-  // sid would otherwise key preloadReorderBuffer/sessionState. Parity with
-  // validateSessionId's sid > 0 rule.
+  // PRELOAD_CHUNK permits a missing sessionId for the fallback above. Reject
+  // non-finite or non-positive values at the sink before they can key the
+  // reorder buffer or session map, matching validateSessionId's positive-id
+  // contract.
   if (!Number.isFinite(sid) || sid <= 0) return;
 
   // We intentionally DO NOT drop chunks for sid < latestPreloadSessionId.
@@ -903,8 +854,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
   const session = sessionState.get(sid);
   if (!session || session.skipped) return;
 
-  // Drain any remaining buffered chunks FIRST — ensures STORAGE_WRITE messages
-  // are posted to the worker before STORAGE_END (worker processes sequentially).
+  // Dispatch every buffered STORAGE_WRITE before STORAGE_END.
   drainPreloadReorderBuffer(sid);
 
   // Re-read session after drain (drain may have updated it via immutable setState)
@@ -971,8 +921,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
     `[Preload] End: ${freshSession.name} (${freshSession.progress}/${freshSession.total} chunks)`,
   );
 
-  // NOTE: PRELOAD_ACK is now sent in storage:preload-file-ready handler (after storage confirms file)
-  // Previously it was sent here (before storage confirmed), causing timing issues.
+  // PRELOAD_ACK is sent only after storage confirms the finalized file.
 
   bus.emit('storage:preload-ready', data.index as number);
 }
@@ -980,25 +929,10 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
 /**
  * Tear down a preload session aborted mid-stream by the host.
  *
- * Why this exists: cancelPreloadTransfer disposes the host's broadcast and
- * unicast scopes, which makes the loops stop sending chunks. But scope
- * disposal is local to the host — receivers don't know the transfer was
- * cut and would otherwise carry a `finalized=false, skipped=false` session
- * entry until PRELOAD_SESSION_MAX=20 evicts them, plus a ramstore preload
- * slot holding the partial chunk Map. This handler propagates the abort.
- *
- * Idempotent on every guard:
- *   - !session         → no work to undo, return.
- *   - session.finalized → natural finalize already cleaned up; skip skip-
- *                         marking + skip STORAGE_RESET_SESSION (firing it now
- *                         would race against a possibly-already-released
- *                         worker slot — silent no-op there too, but no
- *                         reason to post in the first place).
- *   - session.skipped   → already torn down by an earlier abort or skipped
- *                         flag from PRELOAD_START; bail out.
- *
- * Late chunks for sid arriving AFTER abort hit handlePreloadChunk's
- * existing skipped guard (preload.ts:814) and are dropped.
+ * Host scope disposal is local, so this message releases the receiver's
+ * partial session, reorder buffer, and RAM slot. Missing, finalized, and
+ * already-skipped sessions are idempotent no-ops; late chunks are dropped by
+ * the skipped-session guard.
  */
 function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
@@ -1035,7 +969,7 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   updated.set(sid, { ...session, skipped: true });
   setState('preload.sessionState', updated);
 
-  // Release the worker preload slot for this sid. Critical: do NOT use
+  // Release the RAM preload slot for this sid. Do not use
   // STORAGE_END here — that path posts STORAGE_FILE_READY which would push a
   // partial blob into preload.nextFileBlob via the storage:preload-file-
   // ready handler. STORAGE_RESET_SESSION just releases the lock and removes
@@ -1145,22 +1079,9 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     }
   }
 
-  // Approach B: preload is still downloading → delegate to the waiter path
-  // (storage:use-preloaded) instead of the old 4× retry / 0%-restart fallback.
-  //
-  // The waiter transitions the FSM to AWAITING_PRELOAD (from which the derived
-  // waitingForPreload is read — the stored transfer flag was removed) and installs
-  // a progress-aware watchdog in playback.ts. When the remaining PRELOAD_CHUNK / PRELOAD_END
-  // messages arrive (host has serialized its transfers so they WILL arrive),
-  // storage:preload-file-ready auto-triggers playback via use-preloaded again.
-  //
-  // This replaces the old path where:
-  //   - 4 retries × 500 ms = 2 s forced wait
-  //   - then REQUEST_DATA_RECOVERY { nextChunk: 0 } = full re-download
-  //   - then "수신중 0%" loader flicker
-  //
-  // With serialization on the host side, the in-flight PRELOAD session will
-  // finalize on its own; we just need to wait for it without panicking.
+  // An in-progress matching preload enters AWAITING_PRELOAD. Its watchdog
+  // monitors progress, and storage:preload-file-ready re-enters this path once
+  // the serialized transfer finalizes.
   if (isDownloadingSame) {
     log.debug('[Guest] Preload in progress — delegating to waiter (storage:use-preloaded)');
     // Lifecycle: enter AWAITING_PRELOAD. A subsequent
@@ -1308,39 +1229,10 @@ export function initPreload(): void {
     try {
       log.debug(`[Preload] preload ready: ${filename} (SID: ${sessionId})`);
 
-      // Guard: ignore stale storage completions from superseded preload sessions.
-      // After backward navigation, clearPreloadState cancels the host's transfer
-      // and bumps the session ID, but the storage layer may still signal completion
-      // for the old session. Accepting it would set preload.nextFileBlob to a stale
-      // file, causing handlePlayPreloaded to use the wrong track.
-      //
-      // HOTFIX (2026-04-20): there's ONE case where a "stale" completion is not
-      // actually stale — we explicitly want it. When the user advances to a
-      // track whose preload was still assembling, we transition the lifecycle
-      // to AWAITING_PRELOAD for that track (playback.pendingRecoveryTarget
-      // records it). Host then schedules the NEXT preload, which bumps
-      // latestPreloadSessionId. When OUR target's write finally resolves
-      // moments later, the naïve guard drops it because its session ID is now
-      // behind latest. Result: guest stalls in AWAITING_PRELOAD for 10s, then
-      // the watchdog triggers a 0% re-download — the exact behaviour the
-      // lifecycle contract is meant to prevent.
-      //
-      // So: if the "stale" session is the one we're actively awaiting, accept
-      // the completion. The newer session keeps progressing in the background;
-      // when it eventually finishes, its own preload-file-ready call will
-      // overwrite preload.meta / nextFileBlob with its data.
-      // Resolve how to classify this completion. Two sources of "which track
-      // is this for?":
-      //   (a) preload.sessionState.get(sessionId) — authoritative, but may be
-      //       GONE because cleanupStalePreloadSessions() purges finalized
-      //       sessions when the NEXT PRELOAD_START arrives. That's the crux
-      //       of the regression: session 2 finalizes → PRELOAD_START(3)
-      //       cleans session 2 up → storage completion for 2 fires → lookup
-      //       misses → we wrongly think it's stale → drop.
-      //   (b) filename compared against playback.pendingRecoveryTarget.name
-      //       — our AWAITING_PRELOAD target.
-      //
-      // Fall through to (b) when (a) is missing AND we're AWAITING_PRELOAD.
+      // Ignore superseded completions unless the file is the track currently
+      // awaited by AWAITING_PRELOAD. sessionState is normally authoritative,
+      // but cleanup may remove a finalized entry before its asynchronous
+      // storage event arrives, so the awaited filename is the fallback identity.
       const sessionForFile = getState('preload.sessionState').get(sessionId);
       const lifecycle = getState('playback.lifecycle');
       const recoveryTarget = getState('playback.pendingRecoveryTarget');
@@ -1350,8 +1242,8 @@ export function initPreload(): void {
         lifecycle === 'AWAITING_PRELOAD' && !!filename && !!awaitedName && filename === awaitedName;
 
       if (latestPreloadSessionId !== 0 && sessionId < latestPreloadSessionId) {
-        // "Stale" per the old guard's definition — but accept if it matches
-        // our wait target by filename (handles the session-cleanup race).
+        // A numerically older session is still relevant when it finalized the
+        // exact file awaited by the lifecycle.
         if (!isOurAwaitTarget) {
           log.debug(
             `[Preload] Ignoring stale preload completion: SID ${sessionId} < latest ${latestPreloadSessionId}, filename=${filename}, awaited=${awaitedName || '(none)'}`,

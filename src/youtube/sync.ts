@@ -396,13 +396,12 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
 function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop YOUTUBE_SYNC frames not arriving via hostConn. Without this, a
   // malicious peer can send {videoId:'X',
-  // time:0, state:1} — when the guest is in PLAYING_YOUTUBE the L357
-  // videoId-mismatch branch calls player.loadVideoById('X') forcing
+  // time:0, state:1}; when the guest is in PLAYING_YOUTUBE, the
+  // videoId-mismatch branch calls player.loadVideoById('X'), forcing
   // arbitrary content onto the guest. Even outside PLAYING_YOUTUBE the
   // pre-guard updateHostSnapshot below would poison _rt.lastHostSnapshot,
-  // breaking the next legitimate rendezvous calibration. 8cbf192 patched
-  // YOUTUBE_STATE (which also calls updateHostSnapshot) but missed this
-  // sibling path.
+  // breaking the next legitimate rendezvous calibration. Apply the same
+  // trust-boundary guard to both YOUTUBE_SYNC and YOUTUBE_STATE.
   if (!isHostBroadcast(conn)) return;
 
   const player = getYouTubePlayer();
@@ -436,11 +435,11 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   // Manual sync (Host clicks Sync button) ALWAYS bypasses the cooldown.
   // This gate is also what protects the videoId-mismatch block below from
   // interrupting an in-progress loadVideoById (handleYouTubeState raises
-  // autoSyncUntil when it initiates a load; ITS sibling top-gate was removed
-  // for last-action-wins, so this one must stay). No autoSyncUntil writer
+  // autoSyncUntil when it initiates a load). Explicit state commands use
+  // last-action-wins, but periodic sync must keep this gate. No writer
   // runs between here and the mismatch block within one invocation — the
-  // function has no awaits — so the redundant inner re-check was deleted
-  // 2026-06-13; restore one if this gate is ever relaxed.
+  // function has no awaits, so no inner re-check is needed. Restore one if
+  // this gate is ever relaxed.
   if (!isManual && Date.now() < _rt.autoSyncUntil) return;
 
   try {
@@ -457,7 +456,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       return;
     }
 
-    // Apply title from host to maintain metadata sync (fixes "No Media" for late joiners)
+    // Apply the host title so late joiners receive complete track metadata.
     const hostTitle = data.title as string | undefined;
     if (hostTitle) {
       updatePlaybackTrackTitle(hostTitle);
@@ -499,7 +498,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       }
     }
 
-    // Video ID sync — fixes videoId mismatch (YouTube Mix ordering, sub-advance, etc.)
+    // Keep the guest video ID aligned across Mix ordering and sub-video advances.
     // Single-video mode: always drive guest via loadVideoById. We never call
     // playVideoAt / loadPlaylist so the iframe's native playlist engine
     // stays dormant and the guest stays on one video at a time.
@@ -953,7 +952,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // Drop YOUTUBE_STATE frames not arriving via hostConn. Same threat
   // model as handleYouTubeSync — see isHostBroadcast comment block.
   // updateHostSnapshot below would corrupt _rt.lastHostSnapshot pre-guard,
-  // and the L838 videoId-mismatch branch calls player.loadVideoById on
+  // and the videoId-mismatch branch calls player.loadVideoById on
   // attacker-supplied content. Guard placed at function entry so the
   // snapshot is also protected.
   if (!isHostBroadcast(conn)) return;
@@ -1007,10 +1006,9 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // "Last action wins": ALWAYS cancel any pending scheduled action from a
   // previous host command before processing this one. Without this, a rapid
   // seek / play / seek sequence on the host would get processed as the very
-  // first command on the guest while subsequent commands fell into an early
-  // return (we used to skip this function entirely during _rt.autoSyncUntil,
-  // which caused the guest to honour only the earliest scheduled play and
-  // drop every later host-initiated state change until the cooldown expired).
+  // first command on the guest while subsequent commands fall into an early
+  // return. YOUTUBE_STATE must never be gated by _rt.autoSyncUntil because
+  // that would preserve the earliest scheduled play and drop later commands.
   //
   // The _rt.autoSyncUntil cooldown is kept ONLY for handleYouTubeSync (the 3s
   // periodic drift-correction broadcast) — its intent was to prevent drift
@@ -1019,7 +1017,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
 
-  // M1: Cancel any in-progress guest rendezvous when a new host PLAY arrives.
+  // Cancel any in-progress guest rendezvous when a new host PLAY arrives.
   // Without this, a pending yt-rendezvous-play timer fires alongside the
   // yt-clock-action timer, causing a double playVideo() desync.
   if (state === 1 && _rt.rendezvousInProgress) {
@@ -1032,13 +1030,13 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   try {
     // `time` and `state` already validated + snapshotted pre-guard above.
 
-    // Apply title from host to maintain metadata sync (fixes "No Media" during loading)
+    // Apply the host title while loading so track metadata remains complete.
     const hostTitle = data.title as string | undefined;
     if (hostTitle) {
       updatePlaybackTrackTitle(hostTitle);
     }
 
-    // Video ID sync — fixes Mix playlists where sub-index = different video
+    // In Mix playlists, a new sub-index can identify a different video.
     let subIndexChanged = false;
     const hostVideoId = (data.videoId as string) || '';
     const subIndex = data.subIndex as number | undefined;
@@ -1160,7 +1158,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         log.debug(`[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`);
       } else if (waitMs > 0 && waitMs <= SHORT_WAIT_THRESHOLD_MS) {
         // Short wait (≤SHORT_WAIT_THRESHOLD_MS) — schedule with brief pause-seek-play
-        // M6: clamp to [0, duration] to avoid seeking past the end which
+        // Clamp to [0, duration] to avoid seeking past the end, which
         // triggers a premature ENDED event and track-advance on the guest.
         const rawCompensated = time + waitMs / 1000 + getYouTubeManualOffsetSec();
         const compensatedTime =
@@ -1261,7 +1259,7 @@ function executeImmediate(
       // Pause-seek-play: seek while paused, then play after SEEK_PLAY_GAP_MS.
       // Uses a dedicated timer name (yt-seek-play) so paths that must cancel a
       // pending delayed play independently of the clock action can target it —
-      // e.g. the YT→YT reuse branch in iframe.ts (F-2407) and stopYouTubeMode.
+      // e.g. the YT→YT reuse branch in iframe.ts and stopYouTubeMode.
       // The top of handleYouTubeState clears BOTH yt-clock-action and
       // yt-seek-play, so a new YOUTUBE_STATE during the gap cancels this pending
       // play and reschedules it here only if the new state warrants.
@@ -1293,7 +1291,7 @@ function executeImmediate(
 function handleSubTitleUpdate(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop YOUTUBE_SUB_TITLE_UPDATE frames not arriving via hostConn.
   // Without this, a malicious peer can send {playlistId:<active>, subIdx:0,
-  // title:'<phishing text>'} and the L1094 setState below writes the
+  // title:'<phishing text>'}, and the state update below writes the
   // attacker's title into player.currentTrackMeta.title — escapeHtml
   // protects against XSS, but social-engineering text passes through.
   if (!isHostBroadcast(conn)) return;
@@ -1326,7 +1324,7 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataCon
   // Drop YOUTUBE_PLAYLIST_INFO frames not arriving via hostConn. Without
   // this, a malicious peer can poison subItemsMap[playlistId] with
   // attacker-supplied videoIds — when the guest later navigates to a
-  // sub-track, handlers.ts:200 calls player.loadVideoById(ids[subIdx])
+  // sub-track, handlers.ts calls player.loadVideoById(ids[subIdx])
   // with the attacker's videoId. Indirect arbitrary-video injection.
   if (!isHostBroadcast(conn)) return;
 
@@ -1348,8 +1346,8 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataCon
 
 function handleYouTubeStop(_data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop YOUTUBE_STOP frames not arriving via hostConn. Without this, a
-  // single raw frame from any peer forces a guest in PLAYING_YOUTUBE out of YouTube
-  // mode via the L1131-1132 bus emits — a single-frame DoS on the
+  // single raw frame from any peer forces a guest in PLAYING_YOUTUBE out of
+  // YouTube mode via the bus emissions below — a single-frame DoS on the
   // target's YouTube session.
   if (!isHostBroadcast(conn)) return;
 

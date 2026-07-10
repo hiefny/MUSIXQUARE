@@ -1,6 +1,4 @@
-/**
- * MUSIXQUARE editorial pages - reveal and header progress.
- */
+/** Shared standalone chrome, reveal, and navigation-progress behavior for editorial pages. */
 
 (function () {
   var EDITORIAL_LOAD_DELAY_MS = 300;
@@ -43,7 +41,7 @@
           root.classList.add('ios-standalone');
         }
       } catch (e) {
-        /* noop */
+        /* Standalone detection is optional on restricted browsers. */
       }
 
       root.classList.toggle('standalone', !!standalone);
@@ -56,7 +54,7 @@
       if (media.addEventListener) media.addEventListener('change', apply);
       else if (media.addListener) media.addListener(apply);
     } catch (e) {
-      /* noop */
+      /* Display-mode change tracking is optional on restricted browsers. */
     }
   }
 

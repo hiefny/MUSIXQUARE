@@ -4,9 +4,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BlobURLManager } from '../blob-manager.ts';
 
-// ─── Mocks ───────────────────────────────────────────────────────────────
-
-// Mock DELAY constant
 vi.mock('../constants.ts', () => ({
   DELAY: { BLOB_REVOCATION: 10000 },
 }));
@@ -15,7 +12,6 @@ vi.mock('../log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// Capture URL.createObjectURL / URL.revokeObjectURL
 let urlCounter = 0;
 const revokedUrls: string[] = [];
 
@@ -24,13 +20,11 @@ beforeEach(() => {
   urlCounter = 0;
   revokedUrls.length = 0;
 
-  // Reset BlobURLManager internal state
   BlobURLManager._activeURL = null;
   BlobURLManager._preparingURL = null;
   BlobURLManager._pendingRevocations.clear();
   BlobURLManager._deferredUntilDetached.clear();
 
-  // Stub URL methods
   vi.stubGlobal('URL', {
     createObjectURL: () => `blob:test-${++urlCounter}`,
     revokeObjectURL: (url: string) => {
@@ -47,8 +41,6 @@ afterEach(() => {
 function fakeBlob(): Blob {
   return new Blob(['test'], { type: 'audio/mp3' });
 }
-
-// ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('BlobURLManager', () => {
   describe('create()', () => {
@@ -87,16 +79,13 @@ describe('BlobURLManager', () => {
     });
 
     it('revokes previous activeURL when confirming a new one', () => {
-      // First create + confirm
       BlobURLManager.create(fakeBlob());
       BlobURLManager.confirm();
       expect(BlobURLManager._activeURL).toBe('blob:test-1');
 
-      // Second create + confirm
       BlobURLManager.create(fakeBlob());
       BlobURLManager.confirm();
       expect(BlobURLManager._activeURL).toBe('blob:test-2');
-      // Previous active should be scheduled for revocation
     });
   });
 
@@ -153,9 +142,7 @@ describe('BlobURLManager', () => {
       }
       expect(BlobURLManager._pendingRevocations.size).toBe(5);
 
-      // 6th should evict oldest
       BlobURLManager.safeRevoke('blob:q-6', { delayMs: 10000 });
-      // oldest (q-1) should have been revoked
       expect(revokedUrls).toContain('blob:q-1');
     });
   });
@@ -169,7 +156,7 @@ describe('BlobURLManager', () => {
     it('revokes deferred URLs (never attached under current no-video design)', () => {
       BlobURLManager._deferredUntilDetached.add('blob:old');
       BlobURLManager.flushDeferred('test');
-      // flushDeferred calls safeRevoke(url, { force: true }) which schedules with delay
+      // Deferred revocation uses the configured grace period.
       vi.advanceTimersByTime(10000);
       expect(revokedUrls).toContain('blob:old');
       expect(BlobURLManager._deferredUntilDetached.has('blob:old')).toBe(false);
@@ -210,9 +197,7 @@ describe('BlobURLManager', () => {
   });
 
   describe('_isUrlAttached()', () => {
-    // Local <video> playback was removed, so no URL is ever considered
-    // attached. The method is kept as a hook for future re-introduction
-    // but currently short-circuits to false unconditionally.
+    // Local playback does not attach Blob URLs to DOM media elements.
     it('always returns false (local-video playback was removed)', () => {
       expect(BlobURLManager._isUrlAttached('blob:anything')).toBe(false);
       expect(BlobURLManager._isUrlAttached('blob:other')).toBe(false);

@@ -7,7 +7,6 @@ import { showToast, showLoader, updateLoader } from '../toast.ts';
 beforeEach(() => {
   vi.useFakeTimers();
 
-  // Set up DOM elements that toast.ts expects
   document.body.innerHTML = `
     <div id="toast"><span id="toast-msg"></span></div>
     <header id="main-header">
@@ -48,12 +47,11 @@ describe('showToast', () => {
     const msg = document.getElementById('toast-msg')!;
     expect(msg.innerText).toBe('Second');
 
-    // First timer (1500 + 500 = 2000) should not hide — it was cleared
+    // Crossing the first toast's original deadline must not hide the successor.
     vi.advanceTimersByTime(500);
     const toast = document.getElementById('toast')!;
     expect(toast.classList.contains('show')).toBe(true);
 
-    // Second timer fires at 2000ms from second call
     vi.advanceTimersByTime(1500);
     expect(toast.classList.contains('show')).toBe(false);
   });
@@ -107,7 +105,7 @@ describe('showToast', () => {
   });
 
   it('falls back to console.info when DOM elements missing', () => {
-    document.body.innerHTML = ''; // Remove toast elements
+    document.body.innerHTML = '';
     const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
     showToast('No DOM');
     expect(spy).toHaveBeenCalledWith('[Toast]', 'No DOM');
@@ -140,7 +138,6 @@ describe('showLoader', () => {
     showLoader(false);
 
     const progressBg = document.getElementById('header-progress-bg')!;
-    // Not reset yet
     expect(progressBg.style.width).toBe('75%');
 
     vi.advanceTimersByTime(400);
@@ -150,13 +147,12 @@ describe('showLoader', () => {
   it('clears reset timer when showing again quickly', () => {
     showLoader(true);
     updateLoader(50);
-    showLoader(false); // starts 400ms reset timer
+    showLoader(false);
     vi.advanceTimersByTime(200);
 
-    showLoader(true); // clears the reset timer
+    showLoader(true);
     vi.advanceTimersByTime(400);
 
-    // Progress bar should NOT have been reset — timer was cleared
     const progressBg = document.getElementById('header-progress-bg')!;
     expect(progressBg.style.width).not.toBe('0%');
   });

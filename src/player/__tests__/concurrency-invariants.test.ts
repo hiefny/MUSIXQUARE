@@ -1,23 +1,21 @@
 /**
  * @vitest-environment jsdom
  *
- * PLAYER-SPRAWL Stage A pins — cross-mechanism concurrency invariants.
+ * Cross-mechanism playback concurrency invariants.
  *
- * Five interlocking guard mechanisms protect the file-playback pipeline
- * (loadToken, activeLoadSessionId, isPlayLocked + 15s watchdog,
- * playPreloadedInProgress + activation owner seq, the lifecycle FSM, plus the
- * pendingPlayTime mailbox). Their INTERACTIONS were protected only by
- * comments until this file. Full matrix:
+ * The load epoch, active load session, play lock/watchdog, preload activation
+ * owner, lifecycle FSM, and pending-play mailbox have distinct scopes. This
+ * suite covers their interactions. Full matrix:
  * docs/design/playback-concurrency-invariants.md. Static writer-set guard:
  * scripts/check-lifecycle-writes.mjs.
  *
- * Pins (letters referenced from the doc and from mechanism-site comments):
+ * Contract cases (letters also identify the describe blocks):
  *   (a) use-preloaded(B) superseding in-flight load(A): flag stays true
  *       through the window (stomp rule C1), handlePlayMsg defers, A's stale
  *       finish is a no-op, B consumes the pending play.
  *   (b) 15s navigator-lock-watchdog fire = FULL reset tuple (C3): unlock +
  *       pendingPlayTime cleared + stopPlayerNode + token +1 + semantic IDLE,
- *       and the wedged _internalPlay aborts without writing PLAYING.
+ *       and the blocked _internalPlay aborts without writing PLAYING.
  *   (c) stopAllMedia({cancelInFlight}) during _internalPlay's await window
  *       releases the lock immediately and leaves no phantom node (C4).
  *   (d) finalizeGuestFile staleness at BOTH sessionId checkpoints (pre/post
@@ -25,25 +23,21 @@
  *   (e) loadPreloadedTrack pendingPlayTime policy is asymmetric BY DESIGN —
  *       BIDIRECTIONAL pins: preserve on supersession-class aborts AND clear
  *       on external-owner/no-blob aborts, so a uniform-clear refactor and a
- *       uniform-preserve refactor BOTH fail this suite.
+ *       uniform-preserve behavior are both rejected by this suite.
  *   (f) a SUPERSEDED activation's decode-failure catch path is inert: it must
  *       not clear the superseding activation's flag nor its pending play.
  *   (g) OWNER DECISION (binding): newLoadEpoch() fired during
  *       finalizeGuestFile's decode await must NOT abort the finalize —
  *       buffer swap, DECODE_SUCCESS, and pendingPlayTime consumption all
- *       still happen. Permanent tripwire against folding activeLoadSessionId
- *       into a single global epoch.
+ *       still happen. This keeps activeLoadSessionId separate from the epoch.
  *   (j) a NEW transfer session (FILE_PREPARE new-session reset — bumps
  *       neither M1 nor M2) starting during finalizeGuestFile's decode await
  *       aborts the stale finalize via its transfer.localSessionId entry
  *       snapshot: the new download keeps RECEIVING + its chunkWatchdog, no
  *       stale buffer/blob/meta publish, mailbox untouched.
  *
- * Mock surface: transport.ts / decode.ts / playback.ts / lifecycle.ts /
- * ownership.ts are REAL (pins b/c need the real play-lock + watchdog, which
- * decode.test.ts mocks away wholesale). Only the audio layer, network peer,
- * storage, share, chat, and toast seams are mocked. Module boundaries
- * unchanged — existing wholesale mocks elsewhere stay valid.
+ * transport.ts, decode.ts, playback.ts, lifecycle.ts, and ownership.ts remain
+ * real so lock/watchdog behavior is exercised. Only external seams are mocked.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
@@ -215,7 +209,7 @@ function makeFile(name: string): File {
   return new File([new Uint8Array([1, 2, 3])], name, { type: 'audio/mpeg' });
 }
 
-/** Stage a ready-to-activate preload slot for `index`. */
+/** Populate a ready-to-activate preload slot for `index`. */
 function stagePreload(index: number, file: File): void {
   setState('preload.nextFileBlob', file);
   setState('preload.meta', { name: file.name, index, sessionId: index + 1 });
@@ -300,8 +294,7 @@ describe('pin (a) — use-preloaded supersession keeps the activation flag owned
     // token so A self-resolves at its post-decode checkpoint.
     expect(isPlayPreloadedInProgress()).toBe(true);
     expect(getCurrentLoadEpoch()).toBe(tokenBeforeB + 1);
-    // ...and B's decode must actually be running (the historical wedge:
-    // B's blob in memory but no decode in flight).
+    // B's decode must actually be running, not merely staged in memory.
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
 
     // Host PLAY lands inside the supersession window → flag gate defers it.
@@ -338,7 +331,7 @@ describe('pin (b) — 15s navigator-lock-watchdog resets the full tuple', () => 
     const staleNode = makeFakeSourceNode();
     setPlayerNode(staleNode as unknown as AudioBufferSourceNode);
 
-    // Wedge _internalPlay inside ensureRunning.
+    // Hold _internalPlay inside ensureRunning.
     const hang = deferred<void>();
     mocks.ensureRunning.mockReturnValue(hang.promise);
 
@@ -362,7 +355,7 @@ describe('pin (b) — 15s navigator-lock-watchdog resets the full tuple', () => 
     expect(getCurrentLoadEpoch()).toBe(tokenBefore + 1);
     expect(getState('playback.activity')).toBe('idle');
 
-    // The wedged play resumes → must abort at its token checkpoint without
+    // The blocked play resumes and must abort at its token checkpoint without
     // creating a node or writing PLAYING over the post-watchdog IDLE.
     hang.resolve();
     await playPromise;
@@ -391,7 +384,7 @@ describe('pin (c) — stopAllMedia during the in-flight play window', () => {
 
     stopAllMedia({ cancelInFlight: true });
 
-    // Lock released NOW — not held hostage until the 15s watchdog.
+    // stopAllMedia releases the lock immediately.
     expect(isPlayLocked()).toBe(false);
     expect(getPendingPlayTime()).toBeUndefined();
     expect(isPlayPreloadedInProgress()).toBe(false);
@@ -415,7 +408,7 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
     const prevBuffer = { duration: 50 } as AudioBuffer;
     setCurrentAudioBuffer(prevBuffer);
 
-    // Wedge the finalize inside initAudio so a newer load invocation can
+    // Hold finalization inside initAudio so a newer load invocation can
     // enter before the pre-decode checkpoint runs.
     const hangInit = deferred<void>();
     mocks.initAudio.mockReturnValueOnce(hangInit.promise);
@@ -604,20 +597,13 @@ describe('pin (f) — superseded activation failure cannot clear the live activa
 });
 
 // ─── Pin (g): OWNER DECISION — finalize immunity to token bumps ──────
-// Binding decision (invariants doc §5): the late-join download path must
-// survive concurrent loadToken bumps (watchdog fire, cancelInFlight stop).
-// This is the permanent tripwire against unifying activeLoadSessionId into a
-// single global epoch — if a future refactor makes finalizeGuestFile abort on
-// token bumps, this pin fails and that refactor must STOP.
+// Guest finalization must survive unrelated load-epoch bumps from watchdog or
+// cancellation paths, which keeps activeLoadSessionId as a separate scope.
 
 // ─── Pin (j): finalize aborts when a NEW transfer session starts ─────
-// FILE_PREPARE's new-session reset bumps NEITHER the load epoch NOR
-// activeLoadSessionId (M2's only writers are the three load fns), so pin (d)'s
-// checkpoints are blind to it. Without the transfer.localSessionId entry
-// snapshot, the stale finalize would set transfer.state=READY and kill both
-// watchdogs while the NEW track is still RECEIVING — transfer-receive's
-// stale-completed guard then drops every remaining chunk with no watchdog
-// left to recover (silent wedge until the next session).
+// FILE_PREPARE changes neither the load epoch nor activeLoadSessionId, so guest
+// finalization also snapshots transfer.localSessionId. A stale finalize must
+// not publish READY or clear watchdogs for the replacement transfer.
 
 describe('pin (j) — finalizeGuestFile aborts when a new transfer session starts mid-decode', () => {
   it('leaves the new download untouched: RECEIVING + chunkWatchdog stay, nothing published', async () => {

@@ -3,8 +3,6 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// ─── Mocks ───────────────────────────────────────────────────────────────
-
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -30,7 +28,7 @@ function createDialogDOM(): void {
 
   const okBtn = document.createElement('button');
   okBtn.id = 'btn-dialog-ok';
-  // offsetParent needed for focus trap
+  // jsdom has no layout; expose the button as focusable to the focus trap.
   Object.defineProperty(okBtn, 'offsetParent', { value: overlay, configurable: true });
 
   const secondaryBtn = document.createElement('button');
@@ -55,8 +53,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// ─── Tests ───────────────────────────────────────────────────────────────
-
 describe('Dialog System', () => {
   describe('showDialog()', () => {
     it('returns a Promise<DialogResult>', async () => {
@@ -64,7 +60,6 @@ describe('Dialog System', () => {
       const promise = showDialog({ title: 'Test', message: 'Hello' });
       expect(promise).toBeInstanceOf(Promise);
 
-      // Close it to resolve
       const { closeDialog } = await import('../dialog.ts');
       closeDialog('ok');
       vi.advanceTimersByTime(10);
@@ -172,16 +167,13 @@ describe('Dialog System', () => {
       const p2 = showDialog({ title: 'Second' }).then((r) => results.push(r.action));
       vi.advanceTimersByTime(10);
 
-      // First dialog is active
       expect(document.getElementById('dialog-title')?.textContent).toBe('First');
 
-      // Close first → should show second
       closeDialog('ok');
       vi.advanceTimersByTime(10);
 
       expect(document.getElementById('dialog-title')?.textContent).toBe('Second');
 
-      // Close second
       closeDialog('secondary');
       vi.advanceTimersByTime(10);
 
@@ -192,7 +184,7 @@ describe('Dialog System', () => {
 
   describe('DOM Fallback', () => {
     it('falls back to toast when DOM elements missing', async () => {
-      document.body.innerHTML = ''; // Remove all dialog elements
+      document.body.innerHTML = '';
 
       const { showDialog } = await import('../dialog.ts');
       const { showToast } = await import('../toast.ts');
@@ -251,7 +243,6 @@ describe('Dialog System', () => {
 
       expect(resolved).toBe(false);
 
-      // Clean up
       closeDialog('ok');
       vi.advanceTimersByTime(10);
       await promise;

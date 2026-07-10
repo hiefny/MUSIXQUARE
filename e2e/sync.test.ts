@@ -87,7 +87,6 @@ async function waitForSyncOffset(
         | undefined;
       if (!get) return false;
       const current = get('sync.localOffset') as number;
-      // Compare with small epsilon for floating point
       return Math.abs(current - expected) < 0.0001;
     },
     [expectedSeconds] as const,
@@ -132,7 +131,6 @@ test.describe('Sync Controls', () => {
 
     const initialOffset = ((await readState(pair.guestPage, 'sync.localOffset')) as number) ?? 0;
 
-    // Nudge +1ms => adjustSync(1/1000) => localOffset += 0.001
     await jsClick(pair.guestPage, '#btn-nudge-plus1');
     await waitForSyncOffset(pair.guestPage, initialOffset + 0.001);
 
@@ -147,7 +145,6 @@ test.describe('Sync Controls', () => {
 
     const initialOffset = ((await readState(pair.guestPage, 'sync.localOffset')) as number) ?? 0;
 
-    // Nudge -1ms => adjustSync(-1/1000) => localOffset -= 0.001
     await jsClick(pair.guestPage, '#btn-nudge-minus1');
     await waitForSyncOffset(pair.guestPage, initialOffset - 0.001);
 
@@ -162,7 +159,6 @@ test.describe('Sync Controls', () => {
 
     const initialOffset = ((await readState(pair.guestPage, 'sync.localOffset')) as number) ?? 0;
 
-    // Nudge +10ms => adjustSync(10/1000) => localOffset += 0.01
     await jsClick(pair.guestPage, '#btn-nudge-plus10');
     await waitForSyncOffset(pair.guestPage, initialOffset + 0.01);
 
@@ -177,7 +173,6 @@ test.describe('Sync Controls', () => {
 
     const initialOffset = ((await readState(pair.guestPage, 'sync.localOffset')) as number) ?? 0;
 
-    // Nudge -10ms => adjustSync(-10/1000) => localOffset -= 0.01
     await jsClick(pair.guestPage, '#btn-nudge-minus10');
     await waitForSyncOffset(pair.guestPage, initialOffset - 0.01);
 
@@ -190,15 +185,12 @@ test.describe('Sync Controls', () => {
 
     await openSyncOverlay(pair.guestPage);
 
-    // +10ms => 0.01s
     await jsClick(pair.guestPage, '#btn-nudge-plus10');
     await waitForSyncOffset(pair.guestPage, 0.01);
 
-    // +10ms => 0.02s
     await jsClick(pair.guestPage, '#btn-nudge-plus10');
     await waitForSyncOffset(pair.guestPage, 0.02);
 
-    // +1ms => 0.021s
     await jsClick(pair.guestPage, '#btn-nudge-plus1');
     await waitForSyncOffset(pair.guestPage, 0.021);
 
@@ -211,13 +203,11 @@ test.describe('Sync Controls', () => {
 
     await openSyncOverlay(pair.guestPage);
 
-    // The display element should contain text with a number (the offset in ms)
     const text = await pair.guestPage.evaluate(() => {
       const display = document.getElementById('manual-sync-value');
       return display?.textContent ?? '';
     });
     expect(text).toBeTruthy();
-    // Should contain a number (the offset, e.g. "+0ms" or "0")
     expect(text).toMatch(/\d/);
   });
 
@@ -226,7 +216,6 @@ test.describe('Sync Controls', () => {
 
     await openSyncOverlay(pair.guestPage);
 
-    // btn-sync-done emits 'sync:close-manual' which removes 'show' class
     await jsClick(pair.guestPage, '#btn-sync-done');
 
     await pair.guestPage.waitForFunction(

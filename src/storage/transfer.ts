@@ -1,10 +1,4 @@
-/**
- * MUSIXQUARE — File Transfer (Facade)
- *
- * Re-exports send/receive APIs and registers protocol handlers.
- * Sub-modules: transfer-send.ts (send), transfer-receive.ts (receive),
- * transfer-shared.ts (shared helpers).
- */
+/** Public file-transfer facade and protocol-handler registration. */
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
@@ -46,8 +40,8 @@ export function initTransfer(): void {
     [MSG.FILE_WAIT]: handleFileWait,
   });
 
-  // Storage write failure: trigger recovery to re-request the corrupted chunk
-  // instead of silently continuing with a hole in the file data.
+  // A failed main-transfer write leaves an incomplete file; restart recovery
+  // instead of allowing finalization with a missing chunk.
   bus.on('storage:write-error', (data: unknown) => {
     const info = data as
       | { filename?: string; chunkIndex?: number; isPreload?: boolean }
@@ -60,7 +54,6 @@ export function initTransfer(): void {
     }
   });
 
-  // Clean up reorder buffer when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
       clearReceiveState();

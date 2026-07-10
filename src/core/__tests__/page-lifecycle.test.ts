@@ -1,12 +1,5 @@
 /**
  * @vitest-environment jsdom
- *
- * Unit tests for core/page-lifecycle.ts — flag behavior and the
- * beforeunload / pagehide / pageshow handler branch matrix.
- *
- * Each handler test re-initialises with a fresh AbortController-backed
- * handle and disposes it in afterEach, so listeners never accumulate
- * across cases.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -32,8 +25,6 @@ beforeEach(() => {
   __resetIntentionalNavForTests();
 });
 
-// ─── Flag ─────────────────────────────────────────────────────────
-
 describe('page-lifecycle flag', () => {
   it('starts false', () => {
     expect(isIntentionalNav()).toBe(false);
@@ -51,8 +42,6 @@ describe('page-lifecycle flag', () => {
     expect(isIntentionalNav()).toBe(true);
   });
 });
-
-// ─── beforeunload ─────────────────────────────────────────────────
 
 describe('initPageLifecycleHandlers — beforeunload', () => {
   let handle: PageLifecycleHandle;
@@ -104,8 +93,6 @@ describe('initPageLifecycleHandlers — beforeunload', () => {
   });
 });
 
-// ─── pagehide ─────────────────────────────────────────────────────
-
 describe('initPageLifecycleHandlers — pagehide', () => {
   let handle: PageLifecycleHandle;
   let role: string;
@@ -151,8 +138,6 @@ describe('initPageLifecycleHandlers — pagehide', () => {
   });
 });
 
-// ─── pageshow ─────────────────────────────────────────────────────
-
 describe('initPageLifecycleHandlers — pageshow', () => {
   let handle: PageLifecycleHandle;
   let role: string;
@@ -194,7 +179,8 @@ describe('initPageLifecycleHandlers — pageshow', () => {
   });
 
   it('passes the log message through when a logger is provided', () => {
-    handle.dispose(); // discard previous default-logger handle
+    // Detach the fixture before installing the logger-specific handler.
+    handle.dispose();
     const info = vi.fn();
     handle = initPageLifecycleHandlers({
       getRole: () => 'host',
@@ -208,8 +194,6 @@ describe('initPageLifecycleHandlers — pageshow', () => {
   });
 });
 
-// ─── dispose ──────────────────────────────────────────────────────
-
 describe('initPageLifecycleHandlers — dispose', () => {
   it('detaches all three listeners when dispose() is called', () => {
     const leaveSession = vi.fn();
@@ -222,7 +206,6 @@ describe('initPageLifecycleHandlers — dispose', () => {
 
     dispose();
 
-    // Post-dispose: none of the handlers should respond.
     const before = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(before);
     expect(before.defaultPrevented).toBe(false);

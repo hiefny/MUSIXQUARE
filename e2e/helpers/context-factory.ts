@@ -13,8 +13,6 @@ export interface HostGuestPair {
   guestPage: Page;
 }
 
-// ─── Runtime Error Tracking ───────────────────────────────────────
-
 const _pageErrors = new WeakMap<Page, Error[]>();
 
 /**
@@ -56,11 +54,9 @@ export async function createHostGuestContexts(browser: Browser): Promise<HostGue
     guestContext.newPage(),
   ]);
 
-  // Track runtime errors on all pages
   trackPageErrors(hostPage);
   trackPageErrors(guestPage);
 
-  // Inject PeerJS server config before any navigation
   await Promise.all([
     injectPeerServer(hostPage),
     injectPeerServer(guestPage),

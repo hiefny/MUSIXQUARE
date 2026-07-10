@@ -407,7 +407,8 @@ export async function canSendFileTo(conn: DataConnection): Promise<boolean> {
   // unknown — wait for ICE detection (up to 3s)
   const resolved = await waitForPeerConnectionType(peerObj, 3000);
   if (!conn.open) return false;
-  return resolved === 'local'; // unknown→remote will be handled by orchestrator later
+  // The orchestrator treats unresolved connections as remote.
+  return resolved === 'local';
 }
 
 /**

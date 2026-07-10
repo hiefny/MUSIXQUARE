@@ -90,8 +90,8 @@ class LiveReporter implements Reporter {
       duration: result.duration,
     };
 
-    // 'interrupted' (run aborted mid-test) counts as failed — it was silently
-    // landing in the passed bucket via the else branch.
+    // An interrupted test is incomplete and therefore belongs in the failed
+    // bucket rather than the default passed bucket.
     if (
       result.status === 'failed' ||
       result.status === 'timedOut' ||

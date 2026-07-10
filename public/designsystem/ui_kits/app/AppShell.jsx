@@ -1,4 +1,3 @@
-// App shell — top header + bottom pill nav + tab routing
 function AppShell({ tab, onTab, onLeave, children }) {
   const tabs = [
     { id: 'home',     label: 'Home',     icon: I.home     },

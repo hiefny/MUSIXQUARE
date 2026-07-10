@@ -10,12 +10,10 @@
  *      preference, apply data-theme + theme-color so first paint matches
  *      the resolved theme. Avoids a flash of light → dark on PWA boot.
  *
- * Loaded as the first <script> in <head>, before the FOUC guard <style>
- * tag and the stylesheet links. The FOUC guard cleanup runs from a
- * separate file (fouc-cleanup.js) loaded after the guard tag.
- *
- * Extracted from inline <script> blocks in index.html so the production
- * CSP can drop `script-src 'unsafe-inline'`.
+ * Loaded as the first script in <head>, before stylesheet links. The FOUC
+ * guard lives in style.css and fouc-cleanup.js reveals the body after that
+ * stylesheet has parsed. Keeping this bootstrap external lets the production
+ * CSP omit `script-src 'unsafe-inline'`.
  */
 
 (function () {
@@ -24,9 +22,9 @@
     var m = document.querySelector('meta[name="viewport"]');
     if (m) {
       var c = m.getAttribute('content') || '';
-      // Remove regardless of formatting: ", viewport-fit=cover" or "viewport-fit=cover".
+      // Accept both comma-delimited and standalone viewport-fit formatting.
       c = c.replace(/(?:,?\s*)viewport-fit=cover/g, '');
-      // Cleanup possible trailing commas/spaces.
+      // Normalize separators left by the removal.
       c = c.replace(/,\s*,/g, ',').replace(/,\s*$/g, '').trim();
       m.setAttribute('content', c);
     }
@@ -119,7 +117,7 @@
     document.documentElement.setAttribute('data-theme', resolved);
     document.documentElement.style.colorScheme = resolved;
 
-    // Match status-bar / address-bar color on first paint
+    // Match browser chrome to the first painted theme.
     var themeColor = resolved === 'dark' ? '#1a1a1a' : '#ffffff';
     document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) {
       meta.setAttribute('content', themeColor);

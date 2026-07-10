@@ -104,11 +104,8 @@ function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string
 }
 
 /**
- * Wire an AbortSignal to an XHR. Resolves the abort path before the network
- * stack has a chance to fire onload/onerror — without this, an aborted
- * download could still resolve with a partial buffer (or worse, a fully
- * decrypted-but-stale blob would land in preload.nextFileBlob and be
- * promoted as the active track on a track-2 supersede race).
+ * Wire an AbortSignal to an XHR. The abort rejection wins over later network
+ * callbacks so stale or partial responses cannot resolve the operation.
  */
 function wireAbort(
   xhr: XMLHttpRequest,
@@ -165,9 +162,8 @@ async function getRemoteShareSecurityConfig(
   }
 }
 
-/** Drop the cached remote-share security-config so the next probe re-fetches.
- *  Used on a 401 retry — a 401 means /session really required capability, so a
- *  cached `capabilityRequired:false` (e.g. from a failed-open probe) was wrong. */
+/** Invalidate cached security configuration after a 401 so the retry probes
+ * the capability requirement again. */
 function invalidateRemoteShareSecurityConfig(endpoint: string): void {
   if (remoteShareSecurityConfigCache?.endpoint === endpoint) {
     remoteShareSecurityConfigCache = null;
@@ -208,10 +204,8 @@ async function requestUploadSession(
       signal,
     });
 
-    // 401 on /session: either a stale capability token, or we sent none because
-    // the remote-share security-config probe failed open. Invalidate the cached
-    // config + token, re-probe, and retry once. Same shape as
-    // fetchWithCapability's 401 retry path.
+    // A 401 may mean the token is stale or the capability probe was inaccurate.
+    // Invalidate both caches, probe again, and retry once.
     if (response.status === 401) {
       if (capabilityHeaders['X-MXQR-Capability']) invalidateCapabilityToken(capabilityTarget);
       invalidateRemoteShareSecurityConfig(endpoint);

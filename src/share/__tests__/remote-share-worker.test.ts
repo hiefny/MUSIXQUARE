@@ -81,9 +81,8 @@ describe('remote-share Worker capability gate', () => {
   });
 
   it('fails closed when capability secret is missing in production', async () => {
-    // Parity with app-worker.guardSensitiveRequest: a missing capability
-    // secret blocks /session with 503 unless MXQR_ALLOW_UNGUARDED_REMOTE_SHARE
-    // is explicitly set. (14차 audit F-1402.)
+    // Match the app Worker policy: missing capability configuration blocks the
+    // session endpoint unless the explicit unguarded override is enabled.
     const response = await workerModule.default.fetch(
       request('/session', { method: 'POST', body: 'not-json' }),
       env(),

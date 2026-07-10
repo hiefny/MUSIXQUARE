@@ -34,7 +34,7 @@
   --play-fab-bg-active: var(--text-main);
   --play-fab-bg-disabled: rgba(238, 238, 238, 0.2);
 
-  /* Grey scale used by nav items (Toss adaptive) */
+  /* Neutral navigation scale */
   --grey-600: #6B7684;
   --grey-500: #8B95A1;
 
@@ -44,7 +44,7 @@
   --radius-l: 32px;
   --radius-pill: 100px;
 
-  /* ── Glass / blur ─────────────────────────────── */
+  /* ── Solid-chrome compatibility aliases ───────── */
   --glass-bg: var(--surface-1);
   --glass-border: transparent;
   --glass-blur: 0px;
@@ -53,7 +53,7 @@
   --scrollbar-thumb: rgba(255,255,255,0.2);
   --scrollbar-thumb-hover: rgba(255,255,255,0.4);
 
-  /* ── Spacing (derived from observed padding use) ── */
+  /* ── Public spacing scale ─────────────────────── */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;

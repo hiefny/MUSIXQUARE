@@ -1,5 +1,6 @@
 /**
- * MUSIXQUARE landing — reveal-on-scroll with in-viewport fallback.
+ * MUSIXQUARE About page interactions: navigation progress, localized invite
+ * copy, reveal effects, and reduced-motion-aware product illustrations.
  */
 
 const EDITORIAL_LOAD_DELAY_MS = 300;

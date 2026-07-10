@@ -16,48 +16,38 @@ import type { PlaylistItem } from '../types/index.ts';
 // stay stable and the immutable-update rule for Sets is enforced in one place
 // (markTrackFailed).
 //
-// ─── Concurrency-mechanism inventory (PLAYER-SPRAWL) ───────────────
+// ─── Concurrency-mechanism inventory ──────────────────────────────
 //
-// Supersession ("only the CURRENT load may publish side effects") is spread
-// across several interlocking mechanisms with DIFFERENT allocation scopes.
-// The full who-allocates/who-checks/who-clears matrix, the cross-mechanism
-// contracts, and the pendingPlayTime preserve/clear policy table live in
-// docs/design/playback-concurrency-invariants.md. Pins:
-// __tests__/concurrency-invariants.test.ts. Static guard:
-// scripts/check-lifecycle-writes.mjs (guard:lifecycle-writes).
+// Load supersession, node-start exclusion, preload activation, and deferred
+// play use distinct ownership scopes. Their allocation/check/clear matrix and
+// pendingPlayTime policy live in
+// docs/design/playback-concurrency-invariants.md. The contract is covered by
+// __tests__/concurrency-invariants.test.ts and
+// scripts/check-lifecycle-writes.mjs.
 //
-//   M1 _loadEpoch               — user/track-change intent (the load EPOCH,
-//                                 Stage B's single supersession authority —
-//                                 formerly `loadToken`). Allocated ONLY at
-//                                 entry points (playlist.ts playTrack +
+//   M1 _loadEpoch               — user/track-change intent. Allocated only at
+//                                 pipeline entry points (playlist.ts playTrack +
 //                                 repeat-one, playback.ts handlers,
 //                                 transport.ts cancelInFlight + watchdog,
 //                                 demo/mode.ts); load functions only validate.
-//   M2 _activeLoadSessionId     — load invocation counter, self-bumped at
-//                                 entry by loadAndBroadcastFile/loadDemoFile/
-//                                 finalizeGuestFile. OWNER DECISION (pinned):
-//                                 finalizeGuestFile checks this (plus a
-//                                 transfer.localSessionId entry snapshot,
-//                                 pin j) but NEVER M1, so it is immune to M1
-//                                 bumps (watchdog must not abort in-flight
-//                                 guest finalizes). NOT the same thing as
-//                                 transfer.localSessionId / preload.sessionId
-//                                 / storage _preloadGeneration — see the
-//                                 disambiguation table in the doc.
+//   M2 _activeLoadSessionId     — load invocation counter. Guest finalization
+//                                 checks this and an entry snapshot of
+//                                 transfer.localSessionId, but not M1, so a
+//                                 watchdog epoch bump cannot abort an in-flight
+//                                 guest finalize. It is distinct from transfer,
+//                                 preload, and storage session identifiers.
 //   M3 _isPlayLocked            — node-start mutual exclusion + 15s watchdog
-//                                 (transport.ts). Watchdog fire = full reset
-//                                 tuple: unlock + clear pendingPlayTime +
-//                                 stopPlayerNode + M1 bump + semantic IDLE.
+//                                 (transport.ts). Watchdog expiry unlocks,
+//                                 clears deferred play, stops the node, advances
+//                                 M1, and returns playback to semantic IDLE.
 //   M4 _playPreloadedInProgress — preload-activation window flag, ownership
 //                                 managed by the compare-before-clear owner
 //                                 handle in decode.ts (beginPreloadActivation/
-//                                 finishPreloadActivation; the handle records
-//                                 its owning M1 epoch). Second sanctioned
-//                                 writer: stopAllMedia's flag-only clear.
-//   M6 pendingPlayTime          — a MAILBOX, not a guard: per-abort-cause
-//                                 preserve/clear policy is asymmetric BY
-//                                 DESIGN (see policy table in the doc before
-//                                 touching any clear site).
+//                                 finishPreloadActivation). stopAllMedia may
+//                                 also clear the flag during teardown.
+//   M6 pendingPlayTime          — deferred-play mailbox, not a guard. Preserve
+//                                 or clear it according to the abort-cause
+//                                 policy documented in the design file.
 
 let _playerNode: AudioBufferSourceNode | null = null;
 let _currentAudioBuffer: AudioBuffer | null = null;
@@ -124,25 +114,20 @@ export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
 
 // ─── Load Epoch (M1 — single supersession authority) ───────────────
 //
-// PLAYER-SPRAWL Stage B: ONE monotonic counter answers "has a newer logical
-// load run started?" for the file-playback pipeline. It replaces the old
-// `loadToken` ambient counter and also owns the preload-activation handle in
-// decode.ts (the former private `_preloadActivationSeq` is gone).
+// This monotonic counter answers whether a newer logical file-load run has
+// started. Preload-activation handles record the epoch that owns them.
 //
-// ALLOCATION DISCIPLINE (entry-point only — statically ratcheted by
-// scripts/check-lifecycle-writes.mjs CHECK 5): newLoadEpoch() may be called
-// ONLY at the outermost entry of a logical pipeline run —
+// Allocation is restricted by scripts/check-lifecycle-writes.mjs:
+// newLoadEpoch() may be called only at the outermost entry of a pipeline run:
 //   playlist.ts   playTrack + repeat-one ended-advance
 //   playback.ts   handlePlayMsg preload-match + storage:use-preloaded handler
 //   transport.ts  stopAllMedia({cancelInFlight}) + 15s navigator-lock-watchdog
 //   demo/mode.ts  loadDemoTrack entry
-// Load functions (decode.ts) NEVER allocate — they only validate. A load
-// function bumping the epoch would self-abort at its own post-decode
-// checkpoint (trap 1 in the PLAYER-SPRAWL briefing).
+// Load functions in decode.ts only validate the epoch; allocating inside a
+// load function would make it supersede itself after an asynchronous step.
 //
-// NOT merged into this epoch (owner decision, doc §5, pin g):
-// activeLoadSessionId below — finalizeGuestFile must stay immune to epoch
-// bumps (watchdog/cancelInFlight must not abort in-flight guest finalizes).
+// activeLoadSessionId remains separate because watchdog and cancellation epoch
+// bumps must not abort an in-flight guest finalize.
 
 export function getCurrentLoadEpoch(): number {
   return _loadEpoch;
@@ -224,18 +209,9 @@ export function getPendingPlayTimeAge(): number {
 
 // ─── Pending Recovery Target ──────────────────────────────────────
 //
-// Centralized writer for `playback.pendingRecoveryTarget` so the
-// "valid (index, name) pair OR null" invariant is enforced in one
-// place. Callers don't have to remember to default index to -1 or
-// guard reads with `>= 0` — the helper either writes a valid object
-// or writes null.
-//
-// Why a helper instead of inlining the conditional at each call site:
-// without it, every set site has to repeat the same validation, and
-// future call sites are likely to forget. An earlier migration inlined
-// `(data.index ?? -1)` defaults, which leaked the
-// -1 sentinel into reads and forced every consumer to add `>= 0`
-// guards. This consolidates the contract.
+// Centralized writer for `playback.pendingRecoveryTarget`. The state contains
+// either a non-negative finite index with a non-empty name, or null; invalid
+// inputs never leak sentinel values into readers.
 
 export function setPendingRecoveryTarget(
   index: number | null | undefined,

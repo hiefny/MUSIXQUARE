@@ -2,9 +2,8 @@
  * MUSIXQUARE — Blob URL Manager
  *
  * Centralized Blob URL lifecycle management to prevent memory leaks.
- * Historically supported deferred revocation while a URL was attached to a
- * local <video>; since local-video playback was dropped, nothing holds a
- * long-lived reference to these URLs and the defer branch is a no-op.
+ * Deferred revocation fields remain compatibility no-ops after local-video
+ * playback was removed; no live element holds these URLs long-term.
  */
 
 import { DELAY } from './constants.ts';

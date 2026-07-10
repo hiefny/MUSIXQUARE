@@ -1,5 +1,9 @@
 # Next Actions
 
+> **Historical proposal list (2026-05-24).** These were candidate follow-ups
+> for the associated audit, not an approved or current backlog. Some items have
+> since landed, changed, or become irrelevant.
+
 This file separates analysis outcomes from code changes. The user asked for permission before code modification, so all implementation items below are proposals.
 
 ## Immediate No-Code Follow-Ups

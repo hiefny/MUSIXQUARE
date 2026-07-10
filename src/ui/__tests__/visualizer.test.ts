@@ -3,8 +3,6 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// ─── Mocks ───────────────────────────────────────────────────────────────
-
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -91,7 +89,6 @@ beforeEach(() => {
     })),
   });
 
-  // Create the canvas and wrapper elements
   const wrapper = document.createElement('div');
   wrapper.className = 'vinyl-wrapper';
   Object.defineProperty(wrapper, 'clientWidth', { value: 240, configurable: true });
@@ -107,8 +104,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   document.body.innerHTML = '';
 });
-
-// ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('Visualizer', () => {
   describe('Theme Detection', () => {
@@ -137,7 +132,6 @@ describe('Visualizer', () => {
   });
 
   describe('NaN Protection Logic', () => {
-    // Test the NaN guard logic used in the visualizer draw loop
     function clampValue(raw: number): number {
       let val = (raw + 100) * 2.5;
       if (!isFinite(val)) val = 0;
@@ -151,7 +145,7 @@ describe('Visualizer', () => {
     });
 
     it('clamps Infinity to 255', () => {
-      expect(clampValue(Infinity)).toBe(0); // Infinity → !isFinite → 0
+      expect(clampValue(Infinity)).toBe(0);
     });
 
     it('clamps -Infinity to 0', () => {
@@ -167,10 +161,9 @@ describe('Visualizer', () => {
     });
 
     it('processes normal value correctly', () => {
-      expect(clampValue(0)).toBe(250); // (0+100)*2.5 = 250
+      expect(clampValue(0)).toBe(250);
     });
 
-    // Test punch calculation NaN protection
     function calcBassPunch(smoothedBass: number): number {
       let bassPunch = Math.pow(smoothedBass / 255, 2.5);
       if (!isFinite(bassPunch)) bassPunch = 0;
@@ -205,7 +198,6 @@ describe('Visualizer', () => {
   });
 
   describe('Idle State Detection', () => {
-    // Test the idle/paused logic
     function isIdleOrPaused(state: string): boolean {
       return state === 'IDLE' || state === 'PAUSED';
     }
@@ -224,7 +216,6 @@ describe('Visualizer', () => {
   });
 
   describe('Smoothing Logic', () => {
-    // Exponential moving average: 0.8 * prev + 0.2 * new
     function smooth(prev: number, current: number): number {
       return 0.8 * prev + 0.2 * current;
     }

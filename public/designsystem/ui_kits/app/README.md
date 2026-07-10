@@ -1,7 +1,8 @@
 # MUSIXQUARE App — UI Kit
 
-Click-thru recreation of the MUSIXQUARE PWA. Shows the host onboarding → role
-setup → home player → settings flow.
+Click-through design prototype of the MUSIXQUARE PWA. It is a component sample,
+not an authoritative copy of the current onboarding or room flow; verify
+production behavior in `index.html` and `src/` before reusing it.
 
 - `index.html` — full prototype (iPhone frame + app)
 - `AppShell.jsx` — header + bottom nav chrome + tab routing
@@ -11,7 +12,7 @@ setup → home player → settings flow.
 - `Playlist.jsx` — track list tab
 - `Connect.jsx` — invite-code + connected devices tab
 - `Settings.jsx` — theme + audio effects tab
-- `Toast.jsx` — glass pill toast
+- `Toast.jsx` — pill toast
 - `icons.jsx` — inline Material Filled SVG icons used across the kit
 
 All components pull tokens from `../../colors_and_type.css`.

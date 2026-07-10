@@ -1,5 +1,8 @@
 # 2nd Pass and Onward: Analysis Plan
 
+> **Historical plan (2026-05-24).** This records the rules and intended next
+> passes for that audit. It is not an active instruction set or current roadmap.
+
 ## Ground Rules
 
 The user requested detailed analysis and explicitly asked that code changes require permission first. Therefore:
@@ -254,4 +257,3 @@ When resuming this analysis, start here:
 - Use `rg "appState|__MUSIXQUARE_GET_STATE__\\('appState'|VALID_APP_STATES" e2e src docs`.
 - Pick one runtime flow from Phase 3 and trace it end to end.
 - Write the result to a new Markdown file in this directory.
-

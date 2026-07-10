@@ -1,14 +1,8 @@
 /**
- * MUSIXQUARE — Profanity Filter
- *
- * Lightweight filter using word lists from content-shield.
- * Replaces matched words with asterisks.
- * Only runs on host side in handleChatMessage().
+ * Profanity matching backed by the bundled content-shield dictionaries.
+ * Korean variations use substring matching; English variations require whole
+ * words to avoid censoring ordinary names that merely contain a listed term.
  */
-
-// Word lists extracted from content-shield at build time.
-// KO uses .profanity[], EN uses .words[] — different structures.
-// We collect all variations for severity >= 2 (moderate+).
 import { KO } from 'content-shield/languages/ko';
 import { EN } from 'content-shield/languages/en';
 
@@ -35,7 +29,6 @@ interface EnglishProfanityDictionary {
 
 const _profanitySet = new Set<string>();
 
-// Korean: severity >= 2
 for (const entry of (KO as KoreanProfanityDictionary).profanity) {
   if (entry.severity >= 2) {
     for (const v of entry.variations) {
@@ -44,7 +37,6 @@ for (const entry of (KO as KoreanProfanityDictionary).profanity) {
   }
 }
 
-// English: severity >= 2
 for (const entry of (EN as EnglishProfanityDictionary).words) {
   if (entry.severity >= 2) {
     _profanitySet.add(entry.word.toLowerCase());
@@ -72,7 +64,7 @@ function _buildCombinedRegex(): { korean: RegExp | null; english: RegExp | null 
     }
   }
 
-  // Sort longest-first so longer matches take priority
+  // Longest-first prevents a shorter alternative from consuming a prefix.
   koreanParts.sort((a, b) => b.length - a.length);
   englishParts.sort((a, b) => b.length - a.length);
 
@@ -87,10 +79,7 @@ const _compiledRegex = _buildCombinedRegex();
 
 // ─── Filter function ────────────────────────────────────────────
 
-/**
- * Replace profane words with asterisks.
- * Uses word boundary matching for English, substring matching for Korean.
- */
+/** Replace matched text with same-length asterisks. */
 export function filterProfanity(text: string): string {
   let result = text;
 
@@ -107,9 +96,8 @@ export function filterProfanity(text: string): string {
 }
 
 /**
- * Check if text contains profanity.
- * Mirrors filterProfanity matching: word-boundary for English, substring for Korean.
- * (Bare String.includes on EN words flagged legitimate names like "Cassidy".)
+ * Apply the same whole-word and substring rules as filterProfanity without
+ * rewriting the input.
  */
 export function containsProfanity(text: string): boolean {
   const lower = text.toLowerCase();

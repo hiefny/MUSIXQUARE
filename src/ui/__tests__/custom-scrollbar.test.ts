@@ -1,12 +1,12 @@
 /**
  * @vitest-environment jsdom
  *
- * Pins the module-level settled-relayout design of custom-scrollbar:
+ * Covers the module-level settled-relayout design of custom-scrollbar:
  * orientation/compact-landscape MQL changes are page-global events, so there
  * is ONE listener pair and ONE managed-timer debounce pair that re-lays out
- * EVERY live instance. The historical bug (per-instance setManagedTimer under
- * a fixed global key) silently coalesced N instances into the last-registered
- * closure — only one scrollbar ever got the post-rotation settled re-layout.
+ * EVERY live instance. Per-instance callbacks under one fixed managed-timer
+ * key would coalesce into only the last registered closure, leaving the other
+ * scrollbars without a post-rotation settled re-layout.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -184,7 +184,7 @@ describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {
     expect(b.track().style.height).toBe('200px');
 
     // Fast tier (350ms): EVERY instance re-measures, not just the
-    // last-registered one (the pre-fix failure mode left `a` stale here).
+    // last-registered one; instance `a` must not remain stale here.
     vi.advanceTimersByTime(1);
     expect(a.track().style.height).toBe('300px');
     expect(b.track().style.height).toBe('320px');

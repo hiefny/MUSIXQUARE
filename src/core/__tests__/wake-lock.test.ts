@@ -1,11 +1,10 @@
 /**
  * @vitest-environment jsdom
  *
- * Pin tests for core/wake-lock.ts (ARCH-APPSCC: extracted from app.ts so
- * ui/setup-shared.ts no longer back-imports the bootstrap module).
+ * Contract tests for core/wake-lock.ts, which stays separate from app.ts so
+ * ui/setup-shared.ts does not back-import the bootstrap module.
  *
- * Pinned behaviors (must stay true — they mirror the pre-extraction app.ts
- * semantics exactly):
+ * Required behaviors:
  *   - activateNoSleep is idempotent: one underlying request per page life.
  *   - reacquireWakeLockIfActive no-ops until a session activated keep-awake.
  *   - a rejected wakeLock.request is swallowed (no throw, no unhandled

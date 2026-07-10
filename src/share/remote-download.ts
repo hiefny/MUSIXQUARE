@@ -2,6 +2,17 @@ import { decryptToFile } from './crypto.ts';
 import { downloadEncryptedObject } from './r2-client.ts';
 import type { RemoteFileSharePayload } from '../types/index.ts';
 
+/**
+ * Download and decrypt a remote object using whole-file buffers. XHR resolves
+ * only after the complete encrypted ArrayBuffer is resident; decryptToFile then
+ * allocates the complete plaintext while that encrypted input is still live.
+ *
+ * The signal can abort the in-flight XHR and is checked once before decryption.
+ * Web Crypto itself is not cancellable, so an abort after decryption starts
+ * does not stop that work or release its buffers immediately. There is no
+ * post-decrypt signal check, so this Promise may still resolve; callers must
+ * recheck the signal before publishing the File.
+ */
 export async function downloadRemoteFile(
   descriptor: RemoteFileSharePayload,
   onProgress?: (progress: number) => void,
@@ -14,11 +25,8 @@ export async function downloadRemoteFile(
     onProgress,
     signal,
   );
-  // Late-abort guard: signal may have fired between the network resolving
-  // and the decrypt step starting. Without this, we'd waste WebCrypto work
-  // on a buffer destined to be discarded — and worse, the resolved File
-  // could race past the abort check in the caller and leak into
-  // preload.nextFileBlob for a track the user has already left.
+  // The signal may fire after download but before decryption. Recheck it so a
+  // superseded operation cannot publish a decrypted file.
   if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
   return decryptToFile(
     encrypted,

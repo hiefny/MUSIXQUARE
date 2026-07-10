@@ -1,13 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * SA-02 (docs/scenario-audit-2026-06-10.md): `system-audio:force-stop` is
- * transition/teardown semantics — it fires from inside stopAllMedia (track/
- * mode change), demo entry, and leaveSession, i.e. always while ANOTHER
- * playback flow is taking over. Restoring the pre-share snapshot there ran
- * synchronously inside that flow and stomped it (pre-share YouTube
- * resurrected room-wide, clicked file's decode aborted). Restore belongs to
- * explicit stops only (`system-audio:stop`, browser "Stop sharing").
+ * `system-audio:force-stop` is transition/teardown semantics: another
+ * playback flow is taking ownership, so only explicit stops may restore the
+ * pre-share snapshot.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { bus } from '../../core/events.ts';

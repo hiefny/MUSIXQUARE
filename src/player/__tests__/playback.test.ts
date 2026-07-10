@@ -30,7 +30,7 @@ describe('fmtTime', () => {
     expect(fmtTime(3661)).toBe('1:01:01');
     expect(fmtTime(3719)).toBe('1:01:59');
     expect(fmtTime(7200)).toBe('2:00:00');
-    // 5h 4m 7s = 5*3600 + 4*60 + 7 = 18247 — the bug report
+    // Multi-hour values preserve a zero-padded minutes field.
     expect(fmtTime(18247)).toBe('5:04:07');
   });
 

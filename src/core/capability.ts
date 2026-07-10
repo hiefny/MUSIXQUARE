@@ -50,11 +50,11 @@ const VALID_SCOPES = new Set<CapabilityScope>([
   'youtube-search',
   'remote-share',
 ]);
-// Bundle every paid scope into a single mint so Turnstile fires at most once
-// per ~10min session (vs once per scope). Cache key is bundle-based so any
-// scope request hits the same cache entry. Token leak surface widens by 3
-// scopes, but IP binding + 10min TTL + per-endpoint rate limits keep the
-// practical risk equivalent to the single-scope design.
+// Bundle every paid scope into a single mint so, when human verification is
+// enabled, it normally runs once per cached token lifetime (10 minutes by
+// default) rather than once per scope. Any scope request uses the same bundle
+// cache entry. The broader token is constrained by IP binding, the server's
+// short configurable TTL, and per-endpoint rate limits.
 const BUNDLE_SCOPES: CapabilityScope[] = [
   'realtime',
   'remote-share',

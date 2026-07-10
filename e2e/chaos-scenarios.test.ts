@@ -1,9 +1,9 @@
 /**
- * E2E: Chaos Scenarios — Extreme Stress Tests
+ * E2E: Concurrent failure and recovery scenarios.
  *
- * Tests the absolute limits of MUSIXQUARE's resilience under chaotic conditions:
+ * Exercises interleaved operations and abrupt connection changes:
  *
- * - Mass Exodus: 5 devices, 3 disconnect simultaneously
+ * - Simultaneous guest disconnects
  * - Revolving Door: rapid guest join/leave cycles
  * - Settings Storm During Transfer
  * - Track Change + Late Join simultaneously
@@ -12,7 +12,7 @@
  * - Mode Switch + Disconnect
  * - Chat Flood + Mass Disconnect
  * - Playlist Manipulation + Disconnect Storm
- * - Full Lifecycle Chaos (the ultimate stress test)
+ * - Full-session lifecycle stress
  * - Simultaneous Join Attempts (SESSION_FULL)
  * - Rapid Reconnect Cycle
  * - Settings Chain + Late Join
@@ -91,7 +91,6 @@ async function joinAsLateGuest(browser: Browser, sessionCode: string): Promise<L
 }
 
 async function sendChatMessage(page: Page, text: string): Promise<void> {
-  // Open chat drawer if not open
   const chatBtn = page.locator('#chat-preview-btn');
   if (await isVisible(page, '#chat-preview-btn')) {
     await chatBtn.click();
@@ -173,24 +172,18 @@ async function waitForPeerCountAtMost(page: Page, max: number, timeout = 20_000)
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
 
-// ═══════════════════════════════════════════════════════════════
-// 1. MASS EXODUS — 5 devices, 3 disconnect simultaneously
-// ═══════════════════════════════════════════════════════════════
-
 test.describe('Mass Exodus', () => {
   test('host survives simultaneous disconnect of 2 out of 3 guests', async ({ browser }) => {
     test.setTimeout(90_000);
 
     const setup = await createChaosSetup(browser, 3);
     try {
-      // Connect host + 3 guests
       const code = await setupHostAndStart(setup.hostPage);
       for (const gp of setup.guestPages) {
         await setupGuest(gp, code);
       }
       await waitForDeviceCount(setup.hostPage, 4, 30_000);
 
-      // Upload file and start playing
       await uploadFixture(setup.hostPage, 'test01');
       await waitForPlaylistCount(setup.hostPage, 1);
       await setup.hostPage.waitForFunction(
@@ -200,29 +193,22 @@ test.describe('Mass Exodus', () => {
       await setup.hostPage.click('#play-btn');
       await waitForPlaybackProjection(setup.hostPage, 'PLAYING_AUDIO');
 
-      // ★ CHAOS: 2 guests drop simultaneously
       await Promise.all([setup.guestContexts[0].close(), setup.guestContexts[1].close()]);
 
-      // Wait for host to detect disconnects
       await waitForPeerCountAtMost(setup.hostPage, 1);
 
-      // Host should still be functional
       const hostState = await readPlaybackProjection(setup.hostPage);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(hostState);
 
-      // Surviving guest3 should still be connected
       const guest3State = await readState(setup.guestPages[2], 'network.appRole');
       expect(guest3State).toBe('guest');
 
-      // Host can pause without crash
       await setup.hostPage.click('#play-btn');
       await waitForPlaybackProjection(setup.hostPage, 'PAUSED');
 
-      // Host can upload another file
       await uploadFixture(setup.hostPage, 'test02');
       await waitForPlaylistCount(setup.hostPage, 2);
 
-      // Surviving guest receives the new file
       await waitForPlaylistCount(setup.guestPages[2], 2, 30_000);
     } finally {
       await cleanupChaosSetup(setup);
@@ -230,15 +216,10 @@ test.describe('Mass Exodus', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 2. REVOLVING DOOR — rapid guest join/leave cycles
-// ═══════════════════════════════════════════════════════════════
-
 test.describe('Revolving Door', () => {
   test('playlist state survives rapid guest join/leave cycles', async ({ browser }) => {
     test.setTimeout(120_000);
 
-    // Host-only start
     const hostCtx = await browser.newContext({
       permissions: ['clipboard-read', 'clipboard-write'],
     });
@@ -249,7 +230,6 @@ test.describe('Revolving Door', () => {
     const lateGuests: LateGuest[] = [];
 
     try {
-      // Cycle 1: guest1 joins → host uploads → guest1 leaves
       const g1 = await joinAsLateGuest(browser, code);
       lateGuests.push(g1);
       await waitForDeviceCount(hostPage, 2);
@@ -258,7 +238,6 @@ test.describe('Revolving Door', () => {
       await g1.guestContext.close();
       await waitForPeerCount(hostPage, 0);
 
-      // Cycle 2: guest2 joins → should get track 1 → host uploads again → guest2 leaves
       const g2 = await joinAsLateGuest(browser, code);
       lateGuests.push(g2);
       await waitForPlaylistCount(g2.guestPage, 1, 30_000);
@@ -268,16 +247,13 @@ test.describe('Revolving Door', () => {
       await g2.guestContext.close();
       await waitForPeerCount(hostPage, 0);
 
-      // Cycle 3: guest3 joins → should get BOTH tracks
       const g3 = await joinAsLateGuest(browser, code);
       lateGuests.push(g3);
       await waitForPlaylistCount(g3.guestPage, 2, 30_000);
 
-      // Verify host state consistency
       const hostItems = (await readState(hostPage, 'playlist.items')) as unknown[];
       expect(hostItems.length).toBe(2);
 
-      // Verify guest3 has both tracks
       const g3Items = await g3.guestPage.evaluate(
         () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
@@ -292,10 +268,6 @@ test.describe('Revolving Door', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 3. SETTINGS STORM DURING FILE TRANSFER
-// ═══════════════════════════════════════════════════════════════
-
 test.describe('Settings Storm During Transfer', () => {
   test('settings changes during file transfer do not corrupt guest state', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -306,10 +278,8 @@ test.describe('Settings Storm During Transfer', () => {
       await setupGuest(setup.guestPages[0], code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      // Start upload — this triggers async transfer
       await uploadFixture(setup.hostPage, 'test01');
 
-      // ★ CHAOS: Immediately bombard settings changes (no await for upload)
       await setup.hostPage.evaluate(() => {
         const set = (window as any).__MUSIXQUARE_SET_STATE__;
         if (!set) return;
@@ -319,16 +289,13 @@ test.describe('Settings Storm During Transfer', () => {
         set('audio.channelMode', 1);
       });
 
-      // Guest should still receive the file despite settings storm
       await waitForPlaylistCount(setup.guestPages[0], 1, 30_000);
 
-      // Host settings should be consistent
       const eq = await readState(setup.hostPage, 'audio.eqValues');
       expect(eq).toEqual([5, 3, 0, -2, -3]);
       const vol = await readState(setup.hostPage, 'audio.masterVolume');
       expect(vol).toBe(0.7);
 
-      // Guest transfer state should return to idle
       await setup.guestPages[0].waitForFunction(
         () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -343,10 +310,6 @@ test.describe('Settings Storm During Transfer', () => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 4. TRACK CHANGE + LATE JOIN (SIMULTANEOUS)
-// ═══════════════════════════════════════════════════════════════
 
 test.describe('Track Change + Late Join', () => {
   test('late-joining guest syncs track index when host changes track mid-join', async ({
@@ -364,7 +327,6 @@ test.describe('Track Change + Late Join', () => {
     let lateGuest: LateGuest | null = null;
 
     try {
-      // Upload 3 tracks
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 1);
       await uploadFixture(hostPage, 'test02');
@@ -372,7 +334,6 @@ test.describe('Track Change + Late Join', () => {
       await uploadFixture(hostPage, 'test03');
       await waitForPlaylistCount(hostPage, 3);
 
-      // Start playing
       await hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
         { timeout: 15_000 },
@@ -380,17 +341,14 @@ test.describe('Track Change + Late Join', () => {
       await hostPage.click('#play-btn');
       await waitForPlaybackProjection(hostPage, 'PLAYING_AUDIO');
 
-      // ★ CHAOS: Host clicks next AND guest joins simultaneously
       const nextPromise = hostPage.click('#btn-next');
       const joinPromise = joinAsLateGuest(browser, code);
 
       await nextPromise;
       lateGuest = await joinPromise;
 
-      // Wait for guest to receive playlist
       await waitForPlaylistCount(lateGuest.guestPage, 3, 30_000);
 
-      // Both should eventually converge on same track index
       await lateGuest.guestPage.waitForFunction(
         ([hostIdx]) => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -413,10 +371,6 @@ test.describe('Track Change + Late Join', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 5. UPLOAD BARRAGE + DISCONNECT CASCADE
-// ═══════════════════════════════════════════════════════════════
-
 test.describe('Upload Barrage + Disconnect Cascade', () => {
   test('uploads survive disconnect cascade and new guest gets full playlist', async ({
     browser,
@@ -433,7 +387,6 @@ test.describe('Upload Barrage + Disconnect Cascade', () => {
       }
       await waitForDeviceCount(setup.hostPage, 3);
 
-      // Upload 3 files to host (ensure all land on host first)
       await uploadFixture(setup.hostPage, 'test01');
       await waitForPlaylistCount(setup.hostPage, 1);
       await uploadFixture(setup.hostPage, 'test02');
@@ -441,25 +394,20 @@ test.describe('Upload Barrage + Disconnect Cascade', () => {
       await uploadFixture(setup.hostPage, 'test03');
       await waitForPlaylistCount(setup.hostPage, 3);
 
-      // ★ CHAOS: Guest1 hard drops
       await setup.guestContexts[0].close();
       await waitForPeerCountAtMost(setup.hostPage, 1);
 
-      // ★ CHAOS: Guest2 hard drops
       await setup.guestContexts[1].close();
       await waitForPeerCount(setup.hostPage, 0);
 
-      // Host should still have 3 tracks
       const hostCount = await setup.hostPage.evaluate(
         () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(hostCount).toBe(3);
 
-      // Host is still functional
       const hostState = await readPlaybackProjection(setup.hostPage);
       expect(VALID_PLAYBACK_PROJECTIONS).toContain(hostState);
 
-      // New guest3 joins and gets full playlist via late-join sync
       guest3 = await joinAsLateGuest(browser, code);
       await waitForPlaylistCount(guest3.guestPage, 3, 45_000);
     } finally {
@@ -468,10 +416,6 @@ test.describe('Upload Barrage + Disconnect Cascade', () => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 6. OPERATOR GRANT + SIMULTANEOUS DISCONNECT
-// ═══════════════════════════════════════════════════════════════
 
 test.describe('Operator + Chaos', () => {
   test('operator chat survives simultaneous peer disconnect', async ({ browser }) => {
@@ -485,22 +429,18 @@ test.describe('Operator + Chaos', () => {
       }
       await waitForDeviceCount(setup.hostPage, 3);
 
-      // Grant operator to guest1
       const opBtn = setup.hostPage.locator('.d-op-btn').first();
       if (await isVisible(setup.hostPage, '.d-op-btn')) {
         await opBtn.click();
         await waitForState(setup.guestPages[0], 'network.isOperator', true);
       }
 
-      // ★ CHAOS: Guest1 sends chat while guest2 disconnects simultaneously
       const chatPromise = sendChatMessage(setup.guestPages[0], 'operator msg under chaos');
       const disconnectPromise = setup.guestContexts[1].close();
       await Promise.all([chatPromise, disconnectPromise]);
 
-      // Wait for disconnect to be detected
       await waitForPeerCountAtMost(setup.hostPage, 1);
 
-      // Host should have received the chat
       if (await isVisible(setup.hostPage, '#chat-preview-btn')) {
         await setup.hostPage.locator('#chat-preview-btn').click();
         await setup.hostPage.waitForFunction(
@@ -527,20 +467,16 @@ test.describe('Operator + Chaos', () => {
       await setupGuest(setup.guestPages[0], code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      // Disconnect guest1
       await setup.guestContexts[0].close();
       await waitForPeerCount(setup.hostPage, 0);
 
-      // New guest joins
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      // Grant operator to new guest
       if (await isVisible(setup.hostPage, '.d-op-btn')) {
         await grantOperatorToGuest(setup.hostPage, lateGuest.guestPage);
       }
 
-      // App should not crash: playback projection must be a valid enum value (not undefined).
       const hostState = await readPlaybackProjection(setup.hostPage);
       expect([
         'IDLE',
@@ -557,10 +493,6 @@ test.describe('Operator + Chaos', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 7. MODE SWITCH + DISCONNECT
-// ═══════════════════════════════════════════════════════════════
-
 test.describe('Mode Switch + Disconnect', () => {
   test('YouTube mode switch survives guest disconnect and late join', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -575,7 +507,6 @@ test.describe('Mode Switch + Disconnect', () => {
       }
       await waitForDeviceCount(setup.hostPage, 3);
 
-      // Host opens YouTube overlay and loads video
       if (await isVisible(setup.hostPage, '#media-source-btn')) {
         await setup.hostPage.locator('#media-source-btn').click();
         await setup.hostPage
@@ -602,29 +533,25 @@ test.describe('Mode Switch + Disconnect', () => {
         }
       }
 
-      // ★ CHAOS: Guest1 disconnects during YouTube load
       await setup.hostPage.waitForTimeout(1000); // intentional: allow YouTube iframe to begin loading
       await setup.guestContexts[0].close();
 
       // Wait for YouTube to settle — YouTube iframe loading has no reliable DOM signal
       await setup.hostPage.waitForTimeout(5000); // intentional: YouTube iframe load delay
 
-      // Host should be functional (may or may not be PLAYING_YOUTUBE depending on load)
+      // Headless YouTube loading may remain unavailable; any valid projection
+      // is acceptable here.
       const hostState = await readPlaybackProjection(setup.hostPage);
       expect(VALID_PLAYBACK_PROJECTIONS).toContain(hostState);
 
-      // If YouTube loaded, guest2 should also see it
       if (hostState === 'PLAYING_YOUTUBE') {
         const g2State = await readPlaybackProjection(setup.guestPages[1]);
         expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(g2State);
       }
 
-      // New guest joins and sees current state
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForPlaybackProjection(lateGuest.guestPage, hostState, 10_000);
-      // waitForFunction above already asserts lateState === hostState; this
-      // is just a belt-and-suspenders readback to pin the exact value for
-      // clearer failure output if the guard ever weakens.
+      // The readback gives exact failure output after the convergence wait.
       const lateState = await readPlaybackProjection(lateGuest.guestPage);
       expect(lateState).toBe(hostState);
     } finally {
@@ -633,10 +560,6 @@ test.describe('Mode Switch + Disconnect', () => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 8. CHAT FLOOD + MASS DISCONNECT
-// ═══════════════════════════════════════════════════════════════
 
 test.describe('Chat Flood + Mass Disconnect', () => {
   test('chat remains functional during mass disconnect', async ({ browser }) => {
@@ -650,7 +573,6 @@ test.describe('Chat Flood + Mass Disconnect', () => {
       }
       await waitForDeviceCount(setup.hostPage, 4);
 
-      // Open chat on host and guest1
       await sendChatMessage(setup.hostPage, 'flood-1');
       await setup.hostPage.waitForTimeout(100); // intentional rapid-fire delay
       await sendChatMessage(setup.hostPage, 'flood-2');
@@ -658,33 +580,26 @@ test.describe('Chat Flood + Mass Disconnect', () => {
       await sendChatMessage(setup.hostPage, 'flood-3');
       await setup.hostPage.waitForTimeout(100); // intentional rapid-fire delay
 
-      // Guest1 also sends
       await sendChatMessage(setup.guestPages[0], 'guest-flood-1');
 
-      // ★ CHAOS: Guest2 and Guest3 disconnect mid-chat
       await Promise.all([setup.guestContexts[1].close(), setup.guestContexts[2].close()]);
 
-      // Continue chatting after disconnect
       await sendChatMessage(setup.hostPage, 'flood-post-crash-4');
       await setup.hostPage.waitForTimeout(100); // intentional rapid-fire delay
       await sendChatMessage(setup.hostPage, 'flood-post-crash-5');
 
-      // Wait for last message to propagate
       await waitForChatMessage(setup.hostPage, 'flood-post-crash-5');
 
-      // Host chat should have content (not crashed)
       const hostChat = await setup.hostPage.evaluate(
         () => document.getElementById('chat-messages')?.textContent || '',
       );
       expect(hostChat.length).toBeGreaterThan(0);
 
-      // Guest1 should have received at least some messages
       const guest1Chat = await setup.guestPages[0].evaluate(
         () => document.getElementById('chat-messages')?.textContent || '',
       );
       expect(guest1Chat.length).toBeGreaterThan(0);
 
-      // Host app still functional
       const hostState = await readPlaybackProjection(setup.hostPage);
       expect(VALID_PLAYBACK_PROJECTIONS).toContain(hostState);
     } finally {
@@ -692,10 +607,6 @@ test.describe('Chat Flood + Mass Disconnect', () => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 9. PLAYLIST MANIPULATION + DISCONNECT STORM
-// ═══════════════════════════════════════════════════════════════
 
 test.describe('Playlist + Disconnect Storm', () => {
   test('playlist manipulation during disconnect storm produces consistent final state', async ({
@@ -713,7 +624,6 @@ test.describe('Playlist + Disconnect Storm', () => {
       }
       await waitForDeviceCount(setup.hostPage, 3);
 
-      // Upload 3 tracks
       await uploadFixture(setup.hostPage, 'test01');
       await waitForPlaylistCount(setup.hostPage, 1);
       await uploadFixture(setup.hostPage, 'test02');
@@ -721,12 +631,10 @@ test.describe('Playlist + Disconnect Storm', () => {
       await uploadFixture(setup.hostPage, 'test03');
       await waitForPlaylistCount(setup.hostPage, 3);
 
-      // Guests should all have 3
       for (const gp of setup.guestPages) {
         await waitForPlaylistCount(gp, 3, 30_000);
       }
 
-      // ★ CHAOS: Remove track + guest1 disconnects simultaneously
       const removeBtn = setup.hostPage.locator('.btn-playlist-remove').first();
       if (await isVisible(setup.hostPage, '.btn-playlist-remove')) {
         const removePromise = (async () => {
@@ -736,7 +644,7 @@ test.describe('Playlist + Disconnect Storm', () => {
             await confirmBtn.waitFor({ state: 'visible', timeout: 3000 });
             await confirmBtn.click();
           } catch {
-            // dialog may not appear
+            // Removal may complete without a confirmation dialog.
           }
         })();
         const disconnectPromise = setup.guestContexts[0].close();
@@ -747,12 +655,10 @@ test.describe('Playlist + Disconnect Storm', () => {
 
       await waitForPeerCountAtMost(setup.hostPage, 1);
 
-      // Read host playlist count (should be 2 after removal)
       const hostCount = await setup.hostPage.evaluate(
         () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
 
-      // Upload another track + guest2 disconnects
       const uploadPromise = uploadFixture(setup.hostPage, 'test01');
       const disconnect2Promise = setup.guestContexts[1].close();
       await Promise.all([uploadPromise, disconnect2Promise]);
@@ -764,7 +670,6 @@ test.describe('Playlist + Disconnect Storm', () => {
         () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
 
-      // New guest joins and sees consistent state
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForPlaylistCount(lateGuest.guestPage, finalHostCount, 30_000);
 
@@ -778,10 +683,6 @@ test.describe('Playlist + Disconnect Storm', () => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 10. FULL LIFECYCLE CHAOS — the ultimate stress test
-// ═══════════════════════════════════════════════════════════════
 
 test.describe('Full Lifecycle Chaos', () => {
   test('uploads, joins, disconnects, settings, chat — final guest sees correct state', async ({
@@ -799,7 +700,6 @@ test.describe('Full Lifecycle Chaos', () => {
     const allGuests: LateGuest[] = [];
 
     try {
-      // Step 1: Upload 3 files
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 1);
       await uploadFixture(hostPage, 'test02');
@@ -807,13 +707,12 @@ test.describe('Full Lifecycle Chaos', () => {
       await uploadFixture(hostPage, 'test03');
       await waitForPlaylistCount(hostPage, 3);
 
-      // Step 2: Start playing
       await hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
         { timeout: 15_000 },
       );
       await hostPage.click('#play-btn');
-      // Accept PLAYING_AUDIO or PAUSED (audio may auto-pause in headless)
+      // Headless audio may auto-pause, so either active or paused is valid.
       await hostPage.waitForFunction(
         () => {
           const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -824,17 +723,14 @@ test.describe('Full Lifecycle Chaos', () => {
         { timeout: 15_000 },
       );
 
-      // Step 3: Guest1 late-joins during playback
       const g1 = await joinAsLateGuest(browser, code);
       allGuests.push(g1);
       await waitForPlaylistCount(g1.guestPage, 3, 30_000);
 
-      // Step 4: Guest2 joins
       const g2 = await joinAsLateGuest(browser, code);
       allGuests.push(g2);
       await waitForPlaylistCount(g2.guestPage, 3, 30_000);
 
-      // Step 5: Host changes settings
       await hostPage.evaluate(() => {
         const set = (window as any).__MUSIXQUARE_SET_STATE__;
         if (set) {
@@ -843,7 +739,6 @@ test.describe('Full Lifecycle Chaos', () => {
         }
       });
 
-      // Step 6: Host next track
       await hostPage.click('#btn-next');
       await hostPage.waitForFunction(
         () => {
@@ -853,31 +748,25 @@ test.describe('Full Lifecycle Chaos', () => {
         { timeout: 10_000 },
       );
 
-      // Step 7: Guest1 disconnects
       await g1.guestContext.close();
       await waitForPeerCountAtMost(hostPage, 1);
 
-      // Step 8: Guest3 joins
       const g3 = await joinAsLateGuest(browser, code);
       allGuests.push(g3);
       await waitForPlaylistCount(g3.guestPage, 3, 30_000);
 
-      // Step 9: Upload 4th file
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 4);
 
-      // Step 10: Guest2 sends chat
       await sendChatMessage(g2.guestPage, 'chaos lifecycle chat');
       await waitForChatMessage(hostPage, 'chaos lifecycle chat');
 
-      // Step 11: Guest3 disconnects
       await g3.guestContext.close();
       await waitForPeerCountAtMost(hostPage, 1);
       await allowExtraGuestSlots(hostPage);
 
-      // Step 12: Host pauses
       await hostPage.click('#play-btn');
-      // May already be PAUSED or IDLE if audio stopped; accept any non-playing state
+      // Audio may already have stopped; any non-playing state is valid.
       await hostPage.waitForFunction(
         () => {
           const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -888,34 +777,27 @@ test.describe('Full Lifecycle Chaos', () => {
         { timeout: 15_000 },
       );
 
-      // Step 13: Guest4 late-joins during pause — THE FINAL VERIFICATION
       const g4 = await joinAsLateGuest(browser, code);
       allGuests.push(g4);
 
-      // Wait for guest4 to receive playlist
       await waitForPlaylistCount(g4.guestPage, 4, 30_000);
 
-      // ★ FINAL ASSERTIONS on Guest4
       const g4PlaylistCount = await g4.guestPage.evaluate(
         () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(g4PlaylistCount).toBe(4);
 
-      // Guest4 state should mirror host
       const hostState = await readPlaybackProjection(hostPage);
       const g4State = await readPlaybackProjection(g4.guestPage);
-      // Host is paused, guest should reflect that
       expect(['PAUSED', 'IDLE']).toContain(hostState);
       expect(['PAUSED', 'IDLE']).toContain(g4State);
 
-      // Track index should match
       const hostIdx = await readState(hostPage, 'playlist.currentTrackIndex');
       const g4Idx = await readState(g4.guestPage, 'playlist.currentTrackIndex');
       expect(g4Idx).toBe(hostIdx);
 
-      // Host should still be fully functional
       await hostPage.click('#play-btn');
-      // Accept any active state after clicking play
+      // Headless playback may settle in any valid active state.
       await hostPage.waitForFunction(
         () => {
           const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -934,10 +816,6 @@ test.describe('Full Lifecycle Chaos', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 11. SIMULTANEOUS JOIN ATTEMPTS (SESSION_FULL)
-// ═══════════════════════════════════════════════════════════════
-
 test.describe('Simultaneous Join Attempts', () => {
   test('maxGuestSlots=1 rejects second guest after first is connected', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -948,7 +826,6 @@ test.describe('Simultaneous Join Attempts', () => {
     const hostPage = await hostCtx.newPage();
     await injectPeerServer(hostPage);
 
-    // Navigate to set maxGuestSlots BEFORE starting session (critical timing)
     await hostPage.goto('/');
     await hostPage.waitForLoadState('networkidle');
     await hostPage.evaluate(() => {
@@ -967,11 +844,9 @@ test.describe('Simultaneous Join Attempts', () => {
     }
 
     try {
-      // Guest1 connects (should succeed — slot 1 of 1)
       await setupGuest(guests[0].page, code);
       await waitForDeviceCount(hostPage, 2);
 
-      // Guest2 tries to connect (should fail — SESSION_FULL)
       await guests[1].page.goto('/');
       await guests[1].page.waitForLoadState('networkidle');
       await guests[1].page.waitForSelector('#btn-setup-guest', {
@@ -986,7 +861,6 @@ test.describe('Simultaneous Join Attempts', () => {
       await guests[1].page.fill('#setup-join-code', code);
       await guests[1].page.click('#btn-setup-confirm');
 
-      // Guest2 should see overlay stay active or dialog appear (SESSION_FULL)
       await guests[1].page.waitForFunction(
         () => {
           const overlay = document.getElementById('setup-overlay');
@@ -998,7 +872,6 @@ test.describe('Simultaneous Join Attempts', () => {
         { timeout: 20_000 },
       );
 
-      // Host should still have exactly 1 peer
       const hostPeers = await hostPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get ? ((get('network.connectedPeers') as unknown[])?.length ?? 0) : 0;
@@ -1010,10 +883,6 @@ test.describe('Simultaneous Join Attempts', () => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 12. RAPID RECONNECT CYCLE
-// ═══════════════════════════════════════════════════════════════
 
 test.describe('Rapid Reconnect Cycle', () => {
   test('3 consecutive disconnect/reconnect cycles keep host usable', async ({ browser }) => {
@@ -1031,21 +900,17 @@ test.describe('Rapid Reconnect Cycle', () => {
 
     try {
       for (let cycle = 0; cycle < 3; cycle++) {
-        // Join
         const g = await joinAsLateGuest(browser, code);
         guestRefs.push(g);
         expect(await readState(g.guestPage, 'network.appRole')).toBe('guest');
 
-        // Disconnect
         await g.guestContext.close();
 
-        // Wait for host to detect disconnect
         await waitForPeerCount(hostPage, 0);
 
         await hostPage.waitForTimeout(500); // intentional: stabilization between reconnect cycles
       }
 
-      // Final cycle: join and verify the host is still accepting guests.
       const finalGuest = await joinAsLateGuest(browser, code);
       guestRefs.push(finalGuest);
       expect(await readState(finalGuest.guestPage, 'network.appRole')).toBe('guest');
@@ -1056,10 +921,6 @@ test.describe('Rapid Reconnect Cycle', () => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 13. SETTINGS CHAIN + LATE JOIN
-// ═══════════════════════════════════════════════════════════════
 
 test.describe('Settings Chain + Late Join', () => {
   test('guest joining mid-settings-chain receives final settings state', async ({ browser }) => {
@@ -1075,7 +936,6 @@ test.describe('Settings Chain + Late Join', () => {
     let lateGuest: LateGuest | null = null;
 
     try {
-      // Upload and start playing
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 1);
       await hostPage.waitForFunction(
@@ -1085,17 +945,14 @@ test.describe('Settings Chain + Late Join', () => {
       await hostPage.click('#play-btn');
       await waitForPlaybackProjection(hostPage, 'PLAYING_AUDIO');
 
-      // ★ CHAOS: Rapid settings chain + simultaneous guest join
       const settingsPromise = hostPage.evaluate(() => {
         const set = (window as any).__MUSIXQUARE_SET_STATE__;
         if (!set) return;
-        // Rapid-fire settings changes
         set('audio.eqValues', [6, 4, 0, -1, -2]);
         set('audio.masterVolume', 0.3);
         set('audio.reverbMix', 0.5);
         set('audio.reverbDecay', 2.5);
         set('audio.channelMode', -1);
-        // Change them again
         set('audio.eqValues', [0, 0, 5, 5, 0]);
         set('audio.masterVolume', 0.8);
         set('audio.reverbMix', 0.0);
@@ -1106,13 +963,10 @@ test.describe('Settings Chain + Late Join', () => {
       await settingsPromise;
       lateGuest = await joinPromise;
 
-      // Guest should receive playlist
       await waitForPlaylistCount(lateGuest.guestPage, 1, 30_000);
 
-      // Wait for settings state to propagate to guest
       await waitForState(lateGuest.guestPage, 'audio.masterVolume', 0.8);
 
-      // Host settings should be at their FINAL values
       const finalEq = await readState(hostPage, 'audio.eqValues');
       expect(finalEq).toEqual([0, 0, 5, 5, 0]);
       const finalVol = await readState(hostPage, 'audio.masterVolume');
@@ -1120,7 +974,6 @@ test.describe('Settings Chain + Late Join', () => {
       const finalReverb = await readState(hostPage, 'audio.reverbMix');
       expect(finalReverb).toBe(0.0);
 
-      // Guest is functional (did not crash)
       const guestState = await readPlaybackProjection(lateGuest.guestPage);
       expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
     } finally {
@@ -1129,10 +982,6 @@ test.describe('Settings Chain + Late Join', () => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 14. PRELOAD + DISCONNECT
-// ═══════════════════════════════════════════════════════════════
 
 test.describe('Preload + Disconnect', () => {
   test('preload continues after guest disconnect and new guest syncs correctly', async ({
@@ -1148,7 +997,6 @@ test.describe('Preload + Disconnect', () => {
       await setupGuest(setup.guestPages[0], code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      // Upload 3 tracks
       await uploadFixture(setup.hostPage, 'test01');
       await waitForPlaylistCount(setup.hostPage, 1);
       await uploadFixture(setup.hostPage, 'test02');
@@ -1156,16 +1004,14 @@ test.describe('Preload + Disconnect', () => {
       await uploadFixture(setup.hostPage, 'test03');
       await waitForPlaylistCount(setup.hostPage, 3);
 
-      // Wait for guest to have all tracks
       await waitForPlaylistCount(setup.guestPages[0], 3, 30_000);
 
-      // Start playing track 1
       await setup.hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
         { timeout: 15_000 },
       );
       await setup.hostPage.click('#play-btn');
-      // Accept PLAYING_AUDIO or PAUSED (audio may not fully start in headless)
+      // Headless audio may not fully start, so active or paused is valid.
       await setup.hostPage.waitForFunction(
         () => {
           const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
@@ -1176,7 +1022,7 @@ test.describe('Preload + Disconnect', () => {
         { timeout: 15_000 },
       );
 
-      // Next track (triggers preload of track 3)
+      // Advancing initiates preload of the following track.
       await setup.hostPage.click('#btn-next');
       await setup.hostPage.waitForFunction(
         () => {
@@ -1186,11 +1032,9 @@ test.describe('Preload + Disconnect', () => {
         { timeout: 15_000 },
       );
 
-      // ★ CHAOS: Guest disconnects during preload
       await setup.guestContexts[0].close();
       await waitForPeerCount(setup.hostPage, 0);
 
-      // Host should be able to go to track 3
       await setup.hostPage.click('#btn-next');
       await setup.hostPage.waitForFunction(
         () => {
@@ -1206,11 +1050,9 @@ test.describe('Preload + Disconnect', () => {
       const hostState = await readPlaybackProjection(setup.hostPage);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(hostState);
 
-      // New guest joins and syncs
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForPlaylistCount(lateGuest.guestPage, 3, 30_000);
 
-      // Guest track index should match host
       await lateGuest.guestPage.waitForFunction(
         ([expected]) => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;

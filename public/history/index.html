@@ -241,7 +241,7 @@
   <div class="section-head"><h2>Infrastructure · Today</h2><span class="phase">Current</span></div>
   <div class="phase-meta">
     <span class="phase-tag now"><span class="dot"></span>Live</span>
-    <p class="phase-sub">One vendor, deliberately chosen. No proprietary lock-in beyond what it does best.</p>
+    <p class="phase-sub">Cloudflare is the primary managed infrastructure vendor, concentrated where its edge platform fits the product.</p>
   </div>
   <div class="infra-grid">
     <div class="infra-card">
@@ -250,26 +250,26 @@
       <div class="i-detail">
         A single <strong>app Worker</strong> serves the static SPA, handles invite-code OG meta rewrites, and exposes the backend API for TURN credentials, YouTube search, and Realtime session setup — SPA fallback, security headers, and immutable asset caching all live in code.
         <strong>Durable Objects</strong> handle WebRTC signaling — ICE candidates, offers, and answers route through a hibernation-aware Worker per room.
-        <strong>TURN</strong> relays traffic when direct P2P fails (Metered fallback retained).
+        <strong>TURN</strong> relays traffic when direct P2P fails; an optional Metered credential fallback remains.
         <strong>Realtime SFU</strong> carries remote system audio — host publishes once, remote guests subscribe.
-        <strong>R2</strong> holds encrypted remote file transfers for the duration of the sharing session.
+        <strong>R2</strong> holds temporary encrypted remote-share objects with application expiry and bucket lifecycle cleanup.
       </div>
     </div>
     <div class="infra-card">
       <div class="i-vendor">WebRTC · In-browser</div>
       <div class="i-role">P2P sync · Chat · Local system audio</div>
       <div class="i-detail">
-        Data channels carry playback control, playlist sync, chat, and nudge-sync payloads between all peers.
-        <strong>Local system audio</strong> travels direct P2P via a media call — no relay, lowest latency.
+        Data channels carry playback control, playlist sync, chat, and nudge-sync payloads between the host and guests.
+        <strong>Local system audio</strong> uses a direct media call; ICE can still select TURN when the network requires a relay.
         <strong>Remote system audio</strong> routes through the Cloudflare SFU path above.
-        ICE candidate handling is fully queued and flushed per peer — no candidate is lost during SDP negotiation.
+        ICE candidates received before the remote description are queued per peer and flushed after SDP setup.
       </div>
     </div>
     <div class="infra-card">
       <div class="i-vendor">Browser · Client</div>
       <div class="i-role">Audio engine · Storage · Build</div>
       <div class="i-detail">
-        Native <strong>Web Audio API</strong> — no Tone.js. <code>AnalyserNode → BiquadFilter → ChannelSplitter → per-channel Gain → Merger → Convolver → destination</code>.
+        Native <strong>Web Audio API</strong> — no Tone.js. <code>source → stereo width → preamp → role routing → EQ/reverb</code>, with parallel bass/exciter paths before the master output and analyser.
         <strong>RAM-only</strong> slot pool for audio tracks — no disk writes, no OPFS.
         <strong>Vite + TypeScript ES2022</strong> strict-mode build. Service Worker for offline shell caching.
       </div>
@@ -295,7 +295,7 @@
     <div class="ahead-item">
       <div>
         <div class="a-title">Full 7.1 channel routing UI</div>
-        <div class="a-body">The 8-channel role picker ships today. The full FL / FR / Center / LFE / Side L·R / Rear L·R routing UI was parked for UX complexity — engine support is already in place. Will re-surface when demand is clear.</div>
+        <div class="a-body">The app ships four roles today: Center, Left, Right, and Subwoofer. Eight-channel routing primitives exist, but the full FL / FR / Center / LFE / Side L·R / Rear L·R picker was parked for UX complexity. It can return when demand is clear.</div>
       </div>
       <span class="a-tag">Gated</span>
     </div>

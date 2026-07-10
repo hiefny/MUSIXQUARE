@@ -1,7 +1,8 @@
 /**
  * MUSIXQUARE — Setup Host Flow
  *
- * Host session creation: role selection -> code generation -> session start.
+ * Host session creation: assign the default Center role, generate a code, and
+ * start the session.
  *
  * IMPORTANT: This file must NOT import from setup.ts (circular dependency).
  * It imports shared helpers from setup-shared.ts instead.
@@ -58,8 +59,8 @@ export function startHostFlow(): void {
   // before the "Start" tap, so a ready player exists for the gesture-bound
   // bounce in startSessionFromHost(). No-op off iOS / in C mode.
   precreateYouTubePlayer();
-  // The role picker is parked for now; default hosts to the center speaker.
-  // Keep setup-role-area wired so explicit role selection can return later.
+  // Role selection is not exposed in the current setup, so default hosts to
+  // the center speaker while keeping the existing role-area state coherent.
   try {
     selectStandardChannelButton(DEFAULT_SETUP_ROLE);
     setupHighlightJoinRole(DEFAULT_SETUP_ROLE);
@@ -67,8 +68,7 @@ export function startHostFlow(): void {
     log.warn(e);
   }
 
-  // Single transition for the whole welcome→role swap so the four DOM
-  // flips snapshot together instead of superseding each other.
+  // Apply the welcome-to-host-flow DOM changes in one transition snapshot.
   animateTransition(() => {
     setupShowJoinArea(false);
     setupShowAutoJoinArea(false);

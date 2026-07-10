@@ -107,35 +107,17 @@ function getRemoteWaitSessionId(): number {
 // A's listeners alive alongside B's, letting A's closure overwrite B's
 // stall timer or issue a REQUEST_DATA_RECOVERY for the wrong track.
 let _activePreloadWaiterCleanup: (() => void) | null = null;
-// Tracks which playlist index loadPreloadedTrack is currently decoding for,
-// so use-preloaded for a DIFFERENT index can supersede the in-flight call
-// rather than getting silently ignored. See the use-preloaded handler for
-// the supersession protocol.
-//
-// KNOWN QUIRK (documented in the invariants doc §1): handlePlayMsg's direct
-// loadPreloadedTrack call below does NOT register _activePreloadIndex, so the
-// same-index dedup in the use-preloaded handler only covers handler-initiated
-// activations. A same-index overlap with a handlePlayMsg-initiated activation
-// takes the supersede branch instead — safe (epoch bump + compare-before-
-// clear), just one redundant decode.
+// Tracks the playlist index decoded by storage:use-preloaded so a different
+// index can supersede it. Direct handlePlayMsg activations are not registered;
+// an overlap therefore takes the safe supersession path and may repeat a decode.
 let _activePreloadIndex: number | null = null;
-
-// ─── Re-exports ────────────────────────────────────────────────────
-// All public API re-exported so external imports from './playback.ts' keep working.
-
-// Note: Re-exports removed. Import directly from transport.ts, decode.ts, _state.ts.
 
 // ─── Network Message Handlers ──────────────────────────────────────
 
 function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): void {
-  // Drop PLAY frames not arriving via hostConn. Sibling to handlePauseMsg
-  // (874a860): both are host→guest authoritative broadcasts (host's own
-  // state changes go through setState directly, never through its own
-  // dispatcher). Without this, a peer can inject
-  // {type:'play', time:<t>, index:<i>} to force
-  // an arbitrary track-index change + play() at attacker time on the
-  // target. Per-handler guards protect each receiver's own state mutation path — same rationale as
-  // a6eadce (effects), 8cbf192 (youtube), fe32164 (preload/transfer).
+  // PLAY is an authoritative host→guest command. Host-local changes bypass
+  // this handler, and peer-supplied frames must not mutate another guest's
+  // track index or playback position.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -199,11 +181,8 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
         prepareRemoteShareWait(incomingIndex, waitName || '', getRemoteWaitSessionId());
         setPendingPlayTime(time);
         if (!alreadyWaiting) {
-          // DV-2 (device-test find): a bare host PLAY (post-demo resume,
-          // missed-descriptor pause→play) re-shares NOTHING, so this wait
-          // was a passive dead-end the host never learned about. The host's
-          // handleRequestCurrentFile now routes remote requesters to a
-          // targeted descriptor re-send (cached → control-plane only).
+          // Tell the host about a newly armed wait so it can resend the cached
+          // remote-share descriptor to this guest.
           const remotePlaylist = getState('playlist.items') || [];
           sendToHost({
             type: MSG.REQUEST_CURRENT_FILE,
@@ -244,23 +223,14 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     return;
   }
 
-  // Lifecycle gate.
+  // During AWAITING_PRELOAD/DOWNLOADING/DECODING the resident AudioBuffer
+  // still belongs to the previous track. Defer PLAY until the current
+  // pipeline publishes its decoded buffer.
   //
-  // During AWAITING_PRELOAD/DOWNLOADING/DECODING the currentAudioBuffer
-  // still belongs to the PREVIOUS track — playing immediately would emit
-  // stale audio while UI already shows the NEW track index. Same race as
-  // togglePlay's isFilePipelineBusyForPlay guard (transport.ts:683,
-  // 4901b9cd) and handleRequestPlay (playback.ts, F-1701 sibling).
-  //
-  // The state machine documents these as `{stay: true}` "store
-  // pendingPlayTime, no recovery" — defer to the load completion path:
+  // The state machine treats these as stay transitions and stores
+  // pendingPlayTime for the load-completion path:
   //   AWAITING_PRELOAD → loadPreloadedTrack consumes pendingPlayTime
-  //   DOWNLOADING/DECODING → decode.ts:992 hostConn branch consumes it
-  //     after DECODE_SUCCESS lands cleanly on READY.
-  //
-  // For AWAITING_PRELOAD specifically: the old stale-audio-recovery
-  // timer would kick in 5s later and request a full re-download
-  // (0%-restart), wasting the almost-finished preload.
+  //   DOWNLOADING/DECODING → finalizeGuestFile consumes it after decode.
   const lifecycle = getState('playback.lifecycle');
   if (
     lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
@@ -276,22 +246,9 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     return;
   }
 
-  // Stale-audio recovery is handled by lifecycle guards, not a separate timer.
-  //
-  // Previously this block armed a 5s timer that issued REQUEST_CURRENT_FILE
-  // if meta.name != expected when PLAY arrived. That timer's original
-  // purpose — catching a "preload still finalizing" race — is now handled
-  // by the AWAITING_PRELOAD short-circuit above and the state machine's
-  // supersede transitions on FILE_PREPARE.
-  //
-  // With those in place, any name mismatch reaching this point is either:
-  //   (a) a transient out-of-order message (next handler supersedes us)
-  //   (b) a genuine inconsistency already handled by the index-mismatch
-  //       branch above (line ~88)
-  // Issuing REQUEST_CURRENT_FILE here would race with in-flight transfers
-  // and cause the very "0% re-download" symptom the refactor killed. So we
-  // just store the pending play time and trust the surrounding machinery
-  // to put us in the right state.
+  // Lifecycle and FILE_PREPARE supersession own stale-audio recovery. A name
+  // mismatch here can be transient; requesting another file would race with an
+  // active transfer, so retain the play time and wait for pipeline state.
   const meta = getState('transfer.meta');
   const playlist = getState('playlist.items') || [];
   const expectedName = (data.name as string) || playlist[currentTrackIndex]?.name || '';
@@ -307,8 +264,8 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   if (getCurrentAudioBuffer()) {
     // Lifecycle: we have a decoded buffer → we're in
     // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
-    // transition() handles same-track seek, resume from PAUSED, restart from
-    // READY — see Section 4 of the design doc.
+    // transition() handles same-track seek, resume from PAUSED, and restart
+    // from READY under the tested lifecycle contract.
     transition({ type: 'PLAY', time, index: incomingIndex, sameTrack: true });
 
     // Shared Clock: schedule play at the host-specified time.
@@ -346,7 +303,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
         scheduleSameTrackReplayResync(time, incomingIndex, currentTrackIndex);
       }
     } else {
-      // Legacy: no hostPlayAt field — play immediately
+      // Without hostPlayAt, start immediately and let initial sync correct it.
       play(time);
       bus.emit('sync:arm-initial');
       scheduleSameTrackReplayResync(time, incomingIndex, currentTrackIndex);
@@ -376,8 +333,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
         prepareRemoteShareWait(safeIndex, waitName || '', getRemoteWaitSessionId());
         setPendingPlayTime(time);
         if (!alreadyWaiting) {
-          // DV-2: escalate the new wait to the host — see the index-mismatch
-          // sibling above for rationale.
+          // Ask the host to resend the descriptor for this newly armed wait.
           sendToHost({
             type: MSG.REQUEST_CURRENT_FILE,
             name: playlist[safeIndex]?.name || waitName || '',
@@ -397,21 +353,10 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     setPendingPlayTime(time);
     log.debug(`[Guest] Storing pending play time: ${time}`);
 
-    // Orphaned-pipeline recovery (SA-03, docs/scenario-audit-2026-06-10.md):
-    // index matches but there is no buffer AND no inbound pipeline (lifecycle
-    // IDLE/FAILED — busy states already deferred above). This happens when a
-    // mid-download transfer was killed by a mode switch (e.g. a system-audio
-    // session started, dropping chunks via the external-owner gate) and the
-    // host later resumes with plain PLAY — no FILE_PREPARE ever re-arrives,
-    // and the SYNC_PONG bootstrap can't start without a buffer. Without this
-    // request the guest stays silent until the host changes tracks.
-    // transfer.state belt (DV-1): a LIVE inbound transfer means this is not
-    // an orphaned pipeline — requesting here makes the host unicast-from-0
-    // and handleFileStart resets the partial download to 0%. The lifecycle
-    // gate above is the primary defense; this guard keeps SA-03 inert even
-    // if a cleanup ever disengages the FSM mid-download again. A genuinely
-    // wedged RECEIVING transfer is still covered by the 12s chunkWatchdog
-    // (resume-based recovery, not from-zero).
+    // If PLAY targets the current index but neither a buffer nor an inbound
+    // pipeline exists, request the current file. Never do this while transfer
+    // state is RECEIVING/PROCESSING: its watchdog owns resume-based recovery,
+    // and a second request could restart a healthy partial transfer.
     const lifecycleNow = getState('playback.lifecycle');
     const transferStateNow = getState('transfer.state');
     if (
@@ -477,8 +422,9 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // guest can send {type:'pause', endOfPlaylist:true} to the host — the
   // endOfPlaylist branch below stops host audio, clears currentTrackMeta,
   // resets currentTrackIndex=-1, and shows the "playlist ended" toast.
-  // Single raw frame from any session participant disrupts the host's
-  // playback. Mirrors the chat handler defenses (4157237/dcd3472).
+  // A single raw frame from any session participant would otherwise disrupt
+  // host playback, so apply the same authoritative-connection boundary as the
+  // chat handlers.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -523,8 +469,8 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // looks stopped.
   pause(time, { holdVisualizer: isUserPause, showToast: isUserPause });
 
-  // Lifecycle: regular PAUSE routes to PAUSED per Section 4 after the
-  // transport has been stopped. endOfPlaylist=true returned above.
+  // Regular PAUSE enters PAUSED only after the transport has stopped;
+  // endOfPlaylist=true returned through the terminal branch above.
   transition({ type: 'PAUSE', time, endOfPlaylist });
 }
 
@@ -558,14 +504,8 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  // Sibling guard to togglePlay's isFilePipelineBusyForPlay (4901b9cd):
-  // during DOWNLOADING/AWAITING_PRELOAD/DECODING the resident AudioBuffer
-  // still belongs to the previous track, so play(time) would broadcast
-  // currentTrackIndex (the NEW track) while emitting the OLD buffer's
-  // audio. Silently drop — host's decode-success path
-  // (decode.ts:193-199 → READY) auto-broadcasts PLAY for the new track,
-  // so the OP doesn't need to retry. Mirrors togglePlay (transport.ts:683)
-  // and handlePlayMsg's lifecycle gate (playback.ts).
+  // A busy pipeline still holds the previous track's AudioBuffer. Ignore the
+  // request; decode completion owns playback of the newly selected track.
   if (isFilePipelineBusyForPlay()) {
     log.debug('[Playback] Ignoring REQUEST_PLAY while file pipeline is preparing');
     return;
@@ -622,12 +562,9 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  // Sibling guard to handleRequestPlay above (4901b9cd/F-1701, SA-04):
-  // during DOWNLOADING/AWAITING_PRELOAD/DECODING the resident AudioBuffer
-  // still belongs to the previous track — play(time) would emit stale audio
-  // and broadcast the NEW index. Placed after the YouTube branch because a
-  // stale non-IDLE lifecycle can survive a file→YouTube switch (transition()
-  // no-ops under external owners) and must not block YouTube seeks.
+  // A busy file pipeline still holds the previous track's AudioBuffer. Keep
+  // this guard after YouTube handling because file lifecycle state must not
+  // block seeks owned by another playback mode.
   if (isFilePipelineBusyForPlay()) {
     log.debug('[Playback] Ignoring REQUEST_SEEK while file pipeline is preparing');
     return;
@@ -712,15 +649,11 @@ export function initPlayback(): void {
   bus.on('playback:refresh-current-position', () => {
     if (!getCurrentAudioBuffer()) return;
     if (!isPlaybackPlayingFile()) return;
-    // SA-04 sibling: a long background resume can land inside a track
-    // change (stopAllMedia({silent}) keeps mode=file/playing while the new
-    // file decodes) — the resident buffer is the previous track's. The
-    // post-decode autoPlayTimer owns the restart.
+    // A background resume may occur during a track change, while the resident
+    // buffer still belongs to the previous track. Decode completion owns restart.
     if (isFilePipelineBusyForPlay()) return;
     play(getTrackPosition());
   });
-
-  // 'sync:get-position' and 'sync:response' listeners removed — no emitter exists
 
   // Disconnect playerNode from surround splitter (called when surround mode turns off)
   bus.on('audio:disconnect-surround', () => {
@@ -764,21 +697,10 @@ export function initPlayback(): void {
     const hostConn = getState('network.hostConn');
     if (!hostConn) return;
 
-    // Stale session guard: by the time this async handler fires, the guest
-    // may have moved on to a newer transfer session (rapid track switch,
-    // recovery response for an older session, etc.). Compare the incoming
-    // sessionId against transfer.localSessionId and drop if superseded.
-    // finalizeGuestFile has its own staleness guard internally
-    // (activeLoadSessionId, M2 — deliberately NOT the load epoch), but
-    // skipping here avoids an unnecessary decode of a now-stale file.
-    //
-    // FALLBACK (2026-04-25): a "stale" session may actually be the file
-    // we still need. In a rapid A→B→A bounce, A's localSid gets bumped
-    // past A's original sessionId while A's storage finalize is still in
-    // flight; dropping it here stalls the guest at 100% until the chunk
-    // watchdog fires a full re-download (~12-60s). Accept the completion
-    // when its filename matches the current transfer target — mirrors
-    // the preload.ts HOTFIX for the same race class.
+    // Drop completions superseded by a newer transfer before decoding them.
+    // A lower session id remains usable when its filename still matches the
+    // current target, which covers a rapid A→B→A return while assembly is
+    // finishing.
     const localSid = getState('transfer.localSessionId');
     if (_sessionId && localSid && _sessionId < localSid) {
       const currentName = getState('transfer.meta')?.name || '';
@@ -852,10 +774,7 @@ export function initPlayback(): void {
         //     in-flight call will detect the supersession after decode and
         //     bail out (preserving pendingPlayTime per decode.ts), and
         //     this new call takes ownership.
-        // Without this distinction, remote-share track 2 → track 3 in
-        // rapid succession would wedge: track 2's decode keeps the flag
-        // set, track 3's use-preloaded gets ignored, and the user sits
-        // with track 3's blob in memory but no decode running.
+        // The distinction ensures a new blob always gets its own activation.
         const activeIdx = _activePreloadIndex;
         if (activeIdx === index) {
           log.debug('[Playback] Activation already in progress for same index, ignoring');
@@ -864,15 +783,9 @@ export function initPlayback(): void {
         log.info(
           `[Playback] use-preloaded(${index}) supersedes in-flight load(${activeIdx ?? '?'})`,
         );
-        // Don't clear setPlayPreloadedInProgress — the in-flight call will
-        // hit epoch supersession and clear it itself; we'd otherwise create
-        // a window where the flag is false but a decode is still running,
-        // letting handlePlayMsg fall through and double-trigger play.
-        // (Flag-stomp rule, contract C1 in docs/design/
-        // playback-concurrency-invariants.md — pinned by
-        // concurrency-invariants.test.ts pin a. In practice the old call's
-        // clear resolves as a no-op via decode.ts's compare-before-clear
-        // owner handle; the new call's finish performs the real clear.)
+        // Do not clear the in-progress flag here. The compare-before-clear
+        // owner handle makes the superseded finish a no-op, and the successor
+        // clears the flag when its own activation ends.
       }
       _activePreloadIndex = index;
       const newEpoch = newLoadEpoch();
@@ -884,14 +797,11 @@ export function initPlayback(): void {
       // by storage:file-ready → storage:preload-file-ready → use-preloaded re-emit.
       log.debug('[Playback] Preload blob not ready yet, waiting for download completion...');
 
-      // Approach B: progress-aware watchdog
+      // Progress-aware watchdog
       // ────────────────────────────────────
-      // The host now serializes preload transfers, so an in-progress preload
-      // WILL finalize naturally — we just need to wait for it. Fixed 10s was
-      // too short for larger tracks over slower networks, forcing a needless
-      // 0%-restart recovery. Instead, wait up to 60s total but reset the
-      // timer each time the preload session makes progress (nextExpectedChunk
-      // increments). If progress stalls for 10s straight, give up and recover.
+      // Serialized preload transfers may take longer than one stall window, so
+      // reset the timer on forward chunk progress, retain an absolute ceiling,
+      // and recover only after a true stall.
       const PRELOAD_WATCHDOG_MAX_MS = 60_000; // absolute ceiling
       const PRELOAD_WATCHDOG_STALL_MS = 10_000; // no-progress timeout
       const watchdogStart = Date.now();
@@ -925,7 +835,7 @@ export function initPlayback(): void {
         // shouldSkipIncomingFile() will return false once host's response
         // FILE_PREPARE transitions us out of AWAITING_PRELOAD into DOWNLOADING.
         showLoader(false);
-        // Fallback: request file from host
+        // Request the file from the host after a confirmed stall.
         const hostConn = getState('network.hostConn');
         if (hostConn?.open) {
           showLoader(true, t('transfer.file_requesting'));
@@ -1018,7 +928,7 @@ export function initPlayback(): void {
         const item = playlist[currentTrackIndex];
         const itemName = item?.name || item?.file?.name || null;
         // Late-join bootstrap: omit hostPlayAt — guest has no clock samples yet.
-        // Guest plays immediately (legacy path); initial sync corrects 1s later.
+        // Guest starts immediately; initial sync corrects the unsampled clock.
         conn.send({
           type: MSG.PLAY,
           time: nowPos,

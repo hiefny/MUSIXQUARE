@@ -14,7 +14,8 @@ import { setManagedTimer } from './core/timers.ts';
 import { markIntentionalNav } from './core/page-lifecycle.ts';
 
 const SW_UPDATE_KEY = 'sw-updated-at';
-const SW_COOLDOWN_MS = 30_000; // suppress update dialog for 30s after a SW reload
+// Avoid a second update prompt when controller activation and reload overlap.
+const SW_COOLDOWN_MS = 30_000;
 
 let _swReloading = false;
 
@@ -57,8 +58,9 @@ export function registerServiceWorker(): void {
 
         // controllerchange fires in EVERY controlled same-origin tab when any
         // one of them accepts the update (skipWaiting activation migrates all
-        // clients) — auto-reloading here silently killed live sessions in the
-        // other tabs (markIntentionalNav even suppresses the leave prompt).
+        // clients). Do not auto-reload another tab that is hosting or joined
+        // to a live room; markIntentionalNav would also suppress its leave
+        // prompt.
         // Defer for in-session tabs; the update applies on their next natural
         // load. Cost of keeping old JS under the new SW: production DOES ship
         // lazy chunks (i18n locale dicts, locale font CSS, the peerjs
@@ -66,9 +68,9 @@ export function registerServiceWorker(): void {
         // caches, so a deferred tab can 404 an old hashed chunk under deploy
         // skew. Each degrades gracefully: i18n falls back to English per-key
         // and stays retryable (re-select / 'online' — no negative caching),
-        // fonts fall back to system faces, and the peerjs import rejection
-        // propagates to the transport-fallback caller. Acceptable cost
-        // versus auto-reload killing live sessions.
+        // fonts fall back to system faces, and the optional PeerJS adapter can
+        // fail to initialize in local or explicitly configured PeerJS mode.
+        // That deploy-skew risk is preferable to terminating a live room.
         // NOTE: this gate must stay OUT of reloadForServiceWorkerUpdate() —
         // the dialog-OK path below is explicit same-tab consent and must keep
         // reloading even mid-session.

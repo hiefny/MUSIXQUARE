@@ -1,7 +1,3 @@
-/**
- * MUSIXQUARE — Session ID Management
- */
-
 import { log } from './log.ts';
 
 // ─── Instance ID (unique per app load) ─────────────────────────────
@@ -30,7 +26,7 @@ const _warnedBadSessionIds = new Set<string>();
  * Validate and normalize a session ID to a safe integer.
  * Returns 0 for invalid IDs (0 is the "no-session" sentinel).
  *
- * @param id   - The raw session ID (may be string, number, undefined)
+ * @param id - The raw session ID (may be string, number, or undefined)
  * @param strict - If true, throws on invalid ID instead of returning 0
  */
 export function validateSessionId(id: unknown, strict = false): number {
@@ -40,7 +36,7 @@ export function validateSessionId(id: unknown, strict = false): number {
   const ok = Number.isSafeInteger(sid) && sid > 0;
   if (!ok) {
     const key = String(id);
-    // Evict oldest half to prevent unbounded growth (Set iterates in insertion order)
+    // Evict the oldest half to bound warning-dedup memory; Set preserves insertion order.
     if (_warnedBadSessionIds.size > 200) {
       let evict = Math.floor(_warnedBadSessionIds.size / 2);
       for (const v of _warnedBadSessionIds) {

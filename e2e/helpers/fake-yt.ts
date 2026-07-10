@@ -13,12 +13,12 @@
  *   - Autoplay/cookie policies in headless mode block playback.
  *   - Region restrictions + bot detection make flaky.
  *   - We can't control timing for drift/sync regression assertions.
- *   - Real iframe adds ~10s per test of network wait.
+ *   - Real iframe startup adds network latency to every test.
  *
  * The stub handles: playVideo, pauseVideo, stopVideo, seekTo, loadVideoById,
  * loadPlaylist, playVideoAt, nextVideo, previousVideo, setVolume, destroy,
- * and all the getter APIs the app uses. onReady fires after a microtask
- * plus 20ms delay to match real iframe lazy init.
+ * and all the getter APIs the app uses. onReady fires after a 20ms delay to
+ * model iframe lazy initialization.
  */
 
 import type { Page } from '@playwright/test';
@@ -179,9 +179,8 @@ const FAKE_YT_INIT = `
  */
 export async function installFakeYt(page: Page): Promise<void> {
   await page.addInitScript({ content: FAKE_YT_INIT });
-  // Belt-and-suspenders: block the real YT iframe API script from ever
-  // loading. Our stub is checked BEFORE the script tag is injected, so this
-  // should be unreachable, but some iframe.ts paths may still try.
+  // Route interception is a safety net for any loader path that bypasses the
+  // preinstalled stub.
   await page.route(/youtube\.com\/iframe_api/, (route) => route.abort());
 }
 

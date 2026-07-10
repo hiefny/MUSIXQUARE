@@ -81,7 +81,7 @@
     try {
       localStorage.setItem(key, value);
     } catch (e) {
-      /* private mode */
+      /* Storage may be unavailable in private or restricted contexts. */
     }
   }
 
@@ -136,7 +136,7 @@
       else url.searchParams.set('lang', code);
       history.replaceState(null, '', url.pathname + url.search + url.hash);
     } catch (e) {
-      /* old browser */
+      /* URL/history APIs may be unavailable in embedded browsers. */
     }
   }
 

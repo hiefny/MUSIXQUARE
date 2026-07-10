@@ -1,51 +1,33 @@
 /**
  * MUSIXQUARE — Page Lifecycle Flags & Handlers
  *
- * Why this module exists
- * ======================
- * Browser page lifecycle around a live P2P session is nuanced — the naïve
- * "cleanup in `beforeunload`" approach leaves the session in an undefined
- * state when the user picks "Stay" in the confirm dialog (listeners fire
- * for every unload attempt, not just confirmed ones). And app-driven
- * navigations (leave-session, kick, reconnect redirect, SW update, …)
- * that have already got explicit user confirmation through our own
- * dialog shouldn't also surface the browser's native
- * "Changes you made may not be saved" prompt.
+ * `beforeunload` fires before the user decides whether to leave, so it cannot
+ * own peer/audio teardown. `pagehide` owns confirmed-unload cleanup, while
+ * `pageshow` rejects an active-session UI restored from bfcache after its
+ * runtime resources have gone stale.
  *
- * This module owns three slim responsibilities:
+ * This module owns three responsibilities:
  *
  *   1. `markIntentionalNav()` — a one-shot flag any code path can flip
  *      right before triggering `window.location.reload()` /
  *      `window.location.href = …` to tell the `beforeunload` guard
- *      "don't show the native confirm; the user already confirmed."
+ *      that the app already obtained confirmation.
  *
  *   2. `initPageLifecycleHandlers({ getRole, leaveSession, reload })` —
- *      attaches the `beforeunload` + `pagehide` + `pageshow` trio with
- *      the correct branching. Accepts dependencies as parameters so it
- *      can be unit-tested in isolation without dragging in the full
- *      bootstrap graph.
+ *      attaches the `beforeunload`, `pagehide`, and `pageshow` handlers with
+ *      injected dependencies so the lifecycle contract remains testable.
  *
  *   3. Bfcache restore fallback (pageshow, persisted=true) — if the page
- *      ever returns from the back-forward cache with a session role
- *      still marked active, the peer/audio/timer graph is gone; force
- *      a reload so the cached UI can't lie about the session state.
+ *      ever returns from the back-forward cache with a session role still
+ *      active, force a reload so cached UI cannot claim that dead runtime
+ *      resources are connected.
  *
- * Developer rule
- * ==============
- * ANY code path that programmatically navigates away from the app during
- * a session — reload, href change, back-forward, whatever — MUST call
+ * Any code path that programmatically navigates away during a session must call
  * `markIntentionalNav()` immediately before the navigation. Put the call
  * INSIDE any setTimeout/setManagedTimer callback wrapping the navigate,
  * never before it: a cancelled timer shouldn't leave the flag asserted
  * because that would suppress the native confirm on a later user-driven
  * close attempt.
- *
- * Current call sites (keep in sync):
- *   - src/ui/connect.ts            (Leave Session button)
- *   - src/ui/player-controls.ts    (Logo → home)
- *   - src/ui/setup-guest.ts        (Invite-link back)
- *   - src/ui/setup.ts              (4×: reconnect, kicked, explicit-kick)
- *   - src/sw-register.ts           (2×: SW update + controllerchange)
  */
 
 let _intentionalNav = false;
@@ -149,7 +131,7 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
   // Fires on both fresh loads (persisted=false) and bfcache restores
   // (persisted=true). Only the restore case needs handling: if an
   // active-session page is restored from bfcache, every runtime
-  // resource is dead (PeerJS DataConnections, RTCPeerConnection, the
+  // resource is dead (transport data connections, RTCPeerConnection, the
   // AudioContext, managed timers) but the cached DOM would still show
   // "connected". Force a reload for fresh state.
   window.addEventListener(

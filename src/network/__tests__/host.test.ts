@@ -74,10 +74,9 @@ function makeSlottedPeer(id: string, slot: number, send: ReturnType<typeof vi.fn
   };
 }
 
-// CONN-1 (22차 domain audit): the reduction guard is count-based but the
-// enforcement was slot-index-based — with sparse slots a peer in a high slot
-// got kicked even though the room had capacity. Displaced occupants must be
-// relocated into freed low slots; only genuine overflow kicks.
+// The reduction guard is count-based but enforcement is slot-index-based. With
+// sparse slots, a peer in a high slot must not be kicked while capacity remains.
+// Displaced occupants move into freed low slots; only genuine overflow kicks.
 describe('max-guests reduction with sparse slots', () => {
   it('relocates a high-slot peer into a freed hole instead of kicking', () => {
     const sendG1 = vi.fn();
@@ -257,8 +256,8 @@ describe('host operator toggle', () => {
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
 
-  // OPERATOR_REVOKE re-baseline (23차 P4): the effects snapshot converges a
-  // demoted guest's raced effect applies, but repeat/shuffle go through the
+  // OPERATOR_REVOKE re-baselines a demoted guest: the effects snapshot reconciles
+  // any raced changes, but repeat/shuffle go through the
   // same optimistic-apply → verifyOperator-silent-drop path and were not
   // covered. The revoke must also resend both as _bootstrap (toast-silent)
   // frames on the same ordered channel.

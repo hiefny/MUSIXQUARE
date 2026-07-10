@@ -1,5 +1,9 @@
 # Type Safety Audit - 2026-05-30
 
+> **Historical audit snapshot.** Escape-hatch counts, file positions, and test
+> totals below describe the post-audit tree on 2026-05-30. They are evidence of
+> that pass, not a live inventory; rerun the documented search for current data.
+
 ## Scope
 
 Searched production TypeScript under `src/**/*.ts`, excluding `__tests__`, for:

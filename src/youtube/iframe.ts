@@ -3,7 +3,7 @@
  *
  * Manages: IFrame API script loading, player creation/destruction,
  * player event callbacks, UI update loop, iOS sync overlay,
- * display refresh hack.
+ * display refresh workaround.
  */
 
 import { log } from '../core/log.ts';
@@ -515,7 +515,7 @@ export function loadYouTubeVideo(
       /* noop */
     }
     // Light cleanup: reset sync state without destroying the player.
-    // yt-seek-play must be cleared too (F-2407): the full-teardown path
+    // yt-seek-play must be cleared too: the full-teardown path
     // (stopYouTubeMode) cancels it, but this skip-teardown reuse branch did not,
     // so a delayed seek-then-play scheduled for the OUTGOING video could fire
     // against the incoming one. loadYouTubeVideo is the single funnel for every
@@ -628,9 +628,8 @@ export function loadYouTubeVideo(
 
   bus.emit('ui:play-btn-state', true);
 
-  // Keep fullscreen button visible in YouTube mode — the button targets
-  // .video-wrapper which contains the YouTube iframe container, so
-  // Fullscreen API works correctly for both local video and YouTube.
+  // Keep the fullscreen button visible: .video-wrapper contains the YouTube
+  // iframe container targeted by the Fullscreen API.
 
   setManagedTimer('yt-refresh-display', () => refreshYouTubeDisplay(), REFRESH_DISPLAY_DELAY_MS);
   log.debug('[YouTube] Loaded:', videoId || playlistId, 'autoplay:', autoplay);
@@ -690,11 +689,11 @@ function createYouTubePlayer(
   const hostConn = getState('network.hostConn');
   const needsScrape = !hostConn && playlistId !== null;
 
-  // Defense-in-depth for the 200+ track OOM fix (~2026-04-16). Single-video
+  // Defense-in-depth against large-playlist memory exhaustion. Single-video
   // mode is enforced at network ingress (handlers.ts) and the add-to-playlist
   // path, but internal re-entry points still pass both IDs from saved meta:
-  // crash-recovery at L772 reads currentTrackMeta, and the youtube:load bus
-  // listener (player.ts:363) is fed raw item.videoId+item.playlistId from
+  // crash recovery reads currentTrackMeta, and the youtube:load bus
+  // listener in player.ts is fed raw item.videoId+item.playlistId from
   // playlist.ts. Re-asserting here forces loadVideoById on the reuse path
   // and consistently drops `list` from the fresh-create playerVars, so the
   // YT playlist engine cannot wake up unless we're explicitly scraping or
@@ -745,7 +744,7 @@ function createYouTubePlayer(
       } else if (videoId) {
         existingPlayer.loadVideoById(videoId);
       }
-      // Note: pauseVideo() removed — handled by onStateChange via _ytAutoplayIntent flag.
+      // onStateChange handles pausing through the _ytAutoplayIntent flag.
       // loadPlaylist() is async; pauseVideo() on UNSTARTED player is a no-op.
       if (!needsScrape) {
         setYouTubeSubIndex(subIndex);
@@ -948,9 +947,8 @@ function onYouTubePlayerReady(): void {
 
   ensureYouTubePlaybackRuntime();
 
-  // Notify anyone waiting for the player to become usable (e.g. the URL
-  // input path in player.ts that wants to trigger a 1-sec rendezvous sync
-  // as soon as the freshly created player instance is ready).
+  // Notify anyone waiting for the player to become usable, including the URL
+  // input path that starts rendezvous sync after a new instance is ready.
   bus.emit('youtube:player-ready');
 
   if (_ifr.guestRendezvousAfterReady) {
@@ -1185,7 +1183,7 @@ function onYouTubePlayerError(event: { data: number }): void {
     // would skip the just-selected track. Empirically late errors deliver
     // before getVideoData() flips to the new load (the prime guard relies on
     // the same ordering), so a provable mismatch is safe to drop; when
-    // either side is unreadable we fall through and keep today's behavior.
+    // either side is unreadable, preserve the fallback behavior below.
     const intendedTrack = (getState('playlist.items') || [])[
       getState('playlist.currentTrackIndex')
     ];
@@ -1319,12 +1317,9 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // pauses + uses the longer TRACK_TRANSITION_RENDEZVOUS_MS instead
     // of the URL-input STAGE2 delay.
     //
-    // `?? true` is a conservative fallback for callers that armed the flag
-    // without specifying isTrackTransition — pick the longer 4s rendezvous
-    // so guests don't drift if the caller's scenario was actually a
-    // YT-to-YT switch. All known caller sites (playlist.ts playTrack,
-    // youtube/player.ts URL input/chat add, iframe.ts crash recovery) set the
-    // flag explicitly; this fallback only covers future callers that forget to.
+    // `?? true` is a conservative fallback when a caller omits
+    // isTrackTransition: use the longer 4s rendezvous so a YT-to-YT switch
+    // cannot drift. Current call sites set the flag explicitly.
     const pendingAutoSync = consumePendingAutoSyncOnReady();
     if (pendingAutoSync) {
       bus.emit('youtube:auto-play', {
@@ -1373,13 +1368,12 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // suppression (pause + wait for host) needs the loop running to detect
     // the sub-index change.
     //
-    // NOTE: We deliberately do NOT touch youtubeSyncLoop here. The active
+    // Do not touch youtubeSyncLoop here. The active
     // playback runtime starts/reconciles it, while stopYouTubeMode stops it.
     // ENDED is a transient state during
     // sub-video advance — clearing here would have to be paired with a
-    // restart in every recovery branch, and missing one (the `advanced`
-    // branch) was the exact cause of the "host playback data not found
-    // after a few sub-videos" regression. Queue-ended cases go through
+    // restart in every recovery branch. In particular, the `advanced` branch
+    // needs the existing loop to retain host playback data. Queue-ended cases go through
     // playlist:next-track → stopYouTubeMode, which still clears it.
 
     const hostConn = getState('network.hostConn');
@@ -1460,9 +1454,8 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // broadcasts is safe.
   const syncInFlight = !!getManagedTimer('yt-auto-sync');
   // State-aware cooldown: only suppress if same state was broadcast within 300ms.
-  // The old time-only cooldown swallowed legitimate state changes (e.g., rapid
-  // pause→play within 300ms), leaving guests stuck in the old state for 3s
-  // until the next heartbeat corrected it.
+  // Deduplicate by state as well as time. A time-only cooldown would swallow a
+  // rapid pause→play transition and leave guests stale until the next heartbeat.
   const isDuplicateState =
     state === _ifr.lastBroadcastState && now - _ifr.lastStateBroadcast < STATE_BROADCAST_DEDUP_MS;
   if (!hostConn && player?.getCurrentTime && !syncInFlight && !isDuplicateState) {
@@ -1702,7 +1695,7 @@ function updateYouTubeUI(): void {
       // eventually corrects it via loadVideoById, but this causes 3-6s
       // of the guest playing the wrong video from position 0.
       //
-      // Fix: immediately pause the guest and let the host's YOUTUBE_STATE
+      // Immediately pause the guest and let the host's YOUTUBE_STATE
       // (which arrives with the correct videoId and hostPlayAt within ~1s)
       // drive the transition. This eliminates the wrong-video window.
       if (hostConn && prevIdx !== -1 && playlistIdx >= 0) {
@@ -1722,9 +1715,8 @@ function updateYouTubeUI(): void {
       // ── Host-side: sub-video auto-advance detection ────────────────
       // YouTube IFrame auto-advances between sub-videos in a playlist
       // WITHOUT firing an ENDED event, so our ENDED → playlist:next-track
-      // path never runs and guests diverge until drift correction catches
-      // up. Detect the transition here and schedule an auto-sync (pause
-      // host briefly, broadcast hostPlayAt, resume everyone simultaneously).
+      // path never runs and guests diverge until drift correction catches up.
+      // Detect the transition here and start the track-transition rendezvous.
       if (!hostConn && prevIdx !== -1 && playlistIdx >= 0 && !getManagedTimer('yt-auto-sync')) {
         log.debug(
           `[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`,
@@ -1748,10 +1740,9 @@ function updateYouTubeUI(): void {
 
     // Update track title and videoId cache.
     // getVideoData() is an expensive cross-iframe call. Only call it when
-    // the sub-index changed (detected above) or every Nth tick as a
-    // fallback for non-playlist single videos. Legacy v1 never called
-    // getVideoData() during polling, and the current version's 2x/second
-    // calls were a major contributor to iframe memory pressure and crashes.
+    // the sub-index changed (detected above) or every Nth tick as a fallback
+    // for single videos. Calling it on every UI tick (twice per second) caused
+    // iframe memory pressure in long sessions.
     _ifr.videoDataPollCount = (_ifr.videoDataPollCount + 1) % VIDEO_DATA_POLL_EVERY_NTH_TICK;
     const shouldPollVideoData = subIndexJustChanged
       ? false // sub-index branch above already ran; title was set from subItemsMap
@@ -1777,8 +1768,8 @@ function updateYouTubeUI(): void {
     }
 
     // Commit the latest rawDuration whenever it diverges meaningfully from
-    // the cache. The old "lock on first valid read" pattern was fragile: a
-    // transitional poll could land on (new videoId, stale rawDuration) or
+    // the cache. Do not lock on the first valid read: a transitional poll can
+    // land on (new videoId, stale rawDuration) or
     // (stale videoId, stale rawDuration) and permanently pin the cache to
     // the previous video's duration. Re-reading every poll is cheap, and
     // a small threshold keeps the emit quiet when rawDuration is stable.
@@ -1922,7 +1913,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
   }
 }
 
-// ─── Refresh Display Hack ──────────────────────────────────────────
+// ─── Refresh Display Workaround ────────────────────────────────────
 
 export function refreshYouTubeDisplay(): void {
   const container = document.getElementById('youtube-player-container');

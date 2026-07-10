@@ -1,5 +1,9 @@
 # 시나리오 오디트 — 재생/네트워크/프리로드 교차 상태 분석 (2026-06-10)
 
+> **역사적 감사 기록.** 발견·수정 상태와 코드 위치는 2026-06-10 및 문서에
+> 적힌 후속 커밋 기준이다. 현재 버그 목록이나 현재 릴리스 판정으로 사용하지
+> 말고, 재사용 전 최신 코드와 실행 테스트로 다시 검증한다.
+
 > 목적: "예상치 못한 사용 방식" 대비. 모드 전환 × 반복/셔플 × 프리로드 생명주기 × 역할(호스트/게스트/OP) 조합을
 > 교차시켜 시나리오 단위로 깨지는 지점을 추적한 결과. 커밋 단위 sweep(1~20차 오디트)과 달리
 > **상태 기계 교차곱** 관점의 분석. 5건 모두 사용자 검증으로 실제 이슈 확정 (2026-06-10).
@@ -175,7 +179,7 @@ play+broadcast 스킵하고 `markFailedAndAdvance`로 위임.
 
 ---
 
-# 2차 스윕 — 잔여 전 도메인 (같은 날, 2026-06-10)
+## 2차 스윕 — 잔여 전 도메인 (같은 날, 2026-06-10)
 
 > 범위: storage 전체(transfer-send/receive·recovery·ramstore·storage), youtube 전체(iframe·player·search),
 > network 전체(peer·peer-state·host·guest·protocol·orchestrator·shared-clock·system-audio-sfu/guest),
@@ -187,7 +191,7 @@ play+broadcast 스킵하고 `markFailedAndAdvance`로 위임.
 > 버그 수율은 1차 스윕의 "상태 기계 교차곱" 영역(player/preload/모드전환)에 집중돼 있었음 — 그쪽은
 > 커밋 단위 sweep으로는 한 번도 교차 분석된 적이 없던 차원이라는 메타 관찰.
 
-## P4 / 관찰 (수정 보류, 기록만)
+### P4 / 관찰 (수정 보류, 기록만)
 
 | ID | 내용 | 비고 |
 |----|------|------|
@@ -200,7 +204,7 @@ play+broadcast 스킵하고 `markFailedAndAdvance`로 위임.
 | SA-12 | **repeat-one 자연종료 300ms 윈도우 중 비현재 트랙 삭제 → stale index 브로드캐스트**: `player:ended` 리스너가 `currentTrackIndex`를 const로 캡처(playlist.ts:1236)하고 remove-track은 `_endedAdvanceToken`을 안 올림 → 300ms 뒤 `broadcast(PLAY, index=옛값)`. 오디오는 정상(같은 buffer), 게스트만 index-mismatch 복구 1회 낭비 | 좁은 윈도우 + 수렴. timer fire 시 fresh index 재읽기 또는 remove-track에서 토큰 bump로 해소 |
 | SA-13 | **호스트 demo 진입 시 outgoing broadcastFile 미취소**: stopPlaybackForDemoEntry는 cancelInFlight(수신/디코드)만 — 진행 중이던 송신 브로드캐스트는 demo 동안 계속 스트리밍 (게스트는 lifecycle 게이트로 폐기) | 대역폭 낭비만. demo/mode.ts:205에 `cancelOutgoingFileTransfers()` 1줄 |
 
-## 깨끗하게 통과한 표면 (체크 완료 기록)
+### 깨끗하게 통과한 표면 (체크 완료 기록)
 
 - **protocol.ts**: validator 커버리지 + 토큰버킷 rate-limit + FILE_CHUNK/PRELOAD_CHUNK 예외 — 견고
 - **ramstore/storage**: sid+name 이중 키, 2-tier 무결성 게이트(청크 수 + 바이트), finalize 후 chunks drop — 견고

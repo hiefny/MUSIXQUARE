@@ -1,12 +1,17 @@
 # Runtime Scenario Verification - 2026-05-31
 
+> **Maintained checklist.** Originally added on 2026-05-31 and revalidated on
+> 2026-07-11. The focused command and all five named E2E files still exist. This
+> subset is a fast signal; it does not replace the full serial E2E suite for a
+> production release.
+
 ## Scope
 
 This is a low-risk verification prep pass for runtime-sensitive flows. It does
 not change playback, network, transfer, YouTube, or system-audio behavior.
 
-The goal is to make the risky scenarios easier to run and inspect while the E2E
-suite is being updated for the decomposed playback state model.
+The focused group keeps the highest-risk cross-domain scenarios easy to run and
+inspect alongside the full suite for the current decomposed playback model.
 
 ## Added Fast E2E Group
 
@@ -26,7 +31,7 @@ The script builds the E2E bundle first, then runs:
 - `e2e/background-resume.test.ts`
 
 This group intentionally avoids the full serial E2E suite. It is meant as a
-focused signal while broader stale-test cleanup is still in progress.
+focused signal during development and incident verification.
 
 ## Memory Snapshot Checkpoints
 
@@ -51,13 +56,19 @@ Watch for monotonic growth in:
 - `[RamStore] main/preload`
 - `[Tracked] sum of above`
 
+`[Tracked]` is a logical sum, not a heap measurement: shared Blob/File
+references may be counted more than once, while browser and audio-engine
+allocations may be absent. Diagnose component trends and whether each returns
+to its baseline after cleanup rather than treating this total alone as a leak.
+
 ## Manual Runtime Matrix
 
 Run these manually when the focused E2E group is green:
 
 | Scenario | Expected signal |
 | --- | --- |
-| Remote guest late-joins a local-file room | Guest receives remote-share or direct transfer, then syncs near host position. |
+| Remote guest late-joins a local-file room | Guest receives the encrypted remote-share handoff, then syncs near host position. |
+| Local guest late-joins a local-file room | Guest receives the direct WebRTC file transfer, then syncs near host position. |
 | Host rapidly switches local files while a preload is active | Guest does not play the wrong file; stale chunks do not keep transfer stuck. |
 | YouTube load, manual sync, then stop mode | Guest enters and exits YouTube projection without stale play timers. |
 | Desktop system-audio share over local P2P | Guest receives one stream and cleanup restores previous UI state. |
@@ -69,8 +80,8 @@ Run these manually when the focused E2E group is green:
 - `npm run typecheck`
 - `npm run lint`
 - `npm test`
+- `npm run build:checked`
 - `npm run test:e2e:runtime`
 - Manual matrix completed for any browser/device class touched by the release.
 
-The full `npm run test:e2e` suite remains the broader release gate once the
-ongoing E2E state-projection cleanup is complete.
+The full `npm run test:e2e` suite remains the broader production-release gate.

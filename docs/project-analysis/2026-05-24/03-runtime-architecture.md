@@ -1,5 +1,9 @@
 # Runtime Architecture Deep Dive
 
+> **Historical snapshot (2026-05-24).** Module names and runtime flows may have
+> moved since this audit. Verify every path against the current source before
+> using it for implementation work.
+
 ## Boot Order
 
 Main entry: `src/app.ts`.
@@ -563,4 +567,3 @@ Common cleanup mechanisms:
 - Peer connection close/destroy.
 
 `leaveSession()` in `src/network/peer.ts` is a high-blast-radius function. It clears media, network, transfer, preload, files, playback, sync, YouTube, and UI-adjacent state. Any future change to leave/cleanup should be tested against all media modes.
-

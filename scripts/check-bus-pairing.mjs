@@ -4,13 +4,13 @@
  *
  * Static guard for EventBus emit/listen pairing.
  *
- * The bus is already compile-time type-safe (src/core/events.ts: EventMap with
- * the escape hatch removed), so event NAMES and PAYLOADS are guaranteed valid.
+ * The bus is compile-time type-safe through src/core/events.ts EventMap, so
+ * event names and payloads are guaranteed valid.
  * What TypeScript cannot see is whether an emitted event has any LISTENER, or
- * whether a listener waits for an event nobody emits. That gap is this repo's
- * historical #1 runtime bug class ("Bus Event Mismatch").
+ * whether a listener waits for an event nobody emits. This guard closes that
+ * runtime mismatch gap.
  *
- * This script closes that gap with existence-pairing analysis:
+ * It uses existence-pairing analysis:
  *   - DEAD EMIT     : bus.emit('x') exists, but no .on('x') in production code.
  *   - ORPHAN LISTEN : .on('x') exists, but no bus.emit('x') in production code.
  *

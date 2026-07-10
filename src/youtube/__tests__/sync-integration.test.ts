@@ -1,19 +1,14 @@
 /**
  * @vitest-environment jsdom
  *
- * YouTube Sync Integration Tests — Route C of the drift-regression plan.
+ * YouTube sync integration tests.
  *
  * These tests exercise the REAL exported handlers of `src/youtube/sync.ts`
  * and `src/youtube/player.ts` against a fake YT player object under vitest
- * fake timers. The sync protocol has two paths in `scheduleYtAutoSync`:
- *   - Path A (immediate-rendezvous): pure PLAY/SEEK on the same video —
- *     skips Stage 1 entirely and fires YOUTUBE_SYNC{isManual:true}
- *     immediately so guests run a single guestRendezvousSync().
- *   - Path B (2-stage, post-85ad164): transitions (videoId/subIndex/
- *     rendezvousDelayMs override) or pause — broadcasts YOUTUBE_STATE
- *     with hostPlayAt=0 immediately, then YOUTUBE_SYNC{isManual:true}
- *     at Stage 2 after STAGE2_RENDEZVOUS_BROADCAST_MS so guests have
- *     time to loadVideoById before precision sync.
+ * fake timers. Every `scheduleYtAutoSync` call uses the two-stage protocol:
+ * Stage 1 broadcasts YOUTUBE_STATE with hostPlayAt=0, then Stage 2 sends
+ * YOUTUBE_SYNC{isManual:true} after STAGE2_RENDEZVOUS_BROADCAST_MS. The delay
+ * lets guests apply state or load a new video before precision rendezvous.
  *
  * Key design decisions:
  *   - Real core/timers.ts so `setManagedTimer` / `getManagedTimer` work
@@ -220,12 +215,11 @@ async function importSync() {
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('YouTube Sync — Regression Integration', () => {
-  // All scheduleYtAutoSync calls now flow through the 2-stage protocol
+  // All scheduleYtAutoSync calls flow through the 2-stage protocol
   // (Stage 1 YOUTUBE_STATE → wait → Stage 2 YOUTUBE_SYNC{isManual:true}).
-  // A previous Path A "immediate rendezvous" optimization for same-video
-  // PLAY/SEEK was reverted — the iframe's getPlayerState/getCurrentTime
-  // async race plus variable seek-buffer time made the immediate broadcast
-  // carry stale data on slower devices/networks.
+  // Same-video PLAY/SEEK must also use both stages: the iframe's
+  // getPlayerState/getCurrentTime race and variable seek-buffer time can make
+  // an immediate broadcast carry stale data on slower devices or networks.
   describe('scheduleYtAutoSync — 2-stage broadcast', () => {
     it('Stage 1 broadcast is YOUTUBE_STATE with hostPlayAt=0 when videoId override is set', async () => {
       installPlayer({ __state: 2 });
@@ -233,7 +227,7 @@ describe('YouTube Sync — Regression Integration', () => {
       const { broadcast } = await import('../../network/peer.ts');
       const broadcastMock = vi.mocked(broadcast);
 
-      // videoId override marks this as a transition → Path B
+      // A videoId override exercises the new-video transition within Stage 1.
       scheduleYtAutoSync(10, { videoId: 'NEW_VID' });
 
       // Stage 1 only at this point — Stage 2 fires after STAGE2_RENDEZVOUS_BROADCAST_MS.
@@ -332,14 +326,14 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
-  // 5. Host seeks during guest countdown: new handleYouTubeState supersedes prior (cd75008)
-  describe('handleYouTubeState — host seeks during countdown (commit cd75008)', () => {
+  // 5. Host seeks during guest countdown: new state supersedes the prior countdown.
+  describe('handleYouTubeState — host seeks during countdown', () => {
     it('second YOUTUBE_STATE during countdown replaces the first scheduled play', async () => {
       const player = installPlayer({ __state: 2, __duration: 300, __currentTime: 0 });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
       expect(handler).toBeDefined();
       // Simulate guest receiving host broadcast — handleYouTubeState's
-      // hostConn guard (sync.ts:751) requires conn === network.hostConn.
+      // The sync.ts hostConn guard requires conn === network.hostConn.
       setState('network.hostConn', mockHostConn as never);
 
       // First host command: pause+seek to 5, play at +1000ms
@@ -720,8 +714,8 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
-  // 10. NaN state in handleYouTubeState drops message (commit 93b8b78)
-  describe('handleYouTubeState — NaN state guard (commit 93b8b78)', () => {
+  // 10. NaN state in handleYouTubeState drops the message.
+  describe('handleYouTubeState — NaN state guard', () => {
     it('drops message when state is not a finite number', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
@@ -760,11 +754,9 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
-  // 11. cancelYtAutoSync clears the auto-sync timer
-  // Path A doesn't set the yt-auto-sync timer at all, so this test exercises
-  // Path B (transition) where the Stage 2 timer is what cancelYtAutoSync targets.
+  // 11. cancelYtAutoSync clears the pending Stage 2 timer.
   describe('cancelYtAutoSync', () => {
-    it('clears the yt-auto-sync timer set by Path B (transition)', async () => {
+    it('clears the pending Stage 2 yt-auto-sync timer', async () => {
       installPlayer({ __state: 2 });
       const { scheduleYtAutoSync, cancelYtAutoSync } = await importPlayer();
 
@@ -781,9 +773,8 @@ describe('YouTube Sync — Regression Integration', () => {
   // bootstrap frame that lands while the guest is still inside
   // loadYouTubeVideo (player null, mode not yet YouTube) is not lost — without
   // it the user's first manual rendezvous hits "No host playback data" until
-  // the next heartbeat seconds later. handleYouTubeSync got this with the
-  // late-join fix; handleYouTubeState is the sibling path (8cbf192 lesson:
-  // patching one of the two paths and missing the other).
+  // the next heartbeat seconds later. Both handleYouTubeSync and
+  // handleYouTubeState must apply the same snapshot rule.
   describe('late-join host snapshot — recorded before player/mode readiness', () => {
     it('a YOUTUBE_SYNC heartbeat arriving before the player exists still feeds the next rendezvous', async () => {
       const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
@@ -1025,8 +1016,8 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
-  // 16. Host-side sub-video navigation (single-video mode). The 2026-06-07
-  // desync class: a navigation broadcast missing the new subIndex/videoId
+  // 16. Host-side sub-video navigation (single-video mode). A navigation
+  // broadcast missing the new subIndex/videoId
   // leaves guests on the old video. Both broadcast stages must carry the
   // post-navigation pair, and out-of-range navigation must hand control back
   // to the queue-level playlist logic via callback(false).
@@ -1068,7 +1059,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(stage1).toMatchObject({ state: 1, time: 0, subIndex: 1, videoId: 'vidB' });
 
       // Stage 2 (YOUTUBE_SYNC manual): the precision rendezvous fires after the
-      // track-transition delay (4s, F-2409) — longer than the 2s STAGE2 default
+      // track-transition delay (4s), longer than the 2s STAGE2 default
       // because a sub-video Next loads a DIFFERENT video — and must carry the
       // SAME pair, read back from the live player + managed index.
       const { TRACK_TRANSITION_RENDEZVOUS_MS } = await import('../constants.ts');

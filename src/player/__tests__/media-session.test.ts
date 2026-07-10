@@ -154,7 +154,7 @@ describe('initMediaSession', () => {
   // lock screen and hardware media buttons should always work (see
   // media-session.ts isPlaybackBlocked comment). Resume is only valid when
   // the pause originated locally (isLocalFilePaused); a ROOM-level pause
-  // (host PAUSE) must not be resumable by a lone guest (SA-09).
+  // (host PAUSE) must not be resumable by a lone guest.
   it('play handler resumes a LOCALLY-paused file for non-operator guests', () => {
     setState('network.hostConn', { fake: true } as never);
     setState('network.isOperator', false);
@@ -291,8 +291,8 @@ describe('initMediaSession', () => {
   // combination. The mapping is deliberate per row: an automated migration
   // that introduces a new value or changes a row's output must update the
   // table here, not silently drift through a default branch. The mediaSession
-  // 'pending' regression (initially mapped to 'none', causing iOS to suspend
-  // AudioContext mid-preload) is the canonical case this guards against.
+  // In particular, pending work must retain the paused OS hint so iOS can keep
+  // the AudioContext available through preload.
   describe('mediaSession.playbackState (mode × activity matrix)', () => {
     type Row = {
       mode: 'file' | 'youtube' | 'system-audio' | null;

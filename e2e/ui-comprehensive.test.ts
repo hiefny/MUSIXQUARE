@@ -56,7 +56,6 @@ test.describe('Comprehensive UI', () => {
   test('tab content changes when switching tabs', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Go to settings
     const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
     if (await settingsNav.isVisible()) {
       await navigateToTab(pair.hostPage, 'settings');
@@ -92,7 +91,6 @@ test.describe('Comprehensive UI', () => {
       await mediaBtn.click();
       await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
 
-      // YouTube button should exist
       await expect(pair.hostPage.locator('#btn-youtube-source')).toBeAttached();
     }
   });
@@ -114,12 +112,10 @@ test.describe('Comprehensive UI', () => {
   test('chat close button closes drawer', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Open chat
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
     if (await chatBtn.isVisible()) {
       await openChatDrawer(pair.hostPage);
 
-      // Close chat
       const closeBtn = pair.hostPage.locator('#btn-chat-close');
       if (await closeBtn.isVisible()) {
         await closeBtn.click();
@@ -190,7 +186,6 @@ test.describe('Comprehensive UI', () => {
       const el = document.getElementById('role-text');
       return el?.textContent?.trim() || '';
     });
-    // Should show guest or peer label
     expect(roleText.length).toBeGreaterThan(0);
   });
 
@@ -252,7 +247,6 @@ test.describe('Comprehensive UI', () => {
       const list = document.getElementById('playlist-ui');
       return list?.children.length ?? -1;
     });
-    // Playlist may have 0 items or 1 (demo track auto-added in some configs)
     expect(count).toBeGreaterThanOrEqual(0);
   });
 
@@ -308,7 +302,6 @@ test.describe('Mobile UI', () => {
       const count = await navItems.count();
       expect(count).toBeGreaterThanOrEqual(3);
 
-      // Tap each and wait for corresponding tab to become active
       for (let i = 0; i < count; i++) {
         const tabName = await navItems.nth(i).getAttribute('data-tab');
         await navItems.nth(i).click();

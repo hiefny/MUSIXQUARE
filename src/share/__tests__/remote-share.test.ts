@@ -191,12 +191,8 @@ describe('remote file share policy', () => {
     expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
   });
 
-  // EXT-4 (external review 2026-06-11): a same-object descriptor under a NEW
-  // playback context (duplicate playlist entry / host re-click rebases the
-  // cached descriptor to a new index/sessionId) must keep the in-flight
-  // download (same bytes) but completion must publish the LATEST context —
-  // dropping it wholesale published the original index/sessionId, leaving
-  // the guest on a stale track identity plus a spurious wait-timeout toast.
+  // The same object may be rebased to a newer playback context while its bytes
+  // are downloading. Deduplicate the bytes but publish the newest context.
   it('publishes the latest context when a same-object descriptor arrives mid-download', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { getState } = await import('../../core/state.ts');
@@ -237,12 +233,8 @@ describe('remote file share policy', () => {
     expect(usePreloaded).toHaveBeenCalledWith(0, 'song.mp3');
   });
 
-  // EXT-5 (external review 2026-06-11, EXT-4 follow-up): a LATE same-object
-  // descriptor can carry a composed-stale context — the host answers a stale
-  // REQUEST_CURRENT_FILE with (current sessionId, requested OLD index)
-  // because findMatchingBlob name-matches across indices and targeted sends
-  // bypass the broadcast-only stale-track guard. The re-point must adopt
-  // only a STRICTLY NEWER sessionId, never rewind to an equal/older context.
+  // A targeted response may pair the current sessionId with an older requested
+  // index. Same-object re-pointing therefore requires a strictly newer session.
   it('does not rewind the wait when a late same-object descriptor carries a non-newer context', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { getState } = await import('../../core/state.ts');
@@ -287,12 +279,8 @@ describe('remote file share policy', () => {
     expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
   });
 
-  // EXT-6 (external review 2026-06-11, EXT-5 follow-up): R2 completion is
-  // independent of control-message order — a composed-stale descriptor can
-  // land AFTER the download finished and _activeDownload was cleared. The
-  // monotonic gate must hold beyond the in-flight window, or the descriptor
-  // enters the fresh-download path and rewinds the wait + re-fetches bytes
-  // already on device.
+  // The monotonic context gate must outlive the download because control
+  // responses and R2 completion are independently ordered.
   it('ignores a stale same-object descriptor arriving after the download completed', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { getState } = await import('../../core/state.ts');
@@ -330,12 +318,8 @@ describe('remote file share policy', () => {
     expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'PRELOAD_FILE_READY', index: 0 });
   });
 
-  // EXT-7 (external review 2026-06-11, EXT-6 follow-up): the host re-uploads
-  // the SAME track as a NEW R2 object when its descriptor cache expired —
-  // same sessionId/index, different objectId (the recovery path depends on
-  // this). The gate's resend exemption must key on the playback context
-  // (index + sessionId), NOT the objectId, or legitimate recovery re-issues
-  // are dropped forever and the guest can never obtain the file.
+  // Recovery may re-upload the same playback context as a new R2 object after
+  // descriptor expiry, so the retry exemption cannot depend on objectId.
   it('accepts a re-issued object for the same playback context (host cache expired)', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { getState } = await import('../../core/state.ts');
@@ -350,11 +334,8 @@ describe('remote file share policy', () => {
         }),
     );
 
-    // Adopt context {object-1, index 1, sid 9}, then the download fails
-    // non-transiently (R2 object expired) — the guest holds NO blob, so the
-    // re-issued object below is its only way to get the file. (A SUCCESSFUL
-    // first download instead takes the preload-promote fast-path on the
-    // re-issue — no download needed — which is why this test fails it.)
+    // Adopt the context, then fail before retaining a blob so recovery must
+    // fetch the replacement object rather than use the promotion fast path.
     const first = handleData(
       { type: MSG.REMOTE_FILE_SHARE, ...descriptor({ index: 1, sessionId: 9 }) },
       conn,
@@ -459,15 +440,9 @@ describe('remote file share policy', () => {
   });
 });
 
-// Host-side completion-time broadcast gate (HET-3, 22nd audit 28a716da):
-// there is deliberately NO navigate-away upload cancel — in-flight uploads
-// run to completion (descriptor-cache warm-up + shared in-flight promise for
-// targeted recovery sends, HET-6), and staleness is enforced ONLY when the
-// upload completes, by the hasRemoteTargets / isHostActiveFile /
-// isExternalOwner triplet. These pins convert that previously comment-only
-// invariant into tested behavior; weakening any of them re-opens the stale
-// descriptor broadcast (guests stomp index/title UI + burn mobile data on a
-// download that aborts at activation).
+// Uploads may finish after navigation to warm the descriptor cache and serve
+// shared recovery waiters. Completion-time target, identity, and ownership
+// gates decide whether the descriptor may still be broadcast.
 describe('host-side completion-time broadcast gate (HET-3)', () => {
   function remotePeer(): ConnectedPeer {
     return {

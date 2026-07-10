@@ -174,7 +174,6 @@ function normalizeSearchResults(value: unknown): YouTubeSearchResult[] {
         // https:// whitelist: own /api/youtube-search returns i.ytimg.com URLs,
         // but defense-in-depth blocks data:/javascript: if backend ever drifts.
         // Empty string falls back to canonical mqdefault.jpg in the renderer.
-        // (10차 audit Phase 4 finding.)
         thumbnailUrl:
           typeof row.thumbnailUrl === 'string' && row.thumbnailUrl.startsWith('https://')
             ? row.thumbnailUrl

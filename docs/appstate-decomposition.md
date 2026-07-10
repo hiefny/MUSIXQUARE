@@ -1,6 +1,11 @@
 # AppState Decomposition (Phase 5)
 
 > Companion to [state-patterns.md](state-patterns.md). That document defines the read/write contract for playback state. This one records the migration from the old flat `appState` enum to the two-axis model (`mode` x `activity`).
+>
+> **Status note (2026-07-11):** the migration is complete. Sections describing
+> sub-phases, estimates, rollback commits, and the old enum are historical
+> implementation context, not an active rollout plan. Current callers must
+> follow `state-patterns.md` and the executable contract tests.
 
 ## Status
 
@@ -28,7 +33,7 @@ export const APP_STATE = {
 
 Those five values overloaded two orthogonal axes:
 
-| current value | mode | activity |
+| former value | mode | activity |
 | --- | --- | --- |
 | `IDLE` | null | idle |
 | `PAUSED` | file (legacy assumption) | paused |
@@ -40,13 +45,14 @@ Three concrete problems caused by the overload:
 
 1. **No "youtube paused" representation in the state tree.** YouTube's paused state lives inside the iframe player instance (`player.getPlayerState()`). Code that needs to know "is YouTube currently paused" reads async iframe state and is race-prone. The state tree cannot answer the question.
 
-2. **No "system-audio paused" representation.** "Pause" for system audio currently means "stop sharing". A future mode such as recorded podcast or prerecorded stream would want a real paused state. The current enum cannot accommodate it without a new top-level value per mode.
+2. **No "system-audio paused" representation.** "Pause" for system audio means "stop sharing". A future mode such as recorded podcast or prerecorded stream would want a real paused state. The former enum could not accommodate it without a new top-level value per mode.
 
 3. **"Pending" is encoded in three different places.** `player.currentTrackMeta.systemAudioPlaceholder`, `systemAudio.isReceiving`, and `playback.lifecycle === DOWNLOADING/AWAITING_PRELOAD`. Phase 5a unified the read side via `activity: 'pending'`, but the state tree itself still scatters the original signals.
 
-## Target Shape
+## Resulting Shape
 
-5b should add only the new source slots to the current state tree. Existing `player.*` fields stay put.
+Phase 5b added the new source slots without moving the existing `player.*`
+fields.
 
 ```ts
 state.playback = {
@@ -57,7 +63,8 @@ state.playback = {
   lifecycle: PlaybackStateValue,
   loadSource: LoadSourceValue | null,
   pendingPlayTime: number | undefined,
-  pendingPausedAt: number | undefined,
+  pendingPlayTimeSetAt: number,
+  pendingRecoveryTarget: { index: number; name: string } | null,
   // ...
 }
 
@@ -113,10 +120,9 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 
 - `src/player/ownership.ts` - the central ownership and mode/activity helper surface; it also owns the narrow strict-IDLE compatibility predicate.
 - `src/player/transport.ts` - writes playback through semantic mode/activity helpers; its stop/pause guards preserve old IDLE semantics through `isPlaybackIdleCompat()`.
-- `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because YouTube pause is not represented by `APP_STATE.PAUSED`.
-- `src/audio/beat-detector.ts` - keeps a module-local file-playing cache from `playback.mode/activity`, with buffer-change refresh for silent track switches.
+- `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because the former flat enum did not represent YouTube pause.
 - `src/player/playlist.ts` - historical idle checks guard async decode races where compatibility `IDLE` is the intended signal, but read it through `isPlaybackIdleCompat()`.
-- `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode; pause/play still comes from iframe player state, not `APP_STATE.PAUSED`.
+- `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode; pause/play still comes from iframe player state, not the former flat enum's paused value.
 - `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; queue/indexing idle checks still use strict compatibility `IDLE` via `isPlaybackIdleCompat()`.
 - `src/youtube/iframe.ts` - iframe create/ready/state/UI guards use playback mode, with indexing exceptions and `IDLE` fallback writes kept unchanged.
 - `src/player/video.ts` - media-engine mode changes now gate from playback activity and write through semantic playback helpers; body-class rendering subscribes to `state:playback.mode`.
@@ -135,7 +141,7 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 Do not treat this list as a mandate to remove every legacy reference. The remaining references are deliberately strict legacy command gates.
 `src/player/__tests__/playback-state-contract.test.ts` bans raw production slot/event access and pins full legacy enum projection consumers to zero, so new legacy reads cannot appear unnoticed.
 
-## Sub-Phase Roadmap
+## Historical Sub-Phase Plan
 
 ### 5b - Dual Write (1 day)
 
@@ -203,7 +209,6 @@ Order, lowest-risk first:
 
 7. **Audio graph mutation gates (0.5 day)**
    - `src/audio/channel.ts` is done: surround routing refreshes active playback through playback mode/activity helpers instead of legacy appState checks.
-   - `src/audio/beat-detector.ts` is done: BPM analysis follows playback mode/activity events and still refreshes on buffer swaps for silent file transitions.
 
 8. **Bootstrap/background gates (0.5 day)**
    - `src/app.ts` is done for keyboard play/stop gating and long-background recovery decisions that ask whether playback is currently file, YouTube, or idle.
@@ -275,7 +280,7 @@ The old full enum projection helpers and compatibility setter have also been del
 - Manual cross-version smoke: host on previous version with guest on new version, and host on new version with guest on previous version. Critical for 5d.
 - No production code may call `getState('appState')`, `setState('appState')`, subscribe to `state:appState`, or reintroduce full legacy enum projection helpers; this is pinned by `playback-state-contract.test.ts`.
 
-## Rollback Strategy
+## Historical Migration Rollback Strategy
 
 | Sub-phase | Rollback |
 | --- | --- |
@@ -290,10 +295,12 @@ The old full enum projection helpers and compatibility setter have also been del
 
 The temporary feature flag module has been removed because no migration flags remain.
 
-## Open Questions
+## Resolved Questions And Follow-ups
 
-1. **Should `mode` retain identity after release?**
-   When user leaves `PLAYING_YOUTUBE` for `IDLE`, does `mode` become `null` or stay `'youtube'` until something else is claimed? The adapter currently returns `null`. UI may want the last mode for badge labels and "resume" affordances. Probably `null` is correct for the source-of-truth, with UI computing a `lastMode` separately if needed.
+1. **Mode identity after release — resolved.**
+   Releasing playback clears the source of truth to
+   `{ mode: null, activity: 'idle' }`. Any future "last mode" UI must keep a
+   separate presentation value rather than weakening the ownership contract.
 
 2. **Should `activity: 'pending'` be split into kinds?**
    Currently derived for both file lifecycle (`DOWNLOADING`/`AWAITING_PRELOAD`) and system-audio placeholder receive. If UX justifies it, this could split into `loading`, `buffering`, or `connecting`. YAGNI for the migration itself; revisit only if a real UX need surfaces.
@@ -304,7 +311,7 @@ The temporary feature flag module has been removed because no migration flags re
 4. **What about future modes (podcast, voice-chat)?**
    Decomposition unblocks them, but does not implement them. Each new mode would add one value to `PlaybackMode` and write claim/release semantics in `ownership.ts`. No state-tree changes should be required after Phase 5.
 
-## Effort Estimate
+## Original Effort Estimate
 
 | Sub-phase | Active dev | Calendar wait |
 | --- | --- | --- |
@@ -334,8 +341,8 @@ This document does not cover:
 
 Phase 5 is complete. Reasonable triggers for future follow-up work:
 
-- A new mode (podcast, etc.) is on the roadmap. Phase 5 unblocks it cleanly.
+- A new mode (podcast, etc.) is proposed and needs the two-axis model.
 - A bug report surfaces where "YouTube paused" semantic gap is the root cause.
-- Engineering bandwidth between feature work permits a 2-week migration cycle.
+- A follow-up can remove the remaining narrow legacy-idle compatibility gate.
 
 Until then, keep new playback code on mode/activity helpers and avoid broadening the legacy idle predicate.

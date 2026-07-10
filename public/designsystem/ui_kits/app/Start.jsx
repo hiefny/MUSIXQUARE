@@ -1,5 +1,5 @@
 // Start / pre-session screen.
-// Copy taken from src/i18n/en.ts: setup.host_button, setup.guest_button, etc.
+// Prototype copy modeled on the English setup strings; src/i18n is authoritative.
 function Start({ onHost, onGuest, onDemo }) {
   return (
     <div className="mq-start">

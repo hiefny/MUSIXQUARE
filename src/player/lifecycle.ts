@@ -1,8 +1,9 @@
 /**
  * MUSIXQUARE — Playback Lifecycle State Machine
  *
- * Guest-side track lifecycle. See `docs/design/playback-state-machine.md`
- * for the design doc and transition table.
+ * Guest-side track lifecycle. The executable transition contract lives in
+ * this module and `player/__tests__/lifecycle.test.ts`; current ownership
+ * invariants are documented in `docs/design/playback-concurrency-invariants.md`.
  *
  * Contract:
  *   - All reads of `playback.lifecycle` are OK anywhere.
@@ -11,13 +12,11 @@
  *     The only other sanctioned writers are ownership.ts setPlaybackIdle and
  *     the session-leave full reset in network/peer.ts. Direct setState calls
  *     are forbidden — statically enforced by scripts/check-lifecycle-writes.mjs
- *     (guard:lifecycle-writes), which also pins the sanctioned call-site sets
- *     for setPlaybackLifecycleState / setPlayPreloadedInProgress /
- *     newLoadEpoch (the legacy alias incrementLoadToken was retired
- *     2026-06-12; the guard keeps a tombstone check on the old name).
+ *     (guard:lifecycle-writes), which also checks the sanctioned call sites
+ *     for setPlaybackLifecycleState, setPlayPreloadedInProgress, and
+ *     newLoadEpoch.
  *   - Rejected transitions (disallowed event/state combo) are logged at
- *     error level and leave the state unchanged. We never throw — a single
- *     bug in the transition table should not kill the app.
+ *     error level and leave the state unchanged. They do not throw.
  *
  * This module is PURE LOGIC:
  *   - It does not touch the DOM, audio engine, or network layer.
@@ -112,9 +111,10 @@ type TransitionResult =
 // Pure function. No side effects. Returns the next state OR an indication to
 // stay/reject. The caller (transition() below) applies side effects.
 //
-// Keep this function mirrored 1:1 with Section 4 of the design doc. If you
-// add a branch here, add the corresponding row in the doc. If you remove a
-// doc row, remove the branch here.
+// Keep the executable transition cases in player/__tests__/lifecycle.test.ts
+// aligned with this resolver. docs/design/playback-concurrency-invariants.md
+// records the current ownership rule; playback-state-machine.md is historical
+// design context rather than transition authority.
 
 function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
   // ── Global transitions (apply from ANY state) ──
@@ -168,7 +168,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         // already disengaged from (e.g. host endOfPlaylist or rapid track-change
         // race). Harmless on idle state; the next FILE_PREPARE will re-engage
         // the pipeline cleanly. Suppressed so the reject log doesn't drown out
-        // real signal during multi-peer debugging.
+        // actionable signals during multi-peer debugging.
         return { stay: true };
       default:
         return { reject: `${ev.type} not expected in IDLE` };
@@ -223,7 +223,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
     }
   }
 
-  // ── From AWAITING_PRELOAD (the state that kills the bug) ──
+  // ── From AWAITING_PRELOAD ──
   if (from === PLAYBACK_STATE.AWAITING_PRELOAD) {
     switch (ev.type) {
       case 'PRELOAD_CHUNK':
@@ -271,9 +271,9 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         if (ev.variant === 'same-file') return { stay: true };
         if (ev.variant === 'preload-match')
           return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
-        // supersede; a stale in-flight host load aborts via its epoch/sessionId
-        // checkpoints, a stale guest finalize via its transfer-session snapshot
-        // (decode.ts, pin j) — NOT via the load epoch (§5 finalize immunity).
+        // supersede. Host loads validate epoch/sessionId; guest finalization
+        // validates its transfer-session snapshot and intentionally ignores
+        // load-epoch bumps.
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };
       case 'PLAY_PRELOADED':
         if (ev.variant === 'blob-ready') return { stay: true }; // likely dedup for same track
@@ -469,9 +469,8 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
  */
 export function transition(ev: PlaybackEvent): PlaybackStateValue {
   if (isExternalOwner()) {
-    // No-op in other modes. Caller is responsible for not trying to drive
-    // playback lifecycle from YouTube/system-audio handlers anyway — this is
-    // belt-and-suspenders.
+    // Other playback modes own separate state paths, so file-lifecycle events
+    // cannot change their state.
     return getState('playback.lifecycle');
   }
 

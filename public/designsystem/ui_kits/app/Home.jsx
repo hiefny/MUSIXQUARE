@@ -1,4 +1,3 @@
-// Home tab — player view with visualizer, track info, transport row.
 function Home({ playing, onTogglePlay, track, onNext, onPrev }) {
   return (
     <>

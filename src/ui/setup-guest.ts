@@ -85,8 +85,8 @@ export function startGuestFlow(): void {
   // before the join tap, so a ready player exists for the gesture-bound bounce
   // in the join handlers. No-op off iOS / in C mode.
   precreateYouTubePlayer();
-  // The role picker is parked for now; default guests to the center speaker.
-  // Keep setup-role-area wired so explicit role selection can return later.
+  // Role selection is not exposed in the current setup, so default guests to
+  // the center speaker while keeping the existing role-area state coherent.
   setPendingGuestRoleMode(DEFAULT_SETUP_ROLE);
 
   updateInviteCodeUI();

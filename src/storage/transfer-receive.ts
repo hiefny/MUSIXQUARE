@@ -112,13 +112,9 @@ function restorePendingPlaySnapshot(
 
 // ─── Skip-Incoming Derivation ────────────────────────────────────────
 //
-// Computes the old skip-incoming decision from
-// primary state: lifecycle, playback mode/activity, transfer.meta, and
-// files.currentFileBlob, instead of a mutable cross-module flag. The flag-based
-// version produced the bug class fixed in 61a1c2b: a sticky `true` from
-// a prior preload-consume survived a rapid track switch and silently
-// dropped every chunk for the new track until chunkWatchdog (12s)
-// triggered recovery.
+// Derive the skip decision from lifecycle, playback ownership, transfer meta,
+// and the active blob. A derived decision cannot leak across track changes as
+// a mutable cross-module flag could.
 //
 // Callers that have access to the incoming message's `name` should pass
 // it so same-track replay can be detected.
@@ -341,14 +337,14 @@ async function _doFetchDemoFromServer(
       setPendingPlayTime(guardedPlayAt, guardedPlaySetAtValue);
     }
 
-    // THE BUG FIX: advance state machine past AWAITING_PRELOAD lock
+    // The fetched demo file now owns the preload lifecycle.
     transition({ type: 'PRELOAD_FILE_READY', index });
 
     bus.emit('storage:use-preloaded', index, demoTrack.fileName);
   } catch (e) {
     log.error('[Transfer] Demo server fetch failed:', e);
-    // The translated string ends with ":" — append the error to avoid a
-    // dangling colon in the toast (matches playlist.ts:987 usage).
+    // The translated string ends with ":"; append the error so the toast does
+    // not end with dangling punctuation.
     showToast(`${t('transfer.demo_load_fail')} ${(e as Error).message || ''}`.trim());
     showLoader(false);
     // Fallback: request from host. shouldSkipIncomingFile() will return false
@@ -539,20 +535,8 @@ export async function handleFilePrepare(
   const prevLocalSid = getState('transfer.localSessionId');
   const isNewSession = incomingSid && incomingSid > prevLocalSid;
 
-  // Update session if newer + hard-reset receive pipeline.
-  //
-  // Rapid track switch (e.g. 4→5→4→5) bug: without this reset, the old
-  // session's receivedCount persists across the new FILE_PREPARE. That
-  // leaves prepareWatchdog's `rc===0` condition unsatisfiable, and the
-  // chunkWatchdog's `lastChunkTime` stays anchored to an old chunk from
-  // the defunct session. Result: guest sits at "0%" until the 12s
-  // chunkWatchdog eventually expires from absolute time drift.
-  //
-  // Fix: on every new-session FILE_PREPARE, wipe the receive state and
-  // restart the chunkWatchdog from NOW so both safety nets are armed.
-  // transfer.state must also be reset to IDLE so the stale-on-completed
-  // guard in applyFileChunk doesn't filter out the new session's chunks
-  // when the prior decode left state at READY/PROCESSING.
+  // A newer session owns a fresh receive pipeline. Reset counters, ordering,
+  // watchdog time, and transfer state before accepting its chunks.
   if (isNewSession) {
     log.debug(
       `[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid}) — resetting receive pipeline`,
@@ -579,13 +563,9 @@ export async function handleFilePrepare(
 
   // Preload INDEX MISMATCH: Don't use stale preload from a different track
   const isMismatch = preloadMeta && data.index !== undefined && data.index !== preloadMeta.index;
-  // Same-content promote (DV-1): identical name AND byte size means the
-  // preloaded blob IS this track (duplicate playlist entries — prev/click
-  // onto the other copy). Re-point the preload at the requested index
-  // instead of discarding + re-downloading the same bytes. Promote only
-  // with a non-null blob: a blob-less mismatch must still clear (EXT-1's
-  // phantom-wait bug). Risk accepted: same name+size with different bytes
-  // would play wrong audio — practically these are the same File object.
+  // Duplicate playlist entries may reference the same name and byte size at a
+  // different index. Re-point only when a blob exists; otherwise clear the
+  // mismatched preload. Name+size is a heuristic and can collide.
   const isSameContentPromote = !!(
     isMismatch &&
     nextFileBlob &&
@@ -613,29 +593,16 @@ export async function handleFilePrepare(
 
   const pendingPlaySnapshot = capturePendingPlaySnapshot();
 
-  // !isMismatch: the mismatch branch above just CLEARED the preload state,
-  // but these locals were captured before it ran — without this gate a
-  // same-name-different-index track (duplicate filenames in the playlist,
-  // even the same song added twice) still entered here via
-  // hasPreloadedByName. The use-preloaded consumer then reads the now-null
-  // blob from state, arms a phantom preload wait, and the preload-match
-  // transition makes shouldSkipIncomingFile() drop the REAL incoming
-  // transfer — guest stalls until watchdog recovery. hasPreloadedByIndex
-  // and isMismatch are mutually exclusive, so this only blocks the
-  // name-match entry; the index-undefined name fallback still works.
-  // isSameContentPromote re-opens the door for the byte-identical case —
-  // the state above was re-pointed (NOT cleared), so the consumer reads a
-  // live blob.
+  // The match flags were captured before a mismatch could clear state. Require
+  // a valid index match or an explicit same-content promotion before using
+  // the still-captured blob reference.
   if (
     nextFileBlob &&
     (!isMismatch || isSameContentPromote) &&
     (hasPreloadedByIndex || hasPreloadedByName)
   ) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
-    // No chunks ride this path — disarm the chunk safety net the new-session
-    // reset above just armed, or it fires at 12s with receivedCount=0 and
-    // requests a full-file resend the host dutifully streams (EXT-3). Decode
-    // completion also clears it, but only if decode beats the watchdog window.
+    // No direct chunks follow this promotion, so disarm receive watchdogs now.
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('prepareWatchdog');
     showToast(t('transfer.preload_done'));
@@ -672,12 +639,8 @@ export async function handleFilePrepare(
   const currentTransferMeta = getState('transfer.meta');
   const isSameTrackByName =
     data.index === undefined && data.name && currentTransferMeta?.name === data.name;
-  // Same-content reuse at a DIFFERENT index (sibling of the preload promote
-  // above): the loaded — possibly PLAYING — file IS the requested track
-  // (duplicate playlist entries). Re-point its identity instead of
-  // re-downloading bytes that already passed decode. name+size identity,
-  // same risk posture as the preload promote; size only ships from current
-  // hosts, so old-host pairs gracefully fall back to a re-download.
+  // Reuse an already decoded same-name/same-size file for a duplicate playlist
+  // entry at another index. Missing size metadata falls back to download.
   const isSameContentByNameSize =
     data.index !== undefined &&
     data.index !== currentTrackIndex &&
@@ -702,12 +665,7 @@ export async function handleFilePrepare(
     log.debug(
       `[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`,
     );
-    // Replay never decodes and never receives chunks, so nothing downstream
-    // clears the chunkWatchdog the new-session reset armed above. Left running
-    // it fires at 12s and asks the host to re-stream the entire file from
-    // chunk 0 — the FILE_START same-file short-circuit then silently discards
-    // it, so the only symptom is a full-file resend per local guest on every
-    // duplicate-entry reuse (EXT-3).
+    // Replay receives no chunks, so clear the watchdog armed for a new session.
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('prepareWatchdog');
     if (isSameContentByNameSize) {
@@ -744,7 +702,8 @@ export async function handleFilePrepare(
   const isPreloading = getState('preload.isPreloading');
 
   if (isPreloading && (preloadInProgressByIndex || preloadInProgressByName)) {
-    // Resolve Deadlock: If Host started new Main Session (SID increased), prioritize it
+    // A newer main session supersedes an in-flight preload for the same track;
+    // otherwise both paths can wait on ownership held by the other.
     if (incomingSid > prevLocalSid) {
       log.debug(
         '[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.',
@@ -752,7 +711,6 @@ export async function handleFilePrepare(
       setState('preload.nextFileBlob', null);
       setState('preload.meta', null);
       setState('preload.nextTrackIndex', -1);
-      // Continue to normal flow below
     } else {
       log.debug('[file-prepare] Preload in progress for this track, waiting...');
       // Preload still downloading for THIS track → AWAITING_PRELOAD. This
@@ -784,8 +742,8 @@ export async function handleFilePrepare(
         }
       }
 
-      // Preload Watchdog: If preloading fails to complete, recover.
-      // Use same connection-aware timeout as chunk watchdog (60s remote, 30s local).
+      // Recover if preload assembly stalls. Remote preload shares the 60s
+      // receive allowance; local preload gets 30s (longer than chunk receive).
       restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'preload-waiting stopAllMedia');
 
       const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
@@ -1056,10 +1014,8 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   showLoader(true, t('transfer.receiving_0pct'));
 }
 
-// Sibling-divergence note (house rule ⑨): preload has NO resume path by
-// design — PRELOAD_START always restarts from chunk 0 and there is no
-// PRELOAD_RESUME message, so the store-reconciliation below is deliberately
-// main-channel only. Do not invent preload parity here.
+// Preload has no resume protocol; store reconciliation below is intentionally
+// limited to the main transfer channel.
 export function handleFileResume(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
@@ -1077,16 +1033,9 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     _pendingEarlyChunks.length = 0; // Discard stale chunks from previous session
   }
 
-  // Finalized-slot guard (STO-RESUME sibling): a recovery backoff armed
-  // pre-finalization can fire post-finalization — the host then resumes a
-  // tail stream against a slot whose chunk map ramEnd already cleared, so
-  // every write is silently dropped ('Already finalized') while the drain
-  // still counts them, and STORAGE_END integrity-fails forever. The file is
-  // already complete here: drop the resume WITHOUT flipping transfer.state
-  // to RECEIVING. The host's tail chunks are then absorbed by
-  // applyFileChunk's stale-completed guard (the sid was adopted above, so
-  // incomingSid <= localSid there). Watchdogs are cleared because the
-  // transfer is done — leaving them armed would re-fire recovery.
+  // A delayed recovery response may arrive after the RAM slot finalized and
+  // released its chunk map. Adopt the session but ignore the redundant resume
+  // without reopening transfer state; stale-completed guards absorb its tail.
   const finalizedBlob = ramReadBlob((data.name as string) || '', false);
   if (finalizedBlob && Number(data.size) > 0 && finalizedBlob.size === Number(data.size)) {
     log.debug(`[file-resume] "${data.name}" already finalized in store — dropping stale resume`);
@@ -1097,19 +1046,9 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   const startChunk = (data.startChunk as number) || 0;
 
-  // 12-1 + STO-RESUME: store-authoritative resume baseline.
-  // startChunk is a control-plane assertion ("you told me you had N"); the
-  // ramstore main slot is data-plane truth. They diverge when the host's
-  // session advanced between the guest's stall and the recovery response
-  // (re-broadcast/re-click): honoring the assertion plants a phantom
-  // receivedCount, and recovery then asks from the phantom position forever
-  // (tail resend → integrity fail → retry). Clamp the baseline to the
-  // store's contiguous prefix — when counters and store disagree, ALWAYS
-  // bias DOWN (the inverse mistake is the documented MAX_REORDER_BUFFER
-  // infinite-recovery-loop bug below). Identity gate: name+size must match
-  // the in-flight meta for the store prefix to count as "this file" (same
-  // posture as the file-prepare same-content promote); on mismatch the
-  // resume degrades to a fresh start from 0.
+  // The host's startChunk is a control-plane assertion; ramstore's contiguous
+  // prefix is data-plane truth. Clamp downward and require name+size identity.
+  // A mismatch degrades safely to a full restart.
   const meta = getState('transfer.meta');
   const identityOk =
     meta?.name === data.name && Number(data.size) > 0 && meta?.size === data.size;
@@ -1142,19 +1081,13 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   startChunkWatchdog();
 
-  // Host streamed [startChunk..) but we only hold [0..base) — ask it to
-  // restart from the real position. Ordering is load-bearing: the counters
-  // are rebased ABOVE before this goes out, so the host's in-flight
-  // inconsistent stream tail drains against the rebased counters, and
-  // handleRequestDataRecovery → unicastFile does SessionScope.replace per
-  // peer, cancelling that stream. Routed via the bus (not a direct
-  // recovery.ts import — cycle: recovery → transfer → transfer-receive) so
-  // the request keeps the backoff/retry budget.
+  // If the store is behind the asserted offset, rebase first and request a
+  // replacement stream through the recovery bus so retry policy is preserved.
   if (base < startChunk) {
     bus.emit('storage:request-recovery', base);
   }
 
-  // 12-28: Drain any early chunks that arrived before resume was processed (same session only)
+  // Drain same-session chunks that arrived before the resume header.
   if (_pendingEarlyChunks.length > 0) {
     const earlyChunks = _pendingEarlyChunks.splice(0);
     const matching = earlyChunks.filter((c) => (c.sessionId as number) === incomingSid);
@@ -1169,14 +1102,8 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   }
 }
 
-// Network entry for FILE_CHUNK. Gates the host-broadcast auth check, then
-// delegates to applyFileChunk for the trusted internal-apply path. The split
-// mirrors a6eadce → 2d3c5e5 (handleReverbTypeMsg / applyReverbType): the
-// internal early-chunk replay sites in handleFileStart, handleFileResume, and
-// applyFileChunk's own meta-recovery branch must call applyFileChunk directly
-// — re-entering handleFileChunk would fail isHostBroadcast (the original conn
-// is not preserved on _pendingEarlyChunks entries) and silently drop already-
-// authenticated chunks.
+// Network entry authenticates the host frame; internal replay sites call
+// applyFileChunk directly because queued chunks no longer retain `conn`.
 export function handleFileChunk(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
   applyFileChunk(data);
@@ -1186,13 +1113,13 @@ function applyFileChunk(data: Record<string, unknown>): void {
   const incomingSid = data.sessionId as number;
   if (!incomingSid) return;
 
-  // 13-8: Guard against undefined/null chunk → would create 0-byte Uint8Array
+  // Reject a missing chunk rather than constructing an empty byte view.
   if (data.chunk == null) {
     log.warn('[Transfer] Received null/undefined chunk, skipping');
     return;
   }
 
-  // 12-23 + 13-10: Validate chunk data type (cross-realm safe ArrayBuffer check)
+  // Validate the chunk with a cross-realm-safe ArrayBuffer check.
   if (!(data.chunk instanceof Uint8Array) && !isArrayBuffer(data.chunk)) {
     log.warn('[Transfer] Invalid chunk type received, ignoring');
     return;
@@ -1223,8 +1150,8 @@ function applyFileChunk(data: Record<string, unknown>): void {
     // If all queued chunks are from the current session, drop the NEWEST
     // (pop, not shift) — losing chunk-0 would stall the reorder drain until
     // the chunk watchdog fires (~12s) and triggers recovery. Losing the
-    // highest-index chunk is cheap: the host's live broadcast typically
-    // re-sends it shortly after, and the reorder loop starts from chunk-0.
+      // highest-index chunk preserves the contiguous prefix and lets normal
+      // recovery request the missing tail.
     if (_pendingEarlyChunks.length > 200) {
       const currentSid = (data as Record<string, unknown>).sessionId;
       const staleIdx = _pendingEarlyChunks.findIndex(
@@ -1238,7 +1165,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
   const localSid = getState('transfer.localSessionId');
 
-  // Reset worker on new session detection
+  // Reset RAM storage on new-session detection.
   if (incomingSid > localSid) {
     setState('transfer.localSessionId', incomingSid);
     postCommand({ command: 'STORAGE_RESET', isPreload: false });
@@ -1248,7 +1175,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
     nextExpectedChunk = 0;
     setState('transfer.receivedCount', 0);
 
-    // Send STORAGE_START so worker accepts subsequent writes (prevents 12-60s recovery delay)
+    // Open the RAM slot before accepting subsequent writes.
     const chunkName = (data.name as string) || '';
     if (chunkName) {
       postCommand({
@@ -1282,7 +1209,6 @@ function applyFileChunk(data: Record<string, unknown>): void {
     const burstCount = getState('transfer.staleChunkBurstCount');
 
     if (burstStart === 0 || now - burstStart > 5000) {
-      // New burst window
       setState('transfer.staleChunkBurstStart', now);
       setState('transfer.staleChunkBurstCount', 1);
     } else {
@@ -1314,8 +1240,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
   if (!fileReorderBuffer.has(incomingSid)) {
     fileReorderBuffer.set(incomingSid, new Map());
-    // Don't reset nextExpectedChunk here — handleFileStart (line 402) and
-    // handleFileResume (line 449) already set it correctly for their flows.
+    // FILE_START and FILE_RESUME already set the correct expected offset.
     // Resetting to 0 here overwrites the resume's startChunk value.
   }
 
@@ -1339,22 +1264,15 @@ function applyFileChunk(data: Record<string, unknown>): void {
     return;
   }
 
-  // 12-4 + 13-9: Guard against unbounded reorder buffer growth with recovery
+  // Bound the reorder buffer and recover from the contiguous offset.
   const MAX_REORDER_BUFFER = 500;
   if (sessionBuffer.size > MAX_REORDER_BUFFER) {
     log.warn(
       `[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries — clearing and requesting recovery`,
     );
     sessionBuffer.clear();
-    // Do NOT fast-forward nextExpectedChunk / receivedCount to chunkIndex.
-    // Those positions weren't actually received — the buffered chunks were
-    // beyond the current expected one because intermediate chunks never
-    // arrived (host-side send race during rapid track changes). Marking
-    // them as received forced recovery to resume from the wrong offset,
-    // so the missing chunks were never re-sent and file-end reported a
-    // permanent shortfall (e.g. 5118/5272), kicking off an infinite
-    // recovery loop. Leaving the counters as-is lets recovery resume
-    // from the real position and the missing chunks arrive in order.
+    // Do not fast-forward across missing chunks. Recovery must restart from
+    // the real contiguous prefix.
     bus.emit('storage:request-recovery');
     return; // Don't fall through to re-add chunk with incorrect offset
   }

@@ -9,10 +9,9 @@ const CLOUDFLARE_TURN_TTL_DEFAULT = 48 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 const CLOUDFLARE_TURN_TTL_MIN = 60;
 const CLOUDFLARE_TURN_TTL_MAX = CLOUDFLARE_TURN_TTL_DEFAULT;
 const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
-// MIN intentionally clamps above the 30s client refresh skew × 4 — a 60s TTL
-// leaves only ~30s of usable cache and triggers a fresh Turnstile execution
-// every half minute, accumulating bot-score and eventually surfacing the
-// challenge UI to legitimate users.
+// Keep the minimum well above the 30s client refresh skew. If challenge mode
+// is enabled, a 60s TTL leaves only ~30s of usable cache and executes the
+// challenge too frequently for legitimate users.
 const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
 const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
@@ -197,9 +196,10 @@ function trustedCors(request, methods, env = {}, options = {}) {
     !origin &&
     !fetchSite &&
     (host === 'musixquare.com' || host.endsWith('.musixquare.com') || host.startsWith('localhost'));
-  // Host-only inference is intentionally opt-in. It is too weak to authorize
-  // paid-resource endpoints directly, but it keeps a legacy WebView fallback
-  // available for minting short-lived capability tokens when explicitly allowed.
+  // Host-only inference is not authentication. Capability endpoints opt into
+  // this routing signal for WebViews that omit Origin/Sec-Fetch headers; the
+  // separate fallback flag, IP-bound token, and rate limits provide the actual
+  // production boundary.
   const isTrusted =
     sameOrigin ||
     browserSameOrigin ||
@@ -229,9 +229,9 @@ function getClientIp(request) {
 }
 
 // Per-IP rate limit for sensitive endpoints (paid Cloudflare TURN/SFU /
-// YouTube quota). 13차 audit finding 1: header-based CORS is bypassable by
-// curl spoofing Origin or Sec-Fetch-Site, so paid-resource endpoints need
-// a separate defense layer. Uses Cache API (no extra binding needed) keyed
+// YouTube quota). Non-browser clients can spoof Origin or Sec-Fetch-Site, so
+// paid-resource endpoints need a separate defense layer. Uses Cache API
+// (no extra binding needed) keyed
 // on CF-Connecting-IP + endpoint + window minute. Atomicity is best-effort
 // — concurrent requests within the same minute can each pass with a stale
 // count, but the worst-case overshoot is bounded by edge node concurrency
@@ -472,12 +472,9 @@ async function createCapabilityToken(scopes, request, env, method) {
   const secret = getCapabilitySecret(env);
   const ttl = parseCapabilityTtl(env);
   const now = Math.floor(Date.now() / 1000);
-  // `method` is kept as a function argument for server-side logging hooks
-  // but intentionally NOT embedded in the token payload. Tokens are
-  // base64url-encoded (not encrypted) and any client can decode them, so
-  // leaking which fallback path issued the token (turnstile / inferred /
-  // trusted-origin) hands attackers free reconnaissance about the
-  // environment's bypass flags.
+  // Tokens are base64url-encoded, not encrypted. Do not embed the minting
+  // method because it would disclose which fallback flags are active; the
+  // current implementation otherwise discards that method.
   void method;
   const payload = {
     v: 1,
@@ -2987,8 +2984,7 @@ async function serveStatic(request, env, ctx) {
 
   // Allow HEAD alongside GET so link unfurlers (Slack/Discord/iMessage) that
   // HEAD-probe before fetching don't see a broken-link 404 for SPA routes.
-  // Mirrors the GET+HEAD pairing at the invite path (76f114ed).
-  // (10차 audit Phase 1 finding.)
+  // Keep this aligned with the GET+HEAD pairing at the invite path.
   if (
     response.status === 404 &&
     (request.method === 'GET' || request.method === 'HEAD') &&

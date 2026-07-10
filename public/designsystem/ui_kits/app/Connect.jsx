@@ -1,4 +1,3 @@
-// Connect tab — invite-code, connected devices list
 function Connect({ code, devices, onCopy }) {
   return (
     <>

@@ -21,8 +21,6 @@ beforeEach(() => {
   bus.clear();
 });
 
-// ─── validateMessage ──────────────────────────────────────────────────
-
 function makeConnection(peer: string): DataConnection {
   return { peer } as DataConnection;
 }
@@ -109,8 +107,6 @@ describe('validateMessage', () => {
   });
 });
 
-// ─── registerHandlers / registerHandler / hasHandler ──────────────────
-
 describe('registerHandlers', () => {
   it('registers handlers without throwing', () => {
     expect(() => {
@@ -154,13 +150,11 @@ describe('verifyOperator', () => {
 
   it('returns false when no operator in connectedPeers', () => {
     const conn = makeConnection('peer-123');
-    // Default connectedPeers is empty, so no match
     expect(verifyOperator(conn)).toBe(false);
   });
 
   it('returns false when peer is found but isOp is false', () => {
     const conn = makeConnection('peer-456');
-    // Manually set state to include a non-operator peer
     const peers = getState('network.connectedPeers');
     peers.push(makeConnectedPeer('peer-456', false));
     expect(verifyOperator(conn)).toBe(false);
@@ -214,11 +208,11 @@ describe('YOUTUBE_PLAYLIST_INFO validation', () => {
 });
 
 describe('REQUEST_DATA_RECOVERY validation', () => {
-  // Every field is optional on the wire — the four production senders differ:
+  // Every field is optional on the wire because production senders differ:
   // recovery.ts sends {nextChunk, fileName, index, sessionId}; the FILE_WAIT
   // timeout (transfer-receive.ts), playback-stall (playback.ts) and
   // preload-decode (preload.ts) paths send {nextChunk: 0, fileName, index}
-  // with NO sessionId. All four must keep passing.
+  // without sessionId. All four shapes must remain valid.
   it('dispatches all four production sender shapes', async () => {
     const handler = vi.fn();
     registerHandler(MSG.REQUEST_DATA_RECOVERY, handler);
@@ -227,11 +221,11 @@ describe('REQUEST_DATA_RECOVERY validation', () => {
     const validMessages = [
       { nextChunk: 42, fileName: 'song.mp3', index: 0, sessionId: 7 },
       { nextChunk: 0, fileName: 'song.mp3', index: 2 },
-      { nextChunk: 0, fileName: '', index: 0 }, // meta-less guest: empty name
+      { nextChunk: 0, fileName: '', index: 0 },
       // recovery.ts freshIndex falls back to playlist.currentTrackIndex,
       // which is legitimately -1 before the first track — must NOT be dropped.
       { nextChunk: 0, fileName: 'song.mp3', index: -1, sessionId: 0 },
-      {}, // fully bare ask — handler has its own fallbacks
+      {},
     ];
 
     for (const message of validMessages) {
@@ -247,12 +241,12 @@ describe('REQUEST_DATA_RECOVERY validation', () => {
     const conn = makeConnection('peer-recovery-invalid');
 
     const invalidMessages = [
-      { nextChunk: -1 }, // negative position
-      { nextChunk: 2.5 }, // non-integer position
-      { nextChunk: Infinity }, // would skew the host's startChunk math
-      { nextChunk: 'NaN' }, // wrong type
+      { nextChunk: -1 },
+      { nextChunk: 2.5 },
+      { nextChunk: Infinity },
+      { nextChunk: 'NaN' },
       { nextChunk: 0, sessionId: Infinity }, // non-finite session poison
-      { nextChunk: 0, fileName: 42 }, // wrong type
+      { nextChunk: 0, fileName: 42 },
       { nextChunk: 0, name: { evil: true } }, // handler falls back to data.name
       { nextChunk: 0, index: NaN }, // non-finite index poison
     ];
@@ -301,15 +295,15 @@ describe('file-transfer frame validation', () => {
     const conn = makeConnection('peer-file-hostile');
 
     const hostileFrames = [
-      // host sends at most CHUNK_SIZE per frame — anything larger is hostile
+      // The sender never emits chunks larger than CHUNK_SIZE.
       { type: MSG.FILE_CHUNK, chunk: new Uint8Array(CHUNK_SIZE + 1), index: 0, sessionId: 3 },
       { type: MSG.FILE_CHUNK, chunk: 'AAAA', index: 0, sessionId: 3 },
       { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: -1, sessionId: 3 },
       { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: 2.5, sessionId: 3 },
-      // sessionId=Infinity poisons transfer.localSessionId on the receiver
+      // Non-finite session IDs poison receiver session state.
       { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: 0, sessionId: Infinity },
       { type: MSG.FILE_START, name: 'song.mp3', sessionId: Infinity, total: 10 },
-      // total over MAX_FILE_TOTAL would let one frame reserve a 12.8GB+ reorder budget
+      // Oversized totals can force an excessive receiver reorder budget.
       { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 200_001 },
       { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: -1 },
       { type: MSG.FILE_START, sessionId: 3, total: 10 },
@@ -328,10 +322,8 @@ describe('file-transfer frame validation', () => {
     registerHandler(MSG.PRELOAD_START, startHandler);
     const conn = makeConnection('peer-preload-hostile');
 
-    // A forged Infinity sid would key the handler's per-session reorder/state
-    // maps; a missing sid no-ops through every handler guard but still burns
-    // dispatch budget. PRELOAD_START requires a finite sessionId, at FILE_START
-    // parity. (PRELOAD_CHUNK stays sid-optional — its sink is hardened instead.)
+    // PRELOAD_START keys per-session reorder state and therefore requires a
+    // finite ID. PRELOAD_CHUNK remains optional-ID because its sink validates it.
     await handleData(
       { type: MSG.PRELOAD_START, name: 'song.mp3', sessionId: Infinity, total: 10 },
       conn,
@@ -360,9 +352,8 @@ describe('broadcast amplification caps', () => {
     expect(titleHandler).toHaveBeenCalledTimes(1);
     expect(chatHandler).toHaveBeenCalledTimes(1);
 
-    // subIdx at/above the 5000 playlist cap would pad the receiver's titles[]
-    // array out to the index (OOM vector); >4000-char chat is an
-    // amplification frame the wire cap exists to kill at the door.
+    // Oversized sub-indexes can expand the receiver's sparse title array;
+    // oversized chat frames amplify work across every connected peer.
     await handleData(
       { type: MSG.YOUTUBE_SUB_TITLE_UPDATE, playlistId: 'PL1', subIdx: 5000, title: 'ok' },
       conn,
@@ -386,7 +377,8 @@ describe('inbound per-peer rate limit', () => {
 
   it('drops control frames past the 60-frame burst, refills one token per 50ms, and resets on disconnect', async () => {
     vi.useFakeTimers();
-    initProtocol(); // wires network:peer-disconnected → bucket release (bus.clear unwires after the test)
+    // Disconnect events release the peer's bucket; bus.clear handles teardown.
+    initProtocol();
     const control = vi.fn();
     const chunk = vi.fn();
     registerHandler('rate-limit-control-probe' as MsgType, control);
@@ -403,7 +395,7 @@ describe('inbound per-peer rate limit', () => {
     await handleData({ type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(16), index: 0 }, conn);
     expect(chunk).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(50); // exactly one refill interval → one token back
+    vi.advanceTimersByTime(50);
     await handleData({ type: 'rate-limit-control-probe' }, conn);
     await handleData({ type: 'rate-limit-control-probe' }, conn);
     expect(control).toHaveBeenCalledTimes(61);

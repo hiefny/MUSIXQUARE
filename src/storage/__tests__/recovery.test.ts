@@ -205,9 +205,7 @@ describe('sendRecoveryRequest', () => {
     setState('transfer.meta', { name: 'test.mp3' });
     setState('transfer.receivedCount', 42);
     setState('recovery.retryCount', 0);
-    // STO-RESUME clamp semantics: the ask is min(counter, store contiguous).
-    // Back the counter with 42 real contiguous chunks so this pin keeps
-    // asserting the same value under the clamp.
+    // The ask is bounded by both the counter and store's contiguous prefix.
     arrangeStoreChunks('test.mp3', 1, 42);
 
     sendRecoveryRequest(null);
@@ -217,11 +215,8 @@ describe('sendRecoveryRequest', () => {
     expect(msg.nextChunk).toBe(42);
   });
 
-  // STO-RESUME regression pin: a phantom receivedCount (control-plane counter
-  // ahead of data-plane truth — cross-session resume, dropped write, any
-  // future desync) must NOT drive the ask. Asking past store truth makes the
-  // host clamp to total-1 and resend only the tail, so the integrity gate
-  // fails every round and the recovery loop never terminates.
+  // A control-plane counter ahead of stored data must not choose the recovery
+  // offset; only the contiguous store prefix is safe.
   it('clamps a phantom receivedCount to the store contiguous count', async () => {
     const sendRecoveryRequest = await getSendRecoveryRequest();
     const hostSend = vi.fn();
@@ -286,11 +281,8 @@ describe('initRecovery', () => {
     expect(registerHandlers).toHaveBeenCalled();
   });
 
-  // STO-RESUME listener-forward pins: the bus event signature is
-  // [forceChunk?: number]. The 7 plain emit sites deliver `undefined`, which
-  // the listener MUST normalize to null (sendRecoveryRequest's gate is
-  // `=== null`) — forwarding verbatim would send nextChunk: undefined on
-  // every ordinary recovery ask.
+  // Ordinary bus events omit forceChunk; normalize the optional value before
+  // forwarding it to the request builder.
   it('plain storage:request-recovery emit takes the clamped counter path', async () => {
     const { initRecovery } = await import('../recovery.ts');
     const hostSend = vi.fn();

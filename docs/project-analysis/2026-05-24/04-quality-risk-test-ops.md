@@ -1,5 +1,9 @@
 # Quality, Risk, Test, and Ops Analysis
 
+> **Historical snapshot (2026-05-24).** Test results, CI behavior, findings,
+> line numbers, and risk ratings below belong to that baseline and are not a
+> current release report.
+
 ## Fast-Gate Results
 
 Commands run on 2026-05-24:
@@ -407,4 +411,3 @@ Potential future work:
 ## Current Bottom Line
 
 The project is healthy under fast static/unit/build gates. The most actionable confirmed issue is stale E2E state assumptions. The biggest production risk class is not ordinary syntax/type failure, but real browser/network timing across multiple devices and media backends.
-

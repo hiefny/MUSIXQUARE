@@ -2,11 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-// Ratchet: keep every hand-authored domain bus event paired (emit <-> listen).
-// The actual analysis lives in scripts/check-bus-pairing.mjs (single source of
-// truth, also runnable via `npm run guard:bus-pairing`). We invoke it as a
-// subprocess so this .ts test doesn't depend on .mjs type resolution; a
-// non-zero exit means findings, and we surface the script's report.
+// Every hand-authored domain bus event must remain paired (emit <-> listen).
+// scripts/check-bus-pairing.mjs owns the analysis and is also exposed through
+// `npm run guard:bus-pairing`; this test invokes it as a subprocess to avoid
+// coupling TypeScript test resolution to the .mjs module.
 const script = fileURLToPath(new URL('../../../scripts/check-bus-pairing.mjs', import.meta.url));
 
 describe('EventBus emit/listen pairing', () => {

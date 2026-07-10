@@ -1,17 +1,11 @@
-/**
- * MUSIXQUARE — Managed Timers Registry
- *
- * Centralized timer management to prevent orphaned intervals/timeouts.
- * Timer names are plain strings — any module can register its own.
- */
+/** Page-wide named timer registry used for centralized cleanup. */
 
 const _timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Set a managed timer. Automatically clears the previous timer for that name.
- * WARNING: `name` is a page-GLOBAL singleton key — code instantiated N times
- * must parameterize the key per instance, or the N registrations silently
- * coalesce into only the last-registered closure.
+ * Names are page-global singleton keys. Concurrent owners must parameterize
+ * them or a later registration silently replaces the earlier timer.
  */
 export function setManagedTimer(
   name: string,
@@ -39,42 +33,30 @@ export function setManagedTimer(
   _timers.set(name, id);
 }
 
-/**
- * Clear a specific managed timer.
- */
 export function clearManagedTimer(name: string): void {
   const id = _timers.get(name);
   if (id != null) {
-    // Both clearTimeout and clearInterval are called because the managed timer
-    // system stores a single ID regardless of whether it was created with
-    // setTimeout or setInterval. Per the HTML spec, timer IDs share a single
-    // numbering pool and both clear functions accept either type, so calling
-    // both is safe and ensures the timer is cleared regardless of its origin.
+    // Browser timeout and interval IDs share a pool, so both clears accept the
+    // stored ID regardless of which API created it.
     clearTimeout(id);
     clearInterval(id);
     _timers.delete(name);
   }
 }
 
-/**
- * Clear all managed timers.
- */
 export function clearAllManagedTimers(): void {
   for (const name of Array.from(_timers.keys())) {
     clearManagedTimer(name);
   }
 }
 
-/**
- * Get the raw timer ID (for external checks).
- */
 export function getManagedTimer(name: string): ReturnType<typeof setTimeout> | null {
   return _timers.get(name) ?? null;
 }
 
 /**
- * Promise-based delay — safe alternative to `await new Promise(r => setTimeout(r, ms))`.
- * Not cancellable; for cancellable delays use SessionScope.
+ * Promise-based delay. It is intentionally not registered or cancellable;
+ * operation-scoped waits should use an AbortSignal-aware mechanism instead.
  */
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

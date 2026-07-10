@@ -64,9 +64,7 @@ describe('ramStart', () => {
     expect(ramWrite('b.mp3', false, 2, 0, u8(0xcc)).ok).toBe(true);
   });
 
-  // STO-RESUME: a host re-broadcast advances the sessionId, but chunk bytes
-  // of the same logical file are sid-invariant — resume must re-key the slot
-  // in place and preserve the guest's received prefix.
+  // Session rebasing must preserve the prefix of the same logical file.
   it('re-keys main slot on keepExisting + same filename + NEWER sid, preserving chunks', () => {
     ramStart('a.mp3', false, 1, 16, false);
     ramWrite('a.mp3', false, 1, 0, u8(0xaa));

@@ -1,11 +1,6 @@
-/**
- * MUSIXQUARE — File Transfer: Shared Helpers
- *
- * Utilities shared between transfer-send and transfer-receive.
- * Sub-files import from here (not from transfer.ts) to avoid circular deps.
- */
+/** Dependency-neutral transfer helpers shared by send and receive paths. */
 
-/** Cross-realm safe ArrayBuffer check (Worker/iframe boundary safe) */
+/** Accept ArrayBuffers created in another JavaScript realm. */
 export const isArrayBuffer = (v: unknown): v is ArrayBuffer =>
   v instanceof ArrayBuffer ||
   (v != null &&

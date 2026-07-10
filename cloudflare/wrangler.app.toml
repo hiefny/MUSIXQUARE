@@ -1,7 +1,8 @@
 name = "musixquare-app"
 main = "app-worker.js"
 compatibility_date = "2026-05-04"
-workers_dev = true
+workers_dev = false
+preview_urls = false
 
 [[routes]]
 pattern = "musixquare.com"

@@ -95,7 +95,7 @@ function isOversizedSdp(value) {
 
 function isValidIceCandidate(value) {
   if (!isRecord(value) || typeof value.candidate !== 'string') return false;
-  const candidateBytes = utf8ByteLength(value.candidate);
+  const candidateBytes = utf8ByteLength(JSON.stringify(value));
   if (candidateBytes === null || candidateBytes > ICE_CANDIDATE_MAX_BYTES) return false;
   if (value.sdpMid !== undefined && value.sdpMid !== null && typeof value.sdpMid !== 'string') {
     return false;
@@ -118,8 +118,8 @@ function isValidIceCandidate(value) {
 }
 
 function isOversizedIceCandidate(value) {
-  if (!isRecord(value) || typeof value.candidate !== 'string') return false;
-  const bytes = utf8ByteLength(value.candidate);
+  if (!isRecord(value)) return false;
+  const bytes = utf8ByteLength(JSON.stringify(value));
   return bytes !== null && bytes > ICE_CANDIDATE_MAX_BYTES;
 }
 

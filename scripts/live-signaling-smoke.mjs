@@ -119,6 +119,7 @@ async function runRoom(password) {
     `${password ? 'protected' : 'passwordless'} host`,
   );
   let guest;
+  let invalidPasswordGuest;
 
   try {
     await host.opened;
@@ -128,6 +129,26 @@ async function runRoom(password) {
     // room-password-set has no acknowledgement; let that frame settle before
     // opening the independent guest socket.
     await delay(150);
+
+    if (password) {
+      invalidPasswordGuest = createSocketInbox(
+        socketUrl(roomId, 'guest', `invalid-${suffix}`),
+        'invalid-password guest',
+      );
+      await invalidPasswordGuest.opened;
+      invalidPasswordGuest.socket.send(
+        JSON.stringify({ type: 'guest-auth', password: '00000000' }),
+      );
+      const rejection = await invalidPasswordGuest.waitFor(
+        (message) => message?.type === 'error' || message?.type === 'peer-open',
+        'wrong-password rejection',
+      );
+      if (rejection.type !== 'error' || rejection.errorType !== 'room-password-invalid') {
+        throw new Error('protected room admitted a guest with the wrong password');
+      }
+      await closeSocket(invalidPasswordGuest.socket);
+      invalidPasswordGuest = undefined;
+    }
 
     guest = createSocketInbox(
       socketUrl(roomId, 'guest', guestPeerId),
@@ -173,8 +194,15 @@ async function runRoom(password) {
       throw new Error('host answer relay mismatch');
     }
 
-    return { roomId, passwordProtected: Boolean(password), offer: true, answer: true };
+    return {
+      roomId,
+      passwordProtected: Boolean(password),
+      wrongPasswordRejected: password ? true : null,
+      offer: true,
+      answer: true,
+    };
   } finally {
+    if (invalidPasswordGuest) await closeSocket(invalidPasswordGuest.socket);
     if (guest) await closeSocket(guest.socket);
     await closeSocket(host.socket);
   }

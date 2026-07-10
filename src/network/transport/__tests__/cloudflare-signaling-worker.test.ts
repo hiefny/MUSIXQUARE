@@ -523,6 +523,14 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         candidate: { candidate: 'c'.repeat(4 * 1024 + 1) },
       },
     },
+    {
+      label: 'ICE candidate metadata',
+      message: {
+        type: 'signal-candidate',
+        to: 'host',
+        candidate: { candidate: 'candidate:1', sdpMid: 'm'.repeat(4 * 1024) },
+      },
+    },
   ])('closes an oversized $label payload instead of relaying it', async ({ message }) => {
     const { room, host } = await createHostRoom();
     await room.fetch(wsRequest('123456', 'guest', 'guest-1'));

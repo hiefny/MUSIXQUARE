@@ -400,9 +400,12 @@ export function initSetup(): void {
     setupSetGuestJoinBusy(false);
   };
 
-  bus.on('setup:guest-join-failure', (_error) => {
+  bus.on('setup:guest-join-failure', () => {
     restoreGuestJoinInputUI();
-    showToast(t('network.cant_join'));
+    // network:error already selected and displayed the specific failure
+    // (missing room, password, signaling outage, etc.) before emitting this
+    // UI-reset event. A second generic toast here used to overwrite that
+    // diagnosis with "session not found", hiding protocol/deploy regressions.
   });
 
   // F-2401: a user-cancelled capability/Turnstile challenge mid-join restores the

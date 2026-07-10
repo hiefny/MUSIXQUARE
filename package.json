@@ -23,6 +23,9 @@
     "guard:dead-exports": "node scripts/check-dead-exports.mjs",
     "guard:font-assets": "node scripts/check-app-font.mjs",
     "guard:font-build": "node scripts/check-app-font.mjs --dist",
+    "smoke:live:signaling": "node scripts/live-signaling-smoke.mjs",
+    "smoke:live:remote-share": "node scripts/live-remote-share-smoke.mjs",
+    "smoke:live": "npm run smoke:live:signaling && npm run smoke:live:remote-share",
     "typecheck": "tsc --noEmit && tsc -p src/workers/tsconfig.json && tsc -p tsconfig.e2e.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
@@ -58,7 +61,8 @@
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
     "vite": "^6.0.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "ws": "^8.21.0"
   },
   "dependencies": {
     "content-shield": "^0.1.1",

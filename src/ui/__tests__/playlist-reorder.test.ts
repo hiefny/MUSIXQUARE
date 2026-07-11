@@ -191,7 +191,7 @@ describe('playlist reorder interaction controller', () => {
     expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
     expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
     expect(controller.isSettling).toBe(true);
-    vi.advanceTimersByTime(400);
+    vi.advanceTimersByTime(600);
     expect(document.querySelector('.playlist-reorder-settle')).toBeNull();
     expect(controller.isSettling).toBe(false);
   });
@@ -247,6 +247,16 @@ describe('playlist reorder interaction controller', () => {
     expect(sourceEntry.classList.contains('is-reorder-source')).toBe(false);
     expect(sourceEntry.classList.contains('is-reorder-settling-source')).toBe(false);
     expect(sourceEntry.classList.contains('is-reorder-handoff')).toBe(false);
+    expect(sourceEntry.isConnected).toBe(true);
+    expect(controller.isSettling).toBe(true);
+    expect(interactionEnd).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(171);
+    expect(sourceEntry.isConnected).toBe(true);
+    expect(controller.isSettling).toBe(true);
+    expect(interactionEnd).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
     expect(controller.isSettling).toBe(false);
     expect(interactionEnd).toHaveBeenCalledOnce();
     expect(interactionEnd).toHaveBeenCalledWith(true);

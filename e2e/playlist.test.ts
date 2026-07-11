@@ -156,7 +156,95 @@ test.describe('Playlist Management', () => {
       lastBox.y + lastBox.height - 2,
       { steps: 8 },
     );
+
+    await pair.hostPage.evaluate((sourceQueueItemId) => {
+      const findEntry = (): HTMLElement | null =>
+        Array.from(
+          document.querySelectorAll<HTMLElement>('.playlist-entry[data-queue-item-id]'),
+        ).find((entry) => entry.dataset.queueItemId === sourceQueueItemId) ?? null;
+      const original = findEntry();
+      if (!original) throw new Error('Reorder source entry is unavailable');
+
+      const probe = {
+        done: false,
+        timedOut: false,
+        samples: [] as Array<{
+          sameNode: boolean;
+          sourceConnected: boolean;
+          numberOpacity: number;
+          gripOpacity: number;
+        }>,
+      };
+      (window as any).__MUSIXQUARE_REORDER_HANDLE_FADE__ = probe;
+      const startedAt = performance.now();
+      let returnStarted = false;
+      const sample = (): void => {
+        const current = findEntry();
+        if (!original.classList.contains('is-reorder-source')) returnStarted = true;
+        if (returnStarted && current) {
+          const number = current.querySelector<HTMLElement>('.track-idx');
+          const grip = current.querySelector<SVGElement>('.playlist-reorder-grip');
+          if (number && grip) {
+            probe.samples.push({
+              sameNode: current === original,
+              sourceConnected: original.isConnected,
+              numberOpacity: Number.parseFloat(getComputedStyle(number).opacity),
+              gripOpacity: Number.parseFloat(getComputedStyle(grip).opacity),
+            });
+          }
+          if (current !== original) {
+            probe.done = true;
+            return;
+          }
+        }
+        if (performance.now() - startedAt > 1_500) {
+          probe.timedOut = true;
+          probe.done = true;
+          return;
+        }
+        requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    }, before.items[0].queueItemId);
     await pair.hostPage.mouse.up();
+    await pair.hostPage.mouse.move(1, 1);
+    await pair.hostPage.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+    await expect
+      .poll(
+        () =>
+          pair.hostPage.evaluate(() => !!(window as any).__MUSIXQUARE_REORDER_HANDLE_FADE__?.done),
+        { timeout: 3_000 },
+      )
+      .toBe(true);
+    const fadeProbe = (await pair.hostPage.evaluate(
+      () => (window as any).__MUSIXQUARE_REORDER_HANDLE_FADE__,
+    )) as {
+      done: boolean;
+      timedOut: boolean;
+      samples: Array<{
+        sameNode: boolean;
+        sourceConnected: boolean;
+        numberOpacity: number;
+        gripOpacity: number;
+      }>;
+    };
+    expect(fadeProbe.timedOut).toBe(false);
+    const originalSamples = fadeProbe.samples.filter(
+      (sample) => sample.sameNode && sample.sourceConnected,
+    );
+    expect(originalSamples.length).toBeGreaterThan(3);
+    expect(
+      originalSamples.some((sample) => sample.numberOpacity > 0.05 && sample.numberOpacity < 0.95),
+    ).toBe(true);
+    expect(
+      originalSamples.some((sample) => sample.gripOpacity > 0.05 && sample.gripOpacity < 0.95),
+    ).toBe(true);
+    const replacementIndex = fadeProbe.samples.findIndex((sample) => !sample.sameNode);
+    expect(replacementIndex).toBeGreaterThan(0);
+    const lastOriginalSample = fadeProbe.samples[replacementIndex - 1]!;
+    expect(lastOriginalSample.numberOpacity).toBeGreaterThan(0.95);
+    expect(lastOriginalSample.gripOpacity).toBeLessThan(0.05);
 
     const expectedOrder = [
       before.items[1].queueItemId,

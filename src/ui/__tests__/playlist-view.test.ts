@@ -399,6 +399,123 @@ describe('playlist queue identity rendering and actions', () => {
     expect(reorder).toHaveBeenCalledWith(FILE_A, null, 7);
   });
 
+  it('keeps the committed source handle mounted through its return fade before rendering', () => {
+    const FRAME_MS = 16;
+    const DROP_SETTLE_MS = 302;
+    const HANDLE_RETURN_WITH_SAFETY_MS = 172;
+    vi.useFakeTimers();
+    const raf = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) =>
+        window.setTimeout(() => callback(performance.now()), FRAME_MS),
+      );
+    const caf = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((id) => window.clearTimeout(id));
+    let unsubscribe: (() => void) | undefined;
+
+    try {
+      const initial = sampleItems();
+      const committed: PlaylistItem[] = [initial[1]!, { ...initial[0]!, name: 'committed-a.mp3' }];
+      setState('playlist.items', initial);
+      setState('playlist.revision', 7);
+      initPlaylistView();
+
+      const commit = vi.fn(() => setState('playlist.items', committed));
+      unsubscribe = bus.on('playlist:reorder-track', commit);
+
+      const list = document.getElementById('playlist-ui')!;
+      const sourceSelector = `.playlist-entry[data-queue-item-id="${FILE_A}"]`;
+      const sourceEntry = list.querySelector<HTMLElement>(sourceSelector)!;
+      const sourceHandle = sourceEntry.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+      const sourceNumber = sourceHandle.querySelector<HTMLElement>('.track-idx')!;
+      const sourceGrip = sourceHandle.querySelector<SVGElement>('.playlist-reorder-grip')!;
+      const sourceName = sourceEntry.querySelector<HTMLElement>('.track-name-text')!;
+
+      Array.from(list.querySelectorAll<HTMLElement>('.track-item')).forEach((row, index) => {
+        row.getBoundingClientRect = () =>
+          ({
+            x: 0,
+            y: index * 56,
+            top: index * 56,
+            bottom: index * 56 + 48,
+            left: 0,
+            right: 300,
+            width: 300,
+            height: 48,
+            toJSON: () => ({}),
+          }) as DOMRect;
+      });
+
+      const dispatch = (type: string, clientY: number): void => {
+        const event = new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientX: 20,
+          clientY,
+        });
+        Object.defineProperties(event, {
+          pointerId: { value: 1 },
+          isPrimary: { value: true },
+        });
+        sourceHandle.dispatchEvent(event);
+      };
+      const expectOriginalIdentity = (): void => {
+        const current = list.querySelector<HTMLElement>(sourceSelector)!;
+        expect(sourceEntry.isConnected).toBe(true);
+        expect(current).toBe(sourceEntry);
+        expect(current.querySelector('.playlist-reorder-handle')).toBe(sourceHandle);
+        expect(current.querySelector('.track-idx')).toBe(sourceNumber);
+        expect(current.querySelector('.playlist-reorder-grip')).toBe(sourceGrip);
+      };
+
+      dispatch('pointerdown', 20);
+      dispatch('pointermove', 160);
+      dispatch('pointerup', 160);
+
+      expect(commit).toHaveBeenCalledWith(FILE_A, null, 7);
+      expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
+      expect(sourceEntry.classList.contains('is-reorder-source')).toBe(true);
+      expectOriginalIdentity();
+      expect(sourceName.textContent).toBe('a.mp3');
+
+      vi.advanceTimersByTime(FRAME_MS);
+      vi.advanceTimersByTime(FRAME_MS);
+      expect(sourceEntry.classList.contains('is-reorder-handoff')).toBe(true);
+
+      vi.advanceTimersByTime(DROP_SETTLE_MS);
+      expect(document.querySelector('.playlist-reorder-settle')).toBeNull();
+      expect(sourceEntry.classList.contains('is-reorder-source')).toBe(false);
+      expectOriginalIdentity();
+
+      vi.advanceTimersByTime(FRAME_MS);
+      expectOriginalIdentity();
+
+      vi.advanceTimersByTime(HANDLE_RETURN_WITH_SAFETY_MS - FRAME_MS - 1);
+      expectOriginalIdentity();
+      expect(sourceName.textContent).toBe('a.mp3');
+
+      vi.advanceTimersByTime(1);
+      expectOriginalIdentity();
+      vi.advanceTimersByTime(FRAME_MS - 1);
+      expectOriginalIdentity();
+      vi.advanceTimersByTime(1);
+
+      const renderedEntry = list.querySelector<HTMLElement>(sourceSelector)!;
+      expect(sourceEntry.isConnected).toBe(false);
+      expect(renderedEntry).not.toBe(sourceEntry);
+      expect(renderedEntry.querySelector('.playlist-reorder-handle')).not.toBe(sourceHandle);
+      expect(renderedEntry.querySelector('.track-name-text')?.textContent).toBe('committed-a.mp3');
+    } finally {
+      unsubscribe?.();
+      vi.clearAllTimers();
+      raf.mockRestore();
+      caf.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('preserves the actual tab-body scroll position across a non-selection rerender', () => {
     setState('playlist.items', sampleItems());
     updatePlaylistUI();

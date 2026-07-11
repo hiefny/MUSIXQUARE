@@ -17,6 +17,8 @@ const REORDER_REFLOW_MS = 220;
 const REORDER_DROP_MS = 180;
 const REORDER_HANDOFF_DELAY_MS = REORDER_DROP_MS;
 const REORDER_HANDOFF_MS = 90;
+const REORDER_HANDLE_RETURN_MS = 140;
+const REORDER_MOTION_SAFETY_MS = 32;
 const REORDER_MOTION_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
 type DragInput = 'handle' | 'long-press';
@@ -605,11 +607,23 @@ export function createPlaylistReorderController(
     const reducedMotion = prefersReducedMotion();
     const settleMs =
       Math.max(REORDER_REFLOW_MS, REORDER_DROP_MS, REORDER_HANDOFF_DELAY_MS + REORDER_HANDOFF_MS) +
-      32;
-    const scheduleFinish = (delay: number): void => {
+      REORDER_MOTION_SAFETY_MS;
+    const schedule = (delay: number, next: () => void): void => {
       state.timer = window.setTimeout(() => {
-        if (settling === state) finishSettling();
+        state.timer = null;
+        if (settling === state) next();
       }, delay);
+    };
+    const complete = (): void => finishSettling();
+    const beginHandleReturn = (): void => {
+      state.ghost?.remove();
+      state.ghost = null;
+      clearSourceState(state.sourceEntry);
+      state.sourceEntry = null;
+      // Keep the preview DOM alive while the grip fades back to its number.
+      // The authoritative render runs from onInteractionEnd only after this
+      // transition, otherwise replaceChildren() would cut it off next frame.
+      schedule(REORDER_HANDLE_RETURN_MS + REORDER_MOTION_SAFETY_MS, complete);
     };
 
     if (reducedMotion) {
@@ -619,7 +633,7 @@ export function createPlaylistReorderController(
       state.sourceEntry = null;
       // Keep the settle state through the current task so onCommit always runs
       // before onInteractionEnd, even when motion is disabled.
-      scheduleFinish(0);
+      schedule(0, complete);
       return;
     }
 
@@ -647,13 +661,13 @@ export function createPlaylistReorderController(
           ghost.style.opacity = '0';
           ghost.style.transform = `translate3d(${targetX}px, ${targetY}px, 0px) scale(1)`;
           sourceEntry?.classList.add('is-reorder-handoff');
-          scheduleFinish(settleMs);
+          schedule(settleMs, beginHandleReturn);
         });
       });
       return;
     }
 
-    scheduleFinish(settleMs);
+    schedule(settleMs, state.sourceEntry ? beginHandleReturn : complete);
   }
 
   function cleanupDrag(preserveGhost = false): HTMLElement | null {

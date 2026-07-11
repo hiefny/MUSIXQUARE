@@ -12,7 +12,8 @@ describe('State Store', () => {
     it('reads initial default values', () => {
       expect(getState('setup.sessionStarted')).toBe(false);
       expect(getState('audio.masterVolume')).toBe(1.0);
-      expect(getState('playlist.currentTrackIndex')).toBe(-1);
+      expect(getState('playlist.currentQueueItemId')).toBeNull();
+      expect(getState('playlist.revision')).toBe(0);
     });
 
     it('sets and reads a top-level value', () => {

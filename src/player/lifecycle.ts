@@ -37,6 +37,7 @@ import {
   type LoadSourceValue,
 } from '../core/constants.ts';
 import { isExternalOwner, setPlaybackLifecycleState } from './ownership.ts';
+import type { QueueItemId } from '../types/index.ts';
 
 // ─── Event Types ───────────────────────────────────────────────────
 //
@@ -56,32 +57,31 @@ export type PlaybackEvent =
   //   same-file      — already loaded; replay-current path
   //   preload-match  — preload blob is assembled; go straight to DECODING
   //   preload-waiting — preload session exists but blob not yet ready (transfer-receive race)
-  //   demo           — demo file served via HTTP fetch (preload-style load)
   //   resume         — FILE_PREPARE of a file whose receivedCount > 0 (recovery resume)
   | {
       type: 'FILE_PREPARE';
-      variant: 'fresh' | 'same-file' | 'preload-match' | 'preload-waiting' | 'demo' | 'resume';
-      index: number;
+      variant: 'fresh' | 'same-file' | 'preload-match' | 'preload-waiting' | 'resume';
+      queueItemId: QueueItemId | null;
       name: string;
     }
-  | { type: 'FILE_START'; sessionId: number }
-  | { type: 'FILE_CHUNK' } // progress tick; handler dedup/drop logic owns specifics
-  | { type: 'FILE_END' }
-  | { type: 'FILE_RESUME'; startChunk: number }
+  | { type: 'FILE_START'; queueItemId: QueueItemId; sessionId: number }
+  | { type: 'FILE_CHUNK'; queueItemId: QueueItemId } // progress tick; handler owns specifics
+  | { type: 'FILE_END'; queueItemId: QueueItemId }
+  | { type: 'FILE_RESUME'; queueItemId: QueueItemId; startChunk: number }
   // ── Preload pipeline ──
   | {
       type: 'PLAY_PRELOADED';
       variant: 'blob-ready' | 'blob-waiting' | 'no-session';
-      index: number;
+      queueItemId: QueueItemId;
       name: string;
     }
-  | { type: 'PRELOAD_START' }
-  | { type: 'PRELOAD_CHUNK' }
-  | { type: 'PRELOAD_END' }
-  | { type: 'PRELOAD_FILE_READY'; index: number } // Storage-assembled blob available
+  | { type: 'PRELOAD_START'; queueItemId: QueueItemId }
+  | { type: 'PRELOAD_CHUNK'; queueItemId: QueueItemId }
+  | { type: 'PRELOAD_END'; queueItemId: QueueItemId }
+  | { type: 'PRELOAD_FILE_READY'; queueItemId: QueueItemId } // assembled blob available
   // ── Playback control ──
-  | { type: 'PLAY'; time: number; index?: number; sameTrack: boolean }
-  | { type: 'PAUSE'; time: number; endOfPlaylist: boolean }
+  | { type: 'PLAY'; time: number; queueItemId: QueueItemId | null; sameTrack: boolean }
+  | { type: 'PAUSE'; time: number; queueItemId: QueueItemId | null; endOfPlaylist: boolean }
   | { type: 'TRACK_ENDED' } // natural end of current audio buffer
   // ── Decode outcomes ──
   | { type: 'DECODE_SUCCESS' }
@@ -129,11 +129,6 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         if (ev.variant === 'preload-match')
           return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
         if (ev.variant === 'preload-waiting')
-          return {
-            next: PLAYBACK_STATE.AWAITING_PRELOAD,
-            loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
-          };
-        if (ev.variant === 'demo')
           return {
             next: PLAYBACK_STATE.AWAITING_PRELOAD,
             loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
@@ -214,7 +209,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PRELOAD_END':
         return { stay: true }; // next-track preload runs alongside the current download
       case 'PRELOAD_FILE_READY':
-        return { next: PLAYBACK_STATE.DECODING }; // Safety promotion: if HTTP demo fetch finishes during P2P download
+        return { next: PLAYBACK_STATE.DECODING }; // Safety promotion if preload assembly finishes during P2P download
       case 'LOAD_TOKEN_MISMATCH':
         return { stay: true }; // handler aborts; machine unchanged
       default:
@@ -238,7 +233,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
         if (ev.variant === 'same-file') return { stay: true }; // dedup on re-broadcast
         if (ev.variant === 'preload-match')
           return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
-        if (ev.variant === 'preload-waiting' || ev.variant === 'demo') return { stay: true }; // already awaiting same preload/demo
+        if (ev.variant === 'preload-waiting') return { stay: true }; // already awaiting same preload
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH }; // supersede
       case 'PLAY_PRELOADED':
         if (ev.variant === 'blob-ready')

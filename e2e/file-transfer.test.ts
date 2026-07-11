@@ -69,7 +69,7 @@ test.describe('File Transfer', () => {
     await waitForPlaylistCount(pair.guestPage, 2, 25_000);
   });
 
-  test('transfer state returns to idle after completion', async () => {
+  test('transfer publishes an exact ready resident after completion', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test03');
@@ -82,14 +82,23 @@ test.describe('File Transfer', () => {
           | undefined;
         if (!get) return false;
         const state = get('transfer.state');
-        return state === 'IDLE';
+        const resident = get('files.current') as {
+          blob?: { size?: number };
+          queueItemId?: string;
+        } | null;
+        const currentQueueItemId = get('playlist.currentQueueItemId');
+        return (
+          state === 'READY' &&
+          (resident?.blob?.size ?? 0) > 0 &&
+          resident?.queueItemId === currentQueueItemId
+        );
       },
       undefined,
       { timeout: 20_000 },
     );
 
     const transferState = await readState(pair.guestPage, 'transfer.state');
-    expect(transferState).toBe('IDLE');
+    expect(transferState).toBe('READY');
   });
 
   test('local direct transfer promotes a pending remote-share wait', async () => {
@@ -110,11 +119,15 @@ test.describe('File Transfer', () => {
       if (!hostConn) throw new Error('Guest host connection unavailable');
 
       const name = 'promoted-direct.mp3';
+      const queueItemId = '10000000-0000-4000-8000-000000000001';
       set('network.connectionType', 'local');
-      set('playback.pendingRecoveryTarget', { index: 0, name });
-      set('transfer.meta', { name, index: 0, sessionId: 7 });
-      set('preload.meta', { name, index: 0, sessionId: 7 });
-      set('preload.nextTrackIndex', 0);
+      set('playlist.items', [{ queueItemId, type: 'file', name, videoId: null, playlistId: null }]);
+      set('playlist.currentQueueItemId', queueItemId);
+      set('playback.pendingRecoveryTarget', { queueItemId, indexHint: 0, name });
+      set('transfer.meta', { name, queueItemId, indexHint: 0, sessionId: 7 });
+      set('preload.activeTarget', { name, queueItemId, indexHint: 0, sessionId: 7 });
+      set('preload.ready', null);
+      set('preload.nextQueueItemId', queueItemId);
       set('transfer.localSessionId', 0);
       set('playback.loadSource', 'preload-promoted');
       set('playback.lifecycle', 'AWAITING_PRELOAD');
@@ -129,7 +142,7 @@ test.describe('File Transfer', () => {
           // synthetic frame consistent with the production size contract.
           total: 1,
           size: 4,
-          index: 0,
+          queueItemId,
           sessionId: 7,
         },
         hostConn,
@@ -146,8 +159,9 @@ test.describe('File Transfer', () => {
           get?.('playback.loadSource') === 'fresh' &&
           get?.('transfer.state') === 'RECEIVING' &&
           get?.('transfer.localSessionId') === 7 &&
-          get?.('preload.meta') === null &&
-          get?.('preload.nextTrackIndex') === -1
+          get?.('preload.activeTarget') === null &&
+          get?.('preload.ready') === null &&
+          get?.('preload.nextQueueItemId') === null
         );
       },
       undefined,
@@ -163,8 +177,9 @@ test.describe('File Transfer', () => {
         loadSource: get?.('playback.loadSource'),
         transferState: get?.('transfer.state'),
         localSessionId: get?.('transfer.localSessionId'),
-        preloadMeta: get?.('preload.meta'),
-        nextTrackIndex: get?.('preload.nextTrackIndex'),
+        preloadActiveTarget: get?.('preload.activeTarget'),
+        preloadReady: get?.('preload.ready'),
+        nextQueueItemId: get?.('preload.nextQueueItemId'),
       };
     });
 
@@ -173,8 +188,9 @@ test.describe('File Transfer', () => {
       loadSource: 'fresh',
       transferState: 'RECEIVING',
       localSessionId: 7,
-      preloadMeta: null,
-      nextTrackIndex: -1,
+      preloadActiveTarget: null,
+      preloadReady: null,
+      nextQueueItemId: null,
     });
   });
 });

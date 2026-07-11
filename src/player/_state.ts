@@ -8,7 +8,7 @@
 
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import type { PlaylistItem } from '../types/index.ts';
+import type { PlaylistItem, QueueItemId, QueueTarget } from '../types/index.ts';
 // ─── Module State ──────────────────────────────────────────────────
 //
 // pendingPlayTime, pendingPlayTimeSetAt, and failedTrackKeys live in the
@@ -55,7 +55,7 @@ let _loadEpoch = 0;
 let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
 let _playPreloadedInProgress = false;
-let _lastClearedTrackName = '';
+let _lastClearedQueueItemId: QueueItemId | null = null;
 
 // ─── PlayerNode ────────────────────────────────────────────────────
 
@@ -275,25 +275,23 @@ export function getPendingPlayTimeAge(): number {
 
 // ─── Pending Recovery Target ──────────────────────────────────────
 //
-// Centralized writer for `playback.pendingRecoveryTarget`. The state contains
-// either a non-negative finite index with a non-empty name, or null; invalid
-// inputs never leak sentinel values into readers.
+// Centralized writer for `playback.pendingRecoveryTarget`. Position is only a
+// diagnostic hint; queueItemId is the owner that survives reorder.
 
-export function setPendingRecoveryTarget(
-  index: number | null | undefined,
-  name: string | null | undefined,
-): void {
+export function setPendingRecoveryTarget(target: QueueTarget | null | undefined): void {
   if (
-    typeof index === 'number' &&
-    Number.isFinite(index) &&
-    index >= 0 &&
-    typeof name === 'string' &&
-    name.length > 0
+    target &&
+    typeof target.queueItemId === 'string' &&
+    target.queueItemId.length > 0 &&
+    Number.isSafeInteger(target.indexHint) &&
+    target.indexHint >= 0 &&
+    typeof target.name === 'string' &&
+    target.name.length > 0
   ) {
-    setState('playback.pendingRecoveryTarget', { index, name });
-  } else {
-    setState('playback.pendingRecoveryTarget', null);
+    setState('playback.pendingRecoveryTarget', { ...target });
+    return;
   }
+  setState('playback.pendingRecoveryTarget', null);
 }
 
 // ─── Preloaded In Progress ─────────────────────────────────────────
@@ -308,22 +306,21 @@ export function setPlayPreloadedInProgress(v: boolean): void {
 
 // ─── Last Cleared Track ────────────────────────────────────────────
 
-export function getLastClearedTrackName(): string {
-  return _lastClearedTrackName;
+export function getLastClearedQueueItemId(): QueueItemId | null {
+  return _lastClearedQueueItemId;
 }
 
-export function setLastClearedTrackName(name: string): void {
-  _lastClearedTrackName = name;
+export function setLastClearedQueueItemId(queueItemId: QueueItemId | null): void {
+  _lastClearedQueueItemId = queueItemId;
 }
 
 // ─── Failed Track Tracking ────────────────────────────────────────
 // Remembers which tracks failed to decode (timeout, corrupt, unsupported) so
 // we can skip them on auto-advance without looping forever.
 //
-// Local media uses browser object identity. File metadata is not content
-// identity: different files can share name, size, and lastModified, while raw
-// Blobs can trivially share a size. A file playlist entry without an attached
-// File uses the entry object's identity. YouTube keeps its stable videoId key.
+// Queue entries use queueItemId so two occurrences of the same File or YouTube
+// video fail independently. Raw media outside the queue (for example demo
+// blobs) still uses browser object identity. File metadata is never identity.
 //
 // The Set is cleared in two cases:
 //   1. When every playlist track has failed (decode.ts counts the non-failed
@@ -333,7 +330,6 @@ export function setLastClearedTrackName(name: string): void {
 //      but nothing will check for it).
 
 const _mediaTrackKeys = new WeakMap<Blob, string>();
-const _playlistItemTrackKeys = new WeakMap<PlaylistItem, string>();
 let _nextTrackIdentity = 1;
 
 function identityKey<T extends object>(map: WeakMap<T, string>, value: T, prefix: string): string {
@@ -345,21 +341,13 @@ function identityKey<T extends object>(map: WeakMap<T, string>, value: T, prefix
   return key;
 }
 
-export function getTrackKeyFromFile(file: File | Blob | null | undefined): string | null {
+export function getTrackKeyFromFileForTests(file: File | Blob | null | undefined): string | null {
   return file ? identityKey(_mediaTrackKeys, file, 'media') : null;
 }
 
 export function getTrackKeyFromItem(item: PlaylistItem | null | undefined): string | null {
   if (!item) return null;
-  if (item.type === 'youtube') {
-    return item.videoId ? `yt:${item.videoId}` : null;
-  }
-  if (item.type === 'file' && item.file) {
-    return getTrackKeyFromFile(item.file);
-  }
-  // File handle not attached (e.g. a guest's remote playlist view). File
-  // metadata is not content identity, so use the entry object itself.
-  return item.type === 'file' ? identityKey(_playlistItemTrackKeys, item, 'item') : null;
+  return item.queueItemId ? `queue:${item.queueItemId}` : null;
 }
 
 export function markTrackFailed(key: string | null | undefined): void {

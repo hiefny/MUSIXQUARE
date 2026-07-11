@@ -8,6 +8,17 @@ import { bus } from '../../core/events.ts';
 // sendRecoveryRequest's ask clamp reads it as data-plane truth.
 import { ramStart, ramWrite, __resetRamStoreForTests } from '../ramstore.ts';
 import { isRemoteGuest } from '../../network/peer.ts';
+import { DEMO_TRACK } from '../../demo/tracks.ts';
+import {
+  beginFileRequest,
+  getCurrentFileRequestOwnerForTests,
+  resetFileRequestAuthority,
+} from '../../network/file-request-authority.ts';
+
+const Q0 = '00000000-0000-4000-8000-000000000001';
+const Q1 = '00000000-0000-4000-8000-000000000002';
+const Q2 = '00000000-0000-4000-8000-000000000003';
+let nextTestRequestId = 10_000;
 
 type RegisteredHandler = (data: Record<string, unknown>, conn: AnyConn) => unknown;
 const registeredHandlers = vi.hoisted(() => new Map<string, RegisteredHandler>());
@@ -81,18 +92,26 @@ beforeEach(() => {
   // Real ramstore holds module-level slots — without this, slots arranged in
   // one test leak into the next and skew the ask clamp.
   __resetRamStoreForTests();
+  resetFileRequestAuthority();
+  nextTestRequestId = 10_000;
   // restoreAllMocks does not restore vi.fn() factory mocks (only vi.spyOn) —
   // the remote-guest test's mockReturnValue(true) would otherwise leak into
   // every test that runs after it.
   vi.mocked(isRemoteGuest).mockReturnValue(false);
   remoteShareMocks.isConfigured.mockReturnValue(false);
+  setState('playlist.items', [
+    { queueItemId: Q0, type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
+    { queueItemId: Q1, type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
+    { queueItemId: Q2, type: 'file', name: 'remote.mp3', videoId: null, playlistId: null },
+  ]);
+  setState('playlist.currentQueueItemId', Q0);
 });
 
 /** Arrange `count` contiguous 1-byte chunks for `name` in the REAL ramstore. */
-function arrangeStoreChunks(name: string, sid: number, count: number): void {
-  ramStart(name, false, sid, 16, false);
+function arrangeStoreChunks(name: string, sid: number, count: number, queueItemId = Q0): void {
+  ramStart(queueItemId, name, false, sid, 16, false);
   for (let i = 0; i < count; i++) {
-    ramWrite(name, false, sid, i, new Uint8Array([i & 0xff]));
+    ramWrite(queueItemId, name, false, sid, i, new Uint8Array([i & 0xff]));
   }
   setState('transfer.localSessionId', sid);
 }
@@ -145,12 +164,43 @@ describe('sendRecoveryRequest', () => {
 
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
     setState('recovery.retryCount', 0);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
 
     sendRecoveryRequest();
     vi.advanceTimersByTime(2000);
 
-    expect(hostSend).toHaveBeenCalled();
+    expect(hostSend).toHaveBeenCalledTimes(1);
+    const request = hostSend.mock.calls[0][0];
+    expect(request).toEqual(
+      expect.objectContaining({
+        type: MSG.REQUEST_DATA_RECOVERY,
+        queueItemId: Q0,
+        requestId: expect.any(Number),
+      }),
+    );
+    expect(Number.isSafeInteger(request.requestId)).toBe(true);
+    expect(request.requestId).toBeGreaterThan(0);
+    expect(request).not.toHaveProperty('sessionId');
+  });
+
+  it('allocates a fresh requestId for each successive recovery request', async () => {
+    const sendRecoveryRequest = await getSendRecoveryRequest();
+    const hostSend = vi.fn();
+
+    setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
+
+    sendRecoveryRequest();
+    vi.advanceTimersByTime(2000);
+    sendRecoveryRequest();
+    vi.advanceTimersByTime(5000);
+
+    expect(hostSend).toHaveBeenCalledTimes(2);
+    const firstRequestId = hostSend.mock.calls[0][0].requestId;
+    const secondRequestId = hostSend.mock.calls[1][0].requestId;
+    expect(firstRequestId).toBeGreaterThan(0);
+    expect(secondRequestId).toBeGreaterThan(0);
+    expect(secondRequestId).not.toBe(firstRequestId);
   });
 
   it('applies progressive backoff timing', async () => {
@@ -159,7 +209,7 @@ describe('sendRecoveryRequest', () => {
 
     // RECOVERY_BACKOFF = [2000, 5000, 10000]
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
 
     // First attempt — 2000ms backoff
     setState('recovery.retryCount', 0);
@@ -175,24 +225,53 @@ describe('sendRecoveryRequest', () => {
     const hostSend = vi.fn();
 
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'original.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'original.mp3' });
     setState('recovery.retryCount', 0);
 
     sendRecoveryRequest();
 
-    // Change track during backoff
-    setState('transfer.meta', { name: 'different.mp3' });
+    // Change the authoritative selection during backoff. Stale transfer.meta
+    // may still point at Q0, so currentQueueItemId must win.
+    setState('playlist.currentQueueItemId', Q1);
+    setState('transfer.meta', { queueItemId: Q1, name: 'different.mp3' });
     vi.advanceTimersByTime(2000);
 
     expect(hostSend).not.toHaveBeenCalled();
     expect(getState('recovery.retryCount')).toBe(0); // reset
   });
 
+  it('uses the selected target instead of stale transfer metadata and SID', async () => {
+    const sendRecoveryRequest = await getSendRecoveryRequest();
+    const hostSend = vi.fn();
+    setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
+    setState('playlist.currentQueueItemId', Q1);
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: 'selected.mp3',
+    });
+    setState('transfer.meta', { queueItemId: Q0, name: 'stale.mp3', sessionId: 7 });
+    setState('transfer.localSessionId', 7);
+    setState('transfer.currentSessionId', 7);
+
+    sendRecoveryRequest();
+    vi.advanceTimersByTime(2000);
+
+    expect(hostSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.REQUEST_DATA_RECOVERY,
+        queueItemId: Q1,
+        fileName: 'selected.mp3',
+      }),
+    );
+    expect(hostSend.mock.calls[0][0]).not.toHaveProperty('sessionId');
+  });
+
   it('aborts if connection closed during backoff', async () => {
     const sendRecoveryRequest = await getSendRecoveryRequest();
     const conn = { open: true, send: vi.fn() } as AnyConn;
     setState('network.hostConn', conn);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
     setState('recovery.retryCount', 0);
 
     sendRecoveryRequest();
@@ -204,12 +283,28 @@ describe('sendRecoveryRequest', () => {
     expect(conn.send).not.toHaveBeenCalled();
   });
 
+  it('claims and sends through the exact fresh host connection after backoff', async () => {
+    const sendRecoveryRequest = await getSendRecoveryRequest();
+    const originalConn = { open: true, send: vi.fn() } as AnyConn;
+    const freshConn = { open: true, send: vi.fn() } as AnyConn;
+    setState('network.hostConn', originalConn);
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
+
+    sendRecoveryRequest();
+    setState('network.hostConn', freshConn);
+    vi.advanceTimersByTime(2000);
+
+    expect(originalConn.send).not.toHaveBeenCalled();
+    expect(freshConn.send).toHaveBeenCalledTimes(1);
+    expect(getCurrentFileRequestOwnerForTests()?.hostConn).toBe(freshConn);
+  });
+
   it('uses forceChunk when provided', async () => {
     const sendRecoveryRequest = await getSendRecoveryRequest();
     const hostSend = vi.fn();
 
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
     setState('transfer.receivedCount', 50);
     setState('recovery.retryCount', 0);
 
@@ -225,7 +320,7 @@ describe('sendRecoveryRequest', () => {
     const hostSend = vi.fn();
 
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
     setState('transfer.receivedCount', 42);
     setState('recovery.retryCount', 0);
     // The ask is bounded by both the counter and store's contiguous prefix.
@@ -245,11 +340,11 @@ describe('sendRecoveryRequest', () => {
     const hostSend = vi.fn();
 
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
     setState('transfer.receivedCount', 500); // phantom — store holds far less
     setState('recovery.retryCount', 0);
     arrangeStoreChunks('test.mp3', 1, 3); // contiguous prefix [0..2]
-    ramWrite('test.mp3', false, 1, 10, new Uint8Array([0xff])); // non-prefix chunk — must not count
+    ramWrite(Q0, 'test.mp3', false, 1, 10, new Uint8Array([0xff])); // non-prefix chunk — must not count
 
     sendRecoveryRequest(null);
     vi.advanceTimersByTime(2000);
@@ -265,7 +360,7 @@ describe('sendRecoveryRequest', () => {
     const hostSend = vi.fn();
 
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
     setState('transfer.receivedCount', 42);
     setState('recovery.retryCount', 0);
 
@@ -281,13 +376,13 @@ describe('sendRecoveryRequest', () => {
     const hostSend = vi.fn();
 
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'test.mp3', sessionId: 2 });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3', sessionId: 2 });
     setState('transfer.localSessionId', 2);
     setState('transfer.receivedCount', 2);
     setState('recovery.retryCount', 0);
-    ramStart('test.mp3', false, 1, 16, false);
-    ramWrite('test.mp3', false, 1, 0, new Uint8Array([1]));
-    ramWrite('test.mp3', false, 1, 1, new Uint8Array([2]));
+    ramStart(Q0, 'test.mp3', false, 1, 16, false);
+    ramWrite(Q0, 'test.mp3', false, 1, 0, new Uint8Array([1]));
+    ramWrite(Q0, 'test.mp3', false, 1, 1, new Uint8Array([2]));
 
     sendRecoveryRequest(null);
     vi.advanceTimersByTime(2000);
@@ -305,7 +400,11 @@ describe('sendRecoveryRequest', () => {
 
     vi.mocked(isRemoteGuest).mockReturnValue(true);
     setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
-    setState('playback.pendingRecoveryTarget', { index: 1, name: 'remote.mp3' });
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: 'remote.mp3',
+    });
     setState('transfer.state', TRANSFER_STATE.RECEIVING);
 
     sendRecoveryRequest();
@@ -325,6 +424,50 @@ describe('initRecovery', () => {
     expect(registerHandlers).toHaveBeenCalled();
   });
 
+  it('cancels pending recovery ownership and backoff when the selection changes', async () => {
+    const { initRecovery } = await import('../recovery.ts');
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    const conn = { open: true, send: vi.fn() } as AnyConn;
+    initRecovery();
+    beginFileRequest(conn, Q0, 7);
+    setState('recovery.retryCount', 2);
+    setState('recovery.pending', true);
+
+    bus.emit('state:playlist.currentQueueItemId', Q1);
+
+    expect(getCurrentFileRequestOwnerForTests()).toBeNull();
+    expect(getState('recovery.retryCount')).toBe(0);
+    expect(getState('recovery.pending')).toBe(false);
+    expect(clearManagedTimer).toHaveBeenCalledWith('recovery-backoff');
+  });
+
+  it('does not let an already queued A backoff callback overwrite request B', async () => {
+    const { initRecovery, sendRecoveryRequest } = await import('../recovery.ts');
+    const hostSend = vi.fn();
+    const conn = { open: true, send: hostSend } as AnyConn;
+    initRecovery();
+    setState('network.hostConn', conn);
+    setState('transfer.meta', { queueItemId: Q0, name: 'a.mp3' });
+
+    sendRecoveryRequest();
+    bus.emit('state:playlist.currentQueueItemId', Q1);
+    const ownerB = beginFileRequest(conn, Q1, 8);
+    vi.advanceTimersByTime(2000);
+
+    expect(hostSend).not.toHaveBeenCalled();
+    expect(getCurrentFileRequestOwnerForTests()).toBe(ownerB);
+  });
+
+  it('clears file-request ownership at a full recovery authority reset', async () => {
+    const { resetRecoveryAuthority } = await import('../recovery.ts');
+    const conn = { open: true, send: vi.fn() } as AnyConn;
+    beginFileRequest(conn, Q0, 7);
+
+    resetRecoveryAuthority();
+
+    expect(getCurrentFileRequestOwnerForTests()).toBeNull();
+  });
+
   // Ordinary bus events omit forceChunk; normalize the optional value before
   // forwarding it to the request builder.
   it('plain storage:request-recovery emit takes the clamped counter path', async () => {
@@ -333,7 +476,7 @@ describe('initRecovery', () => {
 
     initRecovery();
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
     setState('transfer.receivedCount', 500); // phantom
     arrangeStoreChunks('test.mp3', 1, 2);
 
@@ -350,7 +493,7 @@ describe('initRecovery', () => {
 
     initRecovery();
     setState('network.hostConn', { open: true, send: hostSend } as AnyConn);
-    setState('transfer.meta', { name: 'test.mp3' });
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3' });
     setState('transfer.receivedCount', 500);
 
     bus.emit('storage:request-recovery', 7); // store-derived by construction
@@ -371,7 +514,25 @@ describe('host cached-blob recovery identity', () => {
     initRecovery();
     const handler = registeredHandlers.get(type);
     expect(handler).toBeDefined();
-    await handler?.({ type, ...data }, conn);
+    const request = {
+      type,
+      requestId: ++nextTestRequestId,
+      ...data,
+    };
+    await handler?.(request, conn);
+
+    // Every wait branch shares one response helper. Assert the full optional
+    // correlation tuple for every FILE_WAIT frame produced by this invocation.
+    for (const [message] of conn.send.mock.calls) {
+      if (message?.type !== MSG.FILE_WAIT) continue;
+      expect(message.requestId).toBe(request.requestId);
+      expect(message.queueItemId).toBe(request.queueItemId);
+      if (request.sessionId === undefined) {
+        expect(message).not.toHaveProperty('sessionId');
+      } else {
+        expect(message.sessionId).toBe(request.sessionId);
+      }
+    }
   }
 
   function makeGuestConn(connectionType: 'local' | 'remote' | 'unknown' = 'local'): AnyConn {
@@ -390,25 +551,40 @@ describe('host cached-blob recovery identity', () => {
     return conn;
   }
 
+  function setResident(queueItemId: string, name: string, blob: Blob, sessionId: number): void {
+    setState('playlist.currentQueueItemId', queueItemId);
+    setState('files.current', {
+      queueItemId,
+      indexHint: getState('playlist.items').findIndex((item) => item.queueItemId === queueItemId),
+      name,
+      sessionId,
+      size: blob.size,
+      mime: blob.type,
+      blob,
+    });
+    setState('transfer.currentSessionId', sessionId);
+    setState('transfer.meta', { queueItemId, name, sessionId, size: blob.size });
+  }
+
   it('does not send a future preload as the current main transfer', async () => {
     const currentBlob = new Blob(['current-index-zero']);
     const preloadBlob = new Blob(['preload-index-one']);
-    setState('playlist.items', [
-      { type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
-      { type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
-    ]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', currentBlob);
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 7 });
-    setState('preload.nextFileBlob', preloadBlob);
-    setState('preload.nextTrackIndex', 1);
-    setState('preload.meta', { name: 'same.mp3', index: 1, sessionId: 8 });
+    setResident(Q0, 'same.mp3', currentBlob, 7);
+    setState('preload.nextQueueItemId', Q1);
+    setState('preload.ready', {
+      queueItemId: Q1,
+      indexHint: 1,
+      name: 'same.mp3',
+      sessionId: 8,
+      size: preloadBlob.size,
+      mime: preloadBlob.type,
+      blob: preloadBlob,
+    });
 
     const conn = makeGuestConn();
     await invokeRecoveryHandler(
       MSG.REQUEST_DATA_RECOVERY,
-      { fileName: 'same.mp3', index: 1, sessionId: 8, nextChunk: 0 },
+      { fileName: 'same.mp3', queueItemId: Q1, sessionId: 8, nextChunk: 0 },
       conn,
     );
 
@@ -417,17 +593,14 @@ describe('host cached-blob recovery identity', () => {
     expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_WAIT }));
   });
 
-  it('serves an exact current index and session with frozen unicast options', async () => {
+  it('serves an exact current queue item and session with frozen unicast options', async () => {
     const currentBlob = new Blob(['current-index-zero'], { type: 'audio/mpeg' });
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', currentBlob);
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: 'current.mp3', index: 0, sessionId: 7 });
+    setResident(Q0, 'current.mp3', currentBlob, 7);
 
     const conn = makeGuestConn();
     await invokeRecoveryHandler(
       MSG.REQUEST_DATA_RECOVERY,
-      { fileName: 'untrusted-name.mp3', index: 0, sessionId: 7, nextChunk: 2 },
+      { fileName: 'untrusted-name.mp3', queueItemId: Q0, sessionId: 7, nextChunk: 2 },
       conn,
     );
 
@@ -438,23 +611,20 @@ describe('host cached-blob recovery identity', () => {
       0,
       7,
       expect.objectContaining({
-        trackIndex: 0,
+        queueItemId: Q0,
         isSourceCurrent: expect.any(Function),
       }),
     );
   });
 
-  it('does not reuse same-name bytes when no cached index matches', async () => {
+  it('does not reuse same-name bytes when queue identity differs', async () => {
     const currentBlob = new Blob(['index-zero']);
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', currentBlob);
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 7 });
+    setResident(Q0, 'same.mp3', currentBlob, 7);
 
     const conn = makeGuestConn();
     await invokeRecoveryHandler(
       MSG.REQUEST_DATA_RECOVERY,
-      { fileName: 'same.mp3', index: 2, nextChunk: 0 },
+      { fileName: 'same.mp3', queueItemId: Q1, nextChunk: 0 },
       conn,
     );
 
@@ -464,29 +634,19 @@ describe('host cached-blob recovery identity', () => {
   });
 
   it('does not use a filename-only current-file request as byte identity', async () => {
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', new Blob(['index-zero']));
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 7 });
+    setResident(Q0, 'same.mp3', new Blob(['index-zero']), 7);
 
     const conn = makeGuestConn();
     await invokeRecoveryHandler(MSG.REQUEST_CURRENT_FILE, { name: 'same.mp3' }, conn);
 
     const { unicastFile } = await import('../transfer.ts');
     expect(unicastFile).not.toHaveBeenCalled();
-    expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_WAIT }));
+    expect(conn.send).not.toHaveBeenCalled();
   });
 
-  it('repairs missing guest identity from the host current-index snapshot', async () => {
+  it('does not repair a missing guest identity from positional host state', async () => {
     const currentBlob = new Blob(['host-current']);
-    setState('playlist.items', [
-      { type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
-      { type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
-    ]);
-    setState('playlist.currentTrackIndex', 1);
-    setState('files.currentFileBlob', currentBlob);
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: 'same.mp3', index: 1, sessionId: 7 });
+    setResident(Q1, 'same.mp3', currentBlob, 7);
 
     const conn = makeGuestConn();
     await invokeRecoveryHandler(
@@ -496,55 +656,39 @@ describe('host cached-blob recovery identity', () => {
     );
 
     const { unicastFile } = await import('../transfer.ts');
-    expect(unicastFile).toHaveBeenCalledWith(
-      conn,
-      expect.objectContaining({ name: 'same.mp3' }),
-      0,
-      7,
-      expect.objectContaining({
-        trackIndex: 1,
-        skipTransportGuard: true,
-        isSourceCurrent: expect.any(Function),
-      }),
-    );
+    expect(unicastFile).not.toHaveBeenCalled();
   });
 
-  it('does not let the repair tag override an explicit guest index', async () => {
+  it('does not let the repair tag override an explicit different queue item', async () => {
     const currentBlob = new Blob(['host-current']);
-    setState('playlist.currentTrackIndex', 1);
-    setState('files.currentFileBlob', currentBlob);
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: 'host.mp3', index: 1, sessionId: 7 });
+    setResident(Q1, 'host.mp3', currentBlob, 7);
 
     const conn = makeGuestConn();
     await invokeRecoveryHandler(
       MSG.REQUEST_CURRENT_FILE,
-      { reason: 'missing_transfer_identity', index: 0, name: 'host.mp3' },
+      { reason: 'missing_transfer_identity', queueItemId: Q0, name: 'host.mp3' },
       conn,
     );
 
     const { unicastFile } = await import('../transfer.ts');
     expect(unicastFile).not.toHaveBeenCalled();
     expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_WAIT }));
-    expect(conn.send.mock.calls.at(-1)?.[0]).not.toHaveProperty('reason');
+    expect(conn.send.mock.calls.at(-1)?.[0]).toHaveProperty('reason', 'missing_transfer_identity');
   });
 
   it('revalidates the exact current Blob after asynchronous transport classification', async () => {
     const selectedBlob = new Blob(['selected']);
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', selectedBlob);
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: 'selected.mp3', index: 0, sessionId: 7 });
+    setResident(Q0, 'selected.mp3', selectedBlob, 7);
 
     const conn = makeGuestConn('unknown');
     const pending = invokeRecoveryHandler(
       MSG.REQUEST_CURRENT_FILE,
-      { reason: 'missing_transfer_identity' },
+      { reason: 'missing_transfer_identity', queueItemId: Q0 },
       conn,
     );
     await vi.advanceTimersByTimeAsync(0);
 
-    setState('files.currentFileBlob', new Blob(['replacement']));
+    setResident(Q0, 'selected.mp3', new Blob(['replacement']), 7);
     const [peer] = getState('network.connectedPeers');
     peer.connectionType = 'local';
     await vi.advanceTimersByTimeAsync(100);
@@ -554,35 +698,45 @@ describe('host cached-blob recovery identity', () => {
     expect(unicastFile).not.toHaveBeenCalled();
   });
 
-  it('uses the matched host index in a refreshed remote descriptor', async () => {
+  it('uses the matched host queue item in a refreshed remote descriptor', async () => {
     const currentBlob = new Blob(['remote-current'], { type: 'audio/mpeg' });
-    setState('playlist.currentTrackIndex', 2);
-    setState('files.currentFileBlob', currentBlob);
-    setState('transfer.currentSessionId', 9);
-    setState('transfer.meta', { name: 'remote.mp3', index: 2, sessionId: 9 });
+    setResident(Q2, 'remote.mp3', currentBlob, 9);
     remoteShareMocks.isConfigured.mockReturnValue(true);
 
     const conn = makeGuestConn('remote');
-    await invokeRecoveryHandler(MSG.REQUEST_CURRENT_FILE, { index: 2 }, conn);
+    await invokeRecoveryHandler(MSG.REQUEST_CURRENT_FILE, { queueItemId: Q2 }, conn);
 
     expect(remoteShareMocks.shareRemoteFileIfNeeded).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'remote.mp3' }),
       9,
       conn,
-      { index: 2 },
+      { queueItemId: Q2 },
     );
   });
 
-  it('rejects an exact index when the requested transfer session differs', async () => {
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', new Blob(['session-seven']));
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 7 });
+  it('refreshes R2 for a user file whose name matches a bundled demo asset', async () => {
+    const currentBlob = new Blob(['user-owned-demo-name'], { type: DEMO_TRACK.mime });
+    setResident(Q2, DEMO_TRACK.fileName, currentBlob, 10);
+    remoteShareMocks.isConfigured.mockReturnValue(true);
+
+    const conn = makeGuestConn('remote');
+    await invokeRecoveryHandler(MSG.REQUEST_CURRENT_FILE, { queueItemId: Q2 }, conn);
+
+    expect(remoteShareMocks.shareRemoteFileIfNeeded).toHaveBeenCalledWith(
+      expect.objectContaining({ name: DEMO_TRACK.fileName }),
+      10,
+      conn,
+      { queueItemId: Q2 },
+    );
+  });
+
+  it('rejects an exact queue item when the requested transfer session differs', async () => {
+    setResident(Q0, 'same.mp3', new Blob(['session-seven']), 7);
 
     const conn = makeGuestConn();
     await invokeRecoveryHandler(
       MSG.REQUEST_DATA_RECOVERY,
-      { fileName: 'same.mp3', index: 0, sessionId: 8, nextChunk: 0 },
+      { fileName: 'same.mp3', queueItemId: Q0, sessionId: 8, nextChunk: 0 },
       conn,
     );
 
@@ -591,26 +745,19 @@ describe('host cached-blob recovery identity', () => {
     expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_WAIT }));
   });
 
-  it('refuses a cached current Blob whose metadata and host session disagree', async () => {
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', new Blob(['ambiguous-session']));
+  it('refuses a cached current Blob when the requested session disagrees', async () => {
+    setResident(Q0, 'same.mp3', new Blob(['ambiguous-session']), 7);
     setState('transfer.currentSessionId', 8);
-    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 7 });
 
     const conn = makeGuestConn();
     await invokeRecoveryHandler(
-      MSG.REQUEST_CURRENT_FILE,
-      { reason: 'missing_transfer_identity' },
+      MSG.REQUEST_DATA_RECOVERY,
+      { queueItemId: Q0, sessionId: 8, nextChunk: 0 },
       conn,
     );
 
     const { unicastFile } = await import('../transfer.ts');
     expect(unicastFile).not.toHaveBeenCalled();
-    expect(conn.send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: MSG.FILE_WAIT,
-        reason: 'missing_transfer_identity',
-      }),
-    );
+    expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_WAIT }));
   });
 });

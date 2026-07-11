@@ -18,6 +18,7 @@ import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { ramStats } from '../storage/ramstore.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
+import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { getCapturedLogs } from '../core/log-capture.ts';
 import { getPlaybackOwnership } from '../player/ownership.ts';
 import { collectSystemAudioDebugText } from '../network/system-audio-debug.ts';
@@ -175,11 +176,14 @@ export function cmdDebug(args: string[]): void {
   }
 
   // Playlist
-  const trackIdx = getState('playlist.currentTrackIndex') ?? -1;
+  const currentQueueItemId = getCurrentQueueItemId();
+  const trackIdx = getCurrentQueueItemIndex();
   const playlist = getState('playlist.items') || [];
   const currentTitle =
     trackIdx >= 0 && playlist[trackIdx] ? playlist[trackIdx].title || playlist[trackIdx].name : '-';
-  lines.push(`[Playlist] ${playlist.length} tracks | current:#${trackIdx} ${currentTitle}`);
+  lines.push(
+    `[Playlist] ${playlist.length} tracks | current:#${trackIdx >= 0 ? trackIdx : '-'} qid:${currentQueueItemId || '-'} ${currentTitle}`,
+  );
 
   // Session timing
   const sessionStarted = getState('setup.sessionStarted');
@@ -239,7 +243,7 @@ export function cmdDebug(args: string[]): void {
 //   - Heap (performance.memory if Chromium)
 //   - Audio buffer (current decoded PCM in RAM)
 //   - Files (current blob, preload blob, playlist file refs sum)
-//   - Transfer (main reorder buffer + early-chunk queue)
+//   - Transfer (main reorder buffer)
 //   - Preload (reorder buffer + sessionState + ackSent)
 //   - Network (peer connections)
 //   - Lifecycle (state machine + recovery target)
@@ -737,8 +741,8 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
 
   // ── Files ──
   try {
-    const currentBlob = getState('files.currentFileBlob') as Blob | null;
-    const preloadBlob = getState('preload.nextFileBlob') as File | Blob | null;
+    const currentBlob = getState('files.current')?.blob ?? null;
+    const preloadBlob = getState('preload.ready')?.blob ?? null;
     if (currentBlob) trackedBytes += currentBlob.size;
     if (preloadBlob) trackedBytes += preloadBlob.size;
     const currentMB = currentBlob ? (currentBlob.size / 1048576).toFixed(1) : '0.0';
@@ -768,16 +772,14 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
   // ── Transfer (main) ──
   try {
     const ts = getTransferMemoryStats();
-    trackedBytes += ts.reorderBytes + ts.pendingEarlyBytes;
+    trackedBytes += ts.reorderBytes;
     const meta = getState('transfer.meta');
     const total = (meta?.total as number) || 0;
     const received = (getState('transfer.receivedCount') as number) || 0;
     lines.push(
       `[Transfer] reorderBuf:${ts.reorderSessions}sess/${ts.reorderChunks}ch/${(ts.reorderBytes / 1048576).toFixed(2)}MB`,
     );
-    lines.push(
-      `           pendingEarly:${ts.pendingEarlyChunks}ch/${(ts.pendingEarlyBytes / 1048576).toFixed(2)}MB | progress:${received}/${total}`,
-    );
+    lines.push(`           progress:${received}/${total}`);
   } catch {
     /* ignore */
   }
@@ -787,7 +789,7 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     const ps = getPreloadMemoryStats();
     trackedBytes += ps.reorderBytes;
     const sessionState = (getState('preload.sessionState') as Map<number, unknown>) || new Map();
-    const ackSent = (getState('preload.ackSent') as Set<number>) || new Set();
+    const ackSent = getState('preload.ackSent') || new Map();
     let finalized = 0;
     let skipped = 0;
     let inProgress = 0;
@@ -839,14 +841,13 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
   try {
     const lifecycle = getState('playback.lifecycle') || '?';
     const loadSource = getState('playback.loadSource') || 'none';
-    const target = getState('playback.pendingRecoveryTarget') as {
-      index?: number;
-      name?: string;
-    } | null;
+    const target = getState('playback.pendingRecoveryTarget');
     const failed = (getState('playback.failedTrackKeys') as Set<string>) || new Set();
     lines.push(`[Lifecycle] ${lifecycle} (loadSource:${loadSource}) | failedTracks:${failed.size}`);
     if (target) {
-      lines.push(`            recoveryTarget: idx:${target.index} name:${target.name || '-'}`);
+      lines.push(
+        `            recoveryTarget: qid:${target.queueItemId} idxHint:${target.indexHint} name:${target.name || '-'}`,
+      );
     }
   } catch {
     /* ignore */

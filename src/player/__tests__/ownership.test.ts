@@ -5,7 +5,7 @@ import {
   claimPlaybackOwner,
   createFileTrackMeta,
   createSystemAudioTrackMeta,
-  createYouTubeTrackMeta,
+  createYouTubeTrackMetaForTests,
   getPlaybackModeActivity,
   getPlaybackModeActivitySnapshot,
   getPlaybackOwnership,
@@ -343,7 +343,7 @@ describe('playback ownership view', () => {
   });
 
   it('updates track titles with an optional fallback meta', () => {
-    updatePlaybackTrackTitle('Fetched Title', createYouTubeTrackMeta({ name: 'Loading' }));
+    updatePlaybackTrackTitle('Fetched Title', createYouTubeTrackMetaForTests({ name: 'Loading' }));
 
     expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
       type: 'youtube',
@@ -363,7 +363,9 @@ describe('playback ownership view', () => {
   });
 
   it('creates canonical synthetic YouTube track metadata', () => {
-    expect(createYouTubeTrackMeta({ name: 'Video', videoId: 'abc', playlistId: null })).toEqual({
+    expect(
+      createYouTubeTrackMetaForTests({ name: 'Video', videoId: 'abc', playlistId: null }),
+    ).toEqual({
       type: 'youtube',
       name: 'Video',
       title: 'Video',

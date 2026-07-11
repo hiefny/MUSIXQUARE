@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEMO_TRACK, DEMO_TRACKS, createDemoTrackMeta, isDemoTrackName } from '../tracks.ts';
+import { DEMO_TRACK, DEMO_TRACKS, createDemoTrackMeta } from '../tracks.ts';
 
 describe('demo track registry', () => {
-  it('recognizes the Linelight R2 demo filenames', () => {
+  it('keeps the explicit Linelight demo registry internally unique', () => {
     expect(DEMO_TRACKS).toHaveLength(4);
-    for (const track of DEMO_TRACKS) {
-      expect(isDemoTrackName(track.fileName)).toBe(true);
-    }
-    expect(isDemoTrackName('  brett taylor - linelight ost - 04 spring.m4a  ')).toBe(true);
+    expect(new Set(DEMO_TRACKS.map((track) => track.id)).size).toBe(DEMO_TRACKS.length);
+    expect(new Set(DEMO_TRACKS.map((track) => track.url)).size).toBe(DEMO_TRACKS.length);
   });
 
   it('creates file track metadata for demo playback', () => {

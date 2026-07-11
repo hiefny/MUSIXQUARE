@@ -76,6 +76,13 @@ describe('switchTab', () => {
     switchTab('devices');
     expect(fn).toHaveBeenCalled();
   });
+
+  it('emits the generic tab lifecycle signal used to cancel playlist gestures', () => {
+    const fn = vi.fn();
+    bus.on('ui:tab-changed', fn);
+    switchTab('settings');
+    expect(fn).toHaveBeenCalledWith('settings');
+  });
 });
 
 describe('initTabs', () => {

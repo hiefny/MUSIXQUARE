@@ -22,7 +22,7 @@
  *       decode) — abort without publishing, without consuming the mailbox.
  *   (e) loadPreloadedTrack pendingPlayTime policy is asymmetric BY DESIGN —
  *       BIDIRECTIONAL pins: preserve on supersession-class aborts AND clear
- *       on external-owner/no-blob aborts, so a uniform-clear refactor and a
+ *       on external-owner/live-failure aborts, so a uniform-clear refactor and a
  *       uniform-preserve behavior are both rejected by this suite.
  *   (f) a SUPERSEDED activation's decode-failure catch path is inert: it must
  *       not clear the superseding activation's flag nor its pending play.
@@ -43,9 +43,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
-import { getState, resetState, setState } from '../../core/state.ts';
+import { batchSetState, getState, resetState, setState } from '../../core/state.ts';
 import { handleData } from '../../network/protocol.ts';
-import type { DataConnection, PlaylistItem } from '../../types/index.ts';
+import type {
+  DataConnection,
+  FileMeta,
+  PlaylistItem,
+  QueueItemId,
+  ResidentFile,
+} from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
@@ -109,7 +115,6 @@ vi.mock('../../storage/storage.ts', () => ({
 vi.mock('../../storage/transfer.ts', () => ({
   broadcastFileDebounced: vi.fn(),
   unicastFile: mocks.unicastFile,
-  fetchDemoFromServer: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../../storage/preload.ts', () => ({
@@ -214,22 +219,107 @@ function makeFakeSourceNode(): FakeSourceNode {
   };
 }
 
+let nextQueueItemIdValue = 1;
+
+function nextQueueItemId(): QueueItemId {
+  const suffix = String(nextQueueItemIdValue++).padStart(12, '0');
+  return `00000000-0000-4000-8000-${suffix}`;
+}
+
 function makeTrack(name: string): PlaylistItem {
-  return { type: 'file', name, title: name, videoId: null, playlistId: null };
+  return {
+    queueItemId: nextQueueItemId(),
+    type: 'file',
+    name,
+    title: name,
+    videoId: null,
+    playlistId: null,
+  };
 }
 
 function makeFile(name: string): File {
   return new File([new Uint8Array([1, 2, 3])], name, { type: 'audio/mpeg' });
 }
 
-/** Populate a ready-to-activate preload slot for `index`. */
-function stagePreload(index: number, file: File): void {
-  setState('preload.nextFileBlob', file);
-  setState('preload.meta', { name: file.name, index, sessionId: index + 1 });
-  setState('preload.nextTrackIndex', index);
+function itemAt(index: number): PlaylistItem {
+  const item = getState('playlist.items')[index];
+  if (!item) throw new Error(`missing queue item at index ${index}`);
+  return item;
 }
 
-const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+function queueItemIdAt(index: number): QueueItemId {
+  return itemAt(index).queueItemId;
+}
+
+function expectCorrelatedRequest(
+  send: ReturnType<typeof vi.fn>,
+  expected: Record<string, unknown>,
+): void {
+  expect(send).toHaveBeenCalledWith({
+    ...expected,
+    requestId: expect.any(Number),
+  });
+  const matchingCall = send.mock.calls.find(([message]) =>
+    Object.entries(expected).every(
+      ([key, value]) => (message as Record<string, unknown> | undefined)?.[key] === value,
+    ),
+  );
+  const requestId = (matchingCall?.[0] as { requestId?: unknown } | undefined)?.requestId;
+  expect(requestId).toEqual(expect.any(Number));
+  expect(requestId as number).toBeGreaterThan(0);
+}
+
+function selectIndex(index: number): QueueItemId | null {
+  const queueItemId = getState('playlist.items')[index]?.queueItemId ?? null;
+  setState('playlist.currentQueueItemId', queueItemId);
+  return queueItemId;
+}
+
+function fileMetaFor(
+  item: PlaylistItem,
+  file: Blob,
+  sessionId: number,
+  indexHint = getState('playlist.items').findIndex(
+    (candidate) => candidate.queueItemId === item.queueItemId,
+  ),
+): FileMeta {
+  const mime = file.type || 'audio/mpeg';
+  return {
+    queueItemId: item.queueItemId,
+    indexHint,
+    name: item.name,
+    type: mime,
+    mime,
+    size: file.size,
+    total: 1,
+    sessionId,
+  };
+}
+
+/** Populate a ready-to-activate preload slot for `index`. */
+function stagePreload(index: number, file: File, sessionId = index + 1): ResidentFile {
+  const item = itemAt(index);
+  const meta = fileMetaFor(item, file, sessionId, index);
+  const ready: ResidentFile = { ...meta, blob: file };
+  batchSetState({
+    'preload.nextQueueItemId': item.queueItemId,
+    'preload.activeTarget': meta,
+    'preload.ready': ready,
+  });
+  return ready;
+}
+
+/** Establish the stable queue/session owner required by guest finalization. */
+function stageGuestTransfer(index: number, file: File, sessionId: number): QueueItemId {
+  const item = itemAt(index);
+  selectIndex(index);
+  setState('transfer.localSessionId', sessionId);
+  setState('transfer.meta', fileMetaFor(item, file, sessionId, index));
+  return item.queueItemId;
+}
+
+const exactHostSend = vi.fn();
+const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;
 
 beforeEach(() => {
   resetState();
@@ -296,18 +386,18 @@ describe('pin (a) — use-preloaded supersession keeps the activation flag owned
       .mockImplementationOnce(() => decodeA.promise)
       .mockImplementationOnce(() => decodeB.promise);
 
-    // A: activation for index 4 starts and blocks inside its decode.
-    setState('playlist.currentTrackIndex', 4);
-    stagePreload(4, makeFile('t4.mp3'));
-    bus.emit('storage:use-preloaded', 4, 't4.mp3');
+    // A: activation for queue item 4 starts and blocks inside its decode.
+    const queueItemIdA = selectIndex(4)!;
+    const readyA = stagePreload(4, makeFile('t4.mp3'));
+    bus.emit('storage:use-preloaded', queueItemIdA, 't4.mp3', readyA.sessionId);
     expect(isPlayPreloadedInProgress()).toBe(true);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
-    // B: a preload for a DIFFERENT index arrives while A is still decoding.
-    setState('playlist.currentTrackIndex', 5);
-    stagePreload(5, makeFile('t5.mp3'));
+    // B: a preload for a DIFFERENT queue item arrives while A is still decoding.
+    const queueItemIdB = selectIndex(5)!;
+    const readyB = stagePreload(5, makeFile('t5.mp3'));
     const tokenBeforeB = getCurrentLoadEpoch();
-    bus.emit('storage:use-preloaded', 5, 't5.mp3');
+    bus.emit('storage:use-preloaded', queueItemIdB, 't5.mp3', readyB.sessionId);
 
     // Supersession must NOT clear the flag (stomp rule C1) and must bump the
     // token so A self-resolves at its post-decode checkpoint.
@@ -317,7 +407,10 @@ describe('pin (a) — use-preloaded supersession keeps the activation flag owned
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
 
     // Host PLAY lands inside the supersession window → flag gate defers it.
-    await handleData({ type: MSG.PLAY, time: 33, index: 5, name: 't5.mp3' }, hostConn);
+    await handleData(
+      { type: MSG.PLAY, time: 33, queueItemId: queueItemIdB, name: 't5.mp3' },
+      hostConn,
+    );
     expect(getPendingPlayTime()).toBe(33);
     expect(getState('playback.activity')).not.toBe('playing');
 
@@ -339,24 +432,27 @@ describe('pin (a) — use-preloaded supersession keeps the activation flag owned
 describe('direct PLAY preload activation deduplication', () => {
   it('does not decode the same Blob again when preload-ready re-emits use-preloaded', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 3);
+    selectIndex(3);
     initPlayback();
 
     const file = makeFile('t4.mp3');
     const decode = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decode.promise);
-    stagePreload(4, file);
+    const ready = stagePreload(4, file);
 
     // The authoritative PLAY mismatch takes playback.ts's direct preload fast
     // path before preload.ts can deliver its completion notification.
-    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: file.name }, hostConn);
+    await handleData(
+      { type: MSG.PLAY, time: 12, queueItemId: ready.queueItemId, name: file.name },
+      hostConn,
+    );
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
     const epochAfterDirectActivation = getCurrentLoadEpoch();
 
     // The same finalized Blob can then arrive through the normal preload-ready
     // bridge. It must join the live activation rather than allocating a second
     // decode and superseding the first one.
-    bus.emit('storage:use-preloaded', 4, file.name);
+    bus.emit('storage:use-preloaded', ready.queueItemId, file.name, ready.sessionId);
     await flushAsync(1);
 
     expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1);
@@ -369,21 +465,24 @@ describe('direct PLAY preload activation deduplication', () => {
 
   it('keeps deduping the same Blob after teardown clears only the public flag', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 3);
+    selectIndex(3);
     initPlayback();
 
     const file = makeFile('t4.mp3');
     const decode = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decode.promise);
-    stagePreload(4, file);
+    const ready = stagePreload(4, file);
 
-    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: file.name }, hostConn);
+    await handleData(
+      { type: MSG.PLAY, time: 12, queueItemId: ready.queueItemId, name: file.name },
+      hostConn,
+    );
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     // stopAllMedia/teardown can clear M4, but cannot cancel the browser's
     // native decoder. A duplicate notification must still join that target.
     setPlayPreloadedInProgress(false);
-    bus.emit('storage:use-preloaded', 4, file.name);
+    bus.emit('storage:use-preloaded', ready.queueItemId, file.name, ready.sessionId);
     await flushAsync(1);
     expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1);
 
@@ -393,7 +492,7 @@ describe('direct PLAY preload activation deduplication', () => {
 
   it('restarts the same Blob after cancelInFlight invalidates the activation epoch', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 3);
+    selectIndex(3);
     initPlayback();
 
     const file = makeFile('t4.mp3');
@@ -402,13 +501,16 @@ describe('direct PLAY preload activation deduplication', () => {
     mocks.decodeAudioData
       .mockImplementationOnce(() => firstDecode.promise)
       .mockImplementationOnce(() => secondDecode.promise);
-    stagePreload(4, file);
+    const ready = stagePreload(4, file);
 
-    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: file.name }, hostConn);
+    await handleData(
+      { type: MSG.PLAY, time: 12, queueItemId: ready.queueItemId, name: file.name },
+      hostConn,
+    );
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     stopAllMedia({ cancelInFlight: true });
-    bus.emit('storage:use-preloaded', 4, file.name);
+    bus.emit('storage:use-preloaded', ready.queueItemId, file.name, ready.sessionId);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
 
     firstDecode.resolve({ duration: 90 } as AudioBuffer);
@@ -423,13 +525,15 @@ describe('direct PLAY preload activation deduplication', () => {
 
 describe('progress-aware preload waiter identity', () => {
   function waitingSession(sessionId: number, progress: number) {
+    const queueItemId = queueItemIdAt(4);
     return {
       skipped: false,
       finalized: false,
       progress,
       total: 100,
       name: 'same.mp3',
-      index: 4,
+      queueItemId,
+      indexHint: 4,
       size: 100,
       mime: 'audio/mpeg',
       nextExpectedChunk: progress,
@@ -441,9 +545,10 @@ describe('progress-aware preload waiter identity', () => {
     vi.useFakeTimers();
     setState('network.hostConn', hostConn);
     setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    const queueItemId = selectIndex(4)!;
     initPlayback();
 
-    bus.emit('storage:use-preloaded', 4, 'same.mp3', 10);
+    bus.emit('storage:use-preloaded', queueItemId, 'same.mp3', 10);
     setState(
       'preload.sessionState',
       new Map([
@@ -462,30 +567,39 @@ describe('progress-aware preload waiter identity', () => {
     );
     await vi.advanceTimersByTimeAsync(1_001);
 
-    expect(mocks.sendToHost).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, index: 4 }),
-    );
+    expectCorrelatedRequest(exactHostSend, {
+      type: MSG.REQUEST_DATA_RECOVERY,
+      nextChunk: 0,
+      fileName: 'same.mp3',
+      queueItemId,
+      sessionId: 10,
+    });
   });
 
   it('keeps a healthy exact-session transfer alive beyond sixty seconds', async () => {
     vi.useFakeTimers();
     setState('network.hostConn', hostConn);
     setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    const queueItemId = selectIndex(4)!;
     initPlayback();
 
-    bus.emit('storage:use-preloaded', 4, 'same.mp3', 10);
+    bus.emit('storage:use-preloaded', queueItemId, 'same.mp3', 10);
     for (let progress = 1; progress <= 7; progress++) {
       await vi.advanceTimersByTimeAsync(9_000);
       setState('preload.sessionState', new Map([[10, waitingSession(10, progress)]]));
     }
-    expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+    expect(exactHostSend).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY }),
     );
 
     await vi.advanceTimersByTimeAsync(10_001);
-    expect(mocks.sendToHost).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, index: 4 }),
-    );
+    expectCorrelatedRequest(exactHostSend, {
+      type: MSG.REQUEST_DATA_RECOVERY,
+      nextChunk: 0,
+      fileName: 'same.mp3',
+      queueItemId,
+      sessionId: 10,
+    });
   });
 });
 
@@ -493,38 +607,41 @@ describe('storage:file-ready transfer identity', () => {
   it('drops a stale same-name completion instead of treating the filename as identity', async () => {
     setState('network.hostConn', hostConn);
     setState('playlist.items', [makeTrack('same.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
+    const queueItemId = selectIndex(0)!;
     setState('transfer.localSessionId', 8);
-    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 8 });
+    setState('transfer.meta', fileMetaFor(itemAt(0), makeFile('same.mp3'), 8));
     initPlayback();
 
-    bus.emit('storage:file-ready', 'same.mp3', 7, false);
+    bus.emit('storage:file-ready', 'same.mp3', 7, false, queueItemId);
     await flushAsync(1);
 
     expect(mocks.readStoredFile).not.toHaveBeenCalled();
     expect(mocks.decodeAudioData).not.toHaveBeenCalled();
   });
 
-  it('resets an active identity-less completion and accepts the host-authoritative resend', async () => {
+  it('rejects a completion whose queue occurrence disagrees with the active transfer', async () => {
     const { handleFileStart } = await import('../../storage/transfer-receive.ts');
     setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeTrack('same.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [makeTrack('same.mp3'), makeTrack('same.mp3')]);
+    const selectedQueueItemId = selectIndex(0)!;
+    const wrongQueueItemId = queueItemIdAt(1);
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
     setState('transfer.localSessionId', 8);
-    setState('transfer.meta', { name: 'same.mp3', sessionId: 8, total: 1, size: 3 });
+    setState('transfer.meta', fileMetaFor(itemAt(0), makeFile('same.mp3'), 8));
     setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
     initPlayback();
 
-    bus.emit('storage:file-ready', 'same.mp3', 8, false);
+    bus.emit('storage:file-ready', 'same.mp3', 8, false, wrongQueueItemId);
     await flushAsync(1);
 
-    expect(mocks.cleanupStoredFile).toHaveBeenCalledWith('same.mp3', false);
+    expect(mocks.cleanupStoredFile).toHaveBeenCalledWith(wrongQueueItemId, 'same.mp3', false, 8);
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
     expect(mocks.readStoredFile).not.toHaveBeenCalled();
-    expect(mocks.sendToHost).toHaveBeenCalledWith({
+    expectCorrelatedRequest(exactHostSend, {
       type: MSG.REQUEST_CURRENT_FILE,
-      reason: 'missing_transfer_identity',
+      queueItemId: selectedQueueItemId,
+      name: 'same.mp3',
+      reason: 'file_ready_identity_mismatch',
     });
 
     handleFileStart(
@@ -535,7 +652,7 @@ describe('storage:file-ready transfer identity', () => {
         total: 1,
         size: 3,
         sessionId: 8,
-        index: 0,
+        queueItemId: selectedQueueItemId,
       },
       hostConn,
     );
@@ -543,150 +660,46 @@ describe('storage:file-ready transfer identity', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
     expect(getState('transfer.meta')).toEqual(
-      expect.objectContaining({ name: 'same.mp3', sessionId: 8, index: 0 }),
+      expect.objectContaining({
+        name: 'same.mp3',
+        sessionId: 8,
+        queueItemId: selectedQueueItemId,
+        indexHint: 0,
+      }),
     );
-  });
-
-  it('repairs an active completion whose playlist index disagrees with the selected slot', async () => {
-    setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeTrack('same.mp3'), makeTrack('same.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
-    setState('transfer.localSessionId', 8);
-    setState('transfer.meta', { name: 'same.mp3', index: 1, sessionId: 8 });
-    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
-    initPlayback();
-
-    bus.emit('storage:file-ready', 'same.mp3', 8, false);
-    await flushAsync(1);
-
-    expect(mocks.cleanupStoredFile).toHaveBeenCalledWith('same.mp3', false);
-    expect(mocks.readStoredFile).not.toHaveBeenCalled();
-    expect(mocks.sendToHost).toHaveBeenCalledWith({
-      type: MSG.REQUEST_CURRENT_FILE,
-      reason: 'missing_transfer_identity',
-    });
-  });
-
-  it('does not coerce a string transfer index into an exact playlist identity', async () => {
-    setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeTrack('same.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
-    setState('transfer.localSessionId', 8);
-    setState('transfer.meta', {
-      name: 'same.mp3',
-      index: '0' as unknown as number,
-      sessionId: 8,
-    });
-    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
-    initPlayback();
-
-    bus.emit('storage:file-ready', 'same.mp3', 8, false);
-    await flushAsync(1);
-
-    expect(mocks.cleanupStoredFile).toHaveBeenCalledWith('same.mp3', false);
-    expect(mocks.readStoredFile).not.toHaveBeenCalled();
-    expect(mocks.sendToHost).toHaveBeenCalledWith({
-      type: MSG.REQUEST_CURRENT_FILE,
-      reason: 'missing_transfer_identity',
-    });
-  });
-
-  it('bounds identity-repair retries and releases a permanently ambiguous pipeline', async () => {
-    vi.useFakeTimers();
-    setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeTrack('same.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
-    setState('transfer.localSessionId', 8);
-    setState('transfer.meta', { name: 'same.mp3', sessionId: 8, total: 1, size: 3 });
-    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
-    initPlayback();
-
-    bus.emit('storage:file-ready', 'same.mp3', 8, false);
-    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(25_000);
-    expect(mocks.sendToHost).toHaveBeenCalledTimes(4);
-    await vi.advanceTimersByTimeAsync(14_999);
-    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
-    expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
-
-    await vi.advanceTimersByTimeAsync(1);
-    expect(mocks.sendToHost).toHaveBeenCalledTimes(4);
-    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
-    expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
-    expect(mocks.showLoader).toHaveBeenCalledWith(false);
-    expect(getManagedTimer('transfer-identity-recovery')).toBeNull();
-  });
-
-  it('cancels identity-repair retries when the active session changes', async () => {
-    vi.useFakeTimers();
-    setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeTrack('same.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
-    setState('transfer.localSessionId', 8);
-    setState('transfer.meta', { name: 'same.mp3', sessionId: 8, total: 1, size: 3 });
-    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
-    initPlayback();
-
-    bus.emit('storage:file-ready', 'same.mp3', 8, false);
-    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
-
-    setState('transfer.localSessionId', 9);
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
-    expect(getManagedTimer('transfer-identity-recovery')).toBeNull();
-    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
-    expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
-  });
-
-  it('cancels identity-repair retries when the active filename changes', async () => {
-    vi.useFakeTimers();
-    setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeTrack('same.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
-    setState('transfer.localSessionId', 8);
-    setState('transfer.meta', { name: 'same.mp3', sessionId: 8, total: 1, size: 3 });
-    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
-    initPlayback();
-
-    bus.emit('storage:file-ready', 'same.mp3', 8, false);
-    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
-
-    setState('transfer.meta', { name: 'next.mp3', sessionId: 8, total: 1, size: 3 });
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
-    expect(getManagedTimer('transfer-identity-recovery')).toBeNull();
-    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
-    expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
   });
 
   it('reads the active completion through its exact RAM-store session', async () => {
     setState('network.hostConn', hostConn);
     setState('playlist.items', [makeTrack('same.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
+    const item = itemAt(0);
+    selectIndex(0);
     setState('transfer.localSessionId', 8);
-    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 8 });
+    setState('transfer.meta', fileMetaFor(item, makeFile(item.name), 8));
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
     initPlayback();
 
-    bus.emit('storage:file-ready', 'same.mp3', 8, false);
-    await vi.waitFor(() => expect(mocks.readStoredFile).toHaveBeenCalledWith('same.mp3', false, 8));
+    bus.emit('storage:file-ready', 'same.mp3', 8, false, item.queueItemId);
+    await vi.waitFor(() =>
+      expect(mocks.readStoredFile).toHaveBeenCalledWith(item.queueItemId, 'same.mp3', false, 8),
+    );
   });
 
   it('records fresh-join PLAY as an exact pending recovery target', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', -1);
+    setState('playlist.currentQueueItemId', null);
+    const queueItemId = queueItemIdAt(4);
     initPlayback();
 
-    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: 't4.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY, time: 12, queueItemId, name: 't4.mp3' }, hostConn);
 
-    expect(getState('playlist.currentTrackIndex')).toBe(4);
-    expect(getState('playback.pendingRecoveryTarget')).toEqual({ index: 4, name: 't4.mp3' });
-    expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+    expect(getState('playlist.currentQueueItemId')).toBe(queueItemId);
+    expect(getState('playback.pendingRecoveryTarget')).toEqual({
+      queueItemId,
+      indexHint: 4,
+      name: 't4.mp3',
+    });
+    expect(exactHostSend).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
     );
   });
@@ -698,16 +711,10 @@ describe('storage:file-ready transfer identity', () => {
 
     const file = makeFile('t4.mp3');
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 4);
-    setState('playback.pendingRecoveryTarget', { index: 4, name: file.name });
+    const queueItemId = selectIndex(4)!;
+    setState('playback.pendingRecoveryTarget', { queueItemId, indexHint: 4, name: file.name });
     setState('transfer.localSessionId', 8);
-    setState('transfer.meta', {
-      name: file.name,
-      index: 4,
-      sessionId: 8,
-      size: file.size,
-      mime: file.type,
-    });
+    setState('transfer.meta', fileMetaFor(itemAt(4), file, 8));
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
     setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
     mocks.readStoredFile.mockResolvedValue(file);
@@ -721,18 +728,19 @@ describe('storage:file-ready transfer identity', () => {
         total: 1,
         size: file.size,
         sessionId: 8,
-        index: 0,
+        queueItemId,
+        chunkIndex: 0,
         chunk: new Uint8Array([1, 2, 3]),
       },
       hostConn,
     );
-    expect(getState('transfer.meta')?.index).toBe(4);
+    expect(getState('transfer.meta')?.queueItemId).toBe(queueItemId);
 
-    bus.emit('storage:file-ready', file.name, 8, false);
+    bus.emit('storage:file-ready', file.name, 8, false, queueItemId);
 
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(getCurrentAudioBuffer()).toEqual({ duration: 120 }));
-    expect(mocks.readStoredFile).toHaveBeenCalledWith(file.name, false, 8);
+    expect(mocks.readStoredFile).toHaveBeenCalledWith(queueItemId, file.name, false, 8);
   });
 
   it('carries authoritative PLAY identity through a newer chunk-only session and preserves play time', async () => {
@@ -742,23 +750,26 @@ describe('storage:file-ready transfer identity', () => {
 
     const file = makeFile('t4.mp3');
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 3);
+    selectIndex(3);
+    const oldQueueItemId = queueItemIdAt(3);
+    const queueItemId = queueItemIdAt(4);
     setState('transfer.localSessionId', 7);
     setState('transfer.meta', {
+      ...fileMetaFor(itemAt(3), file, 7),
+      queueItemId: oldQueueItemId,
       name: 't3.mp3',
-      index: 3,
-      sessionId: 7,
-      total: 1,
-      size: file.size,
-      mime: file.type,
     });
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
     setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
     mocks.readStoredFile.mockResolvedValue(file);
     initPlayback();
 
-    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: file.name }, hostConn);
-    expect(getState('playback.pendingRecoveryTarget')).toEqual({ index: 4, name: file.name });
+    await handleData({ type: MSG.PLAY, time: 12, queueItemId, name: file.name }, hostConn);
+    expect(getState('playback.pendingRecoveryTarget')).toEqual({
+      queueItemId,
+      indexHint: 4,
+      name: file.name,
+    });
 
     handleFileChunk(
       {
@@ -768,18 +779,19 @@ describe('storage:file-ready transfer identity', () => {
         total: 1,
         size: file.size,
         sessionId: 8,
-        index: 0,
+        queueItemId,
+        chunkIndex: 0,
         chunk: new Uint8Array([1, 2, 3]),
       },
       hostConn,
     );
-    expect(getState('transfer.meta')?.index).toBe(4);
+    expect(getState('transfer.meta')?.queueItemId).toBe(queueItemId);
     expect(getPendingPlayTime()).toBe(12);
 
-    bus.emit('storage:file-ready', file.name, 8, false);
+    bus.emit('storage:file-ready', file.name, 8, false, queueItemId);
 
     await vi.waitFor(() => expect(getCurrentAudioBuffer()).toEqual({ duration: 120 }));
-    expect(mocks.readStoredFile).toHaveBeenCalledWith(file.name, false, 8);
+    expect(mocks.readStoredFile).toHaveBeenCalledWith(queueItemId, file.name, false, 8);
     expect(getPendingPlayTime()).toBeUndefined();
   });
 });
@@ -791,7 +803,7 @@ describe('authoritative PAUSE bootstrap', () => {
     setState('network.hostConn', hostConn);
     initPlayback();
 
-    await handleData({ type: MSG.PAUSE, time: 42, reason: 'pause' }, hostConn);
+    await handleData({ type: MSG.PAUSE, time: 42, queueItemId: null, reason: 'pause' }, hostConn);
 
     expect(getState('player.pausedAt')).toBe(42);
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
@@ -802,7 +814,7 @@ describe('authoritative PAUSE bootstrap', () => {
     setState('player.pausedAt', 17);
     initPlayback();
 
-    await handleData({ type: MSG.PAUSE, time: -4, reason: 'pause' }, hostConn);
+    await handleData({ type: MSG.PAUSE, time: -4, queueItemId: null, reason: 'pause' }, hostConn);
 
     expect(getState('player.pausedAt')).toBe(0);
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
@@ -814,10 +826,13 @@ describe('late-join file bootstrap identity', () => {
     const conn = { open: true, peer: 'guest-1' } as DataConnection;
     const file = makeFile('same.mp3');
     setState('playlist.items', [makeTrack(file.name)]);
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', file);
-    setState('transfer.currentSessionId', 7);
-    setState('transfer.meta', { name: file.name, index: 0 });
+    const item = itemAt(0);
+    selectIndex(0);
+    const currentResident: ResidentFile = {
+      ...fileMetaFor(item, file, 7, 0),
+      blob: file,
+    };
+    setState('files.current', currentResident);
     setState('network.connectedPeers', [
       {
         id: 'guest-1',
@@ -825,7 +840,7 @@ describe('late-join file bootstrap identity', () => {
         label: 'Guest',
         conn,
         isOp: false,
-        preloadedIndexes: new Set<number>(),
+        preloadedQueueItemIds: new Set<QueueItemId>(),
         status: 'connected',
         isDataTarget: true,
         joinOrder: 1,
@@ -844,7 +859,7 @@ describe('late-join file bootstrap identity', () => {
       0,
       7,
       expect.objectContaining({
-        trackIndex: 0,
+        queueItemId: item.queueItemId,
         isSourceCurrent: expect.any(Function),
       }),
     );
@@ -853,11 +868,10 @@ describe('late-join file bootstrap identity', () => {
     };
     expect(options.isSourceCurrent()).toBe(true);
 
-    setState('files.currentFileBlob', makeFile(file.name));
+    setState('files.current', { ...currentResident, blob: makeFile(file.name) });
     expect(options.isSourceCurrent()).toBe(false);
 
-    setState('files.currentFileBlob', file);
-    setState('transfer.currentSessionId', 8);
+    setState('files.current', { ...currentResident, sessionId: 8 });
     expect(options.isSourceCurrent()).toBe(false);
   });
 });
@@ -948,6 +962,8 @@ describe('pin (c) — stopAllMedia during the in-flight play window', () => {
 describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints', () => {
   it('aborts at the PRE-decode checkpoint: no decode, no buffer publish', async () => {
     setState('network.hostConn', hostConn);
+    const file = makeFile('t1.mp3');
+    const queueItemId = stageGuestTransfer(1, file, 7);
     const prevBuffer = { duration: 50 } as AudioBuffer;
     setCurrentAudioBuffer(prevBuffer);
 
@@ -956,7 +972,7 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
     const hangInit = deferred<void>();
     mocks.initAudio.mockReturnValueOnce(hangInit.promise);
 
-    const p = finalizeGuestFile(makeFile('t1.mp3'));
+    const p = finalizeGuestFile(file, queueItemId, 7);
     incrementLoadSessionId(); // any newer load invocation (self-bump pattern)
     hangInit.resolve();
     await p;
@@ -967,7 +983,8 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
 
   it('aborts at the POST-decode checkpoint: stale buffer unpublished, mailbox untouched', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 1);
+    const file = makeFile('t1.mp3');
+    const queueItemId = stageGuestTransfer(1, file, 7);
     setPendingPlayTime(21);
     const prevBuffer = { duration: 50 } as AudioBuffer;
     setCurrentAudioBuffer(prevBuffer);
@@ -975,7 +992,7 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
     const decodeD = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeD.promise);
 
-    const p = finalizeGuestFile(makeFile('t1.mp3'));
+    const p = finalizeGuestFile(file, queueItemId, 7);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     incrementLoadSessionId(); // superseded mid-decode
@@ -985,7 +1002,7 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
     // Once decode detached the prior buffer, a newer transfer owner must not
     // let the stale finalize restore old-room/old-track PCM.
     expect(getCurrentAudioBuffer()).toBeNull();
-    expect(getState('files.currentFileBlob')).toBeNull();
+    expect(getState('files.current')).toBeNull();
     expect(getPendingPlayTime()).toBe(21);
     expect(getState('playback.activity')).not.toBe('playing');
   });
@@ -993,12 +1010,13 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
   it('keeps PCM cleared when room teardown wins a pending native decode', async () => {
     initPlayback();
     setState('network.hostConn', hostConn);
-    setState('transfer.localSessionId', 7);
+    const file = makeFile('t1.mp3');
+    const queueItemId = stageGuestTransfer(1, file, 7);
     setCurrentAudioBuffer({ duration: 50 } as AudioBuffer);
     const decodeD = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeD.promise);
 
-    const p = finalizeGuestFile(makeFile('t1.mp3'));
+    const p = finalizeGuestFile(file, queueItemId, 7);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
@@ -1008,19 +1026,19 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
     await p;
 
     expect(getCurrentAudioBuffer()).toBeNull();
-    expect(getState('files.currentFileBlob')).toBeNull();
+    expect(getState('files.current')).toBeNull();
   });
 
   it('tracks repeated unpublished native decode results for later iOS admission', async () => {
     setState('network.hostConn', hostConn);
-    setState('transfer.localSessionId', 7);
+    const queueItemId = stageGuestTransfer(1, makeFile('t1.mp3'), 7);
     const before = liveAudioBufferCount();
     const survivors: AudioBuffer[] = [];
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const decodeD = deferred<AudioBuffer>();
       mocks.decodeAudioData.mockImplementationOnce(() => decodeD.promise);
-      const pending = finalizeGuestFile(makeFile(`stale-${attempt}.mp3`));
+      const pending = finalizeGuestFile(makeFile(`stale-${attempt}.mp3`), queueItemId, 7);
       await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(attempt + 1));
       incrementLoadSessionId();
       const decoded = { duration: 200 + attempt } as AudioBuffer;
@@ -1050,13 +1068,13 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
 // uniform-preserve refactor (clear cases break).
 
 describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
-  it('PRESERVES on index-mismatch abort (pre-decode)', async () => {
+  it('PRESERVES when selection no longer owns the requested queue item (pre-decode)', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 3); // current ≠ target
-    stagePreload(2, makeFile('t2.mp3'));
+    const ready = stagePreload(2, makeFile('t2.mp3'));
+    selectIndex(3); // current queue item no longer owns the ready resident
     setPendingPlayTime(12);
 
-    const ok = await loadPreloadedTrack(2);
+    const ok = await loadPreloadedTrack(ready.queueItemId);
 
     expect(ok).toBe(false);
     expect(getPendingPlayTime()).toBe(12); // belongs to the LATEST MSG.PLAY
@@ -1066,14 +1084,14 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
 
   it('PRESERVES on token-mismatch abort (post-decode)', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 2);
-    stagePreload(2, makeFile('t2.mp3'));
+    selectIndex(2);
+    const ready = stagePreload(2, makeFile('t2.mp3'));
     setPendingPlayTime(12);
 
     const decodeE = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeE.promise);
     const myToken = newLoadEpoch();
-    const p = loadPreloadedTrack(2, myToken);
+    const p = loadPreloadedTrack(ready.queueItemId, myToken);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     newLoadEpoch(); // a newer load supersedes mid-decode
@@ -1084,19 +1102,19 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
     expect(getState('playback.activity')).not.toBe('playing');
   });
 
-  it('PRESERVES on index-changed-during-decode abort', async () => {
+  it('PRESERVES when queue selection changes during decode', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 2);
-    stagePreload(2, makeFile('t2.mp3'));
+    selectIndex(2);
+    const ready = stagePreload(2, makeFile('t2.mp3'));
     setPendingPlayTime(12);
 
     const decodeE = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeE.promise);
     const myToken = newLoadEpoch();
-    const p = loadPreloadedTrack(2, myToken);
+    const p = loadPreloadedTrack(ready.queueItemId, myToken);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
-    setState('playlist.currentTrackIndex', 5); // track changed during decode
+    selectIndex(5); // queue ownership changed during decode
     decodeE.resolve({ duration: 80 } as AudioBuffer);
 
     expect(await p).toBe(false);
@@ -1105,12 +1123,12 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
 
   it('CLEARS on external-owner abort (pre-decode)', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 2);
-    stagePreload(2, makeFile('t2.mp3'));
+    selectIndex(2);
+    const ready = stagePreload(2, makeFile('t2.mp3'));
     setPendingPlayTime(12);
     setPlaybackYouTubePlaying(); // external owner takes over before activation
 
-    const ok = await loadPreloadedTrack(2);
+    const ok = await loadPreloadedTrack(ready.queueItemId);
 
     expect(ok).toBe(false);
     expect(getPendingPlayTime()).toBeUndefined(); // nobody will consume it
@@ -1118,14 +1136,14 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
 
   it('CLEARS on external-owner abort (post-decode)', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 2);
-    stagePreload(2, makeFile('t2.mp3'));
+    selectIndex(2);
+    const ready = stagePreload(2, makeFile('t2.mp3'));
     setPendingPlayTime(12);
 
     const decodeE = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeE.promise);
     const myToken = newLoadEpoch();
-    const p = loadPreloadedTrack(2, myToken);
+    const p = loadPreloadedTrack(ready.queueItemId, myToken);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     setPlaybackYouTubePlaying(); // external owner takes over mid-decode
@@ -1135,16 +1153,21 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
     expect(getPendingPlayTime()).toBeUndefined();
   });
 
-  it('CLEARS on no-blob abort', async () => {
+  it('PRESERVES while a missing resident is recovered for the selected queue item', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 2);
-    setState('preload.nextFileBlob', null);
+    const queueItemId = selectIndex(2)!;
     setPendingPlayTime(12);
 
-    const ok = await loadPreloadedTrack(2);
+    const ok = await loadPreloadedTrack(queueItemId);
 
     expect(ok).toBe(false);
-    expect(getPendingPlayTime()).toBeUndefined();
+    expect(getPendingPlayTime()).toBe(12);
+    expectCorrelatedRequest(exactHostSend, {
+      type: MSG.REQUEST_CURRENT_FILE,
+      queueItemId,
+      name: 't2.mp3',
+      reason: 'preload_resident_missing',
+    });
   });
 });
 
@@ -1153,8 +1176,8 @@ describe('pin (e) — loadPreloadedTrack pendingPlayTime policy matrix', () => {
 describe('pin (f) — superseded activation failure cannot clear the live activation', () => {
   it("a superseded activation's decode failure leaves flag + mailbox to the superseder", async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 4);
-    stagePreload(4, makeFile('t4.mp3'));
+    selectIndex(4);
+    const ready = stagePreload(4, makeFile('t4.mp3'));
 
     const decodeA = deferred<AudioBuffer>();
     const decodeB = deferred<AudioBuffer>();
@@ -1162,7 +1185,7 @@ describe('pin (f) — superseded activation failure cannot clear the live activa
       .mockImplementationOnce(() => decodeA.promise)
       .mockImplementationOnce(() => decodeB.promise);
 
-    const pA = loadPreloadedTrack(4);
+    const pA = loadPreloadedTrack(ready.queueItemId);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     // B begins a NEW activation while A is still decoding — B takes ownership
@@ -1170,7 +1193,7 @@ describe('pin (f) — superseded activation failure cannot clear the live activa
     // isCurrentPreloadActivation early-return (stale A's failure path goes
     // inert); finish()'s compare-before-clear guard is pinned by pin (a).
     // The pair is complementary — both must hold.
-    const pB = loadPreloadedTrack(4);
+    const pB = loadPreloadedTrack(ready.queueItemId);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
     expect(isPlayPreloadedInProgress()).toBe(true);
     setPendingPlayTime(44);
@@ -1181,7 +1204,7 @@ describe('pin (f) — superseded activation failure cannot clear the live activa
     expect(isPlayPreloadedInProgress()).toBe(true); // B still owns the flag
     expect(getPendingPlayTime()).toBe(44); // stale catch must not clear it
     // ...and no failure side effects fired on behalf of the live activation.
-    expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+    expect(exactHostSend).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
     );
 
@@ -1205,26 +1228,31 @@ describe('pin (f) — superseded activation failure cannot clear the live activa
 describe('pin (j) — finalizeGuestFile aborts when a new transfer session starts mid-decode', () => {
   it('leaves the new download untouched: RECEIVING + chunkWatchdog stay, nothing published', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 1);
-    setState('transfer.localSessionId', 5);
+    const file = makeFile('t1.mp3');
+    const queueItemId = stageGuestTransfer(1, file, 5);
     setPendingPlayTime(42);
 
     // t1's pipeline, the way storage:file-ready drives it.
-    transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 't1.mp3' });
-    transition({ type: 'FILE_END' });
+    transition({ type: 'FILE_PREPARE', variant: 'fresh', queueItemId, name: 't1.mp3' });
+    transition({ type: 'FILE_END', queueItemId });
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
 
     const decodeJ = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeJ.promise);
 
-    const p = finalizeGuestFile(makeFile('t1.mp3'));
+    const p = finalizeGuestFile(file, queueItemId, 5);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     // Host switches to t2 mid-decode: transfer-receive's new-session reset +
     // FILE_START, condensed. Note: no epoch bump, no M2 bump.
-    setState('transfer.localSessionId', 6);
-    transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 't2.mp3' });
-    setState('playlist.currentTrackIndex', 2);
+    const replacementFile = makeFile('t2.mp3');
+    const replacementQueueItemId = stageGuestTransfer(2, replacementFile, 6);
+    transition({
+      type: 'FILE_PREPARE',
+      variant: 'fresh',
+      queueItemId: replacementQueueItemId,
+      name: 't2.mp3',
+    });
     setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
     const watchdog = vi.fn();
     setManagedTimer('chunkWatchdog', watchdog, 60_000);
@@ -1234,7 +1262,7 @@ describe('pin (j) — finalizeGuestFile aborts when a new transfer session start
 
     // Stale finalize must be fully inert:
     expect(getCurrentAudioBuffer()).toBeNull(); // no stale buffer publish
-    expect(getState('files.currentFileBlob')).toBeNull(); // no stale blob publish
+    expect(getState('files.current')).toBeNull(); // no stale resident publish
     expect(getState('player.currentTrackMeta')).toBeNull(); // t2's meta not bound to t1's audio
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING); // chunk-drop guard NOT armed
     expect(getManagedTimer('chunkWatchdog')).not.toBeNull(); // recovery path intact
@@ -1246,19 +1274,20 @@ describe('pin (j) — finalizeGuestFile aborts when a new transfer session start
 describe('pin (g) — owner decision: finalizeGuestFile is immune to loadToken bumps', () => {
   it('publishes buffer + DECODE_SUCCESS + consumes pendingPlayTime despite mid-decode token bumps', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 1);
+    const file = makeFile('t1.mp3');
+    const queueItemId = stageGuestTransfer(1, file, 5);
     setPendingPlayTime(30);
 
     // Drive the FSM the way the storage:file-ready handler does, so the
     // DECODE_SUCCESS assertion below exercises the real transition table.
-    transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 1, name: 't1.mp3' });
-    transition({ type: 'FILE_END' });
+    transition({ type: 'FILE_PREPARE', variant: 'fresh', queueItemId, name: 't1.mp3' });
+    transition({ type: 'FILE_END', queueItemId });
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
 
     const decodeG = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeG.promise);
 
-    const p = finalizeGuestFile(makeFile('t1.mp3'));
+    const p = finalizeGuestFile(file, queueItemId, 5);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
 
     // Watchdog-/cancelInFlight-style token bumps land mid-decode.
@@ -1291,12 +1320,12 @@ describe('decode admission waiter ownership', () => {
       const arrayBuffer = vi.spyOn(file, 'arrayBuffer');
       setState('network.hostConn', hostConn);
       setState('playlist.items', [makeTrack(file.name)]);
-      setState('playlist.currentTrackIndex', 0);
-      stagePreload(0, file);
+      selectIndex(0);
+      const ready = stagePreload(0, file);
 
-      const activation = loadPreloadedTrack(0);
+      const activation = loadPreloadedTrack(ready.queueItemId);
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      setState('preload.meta', { name: file.name, index: 0, sessionId: 99 });
+      stagePreload(0, makeFile(file.name), 99);
 
       await expect(activation).resolves.toBe(false);
       expect(arrayBuffer).not.toHaveBeenCalled();

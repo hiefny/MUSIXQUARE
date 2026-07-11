@@ -61,28 +61,12 @@ export const DEMO_TRACKS: DemoTrack[] = [
 
 export const DEMO_TRACK = DEMO_TRACKS[0];
 
-export function isDemoTrackName(name: unknown): boolean {
-  if (typeof name !== 'string') return false;
-  const normalized = name.trim().toLowerCase();
-  return DEMO_TRACKS.some((track) => normalized === track.fileName.toLowerCase());
-}
-
 export function getNextDemoTrackIndex(index: number): number {
   return (index + 1) % DEMO_TRACKS.length;
 }
 
 export function getDemoTrackByIndex(index: number): DemoTrack {
   return DEMO_TRACKS[index] ?? DEMO_TRACK;
-}
-
-function getDemoTrackByName(name: unknown): DemoTrack | null {
-  if (typeof name !== 'string') return null;
-  const normalized = name.trim().toLowerCase();
-  return DEMO_TRACKS.find((track) => track.fileName.toLowerCase() === normalized) ?? null;
-}
-
-export function getDemoTrackForPlayback(index: number, name?: unknown): DemoTrack {
-  return getDemoTrackByName(name) ?? getDemoTrackByIndex(index);
 }
 
 export function createDemoTrackMeta(track: DemoTrack = DEMO_TRACK): {

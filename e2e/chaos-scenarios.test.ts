@@ -25,6 +25,12 @@ import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
+  readCurrentQueueIndex,
+  readCurrentQueueItemId,
+  waitForCurrentQueueIndex,
+  waitForCurrentQueueItemId,
+} from './helpers/queue-state.ts';
+import {
   isVisible,
   readPlaybackProjection,
   readState,
@@ -187,7 +193,7 @@ test.describe('Mass Exodus', () => {
       await uploadFixture(setup.hostPage, 'test01');
       await waitForPlaylistCount(setup.hostPage, 1);
       await setup.hostPage.waitForFunction(
-        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
         { timeout: 15_000 },
       );
       await setup.hostPage.click('#play-btn');
@@ -335,7 +341,7 @@ test.describe('Track Change + Late Join', () => {
       await waitForPlaylistCount(hostPage, 3);
 
       await hostPage.waitForFunction(
-        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
         { timeout: 15_000 },
       );
       await hostPage.click('#play-btn');
@@ -349,21 +355,15 @@ test.describe('Track Change + Late Join', () => {
 
       await waitForPlaylistCount(lateGuest.guestPage, 3, 30_000);
 
-      await lateGuest.guestPage.waitForFunction(
-        ([hostIdx]) => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const idx = get('playlist.currentTrackIndex');
-          return idx !== undefined && idx !== null && idx === hostIdx;
-        },
-        [await readState(hostPage, 'playlist.currentTrackIndex')] as const,
-        { timeout: 10_000 },
-      );
-      const hostIdx = await readState(hostPage, 'playlist.currentTrackIndex');
-      const guestIdx = await readState(lateGuest.guestPage, 'playlist.currentTrackIndex');
+      const hostQueueItemId = await readCurrentQueueItemId(hostPage);
+      expect(hostQueueItemId).not.toBeNull();
+      if (!hostQueueItemId) throw new Error('Host has no current queue occurrence');
+      await waitForCurrentQueueItemId(lateGuest.guestPage, hostQueueItemId, 10_000);
+      const hostIdx = await readCurrentQueueIndex(hostPage);
+      const guestQueueItemId = await readCurrentQueueItemId(lateGuest.guestPage);
 
       expect(hostIdx).toBeGreaterThanOrEqual(0);
-      expect(guestIdx).toBe(hostIdx);
+      expect(guestQueueItemId).toBe(hostQueueItemId);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await hostCtx.close().catch(() => {});
@@ -638,13 +638,7 @@ test.describe('Playlist + Disconnect Storm', () => {
       if (await isVisible(setup.hostPage, '.btn-playlist-remove')) {
         const removePromise = (async () => {
           await removeBtn.click();
-          const confirmBtn = setup.hostPage.locator('#btn-dialog-ok');
-          try {
-            await confirmBtn.waitFor({ state: 'visible', timeout: 3000 });
-            await confirmBtn.click();
-          } catch {
-            // Removal may complete without a confirmation dialog.
-          }
+          await setup.hostPage.locator('.playlist-selection-delete').click();
         })();
         const disconnectPromise = setup.guestContexts[0].close();
         await Promise.all([removePromise, disconnectPromise]);
@@ -707,7 +701,7 @@ test.describe('Full Lifecycle Chaos', () => {
       await waitForPlaylistCount(hostPage, 3);
 
       await hostPage.waitForFunction(
-        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
         { timeout: 15_000 },
       );
       await hostPage.click('#play-btn');
@@ -739,13 +733,7 @@ test.describe('Full Lifecycle Chaos', () => {
       });
 
       await hostPage.click('#btn-next');
-      await hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get ? get('playlist.currentTrackIndex') >= 1 : false;
-        },
-        { timeout: 10_000 },
-      );
+      await waitForCurrentQueueIndex(hostPage, 1, 10_000);
 
       await g1.guestContext.close();
       await waitForPeerCountAtMost(hostPage, 1);
@@ -791,9 +779,9 @@ test.describe('Full Lifecycle Chaos', () => {
       expect(['PAUSED', 'IDLE']).toContain(hostState);
       expect(['PAUSED', 'IDLE']).toContain(g4State);
 
-      const hostIdx = await readState(hostPage, 'playlist.currentTrackIndex');
-      const g4Idx = await readState(g4.guestPage, 'playlist.currentTrackIndex');
-      expect(g4Idx).toBe(hostIdx);
+      const hostQueueItemId = await readCurrentQueueItemId(hostPage);
+      const g4QueueItemId = await readCurrentQueueItemId(g4.guestPage);
+      expect(g4QueueItemId).toBe(hostQueueItemId);
 
       await hostPage.click('#play-btn');
       // Headless playback may settle in any valid active state.
@@ -938,7 +926,7 @@ test.describe('Settings Chain + Late Join', () => {
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 1);
       await hostPage.waitForFunction(
-        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
         { timeout: 15_000 },
       );
       await hostPage.click('#play-btn');
@@ -1006,7 +994,7 @@ test.describe('Preload + Disconnect', () => {
       await waitForPlaylistCount(setup.guestPages[0], 3, 30_000);
 
       await setup.hostPage.waitForFunction(
-        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
         { timeout: 15_000 },
       );
       await setup.hostPage.click('#play-btn');
@@ -1023,27 +1011,15 @@ test.describe('Preload + Disconnect', () => {
 
       // Advancing initiates preload of the following track.
       await setup.hostPage.click('#btn-next');
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get ? get('playlist.currentTrackIndex') >= 1 : false;
-        },
-        { timeout: 15_000 },
-      );
+      await waitForCurrentQueueIndex(setup.hostPage, 1);
 
       await setup.guestContexts[0].close();
       await waitForPeerCount(setup.hostPage, 0);
 
       await setup.hostPage.click('#btn-next');
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get ? get('playlist.currentTrackIndex') === 2 : false;
-        },
-        { timeout: 15_000 },
-      );
+      await waitForCurrentQueueIndex(setup.hostPage, 2);
 
-      const hostIdx = (await readState(setup.hostPage, 'playlist.currentTrackIndex')) as number;
+      const hostIdx = await readCurrentQueueIndex(setup.hostPage);
       expect(hostIdx).toBe(2); // Track 3 (0-indexed)
 
       const hostState = await readPlaybackProjection(setup.hostPage);
@@ -1052,16 +1028,12 @@ test.describe('Preload + Disconnect', () => {
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForPlaylistCount(lateGuest.guestPage, 3, 30_000);
 
-      await lateGuest.guestPage.waitForFunction(
-        ([expected]) => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get ? get('playlist.currentTrackIndex') === expected : false;
-        },
-        [hostIdx] as const,
-        { timeout: 10_000 },
-      );
-      const guestIdx = await readState(lateGuest.guestPage, 'playlist.currentTrackIndex');
-      expect(guestIdx).toBe(hostIdx);
+      const hostQueueItemId = await readCurrentQueueItemId(setup.hostPage);
+      expect(hostQueueItemId).not.toBeNull();
+      if (!hostQueueItemId) throw new Error('Host has no current queue occurrence');
+      await waitForCurrentQueueItemId(lateGuest.guestPage, hostQueueItemId, 10_000);
+      const guestQueueItemId = await readCurrentQueueItemId(lateGuest.guestPage);
+      expect(guestQueueItemId).toBe(hostQueueItemId);
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await cleanupChaosSetup(setup);

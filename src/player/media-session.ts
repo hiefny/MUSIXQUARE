@@ -17,6 +17,7 @@ import {
   isPlaybackModeYouTube,
   isPlaybackPlayingFile,
 } from './ownership.ts';
+import { getCurrentQueueItemId } from './queue-model.ts';
 import type { PlaylistItem } from '../types/index.ts';
 
 function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSessionPlaybackState {
@@ -98,12 +99,12 @@ export function initMediaSession(): void {
       togglePlay();
       return;
     }
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
+    const currentQueueItemId = getCurrentQueueItemId();
     if (isPlaybackIdle()) {
       if (isNonOperatorGuest()) return;
       // Try to play from current playlist position instead of blocking
-      if (currentTrackIndex >= 0) {
-        bus.emit('playlist:play-track', currentTrackIndex);
+      if (currentQueueItemId) {
+        bus.emit('playlist:play-track', currentQueueItemId);
       }
       return;
     }
@@ -112,7 +113,7 @@ export function initMediaSession(): void {
     // the music after the user pressed play. Mirrors the 'pause' handler
     // below which guards the symmetric case.
     if (isPlaybackPlayingFile()) return;
-    if (currentTrackIndex >= 0) {
+    if (currentQueueItemId) {
       if (isNonOperatorGuest()) {
         // Local resume is only valid when the pause was LOCAL (this guest
         // paused via lock screen / BT button while the host kept playing —

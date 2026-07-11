@@ -7,6 +7,7 @@ import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
 import type { DataConnection } from '../../types/index.ts';
 
@@ -97,6 +98,7 @@ describe('demo playback sync bootstrap', () => {
 
     setState('network.hostConn', hostConn);
     setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
     setState('demo.active', true);
 
     await handleData(
@@ -124,6 +126,7 @@ describe('demo playback sync bootstrap', () => {
 
     setState('network.hostConn', hostConn);
     setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
     setState('demo.active', true);
 
     await handleData(

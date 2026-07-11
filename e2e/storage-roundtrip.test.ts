@@ -10,13 +10,14 @@
  * full transport → in-process bridge → blob assembly pipeline end-to-end.
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import {
-  readState,
-  waitForPlaylistCount,
-} from './helpers/wait.ts';
+import { readState, waitForPlaylistCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -41,7 +42,7 @@ test.describe('Storage Round-Trip', () => {
           | ((p: string) => unknown)
           | undefined;
         if (!get) return false;
-        return get('transfer.state') === 'READY' && get('files.currentFileBlob') != null;
+        return get('transfer.state') === 'READY' && get('files.current') != null;
       },
       undefined,
       { timeout: 25_000 },
@@ -55,9 +56,16 @@ test.describe('Storage Round-Trip', () => {
         | ((p: string) => unknown)
         | undefined;
       if (!get) return null;
-      const blob = get('files.currentFileBlob') as { size?: number } | null;
-      const meta = get('transfer.meta') as { name?: string } | null;
-      return { size: blob?.size ?? null, name: meta?.name ?? null };
+      const current = get('files.current') as {
+        blob?: { size?: number };
+        name?: string;
+        queueItemId?: string;
+      } | null;
+      return {
+        size: current?.blob?.size ?? null,
+        name: current?.name ?? null,
+        queueItemId: current?.queueItemId ?? null,
+      };
     });
 
     const guestInfo = await pair.guestPage.evaluate(() => {
@@ -65,9 +73,16 @@ test.describe('Storage Round-Trip', () => {
         | ((p: string) => unknown)
         | undefined;
       if (!get) return null;
-      const blob = get('files.currentFileBlob') as { size?: number } | null;
-      const meta = get('transfer.meta') as { name?: string } | null;
-      return { size: blob?.size ?? null, name: meta?.name ?? null };
+      const current = get('files.current') as {
+        blob?: { size?: number };
+        name?: string;
+        queueItemId?: string;
+      } | null;
+      return {
+        size: current?.blob?.size ?? null,
+        name: current?.name ?? null,
+        queueItemId: current?.queueItemId ?? null,
+      };
     });
 
     expect(hostInfo).not.toBeNull();
@@ -75,9 +90,10 @@ test.describe('Storage Round-Trip', () => {
     expect(guestInfo!.size).toBeGreaterThan(0);
     expect(guestInfo!.size).toBe(hostInfo!.size);
     expect(guestInfo!.name).toBe(hostInfo!.name);
+    expect(guestInfo!.queueItemId).toBe(hostInfo!.queueItemId);
   });
 
-  test('guest transfer.meta and files.currentTrack agree after transfer', async () => {
+  test('guest transfer metadata and atomic resident agree after transfer', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -89,24 +105,40 @@ test.describe('Storage Round-Trip', () => {
           | ((p: string) => unknown)
           | undefined;
         if (!get) return false;
-        return get('transfer.state') === 'READY' && get('files.currentFileBlob') != null;
+        return get('transfer.state') === 'READY' && get('files.current') != null;
       },
       undefined,
       { timeout: 25_000 },
     );
 
-    const meta = (await readState(pair.guestPage, 'transfer.meta')) as { name?: string } | null;
-    const currentTrack = (await readState(pair.guestPage, 'files.currentTrack')) as
-      | { name?: string | null }
-      | null;
+    const meta = (await readState(pair.guestPage, 'transfer.meta')) as {
+      name?: string;
+      queueItemId?: string;
+    } | null;
+    // Project Blob properties inside the page. Playwright does not preserve a
+    // browser Blob's properties when the containing state object is serialized.
+    const current = await pair.guestPage.evaluate(() => {
+      const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+        | ((p: string) => unknown)
+        | undefined;
+      const resident = get?.('files.current') as
+        | { name?: string; queueItemId?: string; blob?: Blob }
+        | null
+        | undefined;
+      if (!resident) return null;
+      return {
+        name: resident.name,
+        queueItemId: resident.queueItemId,
+        size: resident.blob?.size,
+      };
+    });
 
-    // After finalize, transfer.meta.name and files.currentTrack.name reference
-    // the same logical filename — decode.ts only sets currentTrack on
-    // successful promote, so a mismatch implies a stale entry slipped past
-    // clearPreviousTrackState's guard.
+    // Finalization publishes Blob and ownership as one resident snapshot.
+    // The resident and transfer metadata must describe the same occurrence.
+    // A mismatch implies stale metadata crossed the queue-item/session gate.
     expect(meta?.name).toBeTruthy();
-    if (currentTrack?.name) {
-      expect(currentTrack.name).toBe(meta?.name);
-    }
+    expect(current?.size).toBeGreaterThan(0);
+    expect(current?.name).toBe(meta?.name);
+    expect(current?.queueItemId).toBe(meta?.queueItemId);
   });
 });

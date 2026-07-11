@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   uploadEncryptedBlob: vi.fn(),
 }));
 
+const Q0 = '10000000-0000-4000-8000-000000000001';
+const Q1 = '10000000-0000-4000-8000-000000000002';
+const Q2 = '10000000-0000-4000-8000-000000000003';
+const Q3 = '10000000-0000-4000-8000-000000000004';
+
 vi.mock('../crypto.ts', () => ({ encryptFile: mocks.encryptFile }));
 vi.mock('../r2-client.ts', () => ({ uploadEncryptedBlob: mocks.uploadEncryptedBlob }));
 
@@ -30,6 +35,16 @@ beforeEach(() => {
 });
 
 describe('remote upload contract', () => {
+  it('rejects a malformed queue occurrence before reserving or encrypting', async () => {
+    const { uploadRemoteFile } = await import('../remote-upload.ts');
+    const file = new File(['data'], 'song.mp3', { type: 'audio/mpeg' });
+
+    await expect(uploadRemoteFile(file, 1, 'not-a-queue-item-id')).rejects.toThrow(
+      'REMOTE_SHARE_INVALID_IDENTITY',
+    );
+    expect(mocks.encryptFile).not.toHaveBeenCalled();
+  });
+
   it('rejects empty and over-200-MiB source files before encryption', async () => {
     const { uploadRemoteFile } = await import('../remote-upload.ts');
     const empty = new File([], 'empty.wav');
@@ -39,8 +54,8 @@ describe('remote upload contract', () => {
       value: REMOTE_SHARE_MAX_BYTES + 1,
     });
 
-    await expect(uploadRemoteFile(empty, 1, 0)).rejects.toThrow('REMOTE_SHARE_FILE_TOO_LARGE');
-    await expect(uploadRemoteFile(oversized, 1, 0)).rejects.toThrow('REMOTE_SHARE_FILE_TOO_LARGE');
+    await expect(uploadRemoteFile(empty, 1, Q0)).rejects.toThrow('REMOTE_SHARE_FILE_TOO_LARGE');
+    await expect(uploadRemoteFile(oversized, 1, Q0)).rejects.toThrow('REMOTE_SHARE_FILE_TOO_LARGE');
     expect(mocks.encryptFile).not.toHaveBeenCalled();
   });
 
@@ -53,7 +68,7 @@ describe('remote upload contract', () => {
       ivB64: 'aXY=',
     });
 
-    await expect(uploadRemoteFile(file, 1, 0)).rejects.toThrow(
+    await expect(uploadRemoteFile(file, 1, Q0)).rejects.toThrow(
       'REMOTE_SHARE_ENCRYPTED_SIZE_MISMATCH',
     );
     expect(mocks.uploadEncryptedBlob).not.toHaveBeenCalled();
@@ -63,11 +78,11 @@ describe('remote upload contract', () => {
     const { uploadRemoteFile } = await import('../remote-upload.ts');
     const file = new File(['data'], 'song.mp3', { type: 'audio/mpeg' });
 
-    await expect(uploadRemoteFile(file, 7, 2)).resolves.toMatchObject({
+    await expect(uploadRemoteFile(file, 7, Q2)).resolves.toMatchObject({
       size: 4,
       encryptedSize: 20,
       sessionId: 7,
-      index: 2,
+      queueItemId: Q2,
     });
   });
 
@@ -89,7 +104,7 @@ describe('remote upload contract', () => {
     });
 
     try {
-      await expect(uploadRemoteFile(file, 9, 3)).resolves.toMatchObject({
+      await expect(uploadRemoteFile(file, 9, Q3)).resolves.toMatchObject({
         size: REMOTE_SHARE_MAX_BYTES,
         encryptedSize: REMOTE_SHARE_MAX_BYTES + 16,
       });
@@ -115,7 +130,7 @@ describe('remote upload contract', () => {
 
     try {
       const { uploadRemoteFile } = await import('../remote-upload.ts');
-      await expect(uploadRemoteFile(file, 9, 3)).rejects.toMatchObject({
+      await expect(uploadRemoteFile(file, 9, Q3)).rejects.toMatchObject({
         reason: 'transport-working-set',
       });
       expect(mocks.encryptFile).not.toHaveBeenCalled();
@@ -155,10 +170,10 @@ describe('remote upload contract', () => {
 
     try {
       const { uploadRemoteFile } = await import('../remote-upload.ts');
-      const first = uploadRemoteFile(fileA, 1, 0);
+      const first = uploadRemoteFile(fileA, 1, Q0);
       await vi.waitFor(() => expect(mocks.encryptFile).toHaveBeenCalledOnce());
 
-      await expect(uploadRemoteFile(fileB, 2, 1)).rejects.toMatchObject({
+      await expect(uploadRemoteFile(fileB, 2, Q1)).rejects.toMatchObject({
         reason: 'transport-working-set',
       });
       expect(mocks.encryptFile).toHaveBeenCalledOnce();

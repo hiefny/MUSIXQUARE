@@ -83,6 +83,8 @@ const ko = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': '플레이리스트 펼치기/접기',
+  'playlist.reorder_handle': '{{title}} 순서 변경, 현재 {{position}}번',
+  'playlist.reorder_position': '{{title}}, 전체 {{total}}개 중 {{position}}번',
   'playlist.repeat_all': '전체 반복 재생이 켜졌어요',
   'playlist.repeat_one': '한 곡 반복 재생이 켜졌어요',
   'playlist.repeat_off': '반복 재생이 꺼졌어요',
@@ -93,9 +95,11 @@ const ko = {
   'playlist.loading_info': '재생 정보 대기 중...',
   'playlist.sub_load_failed': '영상 정보를 불러올 수 없어요',
   'playlist.remove_title': '재생목록에서 삭제',
-  'playlist.remove_message': '이 미디어를 재생목록에서 지울까요?',
-  'playlist.remove_yes': '지우기',
-  'playlist.remove_no': '아니요',
+  'playlist.select_for_deletion': '{{title}} 삭제 대상으로 선택',
+  'playlist.deselect_for_deletion': '{{title}} 선택 해제',
+  'playlist.deselect_all': '모든 선택 해제',
+  'playlist.select_all': '모두 선택',
+  'playlist.delete_selected': '선택한 {{count}}곡 삭제',
   'playlist.video_fallback': '불러오는 중...',
   'playlist.track_fallback': '트랙 {{idx}}',
   'playlist.deferred_load_hint': '재생하면 모든 곡 정보를 불러올게요',

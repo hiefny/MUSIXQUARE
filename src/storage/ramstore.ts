@@ -17,6 +17,8 @@ import { log } from '../core/log.ts';
 // ─── Types ──────────────────────────────────────────────────────
 
 interface RamSlot {
+  /** Stable playlist-row identity. Filename is display metadata only. */
+  queueItemId: string;
   filename: string;
   isPreload: boolean;
   sessionId: number;
@@ -39,17 +41,37 @@ interface RamSlot {
 
 /** Single main slot — at most one main-channel transfer in flight. */
 let mainSlot: RamSlot | null = null;
-/** Preload slots keyed by both sessionId (write path) and filename (read path). */
+/** Preload slots keyed by exact transfer session. */
 const preloadBySid = new Map<number, RamSlot>();
-const preloadByName = new Map<string, RamSlot>();
+/** Secondary index used only for explicit queue-item cleanup. */
+const preloadSidsByQueueItemId = new Map<string, Set<number>>();
+
+function addPreloadSlot(slot: RamSlot): void {
+  preloadBySid.set(slot.sessionId, slot);
+  const sessions = new Set(preloadSidsByQueueItemId.get(slot.queueItemId) ?? []);
+  sessions.add(slot.sessionId);
+  preloadSidsByQueueItemId.set(slot.queueItemId, sessions);
+}
+
+function removePreloadSlot(sessionId: number): void {
+  const slot = preloadBySid.get(sessionId);
+  if (!slot) return;
+  preloadBySid.delete(sessionId);
+  const sessions = new Set(preloadSidsByQueueItemId.get(slot.queueItemId) ?? []);
+  sessions.delete(sessionId);
+  if (sessions.size > 0) preloadSidsByQueueItemId.set(slot.queueItemId, sessions);
+  else preloadSidsByQueueItemId.delete(slot.queueItemId);
+}
 
 function makeSlot(
+  queueItemId: string,
   filename: string,
   isPreload: boolean,
   sessionId: number,
   chunkSize: number,
 ): RamSlot {
   return {
+    queueItemId,
     filename,
     isPreload,
     sessionId,
@@ -64,12 +86,14 @@ function makeSlot(
 // ─── Write Path ─────────────────────────────────────────────────
 
 export function ramStart(
+  queueItemId: string,
   filename: string,
   isPreload: boolean,
   sessionId: number,
   chunkSize: number,
   keepExisting: boolean,
 ): { ok: boolean; reason?: string } {
+  if (!queueItemId) return { ok: false, reason: 'Missing queueItemId' };
   if (!filename) return { ok: false, reason: 'Missing filename' };
   if (!Number.isInteger(sessionId) || sessionId <= 0) {
     return { ok: false, reason: 'Invalid sessionId' };
@@ -81,41 +105,37 @@ export function ramStart(
     if (
       keepExisting &&
       mainSlot &&
+      mainSlot.queueItemId === queueItemId &&
       mainSlot.filename === filename &&
       sessionId === mainSlot.sessionId
     ) {
       return { ok: true };
     }
-    mainSlot = makeSlot(filename, isPreload, sessionId, chunkSize);
+    mainSlot = makeSlot(queueItemId, filename, isPreload, sessionId, chunkSize);
     return { ok: true };
   }
 
   // Preload — reuse existing slot if filename + session match (resume).
   const existing = preloadBySid.get(sessionId);
-  if (existing && existing.filename === filename && keepExisting) {
+  if (
+    existing &&
+    existing.queueItemId === queueItemId &&
+    existing.filename === filename &&
+    keepExisting
+  ) {
     return { ok: true };
   }
 
-  // If a different session held this filename, drop it.
-  const stale = preloadByName.get(filename);
-  if (stale && stale.sessionId !== sessionId) {
-    preloadBySid.delete(stale.sessionId);
-    preloadByName.delete(filename);
-  }
+  // A session ID is bound to exactly one queue item for its lifetime.
+  if (existing) removePreloadSlot(sessionId);
 
-  // Drop any prior slot under this sessionId (rare retry path).
-  if (existing && existing.filename !== filename) {
-    preloadByName.delete(existing.filename);
-    preloadBySid.delete(sessionId);
-  }
-
-  const slot = makeSlot(filename, isPreload, sessionId, chunkSize);
-  preloadBySid.set(sessionId, slot);
-  preloadByName.set(filename, slot);
+  const slot = makeSlot(queueItemId, filename, isPreload, sessionId, chunkSize);
+  addPreloadSlot(slot);
   return { ok: true };
 }
 
 export function ramWrite(
+  queueItemId: string,
   filename: string,
   isPreload: boolean,
   sessionId: number,
@@ -126,6 +146,9 @@ export function ramWrite(
   if (!slot) return { ok: false, reason: 'Session not found', expectedSid: null };
   if (slot.sessionId !== sessionId) {
     return { ok: false, reason: 'Session mismatch', expectedSid: slot.sessionId };
+  }
+  if (slot.queueItemId !== queueItemId) {
+    return { ok: false, reason: 'Queue item mismatch' };
   }
   if (slot.filename !== filename) {
     // Caller's session matches but filename diverged — likely a stale write
@@ -152,6 +175,7 @@ export function ramWrite(
  * gate detects corruption.
  */
 export function ramEnd(
+  queueItemId: string,
   filename: string,
   isPreload: boolean,
   sessionId: number,
@@ -162,6 +186,9 @@ export function ramEnd(
   if (!slot) return { blob: null, reason: 'Session not found', expectedSid: null };
   if (slot.sessionId !== sessionId) {
     return { blob: null, reason: 'Session mismatch', expectedSid: slot.sessionId };
+  }
+  if (slot.queueItemId !== queueItemId) {
+    return { blob: null, reason: 'Queue item mismatch' };
   }
   if (slot.filename !== filename) {
     return { blob: null, reason: 'Filename mismatch' };
@@ -218,12 +245,12 @@ export function ramEnd(
  * resume and recovery call it only after pending command work has yielded.
  */
 export function ramContiguousCount(
-  filename: string,
+  queueItemId: string,
   isPreload: boolean,
-  sessionId?: number,
+  sessionId: number,
 ): number {
-  if (!filename) return 0;
-  const slot = findSlotForRead(filename, isPreload, sessionId);
+  if (!queueItemId) return 0;
+  const slot = findSlotForRead(queueItemId, isPreload, sessionId);
   if (!slot) return 0;
   if (slot.finalized) {
     // chunkSize guard: a 0/undefined chunkSize must not divide-by-zero.
@@ -242,12 +269,12 @@ export function ramContiguousCount(
  * chunks if not yet finalized).
  */
 export async function ramReadChunk(
-  filename: string,
+  queueItemId: string,
   isPreload: boolean,
-  sessionId: number | undefined,
+  sessionId: number,
   chunkIndex: number,
 ): Promise<Uint8Array | null> {
-  const slot = findSlotForRead(filename, isPreload, sessionId);
+  const slot = findSlotForRead(queueItemId, isPreload, sessionId);
   if (!slot) return null;
 
   if (slot.finalizedBlob) {
@@ -266,43 +293,53 @@ export async function ramReadChunk(
  * Return the finalized blob for a logical filename. Used by
  * `readStoredFile` callers (decode promote / preload promote paths).
  */
-export function ramReadBlob(filename: string, isPreload: boolean, sessionId?: number): Blob | null {
-  const slot = findSlotForRead(filename, isPreload, sessionId);
+export function ramReadBlob(
+  queueItemId: string,
+  isPreload: boolean,
+  sessionId: number,
+): Blob | null {
+  const slot = findSlotForRead(queueItemId, isPreload, sessionId);
   return slot?.finalizedBlob ?? null;
 }
 
-function findSlotForRead(filename: string, isPreload: boolean, sessionId?: number): RamSlot | null {
+function findSlotForRead(
+  queueItemId: string,
+  isPreload: boolean,
+  sessionId: number,
+): RamSlot | null {
   if (!isPreload) {
-    if (
-      mainSlot &&
-      mainSlot.filename === filename &&
-      (sessionId === undefined || mainSlot.sessionId === sessionId)
-    ) {
+    if (mainSlot && mainSlot.queueItemId === queueItemId && mainSlot.sessionId === sessionId) {
       return mainSlot;
     }
     return null;
   }
-  if (typeof sessionId === 'number') {
-    const bySid = preloadBySid.get(sessionId);
-    if (bySid && bySid.filename === filename) return bySid;
-    return null;
-  }
-  return preloadByName.get(filename) ?? null;
+  const bySid = preloadBySid.get(sessionId);
+  return bySid?.queueItemId === queueItemId ? bySid : null;
 }
 
 // ─── Reset / Cleanup ────────────────────────────────────────────
 
-export function ramCleanup(filename: string, isPreload: boolean): { skipped: boolean } {
+export function ramCleanup(
+  queueItemId: string,
+  isPreload: boolean,
+  sessionId?: number,
+): { skipped: boolean } {
   if (!isPreload) {
-    if (mainSlot && mainSlot.filename === filename) {
+    if (
+      mainSlot?.queueItemId === queueItemId &&
+      (sessionId === undefined || mainSlot.sessionId === sessionId)
+    ) {
       mainSlot = null;
     }
     return { skipped: false };
   }
-  const slot = preloadByName.get(filename);
-  if (slot) {
-    preloadByName.delete(filename);
-    preloadBySid.delete(slot.sessionId);
+  if (sessionId !== undefined) {
+    const slot = preloadBySid.get(sessionId);
+    if (slot?.queueItemId === queueItemId) removePreloadSlot(sessionId);
+    return { skipped: false };
+  }
+  for (const sid of [...(preloadSidsByQueueItemId.get(queueItemId) ?? [])]) {
+    removePreloadSlot(sid);
   }
   return { skipped: false };
 }
@@ -315,16 +352,13 @@ export function ramResetSession(sessionId: number, isPreload: boolean): void {
     return;
   }
   const slot = preloadBySid.get(sessionId);
-  if (slot) {
-    preloadBySid.delete(sessionId);
-    preloadByName.delete(slot.filename);
-  }
+  if (slot) removePreloadSlot(sessionId);
 }
 
 export function ramReset(isPreload: boolean): void {
   if (isPreload) {
     preloadBySid.clear();
-    preloadByName.clear();
+    preloadSidsByQueueItemId.clear();
   } else {
     mainSlot = null;
   }
@@ -369,6 +403,6 @@ export function ramStats(): {
 export function __resetRamStoreForTests(): void {
   mainSlot = null;
   preloadBySid.clear();
-  preloadByName.clear();
+  preloadSidsByQueueItemId.clear();
   log.debug('[Ramstore] reset for tests');
 }

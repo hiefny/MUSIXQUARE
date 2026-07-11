@@ -1,10 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { connectHostAndGuest, setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import { cleanupContexts, createHostGuestContexts } from './helpers/context-factory.ts';
-import {
-  readState,
-  waitForToast,
-} from './helpers/wait.ts';
+import { readState, waitForToast } from './helpers/wait.ts';
 
 const DEMO_URL_PATTERN = 'https://demo.musixquare.com/linelight/*.m4a';
 const INFO_URL = 'https://batzerk.bandcamp.com/album/linelight-ost';
@@ -450,7 +447,7 @@ test.describe('Linelight demo mode', () => {
         .poll(() => readState(pair.guestPage, 'demo.active'), { timeout: 15_000 })
         .toBe(true);
       await expect
-        .poll(() => readState(pair.guestPage, 'playlist.currentTrackIndex'), { timeout: 15_000 })
+        .poll(() => readState(pair.guestPage, 'demo.currentTrackIndex'), { timeout: 15_000 })
         .toBe(0);
       await expect
         .poll(() => readState(pair.guestPage, 'playback.activity'), { timeout: 15_000 })
@@ -468,7 +465,7 @@ test.describe('Linelight demo mode', () => {
         bus?.emit?.('player:ended');
       });
       await expect
-        .poll(() => readState(pair.guestPage, 'playlist.currentTrackIndex'), { timeout: 10_000 })
+        .poll(() => readState(pair.guestPage, 'demo.currentTrackIndex'), { timeout: 10_000 })
         .toBe(1);
       await expect
         .poll(async () => (await readState(pair.guestPage, 'playback.activity')) === 'playing', {
@@ -530,10 +527,7 @@ test.describe('Linelight demo mode', () => {
           localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
         }),
       ]);
-      await Promise.all([
-        mockDemoTrack(pair.hostPage),
-        mockDemoTrack(pair.guestPage),
-      ]);
+      await Promise.all([mockDemoTrack(pair.hostPage), mockDemoTrack(pair.guestPage)]);
 
       const code = await setupHostAndStart(pair.hostPage);
       await pair.hostPage.evaluate(() => {
@@ -556,17 +550,12 @@ test.describe('Linelight demo mode', () => {
         .poll(() => readState(pair.guestPage, 'demo.active'), { timeout: 15_000 })
         .toBe(true);
       await expect
-        .poll(() => readState(pair.guestPage, 'playlist.currentTrackIndex'), { timeout: 15_000 })
+        .poll(() => readState(pair.guestPage, 'demo.currentTrackIndex'), { timeout: 15_000 })
         .toBe(0);
-      await expect
-        .poll(
-          async () => Boolean(await readState(pair.guestPage, 'files.currentFileBlob')),
-          { timeout: 15_000 },
-        )
-        .toBe(true);
       await expect
         .poll(() => readState(pair.guestPage, 'playback.activity'), { timeout: 15_000 })
         .toBe('playing');
+      expect(await readState(pair.guestPage, 'files.current')).toBeNull();
       await expect
         .poll(
           async () => {

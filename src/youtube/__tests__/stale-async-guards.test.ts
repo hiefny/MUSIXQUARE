@@ -24,6 +24,8 @@ import { setPlaybackFilePlaying, setPlaybackYouTubePlaying } from '../../player/
 import type { PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
+const QUEUE_ITEM_ID = '88888888-8888-4888-8888-888888888888';
+
 // ─── Mocks (cloned from indexing-lifecycle.test.ts — keep in sync) ─────────
 
 vi.mock('../../core/log.ts', () => ({
@@ -275,9 +277,14 @@ describe('scrape poll supersession (F-2401)', () => {
     const player = createMockYtPlayer(['subA1AAAAAA', 'subA2AAAAAA']);
     const handle = await startHostScrapeLoad(player, 'PL_A');
     setState('playlist.items', [
-      { type: 'youtube', name: 'Row A', playlistId: 'PL_A' } as unknown as PlaylistItem,
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Row A',
+        playlistId: 'PL_A',
+      } as unknown as PlaylistItem,
     ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 
     handle.fireStateChange(5);
     // Poll 1 scheduled with prevCount=2 → poll 2 stabilizes and finishes.
@@ -420,9 +427,14 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     const player = createMockYtPlayer();
     const handle = await createPlayerInYouTubeMode(player);
     setState('playlist.items', [
-      { type: 'youtube', name: 'B', videoId: 'vidB000000B' } as unknown as PlaylistItem,
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'B',
+        videoId: 'vidB000000B',
+      } as unknown as PlaylistItem,
     ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 
     // Late error from abandoned video A while B is loading (BUFFERING).
     vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'vidA000000A' });
@@ -441,9 +453,14 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     const player = createMockYtPlayer();
     const handle = await createPlayerInYouTubeMode(player);
     setState('playlist.items', [
-      { type: 'youtube', name: 'B', videoId: 'vidB000000B' } as unknown as PlaylistItem,
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'B',
+        videoId: 'vidB000000B',
+      } as unknown as PlaylistItem,
     ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 
     vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'vidB000000B' });
     vi.mocked(player.getPlayerState!).mockReturnValue(3);
@@ -467,7 +484,17 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     // File-mode room adds a YouTube playlist → deferred-navigation arms an
     // indexing session (≤1 cached sub-items) and constructs the player.
     setPlaybackFilePlaying();
-    bus.emit('youtube:load', 'vidEntry000', 'PL_BROKEN', false, 0);
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Broken playlist',
+        videoId: 'vidEntry000',
+        playlistId: 'PL_BROKEN',
+      },
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    bus.emit('youtube:load', 'vidEntry000', 'PL_BROKEN', QUEUE_ITEM_ID, false, 0);
     expect(stateMod.isYtIndexing()).toBe(true);
 
     const nextTrack = vi.fn();
@@ -490,9 +517,14 @@ describe('persistent prime transition supersession', () => {
     setPlaybackYouTubePlaying();
     wireStopAllMediaChain();
     setState('playlist.items', [
-      { type: 'youtube', name: 'Real', videoId: 'realVideo01' } as unknown as PlaylistItem,
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Real',
+        videoId: 'realVideo01',
+      } as unknown as PlaylistItem,
     ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
     loadYouTubeVideo('realVideo01', null, true, 0);
 
     vi.mocked(player.getVideoData!).mockReturnValue({ video_id: YOUTUBE_PRIME_VIDEO_ID });

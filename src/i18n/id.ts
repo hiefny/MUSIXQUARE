@@ -160,6 +160,8 @@ const id: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Perluas/ciutkan playlist',
+  'playlist.reorder_handle': 'Urutkan ulang {{title}}, posisi {{position}}',
+  'playlist.reorder_position': '{{title}}, posisi {{position}} dari {{total}}',
   'playlist.repeat_all': 'Ulangi semua track aktif',
   'playlist.repeat_one': 'Ulangi track saat ini aktif',
   'playlist.repeat_off': 'Ulangi nonaktif',
@@ -170,9 +172,11 @@ const id: Record<I18nKey, string> = {
   'playlist.loading_info': 'Memuat info track...',
   'playlist.sub_load_failed': 'Tidak dapat memuat info video',
   'playlist.remove_title': 'Hapus dari playlist',
-  'playlist.remove_message': 'Hapus media ini dari playlist?',
-  'playlist.remove_yes': 'Hapus',
-  'playlist.remove_no': 'Tidak',
+  'playlist.select_for_deletion': 'Pilih {{title}} untuk dihapus',
+  'playlist.deselect_for_deletion': 'Batalkan pilihan {{title}}',
+  'playlist.deselect_all': 'Batalkan semua pilihan',
+  'playlist.select_all': 'Pilih semua',
+  'playlist.delete_selected': 'Hapus {{count}} lagu terpilih',
   'playlist.video_fallback': 'Memuat...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Putar untuk memuat daftar track lengkap',

@@ -644,7 +644,7 @@ export function leaveSession(): void {
   // Note: file/preload reorder buffers are module-local in transfer.ts/preload.ts
   // Clear the state-managed preload session state (correct key: preload.sessionState)
   setState('preload.sessionState', new Map());
-  setState('preload.ackSent', new Set());
+  setState('preload.ackSent', new Map());
 
   // ── 6. Reset all state ──
   batchSetState({
@@ -670,8 +670,8 @@ export function leaveSession(): void {
     'network.filterEnabled': false,
     // Playlist
     'playlist.items': [],
-    'playlist.currentTrackIndex': -1,
-    'preload.nextTrackIndex': -1,
+    'playlist.currentQueueItemId': null,
+    'playlist.revision': 0,
     // Transfer
     'transfer.meta': null,
     'transfer.state': TRANSFER_STATE.IDLE,
@@ -688,11 +688,11 @@ export function leaveSession(): void {
     'recovery.pending': false,
     'recovery.retryCount': 0,
     // Files
-    'files.currentFileBlob': null,
-    'files.currentTrack': { name: null },
+    'files.current': null,
     // Preload
-    'preload.nextFileBlob': null,
-    'preload.meta': null,
+    'preload.activeTarget': null,
+    'preload.ready': null,
+    'preload.nextQueueItemId': null,
     // Playback lifecycle
     'playback.lifecycle': PLAYBACK_STATE.IDLE,
     'playback.loadSource': null,

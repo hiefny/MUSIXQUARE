@@ -85,6 +85,8 @@ const en: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Expand/collapse playlist',
+  'playlist.reorder_handle': 'Reorder {{title}}, position {{position}}',
+  'playlist.reorder_position': '{{title}}, position {{position}} of {{total}}',
   'playlist.repeat_all': 'Repeat all tracks enabled',
   'playlist.repeat_one': 'Repeat current track enabled',
   'playlist.repeat_off': 'Repeat disabled',
@@ -95,9 +97,11 @@ const en: Record<I18nKey, string> = {
   'playlist.loading_info': 'Loading track info...',
   'playlist.sub_load_failed': "Couldn't load video info",
   'playlist.remove_title': 'Remove from playlist',
-  'playlist.remove_message': 'Remove this media from the playlist?',
-  'playlist.remove_yes': 'Remove',
-  'playlist.remove_no': 'No',
+  'playlist.select_for_deletion': 'Select {{title}} for deletion',
+  'playlist.deselect_for_deletion': 'Deselect {{title}}',
+  'playlist.deselect_all': 'Deselect all',
+  'playlist.select_all': 'Select all',
+  'playlist.delete_selected': 'Delete {{count}} selected tracks',
   'playlist.video_fallback': 'Loading...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Play to load the full track list',

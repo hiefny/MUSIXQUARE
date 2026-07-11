@@ -15,15 +15,17 @@ describe('YouTube subItemsMap cache', () => {
   });
 
   it('keeps the current playlist when pruning old entries', () => {
-    setState('playlist.currentTrackIndex', 0);
+    const queueItemId = '33333333-3333-4333-8333-333333333333';
     setState('playlist.items', [
       {
+        queueItemId,
         type: 'youtube',
         playlistId: 'pid-0',
         videoId: 'v0',
         name: 'Current playlist',
       },
     ] satisfies PlaylistItem[]);
+    setState('playlist.currentQueueItemId', queueItemId);
 
     for (let i = 0; i < 55; i++) {
       setSubItemsData(`pid-${i}`, [`v${i}`], [`Video ${i}`]);

@@ -14,6 +14,7 @@ const ORIGIN = 'https://musixquare.com';
 const SIGNING_SECRET = 'remote-share-signing-secret-for-tests';
 const CAPABILITY_SECRET = 'remote-share-capability-secret-for-tests';
 const CLIENT_IP = '203.0.113.7';
+const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
 interface R2CorsRule {
   AllowedOrigins: string[];
@@ -162,7 +163,7 @@ function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     roomId: '123456',
     sessionId: 7,
-    index: 0,
+    queueItemId: QUEUE_ITEM_ID,
     name: 'song.wav',
     mime: 'audio/wav',
     size: 4,
@@ -339,6 +340,7 @@ describe('remote-share Worker capability gate', () => {
   it('enforces positive plaintext and exact AES-GCM ciphertext sizes at /session', async () => {
     const token = await createCapabilityToken();
     for (const body of [
+      sessionRequestBody({ queueItemId: 'not-a-queue-item-id' }),
       sessionRequestBody({ size: 0, encryptedSize: 16 }),
       sessionRequestBody({ size: 4, encryptedSize: 19 }),
       sessionRequestBody({ size: 200 * 1024 * 1024 + 1, encryptedSize: 200 * 1024 * 1024 + 17 }),

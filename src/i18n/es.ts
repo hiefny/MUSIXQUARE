@@ -160,6 +160,8 @@ const es: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Expandir/contraer lista',
+  'playlist.reorder_handle': 'Reordenar {{title}}, posición {{position}}',
+  'playlist.reorder_position': '{{title}}, posición {{position}} de {{total}}',
   'playlist.repeat_all': 'Repetición de todas las pistas activada',
   'playlist.repeat_one': 'Repetición de la pista actual activada',
   'playlist.repeat_off': 'Repetición desactivada',
@@ -170,9 +172,11 @@ const es: Record<I18nKey, string> = {
   'playlist.loading_info': 'Cargando información de la pista...',
   'playlist.sub_load_failed': 'No se pudo cargar la información del video',
   'playlist.remove_title': 'Eliminar de la lista',
-  'playlist.remove_message': '¿Eliminar este medio de la lista?',
-  'playlist.remove_yes': 'Eliminar',
-  'playlist.remove_no': 'No',
+  'playlist.select_for_deletion': 'Seleccionar {{title}} para eliminar',
+  'playlist.deselect_for_deletion': 'Deseleccionar {{title}}',
+  'playlist.deselect_all': 'Deseleccionar todo',
+  'playlist.select_all': 'Seleccionar todo',
+  'playlist.delete_selected': 'Eliminar {{count}} pistas seleccionadas',
   'playlist.video_fallback': 'Cargando...',
   'playlist.track_fallback': 'Pista {{idx}}',
   'playlist.deferred_load_hint': 'Reproduce para cargar la lista completa',

@@ -28,6 +28,7 @@ import { showDialog } from './dialog.ts';
 import { getTrackPosition, isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
@@ -138,11 +139,11 @@ function refreshTrackTitle(): void {
     if (item.artist) {
       artistEl.innerText = item.artist;
     } else {
-      const idx = getState('playlist.currentTrackIndex');
+      const idx = getCurrentQueueItemIndex();
       artistEl.innerText =
         item.type === 'youtube'
           ? t('common.youtube_video')
-          : t('playlist.track_fallback', { idx: idx + 1 });
+          : t('playlist.track_fallback', { idx: idx >= 0 ? idx + 1 : 1 });
     }
   }
 }
@@ -512,17 +513,21 @@ function handleMainSyncBtn(): void {
       showToast(t('toast.sync_not_ready'));
       return;
     }
+    const queueItemId = getCurrentQueueItemId();
+    if (!queueItemId) {
+      showToast(t('toast.sync_not_ready'));
+      return;
+    }
     const time = getTrackPosition();
-    const index = getState('playlist.currentTrackIndex');
     if (isPlaybackPlayingFile()) {
       bus.emit('network:broadcast', {
         type: MSG.PLAY,
         time,
-        index,
+        queueItemId,
         hostPlayAt: getHostNow() + LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS,
       });
     } else {
-      bus.emit('network:broadcast', { type: MSG.PAUSE, time, index, reason: 'seek' });
+      bus.emit('network:broadcast', { type: MSG.PAUSE, time, queueItemId, reason: 'seek' });
     }
     showToast(t('toast.host_sync_requested'));
     return;

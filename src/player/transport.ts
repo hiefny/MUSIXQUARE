@@ -32,6 +32,7 @@ import {
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
+import { getCurrentQueueItemId } from './queue-model.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
@@ -231,6 +232,7 @@ export function stopAllMedia(opts?: {
   cancelInFlight?: boolean;
   clearBuffer?: boolean;
 }): void {
+  const queueItemId = getCurrentQueueItemId();
   const wasInYouTube = isYouTubeOwner();
 
   if (opts?.cancelInFlight) {
@@ -295,7 +297,12 @@ export function stopAllMedia(opts?: {
     // silent=true is the track-change / preload-swap / system-audio-swap path
     // (a PLAY follows shortly). No silent flag means a deliberate terminal
     // stop (stopPlayback, error path, end-of-track-without-next).
-    broadcast({ type: MSG.PAUSE, time: 0, reason: opts?.silent ? 'transition' : 'stop' });
+    broadcast({
+      type: MSG.PAUSE,
+      time: 0,
+      queueItemId,
+      reason: opts?.silent ? 'transition' : 'stop',
+    });
   }
   bus.emit('visualizer:fade-out');
 }
@@ -309,10 +316,11 @@ export function seekTo(time: number): void {
   if (isGuestBlocked()) return;
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
+  const queueItemId = getCurrentQueueItemId();
 
   // OP guest: request host to seek
   if (hostConn && isOperator) {
-    sendToHost({ type: MSG.REQUEST_SEEK, time });
+    if (queueItemId) sendToHost({ type: MSG.REQUEST_SEEK, time, queueItemId });
     return;
   }
 
@@ -339,19 +347,19 @@ export function seekTo(time: number): void {
   }
 
   // Host: playing → seek + broadcast
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
   if (isFilePlaybackPlaying()) {
+    if (!queueItemId) return;
     play(time);
     broadcast({
       type: MSG.PLAY,
       time,
-      index: currentTrackIndex,
+      queueItemId,
       hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
     });
   } else {
     // Paused: update position + broadcast
     setState('player.pausedAt', time);
-    broadcast({ type: MSG.PAUSE, time, index: currentTrackIndex, reason: 'seek' });
+    broadcast({ type: MSG.PAUSE, time, queueItemId, reason: 'seek' });
   }
 }
 
@@ -558,7 +566,7 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     transition({
       type: 'PLAY',
       time: safeOffset,
-      index: getState('playlist.currentTrackIndex'),
+      queueItemId: getCurrentQueueItemId(),
       sameTrack: true,
     });
   }
@@ -591,7 +599,12 @@ export function pause(
   setState('player.pausedAt', pausePos);
 
   if (!getState('network.hostConn')) {
-    transition({ type: 'PAUSE', time: pausePos, endOfPlaylist: false });
+    transition({
+      type: 'PAUSE',
+      time: pausePos,
+      queueItemId: getCurrentQueueItemId(),
+      endOfPlaylist: false,
+    });
   }
 
   if (opts?.showToast ?? true) {
@@ -662,26 +675,28 @@ export function togglePlay(): void {
 
   const isActuallyPlaying = isFilePlaybackPlaying();
   const pausedAt = getState('player.pausedAt') || 0;
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const currentQueueItemId = getCurrentQueueItemId();
   const playlistItems = getState('playlist.items') || [];
 
   // Deselected state (e.g. after end-of-playlist reset): no track is selected
   // but the playlist is non-empty. Pressing play should restart from track 0
   // rather than silently resuming the stale audio buffer with "미디어 없음"
   // still showing in the title.
-  if (!isActuallyPlaying && currentTrackIndex === -1 && playlistItems.length > 0) {
+  if (!isActuallyPlaying && !currentQueueItemId && playlistItems.length > 0) {
+    const firstQueueItemId = playlistItems[0]?.queueItemId;
+    if (!firstQueueItemId) return;
     if (!hostConn) {
-      void import('./playlist.ts').then((mod) => mod.playTrack(0));
+      void import('./playlist.ts').then((mod) => mod.playTrack(firstQueueItemId));
     } else if (isOperator) {
-      sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, index: 0 });
+      sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, queueItemId: firstQueueItemId });
     }
     return;
   }
 
   // A natural track end stops playback immediately, then playlist.ts advances
   // on a short managed timer. On slower devices a file can be appended and play
-  // tapped while currentTrackIndex/currentAudioBuffer still point at the ended
-  // track. Honor the tap as "advance now" instead of replaying that stale buffer.
+  // tapped while the selected queue ID and resident AudioBuffer still belong
+  // to the ended occurrence. Honor the tap as "advance now" instead of replaying it.
   if (!hostConn && !isActuallyPlaying && getManagedTimer('ended-advance-next')) {
     void import('./playlist.ts').then((mod) => mod.playNextTrack());
     return;
@@ -698,21 +713,31 @@ export function togglePlay(): void {
   if (isActuallyPlaying) {
     if (!hostConn) {
       pause();
-      broadcast({ type: MSG.PAUSE, time: getState('player.pausedAt'), reason: 'pause' });
+      broadcast({
+        type: MSG.PAUSE,
+        time: getState('player.pausedAt'),
+        queueItemId: currentQueueItemId,
+        reason: 'pause',
+      });
     } else if (isOperator) {
-      sendToHost({ type: MSG.REQUEST_PAUSE });
+      if (currentQueueItemId) {
+        sendToHost({ type: MSG.REQUEST_PAUSE, queueItemId: currentQueueItemId });
+      }
     }
   } else {
     if (!hostConn) {
+      if (!currentQueueItemId) return;
       play(pausedAt);
       broadcast({
         type: MSG.PLAY,
         time: pausedAt,
-        index: currentTrackIndex,
+        queueItemId: currentQueueItemId,
         hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
       });
     } else if (isOperator) {
-      sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt });
+      if (currentQueueItemId) {
+        sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt, queueItemId: currentQueueItemId });
+      }
     }
   }
 }
@@ -725,13 +750,15 @@ export function stopPlayback(): void {
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
   if (hostConn && isOperator) {
+    const queueItemId = getCurrentQueueItemId();
+    if (!queueItemId) return;
     try {
-      hostConn.send({ type: MSG.REQUEST_SEEK, time: 0 });
+      hostConn.send({ type: MSG.REQUEST_SEEK, time: 0, queueItemId });
     } catch (e) {
       log.debug('[Transport] send REQUEST_SEEK:', e);
     }
     try {
-      hostConn.send({ type: MSG.REQUEST_PAUSE });
+      hostConn.send({ type: MSG.REQUEST_PAUSE, queueItemId });
     } catch (e) {
       log.debug('[Transport] send REQUEST_PAUSE:', e);
     }
@@ -749,7 +776,8 @@ export function stopPlayback(): void {
   if (isYouTubeOwner()) {
     // Broadcast before clearing local ownership; stopYouTubeMode cannot infer
     // the prior mode after setPlaybackIdle, and guests need the explicit stop.
-    if (!hostConn) broadcast({ type: MSG.YOUTUBE_STOP });
+    const queueItemId = getCurrentQueueItemId();
+    if (!hostConn && queueItemId) broadcast({ type: MSG.YOUTUBE_STOP, queueItemId });
     // Set IDLE before stop-playback to prevent onYouTubePlayerStateChange ENDED
     // from triggering playlist:next-track (its guard checks YouTube playback mode).
     // Do NOT reorder the idle write after the emits — that re-opens the
@@ -767,7 +795,9 @@ export function stopPlayback(): void {
   stopAllMedia({ cancelInFlight: true });
   bus.emit('ui:seek-reset');
 
-  if (!hostConn) broadcast({ type: MSG.PAUSE, time: 0, reason: 'stop' });
+  if (!hostConn) {
+    broadcast({ type: MSG.PAUSE, time: 0, queueItemId: getCurrentQueueItemId(), reason: 'stop' });
+  }
   showToast(t('common.stop'));
 }
 
@@ -778,8 +808,9 @@ export function skipTime(sec: number): void {
 
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
+  const queueItemId = getCurrentQueueItemId();
   if (hostConn && isOperator) {
-    sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec });
+    if (queueItemId) sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec, queueItemId });
     return;
   }
 
@@ -811,20 +842,20 @@ export function skipTime(sec: number): void {
   if (target < 0) target = 0;
   if (duration > 0 && target > duration) target = Math.max(0, duration - 0.1);
 
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
   const isPlaying = isFilePlaybackPlaying();
 
   if (isPlaying) {
+    if (!queueItemId) return;
     play(target);
     broadcast({
       type: MSG.PLAY,
       time: target,
-      index: currentTrackIndex,
+      queueItemId,
       hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
     });
   } else {
     setState('player.pausedAt', target);
-    broadcast({ type: MSG.PAUSE, time: target, reason: 'seek' });
+    broadcast({ type: MSG.PAUSE, time: target, queueItemId, reason: 'seek' });
   }
 }
 

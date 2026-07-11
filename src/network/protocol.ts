@@ -14,7 +14,10 @@ import {
   REMOTE_SHARE_MAX_BYTES,
 } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
+import { isQueueItemId, parsePlaylistSnapshot } from '../player/queue-model.ts';
 import type { AnyProtocolMsg, DataConnection, ProtocolMsg } from '../types/index.ts';
+import { hasQueueAuthority } from './queue-authority.ts';
+import { isFileRequestId } from './file-request-authority.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -54,7 +57,7 @@ const REMOTE_OBJECT_ID_RE =
 
 // Tight numeric validator — rejects NaN, Infinity, -Infinity, and out-of-range
 // values. Without this, Number(undefined) → NaN silently passes typeof===number,
-// and a malicious peer could send index=Infinity to explode a reorder buffer Map.
+// and a malicious peer could send chunkIndex=Infinity to explode a reorder buffer Map.
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isNonNegInt = (v: unknown): v is number => isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
 const isNonNegSafeInt = (v: unknown): v is number =>
@@ -77,6 +80,28 @@ const hasExactFileSizeContract = (d: Record<string, unknown>): boolean =>
 const MAX_CHUNK_BYTES = CHUNK_SIZE;
 const isBoundedChunk = (v: unknown): boolean =>
   isArrayBufferLike(v) && (v as ArrayBuffer | Uint8Array).byteLength <= MAX_CHUNK_BYTES;
+
+// Frames without a top-level queueItemId that still create/mutate a media
+// owner. Queue-scoped frames are detected generically below.
+const PRE_AUTHORITY_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  MSG.FILE_WAIT,
+  MSG.SYSTEM_AUDIO_START,
+  MSG.SYSTEM_AUDIO_SFU_READY,
+  MSG.SYSTEM_AUDIO_STOP,
+  MSG.DEMO_ENTER,
+  MSG.DEMO_PLAY,
+  MSG.DEMO_PAUSE,
+  MSG.DEMO_EXIT,
+  MSG.YOUTUBE_PLAYLIST_INFO,
+  MSG.YOUTUBE_SUB_TITLE_UPDATE,
+]);
+
+function requiresQueueAuthority(msgType: MsgType, msg: Record<string, unknown>): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(msg, 'queueItemId') ||
+    PRE_AUTHORITY_MEDIA_TYPES.has(msgType)
+  );
+}
 const isBoundedNumber = (v: unknown, min: number, max: number): boolean =>
   isFiniteNumber(v) && v >= min && v <= max;
 const isReverbPreset = (v: unknown): boolean => v === 'off' || v === 'studio' || v === 'arena';
@@ -120,20 +145,32 @@ function isValidRequestSetting(data: Record<string, unknown>): boolean {
 }
 
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
-  [MSG.PLAY]: (d) => d.time === undefined || isFiniteNumber(d.time),
+  [MSG.PLAY]: (d) =>
+    isQueueItemId(d.queueItemId) &&
+    isFiniteNumber(d.time) &&
+    (d.name === undefined || d.name === null || typeof d.name === 'string') &&
+    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
   [MSG.PAUSE]: (d) =>
-    (d.time === undefined || isFiniteNumber(d.time)) &&
+    (d.queueItemId === null || isQueueItemId(d.queueItemId)) &&
+    isFiniteNumber(d.time) &&
+    (d.endOfPlaylist === undefined || typeof d.endOfPlaylist === 'boolean') &&
     (d.reason === undefined ||
       d.reason === 'pause' ||
       d.reason === 'stop' ||
       d.reason === 'seek' ||
       d.reason === 'transition' ||
       d.reason === 'end-of-playlist'),
+  [MSG.PLAY_PRELOADED]: (d) =>
+    isQueueItemId(d.queueItemId) &&
+    typeof d.name === 'string' &&
+    d.name.length > 0 &&
+    (d.mime === undefined || typeof d.mime === 'string'),
   [MSG.VOLUME]: (d) =>
     isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
   [MSG.FILE_CHUNK]: (d) =>
     isBoundedChunk(d.chunk) &&
-    isNonNegInt(d.index) &&
+    isNonNegInt(d.chunkIndex) &&
+    isQueueItemId(d.queueItemId) &&
     isPositiveSafeInt(d.sessionId) &&
     typeof d.name === 'string' &&
     d.name.length > 0 &&
@@ -147,13 +184,24 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.name === 'string' &&
     d.name.length > 0 &&
     isPositiveSafeInt(d.sessionId) &&
-    (d.index === undefined || isNonNegSafeInt(d.index)) &&
+    isQueueItemId(d.queueItemId) &&
     hasExactFileSizeContract(d),
-  [MSG.FILE_END]: (d) => typeof d.name === 'string' && isPositiveSafeInt(d.sessionId),
+  [MSG.FILE_END]: (d) =>
+    typeof d.name === 'string' &&
+    d.name.length > 0 &&
+    typeof d.mime === 'string' &&
+    isQueueItemId(d.queueItemId) &&
+    isPositiveSafeInt(d.sessionId),
   [MSG.PRELOAD_CHUNK]: (d) =>
-    isBoundedChunk(d.chunk) && isNonNegInt(d.index) && isPositiveSafeInt(d.sessionId),
+    isBoundedChunk(d.chunk) &&
+    isNonNegInt(d.chunkIndex) &&
+    isQueueItemId(d.queueItemId) &&
+    isPositiveSafeInt(d.sessionId),
   [MSG.PRELOAD_END]: (d) =>
-    typeof d.name === 'string' && isNonNegSafeInt(d.index) && isPositiveSafeInt(d.sessionId),
+    typeof d.name === 'string' &&
+    d.name.length > 0 &&
+    isQueueItemId(d.queueItemId) &&
+    isPositiveSafeInt(d.sessionId),
   // Every preload data/control frame carries the same positive safe sessionId.
   // Missing/fractional/unsafe IDs are rejected before they can key reorder or
   // sessionState maps; there is no latest-session fallback.
@@ -161,13 +209,15 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.name === 'string' &&
     d.name.length > 0 &&
     isPositiveSafeInt(d.sessionId) &&
-    isNonNegSafeInt(d.index) &&
+    isQueueItemId(d.queueItemId) &&
+    (d.skipped === undefined || typeof d.skipped === 'boolean') &&
     hasExactFileSizeContract(d),
   // sessionId required — handler uses it to scope sessionState/reorder/storage
   // cleanup. Without the guard, an injected abort with no sid would no-op
   // through every guard in handlePreloadAbort but still consume rate-limit
   // budget. Mirrors PRELOAD_END's name-required style.
-  [MSG.PRELOAD_ABORT]: (d) => isPositiveSafeInt(d.sessionId),
+  [MSG.PRELOAD_ACK]: (d) => isQueueItemId(d.queueItemId) && isPositiveSafeInt(d.sessionId),
+  [MSG.PRELOAD_ABORT]: (d) => isQueueItemId(d.queueItemId) && isPositiveSafeInt(d.sessionId),
   [MSG.WELCOME]: (d) => typeof d.label === 'string',
   [MSG.EQ_UPDATE]: (d) =>
     isFiniteNumber(d.band) &&
@@ -177,16 +227,24 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
 
   // YouTube messages — validate numeric fields that flow into player APIs / state
   [MSG.YOUTUBE_PLAY]: (d) =>
+    isQueueItemId(d.queueItemId) &&
     (d.videoId === undefined || d.videoId === null || typeof d.videoId === 'string') &&
-    (d.index === undefined || isNonNegInt(d.index)) &&
+    (d.playlistId === undefined ||
+      d.playlistId === null ||
+      typeof d.playlistId === 'string' ||
+      (Array.isArray(d.playlistId) && d.playlistId.every((id) => typeof id === 'string'))) &&
+    typeof d.autoplay === 'boolean' &&
     (d.subIndex === undefined || isNonNegInt(d.subIndex)),
+  [MSG.YOUTUBE_STOP]: (d) => isQueueItemId(d.queueItemId),
   [MSG.YOUTUBE_SYNC]: (d) =>
+    isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.time) &&
     isFiniteNumber(d.state) &&
     (d.subIndex === undefined || isFiniteNumber(d.subIndex)),
   [MSG.YOUTUBE_STATE]: (d) =>
+    isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.state) &&
-    (d.time === undefined || isFiniteNumber(d.time)) &&
+    isFiniteNumber(d.time) &&
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
   // subIdx is capped at 5000 (YouTube playlist max, matches YOUTUBE_PLAYLIST_INFO
   // ids cap) — the handler pads youtube.subItemsMap[pid].titles up to subIdx, so
@@ -220,17 +278,28 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
       titles.every((x) => typeof x === 'string' && x.length <= 200)
     );
   },
-  [MSG.REQUEST_YOUTUBE_SUB_SEEK]: (d) => isNonNegInt(d.subIdx),
+  [MSG.REQUEST_YOUTUBE_SUB_SEEK]: (d) =>
+    isQueueItemId(d.queueItemId) && isNonNegInt(d.subIdx) && (d.subIdx as number) < 5000,
+  [MSG.REQUEST_YOUTUBE_PLAY]: (d) => isQueueItemId(d.queueItemId),
+  [MSG.REQUEST_YOUTUBE_PAUSE]: (d) => isQueueItemId(d.queueItemId),
+  [MSG.REQUEST_YOUTUBE_TOGGLE]: (d) => isQueueItemId(d.queueItemId),
+  [MSG.REQUEST_YOUTUBE_PLAYLIST_INFO]: (d) =>
+    typeof d.playlistId === 'string' && d.playlistId.length > 0 && d.playlistId.length <= 64,
   [MSG.REQUEST_SETTING]: isValidRequestSetting,
 
   // File transfer — validate session IDs and indices
   [MSG.FILE_PREPARE]: (d) =>
-    (d.name === undefined || typeof d.name === 'string') &&
-    (d.index === undefined || isNonNegSafeInt(d.index)) &&
-    (d.sessionId === undefined || isPositiveSafeInt(d.sessionId)),
+    typeof d.name === 'string' &&
+    d.name.length > 0 &&
+    isQueueItemId(d.queueItemId) &&
+    isPositiveSafeInt(d.sessionId) &&
+    typeof d.mime === 'string' &&
+    (d.size === undefined || isPositiveSafeInt(d.size)) &&
+    (d.autoPlayDelayMs === undefined || isNonNegSafeInt(d.autoPlayDelayMs)),
   [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>
     typeof d.name === 'string' &&
-    isNonNegSafeInt(d.index) &&
+    d.name.length > 0 &&
+    isQueueItemId(d.queueItemId) &&
     isPositiveSafeInt(d.sessionId) &&
     (d.limited === undefined || typeof d.limited === 'boolean'),
   [MSG.REMOTE_FILE_SHARE]: (d) =>
@@ -250,7 +319,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.name === 'string' &&
     d.name.length > 0 &&
     typeof d.mime === 'string' &&
-    isNonNegSafeInt(d.index) &&
+    isQueueItemId(d.queueItemId) &&
     isPositiveSafeInt(d.sessionId) &&
     Number.isSafeInteger(d.size) &&
     (d.size as number) > 0 &&
@@ -268,26 +337,52 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.name === 'string' &&
     d.name.length > 0 &&
     isPositiveSafeInt(d.sessionId) &&
-    (d.index === undefined || isNonNegSafeInt(d.index)) &&
+    isQueueItemId(d.queueItemId) &&
     hasExactFileSizeContract(d) &&
     isNonNegInt(d.startChunk) &&
     (d.startChunk as number) < (d.total as number),
-  // Validate the guest-to-host recovery request before its indices reach
-  // transfer math.
-  // nextChunk feeds the host's startChunk math and must be a sane index;
-  // every field is OPTIONAL on the wire: the FILE_WAIT-timeout
-  // (transfer-receive.ts), playback-stall (playback.ts) and preload-decode
-  // (preload.ts) senders omit sessionId, and the handler falls back through
-  // data.fileName || data.name. index is deliberately NOT isNonNegInt:
-  // recovery.ts's freshIndex falls back to playlist.currentTrackIndex which
-  // is legitimately -1 before the first track — rejecting it would silently
-  // kill real recovery, so only non-finite poison is dropped.
-  [MSG.REQUEST_DATA_RECOVERY]: (d) =>
-    (d.nextChunk === undefined || isNonNegInt(d.nextChunk)) &&
+  [MSG.FILE_WAIT]: (d) =>
+    isFileRequestId(d.requestId) &&
+    isQueueItemId(d.queueItemId) &&
     (d.sessionId === undefined || isPositiveSafeInt(d.sessionId)) &&
-    (d.fileName === undefined || typeof d.fileName === 'string') &&
+    typeof d.message === 'string' &&
+    d.message.length > 0 &&
+    d.message.length <= 512 &&
+    (d.reason === undefined || (typeof d.reason === 'string' && d.reason.length <= 128)),
+  // Recovery binds the stable queue occurrence to a concrete transfer attempt;
+  // nextChunk remains a transport offset and sessionId may be absent initially.
+  [MSG.REQUEST_DATA_RECOVERY]: (d) =>
+    isFileRequestId(d.requestId) &&
+    isNonNegInt(d.nextChunk) &&
+    (d.sessionId === undefined || isPositiveSafeInt(d.sessionId)) &&
+    typeof d.fileName === 'string' &&
+    d.fileName.length > 0 &&
+    isQueueItemId(d.queueItemId),
+  [MSG.REQUEST_CURRENT_FILE]: (d) =>
+    isFileRequestId(d.requestId) &&
+    isQueueItemId(d.queueItemId) &&
+    (d.sessionId === undefined || isPositiveSafeInt(d.sessionId)) &&
     (d.name === undefined || typeof d.name === 'string') &&
-    (d.index === undefined || isFiniteNumber(d.index)),
+    (d.reason === undefined || (typeof d.reason === 'string' && d.reason.length <= 128)),
+  [MSG.REQUEST_TRACK_CHANGE]: (d) => isQueueItemId(d.queueItemId),
+  [MSG.REQUEST_PLAY]: (d) =>
+    isQueueItemId(d.queueItemId) && (d.time === undefined || isFiniteNumber(d.time)),
+  [MSG.REQUEST_PAUSE]: (d) => isQueueItemId(d.queueItemId),
+  [MSG.REQUEST_SEEK]: (d) => isQueueItemId(d.queueItemId) && isFiniteNumber(d.time),
+  [MSG.REQUEST_SKIP_TIME]: (d) => isQueueItemId(d.queueItemId) && isFiniteNumber(d.sec),
+  [MSG.REQUEST_NEXT_TRACK]: (d) => d.queueItemId === null || isQueueItemId(d.queueItemId),
+  [MSG.REQUEST_PREV_TRACK]: (d) => d.queueItemId === null || isQueueItemId(d.queueItemId),
+  [MSG.SYNC_PONG]: (d) =>
+    isNonNegSafeInt(d.pingId) &&
+    isFiniteNumber(d.hostTime) &&
+    isFiniteNumber(d.position) &&
+    (d.mode === null || d.mode === 'file' || d.mode === 'youtube' || d.mode === 'system-audio') &&
+    (d.activity === 'idle' ||
+      d.activity === 'paused' ||
+      d.activity === 'playing' ||
+      d.activity === 'pending') &&
+    (d.queueItemId === null || isQueueItemId(d.queueItemId)) &&
+    (d.demoTrackIndex === undefined || isNonNegSafeInt(d.demoTrackIndex)),
 
   // Chat — validate text field exists and cap length. This validator ceiling
   // (4000) is deliberately above the shared 500-character message cap; its job
@@ -337,13 +432,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
       );
     }),
 
-  // Playlist — validate list is an array (individual items checked in handler)
-  [MSG.PLAYLIST_UPDATE]: (d) => Array.isArray(d.list) && (d.list as unknown[]).length <= 1000,
+  // Playlist snapshots are validated atomically, including unique IDs/current.
+  [MSG.PLAYLIST_UPDATE]: (d) => parsePlaylistSnapshot(d) !== null,
 
-  // Guest → host decode-failure report: index identifies the track. Host
-  // ignores stale reports (index !== currentTrackIndex) at the handler level,
-  // but the validator still requires a sane non-negative integer.
-  [MSG.GUEST_DECODE_FAILED]: (d) => isNonNegInt(d.index),
+  // Guest decode-failure reports identify the queue occurrence, not a row.
+  [MSG.GUEST_DECODE_FAILED]: (d) => isQueueItemId(d.queueItemId),
   [MSG.DEMO_ENTER]: (d) =>
     isNonNegInt(d.index) &&
     typeof d.reverbOn === 'boolean' &&
@@ -455,6 +548,41 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   const msg = data as Record<string, unknown>;
   const msgType = msg.type as MsgType;
 
+  // On a guest, one concrete DataConnection is the sole host authority. Drop
+  // every frame from replaced connections centrally before any handler or
+  // rate-limit state can be touched.
+  const appRole = getState('network.appRole');
+  const isGuest = appRole === 'guest';
+  const hostConn = getState('network.hostConn');
+  if (isGuest && conn !== hostConn) {
+    log.debug(`[Protocol] Ignored frame from stale host connection: ${msgType}`);
+    return;
+  }
+
+  // A reconnect can replace a guest DataConnection while frames from the old
+  // ordered channel are still queued. Peer IDs are intentionally stable, so
+  // authorization must belong to the exact live connection, not just peerId.
+  if (
+    appRole === 'host' &&
+    (!conn?.peer || getState('network.activeHostConnByPeerId').get(conn.peer) !== conn)
+  ) {
+    log.debug(`[Protocol] Ignored frame from stale guest connection: ${msgType}`);
+    return;
+  }
+
+  // Ordered channels are not enough across reconnects: a new host may restart
+  // revisions and transfer SIDs at zero/one. Until its explicit queue baseline
+  // has been applied, fail closed for every queue/media-dependent frame.
+  if (
+    isGuest &&
+    hostConn === conn &&
+    !hasQueueAuthority(conn) &&
+    requiresQueueAuthority(msgType, msg)
+  ) {
+    log.debug(`[Protocol] Ignored ${msgType} before queue authority bootstrap`);
+    return;
+  }
+
   // Generic per-peer rate-limit — chunks bypass (high-legitimate-rate, bounded
   // by transfer-layer backpressure). Silently drops frames over the cap.
   if (conn?.peer && !RATE_LIMIT_EXEMPT.has(msgType) && !allowInboundFromPeer(conn.peer)) {
@@ -488,8 +616,9 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
 export function verifyOperator(conn: DataConnection, _data?: Record<string, unknown>): boolean {
   const peerId = conn?.peer;
   if (!peerId) return false;
+  if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return false;
   const connectedPeers = getState('network.connectedPeers');
-  const peer = connectedPeers.find((p) => p.id === peerId);
+  const peer = connectedPeers.find((p) => p.id === peerId && p.conn === conn);
   return !!(peer && peer.isOp);
 }
 

@@ -7,7 +7,8 @@ import {
   resolveDecodeMemoryBudget,
 } from '../player/decode-admission.ts';
 import { currentAudioBufferPcmBytes, liveAudioBufferPcmBytes } from '../player/_state.ts';
-import type { RemoteFileSharePayload } from '../types/index.ts';
+import { isQueueItemId } from '../player/queue-model.ts';
+import type { QueueItemId, RemoteFileSharePayload } from '../types/index.ts';
 
 interface UploadRemoteFileOptions {
   onUploadProgress?: (progress: number) => void;
@@ -17,17 +18,12 @@ interface UploadRemoteFileOptions {
 export async function uploadRemoteFile(
   file: File,
   sessionId: number,
-  index: number,
+  queueItemId: QueueItemId,
   options: UploadRemoteFileOptions = {},
 ): Promise<RemoteFileSharePayload> {
   const { onUploadProgress, signal } = options;
 
-  if (
-    !Number.isSafeInteger(sessionId) ||
-    sessionId <= 0 ||
-    !Number.isSafeInteger(index) ||
-    index < 0
-  ) {
+  if (!Number.isSafeInteger(sessionId) || sessionId <= 0 || !isQueueItemId(queueItemId)) {
     throw new Error('REMOTE_SHARE_INVALID_IDENTITY');
   }
   if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > REMOTE_SHARE_MAX_BYTES) {
@@ -83,7 +79,7 @@ export async function uploadRemoteFile(
         mime: file.type || 'application/octet-stream',
         size: file.size,
         sessionId,
-        index,
+        queueItemId,
       },
       (progress) => {
         const remote = getState('share.remote');
@@ -122,7 +118,7 @@ export async function uploadRemoteFile(
       mime: file.type || 'application/octet-stream',
       size: file.size,
       encryptedSize: encrypted.encryptedBlob.size,
-      index,
+      queueItemId,
       sessionId,
       expiresAt: uploaded.expiresAt,
     };

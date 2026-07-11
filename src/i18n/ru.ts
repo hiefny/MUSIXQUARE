@@ -84,6 +84,8 @@ const ru: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Показать/скрыть плейлист',
+  'playlist.reorder_handle': 'Изменить порядок {{title}}, позиция {{position}}',
+  'playlist.reorder_position': '{{title}}, позиция {{position}} из {{total}}',
   'playlist.repeat_all': 'Повтор всех треков включен',
   'playlist.repeat_one': 'Повтор одного трека включен',
   'playlist.repeat_off': 'Повтор отключен',
@@ -94,9 +96,11 @@ const ru: Record<I18nKey, string> = {
   'playlist.loading_info': 'Загрузка информации о треке...',
   'playlist.sub_load_failed': 'Не удалось загрузить информацию о видео',
   'playlist.remove_title': 'Удалить из плейлиста',
-  'playlist.remove_message': 'Удалить этот трек из плейлиста?',
-  'playlist.remove_yes': 'Удалить',
-  'playlist.remove_no': 'Нет',
+  'playlist.select_for_deletion': 'Выбрать {{title}} для удаления',
+  'playlist.deselect_for_deletion': 'Снять выбор с {{title}}',
+  'playlist.deselect_all': 'Снять выделение',
+  'playlist.select_all': 'Выбрать все',
+  'playlist.delete_selected': 'Удалить выбранные треки: {{count}}',
   'playlist.video_fallback': 'Загрузка...',
   'playlist.track_fallback': 'Трек {{idx}}',
   'playlist.deferred_load_hint': 'Запустите воспроизведение для загрузки информации о всех треках',

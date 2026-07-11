@@ -14,6 +14,9 @@ or a substitute for the current source and tests.
 - [Playback concurrency invariants](design/playback-concurrency-invariants.md) —
   concurrency mechanisms and executable test/guard anchors. Exact site counts
   in the prose are a review snapshot; the linked tests and guards are decisive.
+- [Queue item identity and reorder](design/queue-item-identity-and-reorder.md) —
+  stable queue-occurrence IDs, snapshot revisions, and the desktop/touch/keyboard
+  reorder interaction contract.
 - [AppState decomposition](appstate-decomposition.md) — completed migration
   record plus the surviving mode/activity contract.
 - [Production hotfix and rollback](hotfix-procedure.md) — current release and
@@ -44,7 +47,7 @@ such as “current” describe their audit baseline, not today's repository:
 
 - `project-analysis/2026-05-24/`
 - `css-cleanup-2026-05-30.md`
-- `large-file-split-design-2026-05-30.md` (large *source files*, not large media)
+- `large-file-split-design-2026-05-30.md` (large _source files_, not large media)
 - `perf-memory-audit-2026-05-30.md`
 - `type-safety-audit-2026-05-30.md`
 - `device-test-2026-06-10.md`

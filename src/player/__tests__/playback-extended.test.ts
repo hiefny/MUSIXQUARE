@@ -34,7 +34,45 @@ import {
 } from '../ownership.ts';
 import { broadcast, sendToHost } from '../../network/peer.ts';
 import { handleData } from '../../network/protocol.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { DataConnection, PlaylistItem } from '../../types/index.ts';
+
+const QID_OLD = '00000000-0000-4000-8000-000000000001';
+const QID_NEW = '00000000-0000-4000-8000-000000000002';
+
+function playlistItem(queueItemId: string, name: string, title = name): PlaylistItem {
+  return { queueItemId, type: 'file', name, title, videoId: null, playlistId: null };
+}
+
+function setResidentFile(queueItemId: string, indexHint: number, name: string): void {
+  const blob = new File(['audio'], name, { type: 'audio/mpeg' });
+  setState('files.current', {
+    queueItemId,
+    indexHint,
+    name,
+    sessionId: 1,
+    blob,
+    mime: blob.type,
+    size: blob.size,
+  });
+}
+
+function expectCorrelatedRequest(
+  send: ReturnType<typeof vi.fn>,
+  expected: Record<string, unknown>,
+): void {
+  expect(send).toHaveBeenCalledWith({
+    ...expected,
+    requestId: expect.any(Number),
+  });
+  const matchingCall = send.mock.calls.find(([message]) =>
+    Object.entries(expected).every(
+      ([key, value]) => (message as Record<string, unknown> | undefined)?.[key] === value,
+    ),
+  );
+  const requestId = (matchingCall?.[0] as { requestId?: unknown } | undefined)?.requestId;
+  expect(requestId).toEqual(expect.any(Number));
+  expect(requestId as number).toBeGreaterThan(0);
+}
 
 vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
@@ -232,6 +270,8 @@ describe('pause', () => {
     const disconnect = vi.fn();
     const conn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', conn);
+    setState('playlist.items', [playlistItem(QID_OLD, 'song.mp3', 'Song')]);
+    setState('playlist.currentQueueItemId', QID_OLD);
     setPlaybackFilePlaying();
     setPlayerNode({
       stop,
@@ -241,7 +281,7 @@ describe('pause', () => {
     } as unknown as AudioBufferSourceNode);
 
     initPlayback();
-    await handleData({ type: MSG.PAUSE, time: 12, reason: 'stop' }, conn);
+    await handleData({ type: MSG.PAUSE, time: 12, queueItemId: QID_OLD, reason: 'stop' }, conn);
 
     expect(disconnect).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledTimes(1);
@@ -253,16 +293,18 @@ describe('pause', () => {
     const conn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', conn);
     setState('network.isOperator', true);
-    setState('playlist.currentTrackIndex', 0);
-    setState('playlist.items', [
-      { type: 'file', name: 'song.mp3', title: 'Song', videoId: null, playlistId: null },
-    ]);
+    setState('playlist.currentQueueItemId', QID_OLD);
+    setState('playlist.items', [playlistItem(QID_OLD, 'song.mp3', 'Song')]);
 
     initPlayback();
-    await handleData({ type: MSG.PAUSE, time: 42, reason: 'pause' }, conn);
+    await handleData({ type: MSG.PAUSE, time: 42, queueItemId: QID_OLD, reason: 'pause' }, conn);
     togglePlay();
 
-    expect(sendToHost).toHaveBeenCalledWith({ type: MSG.REQUEST_PLAY, time: 42 });
+    expect(sendToHost).toHaveBeenCalledWith({
+      type: MSG.REQUEST_PLAY,
+      time: 42,
+      queueItemId: QID_OLD,
+    });
   });
 });
 
@@ -271,35 +313,24 @@ describe('pause', () => {
 describe('togglePlay end-of-track race', () => {
   it('advances a pending natural-end transition instead of broadcasting stale play', async () => {
     setState('playlist.items', [
-      {
-        type: 'file',
-        name: 'third.mp3',
-        title: 'Third',
-        videoId: null,
-        playlistId: null,
-      },
-      {
-        type: 'file',
-        name: 'fourth.mp3',
-        title: 'Fourth',
-        videoId: null,
-        playlistId: null,
-      },
+      playlistItem(QID_OLD, 'third.mp3', 'Third'),
+      playlistItem(QID_NEW, 'fourth.mp3', 'Fourth'),
     ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', QID_OLD);
     setState('player.pausedAt', 0);
+    setResidentFile(QID_OLD, 0, 'third.mp3');
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     setManagedTimer('ended-advance-next', () => {}, 30_000);
 
     togglePlay();
 
     expect(broadcast).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.PLAY, index: 0 }),
+      expect.objectContaining({ type: MSG.PLAY, queueItemId: QID_OLD }),
     );
 
     await vi.dynamicImportSettled();
 
-    expect(getState('playlist.currentTrackIndex')).toBe(1);
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_NEW);
     expect(getManagedTimer('ended-advance-next')).toBeNull();
   });
 });
@@ -309,12 +340,13 @@ describe('togglePlay end-of-track race', () => {
 describe('togglePlay file pipeline guard', () => {
   it('ignores play while the next file is decoding even if an old buffer is still resident', () => {
     setState('playlist.items', [
-      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
-      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+      playlistItem(QID_OLD, 'old.mp3', 'Old'),
+      playlistItem(QID_NEW, 'new.mp3', 'New'),
     ]);
-    setState('playlist.currentTrackIndex', 1);
+    setState('playlist.currentQueueItemId', QID_NEW);
     setState('player.pausedAt', 0);
     setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setResidentFile(QID_OLD, 0, 'old.mp3');
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     togglePlay();
@@ -331,19 +363,20 @@ describe('togglePlay file pipeline guard', () => {
 describe('handleRequestPlay file pipeline guard', () => {
   it('drops OP REQUEST_PLAY while the next file is decoding', async () => {
     setState('playlist.items', [
-      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
-      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+      playlistItem(QID_OLD, 'old.mp3', 'Old'),
+      playlistItem(QID_NEW, 'new.mp3', 'New'),
     ]);
-    setState('playlist.currentTrackIndex', 1);
+    setState('playlist.currentQueueItemId', QID_NEW);
     setState('player.pausedAt', 0);
     setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setResidentFile(QID_OLD, 0, 'old.mp3');
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     const opConn = { open: true, peer: 'op-1' } as DataConnection;
     setState('network.connectedPeers', [{ id: 'op-1', label: 'OP', isOp: true, conn: opConn }]);
 
     initPlayback();
-    await handleData({ type: MSG.REQUEST_PLAY, time: 0 }, opConn);
+    await handleData({ type: MSG.REQUEST_PLAY, time: 0, queueItemId: QID_NEW }, opConn);
 
     expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
   });
@@ -359,15 +392,16 @@ describe('handlePlayMsg lifecycle gate', () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('playlist.items', [
-      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
-      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+      playlistItem(QID_OLD, 'old.mp3', 'Old'),
+      playlistItem(QID_NEW, 'new.mp3', 'New'),
     ]);
-    setState('playlist.currentTrackIndex', 1);
+    setState('playlist.currentQueueItemId', QID_NEW);
     setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setResidentFile(QID_OLD, 0, 'old.mp3');
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     initPlayback();
-    await handleData({ type: MSG.PLAY, time: 42, index: 1, name: 'new.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY, time: 42, queueItemId: QID_NEW, name: 'new.mp3' }, hostConn);
 
     expect(getPendingPlayTime()).toBe(42);
     expect(getState('playback.activity')).not.toBe('playing');
@@ -377,15 +411,16 @@ describe('handlePlayMsg lifecycle gate', () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('playlist.items', [
-      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
-      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+      playlistItem(QID_OLD, 'old.mp3', 'Old'),
+      playlistItem(QID_NEW, 'new.mp3', 'New'),
     ]);
-    setState('playlist.currentTrackIndex', 1);
+    setState('playlist.currentQueueItemId', QID_NEW);
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setResidentFile(QID_OLD, 0, 'old.mp3');
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     initPlayback();
-    await handleData({ type: MSG.PLAY, time: 7, index: 1, name: 'new.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY, time: 7, queueItemId: QID_NEW, name: 'new.mp3' }, hostConn);
 
     expect(getPendingPlayTime()).toBe(7);
     expect(getState('playback.activity')).not.toBe('playing');
@@ -399,45 +434,45 @@ describe('handlePlayMsg lifecycle gate', () => {
 
 describe('handlePlayMsg orphaned-pipeline recovery', () => {
   it('requests the current file when PLAY arrives with no buffer and no inbound pipeline', async () => {
-    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    const exactHostSend = vi.fn();
+    const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'local');
     setState('playlist.items', [
-      { type: 'file', name: 'old.mp3', title: 'Old', videoId: null, playlistId: null },
-      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
+      playlistItem(QID_OLD, 'old.mp3', 'Old'),
+      playlistItem(QID_NEW, 'new.mp3', 'New'),
     ]);
-    setState('playlist.currentTrackIndex', 1);
+    setState('playlist.currentQueueItemId', QID_NEW);
     // lifecycle IDLE: the prior transfer was torn down, nothing inbound
     setCurrentAudioBuffer(null);
 
     initPlayback();
-    await handleData({ type: MSG.PLAY, time: 30, index: 1, name: 'new.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY, time: 30, queueItemId: QID_NEW, name: 'new.mp3' }, hostConn);
 
     expect(getPendingPlayTime()).toBe(30);
-    expect(sendToHost).toHaveBeenCalledWith({
+    expectCorrelatedRequest(exactHostSend, {
       type: MSG.REQUEST_CURRENT_FILE,
+      queueItemId: QID_NEW,
       name: 'new.mp3',
-      index: 1,
       reason: 'no_buffer',
     });
   });
 
   it('does not fire the recovery request while a pipeline is inbound (DOWNLOADING)', async () => {
-    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    const exactHostSend = vi.fn();
+    const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'local');
-    setState('playlist.items', [
-      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
-    ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [playlistItem(QID_NEW, 'new.mp3', 'New')]);
+    setState('playlist.currentQueueItemId', QID_NEW);
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
     setCurrentAudioBuffer(null);
 
     initPlayback();
-    await handleData({ type: MSG.PLAY, time: 30, index: 0, name: 'new.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY, time: 30, queueItemId: QID_NEW, name: 'new.mp3' }, hostConn);
 
     expect(getPendingPlayTime()).toBe(30);
-    expect(sendToHost).not.toHaveBeenCalledWith(
+    expect(exactHostSend).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
     );
   });
@@ -445,22 +480,21 @@ describe('handlePlayMsg orphaned-pipeline recovery', () => {
   // A live transfer state must suppress orphan recovery even if lifecycle
   // temporarily reads IDLE; restarting would discard partial progress.
   it('does not fire the recovery request while transfer.state is RECEIVING even if lifecycle reads IDLE', async () => {
-    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    const exactHostSend = vi.fn();
+    const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'local');
-    setState('playlist.items', [
-      { type: 'file', name: 'new.mp3', title: 'New', videoId: null, playlistId: null },
-    ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [playlistItem(QID_NEW, 'new.mp3', 'New')]);
+    setState('playlist.currentQueueItemId', QID_NEW);
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
     setState('transfer.state', TRANSFER_STATE.RECEIVING);
     setCurrentAudioBuffer(null);
 
     initPlayback();
-    await handleData({ type: MSG.PLAY, time: 30, index: 0, name: 'new.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY, time: 30, queueItemId: QID_NEW, name: 'new.mp3' }, hostConn);
 
     expect(getPendingPlayTime()).toBe(30);
-    expect(sendToHost).not.toHaveBeenCalledWith(
+    expect(exactHostSend).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
     );
   });
@@ -495,15 +529,16 @@ describe('late-join playback bootstrap', () => {
   it('sends file PLAY bootstrap without legacy state payload', () => {
     initPlayback();
     setPlaybackFilePlaying();
-    setState('playlist.currentTrackIndex', 0);
-    setState('playlist.items', [{ name: 'song.mp3' }]);
+    setState('playlist.currentQueueItemId', QID_OLD);
+    setState('playlist.items', [playlistItem(QID_OLD, 'song.mp3')]);
+    setResidentFile(QID_OLD, 0, 'song.mp3');
 
     const send = emitPeerConnected();
 
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.PLAY,
-        index: 0,
+        queueItemId: QID_OLD,
         name: 'song.mp3',
       }),
     );
@@ -514,8 +549,8 @@ describe('late-join playback bootstrap', () => {
     initPlayback();
     setPlaybackFilePlaying();
     setState('demo.active', true);
-    setState('playlist.currentTrackIndex', 0);
-    setState('playlist.items', [{ name: 'demo.mp3' }]);
+    setState('playlist.currentQueueItemId', QID_OLD);
+    setState('playlist.items', [playlistItem(QID_OLD, 'demo.mp3')]);
 
     const send = emitPeerConnected();
 
@@ -525,7 +560,8 @@ describe('late-join playback bootstrap', () => {
   it('sends file PAUSE bootstrap with pause reason but no legacy state payload', () => {
     initPlayback();
     setPlaybackFilePaused();
-    setState('playlist.currentTrackIndex', 1);
+    setState('playlist.currentQueueItemId', QID_NEW);
+    setState('playlist.items', [playlistItem(QID_NEW, 'song.mp3')]);
     setState('player.pausedAt', 42);
 
     const send = emitPeerConnected();
@@ -533,7 +569,7 @@ describe('late-join playback bootstrap', () => {
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.PAUSE,
-        index: 1,
+        queueItemId: QID_NEW,
         reason: 'pause',
         time: 42,
       }),

@@ -160,6 +160,8 @@ const ptBr: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Expandir/recolher playlist',
+  'playlist.reorder_handle': 'Reordenar {{title}}, posição {{position}}',
+  'playlist.reorder_position': '{{title}}, posição {{position}} de {{total}}',
   'playlist.repeat_all': 'Repetir todas as faixas ativado',
   'playlist.repeat_one': 'Repetir faixa atual ativado',
   'playlist.repeat_off': 'Repetição desativada',
@@ -170,9 +172,11 @@ const ptBr: Record<I18nKey, string> = {
   'playlist.loading_info': 'Carregando informações da faixa...',
   'playlist.sub_load_failed': 'Não foi possível carregar as informações do vídeo',
   'playlist.remove_title': 'Remover da playlist',
-  'playlist.remove_message': 'Remover esta mídia da playlist?',
-  'playlist.remove_yes': 'Remover',
-  'playlist.remove_no': 'Não',
+  'playlist.select_for_deletion': 'Selecionar {{title}} para excluir',
+  'playlist.deselect_for_deletion': 'Desmarcar {{title}}',
+  'playlist.deselect_all': 'Desmarcar tudo',
+  'playlist.select_all': 'Selecionar tudo',
+  'playlist.delete_selected': 'Excluir {{count}} faixas selecionadas',
   'playlist.video_fallback': 'Carregando...',
   'playlist.track_fallback': 'Faixa {{idx}}',
   'playlist.deferred_load_hint': 'Reproduza para carregar a lista completa de faixas',

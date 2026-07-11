@@ -15,6 +15,7 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { getCurrentAudioBuffer, setCurrentAudioBuffer } from '../../player/_state.ts';
 import { setPlaybackFilePaused, setPlaybackIdle } from '../../player/ownership.ts';
 import { DEMO_TRACKS } from '../tracks.ts';
@@ -150,11 +151,29 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
 
   it('restores transfer.meta with the file blob on demo exit (DEMO-4 pair invariant)', async () => {
     const preBlob = new Blob(['real-song-bytes']);
+    const queueItemId = '11111111-1111-4111-8111-111111111111';
     setState('network.appRole', 'host');
     setState('setup.sessionStarted', true);
-    setState('playlist.currentTrackIndex', 1);
-    setState('transfer.meta', { name: 'song.mp3', index: 1, sessionId: 7 });
-    setState('files.currentFileBlob', preBlob);
+    setState('playlist.items', [
+      {
+        queueItemId,
+        type: 'file',
+        name: 'song.mp3',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', queueItemId);
+    setState('transfer.meta', { name: 'song.mp3', queueItemId, indexHint: 0, sessionId: 7 });
+    setState('files.current', {
+      queueItemId,
+      indexHint: 0,
+      name: 'song.mp3',
+      sessionId: 7,
+      blob: preBlob,
+      mime: 'audio/mpeg',
+      size: preBlob.size,
+    });
     setCurrentAudioBuffer({ duration: 200 } as AudioBuffer);
     setPlaybackFilePaused();
 
@@ -172,14 +191,21 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     await flush(50);
 
     expect(getState('demo.active')).toBe(false);
-    expect(getState('files.currentFileBlob')).toBe(preBlob);
-    expect(getState('transfer.meta')).toMatchObject({ name: 'song.mp3', index: 1, sessionId: 7 });
+    expect(getState('files.current')?.blob).toBe(preBlob);
+    expect(getState('files.current')?.queueItemId).toBe(queueItemId);
+    expect(getState('transfer.meta')).toMatchObject({
+      name: 'song.mp3',
+      queueItemId,
+      indexHint: 0,
+      sessionId: 7,
+    });
   });
 
   it('re-dispatches a host track advance that arrived during an in-flight guest load (DEMO-1)', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
 
     const flags = { reverbOn: false, bassBoostOn: false, trebleBoostOn: false, surroundOn: false };
 
@@ -202,10 +228,68 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     followUp!.resolveOk();
     await flush(50);
 
-    expect(getState('playlist.currentTrackIndex')).toBe(1);
+    expect(getState('demo.currentTrackIndex')).toBe(1);
     expect(getCurrentAudioBuffer()).not.toBeNull();
     // The pending DEMO_PLAY applied once the right track landed.
     expect(mocks.play).toHaveBeenCalled();
+  });
+
+  it('tears down demo authority without restoring old-room media afterward', async () => {
+    const oldQueueItemId = '11111111-1111-4111-8111-111111111111';
+    const newQueueItemId = '22222222-2222-4222-8222-222222222222';
+    const oldBlob = new Blob(['old-room']);
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('playlist.items', [
+      {
+        queueItemId: oldQueueItemId,
+        type: 'file',
+        name: 'old.mp3',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', oldQueueItemId);
+    setState('files.current', {
+      queueItemId: oldQueueItemId,
+      indexHint: 0,
+      name: 'old.mp3',
+      sessionId: 9,
+      blob: oldBlob,
+      mime: 'audio/mpeg',
+      size: oldBlob.size,
+    });
+    setCurrentAudioBuffer({ duration: 200 } as AudioBuffer);
+    setPlaybackFilePaused();
+
+    bus.emit('demo:enter');
+    await flush(50);
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(50);
+    expect(getState('demo.active')).toBe(true);
+
+    setState('network.appRole', 'guest');
+    bus.emit('demo:authority-reset');
+    setState('playlist.items', [
+      {
+        queueItemId: newQueueItemId,
+        type: 'file',
+        name: 'new.mp3',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', newQueueItemId);
+    setState('files.current', null);
+    setState('transfer.meta', null);
+    setCurrentAudioBuffer(null);
+    await flush(500);
+
+    expect(getState('demo.active')).toBe(false);
+    expect(getState('playlist.currentQueueItemId')).toBe(newQueueItemId);
+    expect(getState('files.current')).toBeNull();
+    expect(getState('transfer.meta')).toBeNull();
+    expect(getCurrentAudioBuffer()).toBeNull();
   });
 
   it('keeps DEMO_TRACKS non-trivial so the advance scenario stays meaningful', () => {

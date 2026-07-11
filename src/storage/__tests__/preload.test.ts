@@ -15,6 +15,13 @@ const storageMocks = vi.hoisted(() => ({
   readStoredFile: vi.fn(),
 }));
 
+const Q0 = '00000000-0000-4000-8000-000000000001';
+const Q1 = '00000000-0000-4000-8000-000000000002';
+const Q2 = '00000000-0000-4000-8000-000000000003';
+let queueSequence = 10;
+const nextQueueItemId = () =>
+  `00000000-0000-4000-8000-${String(queueSequence++).padStart(12, '0')}`;
+
 vi.mock('../storage.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../storage.ts')>();
   return { ...actual, readStoredFile: storageMocks.readStoredFile };
@@ -25,6 +32,7 @@ beforeEach(() => {
   bus.clear();
   storageMocks.readStoredFile.mockReset();
   storageMocks.readStoredFile.mockResolvedValue(null);
+  queueSequence = 10;
 });
 
 afterEach(() => {
@@ -54,12 +62,12 @@ describe('initial preload state', () => {
     expect(getState('preload.isPreloading')).toBe(false);
   });
 
-  it('nextTrackIndex is -1', () => {
-    expect(getState('preload.nextTrackIndex')).toBe(-1);
+  it('nextQueueItemId is null', () => {
+    expect(getState('preload.nextQueueItemId')).toBeNull();
   });
 
-  it('nextFileBlob is null', () => {
-    expect(getState('preload.nextFileBlob')).toBeNull();
+  it('ready is null', () => {
+    expect(getState('preload.ready')).toBeNull();
   });
 });
 
@@ -71,6 +79,7 @@ describe('pre-admission preload buffer bounds', () => {
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'local');
     setState('network.sessionCode', '123456');
+    setState('playlist.items', [makeFileTrack('newest.mp3', Q0)]);
 
     for (let sessionId = 1; sessionId <= 5; sessionId++) {
       for (let index = 0; index < 20; index++) {
@@ -78,7 +87,8 @@ describe('pre-admission preload buffer bounds', () => {
           {
             type: MSG.PRELOAD_CHUNK,
             sessionId,
-            index,
+            queueItemId: Q0,
+            chunkIndex: index,
             chunk: new Uint8Array([index]),
           },
           hostConn,
@@ -96,7 +106,7 @@ describe('pre-admission preload buffer bounds', () => {
       {
         type: MSG.PRELOAD_START,
         sessionId: 5,
-        index: 1,
+        queueItemId: Q0,
         name: 'newest.mp3',
         total: 20,
         size: 19 * CHUNK_SIZE + 1,
@@ -118,12 +128,16 @@ describe('pre-admission preload buffer bounds', () => {
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'local');
     setState('network.sessionCode', '123456');
+    setState('playlist.items', [
+      makeFileTrack('stalled.mp3', Q0),
+      makeFileTrack('also-stalled.mp3', Q1),
+    ]);
 
     await handleData(
       {
         type: MSG.PRELOAD_START,
         sessionId: 21,
-        index: 1,
+        queueItemId: Q0,
         name: 'stalled.mp3',
         total: 1,
         size: 1,
@@ -134,7 +148,7 @@ describe('pre-admission preload buffer bounds', () => {
       {
         type: MSG.PRELOAD_START,
         sessionId: 22,
-        index: 2,
+        queueItemId: Q1,
         name: 'also-stalled.mp3',
         total: 1,
         size: 1,
@@ -162,8 +176,9 @@ describe('pre-admission preload buffer bounds', () => {
 
 // ─── Shuffle end-of-pass preload ─────────────────────────────────────
 
-function makeFileTrack(name: string): PlaylistItem {
+function makeFileTrack(name: string, queueItemId = nextQueueItemId()): PlaylistItem {
   return {
+    queueItemId,
     type: 'file',
     name,
     title: name,
@@ -186,7 +201,7 @@ describe('preloadNextTrack shuffle target (SA-01)', () => {
   });
 
   it('does NOT stage a random preload at shuffle pass end with repeat OFF', async () => {
-    setState('playlist.currentTrackIndex', 2); // last slot in order [0,1,2]
+    setState('playlist.currentQueueItemId', getState('playlist.items')[2]!.queueItemId);
     setRepeatMode(0, false);
     setShuffle(true, false);
 
@@ -194,33 +209,33 @@ describe('preloadNextTrack shuffle target (SA-01)', () => {
     await vi.advanceTimersByTimeAsync(600);
 
     // No preload target may be staged after a non-repeating shuffle pass ends.
-    expect(getState('preload.nextTrackIndex')).toBe(-1);
-    expect(getState('preload.nextFileBlob')).toBeNull();
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    expect(getState('preload.ready')).toBeNull();
     expect(getState('preload.isPreloading')).toBe(false);
   });
 
   it('still preloads the shuffle-next mid-pass', async () => {
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', getState('playlist.items')[0]!.queueItemId);
     setRepeatMode(0, false);
     setShuffle(true, false);
 
     schedulePreload(0);
     await vi.advanceTimersByTimeAsync(600);
 
-    expect(getState('preload.nextTrackIndex')).toBe(1);
-    expect(getState('preload.nextFileBlob')).not.toBeNull();
+    expect(getState('preload.nextQueueItemId')).toBe(getState('playlist.items')[1]!.queueItemId);
+    expect(getState('preload.ready')).not.toBeNull();
   });
 
   it('still preloads the wrap target at pass end with repeat ALL', async () => {
-    setState('playlist.currentTrackIndex', 2);
+    setState('playlist.currentQueueItemId', getState('playlist.items')[2]!.queueItemId);
     setRepeatMode(1, false);
     setShuffle(true, false);
 
     schedulePreload(0);
     await vi.advanceTimersByTimeAsync(600);
 
-    expect(getState('preload.nextTrackIndex')).toBe(0);
-    expect(getState('preload.nextFileBlob')).not.toBeNull();
+    expect(getState('preload.nextQueueItemId')).toBe(getState('playlist.items')[0]!.queueItemId);
+    expect(getState('preload.ready')).not.toBeNull();
   });
 });
 
@@ -232,8 +247,9 @@ describe('preloadNextTrack shuffle target (SA-01)', () => {
 // PRELOAD_ABORT and the session stays alive for everyone else.
 
 /** Two chunks so post-exclusion streaming to survivors is observable. */
-function makeChunkyFileTrack(name: string): PlaylistItem {
+function makeChunkyFileTrack(name: string, queueItemId = nextQueueItemId()): PlaylistItem {
   return {
+    queueItemId,
     type: 'file',
     name,
     title: name,
@@ -278,9 +294,44 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
     vi.useFakeTimers();
     // Sequential mode (decoupled from shuffle internals): current 0 → preload 1.
     setState('playlist.items', [makeFileTrack('now.mp3'), makeChunkyFileTrack('next.mp3')]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', getState('playlist.items')[0]!.queueItemId);
     setState('playlist.repeatMode', 0);
     setState('playlist.isShuffle', false);
+  });
+
+  it('resolves a serialized preload target by stable queue identity after reorder', async () => {
+    const now = makeFileTrack('now.mp3');
+    const middle = makeChunkyFileTrack('middle.mp3');
+    const target = makeChunkyFileTrack('target.mp3');
+    setState('playlist.items', [now, middle, target]);
+    setState('playlist.currentQueueItemId', now.queueItemId);
+
+    const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024);
+    connectBulkPeers([frozenConn]);
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getState('preload.nextQueueItemId')).toBe(middle.queueItemId);
+
+    // The successor snapshots target before awaiting the congested transfer.
+    setState('playlist.currentQueueItemId', middle.queueItemId);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(1);
+
+    // Reorder without changing the target occurrence or its File identity.
+    // Drop future peers so the successor completes immediately once admitted.
+    setState('playlist.items', [now, target, middle]);
+    setState('network.connectedPeers', []);
+    setState('network.activeHostConnByPeerId', new Map());
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(getState('preload.nextQueueItemId')).toBe(target.queueItemId);
+    expect(getState('preload.activeTarget')).toMatchObject({
+      queueItemId: target.queueItemId,
+      indexHint: 1,
+    });
+    expect(getState('preload.ready')?.blob).toBe(target.file);
+    expect(getState('preload.isPreloading')).toBe(false);
   });
 
   it('excludes a backpressure-stalled peer and keeps streaming to healthy peers', async () => {
@@ -325,9 +376,9 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
     // The preload session survived the stalled peer: cache intact and
     // consistent (atomic snapshot), sessionId never bumped by a cancel,
     // and isPreloading settled false through the natural completion path.
-    expect(getState('preload.nextTrackIndex')).toBe(1);
-    expect(getState('preload.nextFileBlob')).not.toBeNull();
-    expect(getState('preload.meta')?.sessionId).toBe(getState('preload.sessionId'));
+    expect(getState('preload.nextQueueItemId')).toBe(getState('playlist.items')[1]!.queueItemId);
+    expect(getState('preload.ready')).not.toBeNull();
+    expect(getState('preload.activeTarget')?.sessionId).toBe(getState('preload.sessionId'));
     expect(getState('preload.isPreloading')).toBe(false);
   });
 
@@ -360,25 +411,34 @@ describe('PLAY_PRELOADED guard', () => {
       name: 'system-audio-receiving',
       systemAudioPlaceholder: true,
     });
-    setState('playlist.currentTrackIndex', 0);
-    setState('preload.nextTrackIndex', 0);
-    setState('preload.nextFileBlob', new Blob(['should-not-activate']));
-    setState('preload.meta', { name: 'song.mp3', index: 0, sessionId: 9 });
+    const blob = new Blob(['should-not-activate']);
+    setState('playlist.items', [makeFileTrack('song.mp3', Q0)]);
+    setState('playlist.currentQueueItemId', Q0);
+    setState('preload.nextQueueItemId', Q0);
+    setState('preload.ready', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: 'song.mp3',
+      sessionId: 9,
+      size: blob.size,
+      mime: blob.type,
+      blob,
+    });
     const usePreloaded = vi.fn();
     bus.on('storage:use-preloaded', usePreloaded);
 
     await handleData(
       {
         type: MSG.PLAY_PRELOADED,
-        index: 0,
+        queueItemId: Q0,
         name: 'song.mp3',
       },
       hostConn,
     );
 
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
-    expect(getState('preload.nextTrackIndex')).toBe(0);
-    expect(getState('preload.nextFileBlob')).not.toBeNull();
+    expect(getState('preload.nextQueueItemId')).toBe(Q0);
+    expect(getState('preload.ready')).not.toBeNull();
     expect(usePreloaded).not.toHaveBeenCalled();
   });
 });
@@ -398,34 +458,43 @@ describe('PLAY_PRELOADED exact track identity', () => {
     setState('network.connectionType', 'local');
   });
 
-  it('does not promote a finalized same-name Blob from another playlist index', async () => {
+  it('does not promote a finalized same-name Blob from another queue item', async () => {
     const hostConn = makeHostConnection();
     setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeFileTrack('same.mp3'), makeFileTrack('same.mp3')]);
-    setState('preload.nextFileBlob', new Blob(['index-zero']));
-    setState('preload.nextTrackIndex', 0);
-    setState('preload.meta', { name: 'same.mp3', index: 0, sessionId: 11 });
+    const items = [makeFileTrack('same.mp3', Q0), makeFileTrack('same.mp3', Q1)];
+    const blob = new Blob(['index-zero']);
+    setState('playlist.items', items);
+    setState('preload.nextQueueItemId', Q0);
+    setState('preload.ready', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: 'same.mp3',
+      sessionId: 11,
+      size: blob.size,
+      mime: blob.type,
+      blob,
+    });
 
     const usePreloaded = vi.fn();
     bus.on('storage:use-preloaded', usePreloaded);
 
-    await handleData({ type: MSG.PLAY_PRELOADED, index: 1, name: 'same.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'same.mp3' }, hostConn);
     await vi.advanceTimersByTimeAsync(400);
 
     expect(usePreloaded).not.toHaveBeenCalled();
     expect(hostConn.send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.REQUEST_DATA_RECOVERY,
-        index: 1,
+        queueItemId: Q1,
         fileName: 'same.mp3',
       }),
     );
   });
 
-  it('does not wait on an in-progress same-name preload for another index', async () => {
+  it('does not wait on an in-progress same-name preload for another queue item', async () => {
     const hostConn = makeHostConnection();
     setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeFileTrack('same.mp3'), makeFileTrack('same.mp3')]);
+    setState('playlist.items', [makeFileTrack('same.mp3', Q0), makeFileTrack('same.mp3', Q1)]);
     setState(
       'preload.sessionState',
       new Map([
@@ -436,7 +505,8 @@ describe('PLAY_PRELOADED exact track identity', () => {
             progress: 1,
             total: 2,
             name: 'same.mp3',
-            index: 0,
+            queueItemId: Q0,
+            indexHint: 0,
             size: 2,
             mime: 'audio/mpeg',
             nextExpectedChunk: 1,
@@ -449,43 +519,53 @@ describe('PLAY_PRELOADED exact track identity', () => {
     const usePreloaded = vi.fn();
     bus.on('storage:use-preloaded', usePreloaded);
 
-    await handleData({ type: MSG.PLAY_PRELOADED, index: 1, name: 'same.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'same.mp3' }, hostConn);
     await vi.advanceTimersByTimeAsync(400);
 
     expect(usePreloaded).not.toHaveBeenCalled();
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(hostConn.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, index: 1 }),
+      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, queueItemId: Q1 }),
     );
   });
 
-  it('does not let a same-name different-index Blob win the recovery jitter race', async () => {
+  it('does not let a same-name different-queue-item Blob win the recovery jitter race', async () => {
     const hostConn = makeHostConnection();
     setState('network.hostConn', hostConn);
-    setState('playlist.items', [makeFileTrack('same.mp3'), makeFileTrack('same.mp3')]);
+    setState('playlist.items', [makeFileTrack('same.mp3', Q0), makeFileTrack('same.mp3', Q1)]);
 
     const usePreloaded = vi.fn();
     bus.on('storage:use-preloaded', usePreloaded);
 
-    await handleData({ type: MSG.PLAY_PRELOADED, index: 1, name: 'same.mp3' }, hostConn);
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'same.mp3' }, hostConn);
 
     // A different track completes before the jitter fires. Filename equality
-    // must not suppress the fresh recovery request for index 1.
-    setState('preload.nextFileBlob', new Blob(['index-zero']));
-    setState('preload.nextTrackIndex', 0);
-    setState('preload.meta', { name: 'same.mp3', index: 0, sessionId: 13 });
+    // must not suppress the fresh recovery request for Q1.
+    const staleBlob = new Blob(['index-zero']);
+    setState('preload.nextQueueItemId', Q0);
+    setState('preload.ready', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: 'same.mp3',
+      sessionId: 13,
+      size: staleBlob.size,
+      mime: staleBlob.type,
+      blob: staleBlob,
+    });
     await vi.advanceTimersByTimeAsync(400);
 
     expect(usePreloaded).not.toHaveBeenCalled();
     expect(hostConn.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, index: 1 }),
+      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, queueItemId: Q1 }),
     );
   });
 });
 
 describe('preload completion session identity', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     setState('network.connectionType', 'local');
+    const { resetFileRequestAuthority } = await import('../../network/file-request-authority.ts');
+    resetFileRequestAuthority();
   });
 
   function hostConnection(): DataConnection {
@@ -499,7 +579,7 @@ describe('preload completion session identity', () => {
   async function sendStart(
     conn: DataConnection,
     sessionId: number,
-    index: number,
+    queueItemId: string,
     name: string,
   ): Promise<void> {
     await handleData(
@@ -509,7 +589,7 @@ describe('preload completion session identity', () => {
         mime: 'audio/mpeg',
         total: 1,
         size: 3,
-        index,
+        queueItemId,
         sessionId,
         skipped: false,
       },
@@ -521,10 +601,10 @@ describe('preload completion session identity', () => {
     initPreload();
     const conn = hostConnection();
     setState('network.hostConn', conn);
-    setState('playlist.items', [makeFileTrack('now.mp3'), makeFileTrack('same.mp3')]);
+    setState('playlist.items', [makeFileTrack('now.mp3', Q0), makeFileTrack('same.mp3', Q1)]);
 
-    await sendStart(conn, 5, 1, 'same.mp3');
-    await handleData({ type: MSG.PLAY_PRELOADED, index: 1, name: 'same.mp3' }, conn);
+    await sendStart(conn, 5, Q1, 'same.mp3');
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'same.mp3' }, conn);
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
 
     let resolveRead: (file: File | null) => void = () => undefined;
@@ -536,41 +616,61 @@ describe('preload completion session identity', () => {
     const usePreloaded = vi.fn();
     bus.on('storage:use-preloaded', usePreloaded);
 
-    bus.emit('storage:preload-file-ready', 'same.mp3', 5);
+    bus.emit('storage:preload-file-ready', 'same.mp3', 5, Q1);
     await vi.waitFor(() =>
-      expect(storageMocks.readStoredFile).toHaveBeenCalledWith('same.mp3', true, 5),
+      expect(storageMocks.readStoredFile).toHaveBeenCalledWith(Q1, 'same.mp3', true, 5),
     );
 
-    // The same playlist slot and filename are reused by a newer transfer while
+    // The same queue occurrence and filename are reused by a newer transfer while
     // the exact old RAM slot is being wrapped. Session identity must win.
-    await sendStart(conn, 6, 1, 'same.mp3');
+    await sendStart(conn, 6, Q1, 'same.mp3');
     resolveRead(new File(['old'], 'same.mp3', { type: 'audio/mpeg' }));
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(getState('preload.meta')?.sessionId).toBe(6);
-    expect(getState('preload.nextTrackIndex')).toBe(-1);
-    expect(getState('preload.nextFileBlob')).toBeNull();
+    expect(getState('preload.activeTarget')?.sessionId).toBe(6);
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    expect(getState('preload.ready')).toBeNull();
     expect(usePreloaded).not.toHaveBeenCalled();
   });
 
-  it('does not use an older same-index completion for a different awaited name', async () => {
+  it('does not use an older same-queue completion for a different awaited name', async () => {
     initPreload();
     const conn = hostConnection();
     setState('network.hostConn', conn);
-    setState('playlist.items', [makeFileTrack('now.mp3'), makeFileTrack('old.mp3')]);
+    setState('playlist.items', [makeFileTrack('now.mp3', Q0), makeFileTrack('old.mp3', Q1)]);
 
-    await sendStart(conn, 10, 1, 'old.mp3');
-    await handleData({ type: MSG.PLAY_PRELOADED, index: 1, name: 'old.mp3' }, conn);
-    await sendStart(conn, 11, 1, 'new.mp3');
+    await sendStart(conn, 10, Q1, 'old.mp3');
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'old.mp3' }, conn);
+    await sendStart(conn, 11, Q1, 'new.mp3');
 
-    bus.emit('storage:preload-file-ready', 'old.mp3', 10);
+    bus.emit('storage:preload-file-ready', 'old.mp3', 10, Q1);
     await Promise.resolve();
 
     expect(storageMocks.readStoredFile).not.toHaveBeenCalled();
-    expect(getState('preload.meta')).toEqual(
-      expect.objectContaining({ sessionId: 11, index: 1, name: 'new.mp3' }),
+    expect(getState('preload.activeTarget')).toEqual(
+      expect.objectContaining({ sessionId: 11, queueItemId: Q1, name: 'new.mp3' }),
     );
+  });
+
+  it('settles the exact file request when its awaited preload becomes ready', async () => {
+    initPreload();
+    const conn = hostConnection();
+    setState('network.hostConn', conn);
+    setState('playlist.items', [makeFileTrack('now.mp3', Q0), makeFileTrack('same.mp3', Q1)]);
+    await sendStart(conn, 5, Q1, 'same.mp3');
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'same.mp3' }, conn);
+    const { beginFileRequest, getCurrentFileRequestOwnerForTests } =
+      await import('../../network/file-request-authority.ts');
+    beginFileRequest(conn, Q1, 5);
+    storageMocks.readStoredFile.mockResolvedValueOnce(
+      new File(['abc'], 'same.mp3', { type: 'audio/mpeg' }),
+    );
+
+    bus.emit('storage:preload-file-ready', 'same.mp3', 5, Q1);
+    await vi.waitFor(() => expect(getState('preload.ready')?.queueItemId).toBe(Q1));
+
+    expect(getCurrentFileRequestOwnerForTests()).toBeNull();
   });
 });
 
@@ -594,9 +694,18 @@ describe('unicastPreload source liveness', () => {
       },
     ]);
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
-    setState('preload.nextFileBlob', file);
-    setState('preload.nextTrackIndex', 2);
-    setState('preload.meta', { name: 'next.mp3', index: 2, sessionId: 20 });
+    const ready = {
+      queueItemId: Q2,
+      indexHint: 2,
+      name: 'next.mp3',
+      sessionId: 20,
+      size: file.size,
+      mime: file.type,
+      blob: file,
+    };
+    setState('preload.ready', ready);
+    setState('preload.nextQueueItemId', Q2);
+    setState('preload.activeTarget', ready);
     return conn;
   }
 
@@ -610,11 +719,16 @@ describe('unicastPreload source liveness', () => {
   it('lets only the exact successor emit when two unicasts overlap', async () => {
     const first = new Blob(['first'], { type: 'audio/mpeg' });
     const conn = installPeer(first);
-    const firstSend = unicastPreload(conn, first, 2, 20);
+    const firstSend = unicastPreload(conn, first, Q2, 20);
 
     const successor = new Blob(['successor'], { type: 'audio/mpeg' });
-    setState('preload.nextFileBlob', successor);
-    const successorSend = unicastPreload(conn, successor, 2, 20);
+    setState('preload.ready', {
+      ...getState('preload.ready')!,
+      size: successor.size,
+      mime: successor.type,
+      blob: successor,
+    });
+    const successorSend = unicastPreload(conn, successor, Q2, 20);
     await Promise.all([firstSend, successorSend]);
 
     expect(messages(conn, MSG.PRELOAD_START)).toHaveLength(1);
@@ -629,11 +743,14 @@ describe('unicastPreload source liveness', () => {
       dataChannel: { readyState: string; bufferedAmount: number };
     };
 
-    const pending = unicastPreload(conn, selected, 2, 20);
+    const pending = unicastPreload(conn, selected, Q2, 20);
     await vi.advanceTimersByTimeAsync(0);
     expect(messages(conn, MSG.PRELOAD_START)).toHaveLength(1);
 
-    setState('preload.nextFileBlob', new Blob(['replacement']));
+    setState('preload.ready', {
+      ...getState('preload.ready')!,
+      blob: new Blob(['replacement']),
+    });
     await vi.advanceTimersByTimeAsync(100);
     await pending;
 
@@ -653,9 +770,12 @@ describe('unicastPreload source liveness', () => {
     } as unknown as Blob;
     const conn = installPeer(selected);
 
-    const pending = unicastPreload(conn, selected, 2, 20);
+    const pending = unicastPreload(conn, selected, Q2, 20);
     await vi.waitFor(() => expect(messages(conn, MSG.PRELOAD_START)).toHaveLength(1));
-    setState('preload.nextFileBlob', new Blob(['replacement']));
+    setState('preload.ready', {
+      ...getState('preload.ready')!,
+      blob: new Blob(['replacement']),
+    });
     resolveRead(new Uint8Array([1, 2, 3]).buffer);
     await pending;
 

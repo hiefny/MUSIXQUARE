@@ -64,7 +64,7 @@ async function prepareGuestManualSync(): Promise<void> {
       return (
         hostConn?.open === true &&
         get?.('playback.mode') === 'file' &&
-        get?.('files.currentFileBlob') !== null
+        get?.('files.current') !== null
       );
     },
     { timeout: 25_000 },

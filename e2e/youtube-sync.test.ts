@@ -20,10 +20,7 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import {
-  readPlaybackProjection,
-  waitForPlaybackProjection,
-} from './helpers/wait.ts';
+import { readPlaybackProjection, waitForPlaybackProjection } from './helpers/wait.ts';
 import { installFakeYt, readFakeYtLog, clearFakeYtLog } from './helpers/fake-yt.ts';
 
 // Deterministic fake URL — fake-yt stub accepts any videoId
@@ -170,22 +167,23 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     await waitForBus(pair.hostPage);
     await waitForBus(pair.guestPage);
 
-    await pair.guestPage.evaluate(() => {
-      const bus = (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ as
-        | { emit: (type: string, ...args: unknown[]) => void }
-        | undefined;
-      if (!bus) throw new Error('bus not exposed via __MUSIXQUARE_BUS__');
-      bus.emit('youtube:load', 'FAKE_VIDEO_ID', null, false);
-    });
+    // Prepare the guest through the real host flow so both peers share the
+    // same queue occurrence before the track-scoped sync frame is injected.
+    await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
     await pair.guestPage.waitForFunction(
       () => {
         const w = window as unknown as Record<string, unknown>;
         const get = w.__MUSIXQUARE_GET_STATE__ as ((p: string) => unknown) | undefined;
-        return get?.('playback.mode') === 'youtube' && !!w.__fakeYtLastPlayer;
+        return (
+          get?.('playback.mode') === 'youtube' &&
+          typeof get?.('playlist.currentQueueItemId') === 'string' &&
+          !!w.__fakeYtLastPlayer
+        );
       },
       undefined,
       { timeout: 20_000 },
     );
+    await waitForYtLogOp(pair.guestPage, 'playVideo', 20_000);
 
     await clearFakeYtLog(pair.guestPage);
 
@@ -199,7 +197,10 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
         | { __state?: number; __currentTime?: number }
         | undefined;
       const hostConn = get?.('network.hostConn');
-      if (!bus || !hostConn || !player) throw new Error('manual sync setup unavailable');
+      const queueItemId = get?.('playlist.currentQueueItemId');
+      if (!bus || !hostConn || !player || typeof queueItemId !== 'string') {
+        throw new Error('manual sync setup unavailable');
+      }
 
       player.__state = 1;
       player.__currentTime = 12;
@@ -207,6 +208,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
         'network:data',
         {
           type: 'youtube-sync',
+          queueItemId,
           time: 12,
           state: 1,
           subIndex: -1,

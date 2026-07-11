@@ -13,6 +13,8 @@ import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../../player/ow
 import { registerSystemCaptureListeners, startSystemAudioCapture } from '../system-capture.ts';
 import type { TrackMeta } from '../../types/index.ts';
 
+const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
 const h = vi.hoisted(() => {
   const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });
   return {
@@ -51,6 +53,7 @@ vi.mock('../context.ts', () => ({
 
 function youtubeMeta(): TrackMeta {
   return {
+    queueItemId: YOUTUBE_QUEUE_ITEM_ID,
     type: 'youtube',
     name: 'Video',
     title: 'Video',
@@ -91,9 +94,16 @@ async function startShareWithPriorYouTube(): Promise<ReturnType<typeof vi.fn>> {
 
   // Pre-share state: YouTube playing
   setState('playlist.items', [
-    { type: 'youtube', name: 'Video', title: 'Video', videoId: 'video-1', playlistId: null },
+    {
+      queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Video',
+      title: 'Video',
+      videoId: 'video-1',
+      playlistId: null,
+    },
   ]);
-  setState('playlist.currentTrackIndex', 0);
+  setState('playlist.currentQueueItemId', YOUTUBE_QUEUE_ITEM_ID);
   setPlaybackTrackMeta(youtubeMeta());
   setPlaybackYouTubePlaying();
 
@@ -136,7 +146,11 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
     bus.emit('system-audio:stop');
 
     expect(restoreSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ videoId: 'video-1', autoplay: true }),
+      expect.objectContaining({
+        videoId: 'video-1',
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        autoplay: true,
+      }),
     );
   });
 

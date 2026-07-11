@@ -13,6 +13,7 @@ import {
   isCapabilityChallengeCancelled,
 } from '../core/capability.ts';
 import { REMOTE_SHARE_MAX_ENCRYPTED_BYTES } from '../core/constants.ts';
+import type { QueueItemId } from '../types/index.ts';
 
 interface RemoteUploadResponse {
   objectId: string;
@@ -37,7 +38,7 @@ interface RemoteUploadMeta {
   mime: string;
   size: number;
   sessionId: number;
-  index: number;
+  queueItemId: QueueItemId;
 }
 
 type ProgressHandler = (progress: number) => void;
@@ -254,7 +255,7 @@ async function requestUploadSession(
     const requestBody = JSON.stringify({
       roomId: meta.roomId,
       sessionId: meta.sessionId,
-      index: meta.index,
+      queueItemId: meta.queueItemId,
       name: meta.name,
       mime: meta.mime || 'application/octet-stream',
       size: meta.size,

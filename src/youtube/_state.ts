@@ -7,6 +7,7 @@
  */
 import { SessionScope } from '../core/session-scope.ts';
 import { getState, setState } from '../core/state.ts';
+import { getQueueItemById } from '../player/queue-model.ts';
 import { MAX_PLAYLIST_SUB_ITEMS } from './constants.ts';
 
 // ─── Module State ──────────────────────────────────────────────────
@@ -332,9 +333,7 @@ function _touchSubMapEntry(
 
 function _getProtectedSubMapKeys(): Set<string> {
   const protectedKeys = new Set<string>();
-  const currentIdx = getState('playlist.currentTrackIndex');
-  const playlist = getState('playlist.items') || [];
-  const currentItem = currentIdx >= 0 ? playlist[currentIdx] : undefined;
+  const currentItem = getQueueItemById(getState('playlist.currentQueueItemId'));
   const playlistId = currentItem?.playlistId;
   if (playlistId) protectedKeys.add(playlistId);
   return protectedKeys;

@@ -109,7 +109,7 @@ export function createFileTrackMeta(name: string, title = titleFromFileName(name
   };
 }
 
-export function createYouTubeTrackMeta({
+export function createYouTubeTrackMetaForTests({
   name = '',
   title = name,
   videoId = null,

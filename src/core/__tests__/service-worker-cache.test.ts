@@ -2,6 +2,9 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const ACTIVE_CACHE_VERSION = 'v134';
+const RETIRED_CACHE_VERSION = 'v133';
+
 type FetchListener = (event: {
   request: Request;
   respondWith: (response: Promise<Response>) => void;
@@ -124,7 +127,7 @@ describe('service worker cache policy', () => {
       new Request('https://musixquare.com/session', { headers: { accept: 'text/html' } }),
     );
 
-    expect(cacheOpen).toHaveBeenCalledWith('musixquare-runtime-v133');
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${ACTIVE_CACHE_VERSION}`);
     expect(cachePut).toHaveBeenCalledOnce();
   });
 
@@ -133,7 +136,7 @@ describe('service worker cache policy', () => {
 
     await dispatch(new Request('https://musixquare.com/assets/app.js'));
 
-    expect(cacheOpen).toHaveBeenCalledWith('musixquare-static-v133');
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
     expect(cachePut).toHaveBeenCalledOnce();
   });
 
@@ -142,10 +145,10 @@ describe('service worker cache policy', () => {
     const newTab = { id: 'new-tab', postMessage: vi.fn() };
     windowClients = [oldTab, newTab];
     cacheKeys.mockResolvedValue([
-      'musixquare-static-v132',
-      'musixquare-runtime-v132',
-      'musixquare-static-v133',
-      'musixquare-runtime-v133',
+      `musixquare-static-${RETIRED_CACHE_VERSION}`,
+      `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
+      `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-runtime-${ACTIVE_CACHE_VERSION}`,
     ]);
 
     await dispatchExtendable(activateListener);
@@ -153,13 +156,13 @@ describe('service worker cache policy', () => {
     expect(clientsClaim).toHaveBeenCalledOnce();
     expect(oldTab.postMessage).toHaveBeenCalledWith({
       type: 'MXQR_CACHE_STATUS_REQUEST',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
     });
     expect(cacheDelete).not.toHaveBeenCalled();
 
     await dispatchMessage(newTab, {
       type: 'MXQR_CACHE_CLIENT_STATUS',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
       ready: true,
       replyToRequest: true,
     });
@@ -167,7 +170,7 @@ describe('service worker cache policy', () => {
 
     await dispatchMessage(oldTab, {
       type: 'MXQR_CACHE_CLIENT_STATUS',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
       ready: false,
       replyToRequest: true,
     });
@@ -179,30 +182,30 @@ describe('service worker cache policy', () => {
     const second = { id: 'second', postMessage: vi.fn() };
     windowClients = [first, second];
     cacheKeys.mockResolvedValue([
-      'musixquare-static-v132',
-      'musixquare-runtime-v132',
-      'musixquare-static-v133',
-      'musixquare-runtime-v133',
+      `musixquare-static-${RETIRED_CACHE_VERSION}`,
+      `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
+      `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-runtime-${ACTIVE_CACHE_VERSION}`,
       'unrelated-cache',
     ]);
 
     await dispatchExtendable(activateListener);
     await dispatchMessage(first, {
       type: 'MXQR_CACHE_CLIENT_STATUS',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
       ready: true,
       replyToRequest: true,
     });
     await dispatchMessage(second, {
       type: 'MXQR_CACHE_CLIENT_STATUS',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
       ready: true,
       replyToRequest: true,
     });
 
     expect(cacheDelete).toHaveBeenCalledTimes(2);
-    expect(cacheDelete).toHaveBeenCalledWith('musixquare-static-v132');
-    expect(cacheDelete).toHaveBeenCalledWith('musixquare-runtime-v132');
+    expect(cacheDelete).toHaveBeenCalledWith(`musixquare-static-${RETIRED_CACHE_VERSION}`);
+    expect(cacheDelete).toHaveBeenCalledWith(`musixquare-runtime-${RETIRED_CACHE_VERSION}`);
     expect(cacheDelete).not.toHaveBeenCalledWith('unrelated-cache');
   });
 
@@ -217,24 +220,24 @@ describe('service worker cache policy', () => {
     await dispatchMessage(fresh, { type: 'MXQR_CACHE_STATUS_PROBE' });
     expect(fresh.postMessage).toHaveBeenCalledWith({
       type: 'MXQR_CACHE_STATUS_REQUEST',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
       proactive: true,
     });
 
     await dispatchMessage(fresh, {
       type: 'MXQR_CACHE_CLIENT_STATUS',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
       ready: true,
       replyToRequest: false,
     });
 
     expect(fresh.postMessage).toHaveBeenCalledWith({
       type: 'MXQR_CACHE_STATUS_REQUEST',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
     });
     expect(deferred.postMessage).toHaveBeenCalledWith({
       type: 'MXQR_CACHE_STATUS_REQUEST',
-      cacheVersion: 'v133',
+      cacheVersion: ACTIVE_CACHE_VERSION,
     });
     expect(cacheDelete).not.toHaveBeenCalled();
   });
@@ -254,13 +257,13 @@ describe('service worker cache policy', () => {
 
     expect(await response.text()).toBe('old lazy chunk');
     expect(cacheMatch).toHaveBeenNthCalledWith(1, expect.any(Request), {
-      cacheName: 'musixquare-static-v133',
+      cacheName: `musixquare-static-${ACTIVE_CACHE_VERSION}`,
     });
   });
 
   it('prefers the active cache generation for stable paths', async () => {
     cacheMatch.mockImplementation(async (_request: Request, options?: { cacheName?: string }) => {
-      if (options?.cacheName === 'musixquare-static-v133') {
+      if (options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}`) {
         return new Response('current asset', { status: 200 });
       }
       return new Response('retired asset', { status: 200 });

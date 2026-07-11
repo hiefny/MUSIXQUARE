@@ -20,6 +20,11 @@ import {
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import {
+  readCurrentQueueIndex,
+  setCurrentQueueItemByIndex,
+  waitForCurrentQueueIndex,
+} from './helpers/queue-state.ts';
+import {
   isVisible,
   readPlaybackProjection,
   readState,
@@ -133,7 +138,7 @@ test.describe('Advanced Playback', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 20_000 },
     );
@@ -155,7 +160,7 @@ test.describe('Advanced Playback', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 20_000 },
     );
@@ -179,7 +184,7 @@ test.describe('Advanced Playback', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 20_000 },
     );
@@ -227,7 +232,7 @@ test.describe('Advanced Playback', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 20_000 },
     );
@@ -274,7 +279,7 @@ test.describe('Advanced Playback', () => {
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
@@ -302,7 +307,7 @@ test.describe('Advanced Playback', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
@@ -328,14 +333,10 @@ test.describe('Advanced Playback', () => {
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    // Auto-play on upload may have advanced currentTrackIndex to the last file.
-    // Reset to index 0 so "next" has room to advance.
-    await pair.hostPage.evaluate(() => {
-      const set = (window as any).__MUSIXQUARE_SET_STATE__;
-      if (set) set('playlist.currentTrackIndex', 0);
-    });
+    // Reset the selected occurrence to the first row so "next" can advance.
+    await setCurrentQueueItemByIndex(pair.hostPage, 0);
 
-    const idx0 = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
+    const idx0 = await readCurrentQueueIndex(pair.hostPage);
     expect(idx0).toBe(0);
 
     // Use a DOM click because responsive CSS can hide the desktop control.
@@ -343,17 +344,9 @@ test.describe('Advanced Playback', () => {
       (document.getElementById('btn-next') as HTMLElement)?.click(),
     );
 
-    await pair.hostPage.waitForFunction(
-      ([prevIdx]) => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        if (!get) return false;
-        return get('playlist.currentTrackIndex') !== prevIdx;
-      },
-      [idx0] as const,
-      { timeout: 15_000 },
-    );
+    await waitForCurrentQueueIndex(pair.hostPage, 1);
 
-    const idx1 = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
+    const idx1 = await readCurrentQueueIndex(pair.hostPage);
     expect(idx1).toBe(1);
   });
 
@@ -368,19 +361,13 @@ test.describe('Advanced Playback', () => {
 
     // Auto-play on upload may have advanced currentTrackIndex to the last file.
     // Reset to index 0 so we can test next→prev navigation.
-    await pair.hostPage.evaluate(() => {
-      const set = (window as any).__MUSIXQUARE_SET_STATE__;
-      if (set) set('playlist.currentTrackIndex', 0);
-    });
+    await setCurrentQueueItemByIndex(pair.hostPage, 0);
 
     await pair.hostPage.evaluate(() =>
       (document.getElementById('btn-next') as HTMLElement)?.click(),
     );
-    await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentTrackIndex') !== 0,
-      { timeout: 10_000 },
-    );
-    const afterNext = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
+    await waitForCurrentQueueIndex(pair.hostPage, 1, 10_000);
+    const afterNext = await readCurrentQueueIndex(pair.hostPage);
     expect(afterNext).toBe(1);
 
     // With no playback progress, Previous navigates instead of restarting the
@@ -388,16 +375,8 @@ test.describe('Advanced Playback', () => {
     await pair.hostPage.evaluate(() =>
       (document.getElementById('btn-prev') as HTMLElement)?.click(),
     );
-    await pair.hostPage.waitForFunction(
-      ([prevIdx]) => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        if (!get) return false;
-        return get('playlist.currentTrackIndex') !== prevIdx;
-      },
-      [afterNext] as const,
-      { timeout: 10_000 },
-    );
-    const afterPrev = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
+    await waitForCurrentQueueIndex(pair.hostPage, 0, 10_000);
+    const afterPrev = await readCurrentQueueIndex(pair.hostPage);
 
     expect(afterPrev).toBe(0);
   });

@@ -160,6 +160,8 @@ const ja: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'プレイリストを開閉',
+  'playlist.reorder_handle': '{{title}}の順序を変更、現在{{position}}番目',
+  'playlist.reorder_position': '{{title}}、全{{total}}件中{{position}}番目',
   'playlist.repeat_all': '全曲リピートが有効です',
   'playlist.repeat_one': '現在の曲をリピートします',
   'playlist.repeat_off': 'リピートは無効です',
@@ -170,9 +172,11 @@ const ja: Record<I18nKey, string> = {
   'playlist.loading_info': 'トラック情報を読み込み中...',
   'playlist.sub_load_failed': '動画情報を読み込めませんでした',
   'playlist.remove_title': 'プレイリストから削除',
-  'playlist.remove_message': 'このメディアをプレイリストから削除しますか？',
-  'playlist.remove_yes': '削除する',
-  'playlist.remove_no': 'いいえ',
+  'playlist.select_for_deletion': '{{title}}を削除対象に選択',
+  'playlist.deselect_for_deletion': '{{title}}の選択を解除',
+  'playlist.deselect_all': 'すべて選択解除',
+  'playlist.select_all': 'すべて選択',
+  'playlist.delete_selected': '選択した{{count}}曲を削除',
   'playlist.video_fallback': '読み込み中...',
   'playlist.track_fallback': 'トラック {{idx}}',
   'playlist.deferred_load_hint': '再生すると全トラック情報を読み込みます',

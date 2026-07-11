@@ -40,6 +40,7 @@ class FakeXmlHttpRequest {
 
 const roomId = '123456';
 const objectId = '00000000-0000-4000-8000-000000000001';
+const queueItemId = '10000000-0000-4000-8000-000000000001';
 const expectedUrl = `https://share.example.test/download/${roomId}/${objectId}`;
 
 beforeEach(() => {
@@ -180,7 +181,7 @@ describe('R2 upload progress watchdog', () => {
       mime: 'audio/mpeg',
       size: 4,
       sessionId: 7,
-      index: 0,
+      queueItemId,
     });
     await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
     const xhr = FakeXmlHttpRequest.instances[0];
@@ -245,7 +246,7 @@ describe('R2 upload progress watchdog', () => {
       mime: 'audio/wav',
       size: 4,
       sessionId: 8,
-      index: 1,
+      queueItemId,
     });
     await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
     const xhr = FakeXmlHttpRequest.instances[0];

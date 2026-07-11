@@ -16,6 +16,7 @@ import { broadcast } from '../network/peer.ts';
 import { IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
+import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import {
   isPlaybackModeYouTube,
   setPlaybackIdle,
@@ -1079,7 +1080,7 @@ function _finishScrape(ids: string[] | null): void {
   const player = getYouTubePlayer();
   if (!player) return;
 
-  const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+  const currentTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
   const pid = currentTrack?.playlistId as string | undefined;
 
   if (ids && ids.length > 0) {
@@ -1183,9 +1184,7 @@ function onYouTubePlayerError(event: { data: number }): void {
     // before getVideoData() flips to the new load (the prime guard relies on
     // the same ordering), so a provable mismatch is safe to drop; when
     // either side is unreadable, preserve the fallback behavior below.
-    const intendedTrack = (getState('playlist.items') || [])[
-      getState('playlist.currentTrackIndex')
-    ];
+    const intendedTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
     const intendedPid = intendedTrack?.playlistId as string | undefined;
     const intendedSubIdx = getState('youtube.currentSubIndex') ?? 0;
     const intendedSubIds = intendedPid
@@ -1195,7 +1194,7 @@ function onYouTubePlayerError(event: { data: number }): void {
       (intendedSubIds[intendedSubIdx] as string | undefined) ||
       (intendedTrack?.videoId as string | undefined) ||
       '';
-    if (erroredVid && intendedVid && erroredVid !== intendedVid) {
+    if (!wasIndexing && erroredVid && intendedVid && erroredVid !== intendedVid) {
       log.debug(
         `[YouTube] Ignoring stale unavailable error ${code} (vid=${erroredVid}, intended=${intendedVid})`,
       );
@@ -1251,7 +1250,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   } catch {
     /* unreadable transition identity; use the normal guarded path below */
   }
-  const intendedTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+  const intendedTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
   const intendedVideoId =
     (intendedTrack?.videoId as string | undefined) ||
     (getState('player.currentTrackMeta')?.videoId as string | undefined) ||
@@ -1279,9 +1278,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // This allows immediate Next/Prev navigation and highlights as soon as playback starts.
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      const currentTrack = (getState('playlist.items') || [])[
-        getState('playlist.currentTrackIndex')
-      ];
+      const currentTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
       const pid = currentTrack?.playlistId;
       const subMap = getState('youtube.subItemsMap') || {};
       if (pid && (!subMap[pid] || !subMap[pid].ids.length)) {
@@ -1460,15 +1457,19 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   if (!hostConn && player?.getCurrentTime && !syncInFlight && !isDuplicateState) {
     _ifr.lastStateBroadcast = now;
     _ifr.lastBroadcastState = state;
-    broadcast({
-      type: MSG.YOUTUBE_STATE,
-      state,
-      time: player.getCurrentTime(),
-      subIndex: getState('youtube.currentSubIndex') ?? -1,
-      videoId: player.getVideoData?.()?.video_id || '',
-      title: player.getVideoData?.()?.title || '',
-      hostClock: getHostNow(),
-    });
+    const queueItemId = getCurrentQueueItemId();
+    if (queueItemId) {
+      broadcast({
+        type: MSG.YOUTUBE_STATE,
+        queueItemId,
+        state,
+        time: player.getCurrentTime(),
+        subIndex: getState('youtube.currentSubIndex') ?? -1,
+        videoId: player.getVideoData?.()?.video_id || '',
+        title: player.getVideoData?.()?.title || '',
+        hostClock: getHostNow(),
+      });
+    }
   }
 }
 
@@ -1724,9 +1725,7 @@ function updateYouTubeUI(): void {
       }
 
       // Pre-emptive title update from subItemsMap (if available) for instant feedback
-      const currentTrack = (getState('playlist.items') || [])[
-        getState('playlist.currentTrackIndex')
-      ];
+      const currentTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
       if (currentTrack?.playlistId && playlistIdx >= 0) {
         const subMap = getState('youtube.subItemsMap') || {};
         const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];

@@ -160,6 +160,8 @@ const vi: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Mở/thu gọn danh sách phát',
+  'playlist.reorder_handle': 'Sắp xếp lại {{title}}, vị trí {{position}}',
+  'playlist.reorder_position': '{{title}}, vị trí {{position}} trên {{total}}',
   'playlist.repeat_all': 'Đã bật lặp tất cả bài',
   'playlist.repeat_one': 'Đã bật lặp bài hiện tại',
   'playlist.repeat_off': 'Đã tắt lặp',
@@ -170,9 +172,11 @@ const vi: Record<I18nKey, string> = {
   'playlist.loading_info': 'Đang tải thông tin bài...',
   'playlist.sub_load_failed': 'Không thể tải thông tin video',
   'playlist.remove_title': 'Xóa khỏi danh sách phát',
-  'playlist.remove_message': 'Xóa nội dung này khỏi danh sách phát?',
-  'playlist.remove_yes': 'Xóa',
-  'playlist.remove_no': 'Không',
+  'playlist.select_for_deletion': 'Chọn {{title}} để xóa',
+  'playlist.deselect_for_deletion': 'Bỏ chọn {{title}}',
+  'playlist.deselect_all': 'Bỏ chọn tất cả',
+  'playlist.select_all': 'Chọn tất cả',
+  'playlist.delete_selected': 'Xóa {{count}} bài đã chọn',
   'playlist.video_fallback': 'Đang tải...',
   'playlist.track_fallback': 'Bài {{idx}}',
   'playlist.deferred_load_hint': 'Phát để tải toàn bộ danh sách bài',

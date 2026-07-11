@@ -21,6 +21,7 @@ import {
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
+import { readCurrentQueueIndex } from './helpers/queue-state.ts';
 import {
   isVisible,
   navigateToTab,
@@ -30,7 +31,6 @@ import {
   sendChat,
   VALID_PLAYBACK_PROJECTIONS,
   waitForChatMessage,
-  waitForClass,
   waitForPlaybackProjection,
   waitForPlaylistCount,
 } from './helpers/wait.ts';
@@ -70,7 +70,7 @@ test.describe('Edge Cases', () => {
       await pair.hostPage.waitForTimeout(100); // intentional rapid-fire delay
     }
 
-    const index = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
+    const index = await readCurrentQueueIndex(pair.hostPage);
     expect(index).toBeGreaterThanOrEqual(0);
     expect(index).toBeLessThan(3);
   });
@@ -84,7 +84,7 @@ test.describe('Edge Cases', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 15_000 },
     );
@@ -106,8 +106,8 @@ test.describe('Edge Cases', () => {
     await pair.hostPage.click('#btn-next');
     await pair.hostPage.click('#btn-prev');
 
-    const index = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
-    expect(index).toBeLessThanOrEqual(0);
+    const index = await readCurrentQueueIndex(pair.hostPage);
+    expect(index).toBe(-1);
   });
 
   test('play button on empty playlist is disabled', async () => {
@@ -138,7 +138,7 @@ test.describe('Edge Cases', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 15_000 },
     );
@@ -417,7 +417,7 @@ test.describe('Edge Cases', () => {
 
   // ── Dialog System ──────────────────────────────────────
 
-  test('dialog OK/Cancel buttons function correctly', async () => {
+  test('playlist removal selection can be cancelled without a dialog', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -427,27 +427,15 @@ test.describe('Edge Cases', () => {
 
     if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
       await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
+      await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
+      await expect(pair.hostPage.locator('#dialog-overlay')).toBeHidden();
+      await pair.hostPage.locator('[data-selection-action="cancel"]').click();
+      await expect(pair.hostPage.locator('.playlist-selection-pill')).not.toHaveClass(/is-visible/);
 
-      await waitForClass(pair.hostPage, '#dialog-overlay', 'active', true, 3_000).catch(() => {});
-
-      const dialogActive = await pair.hostPage.evaluate(() => {
-        const el = document.getElementById('dialog-overlay');
-        return el?.classList.contains('active') || (el && getComputedStyle(el).display !== 'none');
+      const count = await pair.hostPage.evaluate(() => {
+        return document.getElementById('playlist-ui')?.children.length ?? 0;
       });
-
-      if (dialogActive) {
-        if (await isVisible(pair.hostPage, '#btn-dialog-cancel')) {
-          await pair.hostPage.locator('#btn-dialog-cancel').click();
-          await waitForClass(pair.hostPage, '#dialog-overlay', 'active', false, 3_000).catch(
-            () => {},
-          );
-
-          const count = await pair.hostPage.evaluate(() => {
-            return document.getElementById('playlist-ui')?.children.length ?? 0;
-          });
-          expect(count).toBe(1);
-        }
-      }
+      expect(count).toBe(1);
     }
   });
 
@@ -719,7 +707,7 @@ test.describe('Stress Tests', () => {
     // end-of-playlist sentinel.
     const indices: number[] = [];
     for (let i = 0; i < 3; i++) {
-      const idx = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
+      const idx = await readCurrentQueueIndex(pair.hostPage);
       indices.push(idx);
       await pair.hostPage.click('#btn-next');
       await pair.hostPage
@@ -727,7 +715,13 @@ test.describe('Stress Tests', () => {
           (prevIdx) => {
             const get = (window as any).__MUSIXQUARE_GET_STATE__;
             if (!get) return false;
-            const current = get('playlist.currentTrackIndex');
+            const items = get('playlist.items');
+            const currentQueueItemId = get('playlist.currentQueueItemId');
+            const current = Array.isArray(items)
+              ? items.findIndex(
+                  (item: { queueItemId?: string }) => item.queueItemId === currentQueueItemId,
+                )
+              : -1;
             return current !== prevIdx;
           },
           idx,
@@ -759,10 +753,7 @@ test.describe('Stress Tests', () => {
 
     if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
       await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
-
-      const okBtn = pair.hostPage.locator('#btn-dialog-ok');
-      await okBtn.waitFor({ state: 'visible', timeout: 5000 });
-      await okBtn.click();
+      await pair.hostPage.locator('.playlist-selection-delete').click();
 
       await pair.hostPage.waitForFunction(
         (before) => {

@@ -9,6 +9,9 @@ import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
+const QUEUE_ITEM_ID = '44444444-4444-4444-8444-444444444444';
+const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555';
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -92,6 +95,7 @@ vi.mock('../../ui/dom.ts', () => ({
 }));
 
 beforeEach(() => {
+  vi.clearAllMocks();
   resetState();
   bus.clear();
   vi.useFakeTimers();
@@ -180,9 +184,9 @@ describe('YouTube Player', () => {
       const { STAGE2_RENDEZVOUS_BROADCAST_MS } = await import('../constants.ts');
 
       setPlaybackYouTubePlaying();
-      setState('playlist.currentTrackIndex', 0);
       setState('playlist.items', [
         {
+          queueItemId: QUEUE_ITEM_ID,
           type: 'youtube',
           videoId: 'initialVideo',
           playlistId: null,
@@ -190,7 +194,11 @@ describe('YouTube Player', () => {
           title: 'Late Join Video',
         },
       ] satisfies PlaylistItem[]);
-      setState('player.currentTrackMeta', { title: 'Late Join Video' } satisfies TrackMeta);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('player.currentTrackMeta', {
+        queueItemId: QUEUE_ITEM_ID,
+        title: 'Late Join Video',
+      } satisfies TrackMeta);
       setState('youtube.currentSubIndex', 0);
 
       const player: YouTubePlayerInstance = {
@@ -221,6 +229,7 @@ describe('YouTube Player', () => {
         conn,
         expect.objectContaining({
           type: MSG.YOUTUBE_PLAY,
+          queueItemId: QUEUE_ITEM_ID,
           videoId: 'liveVideo123',
           autoplay: true,
         }),
@@ -229,6 +238,7 @@ describe('YouTube Player', () => {
         conn,
         expect.objectContaining({
           type: MSG.YOUTUBE_STATE,
+          queueItemId: QUEUE_ITEM_ID,
           state: 1,
           time: 42,
           videoId: 'liveVideo123',
@@ -247,6 +257,7 @@ describe('YouTube Player', () => {
         conn,
         expect.objectContaining({
           type: MSG.YOUTUBE_SYNC,
+          queueItemId: QUEUE_ITEM_ID,
           isManual: true,
           state: 1,
           time: 42,
@@ -274,21 +285,23 @@ describe('YouTube Player', () => {
 
       setPlaybackYouTubePlaying();
       setState('youtube.currentSubIndex', 2);
-      setState('playlist.currentTrackIndex', 1);
       setState('playlist.items', [
         {
+          queueItemId: QUEUE_ITEM_ID,
           type: 'youtube',
           videoId: 'firstEntry',
           playlistId: 'playlist-repeat',
           name: 'Playlist A',
         },
         {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
           type: 'youtube',
           videoId: 'secondEntry',
           playlistId: 'playlist-repeat',
           name: 'Playlist A again',
         },
       ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
       (window as unknown as { YT: unknown }).YT = {
         Player: vi.fn(),
         PlayerState: {
@@ -388,6 +401,16 @@ describe('YouTube Player', () => {
 
       setPlaybackYouTubePlaying();
       setState('playlist.repeatMode', 2);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'repeatVideo',
+          playlistId: null,
+          name: 'Repeat Video',
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 
       loadYouTubeVideo('repeatVideo', null, true, 0);
       onStateChange?.({ data: 0 });
@@ -413,7 +436,9 @@ describe('YouTube Player', () => {
 
       bus.emit('youtube:load-from-chat', 'https://www.youtube.com/watch?v=VIDEO_ID_01');
 
-      expect(getState('playlist.currentTrackIndex')).toBe(0);
+      expect(getState('playlist.currentQueueItemId')).toBe(
+        getState('playlist.items')[0]?.queueItemId,
+      );
       expect(consumePendingAutoSyncOnReady()).toMatchObject({
         isTrackTransition: false,
         targetTime: 0,
@@ -429,9 +454,9 @@ describe('YouTube Player', () => {
       const { initYouTube } = await import('../player.ts');
       const { broadcast } = await import('../../network/peer.ts');
 
-      setState('playlist.currentTrackIndex', 0);
       setState('playlist.items', [
         {
+          queueItemId: QUEUE_ITEM_ID,
           type: 'youtube',
           videoId: 'entryVideo',
           playlistId: 'playlist-1',
@@ -439,6 +464,7 @@ describe('YouTube Player', () => {
           title: 'Playlist Track',
         },
       ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
       setState('youtube.subItemsMap', {
         'playlist-1': {
           ids: ['firstVideo', 'secondVideo'],
@@ -454,7 +480,7 @@ describe('YouTube Player', () => {
         videoId: 'entryVideo',
         playlistId: 'playlist-1',
         name: 'Playlist Track',
-        index: 0,
+        queueItemId: QUEUE_ITEM_ID,
         autoplay: true,
         subIndex: 1,
       });
@@ -464,7 +490,7 @@ describe('YouTube Player', () => {
           type: MSG.YOUTUBE_PLAY,
           videoId: 'secondVideo',
           playlistId: 'playlist-1',
-          index: 0,
+          queueItemId: QUEUE_ITEM_ID,
           autoplay: true,
           subIndex: 1,
         }),
@@ -477,7 +503,7 @@ describe('YouTube Player', () => {
           titles: ['First', 'Second'],
         }),
       );
-      expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', true, 1);
+      expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', QUEUE_ITEM_ID, true, 1);
     });
   });
 });

@@ -160,6 +160,8 @@ const fr: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Développer/réduire la playlist',
+  'playlist.reorder_handle': 'Réorganiser {{title}}, position {{position}}',
+  'playlist.reorder_position': '{{title}}, position {{position}} sur {{total}}',
   'playlist.repeat_all': 'Répétition de toutes les pistes activée',
   'playlist.repeat_one': 'Répétition de la piste actuelle activée',
   'playlist.repeat_off': 'Répétition désactivée',
@@ -170,9 +172,11 @@ const fr: Record<I18nKey, string> = {
   'playlist.loading_info': 'Chargement des informations de piste...',
   'playlist.sub_load_failed': 'Impossible de charger les informations de la vidéo',
   'playlist.remove_title': 'Retirer de la playlist',
-  'playlist.remove_message': 'Retirer ce média de la playlist ?',
-  'playlist.remove_yes': 'Retirer',
-  'playlist.remove_no': 'Non',
+  'playlist.select_for_deletion': 'Sélectionner {{title}} pour suppression',
+  'playlist.deselect_for_deletion': 'Désélectionner {{title}}',
+  'playlist.deselect_all': 'Tout désélectionner',
+  'playlist.select_all': 'Tout sélectionner',
+  'playlist.delete_selected': 'Supprimer {{count}} titres sélectionnés',
   'playlist.video_fallback': 'Chargement...',
   'playlist.track_fallback': 'Piste {{idx}}',
   'playlist.deferred_load_hint': 'Lancez la lecture pour charger la liste complète',

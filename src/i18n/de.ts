@@ -160,6 +160,8 @@ const de: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Playlist ein-/ausklappen',
+  'playlist.reorder_handle': '{{title}} neu anordnen, Position {{position}}',
+  'playlist.reorder_position': '{{title}}, Position {{position}} von {{total}}',
   'playlist.repeat_all': 'Alle Titel wiederholen aktiviert',
   'playlist.repeat_one': 'Aktuellen Titel wiederholen aktiviert',
   'playlist.repeat_off': 'Wiederholung deaktiviert',
@@ -170,9 +172,11 @@ const de: Record<I18nKey, string> = {
   'playlist.loading_info': 'Titelinformationen werden geladen...',
   'playlist.sub_load_failed': 'Videoinformationen konnten nicht geladen werden',
   'playlist.remove_title': 'Aus der Playlist entfernen',
-  'playlist.remove_message': 'Dieses Medium aus der Playlist entfernen?',
-  'playlist.remove_yes': 'Entfernen',
-  'playlist.remove_no': 'Nein',
+  'playlist.select_for_deletion': '{{title}} zum Löschen auswählen',
+  'playlist.deselect_for_deletion': 'Auswahl von {{title}} aufheben',
+  'playlist.deselect_all': 'Alle abwählen',
+  'playlist.select_all': 'Alle auswählen',
+  'playlist.delete_selected': '{{count}} ausgewählte Titel löschen',
   'playlist.video_fallback': 'Wird geladen...',
   'playlist.track_fallback': 'Titel {{idx}}',
   'playlist.deferred_load_hint': 'Abspielen, um die vollständige Titelliste zu laden',

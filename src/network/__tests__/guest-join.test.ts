@@ -150,6 +150,34 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.hostConn')).toBe(second);
   });
 
+  it('ignores connection-type detection that resolves from a replaced host connection', async () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    let resolveFirst!: (value: 'remote') => void;
+    let resolveSecond!: (value: 'local') => void;
+    mocks.detectConnectionType
+      .mockImplementationOnce(() => new Promise<'remote'>((resolve) => (resolveFirst = resolve)))
+      .mockImplementationOnce(() => new Promise<'local'>((resolve) => (resolveSecond = resolve)));
+
+    joinSession('HOST01');
+    const first = conns[0];
+    first.fire('open');
+    first.open = false;
+
+    joinSession('HOST01');
+    const second = conns[1];
+    second.fire('open');
+    expect(getState('network.hostConn')).toBe(second);
+
+    resolveFirst('remote');
+    await Promise.resolve();
+    expect(getState('network.connectionType')).toBe('unknown');
+
+    resolveSecond('local');
+    await Promise.resolve();
+    expect(getState('network.connectionType')).toBe('local');
+  });
+
   it('a replaced connection closing mid-connect neither resets isConnecting nor surfaces errors', () => {
     vi.useFakeTimers();
     const { peer, conns, connect } = makeFakePeer();

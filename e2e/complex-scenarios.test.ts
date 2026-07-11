@@ -17,11 +17,16 @@
  */
 import { test, expect } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
+import { readCurrentQueueIndex, waitForCurrentQueueIndex } from './helpers/queue-state.ts';
 import {
   clickPlayButton,
   isVisible,
@@ -42,7 +47,6 @@ const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
 
 let pair: HostGuestPair;
 
-
 test.describe('Mode Switching Chains', () => {
   test.beforeEach(async ({ browser }) => {
     pair = await createHostGuestContexts(browser);
@@ -58,7 +62,7 @@ test.describe('Mode Switching Chains', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -72,13 +76,15 @@ test.describe('Mode Switching Chains', () => {
     if (await ytInput.isVisible()) {
       await ytInput.fill(YT_VIDEO);
       await ytInput.dispatchEvent('input');
-      await pair.hostPage.waitForFunction(
-        () => {
-          const btn = document.getElementById('youtube-play-btn');
-          return btn && !btn.hasAttribute('disabled');
-        },
-        { timeout: 10_000 },
-      ).catch(() => {});
+      await pair.hostPage
+        .waitForFunction(
+          () => {
+            const btn = document.getElementById('youtube-play-btn');
+            return btn && !btn.hasAttribute('disabled');
+          },
+          { timeout: 10_000 },
+        )
+        .catch(() => {});
 
       const playBtn = pair.hostPage.locator('#youtube-play-btn');
       if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
@@ -92,11 +98,11 @@ test.describe('Mode Switching Chains', () => {
 
     const count = await pair.hostPage.evaluate(() => {
       const get = (window as any).__MUSIXQUARE_GET_STATE__;
-      return get ? (get('playlist.items') as unknown[])?.length ?? 0 : 0;
+      return get ? ((get('playlist.items') as unknown[])?.length ?? 0) : 0;
     });
     expect(count).toBeGreaterThanOrEqual(2);
 
-    const state = await readPlaybackProjection(pair.hostPage) as string;
+    const state = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_YOUTUBE']).toContain(state);
   });
 
@@ -107,7 +113,7 @@ test.describe('Mode Switching Chains', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -122,14 +128,13 @@ test.describe('Mode Switching Chains', () => {
     await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, false);
 
-    const finalState = await readPlaybackProjection(pair.hostPage) as string;
+    const finalState = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(finalState);
 
-    const playlist = await readState(pair.hostPage, 'playlist.items') as unknown[];
+    const playlist = (await readState(pair.hostPage, 'playlist.items')) as unknown[];
     expect(playlist.length).toBeGreaterThanOrEqual(1);
   });
 });
-
 
 test.describe('Playlist Manipulation During Playback', () => {
   test.beforeEach(async ({ browser }) => {
@@ -149,7 +154,7 @@ test.describe('Playlist Manipulation During Playback', () => {
     await waitForPlaylistCount(pair.hostPage, 2);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -160,22 +165,19 @@ test.describe('Playlist Manipulation During Playback', () => {
       await navigateToTab(pair.hostPage, 'play');
     }
 
-    const currentIndex = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    const currentIndex = await readCurrentQueueIndex(pair.hostPage);
 
     const removeBtns = pair.hostPage.locator('#playlist-ui .btn-playlist-remove');
     const btnForCurrent = removeBtns.nth(currentIndex);
-    if (await isVisible(pair.hostPage, `#playlist-ui .btn-playlist-remove >> nth=${currentIndex}`)) {
+    if (
+      await isVisible(pair.hostPage, `#playlist-ui .btn-playlist-remove >> nth=${currentIndex}`)
+    ) {
       await btnForCurrent.click();
-
-      const okBtn = pair.hostPage.locator('#btn-dialog-ok');
-      await okBtn.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
-      if (await okBtn.isVisible()) {
-        await okBtn.click();
-        await waitForPlaylistCount(pair.hostPage, 1);
-      }
+      await pair.hostPage.locator('.playlist-selection-delete').click();
+      await waitForPlaylistCount(pair.hostPage, 1);
     }
 
-    const state = await readPlaybackProjection(pair.hostPage) as string;
+    const state = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
   });
 
@@ -188,8 +190,8 @@ test.describe('Playlist Manipulation During Playback', () => {
 
     await waitForPlaylistCount(pair.hostPage, 3, 30_000);
 
-    const count = await pair.hostPage.evaluate(() =>
-      document.getElementById('playlist-ui')?.children.length ?? 0,
+    const count = await pair.hostPage.evaluate(
+      () => document.getElementById('playlist-ui')?.children.length ?? 0,
     );
     expect(count).toBe(3);
   });
@@ -215,12 +217,11 @@ test.describe('Playlist Manipulation During Playback', () => {
       await pair.hostPage.waitForTimeout(100); // intentional throttle for stress test
     }
 
-    const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    const idx = await readCurrentQueueIndex(pair.hostPage);
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(idx).toBeLessThan(3);
   });
 });
-
 
 test.describe('Concurrent Host+Guest Operations', () => {
   test.beforeEach(async ({ browser }) => {
@@ -252,16 +253,16 @@ test.describe('Concurrent Host+Guest Operations', () => {
     await Promise.all([uploadPromise, chatPromise]);
 
     await waitForPlaylistCount(pair.hostPage, 1);
-    const count = await pair.hostPage.evaluate(() =>
-      document.getElementById('playlist-ui')?.children.length ?? 0,
+    const count = await pair.hostPage.evaluate(
+      () => document.getElementById('playlist-ui')?.children.length ?? 0,
     );
     expect(count).toBeGreaterThanOrEqual(1);
 
     await openChatDrawer(pair.hostPage);
     await waitForChatMessage(pair.hostPage, 'Concurrent chat during upload');
 
-    const msgs = await pair.hostPage.evaluate(() =>
-      document.getElementById('chat-messages')?.textContent || '',
+    const msgs = await pair.hostPage.evaluate(
+      () => document.getElementById('chat-messages')?.textContent || '',
     );
     expect(msgs).toContain('Concurrent chat during upload');
   });
@@ -290,11 +291,11 @@ test.describe('Concurrent Host+Guest Operations', () => {
     await waitForChatMessage(pair.guestPage, 'HOST simultaneous msg');
     await waitForChatMessage(pair.guestPage, 'GUEST simultaneous msg');
 
-    const hostMsgs = await pair.hostPage.evaluate(() =>
-      document.getElementById('chat-messages')?.textContent || '',
+    const hostMsgs = await pair.hostPage.evaluate(
+      () => document.getElementById('chat-messages')?.textContent || '',
     );
-    const guestMsgs = await pair.guestPage.evaluate(() =>
-      document.getElementById('chat-messages')?.textContent || '',
+    const guestMsgs = await pair.guestPage.evaluate(
+      () => document.getElementById('chat-messages')?.textContent || '',
     );
 
     expect(hostMsgs).toContain('HOST simultaneous msg');
@@ -310,7 +311,10 @@ test.describe('Concurrent Host+Guest Operations', () => {
     await pair.hostPage.evaluate(() => {
       (document.getElementById('nav-settings') as HTMLElement)?.click();
     });
-    await pair.hostPage.locator('#tab-settings').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+    await pair.hostPage
+      .locator('#tab-settings')
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .catch(() => {});
 
     const guestTabSwitch = (async () => {
       for (const tab of ['settings', 'play', 'connect', 'play']) {
@@ -325,10 +329,11 @@ test.describe('Concurrent Host+Guest Operations', () => {
       const darkOpt = pair.hostPage.locator('.ch-opt[data-theme="dark"]');
       if (await isVisible(pair.hostPage, '.ch-opt[data-theme="dark"]')) {
         await darkOpt.click();
-        await pair.hostPage.waitForFunction(
-          () => document.documentElement.getAttribute('data-theme') === 'dark',
-          { timeout: 5_000 },
-        ).catch(() => {});
+        await pair.hostPage
+          .waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'dark', {
+            timeout: 5_000,
+          })
+          .catch(() => {});
       }
     })();
 
@@ -340,7 +345,6 @@ test.describe('Concurrent Host+Guest Operations', () => {
     expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
   });
 });
-
 
 test.describe('Settings Changes During Playback', () => {
   test.beforeEach(async ({ browser }) => {
@@ -357,7 +361,7 @@ test.describe('Settings Changes During Playback', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
@@ -383,7 +387,7 @@ test.describe('Settings Changes During Playback', () => {
     const state = await readPlaybackProjection(pair.hostPage);
     expect(['PLAYING_AUDIO', 'PAUSED']).toContain(state);
 
-    const eqValues = await readState(pair.hostPage, 'audio.eqValues') as number[];
+    const eqValues = (await readState(pair.hostPage, 'audio.eqValues')) as number[];
     expect(eqValues[0]).toBe(6);
   });
 
@@ -394,7 +398,7 @@ test.describe('Settings Changes During Playback', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
@@ -424,7 +428,7 @@ test.describe('Settings Changes During Playback', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
@@ -457,7 +461,7 @@ test.describe('Settings Changes During Playback', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
@@ -476,7 +480,6 @@ test.describe('Settings Changes During Playback', () => {
     expect(['PLAYING_AUDIO', 'PAUSED']).toContain(state);
   });
 });
-
 
 test.describe('Repeat & Shuffle Edge Cases', () => {
   test.beforeEach(async ({ browser }) => {
@@ -498,7 +501,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
@@ -511,7 +514,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
       }
     }
 
-    const state = await readPlaybackProjection(pair.hostPage) as string;
+    const state = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
   });
 
@@ -536,26 +539,34 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
     await waitForPlaylistCount(pair.hostPage, 2);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
     const indices = new Set<number>();
     for (let i = 0; i < 6; i++) {
-      const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+      const idx = await readCurrentQueueIndex(pair.hostPage);
       indices.add(idx);
       await pair.hostPage.click('#btn-next');
-      await pair.hostPage.waitForFunction(
-        (prevIdx) => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const current = get('playlist.currentTrackIndex');
-          // Either the index changed, or file blob is ready (same track re-loaded)
-          return current !== prevIdx || get('files.currentFileBlob') !== null;
-        },
-        idx,
-        { timeout: 10_000 },
-      ).catch(() => {});
+      await pair.hostPage
+        .waitForFunction(
+          (prevIdx) => {
+            const get = (window as any).__MUSIXQUARE_GET_STATE__;
+            if (!get) return false;
+            const items = get('playlist.items');
+            const currentQueueItemId = get('playlist.currentQueueItemId');
+            const current = Array.isArray(items)
+              ? items.findIndex(
+                  (item: { queueItemId?: string }) => item.queueItemId === currentQueueItemId,
+                )
+              : -1;
+            // Either the occurrence changed, or its resident file is ready again.
+            return current !== prevIdx || get('files.current') !== null;
+          },
+          idx,
+          { timeout: 10_000 },
+        )
+        .catch(() => {});
     }
 
     expect(indices.size).toBe(2);
@@ -575,20 +586,14 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
     await waitForPlaylistCount(pair.hostPage, 3);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 20_000 },
     );
 
     await pair.hostPage.click('#btn-next');
-    await pair.hostPage.waitForFunction(
-      () => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('playlist.currentTrackIndex') !== 0;
-      },
-      { timeout: 15_000 },
-    );
+    await waitForCurrentQueueIndex(pair.hostPage, 1);
 
-    const idxBefore = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    const idxBefore = await readCurrentQueueIndex(pair.hostPage);
 
     await pair.hostPage.evaluate(() => {
       const set = (window as any).__MUSIXQUARE_SET_STATE__;
@@ -596,11 +601,10 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
     });
     await waitForState(pair.hostPage, 'playlist.repeatMode', 1);
 
-    const idxAfter = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    const idxAfter = await readCurrentQueueIndex(pair.hostPage);
     expect(idxAfter).toBe(idxBefore);
   });
 });
-
 
 test.describe('Operator Privilege Scenarios', () => {
   test.beforeEach(async ({ browser }) => {
@@ -660,7 +664,7 @@ test.describe('Operator Privilege Scenarios', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -668,13 +672,15 @@ test.describe('Operator Privilege Scenarios', () => {
 
     if (await isVisible(pair.hostPage, '.d-op-btn')) {
       await opBtn.click();
-      await pair.guestPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('network.isOperator') === false;
-        },
-        { timeout: 10_000 },
-      ).catch(() => {});
+      await pair.guestPage
+        .waitForFunction(
+          () => {
+            const get = (window as any).__MUSIXQUARE_GET_STATE__;
+            return get && get('network.isOperator') === false;
+          },
+          { timeout: 10_000 },
+        )
+        .catch(() => {});
     }
 
     const isOp = await readState(pair.guestPage, 'network.isOperator');
@@ -684,7 +690,6 @@ test.describe('Operator Privilege Scenarios', () => {
     expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
   });
 });
-
 
 test.describe('Guest Disconnect During Transfer', () => {
   test('host continues normally if guest disconnects mid-transfer', async ({ browser }) => {
@@ -704,7 +709,7 @@ test.describe('Guest Disconnect During Transfer', () => {
       expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
 
       await pair.hostPage.waitForFunction(
-        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
         { timeout: 15_000 },
       );
       await clickPlayButton(pair.hostPage);
@@ -740,14 +745,14 @@ test.describe('Guest Disconnect During Transfer', () => {
       const newGuestPage = await newGuestContext.newPage();
       await injectPeerServer(newGuestPage);
 
-      const sessionCode = await readState(pair.hostPage, 'network.sessionCode') as string;
+      const sessionCode = (await readState(pair.hostPage, 'network.sessionCode')) as string;
       await setupGuest(newGuestPage, sessionCode);
 
       await waitForPlaylistCount(newGuestPage, 2, 30_000);
 
       const guestPlaylist = await newGuestPage.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('playlist.items') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('playlist.items') as unknown[])?.length ?? 0) : 0;
       });
       expect(guestPlaylist).toBe(2);
     } finally {
@@ -757,7 +762,6 @@ test.describe('Guest Disconnect During Transfer', () => {
     }
   });
 });
-
 
 test.describe('Dialog & UI Overlap Edge Cases', () => {
   test.beforeEach(async ({ browser }) => {
@@ -773,13 +777,20 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
     await navigateToTab(pair.hostPage, 'play', 15_000);
 
     // Use a DOM click because responsive CSS may hide the desktop control.
-    const mediaBtnExists = await pair.hostPage.evaluate(() => !!document.getElementById('btn-media-source'));
+    const mediaBtnExists = await pair.hostPage.evaluate(
+      () => !!document.getElementById('btn-media-source'),
+    );
     if (mediaBtnExists) {
-      await pair.hostPage.evaluate(() => (document.getElementById('btn-media-source') as HTMLElement)?.click());
-      await pair.hostPage.waitForFunction(
-        () => document.getElementById('media-source-overlay')?.classList.contains('active') ?? false,
-        { timeout: 5_000 },
-      ).catch(() => {});
+      await pair.hostPage.evaluate(() =>
+        (document.getElementById('btn-media-source') as HTMLElement)?.click(),
+      );
+      await pair.hostPage
+        .waitForFunction(
+          () =>
+            document.getElementById('media-source-overlay')?.classList.contains('active') ?? false,
+          { timeout: 5_000 },
+        )
+        .catch(() => {});
 
       await openChatDrawer(pair.hostPage).catch(() => {});
 
@@ -788,7 +799,7 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
     }
   });
 
-  test('triggering dialog during tab switch', async () => {
+  test('playlist removal selection is cancelled during a tab switch', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -799,28 +810,22 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
     const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first();
     if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
       await removeBtn.click();
-      await pair.hostPage.locator('#btn-dialog-ok, #btn-dialog-cancel').first()
-        .waitFor({ state: 'visible', timeout: 3_000 }).catch(() => {});
+      await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
 
       await pair.hostPage.evaluate(() => {
         (document.getElementById('nav-settings') as HTMLElement)?.click();
       });
 
-      const cancelBtn = pair.hostPage.locator('#btn-dialog-cancel');
-      if (await cancelBtn.isVisible()) {
-        await cancelBtn.click();
-      }
-
       await navigateToTab(pair.hostPage, 'play');
+      await expect(pair.hostPage.locator('.playlist-selection-pill')).not.toHaveClass(/is-visible/);
 
-      const count = await pair.hostPage.evaluate(() =>
-        document.getElementById('playlist-ui')?.children.length ?? 0,
+      const count = await pair.hostPage.evaluate(
+        () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(count).toBe(1);
     }
   });
 });
-
 
 test.describe('State Consistency After Complex Flows', () => {
   test.beforeEach(async ({ browser }) => {
@@ -845,7 +850,7 @@ test.describe('State Consistency After Complex Flows', () => {
     await waitForPlaylistCount(pair.hostPage, 3);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -858,7 +863,7 @@ test.describe('State Consistency After Complex Flows', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 10_000 },
     );
@@ -867,7 +872,7 @@ test.describe('State Consistency After Complex Flows', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 10_000 },
     );
@@ -880,22 +885,17 @@ test.describe('State Consistency After Complex Flows', () => {
     const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').last();
     if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
       await removeBtn.click();
-
-      const okBtn = pair.hostPage.locator('#btn-dialog-ok');
-      await okBtn.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => {});
-      if (await okBtn.isVisible()) {
-        await okBtn.click();
-        await waitForPlaylistCount(pair.hostPage, 2).catch(() => {});
-      }
+      await pair.hostPage.locator('.playlist-selection-delete').click();
+      await waitForPlaylistCount(pair.hostPage, 2).catch(() => {});
     }
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 3);
 
-    const state = await readPlaybackProjection(pair.hostPage) as string;
+    const state = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
 
-    const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    const idx = await readCurrentQueueIndex(pair.hostPage);
     expect(idx).toBeGreaterThanOrEqual(0);
 
     const role = await readState(pair.hostPage, 'network.appRole');
@@ -910,7 +910,7 @@ test.describe('State Consistency After Complex Flows', () => {
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -928,16 +928,20 @@ test.describe('State Consistency After Complex Flows', () => {
 
     const guestPlaylist = await pair.guestPage.evaluate(() => {
       const get = (window as any).__MUSIXQUARE_GET_STATE__;
-      return get ? (get('playlist.items') as unknown[])?.length ?? 0 : 0;
+      return get ? ((get('playlist.items') as unknown[])?.length ?? 0) : 0;
     });
     expect(guestPlaylist).toBe(2);
 
-    const guestState = await readPlaybackProjection(pair.guestPage) as string;
+    const guestState = (await readPlaybackProjection(pair.guestPage)) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(guestState);
   });
 
-  test('multi-guest: all guests consistent after host performs many operations', async ({ browser }) => {
-    const hostCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+  test('multi-guest: all guests consistent after host performs many operations', async ({
+    browser,
+  }) => {
+    const hostCtx = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const g1Ctx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     const g2Ctx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
 
@@ -965,20 +969,14 @@ test.describe('State Consistency After Complex Flows', () => {
       await waitForPlaylistCount(hostPage, 2);
 
       await hostPage.waitForFunction(
-        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+        () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
         { timeout: 15_000 },
       );
       await clickPlayButton(hostPage);
       await waitForPlayState(hostPage, true);
 
       await hostPage.click('#btn-next');
-      await hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('playlist.currentTrackIndex') === 1;
-        },
-        { timeout: 10_000 },
-      );
+      await waitForCurrentQueueIndex(hostPage, 1, 10_000);
 
       await clickPlayButton(hostPage);
       await waitForPlayState(hostPage, false);
@@ -993,11 +991,11 @@ test.describe('State Consistency After Complex Flows', () => {
 
       const g1Count = await g1Page.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('playlist.items') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('playlist.items') as unknown[])?.length ?? 0) : 0;
       });
       const g2Count = await g2Page.evaluate(() => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get ? (get('playlist.items') as unknown[])?.length ?? 0 : 0;
+        return get ? ((get('playlist.items') as unknown[])?.length ?? 0) : 0;
       });
       expect(g1Count).toBe(2);
       expect(g2Count).toBe(2);

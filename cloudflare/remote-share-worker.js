@@ -482,6 +482,13 @@ function metadataString(value, fallback = '') {
   return encodeURIComponent(raw).slice(0, 512) || fallback;
 }
 
+const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function safeQueueItemId(value) {
+  const queueItemId = String(value || '');
+  return QUEUE_ITEM_ID_RE.test(queueItemId) ? queueItemId : '';
+}
+
 function readMetadata(object, ...keys) {
   const metadata = object?.customMetadata || {};
   for (const key of keys) {
@@ -524,15 +531,14 @@ async function handleSession(request, env) {
 
   const roomId = safeRoomId(body?.roomId);
   const sessionId = Number(body?.sessionId);
-  const index = Number(body?.index);
+  const queueItemId = safeQueueItemId(body?.queueItemId);
   const size = Number(body?.size);
   const encryptedSize = Number(body?.encryptedSize);
 
   if (
     !Number.isSafeInteger(sessionId) ||
     sessionId <= 0 ||
-    !Number.isSafeInteger(index) ||
-    index < 0 ||
+    !queueItemId ||
     !Number.isFinite(size) ||
     size <= 0 ||
     !Number.isSafeInteger(size) ||
@@ -618,7 +624,7 @@ async function handleSession(request, env) {
       objectId,
       objectKey: objectKeyValue,
       sessionId,
-      index,
+      queueItemId,
       size,
       encryptedSize,
       expiresAt,

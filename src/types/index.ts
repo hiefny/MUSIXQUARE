@@ -35,7 +35,8 @@ export interface FileMeta {
   name: string;
   title?: string;
   type: string;
-  index: number;
+  queueItemId: QueueItemId;
+  indexHint: number;
   size: number;
   mime: string;
   sessionId: number;
@@ -49,7 +50,8 @@ export interface PreloadSessionEntry {
   progress: number;
   total: number;
   name: string;
-  index: number;
+  queueItemId: QueueItemId;
+  indexHint: number;
   size: number;
   mime: string;
   nextExpectedChunk: number;
@@ -66,7 +68,7 @@ export interface RemoteFileSharePayload {
   mime: string;
   size: number;
   encryptedSize: number;
-  index: number;
+  queueItemId: QueueItemId;
   sessionId: number;
   expiresAt: number;
 }
@@ -90,7 +92,24 @@ export interface RemoteShareState {
 }
 
 // ─── Playlist ──────────────────────────────────────────────────────
+export type QueueItemId = string;
+/** Guest-local correlation token for one concrete file request. */
+export type FileRequestId = number;
+export type PlaylistRevision = number;
+
+export interface PlaylistWireItem {
+  queueItemId: QueueItemId;
+  type: 'file' | 'youtube';
+  name: string;
+  title?: string;
+  artist?: string;
+  thumbnail?: string;
+  videoId: string | null;
+  playlistId: string | null;
+}
+
 export interface PlaylistItem {
+  queueItemId: QueueItemId;
   type: 'file' | 'youtube';
   file?: File;
   name: string;
@@ -100,6 +119,26 @@ export interface PlaylistItem {
   videoId: string | null;
   playlistId: string | null;
   isExpanded?: boolean;
+}
+
+/** A queue occurrence plus its current, non-authoritative positional hint. */
+export interface QueueTarget {
+  queueItemId: QueueItemId;
+  indexHint: number;
+  name: string;
+}
+
+/** One concrete transfer attempt for a queue occurrence. */
+interface TransferIdentity extends QueueTarget {
+  sessionId: number;
+}
+
+/** Atomically published bytes and the identity that owns them. */
+export interface ResidentFile extends TransferIdentity {
+  blob: Blob;
+  mime: string;
+  size: number;
+  objectId?: string;
 }
 
 export interface TrackMeta extends Partial<PlaylistItem> {
@@ -113,7 +152,8 @@ export interface StorageCommand {
   command: string;
   filename?: string;
   sessionId?: number;
-  index?: number;
+  queueItemId?: QueueItemId;
+  chunkIndex?: number;
   chunk?: ArrayBuffer;
   isPreload?: boolean;
   requestId?: string;
@@ -141,7 +181,8 @@ export interface StorageEvent {
   type: StorageEventType;
   filename?: string;
   sessionId?: number;
-  index?: number;
+  queueItemId?: QueueItemId;
+  chunkIndex?: number;
   // Binary consumers normalize either ArrayBuffer or Uint8Array at this
   // boundary; the current RAM bridge emits Uint8Array.
   chunk?: ArrayBuffer | Uint8Array;
@@ -173,7 +214,7 @@ export interface ConnectedPeer {
   label: string;
   conn: DataConnection | null;
   isOp: boolean;
-  preloadedIndexes: Set<number>;
+  preloadedQueueItemIds: Set<QueueItemId>;
   status: string;
   isDataTarget: boolean;
   joinOrder: number;
@@ -201,7 +242,7 @@ export interface ProtocolMap {
   };
   'session-full': { message: string };
   'force-close-duplicate': NoPayload;
-  'guest-decode-failed': { index: number };
+  'guest-decode-failed': { queueItemId: QueueItemId };
   'demo-enter': {
     index: number;
     reverbOn: boolean;
@@ -235,20 +276,20 @@ export interface ProtocolMap {
   // ── Playback ─────────────────────────────────────────────────────
   play: {
     time: number;
-    index: number;
+    queueItemId: QueueItemId;
     name?: string | null;
     hostPlayAt?: number;
   };
   pause: {
     time: number;
-    index?: number;
+    queueItemId: QueueItemId | null;
     endOfPlaylist?: boolean;
     reason?: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';
   };
-  'play-preloaded': { index: number; name: string; mime?: string };
+  'play-preloaded': { queueItemId: QueueItemId; name: string; mime?: string };
   'file-prepare': {
     name: string;
-    index: number;
+    queueItemId: QueueItemId;
     sessionId: number;
     mime: string;
     size?: number;
@@ -256,16 +297,18 @@ export interface ProtocolMap {
   };
   'remote-file-unavailable': {
     name: string;
-    index: number;
+    queueItemId: QueueItemId;
     sessionId: number;
     limited?: boolean;
   };
   'remote-file-share': RemoteFileSharePayload;
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': {
-    list: Array<Record<string, unknown>>;
-    currentTrackIndex?: number;
-    index?: number;
+    list: PlaylistWireItem[];
+    revision: PlaylistRevision;
+    currentQueueItemId: QueueItemId | null;
+    /** Only the first queue snapshot on a new host connection may rebaseline. */
+    bootstrap?: true;
   };
   // _bootstrap marks a re-baseline frame (join bootstrap / OPERATOR_REVOKE
   // resync) — the receiving handler applies the value but skips the toast.
@@ -278,20 +321,27 @@ export interface ProtocolMap {
     mime?: string;
     total: number;
     size: number;
-    index?: number;
+    queueItemId: QueueItemId;
     sessionId: number;
   };
   'file-chunk': {
     chunk: Uint8Array | ArrayBuffer;
-    index: number;
+    chunkIndex: number;
+    queueItemId: QueueItemId;
     sessionId: number;
     total: number;
     name: string;
     size: number;
     mime?: string;
   };
-  'file-end': { name: string; mime: string; sessionId: number };
-  'file-wait': { message: string };
+  'file-end': { name: string; mime: string; queueItemId: QueueItemId; sessionId: number };
+  'file-wait': {
+    message: string;
+    requestId: FileRequestId;
+    queueItemId: QueueItemId;
+    sessionId?: number;
+    reason?: string;
+  };
   'file-resume': {
     name: string;
     mime?: string;
@@ -299,7 +349,7 @@ export interface ProtocolMap {
     size: number;
     startChunk: number;
     sessionId: number;
-    index?: number;
+    queueItemId: QueueItemId;
   };
 
   // ── Preload ──────────────────────────────────────────────────────
@@ -308,14 +358,19 @@ export interface ProtocolMap {
     mime?: string;
     total: number;
     size: number;
-    index: number;
+    queueItemId: QueueItemId;
     sessionId: number;
     skipped?: boolean;
   };
-  'preload-chunk': { chunk: Uint8Array; index: number; sessionId: number };
-  'preload-end': { name: string; index: number; sessionId: number };
-  'preload-ack': { index: number };
-  'preload-abort': { sessionId: number };
+  'preload-chunk': {
+    chunk: Uint8Array;
+    chunkIndex: number;
+    queueItemId: QueueItemId;
+    sessionId: number;
+  };
+  'preload-end': { name: string; queueItemId: QueueItemId; sessionId: number };
+  'preload-ack': { queueItemId: QueueItemId; sessionId: number };
+  'preload-abort': { queueItemId: QueueItemId; sessionId: number };
 
   // ── Network ─────────────────────────────────────────────────────
   'device-list-update': {
@@ -339,26 +394,33 @@ export interface ProtocolMap {
   'operator-revoke': NoPayload;
 
   // ── Guest Requests ───────────────────────────────────────────────
-  'request-play': { time?: number };
-  'request-pause': NoPayload;
-  'request-seek': { time: number };
-  'request-skip-time': { sec: number };
-  'request-next-track': NoPayload;
-  'request-prev-track': NoPayload;
-  'request-track-change': { index: number };
+  'request-play': { time?: number; queueItemId: QueueItemId };
+  'request-pause': { queueItemId: QueueItemId };
+  'request-seek': { time: number; queueItemId: QueueItemId };
+  'request-skip-time': { sec: number; queueItemId: QueueItemId };
+  'request-next-track': { queueItemId: QueueItemId | null };
+  'request-prev-track': { queueItemId: QueueItemId | null };
+  'request-track-change': { queueItemId: QueueItemId };
   'request-setting': { settingType: string; value?: unknown; band?: number };
   'request-eq-reset': NoPayload;
-  'request-current-file': { name?: string; index?: number; reason?: string };
+  'request-current-file': {
+    requestId: FileRequestId;
+    queueItemId: QueueItemId;
+    sessionId?: number;
+    name?: string;
+    reason?: string;
+  };
   'request-data-recovery': {
+    requestId: FileRequestId;
     nextChunk: number;
     fileName: string;
-    index: number;
+    queueItemId: QueueItemId;
     sessionId?: number;
   };
-  'request-youtube-play': NoPayload;
-  'request-youtube-pause': NoPayload;
-  'request-youtube-toggle': NoPayload;
-  'request-youtube-sub-seek': { subIdx: number; playlistIdx?: number };
+  'request-youtube-play': { queueItemId: QueueItemId };
+  'request-youtube-pause': { queueItemId: QueueItemId };
+  'request-youtube-toggle': { queueItemId: QueueItemId };
+  'request-youtube-sub-seek': { subIdx: number; queueItemId: QueueItemId };
   'request-youtube-playlist-info': { playlistId: string };
 
   // ── YouTube ──────────────────────────────────────────────────────
@@ -366,12 +428,13 @@ export interface ProtocolMap {
     videoId?: string | null;
     playlistId?: string | string[] | null;
     name?: string | null;
-    index?: number;
+    queueItemId: QueueItemId;
     autoplay: boolean;
     subIndex?: number;
   };
-  'youtube-stop': NoPayload;
+  'youtube-stop': { queueItemId: QueueItemId };
   'youtube-state': {
+    queueItemId: QueueItemId;
     state: number;
     time: number;
     subIndex?: number;
@@ -381,6 +444,7 @@ export interface ProtocolMap {
     title?: string;
   };
   'youtube-sync': {
+    queueItemId: QueueItemId;
     time: number;
     state: number;
     subIndex?: number;
@@ -400,7 +464,8 @@ export interface ProtocolMap {
     position: number;
     mode: PlaybackModeValue;
     activity: PlaybackActivityValue;
-    trackIndex: number;
+    queueItemId: QueueItemId | null;
+    demoTrackIndex?: number;
   };
 
   // ── Chat ─────────────────────────────────────────────────────────
@@ -507,10 +572,10 @@ export interface StateTree {
   preload: {
     isPreloading: boolean;
     sessionId: number;
-    meta: Partial<FileMeta> | null;
-    nextTrackIndex: number;
-    nextFileBlob: Blob | null;
-    ackSent: Set<number>;
+    activeTarget: Partial<FileMeta> | null;
+    ready: ResidentFile | null;
+    nextQueueItemId: QueueItemId | null;
+    ackSent: Map<QueueItemId, number>;
     sessionState: Map<number, PreloadSessionEntry>;
   };
   audio: {
@@ -533,6 +598,7 @@ export interface StateTree {
   demo: {
     active: boolean;
     loading: boolean;
+    currentTrackIndex: number;
     reverbOn: boolean;
     bassBoostOn: boolean;
     trebleBoostOn: boolean;
@@ -572,11 +638,12 @@ export interface StateTree {
   };
   playlist: {
     items: PlaylistItem[];
-    currentTrackIndex: number;
+    currentQueueItemId: QueueItemId | null;
+    revision: PlaylistRevision;
     repeatMode: number;
     isShuffle: boolean;
   };
-  files: { currentFileBlob: Blob | null; currentTrack: { name: string | null } };
+  files: { current: ResidentFile | null };
   youtube: {
     currentSubIndex: number;
     subItemsMap: Record<string, { ids: string[]; titles: string[]; loadError?: boolean }>;
@@ -603,7 +670,7 @@ export interface StateTree {
     retryCount: number;
     /**
      * Consumers read `playback.pendingRecoveryTarget` as a single atomic
-     * { index, name } object instead of split pending file fields.
+     * { queueItemId, indexHint, name } object instead of split pending fields.
      */
   };
   systemAudio: { isReceiving: boolean };
@@ -632,11 +699,11 @@ export interface StateTree {
     pendingPlayTimeSetAt: number;
     /**
      * The track we're awaiting (recovery, preload-promoted blob, deferred
-     * play). Consumers read one atomic snapshot instead of separate index and
-     * name fields that could disagree mid-update.
+     * play). Consumers read one atomic snapshot whose stable owner is
+     * queueItemId; indexHint is diagnostic and may be reconciled after reorder.
      * `null` = no recovery target.
      */
-    pendingRecoveryTarget: { index: number; name: string } | null;
+    pendingRecoveryTarget: QueueTarget | null;
     /**
      * Content-keyed identifiers of tracks whose decode failed (timeout,
      * corrupt, unsupported). Consulted on auto-advance to skip rather than
@@ -735,6 +802,8 @@ interface BaseEventMap {
   // (fired on OPERATOR_REVOKE to re-baseline a demoted OP's optimistic applies)
   'effects:resync-peer': [conn: DataConnection];
   'demo:enter': [];
+  /** Tear down old-room demo runtime without restoring its captured snapshot. */
+  'demo:authority-reset': [];
   'demo:request-exit': [];
   'demo:open-info': [];
   'demo:toggle-play': [];
@@ -761,7 +830,7 @@ interface BaseEventMap {
   'playlist:next-track': [];
   'playlist:toggle-repeat': [];
   'playlist:toggle-shuffle': [];
-  'playlist:play-track': [index: number, subIndex?: number];
+  'playlist:play-track': [queueItemId: QueueItemId, subIndex?: number];
 
   // ── UI ────────────────────────────────────────────────────────────
   'ui:sync-reverb-preset': [type: string];
@@ -785,6 +854,7 @@ interface BaseEventMap {
     duration: number,
   ];
   'ui:switch-tab': [tabId: string];
+  'ui:tab-changed': [tabId: string];
   'ui:settings-tab-opened': [];
   'ui:playlist-tab-opened': [];
   'ui:player-panel-visible': [];
@@ -807,6 +877,7 @@ interface BaseEventMap {
   'youtube:load': [
     videoId: string | null,
     playlistId: string | null,
+    queueItemId: QueueItemId,
     autoplay?: boolean,
     subIndex?: number,
   ];
@@ -815,7 +886,7 @@ interface BaseEventMap {
       videoId: string | null;
       playlistId: string | null;
       name?: string | null;
-      index?: number;
+      queueItemId: QueueItemId;
       autoplay?: boolean;
       subIndex?: number;
     },
@@ -869,11 +940,13 @@ interface BaseEventMap {
   'youtube:stop-mode': [opts?: { silent?: boolean }];
   'youtube:refresh-display': [];
   'youtube:set-volume': [volumePercent: number];
-  'youtube:sub-seek': [playlistIdx: number, subIdx: number, isCurrent: boolean];
-  'youtube:populate-sub-items': [playlistId: string | null, playlistIdx: number];
+  'youtube:sub-seek': [queueItemId: QueueItemId, subIdx: number, isCurrent: boolean];
+  'youtube:populate-sub-items': [playlistId: string | null, queueItemId: QueueItemId];
 
   // ── Network ───────────────────────────────────────────────────────
   'network:peer-ready': [peerId: string];
+  /** Host-only ordered phase for authority snapshots before playback bootstrap. */
+  'network:peer-bootstrap': [conn: DataConnection];
   'network:peer-connected': [conn: DataConnection];
   'network:peer-disconnected': [peerId: string];
   'network:data': [data: unknown, conn: DataConnection];
@@ -894,24 +967,35 @@ interface BaseEventMap {
   'chat:clear-all': [];
 
   // ── Playlist ────────────────────────────────────────────────────
-  'playlist:remove-track': [index: number];
+  'playlist:remove-tracks': [queueItemIds: QueueItemId[]];
+  'playlist:reorder-track': [
+    queueItemId: QueueItemId,
+    beforeQueueItemId: QueueItemId | null,
+    baseRevision: PlaylistRevision,
+  ];
+  'playlist:items-added': [queueItemIds: QueueItemId[]];
 
   // ── Storage ───────────────────────────────────────────────────────
   'storage:transfer-progress': [progress: number, total: number];
-  'storage:preload-ready': [index: number];
+  'storage:preload-ready': [queueItemId: QueueItemId];
   // forceChunk is the store-derived resume base from handleFileResume.
   // Plain emits (no arg) mean "ask from the counter"; the recovery listener
   // normalizes undefined → null before forwarding to sendRecoveryRequest.
   'storage:request-recovery': [forceChunk?: number];
   'storage:clear-previous-track': [context: string];
-  'storage:use-preloaded': [index: number, name: string, sessionId?: number];
-  'storage:preload-file-ready': [filename: string, sessionId: number];
-  'storage:file-ready': [filename: string, sessionId: number, isPreload: boolean];
+  'storage:use-preloaded': [queueItemId: QueueItemId, name: string, sessionId?: number];
+  'storage:preload-file-ready': [filename: string, sessionId: number, queueItemId: QueueItemId];
+  'storage:file-ready': [
+    filename: string,
+    sessionId: number,
+    isPreload: boolean,
+    queueItemId: QueueItemId,
+  ];
   'storage:read-error': [data: unknown];
   'storage:error': [error: string, filename: string];
-  'storage:write-error': [data: unknown];
+  'storage:write-error': [data: StorageEvent];
   'storage:session-mismatch': [data: unknown];
-  'storage:cleanup-complete': [filename: string];
+  'storage:cleanup-complete': [queueItemId: QueueItemId, sessionId?: number, filename?: string];
 
   // ── Blob ──────────────────────────────────────────────────────────
 

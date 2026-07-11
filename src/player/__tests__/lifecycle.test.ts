@@ -64,14 +64,6 @@ describe('lifecycle: from IDLE', () => {
     expect(r).toEqual({ next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED });
   });
 
-  it('FILE_PREPARE demo → AWAITING_PRELOAD (HTTP fetch path)', () => {
-    const r = step(FROM, { type: 'FILE_PREPARE', variant: 'demo', index: 0, name: 'demo.mp3' });
-    expect(r).toEqual({
-      next: PLAYBACK_STATE.AWAITING_PRELOAD,
-      loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
-    });
-  });
-
   it('FILE_PREPARE preload-waiting → AWAITING_PRELOAD (preload session active, blob not ready)', () => {
     const r = step(FROM, {
       type: 'FILE_PREPARE',

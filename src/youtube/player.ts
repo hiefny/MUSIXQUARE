@@ -90,7 +90,15 @@ import {
   cancelSubTitleFetch,
 } from './search.ts';
 import { fetchOEmbedTitle } from './oembed.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import type { DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
+import {
+  commitPlaylistItems,
+  createQueueItemId,
+  findQueueItemIndex,
+  getCurrentQueueItemId,
+  getQueueItemById,
+  selectQueueItemById,
+} from '../player/queue-model.ts';
 
 // ─── Sub-module imports ────────────────────────────────────────────
 
@@ -176,6 +184,8 @@ export function scheduleYtAutoSync(
 ): void {
   const player = getYouTubePlayer();
   if (!player) return;
+  const queueItemId = getCurrentQueueItemId();
+  if (!queueItemId) return;
 
   const targetState = overrides?.state ?? 1; // Default to PLAYING
   const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
@@ -197,6 +207,7 @@ export function scheduleYtAutoSync(
   markYtStateBroadcast();
   broadcast({
     type: MSG.YOUTUBE_STATE,
+    queueItemId,
     state: targetState,
     time: targetTime,
     subIndex,
@@ -227,6 +238,10 @@ export function scheduleYtAutoSync(
     () => {
       const p = getYouTubePlayer();
       if (!p) return;
+      // A delayed rendezvous belongs to the queue occurrence that scheduled
+      // it. Reorder preserves the ID; selecting/removing another occurrence
+      // invalidates it without relying on a mutable array position.
+      if (queueItemId !== getCurrentQueueItemId()) return;
 
       markYtStateBroadcast();
       // Pass targetState as the intent state. Even after the 2s wait, the
@@ -249,6 +264,7 @@ export function cancelYtAutoSync(): void {
 
 function scheduleLateJoinRendezvousSync(
   conn: DataConnection,
+  queueItemId: QueueItemId,
   fallbackSubIndex: number,
   fallbackVideoId: string,
 ): void {
@@ -258,6 +274,7 @@ function scheduleLateJoinRendezvousSync(
     () => {
       if (!conn.open || getState('network.hostConn')) return;
       if (!isPlaybackModeYouTube()) return;
+      if (queueItemId !== getCurrentQueueItemId()) return;
 
       const player = getYouTubePlayer();
       if (!player?.getCurrentTime) return;
@@ -269,6 +286,7 @@ function scheduleLateJoinRendezvousSync(
 
         safeSend(conn, {
           type: MSG.YOUTUBE_SYNC,
+          queueItemId,
           time: player.getCurrentTime(),
           state: 1,
           subIndex:
@@ -292,6 +310,8 @@ function scheduleLateJoinRendezvousSync(
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
 export function stopYouTubeMode(opts?: { silent?: boolean }): void {
+  const ownerQueueItemId =
+    getState('player.currentTrackMeta')?.queueItemId ?? getCurrentQueueItemId();
   getYtScope()?.dispose();
   setYtScope(null);
   setYtLoadInProgress(false);
@@ -411,8 +431,8 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   // Notify guests to stop YouTube (Host only) — only when actually leaving YouTube mode
   if (wasInYouTube) {
     const hostConn = getState('network.hostConn');
-    if (!hostConn) {
-      broadcast({ type: MSG.YOUTUBE_STOP });
+    if (!hostConn && ownerQueueItemId) {
+      broadcast({ type: MSG.YOUTUBE_STOP, queueItemId: ownerQueueItemId });
     }
   }
 
@@ -438,7 +458,7 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
   }
 
   try {
-    const currentTrack = (getState('playlist.items') || [])[getState('playlist.currentTrackIndex')];
+    const currentTrack = getQueueItemById(getCurrentQueueItemId());
     const pid = currentTrack?.playlistId as string;
     if (!pid) {
       callback(false);
@@ -535,17 +555,11 @@ export function initYouTube(): void {
       return;
     }
 
-    const index = payload.index ?? getState('playlist.currentTrackIndex');
-    const hasIndex = index >= 0;
-
-    const playlist = getState('playlist.items') || [];
-    const playlistItem = hasIndex ? playlist[index] : undefined;
-    if (hasIndex) {
-      setState('playlist.currentTrackIndex', index);
-    }
-    if (playlistItem) {
-      setPlaybackTrackMeta(playlistItem);
-    }
+    const queueItemId = payload.queueItemId as QueueItemId;
+    const playlistItem = getQueueItemById(queueItemId);
+    if (!playlistItem || playlistItem.type !== 'youtube') return;
+    if (!selectQueueItemById(queueItemId)) return;
+    setPlaybackTrackMeta(playlistItem);
 
     const autoplay = payload.autoplay ?? true;
     broadcast({
@@ -553,7 +567,7 @@ export function initYouTube(): void {
       videoId,
       playlistId,
       name: payload.name || playlistItem?.name || playlistItem?.title,
-      ...(hasIndex ? { index } : {}),
+      queueItemId,
       autoplay,
       subIndex,
     });
@@ -568,7 +582,14 @@ export function initYouTube(): void {
     }
 
     if (getState('player.isFirstTrackLoad')) setState('player.isFirstTrackLoad', false);
-    bus.emit('youtube:load', videoId || payload.videoId || null, playlistId, autoplay, subIndex);
+    bus.emit(
+      'youtube:load',
+      videoId || payload.videoId || null,
+      playlistId,
+      queueItemId,
+      autoplay,
+      subIndex,
+    );
     if (autoplay) {
       setPendingAutoSyncOnReady(true, {
         isTrackTransition: false,
@@ -581,7 +602,8 @@ export function initYouTube(): void {
     schedulePreload();
   });
 
-  bus.on('youtube:load', (videoId, playlistId, autoplay, subIndex) => {
+  bus.on('youtube:load', (videoId, playlistId, queueItemId, autoplay, subIndex) => {
+    if (queueItemId !== getCurrentQueueItemId()) return;
     // Deferred-playlist navigation: when a playlist row was added to the
     // queue while the iframe was busy with another track, its sub-items
     // were never indexed. Navigating into it now needs the proper indexing
@@ -604,6 +626,7 @@ export function initYouTube(): void {
     if (needsIndex) {
       log.info(`[YouTube] Deferred playlist navigation — indexing ${playlistIdStr} before play`);
       const indexingCallback = (ids: string[]): void => {
+        if (queueItemId !== getCurrentQueueItemId() || !getQueueItemById(queueItemId)) return;
         showLoader(false);
         if (!ids || ids.length === 0) {
           log.warn(
@@ -648,12 +671,12 @@ export function initYouTube(): void {
         // until oEmbed titles land — the IDLE indexing callback expands and
         // populates the same way after its 250ms delay.
         const currentPlaylist = getState('playlist.items') || [];
-        const actualIdx = currentPlaylist.findIndex((t) => t.playlistId === playlistIdStr);
+        const actualIdx = findQueueItemIndex(queueItemId, currentPlaylist);
         if (actualIdx !== -1) {
           const updatedPlaylist = [...currentPlaylist];
           updatedPlaylist[actualIdx] = { ...updatedPlaylist[actualIdx], isExpanded: true };
           setState('playlist.items', updatedPlaylist);
-          bus.emit('youtube:populate-sub-items', playlistIdStr!, actualIdx);
+          bus.emit('youtube:populate-sub-items', playlistIdStr!, queueItemId);
         }
 
         const targetSubIdx = (subIndex as number) ?? 0;
@@ -687,7 +710,8 @@ export function initYouTube(): void {
     if (hostConn && isOperator) {
       // OP sends toggle request — let host decide based on ITS player state
       // (Guest's local player may be desynchronized from host due to ads/buffering)
-      safeSend(hostConn, { type: MSG.REQUEST_YOUTUBE_TOGGLE });
+      const queueItemId = getCurrentQueueItemId();
+      if (queueItemId) safeSend(hostConn, { type: MSG.REQUEST_YOUTUBE_TOGGLE, queueItemId });
       return;
     }
 
@@ -704,14 +728,18 @@ export function initYouTube(): void {
         // PAUSE: immediate, no delay
         cancelYtAutoSync();
         markYtStateBroadcast();
-        broadcast({
-          type: MSG.YOUTUBE_STATE,
-          state: 2, // PAUSED
-          time: currentTime,
-          subIndex: getState('youtube.currentSubIndex') ?? -1,
-          videoId: player.getVideoData?.()?.video_id || '',
-          hostClock: getHostNow(),
-        });
+        const queueItemId = getCurrentQueueItemId();
+        if (queueItemId) {
+          broadcast({
+            type: MSG.YOUTUBE_STATE,
+            queueItemId,
+            state: 2, // PAUSED
+            time: currentTime,
+            subIndex: getState('youtube.currentSubIndex') ?? -1,
+            videoId: player.getVideoData?.()?.video_id || '',
+            hostClock: getHostNow(),
+          });
+        }
         player.pauseVideo();
         markYtStateBroadcast();
       } else {
@@ -861,9 +889,7 @@ export function initYouTube(): void {
     // Fallback: the native IFrame API occasionally returns an empty list
     // from getPlaylist() when idle. Pull the cached IDs from our scraped map.
     if (!nextVideoId && nextIdx > 0) {
-      const currentTrack = (getState('playlist.items') || [])[
-        getState('playlist.currentTrackIndex')
-      ];
+      const currentTrack = getQueueItemById(getCurrentQueueItemId());
       const pid = currentTrack?.playlistId;
       if (pid) {
         const subMap = getState('youtube.subItemsMap') || {};
@@ -957,14 +983,18 @@ export function initYouTube(): void {
         } else {
           // Actually paused by user → seek immediately, no delay
           markYtStateBroadcast();
-          broadcast({
-            type: MSG.YOUTUBE_STATE,
-            state: 2,
-            time: target,
-            subIndex: getState('youtube.currentSubIndex') ?? -1,
-            videoId: player.getVideoData?.()?.video_id || '',
-            hostClock: getHostNow(),
-          });
+          const queueItemId = getCurrentQueueItemId();
+          if (queueItemId) {
+            broadcast({
+              type: MSG.YOUTUBE_STATE,
+              queueItemId,
+              state: 2,
+              time: target,
+              subIndex: getState('youtube.currentSubIndex') ?? -1,
+              videoId: player.getVideoData?.()?.video_id || '',
+              hostClock: getHostNow(),
+            });
+          }
           player.seekTo(target, true);
           markYtStateBroadcast();
         }
@@ -997,14 +1027,18 @@ export function initYouTube(): void {
         } else {
           // Actually paused by user → seek immediately, no delay
           markYtStateBroadcast();
-          broadcast({
-            type: MSG.YOUTUBE_STATE,
-            state: 2,
-            time: seconds,
-            subIndex: getState('youtube.currentSubIndex') ?? -1,
-            videoId: player.getVideoData?.()?.video_id || '',
-            hostClock: getHostNow(),
-          });
+          const queueItemId = getCurrentQueueItemId();
+          if (queueItemId) {
+            broadcast({
+              type: MSG.YOUTUBE_STATE,
+              queueItemId,
+              state: 2,
+              time: seconds,
+              subIndex: getState('youtube.currentSubIndex') ?? -1,
+              videoId: player.getVideoData?.()?.video_id || '',
+              hostClock: getHostNow(),
+            });
+          }
           player.seekTo(seconds, true);
           markYtStateBroadcast();
         }
@@ -1072,7 +1106,7 @@ export function initYouTube(): void {
     playlistId: string | null,
     title: string,
     url: string,
-  ): void {
+  ): QueueItemId {
     const playlist = getState('playlist.items') || [];
 
     // Safety: If this is a playlist load but we have a videoId (resolved from indexing),
@@ -1097,7 +1131,11 @@ export function initYouTube(): void {
     // until indexing actually populates the full list keeps both sides in sync.
     const subMapForExpand = getState('youtube.subItemsMap') || {};
     const hasIndexedSubItems = !!playlistId && (subMapForExpand[playlistId]?.ids?.length || 0) > 1;
+    const playlistWasEmpty = playlist.length === 0;
+    const isIdle = (isCompatIdle() && playlistWasEmpty) || isYtIndexing();
+    const queueItemId = createQueueItemId();
     const newTrack: PlaylistItem = {
+      queueItemId,
       type: 'youtube',
       name: title,
       title: title,
@@ -1109,13 +1147,15 @@ export function initYouTube(): void {
       isExpanded: hasIndexedSubItems,
     };
     const updatedPlaylist = [...playlist, newTrack];
-    setState('playlist.items', updatedPlaylist);
-    const newIndex = updatedPlaylist.length - 1;
+    const playlistSnapshot = commitPlaylistItems(updatedPlaylist, {
+      currentQueueItemId: isIdle ? queueItemId : getCurrentQueueItemId(),
+    });
+    bus.emit('playlist:items-added', [queueItemId]);
 
     // Reveal the track list. Initialize sub-index only in the idle block so
     // already-playing media keeps its managed sub-index.
     if (playlistId) {
-      bus.emit('youtube:populate-sub-items', playlistId, newIndex);
+      bus.emit('youtube:populate-sub-items', playlistId, queueItemId);
     }
 
     if (playlistId) {
@@ -1133,9 +1173,6 @@ export function initYouTube(): void {
     // hadn't pressed play yet, so
     // adding a YouTube link jumped playback to it instead of queuing.
     // isYtIndexing keeps its original behavior (mid-index re-add path).
-    const playlistWasEmpty = playlist.length === 0;
-    const isIdle = (isCompatIdle() && playlistWasEmpty) || isYtIndexing();
-
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
       setPlaybackTrackMeta(newTrack);
@@ -1154,7 +1191,7 @@ export function initYouTube(): void {
         videoId: finalVideoId || undefined,
         skipSeek: true,
       });
-      setState('playlist.currentTrackIndex', newIndex);
+      selectQueueItemById(queueItemId);
     } else {
       showToast(t('youtube.added_to_playlist'));
     }
@@ -1162,14 +1199,7 @@ export function initYouTube(): void {
     // Broadcast playlist update + YouTube command to peers (Host only)
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      const metaList = updatedPlaylist.map((item) => ({
-        type: item.type,
-        name: item.name,
-        title: item.title || item.name,
-        videoId: item.videoId || null,
-        playlistId: item.playlistId || null,
-      }));
-      broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+      broadcast({ type: MSG.PLAYLIST_UPDATE, ...playlistSnapshot });
 
       if (isIdle) {
         broadcast({
@@ -1180,7 +1210,7 @@ export function initYouTube(): void {
           // the payload self-consistent for debugging and future fanout paths.
           videoId: finalVideoId,
           playlistId: finalPlaylistId,
-          index: newIndex,
+          queueItemId,
           // autoplay=false: guest also loads without iframe auto-start and
           // waits for host's hostPlayAt broadcast from scheduleYtAutoSync.
           autoplay: false,
@@ -1197,34 +1227,25 @@ export function initYouTube(): void {
       .then((fetchedTitle) => {
         if (!fetchedTitle) return;
         const currentPlaylist = getState('playlist.items') || [];
-        // Verify the item at newIndex still matches what we expect
-        const item = currentPlaylist[newIndex];
+        const currentIndex = findQueueItemIndex(queueItemId, currentPlaylist);
+        const item = currentIndex >= 0 ? currentPlaylist[currentIndex] : undefined;
         if (item && item.videoId === expectedVideoId && item.playlistId === expectedPlaylistId) {
           const updated = [...currentPlaylist];
-          updated[newIndex] = { ...updated[newIndex], name: fetchedTitle, title: fetchedTitle };
-          setState('playlist.items', updated);
-          // Only refresh currentTrackMeta when the newly-titled track IS the
-          // currently playing one. Queue additions from the Add-to-Queue path
-          // land at newIndex > currentTrackIndex; blindly writing here would
-          // clobber the playing track's title with the queued track's title.
-          if (getState('playlist.currentTrackIndex') === newIndex) {
-            setPlaybackTrackMeta(updated[newIndex]);
+          updated[currentIndex] = { ...item, name: fetchedTitle, title: fetchedTitle };
+          const titleSnapshot = commitPlaylistItems(updated);
+          if (getCurrentQueueItemId() === queueItemId) {
+            setPlaybackTrackMeta(updated[currentIndex]);
           }
 
           // Broadcast updated title to peers (Host only)
           if (!getState('network.hostConn')) {
-            const metaList = updated.map((it) => ({
-              type: it.type,
-              name: it.name,
-              title: it.title || it.name,
-              videoId: it.videoId || null,
-              playlistId: it.playlistId || null,
-            }));
-            broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+            broadcast({ type: MSG.PLAYLIST_UPDATE, ...titleSnapshot });
           }
         }
       })
       .catch((e) => log.warn('[YouTube] Title fetch handler error:', e));
+
+    return queueItemId;
   }
 
   function _closeYouTubeInputOverlay(input?: HTMLElement | null): void {
@@ -1313,7 +1334,7 @@ export function initYouTube(): void {
         );
         updateSubItemIds(playlistId!, ids);
 
-        _addYouTubeToPlaylist(ids[0], playlistId, titleText, sourceUrl);
+        const addedQueueItemId = _addYouTubeToPlaylist(ids[0], playlistId, titleText, sourceUrl);
 
         // Force highlight and expansion of the first track with a small delay
         // to ensure the UI has finished adding the item to the DOM.
@@ -1321,13 +1342,16 @@ export function initYouTube(): void {
           'yt-playlist-indexed-highlight',
           () => {
             const currentPlaylist = getState('playlist.items');
-            const actualIdx = currentPlaylist.findIndex((t) => t.playlistId === playlistId);
+            const actualIdx = findQueueItemIndex(addedQueueItemId, currentPlaylist);
             if (actualIdx !== -1) {
               const updated = [...currentPlaylist];
               updated[actualIdx] = { ...updated[actualIdx], isExpanded: true };
+              // Expansion is local UI state and is intentionally excluded
+              // from wire snapshots, so it must not consume an authoritative
+              // playlist revision.
               setState('playlist.items', updated);
               setYouTubeSubIndex(0);
-              bus.emit('youtube:populate-sub-items', playlistId!, actualIdx);
+              bus.emit('youtube:populate-sub-items', playlistId!, addedQueueItemId);
             }
           },
           250,
@@ -1357,20 +1381,20 @@ export function initYouTube(): void {
   });
 
   // YouTube sub-item seek (from playlist-view sub-item click)
-  bus.on('youtube:sub-seek', (playlistIdx, subIdx, isCurrent) => {
+  bus.on('youtube:sub-seek', (queueItemId, subIdx, _isCurrent) => {
     const player = getYouTubePlayer();
     if (!player?.loadVideoById) return;
 
-    if (isCurrent) {
+    const isCurrentNow = queueItemId === getCurrentQueueItemId();
+    if (isCurrentNow) {
       // Same playlist — single-video mode: resolve the videoId from our
       // host-snapshotted subItemsMap and loadVideoById directly. We don't
       // call playVideoAt because that hands control to the iframe's native
       // playlist engine, which we deliberately keep dormant.
-      const currentTrack = (getState('playlist.items') || [])[
-        getState('playlist.currentTrackIndex')
-      ];
+      const currentTrack = getQueueItemById(queueItemId);
+      if (!currentTrack) return;
       const subMap = getState('youtube.subItemsMap') || {};
-      const ids = subMap[currentTrack?.playlistId as string]?.ids || [];
+      const ids = subMap[currentTrack.playlistId as string]?.ids || [];
       const targetVideoId = ids[subIdx];
       if (!targetVideoId) {
         log.warn(`[YouTube] sub-seek: no videoId at subIdx=${subIdx} in subItemsMap`);
@@ -1397,23 +1421,25 @@ export function initYouTube(): void {
       });
     } else {
       // Different playlist item — load it with the target sub-index
-      bus.emit('playlist:play-track', playlistIdx, subIdx);
+      bus.emit('playlist:play-track', queueItemId, subIdx);
     }
   });
 
   // Populate sub-items when expanding a YouTube playlist entry
-  bus.on('youtube:populate-sub-items', (playlistId, _playlistIdx) => {
+  bus.on('youtube:populate-sub-items', (playlistId, queueItemId) => {
     if (!playlistId) return;
 
     let ids: string[] = [];
     const player = getYouTubePlayer();
 
     // 1. Try to get IDs from current player if it matches the requested playlist
-    const playlist = getState('playlist.items') || [];
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
-    const currentItem = playlist[currentTrackIndex];
+    const currentItem = getQueueItemById(queueItemId);
 
-    if (player?.getPlaylist && currentItem?.playlistId === playlistId) {
+    if (
+      player?.getPlaylist &&
+      queueItemId === getCurrentQueueItemId() &&
+      currentItem?.playlistId === playlistId
+    ) {
       try {
         ids = player.getPlaylist() || [];
       } catch (e) {
@@ -1493,9 +1519,8 @@ export function initYouTube(): void {
 
     if (!isPlaybackModeYouTube()) return;
 
-    const playlist = getState('playlist.items') || [];
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
-    const item = playlist[currentTrackIndex];
+    const queueItemId = getCurrentQueueItemId();
+    const item = getQueueItemById(queueItemId);
 
     if (!item || item.type !== 'youtube') return;
 
@@ -1537,7 +1562,7 @@ export function initYouTube(): void {
         // when both are present (single-video mode).
         playlistId: item.playlistId || null,
         name: item.name || item.title,
-        index: currentTrackIndex,
+        queueItemId: item.queueItemId,
         autoplay,
         subIndex: subIdx,
       });
@@ -1565,6 +1590,7 @@ export function initYouTube(): void {
       if (autoplay) {
         safeSend(conn, {
           type: MSG.YOUTUBE_STATE,
+          queueItemId: item.queueItemId,
           state: 1,
           time: ytTime,
           subIndex: subIdx,
@@ -1572,11 +1598,12 @@ export function initYouTube(): void {
           hostPlayAt: getHostNow() + YT_AUTO_SYNC_MS,
           hostClock: getHostNow(),
         });
-        scheduleLateJoinRendezvousSync(conn, subIdx, currentVideoId);
+        scheduleLateJoinRendezvousSync(conn, item.queueItemId, subIdx, currentVideoId);
       } else {
         // Host paused — simple sync frame is fine
         safeSend(conn, {
           type: MSG.YOUTUBE_SYNC,
+          queueItemId: item.queueItemId,
           time: ytTime,
           state: ytState,
           subIndex: subIdx,

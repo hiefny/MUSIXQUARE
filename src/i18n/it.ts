@@ -84,6 +84,8 @@ const it: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Mostra/nascondi playlist',
+  'playlist.reorder_handle': 'Riordina {{title}}, posizione {{position}}',
+  'playlist.reorder_position': '{{title}}, posizione {{position}} di {{total}}',
   'playlist.repeat_all': 'Riproduzione ripetuta attiva',
   'playlist.repeat_one': 'Riproduzione ripetuta del brano attiva',
   'playlist.repeat_off': 'Riproduzione ripetuta disattivata',
@@ -94,9 +96,11 @@ const it: Record<I18nKey, string> = {
   'playlist.loading_info': 'Caricamento informazioni del brano...',
   'playlist.sub_load_failed': 'Impossibile recuperare le informazioni del video',
   'playlist.remove_title': 'Rimuovi dalla playlist',
-  'playlist.remove_message': 'Vuoi rimuovere questo brano dalla playlist?',
-  'playlist.remove_yes': 'Rimuovi',
-  'playlist.remove_no': 'No',
+  'playlist.select_for_deletion': 'Seleziona {{title}} per eliminarlo',
+  'playlist.deselect_for_deletion': 'Deseleziona {{title}}',
+  'playlist.deselect_all': 'Deseleziona tutto',
+  'playlist.select_all': 'Seleziona tutto',
+  'playlist.delete_selected': 'Elimina {{count}} brani selezionati',
   'playlist.video_fallback': 'Caricamento...',
   'playlist.track_fallback': 'Brano {{idx}}',
   'playlist.deferred_load_hint':

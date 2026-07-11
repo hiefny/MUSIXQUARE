@@ -26,7 +26,7 @@ export {
   unicastFile,
   cancelOutgoingFileTransfers,
 } from './transfer-send.ts';
-export { cancelIncomingFileTransfer, fetchDemoFromServer } from './transfer-receive.ts';
+export { cancelIncomingFileTransfer, resetIncomingTransferAuthority } from './transfer-receive.ts';
 export { isArrayBuffer } from './transfer-shared.ts';
 
 // ─── Register Handlers ──────────────────────────────────────────────
@@ -45,11 +45,23 @@ export function initTransfer(): void {
   // instead of allowing finalization with a missing chunk.
   bus.on('storage:write-error', (data: unknown) => {
     const info = data as
-      | { filename?: string; chunkIndex?: number; isPreload?: boolean }
+      | {
+          queueItemId?: string;
+          sessionId?: number;
+          filename?: string;
+          chunkIndex?: number;
+          isPreload?: boolean;
+        }
       | undefined;
     if (info?.isPreload) return; // Preload write errors are handled separately
     const transferState = getState('transfer.state');
-    if (transferState === TRANSFER_STATE.RECEIVING) {
+    const meta = getState('transfer.meta');
+    if (
+      transferState === TRANSFER_STATE.RECEIVING &&
+      !!info?.queueItemId &&
+      info.queueItemId === meta?.queueItemId &&
+      Number(info.sessionId) === Number(meta?.sessionId)
+    ) {
       log.warn('[Transfer] Storage write failed — requesting recovery');
       bus.emit('storage:request-recovery');
     }

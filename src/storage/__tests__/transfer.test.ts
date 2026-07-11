@@ -8,6 +8,26 @@ import { MSG, TRANSFER_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection } from '../../types/index.ts';
 
+const Q0 = '00000000-0000-4000-8000-000000000001';
+const Q1 = '00000000-0000-4000-8000-000000000002';
+
+function publishHostFile(file: File | Blob, queueItemId = Q0, sessionId = 1): void {
+  setState('playlist.items', [
+    { queueItemId: Q0, type: 'file', name: 'a.mp3', videoId: null, playlistId: null },
+    { queueItemId: Q1, type: 'file', name: 'b.mp3', videoId: null, playlistId: null },
+  ]);
+  setState('playlist.currentQueueItemId', queueItemId);
+  setState('files.current', {
+    queueItemId,
+    indexHint: queueItemId === Q0 ? 0 : 1,
+    name: file instanceof File ? file.name : 'Track',
+    sessionId,
+    size: file.size,
+    mime: file.type,
+    blob: file,
+  });
+}
+
 beforeEach(() => {
   resetState();
   bus.clear();
@@ -108,7 +128,8 @@ describe('host outgoing transfer routing', () => {
       }),
     } as unknown as DataConnection;
 
-    setState('playlist.currentTrackIndex', 0);
+    const file = new File(['abc'], 'song.mp3', { type: 'audio/mpeg' });
+    publishHostFile(file, Q0, 1);
     setState('network.connectedPeers', [
       {
         id: 'peer-current',
@@ -135,7 +156,7 @@ describe('host outgoing transfer routing', () => {
       ]),
     );
 
-    await broadcastFile(new File(['abc'], 'song.mp3', { type: 'audio/mpeg' }), 1);
+    await broadcastFile(file, Q0, 1);
 
     expect(staleConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
     expect(staleConn.send).not.toHaveBeenCalledWith(
@@ -172,7 +193,9 @@ describe('host outgoing transfer routing', () => {
         dataChannel: { readyState: 'open', bufferedAmount: 0 },
       } as unknown as DataConnection;
 
-      setState('playlist.currentTrackIndex', 0);
+      const fileA = new File(['aaa'], 'a.mp3', { type: 'audio/mpeg' });
+      const fileB = new File(['bbb'], 'b.mp3', { type: 'audio/mpeg' });
+      publishHostFile(fileA, Q0, 1);
       setState('network.connectedPeers', [
         {
           id: 'peer-slow',
@@ -200,10 +223,11 @@ describe('host outgoing transfer routing', () => {
       );
 
       // Leave A pending in the slow peer's backpressure wait.
-      const a = broadcastFile(new File(['aaa'], 'a.mp3', { type: 'audio/mpeg' }), 1);
+      const a = broadcastFile(fileA, Q0, 1);
       await vi.advanceTimersByTimeAsync(100);
 
-      const b = broadcastFile(new File(['bbb'], 'b.mp3', { type: 'audio/mpeg' }), 2);
+      publishHostFile(fileB, Q1, 2);
+      const b = broadcastFile(fileB, Q1, 2);
       // Advance past both broadcasts' waits on the slow peer.
       await vi.advanceTimersByTimeAsync(12_000);
       await a;
@@ -242,7 +266,8 @@ describe('host outgoing transfer routing', () => {
       dataChannel: { readyState: 'open', bufferedAmount: 1024 * 1024 },
     } as unknown as DataConnection;
 
-    setState('playlist.currentTrackIndex', 0);
+    const file = new File(['abc'], 'song.mp3', { type: 'audio/mpeg' });
+    publishHostFile(file, Q0, 1);
     setState('network.connectedPeers', [
       {
         id: 'peer-live',
@@ -269,7 +294,7 @@ describe('host outgoing transfer routing', () => {
       ]),
     );
 
-    await broadcastFile(new File(['abc'], 'song.mp3', { type: 'audio/mpeg' }), 1);
+    await broadcastFile(file, Q0, 1);
 
     expect(disconnectedConn.send).not.toHaveBeenCalled();
     expect(liveConn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
@@ -301,33 +326,32 @@ describe('host unicast source liveness', () => {
     return conn;
   }
 
-  it('freezes the fallback track index before transport classification awaits', async () => {
+  it('freezes the queue item before transport classification awaits', async () => {
     const { unicastFile } = await import('../transfer.ts');
     const conn = installUnicastPeer();
-    setState('playlist.currentTrackIndex', 0);
+    publishHostFile(new Blob(['old-track']), Q0, 4);
 
-    const pending = unicastFile(conn, new Blob(['old-track']), 0, 4);
+    const pending = unicastFile(conn, new Blob(['old-track']), 0, 4, { queueItemId: Q0 });
     // canSendFileTo is async even for a known-local peer. Switching tracks in
-    // this microtask must invalidate the frozen index instead of relabeling
-    // the old bytes with index 1.
-    setState('playlist.currentTrackIndex', 1);
+    // this microtask must invalidate the frozen queue occurrence instead of
+    // relabeling the old bytes with Q1.
+    setState('playlist.currentQueueItemId', Q1);
     await pending;
 
     expect(conn.send).not.toHaveBeenCalled();
   });
 
-  it('revalidates an exact same-index Blob replacement before FILE_START', async () => {
+  it('revalidates an exact same-queue-item Blob replacement before FILE_START', async () => {
     const { unicastFile } = await import('../transfer.ts');
     const conn = installUnicastPeer();
     const selected = new Blob(['selected']);
-    setState('playlist.currentTrackIndex', 0);
-    setState('files.currentFileBlob', selected);
+    publishHostFile(selected, Q0, 4);
 
     const pending = unicastFile(conn, selected, 0, 4, {
-      trackIndex: 0,
-      isSourceCurrent: () => getState('files.currentFileBlob') === selected,
+      queueItemId: Q0,
+      isSourceCurrent: () => getState('files.current')?.blob === selected,
     });
-    setState('files.currentFileBlob', new Blob(['replacement']));
+    publishHostFile(new Blob(['replacement']), Q0, 4);
     await pending;
 
     expect(conn.send).not.toHaveBeenCalled();
@@ -341,11 +365,11 @@ describe('host unicast source liveness', () => {
         dataChannel: { readyState: string; bufferedAmount: number };
       };
       conn.dataChannel.bufferedAmount = 1024 * 1024;
-      setState('playlist.currentTrackIndex', 0);
+      publishHostFile(new Blob(['active']), Q0, 4);
       let sourceCurrent = true;
 
       const pending = unicastFile(conn, new Blob(['blocked']), 0, 4, {
-        trackIndex: 0,
+        queueItemId: Q0,
         isSourceCurrent: () => sourceCurrent,
       });
       await vi.advanceTimersByTimeAsync(100);
@@ -376,11 +400,11 @@ describe('host unicast source liveness', () => {
         type: 'audio/mpeg',
         slice: vi.fn(() => ({ arrayBuffer: () => read })),
       } as unknown as Blob;
-      setState('playlist.currentTrackIndex', 0);
+      publishHostFile(new Blob(['active']), Q0, 4);
       let sourceCurrent = true;
 
       const pending = unicastFile(conn, deferredBlob, 0, 4, {
-        trackIndex: 0,
+        queueItemId: Q0,
         isSourceCurrent: () => sourceCurrent,
       });
       await vi.advanceTimersByTimeAsync(100);
@@ -400,14 +424,14 @@ describe('host unicast source liveness', () => {
     try {
       const { unicastFile } = await import('../transfer.ts');
       const conn = installUnicastPeer();
-      setState('playlist.currentTrackIndex', 0);
+      publishHostFile(new Blob(['active']), Q0, 4);
       let sourceCurrent = true;
       vi.mocked(conn.send).mockImplementation((message: unknown) => {
         if ((message as { type?: string }).type === MSG.FILE_CHUNK) sourceCurrent = false;
       });
 
       const pending = unicastFile(conn, new Blob(['one-chunk']), 0, 4, {
-        trackIndex: 0,
+        queueItemId: Q0,
         isSourceCurrent: () => sourceCurrent,
       });
       await vi.advanceTimersByTimeAsync(1_000);
@@ -454,12 +478,13 @@ describe('debounced broadcast cancellation', () => {
       const { broadcastFileDebounced, cancelOutgoingFileTransfers } =
         await import('../transfer.ts');
       const send = installHealthyPeer('peer-1');
-      setState('playlist.currentTrackIndex', 0);
+      const file = new File(['abc'], 'gone.mp3', { type: 'audio/mpeg' });
+      publishHostFile(file, Q0, 1);
 
-      broadcastFileDebounced(new File(['abc'], 'gone.mp3', { type: 'audio/mpeg' }), 1, {
+      broadcastFileDebounced(file, Q0, 1, {
         type: MSG.FILE_PREPARE,
         name: 'gone.mp3',
-        index: 0,
+        queueItemId: Q0,
         sessionId: 1,
         mime: 'audio/mpeg',
       });
@@ -480,19 +505,22 @@ describe('debounced broadcast cancellation', () => {
     try {
       const { broadcastFileDebounced } = await import('../transfer.ts');
       const send = installHealthyPeer('peer-1');
-      setState('playlist.currentTrackIndex', 1);
+      const fileA = new File(['aaa'], 'a.mp3', { type: 'audio/mpeg' });
+      const fileB = new File(['bbb'], 'b.mp3', { type: 'audio/mpeg' });
+      publishHostFile(fileA, Q0, 1);
 
-      broadcastFileDebounced(new File(['aaa'], 'a.mp3', { type: 'audio/mpeg' }), 1, {
+      broadcastFileDebounced(fileA, Q0, 1, {
         type: MSG.FILE_PREPARE,
         name: 'a.mp3',
-        index: 0,
+        queueItemId: Q0,
         sessionId: 1,
         mime: 'audio/mpeg',
       });
-      broadcastFileDebounced(new File(['bbb'], 'b.mp3', { type: 'audio/mpeg' }), 2, {
+      publishHostFile(fileB, Q1, 2);
+      broadcastFileDebounced(fileB, Q1, 2, {
         type: MSG.FILE_PREPARE,
         name: 'b.mp3',
-        index: 1,
+        queueItemId: Q1,
         sessionId: 2,
         mime: 'audio/mpeg',
       });

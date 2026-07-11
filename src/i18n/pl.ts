@@ -84,6 +84,8 @@ const pl: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Pokaż/ukryj playlistę',
+  'playlist.reorder_handle': 'Zmień kolejność {{title}}, pozycja {{position}}',
+  'playlist.reorder_position': '{{title}}, pozycja {{position}} z {{total}}',
   'playlist.repeat_all': 'Powtarzanie wszystkich utworów włączone',
   'playlist.repeat_one': 'Powtarzanie jednego utworu włączone',
   'playlist.repeat_off': 'Powtarzanie wyłączone',
@@ -94,9 +96,11 @@ const pl: Record<I18nKey, string> = {
   'playlist.loading_info': 'Ładowanie informacji o utworze...',
   'playlist.sub_load_failed': 'Nie udało się załadować informacji o wideo',
   'playlist.remove_title': 'Usuń z playlisty',
-  'playlist.remove_message': 'Czy chcesz usunąć ten utwór z playlisty?',
-  'playlist.remove_yes': 'Usuń',
-  'playlist.remove_no': 'Nie',
+  'playlist.select_for_deletion': 'Zaznacz {{title}} do usunięcia',
+  'playlist.deselect_for_deletion': 'Odznacz {{title}}',
+  'playlist.deselect_all': 'Odznacz wszystko',
+  'playlist.select_all': 'Zaznacz wszystko',
+  'playlist.delete_selected': 'Usuń zaznaczone utwory: {{count}}',
   'playlist.video_fallback': 'Ładowanie...',
   'playlist.track_fallback': 'Utwór {{idx}}',
   'playlist.deferred_load_hint':

@@ -6,7 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { bus } from '../core/events.ts';
 import { MSG } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
@@ -18,8 +18,13 @@ import { scheduleYtAutoSync } from './player.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
-import { createYouTubeTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
-import type { DataConnection } from '../types/index.ts';
+import { setPlaybackTrackMeta } from '../player/ownership.ts';
+import {
+  getCurrentQueueItemId,
+  getQueueItemById,
+  selectQueueItemById,
+} from '../player/queue-model.ts';
+import type { DataConnection, QueueItemId } from '../types/index.ts';
 
 import type { YTNamespace } from './_state.ts';
 declare const YT: YTNamespace;
@@ -39,8 +44,7 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
 
   const videoId = data.videoId as string | null;
   const playlistId = data.playlistId as string | null;
-  const name = data.name as string | null;
-  const index = data.index as number | undefined;
+  const queueItemId = data.queueItemId as QueueItemId;
   const autoplay = data.autoplay as boolean | undefined;
   const subIndex = data.subIndex as number | undefined;
 
@@ -60,27 +64,15 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
   // Cancel any in-flight file transfer before switching to YouTube mode.
   cancelInFlightTransfer();
 
-  if (index !== undefined) {
-    setState('playlist.currentTrackIndex', index);
+  // The ordered playlist snapshot must land first. queueItemId selects the
+  // exact occurrence even if its position changed before this command.
+  const playlistItem = getQueueItemById(queueItemId);
+  if (!playlistItem || playlistItem.type !== 'youtube') {
+    log.warn('[YouTube] Ignored play for an unknown queue item:', queueItemId);
+    return;
   }
-
-  // Mirror host's playTrack(): set currentTrackMeta so the UI doesn't display
-  // "미디어 없음". Prefer the synced playlist entry (has the real title from
-  // PLAYLIST_UPDATE); fall back to a synthetic meta built from the broadcast's
-  // `name` field when the playlist hasn't landed yet (late-join races).
-  const playlist = getState('playlist.items') || [];
-  const playlistItem = index !== undefined && index >= 0 ? playlist[index] : undefined;
-  if (playlistItem) {
-    setPlaybackTrackMeta(playlistItem);
-  } else if (name || videoId) {
-    setPlaybackTrackMeta(
-      createYouTubeTrackMeta({
-        name: name || '',
-        videoId: videoId || null,
-        playlistId: playlistId || null,
-      }),
-    );
-  }
+  if (!selectQueueItemById(queueItemId)) return;
+  setPlaybackTrackMeta(playlistItem);
 
   let finalVideoId = videoId;
   let finalPlaylistId = playlistId;
@@ -118,10 +110,15 @@ function guardHostRequest(
   data: Record<string, unknown>,
   conn: DataConnection,
   requestName: string,
+  requireCurrent = true,
 ): boolean {
   if (getState('network.hostConn')) return false; // Guest — not our job
   if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected ${requestName} from non-OP: ${conn?.peer}`);
+    return false;
+  }
+  if (requireCurrent && data.queueItemId !== getCurrentQueueItemId()) {
+    log.warn(`[YouTube] Rejected stale ${requestName} for another queue item`);
     return false;
   }
   return true;
@@ -178,16 +175,17 @@ export function handleRequestYouTubeSubSeek(
   data: Record<string, unknown>,
   conn: DataConnection,
 ): void {
-  if (!guardHostRequest(data, conn, 'request-youtube-sub-seek')) return;
+  if (!guardHostRequest(data, conn, 'request-youtube-sub-seek', false)) return;
 
   const subIdx = data.subIdx as number;
-  const playlistIdx = data.playlistIdx as number | undefined;
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const queueItemId = data.queueItemId as QueueItemId;
+  const currentQueueItemId = getCurrentQueueItemId();
 
   // If the request targets a different playlist item, switch to it first
   // (mirrors the local path in youtube/player.ts 'youtube:sub-seek' handler)
-  if (playlistIdx !== undefined && playlistIdx !== currentTrackIndex) {
-    bus.emit('playlist:play-track', playlistIdx, subIdx);
+  if (queueItemId !== currentQueueItemId) {
+    if (!getQueueItemById(queueItemId)) return;
+    bus.emit('playlist:play-track', queueItemId, subIdx);
     return;
   }
 
@@ -196,8 +194,7 @@ export function handleRequestYouTubeSubSeek(
     // Single-video mode: resolve videoId from subItemsMap and loadVideoById.
     // No playVideoAt — keeps the native playlist engine dormant so the
     // iframe stays on one video at a time.
-    const playlist = getState('playlist.items') || [];
-    const currentItem = playlist[currentTrackIndex];
+    const currentItem = getQueueItemById(currentQueueItemId);
     const subMap = getState('youtube.subItemsMap') || {};
     const ids = subMap[currentItem?.playlistId as string]?.ids || [];
     const targetVideoId = ids[subIdx];

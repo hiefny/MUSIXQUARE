@@ -4,6 +4,7 @@ import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection, TrackMeta } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
+import { markQueueAuthorityReady } from '../queue-authority.ts';
 import {
   cleanupGuestSystemAudio,
   registerSystemAudioGuestListeners,
@@ -83,6 +84,7 @@ describe('system audio guest receive watchdog', () => {
     timerMocks.timers.clear();
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
+    markQueueAuthorityReady(hostConn);
     registerSystemAudioGuestListeners();
   });
 

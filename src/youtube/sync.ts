@@ -19,6 +19,7 @@ import {
   updatePlaybackTrackMeta,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
+import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import { broadcast } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
@@ -104,7 +105,8 @@ function applyYouTubeManualOffset(
 export function broadcastYouTubeSync(isManual = false, stateOverride?: number): void {
   const player = getYouTubePlayer();
   const hostConn = getState('network.hostConn');
-  if (!player || hostConn || !player.getCurrentTime) return;
+  const queueItemId = getCurrentQueueItemId();
+  if (!player || hostConn || !player.getCurrentTime || !queueItemId) return;
 
   // Dedup heartbeats that immediately follow a manual broadcast. Manual
   // broadcasts always pass through (the caller explicitly asked for a
@@ -145,9 +147,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
       if (typeof sIdx === 'number' && sIdx !== -1 && sIdx !== currentYouTubeSubIndex) {
         setYouTubeSubIndex(sIdx);
 
-        const playlist = getState('playlist.items') || [];
-        const currentTrackIndex = getState('playlist.currentTrackIndex');
-        const currentItem = playlist[currentTrackIndex];
+        const currentItem = getQueueItemById(queueItemId);
 
         if (currentItem?.playlistId) {
           const pid = currentItem.playlistId as string;
@@ -194,6 +194,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
 
     broadcast({
       type: MSG.YOUTUBE_SYNC,
+      queueItemId,
       time: currentTime,
       state,
       subIndex: getState('youtube.currentSubIndex') ?? -1,
@@ -403,6 +404,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   // breaking the next legitimate rendezvous calibration. Apply the same
   // trust-boundary guard to both YOUTUBE_SYNC and YOUTUBE_STATE.
   if (!isHostBroadcast(conn)) return;
+  if (data.queueItemId !== getCurrentQueueItemId()) return;
 
   const player = getYouTubePlayer();
 
@@ -956,6 +958,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // attacker-supplied content. Guard placed at function entry so the
   // snapshot is also protected.
   if (!isHostBroadcast(conn)) return;
+  if (data.queueItemId !== getCurrentQueueItemId()) return;
 
   const player = getYouTubePlayer();
 
@@ -1087,9 +1090,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     // Sub-index state alignment — videoId already matched above, so just
     // update state if the tracked subIndex differs. No player call needed.
     if (!subIndexChanged && subIndex !== undefined && subIndex >= 0) {
-      const currentTrack = (getState('playlist.items') || [])[
-        getState('playlist.currentTrackIndex')
-      ];
+      const currentTrack = getQueueItemById(getCurrentQueueItemId());
       const isPlaylistTrack = !!currentTrack?.playlistId;
       const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
       if (isPlaylistTrack && currentSubIndex !== subIndex) {
@@ -1304,9 +1305,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>, conn?: DataConnecti
 
   updateSubItemTitle(playlistId, subIdx, title);
 
-  const playlist = getState('playlist.items') || [];
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const currentItem = playlist[currentTrackIndex];
+  const currentItem = getQueueItemById(getCurrentQueueItemId());
   const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
     updatePlaybackTrackMeta(() => ({ ...currentItem, title: title }));
@@ -1344,12 +1343,13 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataCon
 
 // ─── Handle YouTube Stop ──────────────────────────────────────────
 
-function handleYouTubeStop(_data: Record<string, unknown>, conn?: DataConnection): void {
+function handleYouTubeStop(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop YOUTUBE_STOP frames not arriving via hostConn. Without this, a
   // single raw frame from any peer forces a guest in PLAYING_YOUTUBE out of
   // YouTube mode via the bus emissions below — a single-frame DoS on the
   // target's YouTube session.
   if (!isHostBroadcast(conn)) return;
+  if (data.queueItemId !== getState('player.currentTrackMeta')?.queueItemId) return;
 
   _rt.autoSyncUntil = 0;
   clearPendingManualRendezvous();

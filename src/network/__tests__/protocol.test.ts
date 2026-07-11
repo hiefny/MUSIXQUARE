@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { resetState, getState } from '../../core/state.ts';
+import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import {
   MSG,
@@ -21,6 +21,9 @@ import {
 } from '../protocol.ts';
 import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.ts';
 
+const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+const OTHER_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
+
 beforeEach(() => {
   resetState();
   bus.clear();
@@ -30,14 +33,18 @@ function makeConnection(peer: string): DataConnection {
   return { peer } as DataConnection;
 }
 
-function makeConnectedPeer(id: string, isOp: boolean): ConnectedPeer {
+function makeConnectedPeer(
+  id: string,
+  isOp: boolean,
+  conn: DataConnection | null = null,
+): ConnectedPeer {
   return {
     id,
     slot: 0,
     label: id,
-    conn: null,
+    conn,
     isOp,
-    preloadedIndexes: new Set<number>(),
+    preloadedQueueItemIds: new Set(),
     status: 'connected',
     isDataTarget: true,
     joinOrder: 0,
@@ -92,23 +99,23 @@ describe('validateMessage', () => {
   });
 
   it('validates required fields — passes when all present', () => {
-    const msg = { type: 'FILE_CHUNK', index: 5, sessionId: 1 };
-    expect(validateMessage(msg, ['index', 'sessionId'])).toBe(true);
+    const msg = { type: 'FILE_CHUNK', chunkIndex: 5, sessionId: 1 };
+    expect(validateMessage(msg, ['chunkIndex', 'sessionId'])).toBe(true);
   });
 
   it('validates required fields — fails when a required field is missing', () => {
-    const msg = { type: 'FILE_CHUNK', index: 5 };
-    expect(validateMessage(msg, ['index', 'sessionId'])).toBe(false);
+    const msg = { type: 'FILE_CHUNK', chunkIndex: 5 };
+    expect(validateMessage(msg, ['chunkIndex', 'sessionId'])).toBe(false);
   });
 
   it('validates required fields — fails when a required field is null', () => {
-    const msg = { type: 'FILE_CHUNK', index: 5, sessionId: null };
-    expect(validateMessage(msg, ['index', 'sessionId'])).toBe(false);
+    const msg = { type: 'FILE_CHUNK', chunkIndex: 5, sessionId: null };
+    expect(validateMessage(msg, ['chunkIndex', 'sessionId'])).toBe(false);
   });
 
   it('validates required fields — fails when a required field is undefined', () => {
-    const msg = { type: 'FILE_CHUNK', index: 5, sessionId: undefined };
-    expect(validateMessage(msg, ['index', 'sessionId'])).toBe(false);
+    const msg = { type: 'FILE_CHUNK', chunkIndex: 5, sessionId: undefined };
+    expect(validateMessage(msg, ['chunkIndex', 'sessionId'])).toBe(false);
   });
 });
 
@@ -155,21 +162,32 @@ describe('verifyOperator', () => {
 
   it('returns false when no operator in connectedPeers', () => {
     const conn = makeConnection('peer-123');
+    setState('network.activeHostConnByPeerId', new Map([['peer-123', conn]]));
     expect(verifyOperator(conn)).toBe(false);
   });
 
   it('returns false when peer is found but isOp is false', () => {
     const conn = makeConnection('peer-456');
-    const peers = getState('network.connectedPeers');
-    peers.push(makeConnectedPeer('peer-456', false));
+    setState('network.activeHostConnByPeerId', new Map([['peer-456', conn]]));
+    setState('network.connectedPeers', [makeConnectedPeer('peer-456', false, conn)]);
     expect(verifyOperator(conn)).toBe(false);
   });
 
   it('returns true when peer is found and isOp is true', () => {
     const conn = makeConnection('peer-789');
-    const peers = getState('network.connectedPeers');
-    peers.push(makeConnectedPeer('peer-789', true));
+    setState('network.activeHostConnByPeerId', new Map([['peer-789', conn]]));
+    setState('network.connectedPeers', [makeConnectedPeer('peer-789', true, conn)]);
     expect(verifyOperator(conn)).toBe(true);
+  });
+
+  it('does not inherit operator status from a replacement connection with the same peer id', () => {
+    const stale = makeConnection('peer-op');
+    const active = makeConnection('peer-op');
+    setState('network.activeHostConnByPeerId', new Map([['peer-op', active]]));
+    setState('network.connectedPeers', [makeConnectedPeer('peer-op', true, active)]);
+
+    expect(verifyOperator(stale)).toBe(false);
+    expect(verifyOperator(active)).toBe(true);
   });
 });
 
@@ -213,24 +231,22 @@ describe('YOUTUBE_PLAYLIST_INFO validation', () => {
 });
 
 describe('REQUEST_DATA_RECOVERY validation', () => {
-  // Every field is optional on the wire because production senders differ:
-  // recovery.ts sends {nextChunk, fileName, index, sessionId}; the FILE_WAIT
-  // timeout (transfer-receive.ts), playback-stall (playback.ts) and
-  // preload-decode (preload.ts) paths send {nextChunk: 0, fileName, index}
-  // without sessionId. All four shapes must remain valid.
-  it('dispatches all four production sender shapes', async () => {
+  // Stable queue identity and the transport offset are mandatory. sessionId
+  // remains optional only for the initial recovery request.
+  it('dispatches strict recovery requests with and without sessionId', async () => {
     const handler = vi.fn();
     registerHandler(MSG.REQUEST_DATA_RECOVERY, handler);
     const conn = makeConnection('peer-recovery-valid');
 
     const validMessages = [
-      { nextChunk: 42, fileName: 'song.mp3', index: 0, sessionId: 7 },
-      { nextChunk: 0, fileName: 'song.mp3', index: 2 },
-      { nextChunk: 0, fileName: '', index: 0 },
-      // recovery.ts freshIndex falls back to playlist.currentTrackIndex,
-      // which is legitimately -1 before the first track — must NOT be dropped.
-      { nextChunk: 0, fileName: 'song.mp3', index: -1 },
-      {},
+      {
+        requestId: 1,
+        nextChunk: 42,
+        fileName: 'song.mp3',
+        queueItemId: QUEUE_ITEM_ID,
+        sessionId: 7,
+      },
+      { requestId: 2, nextChunk: 0, fileName: 'other.mp3', queueItemId: OTHER_QUEUE_ITEM_ID },
     ];
 
     for (const message of validMessages) {
@@ -246,21 +262,68 @@ describe('REQUEST_DATA_RECOVERY validation', () => {
     const conn = makeConnection('peer-recovery-invalid');
 
     const invalidMessages = [
-      { nextChunk: -1 },
-      { nextChunk: 2.5 },
-      { nextChunk: Infinity },
-      { nextChunk: 'NaN' },
-      { nextChunk: 0, sessionId: Infinity }, // non-finite session poison
-      { nextChunk: 0, fileName: 42 },
-      { nextChunk: 0, name: { evil: true } }, // handler falls back to data.name
-      { nextChunk: 0, index: NaN }, // non-finite index poison
+      { nextChunk: -1, fileName: 'song.mp3', queueItemId: QUEUE_ITEM_ID },
+      { nextChunk: 2.5, fileName: 'song.mp3', queueItemId: QUEUE_ITEM_ID },
+      { nextChunk: Infinity, fileName: 'song.mp3', queueItemId: QUEUE_ITEM_ID },
+      { nextChunk: 'NaN', fileName: 'song.mp3', queueItemId: QUEUE_ITEM_ID },
+      {
+        nextChunk: 0,
+        fileName: 'song.mp3',
+        queueItemId: QUEUE_ITEM_ID,
+        sessionId: Infinity,
+      },
+      { nextChunk: 0, fileName: 42, queueItemId: QUEUE_ITEM_ID },
+      { nextChunk: 0, fileName: '', queueItemId: QUEUE_ITEM_ID },
+      { nextChunk: 0, fileName: 'song.mp3' },
+      { nextChunk: 0, fileName: 'song.mp3', queueItemId: 'legacy-index-2' },
+      { fileName: 'song.mp3', queueItemId: QUEUE_ITEM_ID },
     ];
 
     for (const message of invalidMessages) {
-      await handleData({ type: MSG.REQUEST_DATA_RECOVERY, ...message }, conn);
+      await handleData({ type: MSG.REQUEST_DATA_RECOVERY, requestId: 1, ...message }, conn);
     }
 
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('track-scoped playback request validation', () => {
+  it('dispatches control requests only with a strict queueItemId', async () => {
+    const conn = makeConnection('peer-playback-requests');
+    const validFrames = [
+      { type: MSG.REQUEST_PLAY, queueItemId: QUEUE_ITEM_ID, time: 12 },
+      { type: MSG.REQUEST_PAUSE, queueItemId: QUEUE_ITEM_ID },
+      { type: MSG.REQUEST_SEEK, queueItemId: QUEUE_ITEM_ID, time: 24 },
+      { type: MSG.REQUEST_SKIP_TIME, queueItemId: QUEUE_ITEM_ID, sec: -10 },
+    ];
+    const handlers = new Map(validFrames.map((frame) => [frame.type, vi.fn()]));
+    for (const [type, handler] of handlers) registerHandler(type, handler);
+
+    for (const frame of validFrames) await handleData(frame, conn);
+
+    for (const handler of handlers.values()) expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects missing, positional, or malformed queue identity', async () => {
+    const conn = makeConnection('peer-playback-requests-invalid');
+    const types = [
+      MSG.REQUEST_PLAY,
+      MSG.REQUEST_PAUSE,
+      MSG.REQUEST_SEEK,
+      MSG.REQUEST_SKIP_TIME,
+    ] as const;
+    const handlers = new Map(types.map((type) => [type, vi.fn()]));
+    for (const [type, handler] of handlers) registerHandler(type, handler);
+
+    const invalidFrames = [
+      { type: MSG.REQUEST_PLAY, time: 12 },
+      { type: MSG.REQUEST_PAUSE, queueItemId: 0 },
+      { type: MSG.REQUEST_SEEK, queueItemId: 'legacy-index-0', time: 24 },
+      { type: MSG.REQUEST_SKIP_TIME, queueItemId: null, sec: -10 },
+    ];
+    for (const frame of invalidFrames) await handleData(frame, conn);
+
+    for (const handler of handlers.values()) expect(handler).not.toHaveBeenCalled();
   });
 });
 
@@ -281,7 +344,7 @@ describe('file-transfer frame validation', () => {
       mime: 'audio/wav',
       size: REMOTE_SHARE_MAX_BYTES,
       encryptedSize: REMOTE_SHARE_MAX_BYTES + REMOTE_SHARE_AES_GCM_TAG_BYTES,
-      index: 0,
+      queueItemId: QUEUE_ITEM_ID,
       sessionId: 1,
       expiresAt: Date.now() + 60_000,
     };
@@ -324,6 +387,7 @@ describe('file-transfer frame validation', () => {
         sessionId: 3,
         total: 1200,
         size: 1199 * CHUNK_SIZE + 1,
+        queueItemId: QUEUE_ITEM_ID,
       },
       conn,
     );
@@ -334,6 +398,7 @@ describe('file-transfer frame validation', () => {
         sessionId: 3,
         total: 200_000,
         size: 199_999 * CHUNK_SIZE + 1,
+        queueItemId: QUEUE_ITEM_ID,
       },
       conn,
     );
@@ -341,7 +406,8 @@ describe('file-transfer frame validation', () => {
       {
         type: MSG.FILE_CHUNK,
         chunk: new Uint8Array(CHUNK_SIZE),
-        index: 0,
+        chunkIndex: 0,
+        queueItemId: QUEUE_ITEM_ID,
         sessionId: 3,
         name: 'song.mp3',
         total: 1,
@@ -353,7 +419,8 @@ describe('file-transfer frame validation', () => {
       {
         type: MSG.FILE_CHUNK,
         chunk: new ArrayBuffer(16),
-        index: 7,
+        chunkIndex: 7,
+        queueItemId: QUEUE_ITEM_ID,
         sessionId: 3,
         name: 'song.mp3',
         total: 8,
@@ -366,16 +433,16 @@ describe('file-transfer frame validation', () => {
     expect(chunkHandler).toHaveBeenCalledTimes(2);
   });
 
-  it('accepts only non-negative safe optional playlist indexes on FILE_START and FILE_RESUME', async () => {
+  it('requires a strict queueItemId on FILE_START and FILE_RESUME', async () => {
     const startHandler = vi.fn();
     const resumeHandler = vi.fn();
     registerHandler(MSG.FILE_START, startHandler);
     registerHandler(MSG.FILE_RESUME, resumeHandler);
-    const conn = makeConnection('peer-file-index');
+    const conn = makeConnection('peer-file-identity');
 
-    for (const index of [undefined, 0, Number.MAX_SAFE_INTEGER]) {
+    for (const queueItemId of [QUEUE_ITEM_ID, OTHER_QUEUE_ITEM_ID]) {
       await handleData(
-        { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 1, size: 1, index },
+        { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 1, size: 1, queueItemId },
         conn,
       );
       await handleData(
@@ -386,18 +453,18 @@ describe('file-transfer frame validation', () => {
           startChunk: 0,
           total: 1,
           size: 1,
-          index,
+          queueItemId,
         },
         conn,
       );
     }
 
-    expect(startHandler).toHaveBeenCalledTimes(3);
-    expect(resumeHandler).toHaveBeenCalledTimes(3);
+    expect(startHandler).toHaveBeenCalledTimes(2);
+    expect(resumeHandler).toHaveBeenCalledTimes(2);
 
-    for (const index of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity, null, '0']) {
+    for (const queueItemId of [undefined, null, '', 'legacy-index-0', 0]) {
       await handleData(
-        { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 1, size: 1, index },
+        { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 1, size: 1, queueItemId },
         conn,
       );
       await handleData(
@@ -408,14 +475,14 @@ describe('file-transfer frame validation', () => {
           startChunk: 0,
           total: 1,
           size: 1,
-          index,
+          queueItemId,
         },
         conn,
       );
     }
 
-    expect(startHandler).toHaveBeenCalledTimes(3);
-    expect(resumeHandler).toHaveBeenCalledTimes(3);
+    expect(startHandler).toHaveBeenCalledTimes(2);
+    expect(resumeHandler).toHaveBeenCalledTimes(2);
   });
 
   it('drops oversized, non-finite, or mistyped file frames before dispatch', async () => {
@@ -425,19 +492,42 @@ describe('file-transfer frame validation', () => {
     registerHandler(MSG.FILE_CHUNK, chunkHandler);
     const conn = makeConnection('peer-file-hostile');
 
+    const validChunk = {
+      type: MSG.FILE_CHUNK,
+      chunk: new Uint8Array(8),
+      chunkIndex: 0,
+      queueItemId: QUEUE_ITEM_ID,
+      sessionId: 3,
+      name: 'song.mp3',
+      total: 1,
+      size: 8,
+    };
+    const validStart = {
+      type: MSG.FILE_START,
+      name: 'song.mp3',
+      sessionId: 3,
+      total: 1,
+      size: 1,
+      queueItemId: QUEUE_ITEM_ID,
+    };
     const hostileFrames = [
       // The sender never emits chunks larger than CHUNK_SIZE.
-      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(CHUNK_SIZE + 1), index: 0, sessionId: 3 },
-      { type: MSG.FILE_CHUNK, chunk: 'AAAA', index: 0, sessionId: 3 },
-      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: -1, sessionId: 3 },
-      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: 2.5, sessionId: 3 },
+      {
+        ...validChunk,
+        chunk: new Uint8Array(CHUNK_SIZE + 1),
+        total: 2,
+        size: CHUNK_SIZE + 1,
+      },
+      { ...validChunk, chunk: 'AAAA' },
+      { ...validChunk, chunkIndex: -1 },
+      { ...validChunk, chunkIndex: 2.5 },
       // Non-finite session IDs poison receiver session state.
-      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(8), index: 0, sessionId: Infinity },
-      { type: MSG.FILE_START, name: 'song.mp3', sessionId: Infinity, total: 10 },
+      { ...validChunk, sessionId: Infinity },
+      { ...validStart, sessionId: Infinity },
       // Oversized totals can force an excessive receiver reorder budget.
-      { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 200_001 },
-      { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: -1 },
-      { type: MSG.FILE_START, sessionId: 3, total: 10 },
+      { ...validStart, total: 200_001, size: 200_000 * CHUNK_SIZE + 1 },
+      { ...validStart, total: -1 },
+      { ...validStart, name: undefined },
     ];
 
     for (const frame of hostileFrames) {
@@ -458,7 +548,7 @@ describe('file-transfer frame validation', () => {
       {
         type: MSG.PRELOAD_START,
         name: 'song.mp3',
-        index: 0,
+        queueItemId: QUEUE_ITEM_ID,
         sessionId: Infinity,
         total: 1,
         size: 1,
@@ -466,13 +556,26 @@ describe('file-transfer frame validation', () => {
       conn,
     );
     await handleData(
-      { type: MSG.PRELOAD_START, name: 'song.mp3', index: 0, total: 1, size: 1 },
+      {
+        type: MSG.PRELOAD_START,
+        name: 'song.mp3',
+        queueItemId: QUEUE_ITEM_ID,
+        total: 1,
+        size: 1,
+      },
       conn,
     );
     expect(startHandler).not.toHaveBeenCalled();
 
     await handleData(
-      { type: MSG.PRELOAD_START, name: 'song.mp3', index: 0, sessionId: 4, total: 1, size: 1 },
+      {
+        type: MSG.PRELOAD_START,
+        name: 'song.mp3',
+        queueItemId: QUEUE_ITEM_ID,
+        sessionId: 4,
+        total: 1,
+        size: 1,
+      },
       conn,
     );
     expect(startHandler).toHaveBeenCalledTimes(1);
@@ -496,17 +599,31 @@ describe('file-transfer frame validation', () => {
 
     for (const sessionId of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       const frames = [
-        { type: MSG.FILE_START, name: 'x.mp3', sessionId, total: 1, size: 1 },
+        {
+          type: MSG.FILE_START,
+          name: 'x.mp3',
+          sessionId,
+          total: 1,
+          size: 1,
+          queueItemId: QUEUE_ITEM_ID,
+        },
         {
           type: MSG.FILE_CHUNK,
           name: 'x.mp3',
           sessionId,
           total: 1,
           size: 1,
-          index: 0,
+          chunkIndex: 0,
+          queueItemId: QUEUE_ITEM_ID,
           chunk: new Uint8Array([1]),
         },
-        { type: MSG.FILE_END, name: 'x.mp3', sessionId },
+        {
+          type: MSG.FILE_END,
+          name: 'x.mp3',
+          mime: 'audio/mpeg',
+          queueItemId: QUEUE_ITEM_ID,
+          sessionId,
+        },
         {
           type: MSG.FILE_RESUME,
           name: 'x.mp3',
@@ -514,17 +631,31 @@ describe('file-transfer frame validation', () => {
           total: 1,
           size: 1,
           startChunk: 0,
+          queueItemId: QUEUE_ITEM_ID,
         },
-        { type: MSG.PRELOAD_START, name: 'x.mp3', sessionId, index: 0, total: 1, size: 1 },
+        {
+          type: MSG.PRELOAD_START,
+          name: 'x.mp3',
+          sessionId,
+          queueItemId: QUEUE_ITEM_ID,
+          total: 1,
+          size: 1,
+        },
         {
           type: MSG.PRELOAD_CHUNK,
           sessionId,
-          index: 0,
+          chunkIndex: 0,
+          queueItemId: QUEUE_ITEM_ID,
           chunk: new Uint8Array([1]),
         },
-        { type: MSG.PRELOAD_END, name: 'x.mp3', sessionId, index: 0 },
-        { type: MSG.PRELOAD_ABORT, sessionId },
-        { type: MSG.REMOTE_FILE_UNAVAILABLE, name: 'x.mp3', sessionId, index: 0 },
+        { type: MSG.PRELOAD_END, name: 'x.mp3', sessionId, queueItemId: QUEUE_ITEM_ID },
+        { type: MSG.PRELOAD_ABORT, sessionId, queueItemId: QUEUE_ITEM_ID },
+        {
+          type: MSG.REMOTE_FILE_UNAVAILABLE,
+          name: 'x.mp3',
+          sessionId,
+          queueItemId: QUEUE_ITEM_ID,
+        },
       ];
       for (const frame of frames) await handleData(frame, conn);
     }
@@ -590,7 +721,13 @@ describe('inbound per-peer rate limit', () => {
     // Chunk frames bypass the bucket — transfer-layer backpressure throttles
     // them, and dropping them here would stall legitimate transfers.
     await handleData(
-      { type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(16), index: 0, sessionId: 1 },
+      {
+        type: MSG.PRELOAD_CHUNK,
+        chunk: new Uint8Array(16),
+        chunkIndex: 0,
+        queueItemId: QUEUE_ITEM_ID,
+        sessionId: 1,
+      },
       conn,
     );
     expect(chunk).toHaveBeenCalledTimes(1);

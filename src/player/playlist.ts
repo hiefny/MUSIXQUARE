@@ -19,7 +19,7 @@ import {
   getTrackPosition,
   isFilePipelineBusyForPlay,
 } from './transport.ts';
-import { loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
+import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import {
   newLoadEpoch,
   isCurrentLoadEpoch,
@@ -29,7 +29,11 @@ import {
 import { isMediaVideo } from './video.ts';
 import { transition } from './lifecycle.ts';
 
-import { schedulePreload, cancelPreloadTransfer } from '../storage/preload.ts';
+import {
+  schedulePreload,
+  cancelPreloadTransfer,
+  resetPreloadReceiveAuthority,
+} from '../storage/preload.ts';
 import {
   setEQ,
   setExciter,
@@ -43,18 +47,33 @@ import {
   cancelIncomingFileTransfer,
   cancelOutgoingFileTransfers,
   cancelPendingBroadcast,
+  resetIncomingTransferAuthority,
 } from '../storage/transfer.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
-import type { DataConnection, PlaylistItem } from '../types/index.ts';
+import type { DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
-import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
+import { cancelRemoteShareWait, shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 import { getHostNow } from '../network/shared-clock.ts';
+import { hasQueueAuthority, markQueueAuthorityReady } from '../network/queue-authority.ts';
+import { resetRecoveryAuthority } from '../storage/recovery.ts';
+import {
+  applyPlaylistSnapshot,
+  commitPlaylistItems,
+  createPlaylistSnapshot,
+  createQueueItemId,
+  findQueueItemIndex,
+  getCurrentQueueItemId,
+  getCurrentQueueItemIndex,
+  getQueueItemById,
+  moveQueueItemBefore,
+  selectQueueItemById,
+} from './queue-model.ts';
 
 const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
 
@@ -63,14 +82,14 @@ function getLocalFileHostPlayAt(): number {
 }
 
 // ─── Shuffle Order (Fisher-Yates) ──────────────────────────────────
-// A persistent permutation of playlist indices so that prev/next in shuffle
+// A persistent permutation of queue occurrence IDs so that prev/next in shuffle
 // mode traverse a stable order — going back and then forward returns to the
 // same track. Regenerated on:
 //   - shuffle toggled ON
-//   - playlist mutated (added/removed/reordered)
+//   - new occurrences are added (removal/reorder preserve surviving ID order)
 //   - full shuffle exhausted with repeat-all (reshuffle for a fresh pass)
 
-let _shuffleOrder: number[] = [];
+let _shuffleOrder: QueueItemId[] = [];
 let _shufflePosition = 0;
 const DEMO_ALLOWED_SETTING_TYPES = new Set<string>([
   'eq',
@@ -91,7 +110,7 @@ function generateShuffleOrder(): void {
     _shufflePosition = 0;
     return;
   }
-  const order = Array.from({ length: playlist.length }, (_, i) => i);
+  const order = playlist.map((item) => item.queueItemId);
   // Fisher-Yates in-place shuffle
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -99,142 +118,146 @@ function generateShuffleOrder(): void {
   }
   _shuffleOrder = order;
   // Align the cursor to wherever the current track now lives in the new order
-  const currentIdx = getState('playlist.currentTrackIndex');
-  const pos = order.indexOf(currentIdx);
+  const currentQueueItemId = getCurrentQueueItemId();
+  const pos = currentQueueItemId ? order.indexOf(currentQueueItemId) : -1;
   _shufflePosition = pos >= 0 ? pos : 0;
 }
 
 function ensureShuffleOrderValid(): void {
   const playlist = getState('playlist.items') || [];
-  if (_shuffleOrder.length !== playlist.length) generateShuffleOrder();
+  const liveIds = new Set(playlist.map((item) => item.queueItemId));
+  if (
+    _shuffleOrder.length !== playlist.length ||
+    _shuffleOrder.some((queueItemId) => !liveIds.has(queueItemId))
+  ) {
+    generateShuffleOrder();
+  }
 }
 
 /**
  * Expose for tests, preload.ts, and decode recovery to query the next slot in
  * the row-level shuffle order without advancing the cursor.
  */
-export function getShuffleNextPlayableIndex(
-  isCandidate: (index: number) => boolean = () => true,
-): number {
+export function getShuffleNextPlayableQueueItemId(
+  isCandidate: (queueItemId: QueueItemId, item: Readonly<PlaylistItem>) => boolean = () => true,
+): QueueItemId | null {
   ensureShuffleOrderValid();
   const repeatMode = getState('playlist.repeatMode') || 0;
   const playlist = getState('playlist.items') || [];
-  if (playlist.length <= 1) return -1;
+  if (playlist.length <= 1) return null;
 
-  const currentIdx = getState('playlist.currentTrackIndex');
-  const anchor = _shuffleOrder.indexOf(currentIdx);
-  const startPos = anchor >= 0 ? anchor : _shufflePosition;
+  const currentQueueItemId = getCurrentQueueItemId();
+  const anchor = currentQueueItemId ? _shuffleOrder.indexOf(currentQueueItemId) : -1;
+  const startPos = anchor >= 0 ? anchor : currentQueueItemId ? _shufflePosition : -1;
 
   for (let pos = startPos + 1; pos < _shuffleOrder.length; pos++) {
-    const idx = _shuffleOrder[pos];
-    if (idx !== currentIdx && isCandidate(idx)) return idx;
+    const queueItemId = _shuffleOrder[pos];
+    const item = queueItemId ? getQueueItemById(queueItemId, playlist) : null;
+    if (
+      queueItemId &&
+      item &&
+      queueItemId !== currentQueueItemId &&
+      isCandidate(queueItemId, item)
+    ) {
+      return queueItemId;
+    }
   }
 
-  if (repeatMode !== 1) return -1;
+  if (repeatMode !== 1) return null;
 
   for (let pos = 0; pos <= startPos && pos < _shuffleOrder.length; pos++) {
-    const idx = _shuffleOrder[pos];
-    if (idx !== currentIdx && isCandidate(idx)) return idx;
+    const queueItemId = _shuffleOrder[pos];
+    const item = queueItemId ? getQueueItemById(queueItemId, playlist) : null;
+    if (
+      queueItemId &&
+      item &&
+      queueItemId !== currentQueueItemId &&
+      isCandidate(queueItemId, item)
+    ) {
+      return queueItemId;
+    }
   }
 
-  return -1;
+  return null;
 }
 
 /** Expose for tests & for preload.ts to query the "next in shuffle order". */
-export function getShuffleNextIndex(): number {
-  return getShuffleNextPlayableIndex();
+export function getShuffleNextQueueItemId(): QueueItemId | null {
+  return getShuffleNextPlayableQueueItemId();
 }
 
-export function advanceToShuffleNextIndex(preferredIndex = -1): number {
+export function advanceToShuffleNextQueueItemId(
+  preferredQueueItemId: QueueItemId | null = null,
+): QueueItemId | null {
   ensureShuffleOrderValid();
   const repeatMode = getState('playlist.repeatMode') || 0;
   const playlist = getState('playlist.items') || [];
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  if (playlist.length <= 1) return -1;
+  const currentQueueItemId = getCurrentQueueItemId();
+  if (playlist.length <= 1) return null;
 
   if (
-    preferredIndex !== -1 &&
-    preferredIndex !== currentTrackIndex &&
-    preferredIndex < playlist.length &&
-    playlist[preferredIndex] != null
+    preferredQueueItemId !== null &&
+    preferredQueueItemId !== currentQueueItemId &&
+    getQueueItemById(preferredQueueItemId, playlist)
   ) {
-    const pos = _shuffleOrder.indexOf(preferredIndex);
+    const pos = _shuffleOrder.indexOf(preferredQueueItemId);
     if (pos >= 0) _shufflePosition = pos;
-    return preferredIndex;
+    return preferredQueueItemId;
   }
 
-  const anchor = _shuffleOrder.indexOf(currentTrackIndex);
+  const anchor = currentQueueItemId ? _shuffleOrder.indexOf(currentQueueItemId) : -1;
   if (anchor >= 0) _shufflePosition = anchor;
+  if (!currentQueueItemId) {
+    _shufflePosition = 0;
+    return _shuffleOrder[0] ?? null;
+  }
 
   const nextPos = _shufflePosition + 1;
   if (nextPos >= _shuffleOrder.length) {
-    if (repeatMode !== 1) return -1;
+    if (repeatMode !== 1) return null;
 
     generateShuffleOrder();
     _shufflePosition = 0;
-    let nextIndex =
-      _shuffleOrder[0] === currentTrackIndex && _shuffleOrder.length > 1
+    let nextQueueItemId =
+      _shuffleOrder[0] === currentQueueItemId && _shuffleOrder.length > 1
         ? _shuffleOrder[1]
         : _shuffleOrder[0];
-    if (nextIndex === currentTrackIndex && _shuffleOrder.length > 1) {
-      nextIndex = _shuffleOrder[1];
+    if (nextQueueItemId === currentQueueItemId && _shuffleOrder.length > 1) {
+      nextQueueItemId = _shuffleOrder[1];
       _shufflePosition = 1;
     } else {
-      _shufflePosition = _shuffleOrder.indexOf(nextIndex);
+      _shufflePosition = nextQueueItemId ? _shuffleOrder.indexOf(nextQueueItemId) : 0;
     }
-    return nextIndex ?? -1;
+    return nextQueueItemId ?? null;
   }
 
   _shufflePosition = nextPos;
-  return _shuffleOrder[nextPos] ?? -1;
+  return _shuffleOrder[nextPos] ?? null;
 }
 
-export function advanceToShufflePreviousIndex(): number {
+export function advanceToShufflePreviousQueueItemId(): QueueItemId | null {
   ensureShuffleOrderValid();
   const repeatMode = getState('playlist.repeatMode') || 0;
   const playlist = getState('playlist.items') || [];
-  if (playlist.length <= 1) return -1;
+  if (playlist.length <= 1) return null;
 
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const anchor = _shuffleOrder.indexOf(currentTrackIndex);
+  const currentQueueItemId = getCurrentQueueItemId();
+  const anchor = currentQueueItemId ? _shuffleOrder.indexOf(currentQueueItemId) : -1;
   if (anchor >= 0) _shufflePosition = anchor;
 
   let prevPos = _shufflePosition - 1;
   if (prevPos < 0) {
-    if (repeatMode !== 1) return -1;
+    if (repeatMode !== 1) return null;
     prevPos = _shuffleOrder.length - 1;
   }
 
   _shufflePosition = prevPos;
-  return _shuffleOrder[prevPos] ?? -1;
+  return _shuffleOrder[prevPos] ?? null;
 }
 
 function resetShuffleOrder(): void {
   _shuffleOrder = [];
   _shufflePosition = 0;
-}
-
-/**
- * Splice a removed playlist index out of _shuffleOrder so the pseudo-random
- * pass survives track removal — instead of ensureShuffleOrderValid later
- * detecting a length mismatch and regenerating a brand-new permutation
- * (which breaks the prev→next round-trip guarantee).
- */
-function adjustShuffleOrderForRemoval(removedIndex: number): void {
-  if (_shuffleOrder.length === 0) return;
-  const posOfRemoved = _shuffleOrder.indexOf(removedIndex);
-  if (posOfRemoved < 0) return;
-
-  _shuffleOrder.splice(posOfRemoved, 1);
-  // Playlist indices above the removed slot shifted down by one
-  for (let i = 0; i < _shuffleOrder.length; i++) {
-    if (_shuffleOrder[i] > removedIndex) _shuffleOrder[i]--;
-  }
-  // Cursor past the removed position pulls back; clamp when list empties
-  if (_shufflePosition > posOfRemoved) _shufflePosition--;
-  if (_shufflePosition >= _shuffleOrder.length) {
-    _shufflePosition = Math.max(0, _shuffleOrder.length - 1);
-  }
 }
 
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
@@ -325,19 +348,23 @@ export function setShuffle(enabled: boolean, notify = true): void {
 
 // ─── Clear Preload State ───────────────────────────────────────────
 
-export function clearPreloadState(): void {
-  const nextMeta = getState('preload.meta');
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const isNextTrackActive = nextMeta && Number(nextMeta.index) === currentTrackIndex;
+export function clearPreloadState(force = false): void {
+  const activeTarget = getState('preload.activeTarget');
+  const ready = getState('preload.ready');
+  const currentQueueItemId = getCurrentQueueItemId();
+  const preloadOwner = ready?.queueItemId ?? activeTarget?.queueItemId ?? null;
+  const isPreloadOwnerActive =
+    !force && preloadOwner !== null && preloadOwner === currentQueueItemId;
 
   // Cancel any in-flight backgroundTransfer to prevent stale preload data
   // from reaching guests after backward navigation (host-only).
   cancelPreloadTransfer();
+  if (force) resetPreloadReceiveAuthority();
 
-  setState('preload.nextTrackIndex', -1);
-  if (!isNextTrackActive) {
-    setState('preload.nextFileBlob', null);
-    setState('preload.meta', null);
+  setState('preload.nextQueueItemId', null);
+  if (!isPreloadOwnerActive) {
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
   }
   setState('preload.isPreloading', false);
 
@@ -346,9 +373,14 @@ export function clearPreloadState(): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     const connectedPeers = getState('network.connectedPeers') || [];
-    if (connectedPeers.length > 0 && connectedPeers.some((p) => p.preloadedIndexes?.size > 0)) {
+    if (
+      connectedPeers.length > 0 &&
+      connectedPeers.some((p) => p.preloadedQueueItemIds?.size > 0)
+    ) {
       const updatedPeers = connectedPeers.map((p) =>
-        p.preloadedIndexes?.size > 0 ? { ...p, preloadedIndexes: new Set<number>() } : p,
+        p.preloadedQueueItemIds?.size > 0
+          ? { ...p, preloadedQueueItemIds: new Set<QueueItemId>() }
+          : p,
       );
       setState('network.connectedPeers', updatedPeers);
     }
@@ -360,9 +392,11 @@ export function clearPreloadState(): void {
 
 // ─── Play Track ────────────────────────────────────────────────────
 
-export async function playTrack(index: number, subIndex?: number): Promise<void> {
+export async function playTrack(queueItemId: QueueItemId, subIndex?: number): Promise<void> {
   const playlist = getState('playlist.items') || [];
-  if (index < 0 || index >= playlist.length) {
+  const indexHint = findQueueItemIndex(queueItemId, playlist);
+  const item = indexHint >= 0 ? playlist[indexHint] : null;
+  if (!item) {
     if (playlist.length === 0) showToast(t('toast.no_tracks'));
     return;
   }
@@ -383,25 +417,19 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   // branch — no re-download.
   //
   // Buffer existence alone does not establish ownership: superseded loads may
-  // leave the previous track resident while currentTrackIndex has advanced.
-  // Require the active filename to match before taking the replay fast path.
-  const _currentIdx = getState('playlist.currentTrackIndex');
-  const _item = playlist[index];
-  const _isSameTrack = index === _currentIdx;
-  const _isLocalFileTrack = !!_item && _item.type !== 'youtube' && !!_item.file;
-  const _activeBufferTrackName =
-    (getState('transfer.meta')?.name as string | undefined) ||
-    (getState('files.currentFileBlob') as File | null)?.name;
-  const _bufferMatchesTrack =
-    !!getCurrentAudioBuffer() &&
-    !!_activeBufferTrackName &&
-    _activeBufferTrackName === _item?.file?.name;
+  // leave the previous track resident while selection has advanced. The
+  // resident's queueItemId, not its name or former array slot, proves ownership.
+  const _isSameTrack = queueItemId === getCurrentQueueItemId();
+  const _isLocalFileTrack = item.type !== 'youtube' && !!item.file;
+  const _resident = getState('files.current');
+  const _bufferMatchesTrack = !!getCurrentAudioBuffer() && _resident?.queueItemId === queueItemId;
 
   if (!hostConn && _isSameTrack && _isLocalFileTrack && _bufferMatchesTrack) {
     log.debug('[Host] Same-track re-click — fast replay path (no redecode/rebroadcast)');
 
-    const file = _item.file!;
-    const sessionId = getState('transfer.currentSessionId') || nextSessionId();
+    const file = item.file!;
+    const sessionId =
+      _resident?.sessionId || getState('transfer.currentSessionId') || nextSessionId();
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
 
@@ -410,7 +438,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     broadcast({
       type: MSG.FILE_PREPARE,
       name: file.name,
-      index,
+      queueItemId,
       sessionId,
       // Size is transport metadata only; receivers never treat name+size as
       // media identity.
@@ -418,7 +446,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       mime: file.type,
       autoPlayDelayMs,
     });
-    void shareRemoteFileIfNeeded(file, sessionId, undefined, { index });
+    void shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId });
 
     // Reset host position to 0 and wait, mirroring the normal branch's UX
     pause(0, { holdVisualizer: false });
@@ -433,15 +461,12 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     setManagedTimer(
       'autoPlayTimer',
       () => {
+        if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
         play(0);
-        // Read the index when the timer fires because removing an earlier item
-        // during the replay window shifts currentTrackIndex. The file name
-        // remains stable across that shift.
-        const currentIdx = getState('playlist.currentTrackIndex');
         broadcast({
           type: MSG.PLAY,
           time: 0,
-          index: currentIdx,
+          queueItemId,
           name: file.name,
           hostPlayAt: getLocalFileHostPlayAt(),
         });
@@ -462,52 +487,55 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   const myLoadEpoch = newLoadEpoch();
 
   // Check if preloaded
-  const nextTrackIndex = getState('preload.nextTrackIndex');
-  const nextFileBlob = getState('preload.nextFileBlob');
+  const nextQueueItemId = getState('preload.nextQueueItemId');
+  const readyPreload = getState('preload.ready');
 
-  if (index === nextTrackIndex && nextFileBlob && !hostConn) {
-    log.debug('[Host] Using Preloaded Track:', index);
-    setState('playlist.currentTrackIndex', index);
-    setPlaybackTrackMeta(playlist[index]);
+  if (queueItemId === nextQueueItemId && readyPreload?.queueItemId === queueItemId && !hostConn) {
+    log.debug('[Host] Using preloaded queue item:', queueItemId);
+    selectQueueItemById(queueItemId);
+    setPlaybackTrackMeta(item);
 
     // Advance session ID for recovery
-    const nextMeta = getState('preload.meta');
-    if (nextMeta?.sessionId && Number.isFinite(Number(nextMeta.sessionId))) {
-      setState('transfer.currentSessionId', Number(nextMeta.sessionId));
+    if (Number.isSafeInteger(readyPreload.sessionId) && readyPreload.sessionId > 0) {
+      setState('transfer.currentSessionId', readyPreload.sessionId);
     } else {
       setState('transfer.currentSessionId', nextSessionId());
     }
 
     stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
 
-    const item = playlist[index];
-    const fileName = item?.file?.name || item?.name || `Track ${index}`;
-    broadcast({ type: MSG.PLAY_PRELOADED, index, name: fileName, mime: item?.file?.type });
+    const fileName = item.file?.name || item.name;
+    broadcast({
+      type: MSG.PLAY_PRELOADED,
+      queueItemId,
+      name: fileName,
+      mime: item.file?.type,
+    });
 
     // Host must transition to DECODING before decode begins, so that the
     // subsequent DECODE_SUCCESS lands cleanly on READY.
-    transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name: fileName });
+    transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', queueItemId, name: fileName });
 
     // Play and broadcast only after the current activation succeeds. Failure
     // owns its auto-advance path; supersession transfers playback ownership to
     // the newer playTrack invocation.
-    const activated = await loadPreloadedTrack(index, myLoadEpoch);
-    if (!activated || !isCurrentLoadEpoch(myLoadEpoch)) {
+    const activated = await loadPreloadedTrack(queueItemId, myLoadEpoch);
+    if (!activated || !isCurrentLoadEpoch(myLoadEpoch) || getCurrentQueueItemId() !== queueItemId) {
       log.debug('[Host] Preloaded activation failed or superseded — skipping play/broadcast');
       return;
     }
     // Whole-file remote encryption is admitted against the active PCM buffer.
     // Start it only after this preloaded track has decoded and published its
     // own AudioBuffer, never while the previous track still owns that slot.
-    if (item?.file) {
+    if (item.file) {
       const remoteShareSessionId = getState('transfer.currentSessionId') || null;
-      void shareRemoteFileIfNeeded(item.file, remoteShareSessionId, undefined, { index });
+      void shareRemoteFileIfNeeded(item.file, remoteShareSessionId, undefined, { queueItemId });
     }
     await play(0);
     broadcast({
       type: MSG.PLAY,
       time: 0,
-      index,
+      queueItemId,
       name: fileName,
       hostPlayAt: getLocalFileHostPlayAt(),
     });
@@ -517,18 +545,16 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
   }
 
   clearPreloadState();
-  setState('playlist.currentTrackIndex', index);
-
-  const item = playlist[index];
+  selectQueueItemById(queueItemId);
   setPlaybackTrackMeta(item);
 
   // YouTube
   if (item.type === 'youtube') {
     // Force-clear any stale audio preload state to prevent incorrect
     // preloaded file being used when switching back from YouTube to audio
-    setState('preload.nextFileBlob', null);
-    setState('preload.meta', null);
-    setState('preload.nextTrackIndex', -1);
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
+    setState('preload.nextQueueItemId', null);
 
     // Cancel a debounced local-file broadcast before entering YouTube. An
     // already in-flight transfer may finish because its bytes remain reusable
@@ -560,7 +586,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
         videoId: broadcastVideoId,
         playlistId: item.playlistId ?? null,
         name: item.name || item.title,
-        index,
+        queueItemId,
         autoplay: shouldAutoplay,
         subIndex: subIndex ?? 0,
       });
@@ -587,6 +613,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
           'youtube:load',
           item.videoId ?? null,
           item.playlistId ?? null,
+          queueItemId,
           shouldAutoplay,
           subIndex ?? 0,
         );
@@ -597,6 +624,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
           'youtube:load',
           item.videoId ?? null,
           item.playlistId ?? null,
+          queueItemId,
           shouldAutoplay,
           subIndex ?? 0,
         );
@@ -623,7 +651,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
 
   const file = item.file;
   if (!file) {
-    log.warn('[Playlist] No file for track', index);
+    log.warn('[Playlist] No file for queue item', queueItemId);
     return;
   }
 
@@ -646,14 +674,20 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     const prepareMsg = {
       type: MSG.FILE_PREPARE,
       name: file.name,
-      index,
+      queueItemId,
       sessionId,
       // Name and size are transport metadata, not media identity.
       size: file.size,
       mime: file.type,
       autoPlayDelayMs,
     };
-    const didLoad = await loadAndBroadcastFile(file, sessionId, myLoadEpoch, prepareMsg);
+    const didLoad = await loadAndBroadcastFile(
+      file,
+      queueItemId,
+      sessionId,
+      myLoadEpoch,
+      prepareMsg,
+    );
     if (!didLoad) return;
 
     if (isFirstTrackLoad) {
@@ -664,12 +698,12 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       setManagedTimer(
         'autoPlayTimer',
         () => {
+          if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
           play(0);
-          const currentIdx = getState('playlist.currentTrackIndex');
           broadcast({
             type: MSG.PLAY,
             time: 0,
-            index: currentIdx,
+            queueItemId,
             name: file.name,
             hostPlayAt: getLocalFileHostPlayAt(),
           });
@@ -686,11 +720,11 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
 /**
  * Uniform cleanup path for "playlist finished, nothing should be selected".
  *
- * Clears track meta, audio buffer, and resets currentTrackIndex to -1 so the
+ * Clears track meta, audio buffer, and deselects currentQueueItemId so the
  * UI state ("미디어 없음") is internally consistent with transport state.
  * Broadcasts MSG.PAUSE{endOfPlaylist:true} so guests mirror the reset.
  *
- * Clearing the resident buffer and selecting index -1 ensures a later Play
+ * Clearing the resident buffer and selecting no queue item ensures a later Play
  * restarts from the top instead of resuming an unselected final track.
  */
 function handleEndOfPlaylist(reason: string): void {
@@ -698,12 +732,19 @@ function handleEndOfPlaylist(reason: string): void {
   stopAllMedia();
   setCurrentAudioBuffer(null);
   setPlaybackTrackMeta(null);
-  setState('playlist.currentTrackIndex', -1);
+  selectQueueItemById(null);
+  setState('files.current', null);
   setState('player.pausedAt', 0);
   // Host's own lifecycle: mirror the broadcast PAUSE{endOfPlaylist:true} so
   // playback.lifecycle returns to IDLE in lockstep with guests.
-  transition({ type: 'PAUSE', time: 0, endOfPlaylist: true });
-  broadcast({ type: MSG.PAUSE, time: 0, endOfPlaylist: true, reason: 'end-of-playlist' });
+  transition({ type: 'PAUSE', time: 0, queueItemId: null, endOfPlaylist: true });
+  broadcast({
+    type: MSG.PAUSE,
+    time: 0,
+    queueItemId: null,
+    endOfPlaylist: true,
+    reason: 'end-of-playlist',
+  });
   showToast(t('toast.playlist_ended'));
 }
 
@@ -715,7 +756,7 @@ export function playNextTrack(): void {
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
   if (hostConn && isOperator) {
-    sendToHost({ type: MSG.REQUEST_NEXT_TRACK });
+    sendToHost({ type: MSG.REQUEST_NEXT_TRACK, queueItemId: getCurrentQueueItemId() });
     return;
   }
 
@@ -740,13 +781,13 @@ export function playNextTrack(): void {
   }
 
   const playlist = getState('playlist.items') || [];
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const currentIndex = getCurrentQueueItemIndex();
   const isShuffle = getState('playlist.isShuffle');
-  const nextTrackIndex = getState('preload.nextTrackIndex');
+  const preloadedQueueItemId = getState('preload.nextQueueItemId');
 
   if (playlist.length === 0) return;
 
-  let nextIndex: number;
+  let nextQueueItemId: QueueItemId | null;
 
   if (isShuffle) {
     if (playlist.length === 1) {
@@ -755,16 +796,16 @@ export function playNextTrack(): void {
         handleEndOfPlaylist('single-track-shuffle');
         return;
       }
-      nextIndex = 0;
+      nextQueueItemId = playlist[0]?.queueItemId ?? null;
     } else {
-      nextIndex = advanceToShuffleNextIndex(nextTrackIndex);
-      if (nextIndex === -1) {
+      nextQueueItemId = advanceToShuffleNextQueueItemId(preloadedQueueItemId);
+      if (!nextQueueItemId) {
         handleEndOfPlaylist('shuffle-end');
         return;
       }
     }
   } else {
-    nextIndex = currentTrackIndex + 1;
+    let nextIndex = currentIndex + 1;
     if (nextIndex >= playlist.length) {
       if (repeatMode === 1) {
         nextIndex = 0;
@@ -773,10 +814,11 @@ export function playNextTrack(): void {
         return;
       }
     }
+    nextQueueItemId = playlist[nextIndex]?.queueItemId ?? null;
   }
 
-  if (nextIndex !== -1) {
-    playTrack(nextIndex);
+  if (nextQueueItemId) {
+    playTrack(nextQueueItemId);
   }
 }
 
@@ -789,7 +831,7 @@ export function playNextTrack(): void {
  * During file preparation the resident AudioBuffer belongs to the prior track.
  * Ignore restart in that window and let decode completion own the new start.
  */
-function restartCurrentTrackFromStart(currentTrackIndex: number): void {
+function restartCurrentTrackFromStart(queueItemId: QueueItemId): void {
   if (isFilePipelineBusyForPlay()) {
     log.debug('[Playlist] Ignoring restart-current while file pipeline is preparing');
     return;
@@ -798,7 +840,7 @@ function restartCurrentTrackFromStart(currentTrackIndex: number): void {
   broadcast({
     type: MSG.PLAY,
     time: 0,
-    index: currentTrackIndex,
+    queueItemId,
     hostPlayAt: getLocalFileHostPlayAt(),
   });
   // SharedClock handles sync
@@ -810,11 +852,12 @@ export function playPrevTrack(): void {
   const hostConn = getState('network.hostConn');
   const isOperator = getState('network.isOperator');
   if (hostConn && isOperator) {
-    sendToHost({ type: MSG.REQUEST_PREV_TRACK });
+    sendToHost({ type: MSG.REQUEST_PREV_TRACK, queueItemId: getCurrentQueueItemId() });
     return;
   }
 
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const currentQueueItemId = getCurrentQueueItemId();
+  const currentIndex = getCurrentQueueItemIndex();
 
   // YouTube mode
   if (isYouTubeOwner()) {
@@ -829,22 +872,24 @@ export function playPrevTrack(): void {
     const isShuffle = getState('playlist.isShuffle');
 
     if (isShuffle && playlist.length > 1) {
-      const prevIndex = advanceToShufflePreviousIndex();
-      if (prevIndex !== -1) {
-        playTrack(prevIndex);
-      } else {
-        playTrack(Math.max(0, currentTrackIndex));
+      const previousQueueItemId = advanceToShufflePreviousQueueItemId();
+      if (previousQueueItemId) {
+        playTrack(previousQueueItemId);
+      } else if (currentQueueItemId) {
+        playTrack(currentQueueItemId);
       }
       return;
     }
 
-    if (currentTrackIndex > 0) {
-      playTrack(currentTrackIndex - 1);
+    if (currentIndex > 0) {
+      const previousQueueItemId = playlist[currentIndex - 1]?.queueItemId;
+      if (previousQueueItemId) playTrack(previousQueueItemId);
     } else {
       if (repeatMode === 1 && playlist.length > 1) {
-        playTrack(playlist.length - 1);
-      } else {
-        playTrack(0);
+        const lastQueueItemId = playlist.at(-1)?.queueItemId;
+        if (lastQueueItemId) playTrack(lastQueueItemId);
+      } else if (playlist[0]) {
+        playTrack(playlist[0].queueItemId);
       }
     }
     return;
@@ -854,7 +899,7 @@ export function playPrevTrack(): void {
   const pos = getTrackPosition();
   if (pos > 3) {
     // Restart current track from the beginning
-    restartCurrentTrackFromStart(currentTrackIndex);
+    if (currentQueueItemId) restartCurrentTrackFromStart(currentQueueItemId);
     return;
   }
 
@@ -865,38 +910,40 @@ export function playPrevTrack(): void {
   // Shuffle: walk the Fisher-Yates permutation BACKWARD so prev→next
   // round-trips return to the same track.
   if (isShuffle && playlist.length > 1) {
-    const prevIndex = advanceToShufflePreviousIndex();
-    if (prevIndex !== -1) {
-      playTrack(prevIndex);
+    const previousQueueItemId = advanceToShufflePreviousQueueItemId();
+    if (previousQueueItemId) {
+      playTrack(previousQueueItemId);
       return;
     }
 
     // At start of shuffle pass, no repeat-all → restart current, same as
     // sequential behaviour at first track.
     if (isQueueIdle()) {
-      playTrack(Math.max(0, currentTrackIndex));
-    } else {
-      restartCurrentTrackFromStart(currentTrackIndex);
+      const fallbackQueueItemId = currentQueueItemId ?? playlist[0]?.queueItemId;
+      if (fallbackQueueItemId) playTrack(fallbackQueueItemId);
+    } else if (currentQueueItemId) {
+      restartCurrentTrackFromStart(currentQueueItemId);
     }
     return;
   }
 
-  if (currentTrackIndex > 0) {
-    playTrack(currentTrackIndex - 1);
+  if (currentIndex > 0) {
+    const previousQueueItemId = playlist[currentIndex - 1]?.queueItemId;
+    if (previousQueueItemId) playTrack(previousQueueItemId);
   } else {
     // At first track: wrap to last if repeat-all, otherwise restart
     if (repeatMode === 1 && playlist.length > 1) {
-      playTrack(playlist.length - 1);
+      const lastQueueItemId = playlist.at(-1)?.queueItemId;
+      if (lastQueueItemId) playTrack(lastQueueItemId);
     } else {
       // In IDLE state (after track ended + stopAllMedia), play(0) silently fails
       // because no media source is available, but broadcast still fires → host-guest desync.
       // Use playTrack to reload the file instead.
       if (isQueueIdle()) {
-        // currentTrackIndex can be -1 after handleEndOfPlaylist. Clamp so
-        // playTrack doesn't no-op-return on the out-of-range guard.
-        playTrack(Math.max(0, currentTrackIndex));
-      } else {
-        restartCurrentTrackFromStart(currentTrackIndex);
+        const fallbackQueueItemId = currentQueueItemId ?? playlist[0]?.queueItemId;
+        if (fallbackQueueItemId) playTrack(fallbackQueueItemId);
+      } else if (currentQueueItemId) {
+        restartCurrentTrackFromStart(currentQueueItemId);
       }
     }
   }
@@ -931,68 +978,87 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
-  // Accept either protocol field used by playlist snapshots.
-  const incoming = Array.isArray(data.list)
-    ? data.list
-    : Array.isArray(data.playlist)
-      ? data.playlist
-      : null;
-  if (!incoming) {
-    setState('playlist.items', []);
-    setState('playlist.currentTrackIndex', -1);
-    stopAllMedia();
-    clearPreloadState();
-    return;
-  }
-
-  // Validate incoming array: reject oversized or malformed playlists
-  if (incoming.length > 1000) {
-    log.warn('[Playlist] Rejected oversized playlist update:', incoming.length);
-    return;
-  }
-  // Validate individual items have expected properties
-  const valid = incoming.every(
-    (item: unknown) =>
-      item &&
-      typeof item === 'object' &&
-      typeof (item as Record<string, unknown>).name === 'string',
-  );
-  if (!valid) {
-    log.warn('[Playlist] Rejected playlist with invalid items');
-    return;
-  }
-
   const prevLength = (getState('playlist.items') || []).length;
-  setState('playlist.items', incoming);
+  const previousCurrentQueueItemId = getCurrentQueueItemId();
+  const authorityEstablished = hasQueueAuthority(conn);
+  if (!authorityEstablished && data.bootstrap !== true) {
+    log.warn('[Playlist] Ignored playlist update before authority bootstrap');
+    return;
+  }
+  if (authorityEstablished && data.bootstrap === true) {
+    log.debug('[Playlist] Ignored repeated authority bootstrap on established connection');
+    return;
+  }
+  const outcome = applyPlaylistSnapshot(data, authorityEstablished ? 'monotonic' : 'rebase');
 
-  // Empty snapshots clear every resident file/buffer identity. Otherwise a new
-  // item at the same index could satisfy the same-track check with stale audio.
-  if (incoming.length === 0 && prevLength > 0) {
-    stopAllMedia();
-    clearPreloadState();
+  if (outcome === 'invalid') {
+    log.warn('[Playlist] Rejected malformed playlist snapshot');
+    return;
+  }
+  if (outcome === 'conflict') {
+    log.warn('[Playlist] Rejected conflicting playlist snapshot at equal revision');
+    return;
+  }
+  if (outcome === 'stale') {
+    log.debug('[Playlist] Ignored stale playlist snapshot');
+    return;
+  }
+  if (outcome === 'duplicate') {
+    return;
+  }
+
+  const incoming = getState('playlist.items');
+  ensureShuffleOrderValid();
+
+  // A changed connection baseline belongs to a new authority even when queue
+  // IDs or positions happen to resemble the previous room. Clear all media
+  // owners so no resident/preloaded/partial bytes survive that boundary.
+  // An incremental snapshot that removes the currently-owned occurrence must
+  // also stop that old media immediately, even when a successor remains in
+  // the queue and its authoritative media frame has not arrived yet.
+  const authorityChanged = outcome === 'rebased';
+  const playlistEmptied = outcome === 'applied' && incoming.length === 0 && prevLength > 0;
+  const removedCurrentOwner =
+    outcome === 'applied' &&
+    previousCurrentQueueItemId !== null &&
+    previousCurrentQueueItemId !== getCurrentQueueItemId() &&
+    !incoming.some((item) => item.queueItemId === previousCurrentQueueItemId);
+  const removedCurrentOwnsPreload =
+    removedCurrentOwner &&
+    (getState('preload.ready')?.queueItemId === previousCurrentQueueItemId ||
+      getState('preload.activeTarget')?.queueItemId === previousCurrentQueueItemId);
+  if (authorityChanged || playlistEmptied || removedCurrentOwner) {
+    const reason = authorityChanged
+      ? 'playlist-authority-rebased'
+      : playlistEmptied
+        ? 'playlist-emptied'
+        : 'playlist-current-removed';
+    if (authorityChanged) bus.emit('demo:authority-reset');
+    stopAllMedia({ cancelInFlight: true, clearBuffer: true });
+    // A successor can already be arriving through the independent preload
+    // channel. Keep that live session intact while dropping the deleted
+    // current media; a full reset here would strand PLAY_PRELOADED after the
+    // snapshot. Only reset preload storage when its bytes belong to the
+    // removed occurrence (or when the whole authority/queue is reset).
+    if (authorityChanged || playlistEmptied || removedCurrentOwnsPreload) {
+      clearPreloadState(authorityChanged);
+    } else if (getState('preload.nextQueueItemId') === previousCurrentQueueItemId) {
+      setState('preload.nextQueueItemId', null);
+    }
     // Abort any in-flight main download — otherwise chunks already in the
     // data channel keep being written to storage to completion.
-    cancelIncomingFileTransfer('playlist-emptied');
-    bus.emit('storage:clear-previous-track', 'playlist-emptied');
-    // Mirror host's empty-playlist reset: clear track meta so the title
-    // display reverts to "미디어 없음" instead of lingering on the last
-    // played track. clearPreviousTrackState doesn't touch player.currentTrackMeta,
-    // so we clear it explicitly here.
+    cancelIncomingFileTransfer(reason);
+    cancelRemoteShareWait(reason);
+    if (authorityChanged) {
+      resetIncomingTransferAuthority();
+      resetRecoveryAuthority();
+    }
+    clearPreviousTrackState(reason);
+    // clearPreviousTrackState doesn't touch player.currentTrackMeta.
     setPlaybackTrackMeta(null);
   }
 
-  // Sync current track index from host (late-join bootstrap)
-  let idx = getState('playlist.currentTrackIndex');
-  if (typeof data.currentTrackIndex === 'number') {
-    idx = data.currentTrackIndex;
-  } else if (typeof data.index === 'number') {
-    idx = data.index;
-  }
-  // Clamp to valid range
-  if (idx >= incoming.length) idx = incoming.length - 1;
-  if (idx < -1) idx = -1;
-  if (idx === -1 && incoming.length > 0) idx = 0;
-  setState('playlist.currentTrackIndex', idx);
+  if (outcome === 'rebased') markQueueAuthorityReady(conn);
 }
 
 function handleTrackChange(data: Record<string, unknown>, conn: DataConnection): void {
@@ -1005,13 +1071,12 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  const index = Number(data.index);
-  const playlist = getState('playlist.items') || [];
-  if (!Number.isFinite(index) || index < 0 || index >= playlist.length) {
-    log.warn(`[Playlist] Invalid track index: ${data.index}`);
+  const queueItemId = data.queueItemId;
+  if (typeof queueItemId !== 'string' || !getQueueItemById(queueItemId)) {
+    log.warn(`[Playlist] Invalid queue item ID: ${String(queueItemId)}`);
     return;
   }
-  playTrack(index);
+  playTrack(queueItemId);
 }
 
 function handleRequestNextTrack(data: Record<string, unknown>, conn: DataConnection): void {
@@ -1020,6 +1085,10 @@ function handleRequestNextTrack(data: Record<string, unknown>, conn: DataConnect
 
   if (!verifyOperator(conn, data)) {
     log.warn(`[Playlist] Rejected request-next-track from non-OP: ${conn?.peer}`);
+    return;
+  }
+  if (data.queueItemId !== getCurrentQueueItemId()) {
+    log.debug('[Playlist] Ignoring stale next-track request');
     return;
   }
   playNextTrack();
@@ -1031,6 +1100,10 @@ function handleRequestPrevTrack(data: Record<string, unknown>, conn: DataConnect
 
   if (!verifyOperator(conn, data)) {
     log.warn(`[Playlist] Rejected request-prev-track from non-OP: ${conn?.peer}`);
+    return;
+  }
+  if (data.queueItemId !== getCurrentQueueItemId()) {
+    log.debug('[Playlist] Ignoring stale previous-track request');
     return;
   }
   playPrevTrack();
@@ -1160,6 +1233,10 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
 
 // ─── Handle Files Selected ────────────────────────────────────────
 
+function broadcastPlaylistSnapshot(): void {
+  broadcast({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot() });
+}
+
 async function handleFilesSelected(files: FileList | null): Promise<void> {
   if (!files || files.length === 0) return;
 
@@ -1205,10 +1282,12 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
   }
 
   const playlist = [...(getState('playlist.items') || [])];
-  let addedCount = 0;
+  const addedQueueItemIds: QueueItemId[] = [];
 
   for (const file of accepted) {
+    const queueItemId = createQueueItemId();
     const newTrack: PlaylistItem = {
+      queueItemId,
       type: 'file',
       file,
       name: file.name,
@@ -1217,35 +1296,33 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
       playlistId: null,
     };
     playlist.push(newTrack);
-    addedCount++;
+    addedQueueItemIds.push(queueItemId);
   }
 
-  if (addedCount === 0) return;
+  if (addedQueueItemIds.length === 0) return;
 
-  setState('playlist.items', playlist);
+  const firstAddedQueueItemId = addedQueueItemIds[0] ?? null;
+  const previousCurrentQueueItemId = getCurrentQueueItemId();
+  const shouldAutoPlay =
+    firstAddedQueueItemId !== null && isQueueIdle() && previousCurrentQueueItemId === null;
 
-  const metaList = playlist.map((item) => ({
-    type: item.type,
-    name: item.name,
-    title: item.title || item.name,
-    videoId: item.videoId || null,
-    playlistId: item.playlistId || null,
-  }));
-  broadcast({ type: MSG.PLAYLIST_UPDATE, list: metaList });
+  // Publish the initial selection in the same revision as the newly added
+  // rows. A late joiner must never observe a snapshot where the queue exists
+  // but its already-owned first occurrence is still reported as unselected.
+  commitPlaylistItems(playlist, {
+    currentQueueItemId: shouldAutoPlay ? firstAddedQueueItemId : previousCurrentQueueItemId,
+  });
+  if (getState('playlist.isShuffle')) generateShuffleOrder();
+  broadcastPlaylistSnapshot();
+  bus.emit('playlist:items-added', addedQueueItemIds);
 
-  showToast(t('toast.added_tracks', { count: addedCount }));
+  showToast(t('toast.added_tracks', { count: addedQueueItemIds.length }));
 
-  // Auto-play first added file if nothing is playing AND no track has been
-  // selected yet. The `currentIndex < 0` guard prevents a race when multiple
-  // files are uploaded sequentially: playTrack(0) sets currentTrackIndex = 0
-  // synchronously, but its async audio decode keeps playback idle until
-  // decode + play() complete. Without the guard, each subsequent upload also
-  // sees idle and calls playTrack(N), overwriting the index to
-  // the last uploaded track — so clicking "next" immediately overflows the
-  // playlist boundary into handleEndOfPlaylist (currentTrackIndex = -1).
-  const currentIndex = getState('playlist.currentTrackIndex');
-  if (isQueueIdle() && currentIndex < 0) {
-    playTrack(playlist.length - addedCount);
+  // Auto-play the first added occurrence only when no occurrence is already
+  // selected. Selection happens synchronously before async decode, preventing
+  // later add batches from stealing ownership while playback still looks idle.
+  if (shouldAutoPlay && firstAddedQueueItemId) {
+    playTrack(firstAddedQueueItemId);
   } else {
     // Already playing — preload next track for guests (covers end-of-playlist + file add case)
     schedulePreload(1000);
@@ -1253,6 +1330,175 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
 }
 
 // ─── Init ──────────────────────────────────────────────────────────
+
+function findSequentialRemovalSuccessor(
+  previousItems: readonly PlaylistItem[],
+  currentIndex: number,
+  removedQueueItemIds: ReadonlySet<QueueItemId>,
+): QueueItemId | null {
+  for (let index = currentIndex + 1; index < previousItems.length; index++) {
+    const candidate = previousItems[index];
+    if (candidate && !removedQueueItemIds.has(candidate.queueItemId)) {
+      return candidate.queueItemId;
+    }
+  }
+  for (let index = currentIndex - 1; index >= 0; index--) {
+    const candidate = previousItems[index];
+    if (candidate && !removedQueueItemIds.has(candidate.queueItemId)) {
+      return candidate.queueItemId;
+    }
+  }
+  return null;
+}
+
+function findShuffleRemovalSuccessor(
+  previousShuffleOrder: readonly QueueItemId[],
+  currentQueueItemId: QueueItemId,
+  removedQueueItemIds: ReadonlySet<QueueItemId>,
+  canWrap: boolean,
+): QueueItemId | null {
+  const currentPosition = previousShuffleOrder.indexOf(currentQueueItemId);
+  if (currentPosition < 0) return null;
+
+  for (let index = currentPosition + 1; index < previousShuffleOrder.length; index++) {
+    const candidate = previousShuffleOrder[index];
+    if (candidate && !removedQueueItemIds.has(candidate)) return candidate;
+  }
+  if (!canWrap) return null;
+  for (let index = 0; index < currentPosition; index++) {
+    const candidate = previousShuffleOrder[index];
+    if (candidate && !removedQueueItemIds.has(candidate)) return candidate;
+  }
+  return null;
+}
+
+function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
+  if (getState('network.hostConn')) return;
+
+  const previousItems = getState('playlist.items') || [];
+  const requestedIds = new Set(queueItemIds);
+  if (requestedIds.size === 0) return;
+
+  const removedQueueItemIds = new Set<QueueItemId>();
+  for (const item of previousItems) {
+    if (requestedIds.has(item.queueItemId)) removedQueueItemIds.add(item.queueItemId);
+  }
+  if (removedQueueItemIds.size === 0) return;
+
+  const currentQueueItemId = getCurrentQueueItemId();
+  const currentIndex = findQueueItemIndex(currentQueueItemId, previousItems);
+  const wasCurrent = !!currentQueueItemId && removedQueueItemIds.has(currentQueueItemId);
+  const previousShuffleOrder = [..._shuffleOrder];
+  const nextShuffleOrder = previousShuffleOrder.filter(
+    (queueItemId) => !removedQueueItemIds.has(queueItemId),
+  );
+  const nextItems = previousItems.filter((item) => !removedQueueItemIds.has(item.queueItemId));
+
+  let successorQueueItemId = currentQueueItemId;
+  if (wasCurrent) {
+    const sequentialSuccessor = findSequentialRemovalSuccessor(
+      previousItems,
+      currentIndex,
+      removedQueueItemIds,
+    );
+    successorQueueItemId =
+      getState('playlist.isShuffle') && nextShuffleOrder.length > 0 && currentQueueItemId
+        ? (findShuffleRemovalSuccessor(
+            previousShuffleOrder,
+            currentQueueItemId,
+            removedQueueItemIds,
+            (getState('playlist.repeatMode') || 0) === 1,
+          ) ?? sequentialSuccessor)
+        : sequentialSuccessor;
+  }
+
+  commitPlaylistItems(nextItems, { currentQueueItemId: successorQueueItemId });
+  _shuffleOrder = nextShuffleOrder;
+  if (_shuffleOrder.length === 0) {
+    _shufflePosition = 0;
+  } else {
+    const shuffleAnchor = successorQueueItemId ? _shuffleOrder.indexOf(successorQueueItemId) : -1;
+    _shufflePosition =
+      shuffleAnchor >= 0 ? shuffleAnchor : Math.min(_shufflePosition, _shuffleOrder.length - 1);
+  }
+
+  const preloadOwnsRemovedItem =
+    removedQueueItemIds.has(getState('preload.nextQueueItemId') ?? '') ||
+    removedQueueItemIds.has(getState('preload.ready')?.queueItemId ?? '') ||
+    removedQueueItemIds.has(getState('preload.activeTarget')?.queueItemId ?? '');
+  if (preloadOwnsRemovedItem) clearPreloadState();
+
+  const recoveryTarget = getState('playback.pendingRecoveryTarget');
+  if (recoveryTarget?.queueItemId && removedQueueItemIds.has(recoveryTarget.queueItemId)) {
+    setState('playback.pendingRecoveryTarget', null);
+    setState('recovery.pending', false);
+  }
+
+  const connectedPeers = getState('network.connectedPeers') || [];
+  if (
+    connectedPeers.some((peer) =>
+      [...removedQueueItemIds].some((queueItemId) => peer.preloadedQueueItemIds.has(queueItemId)),
+    )
+  ) {
+    setState(
+      'network.connectedPeers',
+      connectedPeers.map((peer) => {
+        const preloadedQueueItemIds = new Set(peer.preloadedQueueItemIds);
+        let changed = false;
+        for (const queueItemId of removedQueueItemIds) {
+          changed = preloadedQueueItemIds.delete(queueItemId) || changed;
+        }
+        if (!changed) return peer;
+        return { ...peer, preloadedQueueItemIds };
+      }),
+    );
+  }
+
+  if (nextItems.length === 0) {
+    stopAllMedia({ cancelInFlight: true });
+    clearPreloadState();
+    cancelOutgoingFileTransfers();
+    setCurrentAudioBuffer(null);
+    setPlaybackTrackMeta(null);
+    setState('files.current', null);
+    setState('transfer.meta', null);
+    bus.emit('ui:play-btn-state', false);
+  }
+
+  broadcastPlaylistSnapshot();
+
+  if (wasCurrent && successorQueueItemId) {
+    setCurrentAudioBuffer(null);
+    setState('files.current', null);
+    void playTrack(successorQueueItemId);
+  } else if (preloadOwnsRemovedItem && nextItems.length > 0) {
+    schedulePreload();
+  }
+}
+
+function reorderQueueItem(
+  queueItemId: QueueItemId,
+  beforeQueueItemId: QueueItemId | null,
+  baseRevision: number,
+): void {
+  if (getState('network.hostConn')) return;
+  if (baseRevision !== getState('playlist.revision')) {
+    log.debug('[Playlist] Ignoring reorder from a stale playlist revision');
+    return;
+  }
+
+  const reordered = moveQueueItemBefore(queueItemId, beforeQueueItemId);
+  if (!reordered) return;
+
+  commitPlaylistItems(reordered);
+  broadcastPlaylistSnapshot();
+
+  // Sequential order defines the speculative preload target. Re-evaluate it
+  // after every reorder; schedulePreload coalesces rapid drags, while
+  // preloadNextTrack preserves an already-ready resident when its stable
+  // queue occurrence is still the intended target.
+  schedulePreload();
+}
 
 export function initPlaylist(): void {
   registerHandlers({
@@ -1294,15 +1540,15 @@ export function initPlaylist(): void {
           // Reuse in-memory audio buffer — skip file re-transfer to guests.
           // Same optimized path as playNextTrack() repeat-one branch.
           newLoadEpoch();
+          const queueItemId = getCurrentQueueItemId();
+          if (!queueItemId || !getQueueItemById(queueItemId)) return;
           play(0).catch(() => {
             /* noop */
           });
-          // Read the index when the timer fires because removing another track
-          // during the window can shift playlist indices.
           broadcast({
             type: MSG.PLAY,
             time: 0,
-            index: getState('playlist.currentTrackIndex'),
+            queueItemId,
             hostPlayAt: getLocalFileHostPlayAt(),
           });
           // SharedClock handles sync
@@ -1331,175 +1577,21 @@ export function initPlaylist(): void {
   });
 
   // Play specific track from playlist view click
-  bus.on('playlist:play-track', (index, subIndex) => {
-    if (Number.isFinite(index) && index >= 0) playTrack(index, subIndex);
+  bus.on('playlist:play-track', (queueItemId, subIndex) => {
+    if (getQueueItemById(queueItemId)) playTrack(queueItemId, subIndex);
   });
 
   // Host: Remove track from playlist
-  bus.on('playlist:remove-track', (index) => {
-    const hostConn = getState('network.hostConn');
-    if (hostConn) return; // Only host can remove
-
-    const playlist = [...(getState('playlist.items') || [])];
-    if (index < 0 || index >= playlist.length) return;
-
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
-    const isCurrentTrack = index === currentTrackIndex;
-    // Snapshot type before splice. Track type, rather than current playback
-    // activity, determines whether the YouTube module owns an iframe that must
-    // be stopped explicitly.
-    const removedTrack = playlist[index];
-    const wasYoutubeActive = isCurrentTrack && removedTrack?.type === 'youtube';
-
-    // Remove the item
-    playlist.splice(index, 1);
-    setState('playlist.items', playlist);
-
-    // Keep the Fisher-Yates shuffle pass consistent across the removal so
-    // prev/next round-trips don't jump to unexpected tracks.
-    adjustShuffleOrderForRemoval(index);
-
-    let needsPlayRestart = false;
-    let newIdx = currentTrackIndex;
-
-    if (playlist.length === 0) {
-      // Removing the final item cancels in-flight work so a resolving decode
-      // cannot republish the deleted track. Other current-track removals are
-      // superseded by the replacement playTrack invocation.
-      stopAllMedia({ cancelInFlight: true });
-      clearPreloadState();
-      // Abort any in-flight broadcast/unicast so guests aren't forced to
-      // finish downloading a file that's no longer in the playlist.
-      cancelOutgoingFileTransfers();
-      // Clear the decoded buffer so direct transport calls cannot resume audio
-      // after the playlist becomes empty.
-      setCurrentAudioBuffer(null);
-      setState('playlist.currentTrackIndex', -1);
-      setPlaybackTrackMeta(null);
-      setState('files.currentFileBlob', null);
-      setState('transfer.meta', {});
-      // Soft-disable the play button to match the boot state. Click still
-      // fires so the toast hint can show.
-      bus.emit('ui:play-btn-state', false);
-      newIdx = -1;
-    } else if (isCurrentTrack) {
-      // Was playing the removed track. In sequential mode the natural
-      // successor is the same playlist slot (or the new last). In shuffle
-      // mode it's the next entry in _shuffleOrder, which adjustShuffleOrder
-      // ForRemoval already lined up: posOfRemoved equals the cursor here
-      // (since _shuffleOrder[_shufflePosition] === currentTrackIndex ===
-      // index), so after the splice the cursor naturally points at what
-      // used to be the *next* shuffle entry. Without this branch the
-      // sequential newIdx would skip the shuffle order entirely and play
-      // a different track than the cursor expects, leaving prev/next
-      // misaligned for the rest of the session.
-      const isShuffle = getState('playlist.isShuffle');
-      if (isShuffle && _shuffleOrder.length > 0) {
-        const repeatMode = getState('playlist.repeatMode') || 0;
-        if (_shufflePosition < _shuffleOrder.length) {
-          // Cursor still in range — splice already placed the next entry here
-          newIdx = _shuffleOrder[_shufflePosition];
-        } else if (repeatMode === 1) {
-          // End of shuffle pass with repeat-all — wrap to first
-          newIdx = _shuffleOrder[0];
-          _shufflePosition = 0;
-        } else {
-          // End of shuffle pass without repeat — fall back to index-based
-          newIdx = Math.min(index, playlist.length - 1);
-          _shufflePosition = _shuffleOrder.indexOf(newIdx);
-        }
-      } else {
-        newIdx = Math.min(index, playlist.length - 1);
-      }
-      setState('playlist.currentTrackIndex', newIdx);
-      needsPlayRestart = true;
-    } else if (index < currentTrackIndex) {
-      // Removed before current — shift index down
-      newIdx = currentTrackIndex - 1;
-      setState('playlist.currentTrackIndex', newIdx);
-    }
-
-    // Tear down YouTube iframe if the removed track was the active YT one
-    // AND we're leaving YouTube mode (empty playlist or next track is local).
-    // YT → YT removal leaves the iframe up so loadYouTubeVideo can reuse it.
-    if (wasYoutubeActive) {
-      const newIsYoutube = newIdx >= 0 && playlist[newIdx]?.type === 'youtube';
-      if (!newIsYoutube) bus.emit('youtube:stop-mode');
-    }
-
-    // Preload invalidation:
-    //   index === preloadIdx     → preloaded track is gone, clear & reschedule.
-    //   preloadIdx >= length     → tail-removed past preload target, clear & reschedule.
-    //   index < preloadIdx       → the exact Blob/session still owns the same
-    //                              track; only its playlist slot shifts down.
-    //                              Re-index each peer's preloadedIndexes Set in
-    //                              lockstep. Saves a 5–15 MB re-broadcast × N.
-    //   index > preloadIdx       → no-op.
-    const preloadIdx = getState('preload.nextTrackIndex');
-    if (preloadIdx >= 0) {
-      if (index === preloadIdx || preloadIdx >= playlist.length) {
-        clearPreloadState();
-        if (playlist.length > 0) schedulePreload();
-      } else if (index < preloadIdx) {
-        const newPreloadIdx = preloadIdx - 1;
-        setState('preload.nextTrackIndex', newPreloadIdx);
-        // Keep preload.meta.index consistent with nextTrackIndex so the host
-        // fast path in playTrack still recognises the cached blob.
-        const meta = getState('preload.meta');
-        if (meta && (meta.index as number) === preloadIdx) {
-          setState('preload.meta', { ...meta, index: newPreloadIdx });
-        }
-        // Re-index host-side peer caches: every peer that had `preloadIdx`
-        // marked as cached now has `newPreloadIdx`. Indexes between `index`
-        // and `preloadIdx` shift down by 1; indexes < `index` are unaffected;
-        // index === `index` was the removed slot.
-        const connectedPeers = getState('network.connectedPeers') || [];
-        if (connectedPeers.some((p) => p.preloadedIndexes?.has(preloadIdx))) {
-          const updatedPeers = connectedPeers.map((p) => {
-            if (!p.preloadedIndexes?.has(preloadIdx)) return p;
-            const next = new Set<number>();
-            for (const i of p.preloadedIndexes) {
-              if (i === index) continue; // removed slot
-              if (i < index) next.add(i);
-              else next.add(i - 1); // i > index → shift down
-            }
-            return { ...p, preloadedIndexes: next };
-          });
-          setState('network.connectedPeers', updatedPeers);
-        }
-      }
-      // index > preloadIdx → fall through (no-op).
-    }
-
-    // Broadcast the updated playlist BEFORE kicking off any replay. Otherwise
-    // playTrack fires FILE_PREPARE/PLAY first and guests momentarily sit on
-    // the old playlist with the new currentTrackIndex.
-    const metaList = playlist.map((item) => ({
-      type: item.type,
-      name: item.name,
-      title: item.title || item.name,
-      videoId: item.videoId || null,
-      playlistId: item.playlistId || null,
-    }));
-    broadcast({
-      type: MSG.PLAYLIST_UPDATE,
-      list: metaList,
-      currentTrackIndex: newIdx,
-    });
-
-    if (needsPlayRestart) {
-      // The deleted slot's decoded buffer is still resident. Without
-      // clearing it, playTrack(newIdx) hits the same-track fast-replay
-      // path (currentIdx === newIdx, hasAudioLoaded === true) and the
-      // host would play the deleted track's audio for ~3s under the new
-      // track's title.
-      setCurrentAudioBuffer(null);
-      playTrack(newIdx);
-    }
+  bus.on('playlist:remove-tracks', (queueItemIds) => {
+    removeQueueItems(queueItemIds);
   });
 
-  // Host: Send playlist state to newly connected peer (late-join bootstrap)
-  bus.on('network:peer-connected', (conn) => {
+  bus.on('playlist:reorder-track', (queueItemId, beforeQueueItemId, baseRevision) => {
+    reorderQueueItem(queueItemId, beforeQueueItemId, baseRevision);
+  });
+
+  // Host: send queue authority during the ordered pre-playback bootstrap phase.
+  bus.on('network:peer-bootstrap', (conn) => {
     if (!conn?.open) return;
 
     // Only Host bootstraps guests
@@ -1507,6 +1599,11 @@ export function initPlaylist(): void {
     if (hostConn) return;
 
     try {
+      // Full authoritative queue snapshot must be first after WELCOME. Every
+      // qid/media frame on the guest is gated until this exact connection's
+      // baseline has been applied.
+      conn.send({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), bootstrap: true });
+
       // Repeat mode
       const repeatMode = getState('playlist.repeatMode') || 0;
       conn.send({ type: MSG.REPEAT_MODE, value: repeatMode, _bootstrap: true });
@@ -1514,18 +1611,6 @@ export function initPlaylist(): void {
       // Shuffle mode
       const isShuffle = getState('playlist.isShuffle');
       conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle, _bootstrap: true });
-
-      // Full playlist metadata
-      const playlist = getState('playlist.items') || [];
-      const metaList = playlist.map((item) => ({
-        type: item.type,
-        name: item.name,
-        title: item.title || item.name,
-        videoId: item.videoId || null,
-        playlistId: item.playlistId || null,
-      }));
-      const currentTrackIndex = getState('playlist.currentTrackIndex');
-      conn.send({ type: MSG.PLAYLIST_UPDATE, list: metaList, currentTrackIndex });
 
       log.debug('[Playlist] Bootstrap: sent playlist state to new peer');
     } catch (e) {

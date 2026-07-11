@@ -17,11 +17,8 @@ import {
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import {
-  readPlaybackProjection,
-  readState,
-  waitForPlaylistCount,
-} from './helpers/wait.ts';
+import { readCurrentQueueIndex, waitForCurrentQueueIndex } from './helpers/queue-state.ts';
+import { readPlaybackProjection, waitForPlaylistCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -34,23 +31,15 @@ test.describe('Playback Sync', () => {
     await cleanupContexts(pair);
   });
 
-  test('host file upload sets transfer meta and track index', async () => {
+  test('host file upload selects the uploaded queue occurrence', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    await pair.hostPage.waitForFunction(
-      () => {
-        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
-        return get && get('playlist.currentTrackIndex') === 0;
-      },
-      { timeout: 10_000 },
-    );
+    await waitForCurrentQueueIndex(pair.hostPage, 0, 10_000);
 
-    const trackIndex = await readState(pair.hostPage, 'playlist.currentTrackIndex');
+    const trackIndex = await readCurrentQueueIndex(pair.hostPage);
     expect(trackIndex).toBe(0);
   });
 
@@ -65,7 +54,7 @@ test.describe('Playback Sync', () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
           | ((p: string) => unknown)
           | undefined;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 15_000 },
     );
@@ -112,7 +101,7 @@ test.describe('Playback Sync', () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
           | ((p: string) => unknown)
           | undefined;
-        return get && get('files.currentFileBlob') !== null;
+        return get && get('files.current') !== null;
       },
       { timeout: 15_000 },
     );

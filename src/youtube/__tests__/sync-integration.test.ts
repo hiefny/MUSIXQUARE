@@ -32,6 +32,8 @@ import { isClockCalibrated } from '../../network/shared-clock.ts';
 import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
 
+const QUEUE_ITEM_ID = '22222222-2222-4222-8222-222222222222';
+
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
 const localYouTubePaused = vi.hoisted(() => ({ value: false }));
@@ -177,11 +179,29 @@ beforeEach(async () => {
   getYouTubePlayerMock.mockReturnValue(null);
   localYouTubePaused.value = false;
 
+  setState('playlist.items', [
+    {
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Fake Video',
+      videoId: 'FAKE_VIDEO_ID',
+      playlistId: null,
+    },
+  ]);
+  setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+
   setPlaybackYouTubePlaying();
 
   // Initialize sync module so registerHandlers captures handlers.
   const syncMod = await import('../sync.ts');
   syncMod.initYouTubeSync();
+  for (const type of [MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE]) {
+    const rawHandler = capturedHandlers[type];
+    if (rawHandler) {
+      capturedHandlers[type] = (data, conn) =>
+        rawHandler({ queueItemId: QUEUE_ITEM_ID, ...data }, conn);
+    }
+  }
   // Clear module-level state leaked from prior tests (_autoSyncUntil,
   // _lastHostSyncTime, _hostAdPauseActive, _lastHostSnapshot, etc.).
   // Without this the ad-detection and drift tests are corrupted by the
@@ -1023,10 +1043,16 @@ describe('YouTube Sync — Regression Integration', () => {
   // to the queue-level playlist logic via callback(false).
   describe('sub-video navigation — subIndex/videoId broadcast parity', () => {
     function seedPlaylistTrack(ids: string[]): void {
-      setState('playlist.currentTrackIndex', 0);
       setState('playlist.items', [
-        { type: 'youtube', videoId: ids[0], playlistId: 'PL_NAV', name: 'Playlist' },
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: ids[0],
+          playlistId: 'PL_NAV',
+          name: 'Playlist',
+        },
       ] as never);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
       setState('youtube.subItemsMap', { PL_NAV: { ids, titles: [] } });
     }
 

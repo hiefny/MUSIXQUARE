@@ -1,0 +1,502 @@
+/**
+ * @vitest-environment jsdom
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPlaylistReorderController } from '../playlist-reorder.ts';
+
+const PLAYLIST_LONG_PRESS_MS = 700;
+const PLAYLIST_REORDER_HINT_MS = 2000;
+
+const IDS = {
+  a: '00000000-0000-4000-8000-000000000001',
+  b: '00000000-0000-4000-8000-000000000002',
+  c: '00000000-0000-4000-8000-000000000003',
+} as const;
+
+function domRect(top: number, height = 48): DOMRect {
+  return {
+    x: 0,
+    y: top,
+    top,
+    bottom: top + height,
+    left: 0,
+    right: 300,
+    width: 300,
+    height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function setupList(): { list: HTMLElement; scroller: HTMLElement; rows: HTMLElement[] } {
+  document.body.innerHTML = `
+    <div class="tab-body">
+      <ul id="playlist-ui">
+        ${Object.values(IDS)
+          .map(
+            (id, index) => `<li class="playlist-entry" data-queue-item-id="${id}">
+              <div class="track-item" data-queue-item-id="${id}">
+                <button class="playlist-reorder-handle" data-queue-item-id="${id}" aria-grabbed="false"><span class="track-idx">${index + 1}</span></button>
+                <span class="track-name-text">${id.slice(-1)}</span>
+              </div>
+            </li>`,
+          )
+          .join('')}
+      </ul>
+    </div>`;
+  const list = document.getElementById('playlist-ui')!;
+  const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('.track-item'));
+  rows.forEach((row, index) => {
+    row.getBoundingClientRect = () => domRect(index * 56);
+  });
+  scroller.getBoundingClientRect = () => domRect(0, 200);
+  Object.defineProperties(scroller, {
+    clientHeight: { configurable: true, value: 200 },
+    scrollHeight: { configurable: true, value: 800 },
+  });
+  return { list, scroller, rows };
+}
+
+function dispatchPointer(
+  target: Element,
+  type: string,
+  clientY: number,
+  pointerId = 1,
+): MouseEvent {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    clientX: 20,
+    clientY,
+  });
+  Object.defineProperties(event, {
+    pointerId: { value: pointerId },
+    isPrimary: { value: true },
+    pointerType: { value: 'mouse' },
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
+interface TestTouch {
+  identifier: number;
+  clientX: number;
+  clientY: number;
+}
+
+function touchList(touches: TestTouch[]): TouchList {
+  const list = [...touches] as unknown as TouchList & { item(index: number): Touch | null };
+  Object.defineProperty(list, 'item', {
+    value: (index: number) => (list[index] as Touch | undefined) ?? null,
+  });
+  return list;
+}
+
+function dispatchTouch(
+  target: Element,
+  type: string,
+  touches: TestTouch[],
+  changedTouches: TestTouch[] = touches,
+): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    touches: { value: touchList(touches) },
+    changedTouches: { value: touchList(changedTouches) },
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
+describe('playlist reorder interaction controller', () => {
+  const controllers: Array<{ destroy(): void }> = [];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) =>
+      window.setTimeout(() => callback(performance.now()), 16),
+    );
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => window.clearTimeout(id));
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    controllers.splice(0).forEach((controller) => controller.destroy());
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  function create(canReorder = true, initiallyVisible = true) {
+    const commit = vi.fn();
+    let visible = initiallyVisible;
+    const { list, scroller, rows } = setupList();
+    const controller = createPlaylistReorderController({
+      list,
+      canReorder: () => canReorder,
+      isPlaylistVisible: () => visible,
+      onCommit: commit,
+      getAnnouncement: (id, position, total) => `${id}:${position}/${total}`,
+      getHandleLabel: (id, position) => `${id}:position-${position}`,
+    });
+    controllers.push(controller);
+    return {
+      controller,
+      commit,
+      list,
+      scroller,
+      rows,
+      setVisible(next: boolean) {
+        visible = next;
+      },
+    };
+  }
+
+  it('commits a direct handle drag once using source and before IDs', () => {
+    const { commit, controller, list } = create();
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+
+    dispatchPointer(handle, 'pointerdown', 20);
+    expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
+    dispatchPointer(handle, 'pointermove', 190);
+    expect(
+      Array.from(list.querySelectorAll<HTMLElement>('.playlist-entry')).map(
+        (entry) => entry.dataset.queueItemId,
+      ),
+    ).toEqual([IDS.b, IDS.c, IDS.a]);
+    expect(
+      Array.from(list.querySelectorAll<HTMLElement>('.playlist-entry')).map((entry) => ({
+        index: entry.dataset.playlistIndex,
+        number: entry.querySelector('.track-idx')?.textContent,
+        position: entry.querySelector('.playlist-reorder-handle')?.getAttribute('aria-posinset'),
+      })),
+    ).toEqual([
+      { index: '0', number: '1', position: '1' },
+      { index: '1', number: '2', position: '2' },
+      { index: '2', number: '3', position: '3' },
+    ]);
+    dispatchPointer(handle, 'pointerup', 190);
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith(IDS.a, null);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+    expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
+    expect(controller.isSettling).toBe(true);
+    vi.advanceTimersByTime(300);
+    expect(document.querySelector('.playlist-reorder-settle')).toBeNull();
+    expect(controller.isSettling).toBe(false);
+  });
+
+  it('cancels pointer drag without committing', () => {
+    const { commit, list } = create();
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+
+    dispatchPointer(handle, 'pointerdown', 20);
+    dispatchPointer(handle, 'pointermove', 190);
+    dispatchPointer(handle, 'pointercancel', 190);
+
+    expect(commit).not.toHaveBeenCalled();
+    expect(document.body.classList.contains('playlist-reorder-active')).toBe(false);
+    expect(
+      Array.from(list.querySelectorAll<HTMLElement>('.playlist-entry')).map(
+        (entry) => entry.dataset.queueItemId,
+      ),
+    ).toEqual([IDS.a, IDS.b, IDS.c]);
+  });
+
+  it('cancels an active drag on Escape without changing order', () => {
+    const { commit, list } = create();
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    dispatchPointer(handle, 'pointerdown', 20);
+    dispatchPointer(handle, 'pointermove', 190);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(commit).not.toHaveBeenCalled();
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+  });
+
+  it('supports keyboard pickup, target movement, drop, and live position feedback', () => {
+    const { commit, list } = create();
+    const handles = list.querySelectorAll<HTMLElement>('.playlist-reorder-handle');
+    const middle = handles[1];
+    middle.focus();
+
+    middle.dispatchEvent(
+      new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+    );
+    middle.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+    );
+    expect(document.activeElement).toBe(middle);
+    middle.dispatchEvent(
+      new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+    );
+
+    expect(commit).toHaveBeenCalledWith(IDS.b, IDS.a);
+    vi.advanceTimersByTime(16);
+    expect(document.querySelector('.playlist-reorder-live')?.textContent).toContain('1/3');
+  });
+
+  it('activates row-body reorder only after a stationary 700 ms touch', () => {
+    const { commit, list, rows } = create();
+    const rowClick = vi.fn();
+    list.addEventListener('click', rowClick);
+    const touch = { identifier: 7, clientX: 140, clientY: 20 };
+    dispatchTouch(rows[0], 'touchstart', [touch]);
+
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS - 1);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+    vi.advanceTimersByTime(1);
+    expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
+
+    const moved = { ...touch, clientY: 190 };
+    const moveEvent = dispatchTouch(rows[0], 'touchmove', [moved]);
+    expect(moveEvent.defaultPrevented).toBe(true);
+    dispatchTouch(rows[0], 'touchend', [], [moved]);
+    expect(commit).toHaveBeenCalledWith(IDS.a, null);
+
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    rows[0].dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(rowClick).not.toHaveBeenCalled();
+  });
+
+  it('cancels an armed probe when another touch starts anywhere and waits for all fingers to lift', () => {
+    const { list, rows } = create();
+    const rowClick = vi.fn();
+    list.addEventListener('click', rowClick);
+    const first = { identifier: 20, clientX: 140, clientY: 20 };
+    const second = { identifier: 21, clientX: 20, clientY: 300 };
+    dispatchTouch(rows[0], 'touchstart', [first]);
+    vi.advanceTimersByTime(300);
+
+    dispatchTouch(document.body, 'touchstart', [first, second], [second]);
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS + 500);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+
+    dispatchTouch(document.body, 'touchend', [first], [second]);
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS + 500);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+
+    dispatchTouch(rows[0], 'touchend', [], [first]);
+    const syntheticClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    rows[0].dispatchEvent(syntheticClick);
+    expect(syntheticClick.defaultPrevented).toBe(true);
+    expect(rowClick).not.toHaveBeenCalled();
+
+    const fresh = { identifier: 22, clientX: 140, clientY: 20 };
+    dispatchTouch(rows[0], 'touchstart', [fresh]);
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS);
+    expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
+    dispatchTouch(rows[0], 'touchcancel', [], [fresh]);
+  });
+
+  it('cancels an active touch drag immediately when another touch starts outside the list', () => {
+    const { commit, rows } = create();
+    const first = { identifier: 23, clientX: 140, clientY: 20 };
+    const second = { identifier: 24, clientX: 20, clientY: 300 };
+    dispatchTouch(rows[0], 'touchstart', [first]);
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS);
+    expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
+
+    dispatchTouch(document.body, 'touchstart', [first, second], [second]);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+    expect(document.body.classList.contains('playlist-reorder-active')).toBe(false);
+    expect(commit).not.toHaveBeenCalled();
+
+    dispatchTouch(document.body, 'touchend', [first], [second]);
+    dispatchTouch(rows[0], 'touchend', [], [first]);
+  });
+
+  it('permanently disqualifies long-press after native scroll and hints only the row under finger', () => {
+    const { rows, scroller } = create();
+    const touch = { identifier: 9, clientX: 140, clientY: 20 };
+    dispatchTouch(rows[0], 'touchstart', [touch]);
+    const moved = { ...touch, clientY: 90 };
+    dispatchTouch(rows[0], 'touchmove', [moved]);
+
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn((_x: number, y: number) => (y > 100 ? rows[2] : rows[1])),
+    });
+    scroller.scrollTop = 20;
+    scroller.dispatchEvent(new Event('scroll'));
+    const latestMove = { ...touch, clientY: 130 };
+    dispatchTouch(rows[0], 'touchmove', [latestMove]);
+    vi.advanceTimersByTime(16);
+
+    expect(rows[2].closest('.playlist-entry')?.classList.contains('is-touch-scroll-hint')).toBe(
+      true,
+    );
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS + 200);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+
+    dispatchTouch(rows[0], 'touchend', [], [latestMove]);
+    expect(document.querySelector('.is-touch-scroll-hint')).toBeNull();
+  });
+
+  it('does not re-arm long-press after the finger crosses the movement threshold and stops', () => {
+    const { list, rows } = create();
+    const rowClick = vi.fn();
+    list.addEventListener('click', rowClick);
+    const touch = { identifier: 10, clientX: 140, clientY: 20 };
+    dispatchTouch(rows[0], 'touchstart', [touch]);
+    const moved = { ...touch, clientY: 29 };
+    dispatchTouch(rows[0], 'touchmove', [moved]);
+
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS + 500);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+
+    dispatchTouch(rows[0], 'touchend', [], [moved]);
+
+    const syntheticClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    rows[0].dispatchEvent(syntheticClick);
+    expect(syntheticClick.defaultPrevented).toBe(true);
+    expect(rowClick).not.toHaveBeenCalled();
+
+    const ordinaryClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    rows[0].dispatchEvent(ordinaryClick);
+    expect(ordinaryClick.defaultPrevented).toBe(false);
+    expect(rowClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('never arms a contact that starts while scroll momentum is settling', () => {
+    const { list, rows, scroller } = create();
+    const rowClick = vi.fn();
+    list.addEventListener('click', rowClick);
+    scroller.scrollTop = 20;
+    scroller.dispatchEvent(new Event('scroll'));
+
+    const touch = { identifier: 25, clientX: 140, clientY: 20 };
+    dispatchTouch(rows[0], 'touchstart', [touch]);
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS + 500);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+
+    dispatchTouch(rows[0], 'touchend', [], [touch]);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    rows[0].dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(rowClick).not.toHaveBeenCalled();
+  });
+
+  it('removes an active touch drag on touchcancel without committing', () => {
+    const { commit, rows } = create();
+    const touch = { identifier: 26, clientX: 140, clientY: 20 };
+    dispatchTouch(rows[0], 'touchstart', [touch]);
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS);
+    expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
+
+    dispatchTouch(rows[0], 'touchcancel', [], [touch]);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+    expect(document.body.classList.contains('playlist-reorder-active')).toBe(false);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('keeps an ordinary row tap unsuppressed', () => {
+    const { list, rows } = create();
+    const rowClick = vi.fn();
+    list.addEventListener('click', rowClick);
+    const touch = { identifier: 27, clientX: 140, clientY: 20 };
+    dispatchTouch(rows[0], 'touchstart', [touch]);
+    dispatchTouch(rows[0], 'touchend', [], [touch]);
+
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    rows[0].dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+    expect(rowClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reveal a touch-scroll hint for a tap without actual scrolling', () => {
+    const { rows } = create();
+    const touch = { identifier: 11, clientX: 140, clientY: 20 };
+    dispatchTouch(rows[0], 'touchstart', [touch]);
+    dispatchTouch(rows[0], 'touchend', [], [touch]);
+    vi.advanceTimersByTime(32);
+
+    expect(document.querySelector('.is-touch-scroll-hint')).toBeNull();
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+  });
+
+  it('shows all handles for exactly two seconds after an add notification', () => {
+    const { controller, list } = create();
+    controller.notifyItemsAdded();
+    expect(list.classList.contains('show-reorder-hints')).toBe(true);
+
+    vi.advanceTimersByTime(PLAYLIST_REORDER_HINT_MS - 1);
+    expect(list.classList.contains('show-reorder-hints')).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(list.classList.contains('show-reorder-hints')).toBe(false);
+  });
+
+  it('shows the two-second hint on every visible playlist-tab entry', () => {
+    const { controller, list } = create();
+
+    controller.notifyPlaylistEntered();
+    expect(list.classList.contains('show-reorder-hints')).toBe(true);
+
+    vi.advanceTimersByTime(PLAYLIST_REORDER_HINT_MS);
+    expect(list.classList.contains('show-reorder-hints')).toBe(false);
+  });
+
+  it('defers an add hint while hidden and shows it on the next playlist entry', () => {
+    const { controller, list, setVisible } = create(true, false);
+    controller.notifyItemsAdded();
+    expect(list.classList.contains('show-reorder-hints')).toBe(false);
+
+    setVisible(true);
+    controller.notifyPlaylistEntered();
+    expect(list.classList.contains('show-reorder-hints')).toBe(true);
+  });
+
+  it('auto-scrolls the tab body near the visible bottom edge', () => {
+    const { list, scroller } = create();
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    dispatchPointer(handle, 'pointerdown', 20);
+    dispatchPointer(handle, 'pointermove', 198);
+
+    vi.advanceTimersByTime(64);
+    expect(scroller.scrollTop).toBeGreaterThan(0);
+    dispatchPointer(handle, 'pointerup', 198);
+  });
+
+  it('does not treat a non-overlapping compact side navigation as a bottom obstruction', () => {
+    const { list, scroller } = create();
+    const sideNav = document.createElement('nav');
+    sideNav.className = 'bottom-nav';
+    sideNav.getBoundingClientRect = () =>
+      ({
+        top: 50,
+        bottom: 400,
+        left: 320,
+        right: 420,
+        width: 100,
+        height: 350,
+        x: 320,
+        y: 50,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    document.body.appendChild(sideNav);
+
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    dispatchPointer(handle, 'pointerdown', 20);
+    dispatchPointer(handle, 'pointermove', 120);
+
+    vi.advanceTimersByTime(64);
+    expect(scroller.scrollTop).toBe(0);
+    dispatchPointer(handle, 'pointerup', 120);
+  });
+
+  it('does not start any reorder affordance without mutation authority', () => {
+    const { commit, list, controller } = create(false);
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    dispatchPointer(handle, 'pointerdown', 20);
+    controller.notifyItemsAdded();
+
+    expect(commit).not.toHaveBeenCalled();
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+    expect(list.classList.contains('show-reorder-hints')).toBe(false);
+  });
+});

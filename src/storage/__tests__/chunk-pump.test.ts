@@ -15,6 +15,8 @@ import { pumpChunksToPeers } from '../chunk-pump.ts';
 import { MSG } from '../../core/constants.ts';
 import type { ConnectedPeer, DataConnection, AnyProtocolMsg } from '../../types/index.ts';
 
+const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
 interface MockConn {
   open: boolean;
   peer: string;
@@ -38,7 +40,7 @@ function makePeer(id: string, conn: MockConn): ConnectedPeer {
     label: id,
     conn: conn as unknown as DataConnection,
     isOp: false,
-    preloadedIndexes: new Set<number>(),
+    preloadedQueueItemIds: new Set(),
     status: 'connected',
     isDataTarget: true,
     joinOrder: 1,
@@ -47,8 +49,8 @@ function makePeer(id: string, conn: MockConn): ConnectedPeer {
   };
 }
 
-function buildMsg(chunk: Uint8Array, index: number): AnyProtocolMsg {
-  return { type: MSG.PRELOAD_CHUNK, chunk, index, sessionId: 1 };
+function buildMsg(chunk: Uint8Array, chunkIndex: number): AnyProtocolMsg {
+  return { type: MSG.PRELOAD_CHUNK, chunk, chunkIndex, queueItemId: QUEUE_ITEM_ID, sessionId: 1 };
 }
 
 // 5 bytes / chunkSize 2 → 3 chunks

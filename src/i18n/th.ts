@@ -84,6 +84,8 @@ const th: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'เปิด/ปิดเพลย์ลิสต์',
+  'playlist.reorder_handle': 'จัดลำดับ {{title}} ใหม่ ตำแหน่ง {{position}}',
+  'playlist.reorder_position': '{{title}} ตำแหน่ง {{position}} จาก {{total}}',
   'playlist.repeat_all': 'เปิดเล่นซ้ำทุกเพลงแล้ว',
   'playlist.repeat_one': 'เปิดเล่นซ้ำเพลงนี้แล้ว',
   'playlist.repeat_off': 'ปิดเล่นซ้ำแล้ว',
@@ -94,9 +96,11 @@ const th: Record<I18nKey, string> = {
   'playlist.loading_info': 'กำลังโหลดข้อมูลเพลง...',
   'playlist.sub_load_failed': 'โหลดข้อมูลวิดีโอไม่ได้',
   'playlist.remove_title': 'ลบออกจากเพลย์ลิสต์',
-  'playlist.remove_message': 'ต้องการลบเพลงนี้ออกจากเพลย์ลิสต์หรือไม่?',
-  'playlist.remove_yes': 'ลบ',
-  'playlist.remove_no': 'ยกเลิก',
+  'playlist.select_for_deletion': 'เลือก {{title}} เพื่อลบ',
+  'playlist.deselect_for_deletion': 'ยกเลิกการเลือก {{title}}',
+  'playlist.deselect_all': 'ยกเลิกการเลือกทั้งหมด',
+  'playlist.select_all': 'เลือกทั้งหมด',
+  'playlist.delete_selected': 'ลบเพลงที่เลือก {{count}} เพลง',
   'playlist.video_fallback': 'กำลังโหลด...',
   'playlist.track_fallback': 'เพลงที่ {{idx}}',
   'playlist.deferred_load_hint': 'กดเล่นเพื่อโหลดข้อมูลเพลงทั้งหมด',

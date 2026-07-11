@@ -54,6 +54,12 @@ while backends roll forward:
 3. rebuild with `npm run build:checked`, deploy
    `cloudflare/wrangler.app.toml`, then run `npm run smoke:live` and browser QA.
 
+That Worker-first order applies only to backward-compatible protocol changes.
+For an intentional hard cut such as the `queueItemId` remote-share migration,
+follow the coordinated deployment contract in
+[`design/queue-item-identity-and-reorder.md`](design/queue-item-identity-and-reorder.md); a mixed
+old/new app and Worker pair is unsupported and must not be rolled out as an ordinary hotfix.
+
 Before each deploy, save the version reported by
 `npx wrangler deployments status --config <config> --json`. Confirm that the
 saved version is compatible with every migration already applied before using
@@ -65,15 +71,15 @@ MUSIXQUARE is a PWA with a service worker, so "deployed" and "every open client 
 
 Current behavior:
 
-| Client state | Expected behavior |
-| --- | --- |
-| New visitor or fresh navigation | Navigation is network-first, so the user should receive the latest deployed app shell immediately unless offline. |
-| Existing open tab | `src/sw-register.ts` performs an immediate update check after registration and then checks every 60 minutes. When a waiting worker is found, the app shows the service-worker update dialog. |
-| User accepts update dialog | The page sends `SKIP_WAITING`, records a 30-second cooldown in `sessionStorage`, marks the navigation intentional, and reloads once. |
+| Client state                                | Expected behavior                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New visitor or fresh navigation             | Navigation is network-first, so the user should receive the latest deployed app shell immediately unless offline.                                                                                                                                                                                                                                                                                                                                 |
+| Existing open tab                           | `src/sw-register.ts` performs an immediate update check after registration and then checks every 60 minutes. When a waiting worker is found, the app shows the service-worker update dialog.                                                                                                                                                                                                                                                      |
+| User accepts update dialog                  | The page sends `SKIP_WAITING`, records a 30-second cooldown in `sessionStorage`, marks the navigation intentional, and reloads once.                                                                                                                                                                                                                                                                                                              |
 | Other same-origin tabs when one tab accepts | `controllerchange` fires in every controlled tab. Idle tabs (`network.appRole === 'idle'`) auto-reload; tabs with a live session show an update-ready toast and defer the reload to their next natural load so an update cannot silently terminate a room. The worker keeps retired-version caches until every live tab confirms that its page loaded under the active controller, so a deferred tab can still import its old hashed lazy chunks. |
-| Update found during cooldown | The waiting worker is activated silently to avoid a reload-dialog loop. In-session tabs still defer per the rule above, so a hotfix-on-hotfix is not guaranteed to reach them until they reload naturally. |
-| User dismisses update dialog | The waiting worker is not activated by app code. The update applies on a later natural load/update path. |
-| PWA/background tab | Delivery depends on when the browser wakes the page and allows the update check. Treat this as browser-controlled. |
+| Update found during cooldown                | The waiting worker is activated silently to avoid a reload-dialog loop. In-session tabs still defer per the rule above, so a hotfix-on-hotfix is not guaranteed to reach them until they reload naturally.                                                                                                                                                                                                                                        |
+| User dismisses update dialog                | The waiting worker is not activated by app code. The update applies on a later natural load/update path.                                                                                                                                                                                                                                                                                                                                          |
+| PWA/background tab                          | Delivery depends on when the browser wakes the page and allows the update check. Treat this as browser-controlled.                                                                                                                                                                                                                                                                                                                                |
 
 Bumping `CACHE_VERSION` in `public/service-worker.js` creates fresh active app-shell caches and is the current lightweight way to make existing clients notice an app-shell migration. Prior generations are retired only after the page/worker readiness handshake confirms that no live tab still needs them (or when activation sees no live window clients). It still does not create a guaranteed instant reload for every active/background client.
 
@@ -138,12 +144,12 @@ before its deletion migration; use a known-good post-deletion version.
 
 Treat these separately from app hotfixes unless the app has a confirmed code-level workaround.
 
-| Dependency | User symptom | Current response |
-| --- | --- | --- |
-| PeerJS-compatible signaling / Cloudflare signaling | New sessions or remote peers fail to connect. | Check the configured transport and service status. Prefer rollback or a small isolated compatibility patch over broad session rewrites; public production hosts do not automatically fall back to PeerJS. |
-| TURN credential endpoint / Cloudflare Worker | Remote peers may fall back to STUN-only and fail across restrictive NATs. | Confirm `/api/get-turn-config` response and Cloudflare status. Do not cache TURN credentials. |
-| YouTube IFrame API | YouTube mode fails while file playback still works. | Confirm iframe/API availability. File mode remains the fallback user path. |
-| Browser audio/WebRTC policy changes | iOS/Safari/Chrome-specific playback or connection drift. | Reproduce on the affected real device/browser. Unit tests cannot prove this class of issue. |
+| Dependency                                         | User symptom                                                              | Current response                                                                                                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PeerJS-compatible signaling / Cloudflare signaling | New sessions or remote peers fail to connect.                             | Check the configured transport and service status. Prefer rollback or a small isolated compatibility patch over broad session rewrites; public production hosts do not automatically fall back to PeerJS. |
+| TURN credential endpoint / Cloudflare Worker       | Remote peers may fall back to STUN-only and fail across restrictive NATs. | Confirm `/api/get-turn-config` response and Cloudflare status. Do not cache TURN credentials.                                                                                                             |
+| YouTube IFrame API                                 | YouTube mode fails while file playback still works.                       | Confirm iframe/API availability. File mode remains the fallback user path.                                                                                                                                |
+| Browser audio/WebRTC policy changes                | iOS/Safari/Chrome-specific playback or connection drift.                  | Reproduce on the affected real device/browser. Unit tests cannot prove this class of issue.                                                                                                               |
 
 ## Post-Hotfix Checklist
 

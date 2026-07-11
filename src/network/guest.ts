@@ -300,6 +300,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).
     detectConnectionType(conn).then((type) => {
+      if (!conn.open || getState('network.hostConn') !== conn) return;
       const applied = applyGuestDetectedConnectionType(type, 'Initial ICE detection');
       if (applied) log.info(`[Peer] Connection type: ${type}`);
 
@@ -310,8 +311,9 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         setManagedTimer(
           'guest-ice-fallback',
           async () => {
-            if (!conn.open) return;
+            if (!conn.open || getState('network.hostConn') !== conn) return;
             const recheck = await detectConnectionType(conn);
+            if (!conn.open || getState('network.hostConn') !== conn) return;
             if (recheck === 'local' && getState('network.connectionType') !== 'local') {
               const appliedFallback = applyGuestDetectedConnectionType(
                 'local',

@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { SessionScope } from '../core/session-scope.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
-import { getState, setState } from '../core/state.ts';
+import { batchSetState, getState, setState } from '../core/state.ts';
 import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
@@ -20,6 +20,11 @@ import {
   retainStoredFileAdmission,
 } from './storage.ts';
 import { registerHandlers } from '../network/protocol.ts';
+import {
+  beginFileRequest,
+  completeFileRequest,
+  sendFileRequest,
+} from '../network/file-request-authority.ts';
 import {
   safeSend,
   sendToHost,
@@ -47,11 +52,13 @@ import { resolveDecodeMemoryBudget } from '../player/decode-admission.ts';
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
 const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
+/** Queue identity bound to each buffered transfer session, including early chunks. */
+const preloadQueueItemBySid = new Map<number, string>();
 let latestPreloadSessionId = 0;
 const MAX_EARLY_PRELOAD_SESSIONS = 4;
 const MAX_EARLY_PRELOAD_CHUNKS = 64;
 const MAX_EARLY_PRELOAD_BYTES = 4 * 1024 * 1024;
-let _activePlayPreloadedIndex: number | undefined;
+let _activePlayPreloadedQueueItemId: string | undefined;
 let _preloadScope: SessionScope | null = null;
 /** Per-peer unicast preload abort controls (key: peerId).
  *  Tracks scope + sid + conn so cancelPreloadTransfer can send a targeted
@@ -59,21 +66,21 @@ let _preloadScope: SessionScope | null = null;
 interface UnicastEntry {
   scope: SessionScope;
   sid: number;
+  queueItemId: string;
   conn: DataConnection;
 }
 const _activePreloadUnicasts = new Map<string, UnicastEntry>();
 
 interface PreloadIdentity {
   readonly sessionId: number;
-  readonly index: number;
-  readonly name: string;
+  readonly queueItemId: string;
 }
 
 /**
  * Exact preload transfer selected by the latest authoritative PLAY_PRELOADED.
  *
- * Playlist index is logical identity within one command, but it can be reused
- * after a rapid replace/reorder. The transfer session keeps a late storage
+ * queueItemId is the logical occurrence identity across reorder. The transfer
+ * session keeps a late storage
  * completion attributable to the command that actually awaited it. `name` is
  * only a consistency veto; it never selects bytes by itself.
  */
@@ -85,24 +92,17 @@ function retainedPcmBytesForReceive(): number {
     : currentAudioBufferPcmBytes();
 }
 
-function createPreloadIdentity(
-  sessionId: unknown,
-  index: unknown,
-  name: unknown,
-): PreloadIdentity | null {
+function createPreloadIdentity(sessionId: unknown, queueItemId: unknown): PreloadIdentity | null {
   if (
     typeof sessionId !== 'number' ||
     !Number.isSafeInteger(sessionId) ||
     sessionId <= 0 ||
-    typeof index !== 'number' ||
-    !Number.isSafeInteger(index) ||
-    index < 0 ||
-    typeof name !== 'string' ||
-    !name
+    typeof queueItemId !== 'string' ||
+    !queueItemId
   ) {
     return null;
   }
-  return { sessionId, index, name };
+  return { sessionId, queueItemId };
 }
 
 function samePreloadIdentity(left: PreloadIdentity | null, right: PreloadIdentity | null): boolean {
@@ -110,19 +110,14 @@ function samePreloadIdentity(left: PreloadIdentity | null, right: PreloadIdentit
     !!left &&
     !!right &&
     left.sessionId === right.sessionId &&
-    left.index === right.index &&
-    left.name === right.name
+    left.queueItemId === right.queueItemId
   );
 }
 
 function identityFromMeta(
-  meta: Readonly<{ sessionId?: unknown; index?: unknown; name?: unknown }> | null,
+  meta: Readonly<{ sessionId?: unknown; queueItemId?: unknown }> | null,
 ): PreloadIdentity | null {
-  return createPreloadIdentity(meta?.sessionId, meta?.index, meta?.name);
-}
-
-function isNameConsistent(expected: string, actual: string): boolean {
-  return !expected || !actual || expected === actual;
+  return createPreloadIdentity(meta?.sessionId, meta?.queueItemId);
 }
 
 function isExactAwaitedPreload(identity: PreloadIdentity): boolean {
@@ -130,14 +125,13 @@ function isExactAwaitedPreload(identity: PreloadIdentity): boolean {
   const target = getState('playback.pendingRecoveryTarget');
   return (
     getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD &&
-    getState('playlist.currentTrackIndex') === identity.index &&
-    target?.index === identity.index &&
-    target.name === identity.name
+    getState('playlist.currentQueueItemId') === identity.queueItemId &&
+    target?.queueItemId === identity.queueItemId
   );
 }
 
 function isCurrentPreloadSnapshot(identity: PreloadIdentity): boolean {
-  const currentMeta = identityFromMeta(getState('preload.meta'));
+  const currentMeta = identityFromMeta(getState('preload.activeTarget'));
   return (
     identity.sessionId === latestPreloadSessionId && samePreloadIdentity(currentMeta, identity)
   );
@@ -152,19 +146,18 @@ function reconcileAwaitedPreloadOnStart(identity: PreloadIdentity): void {
   const lifecycle = getState('playback.lifecycle');
   const targetsIncomingSession =
     (lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD || lifecycle === PLAYBACK_STATE.DOWNLOADING) &&
-    getState('playlist.currentTrackIndex') === identity.index &&
-    target?.index === identity.index &&
-    target.name === identity.name;
+    getState('playlist.currentQueueItemId') === identity.queueItemId &&
+    target?.queueItemId === identity.queueItemId;
 
   if (targetsIncomingSession) {
     _awaitedPreloadIdentity = identity;
     return;
   }
 
-  // A newer transfer for the same logical slot supersedes an older awaited
+  // A newer transfer for the same queue occurrence supersedes an older awaited
   // tuple even when the display filename happens to collide.
   if (
-    _awaitedPreloadIdentity?.index === identity.index &&
+    _awaitedPreloadIdentity?.queueItemId === identity.queueItemId &&
     identity.sessionId > _awaitedPreloadIdentity.sessionId
   ) {
     _awaitedPreloadIdentity = null;
@@ -193,6 +186,7 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
   for (const sid of preloadReorderBuffer.keys()) {
     if (sid !== keepSessionId) {
       preloadReorderBuffer.delete(sid);
+      preloadQueueItemBySid.delete(sid);
     }
   }
   // Clean up finalized/skipped session entries (immutable update)
@@ -218,6 +212,8 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
     for (const sid of toRemove) {
       updated.delete(sid);
       preloadReorderBuffer.delete(sid);
+      preloadQueueItemBySid.delete(sid);
+      preloadQueueItemBySid.delete(sid);
       clearManagedTimer(`preload-admission-watchdog-${sid}`);
       postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId: sid });
     }
@@ -235,6 +231,7 @@ function abandonStalledPreloadSession(sessionId: number, reason: string): void {
   updated.set(sessionId, { ...session, skipped: true });
   setState('preload.sessionState', updated);
   preloadReorderBuffer.delete(sessionId);
+  preloadQueueItemBySid.delete(sessionId);
   clearManagedTimer(`preload-drain-${sessionId}`);
   clearManagedTimer(`preload-end-deferred-${sessionId}`);
   clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
@@ -261,15 +258,16 @@ export function cancelPreloadTransfer(): void {
 
   // Notify receivers of in-flight transfers BEFORE disposing scopes.
   const sid = getState('preload.sessionId') as number;
+  const queueItemId = getState('preload.nextQueueItemId');
 
   // Broadcast: every eligible peer that the broadcast loop targets shares
   // the current preload sid. Send ABORT to all of them — handler is a
   // no-op if a peer never had a session for this sid.
-  if (sid) {
+  if (sid && queueItemId) {
     const broadcastTargets = filterEligiblePeers();
     broadcastTargets.forEach((p) => {
       const conn = p.conn as DataConnection;
-      safeSend(conn, { type: MSG.PRELOAD_ABORT, sessionId: sid });
+      safeSend(conn, { type: MSG.PRELOAD_ABORT, queueItemId, sessionId: sid });
     });
   }
 
@@ -277,7 +275,11 @@ export function cancelPreloadTransfer(): void {
   // broadcast sid if a unicast was started for an earlier preload session
   // that's still streaming to a late-joiner.
   for (const entry of _activePreloadUnicasts.values()) {
-    safeSend(entry.conn, { type: MSG.PRELOAD_ABORT, sessionId: entry.sid });
+    safeSend(entry.conn, {
+      type: MSG.PRELOAD_ABORT,
+      queueItemId: entry.queueItemId,
+      sessionId: entry.sid,
+    });
     entry.scope.dispose();
   }
   _activePreloadUnicasts.clear();
@@ -288,6 +290,45 @@ export function cancelPreloadTransfer(): void {
   }
   // Bump sessionId so any lingering async loop sees a mismatch and exits
   setState('preload.sessionId', nextSessionId());
+}
+
+/**
+ * Drop guest receive high-water marks when a replacement host connection
+ * establishes queue authority. Preload SIDs are host-runtime scoped, so the
+ * new host must be free to begin again at SID 1.
+ */
+export function resetPreloadReceiveAuthority(): void {
+  _preloadGeneration++;
+  _awaitedPreloadIdentity = null;
+  _activePlayPreloadedQueueItemId = undefined;
+  latestPreloadSessionId = 0;
+
+  const sessionIds = new Set<number>([
+    ...preloadReorderBuffer.keys(),
+    ...getState('preload.sessionState').keys(),
+  ]);
+  for (const sessionId of sessionIds) {
+    clearManagedTimer(`preload-drain-${sessionId}`);
+    clearManagedTimer(`preload-end-deferred-${sessionId}`);
+    clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
+  }
+  preloadReorderBuffer.clear();
+  preloadQueueItemBySid.clear();
+
+  _preloadScope?.dispose();
+  _preloadScope = null;
+  _activePreloadUnicasts.forEach((entry) => entry.scope.dispose());
+  _activePreloadUnicasts.clear();
+
+  batchSetState({
+    'preload.sessionId': 0,
+    'preload.sessionState': new Map(),
+    'preload.ackSent': new Map(),
+    'preload.isPreloading': false,
+    'preload.nextQueueItemId': null,
+    'preload.activeTarget': null,
+    'preload.ready': null,
+  });
 }
 
 // ─── Host: Schedule Preload ─────────────────────────────────────────
@@ -313,10 +354,10 @@ export function schedulePreload(delayMs = 500): void {
 
 /** Reset the preload cache fields so the host fast path can't pick up a stale entry. */
 function clearPreloadCacheState(): void {
-  setState('preload.nextTrackIndex', -1);
+  setState('preload.nextQueueItemId', null);
   setState('preload.isPreloading', false);
-  setState('preload.nextFileBlob', null);
-  setState('preload.meta', null);
+  setState('preload.ready', null);
+  setState('preload.activeTarget', null);
 }
 
 /**
@@ -332,7 +373,9 @@ async function preloadNextTrack(): Promise<void> {
   const playlist = getState('playlist.items');
   if (playlist.length <= 1) return;
 
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const currentQueueItemId = getState('playlist.currentQueueItemId');
+  const currentTrackIndex = playlist.findIndex((item) => item.queueItemId === currentQueueItemId);
+  if (currentTrackIndex < 0) return;
   const repeatMode = getState('playlist.repeatMode');
   const isShuffle = getState('playlist.isShuffle');
 
@@ -348,8 +391,9 @@ async function preloadNextTrack(): Promise<void> {
     // legitimate preload target.
     try {
       const mod = await import('../player/playlist.ts');
-      const hinted = mod.getShuffleNextIndex();
-      if (hinted >= 0 && hinted < playlist.length && hinted !== currentTrackIndex) {
+      const hintedQueueItemId = mod.getShuffleNextQueueItemId();
+      const hinted = playlist.findIndex((item) => item.queueItemId === hintedQueueItemId);
+      if (hinted >= 0 && hinted !== currentTrackIndex) {
         nextIdx = hinted;
       } else {
         nextIdx = -1;
@@ -429,14 +473,25 @@ async function preloadNextTrack(): Promise<void> {
 
   const file = item.file as File;
   if (!file) return;
+  const queueItemId = item.queueItemId;
+
+  // A reorder can move rows without changing the actual next occurrence.
+  // Keep the completed resident and its transfer session in that case: the
+  // positional hint is explicitly non-authoritative, while queueItemId +
+  // Blob identity remain exact. This avoids retransmitting bytes merely
+  // because an unrelated row moved.
+  const ready = getState('preload.ready');
+  if (ready?.queueItemId === queueItemId && ready.blob === file) {
+    setState('preload.nextQueueItemId', queueItemId);
+    return;
+  }
 
   // Let the prior preload reach PRELOAD_END before starting another.
   //
-  // NOTE: we do NOT mutate preload.* state before this await. Publishing
-  // nextFileBlob early (while preload.meta is still stale from the prior
-  // session) would create a half-updated cache the host's fast path
-  // could consume, leading to blob/meta mismatch in loadPreloadedTrack.
-  // All preload state is written AFTER the await as one atomic snapshot.
+  // NOTE: we do NOT mutate preload.* state before this await. Publishing a
+  // ready resident while activeTarget still describes the prior session would
+  // create a half-updated cache that the host's fast path could consume.
+  // Both fields are written only after the await as one coherent snapshot.
   const prevTransfer = _inFlightBackgroundTransfer;
   if (prevTransfer) {
     log.debug('[Preload] Serializing — awaiting prior backgroundTransfer');
@@ -454,10 +509,14 @@ async function preloadNextTrack(): Promise<void> {
     return;
   }
 
-  // Verify the chosen item is still at nextIdx (playlist may have been
-  // mutated during the await — track removed, reordered, etc.).
+  // Resolve the chosen occurrence's current position after the await. A
+  // reorder must not invalidate stable queue identity, while removal or File
+  // replacement still invalidates the frozen source tuple.
   const playlistNow = getState('playlist.items');
-  if (!playlistNow || playlistNow[nextIdx] !== item) {
+  const currentIndexHint = playlistNow.findIndex(
+    (candidate) => candidate.queueItemId === queueItemId && candidate.file === file,
+  );
+  if (currentIndexHint < 0) {
     log.debug('[Preload] Aborted — playlist changed during serialization wait');
     return;
   }
@@ -468,19 +527,21 @@ async function preloadNextTrack(): Promise<void> {
   // observe them as a consistent snapshot.
   const currentSession = nextSessionId();
   setState('preload.sessionId', currentSession);
-  setState('preload.nextTrackIndex', nextIdx);
-  setState('preload.nextFileBlob', file);
+  setState('preload.nextQueueItemId', queueItemId);
   setState('preload.isPreloading', true);
 
   const total = Math.ceil(file.size / CHUNK_SIZE);
-  setState('preload.meta', {
+  const activeTarget = {
     name: file.name,
-    index: nextIdx,
+    queueItemId,
+    indexHint: currentIndexHint,
     mime: file.type,
     total,
     size: file.size,
     sessionId: currentSession,
-  });
+  };
+  setState('preload.activeTarget', activeTarget);
+  setState('preload.ready', { ...activeTarget, blob: file });
 
   log.debug('[Preload] Starting for:', file.name, 'session:', currentSession);
 
@@ -491,7 +552,7 @@ async function preloadNextTrack(): Promise<void> {
   // memory, battery, URL expiry, and object churn predictable.
 
   // Broadcast preload to connected peers
-  const transferPromise = backgroundTransfer(file, nextIdx, currentSession);
+  const transferPromise = backgroundTransfer(file, queueItemId, currentSession);
   _inFlightBackgroundTransfer = transferPromise;
   try {
     await transferPromise;
@@ -515,7 +576,11 @@ async function preloadNextTrack(): Promise<void> {
 const PRELOAD_BROADCAST_BACKPRESSURE_LIMIT = 256 * 1024;
 const PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT = 30_000;
 
-async function backgroundTransfer(file: File, index: number, sessionId: number): Promise<void> {
+async function backgroundTransfer(
+  file: File,
+  queueItemId: string,
+  sessionId: number,
+): Promise<void> {
   // The caller serialized prior work, so only explicit cancellation disposes
   // this fresh scope.
   const scope = new SessionScope();
@@ -529,7 +594,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     mime: file.type,
     total,
     size: file.size,
-    index,
+    queueItemId,
     sessionId,
   };
 
@@ -542,8 +607,8 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
   if (targets.length === 0) return;
 
   const targetsWhoNeedChunks = targets.filter((p) => {
-    const preloadedIndexes = p.preloadedIndexes as Set<number> | undefined;
-    return !preloadedIndexes || !preloadedIndexes.has(index);
+    const preloadedQueueItemIds = p.preloadedQueueItemIds as Set<string> | undefined;
+    return !preloadedQueueItemIds || !preloadedQueueItemIds.has(queueItemId);
   });
 
   // Send header per-peer
@@ -558,15 +623,25 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
     file,
     chunkSize: CHUNK,
     peers: targetsWhoNeedChunks,
-    buildChunkMsg: (chunk, i) => ({ type: MSG.PRELOAD_CHUNK, chunk, index: i, sessionId }),
+    buildChunkMsg: (chunk, i) => ({
+      type: MSG.PRELOAD_CHUNK,
+      chunk,
+      chunkIndex: i,
+      queueItemId,
+      sessionId,
+    }),
     bufferedLimit: PRELOAD_BROADCAST_BACKPRESSURE_LIMIT,
     stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
     isWritable: isBulkTransferWritablePeer,
-    shouldContinue: () => !scope.aborted && getState('preload.sessionId') === sessionId,
+    shouldContinue: () =>
+      !scope.aborted &&
+      getState('preload.sessionId') === sessionId &&
+      getState('preload.nextQueueItemId') === queueItemId &&
+      getState('preload.ready')?.blob === file,
     // Tear down only the excluded peer. PRELOAD_ABORT uses the control channel,
     // and the normal AWAITING_PRELOAD watchdog owns any later recovery.
     onPeerExcluded: (p) => {
-      safeSend(p.conn, { type: MSG.PRELOAD_ABORT, sessionId });
+      safeSend(p.conn, { type: MSG.PRELOAD_ABORT, queueItemId, sessionId });
     },
   });
 
@@ -575,8 +650,12 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
   // and preloadNextTrack's finally owns preload.isPreloading.
   if (status === 'stopped') return;
 
-  if (getState('preload.sessionId') === sessionId) {
-    const endMsg = { type: MSG.PRELOAD_END, name: file.name, index, sessionId };
+  if (
+    getState('preload.sessionId') === sessionId &&
+    getState('preload.nextQueueItemId') === queueItemId &&
+    getState('preload.ready')?.blob === file
+  ) {
+    const endMsg = { type: MSG.PRELOAD_END, name: file.name, queueItemId, sessionId };
     // END audience: all targets — INCLUDING skipped-flag peers, whose
     // handler no-ops on it — MINUS excluded peers. Excluded peers got a
     // targeted PRELOAD_ABORT instead; sending them END too would arm
@@ -586,7 +665,7 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
       const conn = p.conn as DataConnection;
       if (conn?.open) safeSend(conn, endMsg);
     });
-    log.debug('[Preload] Complete for index:', index);
+    log.debug('[Preload] Complete for queue item:', queueItemId);
   }
 }
 
@@ -596,34 +675,27 @@ async function backgroundTransfer(file: File, index: number, sessionId: number):
 export async function unicastPreload(
   conn: DataConnection,
   file: File | Blob,
-  index: number,
+  queueItemId: string,
   sessionId: number,
 ): Promise<void> {
-  if (
-    !conn?.open ||
-    !file ||
-    !Number.isSafeInteger(index) ||
-    index < 0 ||
-    !Number.isSafeInteger(sessionId) ||
-    sessionId <= 0
-  ) {
+  if (!conn?.open || !file || !queueItemId || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
     return;
   }
 
   // Freeze the exact source tuple before the asynchronous transport guard.
-  // The host can replace a preload at the same playlist index while ICE
+  // The host can replace a preload for the same queue occurrence while ICE
   // classification, backpressure, or Blob reads are pending.
   const unicastKey = conn.peer;
   const prevEntry = _activePreloadUnicasts.get(unicastKey);
   const scope = SessionScope.replace(prevEntry?.scope ?? null);
-  _activePreloadUnicasts.set(unicastKey, { scope, sid: sessionId, conn });
+  _activePreloadUnicasts.set(unicastKey, { scope, sid: sessionId, queueItemId, conn });
 
   const isSourceCurrent = (): boolean => {
-    const meta = getState('preload.meta');
+    const meta = getState('preload.activeTarget');
     return (
-      getState('preload.nextFileBlob') === file &&
-      getState('preload.nextTrackIndex') === index &&
-      Number(meta?.index) === index &&
+      getState('preload.ready')?.blob === file &&
+      getState('preload.nextQueueItemId') === queueItemId &&
+      meta?.queueItemId === queueItemId &&
       Number(meta?.sessionId) === sessionId
     );
   };
@@ -655,7 +727,7 @@ export async function unicastPreload(
       mime: file.type,
       total,
       size: file.size,
-      index,
+      queueItemId,
       sessionId,
       skipped: false,
     });
@@ -678,13 +750,14 @@ export async function unicastPreload(
       safeSend(conn, {
         type: MSG.PRELOAD_CHUNK,
         chunk: new Uint8Array(chunkBuf),
-        index: i,
+        chunkIndex: i,
+        queueItemId,
         sessionId,
       });
     }
 
     if (canContinue()) {
-      safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, index, sessionId });
+      safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, queueItemId, sessionId });
     }
   } finally {
     // Always dispose our own scope; remove the registry entry only if this
@@ -715,7 +788,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     return;
   }
 
-  const incomingIdentity = createPreloadIdentity(data.sessionId, data.index, data.name);
+  const incomingIdentity = createPreloadIdentity(data.sessionId, data.queueItemId);
   if (
     !incomingIdentity ||
     !Number.isSafeInteger(data.total) ||
@@ -727,7 +800,20 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     log.warn('[Preload] Start message has invalid transfer identity. Ignoring.');
     return;
   }
-  const { sessionId: sid, index: incomingIndex, name: incomingName } = incomingIdentity;
+  const { sessionId: sid, queueItemId: incomingQueueItemId } = incomingIdentity;
+  const incomingName = data.name as string;
+  const incomingIndexHint = getState('playlist.items').findIndex(
+    (item) => item.queueItemId === incomingQueueItemId,
+  );
+  if (incomingIndexHint < 0) {
+    log.warn('[Preload] Start targets an unknown queue item. Ignoring.');
+    return;
+  }
+  const earlyQueueItemId = preloadQueueItemBySid.get(sid);
+  if (earlyQueueItemId && earlyQueueItemId !== incomingQueueItemId) {
+    preloadReorderBuffer.delete(sid);
+  }
+  preloadQueueItemBySid.set(sid, incomingQueueItemId);
 
   clearManagedTimer('prepareWatchdog');
 
@@ -746,7 +832,8 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
       progress: 0,
       total: (data.total as number) || 0,
       name: incomingName,
-      index: incomingIndex,
+      queueItemId: incomingQueueItemId,
+      indexHint: incomingIndexHint,
       size: (data.size as number) || 0,
       mime: (data.mime as string) || '',
       nextExpectedChunk: 0,
@@ -755,6 +842,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     setState('preload.sessionState', skipSessionState);
     try {
       preloadReorderBuffer.delete(sid);
+      preloadQueueItemBySid.delete(sid);
     } catch (e) {
       log.debug('[Preload] reorder buffer cleanup:', e);
     }
@@ -763,10 +851,11 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
 
   // A real replacement supersedes the resident cache even if admission later
   // fails. A skipped re-schedule above deliberately keeps the cached Blob.
-  setState('preload.nextFileBlob', null);
+  setState('preload.ready', null);
 
   try {
     admitIncomingStoredFile({
+      queueItemId: incomingQueueItemId,
       filename: incomingName,
       isPreload: true,
       sessionId: sid,
@@ -782,7 +871,8 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
       progress: 0,
       total: data.total as number,
       name: incomingName,
-      index: incomingIndex,
+      queueItemId: incomingQueueItemId,
+      indexHint: incomingIndexHint,
       size: data.size as number,
       mime: (data.mime as string) || '',
       nextExpectedChunk: 0,
@@ -791,7 +881,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     setState('preload.sessionState', rejected);
     // This authoritative START supersedes the prior cache even when the new
     // encoded receive cannot be admitted. Leaving the old Blob/meta published
-    // would let a same-index PLAY_PRELOADED activate stale bytes.
+    // would let PLAY_PRELOADED activate stale bytes for this queue occurrence.
     clearPreloadCacheState();
     _awaitedPreloadIdentity = null;
     showLoader(false);
@@ -801,7 +891,9 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
 
   // Clear any stuck waiting state from previous preload
 
-  log.debug(`[Preload] Start: ${data.name} (index: ${data.index}, total: ${data.total})`);
+  log.debug(
+    `[Preload] Start: ${data.name} (queueItemId: ${incomingQueueItemId}, total: ${data.total})`,
+  );
 
   // Show loader only if main transfer is not in progress
   const transferState = getState('transfer.state');
@@ -820,7 +912,8 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     progress: 0,
     total: (data.total as number) || 0,
     name: incomingName,
-    index: incomingIndex,
+    queueItemId: incomingQueueItemId,
+    indexHint: incomingIndexHint,
     size: (data.size as number) || 0,
     mime: (data.mime as string) || '',
     nextExpectedChunk: 0,
@@ -829,11 +922,12 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   setState('preload.sessionState', initSessionState);
 
   // Clear stale preload blob BEFORE updating meta — prevents meta/blob mismatch
-  // where old blob (from a completed stale preload) matches new meta index,
+  // where an old Blob (from a completed stale preload) is paired with new metadata,
   // causing handlePlayPreloaded to use the wrong file.
-  setState('preload.meta', {
+  setState('preload.activeTarget', {
     name: incomingName,
-    index: incomingIndex,
+    queueItemId: incomingQueueItemId,
+    indexHint: incomingIndexHint,
     mime: data.mime as string,
     total: data.total as number,
     size: data.size as number,
@@ -849,6 +943,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   // that was superseded by Track 3).
   postCommand({
     command: 'STORAGE_START',
+    queueItemId: incomingQueueItemId,
     filename: incomingName,
     isPreload: true,
     sessionId: validateSessionId(sid),
@@ -921,8 +1016,9 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     postCommand({
       command: 'STORAGE_WRITE',
       chunk: chunkClone.buffer as ArrayBuffer,
-      index: nextChunkPtr,
+      chunkIndex: nextChunkPtr,
       isPreload: true,
+      queueItemId: session.queueItemId,
       filename: fileName,
       sessionId: validateSessionId(sessionId),
     });
@@ -964,7 +1060,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
   const shouldUpdateUI =
     lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD
-      ? updatedSession.index === recoveryTarget?.index
+      ? updatedSession.queueItemId === recoveryTarget?.queueItemId
       : sessionId === latestPreloadSessionId;
 
   if (shouldUpdateUI && updatedSession.total > 0) {
@@ -981,7 +1077,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   }
 
   // Tick watchdog on progress
-  const preloadMeta = getState('preload.meta');
+  const preloadMeta = getState('preload.activeTarget');
   if (preloadMeta && (preloadMeta.total as number) > 0) {
     clearManagedTimer('preloadWatchdog');
     setManagedTimer(
@@ -1001,6 +1097,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     log.debug(`[Preload] All chunks received (${nextChunkPtr}/${totalExpected}). Finalizing...`);
     postCommand({
       command: 'STORAGE_END',
+      queueItemId: updatedSession.queueItemId,
       filename: updatedSession.name,
       isPreload: true,
       sessionId: validateSessionId(sessionId),
@@ -1021,6 +1118,8 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
   const sid = data.sessionId as number;
   // Repeat the protocol guard at the sink before keying reorder/session maps.
   if (!Number.isSafeInteger(sid) || sid <= 0) return;
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
+  if (!queueItemId) return;
 
   // We intentionally DO NOT drop chunks for sid < latestPreloadSessionId.
   // This allows "stale" preloads (like a late-joiner's unicastPreload that
@@ -1029,13 +1128,17 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
 
   const sessionState = getState('preload.sessionState');
   const session = sessionState.get(sid);
+  if (session && session.queueItemId !== queueItemId) return;
+  const bufferedQueueItemId = preloadQueueItemBySid.get(sid);
+  if (bufferedQueueItemId && bufferedQueueItemId !== queueItemId) return;
+  preloadQueueItemBySid.set(sid, queueItemId);
 
   // If session state is marked skipped/finalized, ignore
   if (session?.skipped || session?.finalized) return;
 
-  // Bounds check: drop chunks with index beyond expected total
-  if (session && session.total > 0 && (data.index as number) >= session.total) {
-    log.warn(`[Preload] Out-of-bounds chunk index ${data.index} (total: ${session.total})`);
+  // Bounds check: drop chunks beyond the advertised total.
+  if (session && session.total > 0 && (data.chunkIndex as number) >= session.total) {
+    log.warn(`[Preload] Out-of-bounds chunk index ${data.chunkIndex} (total: ${session.total})`);
     return;
   }
 
@@ -1048,6 +1151,7 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
       if (earlySessionIds.length >= MAX_EARLY_PRELOAD_SESSIONS) {
         const evictedSid = earlySessionIds[0]!;
         preloadReorderBuffer.delete(evictedSid);
+        preloadQueueItemBySid.delete(evictedSid);
         log.warn(`[Preload] Early buffer evicted stale session ${evictedSid}`);
       }
     }
@@ -1056,7 +1160,7 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
   const sessionBuffer = preloadReorderBuffer.get(sid)!;
 
   // Clone data before storing to avoid detached ArrayBuffer issues
-  sessionBuffer.set(data.index as number, new Uint8Array(data.chunk as Uint8Array));
+  sessionBuffer.set(data.chunkIndex as number, new Uint8Array(data.chunk as Uint8Array));
 
   // If PRELOAD_START hasn't been processed yet (unordered delivery),
   // keep buffering until sessionState exists so we have a reliable filename/total.
@@ -1088,6 +1192,7 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
       );
       if (oldestStaleSid !== undefined) {
         preloadReorderBuffer.delete(oldestStaleSid);
+        preloadQueueItemBySid.delete(oldestStaleSid);
         footprint = earlyFootprint();
         continue;
       }
@@ -1111,10 +1216,12 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
 
   const sid = data.sessionId as number;
   if (!Number.isSafeInteger(sid) || sid <= 0) return;
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
+  if (!queueItemId) return;
 
   const sessionState = getState('preload.sessionState');
   const session = sessionState.get(sid);
-  if (!session || session.skipped) return;
+  if (!session || session.skipped || session.queueItemId !== queueItemId) return;
 
   // Dispatch every buffered STORAGE_WRITE before STORAGE_END.
   drainPreloadReorderBuffer(sid);
@@ -1135,6 +1242,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
 
       postCommand({
         command: 'STORAGE_END',
+        queueItemId: freshSession.queueItemId,
         filename: freshSession.name,
         isPreload: true,
         sessionId: validateSessionId(sid),
@@ -1182,7 +1290,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
 
   // PRELOAD_ACK is sent only after storage confirms the finalized file.
 
-  bus.emit('storage:preload-ready', data.index as number);
+  bus.emit('storage:preload-ready', queueItemId);
 }
 
 /**
@@ -1198,9 +1306,12 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
 
   const sid = data.sessionId as number;
   if (!Number.isSafeInteger(sid) || sid <= 0) return;
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
+  if (!queueItemId) return;
 
   const sessionState = getState('preload.sessionState');
   const session = sessionState.get(sid);
+  if (session && session.queueItemId !== queueItemId) return;
 
   // Cancel any pending deferred-end timer that handlePreloadEnd may have
   // set when it saw a partial session. Idempotent (no-op if absent).
@@ -1210,6 +1321,7 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   // Drop any reorder buffer entries for this sid — they would otherwise
   // wait forever for chunks that aren't coming. Idempotent.
   preloadReorderBuffer.delete(sid);
+  preloadQueueItemBySid.delete(sid);
 
   if (!session || session.finalized || session.skipped) {
     log.debug(
@@ -1231,9 +1343,8 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
 
   // Release the RAM preload slot for this sid. Do not use
   // STORAGE_END here — that path posts STORAGE_FILE_READY which would push a
-  // partial blob into preload.nextFileBlob via the storage:preload-file-
-  // ready handler. STORAGE_RESET_SESSION just releases the lock and removes
-  // the slot.
+  // partial resident through the storage:preload-file-ready handler.
+  // STORAGE_RESET_SESSION only releases the lock and removes the slot.
   if (session.name) {
     postCommand({
       command: 'STORAGE_RESET_SESSION',
@@ -1243,8 +1354,8 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   }
 
   // Hide the preparing-next loader if it was showing for THIS preload.
-  const preloadMeta = getState('preload.meta');
-  if (preloadMeta && (preloadMeta.sessionId as number) === sid) {
+  const preloadMeta = getState('preload.activeTarget');
+  if (preloadMeta?.queueItemId === queueItemId && (preloadMeta.sessionId as number) === sid) {
     showLoader(false);
   }
 }
@@ -1255,19 +1366,28 @@ function handlePreloadAck(data: Record<string, unknown>, conn: DataConnection): 
 
   const connectedPeers = getState('network.connectedPeers');
   const p = connectedPeers.find((x) => x.id === conn.peer);
-  if (p && data.index !== undefined) {
-    const preloadedIndexes = p.preloadedIndexes as Set<number>;
-    if (preloadedIndexes) {
-      const idx = Number(data.index);
-      if (preloadedIndexes.has(idx)) return; // Already marked
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
+  const sessionId = Number(data.sessionId);
+  const ready = getState('preload.ready');
+  if (
+    p &&
+    queueItemId &&
+    Number.isSafeInteger(sessionId) &&
+    sessionId > 0 &&
+    ready?.queueItemId === queueItemId &&
+    ready.sessionId === sessionId
+  ) {
+    const preloadedQueueItemIds = p.preloadedQueueItemIds as Set<string>;
+    if (preloadedQueueItemIds) {
+      if (preloadedQueueItemIds.has(queueItemId)) return;
       // Immutable update: new Set → new peer → new array → setState
-      const updatedSet = new Set(preloadedIndexes);
-      updatedSet.add(idx);
+      const updatedSet = new Set(preloadedQueueItemIds);
+      updatedSet.add(queueItemId);
       const updatedPeers = connectedPeers.map((x) =>
-        x.id === conn.peer ? { ...x, preloadedIndexes: updatedSet } : x,
+        x.id === conn.peer ? { ...x, preloadedQueueItemIds: updatedSet } : x,
       );
       setState('network.connectedPeers', updatedPeers);
-      log.debug(`[Host] Marked index ${idx} as CACHED for peer ${p.label}`);
+      log.debug(`[Host] Marked queue item ${queueItemId} as CACHED for peer ${p.label}`);
     }
   }
 }
@@ -1281,52 +1401,46 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     return;
   }
 
-  const index = data.index as number;
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
   const name = (data.name as string) || '';
+  const playlist = getState('playlist.items') || [];
+  const indexHint = playlist.findIndex((item) => item.queueItemId === queueItemId);
+  if (!queueItemId || indexHint < 0) return;
 
-  log.debug(`[Guest] Command: Play Preloaded Track, index: ${index}, name: ${name}`);
+  log.debug(`[Guest] Command: Play Preloaded Track, queueItemId: ${queueItemId}`);
 
   // Dedup: ignore duplicate commands for same track
-  if (_activePlayPreloadedIndex === index) {
-    log.debug(`[PlayPreloaded] Already processing track ${index}, ignoring duplicate`);
+  if (_activePlayPreloadedQueueItemId === queueItemId) {
+    log.debug(`[PlayPreloaded] Already processing ${queueItemId}, ignoring duplicate`);
     return;
   }
 
-  _activePlayPreloadedIndex = index;
+  _activePlayPreloadedQueueItemId = queueItemId;
   bus.emit('player:stop-all-media');
-
-  if (data.index !== undefined) {
-    setState('playlist.currentTrackIndex', index);
-  }
+  setState('playlist.currentQueueItemId', queueItemId);
 
   // Update metadata for UI title display
-  const playlist = getState('playlist.items') || [];
-  if (playlist[index]) {
-    setPlaybackTrackMeta(playlist[index]);
+  if (playlist[indexHint]) {
+    setPlaybackTrackMeta(playlist[indexHint]);
   }
 
   // PLAY_PRELOADED supplies the target slot; the exact PRELOAD_START session
   // supplies byte identity. A filename may veto inconsistent metadata, but it
   // never selects bytes by itself.
-  const nextFileBlob = getState('preload.nextFileBlob');
-  const nextMeta = getState('preload.meta');
-  const readyIdentity = identityFromMeta(nextMeta);
-  const isMatch =
-    !!nextFileBlob &&
-    !!readyIdentity &&
-    readyIdentity.index === index &&
-    isNameConsistent(name, readyIdentity.name);
+  const ready = getState('preload.ready');
+  const readyIdentity = identityFromMeta(ready);
+  const isMatch = !!ready && readyIdentity?.queueItemId === queueItemId;
 
   if (isMatch) {
     _awaitedPreloadIdentity = readyIdentity;
     // Preloaded file available — activate it directly via playback module
-    log.debug('[Guest] Using preloaded file for track', index);
+    log.debug('[Guest] Using preloaded file for queue item', queueItemId);
     // Lifecycle: blob is ready in memory → promote to DECODING.
     // The subsequent loadPreloadedTrack flow will emit DECODE_SUCCESS on completion.
-    transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', index, name });
-    setPendingRecoveryTarget(index, name);
-    bus.emit('storage:use-preloaded', index, name, readyIdentity.sessionId);
-    _activePlayPreloadedIndex = undefined;
+    transition({ type: 'PLAY_PRELOADED', variant: 'blob-ready', queueItemId, name });
+    setPendingRecoveryTarget({ queueItemId, indexHint, name });
+    bus.emit('storage:use-preloaded', queueItemId, name, readyIdentity.sessionId);
+    _activePlayPreloadedQueueItemId = undefined;
 
     return;
   }
@@ -1335,9 +1449,9 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   const sessionState = getState('preload.sessionState');
   let downloadingIdentity: PreloadIdentity | null = null;
   for (const [sid, session] of sessionState) {
-    if (session.skipped || session.finalized || session.index !== index) continue;
-    const candidate = createPreloadIdentity(sid, session.index, session.name);
-    if (!candidate || !isNameConsistent(name, candidate.name)) continue;
+    if (session.skipped || session.finalized || session.queueItemId !== queueItemId) continue;
+    const candidate = createPreloadIdentity(sid, session.queueItemId);
+    if (!candidate) continue;
     if (!downloadingIdentity || candidate.sessionId > downloadingIdentity.sessionId) {
       downloadingIdentity = candidate;
     }
@@ -1352,11 +1466,11 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     // Lifecycle: enter AWAITING_PRELOAD. A subsequent
     // PLAY arrival in this state must NOT fire stale-audio-recovery — that
     // logic is gated in playback.ts::handlePlay on the lifecycle check.
-    transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', index, name });
-    setPendingRecoveryTarget(index, name);
+    transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', queueItemId, name });
+    setPendingRecoveryTarget({ queueItemId, indexHint, name });
     showLoader(true, t('transfer.download_finishing'));
-    bus.emit('storage:use-preloaded', index, name, downloadingIdentity.sessionId);
-    _activePlayPreloadedIndex = undefined;
+    bus.emit('storage:use-preloaded', queueItemId, name, downloadingIdentity.sessionId);
+    _activePlayPreloadedQueueItemId = undefined;
 
     return;
   }
@@ -1371,14 +1485,14 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   // the loader spun forever. Mirror handlePlayMsg's remote branch instead;
   // prepareRemoteShareWait owns the lifecycle transition.
   if (isRemoteGuest()) {
-    _activePlayPreloadedIndex = undefined;
+    _activePlayPreloadedQueueItemId = undefined;
     if (shouldWaitForRemoteShare()) {
-      setPendingRecoveryTarget(index, name);
+      setPendingRecoveryTarget({ queueItemId, indexHint, name });
       const localSid = Number(getState('transfer.localSessionId')) || 0;
       const currentSid = Number(getState('transfer.currentSessionId')) || 0;
       prepareRemoteShareWait(
-        index,
-        name || ((playlist[index]?.name as string) ?? ''),
+        queueItemId,
+        name || ((playlist[indexHint]?.name as string) ?? ''),
         localSid > 0 ? localSid : currentSid,
       );
       log.info('[Guest] Remote guest — waiting for remote share descriptor (play-preloaded)');
@@ -1391,19 +1505,19 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   }
 
   // Fallback: no preloaded file available — request from host
-  log.warn('[Guest] No preloaded file for track', index, '— requesting from Host');
+  log.warn('[Guest] No preloaded file for queue item', queueItemId, '— requesting from Host');
   // No preload session exists for this track. Enter DOWNLOADING (fresh) via
   // the recovery fallback. shouldSkipIncomingFile() returns false naturally
   // once lifecycle = DOWNLOADING. The actual REQUEST_DATA_RECOVERY fires
   // below after a small jitter.
-  transition({ type: 'PLAY_PRELOADED', variant: 'no-session', index, name });
-  _activePlayPreloadedIndex = undefined;
+  transition({ type: 'PLAY_PRELOADED', variant: 'no-session', queueItemId, name });
+  _activePlayPreloadedQueueItemId = undefined;
 
-  setPendingRecoveryTarget(index, name);
+  setPendingRecoveryTarget({ queueItemId, indexHint, name });
   showLoader(true, t('transfer.file_requesting'));
 
   const hostConn = getState('network.hostConn');
-  const trackName = name || playlist[index]?.name || '';
+  const trackName = name || playlist[indexHint]?.name || '';
 
   if (hostConn?.open) {
     // Short jitter to avoid thundering herd, but not too long to cause stale track
@@ -1412,36 +1526,31 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
       'preload-recovery-jitter',
       () => {
         // Double-check: did preload arrive during wait?
-        const nowBlob = getState('preload.nextFileBlob');
-        const nowMeta = getState('preload.meta');
-        const nowIdentity = identityFromMeta(nowMeta);
-        if (
-          nowBlob &&
-          nowIdentity?.index === index &&
-          isNameConsistent(trackName, nowIdentity.name)
-        ) {
+        const nowReady = getState('preload.ready');
+        const nowIdentity = identityFromMeta(nowReady);
+        if (nowReady && nowIdentity?.queueItemId === queueItemId) {
           _awaitedPreloadIdentity = nowIdentity;
           log.debug('[Guest] Preload arrived during jitter wait! Using it.');
-          bus.emit('storage:use-preloaded', index, trackName, nowIdentity.sessionId);
+          bus.emit('storage:use-preloaded', queueItemId, trackName, nowIdentity.sessionId);
           return;
         }
 
         // Check if host already moved past this track — don't request stale file
-        const currentTrackIndex = getState('playlist.currentTrackIndex');
-        if (currentTrackIndex !== index) {
-          log.debug(
-            `[Guest] Track already changed (${currentTrackIndex} != ${index}), skipping recovery request`,
-          );
+        const currentQueueItemId = getState('playlist.currentQueueItemId');
+        if (currentQueueItemId !== queueItemId) {
+          log.debug('[Guest] Queue item changed; skipping stale recovery request');
           showLoader(false);
           return;
         }
 
+        const currentHostConn = getState('network.hostConn');
+        if (!currentHostConn?.open) return;
+        const owner = beginFileRequest(currentHostConn, queueItemId);
         if (
-          sendToHost({
+          sendFileRequest(owner, {
             type: MSG.REQUEST_DATA_RECOVERY,
             nextChunk: 0,
             fileName: trackName,
-            index,
           })
         ) {
           log.debug('[Guest] Requested file recovery from Host for:', trackName);
@@ -1494,127 +1603,148 @@ export function initPreload(): void {
   });
 
   // Handle preload file ready from storage (bridged from storage:file-ready via playback.ts)
-  bus.on('storage:preload-file-ready', async (filename: string, sessionId: number) => {
-    try {
-      log.debug(`[Preload] preload ready: ${filename} (SID: ${sessionId})`);
+  bus.on(
+    'storage:preload-file-ready',
+    async (filename: string, sessionId: number, queueItemId: string) => {
+      try {
+        log.debug(`[Preload] preload ready: ${filename} (SID: ${sessionId})`);
 
-      // Resolve the completion through its transfer session. Filename is not
-      // identity: separate playlist entries may have the same name, and a
-      // newer same-name preload may already own preloadByName by the time this
-      // asynchronous completion runs.
-      const sessionForFile = getState('preload.sessionState').get(sessionId);
-      const preloadMeta = getState('preload.meta');
-      const currentMetaMatchesSession = Number(preloadMeta?.sessionId) === sessionId;
-      const identityMeta = sessionForFile
-        ? { ...sessionForFile, sessionId }
-        : currentMetaMatchesSession
-          ? preloadMeta
-          : null;
+        // Resolve the completion through its transfer session. Filename is not
+        // identity: separate playlist entries may have the same name, and a
+        // newer same-name preload may already own preloadByName by the time this
+        // asynchronous completion runs.
+        const sessionForFile = getState('preload.sessionState').get(sessionId);
+        const preloadMeta = getState('preload.activeTarget');
+        const currentMetaMatchesSession =
+          Number(preloadMeta?.sessionId) === sessionId && preloadMeta?.queueItemId === queueItemId;
+        const identityMeta = sessionForFile
+          ? sessionForFile.queueItemId === queueItemId
+            ? { ...sessionForFile, sessionId }
+            : null
+          : currentMetaMatchesSession
+            ? preloadMeta
+            : null;
 
-      const completionIdentity = createPreloadIdentity(
-        sessionId,
-        identityMeta?.index,
-        identityMeta?.name,
-      );
-      if (!identityMeta || !completionIdentity || completionIdentity.name !== filename) {
-        log.debug(
-          `[Preload] Ignoring completion without exact session identity: filename=${filename}, sid=${sessionId}`,
+        const completionIdentity = createPreloadIdentity(sessionId, queueItemId);
+        if (
+          !identityMeta ||
+          !completionIdentity ||
+          identityMeta.queueItemId !== queueItemId ||
+          identityMeta.name !== filename
+        ) {
+          log.debug(
+            `[Preload] Ignoring completion without exact session identity: filename=${filename}, sid=${sessionId}`,
+          );
+          postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
+          return;
+        }
+
+        if (!isPreloadCompletionPublishable(completionIdentity)) {
+          log.debug(
+            `[Preload] Ignoring stale preload completion: SID ${sessionId}, qid=${queueItemId}`,
+          );
+          postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
+          return;
+        }
+        if (sessionId < latestPreloadSessionId) {
+          log.info(
+            `[Preload] Accepting older preload completion for exact awaited tuple qid=${queueItemId}, sid=${sessionId}`,
+          );
+        }
+
+        const file = await readStoredFile(queueItemId, filename, true, sessionId);
+        if (!file) {
+          log.error('[Preload] Failed to read preload file:', filename);
+          postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
+          return;
+        }
+
+        // RAM reads yield to the microtask queue. A same-qid replacement may
+        // have rebound the awaited tuple while the exact old slot was being
+        // wrapped as a File; revalidate before publishing any state or ACK.
+        if (!isPreloadCompletionPublishable(completionIdentity)) {
+          log.debug(
+            `[Preload] Completion superseded during storage read: SID ${sessionId}, qid=${queueItemId}`,
+          );
+          postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
+          return;
+        }
+
+        const indexHint = getState('playlist.items').findIndex(
+          (item) => item.queueItemId === queueItemId,
         );
-        postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
-        return;
-      }
+        if (indexHint < 0) {
+          postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
+          return;
+        }
 
-      if (!isPreloadCompletionPublishable(completionIdentity)) {
-        log.debug(
-          `[Preload] Ignoring stale preload completion: SID ${sessionId}, index=${completionIdentity.index}`,
-        );
-        postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
-        return;
-      }
-      if (sessionId < latestPreloadSessionId) {
-        log.info(
-          `[Preload] Accepting older preload completion for exact awaited tuple index=${completionIdentity.index}, sid=${sessionId}`,
-        );
-      }
+        if (!retainStoredFileAdmission(queueItemId, filename, true, sessionId, file)) {
+          log.warn(
+            `[Preload] Finalized file has no matching admission: filename=${filename}, sid=${sessionId}`,
+          );
+          postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
+          return;
+        }
 
-      const file = await readStoredFile(filename, true, sessionId);
-      if (!file) {
-        log.error('[Preload] Failed to read preload file:', filename);
-        postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
-        return;
-      }
+        // Blob + identity publish atomically. Positional metadata is a fresh hint
+        // derived from queueItemId after the asynchronous RAM read.
+        const readyEntry = {
+          queueItemId,
+          sessionId,
+          indexHint,
+          name: filename,
+          mime: identityMeta.mime || file.type || '',
+          size: file.size,
+          ...(identityMeta.objectId ? { objectId: identityMeta.objectId } : {}),
+          blob: file,
+        };
+        setState('preload.nextQueueItemId', queueItemId);
+        setState('preload.ready', readyEntry);
+        const currentHostConn = getState('network.hostConn');
+        if (currentHostConn && completeFileRequest(currentHostConn, queueItemId, sessionId)) {
+          clearManagedTimer('fileWaitTimeout');
+        }
 
-      // RAM reads yield to the microtask queue. A same-index replacement may
-      // have rebound the awaited tuple while the exact old slot was being
-      // wrapped as a File; revalidate before publishing any state or ACK.
-      if (!isPreloadCompletionPublishable(completionIdentity)) {
-        log.debug(
-          `[Preload] Completion superseded during storage read: SID ${sessionId}, index=${completionIdentity.index}`,
-        );
-        postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
-        return;
-      }
-
-      if (!retainStoredFileAdmission(filename, true, sessionId, file)) {
-        log.warn(
-          `[Preload] Finalized file has no matching admission: filename=${filename}, sid=${sessionId}`,
-        );
-        postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
-        return;
-      }
-
-      // Publish the same session/index metadata that selected the RAM slot.
-      // Meta precedes Blob so a synchronous subscriber can never observe new
-      // bytes under a stale session tuple.
-      setState('preload.meta', {
-        ...identityMeta,
-        name: completionIdentity.name,
-        index: completionIdentity.index,
-        sessionId: completionIdentity.sessionId,
-      });
-      setState('preload.nextTrackIndex', completionIdentity.index);
-      setState('preload.nextFileBlob', file);
-      const nextTrackIndex = completionIdentity.index;
-
-      // Send PRELOAD_ACK to host now that storage file is confirmed ready
-      if (nextTrackIndex >= 0) {
-        const ackSent = getState('preload.ackSent');
-        if (!ackSent.has(nextTrackIndex)) {
-          const updatedAckSent = new Set(ackSent);
-          updatedAckSent.add(nextTrackIndex);
-          setState('preload.ackSent', updatedAckSent);
-          if (sendToHost({ type: MSG.PRELOAD_ACK, index: nextTrackIndex })) {
-            log.debug(`[Guest] Sent PRELOAD_ACK for index ${nextTrackIndex}`);
+        // Send PRELOAD_ACK to host now that storage file is confirmed ready
+        if (indexHint >= 0) {
+          const ackSent = getState('preload.ackSent') as ReadonlyMap<string, number>;
+          if (ackSent.get(queueItemId) !== sessionId) {
+            const updatedAckSent = new Map(ackSent);
+            updatedAckSent.set(queueItemId, sessionId);
+            setState('preload.ackSent', updatedAckSent);
+            if (sendToHost({ type: MSG.PRELOAD_ACK, queueItemId, sessionId })) {
+              log.debug(`[Guest] Sent PRELOAD_ACK for ${queueItemId} sid=${sessionId}`);
+            }
           }
         }
-      }
 
-      // Hide preload loader (background preload complete)
-      showLoader(false);
+        // Hide preload loader (background preload complete)
+        showLoader(false);
 
-      // If guest was waiting for this preloaded file, trigger playback.
-      // Lifecycle is authoritative for the wait gate; pendingRecoveryTarget
-      // confirms the index match.
-      const shouldActivate = isExactAwaitedPreload(completionIdentity);
-      if (shouldActivate) {
-        log.debug('[Preload] Guest was waiting for this track. Playing now.');
-        // Lifecycle: the blob we were AWAITING_PRELOAD for
-        // is now assembled → promote to DECODING. No-op if we're in any other
-        // state (e.g. background preload for next track while currently PLAYING).
-        transition({ type: 'PRELOAD_FILE_READY', index: nextTrackIndex });
-        bus.emit('storage:use-preloaded', nextTrackIndex, filename, completionIdentity.sessionId);
-        if (samePreloadIdentity(_awaitedPreloadIdentity, completionIdentity)) {
-          _awaitedPreloadIdentity = null;
+        // If guest was waiting for this preloaded file, trigger playback.
+        // Lifecycle is authoritative for the wait gate; pendingRecoveryTarget
+        // confirms the exact queue item and session match.
+        const shouldActivate = isExactAwaitedPreload(completionIdentity);
+        if (shouldActivate) {
+          log.debug('[Preload] Guest was waiting for this track. Playing now.');
+          // Lifecycle: the blob we were AWAITING_PRELOAD for
+          // is now assembled → promote to DECODING. No-op if we're in any other
+          // state (e.g. background preload for next track while currently PLAYING).
+          transition({ type: 'PRELOAD_FILE_READY', queueItemId });
+          bus.emit('storage:use-preloaded', queueItemId, filename, completionIdentity.sessionId);
+          if (samePreloadIdentity(_awaitedPreloadIdentity, completionIdentity)) {
+            _awaitedPreloadIdentity = null;
+          }
         }
+      } catch (e) {
+        log.error('[Preload] preload-file-ready handler failed:', e);
       }
-    } catch (e) {
-      log.error('[Preload] preload-file-ready handler failed:', e);
-    }
-  });
+    },
+  );
 
   // Handle preload-ready notification (emitted after PRELOAD_END)
-  bus.on('storage:preload-ready', (index: number) => {
-    log.debug(`[Preload] Preload ready for index: ${index}`);
+  bus.on('storage:preload-ready', (queueItemId: string) => {
+    log.debug(`[Preload] Preload ready for queue item: ${queueItemId}`);
     // This signals the preload chain is complete.
     // The actual file finalization is handled by storage:file-ready → storage:preload-file-ready
   });
@@ -1623,13 +1753,13 @@ export function initPreload(): void {
     const awaited = _awaitedPreloadIdentity;
     if (!awaited) return;
     const target = getState('playback.pendingRecoveryTarget');
-    if (target?.index !== awaited.index || target.name !== awaited.name) {
+    if (target?.queueItemId !== awaited.queueItemId) {
       _awaitedPreloadIdentity = null;
     }
   });
 
-  bus.on('state:playlist.currentTrackIndex', (index: unknown) => {
-    if (_awaitedPreloadIdentity && index !== _awaitedPreloadIdentity.index) {
+  bus.on('state:playlist.currentQueueItemId', (queueItemId: unknown) => {
+    if (_awaitedPreloadIdentity && queueItemId !== _awaitedPreloadIdentity.queueItemId) {
       _awaitedPreloadIdentity = null;
     }
   });
@@ -1640,7 +1770,8 @@ export function initPreload(): void {
     if (!code) {
       latestPreloadSessionId = 0;
       preloadReorderBuffer.clear();
-      _activePlayPreloadedIndex = undefined;
+      preloadQueueItemBySid.clear();
+      _activePlayPreloadedQueueItemId = undefined;
       _preloadScope?.dispose();
       _preloadScope = null;
       _activePreloadUnicasts.forEach((e) => e.scope.dispose());

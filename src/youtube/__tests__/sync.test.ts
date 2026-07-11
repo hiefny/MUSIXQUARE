@@ -6,6 +6,8 @@ import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
+const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -35,6 +37,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetState();
   bus.clear();
+  setState('playlist.items', [
+    {
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Same Video',
+      videoId: 'same-video',
+      playlistId: null,
+    },
+  ]);
+  setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 });
 
 afterEach(() => {
@@ -105,7 +117,7 @@ describe('YouTube Sync', () => {
         | undefined;
       const handler = handlers?.[MSG.YOUTUBE_SYNC];
       expect(handler).toBeTypeOf('function');
-      return (data, conn = hostConn) => handler?.(data, conn);
+      return (data, conn = hostConn) => handler?.({ queueItemId: QUEUE_ITEM_ID, ...data }, conn);
     }
 
     function makePlayer(currentTime = 10): YouTubePlayerInstance {

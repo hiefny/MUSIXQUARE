@@ -23,7 +23,7 @@ function descriptor(): RemoteFileSharePayload {
     mime: 'audio/mpeg',
     size: 4,
     encryptedSize: 20,
-    index: 0,
+    queueItemId: '10000000-0000-4000-8000-000000000001',
     sessionId: 1,
     expiresAt: Date.now() + 60_000,
   };

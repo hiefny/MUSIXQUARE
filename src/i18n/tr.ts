@@ -84,6 +84,8 @@ const tr: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Çalma Listesini Göster/Gizle',
+  'playlist.reorder_handle': '{{title}} sırasını değiştir, konum {{position}}',
+  'playlist.reorder_position': '{{title}}, {{total}} içinde {{position}}. konum',
   'playlist.repeat_all': 'Tümünü tekrarla aktif',
   'playlist.repeat_one': 'Tek şarkı tekrarı aktif',
   'playlist.repeat_off': 'Tekrarlama kapalı',
@@ -94,9 +96,11 @@ const tr: Record<I18nKey, string> = {
   'playlist.loading_info': 'Şarkı bilgileri yükleniyor...',
   'playlist.sub_load_failed': 'Video bilgileri alınamadı',
   'playlist.remove_title': 'Çalma Listesinden Kaldır',
-  'playlist.remove_message': 'Bu medyayı çalma listesinden silmek istiyor musunuz?',
-  'playlist.remove_yes': 'Sil',
-  'playlist.remove_no': 'Hayır',
+  'playlist.select_for_deletion': '{{title}} öğesini silmek için seç',
+  'playlist.deselect_for_deletion': '{{title}} seçimini kaldır',
+  'playlist.deselect_all': 'Tüm seçimleri kaldır',
+  'playlist.select_all': 'Tümünü seç',
+  'playlist.delete_selected': 'Seçilen {{count}} parçayı sil',
   'playlist.video_fallback': 'Yükleniyor...',
   'playlist.track_fallback': 'Şarkı {{idx}}',
   'playlist.deferred_load_hint': 'Tüm şarkı bilgilerini yüklemek için oynatmayı başlatın',

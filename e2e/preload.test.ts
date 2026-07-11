@@ -7,13 +7,14 @@
  * at the host level, since headless Chromium may not decode synthetic MP3s.
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import {
-  readState,
-  waitForPlaylistCount,
-} from './helpers/wait.ts';
+import { readState, waitForPlaylistCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -29,10 +30,10 @@ test.describe('Preload System', () => {
   test('preload state initializes correctly', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const nextTrackIndex = await readState(pair.hostPage, 'preload.nextTrackIndex');
+    const nextQueueItemId = await readState(pair.hostPage, 'preload.nextQueueItemId');
     const isPreloading = await readState(pair.hostPage, 'preload.isPreloading');
 
-    expect(nextTrackIndex).toBe(-1);
+    expect(nextQueueItemId).toBeNull();
     expect(isPreloading).toBe(false);
   });
 
@@ -77,33 +78,49 @@ test.describe('Preload System', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
 
-    // Auto-play on upload may have advanced currentTrackIndex to the last file.
-    // Reset to index 0 so "next" has room to advance.
-    await pair.hostPage.evaluate(() => {
-      const set = (window as any).__MUSIXQUARE_SET_STATE__;
-      if (set) set('playlist.currentTrackIndex', 0);
+    // Auto-play on upload may have selected the last file. Select the first
+    // stable queue occurrence so "next" has room to advance.
+    const queueItemIds = await pair.hostPage.evaluate(() => {
+      const get = (window as any).__MUSIXQUARE_GET_STATE__;
+      const items = (get?.('playlist.items') ?? []) as Array<{ queueItemId?: string }>;
+      return items.map((item) => item.queueItemId).filter(Boolean) as string[];
     });
+    expect(queueItemIds).toHaveLength(3);
+    const [firstQueueItemId, secondQueueItemId] = queueItemIds;
+
+    await pair.hostPage.evaluate((queueItemId) => {
+      const set = (window as any).__MUSIXQUARE_SET_STATE__;
+      if (set) set('playlist.currentQueueItemId', queueItemId);
+    }, firstQueueItemId);
 
     // Use a DOM click because responsive CSS can hide the desktop control.
-    await pair.hostPage.evaluate(() => (document.getElementById('btn-next') as HTMLElement)?.click());
+    await pair.hostPage.evaluate(() =>
+      (document.getElementById('btn-next') as HTMLElement)?.click(),
+    );
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentTrackIndex') !== 0,
+      (queueItemId) =>
+        (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentQueueItemId') === queueItemId,
+      secondQueueItemId,
       { timeout: 15_000 },
     );
 
-    const afterNext = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
-    expect(afterNext).toBe(1);
+    const afterNext = await readState(pair.hostPage, 'playlist.currentQueueItemId');
+    expect(afterNext).toBe(secondQueueItemId);
 
     // With no playback progress, Previous navigates instead of restarting the
     // current track.
-    await pair.hostPage.evaluate(() => (document.getElementById('btn-prev') as HTMLElement)?.click());
+    await pair.hostPage.evaluate(() =>
+      (document.getElementById('btn-prev') as HTMLElement)?.click(),
+    );
     await pair.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentTrackIndex') === 0,
+      (queueItemId) =>
+        (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentQueueItemId') === queueItemId,
+      firstQueueItemId,
       { timeout: 15_000 },
     );
 
-    const nextBlob = await readState(pair.hostPage, 'preload.nextFileBlob');
-    expect(nextBlob).toBeNull();
+    const ready = await readState(pair.hostPage, 'preload.ready');
+    expect(ready).toBeNull();
   });
 
   test('guest receives playlist update with track metadata', async () => {

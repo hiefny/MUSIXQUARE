@@ -36,6 +36,7 @@ const BROADCAST_DEBOUNCE_KEY = 'broadcast-debounce';
 const BROADCAST_DEBOUNCE_MS = 300;
 let _pendingBroadcast: {
   file: File;
+  queueItemId: string;
   sessionId: number | null;
   prepareMsg?: AnyProtocolMsg;
 } | null = null;
@@ -47,10 +48,12 @@ let _pendingBroadcast: {
  */
 export function broadcastFileDebounced(
   file: File,
+  queueItemId: string,
   sessionId: number | null,
   prepareMsg?: AnyProtocolMsg,
 ): void {
-  _pendingBroadcast = { file, sessionId, prepareMsg };
+  if (!queueItemId) return;
+  _pendingBroadcast = { file, queueItemId, sessionId, prepareMsg };
   setManagedTimer(
     BROADCAST_DEBOUNCE_KEY,
     () => {
@@ -64,7 +67,7 @@ export function broadcastFileDebounced(
       if (p.prepareMsg) {
         broadcast(p.prepareMsg);
       }
-      broadcastFile(p.file, p.sessionId).catch((e) =>
+      broadcastFile(p.file, p.queueItemId, p.sessionId).catch((e) =>
         log.error('[Host] broadcastFile (debounced) failed:', e),
       );
     },
@@ -88,8 +91,10 @@ export function cancelPendingBroadcast(): void {
  */
 export async function broadcastFile(
   file: File,
+  queueItemId: string,
   explicitSessionId: number | null = null,
 ): Promise<void> {
+  if (!queueItemId) return;
   let sessionId: number;
   const currentTransferSessionId = getState('transfer.currentSessionId');
 
@@ -103,6 +108,14 @@ export async function broadcastFile(
 
   const activeBroadcast = getState('transfer.activeBroadcastSession');
   if (activeBroadcast === sessionId) return;
+
+  if (
+    getState('playlist.currentQueueItemId') !== queueItemId ||
+    getState('files.current')?.blob !== file
+  ) {
+    log.debug('[Host] Broadcast source was superseded before start');
+    return;
+  }
 
   // Cancel previous broadcast and yield so its loop can exit cleanly
   // before we send the new FILE_START header (prevents chunk interleaving)
@@ -118,14 +131,13 @@ export async function broadcastFile(
   try {
     const CHUNK = CHUNK_SIZE;
     const total = Math.ceil(file.size / CHUNK);
-    const currentTrackIndex = getState('playlist.currentTrackIndex');
     const header = {
       type: MSG.FILE_START,
       name: file.name,
       mime: file.type,
       total,
       size: file.size,
-      index: currentTrackIndex,
+      queueItemId,
       sessionId,
     };
 
@@ -153,7 +165,8 @@ export async function broadcastFile(
       buildChunkMsg: (chunk, i) => ({
         type: MSG.FILE_CHUNK,
         chunk,
-        index: i,
+        chunkIndex: i,
+        queueItemId,
         sessionId,
         total,
         name: file.name,
@@ -166,13 +179,27 @@ export async function broadcastFile(
       // Stop on cancel (scope abort) or when another broadcast superseded
       // this one (activeBroadcastSession re-pointed).
       shouldContinue: () =>
-        !scope.aborted && getState('transfer.activeBroadcastSession') === sessionId,
+        !scope.aborted &&
+        getState('transfer.activeBroadcastSession') === sessionId &&
+        getState('playlist.currentQueueItemId') === queueItemId &&
+        getState('files.current')?.blob === file,
     });
 
     // Send end message (skip if superseded or aborted after the pump;
     // excluded peers get no FILE_END — recovery re-requests serve them)
-    if (!scope.aborted && getState('transfer.activeBroadcastSession') === sessionId) {
-      const endMsg = { type: MSG.FILE_END, name: file.name, mime: file.type, sessionId };
+    if (
+      !scope.aborted &&
+      getState('transfer.activeBroadcastSession') === sessionId &&
+      getState('playlist.currentQueueItemId') === queueItemId &&
+      getState('files.current')?.blob === file
+    ) {
+      const endMsg = {
+        type: MSG.FILE_END,
+        name: file.name,
+        mime: file.type,
+        queueItemId,
+        sessionId,
+      };
       eligiblePeers.forEach((p) => {
         if (excluded.has(p.id)) return;
         const conn = p.conn as DataConnection;
@@ -200,7 +227,7 @@ export async function broadcastFile(
  * Unicast a file to a single connection (for late-join/recovery).
  */
 interface UnicastFileOptions {
-  readonly trackIndex?: number;
+  readonly queueItemId: string;
   readonly skipTransportGuard?: boolean;
   readonly isSourceCurrent?: () => boolean;
 }
@@ -210,7 +237,7 @@ export async function unicastFile(
   file: File | Blob,
   startChunkIndex = 0,
   sessionId: number | null = null,
-  options: UnicastFileOptions = {},
+  options: UnicastFileOptions,
 ): Promise<void> {
   if (!conn || !conn.open) {
     log.error('[Unicast] Connection is not open');
@@ -221,12 +248,12 @@ export async function unicastFile(
   // await below. Otherwise a track/session switch during ICE evaluation could
   // label the already-selected Blob with the successor's identity.
   const effectiveSessionId = sessionId ?? getState('transfer.currentSessionId');
-  const trackIndex = options.trackIndex ?? getState('playlist.currentTrackIndex');
+  const queueItemId = options.queueItemId;
+  if (!queueItemId || !Number.isSafeInteger(effectiveSessionId) || effectiveSessionId <= 0) return;
   const unicastKey = conn.peer;
   const isTransferStillCurrent = (): boolean =>
-    Number.isSafeInteger(trackIndex) &&
-    trackIndex >= 0 &&
-    getState('playlist.currentTrackIndex') === trackIndex &&
+    !!queueItemId &&
+    getState('playlist.currentQueueItemId') === queueItemId &&
     (options.isSourceCurrent?.() ?? true);
 
   // Transport guard: block remote/unknown peers.
@@ -239,9 +266,9 @@ export async function unicastFile(
   const CHUNK = CHUNK_SIZE;
   const total = Math.ceil(file.size / CHUNK);
 
-  // canSendFileTo may await ICE classification. Revalidate both the selected
-  // peer connection, playlist slot, and exact source Blob before emitting the
-  // header.
+  // canSendFileTo may await ICE classification. Revalidate the selected peer
+  // connection, stable queue occurrence, and exact source Blob before emitting
+  // the header.
   if (!isPeerConnectionCurrent(unicastKey, conn) || !isTransferStillCurrent()) {
     log.info('[Unicast] Selected source was superseded before transfer start');
     return;
@@ -270,7 +297,7 @@ export async function unicastFile(
       size: file.size,
       startChunk: startChunkIndex,
       sessionId: effectiveSessionId,
-      index: trackIndex,
+      queueItemId,
     });
   } catch (e) {
     log.error(`[Unicast] Failed to send ${msgType}:`, e);
@@ -313,7 +340,8 @@ export async function unicastFile(
       conn.send({
         type: MSG.FILE_CHUNK,
         chunk,
-        index: i,
+        chunkIndex: i,
+        queueItemId,
         sessionId: effectiveSessionId,
         total,
         name: fileName,
@@ -329,6 +357,7 @@ export async function unicastFile(
         type: MSG.FILE_END,
         name: fileName,
         mime: file.type,
+        queueItemId,
         sessionId: effectiveSessionId,
       });
       log.debug('[Unicast] Transfer complete:', fileName);

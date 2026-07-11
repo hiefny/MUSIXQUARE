@@ -15,6 +15,7 @@ import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
+import { readCurrentQueueItemId, waitForCurrentQueueIndex } from './helpers/queue-state.ts';
 import {
   isVisible,
   openChatDrawer,
@@ -113,16 +114,10 @@ test.describe('Late-Join: Guest joins after file upload', () => {
 
     // Navigate to next track
     await host.hostPage.click('#btn-next');
-    // Wait for track index to change from 0
-    await host.hostPage.waitForFunction(
-      () => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        return get && get('playlist.currentTrackIndex') !== 0;
-      },
-      { timeout: 10_000 },
-    );
+    await waitForCurrentQueueIndex(host.hostPage, 1, 10_000);
 
-    const hostIndex = (await readState(host.hostPage, 'playlist.currentTrackIndex')) as number;
+    const hostQueueItemId = await readCurrentQueueItemId(host.hostPage);
+    expect(hostQueueItemId).not.toBeNull();
 
     // NOW guest joins
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
@@ -130,9 +125,9 @@ test.describe('Late-Join: Guest joins after file upload', () => {
     try {
       await waitForPlaylistCount(guestPage, 3, 30_000);
 
-      // Guest should have the same current track index
-      const guestIndex = (await readState(guestPage, 'playlist.currentTrackIndex')) as number;
-      expect(guestIndex).toBe(hostIndex);
+      // Guest should select the same stable queue occurrence.
+      const guestQueueItemId = await readCurrentQueueItemId(guestPage);
+      expect(guestQueueItemId).toBe(hostQueueItemId);
     } finally {
       await guestContext.close();
     }
@@ -187,7 +182,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
     await waitForPlaylistCount(host.hostPage, 1);
 
     await host.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 
@@ -226,7 +221,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
     await waitForPlaylistCount(host.hostPage, 1);
 
     await host.hostPage.waitForFunction(
-      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+      () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
       { timeout: 15_000 },
     );
 

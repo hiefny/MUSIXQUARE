@@ -60,6 +60,8 @@ import { updateMediaSessionMetadata, initMediaSession } from '../media-session.t
 import { setLocalFilePaused } from '../_state.ts';
 import { togglePlay, stopPlayback, skipTime, play, pause } from '../transport.ts';
 
+const CURRENT_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
 beforeEach(() => {
   resetState();
   bus.clear();
@@ -125,7 +127,7 @@ describe('initMediaSession', () => {
 
   it('play handler calls togglePlay when paused with valid track', () => {
     setPlaybackFilePaused();
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     _handlers['play']();
     expect(togglePlay).toHaveBeenCalled();
   });
@@ -140,9 +142,9 @@ describe('initMediaSession', () => {
     const fn = vi.fn();
     bus.on('playlist:play-track', fn);
     setPlaybackIdle();
-    setState('playlist.currentTrackIndex', 2);
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     _handlers['play']();
-    expect(fn).toHaveBeenCalledWith(2);
+    expect(fn).toHaveBeenCalledWith(CURRENT_QUEUE_ITEM_ID);
   });
 
   // Non-OP guests must still be able to pause/resume their OWN local pause —
@@ -155,7 +157,7 @@ describe('initMediaSession', () => {
     setState('network.isOperator', false);
     setPlaybackFilePaused();
     setLocalFilePaused(true); // pause came from this guest's lock screen
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     setState('player.pausedAt', 12);
     _handlers['play']();
     expect(play).toHaveBeenCalledWith(12);
@@ -167,7 +169,7 @@ describe('initMediaSession', () => {
     setState('network.isOperator', false);
     setPlaybackFilePaused();
     setLocalFilePaused(false); // host paused the room → flag cleared by handlePauseMsg
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     setState('player.pausedAt', 12);
     _handlers['play']();
     expect(play).not.toHaveBeenCalled();

@@ -166,7 +166,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     channel.binaryType = 'arraybuffer';
 
     channel.addEventListener('open', () => {
-      if (!isControl) this.markOpen();
+      this.markOpenIfReady();
     });
     channel.addEventListener('message', (event) => {
       decodePayload(event.data)
@@ -174,10 +174,6 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         .catch((error) => this.emit('error', error));
     });
     channel.addEventListener('close', () => {
-      if (isControl) {
-        if (this.controlChannel === channel) this.controlChannel = undefined;
-        return;
-      }
       this.markClosed();
     });
     channel.addEventListener('error', (event) => this.emit('error', event));
@@ -195,7 +191,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       });
     }
 
-    if (!isControl && channel.readyState === 'open') queueMicrotask(() => this.markOpen());
+    if (channel.readyState === 'open') queueMicrotask(() => this.markOpenIfReady());
     return !isControl;
   }
 
@@ -205,14 +201,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     // chunks keep queuing; sharing one stream lets playback commands sit behind
     // those chunks for seconds after the app returns.
     const bulk = isBulkPayload(data);
-    const preferredChannel = bulk ? this.dataChannel : this.controlChannel;
-    const fallbackChannel = bulk ? undefined : this.dataChannel;
-    const channel =
-      preferredChannel?.readyState === 'open'
-        ? preferredChannel
-        : fallbackChannel?.readyState === 'open'
-          ? fallbackChannel
-          : null;
+    const channel = bulk ? this.dataChannel : this.controlChannel;
     if (!this.open || !channel || channel.readyState !== 'open') {
       throw createTransportError('webrtc', 'DATA_CHANNEL_NOT_OPEN');
     }
@@ -241,8 +230,11 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     this.markClosed();
   }
 
-  private markOpen(): void {
+  private markOpenIfReady(): void {
     if (this.closed || this.open) return;
+    if (this.dataChannel?.readyState !== 'open' || this.controlChannel?.readyState !== 'open') {
+      return;
+    }
     this.open = true;
     this.emit('open');
   }

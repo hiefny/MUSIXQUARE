@@ -24,7 +24,7 @@ import { showDialog } from '../ui/dialog.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { updateOverlayOpenClass } from '../ui/dom.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from '../ui/theme-chrome.ts';
-import type { FileMeta, TrackMeta } from '../types/index.ts';
+import type { FileMeta, QueueItemId, ResidentFile, TrackMeta } from '../types/index.ts';
 import {
   DEMO_TRACKS,
   createDemoTrackMeta,
@@ -51,13 +51,10 @@ type DemoSnapshot = {
   userPreampGain: number;
   subFreq: number;
   currentTrackMeta: TrackMeta | null;
-  currentTrackIndex: number;
-  currentFileBlob: File | Blob | null;
-  // Atomic pair with currentFileBlob (decode.ts invariant): loadDemoFile
-  // overwrites transfer.meta with the demo track's meta, and the host's
-  // recovery blob-matcher (findMatchingBlob) keys on it — without capturing
-  // it, every post-demo REQUEST_CURRENT_FILE failed both name and index
-  // match and guests stayed on FILE_WAIT forever.
+  currentQueueItemId: QueueItemId | null;
+  currentFile: ResidentFile | null;
+  // transfer.meta describes the active generation while currentFile keeps
+  // the resident Blob and its queue/session owner atomic.
   transferMeta: Partial<FileMeta>;
   currentAudioBuffer: AudioBuffer | null;
   pausedAt: number;
@@ -153,8 +150,8 @@ function captureSnapshot(): DemoSnapshot {
     userPreampGain: getState('audio.userPreampGain'),
     subFreq: getState('audio.subFreq'),
     currentTrackMeta: getState('player.currentTrackMeta') as TrackMeta | null,
-    currentTrackIndex: getState('playlist.currentTrackIndex'),
-    currentFileBlob: getState('files.currentFileBlob'),
+    currentQueueItemId: getState('playlist.currentQueueItemId'),
+    currentFile: getState('files.current'),
     transferMeta: { ...(getState('transfer.meta') || {}) },
     currentAudioBuffer: getCurrentAudioBuffer(),
     pausedAt: getState('player.pausedAt') || 0,
@@ -184,17 +181,11 @@ function restoreSnapshot(
   setState('audio.userPreampGain', snapshot.userPreampGain);
   setState('audio.subFreq', snapshot.subFreq);
   if (restoreMedia) {
-    setState('playlist.currentTrackIndex', snapshot.currentTrackIndex);
+    setState('playlist.currentQueueItemId', snapshot.currentQueueItemId);
     setPlaybackTrackMeta(snapshot.currentTrackMeta);
-    if (
-      snapshot.playback.mode === 'file' &&
-      snapshot.currentAudioBuffer &&
-      snapshot.currentFileBlob
-    ) {
-      // meta-then-blob in the same synchronous tick — matches the publish
-      // order decode.ts documents for the (blob, meta) atomic pair.
+    if (snapshot.playback.mode === 'file' && snapshot.currentAudioBuffer && snapshot.currentFile) {
       setState('transfer.meta', snapshot.transferMeta);
-      setState('files.currentFileBlob', snapshot.currentFileBlob);
+      setState('files.current', snapshot.currentFile);
       setCurrentAudioBuffer(snapshot.currentAudioBuffer);
       setState(
         'player.pausedAt',
@@ -204,9 +195,7 @@ function restoreSnapshot(
       bus.emit('ui:play-btn-state', true);
       if (snapshot.duration > 0) bus.emit('ui:duration-update', snapshot.duration);
     } else {
-      setState('files.currentFileBlob', null);
-      // Pair invariant for the null-blob case too — clears the demo track's
-      // name so handlePlayMsg's name-mismatch guard can't dead-end on it.
+      setState('files.current', null);
       setState('transfer.meta', {});
       if (snapshot.playback.mode === 'youtube' || snapshot.playback.mode === 'system-audio') {
         setPlaybackTrackMeta(null);
@@ -417,7 +406,7 @@ async function loadDemoTrack(index: number, options: { autoplay: boolean }): Pro
   const track = getDemoTrackByIndex(index);
   const token = ++_demoLoadToken;
   _demoTrackIndex = index;
-  setState('playlist.currentTrackIndex', index);
+  setState('demo.currentTrackIndex', index);
   setCurrentAudioBuffer(null);
   setPlaybackTrackMeta(createDemoTrackMeta(track));
   syncDemoTrackText();
@@ -1019,7 +1008,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   setState('demo.bassBoostOn', false);
   setState('demo.trebleBoostOn', false);
   setState('demo.surroundOn', false);
-  setState('playlist.currentTrackIndex', _demoTrackIndex);
+  setState('demo.currentTrackIndex', _demoTrackIndex);
   setPlaybackTrackMeta(createDemoTrackMeta(getCurrentDemoTrack()));
   hideSetupOverlay();
   bus.emit('ui:switch-tab', 'play');
@@ -1047,7 +1036,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   drainQueuedDemoEnter();
 }
 
-function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
+function exitDemoMode(options: { broadcastExit?: boolean; restoreSnapshot?: boolean } = {}): void {
   if (!getState('demo.active') && !getState('demo.loading')) return;
   if (options.broadcastExit ?? true) broadcastDemoExit();
   _demoLoadToken++;
@@ -1058,6 +1047,7 @@ function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   setCurrentAudioBuffer(null);
   setState('demo.active', false);
   setState('demo.loading', false);
+  setState('demo.currentTrackIndex', -1);
   setState('demo.reverbOn', false);
   setState('demo.bassBoostOn', false);
   setState('demo.trebleBoostOn', false);
@@ -1067,6 +1057,7 @@ function exitDemoMode(options: { broadcastExit?: boolean } = {}): void {
   _snapshot = null;
   setDemoDomActive(false, {
     afterCovered: () => {
+      if (options.restoreSnapshot === false) return;
       const restoreMedia = shouldRestoreDemoSnapshotMedia(
         getPlaybackModeActivitySnapshot(),
         getState('playback.lifecycle'),
@@ -1365,6 +1356,9 @@ export function initDemoMode(): void {
         startDemoPlayback(0);
       }
     });
+  });
+  _busScope.on('demo:authority-reset', () => {
+    exitDemoMode({ broadcastExit: false, restoreSnapshot: false });
   });
   _busScope.on('demo:request-exit', () => requestDemoExit());
   _busScope.on('demo:open-info', () => openDemoInfo());

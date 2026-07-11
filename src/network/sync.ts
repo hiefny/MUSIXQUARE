@@ -219,6 +219,16 @@ export function isSyncPongPlayingFile(data: Record<string, unknown>): boolean {
   return false;
 }
 
+function isSyncPongTrackIdentityCurrent(data: Record<string, unknown>): boolean {
+  if (getState('demo.active')) {
+    const demoTrackIndex = Number(data.demoTrackIndex);
+    return (
+      Number.isSafeInteger(demoTrackIndex) && demoTrackIndex === getState('demo.currentTrackIndex')
+    );
+  }
+  return data.queueItemId === getState('playlist.currentQueueItemId');
+}
+
 function createSyncPongPayload({
   pingId,
   hostTime,
@@ -230,6 +240,7 @@ function createSyncPongPayload({
   position: number;
   playbackState: SyncPongPlaybackState;
 }): Record<string, unknown> {
+  const isDemo = getState('demo.active');
   const payload: Record<string, unknown> = {
     type: MSG.SYNC_PONG,
     pingId,
@@ -237,7 +248,8 @@ function createSyncPongPayload({
     position,
     mode: playbackState.mode,
     activity: playbackState.activity,
-    trackIndex: getState('playlist.currentTrackIndex'),
+    queueItemId: isDemo ? null : getState('playlist.currentQueueItemId'),
+    ...(isDemo ? { demoTrackIndex: getState('demo.currentTrackIndex') } : {}),
   };
 
   return payload;
@@ -412,6 +424,11 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
     resetSoftFileResyncState();
     return;
   }
+  if (!isSyncPongTrackIdentityCurrent(data)) {
+    resetSoftFileResyncState();
+    log.debug('[Sync] Ignored pong for a different queue/demo item');
+    return;
+  }
 
   // A non-OP guest who locally paused (lock screen / hardware media button —
   // see media-session.ts) must not be auto-resumed by the host's SYNC_PONG
@@ -436,24 +453,6 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
       lifecycle === PLAYBACK_STATE.DECODING
     ) {
       log.debug(`[Sync] Bootstrap skipped while ${lifecycle}; waiting for the new buffer`);
-      return;
-    }
-
-    // Demo track-identity guard: a guest whose demo track load lagged a host
-    // advance can be sitting on track n's buffer while the host plays n+1 —
-    // bootstrapping here would play the WRONG track at the host's position.
-    // DEMO-SCOPED on purpose: in demo both sides set currentTrackIndex from
-    // the same DEMO_ENTER index so the comparison is contractually sound,
-    // whereas normal-file index parity across reorder/shuffle windows is not
-    // pinned and a false suppression would regress the first-remote-download
-    // bootstrap this branch exists for.
-    const pongTrackIndex = Number(data.trackIndex);
-    if (
-      getState('demo.active') &&
-      Number.isFinite(pongTrackIndex) &&
-      pongTrackIndex !== getState('playlist.currentTrackIndex')
-    ) {
-      log.debug('[Sync] Bootstrap skipped: demo track index mismatch with host pong');
       return;
     }
 

@@ -5,24 +5,87 @@ vi.mock('../../core/log.ts', () => ({
 }));
 
 import {
-  ramStart,
-  ramWrite,
-  ramEnd,
-  ramReadChunk,
-  ramReadBlob,
-  ramCleanup,
+  ramStart as rawRamStart,
+  ramWrite as rawRamWrite,
+  ramEnd as rawRamEnd,
+  ramReadChunk as rawRamReadChunk,
+  ramReadBlob as rawRamReadBlob,
+  ramCleanup as rawRamCleanup,
   ramResetSession,
   ramReset,
   ramStats,
-  ramContiguousCount,
+  ramContiguousCount as rawRamContiguousCount,
   __resetRamStoreForTests,
 } from '../ramstore.ts';
 
+const u8 = (...bytes: number[]) => new Uint8Array(bytes);
+const activeSids = new Map<string, number>();
+const qid = (filename: string) => `queue:${filename}`;
+const slotKey = (filename: string, isPreload: boolean) => `${isPreload}:${filename}`;
+
+function ramStart(
+  filename: string,
+  isPreload: boolean,
+  sessionId: number,
+  chunkSize: number,
+  keepExisting: boolean,
+) {
+  const result = rawRamStart(
+    qid(filename),
+    filename,
+    isPreload,
+    sessionId,
+    chunkSize,
+    keepExisting,
+  );
+  if (result.ok) activeSids.set(slotKey(filename, isPreload), sessionId);
+  return result;
+}
+
+const ramWrite = (
+  filename: string,
+  isPreload: boolean,
+  sessionId: number,
+  chunkIndex: number,
+  chunk: Uint8Array,
+) => rawRamWrite(qid(filename), filename, isPreload, sessionId, chunkIndex, chunk);
+
+const ramEnd = (
+  filename: string,
+  isPreload: boolean,
+  sessionId: number,
+  totalSize?: number,
+  expectedChunks?: number,
+) => rawRamEnd(qid(filename), filename, isPreload, sessionId, totalSize, expectedChunks);
+
+const ramReadChunk = (
+  filename: string,
+  isPreload: boolean,
+  sessionId: number,
+  chunkIndex: number,
+) => rawRamReadChunk(qid(filename), isPreload, sessionId, chunkIndex);
+
+const ramReadBlob = (filename: string, isPreload: boolean, sessionId?: number) =>
+  rawRamReadBlob(
+    qid(filename),
+    isPreload,
+    sessionId ?? activeSids.get(slotKey(filename, isPreload)) ?? 0,
+  );
+
+const ramContiguousCount = (filename: string, isPreload: boolean, sessionId?: number) =>
+  rawRamContiguousCount(
+    qid(filename),
+    isPreload,
+    sessionId ?? activeSids.get(slotKey(filename, isPreload)) ?? 0,
+  );
+
+const ramCleanup = (filename: string, isPreload: boolean, sessionId?: number) =>
+  rawRamCleanup(qid(filename), isPreload, sessionId);
+
 beforeEach(() => {
   __resetRamStoreForTests();
+  activeSids.clear();
 });
-
-const u8 = (...bytes: number[]) => new Uint8Array(bytes);
 
 // ─── ramStart ──────────────────────────────────────────────────────
 
@@ -108,13 +171,13 @@ describe('ramStart', () => {
     expect(ramReadBlob('p.mp3', true)).not.toBeNull();
   });
 
-  it('drops stale preload entry when same filename arrives under new sid', () => {
+  it('keeps independent preload sessions for the same queue item until explicit cleanup', () => {
     ramStart('p.mp3', true, 1, 16, false);
     ramWrite('p.mp3', true, 1, 0, u8(0xaa));
     // New session for same filename
     ramStart('p.mp3', true, 2, 16, false);
-    // Old sid 1 should be gone
-    expect(ramWrite('p.mp3', true, 1, 0, u8(0xbb)).ok).toBe(false);
+    // Late completion for sid 1 remains isolated from sid 2.
+    expect(ramWrite('p.mp3', true, 1, 0, u8(0xbb)).ok).toBe(true);
     expect(ramWrite('p.mp3', true, 2, 0, u8(0xcc)).ok).toBe(true);
   });
 });
@@ -136,11 +199,11 @@ describe('ramWrite', () => {
     expect(r.expectedSid).toBe(1);
   });
 
-  it('rejects on filename mismatch silently (no expectedSid)', () => {
+  it('rejects on queue-item mismatch silently (no expectedSid)', () => {
     ramStart('a.mp3', false, 1, 16, false);
     const r = ramWrite('b.mp3', false, 1, 0, u8(0));
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/filename/i);
+    expect(r.reason).toMatch(/queue item/i);
   });
 
   it('rejects writes after finalize', () => {

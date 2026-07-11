@@ -2,12 +2,12 @@
  * MUSIXQUARE — File Transfer: Receive Side
  *
  * Handles FILE_PREPARE, FILE_START, FILE_RESUME, FILE_CHUNK, FILE_END,
- * FILE_WAIT. Manages chunk watchdog, reorder buffer, and early-chunk queue.
+ * FILE_WAIT. Manages the chunk watchdog and bounded reorder buffer.
  */
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { batchSetState, getState, setState } from '../core/state.ts';
 import {
   MSG,
   CHUNK_SIZE,
@@ -16,20 +16,27 @@ import {
   PLAYBACK_STATE,
   LOAD_SOURCE,
 } from '../core/constants.ts';
-import { nextSessionId, validateSessionId } from '../core/session.ts';
+import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { admitIncomingStoredFile, postCommand, cleanupStoredFile } from './storage.ts';
+import { admitIncomingStoredFile, postCommand } from './storage.ts';
 import { ramContiguousCount, ramReadBlob } from './ramstore.ts';
 import { t } from '../i18n/index.ts';
 import { sendToHost, isRemoteGuest, waitForGuestConnectionType } from '../network/peer.ts';
+import {
+  beginFileRequest,
+  completeFileRequest,
+  isCurrentFileRequestOwner,
+  matchFileWaitResponse,
+  sendFileRequest,
+} from '../network/file-request-authority.ts';
 import {
   cancelRemoteShareWait,
   prepareRemoteShareWait,
   shouldWaitForRemoteShare,
 } from '../share/remote-share.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
-import type { FileMeta, DataConnection } from '../types/index.ts';
-import { showToast, showLoader, updateLoader } from '../ui/toast.ts';
+import type { DataConnection, QueueItemId } from '../types/index.ts';
+import { showToast, showLoader } from '../ui/toast.ts';
 import { transition } from '../player/lifecycle.ts';
 import {
   createFileTrackMeta,
@@ -49,84 +56,93 @@ import {
   setPendingRecoveryTarget,
 } from '../player/_state.ts';
 import { resolveDecodeMemoryBudget } from '../player/decode-admission.ts';
-import { createDemoTrackMeta, getDemoTrackForPlayback, isDemoTrackName } from '../demo/tracks.ts';
+import {
+  findQueueItemIndex,
+  getQueueItemById,
+  selectQueueItemById,
+} from '../player/queue-model.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
 const fileReorderBuffer = new Map<number, Map<number, Uint8Array>>();
+const fileQueueItemBySession = new Map<number, QueueItemId>();
 let nextExpectedChunk = 0;
 let lastChunkTime = 0;
-let _demoFetchPromise: { key: string; promise: Promise<void> } | null = null;
-const _pendingEarlyChunks: Array<Record<string, unknown>> = [];
 let rejectedMainSessionId = 0;
+let _filePrepareGeneration = 0;
 const MAX_FILE_TOTAL = 200_000;
-const MAX_EARLY_MAIN_SESSIONS = 4;
-const MAX_EARLY_MAIN_CHUNKS = 64;
-const MAX_EARLY_MAIN_BYTES = 4 * 1024 * 1024;
 
-function incomingChunkByteLength(data: Record<string, unknown>): number {
-  const chunk = data.chunk;
-  if (chunk instanceof ArrayBuffer) return chunk.byteLength;
-  if (ArrayBuffer.isView(chunk)) return chunk.byteLength;
-  return 0;
+interface FilePrepareOwnerSnapshot {
+  generation: number;
+  hostConn: DataConnection | null;
+  currentQueueItemId: QueueItemId | null;
+  pendingQueueItemId: QueueItemId | null;
+  transferQueueItemId: QueueItemId | null;
+  transferSessionId: number;
 }
 
-function bufferEarlyMainChunk(data: Record<string, unknown>): void {
-  const sessionId = data.sessionId as number;
-  const chunkIndex = data.index as number;
-  const existingIndex = _pendingEarlyChunks.findIndex(
-    (entry) => entry.sessionId === sessionId && entry.index === chunkIndex,
-  );
-  if (existingIndex >= 0) _pendingEarlyChunks.splice(existingIndex, 1);
+function captureFilePrepareOwner(): FilePrepareOwnerSnapshot {
+  const pending = getState('playback.pendingRecoveryTarget');
+  const meta = getState('transfer.meta');
+  return {
+    generation: ++_filePrepareGeneration,
+    hostConn: getState('network.hostConn'),
+    currentQueueItemId: getState('playlist.currentQueueItemId'),
+    pendingQueueItemId: pending?.queueItemId ?? null,
+    transferQueueItemId: meta?.queueItemId ?? null,
+    transferSessionId: Number(meta?.sessionId) || 0,
+  };
+}
 
-  const sessionIds = [...new Set(_pendingEarlyChunks.map((entry) => entry.sessionId as number))];
-  if (!sessionIds.includes(sessionId) && sessionIds.length >= MAX_EARLY_MAIN_SESSIONS) {
-    const evictedSid = sessionIds[0];
-    for (let i = _pendingEarlyChunks.length - 1; i >= 0; i--) {
-      if (_pendingEarlyChunks[i]?.sessionId === evictedSid) _pendingEarlyChunks.splice(i, 1);
-    }
-    log.warn(`[Transfer] Early buffer evicted stale session ${evictedSid}`);
-  }
-
-  _pendingEarlyChunks.push(data);
-  const totalBytes = (): number =>
-    _pendingEarlyChunks.reduce((sum, entry) => sum + incomingChunkByteLength(entry), 0);
-  while (
-    _pendingEarlyChunks.length > MAX_EARLY_MAIN_CHUNKS ||
-    totalBytes() > MAX_EARLY_MAIN_BYTES
+/**
+ * Revalidate an authoritative FILE_PREPARE after connection classification.
+ * A null current target is valid during fresh bootstrap; only ownership that
+ * changed to a conflicting target (or a newer transfer session) supersedes
+ * the suspended frame.
+ */
+function isFilePrepareOwnerCurrent(
+  snapshot: FilePrepareOwnerSnapshot,
+  queueItemId: QueueItemId,
+  sessionId: number,
+  conn: DataConnection | undefined,
+): boolean {
+  if (
+    snapshot.generation !== _filePrepareGeneration ||
+    !snapshot.hostConn ||
+    getState('network.hostConn') !== snapshot.hostConn ||
+    conn !== snapshot.hostConn ||
+    !getQueueItemById(queueItemId)
   ) {
-    const oldestStaleSid = _pendingEarlyChunks.find(
-      (entry) => entry.sessionId !== sessionId,
-    )?.sessionId;
-    if (oldestStaleSid !== undefined) {
-      for (let i = _pendingEarlyChunks.length - 1; i >= 0; i--) {
-        if (_pendingEarlyChunks[i]?.sessionId === oldestStaleSid) {
-          _pendingEarlyChunks.splice(i, 1);
-        }
-      }
-      continue;
-    }
-
-    // Only the newest session remains. Preserve its lowest indexes so
-    // recovery retains the longest possible contiguous prefix.
-    let dropIndex = -1;
-    let highestChunkIndex = -1;
-    for (let i = 0; i < _pendingEarlyChunks.length; i++) {
-      const entry = _pendingEarlyChunks[i]!;
-      if (entry.sessionId === sessionId && Number(entry.index) >= highestChunkIndex) {
-        highestChunkIndex = Number(entry.index);
-        dropIndex = i;
-      }
-    }
-    if (dropIndex < 0) dropIndex = _pendingEarlyChunks.length - 1;
-    _pendingEarlyChunks.splice(dropIndex, 1);
+    return false;
   }
-}
 
-function discardPendingEarlySessionsExcept(sessionId: number): void {
-  for (let i = _pendingEarlyChunks.length - 1; i >= 0; i--) {
-    if (_pendingEarlyChunks[i]?.sessionId !== sessionId) _pendingEarlyChunks.splice(i, 1);
+  if (getState('transfer.localSessionId') > sessionId) return false;
+
+  const currentQueueItemId = getState('playlist.currentQueueItemId');
+  if (currentQueueItemId !== snapshot.currentQueueItemId && currentQueueItemId !== queueItemId) {
+    return false;
   }
+
+  const pendingQueueItemId = getState('playback.pendingRecoveryTarget')?.queueItemId ?? null;
+  if (pendingQueueItemId !== snapshot.pendingQueueItemId && pendingQueueItemId !== queueItemId) {
+    return false;
+  }
+
+  const meta = getState('transfer.meta');
+  const transferQueueItemId = meta?.queueItemId ?? null;
+  const transferSessionId = Number(meta?.sessionId) || 0;
+  const transferOwnerChanged =
+    transferQueueItemId !== snapshot.transferQueueItemId ||
+    transferSessionId !== snapshot.transferSessionId;
+  if (
+    transferOwnerChanged &&
+    transferQueueItemId !== null &&
+    (transferQueueItemId !== queueItemId || transferSessionId > sessionId)
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function retainedPcmBytesForReceive(): number {
@@ -148,13 +164,34 @@ function hasSafeIncomingFileSize(data: Record<string, unknown>): boolean {
   );
 }
 
-function tryAdmitMainReceive(
+function incomingQueueItemId(data: Record<string, unknown>): QueueItemId | null {
+  return typeof data.queueItemId === 'string' && data.queueItemId.length > 0
+    ? data.queueItemId
+    : null;
+}
+
+function completeAcceptedFileRequest(
   data: Record<string, unknown>,
-  authoritativeTrackIndex?: number,
-): boolean {
+  conn: DataConnection | undefined,
+): void {
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId) return;
+  const sessionId = data.sessionId;
+  completeFileRequest(
+    conn,
+    queueItemId,
+    Number.isSafeInteger(sessionId) && (sessionId as number) > 0
+      ? (sessionId as number)
+      : undefined,
+  );
+}
+
+function tryAdmitMainReceive(data: Record<string, unknown>): boolean {
   const sessionId = data.sessionId;
   const filename = data.name;
+  const queueItemId = incomingQueueItemId(data);
   if (
+    !queueItemId ||
     !Number.isSafeInteger(sessionId) ||
     (sessionId as number) <= 0 ||
     typeof filename !== 'string' ||
@@ -167,6 +204,7 @@ function tryAdmitMainReceive(
 
   try {
     admitIncomingStoredFile({
+      queueItemId,
       filename,
       isPreload: false,
       sessionId: sessionId as number,
@@ -183,20 +221,12 @@ function tryAdmitMainReceive(
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('fileWaitTimeout');
     fileReorderBuffer.clear();
-    _pendingEarlyChunks.length = 0;
     nextExpectedChunk = 0;
     setState('transfer.receivedCount', 0);
     bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
-    setState('files.currentFileBlob', null);
     postCommand({ command: 'STORAGE_RESET', isPreload: false });
     setPlaybackIdle();
-    if (
-      typeof authoritativeTrackIndex === 'number' &&
-      Number.isSafeInteger(authoritativeTrackIndex) &&
-      authoritativeTrackIndex >= 0
-    ) {
-      sendToHost({ type: MSG.GUEST_DECODE_FAILED, index: authoritativeTrackIndex });
-    }
+    sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
     showLoader(false);
     showToast(t('error.load_failed', { msg: message }));
     return false;
@@ -206,10 +236,9 @@ function tryAdmitMainReceive(
 type PendingPlaySnapshot = {
   time: number;
   setAt: number;
-  trackIndex: number;
-  targetIndex?: number;
-  targetName?: string;
-  transferName?: string;
+  currentQueueItemId: QueueItemId | null;
+  targetQueueItemId?: QueueItemId;
+  transferQueueItemId?: QueueItemId;
 };
 
 function capturePendingPlaySnapshot(): PendingPlaySnapshot | null {
@@ -221,10 +250,9 @@ function capturePendingPlaySnapshot(): PendingPlaySnapshot | null {
   return {
     time,
     setAt: getPendingPlayTimeSetAt(),
-    trackIndex: getState('playlist.currentTrackIndex'),
-    targetIndex: target?.index,
-    targetName: target?.name,
-    transferName: typeof meta?.name === 'string' ? meta.name : undefined,
+    currentQueueItemId: getState('playlist.currentQueueItemId'),
+    targetQueueItemId: target?.queueItemId,
+    transferQueueItemId: meta?.queueItemId,
   };
 }
 
@@ -232,16 +260,12 @@ function shouldRestorePendingPlay(
   snapshot: PendingPlaySnapshot,
   data: Record<string, unknown>,
 ): boolean {
-  const incomingIndex = typeof data.index === 'number' ? data.index : undefined;
-  const incomingName = typeof data.name === 'string' ? data.name : undefined;
-
-  if (incomingIndex !== undefined) {
-    return snapshot.trackIndex === incomingIndex || snapshot.targetIndex === incomingIndex;
-  }
-
-  return !!(
-    incomingName &&
-    (snapshot.targetName === incomingName || snapshot.transferName === incomingName)
+  const queueItemId = incomingQueueItemId(data);
+  return (
+    !!queueItemId &&
+    (snapshot.currentQueueItemId === queueItemId ||
+      snapshot.targetQueueItemId === queueItemId ||
+      snapshot.transferQueueItemId === queueItemId)
   );
 }
 
@@ -274,9 +298,12 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
   // orchestrator gates isDataTarget=false so stale direct frames are dropped.
   if (isRemoteGuest()) return true;
 
+  const queueItemId = data ? incomingQueueItemId(data) : null;
+  if (data && !queueItemId) return true;
+
   const lifecycle = getState('playback.lifecycle');
 
-  // Waiting for preload blob (or demo HTTP fetch). The main-transfer
+  // Waiting for a preload blob. The main-transfer
   // pipeline isn't the source — drop until lifecycle moves on
   // (PRELOAD_FILE_READY → DECODING, watchdog → DOWNLOADING fresh, etc.).
   if (lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD) return true;
@@ -291,14 +318,7 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
       lifecycle === PLAYBACK_STATE.PAUSED) &&
     getState('playback.loadSource') === LOAD_SOURCE.PRELOAD_PROMOTED
   ) {
-    const meta = getState('transfer.meta');
-    const carriesPlaylistIndex = data?.type === MSG.FILE_START || data?.type === MSG.FILE_RESUME;
-    return !!(
-      data &&
-      data.sessionId === meta?.sessionId &&
-      data.name === meta?.name &&
-      (!carriesPlaylistIndex || data.index === undefined || data.index === meta?.index)
-    );
+    return !!data && queueItemId === getState('playlist.currentQueueItemId');
   }
 
   // Same-transfer replay: skip tail frames only when they belong to the exact
@@ -309,16 +329,15 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
     lifecycle !== PLAYBACK_STATE.DOWNLOADING &&
     getState('transfer.state') !== TRANSFER_STATE.RECEIVING
   ) {
-    const blob = getState('files.currentFileBlob');
-    const meta = getState('transfer.meta');
+    const resident = getState('files.current');
     const incomingSessionId = Number(data.sessionId);
-    const loadedSessionId = Number(meta?.sessionId);
+    const loadedSessionId = Number(resident?.sessionId);
     if (
-      blob &&
+      resident &&
+      resident.queueItemId === queueItemId &&
       Number.isFinite(incomingSessionId) &&
       incomingSessionId > 0 &&
-      incomingSessionId === loadedSessionId &&
-      meta?.name === data.name
+      incomingSessionId === loadedSessionId
     ) {
       return true;
     }
@@ -330,128 +349,59 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
 function shouldAcceptLocalDirectFileStart(data: Record<string, unknown>): boolean {
   if (getState('network.connectionType') !== 'local') return false;
 
-  const incomingName = typeof data.name === 'string' ? data.name : '';
-  if (!incomingName) return false;
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId) return false;
 
   const pendingTarget = getState('playback.pendingRecoveryTarget');
   const meta = getState('transfer.meta');
-  const preloadMeta = getState('preload.meta');
-  const metaIndex = typeof meta?.index === 'number' ? meta.index : undefined;
-  const preloadIndex = typeof preloadMeta?.index === 'number' ? preloadMeta.index : undefined;
-  const incomingIndex = typeof data.index === 'number' ? data.index : undefined;
-  const pendingIndex = pendingTarget?.index ?? metaIndex ?? preloadIndex;
-
-  const nameMatches =
-    incomingName === pendingTarget?.name ||
-    incomingName === meta?.name ||
-    incomingName === preloadMeta?.name;
-  const indexMatches =
-    incomingIndex === undefined || pendingIndex === undefined || incomingIndex === pendingIndex;
+  const preloadTarget = getState('preload.activeTarget');
+  const identityMatches =
+    pendingTarget?.queueItemId === queueItemId ||
+    meta?.queueItemId === queueItemId ||
+    preloadTarget?.queueItemId === queueItemId;
   const isWaitingForPreload = getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
 
-  return isWaitingForPreload && nameMatches && indexMatches;
-}
-
-function getLocalDirectFileIndex(data: Record<string, unknown>): number {
-  if (typeof data.index === 'number') return data.index;
-
-  const pendingIndex = getState('playback.pendingRecoveryTarget')?.index;
-  if (typeof pendingIndex === 'number') return pendingIndex;
-
-  const metaIndex = getState('transfer.meta')?.index;
-  if (typeof metaIndex === 'number') return metaIndex;
-
-  return Math.max(0, getState('playlist.currentTrackIndex'));
+  return isWaitingForPreload && identityMatches;
 }
 
 function adoptIncomingTrackTarget(data: Record<string, unknown>): void {
-  const index = Number(data.index);
-  if (!Number.isSafeInteger(index) || index < 0) return;
-  const name = typeof data.name === 'string' ? data.name : undefined;
-  setState('playlist.currentTrackIndex', index);
-  setPendingRecoveryTarget(index, name);
-}
-
-function hasValidOptionalTrackIndex(data: Record<string, unknown>): boolean {
-  const index = data.index;
-  return (
-    index === undefined || (typeof index === 'number' && Number.isSafeInteger(index) && index >= 0)
-  );
-}
-
-function resolvePendingChunkBootstrapIndex(data: Record<string, unknown>): number | undefined {
-  const filename = typeof data.name === 'string' ? data.name : '';
-  const total = data.total;
-  const chunkIndex = data.index;
-  const pending = getState('playback.pendingRecoveryTarget');
-
-  if (
-    !filename ||
-    !pending ||
-    pending.name !== filename ||
-    !Number.isSafeInteger(pending.index) ||
-    pending.index < 0 ||
-    typeof total !== 'number' ||
-    !Number.isSafeInteger(total) ||
-    total <= 0 ||
-    typeof chunkIndex !== 'number' ||
-    !Number.isSafeInteger(chunkIndex) ||
-    chunkIndex < 0 ||
-    chunkIndex >= total
-  ) {
-    return undefined;
-  }
-
-  return pending.index;
-}
-
-function resolveRecoveredTrackIndex(filename: string, existingIndex?: unknown): number | undefined {
-  const parsedExisting = Number(existingIndex);
-  if (Number.isSafeInteger(parsedExisting) && parsedExisting >= 0) return parsedExisting;
-
-  const pending = getState('playback.pendingRecoveryTarget');
-  if (
-    pending &&
-    (!filename || !pending.name || pending.name === filename) &&
-    Number.isSafeInteger(pending.index) &&
-    pending.index >= 0
-  ) {
-    return pending.index;
-  }
-
-  // A current playlist index by itself is not ownership evidence: the guest
-  // may still be showing the previous track, and duplicate filenames are
-  // valid. Without FILE_PREPARE/PLAY-derived identity, leave the index absent
-  // so the completion gate rejects the ambiguous bytes and recovery retries.
-  return undefined;
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId || !getQueueItemById(queueItemId)) return;
+  const indexHint = findQueueItemIndex(queueItemId);
+  const name =
+    typeof data.name === 'string' ? data.name : getQueueItemById(queueItemId)?.name || '';
+  selectQueueItemById(queueItemId);
+  setPendingRecoveryTarget({ queueItemId, indexHint, name });
 }
 
 function enterAcceptedMainTransfer(
   data: Record<string, unknown>,
   variant: 'fresh' | 'resume',
 ): void {
-  const index = Number(data.index);
+  const queueItemId = incomingQueueItemId(data);
   const name = typeof data.name === 'string' ? data.name : '';
-  if (!Number.isSafeInteger(index) || index < 0 || !name) return;
+  if (!queueItemId || !name) return;
 
   if (getState('playback.lifecycle') !== PLAYBACK_STATE.DOWNLOADING) {
-    transition({ type: 'FILE_PREPARE', variant, index, name });
+    transition({ type: 'FILE_PREPARE', variant, queueItemId, name });
   }
 }
 
 function switchRemoteWaitToLocalDirect(data: Record<string, unknown>): void {
   const incomingName = data.name as string;
-  const incomingIndex = getLocalDirectFileIndex(data);
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId) return;
+  const indexHint = findQueueItemIndex(queueItemId);
 
   cancelRemoteShareWait('local-direct-file-start');
-  setState('preload.nextFileBlob', null);
-  setState('preload.meta', null);
-  setState('preload.nextTrackIndex', -1);
-  setPendingRecoveryTarget(incomingIndex, incomingName);
+  setState('preload.ready', null);
+  setState('preload.activeTarget', null);
+  setState('preload.nextQueueItemId', null);
+  setPendingRecoveryTarget({ queueItemId, indexHint, name: incomingName });
   transition({
     type: 'FILE_PREPARE',
     variant: 'fresh',
-    index: incomingIndex,
+    queueItemId,
     name: incomingName,
   });
   log.info('[Transfer] Local direct file transfer superseded remote-share wait');
@@ -490,118 +440,10 @@ function startChunkWatchdog(): void {
 
 // ─── Internal Helpers ────────────────────────────────────────────────
 
-export async function fetchDemoFromServer(
-  index: number,
-  guardedPlayAt?: number,
-  guardedPlaySetAt?: number,
-  demoName?: unknown,
-): Promise<void> {
-  // If connection type is unknown, wait before deciding to fetch from server.
-  // This prevents local guests from hitting the HTTP demo path during bootstrap.
-  if (isRemoteGuest() && getState('network.connectionType') === 'unknown') {
-    const resolvedType = await waitForGuestConnectionType(2000);
-    if (resolvedType === 'local') {
-      log.debug('[Transfer] Resolved to local during demo fetch — aborting HTTP path');
-      return;
-    }
-  }
-
-  const demoTrack = getDemoTrackForPlayback(index, demoName);
-  if (_demoFetchPromise?.key === demoTrack.id) return _demoFetchPromise.promise;
-
-  _demoFetchPromise = {
-    key: demoTrack.id,
-    promise: _doFetchDemoFromServer(index, guardedPlayAt, guardedPlaySetAt, demoName),
-  };
-
-  try {
-    await _demoFetchPromise.promise;
-  } finally {
-    if (_demoFetchPromise?.key === demoTrack.id) _demoFetchPromise = null;
-  }
-}
-
-async function _doFetchDemoFromServer(
-  index: number,
-  guardedPlayAt?: number,
-  guardedPlaySetAt?: number,
-  demoName?: unknown,
-): Promise<void> {
-  const guardedPlaySetAtValue = guardedPlaySetAt ?? getPendingPlayTimeSetAt();
-  const demoTrack = getDemoTrackForPlayback(index, demoName);
-  showLoader(true, t('transfer.demo_loading'));
-  updateLoader(0);
-
-  try {
-    const blob: Blob = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', demoTrack.url, true);
-      xhr.responseType = 'blob';
-      xhr.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          updateLoader(percent);
-        }
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as Blob);
-        else reject(new Error(`HTTP ${xhr.status}`));
-      };
-      xhr.onerror = () => reject(new Error('Network Error'));
-      xhr.timeout = 10000;
-      xhr.ontimeout = () => {
-        log.warn('[Transfer] Demo fetch timed out');
-        reject(new Error('Request Timeout'));
-      };
-      xhr.send();
-    });
-
-    const file = new File([blob], demoTrack.fileName, { type: demoTrack.mime });
-    const demoSessionId = nextSessionId();
-
-    // Use the preload path for seamless playback
-    setState('preload.nextFileBlob', file);
-    setState('preload.meta', {
-      ...createDemoTrackMeta(demoTrack),
-      index,
-      size: file.size,
-      mime: demoTrack.mime,
-      sessionId: demoSessionId,
-    });
-    setState('preload.nextTrackIndex', index);
-    showLoader(false);
-
-    // Defensive: preserve pending play time if the HTTP fetch race cleared it
-    if (guardedPlayAt !== undefined && getPendingPlayTime() === undefined) {
-      setPendingPlayTime(guardedPlayAt, guardedPlaySetAtValue);
-    }
-
-    // The fetched demo file now owns the preload lifecycle.
-    transition({ type: 'PRELOAD_FILE_READY', index });
-
-    bus.emit('storage:use-preloaded', index, demoTrack.fileName, demoSessionId);
-  } catch (e) {
-    log.error('[Transfer] Demo server fetch failed:', e);
-    // The translated string ends with ":"; append the error so the toast does
-    // not end with dangling punctuation.
-    showToast(`${t('transfer.demo_load_fail')} ${(e as Error).message || ''}`.trim());
-    showLoader(false);
-    // Fallback: request from host. shouldSkipIncomingFile() will return false
-    // once the host's FILE_PREPARE response transitions us out of
-    // AWAITING_PRELOAD via the fresh-download path.
-    sendToHost({ type: MSG.REQUEST_CURRENT_FILE, name: demoTrack.fileName, index });
-  }
-}
-
 function showRemoteUnavailableUI(data: Record<string, unknown>): void {
   // (skip is derived: isRemoteGuest() returns true.)
-  if (data.index !== undefined) {
-    const idx = Number(data.index);
-    const playlist = getState('playlist.items') || [];
-    if (Number.isFinite(idx) && idx >= 0 && idx < playlist.length) {
-      setState('playlist.currentTrackIndex', idx);
-    }
-  }
+  const queueItemId = incomingQueueItemId(data);
+  if (queueItemId) selectQueueItemById(queueItemId);
   setPlaybackTrackMeta(createFileTrackMeta((data.name as string) || ''));
   showLoader(false);
   showToast(t('share.remote.unavailable'));
@@ -622,25 +464,23 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
 }
 
 function replayLoadedSameFile(data: Record<string, unknown>): boolean {
-  const currentFileBlob = getState('files.currentFileBlob');
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const currentTransferMeta = getState('transfer.meta');
-  const requestedIndex = data.index as number | undefined;
+  const resident = getState('files.current');
+  const requestedQueueItemId = incomingQueueItemId(data);
   const requestedName = data.name as string | undefined;
-  const replayName = requestedName || ((currentTransferMeta?.name as string | undefined) ?? '');
+  const replayName = requestedName || resident?.name || '';
   const incomingSessionId = Number(data.sessionId);
-  const loadedSessionId = Number(currentTransferMeta?.sessionId);
-  const isSameTrackByIndex =
-    requestedIndex !== undefined &&
-    requestedIndex === currentTrackIndex &&
-    requestedIndex === currentTransferMeta?.index;
-  const isSameTrackByName =
-    requestedIndex === undefined && !!requestedName && currentTransferMeta?.name === requestedName;
+  const loadedSessionId = Number(resident?.sessionId);
   const metadataConsistent =
-    (!requestedName || requestedName === currentTransferMeta?.name) &&
-    (data.size === undefined || Number(data.size) === currentFileBlob?.size);
+    (!requestedName || requestedName === resident?.name) &&
+    (data.size === undefined || Number(data.size) === resident?.blob.size);
 
-  if (!currentFileBlob || !metadataConsistent || (!isSameTrackByIndex && !isSameTrackByName)) {
+  if (
+    !resident ||
+    !requestedQueueItemId ||
+    resident.queueItemId !== requestedQueueItemId ||
+    getState('playlist.currentQueueItemId') !== requestedQueueItemId ||
+    !metadataConsistent
+  ) {
     return false;
   }
   if (!Number.isFinite(incomingSessionId) || incomingSessionId <= 0) return false;
@@ -650,7 +490,7 @@ function replayLoadedSameFile(data: Record<string, unknown>): boolean {
   transition({
     type: 'FILE_PREPARE',
     variant: 'same-file',
-    index: requestedIndex as number,
+    queueItemId: requestedQueueItemId,
     name: replayName,
   });
   showLoader(false);
@@ -664,35 +504,37 @@ export async function handleFilePrepare(
   conn?: DataConnection,
 ): Promise<void> {
   if (!isHostBroadcast(conn)) return;
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId || !getQueueItemById(queueItemId)) return;
+  const indexHint = findQueueItemIndex(queueItemId);
   if (
     data.sessionId !== undefined &&
     (!Number.isSafeInteger(data.sessionId) || (data.sessionId as number) <= 0)
   ) {
     return;
   }
+  const incomingSid = data.sessionId as number;
+  const localSidAtEntry = getState('transfer.localSessionId');
+  const transferMetaAtEntry = getState('transfer.meta');
+  if (
+    incomingSid < localSidAtEntry ||
+    (Number(transferMetaAtEntry?.sessionId) === incomingSid &&
+      transferMetaAtEntry?.queueItemId !== undefined &&
+      transferMetaAtEntry.queueItemId !== queueItemId)
+  ) {
+    log.debug('[file-prepare] Ignoring stale or conflicting transfer owner');
+    return;
+  }
+  const ownerSnapshot = captureFilePrepareOwner();
 
   if (isSystemAudioOwner()) {
     log.debug('[Transfer] Ignoring FILE_PREPARE - system audio mode active');
     return;
   }
 
-  // YouTube mode normally owns its own transport, but demo is a deliberate
-  // cross-mode switch: remote guests fetch the bundled demo over HTTP after
-  // FILE_PREPARE. Accept that one and tear YouTube down before driving the
-  // file lifecycle.
   if (isYouTubeOwner()) {
-    if (!isDemoTrackName(data.name)) {
-      log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
-      return;
-    }
-    const pendingTime = getPendingPlayTime();
-    const pendingSetAt = getPendingPlayTimeSetAt();
-    log.debug('[Transfer] Accepting demo FILE_PREPARE during YouTube mode');
-    bus.emit('player:stop-all-media');
-    if (isYouTubeOwner()) {
-      setPlaybackIdle();
-    }
-    if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
+    log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
+    return;
   }
 
   // New track arriving — reset the per-track decode failure counter so the
@@ -705,12 +547,13 @@ export async function handleFilePrepare(
   // guest that already has the Blob should restart it locally, not enter
   // "waiting for encrypted remote file" for a descriptor the host will not
   // send on the replay fast path.
-  if (replayLoadedSameFile(data)) return;
+  if (replayLoadedSameFile(data)) {
+    completeAcceptedFileRequest(data, conn);
+    return;
+  }
 
-  // Remote guests (no local P2P path): demo → HTTP fetch from server,
-  // other files → guide UI. Local guests always fall through to the
-  // normal P2P receive path below (even for the demo), so the host's
-  // broadcastFile has one coherent audience.
+  // Remote guests do not use the local P2P path. Every queue file waits for
+  // an R2 descriptor; bundled demo audio travels only through DEMO_* messages.
   if (isRemoteGuest()) {
     let confirmedRemote = true;
     const connType = getState('network.connectionType');
@@ -718,6 +561,10 @@ export async function handleFilePrepare(
       log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
       showLoader(true, t('transfer.check_conn_type'));
       const resolved = await waitForGuestConnectionType(3000);
+      if (!isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, incomingSid, conn)) {
+        log.debug('[file-prepare] Connection classification completed for a superseded owner');
+        return;
+      }
       if (resolved === 'local') {
         log.info(`[Transfer] connectionType resolved: local — proceeding`);
         showLoader(false);
@@ -726,37 +573,10 @@ export async function handleFilePrepare(
     }
 
     if (confirmedRemote) {
-      if (isDemoTrackName(data.name)) {
-        // Demo files go through a preload-like path (HTTP fetch +
-        // storage:use-preloaded) so we enter AWAITING_PRELOAD —
-        // shouldSkipIncomingFile() returns true automatically.
-        transition({
-          type: 'FILE_PREPARE',
-          variant: 'demo',
-          index: Number(data.index) || 0,
-          name: data.name as string,
-        });
-
-        // Preserve pendingPlayTime before stopAllMedia clears it, since we
-        // won't send a REQUEST_RETRANSMIT to get a fresh MSG.PLAY from the host.
-        const pendingTime = getPendingPlayTime();
-        const pendingSetAt = getPendingPlayTimeSetAt();
-        bus.emit('player:stop-all-media');
-
-        const demoIndex = Number(data.index);
-        const safeDemoIndex = Number.isFinite(demoIndex) && demoIndex >= 0 ? demoIndex : 0;
-        if (data.index !== undefined) {
-          setState('playlist.currentTrackIndex', safeDemoIndex);
-        }
-
-        fetchDemoFromServer(safeDemoIndex, pendingTime, pendingSetAt, data.name);
-        return;
-      }
+      completeAcceptedFileRequest(data, conn);
       if (shouldWaitForRemoteShare()) {
-        const idx = Number(data.index);
-        const safeIndex = Number.isFinite(idx) && idx >= 0 ? idx : 0;
         prepareRemoteShareWait(
-          safeIndex,
+          queueItemId,
           (data.name as string) || '',
           (data.sessionId as number) || getState('transfer.localSessionId') || 0,
         );
@@ -767,6 +587,10 @@ export async function handleFilePrepare(
     }
   }
 
+  // The connection, stable queue occurrence, transfer session, playback
+  // owner, and remote/local route have all survived their admission gates.
+  completeAcceptedFileRequest(data, conn);
+
   // Lifecycle is authoritative. If we were AWAITING_PRELOAD, the transition()
   // call later in this handler supersedes us correctly.
   if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
@@ -775,7 +599,6 @@ export async function handleFilePrepare(
   clearManagedTimer('preloadWatchdog');
   setState('recovery.retryCount', 0);
 
-  const incomingSid = data.sessionId as number;
   const prevLocalSid = getState('transfer.localSessionId');
   const isNewSession = incomingSid && incomingSid > prevLocalSid;
 
@@ -799,35 +622,34 @@ export async function handleFilePrepare(
   }
 
   // Check for preloaded match
-  const preloadMeta = getState('preload.meta');
-  const nextFileBlob = getState('preload.nextFileBlob');
-  const hasPreloadedByIndex =
-    preloadMeta &&
-    data.index !== undefined &&
-    data.index === preloadMeta.index &&
-    data.name === preloadMeta.name;
+  const preloadTarget = getState('preload.activeTarget');
+  const preloadReady = getState('preload.ready');
+  const hasExactPreload =
+    preloadReady?.queueItemId === queueItemId &&
+    preloadTarget?.queueItemId === queueItemId &&
+    preloadReady.sessionId === preloadTarget.sessionId;
 
   // Preload INDEX MISMATCH: Don't use stale preload from a different track
-  const isMismatch = preloadMeta && data.index !== undefined && data.index !== preloadMeta.index;
-  // A different playlist slot is a different logical file unless the protocol
-  // carries an explicit object identity. Never promote by name+size.
+  const isMismatch = preloadTarget && preloadTarget.queueItemId !== queueItemId;
+  // A different queue item ID is a different logical occurrence. Never
+  // promote by name+size.
   if (isMismatch) {
     log.warn(
-      `[file-prepare] Preload index mismatch! Request: ${data.index}, Preloaded: ${preloadMeta!.index}. Clearing stale preload.`,
+      `[file-prepare] Preload ownership changed: requested=${queueItemId}, staged=${preloadTarget?.queueItemId}. Clearing stale preload.`,
     );
     clearManagedTimer('preloadWatchdog');
     // Clear stale preload state — also makes shouldSkipIncomingFile() false
     // for this incoming track (no preload sessionState/blob/meta to match).
-    setState('preload.nextFileBlob', null);
-    setState('preload.meta', null);
-    setState('preload.nextTrackIndex', -1);
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
+    setState('preload.nextQueueItemId', null);
   }
 
   const pendingPlaySnapshot = capturePendingPlaySnapshot();
 
-  // The exact playlist index selects the staged Blob. The name is only a
+  // The stable queue item ID selects the staged Blob. The name is only a
   // metadata consistency check; a name match alone never permits promotion.
-  if (nextFileBlob && !isMismatch && hasPreloadedByIndex) {
+  if (preloadReady && !isMismatch && hasExactPreload) {
     log.debug('[Guest] Using preloaded track instead of re-downloading:', data.name);
     // No direct chunks follow this promotion, so disarm receive watchdogs now.
     clearManagedTimer('chunkWatchdog');
@@ -837,9 +659,7 @@ export async function handleFilePrepare(
     // Stop old media right before loading preloaded track (minimizes audio gap)
     bus.emit('player:stop-all-media');
 
-    if (data.index !== undefined) {
-      setState('playlist.currentTrackIndex', data.index as number);
-    }
+    selectQueueItemById(queueItemId);
 
     // FILE_PREPARE where blob already assembled → promote straight to DECODING
     // via the preload-promoted path. shouldSkipIncomingFile() returns true
@@ -849,13 +669,13 @@ export async function handleFilePrepare(
     transition({
       type: 'FILE_PREPARE',
       variant: 'preload-match',
-      index: data.index as number,
+      queueItemId,
       name: data.name as string,
     });
-    const preloadSessionId = Number(preloadMeta?.sessionId);
+    const preloadSessionId = Number(preloadReady.sessionId);
     bus.emit(
       'storage:use-preloaded',
-      data.index as number,
+      queueItemId,
       data.name as string,
       Number.isSafeInteger(preloadSessionId) && preloadSessionId > 0 ? preloadSessionId : undefined,
     );
@@ -865,29 +685,22 @@ export async function handleFilePrepare(
   }
 
   // Check if guest already has this file loaded (e.g. repeat-one mode)
-  // Guard: only skip if guest actually has a file loaded (currentFileBlob !== null)
-  const currentFileBlob = getState('files.currentFileBlob');
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
-  const currentTransferMeta = getState('transfer.meta');
-  const isSameTrackByIndex =
-    data.index !== undefined &&
-    data.index === currentTrackIndex &&
-    data.index === currentTransferMeta?.index;
-  const isSameTrackByName =
-    data.index === undefined && data.name && currentTransferMeta?.name === data.name;
+  // Guard: only skip when the guest owns the exact resident Blob and session.
+  const currentResident = getState('files.current');
   const incomingSameFileSessionId = Number(data.sessionId);
-  const loadedSameFileSessionId = Number(currentTransferMeta?.sessionId);
+  const loadedSameFileSessionId = Number(currentResident?.sessionId);
   const isExactLoadedTransfer =
     Number.isFinite(incomingSameFileSessionId) &&
     incomingSameFileSessionId > 0 &&
     incomingSameFileSessionId === loadedSameFileSessionId;
   const loadedMetadataConsistent =
-    data.name === currentTransferMeta?.name &&
-    (data.size === undefined || Number(data.size) === currentFileBlob?.size);
+    data.name === currentResident?.name &&
+    (data.size === undefined || Number(data.size) === currentResident?.blob.size);
   if (
-    currentFileBlob &&
+    currentResident &&
+    currentResident.queueItemId === queueItemId &&
+    getState('playlist.currentQueueItemId') === queueItemId &&
     loadedMetadataConsistent &&
-    (isSameTrackByIndex || isSameTrackByName) &&
     isExactLoadedTransfer
   ) {
     log.debug(
@@ -898,12 +711,12 @@ export async function handleFilePrepare(
     clearManagedTimer('prepareWatchdog');
     // Same file already loaded. No lifecycle change — replay-current fires
     // and the existing PLAYING/READY/PAUSED state keeps its audio buffer.
-    // shouldSkipIncomingFile() returns true via the same-track-replay
-    // branch (currentFileBlob + meta.name === data.name).
+    // shouldSkipIncomingFile() returns true via the exact resident queue item,
+    // session, and metadata match.
     transition({
       type: 'FILE_PREPARE',
       variant: 'same-file',
-      index: data.index as number,
+      queueItemId,
       name: data.name as string,
     });
     showLoader(false);
@@ -919,21 +732,19 @@ export async function handleFilePrepare(
   bus.emit('player:stop-all-media');
 
   // Check if preload is IN PROGRESS for this track
-  const preloadInProgressByIndex =
-    preloadMeta && data.index !== undefined && data.index === preloadMeta.index;
-  const preloadInProgressByName = preloadMeta && data.name && data.name === preloadMeta.name;
+  const preloadInProgress = preloadTarget?.queueItemId === queueItemId;
   const isPreloading = getState('preload.isPreloading');
 
-  if (isPreloading && (preloadInProgressByIndex || preloadInProgressByName)) {
+  if (isPreloading && preloadInProgress) {
     // A newer main session supersedes an in-flight preload for the same track;
     // otherwise both paths can wait on ownership held by the other.
     if (incomingSid > prevLocalSid) {
       log.debug(
         '[file-prepare] Preload in progress but Host started Main Session. Prioritizing Main.',
       );
-      setState('preload.nextFileBlob', null);
-      setState('preload.meta', null);
-      setState('preload.nextTrackIndex', -1);
+      setState('preload.ready', null);
+      setState('preload.activeTarget', null);
+      setState('preload.nextQueueItemId', null);
     } else {
       log.debug('[file-prepare] Preload in progress for this track, waiting...');
       // Preload still downloading for THIS track → AWAITING_PRELOAD. This
@@ -943,23 +754,24 @@ export async function handleFilePrepare(
       transition({
         type: 'FILE_PREPARE',
         variant: 'preload-waiting',
-        index: data.index as number,
+        queueItemId,
         name: data.name as string,
       });
       showLoader(true, t('transfer.preload_pending', { name: data.name as string }));
 
-      setPendingRecoveryTarget(data.index as number | undefined, data.name as string | undefined);
-
-      if (data.index !== undefined) {
-        setState('playlist.currentTrackIndex', data.index as number);
-      }
+      setPendingRecoveryTarget({
+        queueItemId,
+        indexHint,
+        name: (data.name as string) || getQueueItemById(queueItemId)?.name || '',
+      });
+      selectQueueItemById(queueItemId);
 
       // Mirror the fresh branch: surface the awaited track's title now so
       // the user sees it during the AWAITING_PRELOAD wait instead of after
       // the preload blob assembles.
       {
         const playlist = getState('playlist.items') || [];
-        const trackEntry = playlist[data.index as number];
+        const trackEntry = playlist[indexHint];
         if (trackEntry) {
           setPlaybackTrackMeta(trackEntry);
         }
@@ -979,13 +791,26 @@ export async function handleFilePrepare(
           // will transition us out of AWAITING_PRELOAD via the fresh-download
           // path, breaking shouldSkipIncomingFile().
           if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
+            if (
+              getState('playlist.currentQueueItemId') !== queueItemId ||
+              getState('playback.pendingRecoveryTarget')?.queueItemId !== queueItemId
+            ) {
+              log.debug('[Guest] Preload watchdog belongs to a superseded queue item');
+              return;
+            }
             log.warn('[Guest] Preload wait timed out. Force recovering...');
             showLoader(false);
 
-            sendToHost({
+            const hostConn = getState('network.hostConn');
+            if (!hostConn || !hostConn.open) return;
+            const requestOwner = beginFileRequest(
+              hostConn,
+              queueItemId,
+              Number.isSafeInteger(incomingSid) && incomingSid > 0 ? incomingSid : undefined,
+            );
+            sendFileRequest(requestOwner, {
               type: MSG.REQUEST_CURRENT_FILE,
               name: data.name as string | undefined,
-              index: data.index as number | undefined,
             });
           }
         },
@@ -1006,10 +831,14 @@ export async function handleFilePrepare(
   const prevTarget = getState('playback.pendingRecoveryTarget');
   const isSameFile =
     Number(meta?.sessionId) === incomingSid &&
-    (meta?.index === data.index || (prevTarget !== null && prevTarget.index === data.index));
+    (meta?.queueItemId === queueItemId || prevTarget?.queueItemId === queueItemId);
 
   // Store pending file info (after reading old values above)
-  setPendingRecoveryTarget(data.index as number | undefined, data.name as string | undefined);
+  setPendingRecoveryTarget({
+    queueItemId,
+    indexHint,
+    name: (data.name as string) || getQueueItemById(queueItemId)?.name || '',
+  });
   const isResuming = isSameFile && receivedCount > 0;
 
   if (isResuming) {
@@ -1020,7 +849,7 @@ export async function handleFilePrepare(
     transition({
       type: 'FILE_PREPARE',
       variant: 'resume',
-      index: data.index as number,
+      queueItemId,
       name: data.name as string,
     });
     showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
@@ -1030,18 +859,17 @@ export async function handleFilePrepare(
     transition({
       type: 'FILE_PREPARE',
       variant: 'fresh',
-      index: data.index as number,
+      queueItemId,
       name: data.name as string,
     });
     bus.emit('storage:clear-previous-track', 'file-prepare');
-    if (data.index !== undefined) {
-      setState('playlist.currentTrackIndex', data.index as number);
-    }
+    selectQueueItemById(queueItemId);
     // Update meta
     setState('transfer.meta', {
       ...meta,
+      queueItemId,
       name: (data.name as string) || '',
-      index: (data.index as number) ?? getState('playlist.currentTrackIndex'),
+      indexHint,
       size: (data.size as number) || 0,
       mime: (data.mime as string) || '',
       sessionId: (data.sessionId as number) || getState('transfer.localSessionId'),
@@ -1054,7 +882,7 @@ export async function handleFilePrepare(
     // the playlist entry was already known the moment FILE_PREPARE landed.
     {
       const playlist = getState('playlist.items') || [];
-      const trackEntry = playlist[data.index as number];
+      const trackEntry = playlist[indexHint];
       if (trackEntry) {
         setPlaybackTrackMeta(trackEntry);
       }
@@ -1087,7 +915,11 @@ export async function handleFilePrepare(
           setManagedTimer(
             'prepare-watchdog-jitter',
             () => {
-              if (hostConn.open && !getState('files.currentFileBlob')) {
+              if (
+                hostConn.open &&
+                getState('files.current')?.queueItemId !== queueItemId &&
+                getState('playback.pendingRecoveryTarget')?.queueItemId === queueItemId
+              ) {
                 bus.emit('storage:request-recovery');
               }
             },
@@ -1102,11 +934,9 @@ export async function handleFilePrepare(
 
 export function handleFileStart(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
-
-  if (!hasValidOptionalTrackIndex(data)) {
-    log.warn(`[file-start] Invalid playlist index ignored: ${String(data.index)}`);
-    return;
-  }
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId || !getQueueItemById(queueItemId)) return;
+  const indexHint = findQueueItemIndex(queueItemId);
 
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
@@ -1120,24 +950,23 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   // A remote-loaded guest has not adopted transfer.localSessionId yet. Preserve
   // its playing buffer only when FILE_START names the exact descriptor session
-  // and playlist slot already loaded. Name+size alone can collide.
+  // and stable queue occurrence already loaded. Name+size alone can collide.
   if (!isLocalDirectStart) {
-    const loadedBlob = getState('files.currentFileBlob');
-    const loadedMeta = getState('transfer.meta');
-    const loadedSid = Number(loadedMeta?.sessionId);
+    const loaded = getState('files.current');
+    const loadedSid = Number(loaded?.sessionId);
     const sameSession = incomingSid > 0 && incomingSid === loadedSid;
-    const sameIndex =
-      Number.isInteger(data.index) &&
-      data.index === loadedMeta?.index &&
-      data.index === getState('playlist.currentTrackIndex');
+    const sameQueueItem =
+      loaded?.queueItemId === queueItemId &&
+      getState('playlist.currentQueueItemId') === queueItemId;
     const metadataConsistent =
-      data.name === loadedMeta?.name &&
+      data.name === loaded?.name &&
       Number(data.size) > 0 &&
-      Number(data.size) === loadedBlob?.size;
-    if (loadedBlob && sameSession && sameIndex && metadataConsistent) {
+      Number(data.size) === loaded?.blob.size;
+    if (loaded && sameSession && sameQueueItem && metadataConsistent) {
       if (incomingSid > localSid) setState('transfer.localSessionId', incomingSid);
       clearManagedTimer('prepareWatchdog');
       clearManagedTimer('chunkWatchdog');
+      completeAcceptedFileRequest(data, conn);
       log.info(
         `[file-start] Already loaded "${data.name}" (adopting sid ${incomingSid}); skipping redundant re-transfer`,
       );
@@ -1157,7 +986,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   if (!isLocalDirectStart && shouldSkipIncomingFile(data)) {
     const meta = getState('transfer.meta');
     const isRecoveryResend =
-      !isNewSession && Number(meta?.sessionId) === incomingSid && meta?.index === data.index;
+      !isNewSession && Number(meta?.sessionId) === incomingSid && meta?.queueItemId === queueItemId;
     if (!isRecoveryResend) {
       clearManagedTimer('prepareWatchdog');
       clearManagedTimer('chunkWatchdog');
@@ -1168,7 +997,8 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   // RAM-only storage must own a bounded encoded lease before any state change
   // can make this session eligible to accept payload chunks.
-  if (!tryAdmitMainReceive(data, data.index as number | undefined)) return;
+  if (!tryAdmitMainReceive(data)) return;
+  completeAcceptedFileRequest(data, conn);
 
   if (isNewSession) {
     setState('transfer.localSessionId', incomingSid);
@@ -1178,15 +1008,15 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     if (!isLocalDirectStart) {
       bus.emit('storage:clear-previous-track', 'new-session-start');
     }
-    discardPendingEarlySessionsExcept(incomingSid);
   }
+  fileQueueItemBySession.set(incomingSid, queueItemId);
   if (isLocalDirectStart) switchRemoteWaitToLocalDirect(data);
 
-  // FILE_START is authoritative when FILE_PREPARE was lost. Adopt its
-  // playlist slot only after stale/skip guards have accepted this frame.
+  // FILE_START is authoritative when FILE_PREPARE was lost. Adopt its stable
+  // queue occurrence only after stale/skip guards have accepted this frame.
   adoptIncomingTrackTarget(data);
   enterAcceptedMainTransfer(data, 'fresh');
-  transition({ type: 'FILE_START', sessionId: incomingSid });
+  transition({ type: 'FILE_START', queueItemId, sessionId: incomingSid });
 
   clearManagedTimer('prepareWatchdog');
   clearManagedTimer('chunkWatchdog');
@@ -1202,13 +1032,10 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   // Check if same file (recovery)
   const meta = getState('transfer.meta');
   const receivedCount = getState('transfer.receivedCount');
-  const isRecoverySameFile = meta?.name === data.name && meta?.total === (data.total as number);
-
-  const currentTrackEntry = getState('files.currentTrack');
-  if (currentTrackEntry.name && currentTrackEntry.name !== data.name) {
-    cleanupStoredFile(currentTrackEntry.name, false);
-  }
-  setState('files.currentTrack', { name: (data.name as string) || null });
+  const isRecoverySameFile =
+    meta?.queueItemId === queueItemId &&
+    Number(meta?.sessionId) === incomingSid &&
+    meta?.total === (data.total as number);
 
   // Always fresh start — host resends from chunk 0 on recovery,
   // so keepExisting is unnecessary and stale counters cause infinite loops.
@@ -1218,6 +1045,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   postCommand({
     command: 'STORAGE_START',
+    queueItemId,
     filename: data.name as string,
     isPreload: false,
     sessionId: validateSessionId(incomingSid),
@@ -1225,7 +1053,15 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   });
 
   setState('transfer.receivedCount', 0);
-  setState('transfer.meta', data as Partial<FileMeta>);
+  setState('transfer.meta', {
+    queueItemId,
+    indexHint,
+    name: data.name as string,
+    mime: (data.mime as string) || '',
+    size: data.size as number,
+    total: data.total as number,
+    sessionId: incomingSid,
+  });
   setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
   // Reset stale-burst tracking — a valid FILE_START means we're back on track
   setState('transfer.staleChunkBurstStart', 0);
@@ -1236,20 +1072,6 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   startChunkWatchdog();
 
-  // Replay any early chunks that arrived before FILE_START (same session only)
-  if (_pendingEarlyChunks.length > 0) {
-    const earlyChunks = _pendingEarlyChunks.splice(0);
-    const matching = earlyChunks.filter((c) => (c.sessionId as number) === incomingSid);
-    if (matching.length > 0) {
-      log.debug(
-        `[file-start] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`,
-      );
-      for (const pending of matching) {
-        applyFileChunk(pending);
-      }
-    }
-  }
-
   showLoader(true, t('transfer.receiving_0pct'));
 }
 
@@ -1257,11 +1079,9 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 // limited to the main transfer channel.
 export function handleFileResume(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
-
-  if (!hasValidOptionalTrackIndex(data)) {
-    log.warn(`[file-resume] Invalid playlist index ignored: ${String(data.index)}`);
-    return;
-  }
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId || !getQueueItemById(queueItemId)) return;
+  const indexHint = findQueueItemIndex(queueItemId);
 
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
@@ -1277,9 +1097,8 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   const meta = getState('transfer.meta');
   const resumeIdentityMatches =
     Number(meta?.sessionId) === incomingSid &&
+    meta?.queueItemId === queueItemId &&
     meta?.name === data.name &&
-    Number.isSafeInteger(data.index) &&
-    meta?.index === data.index &&
     Number(data.size) > 0 &&
     meta?.size === data.size &&
     meta?.total === data.total;
@@ -1287,7 +1106,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   // A delayed recovery response may arrive after this exact RAM session
   // finalized. Ignore only that exact transfer; same-name/size data from a
   // different session must start fresh.
-  const finalizedBlob = ramReadBlob((data.name as string) || '', false, incomingSid);
+  const finalizedBlob = ramReadBlob(queueItemId, false, incomingSid);
   if (resumeIdentityMatches && finalizedBlob && finalizedBlob.size === Number(data.size)) {
     log.debug(`[file-resume] "${data.name}" already finalized in store — dropping stale resume`);
     clearManagedTimer('prepareWatchdog');
@@ -1295,18 +1114,19 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     return;
   }
 
-  if (!tryAdmitMainReceive(data, data.index as number | undefined)) return;
+  if (!tryAdmitMainReceive(data)) return;
+  completeAcceptedFileRequest(data, conn);
 
   // FILE_RESUME can also be the first surviving control frame. Do not mutate
   // lifecycle, playlist, or transfer ownership until the exact finalized-slot
   // guard above has ruled out a delayed resume for already-complete bytes.
   adoptIncomingTrackTarget(data);
   enterAcceptedMainTransfer(data, 'resume');
-  transition({ type: 'FILE_RESUME', startChunk: Number(data.startChunk) || 0 });
+  transition({ type: 'FILE_RESUME', queueItemId, startChunk: Number(data.startChunk) || 0 });
   if (incomingSid > localSid) {
     setState('transfer.localSessionId', incomingSid);
-    discardPendingEarlySessionsExcept(incomingSid);
   }
+  fileQueueItemBySession.set(incomingSid, queueItemId);
 
   const startChunk = (data.startChunk as number) || 0;
 
@@ -1314,7 +1134,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   // prefix is data-plane truth. Reuse it only inside the exact same session.
   // Any identity mismatch degrades safely to a full restart.
   const base = resumeIdentityMatches
-    ? Math.min(startChunk, ramContiguousCount((data.name as string) || '', false, incomingSid))
+    ? Math.min(startChunk, ramContiguousCount(queueItemId, false, incomingSid))
     : 0;
 
   // receivedCount and nextExpectedChunk MUST move together — rebasing one
@@ -1328,6 +1148,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   clearManagedTimer('prepareWatchdog');
   postCommand({
     command: 'STORAGE_START',
+    queueItemId,
     filename: data.name as string,
     isPreload: false,
     sessionId: validateSessionId(incomingSid),
@@ -1335,9 +1156,15 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     keepExisting: base > 0, // preserve existing data on resume
   });
 
-  setState('files.currentTrack', { name: data.name as string });
-
-  setState('transfer.meta', data as Partial<FileMeta>);
+  setState('transfer.meta', {
+    queueItemId,
+    indexHint,
+    name: data.name as string,
+    mime: (data.mime as string) || '',
+    size: data.size as number,
+    total: data.total as number,
+    sessionId: incomingSid,
+  });
   setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
 
   startChunkWatchdog();
@@ -1346,20 +1173,6 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   // replacement stream through the recovery bus so retry policy is preserved.
   if (base < startChunk) {
     bus.emit('storage:request-recovery', base);
-  }
-
-  // Drain same-session chunks that arrived before the resume header.
-  if (_pendingEarlyChunks.length > 0) {
-    const earlyChunks = _pendingEarlyChunks.splice(0);
-    const matching = earlyChunks.filter((c) => (c.sessionId as number) === incomingSid);
-    if (matching.length > 0) {
-      log.debug(
-        `[file-resume] Replaying ${matching.length} early chunks (of ${earlyChunks.length} queued)`,
-      );
-      for (const pending of matching) {
-        applyFileChunk(pending);
-      }
-    }
   }
 }
 
@@ -1373,6 +1186,9 @@ export function handleFileChunk(data: Record<string, unknown>, conn?: DataConnec
 function applyFileChunk(data: Record<string, unknown>): void {
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId || !getQueueItemById(queueItemId)) return;
+  const indexHint = findQueueItemIndex(queueItemId);
   if (incomingSid === rejectedMainSessionId) return;
 
   // Reject a missing chunk rather than constructing an empty byte view.
@@ -1406,47 +1222,22 @@ function applyFileChunk(data: Record<string, unknown>): void {
   }
 
   const localSid = getState('transfer.localSessionId');
-  const pendingBootstrapIndex =
-    transferState === TRANSFER_STATE.IDLE && incomingSid > localSid
-      ? resolvePendingChunkBootstrapIndex(data)
-      : undefined;
-
-  // Buffer early chunks that arrive before FILE_START sets up the session.
-  // An authoritative PLAY can arrive first and pin an exact {index, name}
-  // target. In that one case a self-describing chunk is allowed to act as the
-  // first surviving transfer control frame instead of waiting forever for a
-  // FILE_START that was lost.
-  if (
-    transferState === TRANSFER_STATE.IDLE &&
-    !fileReorderBuffer.has(incomingSid) &&
-    pendingBootstrapIndex === undefined
-  ) {
-    bufferEarlyMainChunk(data);
-    return;
-  }
-
-  const activeMeta = getState('transfer.meta');
-  const admittedTrackIndex =
-    Number(activeMeta?.sessionId) === incomingSid && Number.isSafeInteger(activeMeta?.index)
-      ? (activeMeta?.index as number)
-      : pendingBootstrapIndex;
-  if (incomingSid >= localSid && !tryAdmitMainReceive(data, admittedTrackIndex)) return;
+  if (incomingSid >= localSid && !tryAdmitMainReceive(data)) return;
 
   // Reset RAM storage on new-session detection.
   if (incomingSid > localSid) {
     const chunkName = (data.name as string) || '';
-    const recoveredIndex = pendingBootstrapIndex ?? resolveRecoveredTrackIndex(chunkName);
-    if (recoveredIndex !== undefined && chunkName) {
-      setState('playlist.currentTrackIndex', recoveredIndex);
+    if (chunkName) {
+      adoptIncomingTrackTarget(data);
       if (getState('playback.lifecycle') !== PLAYBACK_STATE.DOWNLOADING) {
         transition({
           type: 'FILE_PREPARE',
           variant: 'fresh',
-          index: recoveredIndex,
+          queueItemId,
           name: chunkName,
         });
       }
-      transition({ type: 'FILE_START', sessionId: incomingSid });
+      transition({ type: 'FILE_START', queueItemId, sessionId: incomingSid });
     }
     setState('transfer.localSessionId', incomingSid);
     postCommand({ command: 'STORAGE_RESET', isPreload: false, sessionId: incomingSid });
@@ -1455,7 +1246,6 @@ function applyFileChunk(data: Record<string, unknown>): void {
     // first keeps its pending position through decode.
     bus.emit('storage:clear-previous-track', 'new-session-start');
     fileReorderBuffer.clear();
-    _pendingEarlyChunks.length = 0;
     nextExpectedChunk = 0;
     setState('transfer.receivedCount', 0);
 
@@ -1463,22 +1253,23 @@ function applyFileChunk(data: Record<string, unknown>): void {
     if (chunkName) {
       postCommand({
         command: 'STORAGE_START',
+        queueItemId,
         filename: chunkName,
         isPreload: false,
         sessionId: validateSessionId(incomingSid),
         size: CHUNK_SIZE,
       });
-      setState('files.currentTrack', { name: chunkName });
       setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
       if (data.total) {
         setState('transfer.meta', {
+          queueItemId,
+          indexHint,
           name: chunkName,
-          index: recoveredIndex,
           total: data.total as number,
           sessionId: incomingSid,
           size: (data.size as number) || 0,
           mime: (data.mime as string) || '',
-        } as Partial<FileMeta>);
+        });
       }
       startChunkWatchdog();
     }
@@ -1518,6 +1309,17 @@ function applyFileChunk(data: Record<string, unknown>): void {
     return;
   }
 
+  const sessionOwner = fileQueueItemBySession.get(incomingSid);
+  if (sessionOwner && sessionOwner !== queueItemId) return;
+  fileQueueItemBySession.set(incomingSid, queueItemId);
+  const ownedMeta = getState('transfer.meta');
+  if (
+    ownedMeta &&
+    (Number(ownedMeta.sessionId) !== incomingSid || ownedMeta.queueItemId !== queueItemId)
+  ) {
+    return;
+  }
+
   // Valid chunk (session matches) — reset stale-burst tracking
   if (getState('transfer.staleChunkBurstStart') !== 0) {
     setState('transfer.staleChunkBurstStart', 0);
@@ -1533,14 +1335,14 @@ function applyFileChunk(data: Record<string, unknown>): void {
   const sessionBuffer = fileReorderBuffer.get(incomingSid)!;
 
   // Defense-in-depth chunk index bounds check. The protocol validator now
-  // enforces isNonNegInt(index), but we repeat the guard here because the
-  // index is ultimately keyed into a Map — any leak of a malformed value
+  // enforces a non-negative safe integer for chunkIndex, but we repeat the
+  // guard here because the chunk index is ultimately keyed into a Map — any leak of a malformed value
   // (negative, NaN, Infinity, or beyond meta.total) would bloat memory or
-  // stall the drain loop. If meta.total is known and index exceeds it,
+  // stall the drain loop. If meta.total is known and chunkIndex exceeds it,
   // drop the chunk; otherwise accept as usual.
-  const chunkIndex = data.index as number;
+  const chunkIndex = data.chunkIndex as number;
   if (!Number.isFinite(chunkIndex) || chunkIndex < 0 || !Number.isInteger(chunkIndex)) {
-    log.warn(`[Transfer] Dropping chunk with invalid index: ${chunkIndex}`);
+    log.warn(`[Transfer] Dropping chunk with invalid chunk index: ${chunkIndex}`);
     return;
   }
   const metaPeek = getState('transfer.meta');
@@ -1567,17 +1369,16 @@ function applyFileChunk(data: Record<string, unknown>): void {
   sessionBuffer.set(chunkIndex, chunkData);
 
   const meta = getState('transfer.meta');
-  let currentTrackEntry = getState('files.currentTrack');
   let receivedCount = getState('transfer.receivedCount');
 
   // Meta-recovery: if we missed FILE_START, extract meta from chunk data
   if (!meta || meta.total === undefined || meta.total === 0) {
     if (data.total !== undefined && Number(data.total) > 0) {
       const recoveredName = (data.name as string) || meta?.name || '';
-      const recoveredIndex = resolveRecoveredTrackIndex(recoveredName, meta?.index);
       const recoveredMeta = {
+        queueItemId,
+        indexHint,
         name: recoveredName,
-        index: recoveredIndex,
         total: data.total as number,
         sessionId: incomingSid,
         size: (data.size as number) || 0,
@@ -1588,9 +1389,9 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
       const fname = (recoveredMeta.name as string) || '';
       if (fname) {
-        setState('files.currentTrack', { name: fname });
         postCommand({
           command: 'STORAGE_START',
+          queueItemId,
           filename: fname,
           isPreload: false,
           sessionId: validateSessionId(incomingSid),
@@ -1602,23 +1403,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       setState('transfer.receivedCount', 0);
       log.debug(`[FileChunk] Recovered meta from chunk: ${fname} (${recoveredMeta.total} chunks)`);
 
-      // Drain early chunks that arrived before meta-recovery (mirrors FILE_START/RESUME paths)
-      // Filter by session ID to avoid replaying stale chunks from a previous transfer
-      if (_pendingEarlyChunks.length > 0) {
-        const earlyChunks = _pendingEarlyChunks.splice(0);
-        const sessionFiltered = earlyChunks.filter(
-          (ec) => (ec.sessionId as number) === incomingSid,
-        );
-        log.debug(
-          `[FileChunk] Replaying ${sessionFiltered.length}/${earlyChunks.length} early chunks after meta-recovery (session ${incomingSid})`,
-        );
-        for (const ec of sessionFiltered) {
-          applyFileChunk(ec);
-        }
-      }
-
       // Re-read after meta-recovery updated state (prevents stale reference)
-      currentTrackEntry = getState('files.currentTrack');
       receivedCount = getState('transfer.receivedCount');
     } else if (!meta || meta.total === undefined) {
       // Orphan chunk with no meta — can't process
@@ -1632,10 +1417,11 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
     postCommand({
       command: 'STORAGE_WRITE',
+      queueItemId,
       chunk: isArrayBuffer(chunk) ? chunk : ((chunk as Uint8Array).buffer as ArrayBuffer),
-      index: nextExpectedChunk,
+      chunkIndex: nextExpectedChunk,
       isPreload: false,
-      filename: currentTrackEntry.name || '',
+      filename: (getState('transfer.meta')?.name as string) || '',
       sessionId: validateSessionId(incomingSid),
     });
 
@@ -1672,22 +1458,23 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
     // Clean up reorder buffer for this session to prevent memory leak
     fileReorderBuffer.delete(incomingSid);
+    fileQueueItemBySession.delete(incomingSid);
 
     // Notify Host that we have this file (dedup via preload.ackSent)
-    const processingIndex = currentMeta?.index as number;
-    if (processingIndex !== undefined) {
+    if (currentMeta?.queueItemId === queueItemId) {
       const ackSent = getState('preload.ackSent');
-      if (!ackSent.has(processingIndex)) {
-        const updatedAckSent = new Set(ackSent);
-        updatedAckSent.add(processingIndex);
+      if (ackSent.get(queueItemId) !== incomingSid) {
+        const updatedAckSent = new Map(ackSent);
+        updatedAckSent.set(queueItemId, incomingSid);
         setState('preload.ackSent', updatedAckSent);
-        sendToHost({ type: MSG.PRELOAD_ACK, index: processingIndex });
+        sendToHost({ type: MSG.PRELOAD_ACK, queueItemId, sessionId: incomingSid });
       }
     }
 
     // Finalize in storage
     postCommand({
       command: 'STORAGE_END',
+      queueItemId,
       filename: (currentMeta?.name as string) || '',
       isPreload: false,
       sessionId: validateSessionId(incomingSid),
@@ -1701,6 +1488,8 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
 export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
+  const queueItemId = incomingQueueItemId(data);
+  if (!queueItemId) return;
 
   if (shouldSkipIncomingFile(data)) return;
 
@@ -1709,6 +1498,8 @@ export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnecti
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
   const localSid = getState('transfer.localSessionId');
   if (incomingSid && incomingSid < localSid) return;
+  const meta = getState('transfer.meta');
+  if (meta?.queueItemId !== queueItemId || Number(meta.sessionId) !== incomingSid) return;
 
   log.debug(`[file-end] Received end signal for: ${data.name}`);
 
@@ -1731,12 +1522,14 @@ export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnecti
 
 export function handleFileWait(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
+  const requestOwner = matchFileWaitResponse(conn, data);
+  if (!requestOwner) return;
 
   log.debug('[Guest] FILE_WAIT received — host has no data ready yet');
   showToast(t('transfer.file_wait'));
 
   // playback.ts owns bounded retries for identity repair. Falling through to
-  // the generic timer would reintroduce a stale guest index into
+  // the generic timer would reintroduce a stale guest target into
   // REQUEST_DATA_RECOVERY and defeat the host-authoritative selector.
   if (data.reason === 'missing_transfer_identity') {
     clearManagedTimer('fileWaitTimeout');
@@ -1747,51 +1540,52 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
   setManagedTimer(
     'fileWaitTimeout',
     () => {
+      // A subsequent request, queue target, or host connection supersedes this
+      // wait. Revalidate before any user-visible fallback or recovery action.
+      if (!isCurrentFileRequestOwner(requestOwner)) return;
+
       const receivedCount = getState('transfer.receivedCount');
       if (receivedCount === 0) {
+        const queueItem = getQueueItemById(requestOwner.queueItemId);
+        if (!queueItem) {
+          log.warn('[file-wait timeout] Requested queue item no longer exists');
+          return;
+        }
+
         if (isRemoteGuest()) {
           log.info('[file-wait timeout] Remote guest — remote share unavailable');
-          const target = getState('playback.pendingRecoveryTarget');
           showRemoteUnavailableUI({
-            index: getState('playlist.currentTrackIndex'),
-            name: target?.name ?? '',
+            queueItemId: requestOwner.queueItemId,
+            name: queueItem.name,
           });
           return;
         }
 
-        // Request file from Host. setPendingRecoveryTarget() guarantees the
-        // target is null OR a valid (index, name) pair, so optional-chain
-        // returns either a non-negative index or undefined.
-        const hostConn = getState('network.hostConn');
-        if (hostConn && hostConn.open) {
-          const target = getState('playback.pendingRecoveryTarget');
-          const pendingFileName = target?.name ?? '';
-          const recoveryIndex = target?.index ?? getState('playlist.currentTrackIndex');
-          const playlist = getState('playlist.items') || [];
-
-          // Validation: Don't send recovery with invalid index
-          if (recoveryIndex < 0 || recoveryIndex >= playlist.length) {
-            log.warn('[file-wait timeout] Invalid index, skipping recovery:', recoveryIndex);
-            showLoader(false);
-            return;
-          }
+        // Continue only on the exact host DataConnection that owned the
+        // request. Peer IDs can be reused after reconnects.
+        if (getState('network.hostConn') === requestOwner.hostConn && requestOwner.hostConn.open) {
+          const pendingFileName = queueItem.name;
 
           // Check if preload is in progress for this track
-          const preloadMeta = getState('preload.meta');
-          if (preloadMeta && preloadMeta.index === recoveryIndex) {
+          const preloadTarget = getState('preload.activeTarget');
+          if (preloadTarget?.queueItemId === requestOwner.queueItemId) {
             log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
             showToast(t('transfer.preload_waiting'));
             return;
           }
 
           log.debug(
-            `[file-wait timeout] Requesting from Host: ${pendingFileName} index: ${recoveryIndex}`,
+            `[file-wait timeout] Requesting from Host: ${pendingFileName} queueItemId: ${requestOwner.queueItemId}`,
           );
-          sendToHost({
+          const recoveryOwner = beginFileRequest(
+            requestOwner.hostConn,
+            requestOwner.queueItemId,
+            requestOwner.sessionId,
+          );
+          sendFileRequest(recoveryOwner, {
             type: MSG.REQUEST_DATA_RECOVERY,
             nextChunk: 0,
             fileName: pendingFileName,
-            index: recoveryIndex,
           });
         }
       }
@@ -1802,17 +1596,13 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
 
 // ─── Debug: Memory Stats ─────────────────────────────────────────────
 //
-// Exposes module-local main-transfer reorder buffer + pending-early queue
-// footprint for `/debug memory`. Hot-path safe: only called from chat
-// command handler.
+// Exposes the module-local main-transfer reorder-buffer footprint for
+// `/debug memory`. Hot-path safe: only called from the chat command handler.
 
 export function getTransferMemoryStats(): {
   reorderSessions: number;
   reorderChunks: number;
   reorderBytes: number;
-  pendingEarlyChunks: number;
-  pendingEarlyBytes: number;
-  pendingEarlySessions: number;
   nextExpectedChunk: number;
 } {
   let chunks = 0;
@@ -1823,19 +1613,10 @@ export function getTransferMemoryStats(): {
       bytes += chunk.byteLength;
     }
   }
-  let earlyBytes = 0;
-  for (const c of _pendingEarlyChunks) {
-    const chunk = c.chunk;
-    if (chunk instanceof Uint8Array) earlyBytes += chunk.byteLength;
-    else if (chunk instanceof ArrayBuffer) earlyBytes += chunk.byteLength;
-  }
   return {
     reorderSessions: fileReorderBuffer.size,
     reorderChunks: chunks,
     reorderBytes: bytes,
-    pendingEarlyChunks: _pendingEarlyChunks.length,
-    pendingEarlyBytes: earlyBytes,
-    pendingEarlySessions: new Set(_pendingEarlyChunks.map((entry) => entry.sessionId)).size,
     nextExpectedChunk,
   };
 }
@@ -1843,12 +1624,32 @@ export function getTransferMemoryStats(): {
 // ─── Session Cleanup (exported for initTransfer) ─────────────────────
 
 export function clearReceiveState(): void {
+  // Invalidate FILE_PREPARE handlers suspended in connection classification.
+  _filePrepareGeneration++;
   fileReorderBuffer.clear();
-  _pendingEarlyChunks.length = 0;
+  fileQueueItemBySession.clear();
   rejectedMainSessionId = 0;
   nextExpectedChunk = 0;
   setState('transfer.staleChunkBurstStart', 0);
   setState('transfer.staleChunkBurstCount', 0);
+}
+
+/**
+ * Reset every receive-side monotonic owner at a host-authority boundary.
+ * Session IDs are scoped to a host runtime; carrying an old high-water mark
+ * into a replacement connection would reject that host's fresh SID 1 frames.
+ */
+export function resetIncomingTransferAuthority(): void {
+  clearReceiveState();
+  lastChunkTime = 0;
+  batchSetState({
+    'transfer.receivedCount': 0,
+    'transfer.lastReceivedCountSnapshot': 0,
+    'transfer.meta': null,
+    'transfer.localSessionId': 0,
+    'transfer.currentSessionId': 0,
+    'transfer.activeBroadcastSession': null,
+  });
 }
 
 // ─── Cancel In-Flight Incoming Transfer (guest-only) ─────────────────

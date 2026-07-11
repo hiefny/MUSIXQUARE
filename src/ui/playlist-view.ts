@@ -1,64 +1,98 @@
 /**
  * MUSIXQUARE — Playlist View (UI)
  *
- * Manages: Playlist DOM rendering, track highlighting,
- * sub-playlist expansion, title/artist update.
+ * Renders stable queue occurrences and delegates row actions by queueItemId.
+ * Pointer/touch/keyboard reordering lives in playlist-reorder.ts.
  */
 
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
-import { getState, setState } from '../core/state.ts';
+import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
+import type { PlaylistItem, QueueItemId } from '../types/index.ts';
+import { findQueueItemIndex, getQueueItemById } from '../player/queue-model.ts';
 import { escapeHtml } from './dom.ts';
 import { t } from '../i18n/index.ts';
-import { showDialog } from './dialog.ts';
 import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { setSubItemsLoadError } from '../youtube/_state.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
+import {
+  createPlaylistReorderController,
+  type PlaylistReorderController,
+} from './playlist-reorder.ts';
+import {
+  createPlaylistRemovalController,
+  type PlaylistRemovalController,
+} from './playlist-removal.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
-let _lastScrolledTrackIndex = -1;
+let _lastScrolledQueueItemId: QueueItemId | null = null;
 let _lastScrolledSubIndex = -1;
+let _pendingPlaylistUpdate = false;
+let _deferredPlaylistUpdate = false;
+let _playlistRaf = 0;
+let _domAbort: AbortController | null = null;
+let _reorderController: PlaylistReorderController | null = null;
+let _removalController: PlaylistRemovalController | null = null;
 
-// ─── Expansion Toggle ────────────────────────────────────────────
+// Expansion is view-local. It must not increment the authoritative playlist
+// revision or clone a queue item while a drag owns that item's identity.
+const _expansionOverrides = new Map<QueueItemId, boolean>();
+const _busScope = createBusScope();
 
-function toggleExpansion(idx: number): void {
-  const playlist = getState('playlist.items');
-  if (!playlist[idx]) return;
+function resolveQueueIndex(queueItemId: QueueItemId): number {
+  return findQueueItemIndex(queueItemId, getState('playlist.items'));
+}
 
-  const expanding = !playlist[idx].isExpanded;
-  const updated = [...playlist];
-  updated[idx] = { ...updated[idx], isExpanded: expanding };
-  setState('playlist.items', updated);
+function isExpanded(item: PlaylistItem): boolean {
+  return _expansionOverrides.get(item.queueItemId) ?? !!item.isExpanded;
+}
 
-  const playlistId = updated[idx].playlistId;
+function pruneExpansionOverrides(items: readonly PlaylistItem[]): void {
+  const liveIds = new Set(items.map((item) => item.queueItemId));
+  for (const id of _expansionOverrides.keys()) {
+    if (!liveIds.has(id)) _expansionOverrides.delete(id);
+  }
+}
+
+function playlistIsVisible(): boolean {
+  const panel = document.getElementById('tab-playlist');
+  if (!panel) return true;
+  try {
+    if (window.matchMedia('(min-width: 1280px)').matches) return true;
+  } catch {
+    /* matchMedia can be unavailable in tests. */
+  }
+  return panel.classList.contains('active');
+}
+
+function toggleExpansion(queueItemId: QueueItemId): void {
+  const idx = resolveQueueIndex(queueItemId);
+  const item = idx >= 0 ? getState('playlist.items')[idx] : undefined;
+  if (!item) return;
+
+  const expanding = !isExpanded(item);
+  _expansionOverrides.set(queueItemId, expanding);
+  updatePlaylistUI();
+
+  const playlistId = item.playlistId;
   if (!playlistId) return;
-
-  const timerKey = `sub-items-timeout-${playlistId}`;
+  const timerKey = `sub-items-timeout-${queueItemId}`;
 
   if (expanding) {
     const subMap = getState('youtube.subItemsMap') || {};
     const existing = subMap[playlistId];
-    if (existing?.loadError) {
-      setSubItemsLoadError(playlistId, false);
-    }
-
-    bus.emit('youtube:populate-sub-items', playlistId, idx);
-
-    // Mark as errored if sub-items don't arrive in time, so the UI can
-    // replace the "loading..." row with a fallback message instead of
-    // spinning forever on YouTube API throttling or network failure.
+    if (existing?.loadError) setSubItemsLoadError(playlistId, false);
+    bus.emit('youtube:populate-sub-items', playlistId, queueItemId);
     setManagedTimer(
       timerKey,
       () => {
         const currentMap = getState('youtube.subItemsMap') || {};
         const entry = currentMap[playlistId];
-        if (!entry || !entry.ids || entry.ids.length === 0) {
-          setSubItemsLoadError(playlistId, true);
-        }
+        if (!entry?.ids?.length) setSubItemsLoadError(playlistId, true);
       },
       SUB_ITEMS_LOAD_TIMEOUT_MS,
     );
@@ -67,35 +101,116 @@ function toggleExpansion(idx: number): void {
   }
 }
 
-// ─── Remove Track Dialog ─────────────────────────────────────────
+function renderLeadingSlot(item: PlaylistItem, idx: number, canReorder: boolean): string {
+  if (!canReorder) {
+    return `<div class="track-leading track-leading-static" aria-hidden="true"><span class="track-idx">${idx + 1}</span></div>`;
+  }
 
-async function handleRemoveTrack(idx: number): Promise<void> {
-  const result = await showDialog({
-    title: t('playlist.remove_title'),
-    message: t('playlist.remove_message'),
-    buttonText: t('playlist.remove_yes'),
-    secondaryText: t('playlist.remove_no'),
+  const label = t('playlist.reorder_handle', {
+    title: item.title || item.name,
+    position: idx + 1,
   });
-  if (result.action !== 'ok') return;
-  bus.emit('playlist:remove-track', idx);
+  return `
+    <button type="button" class="track-leading playlist-reorder-handle"
+      data-queue-item-id="${escapeHtml(item.queueItemId)}"
+      aria-label="${escapeHtml(label)}" aria-grabbed="false"
+      aria-keyshortcuts="Space Enter ArrowUp ArrowDown Home End Escape">
+      <span class="track-idx" aria-hidden="true">${idx + 1}</span>
+      <svg class="playlist-reorder-grip" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 8h14M5 12h14M5 16h14"/>
+      </svg>
+    </button>`;
 }
 
-// ─── Playlist UI Render ──────────────────────────────────────────
+function renderTrackIcon(item: PlaylistItem): string {
+  if (item.type === 'youtube') {
+    return item.playlistId
+      ? '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033; transform: scale(1.2);"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>'
+      : '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033;"><path d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"/></svg>';
+  }
+  return '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"/></svg>';
+}
+
+function appendSubPlaylist(
+  entry: HTMLLIElement,
+  item: PlaylistItem,
+  isCurrent: boolean,
+  currentYouTubeSubIndex: number,
+): void {
+  const playlistId = item.playlistId;
+  if (!playlistId || !isExpanded(item)) return;
+
+  const subUl = document.createElement('ul');
+  subUl.className = 'sub-playlist';
+  const subData = (getState('youtube.subItemsMap') || {})[playlistId];
+
+  if (subData?.ids) {
+    subData.ids.forEach((_videoId, subIndex) => {
+      const subItem = document.createElement('li');
+      const isActiveSub = isCurrent && subIndex === currentYouTubeSubIndex;
+      subItem.className = `sub-track-item ${isActiveSub ? 'active' : ''}`;
+      subItem.dataset.queueItemId = item.queueItemId;
+      subItem.dataset.subIndex = String(subIndex);
+      subItem.setAttribute('role', 'button');
+      subItem.tabIndex = 0;
+
+      const title =
+        subData.titles?.[subIndex] || t('playlist.video_fallback', { idx: subIndex + 1 });
+      const subIdx = document.createElement('span');
+      subIdx.className = 'sub-idx';
+      subIdx.textContent = String(subIndex + 1);
+      const subName = document.createElement('span');
+      subName.className = 'sub-name';
+      subName.textContent = title;
+      subItem.replaceChildren(subIdx, subName);
+      subUl.appendChild(subItem);
+    });
+
+    if (subData.ids.length <= 1) {
+      const hintItem = document.createElement('li');
+      hintItem.className = 'sub-track-item loading';
+      const hint = document.createElement('span');
+      hint.className = 'sub-name';
+      hint.textContent = t('playlist.deferred_load_hint');
+      hintItem.replaceChildren(hint);
+      subUl.appendChild(hintItem);
+    }
+  } else if (subData?.loadError) {
+    const error = document.createElement('li');
+    error.className = 'sub-track-item error';
+    error.textContent = t('playlist.sub_load_failed');
+    subUl.appendChild(error);
+  } else {
+    const loading = document.createElement('li');
+    loading.className = 'sub-track-item loading';
+    loading.textContent = t('playlist.loading_info');
+    subUl.appendChild(loading);
+  }
+  entry.appendChild(subUl);
+}
 
 export function updatePlaylistUI(): void {
-  const ul = document.getElementById('playlist-ui');
-  if (!ul) return;
+  const list = document.getElementById('playlist-ui');
+  if (!list) return;
+  if (_reorderController?.isActive) {
+    _deferredPlaylistUpdate = true;
+    return;
+  }
+  // A pending touch probe is not exposed as an active drag, but its timer must
+  // never retain a row that this full render is about to detach.
+  _reorderController?.cancel();
 
   const playlist = getState('playlist.items');
-
   if (!Array.isArray(playlist)) {
-    log.warn('[Playlist] playlist is not an array. Resetting.');
-    setState('playlist.items', []);
+    log.warn('[Playlist] playlist is not an array; render skipped');
     return;
   }
 
-  const savedScrollTop = ul.scrollTop;
-  ul.replaceChildren();
+  pruneExpansionOverrides(playlist);
+  const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
+  const savedScrollTop = scrollContainer.scrollTop;
+  list.replaceChildren();
+
   if (playlist.length === 0) {
     const isHost = !getState('network.hostConn');
     const key = isHost ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
@@ -103,234 +218,305 @@ export function updatePlaylistUI(): void {
     empty.className = 'list-empty-state';
     empty.setAttribute('data-i18n', key);
     empty.textContent = t(key);
-    ul.replaceChildren(empty);
+    list.appendChild(empty);
+    _reorderController?.afterRender();
+    _removalController?.afterRender();
     return;
   }
 
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
+  const currentQueueItemId = getState('playlist.currentQueueItemId');
   const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
-  const subItemsMap = getState('youtube.subItemsMap') || {};
+  const isHost = !getState('network.hostConn');
+  const canEditPlaylist = isHost && getState('playback.mode') !== 'system-audio';
+  const canReorder = canEditPlaylist && playlist.length > 1;
 
   playlist.forEach((item, idx) => {
-    const isCurrent = idx === currentTrackIndex;
-    const li = document.createElement('li');
-    li.className = `track-item ${isCurrent ? 'active' : ''} ${item.playlistId ? 'is-playlist' : ''}`;
+    const isCurrent = item.queueItemId === currentQueueItemId;
+    const entry = document.createElement('li');
+    entry.className = `playlist-entry ${item.playlistId ? 'is-playlist' : ''}`;
+    entry.dataset.queueItemId = item.queueItemId;
+    entry.dataset.playlistIndex = String(idx);
 
+    const row = document.createElement('div');
+    row.className = `track-item ${isCurrent ? 'active' : ''}`;
+    row.dataset.queueItemId = item.queueItemId;
     const displayName = item.name || item.title || t('common.unknown');
-
-    let expandBtn = '';
-    if (item.playlistId) {
-      expandBtn = `
-        <button type="button" class="expand-toggle ${item.isExpanded ? 'active' : ''}" data-expand-idx="${idx}" aria-label="${escapeHtml(t('playlist.toggle'))}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
-        </button>
-      `;
-    }
-
-    let icon: string;
-    if (item.type === 'youtube') {
-      if (item.playlistId) {
-        icon =
-          '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033; transform: scale(1.2);"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>';
-      } else {
-        icon =
-          '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033;"><path d="M21.582,6.186c-0.23-0.86-0.908-1.538-1.768-1.768C18.254,4,12,4,12,4S5.746,4,4.186,4.418c-0.86,0.23-1.538,0.908-1.768,1.768C2,7.746,2,12,2,12s0,4.254,0.418,5.814c0.23,0.86,0.908,1.538,1.768,1.768C5.746,20,12,20,12,20s6.254,0,7.814-0.418c0.86-0.23,1.538-0.908,1.768-1.768C22,16.254,22,12,22,12S22,7.746,21.582,6.186z M10,15.464V8.536L16,12L10,15.464z"/></svg>';
-      }
-    } else {
-      icon =
-        '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"/></svg>';
-    }
-
-    li.onclick = () => {
-      const hc = getState('network.hostConn');
-      const op = getState('network.isOperator');
-      if (!hc) bus.emit('playlist:play-track', idx);
-      else if (op) safeSend(hc, { type: MSG.REQUEST_TRACK_CHANGE, index: idx });
-      else showToast(t('toast.host_only_control'));
-    };
-
-    const isHost = !getState('network.hostConn');
-    const trailingEl = isHost
-      ? `<button type="button" class="btn-playlist-remove" data-remove-idx="${idx}" aria-label="${escapeHtml(t('playlist.remove_title'))}">
-           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-         </button>`
+    const expandButton = item.playlistId
+      ? `<button type="button" class="expand-toggle ${isExpanded(item) ? 'active' : ''}"
+          data-action="expand" data-queue-item-id="${escapeHtml(item.queueItemId)}"
+          aria-label="${escapeHtml(t('playlist.toggle'))}" aria-expanded="${isExpanded(item)}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41Z"/></svg>
+        </button>`
+      : '';
+    const isRemovalSelected = _removalController?.isSelected(item.queueItemId) ?? false;
+    const removeLabel = t(
+      isRemovalSelected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
+      { title: displayName },
+    );
+    const removeButton = canEditPlaylist
+      ? `<button type="button" class="btn-playlist-remove${isRemovalSelected ? ' is-selected' : ''}" data-action="remove"
+          data-queue-item-id="${escapeHtml(item.queueItemId)}"
+          aria-pressed="${isRemovalSelected}"
+          aria-label="${escapeHtml(removeLabel)}" title="${escapeHtml(removeLabel)}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg>
+        </button>`
       : '';
 
-    li.innerHTML = `
-      <div class="track-idx">${idx + 1}</div>
-      <div class="track-name">${icon}<span class="track-name-text">${escapeHtml(displayName)}</span></div>
-      ${expandBtn}
-      ${trailingEl}
+    row.innerHTML = `
+      ${renderLeadingSlot(item, idx, canReorder)}
+      <div class="track-name">${renderTrackIcon(item)}<span class="track-name-text">${escapeHtml(displayName)}</span></div>
+      ${expandButton}
+      ${removeButton}
     `;
-    ul.appendChild(li);
-
-    const exp = li.querySelector('.expand-toggle[data-expand-idx]');
-    if (exp) {
-      exp.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleExpansion(idx);
-      });
-    }
-
-    const removeBtn = li.querySelector('.btn-playlist-remove');
-    if (removeBtn) {
-      removeBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        handleRemoveTrack(idx);
-      });
-    }
-
-    if (item.playlistId && item.isExpanded) {
-      // Wrap the sub-playlist <ul> in a host <li> so it lives as a valid
-      // child of the parent <ul>. Without the wrapper iOS Safari (and
-      // some Chromium variants) treats the nested <ul> as a sibling of
-      // its track-items but with implementation-defined flex sizing,
-      // leaving the parent .tab-body's scrollHeight unable to grow to
-      // include the expanded sub-list — scroll stops where the unexpanded
-      // list ended and the bottom rows clip off-screen.
-      const subHost = document.createElement('li');
-      subHost.className = 'sub-playlist-host';
-      const subUl = document.createElement('ul');
-      subUl.className = 'sub-playlist';
-
-      const subData = subItemsMap[item.playlistId];
-      if (subData && subData.ids) {
-        subData.ids.forEach((_sid, sIdx) => {
-          const sli = document.createElement('li');
-          const isActiveSub = isCurrent && sIdx === currentYouTubeSubIndex;
-          sli.className = `sub-track-item ${isActiveSub ? 'active' : ''}`;
-
-          const sTitle =
-            subData.titles && subData.titles[sIdx]
-              ? subData.titles[sIdx]
-              : t('playlist.video_fallback', { idx: sIdx + 1 });
-          const subIdx = document.createElement('span');
-          subIdx.className = 'sub-idx';
-          subIdx.textContent = String(sIdx + 1);
-          const subName = document.createElement('span');
-          subName.className = 'sub-name';
-          subName.textContent = sTitle;
-          sli.replaceChildren(subIdx, subName);
-
-          sli.onclick = (e) => {
-            e.stopPropagation();
-            const hc = getState('network.hostConn');
-            const op = getState('network.isOperator');
-            if (hc && !op) {
-              showToast(t('toast.host_only_control'));
-              return;
-            }
-            if (!hc) {
-              // Compute isCurrent at click time (not render time) to avoid stale closure
-              const isCurrentNow = idx === getState('playlist.currentTrackIndex');
-              bus.emit('youtube:sub-seek', idx, sIdx, isCurrentNow);
-            } else {
-              safeSend(hc, { type: MSG.REQUEST_YOUTUBE_SUB_SEEK, playlistIdx: idx, subIdx: sIdx });
-            }
-          };
-          subUl.appendChild(sli);
-        });
-
-        // Deferred-add hint: when only the single-id placeholder is in the
-        // map (i.e. indexing hasn't run yet because navigation hasn't
-        // happened), the user just sees one row and could mistake the
-        // playlist for a single-song entry. Append a non-clickable hint
-        // line that explains the rest will load on play.
-        if (subData.ids.length <= 1) {
-          const hintLi = document.createElement('li');
-          hintLi.className = 'sub-track-item loading';
-          const hint = document.createElement('span');
-          hint.className = 'sub-name';
-          hint.textContent = t('playlist.deferred_load_hint');
-          hintLi.replaceChildren(hint);
-          subUl.appendChild(hintLi);
-        }
-      } else if (subData?.loadError) {
-        const error = document.createElement('li');
-        error.className = 'sub-track-item error';
-        error.textContent = t('playlist.sub_load_failed');
-        subUl.replaceChildren(error);
-      } else {
-        const loading = document.createElement('li');
-        loading.className = 'sub-track-item loading';
-        loading.textContent = t('playlist.loading_info');
-        subUl.replaceChildren(loading);
-      }
-      subHost.appendChild(subUl);
-      ul.appendChild(subHost);
-    }
+    entry.appendChild(row);
+    appendSubPlaylist(entry, item, isCurrent, currentYouTubeSubIndex);
+    list.appendChild(entry);
   });
 
-  let shouldAutoScroll = false;
-  if (
-    _lastScrolledTrackIndex !== currentTrackIndex ||
-    _lastScrolledSubIndex !== currentYouTubeSubIndex
-  ) {
-    shouldAutoScroll = true;
-    _lastScrolledTrackIndex = currentTrackIndex;
+  const selectionChanged =
+    _lastScrolledQueueItemId !== currentQueueItemId ||
+    _lastScrolledSubIndex !== currentYouTubeSubIndex;
+  if (selectionChanged) {
+    _lastScrolledQueueItemId = currentQueueItemId;
     _lastScrolledSubIndex = currentYouTubeSubIndex;
+    const active =
+      list.querySelector<HTMLElement>('.sub-track-item.active') ??
+      list.querySelector<HTMLElement>('.track-item.active');
+    if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else scrollContainer.scrollTop = savedScrollTop;
+  } else {
+    scrollContainer.scrollTop = savedScrollTop;
   }
+  _reorderController?.afterRender();
+  _removalController?.afterRender();
+}
 
-  if (shouldAutoScroll) {
-    const activeLi = ul.querySelector('li.active') as HTMLElement | null;
-    if (activeLi) {
-      activeLi.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else if (savedScrollTop > 0) {
-      ul.scrollTop = savedScrollTop;
-    }
-  } else if (savedScrollTop > 0) {
-    ul.scrollTop = savedScrollTop;
+function queueItemIdFromElement(element: Element | null): QueueItemId | null {
+  if (!(element instanceof HTMLElement)) return null;
+  return element.dataset.queueItemId || null;
+}
+
+function playQueueItem(queueItemId: QueueItemId): void {
+  if (!getQueueItemById(queueItemId)) return;
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) bus.emit('playlist:play-track', queueItemId);
+  else if (getState('network.isOperator')) {
+    safeSend(hostConn, { type: MSG.REQUEST_TRACK_CHANGE, queueItemId });
+  } else {
+    showToast(t('toast.host_only_control'));
   }
 }
 
-// ─── Init ────────────────────────────────────────────────────────
+function seekSubItem(queueItemId: QueueItemId, subIndex: number): void {
+  if (!Number.isSafeInteger(subIndex) || subIndex < 0 || !getQueueItemById(queueItemId)) return;
+  const hostConn = getState('network.hostConn');
+  const isOperator = getState('network.isOperator');
+  if (hostConn && !isOperator) {
+    showToast(t('toast.host_only_control'));
+    return;
+  }
+  if (!hostConn) {
+    const isCurrent = queueItemId === getState('playlist.currentQueueItemId');
+    bus.emit('youtube:sub-seek', queueItemId, subIndex, isCurrent);
+  } else {
+    safeSend(hostConn, { type: MSG.REQUEST_YOUTUBE_SUB_SEEK, queueItemId, subIdx: subIndex });
+  }
+}
 
-let _pendingPlaylistUpdate = false;
+function installDomDelegation(list: HTMLElement): void {
+  _domAbort?.abort();
+  _domAbort = new AbortController();
+  const { signal } = _domAbort;
 
-const _busScope = createBusScope();
+  list.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || target.closest('.playlist-reorder-handle')) return;
+
+      const expand = target.closest<HTMLElement>('[data-action="expand"]');
+      if (expand) {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = queueItemIdFromElement(expand);
+        if (id) toggleExpansion(id);
+        return;
+      }
+      const remove = target.closest<HTMLElement>('[data-action="remove"]');
+      if (remove) {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = queueItemIdFromElement(remove);
+        if (id) _removalController?.toggle(id);
+        return;
+      }
+      const subItem = target.closest<HTMLElement>('.sub-track-item[data-sub-index]');
+      if (subItem) {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = queueItemIdFromElement(subItem);
+        if (id) seekSubItem(id, Number(subItem.dataset.subIndex));
+        return;
+      }
+      const row = target.closest<HTMLElement>('.track-item[data-queue-item-id]');
+      const id = queueItemIdFromElement(row);
+      if (row && id) playQueueItem(id);
+    },
+    { signal },
+  );
+
+  list.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const target = event.target instanceof Element ? event.target : null;
+      const subItem = target?.closest<HTMLElement>('.sub-track-item[data-sub-index]');
+      if (!subItem) return;
+      event.preventDefault();
+      const id = queueItemIdFromElement(subItem);
+      if (id) seekSubItem(id, Number(subItem.dataset.subIndex));
+    },
+    { signal },
+  );
+}
+
+function createReorderController(list: HTMLElement): PlaylistReorderController {
+  _reorderController?.destroy();
+  const controller = createPlaylistReorderController({
+    list,
+    canReorder: () =>
+      !getState('network.hostConn') &&
+      getState('playback.mode') !== 'system-audio' &&
+      !_removalController?.isActive &&
+      getState('playlist.items').length > 1,
+    isPlaylistVisible: playlistIsVisible,
+    onCommit: (queueItemId, beforeQueueItemId) => {
+      bus.emit(
+        'playlist:reorder-track',
+        queueItemId,
+        beforeQueueItemId,
+        getState('playlist.revision'),
+      );
+    },
+    getAnnouncement: (queueItemId, position, total) => {
+      const item = getQueueItemById(queueItemId);
+      return t('playlist.reorder_position', {
+        title: item?.title || item?.name || t('common.unknown'),
+        position,
+        total,
+      });
+    },
+    getHandleLabel: (queueItemId, position) => {
+      const item = getQueueItemById(queueItemId);
+      return t('playlist.reorder_handle', {
+        title: item?.title || item?.name || t('common.unknown'),
+        position,
+      });
+    },
+    onInteractionEnd: (didRequestCommit) => {
+      if (!didRequestCommit && !_deferredPlaylistUpdate) return;
+      _deferredPlaylistUpdate = false;
+      schedulePlaylistUpdate();
+    },
+  });
+  _reorderController = controller;
+  return controller;
+}
+
+function schedulePlaylistUpdate(): void {
+  if (_reorderController?.isActive) {
+    _deferredPlaylistUpdate = true;
+    return;
+  }
+  if (_pendingPlaylistUpdate) return;
+  _pendingPlaylistUpdate = true;
+  _playlistRaf = requestAnimationFrame(() => {
+    _pendingPlaylistUpdate = false;
+    _playlistRaf = 0;
+    updatePlaylistUI();
+  });
+}
 
 export function initPlaylistView(): void {
   _busScope.dispose();
+  _domAbort?.abort();
+  _domAbort = null;
+  _reorderController?.destroy();
+  _reorderController = null;
+  _removalController?.destroy();
+  _removalController = null;
+  if (_playlistRaf) cancelAnimationFrame(_playlistRaf);
+  _playlistRaf = 0;
+  _pendingPlaylistUpdate = false;
+  _deferredPlaylistUpdate = false;
 
-  // Batch bursts of playlist state changes into one DOM rebuild per frame.
-  const debouncedUpdate = () => {
-    if (_pendingPlaylistUpdate) return;
-    _pendingPlaylistUpdate = true;
-    requestAnimationFrame(() => {
-      _pendingPlaylistUpdate = false;
-      updatePlaylistUI();
+  const list = document.getElementById('playlist-ui');
+  if (list) {
+    installDomDelegation(list);
+    createReorderController(list);
+    _removalController = createPlaylistRemovalController({
+      list,
+      canRemove: () =>
+        !getState('network.hostConn') && getState('playback.mode') !== 'system-audio',
+      isPlaylistVisible: playlistIsVisible,
+      getItems: () => getState('playlist.items'),
+      onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
+      onSelectionStart: () => _reorderController?.cancel(),
     });
-  };
-  _busScope.on('state:playlist.items', debouncedUpdate);
-  _busScope.on('state:playlist.currentTrackIndex', debouncedUpdate);
-  _busScope.on('state:youtube.currentSubIndex', debouncedUpdate);
-  _busScope.on('state:youtube.subItemsMap', debouncedUpdate);
-  scopePlaybackModeActivity(_busScope, debouncedUpdate);
-  _busScope.on('state:network.connectionType', debouncedUpdate);
-  _busScope.on('i18n:changed', debouncedUpdate);
+  }
+
+  _busScope.on('state:playlist.items', () => {
+    if (_reorderController?.isActive && !_reorderController.isSettling) {
+      _reorderController.cancel();
+    }
+    schedulePlaylistUpdate();
+  });
+  _busScope.on('state:playlist.currentQueueItemId', schedulePlaylistUpdate);
+  _busScope.on('state:youtube.currentSubIndex', schedulePlaylistUpdate);
+  _busScope.on('state:youtube.subItemsMap', schedulePlaylistUpdate);
+  _busScope.on('state:network.hostConn', () => {
+    _reorderController?.cancel();
+    _removalController?.cancel();
+    schedulePlaylistUpdate();
+  });
+  scopePlaybackModeActivity(_busScope, () => {
+    if (getState('playback.mode') === 'system-audio') _removalController?.cancel();
+    schedulePlaylistUpdate();
+  });
+  _busScope.on('i18n:changed', schedulePlaylistUpdate);
+  _busScope.on('playlist:items-added', () => _reorderController?.notifyItemsAdded());
 
   _busScope.on('ui:playlist-tab-opened', () => {
-    _lastScrolledTrackIndex = -1;
+    _lastScrolledQueueItemId = null;
     _lastScrolledSubIndex = -1;
     updatePlaylistUI();
+    _reorderController?.notifyPlaylistEntered();
   });
-
-  // Defense in depth for session-leave/rejoin: tab-opened handles 95% of
-  // the cases where the user re-enters the playlist tab. Edge case missed
-  // by tab-opened — user stays on the playlist tab during a session leave
-  // then plays the *same* track again on rejoin: indices match the saved
-  // value, no auto-scroll fires, and the active track stays wherever it
-  // was visually before the leave. Resetting the saved indices when
-  // network role flips back to idle covers it without waking up the tab
-  // observer.
+  _busScope.on('ui:tab-changed', (tabId) => {
+    if (tabId !== 'playlist') {
+      _reorderController?.notifyPlaylistHidden();
+      if (playlistIsVisible()) {
+        // The wide desktop dashboard keeps this panel visible even when a
+        // different logical tab is selected.
+        _removalController?.cancel();
+      } else {
+        const destination = Array.from(
+          document.querySelectorAll<HTMLElement>('.nav-item[data-tab]'),
+        ).find((item) => item.dataset.tab === tabId);
+        _removalController?.notifyPlaylistHidden(destination ?? null);
+      }
+    }
+  });
   _busScope.on('state:network.appRole', (role: unknown) => {
     if (role === 'idle') {
-      _lastScrolledTrackIndex = -1;
+      _lastScrolledQueueItemId = null;
       _lastScrolledSubIndex = -1;
+      _expansionOverrides.clear();
+      _reorderController?.cancel();
+      _removalController?.cancel();
     }
   });
 
+  updatePlaylistUI();
   log.info('[PlaylistView] Initialized');
 }

@@ -160,6 +160,8 @@ const zhHans: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': '展开/收起播放列表',
+  'playlist.reorder_handle': '调整 {{title}} 的顺序，当前位置 {{position}}',
+  'playlist.reorder_position': '{{title}}，第 {{position}} 项，共 {{total}} 项',
   'playlist.repeat_all': '已开启全部循环',
   'playlist.repeat_one': '已开启单曲循环',
   'playlist.repeat_off': '已关闭循环',
@@ -170,9 +172,11 @@ const zhHans: Record<I18nKey, string> = {
   'playlist.loading_info': '正在加载曲目信息...',
   'playlist.sub_load_failed': '无法加载视频信息',
   'playlist.remove_title': '从播放列表移除',
-  'playlist.remove_message': '要从播放列表移除此媒体吗？',
-  'playlist.remove_yes': '移除',
-  'playlist.remove_no': '否',
+  'playlist.select_for_deletion': '选择 {{title}} 以删除',
+  'playlist.deselect_for_deletion': '取消选择 {{title}}',
+  'playlist.deselect_all': '取消全选',
+  'playlist.select_all': '全选',
+  'playlist.delete_selected': '删除已选择的 {{count}} 首曲目',
   'playlist.video_fallback': '正在加载...',
   'playlist.track_fallback': '曲目 {{idx}}',
   'playlist.deferred_load_hint': '播放后加载完整曲目列表',

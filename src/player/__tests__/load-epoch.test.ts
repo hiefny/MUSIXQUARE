@@ -24,8 +24,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import { resetState, setState } from '../../core/state.ts';
-import type { DataConnection, PlaylistItem } from '../../types/index.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
+import type {
+  DataConnection,
+  FileMeta,
+  PlaylistItem,
+  QueueItemId,
+  ResidentFile,
+} from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
@@ -85,7 +91,6 @@ vi.mock('../../storage/storage.ts', () => ({
 vi.mock('../../storage/transfer.ts', () => ({
   broadcastFileDebounced: vi.fn(),
   unicastFile: vi.fn(),
-  fetchDemoFromServer: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../../storage/preload.ts', () => ({
@@ -143,18 +148,47 @@ function deferred<T>(): {
   return { promise, resolve, reject };
 }
 
+let nextQueueItemIdValue = 1;
+
+function nextQueueItemId(): QueueItemId {
+  const suffix = String(nextQueueItemIdValue++).padStart(12, '0');
+  return `00000000-0000-4000-8000-${suffix}`;
+}
+
 function makeTrack(name: string): PlaylistItem {
-  return { type: 'file', name, title: name, videoId: null, playlistId: null };
+  return {
+    queueItemId: nextQueueItemId(),
+    type: 'file',
+    name,
+    title: name,
+    videoId: null,
+    playlistId: null,
+  };
 }
 
 function makeFile(name: string): File {
   return new File([new Uint8Array([1, 2, 3])], name, { type: 'audio/mpeg' });
 }
 
-function stagePreload(index: number, file: File): void {
-  setState('preload.nextFileBlob', file);
-  setState('preload.meta', { name: file.name, index, sessionId: index + 1 });
-  setState('preload.nextTrackIndex', index);
+function stagePreload(index: number, file: File): QueueItemId {
+  const item = getState('playlist.items')[index];
+  if (!item) throw new Error(`missing queue item at index ${index}`);
+  const sessionId = index + 1;
+  const meta: FileMeta = {
+    queueItemId: item.queueItemId,
+    indexHint: index,
+    name: file.name,
+    type: file.type,
+    mime: file.type,
+    size: file.size,
+    total: 1,
+    sessionId,
+  };
+  const ready: ResidentFile = { ...meta, blob: file };
+  setState('preload.nextQueueItemId', item.queueItemId);
+  setState('preload.activeTarget', meta);
+  setState('preload.ready', ready);
+  return item.queueItemId;
 }
 
 const hostConn = { open: true, peer: 'host-1' } as DataConnection;
@@ -199,14 +233,14 @@ afterEach(() => {
 describe('pin (h) — unrelated epoch bump mid-activation must not strand the flag', () => {
   it('superseded activation still clears its own flag on the epoch-supersession abort path', async () => {
     setState('network.hostConn', hostConn);
-    setState('playlist.currentTrackIndex', 2);
-    stagePreload(2, makeFile('t2.mp3'));
+    const queueItemId = stagePreload(2, makeFile('t2.mp3'));
+    setState('playlist.currentQueueItemId', queueItemId);
 
     const decodeH = deferred<AudioBuffer>();
     mocks.decodeAudioData.mockImplementationOnce(() => decodeH.promise);
 
     const myEpoch = newLoadEpoch();
-    const p = loadPreloadedTrack(2, myEpoch);
+    const p = loadPreloadedTrack(queueItemId, myEpoch);
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
     expect(isPlayPreloadedInProgress()).toBe(true);
 

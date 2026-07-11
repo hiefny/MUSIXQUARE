@@ -88,6 +88,8 @@ const nl: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Afspeellijst openen/sluiten',
+  'playlist.reorder_handle': '{{title}} verplaatsen, positie {{position}}',
+  'playlist.reorder_position': '{{title}}, positie {{position}} van {{total}}',
   'playlist.repeat_all': 'Alle nummers herhalen aan',
   'playlist.repeat_one': 'Huidig nummer herhalen aan',
   'playlist.repeat_off': 'Herhalen uit',
@@ -98,9 +100,11 @@ const nl: Record<I18nKey, string> = {
   'playlist.loading_info': 'Nummerinfo laden...',
   'playlist.sub_load_failed': 'Video-info kon niet worden geladen',
   'playlist.remove_title': 'Uit afspeellijst verwijderen',
-  'playlist.remove_message': 'Deze media uit de afspeellijst verwijderen?',
-  'playlist.remove_yes': 'Verwijderen',
-  'playlist.remove_no': 'Nee',
+  'playlist.select_for_deletion': '{{title}} selecteren om te verwijderen',
+  'playlist.deselect_for_deletion': '{{title}} deselecteren',
+  'playlist.deselect_all': 'Alles deselecteren',
+  'playlist.select_all': 'Alles selecteren',
+  'playlist.delete_selected': '{{count}} geselecteerde nummers verwijderen',
   'playlist.video_fallback': 'Laden...',
   'playlist.track_fallback': 'Nummer {{idx}}',
   'playlist.deferred_load_hint': 'Speel af om de volledige nummerlijst te laden',

@@ -32,7 +32,7 @@ function makeConnectedPeer(id: string, isOp: boolean): ConnectedPeer {
     label: id,
     conn: null,
     isOp,
-    preloadedIndexes: new Set<number>(),
+    preloadedQueueItemIds: new Set(),
     status: 'connected',
     isDataTarget: true,
     joinOrder: 0,
@@ -131,7 +131,8 @@ describe('request-eq-reset authorization', () => {
 
   it('allows operators', async () => {
     const conn = makeConnection('guest-op');
-    getState('network.connectedPeers').push(makeConnectedPeer(conn.peer, true));
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    setState('network.connectedPeers', [{ ...makeConnectedPeer(conn.peer, true), conn }]);
     setState('audio.eqValues', [1, 2, 3, 4, 5]);
     setState('audio.userPreampGain', 2);
 

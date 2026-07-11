@@ -477,11 +477,15 @@ describe('Cloudflare client/Worker signaling contract', () => {
 });
 
 describe('Cloudflare signaling/data-channel boundary', () => {
-  it('routes control frames away from the bulk chunk channel', async () => {
+  it('opens only after both channels are ready and keeps ordered control frames off bulk', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();
     const bulk = new FakeDataChannel('musixquare-data');
     const control = new FakeDataChannel('musixquare-control');
+    bulk.readyState = 'connecting';
+    control.readyState = 'connecting';
+    const onOpen = vi.fn();
+    conn.on('open', onOpen);
 
     expect(conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel)).toBe(
       true,
@@ -490,9 +494,30 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel),
     ).toBe(false);
 
-    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    bulk.readyState = 'open';
+    bulk.dispatch('open');
+    expect(conn.open).toBe(false);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(() =>
+      conn.send({
+        type: MSG.PLAY,
+        time: 0,
+        queueItemId: '00000000-0000-4000-8000-000000000001',
+      }),
+    ).toThrow('DATA_CHANNEL_NOT_OPEN');
 
-    conn.send({ type: MSG.PLAY, time: 0, index: 1 });
+    control.readyState = 'open';
+    control.dispatch('open');
+    expect(conn.open).toBe(true);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+
+    conn.send({
+      type: MSG.PLAYLIST_UPDATE,
+      list: [],
+      currentQueueItemId: null,
+      revision: 0,
+      bootstrap: true,
+    });
     conn.send({
       type: MSG.FILE_CHUNK,
       chunk: new Uint8Array([1, 2, 3]),
@@ -501,14 +526,23 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       total: 1,
       name: 'track.mp3',
     });
+    conn.send({
+      type: MSG.PLAY,
+      time: 0,
+      queueItemId: '00000000-0000-4000-8000-000000000001',
+    });
 
-    expect(control.sent).toHaveLength(1);
+    expect(control.sent).toHaveLength(2);
     expect(bulk.sent).toHaveLength(1);
-    expect(typeof control.sent[0]).toBe('string');
+    expect(
+      control.sent
+        .map((frame) => JSON.parse(frame as string) as { type: string })
+        .map(({ type }) => type),
+    ).toEqual([MSG.PLAYLIST_UPDATE, MSG.PLAY]);
     expect(bulk.sent[0]).toBeInstanceOf(ArrayBuffer);
   });
 
-  it('falls back to the bulk channel for control frames until control is open', async () => {
+  it('never falls back to the bulk channel for control frames', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();
     const bulk = new FakeDataChannel('musixquare-data');
@@ -516,10 +550,12 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
     await new Promise<void>((resolve) => queueMicrotask(resolve));
 
-    conn.send({ type: MSG.PAUSE, time: 12, reason: 'pause' });
+    expect(conn.open).toBe(false);
+    expect(() =>
+      conn.send({ type: MSG.PAUSE, time: 12, queueItemId: null, reason: 'pause' }),
+    ).toThrow('DATA_CHANNEL_NOT_OPEN');
 
-    expect(bulk.sent).toHaveLength(1);
-    expect(typeof bulk.sent[0]).toBe('string');
+    expect(bulk.sent).toHaveLength(0);
   });
 
   it('keeps a live guest data channel when only the signaling socket errors', () => {

@@ -18,6 +18,9 @@ import { setPlaybackFilePlaying } from '../../player/ownership.ts';
 import type { PlaylistItem } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
+const FILE_QUEUE_ITEM_ID = '66666666-6666-4666-8666-666666666666';
+const YOUTUBE_QUEUE_ITEM_ID = '77777777-7777-4777-8777-777777777777';
+
 // ─── Mocks (cloned from player.test.ts — keep in sync) ────────────────────
 
 vi.mock('../../core/log.ts', () => ({
@@ -222,9 +225,23 @@ async function armIndexingViaDeferredNavigation(
   subIndex = 0,
 ): Promise<void> {
   const { initYouTube } = await import('../player.ts');
+  const items = getState('playlist.items');
+  if (!items.some((item) => item.queueItemId === YOUTUBE_QUEUE_ITEM_ID)) {
+    setState('playlist.items', [
+      ...items,
+      {
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: playlistId,
+        videoId,
+        playlistId,
+      },
+    ]);
+  }
+  setState('playlist.currentQueueItemId', YOUTUBE_QUEUE_ITEM_ID);
   initYouTube();
   wireStopAllMediaChain();
-  bus.emit('youtube:load', videoId, playlistId, autoplay, subIndex);
+  bus.emit('youtube:load', videoId, playlistId, YOUTUBE_QUEUE_ITEM_ID, autoplay, subIndex);
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -344,8 +361,10 @@ describe('YouTube indexing session lifecycle', () => {
 
     // Non-empty queue: without the stale-indexing flag, a chat add must NOT
     // take the isIdle takeover branch.
-    setState('playlist.items', [{ type: 'file', name: 'song.mp3' }] satisfies PlaylistItem[]);
-    const trackIndexBefore = getState('playlist.currentTrackIndex');
+    setState('playlist.items', [
+      { queueItemId: FILE_QUEUE_ITEM_ID, type: 'file', name: 'song.mp3' },
+    ] satisfies PlaylistItem[]);
+    setState('playlist.currentQueueItemId', FILE_QUEUE_ITEM_ID);
 
     await armIndexingViaDeferredNavigation('vidEntry', 'PL_MID');
     expect(stateMod.isYtIndexing()).toBe(true);
@@ -357,7 +376,7 @@ describe('YouTube indexing session lifecycle', () => {
     bus.emit('youtube:load-from-chat', 'https://www.youtube.com/watch?v=VIDEO_ID_99');
 
     // Queued, not played: no playback takeover, no room-wide YOUTUBE_PLAY.
-    expect(getState('playlist.currentTrackIndex')).toBe(trackIndexBefore);
+    expect(getState('playlist.currentQueueItemId')).toBe(YOUTUBE_QUEUE_ITEM_ID);
     expect(showToast).toHaveBeenCalledWith('youtube.added_to_playlist');
     expect(broadcastMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.YOUTUBE_PLAY }),
@@ -374,10 +393,16 @@ describe('YouTube indexing session lifecycle', () => {
     const yt = installYtNamespace(player);
 
     setPlaybackFilePlaying();
-    setState('playlist.currentTrackIndex', 0);
     setState('playlist.items', [
-      { type: 'youtube', videoId: 'vidA', playlistId: 'PL_HAPPY', name: 'Playlist' },
+      {
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        type: 'youtube',
+        videoId: 'vidA',
+        playlistId: 'PL_HAPPY',
+        name: 'Playlist',
+      },
     ] satisfies PlaylistItem[]);
+    setState('playlist.currentQueueItemId', YOUTUBE_QUEUE_ITEM_ID);
 
     await armIndexingViaDeferredNavigation('vidA', 'PL_HAPPY', true, 1);
     expect(stateMod.isYtIndexing()).toBe(true);
@@ -418,7 +443,9 @@ describe('YouTube indexing session lifecycle', () => {
     // isIdle is false, so the takeover below rides exclusively on the
     // `|| isYtIndexing()` term — the index-then-autoplay contract. It only
     // holds because the poll clears the session AFTER the callback runs.
-    setState('playlist.items', [{ type: 'file', name: 'song.mp3' }] satisfies PlaylistItem[]);
+    setState('playlist.items', [
+      { queueItemId: FILE_QUEUE_ITEM_ID, type: 'file', name: 'song.mp3' },
+    ] satisfies PlaylistItem[]);
 
     const url = 'https://www.youtube.com/watch?v=ibaEntry000&list=PL_IBA';
     const input = document.createElement('div');
@@ -446,18 +473,19 @@ describe('YouTube indexing session lifecycle', () => {
     lastTimerCallback('yt-indexing-poll')?.(); // step 2: count stabilized → onComplete
 
     // The callback added the playlist and TOOK OVER playback (not queued):
-    // currentTrackIndex points at the new entry and the host broadcast
+    // currentQueueItemId points at the new entry and the host broadcast
     // YOUTUBE_PLAY in single-video mode (playlistId nulled, entry video only).
     expect(getState('youtube.subItemsMap')['PL_IBA']?.ids).toEqual(['iba1', 'iba2', 'iba3']);
     expect(getState('playlist.items')).toHaveLength(2);
-    expect(getState('playlist.currentTrackIndex')).toBe(1);
+    const addedQueueItemId = getState('playlist.items')[1]?.queueItemId;
+    expect(getState('playlist.currentQueueItemId')).toBe(addedQueueItemId);
     expect(showToast).not.toHaveBeenCalledWith('youtube.added_to_playlist');
     expect(broadcastMock).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.YOUTUBE_PLAY,
         videoId: 'iba1',
         playlistId: null,
-        index: 1,
+        queueItemId: addedQueueItemId,
       }),
     );
     // Session fully released after completion: the callback's own nested load
@@ -478,7 +506,7 @@ describe('YouTube indexing session lifecycle', () => {
     // so this load takes the reuse branch which never reaches stopYouTubeMode.
     // The clear-then-arm step inside loadYouTubeVideo must cancel the session.
     showLoaderMock.mockClear();
-    bus.emit('youtube:load', 'vidZ_direct1', null, true, 0);
+    bus.emit('youtube:load', 'vidZ_direct1', null, YOUTUBE_QUEUE_ITEM_ID, true, 0);
 
     expect(stateMod.isYtIndexing()).toBe(false);
     expect(player.loadVideoById).toHaveBeenCalledWith('vidZ_direct1');
@@ -557,7 +585,7 @@ describe('YouTube indexing session lifecycle', () => {
     expect(stalePollStep).toBeDefined();
 
     // Arm S2 over the live S1 (reuse branch → clear-then-arm replaces it).
-    bus.emit('youtube:load', 'e2', 'PL_2', false, 0);
+    bus.emit('youtube:load', 'e2', 'PL_2', YOUTUBE_QUEUE_ITEM_ID, false, 0);
     expect(stateMod.isYtIndexing()).toBe(true);
     // The replacement's loader must be live (not stomped by the S1 clear).
     const lastLoaderCall = showLoaderMock.mock.calls[showLoaderMock.mock.calls.length - 1];

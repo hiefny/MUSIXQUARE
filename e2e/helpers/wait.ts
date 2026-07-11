@@ -276,7 +276,7 @@ export async function waitForFilePlaybackReady(page: Page, timeout = 15_000): Pr
       if (!get) return false;
       const lifecycle = get('playback.lifecycle');
       return (
-        get('files.currentFileBlob') != null &&
+        get('files.current') != null &&
         (lifecycle === 'READY' || lifecycle === 'PLAYING' || lifecycle === 'PAUSED')
       );
     },

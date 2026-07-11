@@ -43,7 +43,7 @@ function makePeer(conn: DataConnection): ConnectedPeer {
     label: '#1 Guest',
     conn,
     isOp: false,
-    preloadedIndexes: new Set(),
+    preloadedQueueItemIds: new Set(),
     status: 'connected',
     isDataTarget: true,
     joinOrder: 1,
@@ -65,7 +65,7 @@ function makeSlottedPeer(id: string, slot: number, send: ReturnType<typeof vi.fn
     label: `#${slot} Guest`,
     conn: { peer: id, open: true, send } as unknown as DataConnection,
     isOp: false,
-    preloadedIndexes: new Set(),
+    preloadedQueueItemIds: new Set(),
     status: 'connected',
     isDataTarget: true,
     joinOrder: slot,
@@ -206,6 +206,31 @@ describe('duplicate guest connection handoff', () => {
     expect(third.close).not.toHaveBeenCalled();
   });
 
+  it('does not bootstrap a replaced connection whose open event arrives late', () => {
+    const bootstrapped: DataConnection[] = [];
+    const connected: DataConnection[] = [];
+    const stopBootstrap = bus.on('network:peer-bootstrap', (conn) => bootstrapped.push(conn));
+    const stopConnected = bus.on('network:peer-connected', (conn) => connected.push(conn));
+    const first = makeIncomingConn('guest-late-open');
+    const replacement = makeIncomingConn('guest-late-open');
+
+    try {
+      handleHostIncomingConnection(first);
+      handleHostIncomingConnection(replacement);
+      first.fire('open');
+      expect(bootstrapped).toEqual([]);
+      expect(connected).toEqual([]);
+
+      replacement.fire('open');
+    } finally {
+      stopBootstrap();
+      stopConnected();
+    }
+
+    expect(bootstrapped).toEqual([replacement]);
+    expect(connected).toEqual([replacement]);
+  });
+
   it('rejects a connection over capacity with SESSION_FULL and a deferred close, leaving no record', () => {
     setState('network.maxGuestSlots', 1);
     setState('network.peerSlots', [null, 'g1']);
@@ -226,6 +251,37 @@ describe('duplicate guest connection handoff', () => {
     expect(getState('network.connectedPeers').map((p) => p.id)).toEqual(['g1']);
     expect(getState('network.activeHostConnByPeerId').has('guest-overflow')).toBe(false);
     expect(getState('network.peerLabels')['guest-overflow']).toBeUndefined();
+  });
+});
+
+describe('ordered host bootstrap phases', () => {
+  it('runs queue authority bootstrap before playback-dependent peer listeners', () => {
+    const conn = makeIncomingConn('guest-bootstrap');
+    const phases: string[] = [];
+    const stopBootstrap = bus.on('network:peer-bootstrap', (current) => {
+      phases.push('queue');
+      current.send({ type: MSG.PLAYLIST_UPDATE } as never);
+    });
+    const stopConnected = bus.on('network:peer-connected', (current) => {
+      phases.push('playback');
+      current.send({ type: MSG.PLAY } as never);
+    });
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+    } finally {
+      stopBootstrap();
+      stopConnected();
+    }
+
+    expect(phases).toEqual(['queue', 'playback']);
+    const sentTypes = vi
+      .mocked(conn.send)
+      .mock.calls.map(([message]) => (message as { type?: string }).type);
+    expect(sentTypes.indexOf(MSG.WELCOME)).toBeLessThan(sentTypes.indexOf(MSG.PLAYLIST_UPDATE));
+    expect(sentTypes.indexOf(MSG.PLAYLIST_UPDATE)).toBeLessThan(sentTypes.indexOf(MSG.CHAT_SYSTEM));
+    expect(sentTypes.indexOf(MSG.PLAYLIST_UPDATE)).toBeLessThan(sentTypes.indexOf(MSG.PLAY));
   });
 });
 

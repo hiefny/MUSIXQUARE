@@ -25,6 +25,20 @@ vi.mock('../transport.ts', async (importOriginal) => {
 });
 
 const { initPlayback } = await import('../playback.ts');
+const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
+function setResidentFile(name: string): void {
+  const blob = new File(['audio'], name, { type: 'audio/mpeg' });
+  setState('files.current', {
+    queueItemId: QUEUE_ITEM_ID,
+    indexHint: 0,
+    name,
+    sessionId: 1,
+    blob,
+    mime: blob.type,
+    size: blob.size,
+  });
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -51,15 +65,25 @@ describe('same-track zero replay resync', () => {
 
     setState('network.hostConn', hostConn);
     setState('playlist.items', [
-      { type: 'file', name: 'loop.mp3', videoId: null, playlistId: null },
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'file',
+        name: 'loop.mp3',
+        videoId: null,
+        playlistId: null,
+      },
     ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setResidentFile('loop.mp3');
     setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     bus.on('sync:force-resync', forceResync);
 
     initPlayback();
-    await handleData({ type: MSG.PLAY, time: 0, index: 0, name: 'loop.mp3' }, hostConn);
+    await handleData(
+      { type: MSG.PLAY, time: 0, queueItemId: QUEUE_ITEM_ID, name: 'loop.mp3' },
+      hostConn,
+    );
 
     expect(getManagedTimer('playback-repeat-auto-sync')).not.toBeNull();
 
@@ -74,9 +98,16 @@ describe('hostPlayAt local-file scheduling', () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('playlist.items', [
-      { type: 'file', name: 'song.mp3', videoId: null, playlistId: null },
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'file',
+        name: 'song.mp3',
+        videoId: null,
+        playlistId: null,
+      },
     ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setResidentFile('song.mp3');
     setPlaybackLifecycleState(PLAYBACK_STATE.READY);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     initPlayback();
@@ -88,7 +119,13 @@ describe('hostPlayAt local-file scheduling', () => {
     vi.setSystemTime(1050);
 
     await handleData(
-      { type: MSG.PLAY, time: 10, index: 0, name: 'song.mp3', hostPlayAt: 1200 },
+      {
+        type: MSG.PLAY,
+        time: 10,
+        queueItemId: QUEUE_ITEM_ID,
+        name: 'song.mp3',
+        hostPlayAt: 1200,
+      },
       hostConn,
     );
 
@@ -102,7 +139,13 @@ describe('hostPlayAt local-file scheduling', () => {
     vi.setSystemTime(1250);
 
     await handleData(
-      { type: MSG.PLAY, time: 10, index: 0, name: 'song.mp3', hostPlayAt: 1200 },
+      {
+        type: MSG.PLAY,
+        time: 10,
+        queueItemId: QUEUE_ITEM_ID,
+        name: 'song.mp3',
+        hostPlayAt: 1200,
+      },
       hostConn,
     );
 

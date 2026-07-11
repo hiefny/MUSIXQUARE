@@ -31,7 +31,13 @@ import { trackPageErrors, getPageErrors } from './helpers/context-factory.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
+  readCurrentQueueItemId,
+  readQueueSnapshot,
+  waitForCurrentQueueItemId,
+} from './helpers/queue-state.ts';
+import {
   isVisible,
+  navigateToTab,
   readPlaybackProjection,
   readState,
   VALID_PLAYBACK_PROJECTIONS,
@@ -202,12 +208,68 @@ async function waitForPlaybackProjectionReady(page: Page, timeout = 10_000): Pro
 /** Start playback on host after ensuring blob is loaded */
 async function startPlayback(hostPage: Page): Promise<void> {
   await hostPage.waitForFunction(
-    () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.currentFileBlob') !== null,
+    () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
     { timeout: 20_000 },
   );
   await hostPage.click('#play-btn');
   // Headless audio may not fully start, so active or paused is valid.
   await waitForPlaybackProjectionIn(hostPage, ['PLAYING_AUDIO', 'PAUSED']);
+}
+
+async function dragFirstPlaylistItemToEnd(hostPage: Page): Promise<string[]> {
+  const before = await readQueueSnapshot(hostPage);
+  if (before.items.length < 2) throw new Error('Reorder requires at least two queue items');
+  await navigateToTab(hostPage, 'playlist');
+
+  const sourceHandle = hostPage.locator('.playlist-reorder-handle').first();
+  const lastRow = hostPage.locator('.playlist-entry[data-queue-item-id] .track-item').last();
+  await expect(sourceHandle).toBeVisible();
+  await expect(lastRow).toBeVisible();
+  await sourceHandle.scrollIntoViewIfNeeded();
+  await expect
+    .poll(
+      () =>
+        sourceHandle.evaluate((handle) => {
+          const rect = handle.getBoundingClientRect();
+          return (
+            document
+              .elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+              ?.closest<HTMLElement>('.playlist-reorder-handle')?.dataset.queueItemId ?? null
+          );
+        }),
+      { timeout: 5_000 },
+    )
+    .toBe(before.items[0].queueItemId);
+  const sourceBox = await sourceHandle.boundingBox();
+  const lastBox = await lastRow.boundingBox();
+  if (!sourceBox || !lastBox) throw new Error('Playlist reorder geometry unavailable');
+
+  await hostPage.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await hostPage.mouse.down();
+  await expect(hostPage.locator('.playlist-reorder-ghost')).toBeVisible();
+  await hostPage.mouse.move(
+    lastBox.x + Math.min(lastBox.width / 2, 120),
+    lastBox.y + lastBox.height - 2,
+    { steps: 8 },
+  );
+  await hostPage.mouse.up();
+
+  const expected = [...before.items.slice(1), before.items[0]].map((item) => item.queueItemId);
+  await hostPage.waitForFunction(
+    ([expectedOrder, previousRevision]) => {
+      const get = (window as any).__MUSIXQUARE_GET_STATE__;
+      const items = get?.('playlist.items');
+      return (
+        Array.isArray(items) &&
+        get?.('playlist.revision') > previousRevision &&
+        items.map((item: { queueItemId: string }) => item.queueItemId).join(',') ===
+          expectedOrder.join(',')
+      );
+    },
+    [expected, before.revision] as const,
+    { timeout: 15_000 },
+  );
+  return expected;
 }
 
 /** Assert a page's playback projection is a valid enum value (not undefined / null / typo). */
@@ -510,35 +572,15 @@ test.describe('Rapid Track Navigation', () => {
 
       // Wait for track index to stabilize (rapid navigation needs time to settle)
       await setup.hostPage.waitForTimeout(2_000);
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && typeof get('playlist.currentTrackIndex') === 'number';
-        },
-        { timeout: 15_000 },
-      );
-
-      const hostIdx = await readState(setup.hostPage, 'playlist.currentTrackIndex');
-      // -1 means "nothing loaded"; 0+ means a real track is selected. Either
-      // is a valid post-chaos state — we just want to reject undefined/null.
-      expect(typeof hostIdx).toBe('number');
-      expect(hostIdx).toBeGreaterThanOrEqual(-1);
+      const hostQueueItemId = await readCurrentQueueItemId(setup.hostPage);
+      expect(hostQueueItemId).not.toBeNull();
+      if (!hostQueueItemId) throw new Error('Host has no current queue occurrence');
 
       // Rapid navigation can leave a transient mismatch before convergence.
-      await setup.guestPages[0]
-        .waitForFunction(
-          (expectedIdx) => {
-            const get = (window as any).__MUSIXQUARE_GET_STATE__;
-            if (!get) return false;
-            return get('playlist.currentTrackIndex') === expectedIdx;
-          },
-          hostIdx,
-          { timeout: 15_000 },
-        )
-        .catch(() => {});
+      await waitForCurrentQueueItemId(setup.guestPages[0], hostQueueItemId).catch(() => {});
 
-      const guestIdx = await readState(setup.guestPages[0], 'playlist.currentTrackIndex');
-      expect(typeof guestIdx).toBe('number');
+      const guestQueueItemId = await readCurrentQueueItemId(setup.guestPages[0]);
+      expect(guestQueueItemId === null || typeof guestQueueItemId === 'string').toBe(true);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -1235,10 +1277,7 @@ test.describe('Playlist Clear + Join', () => {
       for (let i = 0; i < 2; i++) {
         if (await isVisible(hostPage, '.btn-playlist-remove')) {
           await hostPage.locator('.btn-playlist-remove').first().click();
-          try {
-            await hostPage.locator('#btn-dialog-ok').waitFor({ state: 'visible', timeout: 3000 });
-            await hostPage.locator('#btn-dialog-ok').click();
-          } catch {}
+          await hostPage.locator('.playlist-selection-delete').click();
           await hostPage
             .waitForFunction(
               (expectedMax) => {
@@ -1585,10 +1624,7 @@ test.describe('Late Join During Track Removal', () => {
       if (await isVisible(hostPage, '.btn-playlist-remove')) {
         removePromise = (async () => {
           await hostPage.locator('.btn-playlist-remove').first().click();
-          try {
-            await hostPage.locator('#btn-dialog-ok').waitFor({ state: 'visible', timeout: 3000 });
-            await hostPage.locator('#btn-dialog-ok').click();
-          } catch {}
+          await hostPage.locator('.playlist-selection-delete').click();
         })();
       }
       const joinPromise = joinAsLateGuest(browser, code);
@@ -1639,17 +1675,8 @@ test.describe('Playlist Reorder + Disconnect', () => {
       await uploadFixture(setup.hostPage, 'test03');
       await waitForPlaylistCount(setup.hostPage, 3);
 
-      await Promise.all([
-        setup.hostPage.evaluate(() => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          const set = (window as any).__MUSIXQUARE_SET_STATE__;
-          if (!get || !set) return;
-          const items = get('playlist.items') as any[];
-          if (items && items.length >= 3) {
-            const reversed = [...items].reverse();
-            set('playlist.items', reversed);
-          }
-        }),
+      const [expectedOrder] = await Promise.all([
+        dragFirstPlaylistItemToEnd(setup.hostPage),
         setup.guestContexts[0].close(),
       ]);
 
@@ -1663,6 +1690,10 @@ test.describe('Playlist Reorder + Disconnect', () => {
 
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForPlaylistCount(lateGuest.guestPage, 3, 30_000);
+      const lateGuestOrder = (await readQueueSnapshot(lateGuest.guestPage)).items.map(
+        (item) => item.queueItemId,
+      );
+      expect(lateGuestOrder).toEqual(expectedOrder);
 
       await assertHostAlive(setup.hostPage);
     } finally {
@@ -2117,10 +2148,9 @@ test.describe('Nuclear Meltdown v2', () => {
 
       await hostPage.click('#btn-next');
       await hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('playlist.currentTrackIndex') !== undefined;
-        },
+        () =>
+          typeof (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentQueueItemId') ===
+          'string',
         { timeout: 10_000 },
       );
 
@@ -2176,9 +2206,9 @@ test.describe('Nuclear Meltdown v2', () => {
       const vol = await readState(hostPage, 'audio.masterVolume');
       expect(vol).toBe(0.8);
 
-      const hostIdx = await readState(hostPage, 'playlist.currentTrackIndex');
-      const g4Idx = await readState(g4.guestPage, 'playlist.currentTrackIndex');
-      expect(g4Idx).toBe(hostIdx);
+      const hostQueueItemId = await readCurrentQueueItemId(hostPage);
+      const g4QueueItemId = await readCurrentQueueItemId(g4.guestPage);
+      expect(g4QueueItemId).toBe(hostQueueItemId);
 
       const state = await readPlaybackProjection(hostPage);
       expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(state);
@@ -2312,10 +2342,10 @@ test.describe('Full Cycle Stress', () => {
         await waitForPlaylistCount(g.guestPage, 2, 30_000);
       }
 
-      const hostIdx = await readState(hostPage, 'playlist.currentTrackIndex');
+      const hostQueueItemId = await readCurrentQueueItemId(hostPage);
       for (const g of newGuests) {
-        const gIdx = await readState(g.guestPage, 'playlist.currentTrackIndex');
-        expect(gIdx).toBe(hostIdx);
+        const guestQueueItemId = await readCurrentQueueItemId(g.guestPage);
+        expect(guestQueueItemId).toBe(hostQueueItemId);
       }
 
       await assertHostAlive(hostPage);

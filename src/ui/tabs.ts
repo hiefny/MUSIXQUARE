@@ -31,6 +31,10 @@ export function switchTab(tabId: string): void {
       navItem.setAttribute('tabindex', '0');
     }
 
+    // Gesture-owning views use this generic lifecycle signal to cancel input
+    // immediately when their mobile/tablet panel is parked off-screen.
+    bus.emit('ui:tab-changed', tabId);
+
     if (tabId === 'settings') {
       bus.emit('ui:settings-tab-opened');
     }

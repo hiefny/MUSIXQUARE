@@ -60,7 +60,7 @@ export async function injectPeerServer(page: Page): Promise<void> {
 
     const projectedGetState: Getter = (path) => {
       if (!rawGetState) {
-        if (path === 'files.currentFileBlob' || path === 'network.hostConn') return null;
+        if (path === 'files.current' || path === 'network.hostConn') return null;
         return undefined;
       }
       return rawGetState(path);

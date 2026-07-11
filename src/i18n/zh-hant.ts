@@ -160,6 +160,8 @@ const zhHant: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': '展開/收合播放清單',
+  'playlist.reorder_handle': '調整 {{title}} 的順序，目前位置 {{position}}',
+  'playlist.reorder_position': '{{title}}，第 {{position}} 項，共 {{total}} 項',
   'playlist.repeat_all': '已啟用全部循環',
   'playlist.repeat_one': '已啟用單曲循環',
   'playlist.repeat_off': '已關閉循環',
@@ -170,9 +172,11 @@ const zhHant: Record<I18nKey, string> = {
   'playlist.loading_info': '正在載入曲目資訊...',
   'playlist.sub_load_failed': '無法載入影片資訊',
   'playlist.remove_title': '從播放清單移除',
-  'playlist.remove_message': '要從播放清單移除此媒體嗎？',
-  'playlist.remove_yes': '移除',
-  'playlist.remove_no': '否',
+  'playlist.select_for_deletion': '選取 {{title}} 以刪除',
+  'playlist.deselect_for_deletion': '取消選取 {{title}}',
+  'playlist.deselect_all': '取消全選',
+  'playlist.select_all': '全選',
+  'playlist.delete_selected': '刪除已選取的 {{count}} 首曲目',
   'playlist.video_fallback': '正在載入...',
   'playlist.track_fallback': '曲目 {{idx}}',
   'playlist.deferred_load_hint': '播放後載入完整曲目清單',

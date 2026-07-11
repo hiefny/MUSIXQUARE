@@ -23,13 +23,18 @@ import { ramContiguousCount } from './ramstore.ts';
 import { unicastFile } from './transfer.ts';
 import { isPeerConnectionCurrent } from './chunk-pump.ts';
 import { registerHandlers } from '../network/protocol.ts';
+import {
+  beginFileRequest,
+  isFileRequestId,
+  resetFileRequestAuthority,
+  sendFileRequest,
+} from '../network/file-request-authority.ts';
 import { isRemoteGuest } from '../network/peer.ts';
 import { canSendFileTo } from '../network/peer-state.ts';
 import { isRemoteShareConfigured } from '../share/r2-client.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
-import { isDemoTrackName } from '../demo/tracks.ts';
 import { t } from '../i18n/index.ts';
-import type { DataConnection, FileMeta } from '../types/index.ts';
+import type { DataConnection, ResidentFile } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
@@ -37,6 +42,9 @@ import {
   setPlaybackTransferState,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
+import { setPendingRecoveryTarget } from '../player/_state.ts';
+
+let recoveryRequestGeneration = 0;
 
 // ─── Guest: Send Recovery Request ───────────────────────────────────
 
@@ -91,10 +99,27 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
 
   const meta = getState('transfer.meta');
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
-  const fileName = (meta?.name as string) || recoveryTarget?.name || '';
+  const queueItemId = getState('playlist.currentQueueItemId') || '';
+  if (!queueItemId) {
+    log.warn('[Recovery] Missing queue item identity; refusing metadata fallback');
+    return;
+  }
+  const targetOwnsSelection = recoveryTarget?.queueItemId === queueItemId;
+  const metaOwnsSelection = meta?.queueItemId === queueItemId;
+  const playlistItem = getState('playlist.items').find((item) => item.queueItemId === queueItemId);
+  const fileName =
+    (targetOwnsSelection ? recoveryTarget.name : '') ||
+    (metaOwnsSelection ? (meta.name as string) : '') ||
+    playlistItem?.name ||
+    '';
+  if (!fileName) {
+    log.warn('[Recovery] Missing selected file name; refusing recovery request');
+    return;
+  }
 
   // Progressive backoff
   const backoffMs = RECOVERY_BACKOFF[Math.min(retryCount, RECOVERY_BACKOFF.length - 1)];
+  const requestGeneration = recoveryRequestGeneration;
   setState('recovery.retryCount', retryCount + 1);
   setState('recovery.pending', true);
 
@@ -105,6 +130,7 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   setManagedTimer(
     'recovery-backoff',
     () => {
+      if (requestGeneration !== recoveryRequestGeneration) return;
       setState('recovery.pending', false);
 
       // Re-fetch connection after backoff — the original reference may be stale
@@ -119,19 +145,24 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       }
 
       // Check if track changed during backoff
-      const latestMeta = getState('transfer.meta');
       const latestTarget = getState('playback.pendingRecoveryTarget');
-      const latestName = (latestMeta?.name as string) || latestTarget?.name || '';
-      if (latestName && fileName && latestName !== fileName) {
+      if (
+        getState('playlist.currentQueueItemId') !== queueItemId ||
+        (latestTarget !== null && latestTarget.queueItemId !== queueItemId)
+      ) {
         log.debug('[Recovery] Track changed during backoff, aborting stale recovery');
         setState('recovery.retryCount', 0);
         return;
       }
 
       // Re-read sessionId after backoff — session may have advanced during delay
-      const freshLocalSid = getState('transfer.localSessionId');
-      const freshTransferSid = getState('transfer.currentSessionId');
-      const freshSid = freshLocalSid || freshTransferSid;
+      const latestMeta = getState('transfer.meta');
+      const latestMetaOwnsSelection = latestMeta?.queueItemId === queueItemId;
+      const freshSid = latestMetaOwnsSelection
+        ? (normalizeSessionId(latestMeta.sessionId) ??
+          normalizeSessionId(getState('transfer.localSessionId')) ??
+          normalizeSessionId(getState('transfer.currentSessionId')))
+        : undefined;
 
       // Re-read receivedCount after backoff — more chunks may have arrived during delay.
       // Clamp the control-plane counter to the exact RAM session's contiguous
@@ -139,24 +170,20 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
       let chunkToAsk = forceChunk;
       if (chunkToAsk === null) {
         const counterAsk = getState('transfer.receivedCount') || 0;
-        chunkToAsk = Math.min(counterAsk, ramContiguousCount(latestName, false, freshSid));
+        chunkToAsk = Math.min(counterAsk, ramContiguousCount(queueItemId, false, freshSid ?? 0));
       }
 
-      // Re-read index after backoff — track position may have changed during delay.
-      // setPendingRecoveryTarget() guarantees target is null OR a valid pair, so
-      // optional-chain returns either a non-negative index or undefined.
-      const freshIndex =
-        getState('playback.pendingRecoveryTarget')?.index ?? getState('playlist.currentTrackIndex');
-
-      try {
-        freshConn.send({
+      // Re-read the stable recovery target after backoff; its position may have changed.
+      // The stable queue occurrence remains authoritative across the backoff;
+      // its current position is only a UI projection.
+      const owner = beginFileRequest(freshConn, queueItemId, freshSid);
+      if (
+        !sendFileRequest(owner, {
           type: MSG.REQUEST_DATA_RECOVERY,
           nextChunk: chunkToAsk,
           fileName,
-          index: freshIndex,
-          sessionId: freshSid,
-        });
-      } catch {
+        })
+      ) {
         log.warn('[Recovery] Failed to send recovery request');
       }
     },
@@ -177,38 +204,24 @@ async function handleRequestCurrentFile(
 
   // If Host is in YouTube mode, no local file to serve
   if (isYouTubeOwner()) {
-    try {
-      conn.send({ type: MSG.FILE_WAIT, message: 'Host is playing YouTube' });
-    } catch {
-      /* noop */
-    }
+    sendFileWait(conn, data, 'Host is playing YouTube');
     return;
   }
 
   const reqName = data.name ? String(data.name) : '';
-  const requestsAuthoritativeCurrent =
-    data.reason === 'missing_transfer_identity' && data.index === undefined;
-  // The guest deliberately omits an index only for identity repair. Snapshot
-  // the host's current slot at request handling time; guest-supplied names are
-  // display fallback only and never select bytes.
-  const reqIndex = requestsAuthoritativeCurrent
-    ? getState('playlist.currentTrackIndex')
-    : typeof data.index === 'number'
-      ? data.index
-      : undefined;
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
+  if (!queueItemId) return;
+  const reqSessionId = normalizeSessionId(data.sessionId);
 
   // Find matching blob
-  const match = findMatchingBlob(reqIndex);
+  const match = findMatchingBlob(queueItemId, reqSessionId);
   if (!match) {
-    try {
-      conn.send({
-        type: MSG.FILE_WAIT,
-        message: 'Host file is not ready yet',
-        ...(requestsAuthoritativeCurrent ? { reason: 'missing_transfer_identity' } : {}),
-      });
-    } catch {
-      /* noop */
-    }
+    sendFileWait(
+      conn,
+      data,
+      'Host file is not ready yet',
+      data.reason === 'missing_transfer_identity' ? 'missing_transfer_identity' : undefined,
+    );
     return;
   }
 
@@ -225,27 +238,19 @@ async function handleRequestCurrentFile(
     return;
   if (canDirect) {
     await unicastFile(conn, fileToSend, 0, sid, {
-      trackIndex: match.index,
+      queueItemId: match.queueItemId,
       skipTransportGuard: true,
       isSourceCurrent: () => isCachedBlobMatchCurrent(match),
     });
     return;
   }
-  if (
-    isRemoteShareConfigured() &&
-    fileToSend instanceof File &&
-    !isDemoTrackName(fileToSend.name)
-  ) {
-    void shareRemoteFileIfNeeded(fileToSend, sid, conn, { index: match.index });
+  if (isRemoteShareConfigured() && fileToSend instanceof File) {
+    void shareRemoteFileIfNeeded(fileToSend, sid, conn, { queueItemId: match.queueItemId });
     return;
   }
-  // Demo track or share unconfigured: at least tell the guest to wait so its
-  // FILE_WAIT timeout path gives feedback instead of silence.
-  try {
-    conn.send({ type: MSG.FILE_WAIT, message: 'Host cannot serve this peer directly' });
-  } catch {
-    /* noop */
-  }
+  // Share unconfigured: tell the guest to wait so its FILE_WAIT timeout path
+  // gives feedback instead of silence.
+  sendFileWait(conn, data, 'Host cannot serve this peer directly');
 }
 
 async function handleRequestDataRecovery(
@@ -265,27 +270,20 @@ async function handleRequestDataRecovery(
   }
 
   const reqName = data.fileName || data.name ? String(data.fileName || data.name) : '';
-  const reqIndex = typeof data.index === 'number' ? data.index : undefined;
+  const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
+  if (!queueItemId) return;
   const reqSessionId = normalizeSessionId(data.sessionId);
 
-  const match = findMatchingBlob(reqIndex, reqSessionId);
+  const match = findMatchingBlob(queueItemId, reqSessionId);
   if (!match) {
-    try {
-      conn.send({ type: MSG.FILE_WAIT, message: 'Host has no cached file for recovery yet' });
-    } catch {
-      /* noop */
-    }
+    sendFileWait(conn, data, 'Host has no cached file for recovery yet');
     return;
   }
 
   // Clamp chunk index
   const total = Math.ceil(match.blob.size / CHUNK_SIZE);
   if (!Number.isFinite(total) || total <= 0) {
-    try {
-      conn.send({ type: MSG.FILE_WAIT, message: 'Invalid file size' });
-    } catch {
-      /* noop */
-    }
+    sendFileWait(conn, data, 'Invalid file size');
     return;
   }
   if (startChunk >= total) startChunk = Math.max(0, total - 1);
@@ -296,7 +294,7 @@ async function handleRequestDataRecovery(
   const fileToSend = ensureNamedFile(match.blob, fallbackName);
   if (fileToSend) {
     await unicastFile(conn, fileToSend, startChunk, sid, {
-      trackIndex: match.index,
+      queueItemId: match.queueItemId,
       isSourceCurrent: () => isCachedBlobMatchCurrent(match),
     });
   }
@@ -305,19 +303,49 @@ async function handleRequestDataRecovery(
 // ─── Helpers ────────────────────────────────────────────────────────
 
 interface CachedBlobMatch {
+  entry: Readonly<ResidentFile>;
   blob: Blob;
-  meta: Readonly<Partial<FileMeta>>;
-  sessionId: number | undefined;
-  index: number;
+  sessionId: number;
+  queueItemId: string;
   source: 'current' | 'preload';
-}
-
-function normalizeIndex(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 function normalizeSessionId(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+/** Echo the complete request tuple so a guest cannot accept a stale wait frame. */
+function sendFileWait(
+  conn: DataConnection,
+  data: Record<string, unknown>,
+  message: string,
+  reason?: string,
+): void {
+  const requestId = data.requestId;
+  const queueItemId = data.queueItemId;
+  const sessionId = normalizeSessionId(data.sessionId);
+  if (
+    !isFileRequestId(requestId) ||
+    typeof queueItemId !== 'string' ||
+    queueItemId.length === 0 ||
+    (data.sessionId !== undefined && sessionId === undefined)
+  ) {
+    log.warn('[Recovery] Refusing uncorrelated FILE_WAIT response');
+    return;
+  }
+
+  try {
+    conn.send({
+      type: MSG.FILE_WAIT,
+      message,
+      requestId,
+      queueItemId,
+      ...(sessionId === undefined ? {} : { sessionId }),
+      ...(reason === undefined ? {} : { reason }),
+    });
+  } catch {
+    /* noop */
+  }
 }
 
 function sessionMatches(
@@ -334,68 +362,52 @@ function sessionMatches(
  * transport metadata, not content identity, so a name-only request must wait
  * for a fresh transfer instead of reusing possibly unrelated bytes.
  */
-function findMatchingBlob(
-  reqIndex: number | undefined,
-  reqSessionId?: number,
-): CachedBlobMatch | null {
-  const index = normalizeIndex(reqIndex);
-  if (index === undefined) return null;
-
-  const currentFileBlob = getState('files.currentFileBlob');
-  const meta = getState('transfer.meta');
-  const nextFileBlob = getState('preload.nextFileBlob');
-  const nextMeta = getState('preload.meta');
+function findMatchingBlob(queueItemId: string, reqSessionId?: number): CachedBlobMatch | null {
+  if (!queueItemId) return null;
+  const current = getState('files.current');
+  const preload = getState('preload.ready');
   const playlist = getState('playlist.items');
-  const playlistFile = playlist[index]?.file;
-  const currentIndex = getState('playlist.currentTrackIndex');
+  const playlistItem = playlist.find((item) => item.queueItemId === queueItemId);
+  const playlistFile = playlistItem?.file;
+  const currentQueueItemId = getState('playlist.currentQueueItemId');
 
-  if (currentFileBlob && meta && currentIndex === index) {
-    const metaSessionId = normalizeSessionId(meta.sessionId);
-    const stateSessionId = normalizeSessionId(getState('transfer.currentSessionId'));
-    const sessionsCoherent =
-      metaSessionId === undefined ||
-      stateSessionId === undefined ||
-      metaSessionId === stateSessionId;
-    const candidateSessionId = metaSessionId ?? stateSessionId;
-    const objectMatches = !playlistFile || playlistFile === currentFileBlob;
+  if (current && currentQueueItemId === queueItemId) {
+    const objectMatches = !playlistFile || playlistFile === current.blob;
     if (
-      meta.index === index &&
-      sessionsCoherent &&
+      current.queueItemId === queueItemId &&
       objectMatches &&
-      sessionMatches(reqSessionId, candidateSessionId)
+      sessionMatches(reqSessionId, current.sessionId)
     ) {
       return {
-        blob: currentFileBlob,
-        meta,
-        sessionId: candidateSessionId,
-        index,
+        entry: current,
+        blob: current.blob,
+        sessionId: current.sessionId,
+        queueItemId,
         source: 'current',
       };
     }
   }
 
-  // A preload may serve the main channel only after that playlist slot has
+  // A preload may serve the main channel only after that queue occurrence has
   // become the host's authoritative current track. Sending a future preload
   // while another track is current would combine correct bytes with the wrong
   // playback ownership.
   if (
-    nextFileBlob &&
-    nextMeta &&
-    currentIndex === index &&
-    getState('preload.nextTrackIndex') === index
+    preload &&
+    currentQueueItemId === queueItemId &&
+    getState('preload.nextQueueItemId') === queueItemId
   ) {
-    const candidateSessionId = normalizeSessionId(nextMeta.sessionId);
-    const objectMatches = !playlistFile || playlistFile === nextFileBlob;
+    const objectMatches = !playlistFile || playlistFile === preload.blob;
     if (
-      nextMeta.index === index &&
+      preload.queueItemId === queueItemId &&
       objectMatches &&
-      sessionMatches(reqSessionId, candidateSessionId)
+      sessionMatches(reqSessionId, preload.sessionId)
     ) {
       return {
-        blob: nextFileBlob,
-        meta: nextMeta,
-        sessionId: candidateSessionId,
-        index,
+        entry: preload,
+        blob: preload.blob,
+        sessionId: preload.sessionId,
+        queueItemId,
         source: 'preload',
       };
     }
@@ -405,30 +417,14 @@ function findMatchingBlob(
 }
 
 function isCachedBlobMatchCurrent(match: CachedBlobMatch): boolean {
-  if (getState('playlist.currentTrackIndex') !== match.index) return false;
+  if (getState('playlist.currentQueueItemId') !== match.queueItemId) return false;
   if (match.source === 'current') {
-    const meta = getState('transfer.meta');
-    const metaSessionId = normalizeSessionId(meta?.sessionId);
-    const stateSessionId = normalizeSessionId(getState('transfer.currentSessionId'));
-    const sessionsCoherent =
-      metaSessionId === undefined ||
-      stateSessionId === undefined ||
-      metaSessionId === stateSessionId;
-    const currentSessionId = metaSessionId ?? stateSessionId;
-    return (
-      sessionsCoherent &&
-      getState('files.currentFileBlob') === match.blob &&
-      meta?.index === match.index &&
-      currentSessionId === match.sessionId
-    );
+    return getState('files.current') === match.entry;
   }
 
-  const meta = getState('preload.meta');
   return (
-    getState('preload.nextFileBlob') === match.blob &&
-    getState('preload.nextTrackIndex') === match.index &&
-    meta?.index === match.index &&
-    normalizeSessionId(meta?.sessionId) === match.sessionId
+    getState('preload.ready') === match.entry &&
+    getState('preload.nextQueueItemId') === match.queueItemId
   );
 }
 
@@ -442,7 +438,7 @@ function ensureValidSessionId(preferredSessionId: number | undefined): number {
 }
 
 function getBlobFallbackName(match: CachedBlobMatch, reqName: string): string {
-  if (typeof match.meta.name === 'string' && match.meta.name) return match.meta.name;
+  if (match.entry.name) return match.entry.name;
   if (typeof File !== 'undefined' && match.blob instanceof File && match.blob.name) {
     return match.blob.name;
   }
@@ -450,6 +446,20 @@ function getBlobFallbackName(match: CachedBlobMatch, reqName: string): string {
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────
+
+/** Reset guest recovery ownership at a replacement host boundary. */
+function cancelPendingRecoveryRequest(): void {
+  recoveryRequestGeneration += 1;
+  clearManagedTimer('recovery-backoff');
+  resetFileRequestAuthority();
+  setState('recovery.pending', false);
+  setState('recovery.retryCount', 0);
+}
+
+export function resetRecoveryAuthority(): void {
+  cancelPendingRecoveryRequest();
+  setPendingRecoveryTarget(null);
+}
 
 export function initRecovery(): void {
   registerHandlers({
@@ -465,11 +475,10 @@ export function initRecovery(): void {
 
   // Reset on every session-code change, including reconnects between two
   // non-empty codes, so pending state cannot cross session boundaries.
-  bus.on('state:network.sessionCode', () => {
-    setState('recovery.pending', false);
-    setState('recovery.retryCount', 0);
-    clearManagedTimer('recovery-backoff');
-  });
+  bus.on('state:network.sessionCode', resetRecoveryAuthority);
+  // A selection change also invalidates a scheduled backoff closure. Without
+  // this, an old A callback could claim ownership again after B starts.
+  bus.on('state:playlist.currentQueueItemId', cancelPendingRecoveryRequest);
 
   log.info('[Recovery] Handlers registered');
 }

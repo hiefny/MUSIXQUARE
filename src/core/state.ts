@@ -103,10 +103,10 @@ function createInitialState(): StateTree {
     preload: {
       isPreloading: false,
       sessionId: 0,
-      meta: null,
-      nextTrackIndex: -1,
-      nextFileBlob: null,
-      ackSent: new Set(),
+      activeTarget: null,
+      ready: null,
+      nextQueueItemId: null,
+      ackSent: new Map(),
       sessionState: new Map(),
     },
 
@@ -131,6 +131,7 @@ function createInitialState(): StateTree {
     demo: {
       active: false,
       loading: false,
+      currentTrackIndex: -1,
       reverbOn: false,
       bassBoostOn: false,
       trebleBoostOn: false,
@@ -173,14 +174,14 @@ function createInitialState(): StateTree {
 
     playlist: {
       items: [],
-      currentTrackIndex: -1,
+      currentQueueItemId: null,
+      revision: 0,
       repeatMode: 0,
       isShuffle: false,
     },
 
     files: {
-      currentFileBlob: null,
-      currentTrack: { name: null },
+      current: null,
     },
 
     youtube: {
@@ -195,8 +196,7 @@ function createInitialState(): StateTree {
     recovery: {
       pending: false,
       retryCount: 0,
-      // pendingFileName + pendingFileIndex live as playback.pendingRecoveryTarget
-      // (atomic { index, name }).
+      // The atomic queue occurrence/name target lives at playback.pendingRecoveryTarget.
     },
 
     systemAudio: {

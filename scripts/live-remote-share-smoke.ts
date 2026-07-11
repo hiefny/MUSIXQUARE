@@ -18,6 +18,8 @@ interface RemoteShareSession {
   objectId: string;
   downloadUrl: string;
   cleanupToken: string;
+  queueItemId: string;
+  sessionId: number;
 }
 
 function parseByteCount(): number {
@@ -115,6 +117,8 @@ async function requestCapabilityToken(): Promise<string> {
 async function requestSession(
   token: string,
   roomId: string,
+  queueItemId: string,
+  sessionId: number,
   sourceFile: File,
   encryptedBlob: Blob,
 ): Promise<RemoteShareSession> {
@@ -127,8 +131,8 @@ async function requestSession(
     },
     body: JSON.stringify({
       roomId,
-      sessionId: Date.now(),
-      index: 0,
+      sessionId,
+      queueItemId,
       name: sourceFile.name,
       mime: sourceFile.type,
       size: sourceFile.size,
@@ -150,7 +154,33 @@ async function requestSession(
   ) {
     throw new Error('invalid remote-share session response');
   }
-  return session as unknown as RemoteShareSession;
+  return { ...session, queueItemId, sessionId } as unknown as RemoteShareSession;
+}
+
+function assertSessionPlaybackContext(
+  session: RemoteShareSession,
+  queueItemId: string,
+  sessionId: number,
+): void {
+  const [encodedPayload] = session.completeToken.split('.');
+  if (!encodedPayload) throw new Error('remote-share complete token payload missing');
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    throw new Error('remote-share complete token payload is invalid');
+  }
+  if (
+    session.queueItemId !== queueItemId ||
+    session.sessionId !== sessionId ||
+    payload.queueItemId !== queueItemId ||
+    payload.sessionId !== sessionId
+  ) {
+    throw new Error('remote-share playback context mismatch');
+  }
 }
 
 function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): void {
@@ -234,6 +264,8 @@ async function cleanup(session: RemoteShareSession, roomId: string): Promise<Res
 async function main(): Promise<void> {
   const byteCount = parseByteCount();
   const roomId = `live-smoke-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const queueItemId = randomUUID();
+  const sessionId = Date.now();
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const sourceFile = new File([sourceBytes], FILE_NAME, {
     type: FILE_MIME,
@@ -245,7 +277,15 @@ async function main(): Promise<void> {
   let cleaned = false;
 
   try {
-    session = await requestSession(token, roomId, sourceFile, encrypted.encryptedBlob);
+    session = await requestSession(
+      token,
+      roomId,
+      queueItemId,
+      sessionId,
+      sourceFile,
+      encrypted.encryptedBlob,
+    );
+    assertSessionPlaybackContext(session, queueItemId, sessionId);
     assertUploadMetadata(session, sourceFile);
     await assertUploadCors(session);
 
@@ -258,15 +298,24 @@ async function main(): Promise<void> {
     assertAllowedOrigin(upload, 'R2 direct PUT');
 
     const completed = await completeUpload(session, roomId);
+    const completedDescriptor = {
+      ...completed,
+      queueItemId: session.queueItemId,
+      sessionId: session.sessionId,
+    };
     if (
-      completed.objectId !== session.objectId ||
-      typeof completed.downloadUrl !== 'string' ||
-      !completed.downloadUrl
+      completedDescriptor.objectId !== session.objectId ||
+      completedDescriptor.queueItemId !== queueItemId ||
+      completedDescriptor.sessionId !== sessionId ||
+      typeof completedDescriptor.downloadUrl !== 'string' ||
+      !completedDescriptor.downloadUrl
     ) {
       throw new Error('invalid remote-share completion response');
     }
 
-    const download = await fetch(completed.downloadUrl, { headers: { Origin: APP_ORIGIN } });
+    const download = await fetch(completedDescriptor.downloadUrl, {
+      headers: { Origin: APP_ORIGIN },
+    });
     assertAllowedOrigin(download, 'remote-share download');
     if (!download.ok) throw new Error(`remote-share download HTTP ${download.status}`);
     const downloadedEncrypted = await download.arrayBuffer();
@@ -294,7 +343,9 @@ async function main(): Promise<void> {
     await readJson(deleted, 'remote-share cleanup');
     cleaned = true;
 
-    const afterDelete = await fetch(completed.downloadUrl, { headers: { Origin: APP_ORIGIN } });
+    const afterDelete = await fetch(completedDescriptor.downloadUrl, {
+      headers: { Origin: APP_ORIGIN },
+    });
     assertAllowedOrigin(afterDelete, 'remote-share deleted-object lookup');
     if (afterDelete.status !== 404) {
       throw new Error(`deleted object returned HTTP ${afterDelete.status}, expected 404`);

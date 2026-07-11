@@ -19,6 +19,9 @@ import {
   updateRoleBadge,
 } from '../player-controls.ts';
 
+const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
+
 vi.mock('../../youtube/sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
   guestRendezvousSync: vi.fn(),
@@ -375,7 +378,7 @@ describe('initPlayerControls sync button', () => {
     renderSyncControls();
     setState('playback.mode', 'file');
     setState('playback.activity', 'playing');
-    setState('playlist.currentTrackIndex', 2);
+    setState('playlist.currentQueueItemId', PLAY_QUEUE_ITEM_ID);
     setState('player.pausedAt', 42);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     const broadcastSpy = vi.fn();
@@ -387,7 +390,7 @@ describe('initPlayerControls sync button', () => {
     expect(broadcastSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: MSG.PLAY,
-        index: 2,
+        queueItemId: PLAY_QUEUE_ITEM_ID,
         time: expect.any(Number),
         hostPlayAt: expect.any(Number),
       }),
@@ -402,7 +405,7 @@ describe('initPlayerControls sync button', () => {
     renderSyncControls();
     setState('playback.mode', 'file');
     setState('playback.activity', 'paused');
-    setState('playlist.currentTrackIndex', 1);
+    setState('playlist.currentQueueItemId', PAUSE_QUEUE_ITEM_ID);
     setState('player.pausedAt', 33);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     const broadcastSpy = vi.fn();
@@ -414,7 +417,7 @@ describe('initPlayerControls sync button', () => {
     expect(broadcastSpy).toHaveBeenCalledWith({
       type: MSG.PAUSE,
       time: 33,
-      index: 1,
+      queueItemId: PAUSE_QUEUE_ITEM_ID,
       reason: 'seek',
     });
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);

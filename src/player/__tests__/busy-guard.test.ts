@@ -21,10 +21,29 @@ import { getPendingPlayTime, setCurrentAudioBuffer } from '../_state.ts';
 import { play, seekTo, skipTime } from '../transport.ts';
 import { playPrevTrack } from '../playlist.ts';
 import { initPlayback } from '../playback.ts';
-import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
+import type {
+  ConnectedPeer,
+  DataConnection,
+  PlaylistItem,
+  QueueItemId,
+} from '../../types/index.ts';
+
+let nextQueueItemIdValue = 1;
+
+function nextQueueItemId(): QueueItemId {
+  const suffix = String(nextQueueItemIdValue++).padStart(12, '0');
+  return `00000000-0000-4000-8000-${suffix}`;
+}
 
 function makeTrack(name: string): PlaylistItem {
-  return { type: 'file', name, title: name, videoId: null, playlistId: null };
+  return {
+    queueItemId: nextQueueItemId(),
+    type: 'file',
+    name,
+    title: name,
+    videoId: null,
+    playlistId: null,
+  };
 }
 
 function makePeerWithSpy(
@@ -40,7 +59,7 @@ function makePeerWithSpy(
       label: id,
       conn,
       isOp,
-      preloadedIndexes: new Set<number>(),
+      preloadedQueueItemIds: new Set<QueueItemId>(),
       status: 'connected',
       isDataTarget: true,
       joinOrder: 1,
@@ -53,7 +72,12 @@ function makePeerWithSpy(
 
 /** Enter a host track-change window with the previous file mode still active. */
 function enterBusyWindow(index = 1, name = 'next.mp3'): void {
-  transition({ type: 'FILE_PREPARE', variant: 'fresh', index, name });
+  transition({
+    type: 'FILE_PREPARE',
+    variant: 'fresh',
+    queueItemId: getState('playlist.items')[index]?.queueItemId ?? null,
+    name,
+  });
   setPlaybackFilePlaying();
 }
 
@@ -69,7 +93,7 @@ beforeEach(() => {
   send = made.send;
   setState('network.connectedPeers', [made.peer]);
   setState('playlist.items', [makeTrack('prev.mp3'), makeTrack('next.mp3')]);
-  setState('playlist.currentTrackIndex', 1);
+  setState('playlist.currentQueueItemId', getState('playlist.items')[1]?.queueItemId ?? null);
 });
 
 afterEach(() => {
@@ -96,14 +120,21 @@ describe('busy-window guards (SA-04 family)', () => {
     enterBusyWindow();
 
     const opConn = getState('network.connectedPeers')[0].conn as DataConnection;
-    await handleData({ type: MSG.REQUEST_SEEK, time: 42 }, opConn);
+    await handleData(
+      {
+        type: MSG.REQUEST_SEEK,
+        time: 42,
+        queueItemId: getState('playlist.currentQueueItemId')!,
+      },
+      opConn,
+    );
 
     expect(send).not.toHaveBeenCalled();
     expect(getState('player.pausedAt')).toBe(0);
   });
 
   it('playPrevTrack restart-current branch drops while preparing (first track)', () => {
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', getState('playlist.items')[0]?.queueItemId ?? null);
     enterBusyWindow(0, 'prev.mp3');
     playPrevTrack();
     expect(send).not.toHaveBeenCalled();

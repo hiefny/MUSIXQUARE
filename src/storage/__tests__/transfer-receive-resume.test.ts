@@ -18,11 +18,11 @@ import { bus } from '../../core/events.ts';
 import { CHUNK_SIZE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import type { DataConnection } from '../../types/index.ts';
 import {
-  ramStart,
-  ramWrite,
-  ramEnd,
-  ramReadBlob,
-  ramContiguousCount,
+  ramStart as rawRamStart,
+  ramWrite as rawRamWrite,
+  ramEnd as rawRamEnd,
+  ramReadBlob as rawRamReadBlob,
+  ramContiguousCount as rawRamContiguousCount,
   __resetRamStoreForTests,
 } from '../ramstore.ts';
 
@@ -67,6 +67,38 @@ vi.mock('../../core/timers.ts', () => ({
 }));
 
 const u8 = (...bytes: number[]) => new Uint8Array(bytes);
+const Q = Array.from(
+  { length: 6 },
+  (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+);
+const ramStart = (
+  name: string,
+  isPreload: boolean,
+  sid: number,
+  chunkSize: number,
+  keepExisting: boolean,
+  queueItemId = Q[0]!,
+) => rawRamStart(queueItemId, name, isPreload, sid, chunkSize, keepExisting);
+const ramWrite = (
+  name: string,
+  isPreload: boolean,
+  sid: number,
+  chunkIndex: number,
+  chunk: Uint8Array,
+  queueItemId = Q[0]!,
+) => rawRamWrite(queueItemId, name, isPreload, sid, chunkIndex, chunk);
+const ramEnd = (
+  name: string,
+  isPreload: boolean,
+  sid: number,
+  totalSize?: number,
+  total?: number,
+  queueItemId = Q[0]!,
+) => rawRamEnd(queueItemId, name, isPreload, sid, totalSize, total);
+const ramReadBlob = (name: string, isPreload: boolean, sid: number, queueItemId = Q[0]!) =>
+  rawRamReadBlob(queueItemId, isPreload, sid);
+const ramContiguousCount = (name: string, isPreload: boolean, sid: number, queueItemId = Q[0]!) =>
+  rawRamContiguousCount(queueItemId, isPreload, sid);
 const FOUR_CHUNK_FILE_SIZE = 3 * CHUNK_SIZE + 1;
 const TWO_CHUNK_FILE_SIZE = CHUNK_SIZE + 1;
 
@@ -81,7 +113,7 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     size: FOUR_CHUNK_FILE_SIZE,
     startChunk: 2,
     sessionId: 6,
-    index: 0,
+    queueItemId: Q[0],
     ...overrides,
   });
 
@@ -95,6 +127,17 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     const { clearReceiveState } = await import('../transfer-receive.ts');
     clearReceiveState();
     setState('network.hostConn', conn);
+    setState(
+      'playlist.items',
+      Q.map((queueItemId, index) => ({
+        queueItemId,
+        type: 'file' as const,
+        name: index === 0 ? 'song.mp3' : `track-${index}.mp3`,
+        videoId: null,
+        playlistId: null,
+      })),
+    );
+    setState('playlist.currentQueueItemId', Q[0]!);
     // Mid-download stall posture: guest was receiving under session 5.
     setState('network.connectionType', 'local');
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
@@ -102,11 +145,41 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     setState('transfer.localSessionId', 5);
     setState('transfer.meta', {
       name: 'song.mp3',
+      queueItemId: Q[0],
+      indexHint: 0,
       size: FOUR_CHUNK_FILE_SIZE,
       total: 4,
       sessionId: 5,
-      index: 0,
     });
+  });
+
+  it('accepts a replacement host SID 1 after resetting the previous SID 92 authority', async () => {
+    const { handleFileStart, resetIncomingTransferAuthority } =
+      await import('../transfer-receive.ts');
+    setState('transfer.localSessionId', 92);
+    setState('transfer.currentSessionId', 92);
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+
+    resetIncomingTransferAuthority();
+    handleFileStart(
+      {
+        type: 'file-start',
+        name: 'new-host.mp3',
+        mime: 'audio/mpeg',
+        total: 1,
+        size: 1,
+        sessionId: 1,
+        queueItemId: Q[1],
+      },
+      conn,
+    );
+
+    expect(getState('transfer.localSessionId')).toBe(1);
+    expect(getState('transfer.meta')).toEqual(
+      expect.objectContaining({ sessionId: 1, queueItemId: Q[1], name: 'new-host.mp3' }),
+    );
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
   it('honors startChunk on a same-session resume backed by the store prefix', async () => {
@@ -137,7 +210,7 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(recoverySpy).not.toHaveBeenCalled();
   });
 
-  it('does not reuse a prefix when the playlist index differs inside the same session', async () => {
+  it('does not reuse a prefix when the queue item differs inside the same session', async () => {
     const { handleFileResume } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');
     const recoverySpy = vi.fn();
@@ -147,10 +220,10 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     ramWrite('song.mp3', false, 5, 0, u8(0xaa));
     ramWrite('song.mp3', false, 5, 1, u8(0xbb));
 
-    handleFileResume(resumeMsg({ sessionId: 5, index: 1 }), conn);
+    handleFileResume(resumeMsg({ sessionId: 5, queueItemId: Q[1] }), conn);
 
     expect(getState('transfer.receivedCount')).toBe(0);
-    expect(getState('playlist.currentTrackIndex')).toBe(1);
+    expect(getState('playlist.currentQueueItemId')).toBe(Q[1]);
     expect(postCommand).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'STORAGE_START', sessionId: 5, keepExisting: false }),
     );
@@ -173,7 +246,6 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
       size: FOUR_CHUNK_FILE_SIZE,
       total: 4,
       sessionId: 6,
-      index: 0,
     });
 
     handleFileResume(resumeMsg({ sessionId: 6, startChunk: 2 }), conn);
@@ -197,11 +269,12 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     ramWrite('song.mp3', false, 5, 1, u8(0xcc, 0xdd));
     ramEnd('song.mp3', false, 5, 4, 2);
     setState('transfer.meta', {
+      queueItemId: Q[0],
+      indexHint: 0,
       name: 'song.mp3',
       size: FOUR_CHUNK_FILE_SIZE,
       total: 4,
       sessionId: 6,
-      index: 0,
     });
 
     handleFileResume(resumeMsg({ sessionId: 6, startChunk: 2 }), conn);
@@ -214,9 +287,9 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(recoverySpy).toHaveBeenCalledWith(0);
   });
 
-  it('adopts the authoritative FILE_START index when FILE_PREPARE was lost', async () => {
+  it('adopts the authoritative FILE_START queue item when FILE_PREPARE was lost', async () => {
     const { handleFileStart } = await import('../transfer-receive.ts');
-    setState('playlist.currentTrackIndex', 3);
+    setState('playlist.currentQueueItemId', Q[3]!);
 
     handleFileStart(
       {
@@ -226,18 +299,19 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
         total: 1,
         size: 1,
         sessionId: 6,
-        index: 4,
+        queueItemId: Q[4],
       },
       conn,
     );
 
-    expect(getState('playlist.currentTrackIndex')).toBe(4);
+    expect(getState('playlist.currentQueueItemId')).toBe(Q[4]);
     expect(getState('playback.pendingRecoveryTarget')).toEqual({
-      index: 4,
+      queueItemId: Q[4],
+      indexHint: 4,
       name: 'replacement.mp3',
     });
     expect(getState('transfer.meta')).toEqual(
-      expect.objectContaining({ sessionId: 6, index: 4, name: 'replacement.mp3' }),
+      expect.objectContaining({ sessionId: 6, queueItemId: Q[4], name: 'replacement.mp3' }),
     );
   });
 
@@ -254,13 +328,13 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
         total: 1,
         size: 1,
         sessionId: 6,
-        index: 2,
+        queueItemId: Q[2],
       },
       conn,
     );
 
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
-    expect(getState('playlist.currentTrackIndex')).toBe(2);
+    expect(getState('playlist.currentQueueItemId')).toBe(Q[2]);
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
   });
 
@@ -269,10 +343,10 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
     setState('transfer.state', TRANSFER_STATE.IDLE);
 
-    handleFileResume(resumeMsg({ sessionId: 6, index: 2, startChunk: 0 }), conn);
+    handleFileResume(resumeMsg({ sessionId: 6, queueItemId: Q[2], startChunk: 0 }), conn);
 
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
-    expect(getState('playlist.currentTrackIndex')).toBe(2);
+    expect(getState('playlist.currentQueueItemId')).toBe(Q[2]);
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
   });
 
@@ -293,7 +367,7 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
         total: 1,
         size: 4,
         sessionId: 5,
-        index: 0,
+        queueItemId: Q[0],
       },
       conn,
     );
@@ -336,7 +410,14 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     bus.on('storage:request-recovery', recoverySpy);
 
     // Store has a prefix, but the in-flight meta says different bytes.
-    setState('transfer.meta', { name: 'song.mp3', size: 999, total: 4, sessionId: 5, index: 0 });
+    setState('transfer.meta', {
+      queueItemId: Q[0],
+      indexHint: 0,
+      name: 'song.mp3',
+      size: 999,
+      total: 4,
+      sessionId: 5,
+    });
     ramStart('song.mp3', false, 5, 16, false);
     ramWrite('song.mp3', false, 5, 0, u8(0xaa));
     ramWrite('song.mp3', false, 5, 1, u8(0xbb));
@@ -384,16 +465,21 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     ramWrite('song.mp3', false, 6, 3, u8(0xdd));
     ramEnd('song.mp3', false, 6, FOUR_CHUNK_FILE_SIZE, 4);
     setState('transfer.meta', {
+      queueItemId: Q[0],
+      indexHint: 0,
       name: 'song.mp3',
       size: FOUR_CHUNK_FILE_SIZE,
       total: 4,
       sessionId: 6,
-      index: 0,
     });
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
     setState('transfer.state', TRANSFER_STATE.PROCESSING);
-    setState('playlist.currentTrackIndex', 3);
-    setState('playback.pendingRecoveryTarget', { index: 3, name: 'other.mp3' });
+    setState('playlist.currentQueueItemId', Q[3]!);
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: Q[3]!,
+      indexHint: 3,
+      name: 'other.mp3',
+    });
 
     handleFileResume(resumeMsg({ sessionId: 6, startChunk: 1 }), conn);
 
@@ -401,35 +487,238 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     // The exact completed transfer is left alone.
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
-    expect(getState('playlist.currentTrackIndex')).toBe(3);
-    expect(getState('playback.pendingRecoveryTarget')).toEqual({ index: 3, name: 'other.mp3' });
+    expect(getState('playlist.currentQueueItemId')).toBe(Q[3]);
+    expect(getState('playback.pendingRecoveryTarget')).toEqual({
+      queueItemId: Q[3],
+      indexHint: 3,
+      name: 'other.mp3',
+    });
     expect(postCommand).not.toHaveBeenCalled();
     expect(recoverySpy).not.toHaveBeenCalled();
     expect(clearManagedTimer).toHaveBeenCalledWith('chunkWatchdog');
     expect(clearManagedTimer).toHaveBeenCalledWith('prepareWatchdog');
   });
+
+  it('does not let an old preload watchdog overwrite a newer file request owner', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { setManagedTimer } = await import('../../core/timers.ts');
+    const { beginFileRequest, getCurrentFileRequestOwnerForTests, resetFileRequestAuthority } =
+      await import('../../network/file-request-authority.ts');
+    resetFileRequestAuthority();
+    setState('preload.isPreloading', true);
+    setState('preload.activeTarget', {
+      queueItemId: Q[0],
+      indexHint: 0,
+      name: 'song.mp3',
+      sessionId: 5,
+    });
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        queueItemId: Q[0],
+        sessionId: 5,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+      },
+      conn,
+    );
+    const watchdog = vi
+      .mocked(setManagedTimer)
+      .mock.calls.find(([name]) => name === 'preloadWatchdog')?.[1];
+    expect(watchdog).toBeTypeOf('function');
+
+    setState('playlist.currentQueueItemId', Q[1]!);
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: Q[1]!,
+      indexHint: 1,
+      name: 'track-1.mp3',
+    });
+    setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    const ownerB = beginFileRequest(conn, Q[1]!, 8);
+    watchdog?.();
+
+    expect(getCurrentFileRequestOwnerForTests()).toBe(ownerB);
+  });
 });
 
 describe('handleFileWait - identity repair isolation', () => {
-  const conn = { open: true, peer: 'host-1' } as DataConnection;
+  const hostSend = vi.fn();
+  const conn = { open: true, peer: 'host-1', send: hostSend } as unknown as DataConnection;
 
   beforeEach(async () => {
     resetState();
     bus.clear();
     vi.clearAllMocks();
+    const { resetFileRequestAuthority } = await import('../../network/file-request-authority.ts');
+    resetFileRequestAuthority();
     const { clearReceiveState } = await import('../transfer-receive.ts');
     clearReceiveState();
     setState('network.hostConn', conn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [
+      {
+        queueItemId: Q[0]!,
+        type: 'file',
+        name: 'a.mp3',
+        videoId: null,
+        playlistId: null,
+      },
+      {
+        queueItemId: Q[1]!,
+        type: 'file',
+        name: 'b.mp3',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', Q[0]!);
+  });
+
+  it('ignores an unowned stale FILE_WAIT without UI or a timer', async () => {
+    const { handleFileWait } = await import('../transfer-receive.ts');
+    const { beginFileRequest } = await import('../../network/file-request-authority.ts');
+    const { setManagedTimer, clearManagedTimer } = await import('../../core/timers.ts');
+    const { showToast } = await import('../../ui/toast.ts');
+    const owner = beginFileRequest(conn, Q[0]!, 7);
+
+    handleFileWait(
+      {
+        type: 'file-wait',
+        message: 'not ready',
+        requestId: owner.requestId + 1,
+        queueItemId: owner.queueItemId,
+        sessionId: owner.sessionId,
+      },
+      conn,
+    );
+
+    expect(showToast).not.toHaveBeenCalled();
+    expect(clearManagedTimer).not.toHaveBeenCalledWith('fileWaitTimeout');
+    expect(setManagedTimer).not.toHaveBeenCalled();
   });
 
   it('does not arm the generic data-recovery retry for a tagged identity FILE_WAIT', async () => {
     const { handleFileWait } = await import('../transfer-receive.ts');
+    const { beginFileRequest } = await import('../../network/file-request-authority.ts');
     const { setManagedTimer, clearManagedTimer } = await import('../../core/timers.ts');
+    const owner = beginFileRequest(conn, Q[0]!, 7);
 
-    handleFileWait({ type: 'file-wait', reason: 'missing_transfer_identity' }, conn);
+    handleFileWait(
+      {
+        type: 'file-wait',
+        message: 'identity missing',
+        reason: 'missing_transfer_identity',
+        requestId: owner.requestId,
+        queueItemId: owner.queueItemId,
+        sessionId: owner.sessionId,
+      },
+      conn,
+    );
 
     expect(clearManagedTimer).toHaveBeenCalledWith('fileWaitTimeout');
     expect(setManagedTimer).not.toHaveBeenCalled();
+  });
+
+  it('prevents an old FILE_WAIT timer from acting after request B supersedes A', async () => {
+    const { handleFileWait } = await import('../transfer-receive.ts');
+    const { beginFileRequest } = await import('../../network/file-request-authority.ts');
+    const { setManagedTimer } = await import('../../core/timers.ts');
+    const ownerA = beginFileRequest(conn, Q[0]!, 7);
+
+    handleFileWait(
+      {
+        type: 'file-wait',
+        message: 'not ready',
+        requestId: ownerA.requestId,
+        queueItemId: ownerA.queueItemId,
+        sessionId: ownerA.sessionId,
+      },
+      conn,
+    );
+    const timer = vi
+      .mocked(setManagedTimer)
+      .mock.calls.find(([name]) => name === 'fileWaitTimeout')?.[1];
+    expect(timer).toBeTypeOf('function');
+
+    beginFileRequest(conn, Q[1]!, 8);
+    timer?.();
+
+    expect(hostSend).not.toHaveBeenCalled();
+  });
+
+  it('starts the follow-up recovery from the captured owner tuple', async () => {
+    const { handleFileWait } = await import('../transfer-receive.ts');
+    const { beginFileRequest, getCurrentFileRequestOwnerForTests } =
+      await import('../../network/file-request-authority.ts');
+    const { setManagedTimer } = await import('../../core/timers.ts');
+    const ownerA = beginFileRequest(conn, Q[0]!, 7);
+
+    handleFileWait(
+      {
+        type: 'file-wait',
+        message: 'not ready',
+        requestId: ownerA.requestId,
+        queueItemId: ownerA.queueItemId,
+        sessionId: ownerA.sessionId,
+      },
+      conn,
+    );
+    const timer = vi
+      .mocked(setManagedTimer)
+      .mock.calls.find(([name]) => name === 'fileWaitTimeout')?.[1];
+    timer?.();
+
+    expect(hostSend).toHaveBeenCalledWith({
+      type: 'request-data-recovery',
+      nextChunk: 0,
+      fileName: 'a.mp3',
+      requestId: expect.any(Number),
+      queueItemId: Q[0],
+      sessionId: 7,
+    });
+    expect(getCurrentFileRequestOwnerForTests()).toEqual(
+      expect.objectContaining({
+        hostConn: conn,
+        queueItemId: Q[0],
+        sessionId: 7,
+      }),
+    );
+    expect(getCurrentFileRequestOwnerForTests()?.requestId).not.toBe(ownerA.requestId);
+  });
+
+  it('clears only the exact request owner on an accepted FILE_START', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    const { beginFileRequest, getCurrentFileRequestOwnerForTests } =
+      await import('../../network/file-request-authority.ts');
+    const resident = (queueItemId: string, sessionId: number, name: string) => ({
+      queueItemId,
+      indexHint: queueItemId === Q[0] ? 0 : 1,
+      name,
+      sessionId,
+      size: 1,
+      mime: 'audio/mpeg',
+      blob: new Blob([u8(1)], { type: 'audio/mpeg' }),
+    });
+    const frame = (queueItemId: string, sessionId: number, name: string) => ({
+      type: 'file-start',
+      queueItemId,
+      sessionId,
+      name,
+      mime: 'audio/mpeg',
+      total: 1,
+      size: 1,
+    });
+
+    const ownerB = beginFileRequest(conn, Q[1]!, 8);
+    setState('files.current', resident(Q[0]!, 7, 'a.mp3'));
+    handleFileStart(frame(Q[0]!, 7, 'a.mp3'), conn);
+    expect(getCurrentFileRequestOwnerForTests()).toBe(ownerB);
+
+    setState('playlist.currentQueueItemId', Q[1]!);
+    setState('files.current', resident(Q[1]!, 8, 'b.mp3'));
+    handleFileStart(frame(Q[1]!, 8, 'b.mp3'), conn);
+    expect(getCurrentFileRequestOwnerForTests()).toBeNull();
   });
 });
 
@@ -448,11 +737,21 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     setState('network.hostConn', conn);
     setState('network.connectionType', 'local');
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState(
+      'playlist.items',
+      Q.map((queueItemId, index) => ({
+        queueItemId,
+        type: 'file' as const,
+        name: `track-${index}.mp3`,
+        videoId: null,
+        playlistId: null,
+      })),
+    );
+    setState('playlist.currentQueueItemId', Q[0]!);
   });
 
-  it('caps all pre-START sessions globally and replays the newest contiguous prefix', async () => {
-    const { handleFileChunk, handleFileStart, getTransferMemoryStats } =
-      await import('../transfer-receive.ts');
+  it('adopts self-describing queue-item chunks without retaining pre-START buffers', async () => {
+    const { handleFileChunk, getTransferMemoryStats } = await import('../transfer-receive.ts');
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
     setState('transfer.state', TRANSFER_STATE.IDLE);
     setState('transfer.localSessionId', 0);
@@ -465,7 +764,8 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
             type: 'file-chunk',
             name: `s${sessionId}.mp3`,
             sessionId,
-            index,
+            queueItemId: Q[4],
+            chunkIndex: index,
             total: 100,
             size: 99 * CHUNK_SIZE + 1,
             chunk: u8(index),
@@ -474,29 +774,14 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         );
       }
     }
-
-    expect(getTransferMemoryStats()).toMatchObject({
-      pendingEarlySessions: 3,
-      pendingEarlyChunks: 60,
-      pendingEarlyBytes: 60,
-    });
-
-    handleFileStart(
-      {
-        type: 'file-start',
-        name: 's5.mp3',
-        sessionId: 5,
-        index: 4,
-        total: 100,
-        size: 99 * CHUNK_SIZE + 1,
-      },
-      conn,
-    );
     await Promise.resolve();
 
     expect(getState('transfer.receivedCount')).toBe(20);
-    expect(ramContiguousCount('s5.mp3', false, 5)).toBe(20);
-    expect(getTransferMemoryStats().pendingEarlyChunks).toBe(0);
+    expect(ramContiguousCount('s5.mp3', false, 5, Q[4])).toBe(20);
+    expect(getTransferMemoryStats()).toMatchObject({
+      reorderChunks: 0,
+      reorderBytes: 0,
+    });
   });
 
   it('terminates a prepared transfer when RAM admission rejects and reports the track index', async () => {
@@ -508,7 +793,13 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     const total = Math.ceil(encodedSize / CHUNK_SIZE);
 
     await handleFilePrepare(
-      { type: 'file-prepare', name: 'huge.wav', index: 2, sessionId: 10 },
+      {
+        type: 'file-prepare',
+        name: 'huge.wav',
+        queueItemId: Q[2],
+        sessionId: 10,
+        mime: 'audio/wav',
+      },
       conn,
     );
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
@@ -517,7 +808,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       {
         type: 'file-start',
         name: 'huge.wav',
-        index: 2,
+        queueItemId: Q[2],
         sessionId: 10,
         total,
         size: encodedSize,
@@ -528,14 +819,15 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
     expect(postCommand).toHaveBeenCalledWith({ command: 'STORAGE_RESET', isPreload: false });
-    expect(sendToHost).toHaveBeenCalledWith({ type: 'guest-decode-failed', index: 2 });
+    expect(sendToHost).toHaveBeenCalledWith({ type: 'guest-decode-failed', queueItemId: Q[2] });
 
     handleFileChunk(
       {
         type: 'file-chunk',
         name: 'huge.wav',
         sessionId: 10,
-        index: 999,
+        queueItemId: Q[2],
+        chunkIndex: 999,
         total,
         size: encodedSize,
         chunk: u8(1),
@@ -546,15 +838,20 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     expect(sendToHost).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves the FILE_PREPARE playlist index when chunk metadata replaces a lost FILE_START', async () => {
+  it('preserves the FILE_PREPARE queue item when chunk metadata replaces a lost FILE_START', async () => {
     const { handleFileChunk } = await import('../transfer-receive.ts');
     setState('transfer.localSessionId', 6);
     setState('transfer.state', TRANSFER_STATE.RECEIVING);
-    setState('playlist.currentTrackIndex', 4);
-    setState('playback.pendingRecoveryTarget', { index: 4, name: 'song.mp3' });
+    setState('playlist.currentQueueItemId', Q[4]!);
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: Q[4]!,
+      indexHint: 4,
+      name: 'song.mp3',
+    });
     setState('transfer.meta', {
       name: 'song.mp3',
-      index: 4,
+      queueItemId: Q[4],
+      indexHint: 4,
       sessionId: 6,
       size: 1,
       mime: 'audio/mpeg',
@@ -568,26 +865,32 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         total: 1,
         size: 1,
         sessionId: 6,
-        index: 0,
+        queueItemId: Q[4],
+        chunkIndex: 0,
         chunk: u8(0xaa),
       },
       conn,
     );
 
     expect(getState('transfer.meta')).toEqual(
-      expect.objectContaining({ name: 'song.mp3', sessionId: 6, index: 4, total: 1 }),
+      expect.objectContaining({ name: 'song.mp3', sessionId: 6, queueItemId: Q[4], total: 1 }),
     );
   });
 
-  it('preserves the pending playlist index when a newer chunk stream replaces RECEIVING without FILE_START', async () => {
+  it('preserves the pending queue item when a newer chunk stream replaces RECEIVING without FILE_START', async () => {
     const { handleFileChunk } = await import('../transfer-receive.ts');
     setState('transfer.localSessionId', 5);
     setState('transfer.state', TRANSFER_STATE.RECEIVING);
-    setState('playlist.currentTrackIndex', 4);
-    setState('playback.pendingRecoveryTarget', { index: 4, name: 'new.mp3' });
+    setState('playlist.currentQueueItemId', Q[4]!);
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: Q[4]!,
+      indexHint: 4,
+      name: 'new.mp3',
+    });
     setState('transfer.meta', {
       name: 'old.mp3',
-      index: 3,
+      queueItemId: Q[3],
+      indexHint: 3,
       sessionId: 5,
       size: 1,
       total: 1,
@@ -602,7 +905,8 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         total: 1,
         size: 1,
         sessionId: 6,
-        index: 0,
+        queueItemId: Q[4],
+        chunkIndex: 0,
         chunk: u8(0xbb),
       },
       conn,
@@ -610,7 +914,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
 
     expect(getState('transfer.localSessionId')).toBe(6);
     expect(getState('transfer.meta')).toEqual(
-      expect.objectContaining({ name: 'new.mp3', sessionId: 6, index: 4, total: 1 }),
+      expect.objectContaining({ name: 'new.mp3', sessionId: 6, queueItemId: Q[4], total: 1 }),
     );
   });
 
@@ -619,9 +923,13 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
     setState('transfer.state', TRANSFER_STATE.IDLE);
     setState('transfer.localSessionId', 5);
-    setState('playlist.currentTrackIndex', 4);
+    setState('playlist.currentQueueItemId', Q[4]!);
     // This is the exact atomic identity left by the authoritative PLAY frame.
-    setState('playback.pendingRecoveryTarget', { index: 4, name: 'fresh.mp3' });
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: Q[4]!,
+      indexHint: 4,
+      name: 'fresh.mp3',
+    });
     setState('transfer.meta', null);
 
     handleFileChunk(
@@ -632,7 +940,8 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         total: 2,
         size: TWO_CHUNK_FILE_SIZE,
         sessionId: 6,
-        index: 0,
+        queueItemId: Q[4],
+        chunkIndex: 0,
         chunk: u8(0xaa),
       },
       conn,
@@ -642,27 +951,41 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
     expect(getState('transfer.localSessionId')).toBe(6);
-    expect(getState('playlist.currentTrackIndex')).toBe(4);
+    expect(getState('playlist.currentQueueItemId')).toBe(Q[4]);
     expect(getState('transfer.meta')).toEqual(
-      expect.objectContaining({ name: 'fresh.mp3', sessionId: 6, index: 4, total: 2 }),
+      expect.objectContaining({ name: 'fresh.mp3', sessionId: 6, queueItemId: Q[4], total: 2 }),
     );
-    expect(ramContiguousCount('fresh.mp3', false, 6)).toBe(1);
-    expect(getTransferMemoryStats().pendingEarlyChunks).toBe(0);
+    expect(ramContiguousCount('fresh.mp3', false, 6, Q[4])).toBe(1);
   });
 
-  it('does not bind ambiguous same-name chunk-only bytes to the stale current index', async () => {
+  it('uses the authenticated queue item on a self-describing newer chunk stream', async () => {
     const { handleFileChunk } = await import('../transfer-receive.ts');
     setState('transfer.localSessionId', 5);
     setState('transfer.state', TRANSFER_STATE.RECEIVING);
     setState('playlist.items', [
-      { type: 'file', name: 'same.mp3', title: 'A', videoId: null, playlistId: null },
-      { type: 'file', name: 'same.mp3', title: 'B', videoId: null, playlistId: null },
+      {
+        queueItemId: Q[0]!,
+        type: 'file',
+        name: 'same.mp3',
+        title: 'A',
+        videoId: null,
+        playlistId: null,
+      },
+      {
+        queueItemId: Q[1]!,
+        type: 'file',
+        name: 'same.mp3',
+        title: 'B',
+        videoId: null,
+        playlistId: null,
+      },
     ]);
-    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', Q[0]!);
     setState('playback.pendingRecoveryTarget', null);
     setState('transfer.meta', {
       name: 'same.mp3',
-      index: 0,
+      queueItemId: Q[0],
+      indexHint: 0,
       sessionId: 5,
       size: 1,
       total: 1,
@@ -677,17 +1000,17 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         total: 1,
         size: 1,
         sessionId: 6,
-        index: 0,
+        queueItemId: Q[1],
+        chunkIndex: 0,
         chunk: u8(0xcc),
       },
       conn,
     );
 
     expect(getState('transfer.meta')).toEqual(
-      expect.objectContaining({ name: 'same.mp3', sessionId: 6, total: 1 }),
+      expect.objectContaining({ name: 'same.mp3', sessionId: 6, queueItemId: Q[1], total: 1 }),
     );
-    expect(getState('transfer.meta')?.index).toBeUndefined();
-    expect(getState('playlist.currentTrackIndex')).toBe(0);
+    expect(getState('playlist.currentQueueItemId')).toBe(Q[1]);
   });
 
   it('clears excessive out-of-order chunks and requests recovery without fast-forwarding counters', async () => {
@@ -703,7 +1026,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         mime: 'audio/mpeg',
         total: 1_000,
         size: 999 * CHUNK_SIZE + 1,
-        index: 0,
+        queueItemId: Q[0],
         sessionId: 9,
       },
       conn,
@@ -717,7 +1040,8 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         {
           type: 'file-chunk',
           chunk: u8(index % 256),
-          index,
+          chunkIndex: index,
+          queueItemId: Q[0],
           sessionId: 9,
           total: 1_000,
           size: 999 * CHUNK_SIZE + 1,
@@ -734,48 +1058,5 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       nextExpectedChunk: 0,
     });
     expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
-  });
-});
-
-describe('HTTP demo preload identity', () => {
-  it('publishes a fresh positive safe session for exact preload activation', async () => {
-    class FakeXMLHttpRequest {
-      status = 200;
-      response = new Blob([new Uint8Array([1])], { type: 'audio/mp4' });
-      responseType = '';
-      timeout = 0;
-      onload: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      ontimeout: (() => void) | null = null;
-      onprogress:
-        | ((event: { lengthComputable: boolean; loaded: number; total: number }) => void)
-        | null = null;
-      open(): void {}
-      send(): void {
-        this.onload?.();
-      }
-    }
-    vi.stubGlobal('XMLHttpRequest', FakeXMLHttpRequest);
-    try {
-      resetState();
-      bus.clear();
-      setState('network.connectionType', 'local');
-      setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
-      const usePreloaded = vi.fn();
-      bus.on('storage:use-preloaded', usePreloaded);
-      const { fetchDemoFromServer } = await import('../transfer-receive.ts');
-
-      await fetchDemoFromServer(0);
-
-      const meta = getState('preload.meta');
-      expect(meta?.sessionId).toSatisfy(
-        (sessionId: unknown) =>
-          typeof sessionId === 'number' && Number.isSafeInteger(sessionId) && sessionId > 0,
-      );
-      expect(getState('preload.nextTrackIndex')).toBe(0);
-      expect(usePreloaded).toHaveBeenCalledWith(0, expect.any(String), meta?.sessionId);
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 });

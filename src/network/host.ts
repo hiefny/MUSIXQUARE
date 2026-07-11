@@ -14,7 +14,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import type { DataConnection, DeviceInfo } from '../types/index.ts';
+import type { ConnectedPeer, DataConnection, DeviceInfo } from '../types/index.ts';
 import { broadcastSystemNotice, sendLatestPinnedNotice } from '../chat/protocol.ts';
 
 import {
@@ -164,7 +164,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   activeConns.set(peerId, conn);
   setState('network.activeHostConnByPeerId', activeConns);
 
-  const peerObj = {
+  const peerObj: ConnectedPeer = {
     id: peerId,
     slot,
     label: deviceName,
@@ -174,8 +174,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     isDataTarget: false,
     joinOrder: slot,
     lastHeartbeat: Date.now(),
-    preloadedIndexes: new Set<number>(),
-    connectionType: 'unknown' as 'local' | 'remote' | 'unknown',
+    preloadedQueueItemIds: new Set(),
+    connectionType: 'unknown',
   };
 
   // Re-check max guests before adding (guards against TOCTOU race with concurrent connections)
@@ -223,8 +223,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   setManagedTimer(
     openTimerName,
     () => {
+      if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
       const peers = getState('network.connectedPeers');
-      const stale = peers.find((p) => p.id === peerId && p.status === 'connecting');
+      const stale = peers.find(
+        (p) => p.id === peerId && p.conn === conn && p.status === 'connecting',
+      );
       if (!stale) return;
       log.warn(`[Host] Connection open timeout for ${deviceName} — cleaning up stale peer`);
       setState(
@@ -251,6 +254,15 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   );
 
   conn.on('open', () => {
+    if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
+      log.debug(`[Host] Ignored late open from replaced connection: ${peerId}`);
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
+      return;
+    }
     clearManagedTimer(openTimerName);
     // Immutable update: replace peer object with updated status/heartbeat
     const peers = getState('network.connectedPeers');
@@ -275,20 +287,26 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       /* noop */
     }
 
+    // Ordered authority phase: the queue baseline is the first application
+    // frame after WELCOME. All qid/media frames on the guest remain gated
+    // until this phase completes.
+    bus.emit('network:peer-bootstrap', conn);
+
     showToast(t('toast.device_connected', { name: deviceName }));
     broadcastRoomSystemMessage('chat.peer_connected', { name: deviceName });
 
     sendLatestPinnedNotice(conn);
 
-    // Emit event for other modules to send late-join bootstrap data
+    // Emit event for other modules to send late-join bootstrap data.
     bus.emit('network:peer-connected', conn);
 
     // Poll for up to 10 seconds while ICE stabilizes, then classify this guest
     // as local or remote.
     detectConnectionType(conn)
       .then((type) => {
+        if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
         const peers = getState('network.connectedPeers');
-        const livePeer = peers.find((p) => p.id === peerId);
+        const livePeer = peers.find((p) => p.id === peerId && p.conn === conn);
         if (livePeer) {
           // Immutable update: replace peer object with detected connection type
           setState(
@@ -312,11 +330,14 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
           setManagedTimer(
             'ice-fallback-' + peerId,
             async () => {
-              if (!conn.open) return;
+              if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn)
+                return;
               const recheck = await detectConnectionType(conn);
+              if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn)
+                return;
               if (recheck !== 'local') return;
               const ps = getState('network.connectedPeers');
-              const p = ps.find((x) => x.id === peerId);
+              const p = ps.find((x) => x.id === peerId && x.conn === conn);
               if (p && p.connectionType !== 'local') {
                 setState(
                   'network.connectedPeers',

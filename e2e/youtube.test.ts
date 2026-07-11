@@ -136,7 +136,7 @@ test.describe('YouTube Integration', () => {
     // Uploading while another track is active appends to the queue and warms
     // its preload; it does not implicitly interrupt the active YouTube item.
     const localTrack = pair.hostPage
-      .locator('#playlist-ui > .track-item')
+      .locator('#playlist-ui > .playlist-entry > .track-item')
       .filter({ hasText: 'test-01.mp3' });
     await expect(localTrack).toHaveCount(1);
     await expect(localTrack).toBeVisible();

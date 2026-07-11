@@ -34,6 +34,8 @@ import {
   setPlaybackYouTubePlaying,
 } from '../../player/ownership.ts';
 
+const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
 const transportMocks = vi.hoisted(() => ({
   play: vi.fn(),
 }));
@@ -162,7 +164,7 @@ describe('SYNC_PING playback snapshot', () => {
     initSync();
     setPlaybackFilePlaying();
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
-    setState('playlist.currentTrackIndex', 2);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 
     const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
     await handleData({ type: MSG.SYNC_PING, pingId: 7 }, conn);
@@ -175,7 +177,7 @@ describe('SYNC_PING playback snapshot', () => {
         mode: 'file',
         activity: 'paused',
         position: 0,
-        trackIndex: 2,
+        queueItemId: QUEUE_ITEM_ID,
       }),
     );
     expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
@@ -185,7 +187,7 @@ describe('SYNC_PING playback snapshot', () => {
     initSync();
     setPlaybackFilePlaying();
     setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
-    setState('playlist.currentTrackIndex', 3);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     expect(getSyncPongPlaybackState()).toMatchObject({
@@ -203,7 +205,7 @@ describe('SYNC_PING playback snapshot', () => {
         mode: 'file',
         activity: 'playing',
         position: 0,
-        trackIndex: 3,
+        queueItemId: QUEUE_ITEM_ID,
       }),
     );
     expect(conn.send.mock.calls[0][0]).not.toHaveProperty('appState');
@@ -313,6 +315,10 @@ describe('background resume recovery', () => {
 });
 
 describe('local-file sync correction', () => {
+  beforeEach(() => {
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+  });
+
   async function deliverPlayingFilePong(
     conn: DataConnection,
     pingId: number,
@@ -331,6 +337,7 @@ describe('local-file sync correction', () => {
         position: hostPositionSec,
         mode: 'file',
         activity: 'playing',
+        queueItemId: QUEUE_ITEM_ID,
       },
       conn,
     );
@@ -358,6 +365,7 @@ describe('local-file sync correction', () => {
         position: 9.96,
         mode: 'file',
         activity: 'playing',
+        queueItemId: QUEUE_ITEM_ID,
       },
       hostConn,
     );
@@ -390,6 +398,7 @@ describe('local-file sync correction', () => {
         position: 30,
         mode: 'file',
         activity: 'playing',
+        queueItemId: QUEUE_ITEM_ID,
       },
       hostConn,
     );
@@ -421,6 +430,7 @@ describe('local-file sync correction', () => {
         position: 30,
         mode: 'file',
         activity: 'playing',
+        queueItemId: QUEUE_ITEM_ID,
       },
       hostConn,
     );

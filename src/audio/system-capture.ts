@@ -32,7 +32,8 @@ import { broadcast } from '../network/peer.ts';
 import { broadcastSystemNotice, clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasSysAudioWarned, markSysAudioWarned } from '../ui/large-room-warnings.ts';
-import type { TrackMeta } from '../types/index.ts';
+import { getQueueItemById } from '../player/queue-model.ts';
+import type { QueueItemId, TrackMeta } from '../types/index.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ interface PreSystemAudioState {
   pausedAt: number;
   currentTrackMeta: TrackMeta | null;
   channelMode: number;
-  trackIndex: number;
+  queueItemId: QueueItemId | null;
   subIndex: number;
 }
 
@@ -180,15 +181,15 @@ export async function startSystemAudioCapture(): Promise<void> {
   }
 
   // 2. Save previous state
-  // Note: `playlist.currentTrackIndex` isn't captured — `stopAllMedia({silent:true})`
-  // below doesn't clobber it, so state is preserved in place and nothing to restore.
+  // Capture stable identity instead of an array position: the occurrence may
+  // move while system audio is active, while stopAllMedia preserves its ID.
   const playback = getPlaybackModeActivitySnapshot();
   _preSysAudioState = {
     playback,
     pausedAt: getState('player.pausedAt'),
     currentTrackMeta: getState('player.currentTrackMeta'),
     channelMode: getState('audio.channelMode'),
-    trackIndex: getState('playlist.currentTrackIndex'),
+    queueItemId: getState('playlist.currentQueueItemId'),
     subIndex: getState('youtube.currentSubIndex'),
   };
 
@@ -357,16 +358,16 @@ export function restorePreSystemAudioPlaybackState(snapshot: PreSystemAudioState
   // YouTube was playing: restore through the room-wide YouTube command path.
   if (snapshot.playback.mode === 'youtube') {
     const meta = snapshot.currentTrackMeta;
-    const playlist = getState('playlist.items') || [];
-    const item = snapshot.trackIndex >= 0 ? playlist[snapshot.trackIndex] : undefined;
+    const queueItemId = snapshot.queueItemId ?? meta?.queueItemId ?? null;
+    const item = getQueueItemById(queueItemId);
     const videoId = meta?.videoId || item?.videoId || null;
     const playlistId = meta?.playlistId || item?.playlistId || null;
-    if (videoId || playlistId) {
+    if (queueItemId && (videoId || playlistId)) {
       bus.emit('youtube:restore-room-playback', {
         videoId,
         playlistId,
         name: meta?.name || meta?.title || item?.name || item?.title || null,
-        index: snapshot.trackIndex,
+        queueItemId,
         autoplay: true,
         subIndex: snapshot.subIndex,
       });

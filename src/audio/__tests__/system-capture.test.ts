@@ -9,6 +9,7 @@ import { setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
 import { restorePreSystemAudioPlaybackState } from '../system-capture.ts';
 
 type Snapshot = Parameters<typeof restorePreSystemAudioPlaybackState>[0];
+const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
 function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
   const { playback: playbackOverride, ...rest } = overrides;
@@ -16,7 +17,7 @@ function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     pausedAt: 0,
     currentTrackMeta: null,
     channelMode: 0,
-    trackIndex: -1,
+    queueItemId: null,
     subIndex: 0,
     ...rest,
     playback: {
@@ -38,6 +39,7 @@ function fileMeta(name = 'song.mp3'): TrackMeta {
 
 function youtubeMeta(): TrackMeta {
   return {
+    queueItemId: YOUTUBE_QUEUE_ITEM_ID,
     type: 'youtube',
     name: 'Video',
     title: 'Video',
@@ -89,7 +91,7 @@ describe('restorePreSystemAudioPlaybackState', () => {
       makeSnapshot({
         playback: { mode: 'youtube', activity: 'playing' },
         currentTrackMeta: meta,
-        trackIndex: 2,
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
         subIndex: 4,
       }),
     );
@@ -99,7 +101,7 @@ describe('restorePreSystemAudioPlaybackState', () => {
       videoId: 'video-1',
       playlistId: null,
       name: 'Video',
-      index: 2,
+      queueItemId: YOUTUBE_QUEUE_ITEM_ID,
       autoplay: true,
       subIndex: 4,
     });

@@ -1966,7 +1966,7 @@
     opacity: 0.98;
     background: var(--surface-2);
     border: 1px solid transparent;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
     transform: translateZ(0) scale(1.015);
     will-change: transform;
   }

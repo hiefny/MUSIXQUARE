@@ -15,6 +15,8 @@ const EDGE_ZONE_MIN_PX = 40;
 const EDGE_SCROLL_MAX_PX = 18;
 const REORDER_REFLOW_MS = 220;
 const REORDER_DROP_MS = 180;
+const REORDER_HANDOFF_DELAY_MS = REORDER_DROP_MS;
+const REORDER_HANDOFF_MS = 90;
 const REORDER_MOTION_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
 type DragInput = 'handle' | 'long-press';
@@ -63,6 +65,7 @@ interface ScopedClickSuppression {
 
 interface SettlingState {
   ghost: HTMLElement | null;
+  sourceEntry: HTMLElement | null;
   frame: number | null;
   timer: number | null;
   didRequestCommit: boolean;
@@ -246,10 +249,12 @@ export function createPlaylistReorderController(
   function animateEntriesFromCleanLayout(
     firstRects: Map<HTMLElement, EntryRect>,
     duration = REORDER_REFLOW_MS,
+    excludedEntry: HTMLElement | null = null,
   ): void {
     if (duration <= 0 || prefersReducedMotion()) return;
 
     for (const entry of entries()) {
+      if (entry === excludedEntry) continue;
       const first = firstRects.get(entry);
       if (!first) continue;
       const last = entry.getBoundingClientRect();
@@ -311,12 +316,16 @@ export function createPlaylistReorderController(
     animateEntriesFromCleanLayout(firstRects);
   }
 
-  function settleEntriesToLayout(sourceEntry: HTMLElement): DOMRect {
+  function settleEntriesToLayout(sourceEntry: HTMLElement, excludeSource = false): DOMRect {
     const firstRects = captureEntryRects();
     clearAllEntryMotion();
     const row = sourceEntry.querySelector<HTMLElement>(ROW_SELECTOR) ?? sourceEntry;
     const targetRect = row.getBoundingClientRect();
-    animateEntriesFromCleanLayout(firstRects);
+    animateEntriesFromCleanLayout(
+      firstRects,
+      REORDER_REFLOW_MS,
+      excludeSource ? sourceEntry : null,
+    );
     return targetRect;
   }
 
@@ -557,7 +566,11 @@ export function createPlaylistReorderController(
   }
 
   function clearSourceState(sourceEntry: HTMLElement | null): void {
-    sourceEntry?.classList.remove('is-reorder-source');
+    sourceEntry?.classList.remove(
+      'is-reorder-source',
+      'is-reorder-settling-source',
+      'is-reorder-handoff',
+    );
     sourceEntry?.querySelector<HTMLElement>(HANDLE_SELECTOR)?.setAttribute('aria-grabbed', 'false');
   }
 
@@ -568,6 +581,7 @@ export function createPlaylistReorderController(
     if (state.frame !== null) window.cancelAnimationFrame(state.frame);
     if (state.timer !== null) window.clearTimeout(state.timer);
     state.ghost?.remove();
+    clearSourceState(state.sourceEntry);
     if (notify && !destroyed) options.onInteractionEnd?.(state.didRequestCommit);
   }
 
@@ -575,38 +589,71 @@ export function createPlaylistReorderController(
     ghost: HTMLElement | null,
     targetRect: DOMRect | null,
     didRequestCommit: boolean,
+    sourceEntry: HTMLElement | null = null,
+    releaseRect: DOMRect | null = null,
   ): void {
     finishSettling(false);
     const state: SettlingState = {
       ghost,
+      sourceEntry,
       frame: null,
       timer: null,
       didRequestCommit,
     };
     settling = state;
 
-    if (ghost && targetRect) {
+    const reducedMotion = prefersReducedMotion();
+    const settleMs =
+      Math.max(REORDER_REFLOW_MS, REORDER_DROP_MS, REORDER_HANDOFF_DELAY_MS + REORDER_HANDOFF_MS) +
+      32;
+    const scheduleFinish = (delay: number): void => {
+      state.timer = window.setTimeout(() => {
+        if (settling === state) finishSettling();
+      }, delay);
+    };
+
+    if (reducedMotion) {
+      state.ghost?.remove();
+      state.ghost = null;
+      clearSourceState(state.sourceEntry);
+      state.sourceEntry = null;
+      // Keep the settle state through the current task so onCommit always runs
+      // before onInteractionEnd, even when motion is disabled.
+      scheduleFinish(0);
+      return;
+    }
+
+    if (ghost && targetRect && releaseRect) {
+      // WebKit can commit a transform reset before a simultaneous top/left
+      // transition, briefly exposing the drag origin. Freeze the exact release
+      // box, establish it as a rendered baseline, then let one transform own
+      // the entire trip to the destination.
+      const targetX = targetRect.left - releaseRect.left;
+      const targetY = targetRect.top - releaseRect.top;
+      ghost.style.transition = 'none';
+      ghost.style.transformOrigin = '0 0';
+      ghost.style.left = `${releaseRect.left}px`;
+      ghost.style.top = `${releaseRect.top}px`;
+      ghost.style.transform = 'translate3d(0px, 0px, 0px) scale(1.015)';
       ghost.classList.remove('playlist-reorder-ghost');
       ghost.classList.add('playlist-reorder-settle');
-      // Keep the live drag's current top/transform as the first frame. The
-      // settle class only adds transitions; the next frame supplies the slot
-      // geometry, so there is no scale/position reset at pointer release.
       void ghost.offsetWidth;
       state.frame = window.requestAnimationFrame(() => {
         if (settling !== state) return;
-        state.frame = null;
-        ghost.style.left = `${targetRect.left}px`;
-        ghost.style.top = `${targetRect.top}px`;
-        ghost.style.width = `${targetRect.width}px`;
-        ghost.style.opacity = '0';
-        ghost.style.transform = 'translateZ(0) scale(1)';
+        ghost.style.removeProperty('transition');
+        state.frame = window.requestAnimationFrame(() => {
+          if (settling !== state) return;
+          state.frame = null;
+          ghost.style.opacity = '0';
+          ghost.style.transform = `translate3d(${targetX}px, ${targetY}px, 0px) scale(1)`;
+          sourceEntry?.classList.add('is-reorder-handoff');
+          scheduleFinish(settleMs);
+        });
       });
+      return;
     }
 
-    const settleMs = prefersReducedMotion() ? 0 : Math.max(REORDER_REFLOW_MS, REORDER_DROP_MS) + 32;
-    state.timer = window.setTimeout(() => {
-      if (settling === state) finishSettling();
-    }, settleMs);
+    scheduleFinish(settleMs);
   }
 
   function cleanupDrag(preserveGhost = false): HTMLElement | null {
@@ -615,7 +662,13 @@ export function createPlaylistReorderController(
     const ghost = drag.ghost;
     if (!preserveGhost) ghost.remove();
     drag = null;
-    clearSourceState(sourceEntry);
+    if (preserveGhost) {
+      sourceEntry
+        .querySelector<HTMLElement>(HANDLE_SELECTOR)
+        ?.setAttribute('aria-grabbed', 'false');
+    } else {
+      clearSourceState(sourceEntry);
+    }
     stopAutoScroll();
     list.classList.remove('is-reordering');
     scrollContainer.classList.remove('is-playlist-reordering');
@@ -630,15 +683,18 @@ export function createPlaylistReorderController(
     const beforeId = state.beforeId;
     const changed = beforeId !== state.originalBeforeId;
     const shouldCommit = commit && changed && options.canReorder();
+    stopAutoScroll();
+    const releaseRect = state.ghost.getBoundingClientRect();
     if (!shouldCommit && changed) {
       moveSourcePreview(state.sourceEntry, state.originalBeforeId);
       state.beforeId = state.originalBeforeId;
     }
-    const targetRect = settleEntriesToLayout(state.sourceEntry);
+    state.sourceEntry.classList.add('is-reorder-settling-source');
+    const targetRect = settleEntriesToLayout(state.sourceEntry, true);
     const ghost = cleanupDrag(true);
     touchProbe = null;
     suppressClicksUntil = performance.now() + CLICK_SUPPRESSION_MS;
-    beginSettling(ghost, targetRect, shouldCommit);
+    beginSettling(ghost, targetRect, shouldCommit, state.sourceEntry, releaseRect);
     if (shouldCommit) {
       pendingFocusId = sourceId;
       options.onCommit(sourceId, beforeId);

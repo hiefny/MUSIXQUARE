@@ -1943,6 +1943,20 @@
     opacity: 0.28;
   }
 
+  .playlist-entry.is-reorder-source.is-reorder-settling-source > .track-item,
+  .playlist-entry.is-reorder-source.is-reorder-settling-source > .sub-playlist {
+    opacity: 0;
+    transition: none;
+  }
+
+  .playlist-entry.is-reorder-source.is-reorder-settling-source.is-reorder-handoff
+    > .track-item,
+  .playlist-entry.is-reorder-source.is-reorder-settling-source.is-reorder-handoff
+    > .sub-playlist {
+    opacity: 1;
+    transition: opacity 0.09s ease-out 0.18s;
+  }
+
   .playlist-reorder-ghost,
   .playlist-reorder-settle {
     position: fixed !important;
@@ -1959,12 +1973,9 @@
 
   .playlist-reorder-settle {
     transition:
-      top 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
-      left 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
-      width 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 0.15s ease-out,
+      opacity 0.09s ease-out 0.18s,
       transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
-    will-change: top, left, width, opacity, transform;
+    will-change: opacity, transform;
   }
 
   :is(.playlist-reorder-ghost, .playlist-reorder-settle) .track-idx {

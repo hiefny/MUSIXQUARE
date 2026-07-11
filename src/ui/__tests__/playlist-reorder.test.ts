@@ -14,14 +14,18 @@ const IDS = {
 } as const;
 
 function domRect(top: number, height = 48): DOMRect {
+  return domRectAt(0, top, 300, height);
+}
+
+function domRectAt(left: number, top: number, width = 300, height = 48): DOMRect {
   return {
-    x: 0,
+    x: left,
     y: top,
     top,
     bottom: top + height,
-    left: 0,
-    right: 300,
-    width: 300,
+    left,
+    right: left + width,
+    width,
     height,
     toJSON: () => ({}),
   } as DOMRect;
@@ -131,6 +135,7 @@ describe('playlist reorder interaction controller', () => {
 
   function create(canReorder = true, initiallyVisible = true) {
     const commit = vi.fn();
+    const interactionEnd = vi.fn();
     let visible = initiallyVisible;
     const { list, scroller, rows } = setupList();
     const controller = createPlaylistReorderController({
@@ -138,6 +143,7 @@ describe('playlist reorder interaction controller', () => {
       canReorder: () => canReorder,
       isPlaylistVisible: () => visible,
       onCommit: commit,
+      onInteractionEnd: interactionEnd,
       getAnnouncement: (id, position, total) => `${id}:${position}/${total}`,
       getHandleLabel: (id, position) => `${id}:position-${position}`,
     });
@@ -145,6 +151,7 @@ describe('playlist reorder interaction controller', () => {
     return {
       controller,
       commit,
+      interactionEnd,
       list,
       scroller,
       rows,
@@ -184,9 +191,117 @@ describe('playlist reorder interaction controller', () => {
     expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
     expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
     expect(controller.isSettling).toBe(true);
-    vi.advanceTimersByTime(300);
+    vi.advanceTimersByTime(400);
     expect(document.querySelector('.playlist-reorder-settle')).toBeNull();
     expect(controller.isSettling).toBe(false);
+  });
+
+  it('settles from the exact release box with transform-only motion and a source handoff', () => {
+    const { commit, controller, interactionEnd, list, rows } = create();
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    const sourceEntry = handle.closest<HTMLElement>('.playlist-entry')!;
+
+    dispatchPointer(handle, 'pointerdown', 20);
+    dispatchPointer(handle, 'pointermove', 190);
+    const ghost = document.querySelector<HTMLElement>('.playlist-reorder-ghost')!;
+    const releaseRect = domRectAt(37.25, 143.5, 304.5, 48.75);
+    ghost.getBoundingClientRect = vi.fn(() => releaseRect);
+    rows[0].getBoundingClientRect = () => domRectAt(12.5, 112.25, 300, 48);
+
+    dispatchPointer(handle, 'pointerup', 190);
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(ghost.classList.contains('playlist-reorder-ghost')).toBe(false);
+    expect(ghost.classList.contains('playlist-reorder-settle')).toBe(true);
+    expect(ghost.style.left).toBe('37.25px');
+    expect(ghost.style.top).toBe('143.5px');
+    expect(ghost.style.transformOrigin).toBe('0 0');
+    expect(ghost.style.transform).toBe('translate3d(0px, 0px, 0px) scale(1.015)');
+    expect(sourceEntry.classList.contains('is-reorder-source')).toBe(true);
+    expect(sourceEntry.classList.contains('is-reorder-settling-source')).toBe(true);
+    expect(sourceEntry.classList.contains('is-reorder-handoff')).toBe(false);
+    expect(handle.getAttribute('aria-grabbed')).toBe('false');
+    expect(interactionEnd).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(16);
+    expect(ghost.style.left).toBe('37.25px');
+    expect(ghost.style.top).toBe('143.5px');
+    expect(ghost.style.transform).toBe('translate3d(0px, 0px, 0px) scale(1.015)');
+    expect(sourceEntry.classList.contains('is-reorder-handoff')).toBe(false);
+
+    vi.advanceTimersByTime(16);
+    expect(ghost.style.left).toBe('37.25px');
+    expect(ghost.style.top).toBe('143.5px');
+    expect(ghost.style.transform).toBe('translate3d(-24.75px, -31.25px, 0px) scale(1)');
+    expect(ghost.style.opacity).toBe('0');
+    expect(sourceEntry.classList.contains('is-reorder-handoff')).toBe(true);
+    expect(controller.isSettling).toBe(true);
+
+    vi.advanceTimersByTime(301);
+    expect(ghost.isConnected).toBe(true);
+    expect(sourceEntry.classList.contains('is-reorder-settling-source')).toBe(true);
+    expect(interactionEnd).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(ghost.isConnected).toBe(false);
+    expect(sourceEntry.classList.contains('is-reorder-source')).toBe(false);
+    expect(sourceEntry.classList.contains('is-reorder-settling-source')).toBe(false);
+    expect(sourceEntry.classList.contains('is-reorder-handoff')).toBe(false);
+    expect(controller.isSettling).toBe(false);
+    expect(interactionEnd).toHaveBeenCalledOnce();
+    expect(interactionEnd).toHaveBeenCalledWith(true);
+  });
+
+  it('finishes reduced-motion settling after commit without leaking visual state', () => {
+    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    const order: string[] = [];
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query === '(prefers-reduced-motion: reduce)',
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    try {
+      const { commit, controller, interactionEnd, list } = create();
+      commit.mockImplementation(() => order.push('commit'));
+      interactionEnd.mockImplementation(() => order.push('end'));
+      const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+      const sourceEntry = handle.closest<HTMLElement>('.playlist-entry')!;
+
+      dispatchPointer(handle, 'pointerdown', 20);
+      dispatchPointer(handle, 'pointermove', 190);
+      dispatchPointer(handle, 'pointerup', 190);
+
+      expect(order).toEqual(['commit']);
+      expect(controller.isSettling).toBe(true);
+      expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+      expect(document.querySelector('.playlist-reorder-settle')).toBeNull();
+      expect(sourceEntry.classList.contains('is-reorder-source')).toBe(false);
+      expect(sourceEntry.classList.contains('is-reorder-settling-source')).toBe(false);
+      expect(sourceEntry.classList.contains('is-reorder-handoff')).toBe(false);
+
+      vi.advanceTimersByTime(0);
+      expect(order).toEqual(['commit', 'end']);
+      expect(controller.isSettling).toBe(false);
+
+      vi.advanceTimersByTime(1_000);
+      expect(order).toEqual(['commit', 'end']);
+      expect(document.querySelector('.playlist-reorder-settle')).toBeNull();
+    } finally {
+      if (originalMatchMedia) {
+        Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+      } else {
+        Reflect.deleteProperty(window, 'matchMedia');
+      }
+    }
   });
 
   it('cancels pointer drag without committing', () => {

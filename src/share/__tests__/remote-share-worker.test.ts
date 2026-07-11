@@ -17,18 +17,20 @@ const CLIENT_IP = '203.0.113.7';
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
 interface R2CorsRule {
-  AllowedOrigins: string[];
-  AllowedMethods: string[];
-  AllowedHeaders: string[];
+  allowed: {
+    origins: string[];
+    methods: string[];
+    headers: string[];
+  };
 }
 
-const r2CorsRules = JSON.parse(
+const r2CorsPolicy = JSON.parse(
   await readFile(new URL('../../../cloudflare/r2-cors.remote-share.json', import.meta.url), 'utf8'),
-) as R2CorsRule[];
+) as { rules: R2CorsRule[] };
 
 function directPutCorsRule(): R2CorsRule | undefined {
-  return r2CorsRules.find((rule) =>
-    rule.AllowedMethods.some((method) => method.toUpperCase() === 'PUT'),
+  return r2CorsPolicy.rules.find((rule) =>
+    rule.allowed.methods.some((method) => method.toUpperCase() === 'PUT'),
   );
 }
 
@@ -193,7 +195,7 @@ describe('remote-share Worker capability gate', () => {
     ] as const;
 
     for (const [corsOrigin, requestOrigin] of originContract) {
-      expect(corsRule!.AllowedOrigins).toContain(corsOrigin);
+      expect(corsRule!.allowed.origins).toContain(corsOrigin);
 
       const response = await workerModule.default.fetch(
         new Request('https://share.musixquare.com/session', {
@@ -322,7 +324,7 @@ describe('remote-share Worker capability gate', () => {
     const corsRule = directPutCorsRule();
     expect(corsRule).toBeDefined();
     const corsAllowedHeaders = new Set(
-      corsRule!.AllowedHeaders.map((header) => header.toLowerCase()),
+      corsRule!.allowed.headers.map((header) => header.toLowerCase()),
     );
     for (const header of uploadHeaderNames) expect(corsAllowedHeaders.has(header)).toBe(true);
 

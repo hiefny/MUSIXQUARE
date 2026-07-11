@@ -1,32 +1,37 @@
-[
-  {
-    "AllowedOrigins": [
-      "https://musixquare.com",
-      "https://www.musixquare.com",
-      "https://tossmini.com",
-      "https://*.tossmini.com",
-      "https://toss.im",
-      "https://*.toss.im",
-      "https://toss-internal.com",
-      "https://*.toss-internal.com",
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "http://localhost:5173",
-      "http://127.0.0.1:5173"
-    ],
-    "AllowedMethods": ["PUT"],
-    "AllowedHeaders": [
-      "content-type",
-      "x-amz-meta-cleanup-token",
-      "x-amz-meta-encrypted-size",
-      "x-amz-meta-expires-at",
-      "x-amz-meta-mime",
-      "x-amz-meta-name",
-      "x-amz-meta-object-id",
-      "x-amz-meta-room-id",
-      "x-amz-meta-size-bytes"
-    ],
-    "ExposeHeaders": ["etag"],
-    "MaxAgeSeconds": 3600
-  }
-]
+{
+  "rules": [
+    {
+      "id": "remote-share-direct-put",
+      "allowed": {
+        "origins": [
+          "https://musixquare.com",
+          "https://www.musixquare.com",
+          "https://tossmini.com",
+          "https://*.tossmini.com",
+          "https://toss.im",
+          "https://*.toss.im",
+          "https://toss-internal.com",
+          "https://*.toss-internal.com",
+          "http://localhost:3000",
+          "http://127.0.0.1:3000",
+          "http://localhost:5173",
+          "http://127.0.0.1:5173"
+        ],
+        "methods": ["PUT"],
+        "headers": [
+          "content-type",
+          "x-amz-meta-cleanup-token",
+          "x-amz-meta-encrypted-size",
+          "x-amz-meta-expires-at",
+          "x-amz-meta-mime",
+          "x-amz-meta-name",
+          "x-amz-meta-object-id",
+          "x-amz-meta-room-id",
+          "x-amz-meta-size-bytes"
+        ]
+      },
+      "exposeHeaders": ["etag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

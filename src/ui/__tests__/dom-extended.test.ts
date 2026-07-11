@@ -93,10 +93,41 @@ describe('copyTextToClipboard', () => {
 
   it('uses fallback textarea when clipboard API not available', async () => {
     Object.assign(navigator, { clipboard: undefined });
-    // jsdom does not provide a reliable execCommand result; this case verifies
-    // that the fallback remains safe and preserves its boolean contract.
+    const execCommand = vi.fn(() => {
+      expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('test');
+      return true;
+    });
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+
     const result = await copyTextToClipboard('test');
-    expect(typeof result).toBe('boolean');
+
+    expect(result).toBe(true);
+    expect(execCommand).toHaveBeenCalledWith('copy');
+    expect(document.querySelector('textarea')).toBeNull();
+  });
+
+  it('falls back when the async clipboard API rejects', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('permission denied'));
+    Object.assign(navigator, { clipboard: { writeText } });
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+
+    await expect(copyTextToClipboard('fallback')).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith('fallback');
+    expect(execCommand).toHaveBeenCalledWith('copy');
+  });
+
+  it('removes the fallback textarea even when execCommand throws', async () => {
+    Object.assign(navigator, { clipboard: undefined });
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn(() => {
+        throw new Error('copy blocked');
+      }),
+    });
+
+    await expect(copyTextToClipboard('blocked')).resolves.toBe(false);
+    expect(document.querySelector('textarea')).toBeNull();
   });
 });
 

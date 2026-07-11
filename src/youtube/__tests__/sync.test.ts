@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { MSG } from '../../core/constants.ts';
+import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
+import type { YouTubePlayerInstance } from '../_state.ts';
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -23,11 +26,13 @@ vi.mock('../search.ts', () => ({
   fetchPlaylistSubTitles: vi.fn(),
 }));
 
-vi.mock('../_state.ts', () => ({
-  getYouTubePlayer: vi.fn(() => null),
-}));
+vi.mock('../_state.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../_state.ts')>();
+  return { ...actual, getYouTubePlayer: vi.fn(() => null) };
+});
 
 beforeEach(() => {
+  vi.clearAllMocks();
   resetState();
   bus.clear();
 });
@@ -35,6 +40,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+type SyncHandler = (data: Record<string, unknown>, conn?: DataConnection) => void;
 
 describe('YouTube Sync', () => {
   describe('broadcastYouTubeSync()', () => {
@@ -48,10 +55,10 @@ describe('YouTube Sync', () => {
 
     it('does nothing if hostConn is set (guest mode)', async () => {
       const playerMod = await import('../_state.ts');
-      (playerMod.getYouTubePlayer as ReturnType<typeof vi.fn>).mockReturnValue({
+      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue({
         getCurrentTime: () => 10,
         getPlayerState: () => 1,
-      });
+      } as YouTubePlayerInstance);
       setState('network.hostConn', { open: true } as DataConnection);
 
       const { broadcastYouTubeSync } = await import('../sync.ts');
@@ -63,10 +70,10 @@ describe('YouTube Sync', () => {
 
     it('broadcasts sync data when host with player', async () => {
       const playerMod = await import('../_state.ts');
-      (playerMod.getYouTubePlayer as ReturnType<typeof vi.fn>).mockReturnValue({
+      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue({
         getCurrentTime: () => 42.5,
         getPlayerState: () => 1,
-      });
+      } as YouTubePlayerInstance);
       setState('network.hostConn', null);
 
       const { broadcastYouTubeSync } = await import('../sync.ts');
@@ -82,119 +89,77 @@ describe('YouTube Sync', () => {
     });
   });
 
-  describe('Ad Detection Logic', () => {
-    it('resets all ad detection state', async () => {
-      const { resetAdDetection } = await import('../sync.ts');
-      resetAdDetection();
-    });
-  });
+  describe('production guest correction', () => {
+    async function registerGuestHandler(player: YouTubePlayerInstance): Promise<SyncHandler> {
+      const stateMod = await import('../_state.ts');
+      vi.mocked(stateMod.getYouTubePlayer).mockReturnValue(player);
+      setPlaybackYouTubePlaying();
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      setState('network.hostConn', hostConn);
 
-  describe('Ad Detection — stale time threshold', () => {
-    // Boundary table for the production stale-frame threshold state machine.
-    const HOST_AD_STALE_THRESHOLD = 3;
+      const { initYouTubeSync } = await import('../sync.ts');
+      const { registerHandlers } = await import('../../network/protocol.ts');
+      initYouTubeSync();
+      const handlers = vi.mocked(registerHandlers).mock.calls.at(-1)?.[0] as
+        | Record<string, SyncHandler>
+        | undefined;
+      const handler = handlers?.[MSG.YOUTUBE_SYNC];
+      expect(handler).toBeTypeOf('function');
+      return (data, conn = hostConn) => handler?.(data, conn);
+    }
 
-    function simulateAdDetection(
-      hostTimes: number[],
-      hostStates: number[],
-    ): { staleCount: number; adActive: boolean } {
-      let lastTime: number | null = null;
-      let staleCount = 0;
-      let adActive = false;
+    function makePlayer(currentTime = 10): YouTubePlayerInstance {
+      return {
+        getCurrentTime: vi.fn(() => currentTime),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 1),
+        getVideoData: vi.fn(() => ({ video_id: 'same-video', title: 'Same Video' })),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+        seekTo: vi.fn(),
+      } as YouTubePlayerInstance;
+    }
 
-      for (let i = 0; i < hostTimes.length; i++) {
-        const hostTime = hostTimes[i];
-        const hostState = hostStates[i];
+    it('pauses after the production stale-frame threshold and resumes on movement', async () => {
+      const player = makePlayer();
+      const handler = await registerGuestHandler(player);
 
-        if (hostState === 1) {
-          if (lastTime !== null && Math.abs(hostTime - lastTime) < 1.0) {
-            staleCount++;
-            if (staleCount >= HOST_AD_STALE_THRESHOLD) {
-              adActive = true;
-            }
-          } else {
-            if (adActive) adActive = false;
-            staleCount = 0;
-          }
-          lastTime = hostTime;
-        } else {
-          staleCount = 0;
-          lastTime = null;
-          adActive = false;
-        }
+      for (let i = 0; i < 4; i++) {
+        handler({ time: 10, state: 1, videoId: 'same-video' });
       }
+      expect(player.pauseVideo).toHaveBeenCalledOnce();
 
-      return { staleCount, adActive };
-    }
-
-    it('detects ad after 3 stale frames', () => {
-      const result = simulateAdDetection([10.0, 10.0, 10.0, 10.0], [1, 1, 1, 1]);
-      expect(result.adActive).toBe(true);
-      expect(result.staleCount).toBe(3);
+      handler({ time: 12, state: 1, videoId: 'same-video' });
+      expect(player.playVideo).toHaveBeenCalledOnce();
     });
 
-    it('does NOT detect ad with only 2 stale frames', () => {
-      const result = simulateAdDetection([10.0, 10.0, 10.0], [1, 1, 1]);
-      expect(result.staleCount).toBe(2);
-      expect(result.adActive).toBe(false);
+    it('resetAdDetection clears an active stale-frame run', async () => {
+      const player = makePlayer();
+      const handler = await registerGuestHandler(player);
+      const { resetAdDetection } = await import('../sync.ts');
+
+      for (let i = 0; i < 4; i++) {
+        handler({ time: 10, state: 1, videoId: 'same-video' });
+      }
+      expect(player.pauseVideo).toHaveBeenCalledOnce();
+
+      resetAdDetection();
+      handler({ time: 10, state: 1, videoId: 'same-video' });
+      expect(player.pauseVideo).toHaveBeenCalledOnce();
     });
 
-    it('resets when time moves again', () => {
-      const result = simulateAdDetection([10.0, 10.0, 10.0, 10.0, 15.0], [1, 1, 1, 1, 1]);
-      expect(result.adActive).toBe(false);
-      expect(result.staleCount).toBe(0);
-    });
+    it('uses the production drift threshold and manual offset', async () => {
+      const player = makePlayer(10);
+      const handler = await registerGuestHandler(player);
+      const { DRIFT_SEEK_THRESHOLD_SEC } = await import('../constants.ts');
+      const boundary = 10 + DRIFT_SEEK_THRESHOLD_SEC;
 
-    it('resets when host explicitly pauses', () => {
-      const result = simulateAdDetection(
-        [10.0, 10.0, 10.0],
-        [1, 1, 2], // explicit pause resets the stale-frame detector
-      );
-      expect(result.adActive).toBe(false);
-      expect(result.staleCount).toBe(0);
-    });
+      handler({ time: boundary, state: 1, videoId: 'same-video' });
+      expect(player.seekTo).not.toHaveBeenCalled();
 
-    it('accepts time movement > 1.0s as non-stale', () => {
-      const result = simulateAdDetection([10.0, 11.1, 12.2], [1, 1, 1]);
-      expect(result.staleCount).toBe(0);
-      expect(result.adActive).toBe(false);
-    });
-
-    it('treats time movement < 1.0s as stale', () => {
-      const result = simulateAdDetection([10.0, 10.5, 10.9], [1, 1, 1]);
-      expect(result.staleCount).toBe(2);
-    });
-  });
-
-  describe('Drift Correction Logic', () => {
-    function shouldSeek(
-      currentTime: number,
-      hostTime: number,
-      autoOffset: number,
-      localOffset: number,
-    ): boolean {
-      const compensated = hostTime + autoOffset + localOffset;
-      const drift = Math.abs(currentTime - compensated);
-      return drift > 2;
-    }
-
-    it('seeks when drift > 2s', () => {
-      expect(shouldSeek(10, 15, 0, 0)).toBe(true);
-    });
-
-    it('does NOT seek when drift <= 2s', () => {
-      expect(shouldSeek(10, 11, 0, 0)).toBe(false);
-    });
-
-    it('does NOT seek when drift is exactly 2s', () => {
-      expect(shouldSeek(10, 12, 0, 0)).toBe(false);
-    });
-
-    it('accounts for sync offsets', () => {
-      expect(shouldSeek(10, 10, 3, 1)).toBe(true);
-    });
-
-    it('no seek with compensating offsets', () => {
-      expect(shouldSeek(10, 10, -1, 0)).toBe(false);
+      setState('sync.youtubeLocalOffset', 0.01);
+      handler({ time: boundary, state: 1, videoId: 'same-video' });
+      expect(player.seekTo).toHaveBeenCalledWith(boundary + 0.01, true);
     });
   });
 
@@ -206,7 +171,7 @@ describe('YouTube Sync', () => {
       initYouTubeSync();
       expect(registerHandlers).toHaveBeenCalled();
 
-      const handlerMap = (registerHandlers as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const handlerMap = vi.mocked(registerHandlers).mock.calls[0][0];
       expect(Object.keys(handlerMap).length).toBeGreaterThanOrEqual(4);
     });
   });

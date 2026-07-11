@@ -531,8 +531,6 @@ const pl: Record<I18nKey, string> = {
   'error.load_failed': 'Wczytywanie nie powiodło się: {{msg}}',
   'error.audio_decode_fail': 'Dekodowanie audio nie powiodło się!',
   'error.audio_memory': 'Wczytywanie dźwięku do pamięci...',
-  'error.decode_timeout':
-    'Dekodowanie „{{name}}” trwa zbyt długo.\nPrzejście do kolejnego utworu...',
   'error.local_decode_wait':
     'To urządzenie nie mogło zdekodować utworu.\nOczekiwanie na kolejny utwór.',
   'error.all_tracks_failed': 'Brak odtwarzalnych utworów na playliście.',

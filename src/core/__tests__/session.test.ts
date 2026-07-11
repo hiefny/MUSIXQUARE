@@ -54,8 +54,8 @@ describe('Session', () => {
       expect(validateSessionId('abc')).toBe(0);
     });
 
-    it('truncates floating point to integer', () => {
-      expect(validateSessionId(42.7)).toBe(42);
+    it('rejects fractional session IDs instead of aliasing them to an integer', () => {
+      expect(validateSessionId(42.7)).toBe(0);
     });
 
     it('throws in strict mode for invalid IDs', () => {

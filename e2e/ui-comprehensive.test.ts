@@ -13,7 +13,11 @@
  * - Mobile vs desktop layout
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
   isVisible,
@@ -25,6 +29,12 @@ import {
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
+
+const MOBILE_VIEWPORT = { width: 390, height: 844 };
+
+async function useMobileHostViewport(): Promise<void> {
+  await pair.hostPage.setViewportSize(MOBILE_VIEWPORT);
+}
 
 test.describe('Comprehensive UI', () => {
   test.beforeEach(async ({ browser }) => {
@@ -43,29 +53,24 @@ test.describe('Comprehensive UI', () => {
     const tabs = ['play', 'connect', 'settings'];
     for (const tab of tabs) {
       const navItem = pair.hostPage.locator(`.nav-item[data-tab="${tab}"]`);
-      if (await navItem.isVisible()) {
-        await navigateToTab(pair.hostPage, tab);
+      await navigateToTab(pair.hostPage, tab);
 
-        const panel = pair.hostPage.locator(`#tab-${tab}`);
-        const isActive = await panel.evaluate(el => el.classList.contains('active'));
-        expect(isActive).toBe(true);
-      }
+      const panel = pair.hostPage.locator(`#tab-${tab}`);
+      await expect(panel).toHaveClass(/active/);
+      await expect(navItem).toHaveAttribute('aria-selected', 'true');
+      await expect(navItem).toHaveAttribute('tabindex', '0');
     }
   });
 
   test('tab content changes when switching tabs', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const settingsNav = pair.hostPage.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await navigateToTab(pair.hostPage, 'settings');
+    await navigateToTab(pair.hostPage, 'settings');
 
-      const playActive = await pair.hostPage.locator('#tab-play').evaluate(el => el.classList.contains('active'));
-      const settingsActive = await pair.hostPage.locator('#tab-settings').evaluate(el => el.classList.contains('active'));
-
-      expect(playActive).toBe(false);
-      expect(settingsActive).toBe(true);
-    }
+    await expect(pair.hostPage.locator('#tab-play')).not.toHaveClass(/active/);
+    await expect(pair.hostPage.locator('#tab-settings')).toHaveClass(/active/);
+    await expect(pair.hostPage.locator('#nav-settings')).toHaveAttribute('aria-selected', 'true');
+    await expect(pair.hostPage.locator('#nav-play')).toHaveAttribute('aria-selected', 'false');
   });
 
   // ── Media Source Popup ──────────────────────────────────────
@@ -74,89 +79,101 @@ test.describe('Comprehensive UI', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const mediaBtn = pair.hostPage.locator('#btn-media-source');
-    if (await mediaBtn.isVisible()) {
-      await mediaBtn.click();
-      await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
+    await expect(mediaBtn).toBeVisible();
+    await mediaBtn.click();
+    await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
 
-      const overlayVisible = await isVisible(pair.hostPage, '#media-source-overlay');
-      expect(overlayVisible).toBe(true);
-    }
+    const overlayVisible = await isVisible(pair.hostPage, '#media-source-overlay');
+    expect(overlayVisible).toBe(true);
   });
 
   test('media source popup has local file and YouTube options', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const mediaBtn = pair.hostPage.locator('#btn-media-source');
-    if (await mediaBtn.isVisible()) {
-      await mediaBtn.click();
-      await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
+    await expect(mediaBtn).toBeVisible();
+    await mediaBtn.click();
+    await waitForClass(pair.hostPage, '#media-source-overlay', 'active');
 
-      await expect(pair.hostPage.locator('#btn-youtube-source')).toBeAttached();
-    }
+    await expect(pair.hostPage.locator('#btn-youtube-source')).toBeVisible();
   });
 
   // ── Chat Drawer ──────────────────────────────────────────────
 
   test('chat preview button opens drawer', async () => {
+    await useMobileHostViewport();
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await openChatDrawer(pair.hostPage);
+    await expect(chatBtn).toBeVisible();
+    await openChatDrawer(pair.hostPage);
 
-      const isOpen = await pair.hostPage.locator('#chat-drawer').evaluate(el => el.classList.contains('open'));
-      expect(isOpen).toBe(true);
-    }
+    const isOpen = await pair.hostPage
+      .locator('#chat-drawer')
+      .evaluate((el) => el.classList.contains('open'));
+    expect(isOpen).toBe(true);
   });
 
-  test('chat close button closes drawer', async () => {
+  test('chat backdrop closes the mobile drawer', async () => {
+    await useMobileHostViewport();
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await openChatDrawer(pair.hostPage);
+    await expect(chatBtn).toBeVisible();
+    await openChatDrawer(pair.hostPage);
 
-      const closeBtn = pair.hostPage.locator('#btn-chat-close');
-      if (await closeBtn.isVisible()) {
-        await closeBtn.click();
-        await waitForClass(pair.hostPage, '#chat-drawer', 'open', false);
+    await expect(pair.hostPage.locator('#btn-chat-close')).toBeHidden();
+    const backdrop = pair.hostPage.locator('#chat-backdrop');
+    await expect(backdrop).toBeVisible();
+    const backdropPoint = await pair.hostPage.evaluate(() => {
+      const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+      const drawerTop = document.getElementById('chat-drawer')?.getBoundingClientRect().top ?? 0;
+      return { x: 8, y: headerBottom + (drawerTop - headerBottom) / 2 };
+    });
+    const hitTarget = await pair.hostPage.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.id,
+      backdropPoint,
+    );
+    expect(hitTarget).toBe('chat-backdrop');
+    await pair.hostPage.mouse.click(backdropPoint.x, backdropPoint.y);
+    await waitForClass(pair.hostPage, '#chat-drawer', 'open', false);
 
-        const isOpen = await pair.hostPage.locator('#chat-drawer').evaluate(el => el.classList.contains('open'));
-        expect(isOpen).toBe(false);
-      }
-    }
+    const isOpen = await pair.hostPage
+      .locator('#chat-drawer')
+      .evaluate((el) => el.classList.contains('open'));
+    expect(isOpen).toBe(false);
   });
 
   test('chat input field and send button exist', async () => {
+    await useMobileHostViewport();
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await openChatDrawer(pair.hostPage);
+    await expect(chatBtn).toBeVisible();
+    await openChatDrawer(pair.hostPage);
 
-      await expect(pair.hostPage.locator('#chat-input')).toBeVisible();
-      await expect(pair.hostPage.locator('#btn-chat-send')).toBeVisible();
-    }
+    await expect(pair.hostPage.locator('#chat-input')).toBeVisible();
+    await expect(pair.hostPage.locator('#btn-chat-send')).toBeVisible();
   });
 
   test('chat message appears in own message list', async () => {
+    await useMobileHostViewport();
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-    if (await chatBtn.isVisible()) {
-      await openChatDrawer(pair.hostPage);
+    await expect(chatBtn).toBeVisible();
+    await openChatDrawer(pair.hostPage);
 
-      const chatInput = pair.hostPage.locator('#chat-input');
-      await chatInput.fill('Test message from host');
-      await pair.hostPage.locator('#btn-chat-send').click();
-      await waitForChatMessage(pair.hostPage, 'Test message from host');
+    const chatInput = pair.hostPage.locator('#chat-input');
+    await chatInput.fill('Test message from host');
+    await pair.hostPage.locator('#btn-chat-send').click();
+    await waitForChatMessage(pair.hostPage, 'Test message from host');
 
-      const msgText = await pair.hostPage.evaluate(() => {
-        const msgs = document.getElementById('chat-messages');
-        return msgs?.textContent || '';
-      });
-      expect(msgText).toContain('Test message from host');
-    }
+    const msgText = await pair.hostPage.evaluate(() => {
+      const msgs = document.getElementById('chat-messages');
+      return msgs?.textContent || '';
+    });
+    expect(msgText).toContain('Test message from host');
   });
 
   // ── Visualizer Canvas ──────────────────────────────────────
@@ -270,7 +287,7 @@ test.describe('Comprehensive UI', () => {
     const role = await readState(pair.guestPage, 'network.appRole');
     const hostConn = await pair.guestPage.evaluate(() => {
       const get = (window as any).__MUSIXQUARE_GET_STATE__;
-      return get ? (get('network.hostConn') !== null) : false;
+      return get ? get('network.hostConn') !== null : false;
     });
 
     expect(role).toBe('guest');
@@ -306,7 +323,9 @@ test.describe('Mobile UI', () => {
         const tabName = await navItems.nth(i).getAttribute('data-tab');
         await navItems.nth(i).click();
         if (tabName) {
-          await pair.hostPage.locator(`#tab-${tabName}`).waitFor({ state: 'visible', timeout: 5_000 });
+          await pair.hostPage
+            .locator(`#tab-${tabName}`)
+            .waitFor({ state: 'visible', timeout: 5_000 });
         }
       }
     } finally {
@@ -320,14 +339,13 @@ test.describe('Mobile UI', () => {
       await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
       const chatBtn = pair.hostPage.locator('#chat-preview-btn');
-      if (await chatBtn.isVisible()) {
-        await openChatDrawer(pair.hostPage);
+      await expect(chatBtn).toBeVisible();
+      await openChatDrawer(pair.hostPage);
 
-        const isOpen = await pair.hostPage.locator('#chat-drawer').evaluate(
-          el => el.classList.contains('open'),
-        );
-        expect(isOpen).toBe(true);
-      }
+      const isOpen = await pair.hostPage
+        .locator('#chat-drawer')
+        .evaluate((el) => el.classList.contains('open'));
+      expect(isOpen).toBe(true);
     } finally {
       await cleanupContexts(pair);
     }

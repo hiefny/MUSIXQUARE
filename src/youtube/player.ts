@@ -358,12 +358,8 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   // ~80s and broadcasting YOUTUBE_SUB_TITLE_UPDATE messages — wasted
   // network/CPU/battery and cross-mode peer noise.
   cancelSubTitleFetch();
-  // Clear poll-loop timers so they don't reschedule against a torn-down
-  // player. 'yt-indexing-poll' steps are scope-registered (already cleared by
-  // the dispose() at the top) and the poll body identity-guards itself
-  // against the session clear above — this explicit clear is a redundant
-  // belt, kept for symmetry with the adjacent scrape timers.
-  clearManagedTimer('yt-indexing-poll');
+  // Scope disposal at the top owns the namespaced indexing poll. Clear the
+  // page-global scrape timers separately.
   clearManagedTimer('yt-scrape-poll');
   clearManagedTimer('yt-scrape-safety');
   clearSnapshotRetries();

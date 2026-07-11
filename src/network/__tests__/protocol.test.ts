@@ -4,7 +4,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG, CHUNK_SIZE } from '../../core/constants.ts';
+import {
+  MSG,
+  CHUNK_SIZE,
+  REMOTE_SHARE_AES_GCM_TAG_BYTES,
+  REMOTE_SHARE_MAX_BYTES,
+} from '../../core/constants.ts';
 import {
   validateMessage,
   registerHandlers,
@@ -224,7 +229,7 @@ describe('REQUEST_DATA_RECOVERY validation', () => {
       { nextChunk: 0, fileName: '', index: 0 },
       // recovery.ts freshIndex falls back to playlist.currentTrackIndex,
       // which is legitimately -1 before the first track — must NOT be dropped.
-      { nextChunk: 0, fileName: 'song.mp3', index: -1, sessionId: 0 },
+      { nextChunk: 0, fileName: 'song.mp3', index: -1 },
       {},
     ];
 
@@ -260,6 +265,49 @@ describe('REQUEST_DATA_RECOVERY validation', () => {
 });
 
 describe('file-transfer frame validation', () => {
+  it('enforces the exact 200 MiB whole-file AES-GCM descriptor contract', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REMOTE_FILE_SHARE, handler);
+    const conn = makeConnection('peer-remote-descriptor');
+    const valid = {
+      type: MSG.REMOTE_FILE_SHARE,
+      roomId: '123456',
+      objectId: '00000000-0000-4000-8000-000000000001',
+      downloadUrl:
+        'https://share.musixquare.com/download/123456/00000000-0000-4000-8000-000000000001',
+      keyB64: 'a2V5',
+      ivB64: 'aXY=',
+      name: 'track.wav',
+      mime: 'audio/wav',
+      size: REMOTE_SHARE_MAX_BYTES,
+      encryptedSize: REMOTE_SHARE_MAX_BYTES + REMOTE_SHARE_AES_GCM_TAG_BYTES,
+      index: 0,
+      sessionId: 1,
+      expiresAt: Date.now() + 60_000,
+    };
+
+    await handleData(valid, conn);
+    expect(handler).toHaveBeenCalledOnce();
+
+    for (const invalid of [
+      { ...valid, size: 0, encryptedSize: REMOTE_SHARE_AES_GCM_TAG_BYTES },
+      {
+        ...valid,
+        size: REMOTE_SHARE_MAX_BYTES + 1,
+        encryptedSize: REMOTE_SHARE_MAX_BYTES + 1 + REMOTE_SHARE_AES_GCM_TAG_BYTES,
+      },
+      { ...valid, encryptedSize: valid.encryptedSize - 1 },
+      { ...valid, preload: true },
+      { ...valid, sessionId: 0 },
+      { ...valid, sessionId: -1 },
+      { ...valid, sessionId: 1.5 },
+      { ...valid, sessionId: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      await handleData(invalid, conn);
+    }
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
   it('dispatches host-shaped FILE_START and FILE_CHUNK frames', async () => {
     const startHandler = vi.fn();
     const chunkHandler = vi.fn();
@@ -269,22 +317,105 @@ describe('file-transfer frame validation', () => {
 
     // total at the documented 200k cap and a chunk at exactly CHUNK_SIZE are
     // the host's own legitimate maxima — the caps must not reject them.
-    await handleData({ type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 1200 }, conn);
     await handleData(
-      { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 200_000 },
+      {
+        type: MSG.FILE_START,
+        name: 'song.mp3',
+        sessionId: 3,
+        total: 1200,
+        size: 1199 * CHUNK_SIZE + 1,
+      },
       conn,
     );
     await handleData(
-      { type: MSG.FILE_CHUNK, chunk: new Uint8Array(CHUNK_SIZE), index: 0, sessionId: 3 },
+      {
+        type: MSG.FILE_START,
+        name: 'song.mp3',
+        sessionId: 3,
+        total: 200_000,
+        size: 199_999 * CHUNK_SIZE + 1,
+      },
       conn,
     );
     await handleData(
-      { type: MSG.FILE_CHUNK, chunk: new ArrayBuffer(16), index: 7, sessionId: 3 },
+      {
+        type: MSG.FILE_CHUNK,
+        chunk: new Uint8Array(CHUNK_SIZE),
+        index: 0,
+        sessionId: 3,
+        name: 'song.mp3',
+        total: 1,
+        size: CHUNK_SIZE,
+      },
+      conn,
+    );
+    await handleData(
+      {
+        type: MSG.FILE_CHUNK,
+        chunk: new ArrayBuffer(16),
+        index: 7,
+        sessionId: 3,
+        name: 'song.mp3',
+        total: 8,
+        size: 7 * CHUNK_SIZE + 16,
+      },
       conn,
     );
 
     expect(startHandler).toHaveBeenCalledTimes(2);
     expect(chunkHandler).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts only non-negative safe optional playlist indexes on FILE_START and FILE_RESUME', async () => {
+    const startHandler = vi.fn();
+    const resumeHandler = vi.fn();
+    registerHandler(MSG.FILE_START, startHandler);
+    registerHandler(MSG.FILE_RESUME, resumeHandler);
+    const conn = makeConnection('peer-file-index');
+
+    for (const index of [undefined, 0, Number.MAX_SAFE_INTEGER]) {
+      await handleData(
+        { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 1, size: 1, index },
+        conn,
+      );
+      await handleData(
+        {
+          type: MSG.FILE_RESUME,
+          name: 'song.mp3',
+          sessionId: 3,
+          startChunk: 0,
+          total: 1,
+          size: 1,
+          index,
+        },
+        conn,
+      );
+    }
+
+    expect(startHandler).toHaveBeenCalledTimes(3);
+    expect(resumeHandler).toHaveBeenCalledTimes(3);
+
+    for (const index of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity, null, '0']) {
+      await handleData(
+        { type: MSG.FILE_START, name: 'song.mp3', sessionId: 3, total: 1, size: 1, index },
+        conn,
+      );
+      await handleData(
+        {
+          type: MSG.FILE_RESUME,
+          name: 'song.mp3',
+          sessionId: 3,
+          startChunk: 0,
+          total: 1,
+          size: 1,
+          index,
+        },
+        conn,
+      );
+    }
+
+    expect(startHandler).toHaveBeenCalledTimes(3);
+    expect(resumeHandler).toHaveBeenCalledTimes(3);
   });
 
   it('drops oversized, non-finite, or mistyped file frames before dispatch', async () => {
@@ -317,22 +448,88 @@ describe('file-transfer frame validation', () => {
     expect(chunkHandler).not.toHaveBeenCalled();
   });
 
-  it('drops PRELOAD_START frames with a non-finite or missing sessionId, but dispatches a finite one (F-2408)', async () => {
+  it('drops PRELOAD_START frames without a positive safe sessionId', async () => {
     const startHandler = vi.fn();
     registerHandler(MSG.PRELOAD_START, startHandler);
     const conn = makeConnection('peer-preload-hostile');
 
-    // PRELOAD_START keys per-session reorder state and therefore requires a
-    // finite ID. PRELOAD_CHUNK remains optional-ID because its sink validates it.
+    // Every preload frame keys per-session state and requires the same strict ID.
     await handleData(
-      { type: MSG.PRELOAD_START, name: 'song.mp3', sessionId: Infinity, total: 10 },
+      {
+        type: MSG.PRELOAD_START,
+        name: 'song.mp3',
+        index: 0,
+        sessionId: Infinity,
+        total: 1,
+        size: 1,
+      },
       conn,
     );
-    await handleData({ type: MSG.PRELOAD_START, name: 'song.mp3', total: 10 }, conn);
+    await handleData(
+      { type: MSG.PRELOAD_START, name: 'song.mp3', index: 0, total: 1, size: 1 },
+      conn,
+    );
     expect(startHandler).not.toHaveBeenCalled();
 
-    await handleData({ type: MSG.PRELOAD_START, name: 'song.mp3', sessionId: 4, total: 10 }, conn);
+    await handleData(
+      { type: MSG.PRELOAD_START, name: 'song.mp3', index: 0, sessionId: 4, total: 1, size: 1 },
+      conn,
+    );
     expect(startHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects non-positive, fractional, and unsafe IDs on every local transfer frame', async () => {
+    const types = [
+      MSG.FILE_START,
+      MSG.FILE_CHUNK,
+      MSG.FILE_END,
+      MSG.FILE_RESUME,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+      MSG.PRELOAD_ABORT,
+      MSG.REMOTE_FILE_UNAVAILABLE,
+    ] as const;
+    const handlers = new Map(types.map((type) => [type, vi.fn()]));
+    for (const [type, handler] of handlers) registerHandler(type, handler);
+    const conn = makeConnection('peer-invalid-session-ids');
+
+    for (const sessionId of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      const frames = [
+        { type: MSG.FILE_START, name: 'x.mp3', sessionId, total: 1, size: 1 },
+        {
+          type: MSG.FILE_CHUNK,
+          name: 'x.mp3',
+          sessionId,
+          total: 1,
+          size: 1,
+          index: 0,
+          chunk: new Uint8Array([1]),
+        },
+        { type: MSG.FILE_END, name: 'x.mp3', sessionId },
+        {
+          type: MSG.FILE_RESUME,
+          name: 'x.mp3',
+          sessionId,
+          total: 1,
+          size: 1,
+          startChunk: 0,
+        },
+        { type: MSG.PRELOAD_START, name: 'x.mp3', sessionId, index: 0, total: 1, size: 1 },
+        {
+          type: MSG.PRELOAD_CHUNK,
+          sessionId,
+          index: 0,
+          chunk: new Uint8Array([1]),
+        },
+        { type: MSG.PRELOAD_END, name: 'x.mp3', sessionId, index: 0 },
+        { type: MSG.PRELOAD_ABORT, sessionId },
+        { type: MSG.REMOTE_FILE_UNAVAILABLE, name: 'x.mp3', sessionId, index: 0 },
+      ];
+      for (const frame of frames) await handleData(frame, conn);
+    }
+
+    for (const handler of handlers.values()) expect(handler).not.toHaveBeenCalled();
   });
 });
 
@@ -392,7 +589,10 @@ describe('inbound per-peer rate limit', () => {
 
     // Chunk frames bypass the bucket — transfer-layer backpressure throttles
     // them, and dropping them here would stall legitimate transfers.
-    await handleData({ type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(16), index: 0 }, conn);
+    await handleData(
+      { type: MSG.PRELOAD_CHUNK, chunk: new Uint8Array(16), index: 0, sessionId: 1 },
+      conn,
+    );
     expect(chunk).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(50);

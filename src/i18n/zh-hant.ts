@@ -430,7 +430,6 @@ const zhHant: Record<I18nKey, string> = {
   'error.load_failed': '載入失敗：{{msg}}',
   'error.audio_decode_fail': '音訊解碼失敗！',
   'error.audio_memory': '正在將音訊載入記憶體...',
-  'error.decode_timeout': '「{{name}}」解碼耗時過長。\n將跳到下一首。',
   'error.local_decode_wait': '此裝置無法解碼該曲目。\n請等待下一首播放。',
   'error.all_tracks_failed': '播放清單中沒有可播放的曲目。',
   'error.audio_engine_prepare': '無法準備音訊引擎',

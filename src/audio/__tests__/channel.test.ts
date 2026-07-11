@@ -62,19 +62,13 @@ describe('setChannelMode', () => {
 
 describe('toggleSurroundMode', () => {
   it('enabling surround sets audio.isSurroundMode to true', () => {
-    try {
-      toggleSurroundMode(true);
-    } catch {}
+    toggleSurroundMode(true);
     expect(getState('audio.isSurroundMode')).toBe(true);
   });
 
   it('disabling surround sets audio.isSurroundMode to false', () => {
-    try {
-      toggleSurroundMode(true);
-    } catch {}
-    try {
-      toggleSurroundMode(false);
-    } catch {}
+    toggleSurroundMode(true);
+    toggleSurroundMode(false);
     expect(getState('audio.isSurroundMode')).toBe(false);
   });
 
@@ -84,13 +78,9 @@ describe('toggleSurroundMode', () => {
 
   it('toggling on then off restores false', () => {
     expect(getState('audio.isSurroundMode')).toBe(false);
-    try {
-      toggleSurroundMode(true);
-    } catch {}
+    toggleSurroundMode(true);
     expect(getState('audio.isSurroundMode')).toBe(true);
-    try {
-      toggleSurroundMode(false);
-    } catch {}
+    toggleSurroundMode(false);
     expect(getState('audio.isSurroundMode')).toBe(false);
   });
 

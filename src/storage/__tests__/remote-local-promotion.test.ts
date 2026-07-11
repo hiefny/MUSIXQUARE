@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { LOAD_SOURCE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
+import { CHUNK_SIZE, LOAD_SOURCE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 vi.mock('../storage.ts', () => ({
+  admitIncomingStoredFile: vi.fn(),
   postCommand: vi.fn(),
   cleanupStoredFile: vi.fn(),
 }));
@@ -95,7 +96,7 @@ describe('remote-share to local direct transfer promotion', () => {
         type: 'file-start',
         name: 'song.mp3',
         mime: 'audio/mpeg',
-        total: 2,
+        total: 1,
         size: 4,
         index: 0,
         sessionId: 7,
@@ -137,7 +138,7 @@ describe('remote-share to local direct transfer promotion', () => {
         type: 'file-start',
         name: 'song.mp3',
         mime: 'audio/mpeg',
-        total: 2,
+        total: 1,
         size: 4,
         index: 0,
         sessionId: 7,
@@ -311,7 +312,7 @@ describe('remote-share to local direct transfer promotion', () => {
         type: 'file-start',
         name: 'song.mp3',
         mime: 'audio/mpeg',
-        total: 2,
+        total: 1,
         size: 4,
         index: 0,
         sessionId: 7,
@@ -347,7 +348,7 @@ describe('remote-share to local direct transfer promotion', () => {
         type: 'file-start',
         name: 'song.mp3',
         mime: 'audio/mpeg',
-        total: 2,
+        total: 1,
         size: 4,
         index: 0,
         sessionId: 8, // host re-click / repeat rebroadcast — newer than loaded 7
@@ -356,10 +357,37 @@ describe('remote-share to local direct transfer promotion', () => {
     );
 
     expect(clearSpy).toHaveBeenCalled();
-    expect(postCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'STORAGE_RESET' }),
-    );
+    expect(postCommand).toHaveBeenCalledWith(expect.objectContaining({ command: 'STORAGE_RESET' }));
     expect(getState('transfer.localSessionId')).toBe(8);
+  });
+
+  it('drops promoted-session FILE_CHUNK tails without treating chunk index as playlist index', async () => {
+    const { handleFileChunk } = await import('../transfer-receive.ts');
+    const { admitIncomingStoredFile, postCommand } = await import('../storage.ts');
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setState('playback.loadSource', LOAD_SOURCE.PRELOAD_PROMOTED);
+    setState('playlist.currentTrackIndex', 0);
+    setState('transfer.localSessionId', 7);
+    setState('transfer.state', TRANSFER_STATE.PROCESSING);
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7 });
+
+    handleFileChunk(
+      {
+        type: 'file-chunk',
+        name: 'song.mp3',
+        sessionId: 7,
+        index: 1,
+        total: 2,
+        size: CHUNK_SIZE + 1,
+        chunk: new Uint8Array([0xaa]),
+      },
+      conn,
+    );
+
+    expect(admitIncomingStoredFile).not.toHaveBeenCalled();
+    expect(postCommand).not.toHaveBeenCalled();
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
   });
 
   // Match booleans captured before a mismatch cleanup must not route a
@@ -387,9 +415,65 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
-  // Duplicate entries with the same name and byte size may re-point the
-  // retained preload instead of downloading it again.
-  it('promotes a byte-identical preload to the requested index instead of re-downloading', async () => {
+  it('replays only the exact loaded session and playlist slot', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playlist.currentTrackIndex', 0);
+    setState('transfer.localSessionId', 7);
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7, size: 4 });
+    setState('files.currentFileBlob', new Blob(['abcd']));
+
+    const replay = vi.fn();
+    bus.on('playback:replay-current', replay);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        index: 0,
+        size: 4,
+        sessionId: 7,
+        autoPlayDelayMs: 3000,
+      },
+      conn,
+    );
+
+    expect(replay).toHaveBeenCalledWith(3000);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PLAYING);
+  });
+
+  it('downloads fresh when identical metadata arrives under a newer session', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    setState('network.connectionType', 'local');
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('playlist.currentTrackIndex', 0);
+    setState('transfer.localSessionId', 7);
+    setState('transfer.meta', { name: 'song.mp3', index: 0, sessionId: 7, size: 4 });
+    setState('files.currentFileBlob', new Blob(['abcd']));
+
+    const replay = vi.fn();
+    bus.on('playback:replay-current', replay);
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        name: 'song.mp3',
+        index: 0,
+        size: 4,
+        sessionId: 8,
+      },
+      conn,
+    );
+
+    expect(replay).not.toHaveBeenCalled();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('transfer.localSessionId')).toBe(8);
+  });
+
+  it('does not treat same-name/same-size preload metadata as cross-index identity', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 
     setState('network.connectionType', 'local');
@@ -412,10 +496,11 @@ describe('remote-share to local direct transfer promotion', () => {
       conn,
     );
 
-    expect(usePreloaded).toHaveBeenCalledWith(0, 'song.mp3');
-    expect(getState('preload.nextFileBlob')).not.toBeNull();
-    expect(getState('preload.nextTrackIndex')).toBe(0);
-    expect(getState('preload.meta')).toMatchObject({ name: 'song.mp3', index: 0 });
+    expect(usePreloaded).not.toHaveBeenCalled();
+    expect(getState('preload.nextFileBlob')).toBeNull();
+    expect(getState('preload.nextTrackIndex')).toBe(-1);
+    expect(getState('preload.meta')).toBeNull();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
   it('still clears and re-downloads when sizes differ (same name, different content)', async () => {
@@ -446,10 +531,7 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
-  // Current-file sibling of the promote above (user device find): the
-  // already-loaded — possibly PLAYING — file is the requested duplicate
-  // entry at another index. Re-point identity, never re-download.
-  it('reuses the loaded identical file when its duplicate at another index is played', async () => {
+  it('does not reuse a loaded file for a same-name/same-size entry at another index', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 
     setState('network.connectionType', 'local');
@@ -475,11 +557,10 @@ describe('remote-share to local direct transfer promotion', () => {
       conn,
     );
 
-    expect(replay).toHaveBeenCalledWith(3000);
+    expect(replay).not.toHaveBeenCalled();
     expect(getState('files.currentFileBlob')).not.toBeNull();
     expect(getState('playlist.currentTrackIndex')).toBe(2);
-    expect(getState('transfer.meta')).toMatchObject({ name: 'song.mp3', index: 2 });
-    expect(getState('playback.lifecycle')).not.toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
   it('still re-downloads the duplicate-name track when the loaded size differs', async () => {
@@ -511,9 +592,7 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
-  // New-session setup arms the chunk watchdog before reuse is evaluated. Both
-  // no-chunk fast paths must disarm it.
-  it('disarms the chunk watchdog when the duplicate-entry reuse skips the download', async () => {
+  it('keeps the fresh receive watchdog armed for a cross-index metadata collision', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
     const { setManagedTimer, clearManagedTimer } = await import('../../core/timers.ts');
 
@@ -539,11 +618,11 @@ describe('remote-share to local direct transfer promotion', () => {
     const armed = lastCallOrder(vi.mocked(setManagedTimer), 'chunkWatchdog');
     const disarmed = lastCallOrder(vi.mocked(clearManagedTimer), 'chunkWatchdog');
     expect(armed).toBeGreaterThan(-1);
-    expect(disarmed).toBeGreaterThan(armed);
-    expect(lastCallOrder(vi.mocked(clearManagedTimer), 'prepareWatchdog')).toBeGreaterThan(-1);
+    expect(disarmed).toBeLessThan(armed);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 
-  it('disarms the chunk watchdog when a byte-identical preload promote skips the download', async () => {
+  it('still promotes a preload for the exact same playlist slot', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
     const { setManagedTimer, clearManagedTimer } = await import('../../core/timers.ts');
 
@@ -552,13 +631,15 @@ describe('remote-share to local direct transfer promotion', () => {
     setState('preload.meta', { name: 'song.mp3', index: 3, sessionId: 7, size: 4 });
     setState('preload.nextFileBlob', new Blob(['abcd'])); // size 4
     setState('preload.nextTrackIndex', 3);
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
 
     await handleFilePrepare(
       {
         type: 'file-prepare',
         name: 'song.mp3',
         mime: 'audio/mpeg',
-        index: 0,
+        index: 3,
         size: 4,
         sessionId: 9,
       },
@@ -569,9 +650,10 @@ describe('remote-share to local direct transfer promotion', () => {
     const disarmed = lastCallOrder(vi.mocked(clearManagedTimer), 'chunkWatchdog');
     expect(armed).toBeGreaterThan(-1);
     expect(disarmed).toBeGreaterThan(armed);
+    expect(usePreloaded).toHaveBeenCalledWith(3, 'song.mp3', 7);
   });
 
-  it('still uses a name-matched preload when FILE_PREPARE carries no index (legit fallback)', async () => {
+  it('does not use a name-only preload when FILE_PREPARE carries no index', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
 
     setState('network.connectionType', 'local');
@@ -587,7 +669,7 @@ describe('remote-share to local direct transfer promotion', () => {
       conn,
     );
 
-    expect(usePreloaded).toHaveBeenCalled();
-    expect(getState('preload.nextFileBlob')).not.toBeNull();
+    expect(usePreloaded).not.toHaveBeenCalled();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
   });
 });

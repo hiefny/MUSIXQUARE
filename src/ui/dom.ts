@@ -363,23 +363,28 @@ export function updateTitleWithMarquee(text: string): void {
 // ─── Clipboard ───────────────────────────────────────────────────
 
 export async function copyTextToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+  if (navigator.clipboard?.writeText) {
+    try {
       await navigator.clipboard.writeText(text);
       return true;
+    } catch (error) {
+      log.warn('[Clipboard] Async API failed; trying the DOM fallback:', error);
     }
-    // Fallback
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
+  }
+
+  let textarea: HTMLTextAreaElement | null = null;
+  try {
+    textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    return document.execCommand('copy');
   } catch (e) {
     log.warn('[Clipboard] Copy failed:', e);
     return false;
+  } finally {
+    textarea?.remove();
   }
 }

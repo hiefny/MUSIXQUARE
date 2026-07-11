@@ -64,8 +64,7 @@ describe('ramStart', () => {
     expect(ramWrite('b.mp3', false, 2, 0, u8(0xcc)).ok).toBe(true);
   });
 
-  // Session rebasing must preserve the prefix of the same logical file.
-  it('re-keys main slot on keepExisting + same filename + NEWER sid, preserving chunks', () => {
+  it('starts fresh when keepExisting uses the same filename under a newer sid', () => {
     ramStart('a.mp3', false, 1, 16, false);
     ramWrite('a.mp3', false, 1, 0, u8(0xaa));
     ramWrite('a.mp3', false, 1, 1, u8(0xbb));
@@ -73,23 +72,20 @@ describe('ramStart', () => {
     const r = ramStart('a.mp3', false, 2, 16, true);
     expect(r.ok).toBe(true);
 
-    // Slot now lives under sid 2 — writes under the OLD sid get rejected
+    // Slot now lives under sid 2, but metadata equality did not preserve bytes.
+    expect(ramContiguousCount('a.mp3', false)).toBe(0);
     const stale = ramWrite('a.mp3', false, 1, 2, u8(0xff));
     expect(stale.ok).toBe(false);
     expect(stale.reason).toMatch(/session mismatch/i);
     expect(stale.expectedSid).toBe(2);
 
-    // ...and the preserved prefix + new-session tail finalize together
-    expect(ramWrite('a.mp3', false, 2, 2, u8(0xcc)).ok).toBe(true);
-    const end = ramEnd('a.mp3', false, 2, undefined, 3);
+    expect(ramWrite('a.mp3', false, 2, 0, u8(0xcc)).ok).toBe(true);
+    const end = ramEnd('a.mp3', false, 2, undefined, 1);
     expect(end.blob).not.toBeNull();
-    expect(end.blob!.size).toBe(3);
+    expect(end.blob!.size).toBe(1);
   });
 
-  // Direction guard: an OLDER sid must NOT re-key (a backwards re-key would
-  // stomp newer-session writes). keepExisting + older sid falls through to
-  // recreate, matching pre-relaxation behavior.
-  it('recreates (not re-keys) when keepExisting carries an OLDER sid', () => {
+  it('also starts fresh when keepExisting carries an older sid', () => {
     ramStart('a.mp3', false, 5, 16, false);
     ramWrite('a.mp3', false, 5, 0, u8(0xaa));
 
@@ -266,6 +262,15 @@ describe('ramContiguousCount', () => {
     expect(ramContiguousCount('a.mp3', false)).toBe(2);
   });
 
+  it('does not count a same-name main slot from another session', () => {
+    ramStart('a.mp3', false, 1, 16, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1));
+    ramWrite('a.mp3', false, 1, 1, u8(2));
+
+    expect(ramContiguousCount('a.mp3', false, 1)).toBe(2);
+    expect(ramContiguousCount('a.mp3', false, 2)).toBe(0);
+  });
+
   it('reports the full chunk count for a finalized slot', () => {
     ramStart('a.mp3', false, 1, 2, false);
     ramWrite('a.mp3', false, 1, 0, u8(1, 2));
@@ -282,6 +287,14 @@ describe('ramContiguousCount', () => {
     expect(ramContiguousCount('p.mp3', true)).toBe(1);
     expect(ramContiguousCount('p.mp3', false)).toBe(0); // main slot untouched
   });
+
+  it('does not fall back to a preload name when a session hint misses', () => {
+    ramStart('p.mp3', true, 7, 16, false);
+    ramWrite('p.mp3', true, 7, 0, u8(1));
+
+    expect(ramContiguousCount('p.mp3', true, 7)).toBe(1);
+    expect(ramContiguousCount('p.mp3', true, 8)).toBe(0);
+  });
 });
 
 // ─── ramReadChunk / ramReadBlob ────────────────────────────────────
@@ -297,6 +310,13 @@ describe('ramReadChunk', () => {
     const r = await ramReadChunk('a.mp3', false, 1, 5);
     expect(r).not.toBeNull();
     expect(Array.from(r!)).toEqual([7, 8, 9]);
+  });
+
+  it('does not read a same-name live main chunk through another session', async () => {
+    ramStart('a.mp3', false, 1, 4, false);
+    ramWrite('a.mp3', false, 1, 0, u8(7, 8, 9));
+
+    expect(await ramReadChunk('a.mp3', false, 2, 0)).toBeNull();
   });
 
   it('reads sliced bytes from finalized blob using chunkSize offset', async () => {
@@ -326,11 +346,28 @@ describe('ramReadBlob', () => {
     expect(blob!.size).toBe(2);
   });
 
+  it('does not return a same-name finalized main blob for another session', () => {
+    ramStart('a.mp3', false, 1, 4, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2));
+    ramEnd('a.mp3', false, 1);
+
+    expect(ramReadBlob('a.mp3', false, 1)).not.toBeNull();
+    expect(ramReadBlob('a.mp3', false, 2)).toBeNull();
+  });
+
   it('finds preload by name even without sessionId hint', () => {
     ramStart('p.mp3', true, 42, 4, false);
     ramWrite('p.mp3', true, 42, 0, u8(9));
     ramEnd('p.mp3', true, 42);
     expect(ramReadBlob('p.mp3', true)).not.toBeNull();
+  });
+
+  it('does not fall back to a preload name when an exact session is requested', () => {
+    ramStart('p.mp3', true, 42, 4, false);
+    ramWrite('p.mp3', true, 42, 0, u8(9));
+    ramEnd('p.mp3', true, 42);
+
+    expect(ramReadBlob('p.mp3', true, 43)).toBeNull();
   });
 });
 

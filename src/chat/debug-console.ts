@@ -21,7 +21,6 @@ import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts
 import { getCapturedLogs } from '../core/log-capture.ts';
 import { getPlaybackOwnership } from '../player/ownership.ts';
 import { collectSystemAudioDebugText } from '../network/system-audio-debug.ts';
-import { BlobURLManager } from '../core/blob-manager.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 
 type NavigatorDebugInfo = Navigator & {
@@ -239,7 +238,6 @@ export function cmdDebug(args: string[]): void {
 // domain grows monotonically. Domains:
 //   - Heap (performance.memory if Chromium)
 //   - Audio buffer (current decoded PCM in RAM)
-//   - Blob URLs (active + pending revocation)
 //   - Files (current blob, preload blob, playlist file refs sum)
 //   - Transfer (main reorder buffer + early-chunk queue)
 //   - Preload (reorder buffer + sessionState + ackSent)
@@ -733,19 +731,6 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     // number of distinct tracks loaded.
     const bufStats = liveAudioBufferCount();
     lines.push(`        live AudioBuffers:${bufStats.live} (everSeen:${bufStats.everSeen})`);
-  } catch {
-    /* ignore */
-  }
-
-  // ── Blob URLs ──
-  try {
-    const active = BlobURLManager._activeURL ? 1 : 0;
-    const preparing = BlobURLManager._preparingURL ? 1 : 0;
-    const pending = BlobURLManager._pendingRevocations.size;
-    const deferred = BlobURLManager._deferredUntilDetached.size;
-    lines.push(
-      `[BlobURLs] active:${active} preparing:${preparing} pendingRevoke:${pending} deferred:${deferred}`,
-    );
   } catch {
     /* ignore */
   }

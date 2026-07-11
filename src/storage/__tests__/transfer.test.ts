@@ -81,23 +81,6 @@ describe('transfer state reset', () => {
   });
 });
 
-describe('transfer module exports', () => {
-  it('imports broadcastFile without error', async () => {
-    const mod = await import('../transfer.ts');
-    expect(typeof mod.broadcastFile).toBe('function');
-  });
-
-  it('imports unicastFile without error', async () => {
-    const mod = await import('../transfer.ts');
-    expect(typeof mod.unicastFile).toBe('function');
-  });
-
-  it('imports initTransfer without error', async () => {
-    const mod = await import('../transfer.ts');
-    expect(typeof mod.initTransfer).toBe('function');
-  });
-});
-
 describe('host outgoing transfer routing', () => {
   it('stops sending chunks to a peer that disconnects after FILE_START', async () => {
     const { broadcastFile } = await import('../transfer.ts');
@@ -295,6 +278,149 @@ describe('host outgoing transfer routing', () => {
   });
 });
 
+describe('host unicast source liveness', () => {
+  function installUnicastPeer(id = 'peer-unicast'): DataConnection {
+    const conn = {
+      open: true,
+      peer: id,
+      send: vi.fn(),
+      peerConnection: { connectionState: 'connected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    setState('network.connectedPeers', [
+      {
+        id,
+        status: 'connected',
+        conn,
+        isDataTarget: true,
+        connectionType: 'local',
+        joinOrder: 1,
+      },
+    ]);
+    setState('network.activeHostConnByPeerId', new Map([[id, conn]]));
+    return conn;
+  }
+
+  it('freezes the fallback track index before transport classification awaits', async () => {
+    const { unicastFile } = await import('../transfer.ts');
+    const conn = installUnicastPeer();
+    setState('playlist.currentTrackIndex', 0);
+
+    const pending = unicastFile(conn, new Blob(['old-track']), 0, 4);
+    // canSendFileTo is async even for a known-local peer. Switching tracks in
+    // this microtask must invalidate the frozen index instead of relabeling
+    // the old bytes with index 1.
+    setState('playlist.currentTrackIndex', 1);
+    await pending;
+
+    expect(conn.send).not.toHaveBeenCalled();
+  });
+
+  it('revalidates an exact same-index Blob replacement before FILE_START', async () => {
+    const { unicastFile } = await import('../transfer.ts');
+    const conn = installUnicastPeer();
+    const selected = new Blob(['selected']);
+    setState('playlist.currentTrackIndex', 0);
+    setState('files.currentFileBlob', selected);
+
+    const pending = unicastFile(conn, selected, 0, 4, {
+      trackIndex: 0,
+      isSourceCurrent: () => getState('files.currentFileBlob') === selected,
+    });
+    setState('files.currentFileBlob', new Blob(['replacement']));
+    await pending;
+
+    expect(conn.send).not.toHaveBeenCalled();
+  });
+
+  it('stops after a backpressure await when the selected source is superseded', async () => {
+    vi.useFakeTimers();
+    try {
+      const { unicastFile } = await import('../transfer.ts');
+      const conn = installUnicastPeer() as DataConnection & {
+        dataChannel: { readyState: string; bufferedAmount: number };
+      };
+      conn.dataChannel.bufferedAmount = 1024 * 1024;
+      setState('playlist.currentTrackIndex', 0);
+      let sourceCurrent = true;
+
+      const pending = unicastFile(conn, new Blob(['blocked']), 0, 4, {
+        trackIndex: 0,
+        isSourceCurrent: () => sourceCurrent,
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+
+      sourceCurrent = false;
+      await vi.advanceTimersByTimeAsync(1_000);
+      await pending;
+
+      expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_CHUNK }));
+      expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rechecks source identity after an asynchronous slice read', async () => {
+    vi.useFakeTimers();
+    try {
+      const { unicastFile } = await import('../transfer.ts');
+      const conn = installUnicastPeer();
+      let resolveRead: (value: ArrayBuffer) => void = () => undefined;
+      const read = new Promise<ArrayBuffer>((resolve) => {
+        resolveRead = resolve;
+      });
+      const deferredBlob = {
+        size: 3,
+        type: 'audio/mpeg',
+        slice: vi.fn(() => ({ arrayBuffer: () => read })),
+      } as unknown as Blob;
+      setState('playlist.currentTrackIndex', 0);
+      let sourceCurrent = true;
+
+      const pending = unicastFile(conn, deferredBlob, 0, 4, {
+        trackIndex: 0,
+        isSourceCurrent: () => sourceCurrent,
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      sourceCurrent = false;
+      resolveRead(new Uint8Array([1, 2, 3]).buffer);
+      await pending;
+
+      expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_CHUNK }));
+      expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rechecks source identity between the final chunk and FILE_END', async () => {
+    vi.useFakeTimers();
+    try {
+      const { unicastFile } = await import('../transfer.ts');
+      const conn = installUnicastPeer();
+      setState('playlist.currentTrackIndex', 0);
+      let sourceCurrent = true;
+      vi.mocked(conn.send).mockImplementation((message: unknown) => {
+        if ((message as { type?: string }).type === MSG.FILE_CHUNK) sourceCurrent = false;
+      });
+
+      const pending = unicastFile(conn, new Blob(['one-chunk']), 0, 4, {
+        trackIndex: 0,
+        isSourceCurrent: () => sourceCurrent,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await pending;
+
+      expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_CHUNK }));
+      expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_END }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('debounced broadcast cancellation', () => {
   /** One healthy, fully writable local peer; returns its send spy. */
   function installHealthyPeer(id: string): ReturnType<typeof vi.fn> {
@@ -325,7 +451,8 @@ describe('debounced broadcast cancellation', () => {
     // that is still queued in the debounce window.
     vi.useFakeTimers();
     try {
-      const { broadcastFileDebounced, cancelOutgoingFileTransfers } = await import('../transfer.ts');
+      const { broadcastFileDebounced, cancelOutgoingFileTransfers } =
+        await import('../transfer.ts');
       const send = installHealthyPeer('peer-1');
       setState('playlist.currentTrackIndex', 0);
 

@@ -61,15 +61,10 @@ export const DEMO_TRACKS: DemoTrack[] = [
 
 export const DEMO_TRACK = DEMO_TRACKS[0];
 
-export const LEGACY_DEMO_FILE_NAME = 'demo_track.mp3';
-
 export function isDemoTrackName(name: unknown): boolean {
   if (typeof name !== 'string') return false;
   const normalized = name.trim().toLowerCase();
-  return (
-    DEMO_TRACKS.some((track) => normalized === track.fileName.toLowerCase()) ||
-    normalized === LEGACY_DEMO_FILE_NAME.toLowerCase()
-  );
+  return DEMO_TRACKS.some((track) => normalized === track.fileName.toLowerCase());
 }
 
 export function getNextDemoTrackIndex(index: number): number {

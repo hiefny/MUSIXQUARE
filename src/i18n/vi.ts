@@ -440,7 +440,6 @@ const vi: Record<I18nKey, string> = {
   'error.load_failed': 'Tải thất bại: {{msg}}',
   'error.audio_decode_fail': 'Giải mã âm thanh thất bại!',
   'error.audio_memory': 'Đang tải âm thanh vào bộ nhớ...',
-  'error.decode_timeout': 'Giải mã "{{name}}" mất quá lâu.\nChuyển sang bài tiếp theo.',
   'error.local_decode_wait': 'Thiết bị này không giải mã được bài.\nVui lòng chờ bài tiếp theo.',
   'error.all_tracks_failed': 'Không có bài nào có thể phát trong danh sách.',
   'error.audio_engine_prepare': 'Không thể chuẩn bị bộ xử lý âm thanh',

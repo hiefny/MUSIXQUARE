@@ -6,8 +6,8 @@
  *
  * Memory use scales with the active encoded blob, retained preload blobs, and
  * the decoded AudioBuffer owned by playback. The store has no persistent
- * spill path. Callers own capacity policy and obsolete-session release; the
- * current admission gap is recorded in the ADR below.
+ * spill path. Callers own obsolete-session release; playback capacity is
+ * enforced by `player/decode-admission.ts` and documented in the ADR below.
  * Policy source (repository path, not a runtime URL):
  * docs/design/browser-media-storage-policy.md
  */
@@ -76,16 +76,14 @@ export function ramStart(
   }
 
   if (!isPreload) {
-    // Resume may re-key an identical file to a newer session because its
-    // received prefix is session-independent. Never re-key backwards: stale
-    // traffic must not displace writes for the current session.
+    // Resume can retain chunks only inside the exact same transfer session.
+    // Filename equality does not prove byte identity across sessions.
     if (
       keepExisting &&
       mainSlot &&
       mainSlot.filename === filename &&
-      sessionId >= mainSlot.sessionId
+      sessionId === mainSlot.sessionId
     ) {
-      mainSlot.sessionId = sessionId;
       return { ok: true };
     }
     mainSlot = makeSlot(filename, isPreload, sessionId, chunkSize);
@@ -219,10 +217,14 @@ export function ramEnd(
  * STORAGE_WRITE will observe the state before that write drains. Main-channel
  * resume and recovery call it only after pending command work has yielded.
  */
-export function ramContiguousCount(filename: string, isPreload: boolean): number {
+export function ramContiguousCount(
+  filename: string,
+  isPreload: boolean,
+  sessionId?: number,
+): number {
   if (!filename) return 0;
-  const slot = isPreload ? (preloadByName.get(filename) ?? null) : mainSlot;
-  if (!slot || slot.filename !== filename) return 0;
+  const slot = findSlotForRead(filename, isPreload, sessionId);
+  if (!slot) return 0;
   if (slot.finalized) {
     // chunkSize guard: a 0/undefined chunkSize must not divide-by-zero.
     return Math.ceil((slot.totalSize ?? slot.finalizedBlob?.size ?? 0) / (slot.chunkSize || 1));
@@ -264,19 +266,26 @@ export async function ramReadChunk(
  * Return the finalized blob for a logical filename. Used by
  * `readStoredFile` callers (decode promote / preload promote paths).
  */
-export function ramReadBlob(filename: string, isPreload: boolean): Blob | null {
-  const slot = findSlotForRead(filename, isPreload);
+export function ramReadBlob(filename: string, isPreload: boolean, sessionId?: number): Blob | null {
+  const slot = findSlotForRead(filename, isPreload, sessionId);
   return slot?.finalizedBlob ?? null;
 }
 
 function findSlotForRead(filename: string, isPreload: boolean, sessionId?: number): RamSlot | null {
   if (!isPreload) {
-    if (mainSlot && mainSlot.filename === filename) return mainSlot;
+    if (
+      mainSlot &&
+      mainSlot.filename === filename &&
+      (sessionId === undefined || mainSlot.sessionId === sessionId)
+    ) {
+      return mainSlot;
+    }
     return null;
   }
   if (typeof sessionId === 'number') {
     const bySid = preloadBySid.get(sessionId);
     if (bySid && bySid.filename === filename) return bySid;
+    return null;
   }
   return preloadByName.get(filename) ?? null;
 }

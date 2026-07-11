@@ -11,7 +11,6 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { BlobURLManager } from '../core/blob-manager.ts';
 import { IS_WINDOWS } from '../core/platform.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
@@ -64,11 +63,13 @@ import {
   getCurrentLoadEpoch,
   isCurrentLoadEpoch,
   newLoadEpoch,
+  incrementLoadSessionId,
   isPlayLocked,
   setPlayLocked,
   getPendingPlayTime,
   setPendingPlayTime,
   setPlayPreloadedInProgress,
+  setCurrentAudioBuffer,
 } from './_state.ts';
 
 import { getAudioContext, getCurrentTime, ensureRunning } from '../audio/context.ts';
@@ -225,27 +226,21 @@ export function stopPlayerNode(): void {
 
 // ─── Stop All Media ────────────────────────────────────────────────
 
-export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean }): void {
+export function stopAllMedia(opts?: {
+  silent?: boolean;
+  cancelInFlight?: boolean;
+  clearBuffer?: boolean;
+}): void {
   const wasInYouTube = isYouTubeOwner();
 
   if (opts?.cancelInFlight) {
     newLoadEpoch();
+    incrementLoadSessionId();
   }
 
   // Stop system audio if active (without recursive loop — cleanup only disconnects nodes)
   if (isSystemAudioActive()) {
     bus.emit('system-audio:force-stop');
-  }
-
-  try {
-    BlobURLManager.revoke();
-  } catch (e) {
-    log.debug('[Transport] BlobURL revoke:', e);
-  }
-  try {
-    BlobURLManager.flushDeferred('stopAllMedia');
-  } catch (e) {
-    log.debug('[Transport] BlobURL flush:', e);
   }
 
   // Stop YouTube. Propagate silent so stopYouTubeMode skips the
@@ -283,6 +278,7 @@ export function stopAllMedia(opts?: { silent?: boolean; cancelInFlight?: boolean
 
   // Stop player node
   stopPlayerNode();
+  if (opts?.clearBuffer) setCurrentAudioBuffer(null);
 
   // Reset master clock
   setState('player.startedAt', 0);

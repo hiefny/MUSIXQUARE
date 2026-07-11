@@ -28,11 +28,6 @@ vi.mock('../video.ts', async (importOriginal) => {
   };
 });
 
-// Mock blob-manager.ts (transitive dep from video.ts)
-vi.mock('../../core/blob-manager.ts', () => ({
-  setVideoElement: vi.fn(),
-}));
-
 // Polyfill navigator.mediaSession for jsdom
 const _handlers: Record<string, (details?: Record<string, unknown>) => void> = {};
 Object.defineProperty(navigator, 'mediaSession', {

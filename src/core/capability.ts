@@ -4,13 +4,22 @@ interface SecurityConfig {
   capabilityRequired: boolean;
   turnstileSiteKey: string;
   turnstileRequired: boolean;
-  inferredFallback: boolean;
+  proofOfWorkRequired: boolean;
+  proofOfWorkDifficulty: number;
+  proofOfWorkTtl: number;
   ttl: number;
 }
 
 interface CapabilityTokenResponse {
   token?: string;
   expiresAt?: number;
+}
+
+interface ProofOfWorkChallengeResponse {
+  challenge?: string;
+  difficulty?: number;
+  expiresAt?: number;
+  algorithm?: string;
 }
 
 interface TurnstileOptions {
@@ -41,9 +50,11 @@ const SECURITY_CONFIG_CACHE_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_SECONDS = 30;
 const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
 const TURNSTILE_OVERLAY_FADE_MS = 180;
-const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const TURNSTILE_SCRIPT_SRC =
+  'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_STYLE_ID = 'mxqr-turnstile-style';
 const CAPABILITY_CHALLENGE_CANCELLED = 'CapabilityChallengeCancelled';
+const POW_BATCH_SIZE = 64;
 const VALID_SCOPES = new Set<CapabilityScope>([
   'turn',
   'realtime',
@@ -55,15 +66,11 @@ const VALID_SCOPES = new Set<CapabilityScope>([
 // default) rather than once per scope. Any scope request uses the same bundle
 // cache entry. The broader token is constrained by IP binding, the server's
 // short configurable TTL, and per-endpoint rate limits.
-const BUNDLE_SCOPES: CapabilityScope[] = [
-  'realtime',
-  'remote-share',
-  'turn',
-  'youtube-search',
-];
+const BUNDLE_SCOPES: CapabilityScope[] = ['realtime', 'remote-share', 'turn', 'youtube-search'];
 
 const configCache = new Map<string, { expiresAt: number; value: SecurityConfig }>();
 const tokenCache = new Map<string, { expiresAt: number; token: string }>();
+const tokenRequestCache = new Map<string, Promise<string>>();
 let turnstileLoadPromise: Promise<void> | null = null;
 let turnstileExecution: Promise<string> | null = null;
 let turnstileWidgetId: string | null = null;
@@ -71,12 +78,25 @@ let turnstileContainer: HTMLElement | null = null;
 let turnstileWidgetHost: HTMLElement | null = null;
 let turnstileCancelReject: ((error: Error) => void) | null = null;
 let turnstileCleanupTimer: number | null = null;
-let turnstileCancelGeneration = 0;
+let capabilityCancelGeneration = 0;
 
 function createCapabilityChallengeCancelledError(reason: string): Error {
   const error = new Error(reason);
   error.name = CAPABILITY_CHALLENGE_CANCELLED;
   return error;
+}
+
+function createAbortError(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) return signal.reason;
+  const error = new Error(
+    typeof signal?.reason === 'string' && signal.reason ? signal.reason : 'Operation aborted',
+  );
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw createAbortError(signal);
 }
 
 export function isCapabilityChallengeCancelled(error: unknown): boolean {
@@ -113,18 +133,29 @@ function normalizeSecurityConfig(value: unknown): SecurityConfig {
     capabilityRequired: payload.capabilityRequired === true,
     turnstileSiteKey: typeof payload.turnstileSiteKey === 'string' ? payload.turnstileSiteKey : '',
     turnstileRequired: payload.turnstileRequired === true,
-    inferredFallback: payload.inferredFallback === true,
+    proofOfWorkRequired: payload.proofOfWorkRequired === true,
+    proofOfWorkDifficulty:
+      typeof payload.proofOfWorkDifficulty === 'number' &&
+      Number.isInteger(payload.proofOfWorkDifficulty)
+        ? payload.proofOfWorkDifficulty
+        : 0,
+    proofOfWorkTtl:
+      typeof payload.proofOfWorkTtl === 'number' && Number.isFinite(payload.proofOfWorkTtl)
+        ? payload.proofOfWorkTtl
+        : 0,
     ttl: typeof payload.ttl === 'number' && Number.isFinite(payload.ttl) ? payload.ttl : 600,
   };
 }
 
-async function getSecurityConfig(apiBase: string): Promise<SecurityConfig> {
+async function getSecurityConfig(apiBase: string, signal?: AbortSignal): Promise<SecurityConfig> {
+  throwIfAborted(signal);
   const cached = configCache.get(apiBase);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   try {
     const response = await fetch(`${apiBase}/api/security-config`, {
       headers: { Accept: 'application/json' },
+      signal,
     });
     if (!response.ok) throw new Error(`security config HTTP ${response.status}`);
     const value = normalizeSecurityConfig(await response.json());
@@ -134,11 +165,14 @@ async function getSecurityConfig(apiBase: string): Promise<SecurityConfig> {
     });
     return value;
   } catch {
+    if (signal?.aborted) throw createAbortError(signal);
     return {
       capabilityRequired: false,
       turnstileSiteKey: '',
       turnstileRequired: false,
-      inferredFallback: false,
+      proofOfWorkRequired: false,
+      proofOfWorkDifficulty: 0,
+      proofOfWorkTtl: 0,
       ttl: 600,
     };
   }
@@ -316,7 +350,7 @@ function cleanupTurnstileWidget(): void {
 }
 
 export function cancelCapabilityChallenge(reason = 'Capability challenge cancelled'): void {
-  turnstileCancelGeneration += 1;
+  capabilityCancelGeneration += 1;
   const reject = turnstileCancelReject;
   const error = createCapabilityChallengeCancelledError(reason);
   if (reject) {
@@ -331,9 +365,9 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
   if (turnstileExecution) return turnstileExecution;
 
   turnstileExecution = (async () => {
-    const cancelGeneration = turnstileCancelGeneration;
+    const cancelGeneration = capabilityCancelGeneration;
     await loadTurnstile();
-    if (cancelGeneration !== turnstileCancelGeneration) {
+    if (cancelGeneration !== capabilityCancelGeneration) {
       throw createCapabilityChallengeCancelledError('Capability challenge cancelled');
     }
     const turnstile = window.turnstile;
@@ -370,10 +404,8 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
           appearance: 'interaction-only',
           callback: (token) => finish(() => resolve(token)),
           'before-interactive-callback': showTurnstileOverlay,
-          'error-callback': () =>
-            finish(() => reject(new Error('Turnstile challenge failed'))),
-          'expired-callback': () =>
-            finish(() => reject(new Error('Turnstile challenge expired'))),
+          'error-callback': () => finish(() => reject(new Error('Turnstile challenge failed'))),
+          'expired-callback': () => finish(() => reject(new Error('Turnstile challenge expired'))),
         });
         turnstile.execute(turnstileWidgetId);
       } catch (error) {
@@ -389,31 +421,136 @@ async function getTurnstileToken(siteKey: string): Promise<string> {
   }
 }
 
+function hasLeadingZeroBits(bytes: Uint8Array, difficulty: number): boolean {
+  let remaining = difficulty;
+  for (const byte of bytes) {
+    if (remaining <= 0) return true;
+    const bits = Math.min(8, remaining);
+    if ((byte & (0xff << (8 - bits))) !== 0) return false;
+    remaining -= bits;
+  }
+  return remaining <= 0;
+}
+
+async function solveCapabilityProofOfWork(
+  challenge: string,
+  difficulty: number,
+  expiresAt: number,
+  cancelGeneration: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!challenge || !Number.isInteger(difficulty) || difficulty < 8 || difficulty > 24) {
+    throw new Error('Invalid capability proof-of-work challenge');
+  }
+
+  const encoder = new TextEncoder();
+  const prefix = `mxqr-pow-v1:${challenge}:`;
+  for (let start = 0; start < Number.MAX_SAFE_INTEGER; start += POW_BATCH_SIZE) {
+    throwIfAborted(signal);
+    if (cancelGeneration !== capabilityCancelGeneration) {
+      throw createCapabilityChallengeCancelledError('Capability challenge cancelled');
+    }
+    if (Date.now() / 1000 >= expiresAt) {
+      throw new Error('Capability proof-of-work challenge expired');
+    }
+
+    // WebCrypto performs hashing outside the JS main thread. Small batches
+    // keep mobile/WebView event loops responsive without a visible challenge.
+    const digests = await Promise.all(
+      Array.from({ length: POW_BATCH_SIZE }, (_, offset) =>
+        crypto.subtle.digest('SHA-256', encoder.encode(`${prefix}${start + offset}`)),
+      ),
+    );
+    throwIfAborted(signal);
+    for (let offset = 0; offset < digests.length; offset += 1) {
+      if (hasLeadingZeroBits(new Uint8Array(digests[offset]), difficulty)) {
+        return String(start + offset);
+      }
+    }
+  }
+  throw new Error('Capability proof-of-work solution unavailable');
+}
+
+async function getCapabilityProofOfWork(
+  apiBase: string,
+  scopes: CapabilityScope[],
+  config: SecurityConfig,
+  signal?: AbortSignal,
+): Promise<{ challenge: string; solution: string }> {
+  throwIfAborted(signal);
+  const cancelGeneration = capabilityCancelGeneration;
+  const response = await fetch(`${apiBase}/api/capability-challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scopes }),
+    signal,
+  });
+  if (!response.ok) throw new Error(`capability challenge HTTP ${response.status}`);
+
+  const payload = (await response.json()) as ProofOfWorkChallengeResponse;
+  if (cancelGeneration !== capabilityCancelGeneration) {
+    throw createCapabilityChallengeCancelledError('Capability challenge cancelled');
+  }
+  const nowSeconds = Date.now() / 1000;
+  if (
+    !payload.challenge ||
+    payload.algorithm !== 'sha256-leading-zero-bits' ||
+    typeof payload.difficulty !== 'number' ||
+    payload.difficulty !== config.proofOfWorkDifficulty ||
+    typeof payload.expiresAt !== 'number' ||
+    payload.expiresAt <= nowSeconds ||
+    payload.expiresAt > nowSeconds + config.proofOfWorkTtl + 5
+  ) {
+    throw new Error('Invalid capability proof-of-work response');
+  }
+  return {
+    challenge: payload.challenge,
+    solution: await solveCapabilityProofOfWork(
+      payload.challenge,
+      payload.difficulty,
+      payload.expiresAt,
+      cancelGeneration,
+      signal,
+    ),
+  };
+}
+
 async function requestCapabilityToken(
   apiBase: string,
   scopes: CapabilityScope[],
   config: SecurityConfig,
+  signal?: AbortSignal,
 ): Promise<string> {
+  throwIfAborted(signal);
   let turnstileToken = '';
   if (config.turnstileSiteKey) {
     try {
       turnstileToken = await getTurnstileToken(config.turnstileSiteKey);
+      throwIfAborted(signal);
     } catch (error) {
       if (isCapabilityChallengeCancelled(error)) throw error;
-      if (!config.inferredFallback) throw error;
+      throw error;
     }
   }
-  if (config.turnstileRequired && !turnstileToken && !config.inferredFallback) {
+  if (config.turnstileRequired && !turnstileToken) {
     throw new Error('Turnstile required');
   }
 
+  const proofOfWork =
+    config.proofOfWorkRequired && !turnstileToken
+      ? await getCapabilityProofOfWork(apiBase, scopes, config, signal)
+      : null;
+
+  throwIfAborted(signal);
   const response = await fetch(`${apiBase}/api/capability-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       scopes,
       ...(turnstileToken ? { turnstileToken } : {}),
+      ...(proofOfWork ? { proofOfWork } : {}),
     }),
+    signal,
   });
   if (!response.ok) throw new Error(`capability token HTTP ${response.status}`);
 
@@ -430,12 +567,15 @@ async function requestCapabilityToken(
 export async function getCapabilityHeaders(
   input: RequestInfo | URL,
   scopes: CapabilityScope[],
+  signal?: AbortSignal,
 ): Promise<Record<string, string>> {
+  throwIfAborted(signal);
   const normalizedScopes = normalizeScopes(scopes);
   if (normalizedScopes.length === 0) return {};
 
   const apiBase = apiBaseFor(input);
-  const config = await getSecurityConfig(apiBase);
+  const config = await getSecurityConfig(apiBase, signal);
+  throwIfAborted(signal);
   if (!config.capabilityRequired) return {};
 
   const cacheKey = tokenCacheKey(apiBase, BUNDLE_SCOPES);
@@ -450,9 +590,26 @@ export async function getCapabilityHeaders(
     // BUNDLE_SCOPES comment. normalizedScopes is kept above only as an
     // argument-validation gate (empty -> no-op).
     void normalizedScopes;
-    const token = await requestCapabilityToken(apiBase, BUNDLE_SCOPES, config);
+    let request: Promise<string>;
+    if (signal) {
+      // An abortable caller owns its mint request. Sharing it would let one
+      // upload cancel another caller's challenge/token fetch.
+      request = requestCapabilityToken(apiBase, BUNDLE_SCOPES, config, signal);
+    } else {
+      let sharedRequest = tokenRequestCache.get(cacheKey);
+      if (!sharedRequest) {
+        sharedRequest = requestCapabilityToken(apiBase, BUNDLE_SCOPES, config).finally(() => {
+          if (tokenRequestCache.get(cacheKey) === sharedRequest) tokenRequestCache.delete(cacheKey);
+        });
+        tokenRequestCache.set(cacheKey, sharedRequest);
+      }
+      request = sharedRequest;
+    }
+    const token = await request;
+    throwIfAborted(signal);
     return { 'X-MXQR-Capability': token };
   } catch (error) {
+    if (signal?.aborted) throw createAbortError(signal);
     if (isCapabilityChallengeCancelled(error)) throw error;
     return {};
   }
@@ -474,7 +631,7 @@ export async function fetchWithCapability(
   const apiBase = apiBaseFor(input);
   const scopes = normalizeScopes([scope]);
   const headers = new Headers(init.headers);
-  const capabilityHeaders = await getCapabilityHeaders(input, scopes);
+  const capabilityHeaders = await getCapabilityHeaders(input, scopes, init.signal ?? undefined);
   for (const [name, value] of Object.entries(capabilityHeaders)) headers.set(name, value);
   const response = await fetch(input, { ...init, headers });
   if (response.status !== 401) return response;
@@ -488,7 +645,11 @@ export async function fetchWithCapability(
   invalidateSecurityConfig(apiBase);
   tokenCache.delete(tokenCacheKey(apiBase, BUNDLE_SCOPES));
   const retryHeaders = new Headers(init.headers);
-  const retryCapabilityHeaders = await getCapabilityHeaders(input, scopes);
+  const retryCapabilityHeaders = await getCapabilityHeaders(
+    input,
+    scopes,
+    init.signal ?? undefined,
+  );
   for (const [name, value] of Object.entries(retryCapabilityHeaders)) {
     retryHeaders.set(name, value);
   }

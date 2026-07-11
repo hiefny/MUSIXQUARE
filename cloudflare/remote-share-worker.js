@@ -11,9 +11,8 @@
  *
  * Optional env:
  * - R2_BUCKET_NAME: default musixquare-remote-share
- * - MAX_UPLOAD_BYTES: default 209715200
  * - OBJECT_TTL_SECONDS: default 3600
- * - UPLOAD_TOKEN_TTL_SECONDS: default 600
+ * - UPLOAD_TOKEN_TTL_SECONDS: presigned PUT start window, default 600
  * - RATE_LIMIT_WINDOW_SECONDS: default 3600
  * - IP_UPLOADS_PER_WINDOW: default 60
  * - ROOM_UPLOADS_PER_WINDOW: default 0 (disabled)
@@ -28,7 +27,11 @@
  *     no secret is configured. Local/emergency only.
  */
 
-const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+// Cross-layer contract: client selection, protocol descriptors, AES-GCM output,
+// and stored-object validation all use this fixed 200 MiB plaintext ceiling.
+const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
+const AES_GCM_TAG_BYTES = 16;
+const REMOTE_SHARE_MAX_ENCRYPTED_BYTES = REMOTE_SHARE_MAX_BYTES + AES_GCM_TAG_BYTES;
 const DEFAULT_TTL_SECONDS = 60 * 60;
 const DEFAULT_UPLOAD_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
@@ -81,7 +84,7 @@ function corsHeaders(request, env) {
     'access-control-allow-origin': allowOrigin,
     'access-control-allow-methods': 'POST,GET,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,authorization,x-mxqr-capability,x-mxqr-name,x-mxqr-mime,x-mxqr-size,x-mxqr-cleanup-token,x-mxqr-session-token',
+      'content-type,authorization,x-mxqr-capability,x-mxqr-cleanup-token',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -97,7 +100,6 @@ function requiresAllowedOrigin(path) {
     path === '/session' ||
     path === '/security-config' ||
     path === '/complete' ||
-    path === '/upload' ||
     /^\/download\/[^/]+\/[^/]+$/.test(path) ||
     /^\/object\/[^/]+\/[^/]+$/.test(path)
   );
@@ -225,10 +227,10 @@ function base64UrlEncode(value) {
 }
 
 function base64UrlDecode(value) {
-  const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(
-    Math.ceil(value.length / 4) * 4,
-    '=',
-  );
+  const padded = value
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(value.length / 4) * 4, '=');
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
@@ -284,9 +286,7 @@ function constantTimeEqual(a, b) {
 
 function getClientIp(request) {
   return (
-    request.headers.get('cf-connecting-ip') ||
-    request.headers.get('x-forwarded-for') ||
-    'unknown'
+    request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown'
   );
 }
 
@@ -361,8 +361,9 @@ function hex(bytes) {
 }
 
 function awsEncode(value) {
-  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
-    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
   );
 }
 
@@ -428,12 +429,9 @@ async function createR2PresignedPutUrl({ env, objectKey: key, headers, expiresIn
     signedHeaders,
     'UNSIGNED-PAYLOAD',
   ].join('\n');
-  const stringToSign = [
-    'AWS4-HMAC-SHA256',
-    amzDate,
-    scope,
-    await sha256Hex(canonicalRequest),
-  ].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, await sha256Hex(canonicalRequest)].join(
+    '\n',
+  );
 
   const encoder = new TextEncoder();
   const dateKey = await hmacBytes(encoder.encode(`AWS4${secretAccessKey}`), dateStamp);
@@ -448,11 +446,7 @@ async function createR2PresignedPutUrl({ env, objectKey: key, headers, expiresIn
 async function createSignedToken(payload, secret) {
   const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
   const key = await importSigningKey(secret);
-  const signature = await crypto.subtle.sign(
-    'HMAC',
-    key,
-    new TextEncoder().encode(encodedPayload),
-  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(encodedPayload));
   return `${encodedPayload}.${base64UrlEncode(signature)}`;
 }
 
@@ -481,17 +475,10 @@ function safeRoomId(value) {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '_') || 'room';
 }
 
-function decodeHeaderValue(value, fallback = '') {
-  if (!value) return fallback;
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return fallback;
-  }
-}
-
 function metadataString(value, fallback = '') {
-  const raw = String(value || fallback).replace(/[\r\n]/g, ' ').trim();
+  const raw = String(value || fallback)
+    .replace(/[\r\n]/g, ' ')
+    .trim();
   return encodeURIComponent(raw).slice(0, 512) || fallback;
 }
 
@@ -519,13 +506,9 @@ async function consumeLimit(env, key, limit, ttlSeconds) {
 }
 
 function rateLimited(request, env, message, retryAfterSeconds) {
-  return json(
-    request,
-    env,
-    { error: message, retryAfterSeconds },
-    429,
-    { 'retry-after': String(retryAfterSeconds) },
-  );
+  return json(request, env, { error: message, retryAfterSeconds }, 429, {
+    'retry-after': String(retryAfterSeconds),
+  });
 }
 
 async function handleSession(request, env) {
@@ -544,19 +527,19 @@ async function handleSession(request, env) {
   const index = Number(body?.index);
   const size = Number(body?.size);
   const encryptedSize = Number(body?.encryptedSize);
-  const maxBytes = parseLimit(env.MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
-  const maxEncryptedBytes = maxBytes + 4096;
 
   if (
-    !Number.isFinite(sessionId) ||
-    !Number.isFinite(index) ||
+    !Number.isSafeInteger(sessionId) ||
+    sessionId <= 0 ||
+    !Number.isSafeInteger(index) ||
     index < 0 ||
     !Number.isFinite(size) ||
     size <= 0 ||
-    size > maxBytes ||
+    !Number.isSafeInteger(size) ||
+    size > REMOTE_SHARE_MAX_BYTES ||
     !Number.isFinite(encryptedSize) ||
-    encryptedSize <= 0 ||
-    encryptedSize > maxEncryptedBytes
+    !Number.isSafeInteger(encryptedSize) ||
+    encryptedSize !== size + AES_GCM_TAG_BYTES
   ) {
     return json(request, env, { error: 'invalid upload session request' }, 400);
   }
@@ -598,35 +581,35 @@ async function handleSession(request, env) {
   const uploadHeaders = {
     'content-type': 'application/octet-stream',
     'x-amz-meta-cleanup-token': cleanupToken,
+    'x-amz-meta-encrypted-size': String(encryptedSize),
     'x-amz-meta-expires-at': String(expiresAt),
     'x-amz-meta-mime': mime,
     'x-amz-meta-name': name,
+    'x-amz-meta-object-id': objectId,
     'x-amz-meta-room-id': roomId,
     'x-amz-meta-size-bytes': String(size),
+  };
+  // Content-Length is a forbidden browser header, so the client must not set
+  // it itself. The user agent still sends the real request length. Include
+  // the declared ciphertext length only in SigV4's signed headers so R2
+  // rejects an oversized/undersized PUT before it can become an orphan.
+  const signedUploadHeaders = {
+    ...uploadHeaders,
+    'content-length': String(encryptedSize),
   };
   const uploadUrl = await createR2PresignedPutUrl({
     env,
     objectKey: objectKeyValue,
-    headers: uploadHeaders,
+    headers: signedUploadHeaders,
     expiresInSeconds: ttlSeconds,
     now: new Date(now),
   });
   if (!uploadUrl) return json(request, env, { error: 'r2 s3 config missing' }, 500);
 
-  const legacyToken = await createSignedToken(
-    {
-      v: 1,
-      roomId,
-      sessionId,
-      index,
-      size,
-      encryptedSize,
-      iat: now,
-      exp: uploadUrlExpiresAt,
-      nonce: crypto.randomUUID(),
-    },
-    secret,
-  );
+  // The presigned URL only governs when R2 accepts the PUT request. A slow,
+  // steadily progressing PUT may finish after that start window, so its
+  // completion capability remains valid only until the already-fixed object
+  // expiry. Neither the PUT URL nor the object's usable lifetime is extended.
   const completeToken = await createSignedToken(
     {
       v: 2,
@@ -641,7 +624,7 @@ async function handleSession(request, env) {
       expiresAt,
       cleanupToken,
       iat: now,
-      exp: uploadUrlExpiresAt,
+      exp: expiresAt,
       nonce: crypto.randomUUID(),
     },
     secret,
@@ -649,7 +632,6 @@ async function handleSession(request, env) {
 
   const url = new URL(request.url);
   return json(request, env, {
-    token: legacyToken,
     uploadUrl,
     uploadHeaders,
     uploadUrlExpiresAt,
@@ -675,14 +657,22 @@ async function handleComplete(request, env) {
   const roomId = safeRoomId(body?.roomId);
   const objectId = String(body?.objectId || '');
   const now = Date.now();
+  const issuedAt = Number(payload?.iat);
+  const tokenExpiresAt = Number(payload?.exp);
+  const objectExpiresAt = Number(payload?.expiresAt);
   if (
     !payload ||
     payload.v !== 2 ||
     payload.kind !== 'complete' ||
     payload.roomId !== roomId ||
     payload.objectId !== objectId ||
-    !Number.isFinite(Number(payload.exp)) ||
-    Number(payload.exp) < now
+    !Number.isSafeInteger(issuedAt) ||
+    !Number.isSafeInteger(tokenExpiresAt) ||
+    !Number.isSafeInteger(objectExpiresAt) ||
+    issuedAt > tokenExpiresAt ||
+    issuedAt > now + 60_000 ||
+    tokenExpiresAt !== objectExpiresAt ||
+    tokenExpiresAt < now
   ) {
     return json(request, env, { error: 'invalid upload completion' }, 403);
   }
@@ -694,19 +684,48 @@ async function handleComplete(request, env) {
   if (!object) return json(request, env, { error: 'not found' }, 404);
 
   const expectedSize = Number(payload.encryptedSize);
-  const maxBytes = parseLimit(env.MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
-  const maxEncryptedBytes = maxBytes + 4096;
+  const plaintextSize = Number(payload.size);
   if (
+    !Number.isSafeInteger(plaintextSize) ||
+    plaintextSize <= 0 ||
+    plaintextSize > REMOTE_SHARE_MAX_BYTES ||
     !Number.isFinite(expectedSize) ||
+    !Number.isSafeInteger(expectedSize) ||
+    expectedSize !== plaintextSize + AES_GCM_TAG_BYTES ||
     object.size !== expectedSize ||
-    object.size > maxEncryptedBytes
+    object.size > REMOTE_SHARE_MAX_ENCRYPTED_BYTES
   ) {
     await env.REMOTE_SHARE_BUCKET.delete(key);
     return json(request, env, { error: 'invalid uploaded object' }, 403);
   }
 
+  const storedPlaintextSize = Number(readMetadata(object, 'sizeBytes', 'size-bytes', 'sizebytes'));
+  const storedEncryptedSize = Number(
+    readMetadata(object, 'encryptedSize', 'encrypted-size', 'encryptedsize'),
+  );
+  const storedRoomId = String(readMetadata(object, 'roomId', 'room-id', 'roomid') || '');
+  const storedObjectId = String(readMetadata(object, 'objectId', 'object-id', 'objectid') || '');
+  const storedCleanupToken = String(
+    readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken') || '',
+  );
+  const storedExpiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat'));
+  if (
+    storedPlaintextSize !== plaintextSize ||
+    storedEncryptedSize !== expectedSize ||
+    storedRoomId !== roomId ||
+    storedObjectId !== objectId ||
+    storedCleanupToken !== payload.cleanupToken ||
+    storedExpiresAt !== Number(payload.expiresAt)
+  ) {
+    await env.REMOTE_SHARE_BUCKET.delete(key);
+    return json(request, env, { error: 'invalid uploaded object metadata' }, 403);
+  }
+
   const expiresAt = Number(payload.expiresAt);
-  if (!Number.isFinite(expiresAt) || expiresAt < now) {
+  // HEAD is an awaited network boundary. Re-read the clock so a completion
+  // that crossed object expiry while R2 was responding cannot publish an
+  // already-stale descriptor.
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
     await env.REMOTE_SHARE_BUCKET.delete(key);
     return json(request, env, { error: 'expired' }, 404);
   }
@@ -720,129 +739,13 @@ async function handleComplete(request, env) {
   });
 }
 
-async function validateUploadSession(request, env, roomId, contentLength, maxEncryptedBytes) {
-  const secret = getSigningSecret(env);
-  if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
-
-  const token = request.headers.get('x-mxqr-session-token') || '';
-  const payload = await verifySignedToken(token, secret);
-  if (!payload || payload.v !== 1) {
-    return json(request, env, { error: 'invalid upload session' }, 403);
-  }
-
-  const now = Date.now();
-  const encryptedSize = Number(payload.encryptedSize);
-  if (
-    payload.roomId !== roomId ||
-    !Number.isFinite(Number(payload.sessionId)) ||
-    !Number.isFinite(Number(payload.index)) ||
-    !Number.isFinite(encryptedSize) ||
-    encryptedSize !== contentLength ||
-    encryptedSize > maxEncryptedBytes ||
-    !Number.isFinite(Number(payload.exp)) ||
-    Number(payload.exp) < now ||
-    typeof payload.nonce !== 'string'
-  ) {
-    return json(request, env, { error: 'invalid upload session' }, 403);
-  }
-
-  if (env.REMOTE_SHARE_RATE_LIMIT) {
-    const replayKey = `upload-token:${payload.nonce}`;
-    const used = await env.REMOTE_SHARE_RATE_LIMIT.get(replayKey);
-    if (used) return json(request, env, { error: 'upload session already used' }, 403);
-    const replayTtlSeconds = Math.max(60, Math.ceil((Number(payload.exp) - now) / 1000));
-    await env.REMOTE_SHARE_RATE_LIMIT.put(replayKey, '1', {
-      expirationTtl: replayTtlSeconds,
-    });
-  }
-
-  return null;
-}
-
-async function handleUpload(request, env) {
-  if (!env.REMOTE_SHARE_BUCKET) return json(request, env, { error: 'bucket missing' }, 500);
-
-  const maxBytes = parseLimit(env.MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
-  const maxEncryptedBytes = maxBytes + 4096;
-  const contentLength = Number(request.headers.get('content-length') || '0');
-  if (!Number.isFinite(contentLength) || contentLength <= 0) {
-    return json(request, env, { error: 'missing body' }, 400);
-  }
-  if (contentLength > maxEncryptedBytes) {
-    return json(request, env, { error: 'file too large', maxBytes }, 413);
-  }
-
-  const url = new URL(request.url);
-  const roomId = safeRoomId(url.searchParams.get('roomId'));
-  const invalidSession = await validateUploadSession(
-    request,
-    env,
-    roomId,
-    contentLength,
-    maxEncryptedBytes,
-  );
-  if (invalidSession) return invalidSession;
-
-  const ip = getClientIp(request);
-
-  const rateWindowSeconds = parseLimit(
-    env.RATE_LIMIT_WINDOW_SECONDS,
-    DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
-  );
-  const ipUploadLimit = parseLimit(env.IP_UPLOADS_PER_WINDOW, DEFAULT_IP_UPLOADS_PER_WINDOW);
-  const roomUploadLimit = parseOptionalLimit(
-    env.ROOM_UPLOADS_PER_WINDOW,
-    DEFAULT_ROOM_UPLOADS_PER_WINDOW,
-  );
-
-  const ipAllowed = await consumeLimit(env, `ip:${ip}`, ipUploadLimit, rateWindowSeconds);
-  if (!ipAllowed) return rateLimited(request, env, 'rate limited', rateWindowSeconds);
-
-  if (roomUploadLimit > 0) {
-    const roomAllowed = await consumeLimit(
-      env,
-      `room:${roomId}`,
-      roomUploadLimit,
-      rateWindowSeconds,
-    );
-    if (!roomAllowed) return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
-  }
-
-  const ttlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
-  const expiresAt = Date.now() + ttlSeconds * 1000;
-  const objectId = crypto.randomUUID();
-  const key = `room/${roomId}/${objectId}`;
-  const cleanupToken = crypto.randomUUID();
-  const name = decodeHeaderValue(request.headers.get('x-mxqr-name'), 'track');
-  const mime = request.headers.get('x-mxqr-mime') || 'application/octet-stream';
-  const declaredSize = request.headers.get('x-mxqr-size') || '';
-
-  await env.REMOTE_SHARE_BUCKET.put(key, request.body, {
-    httpMetadata: {
-      contentType: 'application/octet-stream',
-      cacheControl: 'no-store',
-    },
-    customMetadata: {
-      roomId,
-      name: name.slice(0, 240),
-      mime: mime.slice(0, 120),
-      sizeBytes: declaredSize,
-      expiresAt: String(expiresAt),
-      cleanupToken,
-    },
-  });
-
-  return json(request, env, {
-    objectId,
-    expiresAt,
-    downloadUrl: `${url.origin}/download/${roomId}/${objectId}`,
-    cleanupToken,
-  });
-}
-
 function objectKey(roomId, objectId) {
   const room = safeRoomId(roomId);
-  if (!/^[0-9a-f-]{36}$/i.test(objectId)) return null;
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(objectId)
+  ) {
+    return null;
+  }
   return `room/${room}/${objectId}`;
 }
 
@@ -855,15 +758,32 @@ async function handleDownload(request, env, roomId, objectId) {
   const object = await env.REMOTE_SHARE_BUCKET.get(key);
   if (!object) return json(request, env, { error: 'not found' }, 404);
 
-  const maxBytes = parseLimit(env.MAX_UPLOAD_BYTES, DEFAULT_MAX_UPLOAD_BYTES);
-  if (object.size > maxBytes + 4096) {
+  if (object.size > REMOTE_SHARE_MAX_ENCRYPTED_BYTES) {
     await env.REMOTE_SHARE_BUCKET.delete(key);
-    return json(request, env, { error: 'file too large', maxBytes }, 413);
+    return json(request, env, { error: 'file too large', maxBytes: REMOTE_SHARE_MAX_BYTES }, 413);
   }
 
-  const expiresAt = Number(
-    readMetadata(object, 'expiresAt', 'expires-at', 'expiresat') || '0',
+  const plaintextSize = Number(readMetadata(object, 'sizeBytes', 'size-bytes', 'sizebytes'));
+  const encryptedSize = Number(
+    readMetadata(object, 'encryptedSize', 'encrypted-size', 'encryptedsize'),
   );
+  const storedRoomId = String(readMetadata(object, 'roomId', 'room-id', 'roomid') || '');
+  const storedObjectId = String(readMetadata(object, 'objectId', 'object-id', 'objectid') || '');
+  if (
+    !Number.isSafeInteger(plaintextSize) ||
+    plaintextSize <= 0 ||
+    plaintextSize > REMOTE_SHARE_MAX_BYTES ||
+    !Number.isSafeInteger(encryptedSize) ||
+    encryptedSize !== plaintextSize + AES_GCM_TAG_BYTES ||
+    object.size !== encryptedSize ||
+    storedRoomId !== safeRoomId(roomId) ||
+    storedObjectId !== objectId
+  ) {
+    await env.REMOTE_SHARE_BUCKET.delete(key);
+    return json(request, env, { error: 'invalid stored object' }, 404);
+  }
+
+  const expiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat') || '0');
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
     await env.REMOTE_SHARE_BUCKET.delete(key);
     return json(request, env, { error: 'expired' }, 404);
@@ -887,9 +807,10 @@ async function handleDelete(request, env, roomId, objectId) {
   if (!key) return json(request, env, { ok: true });
 
   const object = await env.REMOTE_SHARE_BUCKET.head(key);
+  if (!object) return json(request, env, { ok: true });
   const expected = readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken');
   const supplied = request.headers.get('x-mxqr-cleanup-token') || '';
-  if (expected && supplied !== expected) {
+  if (!expected || supplied !== expected) {
     return json(request, env, { error: 'forbidden' }, 403);
   }
 
@@ -927,9 +848,6 @@ export default {
       }
       if (request.method === 'POST' && path === '/complete') {
         return handleComplete(request, env);
-      }
-      if (request.method === 'POST' && path === '/upload') {
-        return handleUpload(request, env);
       }
       const download = path.match(/^\/download\/([^/]+)\/([^/]+)$/);
       if (request.method === 'GET' && download) {

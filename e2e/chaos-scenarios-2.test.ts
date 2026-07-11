@@ -222,7 +222,6 @@ const assertHostAlive = assertPlaybackProjectionValid;
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
 const YT_VIDEO_2 = 'https://youtu.be/dQw4w9WgXcQ';
 
-
 test.describe('Host Page Refresh', () => {
   test('host refresh during playback does not permanently break guests', async ({ browser }) => {
     test.setTimeout(120_000);
@@ -308,7 +307,6 @@ test.describe('Host Page Refresh', () => {
   });
 });
 
-
 test.describe('Seek Position Chaos', () => {
   test('seek commands during guest join do not desync', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -378,7 +376,6 @@ test.describe('Seek Position Chaos', () => {
   });
 });
 
-
 test.describe('Total Guest Wipeout', () => {
   test('all 3 guests disconnect simultaneously, host remains stable', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -412,7 +409,6 @@ test.describe('Total Guest Wipeout', () => {
   });
 });
 
-
 test.describe('Staggered Disconnect Cascade', () => {
   test('guests disconnect 2 seconds apart during playback', async ({ browser }) => {
     test.setTimeout(120_000);
@@ -445,7 +441,6 @@ test.describe('Staggered Disconnect Cascade', () => {
     }
   });
 });
-
 
 test.describe('Rapid Play/Pause Cycling', () => {
   test('20x rapid play/pause toggle does not crash with guest', async ({ browser }) => {
@@ -482,7 +477,6 @@ test.describe('Rapid Play/Pause Cycling', () => {
     }
   });
 });
-
 
 test.describe('Rapid Track Navigation', () => {
   test('next→next→next→prev→prev rapid sequence syncs correctly', async ({ browser }) => {
@@ -583,7 +577,6 @@ test.describe('Rapid Track Navigation', () => {
   });
 });
 
-
 test.describe('Audio Settings Cascade + Disconnect', () => {
   test('50 rapid EQ/volume changes while guest disconnects', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -636,7 +629,6 @@ test.describe('Audio Settings Cascade + Disconnect', () => {
     }
   });
 });
-
 
 test.describe('Shuffle Repeat + Late Join', () => {
   test('shuffle enabled before late join, guest receives shuffle state', async ({ browser }) => {
@@ -726,7 +718,6 @@ test.describe('Shuffle Repeat + Late Join', () => {
   });
 });
 
-
 test.describe('Interleaved Join Upload', () => {
   test('guest1→upload→guest2→upload→guest3→upload chain', async ({ browser }) => {
     test.setTimeout(120_000);
@@ -780,7 +771,6 @@ test.describe('Interleaved Join Upload', () => {
     }
   });
 });
-
 
 test.describe('Concurrent Chat Flood', () => {
   test('host + 2 guests send chat messages simultaneously', async ({ browser }) => {
@@ -848,7 +838,6 @@ test.describe('Concurrent Chat Flood', () => {
   });
 });
 
-
 test.describe('Connection Flapping', () => {
   test('guest disconnect and immediate rejoin 3 times', async ({ browser }) => {
     test.setTimeout(120_000);
@@ -890,7 +879,6 @@ test.describe('Connection Flapping', () => {
     }
   });
 });
-
 
 test.describe('Triple Combo Operations', () => {
   test('seek + volume change + next track fired simultaneously', async ({ browser }) => {
@@ -939,7 +927,6 @@ test.describe('Triple Combo Operations', () => {
   });
 });
 
-
 test.describe('Guest Reload During Transfer', () => {
   test('guest reloads page during file transfer, host survives', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -968,7 +955,6 @@ test.describe('Guest Reload During Transfer', () => {
     }
   });
 });
-
 
 test.describe('Settings Reset Mid-Session', () => {
   test('reset all audio settings to defaults during playback with guest', async ({ browser }) => {
@@ -1025,7 +1011,6 @@ test.describe('Settings Reset Mid-Session', () => {
   });
 });
 
-
 test.describe('Mode Toggle Storm', () => {
   test('switch media source 3 times rapidly with guest connected', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1066,7 +1051,6 @@ test.describe('Mode Toggle Storm', () => {
     }
   });
 });
-
 
 test.describe('YouTube URL Switch', () => {
   test('change YouTube URL mid-playback with guest connected', async ({ browser }) => {
@@ -1133,7 +1117,6 @@ test.describe('YouTube URL Switch', () => {
   });
 });
 
-
 test.describe('Sequential Sessions', () => {
   test('host creates 3 sessions back-to-back, guests join each', async ({ browser }) => {
     test.setTimeout(180_000);
@@ -1178,7 +1161,6 @@ test.describe('Sequential Sessions', () => {
     }
   });
 });
-
 
 test.describe('Late Join Chain', () => {
   test('3 guests join sequentially with track uploads between, all converge', async ({
@@ -1232,7 +1214,6 @@ test.describe('Late Join Chain', () => {
   });
 });
 
-
 test.describe('Playlist Clear + Join', () => {
   test('clear all tracks then new guest joins empty session', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1257,8 +1238,7 @@ test.describe('Playlist Clear + Join', () => {
           try {
             await hostPage.locator('#btn-dialog-ok').waitFor({ state: 'visible', timeout: 3000 });
             await hostPage.locator('#btn-dialog-ok').click();
-          } catch {
-          }
+          } catch {}
           await hostPage
             .waitForFunction(
               (expectedMax) => {
@@ -1299,7 +1279,6 @@ test.describe('Playlist Clear + Join', () => {
   });
 });
 
-
 test.describe('Duplicate Upload Chaos', () => {
   test('upload same fixture twice, both synced to guest', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1314,21 +1293,19 @@ test.describe('Duplicate Upload Chaos', () => {
       await waitForPlaylistCount(setup.hostPage, 1);
       await uploadFixture(setup.hostPage, 'test01');
 
-      // Duplicate-file policy may retain one or two entries; this scenario
-      // requires registration to finalize, not a specific dedup policy.
       await setup.hostPage.waitForFunction(
         () => {
           const list = document.getElementById('playlist-ui');
-          return list && list.children.length >= 1;
+          return list?.children.length === 2;
         },
         { timeout: 10_000 },
       );
       const hostCount = await setup.hostPage.evaluate(
         () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
-      expect(hostCount).toBeGreaterThanOrEqual(1);
+      expect(hostCount).toBe(2);
 
-      await waitForPlaylistCount(setup.guestPages[0], hostCount, 30_000);
+      await waitForPlaylistCount(setup.guestPages[0], 2, 30_000);
 
       await assertHostAlive(setup.hostPage);
     } finally {
@@ -1336,7 +1313,6 @@ test.describe('Duplicate Upload Chaos', () => {
     }
   });
 });
-
 
 test.describe('Chat Upload Settings Triple', () => {
   test('chat + upload + settings change all at once', async ({ browser }) => {
@@ -1374,7 +1350,6 @@ test.describe('Chat Upload Settings Triple', () => {
   });
 });
 
-
 test.describe('Disconnect During Chat', () => {
   test('guest sends chat then disconnects immediately', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1401,7 +1376,6 @@ test.describe('Disconnect During Chat', () => {
     }
   });
 });
-
 
 test.describe('EQ Extreme Values', () => {
   test('set EQ to max/min extremes during playback', async ({ browser }) => {
@@ -1452,7 +1426,6 @@ test.describe('EQ Extreme Values', () => {
   });
 });
 
-
 test.describe('Channel Mode Switching', () => {
   test('cycle through all channel modes during playback', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1485,7 +1458,6 @@ test.describe('Channel Mode Switching', () => {
     }
   });
 });
-
 
 test.describe('Upload During Playback + Disconnect', () => {
   test('upload new track during playback while guest disconnects', async ({ browser }) => {
@@ -1522,7 +1494,6 @@ test.describe('Upload During Playback + Disconnect', () => {
   });
 });
 
-
 test.describe('Pause During Transfer', () => {
   test('host pauses playback while file is transferring to guest', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1557,7 +1528,6 @@ test.describe('Pause During Transfer', () => {
   });
 });
 
-
 test.describe('Channel Mismatch', () => {
   test('guest joins on different channel, session still works', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1591,7 +1561,6 @@ test.describe('Channel Mismatch', () => {
   });
 });
 
-
 test.describe('Late Join During Track Removal', () => {
   test('guest joins while host is removing a track', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1619,8 +1588,7 @@ test.describe('Late Join During Track Removal', () => {
           try {
             await hostPage.locator('#btn-dialog-ok').waitFor({ state: 'visible', timeout: 3000 });
             await hostPage.locator('#btn-dialog-ok').click();
-          } catch {
-          }
+          } catch {}
         })();
       }
       const joinPromise = joinAsLateGuest(browser, code);
@@ -1649,7 +1617,6 @@ test.describe('Late Join During Track Removal', () => {
     }
   });
 });
-
 
 test.describe('Playlist Reorder + Disconnect', () => {
   test('host reorders playlist while guest disconnects', async ({ browser }) => {
@@ -1705,7 +1672,6 @@ test.describe('Playlist Reorder + Disconnect', () => {
   });
 });
 
-
 test.describe('Device Name Collision', () => {
   test('two guests with same default name do not conflict', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1737,7 +1703,6 @@ test.describe('Device Name Collision', () => {
     }
   });
 });
-
 
 test.describe('Upload During YouTube Mode', () => {
   test('file upload while in YouTube mode queues properly', async ({ browser }) => {
@@ -1779,7 +1744,6 @@ test.describe('Upload During YouTube Mode', () => {
   });
 });
 
-
 test.describe('Rapid Operator Toggle', () => {
   test('toggle operator grant 5 times rapidly', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1813,7 +1777,6 @@ test.describe('Rapid Operator Toggle', () => {
     }
   });
 });
-
 
 test.describe('Late Join During Pause + Seek', () => {
   test('guest joins while host is paused at specific seek position', async ({ browser }) => {
@@ -1855,7 +1818,6 @@ test.describe('Late Join During Pause + Seek', () => {
   });
 });
 
-
 test.describe('State Mutation Burst', () => {
   test('100 rapid state mutations do not crash the bus', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1896,7 +1858,6 @@ test.describe('State Mutation Burst', () => {
   });
 });
 
-
 test.describe('Play Stop Chat Race', () => {
   test('host toggles play while guest sends 5 chat messages', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1929,7 +1890,6 @@ test.describe('Play Stop Chat Race', () => {
     }
   });
 });
-
 
 test.describe('Double Late Join', () => {
   test('two guests join simultaneously during playback', async ({ browser }) => {
@@ -1975,7 +1935,6 @@ test.describe('Double Late Join', () => {
   });
 });
 
-
 test.describe('Batch Upload Stress', () => {
   test('upload all 3 fixtures at once, guest receives all', async ({ browser }) => {
     test.setTimeout(90_000);
@@ -1998,7 +1957,6 @@ test.describe('Batch Upload Stress', () => {
     }
   });
 });
-
 
 test.describe('Idle Session + Late Join', () => {
   test('session idle for 15 seconds then guest joins', async ({ browser }) => {
@@ -2030,7 +1988,6 @@ test.describe('Idle Session + Late Join', () => {
     }
   });
 });
-
 
 test.describe('Host Solo Stress', () => {
   test('host uploads, plays, skips, seeks, changes settings — all alone', async ({ browser }) => {
@@ -2093,9 +2050,11 @@ test.describe('Host Solo Stress', () => {
       await hostPage.evaluate(() => (document.getElementById('play-btn') as HTMLElement)?.click());
       // Headless audio may not resume after the control burst; any non-error
       // state is valid.
-      await waitForPlaybackProjectionIn(hostPage, ['PLAYING_AUDIO', 'PAUSED', 'IDLE'], 15_000).catch(
-        () => {},
-      );
+      await waitForPlaybackProjectionIn(
+        hostPage,
+        ['PLAYING_AUDIO', 'PAUSED', 'IDLE'],
+        15_000,
+      ).catch(() => {});
 
       await assertHostAlive(hostPage);
 
@@ -2108,7 +2067,6 @@ test.describe('Host Solo Stress', () => {
     }
   });
 });
-
 
 test.describe('Nuclear Meltdown v2', () => {
   test('15-step lifecycle: upload, join, play, seek, settings, chat, disconnect, rejoin, mode switch, repeat', async ({
@@ -2231,7 +2189,6 @@ test.describe('Nuclear Meltdown v2', () => {
   });
 });
 
-
 test.describe('Session Code Stability', () => {
   test('session code remains valid after multiple guest joins and leaves', async ({ browser }) => {
     test.setTimeout(120_000);
@@ -2265,7 +2222,6 @@ test.describe('Session Code Stability', () => {
     }
   });
 });
-
 
 test.describe('Playback End + Late Join', () => {
   test('guest joins after track ends naturally', async ({ browser }) => {
@@ -2305,7 +2261,6 @@ test.describe('Playback End + Late Join', () => {
     }
   });
 });
-
 
 test.describe('Full Cycle Stress', () => {
   test('connect 3 → upload → play → disconnect all → rejoin 3, all sync', async ({ browser }) => {

@@ -516,7 +516,6 @@ const th: Record<I18nKey, string> = {
   'error.load_failed': 'โหลดไม่สำเร็จ: {{msg}}',
   'error.audio_decode_fail': 'ถอดรหัสเสียงไม่สำเร็จ!',
   'error.audio_memory': 'กำลังโหลดเสียงลงหน่วยความจำ...',
-  'error.decode_timeout': 'ถอดรหัส "{{name}}" นานเกินไป\nกำลังข้ามไปแทร็กถัดไป',
   'error.local_decode_wait': 'อุปกรณ์นี้ถอดรหัสแทร็กไม่ได้\nโปรดรอแทร็กถัดไป',
   'error.all_tracks_failed': 'ไม่มีแทร็กที่เล่นได้ในเพลย์ลิสต์',
   'error.audio_engine_prepare': 'เตรียมเอนจินเสียงไม่ได้',

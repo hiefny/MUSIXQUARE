@@ -14,17 +14,27 @@ export default tseslint.config(
       },
     },
     rules: {
-      '@typescript-eslint/no-unused-vars': ['warn', {
-        argsIgnorePattern: '^_',
-        varsIgnorePattern: '^_',
-      }],
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-empty-function': 'off',
       'no-console': 'warn',
       // Application timers must be registered for lifecycle cleanup.
-      'no-restricted-globals': ['error',
-        { name: 'setTimeout', message: 'Use setManagedTimer() from core/timers.ts or delay() for awaitable delays.' },
-        { name: 'setInterval', message: 'Use setManagedTimer(name, fn, ms, { interval: true }) from core/timers.ts.' },
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'setTimeout',
+          message: 'Use setManagedTimer() from core/timers.ts or delay() for awaitable delays.',
+        },
+        {
+          name: 'setInterval',
+          message: 'Use setManagedTimer(name, fn, ms, { interval: true }) from core/timers.ts.',
+        },
       ],
     },
   },
@@ -33,8 +43,8 @@ export default tseslint.config(
     rules: { 'no-console': 'off' },
   },
   {
-    // Managed-timer and delayed Blob URL cleanup internals require the native timer APIs.
-    files: ['src/core/timers.ts', 'src/core/blob-manager.ts'],
+    // Managed-timer internals require the native timer APIs.
+    files: ['src/core/timers.ts'],
     rules: { 'no-restricted-globals': 'off' },
   },
   {

@@ -157,6 +157,8 @@ export async function broadcastFile(
         sessionId,
         total,
         name: file.name,
+        size: file.size,
+        mime: file.type,
       }),
       bufferedLimit: BROADCAST_BACKPRESSURE_LIMIT,
       stallTimeoutMs: BROADCAST_BACKPRESSURE_TIMEOUT,
@@ -197,35 +199,63 @@ export async function broadcastFile(
 /**
  * Unicast a file to a single connection (for late-join/recovery).
  */
+interface UnicastFileOptions {
+  readonly trackIndex?: number;
+  readonly skipTransportGuard?: boolean;
+  readonly isSourceCurrent?: () => boolean;
+}
+
 export async function unicastFile(
   conn: DataConnection,
   file: File | Blob,
   startChunkIndex = 0,
   sessionId: number | null = null,
-  skipTransportGuard = false,
+  options: UnicastFileOptions = {},
 ): Promise<void> {
   if (!conn || !conn.open) {
     log.error('[Unicast] Connection is not open');
     return;
   }
 
+  // Freeze all control-plane identity before the transport classification
+  // await below. Otherwise a track/session switch during ICE evaluation could
+  // label the already-selected Blob with the successor's identity.
+  const effectiveSessionId = sessionId ?? getState('transfer.currentSessionId');
+  const trackIndex = options.trackIndex ?? getState('playlist.currentTrackIndex');
+  const unicastKey = conn.peer;
+  const isTransferStillCurrent = (): boolean =>
+    Number.isSafeInteger(trackIndex) &&
+    trackIndex >= 0 &&
+    getState('playlist.currentTrackIndex') === trackIndex &&
+    (options.isSourceCurrent?.() ?? true);
+
   // Transport guard: block remote/unknown peers.
   // Internal recovery callers can opt out when they already validated the connection.
-  if (!skipTransportGuard && !(await canSendFileTo(conn))) {
+  if (!options.skipTransportGuard && !(await canSendFileTo(conn))) {
     log.info('[Unicast] Skipped — remote/unknown peer');
     return;
   }
 
-  const effectiveSessionId = sessionId ?? getState('transfer.currentSessionId');
   const CHUNK = CHUNK_SIZE;
   const total = Math.ceil(file.size / CHUNK);
-  const currentTrackIndex = getState('playlist.currentTrackIndex');
+
+  // canSendFileTo may await ICE classification. Revalidate both the selected
+  // peer connection, playlist slot, and exact source Blob before emitting the
+  // header.
+  if (!isPeerConnectionCurrent(unicastKey, conn) || !isTransferStillCurrent()) {
+    log.info('[Unicast] Selected source was superseded before transfer start');
+    return;
+  }
 
   // Cancel any previous unicast to same peer
-  const unicastKey = conn.peer;
   const prevScope = _activeUnicasts.get(unicastKey) ?? null;
   const scope = SessionScope.replace(prevScope);
   _activeUnicasts.set(unicastKey, scope);
+  const canContinue = (): boolean =>
+    !scope.aborted &&
+    conn.open &&
+    isPeerConnectionCurrent(unicastKey, conn) &&
+    isTransferStillCurrent();
 
   const isResume = startChunkIndex > 0;
   const msgType = isResume ? MSG.FILE_RESUME : MSG.FILE_START;
@@ -240,7 +270,7 @@ export async function unicastFile(
       size: file.size,
       startChunk: startChunkIndex,
       sessionId: effectiveSessionId,
-      index: currentTrackIndex,
+      index: trackIndex,
     });
   } catch (e) {
     log.error(`[Unicast] Failed to send ${msgType}:`, e);
@@ -260,24 +290,24 @@ export async function unicastFile(
   try {
     for (let i = startChunkIndex; i < total; i++) {
       // Abort if: peer-level cancel, connection closed, or track changed
-      if (scope.aborted || !conn.open) return;
-      if (!isPeerConnectionCurrent(unicastKey, conn)) return;
-      if (getState('playlist.currentTrackIndex') !== currentTrackIndex) return;
+      if (!canContinue()) return;
 
       // Backpressure (return on timeout — connection is likely dead)
       const startWait = Date.now();
       while (conn.dataChannel && conn.dataChannel.bufferedAmount > UNICAST_BACKPRESSURE_LIMIT) {
-        if (!conn.open || !isPeerConnectionCurrent(unicastKey, conn)) return;
+        if (!canContinue()) return;
         if (Date.now() - startWait > UNICAST_BACKPRESSURE_TIMEOUT) {
           log.warn('[Unicast] Backpressure timeout');
           return;
         }
         await delay(DELAY.BACKPRESSURE);
       }
+      if (!canContinue()) return;
 
       const start = i * CHUNK;
       const end = Math.min(start + CHUNK, file.size);
       const chunkBuf = await file.slice(start, end).arrayBuffer();
+      if (!canContinue()) return;
       const chunk = new Uint8Array(chunkBuf);
 
       conn.send({
@@ -287,12 +317,14 @@ export async function unicastFile(
         sessionId: effectiveSessionId,
         total,
         name: fileName,
+        size: file.size,
+        mime: file.type,
       });
 
       if (i % 50 === 0) await delay(DELAY.TICK);
     }
 
-    if (conn.open) {
+    if (canContinue()) {
       conn.send({
         type: MSG.FILE_END,
         name: fileName,

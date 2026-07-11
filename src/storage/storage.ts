@@ -7,8 +7,8 @@
  * hop, no `navigator.storage.getDirectory()` writes, no disk persistence.
  *
  * Memory scales with the encoded active/preload blobs and the decoded PCM
- * retained by playback. There is no persistent fallback. Callers own cleanup
- * and capacity policy; the ADR records the current admission gap.
+ * retained by playback. There is no persistent fallback. Callers own cleanup;
+ * `player/decode-admission.ts` enforces playback capacity before decoding.
  * Policy source (repository path, not a runtime URL):
  * docs/design/browser-media-storage-policy.md
  */
@@ -23,6 +23,11 @@ import type { StorageCommand, StorageEvent } from '../types/index.ts';
 import { showLoader } from '../ui/toast.ts';
 import { setPlaybackTransferState } from '../player/ownership.ts';
 import {
+  bindEncodedReceiveReservationToBlob,
+  reserveEncodedReceiveMemoryWithinBudget,
+  type EncodedReceiveMemoryReservation,
+} from '../player/decode-admission.ts';
+import {
   ramStart,
   ramWrite,
   ramEnd,
@@ -32,6 +37,302 @@ import {
   ramResetSession,
   ramReset,
 } from './ramstore.ts';
+
+interface StoredFileAdmission {
+  filename: string;
+  isPreload: boolean;
+  sessionId: number;
+  readonly totalSize: number;
+  readonly reservation: EncodedReceiveMemoryReservation;
+  readonly source: 'ram' | 'external';
+  owner: 'storage' | 'preload-cache' | 'current';
+  phase: 'assembling' | 'finalized' | 'resident';
+  residentBlob?: Blob;
+}
+
+const storedFileAdmissions = new Map<string, StoredFileAdmission>();
+
+function storedAdmissionKey(isPreload: boolean, sessionId: number): string {
+  return `${isPreload ? 'p' : 'm'}:${sessionId}`;
+}
+
+function releaseStoredAdmissions(predicate: (entry: StoredFileAdmission) => boolean): void {
+  for (const [key, entry] of storedFileAdmissions) {
+    if (!predicate(entry)) continue;
+    entry.reservation.release();
+    storedFileAdmissions.delete(key);
+  }
+}
+
+function isResidentAdmissionReferenced(entry: StoredFileAdmission): boolean {
+  if (!entry.residentBlob || entry.owner === 'storage') return false;
+  const preloadReferenced =
+    getState('preload.nextFileBlob') === entry.residentBlob &&
+    getState('preload.meta')?.sessionId === entry.sessionId;
+  const currentReferenced =
+    getState('files.currentFileBlob') === entry.residentBlob &&
+    getState('transfer.meta')?.sessionId === entry.sessionId;
+  return preloadReferenced || currentReferenced;
+}
+
+function releaseUnreferencedResidentAdmissions(): void {
+  releaseStoredAdmissions(
+    (entry) => entry.owner !== 'storage' && !isResidentAdmissionReferenced(entry),
+  );
+}
+
+let residentPruneQueued = false;
+function scheduleResidentAdmissionPrune(): void {
+  if (residentPruneQueued) return;
+  residentPruneQueued = true;
+  queueMicrotask(() => {
+    residentPruneQueued = false;
+    releaseUnreferencedResidentAdmissions();
+  });
+}
+
+// Blob references are the final ownership boundary. Deferring one microtask
+// lets callers publish metadata and Blob in either order without exposing a
+// transient gap, then releases any resident lease whose exact object vanished.
+bus.on('state:preload.nextFileBlob', scheduleResidentAdmissionPrune);
+bus.on('state:files.currentFileBlob', scheduleResidentAdmissionPrune);
+bus.on('state:preload.meta', scheduleResidentAdmissionPrune);
+bus.on('state:transfer.meta', scheduleResidentAdmissionPrune);
+
+/**
+ * Reserve the two-copy RAM assembly peak before a P2P receive accepts bytes.
+ * Replacements are checked atomically while the superseded lease is excluded,
+ * then the old storage ownership is released only after the new lease succeeds.
+ */
+export function admitIncomingStoredFile(options: {
+  filename: string;
+  isPreload: boolean;
+  sessionId: number;
+  totalSize: number;
+  retainedPcmBytes?: number;
+}): void {
+  const { filename, isPreload, sessionId, totalSize, retainedPcmBytes = 0 } = options;
+  if (
+    !filename ||
+    !Number.isSafeInteger(sessionId) ||
+    sessionId <= 0 ||
+    !Number.isSafeInteger(totalSize) ||
+    totalSize <= 0
+  ) {
+    throw new Error('INVALID_INCOMING_FILE_ADMISSION');
+  }
+
+  const exactKey = storedAdmissionKey(isPreload, sessionId);
+  const exact = storedFileAdmissions.get(exactKey);
+  if (exact) {
+    if (exact.filename !== filename || exact.totalSize !== totalSize) {
+      throw new Error('INCOMING_FILE_IDENTITY_MISMATCH');
+    }
+    if (exact.phase === 'assembling') return;
+  }
+
+  const replaced = [...storedFileAdmissions.values()].filter((entry) => {
+    if (entry.isPreload !== isPreload) return false;
+    if (entry === exact) return true;
+    if (!isPreload) return entry.owner === 'storage' || !isResidentAdmissionReferenced(entry);
+    return (
+      entry.sessionId === sessionId ||
+      entry.filename === filename ||
+      (entry.owner !== 'storage' && !isResidentAdmissionReferenced(entry))
+    );
+  });
+  const reservation = reserveEncodedReceiveMemoryWithinBudget(totalSize, {
+    fileName: filename,
+    retainedPcmBytes,
+    excludeReservationIds: replaced.map((entry) => entry.reservation.id),
+  });
+
+  for (const entry of replaced) {
+    entry.reservation.release();
+    storedFileAdmissions.delete(storedAdmissionKey(entry.isPreload, entry.sessionId));
+  }
+  storedFileAdmissions.set(exactKey, {
+    filename,
+    isPreload,
+    sessionId,
+    totalSize,
+    reservation,
+    source: 'ram',
+    owner: 'storage',
+    phase: 'assembling',
+  });
+}
+
+/** @internal Test-only reset for the storage-owned receive lease registry. */
+export function resetStoredFileAdmissionsForTests(): void {
+  releaseStoredAdmissions(() => true);
+}
+
+/** @internal Test-only registry snapshot. */
+export function storedFileAdmissionStatsForTests(): Array<{
+  filename: string;
+  isPreload: boolean;
+  sessionId: number;
+  owner: StoredFileAdmission['owner'];
+  phase: StoredFileAdmission['phase'];
+  source: StoredFileAdmission['source'];
+}> {
+  return [...storedFileAdmissions.values()].map((entry) => ({
+    filename: entry.filename,
+    isPreload: entry.isPreload,
+    sessionId: entry.sessionId,
+    owner: entry.owner,
+    phase: entry.phase,
+    source: entry.source,
+  }));
+}
+
+/**
+ * Mark a finalized RAM file as retained by an application Blob reference.
+ * Ordinary physical-slot resets keep this lease until the exact Blob leaves
+ * preload/current state; explicit cleanup and room teardown still release it.
+ */
+export function retainStoredFileAdmission(
+  filename: string,
+  isPreload: boolean,
+  sessionId: number,
+  blob: Blob,
+): boolean {
+  const entry = storedFileAdmissions.get(storedAdmissionKey(isPreload, sessionId));
+  if (!entry || entry.filename !== filename || entry.totalSize !== blob.size) return false;
+  entry.owner = isPreload ? 'preload-cache' : 'current';
+  entry.phase = 'resident';
+  entry.residentBlob = blob;
+  bindEncodedReceiveReservationToBlob(blob, entry.reservation.id);
+  return true;
+}
+
+/** Adopt the retained lease produced by a remote transport handoff. */
+export function adoptExternalStoredFileAdmission(options: {
+  filename: string;
+  isPreload: boolean;
+  sessionId: number;
+  blob: Blob;
+  reservation: EncodedReceiveMemoryReservation;
+}): void {
+  const { filename, isPreload, sessionId, blob, reservation } = options;
+  if (
+    !filename ||
+    !Number.isSafeInteger(sessionId) ||
+    sessionId <= 0 ||
+    !Number.isSafeInteger(blob.size) ||
+    blob.size <= 0
+  ) {
+    reservation.release();
+    throw new Error('INVALID_EXTERNAL_FILE_ADMISSION');
+  }
+
+  releaseUnreferencedResidentAdmissions();
+  const key = storedAdmissionKey(isPreload, sessionId);
+  const collision = storedFileAdmissions.get(key);
+  if (collision) {
+    reservation.release();
+    if (collision.residentBlob === blob && collision.filename === filename) return;
+    throw new Error('EXTERNAL_FILE_IDENTITY_MISMATCH');
+  }
+
+  bindEncodedReceiveReservationToBlob(blob, reservation.id);
+  storedFileAdmissions.set(key, {
+    filename,
+    isPreload,
+    sessionId,
+    totalSize: blob.size,
+    reservation,
+    source: 'external',
+    owner: isPreload ? 'preload-cache' : 'current',
+    phase: 'resident',
+    residentBlob: blob,
+  });
+}
+
+/** Re-key a resident object when a newer descriptor reuses exact Blob identity. */
+export function rebindResidentStoredFileAdmission(options: {
+  blob: Blob;
+  filename: string;
+  isPreload: boolean;
+  sessionId: number;
+}): boolean {
+  const { blob, filename, isPreload, sessionId } = options;
+  const found = [...storedFileAdmissions.entries()].find(
+    ([, entry]) => entry.residentBlob === blob && entry.owner !== 'storage',
+  );
+  if (!found || !Number.isSafeInteger(sessionId) || sessionId <= 0 || !filename) return false;
+  const [oldKey, entry] = found;
+  const newKey = storedAdmissionKey(isPreload, sessionId);
+  const collision = storedFileAdmissions.get(newKey);
+  if (collision && collision !== entry) {
+    if (isResidentAdmissionReferenced(collision)) return false;
+    collision.reservation.release();
+    storedFileAdmissions.delete(newKey);
+  }
+  storedFileAdmissions.delete(oldKey);
+  entry.filename = filename;
+  entry.isPreload = isPreload;
+  entry.sessionId = sessionId;
+  entry.owner = isPreload ? 'preload-cache' : 'current';
+  entry.phase = 'resident';
+  storedFileAdmissions.set(newKey, entry);
+  return true;
+}
+
+/** Move one exact retained preload lease to current-file ownership. */
+export function promoteStoredFileAdmission(
+  filename: string,
+  sessionId: number,
+  blob: Blob,
+): boolean {
+  const preloadKey = storedAdmissionKey(true, sessionId);
+  const entry = storedFileAdmissions.get(preloadKey);
+  if (
+    !entry ||
+    entry.filename !== filename ||
+    entry.owner !== 'preload-cache' ||
+    entry.residentBlob !== blob
+  ) {
+    return false;
+  }
+
+  // Promotion replaces the single main channel. Release every prior main
+  // registry owner before dropping its physical slot so no stale lease remains.
+  releaseStoredAdmissions((candidate) => !candidate.isPreload);
+  const mainKey = storedAdmissionKey(false, sessionId);
+
+  // The File object owns the encoded bytes from this point. Physical slots
+  // can be dropped without releasing the moved ledger entry.
+  ramReset(false);
+  if (entry.source === 'ram') ramResetSession(sessionId, true);
+  storedFileAdmissions.delete(preloadKey);
+  entry.isPreload = false;
+  entry.owner = 'current';
+  entry.phase = 'resident';
+  storedFileAdmissions.set(mainKey, entry);
+  return true;
+}
+
+/** Release the exact resident Blob and any RAM slot it originated from. */
+export function discardResidentStoredFileAdmission(blob: Blob): boolean {
+  const found = [...storedFileAdmissions.entries()].find(
+    ([, entry]) => entry.residentBlob === blob && entry.owner !== 'storage',
+  );
+  if (!found) return false;
+  const [key, entry] = found;
+  entry.reservation.release();
+  storedFileAdmissions.delete(key);
+  if (entry.source === 'ram') ramResetSession(entry.sessionId, entry.isPreload);
+  return true;
+}
+
+/** Room teardown is stronger than ordinary slot reset: no Blob may survive. */
+export function resetAllStoredFiles(): void {
+  releaseStoredAdmissions(() => true);
+  ramReset(false);
+  ramReset(true);
+}
 
 // ─── Instance ID (same as core session) ─────────────────────────────
 
@@ -68,6 +369,32 @@ export function postCommand(payload: StorageCommand): void {
     }
   }
 
+  if (cmd === 'STORAGE_RESET') {
+    // A replacement may reserve its session before the queued RAM reset runs.
+    // Preserve only that explicitly tagged lease; ordinary teardown omits it.
+    const preserveSessionId =
+      Number.isSafeInteger(payload.sessionId) && (payload.sessionId as number) > 0
+        ? (payload.sessionId as number)
+        : undefined;
+    releaseStoredAdmissions(
+      (entry) =>
+        entry.isPreload === !!payload.isPreload &&
+        entry.sessionId !== preserveSessionId &&
+        !isResidentAdmissionReferenced(entry),
+    );
+  } else if (cmd === 'STORAGE_RESET_SESSION') {
+    releaseStoredAdmissions(
+      (entry) =>
+        entry.isPreload &&
+        entry.sessionId === (payload.sessionId as number) &&
+        !isResidentAdmissionReferenced(entry),
+    );
+  } else if (cmd === 'STORAGE_CLEANUP' && payload.filename) {
+    releaseStoredAdmissions(
+      (entry) => entry.isPreload === !!payload.isPreload && entry.filename === payload.filename,
+    );
+  }
+
   routeStorageCommand(payload);
 }
 
@@ -101,6 +428,9 @@ function runStorageCommand(payload: StorageCommand): void {
       if (result.ok) {
         dispatchStorageEvent({ type: 'STORAGE_STARTED', filename, isPreload, sessionId });
       } else {
+        releaseStoredAdmissions(
+          (entry) => entry.isPreload === isPreload && entry.sessionId === sessionId,
+        );
         dispatchStorageEvent({
           type: 'STORAGE_ERROR',
           error: result.reason || 'start failed',
@@ -166,6 +496,12 @@ function runStorageCommand(payload: StorageCommand): void {
       const expectedChunks = payload.total as number | undefined;
       const result = ramEnd(filename, isPreload, sessionId, totalSize, expectedChunks);
       if (result.blob) {
+        const admission = storedFileAdmissions.get(storedAdmissionKey(isPreload, sessionId));
+        if (admission) {
+          admission.reservation.markFinalized();
+          admission.phase = 'finalized';
+          bindEncodedReceiveReservationToBlob(result.blob, admission.reservation.id);
+        }
         dispatchStorageEvent({ type: 'STORAGE_FILE_READY', filename, isPreload, sessionId });
       } else if (result.reason && result.reason.startsWith('Integrity Fail')) {
         dispatchStorageEvent({
@@ -309,12 +645,27 @@ export function cleanupStoredFile(filename: string, isPreload: boolean): void {
  * Read a finalized file from the ramstore. Wrap it as a `File` so callers can
  * rely on the storage API's named-file return contract.
  */
-export async function readStoredFile(filename: string, isPreload: boolean): Promise<File | null> {
+export async function readStoredFile(
+  filename: string,
+  isPreload: boolean,
+  sessionId?: number,
+): Promise<File | null> {
   if (!filename) return null;
-  const blob = ramReadBlob(filename, isPreload);
+  const blob = ramReadBlob(filename, isPreload, sessionId);
   if (!blob) return null;
   try {
-    return new File([blob], filename, { type: blob.type || '' });
+    const file = new File([blob], filename, { type: blob.type || '' });
+    const sid =
+      typeof sessionId === 'number'
+        ? sessionId
+        : [...storedFileAdmissions.values()].find(
+            (entry) => entry.isPreload === isPreload && entry.filename === filename,
+          )?.sessionId;
+    if (sid !== undefined) {
+      const admission = storedFileAdmissions.get(storedAdmissionKey(isPreload, sid));
+      if (admission) bindEncodedReceiveReservationToBlob(file, admission.reservation.id);
+    }
+    return file;
   } catch (err) {
     log.error('[Ramstore] readStoredFile wrap failed:', err);
     return null;

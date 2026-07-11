@@ -527,7 +527,6 @@ const tr: Record<I18nKey, string> = {
   'error.load_failed': 'Yüklenemedi: {{msg}}',
   'error.audio_decode_fail': 'Ses kodu çözme hatası!',
   'error.audio_memory': 'Ses belleğe yükleniyor...',
-  'error.decode_timeout': '"{{name}}" şarkısının kodu çözülemedi.\nSonraki şarkıya geçiliyor...',
   'error.local_decode_wait':
     'Bu cihaz şarkının kodunu çözemedi.\nLütfen bir sonraki şarkıyı bekleyin.',
   'error.all_tracks_failed': 'Çalma listesinde oynatılabilecek şarkı bulunmuyor.',

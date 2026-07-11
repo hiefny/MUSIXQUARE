@@ -143,8 +143,6 @@ export function forceStereoSdp(sdp: string): string {
 interface TurnConfigResponse {
   provider?: unknown;
   iceServers?: unknown;
-  username?: unknown;
-  credential?: unknown;
 }
 
 function normalizeIceServerUrls(value: unknown): string[] {
@@ -189,14 +187,6 @@ function getProviderLabel(payload: TurnConfigResponse): string {
   return typeof payload.provider === 'string' && payload.provider ? payload.provider : 'remote';
 }
 
-function buildLegacyMeteredIceServers(username: string, credential: string): RTCIceServer[] {
-  return [
-    { urls: 'turn:standard.relay.metered.ca:443', username, credential },
-    { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
-    { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
-  ];
-}
-
 function isNetworkInitStillActive(requestedId: string | null): boolean {
   const appRole = getState('network.appRole');
   if (requestedId) return appRole === 'host';
@@ -227,7 +217,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     setPeer(null);
   }
 
-  // ICE servers: STUN always, TURN via Cloudflare app worker (Cloudflare primary, Metered fallback)
+  // ICE servers: STUN always, TURN via the Cloudflare app Worker.
   const iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
@@ -253,13 +243,6 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
       if (remoteIceServers.some(hasTurnServer)) {
         iceServers.push(...remoteIceServers);
         log.info(`[Network] TURN ICE servers loaded (${getProviderLabel(payload)}) via ${url}`);
-        break;
-      }
-
-      // Compatibility with credential-only TURN responses.
-      if (typeof payload.username === 'string' && typeof payload.credential === 'string') {
-        iceServers.push(...buildLegacyMeteredIceServers(payload.username, payload.credential));
-        log.info(`[Network] TURN credentials loaded (Metered.ca legacy) via ${url}`);
         break;
       }
 
@@ -617,7 +600,9 @@ export function leaveSession(): void {
   clearAllManagedTimers();
 
   // ── 2. Stop media playback ──
-  bus.emit('player:stop-all-media');
+  // Room teardown must invalidate every async load owner before state resets;
+  // otherwise a native decode that settles later can republish old-room audio.
+  bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
 
   // ── 3. Close network connections ──
   const hostConn = getState('network.hostConn');
@@ -661,10 +646,7 @@ export function leaveSession(): void {
   setState('preload.sessionState', new Map());
   setState('preload.ackSent', new Set());
 
-  // ── 6. Revoke blob URLs ──
-  bus.emit('blob:revoke-all');
-
-  // ── 7. Reset all state ──
+  // ── 6. Reset all state ──
   batchSetState({
     // Network
     'network.appRole': 'idle',

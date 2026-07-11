@@ -45,17 +45,25 @@ async function collectFiles(directory) {
   return files;
 }
 
-const [sourceFont, publicFont, fontCss, styleCss, appHtml, landingHtml, serviceWorker, packageJson] =
-  await Promise.all([
-    readFile(sourceFontPath),
-    readFile(publicFontPath),
-    readFile(path.join(repoRoot, 'css', 'pretendard.css'), 'utf8'),
-    readFile(path.join(repoRoot, 'css', 'style.css'), 'utf8'),
-    readFile(path.join(repoRoot, 'index.html'), 'utf8'),
-    readFile(path.join(repoRoot, '.workshop', 'landing', 'landing.html'), 'utf8'),
-    readFile(path.join(repoRoot, 'public', 'service-worker.js'), 'utf8'),
-    readFile(path.join(repoRoot, 'package.json'), 'utf8'),
-  ]);
+const [
+  sourceFont,
+  publicFont,
+  fontCss,
+  styleCss,
+  appHtml,
+  landingHtml,
+  serviceWorker,
+  packageJson,
+] = await Promise.all([
+  readFile(sourceFontPath),
+  readFile(publicFontPath),
+  readFile(path.join(repoRoot, 'css', 'pretendard.css'), 'utf8'),
+  readFile(path.join(repoRoot, 'css', 'style.css'), 'utf8'),
+  readFile(path.join(repoRoot, 'index.html'), 'utf8'),
+  readFile(path.join(repoRoot, '.workshop', 'landing', 'landing.html'), 'utf8'),
+  readFile(path.join(repoRoot, 'public', 'service-worker.js'), 'utf8'),
+  readFile(path.join(repoRoot, 'package.json'), 'utf8'),
+]);
 
 check(sourceFont.subarray(0, 4).toString('ascii') === 'wOF2', 'source font is not WOFF2');
 check(sourceFont.byteLength >= 1_500_000, 'source font looks like a subset, not the complete face');
@@ -84,8 +92,10 @@ for (const fallback of [
 
 check(hasFontPreload(appHtml), 'app HTML does not preload the complete Pretendard face');
 check(hasFontPreload(landingHtml), 'landing HTML does not preload the complete Pretendard face');
+const serviceWorkerFontUrl = `.${fontUrl}`;
 check(
-  serviceWorker.includes(`".${fontUrl}"`),
+  serviceWorker.includes(`"${serviceWorkerFontUrl}"`) ||
+    serviceWorker.includes(`'${serviceWorkerFontUrl}'`),
   'service worker app shell does not include the complete Pretendard face',
 );
 check(

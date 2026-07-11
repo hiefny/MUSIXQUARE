@@ -532,8 +532,6 @@ const ru: Record<I18nKey, string> = {
   'error.load_failed': 'Загрузка не удалась: {{msg}}',
   'error.audio_decode_fail': 'Декодирование аудио не удалось!',
   'error.audio_memory': 'Загрузка звука в память...',
-  'error.decode_timeout':
-    'Декодирование «{{name}}» занимает слишком много времени.\nПереход к следующему треку...',
   'error.local_decode_wait':
     'Это устройство не смогло декодировать трек.\nОжидайте следующий трек.',
   'error.all_tracks_failed': 'В плейлисте нет воспроизводимых треков.',

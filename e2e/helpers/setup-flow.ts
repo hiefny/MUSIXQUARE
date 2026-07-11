@@ -48,7 +48,7 @@ async function waitForGeneratedHostCode(page: Page): Promise<string> {
  * Complete the host code-generation flow.
  * Returns the 6-digit session code.
  */
-export async function setupHost(page: Page, channelMode = 0): Promise<string> {
+export async function setupHost(page: Page): Promise<string> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= HOST_CODE_ATTEMPTS; attempt += 1) {
@@ -74,7 +74,7 @@ export async function setupHost(page: Page, channelMode = 0): Promise<string> {
  * Returns the 6-digit session code.
  */
 export async function setupHostAndStart(page: Page, channelMode = 0): Promise<string> {
-  const code = await setupHost(page, channelMode);
+  const code = await setupHost(page);
 
   await page.waitForSelector('#btn-setup-confirm:not([disabled])', { timeout: 15_000 });
   await page.click('#btn-setup-confirm');

@@ -59,10 +59,51 @@ async function requestCapabilityToken(): Promise<string> {
   );
   if (config.capabilityRequired !== true) return '';
 
+  let proofOfWork: { challenge: string; solution: string } | undefined;
+  if (config.proofOfWorkRequired === true) {
+    const challenge = await readJson(
+      await fetch(`${APP_ORIGIN}/api/capability-challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
+        body: JSON.stringify({ scopes: ['remote-share'] }),
+      }),
+      'capability challenge',
+    );
+    if (
+      typeof challenge.challenge !== 'string' ||
+      typeof challenge.difficulty !== 'number' ||
+      challenge.algorithm !== 'sha256-leading-zero-bits'
+    ) {
+      throw new Error('invalid capability proof-of-work challenge');
+    }
+    const prefix = `mxqr-pow-v1:${challenge.challenge}:`;
+    let solution = -1;
+    for (let candidate = 0; candidate < Number.MAX_SAFE_INTEGER; candidate += 1) {
+      const digest = createHash('sha256').update(`${prefix}${candidate}`).digest();
+      let remaining = challenge.difficulty;
+      let valid = true;
+      for (const byte of digest) {
+        if (remaining <= 0) break;
+        const bits = Math.min(8, remaining);
+        if ((byte & (0xff << (8 - bits))) !== 0) {
+          valid = false;
+          break;
+        }
+        remaining -= bits;
+      }
+      if (valid && remaining <= 0) {
+        solution = candidate;
+        break;
+      }
+    }
+    if (solution < 0) throw new Error('capability proof-of-work solution unavailable');
+    proofOfWork = { challenge: challenge.challenge, solution: String(solution) };
+  }
+
   const response = await fetch(`${APP_ORIGIN}/api/capability-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
-    body: JSON.stringify({ scopes: ['remote-share'] }),
+    body: JSON.stringify({ scopes: ['remote-share'], ...(proofOfWork ? { proofOfWork } : {}) }),
   });
   const payload = await readJson(response, 'capability token');
   if (typeof payload.token !== 'string' || !payload.token) {
@@ -123,6 +164,8 @@ function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): vo
     'x-amz-meta-name': encodeURIComponent(sourceFile.name),
     'x-amz-meta-mime': encodeURIComponent(sourceFile.type),
     'x-amz-meta-size-bytes': String(sourceFile.size),
+    'x-amz-meta-encrypted-size': String(sourceFile.size + 16),
+    'x-amz-meta-object-id': session.objectId,
   };
   for (const [name, value] of Object.entries(expected)) {
     if (normalized[name] !== value) {

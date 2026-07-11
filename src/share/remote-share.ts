@@ -7,7 +7,7 @@
  * MSG.REMOTE_FILE_SHARE carries only the active CURRENT track descriptor.
  * Remote speculative preload is intentionally disabled: mobile guests avoid
  * extra R2 downloads, decrypted Blob retention, battery/GC churn, and URL
- * expiry races. Descriptors with `preload: true` are ignored by this client.
+ * expiry races.
  *
  * Concurrency: only ONE active descriptor download runs at a time. A newer
  * active descriptor cancels the in-flight one via AbortController.
@@ -21,15 +21,34 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { sendSystemNotice } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
-import { broadcast, isRemoteGuest, safeSend, waitForGuestConnectionType } from '../network/peer.ts';
+import {
+  broadcast,
+  isRemoteGuest,
+  safeSend,
+  sendToHost,
+  waitForGuestConnectionType,
+} from '../network/peer.ts';
 import { transition } from '../player/lifecycle.ts';
 import { createFileTrackMeta, isExternalOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
 import {
+  currentAudioBufferPcmBytes,
   getPendingPlayTime,
   getPendingPlayTimeSetAt,
+  liveAudioBufferPcmBytes,
   setPendingPlayTime,
   setPendingRecoveryTarget,
 } from '../player/_state.ts';
+import {
+  isAudioDecodeAdmissionError,
+  reserveRemoteTransportMemoryWithinBudget,
+  resolveDecodeMemoryBudget,
+  waitForInFlightMemoryReservationChange,
+  type RemoteTransportMemoryReservation,
+} from '../player/decode-admission.ts';
+import {
+  adoptExternalStoredFileAdmission,
+  rebindResidentStoredFileAdmission,
+} from '../storage/storage.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { uploadRemoteFile } from './remote-upload.ts';
 import { downloadRemoteFile } from './remote-download.ts';
@@ -65,9 +84,11 @@ interface DownloadEntry {
 // promise remains available to recovery callers. Uploads are aborted only
 // when no remote targets remain or the session is torn down.
 const _activeUploads = new Map<string, UploadEntry>();
-// Completed descriptors are keyed by file fingerprint so revisiting a track
-// can reuse the already-encrypted R2 object until it expires.
+// Completed descriptors are keyed by browser File object identity. Metadata
+// such as name/size/lastModified is not content identity and may collide.
 const _descriptorCache = new Map<string, RemoteFileSharePayload>();
+let _fileIds = new WeakMap<File, number>();
+let _nextFileId = 1;
 
 // Only one active (foreground) download at a time. A newer one supersedes
 // the in-flight one via abort.
@@ -76,14 +97,13 @@ let _activeDownload: DownloadEntry | null = null;
 // Last adopted playback context. This survives download completion so late
 // control responses cannot rewind the active index or trigger another fetch.
 // It resets at every session boundary because sessionId ordering is per host.
-let _lastAdoptedRemoteContext: { objectId: string; index: number; sessionId: number } | null =
-  null;
+let _lastAdoptedRemoteContext: { objectId: string; index: number; sessionId: number } | null = null;
 
 function adoptRemoteContext(descriptor: RemoteFileSharePayload): void {
   _lastAdoptedRemoteContext = {
     objectId: descriptor.objectId,
     index: descriptor.index,
-    sessionId: Number(descriptor.sessionId) || 0,
+    sessionId: descriptor.sessionId,
   };
 }
 let _lastUploadFailureNoticeAt = 0;
@@ -133,15 +153,17 @@ function isDescriptorFresh(descriptor: RemoteFileSharePayload | null): boolean {
   return descriptor.expiresAt - Date.now() > EXPIRY_SAFETY_MARGIN_MS;
 }
 
+function fileIdentity(file: File): number {
+  let id = _fileIds.get(file);
+  if (id === undefined) {
+    id = _nextFileId++;
+    _fileIds.set(file, id);
+  }
+  return id;
+}
+
 function uploadRequestKey(file: File, sessionId: number, index: number): string {
-  return JSON.stringify([
-    sessionId,
-    index,
-    file.name,
-    file.size,
-    file.lastModified,
-    file.type || '',
-  ]);
+  return JSON.stringify([sessionId, index, fileIdentity(file)]);
 }
 
 function currentRemoteShareRoomId(): string {
@@ -149,7 +171,7 @@ function currentRemoteShareRoomId(): string {
 }
 
 function descriptorCacheKey(file: File, roomId: string): string {
-  return JSON.stringify([roomId, file.name, file.size, file.lastModified, file.type || '']);
+  return JSON.stringify([roomId, fileIdentity(file)]);
 }
 
 function withPlaybackContext(
@@ -164,9 +186,9 @@ function withPlaybackContext(
 function isHostActiveFile(file: File, index: number): boolean {
   if (getState('files.currentFileBlob') === file) return true;
 
-  // Host preload activation calls shareRemoteFileIfNeeded before
-  // loadPreloadedTrack publishes files.currentFileBlob. In that window the
-  // selected playlist slot is the authoritative "still current" signal.
+  // A caller can begin while the selected playlist item is current but before
+  // its blob publication becomes observable. Exact File identity on the same
+  // playlist slot is the only safe fallback.
   const currentIndex = getState('playlist.currentTrackIndex');
   if (currentIndex !== index) return false;
 
@@ -191,8 +213,8 @@ function friendlyErrorMessage(error: unknown): string {
   if (
     raw === 'REMOTE_SHARE_UPLOAD_NETWORK' ||
     raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' ||
-    raw === 'REMOTE_SHARE_UPLOAD_TIMEOUT' ||
-    raw === 'REMOTE_SHARE_DOWNLOAD_TIMEOUT' ||
+    raw === 'REMOTE_SHARE_UPLOAD_STALLED' ||
+    raw === 'REMOTE_SHARE_DOWNLOAD_STALLED' ||
     raw === 'REMOTE_SHARE_SESSION_NETWORK' ||
     raw === 'REMOTE_SHARE_COMPLETE_NETWORK'
   ) {
@@ -209,6 +231,10 @@ function friendlyErrorMessage(error: unknown): string {
   if (
     raw === 'REMOTE_SHARE_BAD_SESSION_RESPONSE' ||
     raw === 'REMOTE_SHARE_BAD_COMPLETE_RESPONSE' ||
+    raw === 'REMOTE_SHARE_ENCRYPTED_SIZE_MISMATCH' ||
+    raw === 'REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID' ||
+    raw === 'REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH' ||
+    raw === 'REMOTE_SHARE_PLAINTEXT_SIZE_MISMATCH' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_403' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_404' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_500' ||
@@ -285,17 +311,44 @@ function isAbortError(error: unknown): boolean {
 
 function resetRemoteDownloadState(message: string | null = null): void {
   const remote = getState('share.remote');
-  const blobUrl = remote.download.blobUrl;
-  if (blobUrl) URL.revokeObjectURL(blobUrl);
   setState('share.remote', {
     ...remote,
     download: {
       status: 'idle',
       progress: 0,
-      blobUrl: null,
       error: message,
     },
   });
+}
+
+/**
+ * Release the wait owned by a failed foreground download. A superseded
+ * download may settle after its successor has installed a new watchdog, so
+ * ownership is the AbortController identity rather than objectId alone.
+ */
+function releaseOwnedRemoteWaitAfterDownloadFailure(abort: AbortController): boolean {
+  if (_activeDownload?.abort !== abort) return false;
+  clearManagedTimer(REMOTE_WAIT_TIMER);
+  if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
+    transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
+  }
+  return true;
+}
+
+function ownsLiveRemoteWait(abort: AbortController): boolean {
+  const active = _activeDownload;
+  if (!active || active.abort !== abort || abort.signal.aborted) return false;
+
+  const descriptor = active.descriptor;
+  const recoveryTarget = getState('playback.pendingRecoveryTarget');
+  const waitMeta = getState('preload.meta');
+  return (
+    getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD &&
+    recoveryTarget?.index === descriptor.index &&
+    recoveryTarget.name === descriptor.name &&
+    Number(waitMeta?.sessionId) === descriptor.sessionId &&
+    waitMeta?.objectId === descriptor.objectId
+  );
 }
 
 function resetRemoteUploadState(message: string | null = null): void {
@@ -489,17 +542,24 @@ export async function shareRemoteFileIfNeeded(
   }
 }
 
-export function prepareRemoteShareWait(index: number, name: string, sessionId: number): void {
+export function prepareRemoteShareWait(
+  index: number,
+  name: string,
+  sessionId: number,
+  objectId?: string,
+): void {
   if (!shouldWaitForRemoteShare()) return;
 
   // FILE_PREPARE and REMOTE_FILE_SHARE may both establish the same wait.
   // Preserve the existing lifecycle and watchdog for an identical index.
   const lifecycle = getState('playback.lifecycle');
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
+  const currentWaitMeta = getState('preload.meta');
   const alreadyWaiting =
     lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD &&
     recoveryTarget?.index === index &&
-    recoveryTarget.name === name;
+    recoveryTarget.name === name &&
+    (!objectId || currentWaitMeta?.objectId === objectId);
   if (alreadyWaiting) {
     log.debug('[RemoteShare] Wait state already established for this index; skipping re-arm');
     return;
@@ -514,11 +574,13 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
     existingPreloadBlob &&
     existingPreloadMeta &&
     Number(existingPreloadMeta.index) === index &&
-    existingPreloadMeta.name === name;
+    existingPreloadMeta.name === name &&
+    (!objectId || existingPreloadMeta.objectId === objectId);
   const waitMeta = existingPreloadMatches
     ? {
         ...existingPreloadMeta,
         sessionId: existingPreloadMeta.sessionId ?? sessionId,
+        ...(objectId ? { objectId } : {}),
       }
     : {
         name,
@@ -527,6 +589,7 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
         size: 0,
         mime: '',
         sessionId,
+        ...(objectId ? { objectId } : {}),
       };
   if (existingPreloadBlob && !existingPreloadMatches) {
     setState('preload.nextFileBlob', null);
@@ -555,8 +618,26 @@ export function prepareRemoteShareWait(index: number, name: string, sessionId: n
         return;
       }
       log.warn('[RemoteShare] Wait timed out before descriptor/download completed');
+      const active = _activeDownload;
+      if (
+        active &&
+        active.descriptor.index === index &&
+        active.descriptor.name === name &&
+        (!objectId || active.objectId === objectId)
+      ) {
+        active.abort.abort();
+        if (_activeDownload === active) _activeDownload = null;
+      }
       showToast(t('share.remote.timeout'));
       showLoader(false);
+      setState('share.remote', {
+        ...getState('share.remote'),
+        download: {
+          status: 'error',
+          progress: 0,
+          error: t('share.remote.timeout'),
+        },
+      });
       // Release AWAITING_PRELOAD so later host playback can drive recovery.
       if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
         transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
@@ -574,7 +655,7 @@ function isCurrentRemoteFileLoaded(descriptor: RemoteFileSharePayload): boolean 
   const sessionMatches = !Number.isFinite(metaSessionId) || metaSessionId === descriptor.sessionId;
   return (
     Number(meta.index) === descriptor.index &&
-    meta.name === descriptor.name &&
+    meta.objectId === descriptor.objectId &&
     currentBlob.size === descriptor.size &&
     sessionMatches
   );
@@ -591,7 +672,7 @@ function isPreloadedRemoteFile(
   return (
     blob.size === descriptor.size &&
     Number(preloadMeta.index) === descriptor.index &&
-    preloadMeta.name === descriptor.name &&
+    preloadMeta.objectId === descriptor.objectId &&
     (!Number.isFinite(metaSessionId) || metaSessionId === descriptor.sessionId)
   );
 }
@@ -602,18 +683,19 @@ async function handleRemoteFileShare(
 ): Promise<void> {
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
+  if (
+    !Number.isSafeInteger(descriptor.sessionId) ||
+    descriptor.sessionId <= 0 ||
+    !Number.isSafeInteger(descriptor.index) ||
+    descriptor.index < 0
+  ) {
+    return;
+  }
 
   if (getState('network.connectionType') === 'unknown') {
     const resolved = await waitForGuestConnectionType(3000);
     if (resolved === 'local') return;
   } else if (!isRemoteGuest()) {
-    return;
-  }
-
-  // Remote speculative preload is disabled; the active descriptor arrives
-  // when the track is selected.
-  if (descriptor.preload === true) {
-    log.debug('[RemoteShare] Ignoring remote preload descriptor; policy is active-only');
     return;
   }
 
@@ -647,7 +729,14 @@ async function handleRemoteFileShare(
       size: preBlob.size,
       mime: (preMetaRecord.mime as string) || descriptor.mime,
       sessionId: descriptor.sessionId,
+      objectId: descriptor.objectId,
     };
+    rebindResidentStoredFileAdmission({
+      blob: preBlob,
+      filename: descriptor.name,
+      isPreload: true,
+      sessionId: descriptor.sessionId,
+    });
     clearStaleRemotePlayback('remote-share-preload-promote');
     setPendingRecoveryTarget(descriptor.index, descriptor.name);
     setState('playlist.currentTrackIndex', descriptor.index);
@@ -667,7 +756,7 @@ async function handleRemoteFileShare(
       index: descriptor.index,
       name: descriptor.name,
     });
-    bus.emit('storage:use-preloaded', descriptor.index, descriptor.name);
+    bus.emit('storage:use-preloaded', descriptor.index, descriptor.name, descriptor.sessionId);
     return;
   }
 
@@ -679,8 +768,7 @@ async function handleRemoteFileShare(
     const isNewerContext = Number.isFinite(incomingSid) && incomingSid > last.sessionId;
     // Context identity is index + sessionId, not objectId. Recovery may upload
     // the same track as a new object without advancing the playback context.
-    const isSameContextResend =
-      descriptor.index === last.index && incomingSid === last.sessionId;
+    const isSameContextResend = descriptor.index === last.index && incomingSid === last.sessionId;
     if (!isNewerContext && !isSameContextResend) {
       log.debug(
         `[RemoteShare] Stale descriptor context ignored (index ${descriptor.index}, sid ${descriptor.sessionId} ≤ adopted ${last.sessionId})`,
@@ -704,7 +792,12 @@ async function handleRemoteFileShare(
       if (isNewerContext) {
         _activeDownload.descriptor = descriptor;
         adoptRemoteContext(descriptor);
-        prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
+        prepareRemoteShareWait(
+          descriptor.index,
+          descriptor.name,
+          descriptor.sessionId,
+          descriptor.objectId,
+        );
         log.debug('[RemoteShare] Duplicate active descriptor — download kept, context re-pointed');
       } else {
         log.debug('[RemoteShare] Duplicate active descriptor (same/older context), ignoring');
@@ -724,6 +817,7 @@ async function handleRemoteFileShare(
     abort,
   };
   adoptRemoteContext(descriptor);
+  let transportReservation: RemoteTransportMemoryReservation | null = null;
 
   try {
     setState('share.remote', {
@@ -731,13 +825,59 @@ async function handleRemoteFileShare(
       download: {
         status: 'fetching',
         progress: 0,
-        blobUrl: null,
         error: null,
       },
     });
 
-    prepareRemoteShareWait(descriptor.index, descriptor.name, descriptor.sessionId);
+    prepareRemoteShareWait(
+      descriptor.index,
+      descriptor.name,
+      descriptor.sessionId,
+      descriptor.objectId,
+    );
     showLoader(true, t('share.remote.downloading'));
+
+    // Whole-file XHR + Web Crypto allocations happen before decode admission.
+    // Reject an unsafe transport peak before the browser receives the first
+    // encrypted byte.
+    const memoryBudget = resolveDecodeMemoryBudget();
+    for (;;) {
+      try {
+        transportReservation = reserveRemoteTransportMemoryWithinBudget(descriptor.size, {
+          budget: memoryBudget,
+          fileName: descriptor.name,
+          retainedPcmBytes:
+            memoryBudget.tier === 'ios' ? liveAudioBufferPcmBytes() : currentAudioBufferPcmBytes(),
+        });
+        break;
+      } catch (error) {
+        if (
+          isAudioDecodeAdmissionError(error) &&
+          error.reason === 'transport-working-set' &&
+          _activeDownload?.abort === abort &&
+          !abort.signal.aborted
+        ) {
+          const reservationChanged = await waitForInFlightMemoryReservationChange(abort.signal);
+          if (!reservationChanged) {
+            if (abort.signal.aborted || _activeDownload?.abort !== abort) return;
+            throw error;
+          }
+          if (!ownsLiveRemoteWait(abort)) return;
+          // An older uncancellable native decode or remote transport still
+          // owns RAM. Re-admit only after the shared ledger changes, without
+          // starting XHR or treating the current track as permanently failed.
+          continue;
+        }
+        if (abort.signal.aborted || _activeDownload?.abort !== abort) return;
+        throw error;
+      }
+    }
+
+    // The room-level timer covers descriptor/admission waiting only. Once RAM
+    // is reserved and XHR is about to start, remote-download's progress-aware
+    // stall watchdog owns liveness; a healthy slow 200 MiB transfer must not
+    // inherit an absolute five-minute cutoff.
+    clearManagedTimer(REMOTE_WAIT_TIMER);
 
     const onDownloadProgress = (progress: number): void => {
       if (abort.signal.aborted) return;
@@ -763,7 +903,7 @@ async function handleRemoteFileShare(
       } catch (error) {
         const raw = rawRemoteShareError(error);
         const transient =
-          raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' || raw === 'REMOTE_SHARE_DOWNLOAD_TIMEOUT';
+          raw === 'REMOTE_SHARE_DOWNLOAD_NETWORK' || raw === 'REMOTE_SHARE_DOWNLOAD_STALLED';
         if (
           attempt >= 2 ||
           !transient ||
@@ -796,7 +936,17 @@ async function handleRemoteFileShare(
       size: file.size,
       mime: publishDescriptor.mime,
       sessionId: publishDescriptor.sessionId,
+      objectId: publishDescriptor.objectId,
     };
+
+    const retainedReservation = transportReservation.handoffToRetainedEncoded(file, file.size);
+    adoptExternalStoredFileAdmission({
+      filename: publishDescriptor.name,
+      isPreload: true,
+      sessionId: publishDescriptor.sessionId,
+      blob: file,
+      reservation: retainedReservation,
+    });
 
     setState('preload.nextFileBlob', file);
     setState('preload.meta', meta);
@@ -807,18 +957,32 @@ async function handleRemoteFileShare(
       download: {
         status: 'ready',
         progress: 1,
-        blobUrl: null,
         error: null,
       },
     });
 
     clearManagedTimer(REMOTE_WAIT_TIMER);
     transition({ type: 'PRELOAD_FILE_READY', index: publishDescriptor.index });
-    bus.emit('storage:use-preloaded', publishDescriptor.index, publishDescriptor.name);
+    bus.emit(
+      'storage:use-preloaded',
+      publishDescriptor.index,
+      publishDescriptor.name,
+      publishDescriptor.sessionId,
+    );
   } catch (error) {
+    // Admission can throw synchronously after prepareRemoteShareWait() armed
+    // the five-minute watchdog. Later network/decrypt failures own the same
+    // cleanup contract, but a stale predecessor must not clear its successor.
+    if (!releaseOwnedRemoteWaitAfterDownloadFailure(abort)) {
+      log.debug('[RemoteShare] Stale download failure ignored after supersession');
+      return;
+    }
     if (isAbortError(error)) {
       log.debug('[RemoteShare] Active download superseded — abort is expected');
       return;
+    }
+    if (isAudioDecodeAdmissionError(error)) {
+      sendToHost({ type: MSG.GUEST_DECODE_FAILED, index: descriptor.index });
     }
     const message = friendlyErrorMessage(error);
     setState('share.remote', {
@@ -826,7 +990,6 @@ async function handleRemoteFileShare(
       download: {
         status: 'error',
         progress: 0,
-        blobUrl: null,
         error: message,
       },
     });
@@ -834,7 +997,8 @@ async function handleRemoteFileShare(
     showToast(t('share.remote.download_failed', { msg: message }));
     showLoader(false);
   } finally {
-    if (_activeDownload?.objectId === descriptor.objectId) {
+    transportReservation?.release();
+    if (_activeDownload?.abort === abort) {
       _activeDownload = null;
     }
   }
@@ -845,24 +1009,34 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
   if (!hostConn || conn !== hostConn) return;
   if (!isRemoteGuest() && getState('network.connectionType') !== 'unknown') return;
 
-  const index = Number(data.index);
-  const sessionId = Number(data.sessionId);
+  const index = data.index;
+  const sessionId = data.sessionId;
   const name = (data.name as string) || '';
-  if (!Number.isFinite(index) || index < 0 || !Number.isFinite(sessionId) || !name) return;
+  if (
+    !Number.isSafeInteger(index) ||
+    (index as number) < 0 ||
+    !Number.isSafeInteger(sessionId) ||
+    (sessionId as number) <= 0 ||
+    !name
+  )
+    return;
+  const safeIndex = index as number;
+  const safeSessionId = sessionId as number;
 
   const pendingTarget = getState('playback.pendingRecoveryTarget');
   const transferMeta = getState('transfer.meta');
   const activeSessionId = Number(transferMeta?.sessionId) || 0;
-  const matchesPending = pendingTarget?.index === index && pendingTarget.name === name;
-  const matchesSession = activeSessionId === 0 || activeSessionId === sessionId;
+  const matchesPending = pendingTarget?.index === safeIndex && pendingTarget?.name === name;
+  const matchesSession = activeSessionId === 0 || activeSessionId === safeSessionId;
   const shouldAct =
     matchesPending &&
     matchesSession &&
     getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
   if (!shouldAct) return;
 
-  if (_activeDownload?.descriptor.index === index) {
-    _activeDownload.abort.abort();
+  const activeDownload = _activeDownload;
+  if (activeDownload?.descriptor.index === safeIndex) {
+    activeDownload.abort.abort();
     _activeDownload = null;
   }
 
@@ -877,7 +1051,6 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
     download: {
       status: 'error',
       progress: 0,
-      blobUrl: null,
       error: message,
     },
   });
@@ -918,11 +1091,12 @@ export function initRemoteShare(): void {
       for (const entry of _activeUploads.values()) entry.abort.abort();
       _activeUploads.clear();
       _descriptorCache.clear();
+      _fileIds = new WeakMap<File, number>();
+      // Keep IDs monotonic across session teardown. A late completion from the
+      // previous session must never collide with a newly assigned File ID.
       _activeDownload?.abort.abort();
       _activeDownload = null;
       clearManagedTimer(REMOTE_WAIT_TIMER);
-      const blobUrl = getState('share.remote').download.blobUrl;
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
       setState('share.remote', {
         upload: {
           status: 'idle',
@@ -934,7 +1108,6 @@ export function initRemoteShare(): void {
         download: {
           status: 'idle',
           progress: 0,
-          blobUrl: null,
           error: null,
         },
       });

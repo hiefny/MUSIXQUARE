@@ -2,7 +2,7 @@
  * MUSIXQUARE — Application Bootstrap
  *
  * Module initialization order:
- * 1. core/   — constants, log, events, state, platform, session, blob-manager, timers
+ * 1. core/   — constants, log, events, state, platform, session, timers
  * 2. audio/  — engine, effects, channel
  * 3. network/ — peer, protocol, sync
  * 4. storage/ — storage, transfer, preload, recovery
@@ -20,7 +20,6 @@ import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
 import { getState, setState, snapshot } from './core/state.ts';
-import { BlobURLManager } from './core/blob-manager.ts';
 import { delay, setManagedTimer } from './core/timers.ts';
 import {
   initPageLifecycleHandlers,
@@ -475,10 +474,7 @@ async function bootstrap(): Promise<void> {
   // 9. Service Worker
   safeInit('ServiceWorker', registerServiceWorker);
 
-  // 10. Blob URL cleanup on disconnect
-  bus.on('blob:revoke-all', () => BlobURLManager.revokeAllNow('session-end'));
-
-  // 11. Keyboard shortcuts, Wake Lock & Cleanup
+  // 10. Keyboard shortcuts, Wake Lock & Cleanup
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
   safeInit('BackgroundResumeGuard', () =>

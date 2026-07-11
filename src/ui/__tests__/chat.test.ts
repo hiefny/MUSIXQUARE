@@ -2,9 +2,11 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { resetState } from '../../core/state.ts';
+import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { sendToHost } from '../../network/peer.ts';
+import type { DataConnection } from '../../types/index.ts';
 
 window.matchMedia =
   window.matchMedia ||
@@ -57,33 +59,6 @@ afterEach(() => {
 });
 
 describe('Chat Module', () => {
-  describe('Module Exports', () => {
-    it('exports sendChatMessage', async () => {
-      const mod = await import('../chat.ts');
-      expect(typeof mod.sendChatMessage).toBe('function');
-    });
-
-    it('exports addChatMessage from chat-render', async () => {
-      const mod = await import('../chat-render.ts');
-      expect(typeof mod.addChatMessage).toBe('function');
-    });
-
-    it('exports addSystemChatMessage from chat-render', async () => {
-      const mod = await import('../chat-render.ts');
-      expect(typeof mod.addSystemChatMessage).toBe('function');
-    });
-
-    it('exports toggleChatDrawer', async () => {
-      const mod = await import('../chat.ts');
-      expect(typeof mod.toggleChatDrawer).toBe('function');
-    });
-
-    it('exports initChat', async () => {
-      const mod = await import('../chat.ts');
-      expect(typeof mod.initChat).toBe('function');
-    });
-  });
-
   describe('Unread badge', () => {
     function renderChatShell(): void {
       document.body.innerHTML = `
@@ -170,105 +145,41 @@ describe('Chat Module', () => {
     });
   });
 
-  describe('Timestamp Parsing Logic', () => {
-    function parseTimestamp(str: string): number {
-      const parts = str.split(':').map(Number);
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-      return 0;
-    }
+  describe('production content parsing', () => {
+    it.each([
+      ['3:45', '225'],
+      ['1:30:00', '5400'],
+      ['0:00', '0'],
+      ['1:05', '65'],
+    ])('renders %s with the production seek value %s', async (timestamp, seconds) => {
+      const { parseMessageContent } = await import('../chat-render.ts');
+      const root = document.createElement('div');
+      root.innerHTML = parseMessageContent(`Jump to ${timestamp}`);
 
-    it('parses MM:SS format', () => {
-      expect(parseTimestamp('3:45')).toBe(225);
+      expect(root.querySelector('.chat-timestamp')?.getAttribute('data-seek')).toBe(seconds);
     });
 
-    it('parses HH:MM:SS format', () => {
-      expect(parseTimestamp('1:30:00')).toBe(5400);
+    it.each([
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      'https://youtu.be/dQw4w9WgXcQ',
+      'https://youtube.com/shorts/dQw4w9WgXcQ',
+    ])('renders a production YouTube action for %s', async (url) => {
+      const { parseMessageContent } = await import('../chat-render.ts');
+      const root = document.createElement('div');
+      root.innerHTML = parseMessageContent(`Check ${url}`);
+
+      expect(root.querySelector<HTMLButtonElement>('.chat-youtube-btn')?.dataset.youtubeUrl).toBe(
+        url,
+      );
     });
 
-    it('parses 0:00', () => {
-      expect(parseTimestamp('0:00')).toBe(0);
-    });
+    it('leaves non-YouTube URLs and bare numbers as text', async () => {
+      const { parseMessageContent } = await import('../chat-render.ts');
+      const root = document.createElement('div');
+      root.innerHTML = parseMessageContent('https://example.com/video in 2025');
 
-    it('parses single digit minutes', () => {
-      expect(parseTimestamp('1:05')).toBe(65);
-    });
-
-    it('handles invalid parts gracefully', () => {
-      const result = parseTimestamp('abc');
-      expect(result).toBe(0);
-    });
-  });
-
-  describe('YouTube URL Detection', () => {
-    const YT_REGEX =
-      /https:\/\/(www\.)?youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/[a-zA-Z0-9_-]{11}/gi;
-
-    it('matches standard watch URL', () => {
-      const text = 'Check https://www.youtube.com/watch?v=dQw4w9WgXcQ';
-      expect(YT_REGEX.test(text)).toBe(true);
-    });
-
-    it('matches short URL', () => {
-      YT_REGEX.lastIndex = 0;
-      const text = 'Check https://youtu.be/dQw4w9WgXcQ';
-      expect(YT_REGEX.test(text)).toBe(true);
-    });
-
-    it('matches shorts URL', () => {
-      YT_REGEX.lastIndex = 0;
-      const text = 'Check https://youtube.com/shorts/dQw4w9WgXcQ';
-      expect(YT_REGEX.test(text)).toBe(true);
-    });
-
-    it('does NOT match non-YouTube URLs', () => {
-      YT_REGEX.lastIndex = 0;
-      const text = 'Check https://example.com/video';
-      expect(YT_REGEX.test(text)).toBe(false);
-    });
-  });
-
-  describe('Timestamp Regex Detection', () => {
-    const TS_REGEX = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
-
-    it('matches MM:SS format', () => {
-      expect('Jump to 3:45 in the song'.match(TS_REGEX)).toEqual(['3:45']);
-    });
-
-    it('matches HH:MM:SS format', () => {
-      expect('Go to 1:30:00 for the chorus'.match(TS_REGEX)).toEqual(['1:30:00']);
-    });
-
-    it('matches multiple timestamps', () => {
-      expect('From 1:00 to 2:30'.match(TS_REGEX)).toEqual(['1:00', '2:30']);
-    });
-
-    it('does NOT match bare numbers', () => {
-      expect('The year 2025'.match(TS_REGEX)).toBeNull();
-    });
-  });
-
-  describe('HTML Escaping', () => {
-    function escapeHtml(str: string): string {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    it('escapes angle brackets', () => {
-      expect(escapeHtml('<script>alert(1)</script>')).not.toContain('<script>');
-    });
-
-    it('escapes ampersands', () => {
-      expect(escapeHtml('A & B')).toContain('&amp;');
-    });
-
-    it('escapes quotes', () => {
-      expect(escapeHtml('"hello"')).toBe('"hello"');
-    });
-
-    it('preserves normal text', () => {
-      expect(escapeHtml('Hello World')).toBe('Hello World');
+      expect(root.querySelector('.chat-youtube-btn,.chat-timestamp')).toBeNull();
+      expect(root.textContent).toBe('https://example.com/video in 2025');
     });
   });
 
@@ -320,34 +231,40 @@ describe('Chat Module', () => {
     });
   });
 
-  describe('Chat Label Logic', () => {
-    function getChatLabel(deviceLabel: string, hostConn: unknown, reservedNames: string[]): string {
-      if (!hostConn) return 'Host';
-
-      const trimmed = (deviceLabel || '').trim();
-      if (!trimmed) return 'Peer';
-      if (reservedNames.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return 'Peer';
-      return trimmed;
+  describe('outbound identity', () => {
+    function renderSendShell(text: string): void {
+      document.body.innerHTML = `
+        <div id="chat-drawer"></div>
+        <div id="chat-messages"></div>
+        <div id="chat-input" contenteditable="true">${text}</div>
+      `;
     }
 
-    it('returns "Host" when no hostConn (you are host)', () => {
-      expect(getChatLabel('MyDevice', null, [])).toBe('Host');
+    it('uses the trimmed custom host label in the actual broadcast payload', async () => {
+      renderSendShell('host payload');
+      setState('network.myDeviceLabel', '  Studio Host  ');
+      const broadcast = vi.fn();
+      bus.on('network:broadcast', broadcast);
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({ senderLabel: 'Studio Host', text: 'host payload', isHost: true }),
+      );
     });
 
-    it('returns device label when guest with valid name', () => {
-      expect(getChatLabel('MyPhone', { open: true }, ['Left', 'Right'])).toBe('MyPhone');
-    });
+    it('normalizes a guest role label in the actual host-bound payload', async () => {
+      renderSendShell('guest payload');
+      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('network.myDeviceLabel', 'Left');
 
-    it('returns "Peer" when label matches reserved name', () => {
-      expect(getChatLabel('Left', { open: true }, ['Left', 'Right'])).toBe('Peer');
-    });
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
 
-    it('returns "Peer" when label is empty', () => {
-      expect(getChatLabel('', { open: true }, [])).toBe('Peer');
-    });
-
-    it('case-insensitive reserved name check', () => {
-      expect(getChatLabel('left', { open: true }, ['Left'])).toBe('Peer');
+      expect(sendToHost).toHaveBeenCalledWith(
+        expect.objectContaining({ senderLabel: 'Peer', text: 'guest payload', isHost: false }),
+      );
     });
   });
 });

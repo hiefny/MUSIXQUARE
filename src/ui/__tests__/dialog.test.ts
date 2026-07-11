@@ -248,13 +248,4 @@ describe('Dialog System', () => {
       await promise;
     });
   });
-
-  describe('Module Exports', () => {
-    it('exports showDialog, closeDialog, initDialog', async () => {
-      const mod = await import('../dialog.ts');
-      expect(typeof mod.showDialog).toBe('function');
-      expect(typeof mod.closeDialog).toBe('function');
-      expect(typeof mod.initDialog).toBe('function');
-    });
-  });
 });

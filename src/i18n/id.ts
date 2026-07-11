@@ -443,7 +443,6 @@ const id: Record<I18nKey, string> = {
   'error.load_failed': 'Gagal memuat: {{msg}}',
   'error.audio_decode_fail': 'Gagal mendekode audio!',
   'error.audio_memory': 'Memuat audio ke memori...',
-  'error.decode_timeout': 'Mendekode "{{name}}" terlalu lama.\nMelewati ke track berikutnya.',
   'error.local_decode_wait':
     'Perangkat ini tidak dapat mendekode track.\nTunggu sampai track berikutnya.',
   'error.all_tracks_failed': 'Tidak ada track yang dapat diputar di playlist.',

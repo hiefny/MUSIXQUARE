@@ -54,6 +54,7 @@ interface RealtimeResponse {
   errorCode?: string;
   errorDescription?: string;
   sessionId?: string;
+  sessionOwnerToken?: string;
   sessionDescription?: RealtimeSessionDescription;
   requiresImmediateRenegotiation?: boolean;
   tracks?: RealtimeTrack[];
@@ -83,6 +84,10 @@ interface HostPublication {
 
 let hostPc: RTCPeerConnection | null = null;
 let hostSessionId: string | null = null;
+// Edge-issued ownership capabilities stay module-local. HostPublication and
+// SYSTEM_AUDIO_SFU_READY intentionally expose only the public subscription
+// coordinates, so a remote guest cannot mutate the host's SFU session.
+let hostSessionOwnerToken: string | null = null;
 let hostPublishedTracks: SfuReadyTrack[] = [];
 let hostPublishPromise: Promise<HostPublication | null> | null = null;
 let hostSfuUnavailable = false;
@@ -90,6 +95,7 @@ let hostPublishEpoch = 0;
 
 let guestPc: RTCPeerConnection | null = null;
 let guestSessionId: string | null = null;
+let guestSessionOwnerToken: string | null = null;
 let guestSubscriptionKey: string | null = null;
 let guestConnectPromise: Promise<void> | null = null;
 let guestSourceL: MediaStreamAudioSourceNode | null = null;
@@ -285,6 +291,7 @@ async function callRealtime(
   action: string,
   options: {
     sessionId?: string;
+    sessionOwnerToken?: string;
     payload?: Record<string, unknown>;
     correlationId?: string;
   } = {},
@@ -299,6 +306,7 @@ async function callRealtime(
         body: JSON.stringify({
           action,
           sessionId: options.sessionId,
+          sessionOwnerToken: options.sessionOwnerToken,
           correlationId: options.correlationId,
           payload: options.payload || {},
         }),
@@ -465,6 +473,10 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
   });
   assertRealtimeOk(session);
   if (!session.sessionId) throw new Error('Realtime API did not return a sessionId');
+  if (!session.sessionOwnerToken) {
+    throw new Error('Realtime API did not return a session owner capability');
+  }
+  const sessionOwnerToken = session.sessionOwnerToken;
 
   const syncedStream = new MediaStream([trackL, trackR]);
   const txL = pc.addTransceiver(trackL, {
@@ -491,6 +503,7 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
 
   const tracksResponse = await callRealtime('tracks-new', {
     sessionId: session.sessionId,
+    sessionOwnerToken,
     payload: {
       sessionDescription: offerDescription,
       tracks: requestedTracks,
@@ -533,6 +546,7 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
     if (staleTracks.length > 0) {
       callRealtime('tracks-close', {
         sessionId: session.sessionId,
+        sessionOwnerToken,
         payload: { tracks: staleTracks, force: true },
       }).catch((error) => log.debug('[SysAudioSFU] Stale publish tracks-close failed:', error));
     }
@@ -540,6 +554,7 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
   }
 
   hostSessionId = session.sessionId;
+  hostSessionOwnerToken = sessionOwnerToken;
   hostPublishedTracks = publishedTracks;
   log.info(`[SysAudioSFU] Published system audio to Cloudflare SFU (${hostSessionId})`);
   return { sessionId: hostSessionId, tracks: publishedTracks };
@@ -616,6 +631,7 @@ function cleanupHostSfu(closeRemoteTracks = true): void {
     if (tracks.length > 0) {
       callRealtime('tracks-close', {
         sessionId: hostSessionId,
+        sessionOwnerToken: hostSessionOwnerToken || undefined,
         payload: { tracks, force: true },
       }).catch((error) => log.debug('[SysAudioSFU] tracks-close failed:', error));
     }
@@ -626,6 +642,7 @@ function cleanupHostSfu(closeRemoteTracks = true): void {
     hostPc = null;
   }
   hostSessionId = null;
+  hostSessionOwnerToken = null;
   hostPublishedTracks = [];
   hostPublishPromise = null;
   if (closeRemoteTracks) hostSfuUnavailable = false;
@@ -733,6 +750,7 @@ function cleanupGuestSfu(updateState = true): void {
   }
 
   guestSessionId = null;
+  guestSessionOwnerToken = null;
   guestSubscriptionKey = null;
   guestConnectPromise = null;
   if (shouldCleanupGuestReceiveState) {
@@ -832,7 +850,11 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
   });
   assertRealtimeOk(session);
   if (!session.sessionId) throw new Error('Realtime API did not return a guest sessionId');
+  if (!session.sessionOwnerToken) {
+    throw new Error('Realtime API did not return a guest session owner capability');
+  }
   guestSessionId = session.sessionId;
+  guestSessionOwnerToken = session.sessionOwnerToken;
 
   const trackRequests: RealtimeTrack[] = payload.tracks.map((track) => ({
     location: 'remote',
@@ -842,6 +864,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
 
   const tracksResponse = await callRealtime('tracks-new', {
     sessionId: guestSessionId,
+    sessionOwnerToken: guestSessionOwnerToken,
     payload: { tracks: trackRequests },
   });
   assertRealtimeOk(tracksResponse, trackRequests.length);
@@ -865,6 +888,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
 
   const renegotiate = await callRealtime('renegotiate', {
     sessionId: guestSessionId,
+    sessionOwnerToken: guestSessionOwnerToken,
     payload: { sessionDescription: answerDescription },
   });
   assertRealtimeOk(renegotiate);

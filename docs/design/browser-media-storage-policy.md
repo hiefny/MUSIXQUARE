@@ -56,12 +56,30 @@ therefore account for the decoded audio footprint, not merely the encoded file
 size. Persistent storage would not remove the memory required by the current
 AudioBuffer playback engine.
 
-**Implementation note (2026-07-11):** the current file-selection path does not
-yet estimate decoded PCM footprint per device. It admits a selected local file
-and relies on the browser's decode/allocation result; remote upload has a fixed
-200 MiB source-file limit. This is a UX and memory-safety follow-up, not an
-exception to the RAM-only decision: no persistent-media or alternate playback
-fallback is used.
+**Implementation note (2026-07-11):** every local, demo, preload, and received
+file passes the same AudioBuffer admission check before `arrayBuffer()` and
+native decode allocation. The check probes duration with an off-DOM muted
+`HTMLAudioElement` used only for metadata; it is never played or connected to
+the audio graph, so synchronized playback remains AudioBuffer-only. It
+estimates Float32 PCM with headroom at a conservative 48 kHz floor, raised to
+the active AudioContext output rate when that rate is higher. A
+bounded WAV, AIFF, CAF, FLAC, Ogg, MP3, AAC, or MP4 header probe supplies the
+channel count; MP4 metadata is accepted only from verified box hierarchy and
+all verified audio tracks contribute to the maximum. An unknown layout reserves
+a conservative 32 channels. The estimate includes encoded copies,
+still-reachable decoded buffers, and concurrent whole-file remote transport in
+one in-flight memory ledger, then validates the actual AudioBuffer footprint
+again before publication. Missing duration metadata fails closed on iOS and
+other constrained devices; desktop tiers use a conservative encoded-size
+expansion.
+
+Current per-file PCM / decode-working-set ceilings are 192/320 MiB on iOS,
+256/448 MiB on constrained or other mobile devices, 384/768 MiB on standard
+desktop devices, and 512 MiB/1 GiB on desktops reporting at least 8 GiB of
+device memory. These are playback-memory budgets, not encoded-file limits.
+Remote sharing retains a fixed 200 MiB protocol/storage ceiling, but its
+effective admission ceiling can be lower when the device's RAM budget or other
+in-flight work cannot safely hold the required whole-file copies.
 
 The accepted tradeoff is to reject a file that cannot fit the supported memory
 budget rather than introduce a storage or playback fallback with different

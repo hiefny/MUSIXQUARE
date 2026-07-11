@@ -4,7 +4,6 @@ compatibility_date = "2026-05-03"
 
 [vars]
 R2_BUCKET_NAME = "musixquare-remote-share"
-MAX_UPLOAD_BYTES = "209715200"
 OBJECT_TTL_SECONDS = "3600"
 RATE_LIMIT_WINDOW_SECONDS = "3600"
 IP_UPLOADS_PER_WINDOW = "60"

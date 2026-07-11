@@ -76,8 +76,14 @@ vi.mock('../../core/constants.ts', async (importOriginal) => {
   return { ...actual };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers();
+  const [{ resetState }, { getAnalyser }] = await Promise.all([
+    import('../../core/state.ts'),
+    import('../../audio/engine.ts'),
+  ]);
+  resetState();
+  vi.mocked(getAnalyser).mockReturnValue(null);
   localStorage.clear();
   document.documentElement.setAttribute('data-theme', 'dark');
   Object.defineProperty(window, 'matchMedia', {
@@ -93,151 +99,61 @@ beforeEach(() => {
   wrapper.className = 'vinyl-wrapper';
   Object.defineProperty(wrapper, 'clientWidth', { value: 240, configurable: true });
   document.body.appendChild(wrapper);
-
-  const canvas = document.createElement('canvas');
-  canvas.id = 'visualizer';
-  document.body.appendChild(canvas);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   document.body.innerHTML = '';
 });
 
 describe('Visualizer', () => {
-  describe('Theme Detection', () => {
-    it('detects light theme from data-theme attribute', () => {
-      document.documentElement.setAttribute('data-theme', 'light');
-      expect(document.documentElement.getAttribute('data-theme')).toBe('light');
-    });
+  describe('runtime behavior', () => {
+    it('keeps canvas geometry finite when the analyser returns NaN', async () => {
+      vi.resetModules();
+      const { setState } = await import('../../core/state.ts');
+      const { getAnalyser } = await import('../../audio/engine.ts');
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
 
-    it('detects dark theme from data-theme attribute', () => {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-    });
-  });
+      const canvas = document.createElement('canvas');
+      canvas.id = 'visualizerCanvas';
+      document.body.appendChild(canvas);
+      const ctx = {
+        setTransform: vi.fn(),
+        scale: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+      vi.mocked(getAnalyser).mockReturnValue({
+        frequencyBinCount: 16,
+        getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(Number.NaN)),
+      } as unknown as AnalyserNode);
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn(() => 1),
+      );
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
-  describe('Canvas Setup', () => {
-    it('canvas element exists in DOM', () => {
-      const canvas = document.getElementById('visualizer');
-      expect(canvas).toBeDefined();
-      expect(canvas?.tagName).toBe('CANVAS');
-    });
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
 
-    it('wrapper provides logical size', () => {
-      const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement;
-      expect(wrapper.clientWidth).toBe(240);
-    });
-  });
-
-  describe('NaN Protection Logic', () => {
-    function clampValue(raw: number): number {
-      let val = (raw + 100) * 2.5;
-      if (!isFinite(val)) val = 0;
-      if (val < 0) val = 0;
-      if (val > 255) val = 255;
-      return val;
-    }
-
-    it('clamps NaN to 0', () => {
-      expect(clampValue(NaN)).toBe(0);
-    });
-
-    it('clamps Infinity to 255', () => {
-      expect(clampValue(Infinity)).toBe(0);
-    });
-
-    it('clamps -Infinity to 0', () => {
-      expect(clampValue(-Infinity)).toBe(0);
-    });
-
-    it('clamps very negative values to 0', () => {
-      expect(clampValue(-200)).toBe(0);
-    });
-
-    it('clamps very high values to 255', () => {
-      expect(clampValue(200)).toBe(255);
-    });
-
-    it('processes normal value correctly', () => {
-      expect(clampValue(0)).toBe(250);
-    });
-
-    function calcBassPunch(smoothedBass: number): number {
-      let bassPunch = Math.pow(smoothedBass / 255, 2.5);
-      if (!isFinite(bassPunch)) bassPunch = 0;
-      return bassPunch;
-    }
-
-    it('bass punch is 0 for NaN input', () => {
-      expect(calcBassPunch(NaN)).toBe(0);
-    });
-
-    it('bass punch is 0 for zero input', () => {
-      expect(calcBassPunch(0)).toBe(0);
-    });
-
-    it('bass punch is 1 for max input', () => {
-      expect(calcBassPunch(255)).toBeCloseTo(1, 5);
-    });
-
-    function calcHighPunch(smoothedHigh: number): number {
-      let highPunch = smoothedHigh / 255;
-      if (!isFinite(highPunch)) highPunch = 0;
-      return highPunch;
-    }
-
-    it('high punch is 0 for NaN input', () => {
-      expect(calcHighPunch(NaN)).toBe(0);
-    });
-
-    it('high punch is 1 for max input', () => {
-      expect(calcHighPunch(255)).toBeCloseTo(1, 5);
-    });
-  });
-
-  describe('Idle State Detection', () => {
-    function isIdleOrPaused(state: string): boolean {
-      return state === 'IDLE' || state === 'PAUSED';
-    }
-
-    it('IDLE returns true', () => {
-      expect(isIdleOrPaused('IDLE')).toBe(true);
-    });
-
-    it('PAUSED returns true', () => {
-      expect(isIdleOrPaused('PAUSED')).toBe(true);
-    });
-
-    it('PLAYING_AUDIO returns false', () => {
-      expect(isIdleOrPaused('PLAYING_AUDIO')).toBe(false);
-    });
-  });
-
-  describe('Smoothing Logic', () => {
-    function smooth(prev: number, current: number): number {
-      return 0.8 * prev + 0.2 * current;
-    }
-
-    it('smoothing converges over time', () => {
-      let smoothed = 0;
-      for (let i = 0; i < 20; i++) {
-        smoothed = smooth(smoothed, 200);
+      expect(ctx.arc).toHaveBeenCalled();
+      for (const call of vi.mocked(ctx.arc).mock.calls) {
+        expect(call.every((value) => typeof value !== 'number' || Number.isFinite(value))).toBe(
+          true,
+        );
       }
-      expect(smoothed).toBeGreaterThan(190);
     });
 
-    it('smoothing decays when signal drops', () => {
-      let smoothed = 200;
-      for (let i = 0; i < 20; i++) {
-        smoothed = smooth(smoothed, 0);
-      }
-      expect(smoothed).toBeLessThan(10);
-    });
-  });
-
-  describe('Module Exports', () => {
     it('hydrates persisted spectrum mode before drawing the initial resting frame', async () => {
       vi.resetModules();
       localStorage.setItem('musixquare-viz-mode', 'spectrum');
@@ -451,16 +367,6 @@ describe('Visualizer', () => {
       rafCallbacks.at(-1)?.(performance.now() + 32);
 
       expect(ctx.fill).toHaveBeenCalled();
-    });
-
-    it('imports initVisualizer without error', async () => {
-      const mod = await import('../visualizer.ts');
-      expect(typeof mod.initVisualizer).toBe('function');
-    });
-
-    it('imports startVisualizer without error', async () => {
-      const mod = await import('../visualizer.ts');
-      expect(typeof mod.startVisualizer).toBe('function');
     });
   });
 });

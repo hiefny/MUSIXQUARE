@@ -34,7 +34,6 @@ export default defineConfig({
         'src/demo/tracks.ts',
         // WebRTC networking requires PeerJS / RTCPeerConnection / DataConnection.
         'src/network/peer.ts',
-        'src/network/relay.ts',
         'src/network/host.ts',
         'src/network/guest.ts',
         'src/network/orchestrator.ts',
@@ -76,7 +75,6 @@ export default defineConfig({
         'src/chat/protocol.ts',
         // Dedicated-worker globals are not instrumented by the Node coverage harness.
         'src/workers/sync.worker.ts',
-        'src/workers/transfer.worker.ts',
         // Platform module-scope constants depend on navigator.
         'src/core/platform.ts',
         // Heavy DOM UI modules are coupled to browser rendering and interaction timing.

@@ -81,7 +81,6 @@ function createInitialState(): StateTree {
         download: {
           status: 'idle',
           progress: 0,
-          blobUrl: null,
           error: null,
         },
       },

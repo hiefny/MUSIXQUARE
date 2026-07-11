@@ -10,6 +10,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import {
+  DEFAULT_MAX_GUEST_SLOTS,
   MSG,
   WARN_WHEN_MAX_SLOTS_AT_LEAST,
   type PlaybackActivityValue,
@@ -137,7 +138,7 @@ export async function startSystemAudioCapture(): Promise<void> {
   // 0.6 Large-room soft warning: only when the host has opted into a bigger
   // slot cap (≥6). Once per session. The dialog's confirm click re-asserts
   // user activation so the getDisplayMedia call below still works.
-  const maxSlots = getState('network.maxGuestSlots') ?? 3;
+  const maxSlots = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
   if (maxSlots >= WARN_WHEN_MAX_SLOTS_AT_LEAST && !hasSysAudioWarned()) {
     const res = await showDialog({
       title: t('dialog.large_room_sysaudio.title'),

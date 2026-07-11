@@ -448,7 +448,6 @@ const ptBr: Record<I18nKey, string> = {
   'error.load_failed': 'Falha ao carregar: {{msg}}',
   'error.audio_decode_fail': 'Falha ao decodificar áudio!',
   'error.audio_memory': 'Carregando áudio na memória...',
-  'error.decode_timeout': 'Decodificar "{{name}}" demorou demais.\nPulando para a próxima faixa.',
   'error.local_decode_wait':
     'Este dispositivo não conseguiu decodificar a faixa.\nAguarde a próxima faixa.',
   'error.all_tracks_failed': 'Não há faixas reproduzíveis na playlist.',

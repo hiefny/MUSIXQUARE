@@ -449,7 +449,6 @@ const es: Record<I18nKey, string> = {
   'error.load_failed': 'Error de carga: {{msg}}',
   'error.audio_decode_fail': '¡Falló la decodificación de audio!',
   'error.audio_memory': 'Cargando audio en memoria...',
-  'error.decode_timeout': 'Decodificar "{{name}}" tardó demasiado.\nSaltando a la siguiente pista.',
   'error.local_decode_wait':
     'Este dispositivo no pudo decodificar la pista.\nEspera a la siguiente pista.',
   'error.all_tracks_failed': 'No hay pistas reproducibles en la lista.',

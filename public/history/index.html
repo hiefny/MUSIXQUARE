@@ -250,7 +250,7 @@
       <div class="i-detail">
         A single <strong>app Worker</strong> serves the static SPA, handles invite-code OG meta rewrites, and exposes the backend API for TURN credentials, YouTube search, and Realtime session setup — SPA fallback, security headers, and immutable asset caching all live in code.
         <strong>Durable Objects</strong> handle WebRTC signaling — ICE candidates, offers, and answers route through a hibernation-aware Worker per room.
-        <strong>TURN</strong> relays traffic when direct P2P fails; an optional Metered credential fallback remains.
+        <strong>Cloudflare TURN</strong> relays traffic when direct P2P fails; unavailable credentials now fail closed instead of switching providers.
         <strong>Realtime SFU</strong> carries remote system audio — host publishes once, remote guests subscribe.
         <strong>R2</strong> holds temporary encrypted remote-share objects with application expiry and bucket lifecycle cleanup.
       </div>

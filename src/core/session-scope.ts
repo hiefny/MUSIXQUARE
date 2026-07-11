@@ -1,14 +1,13 @@
-/**
- * Groups an AbortSignal with names registered in the page-wide managed timer
- * registry. Timer keys are not namespaced by scope: concurrently live scopes
- * must use distinct names or one scope can replace or clear another's timer.
- */
+/** Groups an AbortSignal with timers owned by one logical session. */
 
-import { setManagedTimer, clearManagedTimer } from './timers.ts';
+import { clearManagedTimer, setManagedTimer } from './timers.ts';
+
+let nextScopeId = 0;
 
 export class SessionScope {
   private _controller = new AbortController();
-  private _timers = new Set<string>();
+  private _timers = new Map<string, string>();
+  private readonly _timerPrefix = `session-scope:${++nextScopeId}:`;
 
   get signal(): AbortSignal {
     return this._controller.signal;
@@ -18,15 +17,32 @@ export class SessionScope {
     return this._controller.signal.aborted;
   }
 
-  /** Register ownership of a page-global timer name for disposal with this scope. */
+  /** Register a scope-local timer. Equal names in other scopes cannot collide. */
   timer(name: string, fn: () => void, delayMs: number, opts?: { interval?: boolean }): void {
-    this._timers.add(name);
-    setManagedTimer(name, fn, delayMs, opts);
+    this.clearTimer(name);
+    if (this.aborted) return;
+
+    const interval = opts?.interval === true;
+    const managedName = `${this._timerPrefix}${name}`;
+    this._timers.set(name, managedName);
+    setManagedTimer(
+      managedName,
+      () => {
+        if (this._timers.get(name) !== managedName) return;
+        if (!interval) this._timers.delete(name);
+        if (this.aborted) return;
+        fn();
+      },
+      delayMs,
+      opts,
+    );
   }
 
   clearTimer(name: string): void {
+    const managedName = this._timers.get(name);
+    if (!managedName) return;
+    clearManagedTimer(managedName);
     this._timers.delete(name);
-    clearManagedTimer(name);
   }
 
   /** Abort the signal and clear registered timer names. Safe to call repeatedly. */
@@ -34,10 +50,9 @@ export class SessionScope {
     if (!this._controller.signal.aborted) {
       this._controller.abort();
     }
-    for (const name of this._timers) {
-      clearManagedTimer(name);
+    for (const name of Array.from(this._timers.keys())) {
+      this.clearTimer(name);
     }
-    this._timers.clear();
   }
 
   static replace(prev: SessionScope | null): SessionScope {

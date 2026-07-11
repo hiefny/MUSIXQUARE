@@ -82,7 +82,34 @@ export function getCurrentAudioBuffer(): AudioBuffer | null {
 // against `liveAudioBufferCount()` to see how many decoded buffers iOS
 // has released.
 const _audioBufferRefs: Array<WeakRef<AudioBuffer>> = [];
+const _trackedAudioBuffers = new WeakSet<AudioBuffer>();
 let _decodedBufferTotal = 0;
+
+/** Track native PCM immediately after decode, even before publication. */
+export function trackDecodedAudioBufferForAdmission(buffer: AudioBuffer): void {
+  if (_trackedAudioBuffers.has(buffer)) return;
+  _trackedAudioBuffers.add(buffer);
+  if (typeof WeakRef !== 'undefined') {
+    _audioBufferRefs.push(new WeakRef(buffer));
+  }
+  _decodedBufferTotal++;
+}
+
+function estimateAudioBufferBytes(buffer: AudioBuffer): number {
+  const sampleRate =
+    Number.isFinite(buffer.sampleRate) && buffer.sampleRate > 0 ? buffer.sampleRate : 48_000;
+  const channels =
+    Number.isFinite(buffer.numberOfChannels) && buffer.numberOfChannels > 0
+      ? buffer.numberOfChannels
+      : 2;
+  const frames =
+    Number.isFinite(buffer.length) && buffer.length > 0
+      ? buffer.length
+      : Number.isFinite(buffer.duration) && buffer.duration > 0
+        ? buffer.duration * sampleRate
+        : 0;
+  return Math.ceil(frames * channels * Float32Array.BYTES_PER_ELEMENT);
+}
 
 export function liveAudioBufferCount(): { live: number; everSeen: number } {
   // Compact dead refs in-place so the list doesn't grow unbounded across a
@@ -98,6 +125,48 @@ export function liveAudioBufferCount(): { live: number; everSeen: number } {
   return { live, everSeen: _decodedBufferTotal };
 }
 
+/**
+ * Best-effort PCM footprint still reachable from this browsing context.
+ *
+ * iOS can retain retired native AudioBuffers beyond the track switch that
+ * dropped the app's strong reference. Admission checks include those WeakRef
+ * survivors so a long session stops before stacking another large decode on
+ * top of buffers WebKit has not reclaimed yet.
+ */
+export function liveAudioBufferPcmBytes(exceptBuffer?: AudioBuffer): number {
+  const seen = new Set<AudioBuffer>();
+  let bytes = 0;
+
+  for (let i = _audioBufferRefs.length - 1; i >= 0; i--) {
+    const buffer = _audioBufferRefs[i].deref();
+    if (!buffer) {
+      _audioBufferRefs.splice(i, 1);
+      continue;
+    }
+    if (buffer === exceptBuffer) continue;
+    if (seen.has(buffer)) continue;
+    seen.add(buffer);
+    bytes += estimateAudioBufferBytes(buffer);
+  }
+
+  // WeakRef is not universal, and a just-created current buffer may not have
+  // been observable through the list in a test/browser implementation.
+  if (
+    _currentAudioBuffer &&
+    _currentAudioBuffer !== exceptBuffer &&
+    !seen.has(_currentAudioBuffer)
+  ) {
+    bytes += estimateAudioBufferBytes(_currentAudioBuffer);
+  }
+
+  return bytes;
+}
+
+/** PCM bytes held by the current strong AudioBuffer reference only. */
+export function currentAudioBufferPcmBytes(): number {
+  return _currentAudioBuffer ? estimateAudioBufferBytes(_currentAudioBuffer) : 0;
+}
+
 export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
   const prev = _currentAudioBuffer;
   _currentAudioBuffer = buf;
@@ -105,10 +174,7 @@ export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
     bus.emit('player:buffer-changed');
   }
   if (buf && buf !== prev) {
-    if (typeof WeakRef !== 'undefined') {
-      _audioBufferRefs.push(new WeakRef(buf));
-    }
-    _decodedBufferTotal++;
+    trackDecodedAudioBufferForAdmission(buf);
   }
 }
 
@@ -254,15 +320,10 @@ export function setLastClearedTrackName(name: string): void {
 // Remembers which tracks failed to decode (timeout, corrupt, unsupported) so
 // we can skip them on auto-advance without looping forever.
 //
-// Keys are content-based, not index-based, so removing/reordering/adding
-// tracks mid-session doesn't invalidate the memory:
-//   • Local file  → "file:{name}:{size}:{lastModified}"
-//                   (three fields together give effectively unique identity
-//                    — same name with different size or mtime is a different
-//                    file, so user re-uploading a modified version retries)
-//   • YouTube     → "yt:{videoId}"
-//   • Name-only   → "name:{name}" (fallback when file handle isn't attached,
-//                   e.g. guest viewing a remote playlist entry)
+// Local media uses browser object identity. File metadata is not content
+// identity: different files can share name, size, and lastModified, while raw
+// Blobs can trivially share a size. A file playlist entry without an attached
+// File uses the entry object's identity. YouTube keeps its stable videoId key.
 //
 // The Set is cleared in two cases:
 //   1. When every playlist track has failed (decode.ts counts the non-failed
@@ -271,15 +332,21 @@ export function setLastClearedTrackName(name: string): void {
 //      track is removed from the playlist (the key still lives in the Set
 //      but nothing will check for it).
 
-export function getTrackKeyFromFile(file: File | Blob | null | undefined): string | null {
-  if (!file) return null;
-  const f = file as File;
-  if (typeof f.name === 'string' && typeof f.lastModified === 'number') {
-    return `file:${f.name}:${f.size}:${f.lastModified}`;
+const _mediaTrackKeys = new WeakMap<Blob, string>();
+const _playlistItemTrackKeys = new WeakMap<PlaylistItem, string>();
+let _nextTrackIdentity = 1;
+
+function identityKey<T extends object>(map: WeakMap<T, string>, value: T, prefix: string): string {
+  let key = map.get(value);
+  if (!key) {
+    key = `${prefix}:${_nextTrackIdentity++}`;
+    map.set(value, key);
   }
-  // Blob without name/lastModified — size-only fallback (very low uniqueness,
-  // but better than nothing for the rare guest-side raw-Blob path)
-  return `blob:${file.size}`;
+  return key;
+}
+
+export function getTrackKeyFromFile(file: File | Blob | null | undefined): string | null {
+  return file ? identityKey(_mediaTrackKeys, file, 'media') : null;
 }
 
 export function getTrackKeyFromItem(item: PlaylistItem | null | undefined): string | null {
@@ -290,9 +357,9 @@ export function getTrackKeyFromItem(item: PlaylistItem | null | undefined): stri
   if (item.type === 'file' && item.file) {
     return getTrackKeyFromFile(item.file);
   }
-  // File handle not attached (e.g. remote playlist view on guest) — fall back
-  // to name. Less unique but still allows same-session skip behaviour.
-  return item.name ? `name:${item.name}` : null;
+  // File handle not attached (e.g. a guest's remote playlist view). File
+  // metadata is not content identity, so use the entry object itself.
+  return item.type === 'file' ? identityKey(_playlistItemTrackKeys, item, 'item') : null;
 }
 
 export function markTrackFailed(key: string | null | undefined): void {

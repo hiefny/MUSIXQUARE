@@ -17,7 +17,6 @@ export interface TransportDataConnection {
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
-  _errorHandled?: boolean;
 
   send(data: unknown): void;
   close(): void;

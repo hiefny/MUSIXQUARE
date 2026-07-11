@@ -7,11 +7,10 @@ import type { RemoteFileSharePayload } from '../types/index.ts';
  * only after the complete encrypted ArrayBuffer is resident; decryptToFile then
  * allocates the complete plaintext while that encrypted input is still live.
  *
- * The signal can abort the in-flight XHR and is checked once before decryption.
- * Web Crypto itself is not cancellable, so an abort after decryption starts
- * does not stop that work or release its buffers immediately. There is no
- * post-decrypt signal check, so this Promise may still resolve; callers must
- * recheck the signal before publishing the File.
+ * The signal can abort the in-flight XHR and is checked before and after
+ * decryption. Web Crypto itself is not cancellable, so an abort after
+ * decryption starts does not stop that work or release its buffers
+ * immediately, but its result is never returned to the caller.
  */
 export async function downloadRemoteFile(
   descriptor: RemoteFileSharePayload,
@@ -21,6 +20,7 @@ export async function downloadRemoteFile(
   const encrypted = await downloadEncryptedObject(
     descriptor.roomId,
     descriptor.objectId,
+    descriptor.encryptedSize,
     descriptor.downloadUrl,
     onProgress,
     signal,
@@ -28,11 +28,21 @@ export async function downloadRemoteFile(
   // The signal may fire after download but before decryption. Recheck it so a
   // superseded operation cannot publish a decrypted file.
   if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
-  return decryptToFile(
+  if (encrypted.byteLength !== descriptor.encryptedSize) {
+    throw new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH');
+  }
+  const file = await decryptToFile(
     encrypted,
     descriptor.keyB64,
     descriptor.ivB64,
     descriptor.name,
     descriptor.mime,
   );
+  // Web Crypto cannot be interrupted once decryption starts. Discard its
+  // result if the owning playback context was superseded in that window.
+  if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
+  if (file.size !== descriptor.size) {
+    throw new Error('REMOTE_SHARE_PLAINTEXT_SIZE_MISMATCH');
+  }
+  return file;
 }

@@ -514,7 +514,6 @@ const ko = {
   'error.load_failed': '로드 실패: {{msg}}',
   'error.audio_decode_fail': '오디오 디코딩 실패!',
   'error.audio_memory': '오디오 메모리 로드 중...',
-  'error.decode_timeout': '"{{name}}" 디코딩이 너무 오래 걸려요.\n다음 곡으로 넘어갈게요.',
   'error.local_decode_wait': '해당 기기에서 디코딩을 실패했어요.\n다음 트랙 재생까지 기다려주세요.',
   'error.all_tracks_failed': '재생할 수 있는 트랙이 없어요.',
   'error.audio_engine_prepare': '오디오 엔진을 준비하지 못했어요',

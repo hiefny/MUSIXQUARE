@@ -15,9 +15,21 @@ const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
 const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
+const CAPABILITY_POW_DIFFICULTY_DEFAULT = 16;
+const CAPABILITY_POW_DIFFICULTY_MIN = 8;
+const CAPABILITY_POW_DIFFICULTY_MAX = 24;
+const CAPABILITY_POW_TTL_DEFAULT = 2 * SECONDS_PER_MINUTE;
+const CAPABILITY_POW_TTL_MIN = 30;
+const CAPABILITY_POW_TTL_MAX = 5 * SECONDS_PER_MINUTE;
 const CAPABILITY_JSON_BODY_MAX_BYTES = 8 * 1024;
 const ADMIN_JSON_BODY_MAX_BYTES = 8 * 1024;
 const REALTIME_JSON_BODY_MAX_BYTES = 128 * 1024;
+// Realtime session ownership is a separate, least-privilege capability. The
+// general `realtime` capability only permits creating an SFU session; it must
+// never be enough to mutate an arbitrary session ID learned from a peer.
+const REALTIME_SESSION_CAPABILITY_TTL = 24 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
+const REALTIME_SESSION_ID_MAX_LENGTH = 256;
+const REALTIME_SESSION_CAPABILITY_MAX_LENGTH = 2048;
 const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const SORO_RSS_DEFAULT_URL = 'https://app.trysoro.com/api/rss/a07c133f-e3b9-401e-a076-ee36124598a7';
 const SORO_RSS_BACKUP_KEY = 'soro-rss-latest-good.xml';
@@ -61,7 +73,7 @@ const SECURITY_HEADERS = {
   'Permissions-Policy':
     'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://*.trysoro.com https://*.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: wss://0.peerjs.com:443 https://0.peerjs.com:443 wss://*.peerjs.com https://*.peerjs.com https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; frame-src https://www.youtube.com https://challenges.cloudflare.com https://app.trysoro.com https://*.trysoro.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
+    "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://*.trysoro.com https://*.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; frame-src https://www.youtube.com https://challenges.cloudflare.com https://app.trysoro.com https://*.trysoro.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'",
 };
 
 function json(body, status = 200, headers = {}) {
@@ -196,10 +208,9 @@ function trustedCors(request, methods, env = {}, options = {}) {
     !origin &&
     !fetchSite &&
     (host === 'musixquare.com' || host.endsWith('.musixquare.com') || host.startsWith('localhost'));
-  // Host-only inference is not authentication. Capability endpoints opt into
-  // this routing signal for WebViews that omit Origin/Sec-Fetch headers; the
-  // separate fallback flag, IP-bound token, and rate limits provide the actual
-  // production boundary.
+  // Host-only inference is not authentication. Capability endpoints accept it
+  // only as a WebView routing/CORS signal; Turnstile or the signed proof-of-work
+  // challenge remains mandatory for minting a token.
   const isTrusted =
     sameOrigin ||
     browserSameOrigin ||
@@ -368,29 +379,6 @@ function isAllowedTurnstileHostname(hostname, env) {
   );
 }
 
-function allowInferredCapabilityFallback(env) {
-  const raw = String(
-    env.MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK ??
-      env.ALLOW_INFERRED_CAPABILITY_FALLBACK ??
-      'false',
-  )
-    .trim()
-    .toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
-}
-
-function allowTrustedOriginCapabilityFallback(env) {
-  const raw = String(
-    env.MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK ??
-      env.MXQR_ALLOW_HEADER_CAPABILITY_FALLBACK ??
-      env.ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK ??
-      'false',
-  )
-    .trim()
-    .toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
-}
-
 function allowUnguardedPaidApis(env) {
   const raw = String(env.MXQR_ALLOW_UNGUARDED_PAID_APIS ?? env.ALLOW_UNGUARDED_PAID_APIS ?? 'false')
     .trim()
@@ -404,6 +392,21 @@ function parseCapabilityTtl(env) {
   return Math.min(CAPABILITY_TOKEN_TTL_MAX, Math.max(CAPABILITY_TOKEN_TTL_MIN, parsed));
 }
 
+function parseCapabilityPowDifficulty(env) {
+  const parsed = Number.parseInt(
+    env.MXQR_CAPABILITY_POW_DIFFICULTY || env.CAPABILITY_POW_DIFFICULTY || '',
+    10,
+  );
+  if (!Number.isFinite(parsed)) return CAPABILITY_POW_DIFFICULTY_DEFAULT;
+  return Math.min(CAPABILITY_POW_DIFFICULTY_MAX, Math.max(CAPABILITY_POW_DIFFICULTY_MIN, parsed));
+}
+
+function parseCapabilityPowTtl(env) {
+  const parsed = Number.parseInt(env.MXQR_CAPABILITY_POW_TTL || env.CAPABILITY_POW_TTL || '', 10);
+  if (!Number.isFinite(parsed)) return CAPABILITY_POW_TTL_DEFAULT;
+  return Math.min(CAPABILITY_POW_TTL_MAX, Math.max(CAPABILITY_POW_TTL_MIN, parsed));
+}
+
 function parseRequestedScopes(value) {
   if (!Array.isArray(value)) return [];
   const scopes = [];
@@ -412,7 +415,7 @@ function parseRequestedScopes(value) {
       scopes.push(scope);
     }
   }
-  return scopes;
+  return scopes.sort();
 }
 
 function bytesToBase64Url(bytes) {
@@ -456,8 +459,92 @@ async function hmacSha256(secret, value) {
   return bytesToBase64Url(new Uint8Array(signature));
 }
 
+async function sha256Bytes(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return new Uint8Array(digest);
+}
+
+function hasLeadingZeroBits(bytes, difficulty) {
+  let remaining = difficulty;
+  for (const byte of bytes) {
+    if (remaining <= 0) return true;
+    const bits = Math.min(8, remaining);
+    if ((byte & (0xff << (8 - bits))) !== 0) return false;
+    remaining -= bits;
+  }
+  return remaining <= 0;
+}
+
 async function capabilityIpHash(secret, request) {
   return hmacSha256(secret, `ip:${getClientIp(request)}`);
+}
+
+function randomNonce(byteLength = 16) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return bytesToBase64Url(bytes);
+}
+
+async function createCapabilityPowChallenge(scopes, request, env) {
+  const secret = getCapabilitySecret(env);
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    v: 1,
+    scopes,
+    iat: now,
+    exp: now + parseCapabilityPowTtl(env),
+    ip: await capabilityIpHash(secret, request),
+    difficulty: parseCapabilityPowDifficulty(env),
+    capabilityTtl: parseCapabilityTtl(env),
+    nonce: randomNonce(),
+  };
+  const payloadPart = stringToBase64Url(JSON.stringify(payload));
+  const signature = await hmacSha256(secret, `capability-pow:${payloadPart}`);
+  return {
+    challenge: `${payloadPart}.${signature}`,
+    difficulty: payload.difficulty,
+    expiresAt: payload.exp,
+    algorithm: 'sha256-leading-zero-bits',
+  };
+}
+
+async function verifyCapabilityPowProof(proof, scopes, request, env) {
+  if (!proof || typeof proof !== 'object') return null;
+  const challenge = typeof proof.challenge === 'string' ? proof.challenge : '';
+  const solution = typeof proof.solution === 'string' ? proof.solution : '';
+  if (!challenge || !/^\d{1,20}$/.test(solution)) return null;
+
+  const parts = challenge.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const secret = getCapabilitySecret(env);
+  const expectedSignature = await hmacSha256(secret, `capability-pow:${parts[0]}`);
+  if (!constantTimeEqual(expectedSignature, parts[1])) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlToString(parts[0]));
+  } catch {
+    return null;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload?.v !== 1) return null;
+  if (!Array.isArray(payload.scopes) || JSON.stringify(payload.scopes) !== JSON.stringify(scopes)) {
+    return null;
+  }
+  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return null;
+  if (typeof payload.exp !== 'number' || payload.exp <= now) return null;
+  if (payload.exp - payload.iat !== parseCapabilityPowTtl(env)) return null;
+  if (payload.difficulty !== parseCapabilityPowDifficulty(env)) return null;
+  if (payload.capabilityTtl !== parseCapabilityTtl(env)) return null;
+  if (typeof payload.nonce !== 'string' || !payload.nonce) return null;
+
+  const expectedIp = await capabilityIpHash(secret, request);
+  if (!constantTimeEqual(String(payload.ip || ''), expectedIp)) return null;
+
+  const digest = await sha256Bytes(`mxqr-pow-v1:${challenge}:${solution}`);
+  if (!hasLeadingZeroBits(digest, payload.difficulty)) return null;
+  return payload;
 }
 
 function readCapabilityToken(request) {
@@ -468,20 +555,20 @@ function readCapabilityToken(request) {
   return match ? match[1].trim() : '';
 }
 
-async function createCapabilityToken(scopes, request, env, method) {
+async function createCapabilityToken(scopes, request, env, method, anchor = null) {
   const secret = getCapabilitySecret(env);
   const ttl = parseCapabilityTtl(env);
   const now = Math.floor(Date.now() / 1000);
   // Tokens are base64url-encoded, not encrypted. Do not embed the minting
-  // method because it would disclose which fallback flags are active; the
-  // current implementation otherwise discards that method.
+  // method because it would disclose the active verification path.
   void method;
   const payload = {
     v: 1,
     scopes,
-    iat: now,
-    exp: now + ttl,
+    iat: anchor?.iat ?? now,
+    exp: (anchor?.iat ?? now) + ttl,
     ip: await capabilityIpHash(secret, request),
+    ...(anchor?.jti ? { jti: anchor.jti } : {}),
   };
   const payloadPart = stringToBase64Url(JSON.stringify(payload));
   const signature = await hmacSha256(secret, payloadPart);
@@ -516,6 +603,66 @@ async function verifyCapabilityToken(token, request, env, requiredScope) {
 
   const expectedIp = await capabilityIpHash(secret, request);
   return constantTimeEqual(String(payload.ip || ''), expectedIp);
+}
+
+function isValidRealtimeSessionId(value) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= REALTIME_SESSION_ID_MAX_LENGTH &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
+}
+
+async function createRealtimeSessionCapability(sessionId, appId, appSecret) {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    v: 1,
+    sid: sessionId,
+    app: appId,
+    iat: now,
+    exp: now + REALTIME_SESSION_CAPABILITY_TTL,
+    nonce: randomNonce(),
+  };
+  const payloadPart = stringToBase64Url(JSON.stringify(payload));
+  const signature = await hmacSha256(appSecret, `realtime-session:${payloadPart}`);
+  return `${payloadPart}.${signature}`;
+}
+
+async function verifyRealtimeSessionCapability(token, sessionId, appId, appSecret) {
+  if (
+    typeof token !== 'string' ||
+    !token ||
+    token.length > REALTIME_SESSION_CAPABILITY_MAX_LENGTH
+  ) {
+    return false;
+  }
+
+  const parts = token.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+  const expectedSignature = await hmacSha256(appSecret, `realtime-session:${parts[0]}`);
+  if (!constantTimeEqual(expectedSignature, parts[1])) return false;
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlToString(parts[0]));
+  } catch {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  return (
+    payload?.v === 1 &&
+    constantTimeEqual(String(payload.sid || ''), sessionId) &&
+    constantTimeEqual(String(payload.app || ''), appId) &&
+    typeof payload.iat === 'number' &&
+    payload.iat <= now + 60 &&
+    typeof payload.exp === 'number' &&
+    payload.exp > now &&
+    payload.exp - payload.iat === REALTIME_SESSION_CAPABILITY_TTL &&
+    typeof payload.nonce === 'string' &&
+    payload.nonce.length > 0
+  );
 }
 
 function getAdminPassword(env) {
@@ -1305,21 +1452,44 @@ async function handleSecurityConfig(request, env) {
   if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
 
   const turnstileConfigured = isTurnstileConfigured(env);
-  const inferredFallback = allowInferredCapabilityFallback(env);
-  const trustedOriginFallback = !turnstileConfigured && allowTrustedOriginCapabilityFallback(env);
+  const capabilityRequired = isCapabilityAuthEnabled(env);
+  const proofOfWorkRequired = capabilityRequired && !turnstileConfigured;
 
   return json(
     {
-      capabilityRequired: isCapabilityAuthEnabled(env),
-      turnstileSiteKey: isTurnstileConfigured(env) ? getTurnstileSiteKey(env) : '',
-      turnstileRequired:
-        isCapabilityAuthEnabled(env) && !inferredFallback && !trustedOriginFallback,
-      inferredFallback,
+      capabilityRequired,
+      turnstileSiteKey: turnstileConfigured ? getTurnstileSiteKey(env) : '',
+      turnstileRequired: capabilityRequired && turnstileConfigured,
+      proofOfWorkRequired,
+      proofOfWorkDifficulty: proofOfWorkRequired ? parseCapabilityPowDifficulty(env) : 0,
+      proofOfWorkTtl: proofOfWorkRequired ? parseCapabilityPowTtl(env) : 0,
       ttl: parseCapabilityTtl(env),
     },
     200,
     headers,
   );
+}
+
+async function handleCapabilityChallenge(request, env) {
+  const trust = trustedCors(request, 'POST, OPTIONS', env, { allowInferred: true });
+  const { headers } = trust;
+  if (request.method === 'OPTIONS')
+    return withSecurityHeaders(new Response(null, { status: 204, headers }));
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
+  if (!isCapabilityAuthEnabled(env)) {
+    return json({ capabilityRequired: false }, 200, headers);
+  }
+  if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
+  if (isTurnstileConfigured(env)) return json({ error: 'TURNSTILE_REQUIRED' }, 409, headers);
+  if (!(await checkRateLimit(request, 'capability-challenge', 30, 60))) {
+    return rateLimitResponse(headers);
+  }
+
+  const parsedBody = await readJsonBodyLimited(request, CAPABILITY_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody, headers);
+  const scopes = parseRequestedScopes(parsedBody.value?.scopes);
+  if (scopes.length === 0) return json({ error: 'Invalid scopes' }, 400, headers);
+  return json(await createCapabilityPowChallenge(scopes, request, env), 200, headers);
 }
 
 async function handleCapabilityToken(request, env) {
@@ -1342,25 +1512,26 @@ async function handleCapabilityToken(request, env) {
   const scopes = parseRequestedScopes(body?.scopes);
   if (scopes.length === 0) return json({ error: 'Invalid scopes' }, 400, headers);
 
-  let method = '';
   if (isTurnstileConfigured(env) && typeof body?.turnstileToken === 'string') {
     if (!(await verifyTurnstileToken(body.turnstileToken, request, env))) {
       return json({ error: 'TURNSTILE_FAILED' }, 403, headers);
     }
-    method = 'turnstile';
-  } else if (trust.sameOriginInferred && allowInferredCapabilityFallback(env)) {
-    method = 'same-origin-inferred';
-  } else if (
-    !isTurnstileConfigured(env) &&
-    trust.isTrusted &&
-    allowTrustedOriginCapabilityFallback(env)
-  ) {
-    method = 'trusted-origin';
-  } else {
-    return json({ error: 'TURNSTILE_REQUIRED' }, 403, headers);
+    return json(await createCapabilityToken(scopes, request, env, 'turnstile'), 200, headers);
   }
-
-  return json(await createCapabilityToken(scopes, request, env, method), 200, headers);
+  if (!isTurnstileConfigured(env)) {
+    const challenge = await verifyCapabilityPowProof(body?.proofOfWork, scopes, request, env);
+    if (!challenge) return json({ error: 'PROOF_OF_WORK_FAILED' }, 403, headers);
+    // Reusing the same proof returns the same token and cannot extend expiry.
+    return json(
+      await createCapabilityToken(scopes, request, env, 'proof-of-work', {
+        iat: challenge.iat,
+        jti: challenge.nonce,
+      }),
+      200,
+      headers,
+    );
+  }
+  return json({ error: 'TURNSTILE_REQUIRED' }, 403, headers);
 }
 
 function clampMaxResults(raw, env) {
@@ -1603,23 +1774,6 @@ async function getCloudflareIceServers(env) {
   return { provider: 'cloudflare', ttl: parseTurnTtl(env), iceServers };
 }
 
-function getMeteredFallbackIceServers(env) {
-  const username = env.TURN_USER || '';
-  const credential = env.TURN_PASS || '';
-  if (!username || !credential) return null;
-  return {
-    provider: 'metered-fallback',
-    username,
-    credential,
-    iceServers: [
-      { urls: 'stun:stun.relay.metered.ca:80' },
-      { urls: 'turn:standard.relay.metered.ca:443', username, credential },
-      { urls: 'turn:standard.relay.metered.ca:443?transport=tcp', username, credential },
-      { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username, credential },
-    ],
-  };
-}
-
 async function handleTurnConfig(request, env) {
   const trust = trustedCors(request, 'GET, OPTIONS', env);
   const { headers } = trust;
@@ -1635,8 +1789,6 @@ async function handleTurnConfig(request, env) {
   } catch (error) {
     console.warn('[TURN] Cloudflare config failed:', error?.message || error);
   }
-  const fallback = getMeteredFallbackIceServers(env);
-  if (fallback) return json(fallback, 200, headers);
   return json({ error: 'TURN_CONFIG_UNAVAILABLE' }, 503, headers);
 }
 
@@ -1720,8 +1872,20 @@ async function handleRealtime(request, env) {
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
   const realtimeRequest = buildRealtimeRequest(action, appId, sessionId, body.correlationId);
   if (!realtimeRequest) return json({ error: 'Unsupported action' }, 400, headers);
-  if (action !== 'new-session' && !sessionId)
-    return json({ error: 'Missing sessionId' }, 400, headers);
+  if (action !== 'new-session') {
+    if (!isValidRealtimeSessionId(sessionId)) {
+      return json({ error: 'Invalid sessionId' }, 400, headers);
+    }
+    const ownsSession = await verifyRealtimeSessionCapability(
+      body.sessionOwnerToken,
+      sessionId,
+      appId,
+      appSecret,
+    );
+    if (!ownsSession) {
+      return json({ error: 'REALTIME_SESSION_CAPABILITY_REQUIRED' }, 403, headers);
+    }
+  }
 
   try {
     const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
@@ -1742,6 +1906,17 @@ async function handleRealtime(request, env) {
       responseBody = text ? JSON.parse(text) : {};
     } catch {
       responseBody = { raw: text };
+    }
+    if (
+      action === 'new-session' &&
+      cfResponse.ok &&
+      isValidRealtimeSessionId(responseBody?.sessionId)
+    ) {
+      responseBody.sessionOwnerToken = await createRealtimeSessionCapability(
+        responseBody.sessionId,
+        appId,
+        appSecret,
+      );
     }
     return json(responseBody, cfResponse.status, headers);
   } catch (error) {
@@ -3022,6 +3197,8 @@ export default {
     switch (url.pathname) {
       case '/api/security-config':
         return handleSecurityConfig(request, env);
+      case '/api/capability-challenge':
+        return handleCapabilityChallenge(request, env);
       case '/api/capability-token':
         return handleCapabilityToken(request, env);
       case '/api/youtube-search':

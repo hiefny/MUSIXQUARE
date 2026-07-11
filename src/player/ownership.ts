@@ -278,7 +278,6 @@ type PlaybackProjection =
   | 'IDLE'
   | 'PAUSED'
   | 'PLAYING_AUDIO'
-  | 'PLAYING_VIDEO'
   | 'PLAYING_YOUTUBE'
   | 'PLAYING_SYSTEM_AUDIO';
 
@@ -299,7 +298,8 @@ export function getPlaybackProjection(): PlaybackProjection {
     }
   }
   if (o.lifecycle === PLAYBACK_STATE.PLAYING) return 'PLAYING_AUDIO';
-  if (o.lifecycle === PLAYBACK_STATE.PAUSED || o.lifecycle === PLAYBACK_STATE.READY) return 'PAUSED';
+  if (o.lifecycle === PLAYBACK_STATE.PAUSED || o.lifecycle === PLAYBACK_STATE.READY)
+    return 'PAUSED';
   return 'IDLE';
 }
 

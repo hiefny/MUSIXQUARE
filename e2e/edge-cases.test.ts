@@ -14,7 +14,11 @@
  * - Extreme values
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
@@ -66,7 +70,7 @@ test.describe('Edge Cases', () => {
       await pair.hostPage.waitForTimeout(100); // intentional rapid-fire delay
     }
 
-    const index = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    const index = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
     expect(index).toBeGreaterThanOrEqual(0);
     expect(index).toBeLessThan(3);
   });
@@ -90,8 +94,8 @@ test.describe('Edge Cases', () => {
       await pair.hostPage.waitForTimeout(150); // intentional rapid-fire delay
     }
 
-    const state = await readPlaybackProjection(pair.hostPage) as string;
-    expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_VIDEO', 'PLAYING_YOUTUBE']).toContain(state);
+    const state = (await readPlaybackProjection(pair.hostPage)) as string;
+    expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_YOUTUBE']).toContain(state);
   });
 
   // ── Empty State Navigation ──────────────────────────────────
@@ -102,7 +106,7 @@ test.describe('Edge Cases', () => {
     await pair.hostPage.click('#btn-next');
     await pair.hostPage.click('#btn-prev');
 
-    const index = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+    const index = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
     expect(index).toBeLessThanOrEqual(0);
   });
 
@@ -110,7 +114,7 @@ test.describe('Edge Cases', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Play button is accessibility-disabled when no track is loaded.
-    const isDisabled = await pair.hostPage.locator('#play-btn').evaluate(el => {
+    const isDisabled = await pair.hostPage.locator('#play-btn').evaluate((el) => {
       return (
         el.hasAttribute('disabled') ||
         el.getAttribute('aria-disabled') === 'true' ||
@@ -119,7 +123,7 @@ test.describe('Edge Cases', () => {
     });
     expect(isDisabled).toBe(true);
 
-    const state = await readPlaybackProjection(pair.hostPage) as string;
+    const state = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(state).toBe('IDLE');
   });
 
@@ -142,7 +146,7 @@ test.describe('Edge Cases', () => {
     await pair.hostPage.click('#play-btn');
     await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 5_000).catch(() => {});
 
-    const stateBefore = await readPlaybackProjection(pair.hostPage) as string;
+    const stateBefore = (await readPlaybackProjection(pair.hostPage)) as string;
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
@@ -152,7 +156,7 @@ test.describe('Edge Cases', () => {
     });
     expect(count).toBe(2);
 
-    const stateAfter = await readPlaybackProjection(pair.hostPage) as string;
+    const stateAfter = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(stateAfter);
   });
 
@@ -371,15 +375,17 @@ test.describe('Edge Cases', () => {
     await pair.hostPage.goto('about:blank');
 
     // WebRTC disconnect detection is asynchronous.
-    await pair.guestPage.waitForFunction(
-      () => {
-        const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        if (!get) return false;
-        const conn = get('network.hostConn');
-        return conn === null;
-      },
-      { timeout: 15_000 },
-    ).catch(() => {});
+    await pair.guestPage
+      .waitForFunction(
+        () => {
+          const get = (window as any).__MUSIXQUARE_GET_STATE__;
+          if (!get) return false;
+          const conn = get('network.hostConn');
+          return conn === null;
+        },
+        { timeout: 15_000 },
+      )
+      .catch(() => {});
 
     const hostConn = await pair.guestPage.evaluate(() => {
       const get = (window as any).__MUSIXQUARE_GET_STATE__;
@@ -432,7 +438,9 @@ test.describe('Edge Cases', () => {
       if (dialogActive) {
         if (await isVisible(pair.hostPage, '#btn-dialog-cancel')) {
           await pair.hostPage.locator('#btn-dialog-cancel').click();
-          await waitForClass(pair.hostPage, '#dialog-overlay', 'active', false, 3_000).catch(() => {});
+          await waitForClass(pair.hostPage, '#dialog-overlay', 'active', false, 3_000).catch(
+            () => {},
+          );
 
           const count = await pair.hostPage.evaluate(() => {
             return document.getElementById('playlist-ui')?.children.length ?? 0;
@@ -468,17 +476,23 @@ test.describe('Edge Cases', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Use a DOM click because responsive CSS may hide the desktop control.
-    const repeatExists = await pair.hostPage.evaluate(() => !!document.getElementById('btn-repeat'));
+    const repeatExists = await pair.hostPage.evaluate(
+      () => !!document.getElementById('btn-repeat'),
+    );
     if (repeatExists) {
-      await pair.hostPage.evaluate(() => (document.getElementById('btn-repeat') as HTMLElement)?.click());
+      await pair.hostPage.evaluate(() =>
+        (document.getElementById('btn-repeat') as HTMLElement)?.click(),
+      );
 
-      await pair.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('playlist.repeatMode') !== 0;
-        },
-        { timeout: 5_000 },
-      ).catch(() => {});
+      await pair.hostPage
+        .waitForFunction(
+          () => {
+            const get = (window as any).__MUSIXQUARE_GET_STATE__;
+            return get && get('playlist.repeatMode') !== 0;
+          },
+          { timeout: 5_000 },
+        )
+        .catch(() => {});
 
       const repeatAfterClick = await readState(pair.hostPage, 'playlist.repeatMode');
 
@@ -497,17 +511,23 @@ test.describe('Edge Cases', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     // Use a DOM click because responsive CSS may hide the desktop control.
-    const shuffleExists = await pair.hostPage.evaluate(() => !!document.getElementById('btn-shuffle'));
+    const shuffleExists = await pair.hostPage.evaluate(
+      () => !!document.getElementById('btn-shuffle'),
+    );
     if (shuffleExists) {
-      await pair.hostPage.evaluate(() => (document.getElementById('btn-shuffle') as HTMLElement)?.click());
+      await pair.hostPage.evaluate(() =>
+        (document.getElementById('btn-shuffle') as HTMLElement)?.click(),
+      );
 
-      await pair.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('playlist.isShuffle') === true;
-        },
-        { timeout: 5_000 },
-      ).catch(() => {});
+      await pair.hostPage
+        .waitForFunction(
+          () => {
+            const get = (window as any).__MUSIXQUARE_GET_STATE__;
+            return get && get('playlist.isShuffle') === true;
+          },
+          { timeout: 5_000 },
+        )
+        .catch(() => {});
 
       const shuffleAfterClick = await readState(pair.hostPage, 'playlist.isShuffle');
 
@@ -572,7 +592,10 @@ test.describe('Edge Cases', () => {
         { timeout: 3_000 },
       );
 
-      const volAfterMute = await pair.hostPage.locator('#volume-slider').inputValue().catch(() => '50');
+      const volAfterMute = await pair.hostPage
+        .locator('#volume-slider')
+        .inputValue()
+        .catch(() => '50');
 
       await pair.hostPage.locator('#vol-icon-btn').click();
 
@@ -584,7 +607,10 @@ test.describe('Edge Cases', () => {
         { timeout: 3_000 },
       );
 
-      const volAfterUnmute = await pair.hostPage.locator('#volume-slider').inputValue().catch(() => '50');
+      const volAfterUnmute = await pair.hostPage
+        .locator('#volume-slider')
+        .inputValue()
+        .catch(() => '50');
 
       const muteVal = Number(volAfterMute);
       const unmuteVal = Number(volAfterUnmute);
@@ -693,19 +719,21 @@ test.describe('Stress Tests', () => {
     // end-of-playlist sentinel.
     const indices: number[] = [];
     for (let i = 0; i < 3; i++) {
-      const idx = await readState(pair.hostPage, 'playlist.currentTrackIndex') as number;
+      const idx = (await readState(pair.hostPage, 'playlist.currentTrackIndex')) as number;
       indices.push(idx);
       await pair.hostPage.click('#btn-next');
-      await pair.hostPage.waitForFunction(
-        (prevIdx) => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const current = get('playlist.currentTrackIndex');
-          return current !== prevIdx;
-        },
-        idx,
-        { timeout: 5_000 },
-      ).catch(() => {});
+      await pair.hostPage
+        .waitForFunction(
+          (prevIdx) => {
+            const get = (window as any).__MUSIXQUARE_GET_STATE__;
+            if (!get) return false;
+            const current = get('playlist.currentTrackIndex');
+            return current !== prevIdx;
+          },
+          idx,
+          { timeout: 5_000 },
+        )
+        .catch(() => {});
     }
 
     for (const idx of indices) {

@@ -33,9 +33,11 @@ secrets.
   a direct WebRTC path is available. Precise sync supported. Local video files
   are rejected; video playback uses the YouTube path.
 - **Remote File Sharing**: Remote guests can receive encrypted temporary file
-  handoffs through Cloudflare-backed storage. The current application limit is
-  200 MiB per source file; successful decode/playback also depends on the
-  host and guest devices' available memory.
+  handoffs through Cloudflare-backed storage. The 200 MiB figure is the remote
+  wire/storage ceiling, not a guarantee that every device can admit a file of
+  that size. Before whole-file encryption/decryption and AudioBuffer decoding,
+  each host and guest applies its own RAM working-set budget, so the practical
+  limit can be lower on memory-constrained devices.
 - **YouTube Together**: Watch together with synced playback. Works across different networks.
 - **System Audio Sharing**: Stream desktop or tab audio to connected devices in real-time stereo.
 - **Audio Effects**: 5-band EQ, reverb, stereo widener, virtual bass, all processed locally via Web Audio API.
@@ -55,7 +57,7 @@ secrets.
   Cloudflare signaling transport; there is no automatic production failover
   to PeerJS.
 - **Remote Share Worker**: Cloudflare Worker + R2 path for encrypted temporary remote file sharing.
-- **STUN + TURN**: Browser ICE with Cloudflare TURN support and optional Metered fallback.
+- **STUN + TURN**: Browser ICE with Cloudflare TURN support.
 - **RAM-only media storage**: Local playback buffers and received chunks stay
   in browser memory. Practical file capacity is device- and codec-dependent.
 
@@ -80,10 +82,9 @@ server-only.
 Security-sensitive backend endpoints fail closed unless capability-token protection is configured. Unguarded fallback flags are for local/emergency use only and must stay disabled in production.
 
 Current production policy keeps Turnstile disabled. Capability tokens remain
-IP-bound and paid endpoints remain rate-limited. Token minting uses the
-explicit header/host trust fallback in the production Worker configuration;
-those browser headers are routing signals, not user authentication. Re-enabling
-Turnstile requires both its site and secret keys.
+IP-bound and paid endpoints remain rate-limited. Token minting uses a
+short-lived, scope/IP-bound proof-of-work challenge; Origin, Sec-Fetch, and Host
+headers are CORS/routing signals and never authenticate capability issuance.
 
 Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled into browser code.
 

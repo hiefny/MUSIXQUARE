@@ -37,16 +37,19 @@ merging `mxqr_temp` → `main`.
 **Priority:** BLOCKER. If this fails, don't merge.
 
 **Setup:**
+
 - Host: `huge.wav` (or `flac.flac`) + `small.mp3` in playlist, in that order
 - One guest connected on same Wi-Fi
 - Host plays track 0 (the large file) through to the end, so preload of
   track 1 (`small.mp3`) is complete and guest has cached it
 
 **Action:**
+
 1. Host skips to track 1 while preload of track 2 is still in flight
 2. Observe guest's loader
 
 **Expected:**
+
 - Guest momentarily shows "다운로드 마무리 중..." (download finishing) while
   preload assembles, then plays seamlessly
 - The "수신 중... 0%" loader does NOT appear
@@ -54,6 +57,7 @@ merging `mxqr_temp` → `main`.
 - DevTools console on guest shows `[Lifecycle] AWAITING_PRELOAD → DECODING`
 
 **Fail symptoms** (the bug we killed):
+
 - "수신 중... 0%" followed by a full re-download
 - Guest falls 5+ seconds behind host
 - Console shows `stale-audio-recovery` log (it shouldn't exist anymore)
@@ -65,10 +69,12 @@ merging `mxqr_temp` → `main`.
 **Setup:** playlist with 5 tracks, host + 1 guest, Shuffle OFF, Repeat OFF
 
 **Action:**
+
 1. Host plays track 0
 2. While playing, host rapidly clicks Next 3 times (within ~200ms)
 
 **Expected:**
+
 - Host ends up on track 3
 - Guest follows to track 3 (may see transient loading states for 1/2 before
   settling on 3, that's fine)
@@ -80,21 +86,25 @@ merging `mxqr_temp` → `main`.
 ## Scenario 3 — Repeat-one asymmetry fix
 
 **Setup:** playlist with 3 tracks, host + guest, repeat mode = one (반복
- 아이콘 한 번)
+아이콘 한 번)
 
 **Action:**
+
 1. Host plays track 1
 2. Let it play for 30 seconds
 3. Host clicks **Next** button
 
 **Expected:**
+
 - Host skips to track 2 (NOT restart of track 1)
 - Guest follows to track 2
 
 **Fail symptoms** (the pre-`fb5d5f0` bug):
+
 - Track 1 restarts from 0 when host hits Next
 
 Also verify:
+
 - Host clicks **Prev** on track 2 → back to track 1, still in repeat-one
 - Natural end of track 2 → repeats track 2 (repeat-one on natural end
   preserved)
@@ -106,16 +116,19 @@ Also verify:
 **Setup:** playlist with 5 tracks, host + guest, **Shuffle ON**
 
 **Action:**
+
 1. Host plays track 0 (or wherever shuffle starts)
 2. Host clicks Next → let it play briefly → Next → Next (2 forward)
 3. Host clicks Prev → Prev → Prev (3 back to the start)
 4. Host clicks Next → Next → Next again
 
 **Expected:**
+
 - The tracks visited in step 2 (forward) match the tracks visited in step 4
   in the same order. Round-trip prev/next returns to the same track.
 
 **Fail symptoms** (the pre-`fb5d5f0` bug):
+
 - Step 4 visits different random tracks than step 2
 
 ---
@@ -125,28 +138,39 @@ Also verify:
 **Setup:** playlist with 3 tracks, Repeat OFF
 
 **Action:**
+
 1. Host plays track 2 (last) to the end
 2. App shows "재생목록 끝" toast, playback stops, index = -1
 3. Host clicks **Prev**
 
 **Expected:**
+
 - Track 0 (first track) starts playing (NOT silent no-op)
 
 **Fail symptoms** (the pre-`fb5d5f0` bug):
+
 - Prev is silent, nothing plays, `currentTrackIndex` stays -1
 
 ---
 
 ## Scenario 6 — Decode timeout auto-skip
 
+> **Historical expectation only:** this scenario records the April 2026
+> behavior. The current decoder has no fixed wall-clock deadline because native
+> `decodeAudioData` cannot be cancelled. For present-day QA, use a corrupt file
+> that the browser actually rejects and expect the advance only after that
+> rejection; a legitimate slow decode remains owned until it settles.
+
 **Setup:** playlist with 3 tracks: `small.mp3`, `broken.mp3` (corrupt or
 pathological-bitrate file), `small2.mp3`. Host + guest.
 
 **Action:**
+
 1. Play starts at track 0, auto-advances to track 1 (`broken.mp3`)
 2. Track 1's decode takes too long or fails
 
 **Expected:**
+
 - Within 10 seconds of attempting track 1, a toast appears (`"디코딩이
   너무 오래 걸려요. 다음 곡으로 넘어갑니다."`)
 - Playback auto-advances to track 2 (`small2.mp3`)
@@ -155,6 +179,7 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 - Guest follows
 
 **Fail symptoms:**
+
 - Tab hangs / freezes
 - Loader stuck at some % forever
 - Track 1 keeps retrying in a loop (→ check `markTrackFailed` is being called)
@@ -166,10 +191,12 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** playlist with 1 track only (`small.mp3`), repeat mode = all
 
 **Action:**
+
 1. Play the track through to the end
 2. Let the natural end trigger
 
 **Expected:**
+
 - Track restarts from 0 immediately
 - No "수신 중" flicker (fast-path same-track replay)
 
@@ -180,12 +207,14 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** playlist with `video.mp4`, host + guest
 
 **Action:**
+
 1. Play the video
 2. Seek backward
 3. Seek forward
 4. Pause, wait, play
 
 **Expected:**
+
 - Video plays with synchronized audio on both devices
 - Seek works correctly on both devices
 - Pause/play syncs
@@ -197,11 +226,13 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** Add a YouTube video via URL input, host + guest
 
 **Action:**
+
 1. Play the YouTube video
 2. Pause, seek, play
 3. Skip to next track (another YouTube or local file)
 
 **Expected:**
+
 - YouTube plays in sync on both devices
 - Transition between YouTube and local file tracks works
 - Lifecycle is IDLE throughout YouTube playback (YouTube has its own
@@ -214,10 +245,12 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** Host + guest, playing any local file
 
 **Action:**
+
 1. Tap Sync button on the guest
 2. Observe the nudge popup
 
 **Expected:**
+
 - Column headers read `"자동 싱크 (ms)"` and `"수동 싱크 (ms)"`
 - Values display as plain numbers (`+1022`, `-30`, etc.) without the
   "ms" suffix
@@ -230,10 +263,12 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** host is mid-playback of a track
 
 **Action:**
+
 1. New guest joins via QR code
 2. Observe their experience from first tap
 
 **Expected:**
+
 - Guest receives the track meta immediately
 - Guest downloads the current file, decodes, and catches up
 - No stuck loaders after 30 s on local Wi-Fi
@@ -246,9 +281,11 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** host on Wi-Fi, guest on mobile data (remote, no relay peer available)
 
 **Action:**
+
 1. Guest tries to join
 
 **Expected:**
+
 - Guest sees the "같은 Wi-Fi에 연결해주세요" guide UI
 - No file transfer attempt (avoids TURN billing)
 - No console errors
@@ -260,9 +297,11 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** host playing a track, preload for next in flight
 
 **Action:**
+
 1. Toggle shuffle ON
 
 **Expected:**
+
 - Preload is regenerated for the new shuffle-next track
 - No "수신 중" or stuck loader on guest
 - Next track on advance is the newly-chosen shuffle-next
@@ -274,10 +313,12 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** host playing, repeat mode = off
 
 **Action:**
+
 1. While playing track 0 (of a 3-track playlist), toggle repeat mode to
    "all", then to "one", then back to "off"
 
 **Expected:**
+
 - Each toggle shows the right toast
 - Preload regenerates if needed
 - Playback continues uninterrupted
@@ -289,9 +330,11 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 **Setup:** host + guest, preload of next track underway
 
 **Action:**
+
 1. Disable the guest's Wi-Fi for 3 seconds, then re-enable
 
 **Expected:**
+
 - Preload pauses during disconnect
 - After reconnect, preload resumes OR falls back to fresh download via
   recovery
@@ -302,13 +345,21 @@ pathological-bitrate file), `small2.mp3`. Host + guest.
 
 ## Scenario 16 — Very long file (30+ min podcast)
 
+> **Historical expectation only:** current RAM admission may reject this exact
+> 60-minute fixture before decode when its encoded + PCM working set exceeds the
+> device tier. Present-day QA should test one long file inside the reported
+> budget and one over-budget file; the former waits for real browser completion,
+> while the latter fails cleanly before whole-file allocation.
+
 **Setup:** `long-podcast.mp3` (~40 MB, 60 min runtime)
 
 **Action:**
+
 1. Play the file on host
 2. Observe guest's experience
 
 **Expected:**
+
 - File decodes successfully (does NOT hit the 10 s decode timeout for
   legitimate large files)
 - Playback plays in sync
@@ -355,15 +406,17 @@ When logging a regression, use this format:
 **Observed:** [what actually happened]
 
 **Console logs (guest):**
+
 ```
 [paste relevant [Lifecycle] / [Preload] / [Guest] / [SharedClock] lines]
 ```
 
 **State snapshot at failure** (guest DevTools):
+
 ```js
-window.__musixquare_state?.playback
-window.__musixquare_state?.transfer
-window.__musixquare_state?.preload
+window.__musixquare_state?.playback;
+window.__musixquare_state?.transfer;
+window.__musixquare_state?.preload;
 ```
 ````
 

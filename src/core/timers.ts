@@ -1,6 +1,11 @@
 /** Page-wide named timer registry used for centralized cleanup. */
 
-const _timers = new Map<string, ReturnType<typeof setTimeout>>();
+interface ManagedTimer {
+  handle: ReturnType<typeof setTimeout>;
+  interval: boolean;
+}
+
+const _timers = new Map<string, ManagedTimer>();
 
 /**
  * Set a managed timer. Automatically clears the previous timer for that name.
@@ -14,7 +19,8 @@ export function setManagedTimer(
   opts?: { interval?: boolean },
 ): void {
   clearManagedTimer(name);
-  const id = opts?.interval
+  const interval = opts?.interval === true;
+  const handle = interval
     ? setInterval(() => {
         try {
           fn();
@@ -30,16 +36,14 @@ export function setManagedTimer(
           console.error(`[Timer] "${name}" threw:`, e);
         }
       }, delayMs);
-  _timers.set(name, id);
+  _timers.set(name, { handle, interval });
 }
 
 export function clearManagedTimer(name: string): void {
-  const id = _timers.get(name);
-  if (id != null) {
-    // Browser timeout and interval IDs share a pool, so both clears accept the
-    // stored ID regardless of which API created it.
-    clearTimeout(id);
-    clearInterval(id);
+  const timer = _timers.get(name);
+  if (timer) {
+    if (timer.interval) clearInterval(timer.handle);
+    else clearTimeout(timer.handle);
     _timers.delete(name);
   }
 }
@@ -51,7 +55,7 @@ export function clearAllManagedTimers(): void {
 }
 
 export function getManagedTimer(name: string): ReturnType<typeof setTimeout> | null {
-  return _timers.get(name) ?? null;
+  return _timers.get(name)?.handle ?? null;
 }
 
 /**

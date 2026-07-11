@@ -7,13 +7,14 @@
  * - Transfer state transitions
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
-import {
-  readState,
-  waitForPlaylistCount,
-} from './helpers/wait.ts';
+import { readState, waitForPlaylistCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -124,7 +125,9 @@ test.describe('File Transfer', () => {
           type: 'file-start',
           name,
           mime: 'audio/mpeg',
-          total: 2,
+          // Four bytes fit in exactly one 64 KiB transfer chunk. Keep the
+          // synthetic frame consistent with the production size contract.
+          total: 1,
           size: 4,
           index: 0,
           sessionId: 7,

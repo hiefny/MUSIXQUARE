@@ -18,7 +18,7 @@ import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
-import { readStoredFile } from '../storage/storage.ts';
+import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
 import { unicastFile, fetchDemoFromServer } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, sendToHost, isRemoteGuest } from '../network/peer.ts';
@@ -31,7 +31,9 @@ import { getDemoTrackForPlayback, isDemoTrackName } from '../demo/tracks.ts';
 import {
   getCurrentAudioBuffer,
   getPlayerNode,
+  isCurrentLoadEpoch,
   newLoadEpoch,
+  setPendingRecoveryTarget,
   setPendingPlayTime,
   getPendingPlayTimeSetAt,
   isPlayPreloadedInProgress,
@@ -60,12 +62,71 @@ import {
   isPlaybackPlayingSystemAudio,
   isSystemAudioOwner,
   isYouTubeOwner,
+  setPlaybackIdle,
   setPlaybackTrackMeta,
+  setPlaybackTransferState,
 } from './ownership.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
 const SAME_TRACK_REPLAY_RESYNC_DELAY_MS = 1000;
+const IDENTITY_RECOVERY_RETRY_MS = [3_000, 7_000, 15_000] as const;
+const IDENTITY_RECOVERY_FINAL_GRACE_MS = 15_000;
+
+function isAmbiguousCompletionStillActive(sessionId: number, filename: string): boolean {
+  const meta = getState('transfer.meta');
+  const metaIndex = meta?.index;
+  const currentIndex = getState('playlist.currentTrackIndex');
+  const hasExactMetaIndex =
+    typeof metaIndex === 'number' && Number.isSafeInteger(metaIndex) && metaIndex >= 0;
+  return (
+    getState('transfer.localSessionId') === sessionId &&
+    meta?.sessionId === sessionId &&
+    meta?.name === filename &&
+    (!hasExactMetaIndex || metaIndex !== currentIndex)
+  );
+}
+
+function finishIdentityRecovery(sessionId: number, filename: string): void {
+  if (!isAmbiguousCompletionStillActive(sessionId, filename)) return;
+
+  log.warn(
+    `[Playback] Host did not repair transfer identity within the retry window; returning the file pipeline to idle (sid=${sessionId}, filename=${filename})`,
+  );
+  setPlaybackIdle();
+  showLoader(false);
+}
+
+function requestAuthoritativeCurrentFile(
+  sessionId: number,
+  filename: string,
+  retryIndex = 0,
+): void {
+  if (!isAmbiguousCompletionStillActive(sessionId, filename)) {
+    clearManagedTimer('transfer-identity-recovery');
+    return;
+  }
+
+  sendToHost({
+    type: MSG.REQUEST_CURRENT_FILE,
+    reason: 'missing_transfer_identity',
+  });
+
+  const delayMs = IDENTITY_RECOVERY_RETRY_MS[retryIndex];
+  if (delayMs === undefined) {
+    setManagedTimer(
+      'transfer-identity-recovery',
+      () => finishIdentityRecovery(sessionId, filename),
+      IDENTITY_RECOVERY_FINAL_GRACE_MS,
+    );
+    return;
+  }
+  setManagedTimer(
+    'transfer-identity-recovery',
+    () => requestAuthoritativeCurrentFile(sessionId, filename, retryIndex + 1),
+    delayMs,
+  );
+}
 
 function scheduleSameTrackReplayResync(
   time: number,
@@ -107,10 +168,40 @@ function getRemoteWaitSessionId(): number {
 // A's listeners alive alongside B's, letting A's closure overwrite B's
 // stall timer or issue a REQUEST_DATA_RECOVERY for the wrong track.
 let _activePreloadWaiterCleanup: (() => void) | null = null;
-// Tracks the playlist index decoded by storage:use-preloaded so a different
-// index can supersede it. Direct handlePlayMsg activations are not registered;
-// an overlap therefore takes the safe supersession path and may repeat a decode.
-let _activePreloadIndex: number | null = null;
+// Every preload activation, including the direct PLAY fast path, is registered
+// here. Matching both index and Blob identity lets duplicate notifications join
+// the in-flight work without decoding the same bytes twice, while a replacement
+// Blob for the same playlist slot still supersedes the stale activation.
+interface ActivePreloadTarget {
+  readonly index: number;
+  readonly blob: Blob;
+  readonly epoch: number;
+}
+
+let _activePreloadTarget: ActivePreloadTarget | null = null;
+
+function activatePreloadedTrack(index: number, blob: Blob): void {
+  const active = _activePreloadTarget;
+  // Teardown may clear the public in-progress flag while an uncancellable
+  // decodeAudioData Promise is still settling. Blob identity dedupes only
+  // while that target's load epoch remains current; cancelInFlight invalidates
+  // the epoch and permits an intentional same-Blob restart.
+  if (active?.index === index && active.blob === blob && isCurrentLoadEpoch(active.epoch)) {
+    log.debug('[Playback] Matching preload activation already in progress, ignoring duplicate');
+    return;
+  }
+
+  if (isPlayPreloadedInProgress()) {
+    log.info(`[Playback] preload(${index}) supersedes in-flight load(${active?.index ?? '?'})`);
+  }
+
+  const newEpoch = newLoadEpoch();
+  const target: ActivePreloadTarget = { index, blob, epoch: newEpoch };
+  _activePreloadTarget = target;
+  void loadPreloadedTrack(index, newEpoch).finally(() => {
+    if (_activePreloadTarget === target) _activePreloadTarget = null;
+  });
+}
 
 // ─── Network Message Handlers ──────────────────────────────────────
 
@@ -134,7 +225,8 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   // from a prior FILE_PREPARE(autoPlayDelayMs) so we don't double-start.
   clearManagedTimer('playback-replay-defer');
 
-  const time = Number(data.time) || 0;
+  const rawTime = Number(data.time);
+  const time = Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : 0;
   const incomingIndex = data.index != null ? Number(data.index) : undefined;
 
   // Guard: If loadPreloadedTrack is in progress, queue the play time
@@ -156,8 +248,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     const nextTrackIndex = getState('preload.nextTrackIndex');
     if (nextFileBlob && nextTrackIndex === incomingIndex) {
       log.debug(`[Guest] Found preloaded track for index ${incomingIndex}`);
-      const newEpoch = newLoadEpoch();
-      loadPreloadedTrack(incomingIndex, newEpoch);
+      activatePreloadedTrack(incomingIndex, nextFileBlob);
       return;
     }
 
@@ -201,6 +292,15 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       return;
     }
 
+    // For local guests, PLAY provides the authoritative playlist slot even
+    // if FILE_PREPARE/FILE_START are subsequently lost. Persist the exact
+    // index+playlist-name pair so chunk metadata recovery never falls back to
+    // filename-only or a stale current index.
+    const playlist = getState('playlist.items') || [];
+    const name =
+      playlist[incomingIndex]?.name || (typeof data.name === 'string' ? (data.name as string) : '');
+    setPendingRecoveryTarget(incomingIndex, name);
+
     // Fresh join (currentTrackIndex was -1): the file will be sent automatically
     // by the orchestrator:peer-joined handler after ICE detection completes.
     // Don't send REQUEST_CURRENT_FILE — it would create a redundant double transfer
@@ -212,8 +312,6 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
 
     // Mid-stream track switch on a local guest with no preload — ask host
     // to re-send the current file.
-    const playlist = getState('playlist.items') || [];
-    const name = playlist[incomingIndex]?.name || '';
     sendToHost({
       type: MSG.REQUEST_CURRENT_FILE,
       name,
@@ -437,7 +535,8 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // Ignore PAUSE in YouTube mode — YouTube uses YOUTUBE_STATE/YOUTUBE_STOP instead
   if (isYouTubeOwner()) return;
 
-  const time = Number(data.time) || 0;
+  const rawTime = Number(data.time);
+  const time = Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : 0;
   const endOfPlaylist = !!data.endOfPlaylist;
   const reason = typeof data.reason === 'string' ? data.reason : undefined;
 
@@ -461,6 +560,12 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
     showToast(t('toast.playlist_ended'));
     return;
   }
+
+  // A late-joining guest can receive the host's PAUSE bootstrap before it has
+  // an AudioBuffer or an active transport. pause() deliberately no-ops in that
+  // state, so retain the authoritative rendezvous time independently of the
+  // concrete transport and use it once the file becomes playable.
+  setState('player.pausedAt', time);
 
   const isUserPause = reason === undefined || reason === 'pause';
   // Stop the concrete WebAudio node before moving semantic state to PAUSED.
@@ -612,8 +717,8 @@ export function initPlayback(): void {
   });
 
   // Stop all media (called from youtube player before loading)
-  bus.on('player:stop-all-media', () => {
-    stopAllMedia();
+  bus.on('player:stop-all-media', (options) => {
+    stopAllMedia(options);
   });
 
   // Replay current track from start (repeat-one: guest already has file).
@@ -697,45 +802,76 @@ export function initPlayback(): void {
     const hostConn = getState('network.hostConn');
     if (!hostConn) return;
 
-    // Drop completions superseded by a newer transfer before decoding them.
-    // A lower session id remains usable when its filename still matches the
-    // current target, which covers a rapid A→B→A return while assembly is
-    // finishing.
-    const localSid = getState('transfer.localSessionId');
-    if (_sessionId && localSid && _sessionId < localSid) {
-      const currentName = getState('transfer.meta')?.name || '';
-      const matchesCurrent = !!filename && !!currentName && filename === currentName;
-      if (!matchesCurrent) {
-        log.debug(
-          `[Playback] storage:file-ready dropped — stale session ${_sessionId} < ${localSid}, filename=${filename}, current=${currentName || '(none)'}`,
-        );
-        return;
-      }
-      log.info(
-        `[Playback] Accepting "stale" file completion — matches current transfer target (${filename}, SID ${_sessionId} < ${localSid})`,
+    // Session + playlist slot identify the completed transfer. A filename is
+    // display metadata and may only veto an inconsistent event; it must never
+    // revive bytes from a superseded same-name transfer.
+    const isCurrentCompletion = (): boolean => {
+      const localSid = getState('transfer.localSessionId');
+      const meta = getState('transfer.meta');
+      const currentIndex = getState('playlist.currentTrackIndex');
+      const metaIndex = meta?.index;
+      return (
+        Number.isSafeInteger(_sessionId) &&
+        _sessionId > 0 &&
+        _sessionId === localSid &&
+        _sessionId === meta?.sessionId &&
+        typeof metaIndex === 'number' &&
+        Number.isSafeInteger(metaIndex) &&
+        metaIndex >= 0 &&
+        metaIndex === currentIndex &&
+        !!filename &&
+        filename === meta?.name
       );
+    };
+
+    const meta = getState('transfer.meta');
+    const metaIndex = meta?.index;
+    const currentIndex = getState('playlist.currentTrackIndex');
+    const hasExactMetaIndex =
+      typeof metaIndex === 'number' && Number.isSafeInteger(metaIndex) && metaIndex >= 0;
+    const activeSessionAndName =
+      Number.isSafeInteger(_sessionId) &&
+      _sessionId > 0 &&
+      _sessionId === getState('transfer.localSessionId') &&
+      _sessionId === meta?.sessionId &&
+      !!filename &&
+      filename === meta?.name;
+
+    if (activeSessionAndName && (!hasExactMetaIndex || metaIndex !== currentIndex)) {
+      log.warn(
+        `[Playback] Completed transfer lacks authoritative playlist identity; requesting host current file (sid=${_sessionId}, filename=${filename})`,
+      );
+      cleanupStoredFile(filename, false);
+      setState('transfer.receivedCount', 0);
+      setPlaybackTransferState(TRANSFER_STATE.IDLE);
+      showLoader(true, t('transfer.waiting_recovery', { name: filename }));
+      requestAuthoritativeCurrentFile(_sessionId, filename);
+      return;
     }
 
-    const file = await readStoredFile(filename, false);
+    if (!isCurrentCompletion()) {
+      log.debug(
+        `[Playback] storage:file-ready dropped — completion no longer owns the active session/index (sid=${_sessionId}, filename=${filename})`,
+      );
+      return;
+    }
+
+    clearManagedTimer('transfer-identity-recovery');
+
+    const file = await readStoredFile(filename, false, _sessionId);
     if (!file) {
       log.error('[Playback] Failed to read file:', filename);
       showLoader(false);
       return;
     }
 
-    // Re-check session after async readStoredFile — the read itself is
-    // async and the session may have advanced while we were waiting.
-    // Same fallback applies: accept when filename still matches.
-    const sidAfterRead = getState('transfer.localSessionId');
-    if (_sessionId && sidAfterRead && _sessionId < sidAfterRead) {
-      const currentNameAfter = getState('transfer.meta')?.name || '';
-      const stillMatches = !!filename && !!currentNameAfter && filename === currentNameAfter;
-      if (!stillMatches) {
-        log.debug(
-          `[Playback] storage:file-ready dropped after read — stale session ${_sessionId} < ${sidAfterRead}`,
-        );
-        return;
-      }
+    // The RAM read is asynchronous; ownership may have changed while it was
+    // pending. Revalidate the full session/index contract before decoding.
+    if (!isCurrentCompletion()) {
+      log.debug(
+        `[Playback] storage:file-ready dropped after read — completion was superseded (sid=${_sessionId})`,
+      );
+      return;
     }
 
     // Lifecycle: all chunks received and assembled → DOWNLOADING → DECODING.
@@ -748,7 +884,7 @@ export function initPlayback(): void {
   });
 
   // Use preloaded track (skip download, decode from preload cache)
-  bus.on('storage:use-preloaded', (index, name) => {
+  bus.on('storage:use-preloaded', (index, name, sessionId) => {
     log.debug(`[Playback] Using preloaded track for index: ${index} (${name})`);
 
     // Tear down any previous waiter before starting this one — otherwise
@@ -765,33 +901,9 @@ export function initPlayback(): void {
     // Try to activate immediately if blob is already available
     const nextFileBlob = getState('preload.nextFileBlob');
     if (nextFileBlob) {
-      if (isPlayPreloadedInProgress()) {
-        // A loadPreloadedTrack is mid-flight. Two cases:
-        //   - Same index: redundant call (e.g. duplicate use-preloaded
-        //     from a re-arm path). Ignore.
-        //   - Different index: a new preload arrived while the old one
-        //     was still decoding. Supersede via a fresh load epoch — the
-        //     in-flight call will detect the supersession after decode and
-        //     bail out (preserving pendingPlayTime per decode.ts), and
-        //     this new call takes ownership.
-        // The distinction ensures a new blob always gets its own activation.
-        const activeIdx = _activePreloadIndex;
-        if (activeIdx === index) {
-          log.debug('[Playback] Activation already in progress for same index, ignoring');
-          return;
-        }
-        log.info(
-          `[Playback] use-preloaded(${index}) supersedes in-flight load(${activeIdx ?? '?'})`,
-        );
-        // Do not clear the in-progress flag here. The compare-before-clear
-        // owner handle makes the superseded finish a no-op, and the successor
-        // clears the flag when its own activation ends.
-      }
-      _activePreloadIndex = index;
-      const newEpoch = newLoadEpoch();
-      loadPreloadedTrack(index, newEpoch).finally(() => {
-        if (_activePreloadIndex === index) _activePreloadIndex = null;
-      });
+      // activatePreloadedTrack deduplicates a repeated notification for the
+      // exact Blob and supersedes only when the target really changed.
+      activatePreloadedTrack(index, nextFileBlob);
     } else {
       // Blob not ready yet — set progress-aware watchdog. Will be triggered
       // by storage:file-ready → storage:preload-file-ready → use-preloaded re-emit.
@@ -799,12 +911,10 @@ export function initPlayback(): void {
 
       // Progress-aware watchdog
       // ────────────────────────────────────
-      // Serialized preload transfers may take longer than one stall window, so
-      // reset the timer on forward chunk progress, retain an absolute ceiling,
-      // and recover only after a true stall.
-      const PRELOAD_WATCHDOG_MAX_MS = 60_000; // absolute ceiling
+      // Serialized preload transfers may take arbitrarily longer than one
+      // stall window on slow links. Forward progress is the liveness signal;
+      // only a true no-progress interval may start duplicate main recovery.
       const PRELOAD_WATCHDOG_STALL_MS = 10_000; // no-progress timeout
-      const watchdogStart = Date.now();
       let lastProgressChunk = -1;
       let disposed = false;
 
@@ -857,20 +967,13 @@ export function initPlayback(): void {
 
       // Progress-aware reset: watch preload.sessionState changes. When the
       // session matching our track advances its nextExpectedChunk, reset the
-      // stall timer. Respect the absolute ceiling to prevent runaway waits.
+      // stall timer. Session/lifecycle ownership bounds the wait itself.
       const _unsubProgress = bus.on('state:preload.sessionState', () => {
         if (disposed) return;
         if (getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD) return;
 
-        // Absolute ceiling — give up even if progress is still happening
-        if (Date.now() - watchdogStart > PRELOAD_WATCHDOG_MAX_MS) {
-          log.warn('[Preload] Absolute watchdog ceiling reached');
-          onWatchdogFire();
-          return;
-        }
-
         const sessionState = getState('preload.sessionState');
-        for (const [, session] of sessionState) {
+        for (const [sid, session] of sessionState) {
           if (session.skipped || session.finalized) continue;
           // Match by (index, name) tuple — both must agree. Loose-OR matching
           // would let a stale session for a different track win the reset
@@ -878,6 +981,7 @@ export function initPlayback(): void {
           // (post-reorder), causing the stall timer to reset for the wrong
           // session and delay recovery.
           if (session.index !== index || session.name !== name) continue;
+          if (sessionId !== undefined && sid !== sessionId) continue;
           const prog = session.nextExpectedChunk || 0;
           if (prog > lastProgressChunk) {
             lastProgressChunk = prog;
@@ -977,7 +1081,14 @@ export function initPlayback(): void {
         if (currentFileBlob) {
           log.debug(`[Playback] Sending current file to ${peer.label || peerId} (${reason})`);
           try {
-            await unicastFile(conn, currentFileBlob, 0, currentSessionId);
+            await unicastFile(conn, currentFileBlob, 0, currentSessionId, {
+              trackIndex: currentTrackIndex,
+              isSourceCurrent: () =>
+                getState('playlist.currentTrackIndex') === currentTrackIndex &&
+                getState('files.currentFileBlob') === currentFileBlob &&
+                getState('transfer.currentSessionId') === currentSessionId &&
+                getState('transfer.meta')?.index === currentTrackIndex,
+            });
           } catch (e: unknown) {
             log.error('[Host] unicastFile for late joiner failed', e);
             return;

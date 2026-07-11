@@ -482,7 +482,6 @@ test.describe('Operator + Chaos', () => {
         'IDLE',
         'PAUSED',
         'PLAYING_AUDIO',
-        'PLAYING_VIDEO',
         'PLAYING_YOUTUBE',
         'PLAYING_SYSTEM_AUDIO',
       ]).toContain(hostState);

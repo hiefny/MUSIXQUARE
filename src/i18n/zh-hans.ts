@@ -430,7 +430,6 @@ const zhHans: Record<I18nKey, string> = {
   'error.load_failed': '加载失败：{{msg}}',
   'error.audio_decode_fail': '音频解码失败！',
   'error.audio_memory': '正在将音频加载到内存...',
-  'error.decode_timeout': '“{{name}}”解码耗时过长。\n将跳到下一首。',
   'error.local_decode_wait': '此设备无法解码该曲目。\n请等待下一首播放。',
   'error.all_tracks_failed': '播放列表中没有可播放的曲目。',
   'error.audio_engine_prepare': '无法准备音频引擎',

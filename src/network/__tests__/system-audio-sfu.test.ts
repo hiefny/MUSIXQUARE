@@ -289,7 +289,10 @@ describe('host SFU runtime connection failure (F-2403)', () => {
       constructor(_tracks?: unknown) {}
     };
     bus.emit('system-audio:streams-ready');
-    await resolveRealtime('new-session', { sessionId: 'host-sess-1' });
+    await resolveRealtime('new-session', {
+      sessionId: 'host-sess-1',
+      sessionOwnerToken: 'host-owner-token',
+    });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'answer', sdp: 'a' },
       tracks: [
@@ -300,6 +303,20 @@ describe('host SFU runtime connection failure (F-2403)', () => {
     await vi.waitFor(() => {
       expect(mod.getSystemAudioSfuDebugSnapshot().host.sessionId).toBe('host-sess-1');
     });
+    const tracksNewBody = fetchMock.mock.calls
+      .map(([, , init]) => (init?.body ? JSON.parse(String(init.body)) : null))
+      .find((body) => body?.action === 'tracks-new');
+    expect(tracksNewBody).toMatchObject({
+      sessionId: 'host-sess-1',
+      sessionOwnerToken: 'host-owner-token',
+    });
+    const { safeSend } = await import('../peer-state.ts');
+    const readyMessage = vi
+      .mocked(safeSend)
+      .mock.calls.map(([, message]) => message as Record<string, unknown>)
+      .find((message) => message.type === MSG.SYSTEM_AUDIO_SFU_READY);
+    expect(readyMessage).toMatchObject({ sessionId: 'host-sess-1' });
+    expect(readyMessage).not.toHaveProperty('sessionOwnerToken');
   }
 
   it('a runtime failed connection degrades to fallback and does NOT republish (no storm)', async () => {
@@ -398,12 +415,33 @@ describe('guest SFU reclassify-mid-subscribe (F-2402)', () => {
       hostConn,
     );
 
-    await resolveRealtime('new-session', { sessionId: 'guest-sess' });
+    await resolveRealtime('new-session', {
+      sessionId: 'guest-sess',
+      sessionOwnerToken: 'guest-owner-token',
+    });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'offer', sdp: 'o' },
       tracks: [{ mid: '0', trackName: 'audio-L' }],
     });
     await resolveRealtime('renegotiate', {});
+
+    const guestSessionCalls = fetchMock.mock.calls
+      .map(([, , init]) => (init?.body ? JSON.parse(String(init.body)) : null))
+      .filter((body) => body?.action === 'tracks-new' || body?.action === 'renegotiate');
+    expect(guestSessionCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'tracks-new',
+          sessionId: 'guest-sess',
+          sessionOwnerToken: 'guest-owner-token',
+        }),
+        expect.objectContaining({
+          action: 'renegotiate',
+          sessionId: 'guest-sess',
+          sessionOwnerToken: 'guest-owner-token',
+        }),
+      ]),
+    );
 
     // connectGuestTrack is now parked at await initAudio with guestPc set.
     await vi.waitFor(() => {

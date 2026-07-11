@@ -85,7 +85,6 @@ export type PlaybackEvent =
   | { type: 'TRACK_ENDED' } // natural end of current audio buffer
   // ── Decode outcomes ──
   | { type: 'DECODE_SUCCESS' }
-  | { type: 'DECODE_TIMEOUT' }
   | { type: 'DECODE_ERROR' }
   // ── Watchdogs / internal ──
   | { type: 'CHUNK_WATCHDOG_STALL' }
@@ -264,7 +263,6 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
     switch (ev.type) {
       case 'DECODE_SUCCESS':
         return { next: PLAYBACK_STATE.READY };
-      case 'DECODE_TIMEOUT':
       case 'DECODE_ERROR':
         return { next: PLAYBACK_STATE.FAILED };
       case 'FILE_PREPARE':

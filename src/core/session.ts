@@ -31,9 +31,8 @@ const _warnedBadSessionIds = new Set<string>();
  */
 export function validateSessionId(id: unknown, strict = false): number {
   const n = Number(id);
-  const sid = Number.isFinite(n) ? Math.trunc(n) : 0;
-
-  const ok = Number.isSafeInteger(sid) && sid > 0;
+  const ok = Number.isSafeInteger(n) && n > 0;
+  const sid = ok ? n : 0;
   if (!ok) {
     const key = String(id);
     // Evict the oldest half to bound warning-dedup memory; Set preserves insertion order.

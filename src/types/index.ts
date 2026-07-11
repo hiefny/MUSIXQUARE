@@ -40,6 +40,8 @@ export interface FileMeta {
   mime: string;
   sessionId: number;
   total: number;
+  /** R2 object identity for remote-share bytes. Local transfers omit it. */
+  objectId?: string;
 }
 
 export interface PreloadSessionEntry {
@@ -67,11 +69,6 @@ export interface RemoteFileSharePayload {
   index: number;
   sessionId: number;
   expiresAt: number;
-  /**
-   * Legacy compatibility flag. Remote speculative preload is disabled in
-   * current clients; incoming descriptors with preload=true are ignored.
-   */
-  preload?: boolean;
 }
 
 export type RemoteShareUploadStatus = 'idle' | 'encrypting' | 'uploading' | 'done' | 'error';
@@ -88,7 +85,6 @@ export interface RemoteShareState {
   download: {
     status: RemoteShareDownloadStatus;
     progress: number;
-    blobUrl: string | null;
     error: string | null;
   };
 }
@@ -280,8 +276,8 @@ export interface ProtocolMap {
   'file-start': {
     name: string;
     mime?: string;
-    total?: number;
-    size?: number;
+    total: number;
+    size: number;
     index?: number;
     sessionId: number;
   };
@@ -289,9 +285,9 @@ export interface ProtocolMap {
     chunk: Uint8Array | ArrayBuffer;
     index: number;
     sessionId: number;
-    total?: number;
-    name?: string;
-    size?: number;
+    total: number;
+    name: string;
+    size: number;
     mime?: string;
   };
   'file-end': { name: string; mime: string; sessionId: number };
@@ -644,9 +640,10 @@ export interface StateTree {
     /**
      * Content-keyed identifiers of tracks whose decode failed (timeout,
      * corrupt, unsupported). Consulted on auto-advance to skip rather than
-     * loop forever. Keys are content-based ("file:name:size:lastModified",
-     * "yt:videoId", "name:fallback") so reorder/add doesn't invalidate
-     * the memory. Cleared when count reaches playlist.length.
+     * loop forever. Local media keys come from Blob/File object identity (or
+     * the playlist-entry object when no Blob is attached); YouTube uses its
+     * stable video id. Metadata such as name and size is never content
+     * identity. Cleared when count reaches playlist.length.
      *
      * Mutations follow the immutable-update rule: setState('playback.failedTrackKeys', new Set([...prev, key])).
      */
@@ -751,7 +748,9 @@ interface BaseEventMap {
   // ── Player ────────────────────────────────────────────────────────
   'player:ended': [];
   'player:toggle-play': [];
-  'player:stop-all-media': [];
+  'player:stop-all-media': [
+    options?: { silent?: boolean; cancelInFlight?: boolean; clearBuffer?: boolean },
+  ];
   'playback:replay-current': [delayMs?: number];
   'playback:refresh-current-position': [];
   'player:check-ended': [];
@@ -905,7 +904,7 @@ interface BaseEventMap {
   // normalizes undefined → null before forwarding to sendRecoveryRequest.
   'storage:request-recovery': [forceChunk?: number];
   'storage:clear-previous-track': [context: string];
-  'storage:use-preloaded': [index: number, name: string];
+  'storage:use-preloaded': [index: number, name: string, sessionId?: number];
   'storage:preload-file-ready': [filename: string, sessionId: number];
   'storage:file-ready': [filename: string, sessionId: number, isPreload: boolean];
   'storage:read-error': [data: unknown];
@@ -915,7 +914,6 @@ interface BaseEventMap {
   'storage:cleanup-complete': [filename: string];
 
   // ── Blob ──────────────────────────────────────────────────────────
-  'blob:revoke-all': [];
 
   // ── Sync ──────────────────────────────────────────────────────────
   'sync:display-update': [];

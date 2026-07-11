@@ -32,7 +32,7 @@ export const PLAYBACK_STATE = {
   READY: 'READY', // decoded buffer loaded, waiting for PLAY
   PLAYING: 'PLAYING', // actively producing audio
   PAUSED: 'PAUSED', // decoded buffer present, not advancing
-  FAILED: 'FAILED', // decode timeout / unsupported / corrupt — awaiting host advance
+  FAILED: 'FAILED', // decode/admission failure — awaiting host advance
 } as const;
 
 export type PlaybackStateValue = (typeof PLAYBACK_STATE)[keyof typeof PLAYBACK_STATE];
@@ -50,6 +50,14 @@ export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
 export const CHUNK_SIZE = 64 * 1024; // 64 KiB per chunk
 export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog
 
+/** Remote-share wire/storage contract. AES-GCM appends one 128-bit tag to the
+ * whole-file plaintext; the Worker and descriptor validator enforce the same
+ * exact relationship. */
+export const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
+export const REMOTE_SHARE_AES_GCM_TAG_BYTES = 16;
+export const REMOTE_SHARE_MAX_ENCRYPTED_BYTES =
+  REMOTE_SHARE_MAX_BYTES + REMOTE_SHARE_AES_GCM_TAG_BYTES;
+
 export const MAX_RECOVERY_RETRIES = 3;
 export const RECOVERY_BACKOFF = [2000, 5000, 10000] as const;
 
@@ -58,7 +66,6 @@ export const DELAY = {
   TICK: 10, // Micro-yield for main thread breathing
   BACKPRESSURE: 50, // Backpressure polling interval
   RETRY: 200, // Retry / reconnection pause
-  BLOB_REVOCATION: 10000, // BlobURL revocation safety delay
 } as const;
 
 /** Manual per-device sync nudge clamp. Large offsets usually mean the

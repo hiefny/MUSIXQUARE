@@ -11,7 +11,6 @@ export const VALID_PLAYBACK_PROJECTIONS = [
   'IDLE',
   'PAUSED',
   'PLAYING_AUDIO',
-  'PLAYING_VIDEO',
   'PLAYING_YOUTUBE',
   'PLAYING_SYSTEM_AUDIO',
 ] as const;
@@ -149,10 +148,7 @@ export async function waitForPlaybackProjectionIn(
   );
 }
 
-export async function waitForPlaybackProjectionReady(
-  page: Page,
-  timeout = 10_000,
-): Promise<void> {
+export async function waitForPlaybackProjectionReady(page: Page, timeout = 10_000): Promise<void> {
   await page.waitForFunction(
     () => {
       const hook = (window as unknown as Record<string, unknown>)

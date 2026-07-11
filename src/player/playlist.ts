@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
-import { MSG, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
+import { DEFAULT_MAX_GUEST_SLOTS, MSG, WARN_WHEN_MAX_SLOTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
@@ -412,8 +412,8 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       name: file.name,
       index,
       sessionId,
-      // Size lets the guest's same-name/different-index branch reuse a preload
-      // when the name and byte length match.
+      // Size is transport metadata only; receivers never treat name+size as
+      // media identity.
       size: file.size,
       mime: file.type,
       autoPlayDelayMs,
@@ -482,10 +482,6 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
 
     const item = playlist[index];
     const fileName = item?.file?.name || item?.name || `Track ${index}`;
-    if (item?.file) {
-      const remoteShareSessionId = getState('transfer.currentSessionId') || null;
-      void shareRemoteFileIfNeeded(item.file, remoteShareSessionId, undefined, { index });
-    }
     broadcast({ type: MSG.PLAY_PRELOADED, index, name: fileName, mime: item?.file?.type });
 
     // Host must transition to DECODING before decode begins, so that the
@@ -499,6 +495,13 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
     if (!activated || !isCurrentLoadEpoch(myLoadEpoch)) {
       log.debug('[Host] Preloaded activation failed or superseded — skipping play/broadcast');
       return;
+    }
+    // Whole-file remote encryption is admitted against the active PCM buffer.
+    // Start it only after this preloaded track has decoded and published its
+    // own AudioBuffer, never while the previous track still owns that slot.
+    if (item?.file) {
+      const remoteShareSessionId = getState('transfer.currentSessionId') || null;
+      void shareRemoteFileIfNeeded(item.file, remoteShareSessionId, undefined, { index });
     }
     await play(0);
     broadcast({
@@ -645,7 +648,7 @@ export async function playTrack(index: number, subIndex?: number): Promise<void>
       name: file.name,
       index,
       sessionId,
-      // Name and size are the receiver's preload-reuse heuristic.
+      // Name and size are transport metadata, not media identity.
       size: file.size,
       mime: file.type,
       autoPlayDelayMs,
@@ -1189,7 +1192,7 @@ async function handleFilesSelected(files: FileList | null): Promise<void> {
 
   // Large-room soft warning: only when the host has explicitly bumped the
   // slot cap into "big party" territory, and only once per session.
-  const maxSlots = getState('network.maxGuestSlots') ?? 3;
+  const maxSlots = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
   if (maxSlots >= WARN_WHEN_MAX_SLOTS_AT_LEAST && !hasFileShareWarned()) {
     const res = await showDialog({
       title: t('dialog.large_room_file.title'),
@@ -1427,10 +1430,10 @@ export function initPlaylist(): void {
     // Preload invalidation:
     //   index === preloadIdx     → preloaded track is gone, clear & reschedule.
     //   preloadIdx >= length     → tail-removed past preload target, clear & reschedule.
-    //   index < preloadIdx       → blob is content-keyed (preload.meta.name), so
-    //                              just shift index down by 1 and re-index each
-    //                              peer's preloadedIndexes Set in lockstep.
-    //                              Saves a 5–15 MB re-broadcast × N peers.
+    //   index < preloadIdx       → the exact Blob/session still owns the same
+    //                              track; only its playlist slot shifts down.
+    //                              Re-index each peer's preloadedIndexes Set in
+    //                              lockstep. Saves a 5–15 MB re-broadcast × N.
     //   index > preloadIdx       → no-op.
     const preloadIdx = getState('preload.nextTrackIndex');
     if (preloadIdx >= 0) {

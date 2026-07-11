@@ -5,6 +5,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { registerHandlers } from '../network/protocol.ts';
+import { resetAllStoredFiles } from './storage.ts';
 import { cancelOutgoingFileTransferForPeer as cancelOutgoingFileTransferForPeerInternal } from './transfer-send.ts';
 import {
   handleFilePrepare,
@@ -57,6 +58,7 @@ export function initTransfer(): void {
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
       clearReceiveState();
+      resetAllStoredFiles();
     }
   });
 

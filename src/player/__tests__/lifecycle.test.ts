@@ -369,10 +369,6 @@ describe('lifecycle: from DECODING', () => {
     expect(step(FROM, { type: 'DECODE_SUCCESS' })).toEqual({ next: PLAYBACK_STATE.READY });
   });
 
-  it('DECODE_TIMEOUT → FAILED', () => {
-    expect(step(FROM, { type: 'DECODE_TIMEOUT' })).toEqual({ next: PLAYBACK_STATE.FAILED });
-  });
-
   it('DECODE_ERROR → FAILED', () => {
     expect(step(FROM, { type: 'DECODE_ERROR' })).toEqual({ next: PLAYBACK_STATE.FAILED });
   });
@@ -844,17 +840,6 @@ describe('integration: edge cases', () => {
     forceState(PLAYBACK_STATE.AWAITING_PRELOAD);
     expect(transition({ type: 'PRELOAD_STALL' })).toBe(PLAYBACK_STATE.DOWNLOADING);
     expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.FRESH);
-  });
-
-  // Decode timeout in DECODING → FAILED; guest waits for host's next FILE_PREPARE.
-  it('decode timeout recovery: FAILED → wait for host → new track', () => {
-    forceState(PLAYBACK_STATE.DECODING);
-    expect(transition({ type: 'DECODE_TIMEOUT' })).toBe(PLAYBACK_STATE.FAILED);
-
-    // Host auto-advanced to the next track.
-    expect(transition({ type: 'FILE_PREPARE', variant: 'fresh', index: 2, name: 'next.mp3' })).toBe(
-      PLAYBACK_STATE.DOWNLOADING,
-    );
   });
 
   // Host sends PAUSE(endOfPlaylist=true) at any point in the pipeline.

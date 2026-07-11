@@ -65,7 +65,7 @@ import {
 
 // ─── Host / Guest Choice ─────────────────────────────────────────
 
-function showRoleSelectionButtons(): void {
+function showHostGuestSelection(): void {
   setupRenderActions(
     [
       {
@@ -188,7 +188,7 @@ function initSetupOverlay(): void {
 
   updateRoleBadge();
   updateObSlider();
-  showRoleSelectionButtons();
+  showHostGuestSelection();
 
   const showAndStart = () => {
     showSetupOverlay();

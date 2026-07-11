@@ -62,6 +62,9 @@ const mocks = vi.hoisted(() => ({
   showLoader: vi.fn(),
   showToast: vi.fn(),
   updateLoader: vi.fn(),
+  readStoredFile: vi.fn(),
+  cleanupStoredFile: vi.fn(),
+  unicastFile: vi.fn(),
 }));
 
 vi.mock('../../audio/context.ts', () => ({
@@ -94,14 +97,18 @@ vi.mock('../../network/peer.ts', () => ({
 }));
 
 vi.mock('../../storage/storage.ts', () => ({
+  admitIncomingStoredFile: vi.fn(),
   postCommand: vi.fn(),
-  cleanupStoredFile: vi.fn(),
-  readStoredFile: vi.fn(),
+  cleanupStoredFile: mocks.cleanupStoredFile,
+  discardResidentStoredFileAdmission: vi.fn(() => false),
+  promoteStoredFileAdmission: vi.fn(() => false),
+  readStoredFile: mocks.readStoredFile,
+  retainStoredFileAdmission: vi.fn(() => false),
 }));
 
 vi.mock('../../storage/transfer.ts', () => ({
   broadcastFileDebounced: vi.fn(),
-  unicastFile: vi.fn(),
+  unicastFile: mocks.unicastFile,
   fetchDemoFromServer: vi.fn(() => Promise.resolve()),
 }));
 
@@ -140,6 +147,8 @@ import {
   getPendingPlayTime,
   getPlayerNode,
   incrementLoadSessionId,
+  liveAudioBufferCount,
+  liveAudioBufferPcmBytes,
   newLoadEpoch,
   isPlayLocked,
   isPlayPreloadedInProgress,
@@ -157,7 +166,11 @@ import { setPlaybackTransferState, setPlaybackYouTubePlaying } from '../ownershi
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (v: T) => void;
+  reject: (e: unknown) => void;
+} {
   let resolve!: (v: T) => void;
   let reject!: (e: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -232,9 +245,15 @@ beforeEach(() => {
 
   // Default mock behaviour (clearAllMocks wipes calls only, but the per-test
   // mockImplementationOnce queues must start empty and defaults re-primed).
+  mocks.ensureRunning.mockReset();
+  mocks.initAudio.mockReset();
+  mocks.decodeAudioData.mockReset();
+  mocks.readStoredFile.mockReset();
+  mocks.cleanupStoredFile.mockReset();
   mocks.ensureRunning.mockResolvedValue(undefined);
   mocks.initAudio.mockResolvedValue(undefined);
   mocks.decodeAudioData.mockResolvedValue({ duration: 120 } as AudioBuffer);
+  mocks.readStoredFile.mockResolvedValue(null);
   mocks.createBufferSource.mockImplementation(() => makeFakeSourceNode());
   mocks.getCurrentTime.mockReturnValue(100);
   mocks.safeSend.mockReturnValue(true);
@@ -317,7 +336,531 @@ describe('pin (a) — use-preloaded supersession keeps the activation flag owned
   });
 });
 
+describe('direct PLAY preload activation deduplication', () => {
+  it('does not decode the same Blob again when preload-ready re-emits use-preloaded', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentTrackIndex', 3);
+    initPlayback();
+
+    const file = makeFile('t4.mp3');
+    const decode = deferred<AudioBuffer>();
+    mocks.decodeAudioData.mockImplementationOnce(() => decode.promise);
+    stagePreload(4, file);
+
+    // The authoritative PLAY mismatch takes playback.ts's direct preload fast
+    // path before preload.ts can deliver its completion notification.
+    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: file.name }, hostConn);
+    await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
+    const epochAfterDirectActivation = getCurrentLoadEpoch();
+
+    // The same finalized Blob can then arrive through the normal preload-ready
+    // bridge. It must join the live activation rather than allocating a second
+    // decode and superseding the first one.
+    bus.emit('storage:use-preloaded', 4, file.name);
+    await flushAsync(1);
+
+    expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1);
+    expect(getCurrentLoadEpoch()).toBe(epochAfterDirectActivation);
+
+    decode.resolve({ duration: 120 } as AudioBuffer);
+    await vi.waitFor(() => expect(isPlayPreloadedInProgress()).toBe(false));
+    expect(getCurrentAudioBuffer()).toEqual({ duration: 120 });
+  });
+
+  it('keeps deduping the same Blob after teardown clears only the public flag', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentTrackIndex', 3);
+    initPlayback();
+
+    const file = makeFile('t4.mp3');
+    const decode = deferred<AudioBuffer>();
+    mocks.decodeAudioData.mockImplementationOnce(() => decode.promise);
+    stagePreload(4, file);
+
+    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: file.name }, hostConn);
+    await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
+
+    // stopAllMedia/teardown can clear M4, but cannot cancel the browser's
+    // native decoder. A duplicate notification must still join that target.
+    setPlayPreloadedInProgress(false);
+    bus.emit('storage:use-preloaded', 4, file.name);
+    await flushAsync(1);
+    expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1);
+
+    decode.resolve({ duration: 120 } as AudioBuffer);
+    await flushAsync();
+  });
+
+  it('restarts the same Blob after cancelInFlight invalidates the activation epoch', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentTrackIndex', 3);
+    initPlayback();
+
+    const file = makeFile('t4.mp3');
+    const firstDecode = deferred<AudioBuffer>();
+    const secondDecode = deferred<AudioBuffer>();
+    mocks.decodeAudioData
+      .mockImplementationOnce(() => firstDecode.promise)
+      .mockImplementationOnce(() => secondDecode.promise);
+    stagePreload(4, file);
+
+    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: file.name }, hostConn);
+    await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
+
+    stopAllMedia({ cancelInFlight: true });
+    bus.emit('storage:use-preloaded', 4, file.name);
+    await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
+
+    firstDecode.resolve({ duration: 90 } as AudioBuffer);
+    await flushAsync();
+    expect(getCurrentAudioBuffer()).not.toEqual({ duration: 90 });
+
+    secondDecode.resolve({ duration: 120 } as AudioBuffer);
+    await vi.waitFor(() => expect(getCurrentAudioBuffer()).toEqual({ duration: 120 }));
+    expect(isPlayPreloadedInProgress()).toBe(false);
+  });
+});
+
+describe('progress-aware preload waiter identity', () => {
+  function waitingSession(sessionId: number, progress: number) {
+    return {
+      skipped: false,
+      finalized: false,
+      progress,
+      total: 100,
+      name: 'same.mp3',
+      index: 4,
+      size: 100,
+      mime: 'audio/mpeg',
+      nextExpectedChunk: progress,
+      sessionId,
+    };
+  }
+
+  it('does not let a stale same-index/name session postpone the awaited session stall', async () => {
+    vi.useFakeTimers();
+    setState('network.hostConn', hostConn);
+    setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    initPlayback();
+
+    bus.emit('storage:use-preloaded', 4, 'same.mp3', 10);
+    setState(
+      'preload.sessionState',
+      new Map([
+        [11, waitingSession(11, 0)],
+        [10, waitingSession(10, 0)],
+      ]),
+    );
+
+    await vi.advanceTimersByTimeAsync(9_000);
+    setState(
+      'preload.sessionState',
+      new Map([
+        [11, waitingSession(11, 1)],
+        [10, waitingSession(10, 0)],
+      ]),
+    );
+    await vi.advanceTimersByTimeAsync(1_001);
+
+    expect(mocks.sendToHost).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, index: 4 }),
+    );
+  });
+
+  it('keeps a healthy exact-session transfer alive beyond sixty seconds', async () => {
+    vi.useFakeTimers();
+    setState('network.hostConn', hostConn);
+    setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    initPlayback();
+
+    bus.emit('storage:use-preloaded', 4, 'same.mp3', 10);
+    for (let progress = 1; progress <= 7; progress++) {
+      await vi.advanceTimersByTimeAsync(9_000);
+      setState('preload.sessionState', new Map([[10, waitingSession(10, progress)]]));
+    }
+    expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY }),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(mocks.sendToHost).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, index: 4 }),
+    );
+  });
+});
+
+describe('storage:file-ready transfer identity', () => {
+  it('drops a stale same-name completion instead of treating the filename as identity', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack('same.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 8 });
+    initPlayback();
+
+    bus.emit('storage:file-ready', 'same.mp3', 7, false);
+    await flushAsync(1);
+
+    expect(mocks.readStoredFile).not.toHaveBeenCalled();
+    expect(mocks.decodeAudioData).not.toHaveBeenCalled();
+  });
+
+  it('resets an active identity-less completion and accepts the host-authoritative resend', async () => {
+    const { handleFileStart } = await import('../../storage/transfer-receive.ts');
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack('same.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', { name: 'same.mp3', sessionId: 8, total: 1, size: 3 });
+    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
+    initPlayback();
+
+    bus.emit('storage:file-ready', 'same.mp3', 8, false);
+    await flushAsync(1);
+
+    expect(mocks.cleanupStoredFile).toHaveBeenCalledWith('same.mp3', false);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
+    expect(mocks.readStoredFile).not.toHaveBeenCalled();
+    expect(mocks.sendToHost).toHaveBeenCalledWith({
+      type: MSG.REQUEST_CURRENT_FILE,
+      reason: 'missing_transfer_identity',
+    });
+
+    handleFileStart(
+      {
+        type: MSG.FILE_START,
+        name: 'same.mp3',
+        mime: 'audio/mpeg',
+        total: 1,
+        size: 3,
+        sessionId: 8,
+        index: 0,
+      },
+      hostConn,
+    );
+
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+    expect(getState('transfer.meta')).toEqual(
+      expect.objectContaining({ name: 'same.mp3', sessionId: 8, index: 0 }),
+    );
+  });
+
+  it('repairs an active completion whose playlist index disagrees with the selected slot', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack('same.mp3'), makeTrack('same.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', { name: 'same.mp3', index: 1, sessionId: 8 });
+    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
+    initPlayback();
+
+    bus.emit('storage:file-ready', 'same.mp3', 8, false);
+    await flushAsync(1);
+
+    expect(mocks.cleanupStoredFile).toHaveBeenCalledWith('same.mp3', false);
+    expect(mocks.readStoredFile).not.toHaveBeenCalled();
+    expect(mocks.sendToHost).toHaveBeenCalledWith({
+      type: MSG.REQUEST_CURRENT_FILE,
+      reason: 'missing_transfer_identity',
+    });
+  });
+
+  it('does not coerce a string transfer index into an exact playlist identity', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack('same.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', {
+      name: 'same.mp3',
+      index: '0' as unknown as number,
+      sessionId: 8,
+    });
+    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
+    initPlayback();
+
+    bus.emit('storage:file-ready', 'same.mp3', 8, false);
+    await flushAsync(1);
+
+    expect(mocks.cleanupStoredFile).toHaveBeenCalledWith('same.mp3', false);
+    expect(mocks.readStoredFile).not.toHaveBeenCalled();
+    expect(mocks.sendToHost).toHaveBeenCalledWith({
+      type: MSG.REQUEST_CURRENT_FILE,
+      reason: 'missing_transfer_identity',
+    });
+  });
+
+  it('bounds identity-repair retries and releases a permanently ambiguous pipeline', async () => {
+    vi.useFakeTimers();
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack('same.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', { name: 'same.mp3', sessionId: 8, total: 1, size: 3 });
+    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
+    initPlayback();
+
+    bus.emit('storage:file-ready', 'same.mp3', 8, false);
+    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(mocks.sendToHost).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.sendToHost).toHaveBeenCalledTimes(4);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
+    expect(mocks.showLoader).toHaveBeenCalledWith(false);
+    expect(getManagedTimer('transfer-identity-recovery')).toBeNull();
+  });
+
+  it('cancels identity-repair retries when the active session changes', async () => {
+    vi.useFakeTimers();
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack('same.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', { name: 'same.mp3', sessionId: 8, total: 1, size: 3 });
+    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
+    initPlayback();
+
+    bus.emit('storage:file-ready', 'same.mp3', 8, false);
+    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
+
+    setState('transfer.localSessionId', 9);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('transfer-identity-recovery')).toBeNull();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
+  });
+
+  it('cancels identity-repair retries when the active filename changes', async () => {
+    vi.useFakeTimers();
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack('same.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', { name: 'same.mp3', sessionId: 8, total: 1, size: 3 });
+    setPlaybackTransferState(TRANSFER_STATE.PROCESSING);
+    initPlayback();
+
+    bus.emit('storage:file-ready', 'same.mp3', 8, false);
+    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
+
+    setState('transfer.meta', { name: 'next.mp3', sessionId: 8, total: 1, size: 3 });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(mocks.sendToHost).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('transfer-identity-recovery')).toBeNull();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
+  });
+
+  it('reads the active completion through its exact RAM-store session', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeTrack('same.mp3')]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', { name: 'same.mp3', index: 0, sessionId: 8 });
+    initPlayback();
+
+    bus.emit('storage:file-ready', 'same.mp3', 8, false);
+    await vi.waitFor(() => expect(mocks.readStoredFile).toHaveBeenCalledWith('same.mp3', false, 8));
+  });
+
+  it('records fresh-join PLAY as an exact pending recovery target', async () => {
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentTrackIndex', -1);
+    initPlayback();
+
+    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: 't4.mp3' }, hostConn);
+
+    expect(getState('playlist.currentTrackIndex')).toBe(4);
+    expect(getState('playback.pendingRecoveryTarget')).toEqual({ index: 4, name: 't4.mp3' });
+    expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
+    );
+  });
+
+  it('finalizes after chunk metadata recovers a lost FILE_START without losing the track index', async () => {
+    const { clearReceiveState, handleFileChunk } =
+      await import('../../storage/transfer-receive.ts');
+    clearReceiveState();
+
+    const file = makeFile('t4.mp3');
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentTrackIndex', 4);
+    setState('playback.pendingRecoveryTarget', { index: 4, name: file.name });
+    setState('transfer.localSessionId', 8);
+    setState('transfer.meta', {
+      name: file.name,
+      index: 4,
+      sessionId: 8,
+      size: file.size,
+      mime: file.type,
+    });
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
+    mocks.readStoredFile.mockResolvedValue(file);
+    initPlayback();
+
+    handleFileChunk(
+      {
+        type: MSG.FILE_CHUNK,
+        name: file.name,
+        mime: file.type,
+        total: 1,
+        size: file.size,
+        sessionId: 8,
+        index: 0,
+        chunk: new Uint8Array([1, 2, 3]),
+      },
+      hostConn,
+    );
+    expect(getState('transfer.meta')?.index).toBe(4);
+
+    bus.emit('storage:file-ready', file.name, 8, false);
+
+    await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(getCurrentAudioBuffer()).toEqual({ duration: 120 }));
+    expect(mocks.readStoredFile).toHaveBeenCalledWith(file.name, false, 8);
+  });
+
+  it('carries authoritative PLAY identity through a newer chunk-only session and preserves play time', async () => {
+    const { clearReceiveState, handleFileChunk } =
+      await import('../../storage/transfer-receive.ts');
+    clearReceiveState();
+
+    const file = makeFile('t4.mp3');
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentTrackIndex', 3);
+    setState('transfer.localSessionId', 7);
+    setState('transfer.meta', {
+      name: 't3.mp3',
+      index: 3,
+      sessionId: 7,
+      total: 1,
+      size: file.size,
+      mime: file.type,
+    });
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
+    mocks.readStoredFile.mockResolvedValue(file);
+    initPlayback();
+
+    await handleData({ type: MSG.PLAY, time: 12, index: 4, name: file.name }, hostConn);
+    expect(getState('playback.pendingRecoveryTarget')).toEqual({ index: 4, name: file.name });
+
+    handleFileChunk(
+      {
+        type: MSG.FILE_CHUNK,
+        name: file.name,
+        mime: file.type,
+        total: 1,
+        size: file.size,
+        sessionId: 8,
+        index: 0,
+        chunk: new Uint8Array([1, 2, 3]),
+      },
+      hostConn,
+    );
+    expect(getState('transfer.meta')?.index).toBe(4);
+    expect(getPendingPlayTime()).toBe(12);
+
+    bus.emit('storage:file-ready', file.name, 8, false);
+
+    await vi.waitFor(() => expect(getCurrentAudioBuffer()).toEqual({ duration: 120 }));
+    expect(mocks.readStoredFile).toHaveBeenCalledWith(file.name, false, 8);
+    expect(getPendingPlayTime()).toBeUndefined();
+  });
+});
+
 // ─── Pin (b): watchdog fire — full reset tuple (contract C3 + C6) ────
+
+describe('authoritative PAUSE bootstrap', () => {
+  it('retains the host pause position even before a file transport exists', async () => {
+    setState('network.hostConn', hostConn);
+    initPlayback();
+
+    await handleData({ type: MSG.PAUSE, time: 42, reason: 'pause' }, hostConn);
+
+    expect(getState('player.pausedAt')).toBe(42);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+  });
+
+  it('normalizes a negative host pause position instead of retaining invalid state', async () => {
+    setState('network.hostConn', hostConn);
+    setState('player.pausedAt', 17);
+    initPlayback();
+
+    await handleData({ type: MSG.PAUSE, time: -4, reason: 'pause' }, hostConn);
+
+    expect(getState('player.pausedAt')).toBe(0);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+  });
+});
+
+describe('late-join file bootstrap identity', () => {
+  it('pins the exact host slot, Blob, and session across unicast transport awaits', async () => {
+    const conn = { open: true, peer: 'guest-1' } as DataConnection;
+    const file = makeFile('same.mp3');
+    setState('playlist.items', [makeTrack(file.name)]);
+    setState('playlist.currentTrackIndex', 0);
+    setState('files.currentFileBlob', file);
+    setState('transfer.currentSessionId', 7);
+    setState('transfer.meta', { name: file.name, index: 0 });
+    setState('network.connectedPeers', [
+      {
+        id: 'guest-1',
+        slot: 0,
+        label: 'Guest',
+        conn,
+        isOp: false,
+        preloadedIndexes: new Set<number>(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: 1,
+        connectionType: 'local',
+        lastHeartbeat: Date.now(),
+      },
+    ]);
+    initPlayback();
+
+    bus.emit('orchestrator:peer-joined', 'guest-1');
+    await vi.waitFor(() => expect(mocks.unicastFile).toHaveBeenCalledTimes(1));
+
+    expect(mocks.unicastFile).toHaveBeenCalledWith(
+      conn,
+      file,
+      0,
+      7,
+      expect.objectContaining({
+        trackIndex: 0,
+        isSourceCurrent: expect.any(Function),
+      }),
+    );
+    const options = mocks.unicastFile.mock.calls[0]?.[4] as {
+      isSourceCurrent: () => boolean;
+    };
+    expect(options.isSourceCurrent()).toBe(true);
+
+    setState('files.currentFileBlob', makeFile(file.name));
+    expect(options.isSourceCurrent()).toBe(false);
+
+    setState('files.currentFileBlob', file);
+    setState('transfer.currentSessionId', 8);
+    expect(options.isSourceCurrent()).toBe(false);
+  });
+});
 
 describe('pin (b) — 15s navigator-lock-watchdog resets the full tuple', () => {
   it('unlocks, clears pendingPlayTime, stops the node, bumps the token, idles, and the wedged play aborts', async () => {
@@ -439,11 +982,65 @@ describe('pin (d) — finalizeGuestFile staleness at both sessionId checkpoints'
     decodeD.resolve({ duration: 200 } as AudioBuffer);
     await p;
 
-    // Stale finalize must not publish, must not consume, must not start play.
-    expect(getCurrentAudioBuffer()).toBe(prevBuffer);
+    // Once decode detached the prior buffer, a newer transfer owner must not
+    // let the stale finalize restore old-room/old-track PCM.
+    expect(getCurrentAudioBuffer()).toBeNull();
     expect(getState('files.currentFileBlob')).toBeNull();
     expect(getPendingPlayTime()).toBe(21);
     expect(getState('playback.activity')).not.toBe('playing');
+  });
+
+  it('keeps PCM cleared when room teardown wins a pending native decode', async () => {
+    initPlayback();
+    setState('network.hostConn', hostConn);
+    setState('transfer.localSessionId', 7);
+    setCurrentAudioBuffer({ duration: 50 } as AudioBuffer);
+    const decodeD = deferred<AudioBuffer>();
+    mocks.decodeAudioData.mockImplementationOnce(() => decodeD.promise);
+
+    const p = finalizeGuestFile(makeFile('t1.mp3'));
+    await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
+
+    bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
+    setState('transfer.localSessionId', 0);
+    setState('network.sessionCode', '');
+    decodeD.resolve({ duration: 200 } as AudioBuffer);
+    await p;
+
+    expect(getCurrentAudioBuffer()).toBeNull();
+    expect(getState('files.currentFileBlob')).toBeNull();
+  });
+
+  it('tracks repeated unpublished native decode results for later iOS admission', async () => {
+    setState('network.hostConn', hostConn);
+    setState('transfer.localSessionId', 7);
+    const before = liveAudioBufferCount();
+    const survivors: AudioBuffer[] = [];
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const decodeD = deferred<AudioBuffer>();
+      mocks.decodeAudioData.mockImplementationOnce(() => decodeD.promise);
+      const pending = finalizeGuestFile(makeFile(`stale-${attempt}.mp3`));
+      await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(attempt + 1));
+      incrementLoadSessionId();
+      const decoded = { duration: 200 + attempt } as AudioBuffer;
+      survivors.push(decoded);
+      decodeD.resolve(decoded);
+      await pending;
+      expect(getCurrentAudioBuffer()).toBeNull();
+    }
+
+    const after = liveAudioBufferCount();
+    expect(after.everSeen).toBe(before.everSeen + 2);
+    // WeakRefs from earlier tests may be collected between these two snapshots,
+    // so only assert the two buffers this test keeps strongly reachable.
+    expect(after.live).toBeGreaterThanOrEqual(survivors.length);
+    expect(liveAudioBufferPcmBytes(survivors[0])).toBeGreaterThanOrEqual(
+      201 * 48_000 * 2 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    expect(liveAudioBufferPcmBytes(survivors[1])).toBeGreaterThanOrEqual(
+      200 * 48_000 * 2 * Float32Array.BYTES_PER_ELEMENT,
+    );
   });
 });
 
@@ -680,5 +1277,32 @@ describe('pin (g) — owner decision: finalizeGuestFile is immune to loadToken b
     expect(getPendingPlayTime()).toBeUndefined();
     await vi.waitFor(() => expect(getState('playback.activity')).toBe('playing'));
     expect(mocks.createBufferSource).toHaveBeenCalled();
+  });
+});
+
+describe('decode admission waiter ownership', () => {
+  it('drops a superseded preload Blob without waiting for a stalled receive lease', async () => {
+    const { reserveEncodedReceiveMemoryWithinBudget, resolveDecodeMemoryBudget } =
+      await import('../decode-admission.ts');
+    const budget = resolveDecodeMemoryBudget({ userAgent: 'desktop' });
+    const blocker = reserveEncodedReceiveMemoryWithinBudget(384 * 1024 * 1024, { budget });
+    try {
+      const file = makeFile('blocked.mp3');
+      const arrayBuffer = vi.spyOn(file, 'arrayBuffer');
+      setState('network.hostConn', hostConn);
+      setState('playlist.items', [makeTrack(file.name)]);
+      setState('playlist.currentTrackIndex', 0);
+      stagePreload(0, file);
+
+      const activation = loadPreloadedTrack(0);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      setState('preload.meta', { name: file.name, index: 0, sessionId: 99 });
+
+      await expect(activation).resolves.toBe(false);
+      expect(arrayBuffer).not.toHaveBeenCalled();
+      expect(mocks.decodeAudioData).not.toHaveBeenCalled();
+    } finally {
+      blocker.release();
+    }
   });
 });

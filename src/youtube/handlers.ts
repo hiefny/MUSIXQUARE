@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { bus } from '../core/events.ts';
-import { MSG, TRANSFER_STATE } from '../core/constants.ts';
+import { MSG } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
@@ -16,14 +16,9 @@ import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_
 import { loadYouTubeVideo } from './iframe.ts';
 import { scheduleYtAutoSync } from './player.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
-import { clearReceiveState } from '../storage/transfer-receive.ts';
+import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
-import {
-  createYouTubeTrackMeta,
-  setPlaybackTrackMeta,
-  setPlaybackTransferState,
-} from '../player/ownership.ts';
-import { showLoader } from '../ui/toast.ts';
+import { createYouTubeTrackMeta, setPlaybackTrackMeta } from '../player/ownership.ts';
 import type { DataConnection } from '../types/index.ts';
 
 import type { YTNamespace } from './_state.ts';
@@ -263,23 +258,6 @@ function cancelInFlightTransfer(): void {
   // nothing is in flight. (No cycle: remote-share imports no youtube/*.)
   cancelRemoteShareWait('youtube-play');
 
-  const transferState = getState('transfer.state');
-  if (transferState === TRANSFER_STATE.RECEIVING || transferState === TRANSFER_STATE.PROCESSING) {
-    log.debug('[YouTube] Cancelling in-flight file transfer for YouTube switch');
-    // shouldSkipIncomingFile() returns true via YouTube ownership
-    // (set by handleYouTubePlay before this helper runs), so no flag.
-    setPlaybackTransferState(TRANSFER_STATE.IDLE);
-    setState('transfer.receivedCount', 0);
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    clearManagedTimer('preloadWatchdog');
-    // Clear receive-side reorder buffer / early-chunk queue.
-    // No circular dependency: transfer-receive does not import any youtube/* module.
-    try {
-      clearReceiveState();
-    } catch (e) {
-      log.debug('[YouTube] clearReceiveState failed:', e);
-    }
-    showLoader(false);
-  }
+  clearManagedTimer('preloadWatchdog');
+  cancelIncomingFileTransfer('youtube-play');
 }

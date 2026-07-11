@@ -76,7 +76,10 @@ vi.mock('../../network/peer.ts', () => ({
 vi.mock('../../storage/storage.ts', () => ({
   postCommand: vi.fn(),
   cleanupStoredFile: vi.fn(),
+  discardResidentStoredFileAdmission: vi.fn(() => false),
+  promoteStoredFileAdmission: vi.fn(() => false),
   readStoredFile: vi.fn(),
+  retainStoredFileAdmission: vi.fn(() => false),
 }));
 
 vi.mock('../../storage/transfer.ts', () => ({
@@ -126,7 +129,11 @@ import { loadPreloadedTrack } from '../decode.ts';
 
 // ─── Helpers (mirrors concurrency-invariants.test.ts) ────────────────
 
-function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (v: T) => void;
+  reject: (e: unknown) => void;
+} {
   let resolve!: (v: T) => void;
   let reject!: (e: unknown) => void;
   const promise = new Promise<T>((res, rej) => {

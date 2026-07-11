@@ -114,33 +114,6 @@ afterEach(() => {
 });
 
 describe('YouTube Player', () => {
-  describe('Module Exports', () => {
-    it('exports getYouTubePlayer', async () => {
-      const mod = await import('../player.ts');
-      expect(typeof mod.getYouTubePlayer).toBe('function');
-    });
-
-    it('exports loadYouTubeVideo', async () => {
-      const mod = await import('../player.ts');
-      expect(typeof mod.loadYouTubeVideo).toBe('function');
-    });
-
-    it('exports stopYouTubeMode', async () => {
-      const mod = await import('../player.ts');
-      expect(typeof mod.stopYouTubeMode).toBe('function');
-    });
-
-    it('exports initYouTube', async () => {
-      const mod = await import('../player.ts');
-      expect(typeof mod.initYouTube).toBe('function');
-    });
-
-    it('exports primeYouTubePlayer', async () => {
-      const mod = await import('../player.ts');
-      expect(typeof mod.primeYouTubePlayer).toBe('function');
-    });
-  });
-
   describe('getYouTubePlayer()', () => {
     it('returns null initially', async () => {
       const { getYouTubePlayer } = await import('../player.ts');
@@ -195,61 +168,6 @@ describe('YouTube Player', () => {
     it('does not throw when no player exists', async () => {
       const { stopYouTubeMode } = await import('../player.ts');
       expect(() => stopYouTubeMode()).not.toThrow();
-    });
-  });
-
-  describe('Duration Caching Logic', () => {
-    let cachedDuration = 0;
-    let cachedSubIndex = -1;
-
-    function getDuration(playerDuration: number, currentSubIndex: number): number {
-      if (currentSubIndex !== cachedSubIndex) {
-        cachedDuration = 0;
-        cachedSubIndex = currentSubIndex;
-      }
-
-      if (cachedDuration <= 0 && playerDuration > 0) {
-        cachedDuration = playerDuration;
-      }
-      return cachedDuration;
-    }
-
-    beforeEach(() => {
-      cachedDuration = 0;
-      cachedSubIndex = -1;
-    });
-
-    it('caches first valid duration', () => {
-      expect(getDuration(120, 0)).toBe(120);
-      expect(getDuration(130, 0)).toBe(120);
-    });
-
-    it('returns 0 when player reports 0', () => {
-      expect(getDuration(0, 0)).toBe(0);
-    });
-
-    it('resets on sub-index change', () => {
-      getDuration(120, 0);
-      expect(getDuration(200, 1)).toBe(200);
-    });
-
-    it('prevents flickering duration', () => {
-      getDuration(120, 0);
-      expect(getDuration(0, 0)).toBe(120);
-    });
-  });
-
-  describe('YouTube URL Extraction', () => {
-    it('extractYouTubeVideoId from watch URL', async () => {
-      const { extractYouTubeVideoId } = await import('../search.ts');
-      expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(
-        'dQw4w9WgXcQ',
-      );
-    });
-
-    it('returns null for non-YouTube URL', async () => {
-      const { extractYouTubeVideoId } = await import('../search.ts');
-      expect(extractYouTubeVideoId('https://example.com')).toBeNull();
     });
   });
 

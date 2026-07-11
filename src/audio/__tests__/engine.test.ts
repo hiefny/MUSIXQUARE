@@ -115,9 +115,7 @@ describe('initAudio idempotency', () => {
   it('calling initAudio without a real AudioContext does not corrupt module state', async () => {
     // jsdom does not provide the Web Audio primitives needed for initialization.
     const { initAudio } = await import('../engine.ts');
-    try {
-      await initAudio();
-    } catch {}
+    await expect(initAudio()).rejects.toThrow();
     expect(isAudioReady()).toBe(false);
     expect(getMasterGain()).toBeNull();
     expect(getEqNodes()).toEqual([]);

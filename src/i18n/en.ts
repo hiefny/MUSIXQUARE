@@ -516,7 +516,6 @@ const en: Record<I18nKey, string> = {
   'error.load_failed': 'Load Failed: {{msg}}',
   'error.audio_decode_fail': 'Audio decode failed!',
   'error.audio_memory': 'Loading audio into memory...',
-  'error.decode_timeout': 'Decoding "{{name}}" took too long.\nSkipping to next track.',
   'error.local_decode_wait':
     "This device couldn't decode the track.\nPlease wait for the next track.",
   'error.all_tracks_failed': 'No playable tracks in the playlist.',

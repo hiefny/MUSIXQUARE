@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  isVisible,
-} from './helpers/wait.ts';
+import { navigateToTab } from './helpers/wait.ts';
 
 /** Wait for the app to fully initialize, then dismiss the setup overlay if present. */
 async function waitForAppReady(page: import('@playwright/test').Page) {
@@ -33,16 +31,14 @@ test.describe('MUSIXQUARE Smoke Test', () => {
     await waitForAppReady(page);
 
     const settingsNav = page.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-      await expect(page.locator('#tab-settings')).toHaveClass(/active/);
-    }
+    await navigateToTab(page, 'settings');
+    await expect(page.locator('#tab-settings')).toHaveClass(/active/);
+    await expect(settingsNav).toHaveAttribute('aria-selected', 'true');
 
     const playNav = page.locator('.nav-item[data-tab="play"]');
-    if (await playNav.isVisible()) {
-      await playNav.click();
-      await expect(page.locator('#tab-play')).toHaveClass(/active/);
-    }
+    await navigateToTab(page, 'play');
+    await expect(page.locator('#tab-play')).toHaveClass(/active/);
+    await expect(playNav).toHaveAttribute('aria-selected', 'true');
   });
 
   test('no JavaScript errors on load', async ({ page }) => {
@@ -63,14 +59,11 @@ test.describe('MUSIXQUARE Smoke Test', () => {
   test('theme toggle exists', async ({ page }) => {
     await waitForAppReady(page);
 
-    const settingsNav = page.locator('.nav-item[data-tab="settings"]');
-    if (await settingsNav.isVisible()) {
-      await settingsNav.click();
-    }
+    await navigateToTab(page, 'settings');
 
-    await expect(page.locator('#grid-theme')).toBeAttached();
-    await expect(page.locator('.ch-opt[data-theme="light"]')).toBeAttached();
-    await expect(page.locator('.ch-opt[data-theme="dark"]')).toBeAttached();
+    await expect(page.locator('#grid-theme')).toBeVisible();
+    await expect(page.locator('.ch-opt[data-theme="light"]')).toBeVisible();
+    await expect(page.locator('.ch-opt[data-theme="dark"]')).toBeVisible();
   });
 });
 

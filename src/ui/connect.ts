@@ -10,6 +10,7 @@ import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import {
+  DEFAULT_MAX_GUEST_SLOTS,
   DEVICE_LABEL_SANITIZE_RE,
   MIN_GUEST_SLOTS,
   MAX_GUEST_SLOTS_LIMIT,
@@ -136,7 +137,7 @@ const HOST_OWNED_SECTION_SELECTORS = ['.room-password-section', '.max-guests-sec
 
 function _applyValue(value: number): void {
   const clamped = Math.max(MIN_GUEST_SLOTS, Math.min(MAX_GUEST_SLOTS_LIMIT, value));
-  const cur = getState('network.maxGuestSlots') ?? 3;
+  const cur = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
 
   // Prevent reducing below current connected device count (only count peers with open connections)
   const allPeers = getState('network.connectedPeers') || [];
@@ -155,7 +156,7 @@ function initStepper(stepperId: string): void {
   const stepper = document.getElementById(stepperId);
   if (!stepper) return;
 
-  const current = getState('network.maxGuestSlots') ?? 3;
+  const current = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
   syncAllValues(current);
 
   // +/- button clicks
@@ -166,7 +167,7 @@ function initStepper(stepperId: string): void {
     if (_guardHostSettingCtrl()) return;
 
     const dir = parseInt(btn.dataset.dir || '0', 10);
-    const cur = getState('network.maxGuestSlots') ?? 3;
+    const cur = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
     _applyValue(cur + dir);
   });
 
@@ -176,7 +177,7 @@ function initStepper(stepperId: string): void {
     if (!span || span.querySelector('input')) return;
     if (_guardHostSettingCtrl()) return;
 
-    const cur = getState('network.maxGuestSlots') ?? 3;
+    const cur = getState('network.maxGuestSlots') ?? DEFAULT_MAX_GUEST_SLOTS;
     const input = document.createElement('input');
     input.type = 'number';
     input.className = 'stepper-input';

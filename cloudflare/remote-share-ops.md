@@ -41,14 +41,22 @@ Downloads do not write to KV.
   expires remote-share objects. This setting lives in R2 rather than this repository
   and must remain configured for a maximum intended retention of 24 hours. Wrangler
   last confirmed the enabled one-day `room/` expiry rule on 2026-07-11.
-- Max upload size: `MAX_UPLOAD_BYTES`, currently 200 MiB by default.
+- Max plaintext wire/storage size: fixed at 200 MiB across the descriptor,
+  Worker session, and stored-object checks. AES-GCM ciphertext is exactly 16
+  bytes larger. This is a protocol ceiling, not a browser admission guarantee:
+  before host encryption and guest download/decryption, each endpoint applies a
+  device-tier transport working-set budget, followed by a separate PCM/decode
+  budget, so its effective file limit can be lower.
 - KV rate limit:
   - `IP_UPLOADS_PER_WINDOW`: default 60 upload sessions per IP per hour.
   - `ROOM_UPLOADS_PER_WINDOW`: default 0, which disables room-wide limiting.
-- Optional app-issued capability token on `POST /session` when
-  `MXQR_CAPABILITY_SECRET` or `REMOTE_SHARE_CAPABILITY_SECRET` is configured on
-  the remote-share Worker.
-- R2 bucket CORS allows the production origins and local dev origins.
+- App-issued capability token required on `POST /session` in production. With
+  Turnstile disabled, the app Worker issues it only after a signed,
+  IP/scope-bound proof-of-work challenge; Origin/Host headers are not proof.
+- R2 bucket CORS allows every production origin accepted by the Workers
+  (musixquare and Toss apex/wildcard origins) plus local development origins.
+  Keeping these lists aligned prevents an authorized session from failing only
+  when the browser performs the direct R2 PUT preflight.
 - App worker CSP allows direct R2 upload connections via
   `https://*.r2.cloudflarestorage.com`.
 
@@ -98,7 +106,8 @@ On higher Cloudflare zone plans, prefer a more ergonomic window:
   fast bursts.
 - KV rate limiting can be removed only if we intentionally accept weaker abuse
   resistance or replace it with another durable counter.
-- Capability-gated sessions reuse the app Worker's Turnstile flow only when the
-  remote-share Worker advertises that the gate is enabled.
+- Capability-gated sessions use the app Worker's transparent proof-of-work path
+  while Turnstile remains disabled. Both Workers must share the capability
+  HMAC secret.
 - Durable Objects are reserved for future room-level, strongly consistent
   counters if the simpler IP-based KV limit becomes insufficient.

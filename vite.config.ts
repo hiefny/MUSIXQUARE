@@ -136,6 +136,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      '/api/capability-challenge': {
+        target: 'https://musixquare.com',
+        changeOrigin: true,
+        secure: true,
+      },
       '/api/youtube-search': {
         target: 'https://musixquare.com',
         changeOrigin: true,

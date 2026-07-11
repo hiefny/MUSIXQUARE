@@ -16,6 +16,9 @@ import { markIntentionalNav } from './core/page-lifecycle.ts';
 const SW_UPDATE_KEY = 'sw-updated-at';
 // Avoid a second update prompt when controller activation and reload overlap.
 const SW_COOLDOWN_MS = 30_000;
+const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
+const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
+const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
 
 let _swReloading = false;
 
@@ -41,10 +44,39 @@ export function registerServiceWorker(): void {
   const doRegister = async () => {
     const swUrl = new URL('service-worker.js', window.location.href);
     let hadController = Boolean(navigator.serviceWorker.controller);
+    // Controller under which the JS currently executing in this tab loaded.
+    // If the active controller changes without a reload, this page may still
+    // import old Vite-hashed chunks and cannot approve old-cache retirement.
+    let pageController = navigator.serviceWorker.controller;
+    let cacheSafeForCurrentController = true;
+
+    const probeCacheStatus = () => {
+      navigator.serviceWorker.controller?.postMessage({ type: CACHE_STATUS_PROBE });
+    };
+
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const data = event.data as {
+        type?: unknown;
+        cacheVersion?: unknown;
+        proactive?: unknown;
+      } | null;
+      if (!data || data.type !== CACHE_STATUS_REQUEST || typeof data.cacheVersion !== 'string') {
+        return;
+      }
+
+      const controller = navigator.serviceWorker.controller;
+      controller?.postMessage({
+        type: CACHE_CLIENT_STATUS,
+        cacheVersion: data.cacheVersion,
+        ready: cacheSafeForCurrentController && controller === pageController,
+        replyToRequest: data.proactive !== true,
+      });
+    });
 
     try {
       const reg = await navigator.serviceWorker.register(swUrl, { scope: './' });
       log.info('[SW] Registered:', reg.scope);
+      probeCacheStatus();
 
       // Listen for controller changes — reload only when an already-controlled
       // page switches to another controller. A first-time `clients.claim()`
@@ -52,6 +84,9 @@ export function registerServiceWorker(): void {
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!hadController) {
           hadController = true;
+          pageController = navigator.serviceWorker.controller;
+          cacheSafeForCurrentController = true;
+          probeCacheStatus();
           log.debug('[SW] Controller claimed page for the first time — skipping reload');
           return;
         }
@@ -62,24 +97,21 @@ export function registerServiceWorker(): void {
         // to a live room; markIntentionalNav would also suppress its leave
         // prompt.
         // Defer for in-session tabs; the update applies on their next natural
-        // load. Cost of keeping old JS under the new SW: production DOES ship
-        // lazy chunks (i18n locale dicts, locale font CSS, the peerjs
-        // adapter), and the new SW's activate handler purges prior-version
-        // caches, so a deferred tab can 404 an old hashed chunk under deploy
-        // skew. Each degrades gracefully: i18n falls back to English per-key
-        // and stays retryable (re-select / 'online' — no negative caching),
-        // fonts fall back to system faces, and the optional PeerJS adapter can
-        // fail to initialize in local or explicitly configured PeerJS mode.
-        // That deploy-skew risk is preferable to terminating a live room.
+        // load. The page/worker cache-status handshake marks this controller
+        // switch as unsafe, so prior-version caches (including old Vite-hashed
+        // lazy chunks) remain until every live tab has naturally reloaded.
         // NOTE: this gate must stay OUT of reloadForServiceWorkerUpdate() —
         // the dialog-OK path below is explicit same-tab consent and must keep
         // reloading even mid-session.
         if (getState('network.appRole') !== 'idle') {
+          cacheSafeForCurrentController = false;
+          probeCacheStatus();
           log.info('[SW] Update activated elsewhere — deferring reload (session active)');
           showToast(t('dialog.sw_update_msg'));
           return;
         }
 
+        cacheSafeForCurrentController = false;
         reloadForServiceWorkerUpdate();
       });
 

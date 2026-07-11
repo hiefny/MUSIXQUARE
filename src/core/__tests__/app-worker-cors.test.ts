@@ -12,6 +12,74 @@ function requestWithOrigin(origin: string): Request {
   });
 }
 
+async function solveProofOfWork(challenge: string, difficulty: number): Promise<string> {
+  const encoder = new TextEncoder();
+  for (let solution = 0; solution < 10_000_000; solution += 1) {
+    const digest = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', encoder.encode(`mxqr-pow-v1:${challenge}:${solution}`)),
+    );
+    let remaining = difficulty;
+    let valid = true;
+    for (const byte of digest) {
+      if (remaining <= 0) break;
+      const bits = Math.min(8, remaining);
+      if ((byte & (0xff << (8 - bits))) !== 0) {
+        valid = false;
+        break;
+      }
+      remaining -= bits;
+    }
+    if (valid && remaining <= 0) return String(solution);
+  }
+  throw new Error('test proof-of-work solution not found');
+}
+
+async function requestProofOfWork(
+  env: Record<string, unknown>,
+  scopes: string[],
+  ip: string,
+): Promise<{ challenge: string; solution: string }> {
+  const response = await appWorker.fetch(
+    new Request('https://musixquare.com/api/capability-challenge', {
+      method: 'POST',
+      headers: {
+        Origin: 'https://musixquare.com',
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': ip,
+      },
+      body: JSON.stringify({ scopes }),
+    }),
+    env,
+  );
+  const payload = (await response.json()) as { challenge: string; difficulty: number };
+  expect(response.status).toBe(200);
+  return {
+    challenge: payload.challenge,
+    solution: await solveProofOfWork(payload.challenge, payload.difficulty),
+  };
+}
+
+async function mintWithProofOfWork(
+  env: Record<string, unknown>,
+  scopes: string[],
+  ip: string,
+  proofOfWork?: { challenge: string; solution: string },
+): Promise<Response> {
+  const resolvedProof = proofOfWork ?? (await requestProofOfWork(env, scopes, ip));
+  return appWorker.fetch(
+    new Request('https://musixquare.com/api/capability-token', {
+      method: 'POST',
+      headers: {
+        Origin: 'https://musixquare.com',
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': ip,
+      },
+      body: JSON.stringify({ scopes, proofOfWork: resolvedProof }),
+    }),
+    env,
+  );
+}
+
 describe('Cloudflare app worker CORS gate', () => {
   it('rejects broad Cloudflare preview origins by default', async () => {
     const pagesResponse = await appWorker.fetch(
@@ -86,10 +154,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   }
 
   it('fails closed for paid endpoints when capability auth is not configured', async () => {
-    const env = {
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
-    };
+    const env = {};
 
     const requests = [
       new Request('https://musixquare.com/api/get-turn-config', {
@@ -114,11 +179,9 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     }
   });
 
-  it('allows legacy unguarded paid endpoints only with an explicit opt-in', async () => {
+  it('lets the explicit unguarded override reach provider resolution', async () => {
     const env = {
       MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
     };
 
     const response = await appWorker.fetch(
@@ -131,17 +194,13 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       env,
     );
 
-    expect(response.status).toBe(200);
-    expect((await response.json()) as unknown).toMatchObject({
-      provider: 'metered-fallback',
-    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'TURN_CONFIG_UNAVAILABLE' });
   });
 
   it('requires a capability token when capability auth is enabled', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
     };
 
     const response = await appWorker.fetch(
@@ -158,7 +217,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(await response.json()).toEqual({ error: 'CAPABILITY_REQUIRED' });
   });
 
-  it('reports Turnstile as required when capability auth has no fallback', async () => {
+  it('reports transparent proof-of-work when Turnstile is not configured', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
     };
@@ -176,8 +235,10 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(await response.json()).toMatchObject({
       capabilityRequired: true,
       turnstileSiteKey: '',
-      turnstileRequired: true,
-      inferredFallback: false,
+      turnstileRequired: false,
+      proofOfWorkRequired: true,
+      proofOfWorkDifficulty: 16,
+      proofOfWorkTtl: 120,
     });
   });
 
@@ -301,8 +362,6 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   it('rejects spoofable trusted-origin token minting by default when Turnstile is absent', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
     };
     const ip = '203.0.113.24';
 
@@ -321,15 +380,13 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     );
 
     expect(mint.status).toBe(403);
-    expect(await mint.json()).toEqual({ error: 'TURNSTILE_REQUIRED' });
+    expect(await mint.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
   });
 
-  it('mints short-lived capability tokens for trusted origins only with explicit fallback', async () => {
+  it('never treats a trusted Origin header as proof even when the retired flag is set', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
     };
     const ip = '203.0.113.21';
     const mint = await appWorker.fetch(
@@ -344,26 +401,8 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       }),
       env,
     );
-    const payload = (await mint.json()) as { token?: string };
-
-    expect(mint.status).toBe(200);
-    expect(payload.token).toMatch(/\./);
-
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/api/get-turn-config', {
-        headers: {
-          Origin: 'https://musixquare.com',
-          'CF-Connecting-IP': ip,
-          'X-MXQR-Capability': payload.token || '',
-        },
-      }),
-      env,
-    );
-
-    expect(response.status).toBe(200);
-    expect((await response.json()) as unknown).toMatchObject({
-      provider: 'metered-fallback',
-    });
+    expect(mint.status).toBe(403);
+    expect(await mint.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
   });
 
   it('rejects same-origin-inferred capability fallback by default when Turnstile is configured', async () => {
@@ -371,8 +410,6 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
     };
     const ip = '203.0.113.22';
 
@@ -404,14 +441,12 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(await mint.json()).toEqual({ error: 'TURNSTILE_REQUIRED' });
   });
 
-  it('allows same-origin-inferred capability fallback only when explicitly enabled', async () => {
+  it('ignores the retired same-origin-inferred authentication flag', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK: 'true',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
     };
     const ip = '203.0.113.23';
 
@@ -427,29 +462,14 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       }),
       env,
     );
-    const payload = (await mint.json()) as { token?: string };
-
-    expect(mint.status).toBe(200);
-    expect(payload.token).toMatch(/\./);
-
-    const allowed = await appWorker.fetch(
-      new Request('https://musixquare.com/api/get-turn-config', {
-        headers: {
-          Host: 'musixquare.com',
-          'CF-Connecting-IP': ip,
-          'X-MXQR-Capability': payload.token || '',
-        },
-      }),
-      env,
-    );
-    expect(allowed.status).toBe(200);
+    expect(mint.status).toBe(403);
+    expect(await mint.json()).toEqual({ error: 'TURNSTILE_REQUIRED' });
   });
 
-  it('reports Turnstile as disabled during the grace period even when keys exist', async () => {
+  it('reports proof-of-work while Turnstile remains disabled even when keys exist', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       MXQR_TURNSTILE_DISABLED: 'true',
-      MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
     };
@@ -468,41 +488,34 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       capabilityRequired: true,
       turnstileSiteKey: '',
       turnstileRequired: false,
-      inferredFallback: false,
+      proofOfWorkRequired: true,
+      proofOfWorkDifficulty: 16,
+      proofOfWorkTtl: 120,
     });
   });
 
-  it('mints trusted-origin capability tokens while Turnstile is disabled', async () => {
+  it('mints PoW capability tokens and keeps YouTube search operational with Turnstile disabled', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret',
       MXQR_TURNSTILE_DISABLED: 'true',
-      MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
+      YOUTUBE_API_KEY: 'youtube-key',
     };
     const ip = '203.0.113.28';
-
-    const mint = await appWorker.fetch(
-      new Request('https://musixquare.com/api/capability-token', {
-        method: 'POST',
-        headers: {
-          Origin: 'https://musixquare.com',
-          'Content-Type': 'application/json',
-          'CF-Connecting-IP': ip,
-        },
-        body: JSON.stringify({ scopes: ['turn'] }),
-      }),
-      env,
-    );
+    const mint = await mintWithProofOfWork(env, ['youtube-search', 'remote-share'], ip);
     const payload = (await mint.json()) as { token?: string };
 
     expect(mint.status).toBe(200);
     expect(payload.token).toMatch(/\./);
 
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ items: [] })),
+    );
     const allowed = await appWorker.fetch(
-      new Request('https://musixquare.com/api/get-turn-config', {
+      new Request('https://musixquare.com/api/youtube-search?q=test', {
         headers: {
           Origin: 'https://musixquare.com',
           'CF-Connecting-IP': ip,
@@ -512,14 +525,46 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       env,
     );
     expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({ query: 'test', results: [] });
+  });
+
+  it('binds proof-of-work to the exact scope set and client IP', async () => {
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+    };
+    const proof = await requestProofOfWork(env, ['remote-share'], '203.0.113.40');
+
+    const wrongScope = await mintWithProofOfWork(env, ['youtube-search'], '203.0.113.40', proof);
+    const wrongIp = await mintWithProofOfWork(env, ['remote-share'], '203.0.113.41', proof);
+
+    expect(wrongScope.status).toBe(403);
+    expect(await wrongScope.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
+    expect(wrongIp.status).toBe(403);
+    expect(await wrongIp.json()).toEqual({ error: 'PROOF_OF_WORK_FAILED' });
   });
 
   it('serves rate-limit rejections with the shared security headers', async () => {
     installRateLimitCache();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          iceServers: [
+            {
+              urls: 'turn:turn.cloudflare.com:3478?transport=udp',
+              username: 'turn-user',
+              credential: 'turn-credential',
+            },
+          ],
+        }),
+      ),
+    );
     const env = {
       MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
-      TURN_USER: 'turn-user',
-      TURN_PASS: 'turn-pass',
+      CLOUDFLARE_TURN_KEY_ID: 'turn-key',
+      CLOUDFLARE_TURN_API_TOKEN: 'turn-token',
     };
     const request = () =>
       new Request('https://musixquare.com/api/get-turn-config', {
@@ -613,6 +658,101 @@ describe('Cloudflare app worker JSON body limits', () => {
 
     expect(response.status).toBe(413);
     expect(await response.json()).toEqual({ error: 'Request body too large' });
+  });
+});
+
+describe('Cloudflare Realtime session ownership boundary', () => {
+  const ip = '203.0.113.93';
+  const env = {
+    MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+    MXQR_TURNSTILE_DISABLED: 'true',
+    MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+    CLOUDFLARE_REALTIME_APP_ID: 'test-app',
+    CLOUDFLARE_REALTIME_APP_SECRET: 'test-realtime-secret',
+  };
+
+  async function realtimeRequest(
+    capabilityToken: string,
+    body: Record<string, unknown>,
+  ): Promise<Response> {
+    return appWorker.fetch(
+      new Request('https://musixquare.com/api/cloudflare-realtime', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+          'X-MXQR-Capability': capabilityToken,
+        },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+  }
+
+  it('does not let a generic PoW capability mutate a disclosed publication session', async () => {
+    let nextSession = 0;
+    const upstreamFetch = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/sessions/new')) {
+        nextSession += 1;
+        return Response.json({ sessionId: `session-${nextSession}` });
+      }
+      return Response.json({ tracks: [] });
+    });
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const mint = await mintWithProofOfWork(env, ['realtime'], ip);
+    const capabilityToken = ((await mint.json()) as { token: string }).token;
+    expect(mint.status).toBe(200);
+
+    const victimCreate = await realtimeRequest(capabilityToken, { action: 'new-session' });
+    const victim = (await victimCreate.json()) as {
+      sessionId: string;
+      sessionOwnerToken: string;
+    };
+    expect(victimCreate.status).toBe(200);
+    expect(victim.sessionOwnerToken).toMatch(/\./);
+
+    for (const action of ['tracks-new', 'renegotiate', 'tracks-close']) {
+      const attack = await realtimeRequest(capabilityToken, {
+        action,
+        sessionId: victim.sessionId,
+        payload: {},
+      });
+      expect(attack.status).toBe(403);
+      expect(await attack.json()).toEqual({ error: 'REALTIME_SESSION_CAPABILITY_REQUIRED' });
+    }
+
+    const attackerCreate = await realtimeRequest(capabilityToken, { action: 'new-session' });
+    const attacker = (await attackerCreate.json()) as {
+      sessionId: string;
+      sessionOwnerToken: string;
+    };
+    const crossSessionAttack = await realtimeRequest(capabilityToken, {
+      action: 'tracks-close',
+      sessionId: victim.sessionId,
+      sessionOwnerToken: attacker.sessionOwnerToken,
+      payload: { tracks: [{ mid: '0' }], force: true },
+    });
+    expect(crossSessionAttack.status).toBe(403);
+
+    const ownerClose = await realtimeRequest(capabilityToken, {
+      action: 'tracks-close',
+      sessionId: victim.sessionId,
+      sessionOwnerToken: victim.sessionOwnerToken,
+      payload: { tracks: [{ mid: '0' }], force: true },
+    });
+    expect(ownerClose.status).toBe(200);
+
+    // Only the two session creations and the legitimate owner close reach
+    // Cloudflare; all arbitrary-session mutations stop at our edge worker.
+    expect(upstreamFetch).toHaveBeenCalledTimes(3);
+    const ownerCloseUpstream = upstreamFetch.mock.calls[2];
+    expect(JSON.parse(String(ownerCloseUpstream[1]?.body))).toEqual({
+      tracks: [{ mid: '0' }],
+      force: true,
+    });
   });
 });
 
@@ -921,11 +1061,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     await env.SORO_RSS_BACKUP.put('soro-rss-latest-good.xml', createSoroRssWithImage());
 
     const waitUntil = vi.fn();
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/blog'),
-      env,
-      { waitUntil } as any,
-    );
+    const response = await appWorker.fetch(new Request('https://musixquare.com/blog'), env, {
+      waitUntil,
+    } as any);
     const html = await response.text();
 
     expect(response.status).toBe(200);

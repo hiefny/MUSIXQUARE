@@ -452,8 +452,6 @@ const fr: Record<I18nKey, string> = {
   'error.load_failed': 'Échec du chargement : {{msg}}',
   'error.audio_decode_fail': 'Échec du décodage audio !',
   'error.audio_memory': 'Chargement de l’audio en mémoire...',
-  'error.decode_timeout':
-    'Le décodage de "{{name}}" a pris trop de temps.\nPassage à la piste suivante.',
   'error.local_decode_wait':
     'Cet appareil n’a pas pu décoder la piste.\nVeuillez attendre la piste suivante.',
   'error.all_tracks_failed': 'Aucune piste lisible dans la playlist.',

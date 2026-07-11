@@ -248,6 +248,22 @@ describe('pause', () => {
     expect(getState('player.pausedAt')).toBe(12);
     expect(getState('playback.activity')).toBe('paused');
   });
+
+  it('reuses an idle late-join PAUSE position when an operator requests play', async () => {
+    const conn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', conn);
+    setState('network.isOperator', true);
+    setState('playlist.currentTrackIndex', 0);
+    setState('playlist.items', [
+      { type: 'file', name: 'song.mp3', title: 'Song', videoId: null, playlistId: null },
+    ]);
+
+    initPlayback();
+    await handleData({ type: MSG.PAUSE, time: 42, reason: 'pause' }, conn);
+    togglePlay();
+
+    expect(sendToHost).toHaveBeenCalledWith({ type: MSG.REQUEST_PLAY, time: 42 });
+  });
 });
 
 // ─── togglePlay end-of-track race ────────────────────────────────────
@@ -324,9 +340,7 @@ describe('handleRequestPlay file pipeline guard', () => {
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     const opConn = { open: true, peer: 'op-1' } as DataConnection;
-    setState('network.connectedPeers', [
-      { id: 'op-1', label: 'OP', isOp: true, conn: opConn },
-    ]);
+    setState('network.connectedPeers', [{ id: 'op-1', label: 'OP', isOp: true, conn: opConn }]);
 
     initPlayback();
     await handleData({ type: MSG.REQUEST_PLAY, time: 0 }, opConn);

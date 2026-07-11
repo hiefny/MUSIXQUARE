@@ -113,8 +113,14 @@ const broadcastMock = vi.mocked(broadcast);
 /** Latest registered callback for a managed timer name (timers are mocked —
  *  poll/timeout steps must be driven manually; vi.useFakeTimers does NOT
  *  fire managed timers). SessionScope.timer routes through the same mock. */
+function matchesTimerName(actual: string, logicalName: string): boolean {
+  return actual === logicalName || actual.endsWith(`:${logicalName}`);
+}
+
 function lastTimerCallback(name: string): (() => void) | undefined {
-  const calls = setManagedTimerMock.mock.calls.filter(([timerName]) => timerName === name);
+  const calls = setManagedTimerMock.mock.calls.filter(([timerName]) =>
+    matchesTimerName(timerName, name),
+  );
   return calls.length > 0 ? calls[calls.length - 1][1] : undefined;
 }
 
@@ -485,7 +491,7 @@ describe('YouTube indexing session lifecycle', () => {
     yt.fireStateChange(5);
 
     expect(
-      setManagedTimerMock.mock.calls.some(([name]) => name === 'yt-indexing-poll'),
+      setManagedTimerMock.mock.calls.some(([name]) => matchesTimerName(name, 'yt-indexing-poll')),
     ).toBe(false);
     expect(getState('youtube.subItemsMap')['PL_STALE']).toBeUndefined();
     expect(broadcastMock).not.toHaveBeenCalledWith(
@@ -516,7 +522,7 @@ describe('YouTube indexing session lifecycle', () => {
 
     expect(player.getPlaylist).not.toHaveBeenCalled();
     expect(
-      setManagedTimerMock.mock.calls.some(([name]) => name === 'yt-indexing-poll'),
+      setManagedTimerMock.mock.calls.some(([name]) => matchesTimerName(name, 'yt-indexing-poll')),
     ).toBe(false);
     expect(broadcastMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.YOUTUBE_PLAYLIST_INFO }),

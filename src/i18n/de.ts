@@ -445,8 +445,6 @@ const de: Record<I18nKey, string> = {
   'error.load_failed': 'Laden fehlgeschlagen: {{msg}}',
   'error.audio_decode_fail': 'Audiodekodierung fehlgeschlagen!',
   'error.audio_memory': 'Audio wird in den Speicher geladen...',
-  'error.decode_timeout':
-    'Dekodieren von "{{name}}" dauerte zu lange.\nSpringe zum nächsten Titel.',
   'error.local_decode_wait':
     'Dieses Gerät konnte den Titel nicht dekodieren.\nBitte auf den nächsten Titel warten.',
   'error.all_tracks_failed': 'Keine abspielbaren Titel in der Playlist.',

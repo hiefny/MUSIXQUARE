@@ -12,6 +12,7 @@ import {
   invalidateCapabilityToken,
   isCapabilityChallengeCancelled,
 } from '../core/capability.ts';
+import { REMOTE_SHARE_MAX_ENCRYPTED_BYTES } from '../core/constants.ts';
 
 interface RemoteUploadResponse {
   objectId: string;
@@ -20,7 +21,6 @@ interface RemoteUploadResponse {
 }
 
 interface RemoteUploadSessionResponse {
-  token?: string;
   uploadUrl: string;
   uploadHeaders: Record<string, string>;
   uploadUrlExpiresAt: number;
@@ -54,11 +54,18 @@ interface RemoteShareSecurityConfig {
 
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
 const PROD_ENDPOINT = 'https://share.musixquare.com';
-const REMOTE_SHARE_XHR_TIMEOUT_MS = 5 * 60_000;
+// Large files may legitimately take far longer than five minutes on mobile.
+// Abort only when no bytes move for this window; steady slow transfers remain
+// valid regardless of total wall-clock duration.
+const REMOTE_SHARE_XHR_STALL_TIMEOUT_MS = 90_000;
 const REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS = 5 * 60_000;
-let remoteShareSecurityConfigCache:
-  | { endpoint: string; expiresAt: number; value: RemoteShareSecurityConfig }
-  | null = null;
+const REMOTE_OBJECT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+let remoteShareSecurityConfigCache: {
+  endpoint: string;
+  expiresAt: number;
+  value: RemoteShareSecurityConfig;
+} | null = null;
 
 function normalizeEndpoint(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -96,11 +103,35 @@ export function isRemoteShareConfigured(): boolean {
   return getRemoteShareEndpoint() !== null;
 }
 
-function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string): string {
-  if (downloadUrl) return downloadUrl;
+function expectedDownloadUrl(roomId: string, objectId: string): URL {
   const endpoint = getRemoteShareEndpoint();
   if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
-  return `${endpoint}/download/${encodeURIComponent(roomId)}/${encodeURIComponent(objectId)}`;
+  return new URL(
+    `${endpoint}/download/${encodeURIComponent(roomId)}/${encodeURIComponent(objectId)}`,
+  );
+}
+
+function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string): string {
+  const expected = expectedDownloadUrl(roomId, objectId);
+  if (!downloadUrl) return expected.toString();
+
+  let candidate: URL;
+  try {
+    candidate = new URL(downloadUrl);
+  } catch {
+    throw new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID');
+  }
+  if (
+    candidate.origin !== expected.origin ||
+    candidate.pathname !== expected.pathname ||
+    candidate.search !== '' ||
+    candidate.hash !== '' ||
+    candidate.username !== '' ||
+    candidate.password !== ''
+  ) {
+    throw new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID');
+  }
+  return candidate.toString();
 }
 
 /**
@@ -111,14 +142,16 @@ function wireAbort(
   xhr: XMLHttpRequest,
   reject: (err: Error) => void,
   signal?: AbortSignal,
-): (() => void) | undefined {
+  beforeAbort?: () => void,
+): (() => void) | null | undefined {
   if (!signal) return undefined;
   if (signal.aborted) {
     xhr.abort();
     reject(new Error('REMOTE_SHARE_ABORTED'));
-    return undefined;
+    return null;
   }
-  const onAbort = (): void => {
+  const handleAbort = (): void => {
+    beforeAbort?.();
     try {
       xhr.abort();
     } catch {
@@ -126,8 +159,35 @@ function wireAbort(
     }
     reject(new Error('REMOTE_SHARE_ABORTED'));
   };
-  signal.addEventListener('abort', onAbort, { once: true });
-  return () => signal.removeEventListener('abort', onAbort);
+  signal.addEventListener('abort', handleAbort, { once: true });
+  return () => signal.removeEventListener('abort', handleAbort);
+}
+
+function createXhrStallWatchdog(
+  xhr: XMLHttpRequest,
+  reject: (err: Error) => void,
+  errorCode: string,
+): { reset: () => void; clear: () => void } {
+  let handle: ReturnType<typeof globalThis.setTimeout> | null = null;
+  const clear = (): void => {
+    if (handle === null) return;
+    globalThis.clearTimeout(handle);
+    handle = null;
+  };
+  const reset = (): void => {
+    clear();
+    handle = globalThis.setTimeout(() => {
+      handle = null;
+      try {
+        xhr.abort();
+      } catch {
+        /* ignore */
+      }
+      reject(new Error(errorCode));
+    }, REMOTE_SHARE_XHR_STALL_TIMEOUT_MS);
+  };
+  reset();
+  return { reset, clear };
 }
 
 async function getRemoteShareSecurityConfig(
@@ -157,7 +217,8 @@ async function getRemoteShareSecurityConfig(
       value,
     };
     return value;
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return { capabilityRequired: false };
   }
 }
@@ -176,7 +237,11 @@ async function getRemoteShareSessionHeaders(
 ): Promise<Record<string, string>> {
   const config = await getRemoteShareSecurityConfig(endpoint, signal);
   if (!config.capabilityRequired) return {};
-  return getCapabilityHeaders(new URL('/api/capability-token', location.origin), ['remote-share']);
+  return getCapabilityHeaders(
+    new URL('/api/capability-token', location.origin),
+    ['remote-share'],
+    signal,
+  );
 }
 
 async function requestUploadSession(
@@ -227,6 +292,7 @@ async function requestUploadSession(
       typeof body?.uploadUrl !== 'string' ||
       typeof body.completeToken !== 'string' ||
       typeof body.objectId !== 'string' ||
+      !REMOTE_OBJECT_ID_RE.test(body.objectId) ||
       typeof body.expiresAt !== 'number' ||
       typeof body.uploadUrlExpiresAt !== 'number' ||
       !body.uploadHeaders ||
@@ -235,7 +301,6 @@ async function requestUploadSession(
       throw new Error('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     }
     return {
-      token: body.token,
       uploadUrl: body.uploadUrl,
       uploadHeaders: body.uploadHeaders as Record<string, string>,
       uploadUrlExpiresAt: body.uploadUrlExpiresAt,
@@ -278,7 +343,11 @@ async function completeDirectUpload(
     }
 
     const body = (await response.json()) as Partial<RemoteUploadResponse> | null;
-    if (typeof body?.objectId !== 'string' || typeof body.expiresAt !== 'number') {
+    if (
+      typeof body?.objectId !== 'string' ||
+      body.objectId !== session.objectId ||
+      typeof body.expiresAt !== 'number'
+    ) {
       throw new Error('REMOTE_SHARE_BAD_COMPLETE_RESPONSE');
     }
     return {
@@ -311,14 +380,25 @@ export async function uploadEncryptedBlob(
       xhr.setRequestHeader(header, value);
     }
 
-    const detachAbort = wireAbort(xhr, reject, signal);
+    const stall = createXhrStallWatchdog(xhr, reject, 'REMOTE_SHARE_UPLOAD_STALLED');
+    const detachAbort = wireAbort(xhr, reject, signal, stall.clear);
+    if (detachAbort === null) {
+      stall.clear();
+      return;
+    }
 
+    let lastUploadedBytes = 0;
     xhr.upload.onprogress = (event) => {
+      if (event.loaded > lastUploadedBytes) {
+        lastUploadedBytes = event.loaded;
+        stall.reset();
+      }
       if (event.lengthComputable && onProgress) {
         onProgress(event.loaded / event.total);
       }
     };
     xhr.onload = () => {
+      stall.clear();
       detachAbort?.();
       if (xhr.status >= 200 && xhr.status < 300) {
         void completeDirectUpload(endpoint, session, meta, signal).then((body) => {
@@ -330,55 +410,117 @@ export async function uploadEncryptedBlob(
       reject(new Error(`REMOTE_SHARE_DIRECT_UPLOAD_HTTP_${xhr.status}`));
     };
     xhr.onerror = () => {
+      stall.clear();
       detachAbort?.();
       reject(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
     };
-    xhr.ontimeout = () => {
+    try {
+      xhr.send(encryptedBlob);
+    } catch (error) {
+      stall.clear();
       detachAbort?.();
-      reject(new Error('REMOTE_SHARE_UPLOAD_TIMEOUT'));
-    };
-    xhr.timeout = REMOTE_SHARE_XHR_TIMEOUT_MS;
-    xhr.send(encryptedBlob);
+      reject(
+        signal?.aborted
+          ? new Error('REMOTE_SHARE_ABORTED', { cause: error })
+          : new Error('REMOTE_SHARE_UPLOAD_NETWORK', { cause: error }),
+      );
+    }
   });
 }
 
 export function downloadEncryptedObject(
   roomId: string,
   objectId: string,
+  expectedEncryptedSize: number,
   downloadUrl?: string,
   onProgress?: ProgressHandler,
   signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
+    if (
+      !Number.isSafeInteger(expectedEncryptedSize) ||
+      expectedEncryptedSize <= 0 ||
+      expectedEncryptedSize > REMOTE_SHARE_MAX_ENCRYPTED_BYTES
+    ) {
+      reject(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
+      return;
+    }
+
+    const requestUrl = buildDownloadUrl(roomId, objectId, downloadUrl);
     const xhr = new XMLHttpRequest();
-    xhr.open('GET', buildDownloadUrl(roomId, objectId, downloadUrl), true);
+    xhr.open('GET', requestUrl, true);
     xhr.responseType = 'arraybuffer';
 
-    const detachAbort = wireAbort(xhr, reject, signal);
+    const stall = createXhrStallWatchdog(xhr, reject, 'REMOTE_SHARE_DOWNLOAD_STALLED');
+    const detachAbort = wireAbort(xhr, reject, signal, stall.clear);
+    if (detachAbort === null) {
+      stall.clear();
+      return;
+    }
 
+    let lastDownloadedBytes = 0;
     xhr.onprogress = (event) => {
+      if (event.loaded > lastDownloadedBytes) {
+        lastDownloadedBytes = event.loaded;
+        stall.reset();
+      }
+      if (event.lengthComputable && event.total !== expectedEncryptedSize) {
+        stall.clear();
+        detachAbort?.();
+        xhr.abort();
+        reject(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
+        return;
+      }
       if (event.lengthComputable && onProgress) {
         onProgress(event.loaded / event.total);
       }
     };
     xhr.onload = () => {
+      stall.clear();
       detachAbort?.();
-      if (xhr.status >= 200 && xhr.status < 300 && xhr.response instanceof ArrayBuffer) {
+      try {
+        if (
+          !xhr.responseURL ||
+          buildDownloadUrl(roomId, objectId, xhr.responseURL) !== new URL(requestUrl).toString()
+        ) {
+          reject(new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID'));
+          return;
+        }
+      } catch {
+        reject(new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID'));
+        return;
+      }
+      if (
+        xhr.status >= 200 &&
+        xhr.status < 300 &&
+        xhr.response instanceof ArrayBuffer &&
+        xhr.response.byteLength === expectedEncryptedSize
+      ) {
         onProgress?.(1);
         resolve(xhr.response);
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.response instanceof ArrayBuffer) {
+        reject(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
         return;
       }
       reject(new Error(`REMOTE_SHARE_DOWNLOAD_HTTP_${xhr.status}`));
     };
     xhr.onerror = () => {
+      stall.clear();
       detachAbort?.();
       reject(new Error('REMOTE_SHARE_DOWNLOAD_NETWORK'));
     };
-    xhr.ontimeout = () => {
+    try {
+      xhr.send();
+    } catch (error) {
+      stall.clear();
       detachAbort?.();
-      reject(new Error('REMOTE_SHARE_DOWNLOAD_TIMEOUT'));
-    };
-    xhr.timeout = REMOTE_SHARE_XHR_TIMEOUT_MS;
-    xhr.send();
+      reject(
+        signal?.aborted
+          ? new Error('REMOTE_SHARE_ABORTED', { cause: error })
+          : new Error('REMOTE_SHARE_DOWNLOAD_NETWORK', { cause: error }),
+      );
+    }
   });
 }

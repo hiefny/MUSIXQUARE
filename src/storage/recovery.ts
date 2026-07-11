@@ -21,6 +21,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { ensureNamedFile } from './storage.ts';
 import { ramContiguousCount } from './ramstore.ts';
 import { unicastFile } from './transfer.ts';
+import { isPeerConnectionCurrent } from './chunk-pump.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { isRemoteGuest } from '../network/peer.ts';
 import { canSendFileTo } from '../network/peer-state.ts';
@@ -28,7 +29,7 @@ import { isRemoteShareConfigured } from '../share/r2-client.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 import { isDemoTrackName } from '../demo/tracks.ts';
 import { t } from '../i18n/index.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, FileMeta } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
@@ -127,20 +128,19 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
         return;
       }
 
-      // Re-read receivedCount after backoff — more chunks may have arrived during delay.
-      // Clamp the control-plane counter to ramstore's contiguous prefix. A
-      // missing slot correctly requests a full resend; an explicit forceChunk
-      // is already store-derived or intentionally supplied by the caller.
-      let chunkToAsk = forceChunk;
-      if (chunkToAsk === null) {
-        const counterAsk = getState('transfer.receivedCount') || 0;
-        chunkToAsk = Math.min(counterAsk, ramContiguousCount(latestName, false));
-      }
-
       // Re-read sessionId after backoff — session may have advanced during delay
       const freshLocalSid = getState('transfer.localSessionId');
       const freshTransferSid = getState('transfer.currentSessionId');
       const freshSid = freshLocalSid || freshTransferSid;
+
+      // Re-read receivedCount after backoff — more chunks may have arrived during delay.
+      // Clamp the control-plane counter to the exact RAM session's contiguous
+      // prefix. A same-name slot from another session must force a full resend.
+      let chunkToAsk = forceChunk;
+      if (chunkToAsk === null) {
+        const counterAsk = getState('transfer.receivedCount') || 0;
+        chunkToAsk = Math.min(counterAsk, ramContiguousCount(latestName, false, freshSid));
+      }
 
       // Re-read index after backoff — track position may have changed during delay.
       // setPendingRecoveryTarget() guarantees target is null OR a valid pair, so
@@ -186,38 +186,57 @@ async function handleRequestCurrentFile(
   }
 
   const reqName = data.name ? String(data.name) : '';
-  const reqIndex = data.index !== undefined ? Number(data.index) : undefined;
+  const requestsAuthoritativeCurrent =
+    data.reason === 'missing_transfer_identity' && data.index === undefined;
+  // The guest deliberately omits an index only for identity repair. Snapshot
+  // the host's current slot at request handling time; guest-supplied names are
+  // display fallback only and never select bytes.
+  const reqIndex = requestsAuthoritativeCurrent
+    ? getState('playlist.currentTrackIndex')
+    : typeof data.index === 'number'
+      ? data.index
+      : undefined;
 
   // Find matching blob
-  const blob = findMatchingBlob(reqName, reqIndex);
-  if (!blob) {
+  const match = findMatchingBlob(reqIndex);
+  if (!match) {
     try {
-      conn.send({ type: MSG.FILE_WAIT, message: 'Host file is not ready yet' });
+      conn.send({
+        type: MSG.FILE_WAIT,
+        message: 'Host file is not ready yet',
+        ...(requestsAuthoritativeCurrent ? { reason: 'missing_transfer_identity' } : {}),
+      });
     } catch {
       /* noop */
     }
     return;
   }
 
-  const sid = ensureValidSessionId();
-  const fallbackName = getBlobFallbackName(blob, reqName);
-  const fileToSend = ensureNamedFile(blob, fallbackName);
+  const sid = ensureValidSessionId(match.sessionId);
+  match.sessionId = sid;
+  const fallbackName = getBlobFallbackName(match, reqName);
+  const fileToSend = ensureNamedFile(match.blob, fallbackName);
   if (!fileToSend) return;
 
   // Direct unicast is local-only. Remote guests receive a refreshed descriptor;
   // the encrypted bytes continue to travel through object storage.
-  if (await canSendFileTo(conn)) {
-    await unicastFile(conn, fileToSend, 0, sid, true);
+  const canDirect = await canSendFileTo(conn);
+  if (!conn.open || !isPeerConnectionCurrent(conn.peer, conn) || !isCachedBlobMatchCurrent(match))
+    return;
+  if (canDirect) {
+    await unicastFile(conn, fileToSend, 0, sid, {
+      trackIndex: match.index,
+      skipTransportGuard: true,
+      isSourceCurrent: () => isCachedBlobMatchCurrent(match),
+    });
     return;
   }
-  if (!conn.open) return;
-  if (isRemoteShareConfigured() && fileToSend instanceof File && !isDemoTrackName(fileToSend.name)) {
-    void shareRemoteFileIfNeeded(
-      fileToSend,
-      sid,
-      conn,
-      Number.isFinite(reqIndex) ? { index: reqIndex as number } : undefined,
-    );
+  if (
+    isRemoteShareConfigured() &&
+    fileToSend instanceof File &&
+    !isDemoTrackName(fileToSend.name)
+  ) {
+    void shareRemoteFileIfNeeded(fileToSend, sid, conn, { index: match.index });
     return;
   }
   // Demo track or share unconfigured: at least tell the guest to wait so its
@@ -246,10 +265,11 @@ async function handleRequestDataRecovery(
   }
 
   const reqName = data.fileName || data.name ? String(data.fileName || data.name) : '';
-  const reqIndex = data.index !== undefined ? Number(data.index) : undefined;
+  const reqIndex = typeof data.index === 'number' ? data.index : undefined;
+  const reqSessionId = normalizeSessionId(data.sessionId);
 
-  const blob = findMatchingBlob(reqName, reqIndex);
-  if (!blob) {
+  const match = findMatchingBlob(reqIndex, reqSessionId);
+  if (!match) {
     try {
       conn.send({ type: MSG.FILE_WAIT, message: 'Host has no cached file for recovery yet' });
     } catch {
@@ -259,7 +279,7 @@ async function handleRequestDataRecovery(
   }
 
   // Clamp chunk index
-  const total = Math.ceil(blob.size / CHUNK_SIZE);
+  const total = Math.ceil(match.blob.size / CHUNK_SIZE);
   if (!Number.isFinite(total) || total <= 0) {
     try {
       conn.send({ type: MSG.FILE_WAIT, message: 'Invalid file size' });
@@ -270,58 +290,163 @@ async function handleRequestDataRecovery(
   }
   if (startChunk >= total) startChunk = Math.max(0, total - 1);
 
-  const sid = ensureValidSessionId();
-  const fallbackName = getBlobFallbackName(blob, reqName);
-  const fileToSend = ensureNamedFile(blob, fallbackName);
-  if (fileToSend) await unicastFile(conn, fileToSend, startChunk, sid);
+  const sid = ensureValidSessionId(match.sessionId);
+  match.sessionId = sid;
+  const fallbackName = getBlobFallbackName(match, reqName);
+  const fileToSend = ensureNamedFile(match.blob, fallbackName);
+  if (fileToSend) {
+    await unicastFile(conn, fileToSend, startChunk, sid, {
+      trackIndex: match.index,
+      isSourceCurrent: () => isCachedBlobMatchCurrent(match),
+    });
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function findMatchingBlob(reqName: string, reqIndex: number | undefined): Blob | null {
+interface CachedBlobMatch {
+  blob: Blob;
+  meta: Readonly<Partial<FileMeta>>;
+  sessionId: number | undefined;
+  index: number;
+  source: 'current' | 'preload';
+}
+
+function normalizeIndex(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function normalizeSessionId(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function sessionMatches(
+  requestedSessionId: number | undefined,
+  candidateSessionId: number | undefined,
+): boolean {
+  return requestedSessionId === undefined || requestedSessionId === candidateSessionId;
+}
+
+/**
+ * Resolve cached bytes by explicit playlist/session identity.
+ *
+ * Names are intentionally absent from this selector. They are display and
+ * transport metadata, not content identity, so a name-only request must wait
+ * for a fresh transfer instead of reusing possibly unrelated bytes.
+ */
+function findMatchingBlob(
+  reqIndex: number | undefined,
+  reqSessionId?: number,
+): CachedBlobMatch | null {
+  const index = normalizeIndex(reqIndex);
+  if (index === undefined) return null;
+
   const currentFileBlob = getState('files.currentFileBlob');
   const meta = getState('transfer.meta');
   const nextFileBlob = getState('preload.nextFileBlob');
   const nextMeta = getState('preload.meta');
+  const playlist = getState('playlist.items');
+  const playlistFile = playlist[index]?.file;
+  const currentIndex = getState('playlist.currentTrackIndex');
 
-  let blob: Blob | null = null;
-
-  if (currentFileBlob) {
-    const matchByIndex = reqIndex !== undefined && meta && Number(meta.index) === reqIndex;
-    const matchByName = reqName && meta && meta.name === reqName;
-    const noHint = !reqName && reqIndex === undefined;
-    if (matchByIndex || matchByName || noHint) blob = currentFileBlob;
+  if (currentFileBlob && meta && currentIndex === index) {
+    const metaSessionId = normalizeSessionId(meta.sessionId);
+    const stateSessionId = normalizeSessionId(getState('transfer.currentSessionId'));
+    const sessionsCoherent =
+      metaSessionId === undefined ||
+      stateSessionId === undefined ||
+      metaSessionId === stateSessionId;
+    const candidateSessionId = metaSessionId ?? stateSessionId;
+    const objectMatches = !playlistFile || playlistFile === currentFileBlob;
+    if (
+      meta.index === index &&
+      sessionsCoherent &&
+      objectMatches &&
+      sessionMatches(reqSessionId, candidateSessionId)
+    ) {
+      return {
+        blob: currentFileBlob,
+        meta,
+        sessionId: candidateSessionId,
+        index,
+        source: 'current',
+      };
+    }
   }
 
-  if (!blob && nextFileBlob && nextMeta) {
-    const matchNextByIndex = reqIndex !== undefined && Number(nextMeta.index) === reqIndex;
-    const matchNextByName = reqName && nextMeta.name === reqName;
-    if (matchNextByIndex || matchNextByName) blob = nextFileBlob;
+  // A preload may serve the main channel only after that playlist slot has
+  // become the host's authoritative current track. Sending a future preload
+  // while another track is current would combine correct bytes with the wrong
+  // playback ownership.
+  if (
+    nextFileBlob &&
+    nextMeta &&
+    currentIndex === index &&
+    getState('preload.nextTrackIndex') === index
+  ) {
+    const candidateSessionId = normalizeSessionId(nextMeta.sessionId);
+    const objectMatches = !playlistFile || playlistFile === nextFileBlob;
+    if (
+      nextMeta.index === index &&
+      objectMatches &&
+      sessionMatches(reqSessionId, candidateSessionId)
+    ) {
+      return {
+        blob: nextFileBlob,
+        meta: nextMeta,
+        sessionId: candidateSessionId,
+        index,
+        source: 'preload',
+      };
+    }
   }
 
-  return blob;
+  return null;
 }
 
-function ensureValidSessionId(): number {
-  const meta = getState('transfer.meta');
-  const currentTransferSessionId = getState('transfer.currentSessionId');
-  let sid = (meta?.sessionId as number) || currentTransferSessionId;
-  if (!sid || sid < 1) {
-    sid = nextSessionId();
-    setState('transfer.currentSessionId', sid);
+function isCachedBlobMatchCurrent(match: CachedBlobMatch): boolean {
+  if (getState('playlist.currentTrackIndex') !== match.index) return false;
+  if (match.source === 'current') {
+    const meta = getState('transfer.meta');
+    const metaSessionId = normalizeSessionId(meta?.sessionId);
+    const stateSessionId = normalizeSessionId(getState('transfer.currentSessionId'));
+    const sessionsCoherent =
+      metaSessionId === undefined ||
+      stateSessionId === undefined ||
+      metaSessionId === stateSessionId;
+    const currentSessionId = metaSessionId ?? stateSessionId;
+    return (
+      sessionsCoherent &&
+      getState('files.currentFileBlob') === match.blob &&
+      meta?.index === match.index &&
+      currentSessionId === match.sessionId
+    );
   }
+
+  const meta = getState('preload.meta');
+  return (
+    getState('preload.nextFileBlob') === match.blob &&
+    getState('preload.nextTrackIndex') === match.index &&
+    meta?.index === match.index &&
+    normalizeSessionId(meta?.sessionId) === match.sessionId
+  );
+}
+
+function ensureValidSessionId(preferredSessionId: number | undefined): number {
+  const existing = normalizeSessionId(preferredSessionId);
+  if (existing !== undefined) return existing;
+
+  const sid = nextSessionId();
+  setState('transfer.currentSessionId', sid);
   return sid;
 }
 
-function getBlobFallbackName(blob: Blob, reqName: string): string {
-  const currentFileBlob = getState('files.currentFileBlob');
-  const meta = getState('transfer.meta');
-  const nextFileBlob = getState('preload.nextFileBlob');
-  const nextMeta = getState('preload.meta');
-
-  if (blob === currentFileBlob && meta?.name) return meta.name as string;
-  if (blob === nextFileBlob && nextMeta?.name) return nextMeta.name as string;
-  return reqName || (meta?.name as string) || (nextMeta?.name as string) || 'Track';
+function getBlobFallbackName(match: CachedBlobMatch, reqName: string): string {
+  if (typeof match.meta.name === 'string' && match.meta.name) return match.meta.name;
+  if (typeof File !== 'undefined' && match.blob instanceof File && match.blob.name) {
+    return match.blob.name;
+  }
+  return reqName || 'Track';
 }
 
 // ─── Register Handlers ──────────────────────────────────────────────

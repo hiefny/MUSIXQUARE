@@ -533,8 +533,6 @@ const it: Record<I18nKey, string> = {
   'error.load_failed': 'Caricamento fallito: {{msg}}',
   'error.audio_decode_fail': 'Decodifica audio fallita!',
   'error.audio_memory': "Caricamento dell'audio in memoria...",
-  'error.decode_timeout':
-    'La decodifica di "{{name}}" richiede troppo tempo.\nPassaggio al brano successivo...',
   'error.local_decode_wait':
     'Questo dispositivo non è riuscito a decodificare il brano.\nAttendi il brano successivo.',
   'error.all_tracks_failed': 'Nessun brano riproducibile nella playlist.',

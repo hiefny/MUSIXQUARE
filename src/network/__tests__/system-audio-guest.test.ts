@@ -56,6 +56,12 @@ vi.mock('../../player/transport.ts', () => ({
   stopAllMedia: vi.fn(),
 }));
 
+vi.mock('../../ui/toast.ts', () => ({
+  showLoader: vi.fn(),
+  showToast: vi.fn(),
+  updateLoader: vi.fn(),
+}));
+
 vi.mock('../peer.ts', () => ({
   forceStereoSdp: vi.fn((sdp: string) => sdp),
 }));

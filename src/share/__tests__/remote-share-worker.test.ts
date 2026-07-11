@@ -1,4 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import appWorker from '../../../cloudflare/app-worker.js';
 
 type RemoteShareWorker = {
   default: {
@@ -6,11 +8,28 @@ type RemoteShareWorker = {
   };
 };
 
-const workerModule = (await import('../../../cloudflare/remote-share-worker.js')) as RemoteShareWorker;
+const workerModule =
+  (await import('../../../cloudflare/remote-share-worker.js')) as RemoteShareWorker;
 const ORIGIN = 'https://musixquare.com';
 const SIGNING_SECRET = 'remote-share-signing-secret-for-tests';
 const CAPABILITY_SECRET = 'remote-share-capability-secret-for-tests';
 const CLIENT_IP = '203.0.113.7';
+
+interface R2CorsRule {
+  AllowedOrigins: string[];
+  AllowedMethods: string[];
+  AllowedHeaders: string[];
+}
+
+const r2CorsRules = JSON.parse(
+  await readFile(new URL('../../../cloudflare/r2-cors.remote-share.json', import.meta.url), 'utf8'),
+) as R2CorsRule[];
+
+function directPutCorsRule(): R2CorsRule | undefined {
+  return r2CorsRules.find((rule) =>
+    rule.AllowedMethods.some((method) => method.toUpperCase() === 'PUT'),
+  );
+}
 
 function base64UrlEncode(value: Uint8Array): string {
   let binary = '';
@@ -45,6 +64,73 @@ async function createCapabilityToken(scopes = ['remote-share']): Promise<string>
   return `${payloadPart}.${signature}`;
 }
 
+async function solveProofOfWork(challenge: string, difficulty: number): Promise<string> {
+  const encoder = new TextEncoder();
+  for (let solution = 0; solution < 10_000_000; solution += 1) {
+    const bytes = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', encoder.encode(`mxqr-pow-v1:${challenge}:${solution}`)),
+    );
+    let remaining = difficulty;
+    let valid = true;
+    for (const byte of bytes) {
+      if (remaining <= 0) break;
+      const bits = Math.min(8, remaining);
+      if ((byte & (0xff << (8 - bits))) !== 0) {
+        valid = false;
+        break;
+      }
+      remaining -= bits;
+    }
+    if (valid && remaining <= 0) return String(solution);
+  }
+  throw new Error('test proof-of-work solution not found');
+}
+
+async function createPoWCapabilityToken(scopes = ['remote-share']): Promise<string> {
+  const appEnv = {
+    MXQR_CAPABILITY_SECRET: CAPABILITY_SECRET,
+    MXQR_TURNSTILE_DISABLED: 'true',
+    MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+  };
+  const challengeResponse = await appWorker.fetch(
+    new Request('https://musixquare.com/api/capability-challenge', {
+      method: 'POST',
+      headers: {
+        origin: ORIGIN,
+        'content-type': 'application/json',
+        'cf-connecting-ip': CLIENT_IP,
+      },
+      body: JSON.stringify({ scopes }),
+    }),
+    appEnv,
+  );
+  const challenge = (await challengeResponse.json()) as {
+    challenge: string;
+    difficulty: number;
+  };
+  expect(challengeResponse.status).toBe(200);
+  const solution = await solveProofOfWork(challenge.challenge, challenge.difficulty);
+  const tokenResponse = await appWorker.fetch(
+    new Request('https://musixquare.com/api/capability-token', {
+      method: 'POST',
+      headers: {
+        origin: ORIGIN,
+        'content-type': 'application/json',
+        'cf-connecting-ip': CLIENT_IP,
+      },
+      body: JSON.stringify({
+        scopes,
+        proofOfWork: { challenge: challenge.challenge, solution },
+      }),
+    }),
+    appEnv,
+  );
+  const payload = (await tokenResponse.json()) as { token?: string };
+  expect(tokenResponse.status).toBe(200);
+  expect(payload.token).toMatch(/\./);
+  return payload.token!;
+}
+
 function env(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     REMOTE_SHARE_SIGNING_SECRET: SIGNING_SECRET,
@@ -61,11 +147,65 @@ function request(path: string, init: RequestInit = {}): Request {
   });
 }
 
+function directUploadEnv(extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return env({
+    MXQR_CAPABILITY_SECRET: CAPABILITY_SECRET,
+    R2_ACCOUNT_ID: 'test-account',
+    R2_ACCESS_KEY_ID: 'test-access-key',
+    R2_SECRET_ACCESS_KEY: 'test-secret-access-key',
+    R2_BUCKET_NAME: 'test-bucket',
+    ...extra,
+  });
+}
+
+function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    roomId: '123456',
+    sessionId: 7,
+    index: 0,
+    name: 'song.wav',
+    mime: 'audio/wav',
+    size: 4,
+    encryptedSize: 20,
+    ...overrides,
+  });
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe('remote-share Worker capability gate', () => {
+  it('keeps checked-in R2 CORS aligned with every Worker production origin range', async () => {
+    const corsRule = directPutCorsRule();
+    expect(corsRule).toBeDefined();
+
+    const originContract = [
+      ['https://musixquare.com', 'https://musixquare.com'],
+      ['https://www.musixquare.com', 'https://www.musixquare.com'],
+      ['https://tossmini.com', 'https://tossmini.com'],
+      ['https://*.tossmini.com', 'https://music.tossmini.com'],
+      ['https://toss.im', 'https://toss.im'],
+      ['https://*.toss.im', 'https://music.toss.im'],
+      ['https://toss-internal.com', 'https://toss-internal.com'],
+      ['https://*.toss-internal.com', 'https://music.toss-internal.com'],
+    ] as const;
+
+    for (const [corsOrigin, requestOrigin] of originContract) {
+      expect(corsRule!.AllowedOrigins).toContain(corsOrigin);
+
+      const response = await workerModule.default.fetch(
+        new Request('https://share.musixquare.com/session', {
+          method: 'OPTIONS',
+          headers: { origin: requestOrigin },
+        }),
+        env(),
+      );
+      expect(response.status).toBe(204);
+      expect(response.headers.get('access-control-allow-origin')).toBe(requestOrigin);
+    }
+  });
+
   it('reports whether session capability is required', async () => {
     const response = await workerModule.default.fetch(
       request('/security-config'),
@@ -132,6 +272,321 @@ describe('remote-share Worker capability gate', () => {
     expect(await response.json()).toEqual({ error: 'invalid json' });
   });
 
+  it('keeps direct R2 session creation operational with Turnstile disabled PoW', async () => {
+    const token = await createPoWCapabilityToken();
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      directUploadEnv(),
+    );
+    const payload = (await response.json()) as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(payload).not.toHaveProperty('token');
+    expect(payload).toMatchObject({
+      objectId: expect.any(String),
+      uploadUrl: expect.stringContaining('.r2.cloudflarestorage.com/'),
+      completeToken: expect.any(String),
+      downloadUrl: expect.stringContaining('/download/123456/'),
+    });
+    expect(payload.uploadHeaders).toMatchObject({
+      'x-amz-meta-size-bytes': '4',
+      'x-amz-meta-encrypted-size': '20',
+      'x-amz-meta-room-id': '123456',
+      'x-amz-meta-object-id': payload.objectId,
+    });
+    expect(payload.uploadHeaders).not.toHaveProperty('content-length');
+    const uploadHeaders = payload.uploadHeaders as Record<string, string>;
+    const uploadHeaderNames = Object.keys(uploadHeaders).map((header) => header.toLowerCase());
+    const requiredUploadHeaders = [
+      'content-type',
+      'x-amz-meta-cleanup-token',
+      'x-amz-meta-encrypted-size',
+      'x-amz-meta-expires-at',
+      'x-amz-meta-mime',
+      'x-amz-meta-name',
+      'x-amz-meta-object-id',
+      'x-amz-meta-room-id',
+      'x-amz-meta-size-bytes',
+    ];
+    expect(uploadHeaderNames.sort()).toEqual(requiredUploadHeaders.sort());
+
+    const corsRule = directPutCorsRule();
+    expect(corsRule).toBeDefined();
+    const corsAllowedHeaders = new Set(
+      corsRule!.AllowedHeaders.map((header) => header.toLowerCase()),
+    );
+    for (const header of uploadHeaderNames) expect(corsAllowedHeaders.has(header)).toBe(true);
+
+    const signedHeaders = new Set(
+      new URL(payload.uploadUrl as string).searchParams
+        .get('X-Amz-SignedHeaders')
+        ?.split(';')
+        .map((header) => header.toLowerCase()) ?? [],
+    );
+    for (const header of [...uploadHeaderNames, 'content-length']) {
+      expect(signedHeaders.has(header)).toBe(true);
+    }
+  });
+
+  it('enforces positive plaintext and exact AES-GCM ciphertext sizes at /session', async () => {
+    const token = await createCapabilityToken();
+    for (const body of [
+      sessionRequestBody({ size: 0, encryptedSize: 16 }),
+      sessionRequestBody({ size: 4, encryptedSize: 19 }),
+      sessionRequestBody({ size: 200 * 1024 * 1024 + 1, encryptedSize: 200 * 1024 * 1024 + 17 }),
+    ]) {
+      const response = await workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+          },
+          body,
+        }),
+        directUploadEnv(),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'invalid upload session request' });
+    }
+  });
+
+  it('accepts the exact 200 MiB plaintext boundary without widening it', async () => {
+    const token = await createCapabilityToken();
+    const maxBytes = 200 * 1024 * 1024;
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody({ size: maxBytes, encryptedSize: maxBytes + 16 }),
+      }),
+      directUploadEnv(),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('completes only when the R2 object metadata matches the signed session', async () => {
+    const token = await createCapabilityToken();
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      directUploadEnv(),
+    );
+    const session = (await sessionResponse.json()) as {
+      objectId: string;
+      expiresAt: number;
+      cleanupToken: string;
+      completeToken: string;
+    };
+    const bucket = {
+      head: vi.fn(async () => ({
+        size: 20,
+        customMetadata: {
+          roomId: '123456',
+          objectId: session.objectId,
+          sizeBytes: '4',
+          encryptedSize: '20',
+          expiresAt: String(session.expiresAt),
+          cleanupToken: session.cleanupToken,
+        },
+      })),
+      delete: vi.fn(async () => undefined),
+    };
+    const complete = await workerModule.default.fetch(
+      request('/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId: '123456',
+          objectId: session.objectId,
+          completeToken: session.completeToken,
+        }),
+      }),
+      directUploadEnv({ REMOTE_SHARE_BUCKET: bucket }),
+    );
+
+    expect(complete.status).toBe(200);
+    expect(bucket.delete).not.toHaveBeenCalled();
+  });
+
+  it('keeps completion valid past the PUT start window but never past object expiry', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-07-11T00:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    const token = await createCapabilityToken();
+    const workerEnv = directUploadEnv({
+      UPLOAD_TOKEN_TTL_SECONDS: '600',
+      OBJECT_TTL_SECONDS: '3600',
+    });
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    const session = (await sessionResponse.json()) as {
+      uploadUrl: string;
+      uploadUrlExpiresAt: number;
+      completeToken: string;
+      objectId: string;
+      expiresAt: number;
+      cleanupToken: string;
+    };
+    const startedAtMs = startedAt.getTime();
+    expect(sessionResponse.status).toBe(200);
+    expect(new URL(session.uploadUrl).searchParams.get('X-Amz-Expires')).toBe('600');
+    expect(session.uploadUrlExpiresAt).toBe(startedAtMs + 10 * 60_000);
+    expect(session.expiresAt).toBe(startedAtMs + 60 * 60_000);
+
+    const bucket = {
+      head: vi.fn(async () => ({
+        size: 20,
+        customMetadata: {
+          roomId: '123456',
+          objectId: session.objectId,
+          sizeBytes: '4',
+          encryptedSize: '20',
+          expiresAt: String(session.expiresAt),
+          cleanupToken: session.cleanupToken,
+        },
+      })),
+      delete: vi.fn(async () => undefined),
+    };
+    const completeRequest = (): Request =>
+      request('/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId: '123456',
+          objectId: session.objectId,
+          completeToken: session.completeToken,
+        }),
+      });
+
+    // The PUT began while its URL was valid and progressed for eleven minutes.
+    vi.setSystemTime(startedAtMs + 11 * 60_000);
+    const completed = await workerModule.default.fetch(
+      completeRequest(),
+      directUploadEnv({ ...workerEnv, REMOTE_SHARE_BUCKET: bucket }),
+    );
+    expect(completed.status).toBe(200);
+    expect(await completed.json()).toMatchObject({
+      objectId: session.objectId,
+      expiresAt: startedAtMs + 60 * 60_000,
+    });
+
+    // Completion authority ends with the original object lifetime; completing
+    // once does not slide the expiry forward from completion time.
+    vi.setSystemTime(startedAtMs + 60 * 60_000 + 1);
+    const expired = await workerModule.default.fetch(
+      completeRequest(),
+      directUploadEnv({ ...workerEnv, REMOTE_SHARE_BUCKET: bucket }),
+    );
+    expect(expired.status).toBe(403);
+    expect(await expired.json()).toEqual({ error: 'invalid upload completion' });
+    expect(bucket.head).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects completion when object expiry passes while awaiting R2 HEAD', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-07-11T00:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    const token = await createCapabilityToken();
+    const workerEnv = directUploadEnv({ OBJECT_TTL_SECONDS: '1' });
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    const session = (await sessionResponse.json()) as {
+      completeToken: string;
+      objectId: string;
+      expiresAt: number;
+      cleanupToken: string;
+    };
+    expect(sessionResponse.status).toBe(200);
+
+    vi.setSystemTime(startedAt.getTime() + 500);
+    const bucket = {
+      head: vi.fn(async () => {
+        vi.setSystemTime(startedAt.getTime() + 1_001);
+        return {
+          size: 20,
+          customMetadata: {
+            roomId: '123456',
+            objectId: session.objectId,
+            sizeBytes: '4',
+            encryptedSize: '20',
+            expiresAt: String(session.expiresAt),
+            cleanupToken: session.cleanupToken,
+          },
+        };
+      }),
+      delete: vi.fn(async () => undefined),
+    };
+
+    const response = await workerModule.default.fetch(
+      request('/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId: '123456',
+          objectId: session.objectId,
+          completeToken: session.completeToken,
+        }),
+      }),
+      directUploadEnv({ ...workerEnv, REMOTE_SHARE_BUCKET: bucket }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'expired' });
+    expect(bucket.delete).toHaveBeenCalledOnce();
+  });
+
+  it('removes the legacy same-Worker proxy upload route', async () => {
+    const response = await workerModule.default.fetch(
+      request('/upload', { method: 'POST', body: new Uint8Array([1, 2, 3]) }),
+      env(),
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'not found' });
+  });
+
   it('rejects oversized session JSON after capability verification', async () => {
     const token = await createCapabilityToken();
     const response = await workerModule.default.fetch(
@@ -163,5 +618,53 @@ describe('remote-share Worker capability gate', () => {
 
     expect(response.status).toBe(413);
     expect(await response.json()).toEqual({ error: 'request body too large' });
+  });
+
+  it('rejects stored objects without exact modern size and object metadata', async () => {
+    const objectId = '00000000-0000-4000-8000-000000000001';
+    const deleteObject = vi.fn(async () => undefined);
+    const bucket = {
+      get: vi.fn(async () => ({
+        size: 20,
+        body: new Uint8Array(20),
+        customMetadata: { expiresAt: String(Date.now() + 60_000) },
+      })),
+      delete: deleteObject,
+    };
+    const response = await workerModule.default.fetch(
+      request(`/download/123456/${objectId}`),
+      env({ REMOTE_SHARE_BUCKET: bucket }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'invalid stored object' });
+    expect(deleteObject).toHaveBeenCalledWith(`room/123456/${objectId}`);
+  });
+
+  it('serves a stored object only when object, plaintext, and ciphertext metadata agree', async () => {
+    const objectId = '00000000-0000-4000-8000-000000000001';
+    const bucket = {
+      get: vi.fn(async () => ({
+        size: 20,
+        body: new Uint8Array(20),
+        customMetadata: {
+          roomId: '123456',
+          objectId,
+          sizeBytes: '4',
+          encryptedSize: '20',
+          expiresAt: String(Date.now() + 60_000),
+        },
+      })),
+      delete: vi.fn(async () => undefined),
+    };
+    const response = await workerModule.default.fetch(
+      request(`/download/123456/${objectId}`),
+      env({ REMOTE_SHARE_BUCKET: bucket }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-length')).toBe('20');
+    expect((await response.arrayBuffer()).byteLength).toBe(20);
+    expect(bucket.delete).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,12 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE } from '../core/constants.ts';
+import {
+  MSG,
+  CHUNK_SIZE,
+  REMOTE_SHARE_AES_GCM_TAG_BYTES,
+  REMOTE_SHARE_MAX_BYTES,
+} from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import type { AnyProtocolMsg, DataConnection, ProtocolMsg } from '../types/index.ts';
 
@@ -44,15 +49,27 @@ const isArrayBufferLike = (v: unknown): boolean =>
     typeof v === 'object' &&
     Object.prototype.toString.call(v) === '[object ArrayBuffer]');
 
+const REMOTE_OBJECT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 // Tight numeric validator — rejects NaN, Infinity, -Infinity, and out-of-range
 // values. Without this, Number(undefined) → NaN silently passes typeof===number,
 // and a malicious peer could send index=Infinity to explode a reorder buffer Map.
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isNonNegInt = (v: unknown): v is number => isFiniteNumber(v) && v >= 0 && Number.isInteger(v);
+const isNonNegSafeInt = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+const isPositiveSafeInt = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 
 // Max 200,000 chunks ≈ 12.2 GiB at 64 KiB/chunk; prevents an unbounded total.
 const MAX_FILE_TOTAL = 200_000;
-const MAX_REMOTE_SHARE_BYTES = 300 * 1024 * 1024;
+
+const hasExactFileSizeContract = (d: Record<string, unknown>): boolean =>
+  isPositiveSafeInt(d.size) &&
+  isPositiveSafeInt(d.total) &&
+  (d.total as number) <= MAX_FILE_TOTAL &&
+  (d.total as number) === Math.ceil((d.size as number) / CHUNK_SIZE);
 
 // Per-chunk byte cap. Host always sends exactly CHUNK_SIZE (or smaller for
 // the tail chunk via file.slice()), so anything larger is a malformed or
@@ -115,34 +132,42 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.VOLUME]: (d) =>
     isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
   [MSG.FILE_CHUNK]: (d) =>
-    isBoundedChunk(d.chunk) && isNonNegInt(d.index) && isFiniteNumber(d.sessionId),
-  // sessionId must be a finite number — without this guard, a malicious peer
-  // can send sessionId=Infinity to poison transfer.localSessionId, after which
+    isBoundedChunk(d.chunk) &&
+    isNonNegInt(d.index) &&
+    isPositiveSafeInt(d.sessionId) &&
+    typeof d.name === 'string' &&
+    d.name.length > 0 &&
+    hasExactFileSizeContract(d),
+  // sessionId must be a positive safe integer. Finite-but-unsafe or fractional
+  // values can poison transfer.localSessionId just like Infinity, after which
   // the localSid<incomingSid guards in transfer-receive.ts reject
   // every legitimate inbound transfer until session leave. This keeps
   // FILE_START aligned with FILE_RESUME.
   [MSG.FILE_START]: (d) =>
     typeof d.name === 'string' &&
-    isFiniteNumber(d.sessionId) &&
-    isNonNegInt(d.total) &&
-    (d.total as number) <= MAX_FILE_TOTAL,
-  [MSG.FILE_END]: (d) => typeof d.name === 'string',
-  [MSG.PRELOAD_CHUNK]: (d) => isBoundedChunk(d.chunk) && isNonNegInt(d.index),
-  // sessionId finiteness brings PRELOAD_START to FILE_START parity: a
-  // forged Infinity/NaN sid otherwise keys the handler's per-session reorder and
-  // sessionState maps. PRELOAD_CHUNK stays sessionId-optional here (it falls back
-  // to the latest preload session — pinned by the rate-limit test), so its sink
-  // is hardened instead inside handlePreloadChunk.
+    d.name.length > 0 &&
+    isPositiveSafeInt(d.sessionId) &&
+    (d.index === undefined || isNonNegSafeInt(d.index)) &&
+    hasExactFileSizeContract(d),
+  [MSG.FILE_END]: (d) => typeof d.name === 'string' && isPositiveSafeInt(d.sessionId),
+  [MSG.PRELOAD_CHUNK]: (d) =>
+    isBoundedChunk(d.chunk) && isNonNegInt(d.index) && isPositiveSafeInt(d.sessionId),
+  [MSG.PRELOAD_END]: (d) =>
+    typeof d.name === 'string' && isNonNegSafeInt(d.index) && isPositiveSafeInt(d.sessionId),
+  // Every preload data/control frame carries the same positive safe sessionId.
+  // Missing/fractional/unsafe IDs are rejected before they can key reorder or
+  // sessionState maps; there is no latest-session fallback.
   [MSG.PRELOAD_START]: (d) =>
     typeof d.name === 'string' &&
-    isFiniteNumber(d.sessionId) &&
-    isNonNegInt(d.total) &&
-    (d.total as number) <= MAX_FILE_TOTAL,
+    d.name.length > 0 &&
+    isPositiveSafeInt(d.sessionId) &&
+    isNonNegSafeInt(d.index) &&
+    hasExactFileSizeContract(d),
   // sessionId required — handler uses it to scope sessionState/reorder/storage
   // cleanup. Without the guard, an injected abort with no sid would no-op
   // through every guard in handlePreloadAbort but still consume rate-limit
   // budget. Mirrors PRELOAD_END's name-required style.
-  [MSG.PRELOAD_ABORT]: (d) => isFiniteNumber(d.sessionId),
+  [MSG.PRELOAD_ABORT]: (d) => isPositiveSafeInt(d.sessionId),
   [MSG.WELCOME]: (d) => typeof d.label === 'string',
   [MSG.EQ_UPDATE]: (d) =>
     isFiniteNumber(d.band) &&
@@ -201,39 +226,52 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   // File transfer — validate session IDs and indices
   [MSG.FILE_PREPARE]: (d) =>
     (d.name === undefined || typeof d.name === 'string') &&
-    (d.index === undefined || isNonNegInt(d.index)) &&
-    (d.sessionId === undefined || isFiniteNumber(d.sessionId)),
+    (d.index === undefined || isNonNegSafeInt(d.index)) &&
+    (d.sessionId === undefined || isPositiveSafeInt(d.sessionId)),
   [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>
     typeof d.name === 'string' &&
-    isNonNegInt(d.index) &&
-    isFiniteNumber(d.sessionId) &&
+    isNonNegSafeInt(d.index) &&
+    isPositiveSafeInt(d.sessionId) &&
     (d.limited === undefined || typeof d.limited === 'boolean'),
   [MSG.REMOTE_FILE_SHARE]: (d) =>
     typeof d.roomId === 'string' &&
+    d.roomId.length > 0 &&
     d.roomId.length <= 80 &&
     typeof d.objectId === 'string' &&
-    d.objectId.length <= 160 &&
-    (d.downloadUrl === undefined || typeof d.downloadUrl === 'string') &&
+    REMOTE_OBJECT_ID_RE.test(d.objectId) &&
+    (d.downloadUrl === undefined ||
+      (typeof d.downloadUrl === 'string' &&
+        d.downloadUrl.length > 0 &&
+        d.downloadUrl.length <= 2048)) &&
     typeof d.keyB64 === 'string' &&
     d.keyB64.length <= 128 &&
     typeof d.ivB64 === 'string' &&
     d.ivB64.length <= 64 &&
     typeof d.name === 'string' &&
+    d.name.length > 0 &&
     typeof d.mime === 'string' &&
-    isNonNegInt(d.index) &&
-    isFiniteNumber(d.sessionId) &&
-    isFiniteNumber(d.size) &&
-    (d.size as number) <= MAX_REMOTE_SHARE_BYTES &&
-    isFiniteNumber(d.encryptedSize) &&
-    (d.encryptedSize as number) <= MAX_REMOTE_SHARE_BYTES + 4096 &&
-    isFiniteNumber(d.expiresAt),
+    isNonNegSafeInt(d.index) &&
+    isPositiveSafeInt(d.sessionId) &&
+    Number.isSafeInteger(d.size) &&
+    (d.size as number) > 0 &&
+    (d.size as number) <= REMOTE_SHARE_MAX_BYTES &&
+    Number.isSafeInteger(d.encryptedSize) &&
+    (d.encryptedSize as number) === (d.size as number) + REMOTE_SHARE_AES_GCM_TAG_BYTES &&
+    isFiniteNumber(d.expiresAt) &&
+    d.preload === undefined,
   // Without `name`, a malicious peer can send file-resume with no name to
   // poison the host's transfer.localSessionId (the transfer-receive handler
   // bumps it from any incoming sessionId), blocking subsequent legitimate inbound
   // transfers via the localSid guards in transfer-receive.ts.
   // FILE_START (above) already requires `name` — this brings FILE_RESUME to parity.
   [MSG.FILE_RESUME]: (d) =>
-    typeof d.name === 'string' && isFiniteNumber(d.sessionId) && isNonNegInt(d.startChunk),
+    typeof d.name === 'string' &&
+    d.name.length > 0 &&
+    isPositiveSafeInt(d.sessionId) &&
+    (d.index === undefined || isNonNegSafeInt(d.index)) &&
+    hasExactFileSizeContract(d) &&
+    isNonNegInt(d.startChunk) &&
+    (d.startChunk as number) < (d.total as number),
   // Validate the guest-to-host recovery request before its indices reach
   // transfer math.
   // nextChunk feeds the host's startChunk math and must be a sane index;
@@ -246,7 +284,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   // kill real recovery, so only non-finite poison is dropped.
   [MSG.REQUEST_DATA_RECOVERY]: (d) =>
     (d.nextChunk === undefined || isNonNegInt(d.nextChunk)) &&
-    (d.sessionId === undefined || isFiniteNumber(d.sessionId)) &&
+    (d.sessionId === undefined || isPositiveSafeInt(d.sessionId)) &&
     (d.fileName === undefined || typeof d.fileName === 'string') &&
     (d.name === undefined || typeof d.name === 'string') &&
     (d.index === undefined || isFiniteNumber(d.index)),

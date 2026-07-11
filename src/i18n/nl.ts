@@ -510,7 +510,6 @@ const nl: Record<I18nKey, string> = {
   'error.load_failed': 'Laden mislukt: {{msg}}',
   'error.audio_decode_fail': 'Audio decoderen mislukt!',
   'error.audio_memory': 'Audio in geheugen laden...',
-  'error.decode_timeout': 'Decoderen van "{{name}}" duurde te lang.\nNaar volgend nummer.',
   'error.local_decode_wait':
     'Dit apparaat kon het nummer niet decoderen.\nWacht op het volgende nummer.',
   'error.all_tracks_failed': 'Geen afspeelbare nummers in de afspeellijst.',

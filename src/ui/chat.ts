@@ -227,8 +227,7 @@ function initChatSwipeToDismiss(): void {
       setChatDrawerStretch(drawer, baseDrawerHeight, 0);
     } else {
       deltaY = 0;
-      const pullPx =
-        CHAT_DRAWER_PULL_MAX * (1 - Math.exp(rawDeltaY / CHAT_DRAWER_PULL_RESISTANCE));
+      const pullPx = CHAT_DRAWER_PULL_MAX * (1 - Math.exp(rawDeltaY / CHAT_DRAWER_PULL_RESISTANCE));
       setChatDrawerStretch(drawer, baseDrawerHeight, pullPx);
     }
     drawer.style.transform = `translateY(${deltaY}px)`;
@@ -299,7 +298,10 @@ function canScrollVertically(el: HTMLElement): boolean {
   return el.scrollHeight > el.clientHeight + 1;
 }
 
-function getScrollableChatElement(target: EventTarget | null, drawer: HTMLElement): HTMLElement | null {
+function getScrollableChatElement(
+  target: EventTarget | null,
+  drawer: HTMLElement,
+): HTMLElement | null {
   if (!(target instanceof Element)) return null;
 
   let el: HTMLElement | null = target instanceof HTMLElement ? target : target.parentElement;

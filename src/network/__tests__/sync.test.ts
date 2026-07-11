@@ -383,7 +383,14 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1050);
 
     await handleData(
-      { type: MSG.SYNC_PONG, pingId: 88, hostTime: 1050, position: 30, mode: 'file', activity: 'playing' },
+      {
+        type: MSG.SYNC_PONG,
+        pingId: 88,
+        hostTime: 1050,
+        position: 30,
+        mode: 'file',
+        activity: 'playing',
+      },
       hostConn,
     );
 
@@ -407,7 +414,14 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1050);
 
     await handleData(
-      { type: MSG.SYNC_PONG, pingId: 89, hostTime: 1050, position: 30, mode: 'file', activity: 'playing' },
+      {
+        type: MSG.SYNC_PONG,
+        pingId: 89,
+        hostTime: 1050,
+        position: 30,
+        mode: 'file',
+        activity: 'playing',
+      },
       hostConn,
     );
 

@@ -197,9 +197,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     // Track 0 load finishes → the queued index must re-dispatch a load of 1.
     FakeXHR.pending[0].resolveOk();
     await flush(50);
-    const followUp = FakeXHR.pending.find(
-      (x, i) => i > 0 && x.onload !== null,
-    );
+    const followUp = FakeXHR.pending.find((x, i) => i > 0 && x.onload !== null);
     expect(followUp).toBeDefined();
     followUp!.resolveOk();
     await flush(50);

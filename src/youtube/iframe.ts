@@ -525,7 +525,6 @@ export function loadYouTubeVideo(
     clearManagedTimer('yt-seek-play');
     clearManagedTimer('yt-auto-sync');
     resetYouTubeSyncState();
-
   } else {
     // Guard: destroy previous player to prevent concurrent player instances
     if (isYtLoadInProgress() && player) {

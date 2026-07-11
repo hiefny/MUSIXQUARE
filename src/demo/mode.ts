@@ -6,11 +6,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { MSG } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { loadDemoFile } from '../player/decode.ts';
-import {
-  getCurrentAudioBuffer,
-  newLoadEpoch,
-  setCurrentAudioBuffer,
-} from '../player/_state.ts';
+import { getCurrentAudioBuffer, newLoadEpoch, setCurrentAudioBuffer } from '../player/_state.ts';
 import {
   getPlaybackModeActivitySnapshot,
   setPlaybackFilePaused,
@@ -1262,8 +1258,8 @@ function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnect
   };
 
   if (!getState('demo.active') || _demoTrackIndex !== index || !getCurrentAudioBuffer()) {
-    void enterDemoMode({ index, autoplay: false, broadcastEntry: false }).catch(
-      (error: unknown) => log.warn('[Demo] Guest demo play-enter failed:', error),
+    void enterDemoMode({ index, autoplay: false, broadcastEntry: false }).catch((error: unknown) =>
+      log.warn('[Demo] Guest demo play-enter failed:', error),
     );
     return;
   }

@@ -233,6 +233,7 @@ export interface HostPeerPlaybackAssetPublication {
 export interface HostPeerPlaybackPublication {
   readonly schemaVersion: 1;
   readonly roomGeneration: number;
+  readonly backend: FilePlaybackBackend;
   readonly state: Readonly<PlaybackStateIdentity>;
   readonly timeline: PlaybackTimelineSnapshot;
   readonly asset: Readonly<HostPeerPlaybackAssetPublication>;
@@ -1134,6 +1135,11 @@ export class FilePlaybackHostFirstFileEngine {
       const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
       const run = timeline.run;
       if (!run || timeline.phase === 'stopped') return null;
+      const port = this.#committedPort;
+      const renderer = port
+        ? Reflect.apply(trustedManagerCurrentSnapshot, this.#manager, [port])
+        : null;
+      if (!renderer || renderer.phase !== timeline.phase) return null;
       const admitted = this.#assets.get(run.queueItemId);
       if (!admitted) return null;
       const asset = this.#registry.snapshotForLease(this.#roomToken, admitted.lease);
@@ -1163,6 +1169,7 @@ export class FilePlaybackHostFirstFileEngine {
       const publication = freezeCanonical({
         schemaVersion: 1 as const,
         roomGeneration: this.#roomGeneration,
+        backend: renderer.backend,
         state,
         timeline,
         asset: freezeCanonical({
@@ -2335,6 +2342,7 @@ export class FilePlaybackHostFirstFileEngine {
       controller.timeline !== timeline ||
       timeline !== authority.timeline ||
       authority.publication.roomGeneration !== this.#roomGeneration ||
+      authority.publication.backend !== renderer?.backend ||
       authority.publication.timeline !== timeline ||
       authority.publication.state !== authority.state ||
       timeline.phase === 'stopped' ||

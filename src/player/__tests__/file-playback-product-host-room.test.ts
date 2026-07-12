@@ -724,6 +724,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     const publication = freezeCanonical({
       schemaVersion: 1 as const,
       roomGeneration: started.roomGeneration,
+      backend: started.backend,
       state: freezeCanonical({
         queueItemId: started.attempt.queueItemId,
         runId: started.attempt.runId,

@@ -21,6 +21,7 @@ import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import {
   FilePlaybackApplicationController,
+  type FilePlaybackHostStartedPlaybackCommitInput,
   type FilePlaybackApplicationControllerOptions,
 } from '../file-playback-application-controller.ts';
 import {
@@ -31,6 +32,7 @@ import {
   type FilePlaybackProductReadyV2,
 } from '../file-playback-product-baseline.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
+import { createAudioBufferPlaybackStartEvidence } from '../file-playback-source.ts';
 import { createPlaybackRunIdentity } from '../playback-identity.ts';
 import {
   createStoppedPlaybackTimeline,
@@ -224,6 +226,34 @@ function controller(
     ...(options.onHostReady ? { onHostReady: options.onHostReady } : {}),
     ...(options.onTimelineAdopted ? { onTimelineAdopted: options.onTimelineAdopted } : {}),
   });
+}
+
+function hostStartedCommit(
+  room: FilePlaybackApplicationController,
+  overrides: Partial<FilePlaybackHostStartedPlaybackCommitInput> = {},
+): FilePlaybackHostStartedPlaybackCommitInput {
+  const snapshot = room.snapshot();
+  const startAtRoomTimeMs = snapshot.timeline.anchorMonotonicMs + 450;
+  return {
+    roomGeneration: snapshot.roomGeneration,
+    expectedPreviousRevision: snapshot.timeline.revision,
+    attempt: Object.freeze({
+      queueItemId: QUEUE_ID,
+      runId: RUN_ID,
+      revision: snapshot.timeline.revision + 1,
+      rendezvousId: `controller-rendezvous-${++sequence}`,
+    }),
+    schedule: Object.freeze({
+      positionSeconds: 7.25,
+      playbackRate: 1.25,
+      createdAtRoomTimeMs: snapshot.timeline.anchorMonotonicMs,
+      leadTimeMs: 450,
+      finalizeByRoomTimeMs: startAtRoomTimeMs - 100,
+      startAtRoomTimeMs,
+    }),
+    startEvidence: createAudioBufferPlaybackStartEvidence(96_000),
+    ...overrides,
+  };
 }
 
 describe('FilePlaybackApplicationController', () => {
@@ -752,6 +782,290 @@ describe('FilePlaybackApplicationController', () => {
       expect(closeConnection).toHaveBeenCalledOnce();
       expect(guest.connectionSnapshot(pair.guestConnection)).toBeNull();
     }
+  });
+
+  it('claims one room role idempotently and resets the claim only through beginRoom', () => {
+    const room = controller();
+    expect(room.snapshot().roomRole).toBeNull();
+
+    const first = room.claimRoomRole('host');
+    expect(first.roomRole).toBe('host');
+    expect(room.claimRoomRole('host').roomRole).toBe('host');
+    expect(() => room.claimRoomRole('guest')).toThrow(/cannot change/u);
+    expect(room.snapshot()).toMatchObject({ roomGeneration: 1, roomRole: 'host' });
+
+    const reset = room.beginRoom(createStoppedPlaybackTimeline(5_000, 0));
+    expect(reset).toMatchObject({ roomGeneration: 2, roomRole: null });
+    expect(room.claimRoomRole('guest').roomRole).toBe('guest');
+
+    const pair = channelPair();
+    room
+      .applicationSessionHooks()
+      .onLifecycleEvent(lifecycle('established', 'guest', pair.guestConnection, pair.guest));
+    expect(() => room.claimRoomRole('host')).toThrow(/conflicts|cannot change/u);
+    expect(room.snapshot().roomRole).toBe('guest');
+    expect(room.connectionSnapshot(pair.guestConnection)?.role).toBe('guest');
+    expect(() => room.claimRoomRole('invalid' as 'host')).toThrow(/role is invalid/u);
+  });
+
+  it('commits stopped revision zero only after physical start and anchors at the scheduled target', () => {
+    const sendRequired = vi.fn(() => true);
+    const hostReady = vi.fn();
+    const room = controller({ sendRequired, onHostReady: hostReady });
+    room.claimRoomRole('host');
+    const input = hostStartedCommit(room);
+    const beforeEvidence = room.timelineSnapshot();
+
+    expect(beforeEvidence).toMatchObject({ revision: 0, phase: 'stopped' });
+    const result = room.commitHostStartedPlayback(input);
+
+    expect(result.previous).toBe(beforeEvidence);
+    expect(result).toMatchObject({ schemaVersion: 1, roomGeneration: 1 });
+    expect(result.timeline).toMatchObject({
+      revision: 1,
+      phase: 'playing',
+      run: { queueItemId: QUEUE_ID, runId: RUN_ID },
+      positionSeconds: input.schedule.positionSeconds,
+      anchorMonotonicMs: input.schedule.startAtRoomTimeMs,
+      rate: input.schedule.playbackRate,
+    });
+    expect(room.timelineSnapshot()).toBe(result.timeline);
+    expect(sendRequired).not.toHaveBeenCalled();
+    expect(hostReady).not.toHaveBeenCalled();
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.previous)).toBe(true);
+    expect(Object.isFrozen(result.timeline)).toBe(true);
+    expect(Object.isFrozen(result.timeline.run)).toBe(true);
+    expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+    expect(JSON.stringify(result)).not.toContain('startEvidence');
+    expect(JSON.stringify(result)).not.toContain('rendezvousId');
+  });
+
+  it('advances stopped N and replacement playback through exact consecutive revisions', () => {
+    const room = controller({ initialTimeline: createStoppedPlaybackTimeline(2_000, 8) });
+    room.claimRoomRole('host');
+    const firstInput = hostStartedCommit(room);
+    const first = room.commitHostStartedPlayback(firstInput);
+    expect(first.timeline).toMatchObject({ revision: 9, phase: 'playing' });
+
+    const replacementInput = hostStartedCommit(room, {
+      attempt: Object.freeze({
+        queueItemId: OTHER_QUEUE_ID,
+        runId: OTHER_RUN_ID,
+        revision: 10,
+        rendezvousId: 'controller-replacement-rendezvous',
+      }),
+      schedule: Object.freeze({
+        ...firstInput.schedule,
+        positionSeconds: 0,
+        createdAtRoomTimeMs: first.timeline.anchorMonotonicMs,
+        finalizeByRoomTimeMs: first.timeline.anchorMonotonicMs + 350,
+        startAtRoomTimeMs: first.timeline.anchorMonotonicMs + 450,
+      }),
+      startEvidence: Object.freeze({
+        kind: 'worklet-observed',
+        targetFrame: 144_000,
+        actualStartFrame: 144_000,
+      }),
+    });
+    const replacement = room.commitHostStartedPlayback(replacementInput);
+
+    expect(replacement.previous).toBe(first.timeline);
+    expect(replacement.timeline).toMatchObject({
+      revision: 10,
+      phase: 'playing',
+      run: { queueItemId: OTHER_QUEUE_ID, runId: OTHER_RUN_ID },
+      positionSeconds: 0,
+      anchorMonotonicMs: replacementInput.schedule.startAtRoomTimeMs,
+    });
+  });
+
+  it('leaves timeline truth unchanged for wrong authority, revisions, anchors, and duplicates', () => {
+    const unchangedAfter = (
+      room: FilePlaybackApplicationController,
+      input: FilePlaybackHostStartedPlaybackCommitInput,
+      pattern: RegExp,
+    ) => {
+      const before = room.timelineSnapshot();
+      expect(() => room.commitHostStartedPlayback(input)).toThrow(pattern);
+      expect(room.timelineSnapshot()).toBe(before);
+    };
+
+    const unclaimed = controller();
+    unchangedAfter(unclaimed, hostStartedCommit(unclaimed), /host room role/u);
+
+    const guest = controller();
+    guest.claimRoomRole('guest');
+    unchangedAfter(guest, hostStartedCommit(guest), /host room role/u);
+
+    const staleRoom = controller();
+    staleRoom.claimRoomRole('host');
+    unchangedAfter(
+      staleRoom,
+      hostStartedCommit(staleRoom, { roomGeneration: 2 }),
+      /stale room generation/u,
+    );
+
+    const mismatchedPrevious = controller();
+    mismatchedPrevious.claimRoomRole('host');
+    unchangedAfter(
+      mismatchedPrevious,
+      hostStartedCommit(mismatchedPrevious, { expectedPreviousRevision: 1 }),
+      /previous revision/u,
+    );
+
+    for (const revision of [4, 5, 7]) {
+      const room = controller({ initialTimeline: createStoppedPlaybackTimeline(1_000, 5) });
+      room.claimRoomRole('host');
+      const base = hostStartedCommit(room);
+      unchangedAfter(
+        room,
+        {
+          ...base,
+          attempt: Object.freeze({ ...base.attempt, revision }),
+        },
+        /exact next revision/u,
+      );
+    }
+
+    const pastAnchor = controller();
+    pastAnchor.claimRoomRole('host');
+    const past = hostStartedCommit(pastAnchor);
+    unchangedAfter(
+      pastAnchor,
+      {
+        ...past,
+        schedule: Object.freeze({
+          ...past.schedule,
+          finalizeByRoomTimeMs: 900,
+          startAtRoomTimeMs: 900,
+        }),
+      },
+      /precedes the current timeline anchor/u,
+    );
+
+    const exhausted = controller({
+      initialTimeline: createStoppedPlaybackTimeline(1_000, Number.MAX_SAFE_INTEGER),
+    });
+    exhausted.claimRoomRole('host');
+    unchangedAfter(
+      exhausted,
+      hostStartedCommit(exhausted, {
+        attempt: Object.freeze({
+          queueItemId: QUEUE_ID,
+          runId: RUN_ID,
+          revision: Number.MAX_SAFE_INTEGER,
+          rendezvousId: 'controller-exhausted-rendezvous',
+        }),
+      }),
+      /revision was exhausted/u,
+    );
+
+    const duplicate = controller();
+    duplicate.claimRoomRole('host');
+    const duplicateInput = hostStartedCommit(duplicate);
+    const committed = duplicate.commitHostStartedPlayback(duplicateInput).timeline;
+    expect(() => duplicate.commitHostStartedPlayback(duplicateInput)).toThrow(/previous revision/u);
+    expect(duplicate.timelineSnapshot()).toBe(committed);
+  });
+
+  it('rejects noncanonical schedules and start evidence without changing the timeline', () => {
+    const invalidInputs = (
+      room: FilePlaybackApplicationController,
+    ): FilePlaybackHostStartedPlaybackCommitInput[] => {
+      const base = hostStartedCommit(room);
+      return [
+        { ...base, schedule: { ...base.schedule, playbackRate: 0 } },
+        { ...base, schedule: { ...base.schedule, positionSeconds: Number.NaN } },
+        {
+          ...base,
+          schedule: {
+            ...base.schedule,
+            finalizeByRoomTimeMs: base.schedule.startAtRoomTimeMs + 1,
+          },
+        },
+        {
+          ...base,
+          startEvidence: {
+            kind: 'worklet-observed',
+            targetFrame: 96_000,
+            actualStartFrame: 96_001,
+          },
+        },
+        {
+          ...base,
+          startEvidence: { kind: 'webaudio-schedule-passed', targetFrame: 1.5 },
+        },
+        { ...base, attempt: { ...base.attempt, extra: true } as never },
+        { ...base, schedule: { ...base.schedule, extra: true } as never },
+        { ...base, extra: true } as never,
+      ];
+    };
+
+    const room = controller();
+    room.claimRoomRole('host');
+    for (const input of invalidInputs(room)) {
+      const before = room.timelineSnapshot();
+      expect(() => room.commitHostStartedPlayback(input)).toThrow(/commit is invalid/u);
+      expect(room.timelineSnapshot()).toBe(before);
+    }
+  });
+
+  it('fences prior-generation async start results after beginRoom ABA', async () => {
+    const room = controller();
+    room.claimRoomRole('host');
+    const delayedResult = Promise.resolve(hostStartedCommit(room));
+
+    room.beginRoom(createStoppedPlaybackTimeline(10_000, 0));
+    room.claimRoomRole('host');
+    const stale = await delayedResult;
+    const before = room.timelineSnapshot();
+
+    expect(() => room.commitHostStartedPlayback(stale)).toThrow(/stale room generation/u);
+    expect(room.timelineSnapshot()).toBe(before);
+    expect(room.snapshot()).toMatchObject({ roomGeneration: 2, roomRole: 'host' });
+  });
+
+  it('does not invoke hostile accessors and rejects descriptor re-entry before timeline mutation', () => {
+    const accessorRoom = controller();
+    accessorRoom.claimRoomRole('host');
+    const base = hostStartedCommit(accessorRoom);
+    let reads = 0;
+    const hostileAttempt = {
+      get queueItemId() {
+        reads += 1;
+        return QUEUE_ID;
+      },
+      runId: RUN_ID,
+      revision: 1,
+      rendezvousId: 'controller-hostile-accessor',
+    };
+    const beforeAccessor = accessorRoom.timelineSnapshot();
+    expect(() =>
+      accessorRoom.commitHostStartedPlayback({ ...base, attempt: hostileAttempt } as never),
+    ).toThrow(/commit is invalid/u);
+    expect(reads).toBe(0);
+    expect(accessorRoom.timelineSnapshot()).toBe(beforeAccessor);
+
+    const reentrantRoom = controller();
+    reentrantRoom.claimRoomRole('host');
+    const reentrantBase = hostStartedCommit(reentrantRoom);
+    let nestedError: unknown = null;
+    const hostileInput = new Proxy(reentrantBase, {
+      ownKeys(target) {
+        try {
+          reentrantRoom.beginRoom(createStoppedPlaybackTimeline(99_000, 0));
+        } catch (error) {
+          nestedError = error;
+        }
+        return Reflect.ownKeys(target);
+      },
+    });
+    const beforeReentry = reentrantRoom.timelineSnapshot();
+    expect(() => reentrantRoom.commitHostStartedPlayback(hostileInput)).toThrow(/superseded/u);
+    expect(nestedError).toBeInstanceOf(Error);
+    expect(reentrantRoom.timelineSnapshot()).toBe(beforeReentry);
+    expect(reentrantRoom.snapshot()).toMatchObject({ roomGeneration: 1, roomRole: 'host' });
   });
 
   it('rejects accessor options without invoking them', () => {

@@ -15,9 +15,21 @@ import {
   type FilePlaybackProductBaselineSessionStatus,
 } from './file-playback-product-baseline-session.ts';
 import type { FilePlaybackProductBaselineV2 } from './file-playback-product-baseline.ts';
-import { createPlaybackRunIdentity } from './playback-identity.ts';
+import type { LocalFilePlaybackSchedule } from './file-playback-local-start-coordinator.ts';
+import {
+  createAudioBufferPlaybackStartEvidence,
+  createStreamingFlacPlaybackStartEvidence,
+  type FilePlaybackStartEvidence,
+} from './file-playback-source.ts';
+import {
+  createPlaybackRunIdentity,
+  isPlaybackRevisionWatermark,
+  readPlaybackAttemptIdentity,
+  type PlaybackAttemptIdentity,
+} from './playback-identity.ts';
 import {
   adoptPlaybackTimelineBaseline,
+  applyPlaybackTimelineIntent,
   createStoppedPlaybackTimeline,
   isPlaybackTimelineSnapshot,
   type PlaybackTimelineBaselineAdoptionResult,
@@ -64,6 +76,28 @@ const PEER_RANGE_KEYS = Object.freeze([
   'lane',
   'role',
 ] as const);
+const HOST_STARTED_COMMIT_KEYS = Object.freeze([
+  'attempt',
+  'expectedPreviousRevision',
+  'roomGeneration',
+  'schedule',
+  'startEvidence',
+] as const);
+const ATTEMPT_KEYS = Object.freeze(['queueItemId', 'rendezvousId', 'revision', 'runId'] as const);
+const LOCAL_SCHEDULE_KEYS = Object.freeze([
+  'createdAtRoomTimeMs',
+  'finalizeByRoomTimeMs',
+  'leadTimeMs',
+  'playbackRate',
+  'positionSeconds',
+  'startAtRoomTimeMs',
+] as const);
+const AUDIO_BUFFER_START_EVIDENCE_KEYS = Object.freeze(['kind', 'targetFrame'] as const);
+const STREAMING_START_EVIDENCE_KEYS = Object.freeze([
+  'actualStartFrame',
+  'kind',
+  'targetFrame',
+] as const);
 
 export interface FilePlaybackApplicationControllerOptions {
   readonly initialTimeline: PlaybackTimelineSnapshot;
@@ -104,6 +138,22 @@ export interface FilePlaybackApplicationControllerSnapshot {
   readonly timeline: PlaybackTimelineSnapshot;
   readonly activeConnectionCount: number;
   readonly connections: readonly FilePlaybackApplicationControllerConnectionSnapshot[];
+}
+
+export interface FilePlaybackHostStartedPlaybackCommitInput {
+  readonly roomGeneration: number;
+  readonly expectedPreviousRevision: number;
+  readonly attempt: Readonly<PlaybackAttemptIdentity>;
+  readonly schedule: Readonly<LocalFilePlaybackSchedule>;
+  readonly startEvidence: Readonly<FilePlaybackStartEvidence>;
+}
+
+/** Body-free result of advancing the authoritative host timeline after physical start. */
+export interface FilePlaybackHostStartedPlaybackCommit {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly previous: PlaybackTimelineSnapshot;
+  readonly timeline: PlaybackTimelineSnapshot;
 }
 
 interface ControllerRecord {
@@ -247,6 +297,99 @@ function canonicalTimeline(value: unknown): PlaybackTimelineSnapshot | null {
     rate: snapshot.rate,
   });
   return isPlaybackTimelineSnapshot(canonical) ? canonical : null;
+}
+
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function canonicalAttempt(value: unknown): Readonly<PlaybackAttemptIdentity> | null {
+  const snapshot = snapshotExactRecord(value, ATTEMPT_KEYS);
+  const attempt = snapshot ? readPlaybackAttemptIdentity(snapshot) : null;
+  return attempt
+    ? freezeCanonical({
+        queueItemId: attempt.queueItemId,
+        runId: attempt.runId,
+        revision: attempt.revision,
+        rendezvousId: attempt.rendezvousId,
+      })
+    : null;
+}
+
+function canonicalLocalSchedule(value: unknown): Readonly<LocalFilePlaybackSchedule> | null {
+  const snapshot = snapshotExactRecord(value, LOCAL_SCHEDULE_KEYS);
+  if (
+    !snapshot ||
+    !isFiniteNonNegative(snapshot.positionSeconds) ||
+    typeof snapshot.playbackRate !== 'number' ||
+    !Number.isFinite(snapshot.playbackRate) ||
+    snapshot.playbackRate <= 0 ||
+    !isFiniteNonNegative(snapshot.createdAtRoomTimeMs) ||
+    !isFiniteNonNegative(snapshot.leadTimeMs) ||
+    !isFiniteNonNegative(snapshot.finalizeByRoomTimeMs) ||
+    !isFiniteNonNegative(snapshot.startAtRoomTimeMs) ||
+    snapshot.finalizeByRoomTimeMs > snapshot.startAtRoomTimeMs
+  ) {
+    return null;
+  }
+  return freezeCanonical({
+    positionSeconds: snapshot.positionSeconds,
+    playbackRate: snapshot.playbackRate,
+    createdAtRoomTimeMs: snapshot.createdAtRoomTimeMs,
+    leadTimeMs: snapshot.leadTimeMs,
+    finalizeByRoomTimeMs: snapshot.finalizeByRoomTimeMs,
+    startAtRoomTimeMs: snapshot.startAtRoomTimeMs,
+  });
+}
+
+function canonicalStartEvidence(value: unknown): Readonly<FilePlaybackStartEvidence> | null {
+  const audioBuffer = snapshotExactRecord(value, AUDIO_BUFFER_START_EVIDENCE_KEYS);
+  if (audioBuffer?.kind === 'webaudio-schedule-passed') {
+    try {
+      return createAudioBufferPlaybackStartEvidence(audioBuffer.targetFrame as number);
+    } catch {
+      return null;
+    }
+  }
+  const streaming = snapshotExactRecord(value, STREAMING_START_EVIDENCE_KEYS);
+  if (streaming?.kind === 'worklet-observed') {
+    try {
+      return createStreamingFlacPlaybackStartEvidence(
+        streaming.targetFrame as number,
+        streaming.actualStartFrame as number,
+      );
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function canonicalHostStartedCommitInput(
+  value: unknown,
+): Readonly<FilePlaybackHostStartedPlaybackCommitInput> | null {
+  const snapshot = snapshotExactRecord(value, HOST_STARTED_COMMIT_KEYS);
+  const attempt = snapshot ? canonicalAttempt(snapshot.attempt) : null;
+  const schedule = snapshot ? canonicalLocalSchedule(snapshot.schedule) : null;
+  const startEvidence = snapshot ? canonicalStartEvidence(snapshot.startEvidence) : null;
+  if (
+    !snapshot ||
+    !Number.isSafeInteger(snapshot.roomGeneration) ||
+    (snapshot.roomGeneration as number) <= 0 ||
+    !isPlaybackRevisionWatermark(snapshot.expectedPreviousRevision) ||
+    !attempt ||
+    !schedule ||
+    !startEvidence
+  ) {
+    return null;
+  }
+  return freezeCanonical({
+    roomGeneration: snapshot.roomGeneration as number,
+    expectedPreviousRevision: snapshot.expectedPreviousRevision,
+    attempt,
+    schedule,
+    startEvidence,
+  });
 }
 
 function readLifecycle(value: unknown): Readonly<LifecycleSnapshot> | null {
@@ -422,6 +565,101 @@ export class FilePlaybackApplicationController {
       activeConnectionCount: connections.length,
       connections,
     });
+  }
+
+  /** Claims the one immutable document role for the current room generation. */
+  claimRoomRole(
+    role: FilePlaybackApplicationSessionRole,
+  ): FilePlaybackApplicationControllerSnapshot {
+    if (role !== 'host' && role !== 'guest') {
+      throw new TypeError('File playback room role is invalid');
+    }
+    try {
+      this.#mutate((authority) => {
+        if (
+          [...this.#records.values()].some(
+            (record) => this.#isRecordLive(record) && record.role !== role,
+          )
+        ) {
+          throw new Error('Application controller room role conflicts with an active record');
+        }
+        if (this.#roomRole === null) this.#roomRole = role;
+        else if (this.#roomRole !== role) {
+          throw new Error('Application controller room role cannot change within a generation');
+        }
+        this.#assertMutation(authority);
+      });
+      return this.snapshot();
+    } finally {
+      this.#flushDeferredEffects();
+    }
+  }
+
+  /**
+   * Advances host room truth only after a renderer has produced canonical
+   * physical-start evidence. This method is deliberately synchronous and
+   * neither publishes frames nor invokes application callbacks.
+   */
+  commitHostStartedPlayback(
+    value: FilePlaybackHostStartedPlaybackCommitInput,
+  ): Readonly<FilePlaybackHostStartedPlaybackCommit> {
+    try {
+      return this.#mutate((authority) => {
+        const input = canonicalHostStartedCommitInput(value);
+        this.#assertMutation(authority);
+        if (!input) throw new TypeError('Host started playback commit is invalid');
+        if (this.#roomRole !== 'host') {
+          throw new Error('Host started playback commit requires the exact host room role');
+        }
+        if (input.roomGeneration !== this.#roomGeneration) {
+          throw new Error('Host started playback commit belongs to a stale room generation');
+        }
+
+        const previous = this.#timeline;
+        if (input.expectedPreviousRevision !== previous.revision) {
+          throw new Error('Host started playback commit previous revision does not match');
+        }
+        if (previous.revision === Number.MAX_SAFE_INTEGER) {
+          throw new RangeError('Host playback timeline revision was exhausted');
+        }
+        if (input.attempt.revision !== previous.revision + 1) {
+          throw new Error('Host started playback commit must use the exact next revision');
+        }
+        if (input.schedule.startAtRoomTimeMs < previous.anchorMonotonicMs) {
+          throw new Error('Host playback start precedes the current timeline anchor');
+        }
+
+        const applied = applyPlaybackTimelineIntent(
+          previous,
+          freezeCanonical({
+            type: 'play' as const,
+            revision: input.attempt.revision,
+            run: createPlaybackRunIdentity({
+              queueItemId: input.attempt.queueItemId,
+              runId: input.attempt.runId,
+            }),
+            positionSeconds: input.schedule.positionSeconds,
+            rate: input.schedule.playbackRate,
+          }),
+          input.schedule.startAtRoomTimeMs,
+        );
+        if (!applied.applied) {
+          throw new Error(`Host playback timeline commit was rejected: ${applied.reason}`);
+        }
+        this.#assertMutation(authority);
+        this.#timeline = applied.snapshot;
+        const result = freezeCanonical({
+          schemaVersion: 1 as const,
+          roomGeneration: this.#roomGeneration,
+          previous,
+          timeline: this.#timeline,
+        });
+        this.#assertMutation(authority);
+        return result;
+      });
+    } finally {
+      this.#flushDeferredEffects();
+    }
   }
 
   beginRoom(initialTimeline: PlaybackTimelineSnapshot): FilePlaybackApplicationControllerSnapshot {

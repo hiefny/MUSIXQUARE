@@ -94,6 +94,14 @@ export type FlacDecoderEvent =
     }
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+      readonly type: 'decode-anchor-rejected';
+      readonly generation: FlacStreamGeneration;
+      /** Exact unverified SEEKTABLE candidate that failed scanner validation. */
+      readonly sourceSample: number;
+      readonly byteOffset: number;
+    }
+  | {
+      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'decoder-error';
       readonly generation: FlacStreamGeneration;
       readonly code: string;

@@ -73,6 +73,27 @@ describe('FlacSeekIndex', () => {
     expect(index.nearestBefore(19_000)).toEqual({ sourceSample: 10_000, byteOffset: 101_000 });
   });
 
+  it('removes rejected SEEKTABLE hints and lets verified points correct them', () => {
+    const rejected = new FlacSeekIndex(
+      metadata([{ sample: 20_000, streamOffset: 200_000, frameSamples: 4096 }]),
+      1_001_000,
+    );
+    expect(rejected.rejectUnverifiedCandidate(20_000, 201_000)).toBe(true);
+    expect(rejected.nearestBefore(49_999)).toEqual({ sourceSample: 0, byteOffset: 1_000 });
+    expect(rejected.rejectUnverifiedCandidate(20_000, 201_000)).toBe(false);
+
+    const corrected = new FlacSeekIndex(
+      metadata([{ sample: 20_000, streamOffset: 200_000, frameSamples: 4096 }]),
+      1_001_000,
+    );
+    expect(corrected.addVerifiedFrame(20_000, 211_000)).toBe(true);
+    expect(corrected.nearestBefore(49_999)).toEqual({
+      sourceSample: 20_000,
+      byteOffset: 211_000,
+    });
+    expect(corrected.rejectUnverifiedCandidate(20_000, 201_000)).toBe(false);
+  });
+
   it('throttles dense progressive points while force-seeded seek points survive construction', () => {
     const index = new FlacSeekIndex(metadata(), 1_001_000, { minimumSpacingSeconds: 2 });
     expect(index.addVerifiedFrame(1_000, 11_000)).toBe(false);

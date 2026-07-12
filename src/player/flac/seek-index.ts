@@ -81,6 +81,7 @@ export class FlacSeekIndex {
   private readonly minimumSpacingSamples: number;
   private readonly maxPoints: number;
   private points: FlacFrameIndexPoint[];
+  private readonly unverifiedCandidates = new Map<number, number>();
 
   constructor(
     metadata: FlacMetadata,
@@ -123,6 +124,22 @@ export class FlacSeekIndex {
 
   addVerifiedFrame(sourceSample: number, byteOffset: number): boolean {
     return this.insertVerified(sourceSample, byteOffset, false);
+  }
+
+  /**
+   * Remove the exact SEEKTABLE hint rejected by the CRC-validating scanner.
+   * Verified progressive points and the immutable origin can never be removed
+   * through this boundary.
+   */
+  rejectUnverifiedCandidate(sourceSample: number, byteOffset: number): boolean {
+    if (this.unverifiedCandidates.get(sourceSample) !== byteOffset) return false;
+    this.unverifiedCandidates.delete(sourceSample);
+    const index = this.points.findIndex(
+      (point) => point.sourceSample === sourceSample && point.byteOffset === byteOffset,
+    );
+    if (index <= 0) return false;
+    this.points.splice(index, 1);
+    return true;
   }
 
   nearestBefore(targetSourceSample: number): FlacFrameIndexPoint {
@@ -198,8 +215,22 @@ export class FlacSeekIndex {
     }
     const exact = this.points[insertion];
     if (exact?.sourceSample === sourceSample) {
-      if (exact.byteOffset !== byteOffset) return false;
-      return false;
+      const candidateOffset = this.unverifiedCandidates.get(sourceSample);
+      if (!force && candidateOffset !== undefined) {
+        this.unverifiedCandidates.delete(sourceSample);
+        if (candidateOffset === byteOffset) return true;
+        this.points.splice(insertion, 1);
+        insertion = 0;
+        while (
+          insertion < this.points.length &&
+          this.points[insertion]!.sourceSample < sourceSample
+        ) {
+          insertion += 1;
+        }
+      } else {
+        if (exact.byteOffset !== byteOffset) return false;
+        return false;
+      }
     }
 
     const previous = this.points[insertion - 1];
@@ -216,6 +247,7 @@ export class FlacSeekIndex {
     }
 
     this.points.splice(insertion, 0, immutablePoint(sourceSample, byteOffset));
+    if (force && sourceSample !== 0) this.unverifiedCandidates.set(sourceSample, byteOffset);
     this.compactIfNeeded();
     return true;
   }
@@ -227,6 +259,12 @@ export class FlacSeekIndex {
       );
       if (compacted.length === this.points.length) break;
       this.points = compacted;
+      const retained = new Map(compacted.map((point) => [point.sourceSample, point.byteOffset]));
+      for (const [sourceSample, byteOffset] of this.unverifiedCandidates) {
+        if (retained.get(sourceSample) !== byteOffset) {
+          this.unverifiedCandidates.delete(sourceSample);
+        }
+      }
     }
   }
 

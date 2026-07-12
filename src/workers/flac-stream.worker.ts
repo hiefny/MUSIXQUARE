@@ -346,6 +346,13 @@ function createFrameReader(
 
 function resetToOriginAfterUnverifiedAnchor(session: DecoderSession): void {
   const descriptor = session.descriptor;
+  postControl({
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'decode-anchor-rejected',
+    generation: session.generation,
+    sourceSample: descriptor.decodeAnchorSourceSample,
+    byteOffset: descriptor.decodeAnchorByteOffset,
+  });
   session.originFallbackUsed = true;
   session.frameReader = createFrameReader(session, descriptor.firstAudioFrameOffset);
   session.decodedInputBytes = descriptor.firstAudioFrameOffset;

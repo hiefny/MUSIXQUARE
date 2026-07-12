@@ -337,6 +337,13 @@ describe.sequential('bounded FLAC stream worker', () => {
     const pcm = await received;
     expect(pcm).toMatchObject({ type: 'pcm', frames: 2, final: true });
     expect(Array.from(new Float32Array((pcm.channels as ArrayBuffer[])[0]))).toEqual([2, 3]);
+    expect(scope.postMessage).toHaveBeenCalledWith({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decode-anchor-rejected',
+      generation: 4,
+      sourceSample: 1,
+      byteOffset: 9,
+    });
     expect(scope.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'frame-index-point', sourceSample: 0, byteOffset: 8 }),
     );

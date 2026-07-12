@@ -48,6 +48,25 @@ export default tseslint.config(
     rules: { 'no-restricted-globals': 'off' },
   },
   {
+    // AudioWorklet assets run in AudioWorkletGlobalScope rather than the DOM
+    // or the TypeScript project. Keep them linted as plain modules with only
+    // the platform globals the processor is allowed to use.
+    files: ['src/audio/worklets/**/*.js'],
+    languageOptions: {
+      parserOptions: { project: false },
+      globals: {
+        AudioWorkletProcessor: 'readonly',
+        currentFrame: 'readonly',
+        registerProcessor: 'readonly',
+        sampleRate: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-restricted-globals': 'off',
+    },
+  },
+  {
     ignores: ['dist/', 'node_modules/', '_legacy/', 'src/workers/', 'src/**/__tests__/'],
   },
 );

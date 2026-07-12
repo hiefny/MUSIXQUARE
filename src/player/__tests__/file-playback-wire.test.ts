@@ -9,6 +9,7 @@ import {
   serializeFilePlaybackWireMessage,
   type FilePlaybackWireReceiveExpectations,
   type FilePlaybackWireMessage,
+  type FilePlaybackWireReceiverResult,
 } from '../file-playback-wire.ts';
 
 const envelope = Object.freeze({
@@ -793,6 +794,282 @@ describe('file playback V2 control wire', () => {
         replace(messages[6], { revision: 9, controlSequence: 63, atRoomTimeMs: 13_100 }),
       ),
     ).toMatchObject({ accepted: true, status: 'message', message: { revision: 9 } });
+  });
+
+  it('atomically admits an exact-next rendezvous ARM and preserves exact retry leases', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+
+    const first = receiver.receive(
+      replace(messages[2], {
+        revision: 8,
+        rendezvousId: 'rendezvous-successor',
+        controlSequence: 43,
+      }),
+    );
+    expect(first).toMatchObject({
+      accepted: true,
+      status: 'message',
+      message: {
+        kind: 'rendezvous-arm',
+        revision: 8,
+        rendezvousId: 'rendezvous-successor',
+      },
+    });
+    if (!first.accepted || first.status !== 'message' || !first.attemptLease) {
+      throw new Error('Expected an atomically admitted rendezvous successor');
+    }
+    expect(receiver.lastControlSequence()).toBe(43);
+
+    const retry = receiver.receive(
+      replace(messages[2], {
+        revision: 8,
+        rendezvousId: 'rendezvous-successor',
+        controlSequence: 44,
+      }),
+    );
+    if (!retry.accepted || retry.status !== 'message' || !retry.attemptLease) {
+      throw new Error('Expected an exact rendezvous successor retry');
+    }
+    expect(retry.stateLease).toBe(first.stateLease);
+    expect(retry.attemptLease).toBe(first.attemptLease);
+    expect(receiver.lastControlSequence()).toBe(44);
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          rendezvousId: 'rendezvous-successor',
+          controlSequence: 44,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'replayed-sequence' });
+
+    receiver.commitAttempt(first.attemptLease);
+    receiver.commitMedia(first.stateLease);
+  });
+
+  it('does not consume successor ARM authority for replay, time, or binding failures', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    expect(receiver.receive(record(messages[0]))).toMatchObject({ accepted: true });
+
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          rendezvousId: 'rendezvous-replayed',
+          controlSequence: 41,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'replayed-sequence' });
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          rendezvousId: 'rendezvous-late',
+          controlSequence: 42,
+          startAtRoomTimeMs: 20_000,
+          finalizeByRoomTimeMs: 19_900,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'temporal-invalid' });
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          sourceIdentity: 'sha256:wrong-source',
+          rendezvousId: 'rendezvous-wrong-source',
+          controlSequence: 43,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          runId: 'run-wrong',
+          rendezvousId: 'rendezvous-wrong-run',
+          controlSequence: 44,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          transferSessionId: 'transfer-session-wrong',
+          rendezvousId: 'rendezvous-wrong-transfer',
+          controlSequence: 45,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 9,
+          rendezvousId: 'rendezvous-wrong-revision',
+          controlSequence: 46,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    expect(receiver.lastControlSequence()).toBe(41);
+
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          rendezvousId: 'rendezvous-valid',
+          controlSequence: 47,
+        }),
+      ),
+    ).toMatchObject({
+      accepted: true,
+      status: 'message',
+      message: { revision: 8, rendezvousId: 'rendezvous-valid' },
+    });
+  });
+
+  it('stale-drops only the exact retired successor attempt and never resurrects its state', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    const retiredState = receiver.stageMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 8 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    receiver.stageAttempt(retiredState, 'rendezvous-retired-successor');
+    receiver.retireMedia(retiredState);
+
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          rendezvousId: 'rendezvous-retired-successor',
+          controlSequence: 43,
+        }),
+      ),
+    ).toEqual({
+      accepted: true,
+      status: 'stale',
+      scope: 'attempt',
+      controlSequence: 43,
+    });
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 8,
+          rendezvousId: 'rendezvous-resurrection',
+          controlSequence: 44,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    expect(receiver.lastControlSequence()).toBe(43);
+
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          revision: 9,
+          rendezvousId: 'rendezvous-after-retirement',
+          controlSequence: 45,
+        }),
+      ),
+    ).toMatchObject({
+      accepted: true,
+      status: 'message',
+      message: { revision: 9, rendezvousId: 'rendezvous-after-retirement' },
+    });
+  });
+
+  it('prevents a re-entrant older successor ARM from overwriting newer inner authority', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+
+    const reentry: { result: FilePlaybackWireReceiverResult | null } = { result: null };
+    let reentered = false;
+    const outer = new Proxy(
+      replace(messages[2], {
+        revision: 8,
+        rendezvousId: 'rendezvous-outer',
+        controlSequence: 42,
+      }),
+      {
+        ownKeys(target) {
+          if (!reentered) {
+            reentered = true;
+            reentry.result = receiver.receive(
+              replace(messages[2], {
+                revision: 8,
+                rendezvousId: 'rendezvous-inner',
+                controlSequence: 43,
+              }),
+            );
+          }
+          return Reflect.ownKeys(target);
+        },
+      },
+    );
+
+    expect(receiver.receive(outer)).toMatchObject({
+      accepted: false,
+      reason: 'replayed-sequence',
+    });
+    const inner = reentry.result;
+    if (!inner?.accepted || inner.status !== 'message' || !inner.attemptLease) {
+      throw new Error('Expected the newer inner successor admission');
+    }
+    const retry = receiver.receive(
+      replace(messages[2], {
+        revision: 8,
+        rendezvousId: 'rendezvous-inner',
+        controlSequence: 44,
+      }),
+    );
+    if (!retry.accepted || retry.status !== 'message' || !retry.attemptLease) {
+      throw new Error('Expected the inner successor authority to remain active');
+    }
+    expect(retry.stateLease).toBe(inner.stateLease);
+    expect(retry.attemptLease).toBe(inner.attemptLease);
+    expect(receiver.lastControlSequence()).toBe(44);
   });
 
   it('auto-admits a first-play ARM attempt on an active candidate state', () => {

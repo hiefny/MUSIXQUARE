@@ -1306,6 +1306,7 @@ export class FilePlaybackWireReceiver {
       purpose: 'media' | 'stop';
     }> | null = null;
     let remoteAttemptAdmission: Readonly<{ rendezvousId: string }> | null = null;
+    let remoteRendezvousSuccessorAdmission: Readonly<{ rendezvousId: string }> | null = null;
     if (isFilePlaybackAttemptScopedWireKind(message.kind)) {
       if (!('rendezvousId' in message)) {
         return receiverResult({ accepted: false as const, reason: 'malformed-frame' as const });
@@ -1323,11 +1324,16 @@ export class FilePlaybackWireReceiver {
         staleScope = 'attempt';
       } else if (message.kind === 'rendezvous-arm') {
         const state = this.#bindings.resolveState(reference);
-        if (state.status !== 'active') {
+        if (state.status === 'active') {
+          stateLease = state.stateLease;
+          remoteAttemptAdmission = freezeCanonical({ rendezvousId: message.rendezvousId });
+        } else if (state.status === 'stale') {
           return receiverResult({ accepted: false as const, reason: 'unknown-binding' as const });
+        } else {
+          remoteRendezvousSuccessorAdmission = freezeCanonical({
+            rendezvousId: message.rendezvousId,
+          });
         }
-        stateLease = state.stateLease;
-        remoteAttemptAdmission = freezeCanonical({ rendezvousId: message.rendezvousId });
       } else {
         return receiverResult({ accepted: false as const, reason: 'unknown-binding' as const });
       }
@@ -1373,7 +1379,11 @@ export class FilePlaybackWireReceiver {
       lastControlSequence: currentWatermark,
       receivedAtRoomTimeMs,
       maxClockSkewMs: this.#maxClockSkewMs,
-      ...((attemptLease || staleScope === 'attempt') && 'rendezvousId' in message
+      ...((attemptLease ||
+        staleScope === 'attempt' ||
+        remoteAttemptAdmission ||
+        remoteRendezvousSuccessorAdmission) &&
+      'rendezvousId' in message
         ? { rendezvousId: message.rendezvousId }
         : {}),
     });
@@ -1396,6 +1406,19 @@ export class FilePlaybackWireReceiver {
         const admitted = this.#bindings.admitRemoteAttempt(
           reference,
           remoteAttemptAdmission.rendezvousId,
+        );
+        stateLease = admitted.stateLease;
+        attemptLease = admitted.attemptLease;
+      } catch {
+        return receiverResult({ accepted: false as const, reason: 'unknown-binding' as const });
+      }
+    }
+
+    if (remoteRendezvousSuccessorAdmission) {
+      try {
+        const admitted = this.#bindings.admitRemoteRendezvousSuccessor(
+          reference,
+          remoteRendezvousSuccessorAdmission.rendezvousId,
         );
         stateLease = admitted.stateLease;
         attemptLease = admitted.attemptLease;

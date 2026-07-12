@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
-import { FilePlaybackManager } from '../file-playback-manager.ts';
+import {
+  FilePlaybackManager,
+  type FilePlaybackCutoverCandidatePort,
+} from '../file-playback-manager.ts';
 import { FilePlaybackRuntime } from '../file-playback-runtime.ts';
 import type {
   FilePlaybackPosition,
@@ -102,6 +105,26 @@ describe('FilePlaybackRuntime', () => {
     });
     expect(runtime.position(Q1)?.positionSeconds).toBe(2.5);
     expect(managed.positionAt).toHaveBeenCalledWith(2_500);
+  });
+
+  it('reads the exact cutover current instead of the empty legacy active slot', () => {
+    const manager = new FilePlaybackManager();
+    const port = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+    const position: FilePlaybackPosition = {
+      queueItemId: Q1,
+      run: null,
+      phase: 'playing',
+      positionSeconds: 3.5,
+      bufferedAheadSeconds: 4,
+      underrunCount: 0,
+    };
+    vi.spyOn(manager, 'currentCutoverPort').mockReturnValue(port);
+    vi.spyOn(manager, 'currentCutoverPosition').mockReturnValue(position);
+    const runtime = new FilePlaybackRuntime({ manager, monotonicNow: () => 3_500 });
+
+    expect(runtime.position(Q1)).toBe(position);
+    expect(manager.currentCutoverPosition).toHaveBeenCalledWith(port, 3_500);
+    expect(runtime.position(Q2)).toBeNull();
   });
 
   it('does not expose an unrelated managed or legacy queue occurrence', async () => {

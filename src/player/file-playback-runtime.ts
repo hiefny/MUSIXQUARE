@@ -136,6 +136,13 @@ export class FilePlaybackRuntime {
   }
 
   position(queueItemId?: QueueItemId | null): FilePlaybackPosition | null {
+    const cutoverPort = this.#manager.currentCutoverPort();
+    if (cutoverPort) {
+      const position = this.#manager.currentCutoverPosition(cutoverPort, this.#monotonicNow());
+      if (!position || (queueItemId != null && position.queueItemId !== queueItemId)) return null;
+      return position;
+    }
+
     const source = this.activeSource();
     if (!source || (queueItemId != null && source.queueItemId !== queueItemId)) return null;
     try {

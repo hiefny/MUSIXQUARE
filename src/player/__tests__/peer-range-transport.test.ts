@@ -1048,4 +1048,355 @@ describe('PeerRangeHostResponder', () => {
     expect(output[0]).toMatchObject({ type: 'error', code: 'integrity' });
     expect(host.revokeHandle(CONNECTION_TOKEN, handleId, SOURCE_ID)).toBe(true);
   });
+
+  it('owns one pinned EncodedAudioSource until an idle handle is revoked exactly once', async () => {
+    const close = vi.fn(async () => undefined);
+    const provider = vi.fn(
+      (): EncodedAudioSource => ({
+        kind: 'peer-range',
+        size: 2,
+        identity: SOURCE_ID,
+        metadata: { name: 'owned.flac', mime: 'audio/flac' },
+        readAt: async (offset, length) => Uint8Array.of(4, 5).slice(offset, offset + length),
+        close,
+      }),
+    );
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: provider },
+      sendBulk: () => undefined,
+    });
+    const first = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:owned-idle', requestId: 'request:owned-idle-1' }),
+    );
+    const second = createPeerRangeReadFrame({
+      ...first,
+      requestId: 'request:owned-idle-2',
+      offset: 1,
+    });
+
+    expect(host.acceptControl(CONNECTION_TOKEN, first)).toBe('accepted');
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(host.acceptControl(CONNECTION_TOKEN, second)).toBe('accepted');
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(provider).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+
+    const closeFrame = createPeerRangeCloseHandleFrame(second);
+    expect(host.acceptControl(CONNECTION_TOKEN, closeFrame)).toBe('revoked');
+    expect(close).toHaveBeenCalledOnce();
+    expect(host.acceptControl(CONNECTION_TOKEN, closeFrame)).toBe('revoked');
+    expect(host.revokeHandle(CONNECTION_TOKEN, second.handleId, SOURCE_ID)).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+    expect(provider).toHaveBeenCalledOnce();
+  });
+
+  it('aborts an active handle read before closing its owned source after task settlement', async () => {
+    const pendingRead = deferred<Uint8Array>();
+    const close = vi.fn(async () => undefined);
+    let readSignal: AbortSignal | undefined;
+    const source: EncodedAudioSource = {
+      kind: 'peer-range',
+      size: 2,
+      identity: SOURCE_ID,
+      metadata: { name: 'active.flac', mime: 'audio/flac' },
+      readAt: async (_offset, _length, signal) => {
+        readSignal = signal;
+        return pendingRead.promise;
+      },
+      close,
+    };
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: () => source },
+      sendBulk: () => undefined,
+    });
+    const read = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:owned-active', requestId: 'request:owned-active' }),
+    );
+
+    expect(host.acceptControl(CONNECTION_TOKEN, read)).toBe('accepted');
+    await vi.waitFor(() => expect(readSignal).toBeDefined());
+    expect(host.revokeHandle(CONNECTION_TOKEN, read.handleId, SOURCE_ID)).toBe(true);
+    expect(readSignal?.aborted).toBe(true);
+    expect(close).not.toHaveBeenCalled();
+
+    pendingRead.resolve(Uint8Array.of(4));
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(close).toHaveBeenCalledOnce();
+    expect(host.sourceLeaseCount).toBe(0);
+  });
+
+  it('aborts an active read and waits for it before closing on responder close', async () => {
+    const pendingRead = deferred<Uint8Array>();
+    const close = vi.fn(async () => undefined);
+    let readSignal: AbortSignal | undefined;
+    const source: EncodedAudioSource = {
+      kind: 'peer-range',
+      size: 1,
+      identity: SOURCE_ID,
+      metadata: { name: 'connection-close.flac', mime: 'audio/flac' },
+      readAt: async (_offset, _length, signal) => {
+        readSignal = signal;
+        return pendingRead.promise;
+      },
+      close,
+    };
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: () => source },
+      sendBulk: () => undefined,
+    });
+
+    expect(host.acceptControl(CONNECTION_TOKEN, createPeerRangeReadFrame(descriptor()))).toBe(
+      'accepted',
+    );
+    await vi.waitFor(() => expect(readSignal).toBeDefined());
+    host.close(new EncodedSourceClosedError());
+    expect(readSignal?.aborted).toBe(true);
+    expect(host.sourceLeaseCount).toBe(0);
+    expect(close).not.toHaveBeenCalled();
+
+    pendingRead.resolve(Uint8Array.of(7));
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(close).toHaveBeenCalledOnce();
+    host.close();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it.each(['revoke', 'close'] as const)(
+    'closes a late resolver source after %s without publishing or reading it',
+    async (terminal) => {
+      const pendingSource = deferred<PeerRangeHostSource>();
+      const close = vi.fn(async () => undefined);
+      const readAt = vi.fn(async () => Uint8Array.of(1));
+      const source: EncodedAudioSource = {
+        kind: 'peer-range',
+        size: 1,
+        identity: SOURCE_ID,
+        metadata: { name: 'late.flac', mime: 'audio/flac' },
+        readAt,
+        close,
+      };
+      const output: PeerRangeBulkFrame[] = [];
+      const host = new PeerRangeHostResponder({
+        connection: CONNECTION,
+        onFatalConnection: ignoreFatalConnection,
+        canSend: allowSend,
+        sources: { resolve: () => pendingSource.promise },
+        sendBulk: (frame) => output.push(frame),
+      });
+      const read = createPeerRangeReadFrame(
+        descriptor({ handleId: `handle:late-${terminal}`, requestId: `request:late-${terminal}` }),
+      );
+
+      expect(host.acceptControl(CONNECTION_TOKEN, read)).toBe('accepted');
+      await flush();
+      if (terminal === 'revoke') {
+        expect(host.revokeHandle(CONNECTION_TOKEN, read.handleId, SOURCE_ID)).toBe(true);
+      } else {
+        host.close();
+      }
+      pendingSource.resolve(source);
+
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+      expect(readAt).not.toHaveBeenCalled();
+      expect(output).toHaveLength(0);
+      expect(host.sourceLeaseCount).toBe(0);
+    },
+  );
+
+  it('pins a resolver rejection without inventing ownership or reacquiring on replay', async () => {
+    const provider = vi.fn(async (): Promise<PeerRangeHostSource> => {
+      throw new Error('registry unavailable');
+    });
+    const output: PeerRangeBulkFrame[] = [];
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: provider },
+      sendBulk: (frame) => output.push(frame),
+    });
+    const first = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:resolver-reject', requestId: 'request:resolver-reject-1' }),
+    );
+    const second = createPeerRangeReadFrame({ ...first, requestId: 'request:resolver-reject-2' });
+
+    expect(host.acceptControl(CONNECTION_TOKEN, first)).toBe('accepted');
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(host.acceptControl(CONNECTION_TOKEN, second)).toBe('accepted');
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+
+    expect(provider).toHaveBeenCalledOnce();
+    expect(output).toHaveLength(2);
+    expect(output.every((frame) => frame.type === 'error' && frame.code === 'internal')).toBe(true);
+    expect(host.revokeHandle(CONNECTION_TOKEN, first.handleId, SOURCE_ID)).toBe(true);
+    expect(host.sourceLeaseCount).toBe(0);
+  });
+
+  it.each([
+    { label: 'wrong identity', identity: 'sha256:wrong-owner', size: 1 },
+    { label: 'invalid size', identity: SOURCE_ID, size: -1 },
+  ])('closes a returned EncodedAudioSource with $label before failing safely', async (testCase) => {
+    const close = vi.fn(async () => undefined);
+    const source = {
+      kind: 'peer-range',
+      size: testCase.size,
+      identity: testCase.identity,
+      metadata: { name: 'invalid.flac', mime: 'audio/flac' },
+      readAt: vi.fn(async () => Uint8Array.of(1)),
+      close,
+    } as EncodedAudioSource;
+    const output: PeerRangeBulkFrame[] = [];
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: () => source },
+      sendBulk: (frame) => output.push(frame),
+    });
+
+    expect(host.acceptControl(CONNECTION_TOKEN, createPeerRangeReadFrame(descriptor()))).toBe(
+      'accepted',
+    );
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(close).toHaveBeenCalledOnce();
+    expect(source.readAt).not.toHaveBeenCalled();
+    expect(output).toHaveLength(1);
+    expect(output[0]).toMatchObject({ type: 'error', code: 'integrity' });
+    host.close();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a runtime source that cannot satisfy owned close semantics', async () => {
+    const readAt = vi.fn(async () => Uint8Array.of(1));
+    const uncloseable = {
+      kind: 'peer-range',
+      size: 1,
+      identity: SOURCE_ID,
+      metadata: { name: 'uncloseable.flac', mime: 'audio/flac' },
+      readAt,
+    } as unknown as EncodedAudioSource;
+    const output: PeerRangeBulkFrame[] = [];
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: () => uncloseable },
+      sendBulk: (frame) => output.push(frame),
+    });
+
+    expect(host.acceptControl(CONNECTION_TOKEN, createPeerRangeReadFrame(descriptor()))).toBe(
+      'accepted',
+    );
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(readAt).not.toHaveBeenCalled();
+    expect(output).toHaveLength(1);
+    expect(output[0]).toMatchObject({ type: 'error', code: 'integrity' });
+    expect(() => host.close()).not.toThrow();
+  });
+
+  it('keeps Blob sources borrowed even when a Blob has a close-shaped property', async () => {
+    const close = vi.fn(async () => undefined);
+    const blob = new Blob([Uint8Array.of(8)]);
+    Object.defineProperty(blob, 'close', { value: close });
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: ignoreFatalConnection,
+      canSend: allowSend,
+      sources: { resolve: () => blob },
+      sendBulk: () => undefined,
+    });
+    const read = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:borrowed-blob', requestId: 'request:borrowed-blob' }),
+    );
+
+    expect(host.acceptControl(CONNECTION_TOKEN, read)).toBe('accepted');
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(host.revokeHandle(CONNECTION_TOKEN, read.handleId, SOURCE_ID)).toBe(true);
+    host.close();
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('observes close rejection without masking revocation or poisoning later handles', async () => {
+    const close = vi.fn(() => Promise.reject(new Error('close failed')));
+    const fatalConnection = vi.fn();
+    const output: PeerRangeBulkFrame[] = [];
+    const source: EncodedAudioSource = {
+      kind: 'peer-range',
+      size: 1,
+      identity: SOURCE_ID,
+      metadata: { name: 'reject-close.flac', mime: 'audio/flac' },
+      readAt: async () => Uint8Array.of(3),
+      close,
+    };
+    const provider = vi
+      .fn<(identity: string) => PeerRangeHostSource>()
+      .mockReturnValueOnce(source)
+      .mockReturnValue(new Blob([Uint8Array.of(9)]));
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend: allowSend,
+      sources: { resolve: provider },
+      sendBulk: (frame) => output.push(frame),
+    });
+    const first = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:reject-close-1', requestId: 'request:reject-close-1' }),
+    );
+    const second = createPeerRangeReadFrame(
+      descriptor({ handleId: 'handle:reject-close-2', requestId: 'request:reject-close-2' }),
+    );
+
+    expect(host.acceptControl(CONNECTION_TOKEN, first)).toBe('accepted');
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(host.revokeHandle(CONNECTION_TOKEN, first.handleId, SOURCE_ID)).toBe(true);
+    await flush();
+    expect(close).toHaveBeenCalledOnce();
+    expect(fatalConnection).not.toHaveBeenCalled();
+
+    expect(host.acceptControl(CONNECTION_TOKEN, second)).toBe('accepted');
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(output.filter((frame) => frame.type === 'chunk')).toHaveLength(2);
+    expect(fatalConnection).not.toHaveBeenCalled();
+  });
+
+  it('closes the owned source exactly once after a fatal sender failure settles', async () => {
+    const close = vi.fn(async () => undefined);
+    const fatalConnection = vi.fn();
+    const source: EncodedAudioSource = {
+      kind: 'peer-range',
+      size: 1,
+      identity: SOURCE_ID,
+      metadata: { name: 'fatal.flac', mime: 'audio/flac' },
+      readAt: async () => Uint8Array.of(6),
+      close,
+    };
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend: allowSend,
+      sources: { resolve: () => source },
+      sendBulk: () => {
+        throw new Error('connection failed');
+      },
+    });
+
+    expect(host.acceptControl(CONNECTION_TOKEN, createPeerRangeReadFrame(descriptor()))).toBe(
+      'accepted',
+    );
+    await vi.waitFor(() => expect(fatalConnection).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(host.physicalReadTaskCount).toBe(0));
+    expect(close).toHaveBeenCalledOnce();
+    host.close();
+    expect(close).toHaveBeenCalledOnce();
+  });
 });

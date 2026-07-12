@@ -650,9 +650,12 @@ interface HostSourceLease {
   readonly controller: AbortController;
   resolvePromise: Promise<PeerRangeHostSource> | null;
   source: PeerRangeHostSource | null;
+  ownedSource: EncodedAudioSource | null;
+  closeStarted: boolean;
   size: number | null;
   physicalTaskCount: number;
   revoked: boolean;
+  retired: boolean;
 }
 
 interface HostRequestState {
@@ -685,6 +688,9 @@ function validatePinnedSource(
     }
     if (typeof source.readAt !== 'function') {
       throw new EncodedSourceIntegrityError('Source registry returned an unreadable source');
+    }
+    if (typeof source.close !== 'function') {
+      throw new EncodedSourceIntegrityError('Source registry returned an uncloseable source');
     }
   }
   sourceByteLength(source);
@@ -865,8 +871,8 @@ export class PeerRangeHostResponder {
     for (const lease of this.#leases.values()) {
       lease.revoked = true;
       lease.controller.abort(reason);
+      this.#retireLease(lease, false);
     }
-    this.#leases.clear();
   }
 
   #acceptRead(frame: PeerRangeReadFrame): PeerRangeHostControlStatus {
@@ -975,9 +981,12 @@ export class PeerRangeHostResponder {
       controller: new AbortController(),
       resolvePromise: null,
       source: null,
+      ownedSource: null,
+      closeStarted: false,
       size: null,
       physicalTaskCount: 0,
       revoked: false,
+      retired: false,
     };
     this.#leases.set(frame.handleId, lease);
     return lease;
@@ -1029,12 +1038,26 @@ export class PeerRangeHostResponder {
     lease.resolvePromise = Promise.resolve()
       .then(() => this.#sources.resolve(lease.sourceIdentity, lease.controller.signal))
       .then((candidate) => {
-        throwIfAborted(lease.controller.signal);
-        if (lease.revoked || this.#closed) throw new EncodedSourceClosedError();
-        const source = validatePinnedSource(candidate, lease.sourceIdentity);
-        lease.source = source;
-        lease.size = sourceByteLength(source);
-        return source;
+        const ownedSource =
+          candidate && isEncodedAudioSource(candidate) && typeof candidate.close === 'function'
+            ? candidate
+            : null;
+        if (ownedSource) lease.ownedSource = ownedSource;
+        try {
+          throwIfAborted(lease.controller.signal);
+          if (lease.revoked || this.#closed) throw new EncodedSourceClosedError();
+          const source = validatePinnedSource(candidate, lease.sourceIdentity);
+          const size = sourceByteLength(source);
+          lease.source = source;
+          lease.size = size;
+          return source;
+        } catch (error) {
+          // A resolver transfers an EncodedAudioSource to this exact lease even
+          // when validation or a concurrent revoke prevents publication. Blob
+          // inputs remain borrowed and are never closed by the responder.
+          if (ownedSource) this.#closeOwnedLeaseSource(lease);
+          throw error;
+        }
       });
     return lease.resolvePromise;
   }
@@ -1091,9 +1114,30 @@ export class PeerRangeHostResponder {
   }
 
   #releaseRevokedLease(lease: HostSourceLease): void {
-    if (this.#leases.get(lease.handleId) !== lease) return;
-    this.#leases.delete(lease.handleId);
-    this.#rememberRevokedHandle(lease.handleId, lease.sourceIdentity);
+    this.#retireLease(lease, true);
+  }
+
+  #retireLease(lease: HostSourceLease, rememberRevocation: boolean): void {
+    if (!lease.retired) {
+      lease.retired = true;
+      if (this.#leases.get(lease.handleId) === lease) this.#leases.delete(lease.handleId);
+      if (rememberRevocation) {
+        this.#rememberRevokedHandle(lease.handleId, lease.sourceIdentity);
+      }
+    }
+    if (lease.physicalTaskCount === 0) this.#closeOwnedLeaseSource(lease);
+  }
+
+  #closeOwnedLeaseSource(lease: HostSourceLease): void {
+    const source = lease.ownedSource;
+    if (!source || lease.closeStarted) return;
+    lease.closeStarted = true;
+    try {
+      void Promise.resolve(source.close()).catch(() => undefined);
+    } catch {
+      // Cleanup failure cannot reopen the handle, mask its terminal state, or
+      // become an unhandled rejection.
+    }
   }
 
   #rememberRevokedHandle(handleId: string, sourceIdentity: string): boolean {
@@ -1135,8 +1179,8 @@ export class PeerRangeHostResponder {
     for (const lease of this.#leases.values()) {
       lease.revoked = true;
       lease.controller.abort(fatal);
+      this.#retireLease(lease, false);
     }
-    this.#leases.clear();
     this.#deliveries.quarantine(fatal);
     try {
       this.#onFatalConnection(this.#connection, fatal);

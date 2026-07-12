@@ -13,6 +13,7 @@ import {
   FilePlaybackHostFirstFileEngine,
   type FilePlaybackHostFirstFileEngineRuntimeForTests,
   type StartHostFirstLocalFileOptions,
+  type StartHostLocalTrackOptions,
 } from '../file-playback-host-first-file-engine.ts';
 import { FilePlaybackManager } from '../file-playback-manager.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
@@ -21,6 +22,8 @@ import {
   createAudioBufferPlaybackStartEvidence,
   createFilePlaybackCutoverTarget,
   createFilePlaybackRejectedTransitionResult,
+  createFilePlaybackScheduledTransitionResult,
+  createFilePlaybackTransitionEvidence,
   createStreamingFlacPlaybackStartEvidence,
   type FilePlaybackBackend,
   type FilePlaybackCutoverArmResult,
@@ -48,6 +51,8 @@ import type {
 const Q1 = '96000000-0000-4000-8000-000000000001' as QueueItemId;
 const Q2 = '96000000-0000-4000-8000-000000000002' as QueueItemId;
 const RUN_1 = '96000000-0000-4000-8000-000000000101';
+const RUN_2 = '96000000-0000-4000-8000-000000000102';
+const RUN_3 = '96000000-0000-4000-8000-000000000103';
 const APPLICATION_SCOPE = '96000000-0000-4000-8000-000000000201';
 const ROOM_TOKEN = Object.freeze({ room: 'host-first-file-engine' });
 let connectionSequence = 0;
@@ -196,6 +201,8 @@ interface FakeSourceHarness {
   readonly destroy: ReturnType<typeof vi.fn>;
   readonly startAtContextTime: () => number | null;
   resolveStart(): void;
+  resolvePause(): void;
+  markEnded(): void;
 }
 
 function makeSource(
@@ -209,6 +216,15 @@ function makeSource(
   let run: FilePlaybackSourceSnapshot['run'] = null;
   let targetTime: number | null = null;
   let targetFrame: number | null = null;
+  let positionSeconds = 0;
+  let pendingPause: Readonly<{
+    intent: Extract<
+      FilePlaybackTransitionIntent,
+      { readonly kind: 'file-playback-pause-transition' }
+    >;
+    targetFrame: number;
+    applied: ReturnType<typeof deferred<ReturnType<typeof createFilePlaybackTransitionEvidence>>>;
+  }> | null = null;
   const started = deferred<FilePlaybackStartEvidence>();
   const arm = vi.fn();
   const finalize = vi.fn();
@@ -223,7 +239,7 @@ function makeSource(
     revision,
     run,
     durationSeconds: 180,
-    positionSeconds: 0,
+    positionSeconds,
     bufferedAheadSeconds: phase === 'new' || phase === 'preparing' ? 0 : 8,
     outputSampleRateHz: context.sampleRate,
     channelCount: 2,
@@ -260,6 +276,7 @@ function makeSource(
       });
       targetTime = intent.startAtRoomTimeMs / 1_000;
       targetFrame = Math.round(targetTime * context.sampleRate);
+      positionSeconds = intent.positionSeconds;
       return Object.freeze({
         status: 'armed' as const,
         receipt: armedReceipt(intent),
@@ -286,7 +303,21 @@ function makeSource(
       return snapshot();
     },
     async pauseRevisioned(intent) {
-      return rejectedTransition(intent);
+      if (phase !== 'playing') return rejectedTransition(intent);
+      const pauseTargetTime = intent.atRoomTimeMs / 1_000;
+      const pauseTargetFrame = Math.round(pauseTargetTime * context.sampleRate);
+      const applied = deferred<ReturnType<typeof createFilePlaybackTransitionEvidence>>();
+      pendingPause = Object.freeze({ intent, targetFrame: pauseTargetFrame, applied });
+      return createFilePlaybackScheduledTransitionResult(
+        intent,
+        createFilePlaybackCutoverTarget(
+          context as unknown as AudioContext,
+          pauseTargetTime,
+          pauseTargetFrame,
+        ),
+        snapshot(),
+        applied.promise,
+      );
     },
     async seekRevisioned(intent) {
       return rejectedTransition(intent);
@@ -296,7 +327,7 @@ function makeSource(
         queueItemId,
         run,
         phase,
-        positionSeconds: 0,
+        positionSeconds,
         bufferedAheadSeconds: 8,
         underrunCount: 0,
       };
@@ -322,6 +353,27 @@ function makeSource(
       } else {
         started.resolve(createStreamingFlacPlaybackStartEvidence(targetFrame, targetFrame));
       }
+    },
+    resolvePause() {
+      if (!pendingPause) throw new Error('No pause transition is scheduled');
+      const currentPause = pendingPause;
+      pendingPause = null;
+      phase = 'paused';
+      revision = currentPause.intent.to.revision;
+      run = Object.freeze({ ...currentPause.intent.to });
+      currentPause.applied.resolve(
+        createFilePlaybackTransitionEvidence(
+          currentPause.intent,
+          backend === 'audio-buffer' ? 'webaudio-schedule-passed' : 'worklet-observed',
+          currentPause.targetFrame,
+          currentPause.targetFrame,
+        ),
+      );
+    },
+    markEnded() {
+      if (phase !== 'playing') throw new Error('Only a playing fixture can end');
+      phase = 'ended';
+      positionSeconds = 180;
     },
   };
 }
@@ -377,6 +429,7 @@ interface EngineHarness {
   readonly sendRequired: ReturnType<typeof vi.fn>;
   readonly closeConnection: ReturnType<typeof vi.fn>;
   readonly fatal: ReturnType<typeof vi.fn>;
+  setRoomTime(roomTimeMs: number): void;
   start(
     blob: Blob,
     overrides?: Partial<StartHostFirstLocalFileOptions>,
@@ -476,7 +529,9 @@ function makeHarness(
     if (plan.holdAfterStage) await plan.holdAfterStage.promise;
     return staged;
   };
-  const createRunId = vi.fn(() => RUN_1);
+  const runIds = [RUN_1, RUN_2, RUN_3] as const;
+  let runSequence = 0;
+  const createRunId = vi.fn(() => runIds[Math.min(runSequence++, runIds.length - 1)]);
   const fatal = vi.fn(options.fatal ?? (() => undefined));
   const runtimeForTests: FilePlaybackHostFirstFileEngineRuntimeForTests = {
     createRunIdForTests: createRunId,
@@ -519,6 +574,9 @@ function makeHarness(
     sendRequired,
     closeConnection,
     fatal,
+    setRoomTime(roomTimeMs) {
+      roomTime.value = roomTimeMs;
+    },
     start(blob, overrides = {}) {
       return engine.startFirstLocalFile({
         queueItemId: Q1,
@@ -549,6 +607,71 @@ async function resolveLatestStart<T>(harness: EngineHarness, pending: Promise<T>
   harness.context.currentTime = target!;
   source.resolveStart();
   return pending;
+}
+
+function localTrackOptions(
+  harness: EngineHarness,
+  queueItemId: QueueItemId,
+  blob: Blob,
+  positionSeconds: number,
+): StartHostLocalTrackOptions {
+  return {
+    queueItemId,
+    blob,
+    name: queueItemId === Q1 ? 'first.flac' : 'replacement.flac',
+    mime: blob.type,
+    audioContext: harness.context as unknown as AudioContext,
+    destination: harness.destination,
+    decodeOrdinaryAudio: vi.fn(async () => ({
+      audioBuffer: fakeAudioBuffer(),
+      release: vi.fn(),
+    })),
+    signal: new AbortController().signal,
+    positionSeconds,
+  };
+}
+
+async function pauseCurrent(harness: EngineHarness): Promise<PlaybackTimelineSnapshot> {
+  const previous = harness.controller.timelineSnapshot();
+  if (previous.phase !== 'playing' || !previous.run) {
+    throw new Error('Fixture requires playing timeline truth');
+  }
+  const port = harness.manager.currentCutoverPort();
+  const source = [...harness.sources]
+    .reverse()
+    .find((candidate) => candidate.source.getSnapshot().phase === 'playing');
+  if (!port || !source) throw new Error('Fixture current renderer is unavailable');
+  const atRoomTimeMs = Math.max(
+    previous.anchorMonotonicMs + 500,
+    (harness.context.currentTime + 0.5) * 1_000,
+  );
+  const intent = Object.freeze({
+    kind: 'file-playback-pause-transition' as const,
+    from: Object.freeze({
+      queueItemId: previous.run.queueItemId,
+      runId: previous.run.runId,
+      revision: previous.revision,
+    }),
+    to: Object.freeze({
+      queueItemId: previous.run.queueItemId,
+      runId: previous.run.runId,
+      revision: previous.revision + 1,
+    }),
+    atRoomTimeMs,
+  });
+  const scheduled = await harness.manager.pauseCurrentCutover(port, intent);
+  if (scheduled.status !== 'scheduled') throw new Error('Fixture pause was rejected');
+  harness.context.currentTime = scheduled.target.contextTimeSeconds;
+  source.resolvePause();
+  const evidence = await scheduled.applied;
+  const committed = harness.controller.commitHostPlaybackTransition({
+    kind: 'pause',
+    roomGeneration: harness.controller.snapshot().roomGeneration,
+    expectedPrevious: previous,
+    intent,
+    evidence,
+  });
+  return committed.timeline;
 }
 
 function expectBodyFree(value: unknown): void {
@@ -645,6 +768,251 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
     expect(harness.engine.currentRendererSnapshot()).toBeNull();
     expect(harness.engine.positionAt(1_500)).toBeNull();
+  });
+
+  it.each([
+    ['AudioBuffer to FLAC', 'audio-buffer', 'streaming-flac'],
+    ['FLAC to AudioBuffer', 'streaming-flac', 'audio-buffer'],
+  ] as const)(
+    'replaces %s on the same room manager with a new run and exact next revision',
+    async (_label, firstBackend, replacementBackend) => {
+      const harness = makeHarness([{ backend: firstBackend }, { backend: replacementBackend }]);
+      const firstBlob = new Blob([new Uint8Array([51])], {
+        type: firstBackend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      await resolveLatestStart(harness, harness.start(firstBlob, { name: 'first-track' }));
+      const previousTimeline = harness.controller.timelineSnapshot();
+      const previousPort = harness.manager.currentCutoverPort();
+      harness.setRoomTime(2_000);
+
+      const replacementBlob = new Blob([new Uint8Array([52])], {
+        type: replacementBackend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      const pending = harness.engine.startLocalTrack(
+        localTrackOptions(harness, Q2, replacementBlob, 12),
+      );
+      await drainMicrotasks();
+      expect(harness.controller.timelineSnapshot()).toBe(previousTimeline);
+      expect(harness.manager.currentCutoverPort()).toBe(previousPort);
+      expect(harness.sources[0]?.destroy).not.toHaveBeenCalled();
+
+      const committed = await resolveLatestStart(harness, pending);
+      expect(committed).toMatchObject({
+        backend: replacementBackend,
+        attempt: { queueItemId: Q2, runId: RUN_2, revision: 2 },
+        schedule: { positionSeconds: 12, playbackRate: 1 },
+        timeline: { phase: 'playing', revision: 2, positionSeconds: 12 },
+      });
+      expect(committed.timeline.run).toEqual({ queueItemId: Q2, runId: RUN_2 });
+      expect(harness.manager.currentCutoverPort()).not.toBe(previousPort);
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+      expect(harness.createRunId).toHaveBeenCalledTimes(2);
+      expectBodyFree(committed);
+      expect(harness.engine.currentRendererSnapshot()).toMatchObject({
+        queueItemId: Q2,
+        backend: replacementBackend,
+        positionSeconds: 12,
+      });
+      await harness.engine.close();
+    },
+  );
+
+  it.each(['audio-buffer', 'streaming-flac'] as const)(
+    'preserves the audible %s current renderer when a replacement candidate fails',
+    async (backend) => {
+      const harness = makeHarness([{ backend }, { backend, rejectArm: true }]);
+      const firstBlob = new Blob([new Uint8Array([53])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      await resolveLatestStart(harness, harness.start(firstBlob, { name: 'stable-current' }));
+      const previousTimeline = harness.controller.timelineSnapshot();
+      const previousPort = harness.manager.currentCutoverPort();
+      harness.setRoomTime(2_000);
+
+      const failedBlob = new Blob([new Uint8Array([54])], { type: firstBlob.type });
+      await expect(
+        harness.engine.startLocalTrack(localTrackOptions(harness, Q2, failedBlob, 0)),
+      ).rejects.toThrow(/arm|retired/u);
+      await drainMicrotasks();
+
+      expect(harness.controller.timelineSnapshot()).toBe(previousTimeline);
+      expect(harness.manager.currentCutoverPort()).toBe(previousPort);
+      expect(harness.engine.currentRendererSnapshot()).toMatchObject({
+        queueItemId: Q1,
+        backend,
+        phase: 'playing',
+      });
+      expect(harness.sources[0]?.destroy).not.toHaveBeenCalled();
+      expect(harness.sources[1]?.destroy).toHaveBeenCalledTimes(1);
+      await harness.engine.close();
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('does not reuse a failed replacement run after timeline truth advances', async () => {
+    const harness = makeHarness([
+      { backend: 'audio-buffer' },
+      { backend: 'audio-buffer', rejectArm: true },
+      { backend: 'audio-buffer' },
+    ]);
+    const firstBlob = new Blob([new Uint8Array([59])], { type: 'audio/mpeg' });
+    const replacementBlob = new Blob([new Uint8Array([60])], { type: 'audio/mpeg' });
+    await resolveLatestStart(harness, harness.start(firstBlob, { name: 'run-fence-current' }));
+    harness.setRoomTime(2_000);
+    await expect(
+      harness.engine.startLocalTrack(localTrackOptions(harness, Q2, replacementBlob, 0)),
+    ).rejects.toThrow(/arm|retired/u);
+    expect(harness.createRunId).toHaveBeenCalledTimes(2);
+
+    const paused = await pauseCurrent(harness);
+    expect(paused).toMatchObject({ phase: 'paused', revision: 2 });
+
+    harness.setRoomTime(3_500);
+    const committed = await resolveLatestStart(
+      harness,
+      harness.engine.startLocalTrack(localTrackOptions(harness, Q2, replacementBlob, 0)),
+    );
+    expect(committed.attempt).toMatchObject({ runId: RUN_3, revision: 3 });
+    expect(committed.attempt.runId).not.toBe(RUN_2);
+    expect(harness.createRunId).toHaveBeenCalledTimes(3);
+    await harness.engine.close();
+  });
+
+  it.each(['audio-buffer', 'streaming-flac'] as const)(
+    'seeks a playing %s renderer through a same-run rendezvous candidate',
+    async (backend) => {
+      const harness = makeHarness([{ backend }, { backend }]);
+      const blob = new Blob([new Uint8Array([55])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      const first = await resolveLatestStart(
+        harness,
+        harness.start(blob, { name: 'seek-current' }),
+      );
+      const previousPort = harness.manager.currentCutoverPort();
+      harness.setRoomTime(2_000);
+
+      const pending = harness.engine.seekPlaying({
+        positionSeconds: 42,
+        signal: new AbortController().signal,
+      });
+      const committed = await resolveLatestStart(harness, pending);
+
+      expect(committed.attempt).toMatchObject({
+        queueItemId: Q1,
+        runId: first.attempt.runId,
+        revision: 2,
+      });
+      expect(committed.schedule.positionSeconds).toBe(42);
+      expect(committed.timeline).toMatchObject({
+        phase: 'playing',
+        revision: 2,
+        positionSeconds: 42,
+      });
+      expect(committed.timeline.run).toEqual(first.timeline.run);
+      expect(harness.createRunId).toHaveBeenCalledTimes(1);
+      expect(harness.manager.currentCutoverPort()).not.toBe(previousPort);
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+      expect(harness.engine.currentRendererSnapshot()?.positionSeconds).toBe(42);
+      await harness.engine.close();
+    },
+  );
+
+  it.each(['audio-buffer', 'streaming-flac'] as const)(
+    'resumes a paused %s renderer with the same run at its canonical paused position',
+    async (backend) => {
+      const harness = makeHarness([{ backend }, { backend }]);
+      const blob = new Blob([new Uint8Array([56])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      const first = await resolveLatestStart(
+        harness,
+        harness.start(blob, { name: 'resume-current' }),
+      );
+      const paused = await pauseCurrent(harness);
+      expect(paused).toMatchObject({ phase: 'paused', revision: 2 });
+      const pausedPort = harness.manager.currentCutoverPort();
+      harness.setRoomTime(paused.anchorMonotonicMs + 500);
+
+      const pending = harness.engine.resumeCurrent({ signal: new AbortController().signal });
+      const committed = await resolveLatestStart(harness, pending);
+
+      expect(committed.attempt).toMatchObject({
+        queueItemId: Q1,
+        runId: first.attempt.runId,
+        revision: 3,
+      });
+      expect(committed.schedule.positionSeconds).toBe(paused.positionSeconds);
+      expect(committed.timeline).toMatchObject({
+        phase: 'playing',
+        revision: 3,
+        positionSeconds: paused.positionSeconds,
+      });
+      expect(committed.timeline.run).toEqual(first.timeline.run);
+      expect(harness.createRunId).toHaveBeenCalledTimes(1);
+      expect(harness.manager.currentCutoverPort()).not.toBe(pausedPort);
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+      await harness.engine.close();
+    },
+  );
+
+  it.each(['audio-buffer', 'streaming-flac'] as const)(
+    'replays an ended %s renderer as a fresh run without rebuilding room authority',
+    async (backend) => {
+      const harness = makeHarness([{ backend }, { backend }]);
+      const blob = new Blob([new Uint8Array([57])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      const first = await resolveLatestStart(
+        harness,
+        harness.start(blob, { name: 'replay-current' }),
+      );
+      harness.sources[0]?.markEnded();
+      expect(harness.engine.currentRendererSnapshot()?.phase).toBe('ended');
+      harness.setRoomTime(2_000);
+
+      const committed = await resolveLatestStart(
+        harness,
+        harness.engine.replayCurrent({ signal: new AbortController().signal }),
+      );
+
+      expect(committed.attempt).toMatchObject({
+        queueItemId: Q1,
+        runId: RUN_2,
+        revision: 2,
+      });
+      expect(committed.attempt.runId).not.toBe(first.attempt.runId);
+      expect(committed.schedule.positionSeconds).toBe(0);
+      expect(committed.timeline).toMatchObject({
+        phase: 'playing',
+        revision: 2,
+        positionSeconds: 0,
+      });
+      expect(harness.createRunId).toHaveBeenCalledTimes(2);
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+      await harness.engine.close();
+    },
+  );
+
+  it('lets a physical-start commit dominate a reentrant successor intent', async () => {
+    let harness!: EngineHarness;
+    let reentrant: ReturnType<FilePlaybackHostFirstFileEngine['replayCurrent']> | null = null;
+    harness = makeHarness([{ backend: 'audio-buffer' }], {
+      beforeControllerCommit: () => {
+        reentrant = harness.engine.replayCurrent({ signal: new AbortController().signal });
+      },
+    });
+    const committed = await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([58])], { type: 'audio/mpeg' }), {
+        name: 'commit-dominant',
+      }),
+    );
+
+    expect(committed.timeline).toMatchObject({ phase: 'playing', revision: 1 });
+    await expect(reentrant).rejects.toThrow(/cannot supersede|physical commit/u);
+    expect(harness.sources).toHaveLength(1);
+    await harness.engine.close();
   });
 
   it('normalizes an empty browser MIME without changing the immutable file binding', async () => {
@@ -812,7 +1180,13 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     });
     expect(harness.manager.currentCutoverPort()).toBeNull();
     expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+    await expect(
+      harness.start(new Blob([new Uint8Array([25])], { type: 'audio/mpeg' }), {
+        name: 'must-not-reuse.mp3',
+      }),
+    ).rejects.toThrow(/closed|precedes/u);
     await harness.engine.close();
+    expect(harness.fatal).toHaveBeenCalledTimes(1);
   });
 
   it('fences a generation change across the physical-start await', async () => {

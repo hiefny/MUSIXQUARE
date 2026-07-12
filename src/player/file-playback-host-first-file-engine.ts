@@ -31,7 +31,11 @@ import type {
   FilePlaybackStartEvidence,
 } from './file-playback-source.ts';
 import type { OrdinaryAudioDecoder } from './file-playback-source-factory.ts';
-import { createPlaybackStateIdentity, type PlaybackAttemptIdentity } from './playback-identity.ts';
+import {
+  createPlaybackStateIdentity,
+  type PlaybackAttemptIdentity,
+  type PlaybackStateIdentity,
+} from './playback-identity.ts';
 import type { PlaybackTimelineSnapshot } from './playback-timeline.ts';
 import { isQueueItemId } from './queue-model.ts';
 import { HostRendezvousCoordinator } from './rendezvous-coordinator.ts';
@@ -60,6 +64,9 @@ const START_KEYS = Object.freeze([
   'decodeOrdinaryAudio',
   'signal',
 ] as const);
+const START_LOCAL_TRACK_KEYS = Object.freeze([...START_KEYS, 'positionSeconds'] as const);
+const CURRENT_OPERATION_KEYS = Object.freeze(['signal'] as const);
+const SEEK_PLAYING_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
 const RUNTIME_KEYS = Object.freeze([
   'createRunIdForTests',
   'localStartRuntimeForTests',
@@ -118,6 +125,19 @@ export interface StartHostFirstLocalFileOptions {
   readonly signal: AbortSignal;
 }
 
+/** Starts a new logical run, replacing the current renderer at rendezvous. */
+export interface StartHostLocalTrackOptions extends StartHostFirstLocalFileOptions {
+  readonly positionSeconds: number;
+}
+
+export interface HostCurrentPlaybackOperationOptions {
+  readonly signal: AbortSignal;
+}
+
+export interface SeekHostPlayingOptions extends HostCurrentPlaybackOperationOptions {
+  readonly positionSeconds: number;
+}
+
 /** Serializable, body-free result published only after physical and timeline commit. */
 export interface HostFirstLocalFilePlaybackCommit {
   readonly schemaVersion: 1;
@@ -150,21 +170,66 @@ interface RuntimeSnapshot {
   readonly onCoordinatorClosed: (() => void) | null;
 }
 
-interface AdmittedFirstFile {
+interface AdmittedLocalFile {
   readonly queueItemId: QueueItemId;
   readonly blob: Blob;
   readonly name: string;
   readonly mime: string;
   readonly binding: Readonly<FilePlaybackAssetBinding>;
   readonly lease: FilePlaybackAssetLease;
+}
+
+type CandidateAction = 'first' | 'track' | 'resume' | 'playing-seek' | 'replay';
+
+interface PendingNewRun {
+  readonly action: 'first' | 'track' | 'replay';
+  readonly expectedPrevious: PlaybackTimelineSnapshot;
+  readonly expectedRevision: number;
+  readonly queueItemId: QueueItemId;
+  readonly positionSeconds: number;
   readonly runId: string;
+}
+
+interface CanonicalFileCandidateInput {
+  readonly queueItemId: QueueItemId;
+  readonly blob: Blob;
+  readonly name: string;
+  readonly mime: string;
+  readonly audioContext: AudioContext;
+  readonly destination: AudioNode;
+  readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+  readonly signal: AbortSignal;
+  readonly positionSeconds: number;
+}
+
+interface CandidateAudioRuntime {
+  readonly audioContext: AudioContext;
+  readonly destination: AudioNode;
+  readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+  readonly clockBindings: FilePlaybackClockBindings;
+}
+
+interface BeginCandidateOperationInput extends CandidateAudioRuntime {
+  readonly action: CandidateAction;
+  readonly previousTimeline: PlaybackTimelineSnapshot;
+  readonly expectedCurrentPort: FilePlaybackCutoverCandidatePort | null;
+  readonly asset: AdmittedLocalFile;
+  readonly runId: string;
+  readonly positionSeconds: number;
+  readonly playbackRate: number;
+  readonly signal: AbortSignal;
 }
 
 interface ActiveStartOperation {
   readonly epoch: number;
+  readonly action: CandidateAction;
+  readonly previousTimeline: PlaybackTimelineSnapshot;
+  readonly expectedCurrentPort: FilePlaybackCutoverCandidatePort | null;
   readonly controller: AbortController;
   readonly externalSignal: AbortSignal;
   readonly removeExternalAbort: () => void;
+  commitDominant: boolean;
+  published: boolean;
   task: Promise<Readonly<HostFirstLocalFilePlaybackCommit>> | null;
 }
 
@@ -390,6 +455,10 @@ function observe(value: Promise<unknown>): void {
   );
 }
 
+function asError(value: unknown, fallback: string): Error {
+  return value instanceof Error ? value : new Error(fallback, { cause: value });
+}
+
 function mergeCleanupFailure(current: unknown, next: unknown): unknown {
   if (current === null) return next;
   return new AggregateError([current, next], 'Multiple host first-file cleanup operations failed');
@@ -401,13 +470,13 @@ function containsCleanupFailure(value: unknown): boolean {
 }
 
 /**
- * One-room, host-only first vertical slice for V2 file playback.
+ * One-room, host-only candidate engine for V2 file playback.
  *
  * This intentionally has no peer publication or room-wide participant set.
  * Multi-peer rendezvous remains a later product slice; this class accepts only
- * a claimed host controller with zero active guest connections. One instance
- * owns exactly one logical queue asset. Product intent replacement must close
- * it and construct a fresh instance instead of changing its asset identity.
+ * a claimed host controller with zero active guest connections. The historical
+ * class name and startFirstLocalFile method remain as compatibility surfaces;
+ * one instance now owns the complete local-host room renderer lifetime.
  */
 export class FilePlaybackHostFirstFileEngine {
   readonly #controller: FilePlaybackApplicationController;
@@ -422,13 +491,16 @@ export class FilePlaybackHostFirstFileEngine {
   readonly #onFatalRoom: (error: Error) => void;
   readonly #runtime: RuntimeSnapshot;
   readonly #registry: FilePlaybackAssetRegistry;
-  readonly #baselineTimeline: PlaybackTimelineSnapshot;
+  readonly #initialTimeline: PlaybackTimelineSnapshot;
+  readonly #assets = new Map<QueueItemId, AdmittedLocalFile>();
   readonly #ownedPorts = new Set<FilePlaybackCutoverCandidatePort>();
   readonly #portRetirements = new Map<FilePlaybackCutoverCandidatePort, Promise<void>>();
   #audioContext: AudioContext | null = null;
   #destination: AudioNode | null = null;
   #clockBindings: FilePlaybackClockBindings | null = null;
-  #asset: AdmittedFirstFile | null = null;
+  #decodeOrdinaryAudio: OrdinaryAudioDecoder | null = null;
+  #legacyFirstQueueItemId: QueueItemId | null = null;
+  #pendingNewRun: PendingNewRun | null = null;
   #committedPort: FilePlaybackCutoverCandidatePort | null = null;
   #operationEpoch = 0;
   #activeOperation: ActiveStartOperation | null = null;
@@ -520,7 +592,7 @@ export class FilePlaybackHostFirstFileEngine {
     this.#hostParticipantId = input.hostParticipantId as string;
     this.#onFatalRoom = input.onFatalRoom as (error: Error) => void;
     this.#runtime = runtime;
-    this.#baselineTimeline = baselineTimeline;
+    this.#initialTimeline = baselineTimeline;
     this.#registry = new FilePlaybackAssetRegistry({
       liveRoomToken: this.#roomToken,
       onFatalRoom: (token, error) => {
@@ -532,141 +604,126 @@ export class FilePlaybackHostFirstFileEngine {
   startFirstLocalFile(
     options: StartHostFirstLocalFileOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
-    if (this.#startingSynchronously) {
-      return Promise.reject(new Error('Host first-file start re-entered synchronous admission'));
-    }
-    this.#startingSynchronously = true;
-    try {
-      const input = snapshotExactRecord(options, START_KEYS);
-      if (!input) throw new TypeError('Host first local file options are invalid');
-      if (this.#closed) throw this.#fatalError ?? new Error('Host first-file engine is closed');
-      if (!isQueueItemId(input.queueItemId)) {
-        throw new TypeError('Host first local file queue item ID is invalid');
-      }
-      if (!(input.blob instanceof Blob)) {
-        throw new TypeError('Host first local file body must be a Blob or File');
-      }
-      if (typeof input.name !== 'string' || typeof input.mime !== 'string') {
-        throw new TypeError('Host first local file metadata is invalid');
+    return this.#runSynchronousCandidateStart(() => {
+      const input = this.#readFileCandidateInput(options, START_KEYS, 0);
+      const previousTimeline = this.#captureTimeline('first');
+      if (
+        previousTimeline !== this.#initialTimeline ||
+        previousTimeline.phase !== 'stopped' ||
+        previousTimeline.run !== null
+      ) {
+        throw new Error('Host first local file requires its exact initial stopped timeline');
       }
       if (
-        input.audioContext === null ||
-        typeof input.audioContext !== 'object' ||
-        input.destination === null ||
-        typeof input.destination !== 'object' ||
-        typeof input.decodeOrdinaryAudio !== 'function'
+        this.#legacyFirstQueueItemId !== null &&
+        this.#legacyFirstQueueItemId !== input.queueItemId
       ) {
-        throw new TypeError('Host first local file audio graph is invalid');
+        throw new Error('Host first-file compatibility API owns one logical queue asset');
       }
-      if (!(input.signal instanceof AbortSignal)) {
-        throw new TypeError('Host first local file requires an exact AbortSignal');
-      }
-      throwIfAborted(input.signal);
-      this.#assertStoppedRoomFence();
-      if (currentPort(this.#manager) !== null) {
-        throw new Error('Host first local file cannot replace an audible renderer');
-      }
-
-      const audioContext = input.audioContext as AudioContext;
-      const destination = input.destination as AudioNode;
-      if (this.#audioContext && this.#audioContext !== audioContext) {
-        throw new Error('Host first-file room AudioContext cannot change');
-      }
-      if (this.#destination && this.#destination !== destination) {
-        throw new Error('Host first-file room destination cannot change');
-      }
-      const clockBindings =
-        this.#clockBindings ?? Reflect.apply(trustedRoomClockBind, this.#roomClock, [audioContext]);
-      if (clockBindings === null || typeof clockBindings !== 'object') {
-        throw new TypeError('Host first-file room clock returned invalid bindings');
-      }
-      this.#assertStoppedRoomFence();
-      if (currentPort(this.#manager) !== null) {
-        throw new Error('Host first local file became audible during clock binding');
-      }
-
-      const queueItemId = input.queueItemId;
-      const blob = input.blob;
-      const name = input.name;
-      const mime = normalizeMime(input.mime);
-      let admitted = this.#asset;
-      if (admitted) {
-        if (
-          admitted.queueItemId !== queueItemId ||
-          admitted.blob !== blob ||
-          admitted.name !== name ||
-          admitted.mime !== mime
-        ) {
-          throw new Error(
-            'Host first-file engine owns one logical queue asset; create a fresh engine for another asset',
-          );
-        }
-      } else {
-        const scope = createFilePlaybackMediaScope(this.#applicationScopeId, queueItemId);
-        const binding = freezeCanonical({ queueItemId, ...scope });
-        const runId = Reflect.apply(this.#runtime.createRunId, undefined, []);
-        const state = createPlaybackStateIdentity({
-          queueItemId,
-          runId,
-          revision: this.#baselineTimeline.revision + 1,
-        });
-        this.#assertStoppedRoomFence();
-        const lease = this.#registry.admitBlob(this.#roomToken, binding, blob, { name, mime });
-        admitted = Object.freeze({
-          queueItemId,
-          blob,
-          name,
-          mime,
-          binding,
-          lease,
-          runId: state.runId,
-        });
-        this.#asset = admitted;
-        if (this.#runtime.fatalAfterAdmission) {
-          this.#handleRegistryFatal(new Error('Fixture registry fatal after admission'));
-        }
-      }
-      this.#assertStoppedRoomFence();
-      if (currentPort(this.#manager) !== null) {
-        throw new Error('Host first local file became audible during admission');
-      }
-
-      this.#audioContext ??= audioContext;
-      this.#destination ??= destination;
-      this.#clockBindings ??= clockBindings;
-      this.#operationEpoch += 1;
-      const epoch = this.#operationEpoch;
-      const operationController = new AbortController();
-      const externalSignal = input.signal;
-      const forwardExternalAbort = () => operationController.abort(externalSignal.reason);
-      externalSignal.addEventListener('abort', forwardExternalAbort, { once: true });
-      const operation: ActiveStartOperation = {
-        epoch,
-        controller: operationController,
-        externalSignal,
-        removeExternalAbort: () =>
-          externalSignal.removeEventListener('abort', forwardExternalAbort),
-        task: null,
-      };
-      const previous = this.#activeOperation;
-      this.#activeOperation = operation;
-      previous?.controller.abort(new Error('Host first local file was superseded'));
-
-      const task = this.#executeStart(
-        operation,
-        admitted,
-        audioContext,
-        destination,
-        input.decodeOrdinaryAudio as OrdinaryAudioDecoder,
-        clockBindings,
-      );
-      operation.task = task;
+      const task = this.#startFileCandidate('first', input, previousTimeline);
+      this.#legacyFirstQueueItemId ??= input.queueItemId;
       return task;
-    } catch (error) {
-      return Promise.reject(error);
-    } finally {
-      this.#startingSynchronously = false;
-    }
+    });
+  }
+
+  startLocalTrack(
+    options: StartHostLocalTrackOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    return this.#runSynchronousCandidateStart(() => {
+      const input = this.#readFileCandidateInput(options, START_LOCAL_TRACK_KEYS, undefined);
+      const previousTimeline = this.#captureTimeline('track');
+      return this.#startFileCandidate('track', input, previousTimeline);
+    });
+  }
+
+  resumeCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    return this.#runSynchronousCandidateStart(() => {
+      const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
+      const previousTimeline = this.#captureTimeline('resume');
+      if (previousTimeline.phase !== 'paused' || previousTimeline.run === null) {
+        throw new Error('Host resume requires exact paused timeline truth');
+      }
+      const asset = this.#requireCurrentAsset(previousTimeline);
+      const runtime = this.#requireAudioRuntime();
+      const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'resume');
+      return this.#beginCandidateOperation({
+        action: 'resume',
+        previousTimeline,
+        expectedCurrentPort,
+        asset,
+        runId: previousTimeline.run.runId,
+        positionSeconds: previousTimeline.positionSeconds,
+        playbackRate: previousTimeline.rate,
+        signal: input.signal,
+        ...runtime,
+      });
+    });
+  }
+
+  seekPlaying(
+    options: SeekHostPlayingOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    return this.#runSynchronousCandidateStart(() => {
+      const input = this.#readCurrentOperationInput(options, SEEK_PLAYING_KEYS);
+      const positionSeconds = input.positionSeconds;
+      if (
+        typeof positionSeconds !== 'number' ||
+        !Number.isFinite(positionSeconds) ||
+        positionSeconds < 0
+      ) {
+        throw new TypeError('Host playing seek position is invalid');
+      }
+      const previousTimeline = this.#captureTimeline('playing-seek');
+      if (previousTimeline.phase !== 'playing' || previousTimeline.run === null) {
+        throw new Error('Host playing seek requires exact playing timeline truth');
+      }
+      const asset = this.#requireCurrentAsset(previousTimeline);
+      const runtime = this.#requireAudioRuntime();
+      const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'playing-seek');
+      return this.#beginCandidateOperation({
+        action: 'playing-seek',
+        previousTimeline,
+        expectedCurrentPort,
+        asset,
+        runId: previousTimeline.run.runId,
+        positionSeconds,
+        playbackRate: previousTimeline.rate,
+        signal: input.signal,
+        ...runtime,
+      });
+    });
+  }
+
+  replayCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    return this.#runSynchronousCandidateStart(() => {
+      const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
+      const previousTimeline = this.#captureTimeline('replay');
+      if (
+        (previousTimeline.phase !== 'playing' && previousTimeline.phase !== 'paused') ||
+        previousTimeline.run === null
+      ) {
+        throw new Error('Host replay requires exact active timeline truth');
+      }
+      const asset = this.#requireCurrentAsset(previousTimeline);
+      const runtime = this.#requireAudioRuntime();
+      const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'replay');
+      const runId = this.#newRunId('replay', asset.queueItemId, 0, previousTimeline);
+      return this.#beginCandidateOperation({
+        action: 'replay',
+        previousTimeline,
+        expectedCurrentPort,
+        asset,
+        runId,
+        positionSeconds: 0,
+        playbackRate: 1,
+        signal: input.signal,
+        ...runtime,
+      });
+    });
   }
 
   close(): Promise<void> {
@@ -676,7 +733,9 @@ export class FilePlaybackHostFirstFileEngine {
     const coordinatorFailure = this.#closeCoordinatorOnce();
     if (this.#closePromise) return this.#closePromise;
     const active = this.#activeOperation;
-    active?.controller.abort(new Error('Host first-file room closed'));
+    if (active && !active.commitDominant) {
+      active.controller.abort(new Error('Host first-file room closed'));
+    }
     this.#closePromise = this.#closeOwnedRoom(active?.task ?? null, coordinatorFailure);
     return this.#closePromise;
   }
@@ -723,44 +782,364 @@ export class FilePlaybackHostFirstFileEngine {
     return position;
   }
 
-  async #executeStart(
+  #runSynchronousCandidateStart(
+    start: () => Promise<Readonly<HostFirstLocalFilePlaybackCommit>>,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    if (this.#startingSynchronously) {
+      return Promise.reject(new Error('Host file candidate re-entered synchronous admission'));
+    }
+    this.#startingSynchronously = true;
+    try {
+      return start();
+    } catch (error) {
+      return Promise.reject(error);
+    } finally {
+      this.#startingSynchronously = false;
+    }
+  }
+
+  #readFileCandidateInput(
+    options: unknown,
+    keys: readonly string[],
+    requestedPosition: unknown,
+  ): Readonly<CanonicalFileCandidateInput> {
+    const input = snapshotExactRecord(options, keys);
+    if (!input) throw new TypeError('Host local file candidate options are invalid');
+    if (!isQueueItemId(input.queueItemId)) {
+      throw new TypeError('Host local file candidate queue item ID is invalid');
+    }
+    if (!(input.blob instanceof Blob)) {
+      throw new TypeError('Host local file candidate body must be a Blob or File');
+    }
+    if (typeof input.name !== 'string' || typeof input.mime !== 'string') {
+      throw new TypeError('Host local file candidate metadata is invalid');
+    }
+    if (
+      input.audioContext === null ||
+      typeof input.audioContext !== 'object' ||
+      input.destination === null ||
+      typeof input.destination !== 'object' ||
+      typeof input.decodeOrdinaryAudio !== 'function'
+    ) {
+      throw new TypeError('Host local file candidate audio graph is invalid');
+    }
+    if (!(input.signal instanceof AbortSignal)) {
+      throw new TypeError('Host local file candidate requires an exact AbortSignal');
+    }
+    const positionSeconds = requestedPosition ?? input.positionSeconds;
+    if (
+      typeof positionSeconds !== 'number' ||
+      !Number.isFinite(positionSeconds) ||
+      positionSeconds < 0
+    ) {
+      throw new TypeError('Host local file candidate position is invalid');
+    }
+    throwIfAborted(input.signal);
+    return freezeCanonical({
+      queueItemId: input.queueItemId,
+      blob: input.blob,
+      name: input.name,
+      mime: normalizeMime(input.mime),
+      audioContext: input.audioContext as AudioContext,
+      destination: input.destination as AudioNode,
+      decodeOrdinaryAudio: input.decodeOrdinaryAudio as OrdinaryAudioDecoder,
+      signal: input.signal,
+      positionSeconds,
+    });
+  }
+
+  #readCurrentOperationInput(
+    options: unknown,
+    keys: readonly string[],
+  ): Readonly<{ readonly signal: AbortSignal; readonly positionSeconds: unknown }> {
+    const input = snapshotExactRecord(options, keys);
+    if (!input) throw new TypeError('Host current renderer operation options are invalid');
+    if (!(input.signal instanceof AbortSignal)) {
+      throw new TypeError('Host current renderer operation requires an exact AbortSignal');
+    }
+    throwIfAborted(input.signal);
+    return freezeCanonical({ signal: input.signal, positionSeconds: input.positionSeconds });
+  }
+
+  #captureTimeline(action: CandidateAction): PlaybackTimelineSnapshot {
+    if (this.#activeOperation?.commitDominant) {
+      throw new Error(`Host ${action} cannot supersede a physical renderer commit`);
+    }
+    this.#assertRoomClockAuthority();
+    const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    if (
+      this.#closed ||
+      this.#fatalError ||
+      snapshot.roomGeneration !== this.#roomGeneration ||
+      snapshot.roomRole !== 'host' ||
+      snapshot.activeConnectionCount !== 0 ||
+      snapshot.timeline !== timeline ||
+      timeline.revision === Number.MAX_SAFE_INTEGER
+    ) {
+      throw this.#fatalError ?? new Error(`Host ${action} room authority is stale`);
+    }
+    this.#assertRoomClockAuthority();
+    return timeline;
+  }
+
+  #startFileCandidate(
+    action: 'first' | 'track',
+    input: Readonly<CanonicalFileCandidateInput>,
+    previousTimeline: PlaybackTimelineSnapshot,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, action);
+    const runtime = this.#bindAudioRuntime(input, previousTimeline);
+    const asset = this.#admitAsset(input, previousTimeline);
+    this.#assertTimelineAuthority(previousTimeline, false);
+    if (this.#assertExpectedRenderer(previousTimeline, action) !== expectedCurrentPort) {
+      throw new Error('Host local file renderer authority changed during admission');
+    }
+    const runId = this.#newRunId(
+      action,
+      asset.queueItemId,
+      input.positionSeconds,
+      previousTimeline,
+    );
+    return this.#beginCandidateOperation({
+      action,
+      previousTimeline,
+      expectedCurrentPort,
+      asset,
+      runId,
+      positionSeconds: input.positionSeconds,
+      playbackRate: 1,
+      signal: input.signal,
+      ...runtime,
+    });
+  }
+
+  #bindAudioRuntime(
+    input: Readonly<CanonicalFileCandidateInput>,
+    previousTimeline: PlaybackTimelineSnapshot,
+  ): Readonly<CandidateAudioRuntime> {
+    if (this.#audioContext && this.#audioContext !== input.audioContext) {
+      throw new Error('Host file playback room AudioContext cannot change');
+    }
+    if (this.#destination && this.#destination !== input.destination) {
+      throw new Error('Host file playback room destination cannot change');
+    }
+    const clockBindings =
+      this.#clockBindings ??
+      Reflect.apply(trustedRoomClockBind, this.#roomClock, [input.audioContext]);
+    if (clockBindings === null || typeof clockBindings !== 'object') {
+      throw new TypeError('Host file playback room clock returned invalid bindings');
+    }
+    this.#assertTimelineAuthority(previousTimeline, false);
+    this.#audioContext ??= input.audioContext;
+    this.#destination ??= input.destination;
+    this.#clockBindings ??= clockBindings;
+    this.#decodeOrdinaryAudio = input.decodeOrdinaryAudio;
+    return freezeCanonical({
+      audioContext: input.audioContext,
+      destination: input.destination,
+      decodeOrdinaryAudio: input.decodeOrdinaryAudio,
+      clockBindings,
+    });
+  }
+
+  #requireAudioRuntime(): Readonly<CandidateAudioRuntime> {
+    if (
+      !this.#audioContext ||
+      !this.#destination ||
+      !this.#clockBindings ||
+      !this.#decodeOrdinaryAudio
+    ) {
+      throw new Error('Host current renderer has no retained audio runtime');
+    }
+    return freezeCanonical({
+      audioContext: this.#audioContext,
+      destination: this.#destination,
+      decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
+      clockBindings: this.#clockBindings,
+    });
+  }
+
+  #admitAsset(
+    input: Readonly<CanonicalFileCandidateInput>,
+    previousTimeline: PlaybackTimelineSnapshot,
+  ): AdmittedLocalFile {
+    const existing = this.#assets.get(input.queueItemId);
+    if (existing) {
+      if (
+        existing.blob !== input.blob ||
+        existing.name !== input.name ||
+        existing.mime !== input.mime
+      ) {
+        throw new Error('Host queue item asset binding cannot change during a room');
+      }
+      return existing;
+    }
+    this.#assertTimelineAuthority(previousTimeline, false);
+    const scope = createFilePlaybackMediaScope(this.#applicationScopeId, input.queueItemId);
+    const binding = freezeCanonical({ queueItemId: input.queueItemId, ...scope });
+    const lease = this.#registry.admitBlob(this.#roomToken, binding, input.blob, {
+      name: input.name,
+      mime: input.mime,
+    });
+    const admitted = Object.freeze({
+      queueItemId: input.queueItemId,
+      blob: input.blob,
+      name: input.name,
+      mime: input.mime,
+      binding,
+      lease,
+    });
+    this.#assets.set(input.queueItemId, admitted);
+    if (this.#runtime.fatalAfterAdmission) {
+      this.#handleRegistryFatal(new Error('Fixture registry fatal after admission'));
+    }
+    return admitted;
+  }
+
+  #newRunId(
+    action: 'first' | 'track' | 'replay',
+    queueItemId: QueueItemId,
+    positionSeconds: number,
+    expectedPrevious: PlaybackTimelineSnapshot,
+  ): string {
+    const pending = this.#pendingNewRun;
+    if (
+      pending &&
+      pending.action === action &&
+      pending.expectedPrevious === expectedPrevious &&
+      pending.expectedRevision === expectedPrevious.revision &&
+      pending.queueItemId === queueItemId &&
+      pending.positionSeconds === positionSeconds
+    ) {
+      return pending.runId;
+    }
+    const runId = Reflect.apply(this.#runtime.createRunId, undefined, []);
+    const state = createPlaybackStateIdentity({
+      queueItemId,
+      runId,
+      revision: expectedPrevious.revision + 1,
+    });
+    this.#pendingNewRun = freezeCanonical({
+      action,
+      expectedPrevious,
+      expectedRevision: expectedPrevious.revision,
+      queueItemId,
+      positionSeconds,
+      runId: state.runId,
+    });
+    return state.runId;
+  }
+
+  #requireCurrentAsset(timeline: PlaybackTimelineSnapshot): AdmittedLocalFile {
+    const queueItemId = timeline.run?.queueItemId;
+    const asset = queueItemId ? this.#assets.get(queueItemId) : null;
+    if (!asset) throw new Error('Host current renderer asset is unavailable');
+    return asset;
+  }
+
+  #assertExpectedRenderer(
+    timeline: PlaybackTimelineSnapshot,
+    action: CandidateAction,
+  ): FilePlaybackCutoverCandidatePort | null {
+    const managerPort = currentPort(this.#manager);
+    if (timeline.phase === 'stopped') {
+      if (timeline.run !== null || managerPort !== null) {
+        throw new Error(`Host ${action} stopped renderer authority is stale`);
+      }
+      return null;
+    }
+    const expectedPort = this.#committedPort;
+    const run = timeline.run;
+    if (!expectedPort || !run || managerPort !== expectedPort) {
+      throw new Error(`Host ${action} current renderer authority is stale`);
+    }
+    const snapshot = Reflect.apply(trustedManagerCurrentSnapshot, this.#manager, [expectedPort]);
+    if (
+      !snapshot ||
+      snapshot.queueItemId !== run.queueItemId ||
+      snapshot.revision !== timeline.revision ||
+      snapshot.run?.queueItemId !== run.queueItemId ||
+      snapshot.run.runId !== run.runId ||
+      snapshot.run.revision !== timeline.revision
+    ) {
+      throw new Error(`Host ${action} renderer identity does not match timeline truth`);
+    }
+    const phaseMatches =
+      action === 'resume'
+        ? timeline.phase === 'paused' && snapshot.phase === 'paused'
+        : action === 'playing-seek'
+          ? timeline.phase === 'playing' && snapshot.phase === 'playing'
+          : timeline.phase === 'paused'
+            ? snapshot.phase === 'paused'
+            : timeline.phase === 'playing' &&
+              (snapshot.phase === 'playing' || snapshot.phase === 'ended');
+    if (!phaseMatches) throw new Error(`Host ${action} renderer phase is stale`);
+    return expectedPort;
+  }
+
+  #beginCandidateOperation(
+    input: Readonly<BeginCandidateOperationInput>,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    const previousOperation = this.#activeOperation;
+    if (previousOperation?.commitDominant) {
+      throw new Error('Host renderer physical commit cannot be superseded');
+    }
+    throwIfAborted(input.signal);
+    this.#operationEpoch += 1;
+    const operationController = new AbortController();
+    const forwardExternalAbort = () => operationController.abort(input.signal.reason);
+    input.signal.addEventListener('abort', forwardExternalAbort, { once: true });
+    const operation: ActiveStartOperation = {
+      epoch: this.#operationEpoch,
+      action: input.action,
+      previousTimeline: input.previousTimeline,
+      expectedCurrentPort: input.expectedCurrentPort,
+      controller: operationController,
+      externalSignal: input.signal,
+      removeExternalAbort: () => input.signal.removeEventListener('abort', forwardExternalAbort),
+      commitDominant: false,
+      published: false,
+      task: null,
+    };
+    this.#activeOperation = operation;
+    previousOperation?.controller.abort(new Error('Host local file candidate was superseded'));
+    if (input.signal.aborted) forwardExternalAbort();
+    const task = this.#executeCandidateStart(operation, input);
+    operation.task = task;
+    return task;
+  }
+
+  async #executeCandidateStart(
     operation: ActiveStartOperation,
-    admitted: AdmittedFirstFile,
-    audioContext: AudioContext,
-    destination: AudioNode,
-    decodeOrdinaryAudio: OrdinaryAudioDecoder,
-    clockBindings: FilePlaybackClockBindings,
+    input: Readonly<BeginCandidateOperationInput>,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
     let started: Readonly<StartedLocalFilePlayback> | null = null;
     try {
       this.#assertOperationFence(operation);
+      if (currentPort(this.#manager) !== operation.expectedCurrentPort) {
+        throw new Error('Host local file current renderer changed before candidate staging');
+      }
       const playbackState = createPlaybackStateIdentity({
-        queueItemId: admitted.queueItemId,
-        runId: admitted.runId,
-        revision: this.#baselineTimeline.revision + 1,
+        queueItemId: input.asset.queueItemId,
+        runId: input.runId,
+        revision: operation.previousTimeline.revision + 1,
       });
       const task = startLocalFilePlayback({
         registry: this.#registry,
         roomToken: this.#roomToken,
-        assetLease: admitted.lease,
-        expectedBinding: admitted.binding,
+        assetLease: input.asset.lease,
+        expectedBinding: input.asset.binding,
         manager: this.#manager,
-        audioContext,
-        destination,
-        clockBindings,
+        audioContext: input.audioContext,
+        destination: input.destination,
+        clockBindings: input.clockBindings,
         signal: operation.controller.signal,
-        isCurrent: () => {
-          try {
-            this.#assertOperationFence(operation);
-            return true;
-          } catch {
-            return false;
-          }
-        },
-        decodeOrdinaryAudio,
+        isCurrent: () => this.#candidateAuthorityAllows(operation, playbackState),
+        decodeOrdinaryAudio: input.decodeOrdinaryAudio,
         playbackState,
-        positionSeconds: 0,
-        playbackRate: 1,
+        positionSeconds: input.positionSeconds,
+        playbackRate: input.playbackRate,
         participantId: this.#hostParticipantId,
         rttP95Ms: 0,
         armP95Ms: 0,
@@ -772,32 +1151,40 @@ export class FilePlaybackHostFirstFileEngine {
       this.#assertOperationFence(operation);
       started = await task;
       this.#ownedPorts.add(started.port);
-      this.#assertOperationFence(operation);
-      if (currentPort(this.#manager) !== started.port) {
-        throw new Error('Host first local file lost its exact promoted renderer');
-      }
+      operation.commitDominant = true;
+      this.#assertCommitFence(operation, started.port);
 
       this.#runtime.beforeControllerCommit?.();
-      this.#assertOperationFence(operation);
+      this.#assertCommitFence(operation, started.port);
       const committed = Reflect.apply(trustedControllerCommit, this.#controller, [
         {
           roomGeneration: this.#roomGeneration,
-          expectedPreviousRevision: this.#baselineTimeline.revision,
+          expectedPreviousRevision: operation.previousTimeline.revision,
           attempt: started.attempt,
           schedule: started.schedule,
           startEvidence: started.startEvidence,
         },
       ]) as Readonly<FilePlaybackHostStartedPlaybackCommit>;
       if (
-        committed.previous !== this.#baselineTimeline ||
+        committed.previous !== operation.previousTimeline ||
         committed.timeline.revision !== started.attempt.revision ||
         committed.timeline.anchorMonotonicMs !== started.schedule.startAtRoomTimeMs ||
-        committed.timeline.run?.queueItemId !== admitted.queueItemId ||
-        committed.timeline.run.runId !== admitted.runId
+        committed.timeline.positionSeconds !== started.schedule.positionSeconds ||
+        committed.timeline.rate !== started.schedule.playbackRate ||
+        committed.timeline.run?.queueItemId !== input.asset.queueItemId ||
+        committed.timeline.run.runId !== input.runId
       ) {
-        throw new Error('Host first local file timeline commit did not match physical start');
+        throw new Error('Host local file timeline commit did not match physical start');
       }
+      operation.published = true;
       this.#committedPort = started.port;
+      if (
+        this.#pendingNewRun?.queueItemId === input.asset.queueItemId &&
+        this.#pendingNewRun.runId === input.runId &&
+        this.#pendingNewRun.positionSeconds === input.positionSeconds
+      ) {
+        this.#pendingNewRun = null;
+      }
 
       return freezeCanonical({
         schemaVersion: 1 as const,
@@ -810,17 +1197,7 @@ export class FilePlaybackHostFirstFileEngine {
         timeline: committed.timeline,
       });
     } catch (error) {
-      if (started) {
-        try {
-          await this.#retireOwnedPort(started.port);
-        } catch (cleanupError) {
-          throw new AggregateError(
-            [error, cleanupError],
-            'Host first-file start and renderer cleanup both failed',
-            { cause: cleanupError },
-          );
-        }
-      }
+      if (started) this.#quarantineAfterPhysicalFailure(error);
       throw error;
     } finally {
       operation.removeExternalAbort();
@@ -828,38 +1205,38 @@ export class FilePlaybackHostFirstFileEngine {
     }
   }
 
-  #assertStoppedRoomFence(): void {
+  #assertTimelineAuthority(
+    expectedTimeline: PlaybackTimelineSnapshot,
+    allowClosingCommit: boolean,
+  ): void {
     this.#assertRoomClockAuthority();
     const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
     const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
     if (
-      this.#closed ||
+      (!allowClosingCommit && (this.#closed || this.#coordinatorClosed)) ||
+      this.#fatalError ||
       snapshot.roomGeneration !== this.#roomGeneration ||
       snapshot.roomRole !== 'host' ||
       snapshot.activeConnectionCount !== 0 ||
-      snapshot.timeline !== this.#baselineTimeline ||
-      timeline !== this.#baselineTimeline ||
-      timeline.phase !== 'stopped' ||
-      timeline.run !== null
+      snapshot.timeline !== timeline ||
+      timeline !== expectedTimeline
     ) {
-      throw this.#fatalError ?? new Error('Host first-file room authority is stale');
+      throw this.#fatalError ?? new Error('Host local-file room authority is stale');
     }
     this.#assertRoomClockAuthority();
   }
 
   #hasLiveProjectionAuthority(): boolean {
     try {
-      if (
-        this.#closed ||
-        this.#coordinatorClosed ||
-        this.#committedPort === null ||
-        this.#asset === null
-      ) {
+      if (this.#closed || this.#coordinatorClosed || this.#committedPort === null) {
         return false;
       }
       this.#assertRoomClockAuthority();
       const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
       const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+      const port = this.#committedPort;
+      const renderer = Reflect.apply(trustedManagerCurrentSnapshot, this.#manager, [port]);
+      const run = timeline.run;
       return (
         !this.#closed &&
         !this.#coordinatorClosed &&
@@ -867,9 +1244,15 @@ export class FilePlaybackHostFirstFileEngine {
         snapshot.roomRole === 'host' &&
         snapshot.activeConnectionCount === 0 &&
         snapshot.timeline === timeline &&
-        timeline !== this.#baselineTimeline &&
-        timeline.run?.queueItemId === this.#asset.queueItemId &&
-        timeline.run.runId === this.#asset.runId
+        timeline.phase !== 'stopped' &&
+        run !== null &&
+        this.#assets.has(run.queueItemId) &&
+        currentPort(this.#manager) === port &&
+        renderer?.queueItemId === run.queueItemId &&
+        renderer.revision === timeline.revision &&
+        renderer.run?.queueItemId === run.queueItemId &&
+        renderer.run.runId === run.runId &&
+        renderer.run.revision === timeline.revision
       );
     } catch {
       return false;
@@ -894,12 +1277,66 @@ export class FilePlaybackHostFirstFileEngine {
   #assertOperationFence(operation: ActiveStartOperation): void {
     throwIfAborted(operation.externalSignal);
     throwIfAborted(operation.controller.signal);
-    if (this.#activeOperation !== operation || this.#operationEpoch !== operation.epoch) {
-      throw new Error('Host first local file operation was superseded');
+    if (
+      operation.commitDominant ||
+      this.#activeOperation !== operation ||
+      this.#operationEpoch !== operation.epoch
+    ) {
+      throw new Error('Host local file candidate operation was superseded');
     }
-    this.#assertStoppedRoomFence();
+    this.#assertTimelineAuthority(operation.previousTimeline, false);
     throwIfAborted(operation.externalSignal);
     throwIfAborted(operation.controller.signal);
+  }
+
+  #candidateAuthorityAllows(
+    operation: ActiveStartOperation,
+    playbackState: PlaybackStateIdentity,
+  ): boolean {
+    try {
+      if (this.#activeOperation === operation && this.#operationEpoch === operation.epoch) {
+        if (operation.commitDominant) {
+          this.#assertTimelineAuthority(operation.previousTimeline, true);
+        } else {
+          this.#assertOperationFence(operation);
+        }
+        return true;
+      }
+      if (!operation.published || this.#closed || this.#coordinatorClosed || this.#fatalError) {
+        return false;
+      }
+      this.#assertRoomClockAuthority();
+      const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
+      const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+      return (
+        snapshot.roomGeneration === this.#roomGeneration &&
+        snapshot.roomRole === 'host' &&
+        snapshot.activeConnectionCount === 0 &&
+        snapshot.timeline === timeline &&
+        timeline.phase !== 'stopped' &&
+        timeline.run?.queueItemId === playbackState.queueItemId &&
+        timeline.run.runId === playbackState.runId
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  #assertCommitFence(
+    operation: ActiveStartOperation,
+    promotedPort: FilePlaybackCutoverCandidatePort,
+  ): void {
+    if (
+      !operation.commitDominant ||
+      this.#activeOperation !== operation ||
+      this.#operationEpoch !== operation.epoch
+    ) {
+      throw new Error('Host local file physical commit authority was superseded');
+    }
+    this.#assertTimelineAuthority(operation.previousTimeline, true);
+    if (currentPort(this.#manager) !== promotedPort) {
+      throw new Error('Host local file lost its exact promoted renderer');
+    }
   }
 
   async #retireOwnedPort(port: FilePlaybackCutoverCandidatePort): Promise<void> {
@@ -998,6 +1435,23 @@ export class FilePlaybackHostFirstFileEngine {
     if (cleanupFailure) throw cleanupFailure;
   }
 
+  #quarantineAfterPhysicalFailure(cause: unknown): void {
+    const error = asError(cause, 'Host local-file physical commit failed');
+    if (!this.#fatalError) this.#fatalError = error;
+    this.#closed = true;
+    this.#operationEpoch += 1;
+    const coordinatorFailure = this.#closeCoordinatorOnce();
+    this.#activeOperation?.controller.abort(error);
+    if (!this.#closePromise) {
+      // Never make terminal cleanup await the task that is currently invoking
+      // this quarantine path. The promoted renderer is already manager truth;
+      // closeOwnedRoom owns its exact retirement through #ownedPorts.
+      this.#closePromise = this.#closeOwnedRoom(null, coordinatorFailure);
+      observe(this.#closePromise);
+    }
+    this.#notifyFatalAfterTerminalCleanup(this.#fatalError);
+  }
+
   #handleRegistryFatal(error: Error): void {
     if (!this.#fatalError) this.#fatalError = error;
     this.#closed = true;
@@ -1011,9 +1465,18 @@ export class FilePlaybackHostFirstFileEngine {
       );
       observe(this.#closePromise);
     }
+    this.#notifyFatalAfterTerminalCleanup(error);
+  }
+
+  #notifyFatalAfterTerminalCleanup(error: Error): void {
     if (this.#fatalNotified) return;
     this.#fatalNotified = true;
-    void this.#closePromise.then(
+    const close = this.#closePromise;
+    if (!close) {
+      this.#notifyFatalAfterClose(error);
+      return;
+    }
+    void close.then(
       () => this.#notifyFatalAfterClose(error),
       () => this.#notifyFatalAfterClose(error),
     );
@@ -1052,12 +1515,15 @@ export class FilePlaybackHostFirstFileEngine {
         null,
       );
     }
-    this.#asset = null;
+    this.#assets.clear();
+    this.#legacyFirstQueueItemId = null;
+    this.#pendingNewRun = null;
     this.#committedPort = null;
+    this.#decodeOrdinaryAudio = null;
     this.#audioContext = null;
     this.#destination = null;
     this.#clockBindings = null;
-    const assetReferenceCount = this.#asset === null ? 0 : 1;
+    const assetReferenceCount = this.#assets.size;
     const audioContextRetained = this.#audioContext !== null;
     const destinationRetained = this.#destination !== null;
     const clockBindingsRetained = this.#clockBindings !== null;

@@ -14,6 +14,7 @@ import { isFlacSourceIdentity } from './flac/stream-protocol.ts';
 import { BlobEncodedAudioSource } from './sources/blob-encoded-audio-source.ts';
 import {
   type EncodedAudioSource,
+  type EncodedAudioSourceMetadata,
   EncodedSourceIntegrityError,
   throwIfAborted,
   validateExactRead,
@@ -78,6 +79,8 @@ export interface CreateBlobFilePlaybackSourceOptions extends FilePlaybackSourceF
    * Omit only for process-local/demo playback where object identity is enough.
    */
   readonly sourceIdentity?: string;
+  /** Canonical metadata retained by the room asset registry for a plain received Blob. */
+  readonly sourceMetadata?: EncodedAudioSourceMetadata;
   /** Product-owned ordinary-codec decoder. It must honor the supplied signal. */
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
   /** Deterministic constructor seams for browser-boundary tests. */
@@ -101,6 +104,62 @@ export interface CreateEncodedFilePlaybackSourceOptions extends FilePlaybackSour
 interface ExactOrdinaryBlobBinding {
   readonly blob: Blob;
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+}
+
+const SOURCE_METADATA_KEYS = Object.freeze(['mime', 'name'] as const);
+const MAX_SOURCE_NAME_LENGTH = 512;
+const MAX_SOURCE_MIME_LENGTH = 128;
+
+function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+
+function canonicalSourceMetadata(value: unknown): Readonly<EncodedAudioSourceMetadata> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const expected = new Set<string>(SOURCE_METADATA_KEYS);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      return null;
+    }
+    const name = descriptors.name;
+    const mime = descriptors.mime;
+    if (
+      !name?.enumerable ||
+      !Object.hasOwn(name, 'value') ||
+      typeof name.value !== 'string' ||
+      name.value.trim().length === 0 ||
+      name.value.length > MAX_SOURCE_NAME_LENGTH ||
+      containsControlCharacter(name.value) ||
+      !mime?.enumerable ||
+      !Object.hasOwn(mime, 'value') ||
+      typeof mime.value !== 'string' ||
+      mime.value.trim().length === 0 ||
+      mime.value.length > MAX_SOURCE_MIME_LENGTH ||
+      mime.value !== mime.value.trim() ||
+      containsControlCharacter(mime.value)
+    ) {
+      return null;
+    }
+    return Object.freeze(
+      Object.assign(Object.create(null), {
+        name: name.value,
+        mime: mime.value,
+      }),
+    ) as Readonly<EncodedAudioSourceMetadata>;
+  } catch {
+    return null;
+  }
 }
 
 interface CreateOwnedEncodedFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
@@ -194,6 +253,7 @@ function assertBlobFactoryInput(
   blob: Blob,
   decodeOrdinaryAudio: OrdinaryAudioDecoder,
   sourceIdentity: string | undefined,
+  sourceMetadata: Readonly<EncodedAudioSourceMetadata> | undefined,
 ): void {
   assertFactoryInput(options);
   if (!(blob instanceof Blob)) throw new TypeError('Playback source requires a Blob');
@@ -202,6 +262,9 @@ function assertBlobFactoryInput(
     (!isFlacSourceIdentity(sourceIdentity) || sourceIdentity.trim() !== sourceIdentity)
   ) {
     throw new TypeError('Playback source identity is invalid');
+  }
+  if (sourceMetadata !== undefined && canonicalSourceMetadata(sourceMetadata) === null) {
+    throw new TypeError('Playback source metadata is invalid');
   }
   if (typeof decodeOrdinaryAudio !== 'function') {
     throw new TypeError('Ordinary audio decoder is required');
@@ -444,8 +507,23 @@ export async function createBlobFilePlaybackSource(
   const blob = options.blob;
   const decodeOrdinaryAudio = options.decodeOrdinaryAudio;
   const sourceIdentity = options.sourceIdentity;
-  assertBlobFactoryInput(options, blob, decodeOrdinaryAudio, sourceIdentity);
-  const encodedSource = new BlobEncodedAudioSource(blob, { identity: sourceIdentity });
+  const rawSourceMetadata = options.sourceMetadata;
+  const sourceMetadata =
+    rawSourceMetadata === undefined ? undefined : canonicalSourceMetadata(rawSourceMetadata);
+  if (rawSourceMetadata !== undefined && sourceMetadata === null) {
+    throw new TypeError('Playback source metadata is invalid');
+  }
+  assertBlobFactoryInput(
+    options,
+    blob,
+    decodeOrdinaryAudio,
+    sourceIdentity,
+    sourceMetadata ?? undefined,
+  );
+  const encodedSource = new BlobEncodedAudioSource(blob, {
+    identity: sourceIdentity,
+    metadata: sourceMetadata ?? undefined,
+  });
   return createOwnedEncodedFilePlaybackSource(
     {
       encodedSource,

@@ -367,6 +367,72 @@ describe('createBlobFilePlaybackSource', () => {
     await streaming.source.destroy();
   });
 
+  it('preserves registry metadata for a plain received Blob and uses it for container claims', async () => {
+    const sourceMetadata = { name: 'remote-take.flac', mime: 'audio/flac' };
+    let routedMetadata: { readonly name: string; readonly mime: string } | null = null;
+    const streaming = await createBlobFilePlaybackSource(
+      baseOptions(new Blob([await nativeFlac(2).arrayBuffer()]), {
+        sourceIdentity: 'source:remote-plain-flac',
+        sourceMetadata,
+        backendFactories: {
+          createStreamingFlacSource: (options) => {
+            routedMetadata = options.encodedSource.metadata;
+            return new StreamingFlacPlaybackSource(options);
+          },
+        },
+      }),
+    );
+
+    expect(routedMetadata).toEqual(sourceMetadata);
+    await streaming.source.destroy();
+
+    const decoder = vi.fn(async () => decodedOrdinaryAudio());
+    await expect(
+      createBlobFilePlaybackSource(
+        baseOptions(new Blob(['ID3!']), {
+          sourceIdentity: 'source:remote-invalid-flac',
+          sourceMetadata,
+          decodeOrdinaryAudio: decoder,
+        }),
+      ),
+    ).rejects.toThrow(/claims to be FLAC/u);
+    expect(decoder).not.toHaveBeenCalled();
+  });
+
+  it('snapshots registry metadata once and rejects nested accessors without invoking them', async () => {
+    const options = baseOptions(new Blob(['ID3!']));
+    let metadataReads = 0;
+    const metadata = { name: 'remote.mp3', mime: 'audio/mpeg' };
+    Object.defineProperty(options, 'sourceMetadata', {
+      enumerable: true,
+      get() {
+        metadataReads += 1;
+        return metadata;
+      },
+    });
+    const result = await createBlobFilePlaybackSource(options);
+    expect(metadataReads).toBe(1);
+    result.releaseConstructionLease();
+    await result.source.destroy();
+
+    let nestedReads = 0;
+    const hostileMetadata = {
+      get name() {
+        nestedReads += 1;
+        return 'hostile.mp3';
+      },
+      mime: 'audio/mpeg',
+    };
+    await expect(
+      createBlobFilePlaybackSource(
+        baseOptions(new Blob(['ID3!']), {
+          sourceMetadata: hostileMetadata,
+        }),
+      ),
+    ).rejects.toThrow(/metadata is invalid/u);
+    expect(nestedReads).toBe(0);
+  });
+
   it('rejects a malformed explicit identity before reading or decoding the Blob', async () => {
     const blob = new Blob(['ID3!'], { type: 'audio/mpeg' });
     const arrayBuffer = vi.spyOn(Blob.prototype, 'arrayBuffer');

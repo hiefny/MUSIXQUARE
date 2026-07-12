@@ -34,9 +34,17 @@ export function getBlobObjectIdentity(blob: Blob): string {
 
 function metadataForBlob(blob: Blob, metadata?: Partial<EncodedAudioSourceMetadata>) {
   const fileName = typeof File !== 'undefined' && blob instanceof File ? blob.name : '';
+  const explicitName = metadata?.name;
+  const explicitMime = metadata?.mime;
   return Object.freeze({
-    name: metadata?.name?.trim() || fileName || 'audio',
-    mime: metadata?.mime?.trim() || blob.type || 'application/octet-stream',
+    name:
+      typeof explicitName === 'string' && explicitName.trim().length > 0
+        ? explicitName
+        : fileName || 'audio',
+    mime:
+      typeof explicitMime === 'string' && explicitMime.trim().length > 0
+        ? explicitMime
+        : blob.type || 'application/octet-stream',
   });
 }
 

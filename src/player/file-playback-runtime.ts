@@ -1,13 +1,18 @@
 import { getState } from '../core/state.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { getCurrentAudioBuffer } from './_state.ts';
+import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
 import { FilePlaybackManager, type FilePlaybackManagerSnapshot } from './file-playback-manager.ts';
+import { getFilePlaybackProductRuntime } from './file-playback-product-runtime.ts';
+import { createPlaybackStateIdentity } from './playback-identity.ts';
+import { isQueueItemId } from './queue-model.ts';
 import type {
   FilePlaybackPosition,
   FilePlaybackSource,
   FilePlaybackSourcePhase,
   FilePlaybackSourceSnapshot,
 } from './file-playback-source.ts';
+import { createFilePlaybackSourceSnapshot } from './file-playback-source.ts';
 
 export interface LegacyFilePlaybackView {
   readonly audioBuffer: AudioBuffer | null;
@@ -27,6 +32,20 @@ export interface FilePlaybackAvailability {
   readonly backend: 'audio-buffer' | 'streaming-flac' | 'legacy-audio-buffer' | null;
   readonly queueItemId: QueueItemId | null;
   readonly durationSeconds: number | null;
+}
+
+/** Narrow JSON-safe projection capability implemented by the product runtime. */
+export interface FilePlaybackProductProjectionPort {
+  currentHostRendererSnapshot(): FilePlaybackSourceSnapshot | null;
+  hostPositionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
+}
+
+export interface FilePlaybackReadProjectionOptions {
+  /** Captured once for this projection facade's complete document lifetime. */
+  readonly v2Enabled: boolean;
+  readonly legacyRuntime: FilePlaybackRuntime;
+  readonly productRuntime: FilePlaybackProductProjectionPort;
+  readonly monotonicNow?: () => number;
 }
 
 const PLAYABLE_MANAGED_PHASES: ReadonlySet<FilePlaybackSourcePhase> = new Set([
@@ -56,6 +75,65 @@ function snapshotMatches(
   queueItemId?: QueueItemId | null,
 ): snapshot is FilePlaybackSourceSnapshot {
   return !!snapshot && (queueItemId == null || snapshot.queueItemId === queueItemId);
+}
+
+function canonicalPosition(value: unknown): FilePlaybackPosition | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const expectedKeys = Object.freeze([
+      'bufferedAheadSeconds',
+      'phase',
+      'positionSeconds',
+      'queueItemId',
+      'run',
+      'underrunCount',
+    ] as const);
+    const expected = new Set<string>(expectedKeys);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of expectedKeys) {
+      const descriptor = descriptors[key];
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    if (
+      !isQueueItemId(snapshot.queueItemId) ||
+      !PLAYABLE_MANAGED_PHASES.has(snapshot.phase as FilePlaybackSourcePhase) ||
+      typeof snapshot.positionSeconds !== 'number' ||
+      !Number.isFinite(snapshot.positionSeconds) ||
+      snapshot.positionSeconds < 0 ||
+      typeof snapshot.bufferedAheadSeconds !== 'number' ||
+      !Number.isFinite(snapshot.bufferedAheadSeconds) ||
+      snapshot.bufferedAheadSeconds < 0 ||
+      typeof snapshot.underrunCount !== 'number' ||
+      !Number.isSafeInteger(snapshot.underrunCount) ||
+      snapshot.underrunCount < 0
+    ) {
+      return null;
+    }
+    if (snapshot.run === null) return null;
+    const run = createPlaybackStateIdentity(
+      snapshot.run as Parameters<typeof createPlaybackStateIdentity>[0],
+    );
+    if (run.queueItemId !== snapshot.queueItemId) return null;
+    return Object.freeze({
+      queueItemId: snapshot.queueItemId as QueueItemId,
+      run,
+      phase: snapshot.phase as FilePlaybackSourcePhase,
+      positionSeconds: snapshot.positionSeconds,
+      bufferedAheadSeconds: snapshot.bufferedAheadSeconds,
+      underrunCount: snapshot.underrunCount,
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -163,7 +241,89 @@ export class FilePlaybackRuntime {
   }
 }
 
+/**
+ * Document-lifetime read bridge between the selected product engine and the
+ * legacy runtime. V2 never consults the legacy manager or AudioBuffer shadow:
+ * until guest projection exists, a guest therefore returns null/false.
+ */
+export class FilePlaybackReadProjection {
+  readonly #v2Enabled: boolean;
+  readonly #legacyRuntime: FilePlaybackRuntime;
+  readonly #productRuntime: FilePlaybackProductProjectionPort;
+  readonly #monotonicNow: () => number;
+
+  constructor(options: FilePlaybackReadProjectionOptions) {
+    if (
+      !options ||
+      typeof options !== 'object' ||
+      typeof options.v2Enabled !== 'boolean' ||
+      !(options.legacyRuntime instanceof FilePlaybackRuntime) ||
+      !options.productRuntime ||
+      typeof options.productRuntime !== 'object' ||
+      typeof options.productRuntime.currentHostRendererSnapshot !== 'function' ||
+      typeof options.productRuntime.hostPositionAt !== 'function' ||
+      (options.monotonicNow !== undefined && typeof options.monotonicNow !== 'function')
+    ) {
+      throw new TypeError('File playback read projection options are invalid');
+    }
+    this.#v2Enabled = options.v2Enabled;
+    this.#legacyRuntime = options.legacyRuntime;
+    this.#productRuntime = options.productRuntime;
+    this.#monotonicNow = options.monotonicNow ?? (() => performance.now());
+  }
+
+  activeSnapshot(): FilePlaybackSourceSnapshot | null {
+    if (!this.#v2Enabled) return this.#legacyRuntime.activeSnapshot();
+    try {
+      const snapshot = this.#productRuntime.currentHostRendererSnapshot();
+      if (!snapshot) return null;
+      const canonical = createFilePlaybackSourceSnapshot(snapshot);
+      return isQueueItemId(canonical.queueItemId) ? canonical : null;
+    } catch {
+      return null;
+    }
+  }
+
+  hasPlayableSource(queueItemId?: QueueItemId | null): boolean {
+    if (!this.#v2Enabled) return this.#legacyRuntime.hasPlayableSource(queueItemId);
+    const snapshot = this.activeSnapshot();
+    return snapshotMatches(snapshot, queueItemId) && PLAYABLE_MANAGED_PHASES.has(snapshot.phase);
+  }
+
+  durationSeconds(queueItemId?: QueueItemId | null): number | null {
+    if (!this.#v2Enabled) return this.#legacyRuntime.durationSeconds(queueItemId);
+    const snapshot = this.activeSnapshot();
+    return snapshotMatches(snapshot, queueItemId) && PLAYABLE_MANAGED_PHASES.has(snapshot.phase)
+      ? finiteDuration(snapshot.durationSeconds)
+      : null;
+  }
+
+  position(queueItemId?: QueueItemId | null): FilePlaybackPosition | null {
+    if (!this.#v2Enabled) return this.#legacyRuntime.position(queueItemId);
+    try {
+      const now = this.#monotonicNow();
+      if (!Number.isFinite(now) || now < 0) return null;
+      const position = canonicalPosition(this.#productRuntime.hostPositionAt(now));
+      return position && (queueItemId == null || position.queueItemId === queueItemId)
+        ? position
+        : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
 const filePlaybackRuntime = new FilePlaybackRuntime();
+const productProjectionPort: FilePlaybackProductProjectionPort = Object.freeze({
+  currentHostRendererSnapshot: () => getFilePlaybackProductRuntime().currentHostRendererSnapshot(),
+  hostPositionAt: (localPerformanceTimeMs: number) =>
+    getFilePlaybackProductRuntime().hostPositionAt(localPerformanceTimeMs),
+});
+const filePlaybackReadProjection = new FilePlaybackReadProjection({
+  v2Enabled: isFilePlaybackEngineV2Enabled(),
+  legacyRuntime: filePlaybackRuntime,
+  productRuntime: productProjectionPort,
+});
 
 export function getFilePlaybackRuntime(): FilePlaybackRuntime {
   return filePlaybackRuntime;
@@ -174,27 +334,29 @@ export function getFilePlaybackManager(): FilePlaybackManager {
 }
 
 export function getActiveFilePlaybackSnapshot(): FilePlaybackSourceSnapshot | null {
-  return filePlaybackRuntime.activeSnapshot();
+  return filePlaybackReadProjection.activeSnapshot();
 }
 
 export function hasPlayableFileSource(queueItemId?: QueueItemId | null): boolean {
-  return filePlaybackRuntime.hasPlayableSource(queueItemId);
+  return filePlaybackReadProjection.hasPlayableSource(queueItemId);
 }
 
 export function getFilePlaybackDuration(queueItemId?: QueueItemId | null): number | null {
-  return filePlaybackRuntime.durationSeconds(queueItemId);
+  return filePlaybackReadProjection.durationSeconds(queueItemId);
 }
 
 export function getManagedFilePlaybackPosition(
   queueItemId?: QueueItemId | null,
 ): FilePlaybackPosition | null {
-  return filePlaybackRuntime.position(queueItemId);
+  return filePlaybackReadProjection.position(queueItemId);
 }
 
+/** Migration-only legacy mutation; V2 call sites must retire through the product room owner. */
 export function discardFilePlaybackQueueItem(queueItemId: QueueItemId): Promise<void> {
   return filePlaybackRuntime.discardQueueItem(queueItemId);
 }
 
+/** Migration-only legacy mutation; this intentionally does not clear a live V2 product room. */
 export function clearFilePlaybackRuntime(): Promise<void> {
   return filePlaybackRuntime.clear();
 }

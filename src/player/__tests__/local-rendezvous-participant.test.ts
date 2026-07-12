@@ -8,8 +8,8 @@ import type {
 } from '../file-playback-source.ts';
 import { LocalRendezvousParticipant } from '../local-rendezvous-participant.ts';
 import {
-  isRendezvousArmReceipt,
-  isRendezvousFinalizeReceipt,
+  readRendezvousArmReceipt,
+  readRendezvousFinalizeReceipt,
   type RendezvousArmIntent,
   type RendezvousArmReceipt,
   type RendezvousFinalizeIntent,
@@ -140,6 +140,175 @@ function participant(getActiveSource: () => FilePlaybackSource | null) {
 }
 
 describe('LocalRendezvousParticipant', () => {
+  it('snapshots exact constructor options without invoking accessors or dynamic gets', () => {
+    let getterCalls = 0;
+    const accessor = {
+      get participantId() {
+        getterCalls += 1;
+        return PARTICIPANT_ID;
+      },
+      getActiveSource: () => null,
+      rttP95Ms: 0,
+      armP95Ms: 0,
+      nowRoomTimeMs: () => 0,
+    };
+    expect(() => new LocalRendezvousParticipant(accessor)).toThrow(/options are invalid/);
+    expect(getterCalls).toBe(0);
+
+    const options = {
+      participantId: PARTICIPANT_ID,
+      getActiveSource: () => null,
+      rttP95Ms: 10,
+      armP95Ms: 20,
+      nowRoomTimeMs: () => 0,
+    };
+    const proxied = new Proxy(options, {
+      get() {
+        getterCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+    const adapter = new LocalRendezvousParticipant(proxied);
+    expect(adapter.participantId).toBe(PARTICIPANT_ID);
+    expect(adapter.rttP95Ms).toBe(10);
+    expect(adapter.armP95Ms).toBe(20);
+    expect(getterCalls).toBe(0);
+  });
+
+  it('passes only a detached canonical intent to the active source under a hostile Proxy', async () => {
+    const active = source();
+    const adapter = participant(() => active);
+    let getCalls = 0;
+    const proxied = new Proxy(armIntent(), {
+      get() {
+        getCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+
+    await expect(adapter.arm(proxied)).resolves.toMatchObject({ status: 'armed' });
+    expect(getCalls).toBe(0);
+    const delegated = active.arm.mock.calls[0]?.[0];
+    expect(delegated).toEqual(armIntent());
+    expect(delegated === proxied).toBe(false);
+    expect(Object.getPrototypeOf(delegated)).toBeNull();
+    expect(Object.isFrozen(delegated)).toBe(true);
+
+    const accessor = { ...armIntent(), rendezvousId: 'rv-accessor' };
+    Object.defineProperty(accessor, 'revision', {
+      enumerable: true,
+      get() {
+        getCalls += 1;
+        return 8;
+      },
+    });
+    await expect(adapter.arm(accessor)).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'invalid-arm-intent',
+    });
+    expect(getCalls).toBe(0);
+    expect(active.arm).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks operation authority after a source receipt Proxy re-enters cancellation', async () => {
+    const active = source();
+    const adapter = participant(() => active);
+    const cancelIntent: FilePlaybackCancelIntent = Object.freeze({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      reasonCode: 'proxy-reentered-cancel',
+    });
+
+    active.arm.mockImplementationOnce(
+      async (intent) =>
+        new Proxy(armedReceipt(intent), {
+          ownKeys(target) {
+            void adapter.cancel(cancelIntent);
+            return Reflect.ownKeys(target);
+          },
+        }),
+    );
+    await expect(adapter.arm(armIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-operation-cancelled',
+    });
+    expect(active.cancel).toHaveBeenCalledOnce();
+
+    const finalizeSource = source();
+    const finalizeAdapter = participant(() => finalizeSource);
+    await finalizeAdapter.arm(armIntent());
+    finalizeSource.finalize.mockImplementationOnce(
+      async (intent) =>
+        new Proxy(finalizedReceipt(intent), {
+          ownKeys(target) {
+            void finalizeAdapter.cancel(cancelIntent);
+            return Reflect.ownKeys(target);
+          },
+        }),
+    );
+    await expect(finalizeAdapter.finalize(finalizeIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-operation-cancelled',
+    });
+    expect(finalizeSource.cancel).toHaveBeenCalledOnce();
+  });
+
+  it('cannot resurrect cancelled work when the active-source provider re-enters final checks', async () => {
+    const armSource = source();
+    let armProviderCalls = 0;
+    let armAdapter!: LocalRendezvousParticipant;
+    armAdapter = participant(() => {
+      armProviderCalls += 1;
+      if (armProviderCalls === 3) {
+        void armAdapter.cancel({
+          kind: 'file-playback-cancel',
+          queueItemId: QID,
+          runId: 'run-a',
+          revision: 7,
+          reasonCode: 'provider-reentered-cancel',
+        });
+      }
+      return armSource;
+    });
+    await expect(armAdapter.arm(armIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-operation-cancelled',
+    });
+    await expect(armAdapter.finalize(finalizeIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-rendezvous-not-armed',
+    });
+
+    const finalizeSource = source();
+    let mode: 'setup' | 'finalize' = 'setup';
+    let finalizeProviderCalls = 0;
+    let finalizeAdapter!: LocalRendezvousParticipant;
+    finalizeAdapter = participant(() => {
+      if (mode === 'finalize') {
+        finalizeProviderCalls += 1;
+        if (finalizeProviderCalls === 3) {
+          void finalizeAdapter.cancel({
+            kind: 'file-playback-cancel',
+            queueItemId: QID,
+            runId: 'run-a',
+            revision: 7,
+            reasonCode: 'provider-reentered-cancel',
+          });
+        }
+      }
+      return finalizeSource;
+    });
+    await finalizeAdapter.arm(armIntent());
+    mode = 'finalize';
+    await expect(finalizeAdapter.finalize(finalizeIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-operation-cancelled',
+    });
+    expect(finalizeSource.cancel).toHaveBeenCalledOnce();
+  });
+
   it.each<FilePlaybackBackend>(['audio-buffer', 'streaming-flac'])(
     'delegates the same contract without depending on the %s backend',
     async (backend) => {
@@ -178,7 +347,7 @@ describe('LocalRendezvousParticipant', () => {
     for (const receipt of [wrongRecipient, wrongQueue, missing]) {
       expect(receipt.status).toBe('rejected');
       expect(receipt.bufferedAheadSeconds).toBe(0);
-      expect(isRendezvousArmReceipt(receipt)).toBe(true);
+      expect(readRendezvousArmReceipt(receipt)).not.toBeNull();
       expect(Object.isFrozen(receipt)).toBe(true);
     }
   });
@@ -196,7 +365,7 @@ describe('LocalRendezvousParticipant', () => {
     expect(receipt).toMatchObject({ status: 'rejected', reasonCode: 'local-source-changed' });
     expect(armedSource.finalize).not.toHaveBeenCalled();
     expect(replacement.finalize).not.toHaveBeenCalled();
-    expect(isRendezvousFinalizeReceipt(receipt)).toBe(true);
+    expect(readRendezvousFinalizeReceipt(receipt)).not.toBeNull();
     expect(Object.isFrozen(receipt)).toBe(true);
   });
 
@@ -442,8 +611,8 @@ describe('LocalRendezvousParticipant', () => {
       status: 'rejected',
       reasonCode: 'local-source-finalize-failed',
     });
-    expect(isRendezvousArmReceipt(failedArm)).toBe(true);
-    expect(isRendezvousFinalizeReceipt(failedFinalize)).toBe(true);
+    expect(readRendezvousArmReceipt(failedArm)).not.toBeNull();
+    expect(readRendezvousFinalizeReceipt(failedFinalize)).not.toBeNull();
     expect(Object.isFrozen(failedArm)).toBe(true);
     expect(Object.isFrozen(failedFinalize)).toBe(true);
   });

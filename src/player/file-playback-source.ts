@@ -1,7 +1,11 @@
 import type { QueueItemId } from '../types/index.ts';
-import { isPlaybackRevision, type PlaybackRevision } from './playback-timeline.ts';
 import {
-  isRevisionedPlaybackRun,
+  createPlaybackStateIdentity,
+  isPlaybackRevisionWatermark,
+  readPlaybackStateIdentity,
+  type PlaybackRevisionWatermark,
+} from './playback-identity.ts';
+import {
   type RendezvousArmIntent,
   type RendezvousArmReceipt,
   type RendezvousFinalizeIntent,
@@ -33,7 +37,7 @@ export interface FilePlaybackSourceSnapshot {
   readonly queueItemId: QueueItemId;
   readonly backend: FilePlaybackBackend;
   readonly phase: FilePlaybackSourcePhase;
-  readonly revision: PlaybackRevision;
+  readonly revision: PlaybackRevisionWatermark;
   readonly run: RevisionedPlaybackRun | null;
   readonly durationSeconds: number | null;
   readonly positionSeconds: number;
@@ -93,7 +97,7 @@ export interface FilePlaybackSource {
   destroy(): Promise<void>;
 }
 
-const SNAPSHOT_KEYS = new Set([
+const SNAPSHOT_KEYS = Object.freeze([
   'schemaVersion',
   'queueItemId',
   'backend',
@@ -107,8 +111,26 @@ const SNAPSHOT_KEYS = new Set([
   'channelCount',
   'underrunCount',
   'errorCode',
-]);
-const RUN_KEYS = new Set(['queueItemId', 'runId', 'revision']);
+] as const);
+const SNAPSHOT_KEY_SET: ReadonlySet<string> = new Set(SNAPSHOT_KEYS);
+const PAUSE_INTENT_KEYS = Object.freeze([
+  'kind',
+  'queueItemId',
+  'runId',
+  'revision',
+  'atRoomTimeMs',
+] as const);
+const PAUSE_INTENT_KEY_SET: ReadonlySet<string> = new Set(PAUSE_INTENT_KEYS);
+const SEEK_INTENT_KEYS = Object.freeze([...PAUSE_INTENT_KEYS, 'positionSeconds'] as const);
+const SEEK_INTENT_KEY_SET: ReadonlySet<string> = new Set(SEEK_INTENT_KEYS);
+const CANCEL_INTENT_KEYS = Object.freeze([
+  'kind',
+  'queueItemId',
+  'runId',
+  'revision',
+  'reasonCode',
+] as const);
+const CANCEL_INTENT_KEY_SET: ReadonlySet<string> = new Set(CANCEL_INTENT_KEYS);
 const VALID_PHASES: ReadonlySet<FilePlaybackSourcePhase> = new Set([
   'new',
   'preparing',
@@ -123,11 +145,6 @@ const VALID_PHASES: ReadonlySet<FilePlaybackSourcePhase> = new Set([
   'destroyed',
 ]);
 const MAX_TEXT_LENGTH = 256;
-
-function hasOnlyKeys(value: Record<string, unknown>, keys: ReadonlySet<string>): boolean {
-  const ownKeys = Object.keys(value);
-  return ownKeys.length === keys.size && ownKeys.every((key) => keys.has(key));
-}
 
 function isFiniteNonNegative(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -151,66 +168,172 @@ function isOptionalErrorCode(value: unknown): value is string | null {
   );
 }
 
-function isExactRevisionedRun(value: unknown): value is RevisionedPlaybackRun {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    hasOnlyKeys(value as Record<string, unknown>, RUN_KEYS) &&
-    isRevisionedPlaybackRun(value)
-  );
+function snapshotExactDataRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+  expectedKeySet: ReadonlySet<string>,
+): Readonly<Record<string, unknown>> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.length !== expectedKeys.length ||
+      ownKeys.some((key) => typeof key !== 'string' || !expectedKeySet.has(key))
+    ) {
+      return null;
+    }
+
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of expectedKeys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        return null;
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
 }
 
-export function isFilePlaybackSourceSnapshot(value: unknown): value is FilePlaybackSourceSnapshot {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Record<string, unknown>;
-  if (!hasOnlyKeys(candidate, SNAPSHOT_KEYS)) return false;
-  if (candidate.schemaVersion !== 1) return false;
+function freezeControlIntent<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+export function readFilePlaybackPauseIntent(
+  value: unknown,
+): Readonly<FilePlaybackPauseIntent> | null {
+  const candidate = snapshotExactDataRecord(value, PAUSE_INTENT_KEYS, PAUSE_INTENT_KEY_SET);
+  const identity = candidate ? readPlaybackStateIdentity(candidate) : null;
+  if (
+    !candidate ||
+    !identity ||
+    candidate.kind !== 'file-playback-pause' ||
+    !isFiniteNonNegative(candidate.atRoomTimeMs)
+  ) {
+    return null;
+  }
+  return freezeControlIntent({
+    kind: 'file-playback-pause',
+    ...identity,
+    atRoomTimeMs: candidate.atRoomTimeMs,
+  });
+}
+
+export function readFilePlaybackSeekIntent(
+  value: unknown,
+): Readonly<FilePlaybackSeekIntent> | null {
+  const candidate = snapshotExactDataRecord(value, SEEK_INTENT_KEYS, SEEK_INTENT_KEY_SET);
+  const identity = candidate ? readPlaybackStateIdentity(candidate) : null;
+  if (
+    !candidate ||
+    !identity ||
+    candidate.kind !== 'file-playback-seek' ||
+    !isFiniteNonNegative(candidate.atRoomTimeMs) ||
+    !isFiniteNonNegative(candidate.positionSeconds)
+  ) {
+    return null;
+  }
+  return freezeControlIntent({
+    kind: 'file-playback-seek',
+    ...identity,
+    positionSeconds: candidate.positionSeconds,
+    atRoomTimeMs: candidate.atRoomTimeMs,
+  });
+}
+
+export function readFilePlaybackCancelIntent(
+  value: unknown,
+): Readonly<FilePlaybackCancelIntent> | null {
+  const candidate = snapshotExactDataRecord(value, CANCEL_INTENT_KEYS, CANCEL_INTENT_KEY_SET);
+  const identity = candidate ? readPlaybackStateIdentity(candidate) : null;
+  if (
+    !candidate ||
+    !identity ||
+    candidate.kind !== 'file-playback-cancel' ||
+    !isOptionalErrorCode(candidate.reasonCode) ||
+    candidate.reasonCode === null
+  ) {
+    return null;
+  }
+  return freezeControlIntent({
+    kind: 'file-playback-cancel',
+    ...identity,
+    reasonCode: candidate.reasonCode,
+  });
+}
+
+function canonicalSourceSnapshot(value: unknown): FilePlaybackSourceSnapshot | null {
+  const candidate = snapshotExactDataRecord(value, SNAPSHOT_KEYS, SNAPSHOT_KEY_SET);
+  if (!candidate) return null;
+  if (candidate.schemaVersion !== 1) return null;
   if (
     typeof candidate.queueItemId !== 'string' ||
     candidate.queueItemId.length === 0 ||
     candidate.queueItemId.length > MAX_TEXT_LENGTH
   ) {
-    return false;
+    return null;
   }
   if (candidate.backend !== 'audio-buffer' && candidate.backend !== 'streaming-flac') {
-    return false;
+    return null;
   }
-  if (!VALID_PHASES.has(candidate.phase as FilePlaybackSourcePhase)) return false;
-  if (!isPlaybackRevision(candidate.revision)) return false;
+  if (!VALID_PHASES.has(candidate.phase as FilePlaybackSourcePhase)) return null;
+  if (!isPlaybackRevisionWatermark(candidate.revision)) return null;
+  let run: RevisionedPlaybackRun | null = null;
   if (candidate.run !== null) {
-    if (!isExactRevisionedRun(candidate.run)) return false;
-    if (candidate.run.queueItemId !== candidate.queueItemId) return false;
-    if (candidate.run.revision !== candidate.revision) return false;
+    try {
+      run = createPlaybackStateIdentity(candidate.run as RevisionedPlaybackRun);
+    } catch {
+      return null;
+    }
+    if (run.queueItemId !== candidate.queueItemId) return null;
+    if (run.revision !== candidate.revision) return null;
   }
   if (
     (candidate.phase === 'armed' ||
       candidate.phase === 'playing' ||
       candidate.phase === 'paused') &&
-    candidate.run === null
+    run === null
   ) {
-    return false;
+    return null;
   }
-  if (!isOptionalFinitePositive(candidate.durationSeconds)) return false;
-  if (!isFiniteNonNegative(candidate.positionSeconds)) return false;
-  if (!isFiniteNonNegative(candidate.bufferedAheadSeconds)) return false;
-  if (!isOptionalPositiveInteger(candidate.outputSampleRateHz, 1_000_000)) return false;
-  if (!isOptionalPositiveInteger(candidate.channelCount, 8)) return false;
+  if (!isOptionalFinitePositive(candidate.durationSeconds)) return null;
+  if (!isFiniteNonNegative(candidate.positionSeconds)) return null;
+  if (!isFiniteNonNegative(candidate.bufferedAheadSeconds)) return null;
+  if (!isOptionalPositiveInteger(candidate.outputSampleRateHz, 1_000_000)) return null;
+  if (!isOptionalPositiveInteger(candidate.channelCount, 8)) return null;
   if (
     typeof candidate.underrunCount !== 'number' ||
     !Number.isSafeInteger(candidate.underrunCount) ||
     candidate.underrunCount < 0
   ) {
-    return false;
+    return null;
   }
-  return isOptionalErrorCode(candidate.errorCode);
+  if (!isOptionalErrorCode(candidate.errorCode)) return null;
+
+  return Object.freeze({
+    schemaVersion: 1,
+    queueItemId: candidate.queueItemId as QueueItemId,
+    backend: candidate.backend,
+    phase: candidate.phase as FilePlaybackSourcePhase,
+    revision: candidate.revision,
+    run,
+    durationSeconds: candidate.durationSeconds,
+    positionSeconds: candidate.positionSeconds,
+    bufferedAheadSeconds: candidate.bufferedAheadSeconds,
+    outputSampleRateHz: candidate.outputSampleRateHz,
+    channelCount: candidate.channelCount,
+    underrunCount: candidate.underrunCount,
+    errorCode: candidate.errorCode,
+  });
 }
 
-function immutableRun(run: RevisionedPlaybackRun): RevisionedPlaybackRun {
-  return Object.freeze({
-    queueItemId: run.queueItemId,
-    runId: run.runId,
-    revision: run.revision,
-  });
+export function isFilePlaybackSourceSnapshot(value: unknown): value is FilePlaybackSourceSnapshot {
+  return canonicalSourceSnapshot(value) !== null;
 }
 
 /**
@@ -220,29 +343,15 @@ function immutableRun(run: RevisionedPlaybackRun): RevisionedPlaybackRun {
 export function createFilePlaybackSourceSnapshot(
   input: FilePlaybackSourceSnapshot,
 ): FilePlaybackSourceSnapshot {
-  if (!isFilePlaybackSourceSnapshot(input)) {
-    throw new TypeError('File playback source snapshot is invalid');
-  }
-  return Object.freeze({
-    schemaVersion: 1,
-    queueItemId: input.queueItemId,
-    backend: input.backend,
-    phase: input.phase,
-    revision: input.revision,
-    run: input.run ? immutableRun(input.run) : null,
-    durationSeconds: input.durationSeconds,
-    positionSeconds: input.positionSeconds,
-    bufferedAheadSeconds: input.bufferedAheadSeconds,
-    outputSampleRateHz: input.outputSampleRateHz,
-    channelCount: input.channelCount,
-    underrunCount: input.underrunCount,
-    errorCode: input.errorCode,
-  });
+  const snapshot = canonicalSourceSnapshot(input);
+  if (snapshot) return snapshot;
+  throw new TypeError('File playback source snapshot is invalid');
 }
 
 export function sourceOwnsRevisionedRun(
   source: Pick<FilePlaybackSource, 'queueItemId'>,
   run: RevisionedPlaybackRun,
 ): boolean {
-  return source.queueItemId === run.queueItemId && isRevisionedPlaybackRun(run);
+  const canonical = readPlaybackStateIdentity(run);
+  return canonical !== null && source.queueItemId === canonical.queueItemId;
 }

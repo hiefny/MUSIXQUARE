@@ -1,11 +1,11 @@
 import type { QueueItemId } from '../types/index.ts';
 import type { FilePlaybackCancelIntent } from './file-playback-source.ts';
+import { readPlaybackStateIdentity } from './playback-identity.ts';
 import {
-  isRendezvousArmIntent,
-  isRendezvousArmReceipt,
-  isRendezvousFinalizeIntent,
-  isRendezvousFinalizeReceipt,
-  isRevisionedPlaybackRun,
+  readRendezvousArmIntent,
+  readRendezvousArmReceipt,
+  readRendezvousFinalizeIntent,
+  readRendezvousFinalizeReceipt,
   type RendezvousArmIntent,
   type RendezvousArmReceipt,
   type RendezvousFinalizeIntent,
@@ -28,55 +28,6 @@ const OPTIONS_KEYS = Object.freeze([
   'dispatchArm',
   'dispatchFinalize',
   'dispatchCancel',
-]);
-const ARM_INTENT_KEYS = Object.freeze([
-  'protocolVersion',
-  'kind',
-  'queueItemId',
-  'runId',
-  'revision',
-  'rendezvousId',
-  'recipientId',
-  'positionSeconds',
-  'playbackRate',
-  'startAtRoomTimeMs',
-  'finalizeByRoomTimeMs',
-]);
-const FINALIZE_INTENT_KEYS = Object.freeze([
-  'protocolVersion',
-  'kind',
-  'queueItemId',
-  'runId',
-  'revision',
-  'rendezvousId',
-  'recipientId',
-  'startAtRoomTimeMs',
-  'finalizedAtRoomTimeMs',
-]);
-const ARM_RECEIPT_KEYS = Object.freeze([
-  'protocolVersion',
-  'kind',
-  'queueItemId',
-  'runId',
-  'revision',
-  'rendezvousId',
-  'participantId',
-  'status',
-  'observedAtRoomTimeMs',
-  'bufferedAheadSeconds',
-  'reasonCode',
-]);
-const FINALIZE_RECEIPT_KEYS = Object.freeze([
-  'protocolVersion',
-  'kind',
-  'queueItemId',
-  'runId',
-  'revision',
-  'rendezvousId',
-  'participantId',
-  'status',
-  'observedAtRoomTimeMs',
-  'reasonCode',
 ]);
 const CANCEL_INTENT_KEYS = Object.freeze([
   'kind',
@@ -201,45 +152,22 @@ function freezeCanonical<T extends object>(value: T): T {
   return Object.freeze(Object.assign(Object.create(null), value)) as T;
 }
 
-function snapshotArmIntent(value: unknown): RendezvousArmIntent | null {
-  const snapshot = snapshotExactDataRecord(value, ARM_INTENT_KEYS);
-  return snapshot !== null && isRendezvousArmIntent(snapshot)
-    ? (snapshot as unknown as RendezvousArmIntent)
-    : null;
-}
-
-function snapshotFinalizeIntent(value: unknown): RendezvousFinalizeIntent | null {
-  const snapshot = snapshotExactDataRecord(value, FINALIZE_INTENT_KEYS);
-  return snapshot !== null && isRendezvousFinalizeIntent(snapshot)
-    ? (snapshot as unknown as RendezvousFinalizeIntent)
-    : null;
-}
-
-function snapshotArmReceipt(value: unknown): RendezvousArmReceipt | null {
-  const snapshot = snapshotExactDataRecord(value, ARM_RECEIPT_KEYS);
-  return snapshot !== null && isRendezvousArmReceipt(snapshot)
-    ? (snapshot as unknown as RendezvousArmReceipt)
-    : null;
-}
-
-function snapshotFinalizeReceipt(value: unknown): RendezvousFinalizeReceipt | null {
-  const snapshot = snapshotExactDataRecord(value, FINALIZE_RECEIPT_KEYS);
-  return snapshot !== null && isRendezvousFinalizeReceipt(snapshot)
-    ? (snapshot as unknown as RendezvousFinalizeReceipt)
-    : null;
-}
-
 function snapshotCancelIntent(value: unknown): FilePlaybackCancelIntent | null {
   const snapshot = snapshotExactDataRecord(value, CANCEL_INTENT_KEYS);
+  const run = readPlaybackStateIdentity(snapshot);
   if (
     snapshot === null ||
     snapshot.kind !== 'file-playback-cancel' ||
-    !isRevisionedPlaybackRun(snapshot) ||
+    !run ||
     !isBoundedIdentifier(snapshot.reasonCode)
   ) {
     return null;
   }
-  return snapshot as unknown as FilePlaybackCancelIntent;
+  return freezeCanonical({
+    kind: 'file-playback-cancel' as const,
+    ...run,
+    reasonCode: snapshot.reasonCode,
+  });
 }
 
 function sameRevisionedRun(left: RevisionedPlaybackRun, right: RevisionedPlaybackRun): boolean {
@@ -367,7 +295,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
   }
 
   arm(intent: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
-    const canonical = snapshotArmIntent(intent);
+    const canonical = readRendezvousArmIntent(intent);
     if (canonical === null) {
       return Promise.resolve(this.#rejectedArm(null, 'invalid-arm-intent'));
     }
@@ -439,7 +367,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
   }
 
   finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
-    const canonical = snapshotFinalizeIntent(intent);
+    const canonical = readRendezvousFinalizeIntent(intent);
     if (canonical === null) {
       return Promise.resolve(this.#rejectedFinalize(null, 'invalid-finalize-intent'));
     }
@@ -494,7 +422,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
 
   /** Admits one untrusted arm receipt if it exactly matches the live request. */
   acceptArmReceipt(receipt: unknown): boolean {
-    const canonical = snapshotArmReceipt(receipt);
+    const canonical = readRendezvousArmReceipt(receipt);
     const active = this.#active;
     if (canonical === null || active === null || !this.#isLiveArm(active, canonical)) {
       return false;
@@ -519,7 +447,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
 
   /** Admits one untrusted finalize receipt if it exactly matches the live request. */
   acceptFinalizeReceipt(receipt: unknown): boolean {
-    const canonical = snapshotFinalizeReceipt(receipt);
+    const canonical = readRendezvousFinalizeReceipt(receipt);
     const active = this.#active;
     const operation = active?.finalize ?? null;
     if (

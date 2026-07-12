@@ -1,12 +1,11 @@
 import type { QueueItemId } from '../types/index.ts';
 import type { FilePlaybackCancelIntent, FilePlaybackSource } from './file-playback-source.ts';
-import { isPlaybackRevision } from './playback-timeline.ts';
+import { readPlaybackStateIdentity, sameState } from './playback-identity.ts';
 import {
-  isRendezvousArmIntent,
-  isRendezvousArmReceipt,
-  isRendezvousFinalizeIntent,
-  isRendezvousFinalizeReceipt,
-  isRevisionedPlaybackRun,
+  readRendezvousArmIntent,
+  readRendezvousArmReceipt,
+  readRendezvousFinalizeIntent,
+  readRendezvousFinalizeReceipt,
   validateRendezvousArmReceipt,
   validateRendezvousFinalizeReceipt,
   type RendezvousArmIntent,
@@ -22,6 +21,20 @@ const INVALID_METRIC_FALLBACK_MS = 2_500;
 const FALLBACK_QUEUE_ITEM_ID = 'invalid-queue-item';
 const FALLBACK_RUN_ID = 'invalid-run';
 const FALLBACK_RENDEZVOUS_ID = 'invalid-rendezvous';
+const OPTIONS_KEYS = Object.freeze([
+  'participantId',
+  'getActiveSource',
+  'rttP95Ms',
+  'armP95Ms',
+  'nowRoomTimeMs',
+] as const);
+const CANCEL_INTENT_KEYS = Object.freeze([
+  'kind',
+  'queueItemId',
+  'runId',
+  'revision',
+  'reasonCode',
+] as const);
 
 export type LocalRendezvousMetric = number | (() => number);
 
@@ -93,21 +106,70 @@ function metricReader(metric: LocalRendezvousMetric, label: string): () => numbe
   };
 }
 
-function candidateOf(intent: unknown): Record<string, unknown> {
-  return intent && typeof intent === 'object' ? (intent as Record<string, unknown>) : {};
-}
-
-function safeProperty(candidate: Record<string, unknown>, key: string): unknown {
+function snapshotOptions(value: unknown): Readonly<Record<string, unknown>> | null {
   try {
-    return candidate[key];
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const expected: ReadonlySet<string> = new Set(OPTIONS_KEYS);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of OPTIONS_KEYS) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
   } catch {
-    return undefined;
+    return null;
   }
 }
 
-function queueItemIdOf(candidate: Record<string, unknown>): QueueItemId {
-  const queueItemId = safeProperty(candidate, 'queueItemId');
-  return isBoundedIdentifier(queueItemId) ? (queueItemId as QueueItemId) : FALLBACK_QUEUE_ITEM_ID;
+function readCancelIntent(value: unknown): FilePlaybackCancelIntent | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const expected: ReadonlySet<string> = new Set(CANCEL_INTENT_KEYS);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of CANCEL_INTENT_KEYS) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    const run = readPlaybackStateIdentity(snapshot);
+    if (
+      !run ||
+      snapshot.kind !== 'file-playback-cancel' ||
+      !isBoundedIdentifier(snapshot.reasonCode)
+    ) {
+      return null;
+    }
+    return Object.freeze(
+      Object.assign(Object.create(null), {
+        kind: 'file-playback-cancel' as const,
+        ...run,
+        reasonCode: snapshot.reasonCode,
+      }),
+    ) as FilePlaybackCancelIntent;
+  } catch {
+    return null;
+  }
 }
 
 function armOperationKey(intent: RendezvousArmIntent): string {
@@ -136,47 +198,12 @@ function finalizeOperationKey(intent: RendezvousFinalizeIntent): string {
   ]);
 }
 
-function canonicalArmReceipt(receipt: RendezvousArmReceipt): RendezvousArmReceipt {
-  return Object.freeze({
-    protocolVersion: 2,
-    kind: 'rendezvous-armed',
-    queueItemId: receipt.queueItemId,
-    runId: receipt.runId,
-    revision: receipt.revision,
-    rendezvousId: receipt.rendezvousId,
-    participantId: receipt.participantId,
-    status: receipt.status,
-    observedAtRoomTimeMs: receipt.observedAtRoomTimeMs,
-    bufferedAheadSeconds: receipt.bufferedAheadSeconds,
-    reasonCode: receipt.reasonCode,
-  });
-}
-
-function canonicalFinalizeReceipt(receipt: RendezvousFinalizeReceipt): RendezvousFinalizeReceipt {
-  return Object.freeze({
-    protocolVersion: 2,
-    kind: 'rendezvous-finalized',
-    queueItemId: receipt.queueItemId,
-    runId: receipt.runId,
-    revision: receipt.revision,
-    rendezvousId: receipt.rendezvousId,
-    participantId: receipt.participantId,
-    status: receipt.status,
-    observedAtRoomTimeMs: receipt.observedAtRoomTimeMs,
-    reasonCode: receipt.reasonCode,
-  });
-}
-
 function bindingMatchesRun(binding: ArmedSourceBinding, run: RevisionedPlaybackRun): boolean {
   return sameRevisionedRun(binding, run);
 }
 
 function sameRevisionedRun(left: RevisionedPlaybackRun, right: RevisionedPlaybackRun): boolean {
-  return (
-    left.queueItemId === right.queueItemId &&
-    left.runId === right.runId &&
-    left.revision === right.revision
-  );
+  return sameState(left, right);
 }
 
 /**
@@ -200,20 +227,22 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
   #armedBinding: ArmedSourceBinding | null = null;
 
   constructor(options: LocalRendezvousParticipantOptions) {
-    if (!isBoundedIdentifier(options.participantId)) {
+    const snapshot = snapshotOptions(options);
+    if (!snapshot) throw new TypeError('Local rendezvous participant options are invalid');
+    if (!isBoundedIdentifier(snapshot.participantId)) {
       throw new TypeError('participantId must be a non-empty bounded identifier');
     }
-    if (typeof options.getActiveSource !== 'function') {
+    if (typeof snapshot.getActiveSource !== 'function') {
       throw new TypeError('getActiveSource must be a function');
     }
-    if (typeof options.nowRoomTimeMs !== 'function') {
+    if (typeof snapshot.nowRoomTimeMs !== 'function') {
       throw new TypeError('nowRoomTimeMs must be a function');
     }
-    this.participantId = options.participantId;
-    this.#getActiveSource = options.getActiveSource;
-    this.#readRttP95Ms = metricReader(options.rttP95Ms, 'rttP95Ms');
-    this.#readArmP95Ms = metricReader(options.armP95Ms, 'armP95Ms');
-    this.#nowRoomTimeMs = options.nowRoomTimeMs;
+    this.participantId = snapshot.participantId;
+    this.#getActiveSource = snapshot.getActiveSource as () => FilePlaybackSource | null;
+    this.#readRttP95Ms = metricReader(snapshot.rttP95Ms as LocalRendezvousMetric, 'rttP95Ms');
+    this.#readArmP95Ms = metricReader(snapshot.armP95Ms as LocalRendezvousMetric, 'armP95Ms');
+    this.#nowRoomTimeMs = snapshot.nowRoomTimeMs as () => number;
   }
 
   get rttP95Ms(): number {
@@ -224,11 +253,10 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
     return this.#readArmP95Ms();
   }
 
-  arm(intent: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+  arm(value: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
     try {
-      if (!isRendezvousArmIntent(intent)) {
-        return Promise.resolve(this.#rejectedArm(intent, 'invalid-arm-intent'));
-      }
+      const intent = readRendezvousArmIntent(value);
+      if (!intent) return Promise.resolve(this.#rejectedArm(null, 'invalid-arm-intent'));
       if (intent.recipientId !== this.participantId) {
         return Promise.resolve(this.#rejectedArm(intent, 'local-participant-mismatch'));
       }
@@ -284,11 +312,10 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
     }
   }
 
-  finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
+  finalize(value: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
     try {
-      if (!isRendezvousFinalizeIntent(intent)) {
-        return Promise.resolve(this.#rejectedFinalize(intent, 'invalid-finalize-intent'));
-      }
+      const intent = readRendezvousFinalizeIntent(value);
+      if (!intent) return Promise.resolve(this.#rejectedFinalize(null, 'invalid-finalize-intent'));
       if (intent.recipientId !== this.participantId) {
         return Promise.resolve(this.#rejectedFinalize(intent, 'local-participant-mismatch'));
       }
@@ -344,11 +371,10 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
     }
   }
 
-  cancel(intent: FilePlaybackCancelIntent): Promise<void> {
+  cancel(value: FilePlaybackCancelIntent): Promise<void> {
     try {
-      if (intent.kind !== 'file-playback-cancel' || !isRevisionedPlaybackRun(intent)) {
-        return Promise.resolve();
-      }
+      const intent = readCancelIntent(value);
+      if (!intent) return Promise.resolve();
 
       const binding = this.#armedBinding;
       const operation = this.#armOperation;
@@ -403,10 +429,18 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       this.#retireArmOperation(operation, staleReason);
       return this.#rejectedArm(operation.intent, staleReason);
     }
-    if (!isRendezvousArmReceipt(receipt)) {
+    const canonicalReceipt = readRendezvousArmReceipt(receipt);
+    // Canonicalizing a hostile Proxy can re-enter this participant and retire
+    // the operation. Re-check authority before committing its binding.
+    const postCanonicalStaleReason = this.#armAuthorityFailure(operation);
+    if (postCanonicalStaleReason !== null) {
+      if (!operation.retired) this.#retireArmOperation(operation, postCanonicalStaleReason);
+      return this.#rejectedArm(operation.intent, postCanonicalStaleReason);
+    }
+    if (!canonicalReceipt) {
       return this.#rejectedArm(operation.intent, 'local-source-invalid-arm-receipt');
     }
-    const validation = validateRendezvousArmReceipt(operation.intent, receipt);
+    const validation = validateRendezvousArmReceipt(operation.intent, canonicalReceipt);
     if (
       !validation.ok &&
       validation.code !== 'arm-rejected' &&
@@ -425,7 +459,7 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
         sourceEpoch: operation.sourceEpoch,
       });
     }
-    return canonicalArmReceipt(receipt);
+    return canonicalReceipt;
   }
 
   async #executeFinalize(operation: FinalizeOperation): Promise<RendezvousFinalizeReceipt> {
@@ -446,10 +480,18 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       this.#retireFinalizeOperation(operation, staleReason);
       return this.#rejectedFinalize(operation.intent, staleReason);
     }
-    if (!isRendezvousFinalizeReceipt(receipt)) {
+    const canonicalReceipt = readRendezvousFinalizeReceipt(receipt);
+    // As above, no receipt inspected through Proxy traps may commit against a
+    // binding that was cancelled or replaced during canonicalization.
+    const postCanonicalStaleReason = this.#finalizeAuthorityFailure(operation);
+    if (postCanonicalStaleReason !== null) {
+      if (!operation.retired) this.#retireFinalizeOperation(operation, postCanonicalStaleReason);
+      return this.#rejectedFinalize(operation.intent, postCanonicalStaleReason);
+    }
+    if (!canonicalReceipt) {
       return this.#rejectedFinalize(operation.intent, 'local-source-invalid-finalize-receipt');
     }
-    const validation = validateRendezvousFinalizeReceipt(operation.intent, receipt);
+    const validation = validateRendezvousFinalizeReceipt(operation.intent, canonicalReceipt);
     if (
       !validation.ok &&
       validation.code !== 'finalization-rejected' &&
@@ -457,7 +499,7 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
     ) {
       return this.#rejectedFinalize(operation.intent, 'local-source-invalid-finalize-receipt');
     }
-    return canonicalFinalizeReceipt(receipt);
+    return canonicalReceipt;
   }
 
   #armRetryStaleReason(operation: ArmOperation, observed: ObservedSource): string | null {
@@ -501,6 +543,13 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       return operation.retiredReason ?? 'local-operation-superseded';
     }
     const observed = this.#observeActiveSource();
+    if (
+      operation.retired ||
+      operation.authority !== this.#authority ||
+      this.#armOperation !== operation
+    ) {
+      return operation.retiredReason ?? 'local-operation-superseded';
+    }
     return operation.source === observed.source && operation.sourceEpoch === observed.epoch
       ? null
       : 'local-source-changed';
@@ -515,6 +564,14 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       return operation.retiredReason ?? 'local-operation-superseded';
     }
     const observed = this.#observeActiveSource();
+    if (
+      operation.retired ||
+      operation.authority !== this.#authority ||
+      this.#finalizeOperation !== operation ||
+      this.#armedBinding !== operation.binding
+    ) {
+      return operation.retiredReason ?? 'local-operation-superseded';
+    }
     if (
       operation.binding.source !== observed.source ||
       operation.binding.sourceEpoch !== observed.epoch ||
@@ -652,18 +709,14 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
     }
   }
 
-  #rejectedArm(intent: unknown, reasonCode: string): RendezvousArmReceipt {
-    const candidate = candidateOf(intent);
-    const runId = safeProperty(candidate, 'runId');
-    const revision = safeProperty(candidate, 'revision');
-    const rendezvousId = safeProperty(candidate, 'rendezvousId');
+  #rejectedArm(intent: RendezvousArmIntent | null, reasonCode: string): RendezvousArmReceipt {
     return Object.freeze({
       protocolVersion: 2,
       kind: 'rendezvous-armed',
-      queueItemId: queueItemIdOf(candidate),
-      runId: isBoundedIdentifier(runId) ? runId : FALLBACK_RUN_ID,
-      revision: isPlaybackRevision(revision) ? revision : 0,
-      rendezvousId: isBoundedIdentifier(rendezvousId) ? rendezvousId : FALLBACK_RENDEZVOUS_ID,
+      queueItemId: intent?.queueItemId ?? FALLBACK_QUEUE_ITEM_ID,
+      runId: intent?.runId ?? FALLBACK_RUN_ID,
+      revision: intent?.revision ?? 0,
+      rendezvousId: intent?.rendezvousId ?? FALLBACK_RENDEZVOUS_ID,
       participantId: this.participantId,
       status: 'rejected',
       observedAtRoomTimeMs: this.#roomTimeMs(),
@@ -672,18 +725,17 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
     });
   }
 
-  #rejectedFinalize(intent: unknown, reasonCode: string): RendezvousFinalizeReceipt {
-    const candidate = candidateOf(intent);
-    const runId = safeProperty(candidate, 'runId');
-    const revision = safeProperty(candidate, 'revision');
-    const rendezvousId = safeProperty(candidate, 'rendezvousId');
+  #rejectedFinalize(
+    intent: RendezvousFinalizeIntent | null,
+    reasonCode: string,
+  ): RendezvousFinalizeReceipt {
     return Object.freeze({
       protocolVersion: 2,
       kind: 'rendezvous-finalized',
-      queueItemId: queueItemIdOf(candidate),
-      runId: isBoundedIdentifier(runId) ? runId : FALLBACK_RUN_ID,
-      revision: isPlaybackRevision(revision) ? revision : 0,
-      rendezvousId: isBoundedIdentifier(rendezvousId) ? rendezvousId : FALLBACK_RENDEZVOUS_ID,
+      queueItemId: intent?.queueItemId ?? FALLBACK_QUEUE_ITEM_ID,
+      runId: intent?.runId ?? FALLBACK_RUN_ID,
+      revision: intent?.revision ?? 0,
+      rendezvousId: intent?.rendezvousId ?? FALLBACK_RENDEZVOUS_ID,
       participantId: this.participantId,
       status: 'rejected',
       observedAtRoomTimeMs: this.#roomTimeMs(),

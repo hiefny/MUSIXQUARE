@@ -1,22 +1,13 @@
 import { isFilePlaybackSessionId } from '../network/file-playback-session-handshake.ts';
+import { FILE_PLAYBACK_RUN_BINDING_V2_TYPE } from '../network/file-playback-transport-contract.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { FILE_PLAYBACK_WIRE_MAX_IDENTIFIER_LENGTH } from './file-playback-wire.ts';
-import type { PlaybackRevision } from './playback-timeline.ts';
+import type { PlaybackRevision } from './playback-identity.ts';
 import { isQueueItemId } from './queue-model.ts';
 
 export const FILE_PLAYBACK_RUN_BINDING_V2_PROTOCOL_VERSION = 2 as const;
-export const FILE_PLAYBACK_RUN_BINDING_V2_TYPE = 'FILE_PLAYBACK_RUN_BINDING_V2' as const;
 /** Maximum detached canonical JSON size after exact object validation. */
 export const FILE_PLAYBACK_RUN_BINDING_V2_MAX_FRAME_BYTES = 4 * 1024;
-/**
- * Maximum raw host-to-guest frame size.
- *
- * The transport adapter MUST enforce this limit on strings and bytes before
- * JSON parsing, structured cloning, or any other materialization. The parser
- * below receives an already-materialized object and can only measure its
- * detached canonical representation.
- */
-export const FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES = 4 * 1024;
 
 const RUN_BINDING_KEYS = Object.freeze([
   'connectionId',

@@ -1,20 +1,12 @@
-import type { QueueItemId } from '../types/index.ts';
-
-/**
- * Monotonically increasing version of the authoritative playback timeline.
- *
- * The value deliberately remains a plain number so snapshots can cross the
- * PeerJS wire boundary without a codec or class revival step.
- */
-export type PlaybackRevision = number;
-
-/** A fresh ID is allocated for every logical attempt to play a queue item. */
-export type PlaybackRunId = string;
-
-export interface PlaybackRunIdentity {
-  readonly queueItemId: QueueItemId;
-  readonly runId: PlaybackRunId;
-}
+import {
+  createPlaybackRunIdentity,
+  isPlaybackRevision,
+  isPlaybackRevisionWatermark,
+  sameRun,
+  type PlaybackRevision,
+  type PlaybackRevisionWatermark,
+  type PlaybackRunIdentity,
+} from './playback-identity.ts';
 
 export type PlaybackTimelinePhase = 'stopped' | 'playing' | 'paused';
 
@@ -25,7 +17,7 @@ export type PlaybackTimelinePhase = 'stopped' | 'playing' | 'paused';
  */
 export interface PlaybackTimelineSnapshot {
   readonly schemaVersion: 1;
-  readonly revision: PlaybackRevision;
+  readonly revision: PlaybackRevisionWatermark;
   readonly phase: PlaybackTimelinePhase;
   readonly run: PlaybackRunIdentity | null;
   readonly positionSeconds: number;
@@ -69,8 +61,7 @@ export type PlaybackTimelineApplyResult =
       readonly snapshot: PlaybackTimelineSnapshot;
     };
 
-const MAX_ID_LENGTH = 256;
-const SNAPSHOT_KEYS = new Set([
+const SNAPSHOT_KEYS = Object.freeze([
   'schemaVersion',
   'revision',
   'phase',
@@ -78,52 +69,182 @@ const SNAPSHOT_KEYS = new Set([
   'positionSeconds',
   'anchorMonotonicMs',
   'rate',
-]);
-const RUN_KEYS = new Set(['queueItemId', 'runId']);
+] as const);
+const INTENT_KEYS: Readonly<Record<PlaybackTimelineIntent['type'], readonly string[]>> =
+  Object.freeze({
+    play: Object.freeze(['type', 'revision', 'run', 'positionSeconds', 'rate']),
+    pause: Object.freeze(['type', 'revision', 'run']),
+    seek: Object.freeze(['type', 'revision', 'run', 'positionSeconds']),
+    stop: Object.freeze(['type', 'revision', 'run']),
+  });
 
-function hasOnlyKeys(value: Record<string, unknown>, keys: ReadonlySet<string>): boolean {
-  const ownKeys = Object.keys(value);
-  return ownKeys.length === keys.size && ownKeys.every((key) => keys.has(key));
+interface DetachedDescriptors {
+  readonly descriptors: PropertyDescriptorMap;
+  readonly ownKeys: readonly PropertyKey[];
 }
 
-function isNonEmptyBoundedString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH;
+function freezeCanonical<T extends object>(value: T): T {
+  return Object.freeze(Object.assign(Object.create(null), value)) as T;
 }
 
-export function isPlaybackRevision(value: unknown): value is PlaybackRevision {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-}
-
-export function allocatePlaybackRevision(current: PlaybackRevision): PlaybackRevision {
-  if (!isPlaybackRevision(current)) {
-    throw new RangeError('Playback revision must be a non-negative safe integer');
+function readOwnDataDescriptors(value: unknown): DetachedDescriptors | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    return Object.freeze({ descriptors, ownKeys: Object.freeze(Reflect.ownKeys(descriptors)) });
+  } catch {
+    return null;
   }
-  if (current === Number.MAX_SAFE_INTEGER) {
-    throw new RangeError('Playback revision space is exhausted');
+}
+
+function snapshotExactDescriptors(
+  detached: DetachedDescriptors,
+  expectedKeys: readonly string[],
+): Readonly<Record<string, unknown>> | null {
+  const expected = new Set(expectedKeys);
+  if (
+    detached.ownKeys.length !== expected.size ||
+    detached.ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+  ) {
+    return null;
   }
-  return current + 1;
+  const snapshot = Object.create(null) as Record<string, unknown>;
+  for (const key of expectedKeys) {
+    const descriptor = detached.descriptors[key];
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+    snapshot[key] = descriptor.value;
+  }
+  return Object.freeze(snapshot);
 }
 
-export function isPlaybackRunIdentity(value: unknown): value is PlaybackRunIdentity {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Record<string, unknown>;
-  return isNonEmptyBoundedString(candidate.queueItemId) && isNonEmptyBoundedString(candidate.runId);
+function snapshotExactDataRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+): Readonly<Record<string, unknown>> | null {
+  const detached = readOwnDataDescriptors(value);
+  return detached ? snapshotExactDescriptors(detached, expectedKeys) : null;
 }
 
-function isExactPlaybackRunIdentity(value: unknown): value is PlaybackRunIdentity {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    hasOnlyKeys(value as Record<string, unknown>, RUN_KEYS) &&
-    isPlaybackRunIdentity(value)
-  );
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
-export function samePlaybackRun(
-  left: PlaybackRunIdentity | null | undefined,
-  right: PlaybackRunIdentity | null | undefined,
-): boolean {
-  return !!left && !!right && left.queueItemId === right.queueItemId && left.runId === right.runId;
+function isPlaybackRate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function readExactPlaybackRun(value: unknown): Readonly<PlaybackRunIdentity> | null {
+  try {
+    return createPlaybackRunIdentity(value as PlaybackRunIdentity);
+  } catch {
+    return null;
+  }
+}
+
+function immutableSnapshot(
+  snapshot: Omit<PlaybackTimelineSnapshot, 'schemaVersion'>,
+): PlaybackTimelineSnapshot {
+  return freezeCanonical({ schemaVersion: 1 as const, ...snapshot });
+}
+
+function readPlaybackTimelineSnapshot(value: unknown): PlaybackTimelineSnapshot | null {
+  const candidate = snapshotExactDataRecord(value, SNAPSHOT_KEYS);
+  if (
+    !candidate ||
+    candidate.schemaVersion !== 1 ||
+    !isPlaybackRevisionWatermark(candidate.revision) ||
+    (candidate.phase !== 'stopped' &&
+      candidate.phase !== 'playing' &&
+      candidate.phase !== 'paused') ||
+    !isFiniteNonNegative(candidate.positionSeconds) ||
+    !isFiniteNonNegative(candidate.anchorMonotonicMs) ||
+    !isPlaybackRate(candidate.rate)
+  ) {
+    return null;
+  }
+
+  if (candidate.phase === 'stopped') {
+    if (candidate.run !== null || candidate.positionSeconds !== 0 || candidate.rate !== 1) {
+      return null;
+    }
+    return immutableSnapshot({
+      revision: candidate.revision,
+      phase: 'stopped',
+      run: null,
+      positionSeconds: 0,
+      anchorMonotonicMs: candidate.anchorMonotonicMs,
+      rate: 1,
+    });
+  }
+
+  const run = readExactPlaybackRun(candidate.run);
+  if (!isPlaybackRevision(candidate.revision) || !run) return null;
+  return immutableSnapshot({
+    revision: candidate.revision,
+    phase: candidate.phase,
+    run,
+    positionSeconds: candidate.positionSeconds,
+    anchorMonotonicMs: candidate.anchorMonotonicMs,
+    rate: candidate.rate,
+  });
+}
+
+function readPlaybackTimelineIntent(value: unknown): PlaybackTimelineIntent | null {
+  const detached = readOwnDataDescriptors(value);
+  if (!detached) return null;
+  const typeDescriptor = detached.descriptors.type;
+  if (!typeDescriptor || !typeDescriptor.enumerable || !Object.hasOwn(typeDescriptor, 'value')) {
+    return null;
+  }
+  const type: unknown = typeDescriptor.value;
+  if (type !== 'play' && type !== 'pause' && type !== 'seek' && type !== 'stop') return null;
+  const candidate = snapshotExactDescriptors(detached, INTENT_KEYS[type]);
+  if (!candidate || !isPlaybackRevision(candidate.revision)) return null;
+  const run = readExactPlaybackRun(candidate.run);
+  if (!run) return null;
+  switch (type) {
+    case 'play':
+      if (!isFiniteNonNegative(candidate.positionSeconds) || !isPlaybackRate(candidate.rate)) {
+        return null;
+      }
+      return freezeCanonical({
+        type: 'play' as const,
+        revision: candidate.revision,
+        run,
+        positionSeconds: candidate.positionSeconds,
+        rate: candidate.rate,
+      });
+    case 'pause':
+      return freezeCanonical({
+        type: 'pause' as const,
+        revision: candidate.revision,
+        run,
+      });
+    case 'stop':
+      return freezeCanonical({ type: 'stop' as const, revision: candidate.revision, run });
+    case 'seek':
+      if (!isFiniteNonNegative(candidate.positionSeconds)) return null;
+      return freezeCanonical({
+        type: 'seek' as const,
+        revision: candidate.revision,
+        run,
+        positionSeconds: candidate.positionSeconds,
+      });
+  }
+}
+
+function requireTimeline(value: unknown): PlaybackTimelineSnapshot {
+  const snapshot = readPlaybackTimelineSnapshot(value);
+  if (!snapshot) throw new TypeError('Playback timeline snapshot is invalid');
+  return snapshot;
+}
+
+function requireIntent(value: unknown): PlaybackTimelineIntent {
+  const intent = readPlaybackTimelineIntent(value);
+  if (!intent) throw new TypeError('Playback timeline intent is invalid');
+  return intent;
 }
 
 function assertFiniteNonNegative(value: number, label: string): void {
@@ -132,34 +253,31 @@ function assertFiniteNonNegative(value: number, label: string): void {
   }
 }
 
-function assertPlaybackRate(rate: number): void {
-  if (!Number.isFinite(rate) || rate <= 0) {
-    throw new RangeError('Playback rate must be a finite positive number');
+function assertMonotonicTime(snapshot: PlaybackTimelineSnapshot, nowMonotonicMs: number): void {
+  assertFiniteNonNegative(nowMonotonicMs, 'Monotonic time');
+  if (nowMonotonicMs < snapshot.anchorMonotonicMs) {
+    throw new RangeError('Monotonic time cannot move backwards');
   }
 }
 
-function assertRun(run: PlaybackRunIdentity): void {
-  if (!isPlaybackRunIdentity(run)) {
-    throw new TypeError('Playback run identity is invalid');
-  }
-}
-
-function immutableRun(run: PlaybackRunIdentity): PlaybackRunIdentity {
-  return Object.freeze({ queueItemId: run.queueItemId, runId: run.runId });
-}
-
-function immutableSnapshot(
-  snapshot: Omit<PlaybackTimelineSnapshot, 'schemaVersion'>,
-): PlaybackTimelineSnapshot {
-  return Object.freeze({ schemaVersion: 1, ...snapshot });
+function deriveCanonicalPlaybackPosition(
+  snapshot: PlaybackTimelineSnapshot,
+  nowMonotonicMs: number,
+): number {
+  assertMonotonicTime(snapshot, nowMonotonicMs);
+  if (snapshot.phase !== 'playing') return snapshot.positionSeconds;
+  return (
+    snapshot.positionSeconds +
+    ((nowMonotonicMs - snapshot.anchorMonotonicMs) / 1000) * snapshot.rate
+  );
 }
 
 export function createStoppedPlaybackTimeline(
   anchorMonotonicMs = 0,
-  revision: PlaybackRevision = 0,
+  revision: PlaybackRevisionWatermark = 0,
 ): PlaybackTimelineSnapshot {
   assertFiniteNonNegative(anchorMonotonicMs, 'Timeline anchor');
-  if (!isPlaybackRevision(revision)) {
+  if (!isPlaybackRevisionWatermark(revision)) {
     throw new RangeError('Playback revision must be a non-negative safe integer');
   }
   return immutableSnapshot({
@@ -173,71 +291,21 @@ export function createStoppedPlaybackTimeline(
 }
 
 export function isPlaybackTimelineSnapshot(value: unknown): value is PlaybackTimelineSnapshot {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Record<string, unknown>;
-  if (!hasOnlyKeys(candidate, SNAPSHOT_KEYS)) return false;
-  if (candidate.schemaVersion !== 1) return false;
-  if (!isPlaybackRevision(candidate.revision)) return false;
-  if (
-    candidate.phase !== 'stopped' &&
-    candidate.phase !== 'playing' &&
-    candidate.phase !== 'paused'
-  ) {
-    return false;
-  }
-  if (candidate.run !== null && !isExactPlaybackRunIdentity(candidate.run)) return false;
-  if (candidate.phase === 'stopped' && candidate.run !== null) return false;
-  if (candidate.phase !== 'stopped' && candidate.run === null) return false;
-  if (
-    typeof candidate.positionSeconds !== 'number' ||
-    !Number.isFinite(candidate.positionSeconds) ||
-    candidate.positionSeconds < 0
-  ) {
-    return false;
-  }
-  if (
-    typeof candidate.anchorMonotonicMs !== 'number' ||
-    !Number.isFinite(candidate.anchorMonotonicMs) ||
-    candidate.anchorMonotonicMs < 0
-  ) {
-    return false;
-  }
-  return (
-    typeof candidate.rate === 'number' && Number.isFinite(candidate.rate) && candidate.rate > 0
-  );
-}
-
-function assertTimeline(snapshot: PlaybackTimelineSnapshot): void {
-  if (!isPlaybackTimelineSnapshot(snapshot)) {
-    throw new TypeError('Playback timeline snapshot is invalid');
-  }
-}
-
-function assertMonotonicTime(snapshot: PlaybackTimelineSnapshot, nowMonotonicMs: number): void {
-  assertFiniteNonNegative(nowMonotonicMs, 'Monotonic time');
-  if (nowMonotonicMs < snapshot.anchorMonotonicMs) {
-    throw new RangeError('Monotonic time cannot move backwards');
-  }
+  return readPlaybackTimelineSnapshot(value) !== null;
 }
 
 export function derivePlaybackPosition(
   snapshot: PlaybackTimelineSnapshot,
   nowMonotonicMs: number,
 ): number {
-  assertTimeline(snapshot);
-  assertMonotonicTime(snapshot, nowMonotonicMs);
-  if (snapshot.phase !== 'playing') return snapshot.positionSeconds;
-  return (
-    snapshot.positionSeconds +
-    ((nowMonotonicMs - snapshot.anchorMonotonicMs) / 1000) * snapshot.rate
-  );
+  return deriveCanonicalPlaybackPosition(requireTimeline(snapshot), nowMonotonicMs);
 }
 
 function ignored(
   snapshot: PlaybackTimelineSnapshot,
   reason: 'stale-revision' | 'run-mismatch',
 ): PlaybackTimelineApplyResult {
-  return { applied: false, reason, snapshot };
+  return freezeCanonical({ applied: false as const, reason, snapshot });
 }
 
 /**
@@ -249,56 +317,51 @@ export function applyPlaybackTimelineIntent(
   intent: PlaybackTimelineIntent,
   nowMonotonicMs: number,
 ): PlaybackTimelineApplyResult {
-  assertTimeline(snapshot);
-  if (!isPlaybackRevision(intent.revision)) {
-    throw new RangeError('Playback revision must be a non-negative safe integer');
+  const safeSnapshot = requireTimeline(snapshot);
+  const safeIntent = requireIntent(intent);
+  if (safeIntent.revision <= safeSnapshot.revision) {
+    return ignored(safeSnapshot, 'stale-revision');
   }
-  if (intent.revision <= snapshot.revision) return ignored(snapshot, 'stale-revision');
-
-  assertRun(intent.run);
-  if (intent.type !== 'play' && !samePlaybackRun(snapshot.run, intent.run)) {
-    return ignored(snapshot, 'run-mismatch');
+  if (safeIntent.type !== 'play' && !sameRun(safeSnapshot.run, safeIntent.run)) {
+    return ignored(safeSnapshot, 'run-mismatch');
   }
-  assertMonotonicTime(snapshot, nowMonotonicMs);
+  assertMonotonicTime(safeSnapshot, nowMonotonicMs);
 
   let next: PlaybackTimelineSnapshot;
-  switch (intent.type) {
+  switch (safeIntent.type) {
     case 'play':
-      assertFiniteNonNegative(intent.positionSeconds, 'Playback position');
-      assertPlaybackRate(intent.rate);
       next = immutableSnapshot({
-        revision: intent.revision,
+        revision: safeIntent.revision,
         phase: 'playing',
-        run: immutableRun(intent.run),
-        positionSeconds: intent.positionSeconds,
+        run: safeIntent.run,
+        positionSeconds: safeIntent.positionSeconds,
         anchorMonotonicMs: nowMonotonicMs,
-        rate: intent.rate,
+        rate: safeIntent.rate,
       });
       break;
     case 'pause':
       next = immutableSnapshot({
-        revision: intent.revision,
+        revision: safeIntent.revision,
         phase: 'paused',
-        run: immutableRun(intent.run),
-        positionSeconds: derivePlaybackPosition(snapshot, nowMonotonicMs),
+        run: safeIntent.run,
+        positionSeconds: deriveCanonicalPlaybackPosition(safeSnapshot, nowMonotonicMs),
         anchorMonotonicMs: nowMonotonicMs,
-        rate: snapshot.rate,
+        rate: safeSnapshot.rate,
       });
       break;
     case 'seek':
-      assertFiniteNonNegative(intent.positionSeconds, 'Playback position');
       next = immutableSnapshot({
-        revision: intent.revision,
-        phase: snapshot.phase,
-        run: immutableRun(intent.run),
-        positionSeconds: intent.positionSeconds,
+        revision: safeIntent.revision,
+        phase: safeSnapshot.phase,
+        run: safeIntent.run,
+        positionSeconds: safeIntent.positionSeconds,
         anchorMonotonicMs: nowMonotonicMs,
-        rate: snapshot.rate,
+        rate: safeSnapshot.rate,
       });
       break;
     case 'stop':
       next = immutableSnapshot({
-        revision: intent.revision,
+        revision: safeIntent.revision,
         phase: 'stopped',
         run: null,
         positionSeconds: 0,
@@ -308,5 +371,5 @@ export function applyPlaybackTimelineIntent(
       break;
   }
 
-  return { applied: true, snapshot: next };
+  return freezeCanonical({ applied: true as const, snapshot: next });
 }

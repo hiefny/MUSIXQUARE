@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import {
-  isRendezvousArmIntent,
   isRendezvousFinalizationOpen,
+  readRendezvousArmIntent,
   validateRendezvousArmReceipt,
   validateRendezvousFinalization,
   validateRendezvousFinalizeReceipt,
@@ -86,11 +86,56 @@ function finalizeReceipt(
 
 describe('rendezvous contract v2', () => {
   it('accepts a finite, ordered arm schedule', () => {
-    expect(isRendezvousArmIntent(armIntent())).toBe(true);
-    expect(isRendezvousArmIntent(armIntent({ playbackRate: Number.NaN }))).toBe(false);
+    expect(readRendezvousArmIntent(armIntent())).not.toBeNull();
+    expect(readRendezvousArmIntent(armIntent({ playbackRate: Number.NaN }))).toBeNull();
     expect(
-      isRendezvousArmIntent(armIntent({ finalizeByRoomTimeMs: 2_001, startAtRoomTimeMs: 2_000 })),
-    ).toBe(false);
+      readRendezvousArmIntent(armIntent({ finalizeByRoomTimeMs: 2_001, startAtRoomTimeMs: 2_000 })),
+    ).toBeNull();
+  });
+
+  it('accepts future data fields and validates hostile envelopes without [[Get]]', () => {
+    let accessorCalls = 0;
+    const future = armIntent() as RendezvousArmIntent & Record<PropertyKey, unknown>;
+    Object.defineProperty(future, 'futureSchemaField', {
+      enumerable: true,
+      get() {
+        accessorCalls += 1;
+        return 'ignored';
+      },
+    });
+    expect(readRendezvousArmIntent(future)).not.toBeNull();
+    expect(accessorCalls).toBe(0);
+
+    const hostile = armIntent() as RendezvousArmIntent & Record<PropertyKey, unknown>;
+    Object.defineProperty(hostile, 'runId', {
+      enumerable: true,
+      get() {
+        accessorCalls += 1;
+        return 'run-7';
+      },
+    });
+    expect(readRendezvousArmIntent(hostile)).toBeNull();
+    expect(accessorCalls).toBe(0);
+
+    let getCalls = 0;
+    let nestedResult = false;
+    let reentered = false;
+    const proxied = new Proxy(armIntent(), {
+      get() {
+        getCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+      getOwnPropertyDescriptor(target, property) {
+        if (!reentered) {
+          reentered = true;
+          nestedResult = readRendezvousArmIntent(armIntent({ runId: 'nested-run' })) !== null;
+        }
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+    expect(readRendezvousArmIntent(proxied)).not.toBeNull();
+    expect(nestedResult).toBe(true);
+    expect(getCalls).toBe(0);
   });
 
   it('accepts an on-time armed receipt with exact identity and revision', () => {

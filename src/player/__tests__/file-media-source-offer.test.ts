@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MAX_FILE_PLAYBACK_ROOM_TIME_MS } from '../../network/file-playback-clock-exchange.ts';
+import { FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES } from '../../network/file-playback-transport-contract.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES,
   FILE_MEDIA_SOURCE_OFFER_V2_MAX_IDENTIFIER_LENGTH,
-  FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES,
   FileMediaOfferRegistry,
   createFileMediaPrepareId,
   createPeerRangeFileMediaSourceOfferV2,

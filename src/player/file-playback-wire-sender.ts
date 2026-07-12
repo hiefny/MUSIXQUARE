@@ -7,7 +7,7 @@ import {
   type FilePlaybackWireMediaBinding,
   type FilePlaybackWireMessage,
 } from './file-playback-wire.ts';
-import { isPlaybackRevision, isPlaybackRunIdentity } from './playback-timeline.ts';
+import { isPlaybackRevision, isPlaybackStateIdentity } from './playback-identity.ts';
 
 /** Immutable connection authority owned by one outbound control lane. */
 export interface FilePlaybackWireSenderOptions {
@@ -319,7 +319,7 @@ function snapshotMedia(value: unknown): MediaSnapshot | null {
   const run = snapshotExactDataRecord(snapshot.run, ['queueItemId', 'runId', 'revision']);
   if (
     !run ||
-    !isPlaybackRunIdentity(run) ||
+    !isPlaybackStateIdentity(run) ||
     !isPlaybackRevision(run.revision) ||
     Object.is(run.revision, -0) ||
     !isBoundedIdentifier(run.queueItemId) ||

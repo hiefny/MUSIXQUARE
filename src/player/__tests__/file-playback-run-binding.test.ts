@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+} from '../../network/file-playback-transport-contract.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { createFilePlaybackMediaScope } from '../file-playback-media-scope.ts';
 import {
   createFilePlaybackRunBindingV2,
   createFilePlaybackRunId,
   FILE_PLAYBACK_RUN_BINDING_V2_MAX_FRAME_BYTES,
-  FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES,
   FILE_PLAYBACK_RUN_BINDING_V2_PROTOCOL_VERSION,
-  FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
   parseFilePlaybackRunBindingV2,
   serializeFilePlaybackRunBindingV2,
   type FilePlaybackRunBindingV2,

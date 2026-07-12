@@ -7,8 +7,8 @@ import {
   type RemoteRendezvousParticipantOptions,
 } from '../remote-rendezvous-participant.ts';
 import {
-  isRendezvousArmReceipt,
-  isRendezvousFinalizeReceipt,
+  readRendezvousArmReceipt,
+  readRendezvousFinalizeReceipt,
   type RendezvousArmIntent,
   type RendezvousArmReceipt,
   type RendezvousFinalizeIntent,
@@ -139,8 +139,8 @@ describe('RemoteRendezvousParticipant', () => {
     expect(arms[0]).not.toBe(arm);
     expect(Object.isFrozen(arms[0])).toBe(true);
     expect(Object.getPrototypeOf(arms[0])).toBeNull();
-    expect(remote.acceptArmReceipt({ ...armReceipt(arm), ignored: 'wire-junk' })).toBe(false);
-    expect(remote.acceptArmReceipt(armReceipt(arm))).toBe(true);
+    expect(remote.acceptArmReceipt({ ...armReceipt(arm), ignored: 'wire-junk' })).toBe(true);
+    expect(remote.acceptArmReceipt(armReceipt(arm))).toBe(false);
 
     const acceptedArm = await pendingArm;
     expect(acceptedArm).toEqual(armReceipt(arm));
@@ -476,14 +476,17 @@ describe('RemoteRendezvousParticipant', () => {
     expect(remote.acceptArmReceipt(armReceipt(armIntent()))).toBe(true);
     const receipt = await pending;
     expect(receipt).toMatchObject({ status: 'armed' });
-    expect(isRendezvousArmReceipt(receipt)).toBe(true);
+    expect(readRendezvousArmReceipt(receipt)).not.toBeNull();
 
     const invalidFinalize = await remote.finalize(null as never);
     expect(invalidFinalize).toMatchObject({
       status: 'rejected',
       reasonCode: 'invalid-finalize-intent',
     });
-    expect(isRendezvousFinalizeReceipt(invalidFinalize)).toBe(true);
+    // A response synthesized without an active intent deliberately carries the
+    // stopped revision watermark (0), so it must not masquerade as a valid
+    // active rendezvous receipt.
+    expect(readRendezvousFinalizeReceipt(invalidFinalize)).toBeNull();
   });
 
   it('fails the exact pending receipt closed when the room clock cannot be read', async () => {
@@ -591,7 +594,7 @@ describe('RemoteRendezvousParticipant', () => {
     expect(remote.acceptArmReceipt(armReceipt(recovery))).toBe(false);
   });
 
-  it('never invokes accessors and rejects inherited, symbolic, and extra input fields', async () => {
+  it('never invokes accessors, rejects hostile shapes, and strips future data fields', async () => {
     let accessorReads = 0;
     const rawOptions: Record<string, unknown> = {
       participantId: PARTICIPANT_ID,
@@ -671,11 +674,13 @@ describe('RemoteRendezvousParticipant', () => {
       status: 'rejected',
       reasonCode: 'invalid-arm-intent',
     });
-    await expect(remote.arm({ ...arm, extra: true } as never)).resolves.toMatchObject({
-      status: 'rejected',
-      reasonCode: 'invalid-arm-intent',
-    });
     expect(dispatchArm).not.toHaveBeenCalled();
+
+    const futurePending = remote.arm({ ...arm, extra: true } as never);
+    expect(dispatchArm).toHaveBeenCalledTimes(1);
+    expect(remote.acceptArmReceipt(armReceipt(arm))).toBe(true);
+    await expect(futurePending).resolves.toMatchObject({ status: 'armed' });
+    expect('extra' in (dispatchArm.mock.calls[0]?.[0] as object)).toBe(false);
 
     const accessorFinalize = { ...finalizeIntent() };
     Object.defineProperty(accessorFinalize, 'finalizedAtRoomTimeMs', {

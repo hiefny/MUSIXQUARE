@@ -103,6 +103,319 @@ function coordinator(
 }
 
 describe('HostRendezvousCoordinator', () => {
+  it('snapshots exact coordinator options without invoking dynamic getters', () => {
+    let getterCalls = 0;
+    const accessor = {
+      get nowRoomTimeMs() {
+        getterCalls += 1;
+        return () => 0;
+      },
+      createRendezvousId: () => 'rv-accessor',
+    };
+    expect(() => new HostRendezvousCoordinator(accessor)).toThrow(/options are invalid/);
+    expect(getterCalls).toBe(0);
+
+    const proxied = new Proxy(
+      { nowRoomTimeMs: () => 0, createRendezvousId: () => 'rv-options-proxy' },
+      {
+        get() {
+          getterCalls += 1;
+          throw new Error('dynamic [[Get]] must not run');
+        },
+      },
+    );
+    const instance = new HostRendezvousCoordinator(proxied);
+    expect(
+      instance.start({ run: RUN, positionSeconds: 0, playbackRate: 1, participants: [] }),
+    ).toMatchObject({ rendezvousId: 'rv-options-proxy' });
+    expect(getterCalls).toBe(0);
+  });
+
+  it('detaches start scalars and participant callbacks exactly once', async () => {
+    const reads = new Map<string, number>();
+    const read = (key: string): number => {
+      const count = (reads.get(key) ?? 0) + 1;
+      reads.set(key, count);
+      return count;
+    };
+    const stableArm = async (intent: RendezvousArmIntent) => armedReceipt(intent);
+    const stableFinalize = async (intent: RendezvousFinalizeIntent) => finalizedReceipt(intent);
+    const hostileParticipant = {
+      get participantId() {
+        return read('participantId') === 1 ? 'detached-peer' : '';
+      },
+      get rttP95Ms() {
+        read('rttP95Ms');
+        return 0;
+      },
+      get armP95Ms() {
+        read('armP95Ms');
+        return 0;
+      },
+      get arm() {
+        return read('arm') === 1 ? stableArm : () => Promise.reject(new Error('stale arm'));
+      },
+      get finalize() {
+        return read('finalize') === 1
+          ? stableFinalize
+          : () => Promise.reject(new Error('stale finalize'));
+      },
+      get cancel() {
+        read('cancel');
+        return undefined;
+      },
+    };
+    const input = {
+      get run() {
+        read('run');
+        return RUN;
+      },
+      get positionSeconds() {
+        return read('positionSeconds') === 1 ? 2 : -1;
+      },
+      get playbackRate() {
+        return read('playbackRate') === 1 ? 1 : -1;
+      },
+      get participants() {
+        read('participants');
+        return [hostileParticipant];
+      },
+    };
+    const attempt = coordinator(() => 10_000, ['rv-detached-input']).start(input);
+    await drainMicrotasks();
+
+    expect(attempt.getSnapshot()).toMatchObject({
+      positionSeconds: 2,
+      playbackRate: 1,
+      participants: [
+        { participantId: 'detached-peer', armStatus: 'armed', finalizeStatus: 'accepted' },
+      ],
+    });
+    for (const key of [
+      'run',
+      'positionSeconds',
+      'playbackRate',
+      'participants',
+      'participantId',
+      'rttP95Ms',
+      'armP95Ms',
+      'arm',
+      'finalize',
+      'cancel',
+    ]) {
+      expect(reads.get(key)).toBe(1);
+    }
+  });
+
+  it('uses detached run and receipt snapshots under hostile Proxy traps', async () => {
+    const roomNow = 10_000;
+    let getCalls = 0;
+    const run = new Proxy(RUN, {
+      get() {
+        getCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+    const peer = participant('proxy-peer', {
+      arm: async (intent) =>
+        new Proxy(armedReceipt(intent, { observedAtRoomTimeMs: roomNow }), {
+          get(_target, property) {
+            if (property === 'then') return undefined;
+            getCalls += 1;
+            throw new Error('dynamic [[Get]] must not run');
+          },
+        }),
+    });
+    const attempt = coordinator(() => roomNow).start({
+      run,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [peer],
+    });
+    await drainMicrotasks();
+
+    expect(getCalls).toBe(0);
+    expect(attempt.getSnapshot().participants[0]).toMatchObject({
+      armStatus: 'armed',
+      finalizeStatus: 'accepted',
+    });
+  });
+
+  it('cannot commit arm or finalize receipts after Proxy inspection re-enters cancellation', async () => {
+    const armGate = deferred<RendezvousArmReceipt>();
+    const finalizeGate = deferred<RendezvousFinalizeReceipt>();
+    const finalize = vi.fn((intent: RendezvousFinalizeIntent) => finalizeGate.promise);
+    const armCoordinator = coordinator(() => 10_000, ['rv-arm-reentry']);
+    const armAttempt = armCoordinator.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [participant('arm-reentry', { arm: () => armGate.promise, finalize })],
+    });
+    const armTarget = armedReceipt(
+      Object.freeze({
+        protocolVersion: 2,
+        kind: 'rendezvous-arm',
+        ...RUN,
+        rendezvousId: armAttempt.rendezvousId,
+        recipientId: 'arm-reentry',
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: armAttempt.startAtRoomTimeMs,
+        finalizeByRoomTimeMs: armAttempt.finalizeByRoomTimeMs,
+      }),
+    );
+    armGate.resolve(
+      new Proxy(armTarget, {
+        ownKeys(target) {
+          armAttempt.cancel('proxy-reentered-cancel');
+          return Reflect.ownKeys(target);
+        },
+      }),
+    );
+    await drainMicrotasks();
+
+    expect(finalize).not.toHaveBeenCalled();
+    expect(armAttempt.getSnapshot()).toMatchObject({
+      status: 'cancelled',
+      participants: [{ armStatus: 'stale', finalizeStatus: 'stale' }],
+    });
+
+    let capturedFinalize: RendezvousFinalizeIntent | null = null;
+    const finalizeAttempt = coordinator(() => 20_000, ['rv-finalize-reentry']).start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('finalize-reentry', {
+          finalize: (intent) => {
+            capturedFinalize = intent;
+            return finalizeGate.promise;
+          },
+        }),
+      ],
+    });
+    await drainMicrotasks();
+    expect(capturedFinalize).not.toBeNull();
+    finalizeGate.resolve(
+      new Proxy(finalizedReceipt(capturedFinalize!), {
+        ownKeys(target) {
+          finalizeAttempt.cancel('proxy-reentered-cancel');
+          return Reflect.ownKeys(target);
+        },
+      }),
+    );
+    await drainMicrotasks();
+
+    expect(finalizeAttempt.getSnapshot()).toMatchObject({
+      status: 'cancelled',
+      participants: [{ armStatus: 'armed', finalizeStatus: 'stale' }],
+    });
+  });
+
+  it('does not let a clock callback roll a newer reentrant start back', () => {
+    let reentered = false;
+    let nested: ReturnType<HostRendezvousCoordinator['start']> | null = null;
+    let instance!: HostRendezvousCoordinator;
+    instance = new HostRendezvousCoordinator({
+      nowRoomTimeMs: () => {
+        if (!reentered) {
+          reentered = true;
+          nested = instance.start({
+            run: { ...RUN, revision: 13 },
+            positionSeconds: 0,
+            playbackRate: 1,
+            participants: [],
+          });
+        }
+        return 10_000;
+      },
+      createRendezvousId: () => 'rv-clock-reentry',
+    });
+
+    expect(() =>
+      instance.start({
+        run: RUN,
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [],
+      }),
+    ).toThrow(/superseded/);
+    expect(nested).not.toBeNull();
+    expect(nested!.getSnapshot()).toMatchObject({
+      status: 'complete',
+      run: { revision: 13 },
+    });
+  });
+
+  it('commits before supersede callbacks so a reentrant newer start wins', async () => {
+    let nested: ReturnType<HostRendezvousCoordinator['start']> | null = null;
+    let instance!: HostRendezvousCoordinator;
+    const ids = ['rv-old', 'rv-outer', 'rv-nested'];
+    instance = new HostRendezvousCoordinator({
+      nowRoomTimeMs: () => 10_000,
+      createRendezvousId: () => ids.shift() ?? 'rv-fallback',
+    });
+    const old = instance.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('old-peer', {
+          cancel: () => {
+            nested = instance.start({
+              run: { ...RUN, revision: 14 },
+              positionSeconds: 0,
+              playbackRate: 1,
+              participants: [],
+            });
+          },
+        }),
+      ],
+    });
+    await drainMicrotasks();
+    expect(old.getSnapshot().status).toBe('complete');
+
+    const outer = instance.start({
+      run: { ...RUN, revision: 13 },
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+
+    expect(outer.getSnapshot().status).toBe('superseded');
+    expect(nested).not.toBeNull();
+    expect(nested!.getSnapshot()).toMatchObject({
+      status: 'complete',
+      run: { revision: 14 },
+    });
+  });
+
+  it('stops dispatching remaining participants after an arm callback cancels the attempt', () => {
+    const instance = coordinator(() => 10_000, ['rv-dispatch-cancel']);
+    const secondArm = vi.fn(async (intent: RendezvousArmIntent) => armedReceipt(intent));
+    const attempt = instance.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('first', {
+          arm: async (intent) => {
+            instance.cancelActive('cancelled-during-dispatch');
+            return armedReceipt(intent);
+          },
+        }),
+        participant('second', { arm: secondArm }),
+      ],
+    });
+
+    expect(secondArm).not.toHaveBeenCalled();
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'cancelled-during-dispatch',
+    });
+  });
+
   it('returns immediately, uses the slowest estimate, and never lets a slow peer block peers', async () => {
     let roomNow = 10_000;
     let healthyArmIntent: RendezvousArmIntent | null = null;

@@ -3,13 +3,14 @@ import { isFilePlaybackSourceSnapshot, type FilePlaybackBackend } from './file-p
 import {
   isPlaybackRevision,
   isPlaybackRunIdentity,
+  isPlaybackStateIdentity,
   type PlaybackRevision,
-} from './playback-timeline.ts';
+} from './playback-identity.ts';
 import {
-  isRendezvousArmIntent,
-  isRendezvousArmReceipt,
-  isRendezvousFinalizeIntent,
-  isRendezvousFinalizeReceipt,
+  readRendezvousArmIntent,
+  readRendezvousArmReceipt,
+  readRendezvousFinalizeIntent,
+  readRendezvousFinalizeReceipt,
   type RendezvousArmIntent,
   type RendezvousArmReceipt,
   type RendezvousFinalizeIntent,
@@ -517,7 +518,7 @@ function hasValidKindPayload(candidate: Record<string, unknown>): boolean {
         isBoundedNumber(candidate.playbackRate, Number.MIN_VALUE, MAX_PLAYBACK_RATE) &&
         isRoomTime(candidate.startAtRoomTimeMs) &&
         isRoomTime(candidate.finalizeByRoomTimeMs) &&
-        isRendezvousArmIntent(asArmIntent(candidate))
+        readRendezvousArmIntent(asArmIntent(candidate)) !== null
       );
     case 'rendezvous-armed': {
       const statusIsArmed = candidate.status === 'armed';
@@ -527,7 +528,7 @@ function hasValidKindPayload(candidate: Record<string, unknown>): boolean {
         isRoomTime(candidate.observedAtRoomTimeMs) &&
         isMediaTime(candidate.bufferedAheadSeconds) &&
         hasCoherentStatusReason(statusIsArmed, candidate.reasonCode) &&
-        isRendezvousArmReceipt(asArmReceipt(candidate))
+        readRendezvousArmReceipt(asArmReceipt(candidate)) !== null
       );
     }
     case 'rendezvous-finalize':
@@ -535,7 +536,7 @@ function hasValidKindPayload(candidate: Record<string, unknown>): boolean {
         isBoundedIdentifier(candidate.rendezvousId) &&
         isRoomTime(candidate.startAtRoomTimeMs) &&
         isRoomTime(candidate.finalizedAtRoomTimeMs) &&
-        isRendezvousFinalizeIntent(asFinalizeIntent(candidate))
+        readRendezvousFinalizeIntent(asFinalizeIntent(candidate)) !== null
       );
     case 'rendezvous-finalized': {
       const statusIsAccepted = candidate.status === 'accepted';
@@ -546,7 +547,7 @@ function hasValidKindPayload(candidate: Record<string, unknown>): boolean {
           candidate.status === 'rejected') &&
         isRoomTime(candidate.observedAtRoomTimeMs) &&
         hasCoherentStatusReason(statusIsAccepted, candidate.reasonCode) &&
-        isRendezvousFinalizeReceipt(asFinalizeReceipt(candidate))
+        readRendezvousFinalizeReceipt(asFinalizeReceipt(candidate)) !== null
       );
     }
     case 'file-playback-pause':
@@ -758,7 +759,7 @@ function hasValidExpectationBindings(
   }
   if (expectations.run !== undefined) {
     if (
-      !isPlaybackRunIdentity(expectations.run) ||
+      !isPlaybackStateIdentity(expectations.run) ||
       !isPlaybackRevision(expectations.run.revision) ||
       Object.is(expectations.run.revision, -0) ||
       message.queueItemId !== expectations.run.queueItemId ||

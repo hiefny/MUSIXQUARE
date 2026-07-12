@@ -1,19 +1,11 @@
 import { MAX_FILE_PLAYBACK_ROOM_TIME_MS } from '../network/file-playback-clock-exchange.ts';
+import { FILE_MEDIA_SOURCE_OFFER_V2_TYPE } from '../network/file-playback-transport-contract.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { isQueueItemId } from './queue-model.ts';
 
-export const FILE_MEDIA_SOURCE_OFFER_V2_TYPE = 'FILE_MEDIA_SOURCE_OFFER_V2' as const;
 export const FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION = 2 as const;
 /** Maximum canonical JSON size after exact offer validation. */
 export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES = 4 * 1024;
-/**
- * Maximum raw offer-frame size that the transport adapter must enforce before
- * JSON parsing, structured cloning, or any other materialization step.
- *
- * `parseFileMediaSourceOfferV2` receives an already-materialized value, so it
- * cannot prove this pre-materialization boundary on its own.
- */
-export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES = 4 * 1024;
 export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_IDENTIFIER_LENGTH = 256;
 export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_NAME_LENGTH = 512;
 export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_MIME_LENGTH = 128;
@@ -382,8 +374,9 @@ function configuredLimit(value: number | undefined, fallback: number, maximum: n
  *
  * The adapter must use `createFileMediaPrepareId()` and the queue model's
  * CSPRNG QueueItemId factory. Its raw transport scanner must reject frames
- * above `FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES` before materializing
- * them; the parser independently enforces the canonical 4 KiB representation.
+ * above the dependency-neutral transport contract's raw byte budget before
+ * materializing them; the parser independently enforces the canonical 4 KiB
+ * representation.
  *
  * Removed QueueItemIds and consumed prepareIds remain retired for this
  * registry/connection lifetime, making removal and preparation ABA

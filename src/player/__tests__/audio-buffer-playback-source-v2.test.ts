@@ -142,7 +142,10 @@ function finalizeIntent(
   };
 }
 
-function harness(duration = 20) {
+function harness(
+  duration = 20,
+  roomTimeMsToContextTime: (roomTimeMs: number) => number = (roomTimeMs) => roomTimeMs / 1000,
+) {
   const context = new FakeAudioContext();
   const destination = new FakeAudioNode(context);
   const source = new AudioBufferPlaybackSource({
@@ -150,7 +153,7 @@ function harness(duration = 20) {
     audioBuffer: fakeBuffer(duration),
     audioContext: context as unknown as AudioContext,
     nowRoomTimeMs: () => context.roomNowMs,
-    roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1000,
+    roomTimeMsToContextTime,
     localPerformanceMsToContextTime: (localPerformanceTimeMs) => localPerformanceTimeMs / 1000,
   });
   return { context, destination, source };
@@ -165,6 +168,158 @@ async function prepareAndConnect(
 }
 
 describe('AudioBufferPlaybackSource v2', () => {
+  it('canonicalizes hostile rendezvous proxies before scheduling or storing them', async () => {
+    const { destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    let getCalls = 0;
+    const arm = new Proxy(armIntent(), {
+      get() {
+        getCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+    await expect(source.arm(arm)).resolves.toMatchObject({ status: 'armed' });
+
+    const finalize = new Proxy(finalizeIntent(), {
+      get() {
+        getCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+    await expect(source.finalize(finalize)).resolves.toMatchObject({ status: 'accepted' });
+    expect(getCalls).toBe(0);
+
+    const accessor = { ...armIntent({ revision: 4, runId: 'run-4', rendezvousId: 'rv-4' }) };
+    Object.defineProperty(accessor, 'positionSeconds', {
+      enumerable: true,
+      get() {
+        getCalls += 1;
+        return 0;
+      },
+    });
+    await expect(source.arm(accessor)).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'invalid-contract',
+    });
+    expect(getCalls).toBe(0);
+  });
+
+  it('does not finalize an execution cancelled by a reentrant intent Proxy', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await expect(source.arm(armIntent())).resolves.toMatchObject({ status: 'armed' });
+    const gate = context.gains[0]!;
+    const hostileFinalize = new Proxy(finalizeIntent(), {
+      ownKeys(target) {
+        void source.cancel({
+          kind: 'file-playback-cancel',
+          queueItemId: QID,
+          runId: 'run-3',
+          revision: 3,
+          reasonCode: 'proxy-reentered-cancel',
+        });
+        return Reflect.ownKeys(target);
+      },
+    });
+
+    await expect(source.finalize(hostileFinalize)).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'operation-superseded',
+    });
+    expect(gate.gain.automation).not.toContainEqual({ value: 1, time: 2 });
+    expect(source.getSnapshot()).toMatchObject({ phase: 'cancelled' });
+  });
+
+  it('does not let a reentrant room-time mapper roll a newer arm back', async () => {
+    let source!: AudioBufferPlaybackSource;
+    let nestedArm: Promise<unknown> | null = null;
+    let reenter = true;
+    const h = harness(20, (roomTimeMs) => {
+      if (reenter) {
+        reenter = false;
+        nestedArm = source.arm(
+          armIntent({
+            revision: 4,
+            runId: 'run-4',
+            rendezvousId: 'rv-4',
+            startAtRoomTimeMs: 3_000,
+            finalizeByRoomTimeMs: 2_800,
+          }),
+        );
+      }
+      return roomTimeMs / 1_000;
+    });
+    source = h.source;
+    await prepareAndConnect(source, h.destination);
+
+    await expect(source.arm(armIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'operation-superseded',
+    });
+    await nestedArm;
+    expect(source.getSnapshot()).toMatchObject({
+      revision: 4,
+      run: { runId: 'run-4', revision: 4 },
+      phase: 'armed',
+    });
+    expect(h.context.sources).toHaveLength(1);
+    expect(h.context.sources[0]!.stops).toHaveLength(0);
+  });
+
+  it('does not plant an idle seek after its mapper re-enters a newer arm', async () => {
+    let source!: AudioBufferPlaybackSource;
+    let triggerReentry = false;
+    let nestedArm: Promise<unknown> | null = null;
+    const h = harness(20, (roomTimeMs) => {
+      if (triggerReentry) {
+        triggerReentry = false;
+        nestedArm = source.arm(
+          armIntent({
+            revision: 4,
+            runId: 'run-4',
+            rendezvousId: 'rv-4',
+            startAtRoomTimeMs: 3_000,
+            finalizeByRoomTimeMs: 2_800,
+          }),
+        );
+      }
+      return roomTimeMs / 1_000;
+    });
+    source = h.source;
+    await prepareAndConnect(source, h.destination);
+    await source.arm(armIntent());
+    await source.cancel({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-3',
+      revision: 3,
+      reasonCode: 'prepare-idle-seek',
+    });
+    triggerReentry = true;
+
+    await source.seek({
+      kind: 'file-playback-seek',
+      queueItemId: QID,
+      runId: 'run-3',
+      revision: 3,
+      positionSeconds: 9,
+      atRoomTimeMs: 2_500,
+    });
+    await nestedArm;
+    h.context.currentTime = 4;
+    expect(source.getSnapshot()).toMatchObject({
+      revision: 4,
+      run: { runId: 'run-4', revision: 4 },
+      phase: 'paused',
+      positionSeconds: 4,
+    });
+    expect(source.getSnapshot()).toMatchObject({
+      revision: 4,
+      phase: 'paused',
+      positionSeconds: 4,
+    });
+  });
+
   it('prepares independently, then accepts only a same-context destination', async () => {
     const { context, destination, source } = harness();
 

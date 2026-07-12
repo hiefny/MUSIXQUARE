@@ -1,19 +1,18 @@
 import {
-  isPlaybackRevision,
-  isPlaybackRunIdentity,
-  samePlaybackRun,
-  type PlaybackRevision,
-  type PlaybackRunIdentity,
-} from './playback-timeline.ts';
+  readPlaybackAttemptIdentity,
+  sameAttempt,
+  sameRun,
+  sameState,
+  type PlaybackAttemptIdentity,
+  type PlaybackStateIdentity,
+} from './playback-identity.ts';
 
 export type RendezvousId = string;
 export type RendezvousParticipantId = string;
 
-export interface RevisionedPlaybackRun extends PlaybackRunIdentity {
-  readonly revision: PlaybackRevision;
-}
+export type RevisionedPlaybackRun = PlaybackStateIdentity;
 
-interface RendezvousIdentity extends RevisionedPlaybackRun {
+interface RendezvousIdentity extends PlaybackAttemptIdentity {
   readonly protocolVersion: 2;
   readonly rendezvousId: RendezvousId;
 }
@@ -73,6 +72,55 @@ export type RendezvousValidationResult =
 
 const MAX_ID_LENGTH = 256;
 const valid: RendezvousValidationResult = Object.freeze({ ok: true });
+const ARM_INTENT_KEYS = Object.freeze([
+  'protocolVersion',
+  'kind',
+  'queueItemId',
+  'runId',
+  'revision',
+  'rendezvousId',
+  'recipientId',
+  'positionSeconds',
+  'playbackRate',
+  'startAtRoomTimeMs',
+  'finalizeByRoomTimeMs',
+] as const);
+const ARM_RECEIPT_KEYS = Object.freeze([
+  'protocolVersion',
+  'kind',
+  'queueItemId',
+  'runId',
+  'revision',
+  'rendezvousId',
+  'participantId',
+  'status',
+  'observedAtRoomTimeMs',
+  'bufferedAheadSeconds',
+  'reasonCode',
+] as const);
+const FINALIZE_INTENT_KEYS = Object.freeze([
+  'protocolVersion',
+  'kind',
+  'queueItemId',
+  'runId',
+  'revision',
+  'rendezvousId',
+  'recipientId',
+  'startAtRoomTimeMs',
+  'finalizedAtRoomTimeMs',
+] as const);
+const FINALIZE_RECEIPT_KEYS = Object.freeze([
+  'protocolVersion',
+  'kind',
+  'queueItemId',
+  'runId',
+  'revision',
+  'rendezvousId',
+  'participantId',
+  'status',
+  'observedAtRoomTimeMs',
+  'reasonCode',
+] as const);
 
 function invalid(code: RendezvousValidationCode): RendezvousValidationResult {
   return { ok: false, code };
@@ -86,90 +134,116 @@ function isFiniteNonNegative(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
-function hasValidIdentity(value: RendezvousIdentity): boolean {
-  return (
-    value.protocolVersion === 2 &&
-    isPlaybackRunIdentity(value) &&
-    isPlaybackRevision(value.revision) &&
-    isBoundedIdentifier(value.rendezvousId)
-  );
+function snapshotRequiredDataRecord(
+  value: unknown,
+  requiredKeys: readonly string[],
+): Readonly<Record<string, unknown>> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (Reflect.ownKeys(descriptors).some((key) => typeof key === 'symbol')) return null;
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of requiredKeys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        return null;
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
 }
 
-export function isRevisionedPlaybackRun(value: unknown): value is RevisionedPlaybackRun {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    isPlaybackRunIdentity(value) &&
-    isPlaybackRevision((value as unknown as Record<string, unknown>).revision)
-  );
+function hasValidIdentity(value: Readonly<Record<string, unknown>>): boolean {
+  return value.protocolVersion === 2 && readPlaybackAttemptIdentity(value) !== null;
 }
 
-export function isRendezvousArmIntent(value: unknown): value is RendezvousArmIntent {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as RendezvousArmIntent;
-  return (
-    candidate.kind === 'rendezvous-arm' &&
-    hasValidIdentity(candidate) &&
-    isBoundedIdentifier(candidate.recipientId) &&
-    isFiniteNonNegative(candidate.positionSeconds) &&
-    typeof candidate.playbackRate === 'number' &&
-    Number.isFinite(candidate.playbackRate) &&
-    candidate.playbackRate > 0 &&
-    isFiniteNonNegative(candidate.startAtRoomTimeMs) &&
-    isFiniteNonNegative(candidate.finalizeByRoomTimeMs) &&
-    candidate.finalizeByRoomTimeMs <= candidate.startAtRoomTimeMs
-  );
+export function readRendezvousArmIntent(value: unknown): Readonly<RendezvousArmIntent> | null {
+  const candidate = snapshotRequiredDataRecord(value, ARM_INTENT_KEYS);
+  if (
+    !candidate ||
+    candidate.kind !== 'rendezvous-arm' ||
+    !hasValidIdentity(candidate) ||
+    !isBoundedIdentifier(candidate.recipientId) ||
+    !isFiniteNonNegative(candidate.positionSeconds) ||
+    typeof candidate.playbackRate !== 'number' ||
+    !Number.isFinite(candidate.playbackRate) ||
+    candidate.playbackRate <= 0 ||
+    !isFiniteNonNegative(candidate.startAtRoomTimeMs) ||
+    !isFiniteNonNegative(candidate.finalizeByRoomTimeMs) ||
+    candidate.finalizeByRoomTimeMs > candidate.startAtRoomTimeMs
+  ) {
+    return null;
+  }
+  return candidate as unknown as Readonly<RendezvousArmIntent>;
 }
 
-export function isRendezvousArmReceipt(value: unknown): value is RendezvousArmReceipt {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as RendezvousArmReceipt;
-  return (
-    candidate.kind === 'rendezvous-armed' &&
-    hasValidIdentity(candidate) &&
-    isBoundedIdentifier(candidate.participantId) &&
-    (candidate.status === 'armed' || candidate.status === 'rejected') &&
-    isFiniteNonNegative(candidate.observedAtRoomTimeMs) &&
-    isFiniteNonNegative(candidate.bufferedAheadSeconds) &&
-    (candidate.reasonCode === null || isBoundedIdentifier(candidate.reasonCode))
-  );
+export function readRendezvousArmReceipt(value: unknown): Readonly<RendezvousArmReceipt> | null {
+  const candidate = snapshotRequiredDataRecord(value, ARM_RECEIPT_KEYS);
+  if (
+    !candidate ||
+    candidate.kind !== 'rendezvous-armed' ||
+    !hasValidIdentity(candidate) ||
+    !isBoundedIdentifier(candidate.participantId) ||
+    (candidate.status !== 'armed' && candidate.status !== 'rejected') ||
+    !isFiniteNonNegative(candidate.observedAtRoomTimeMs) ||
+    !isFiniteNonNegative(candidate.bufferedAheadSeconds) ||
+    (candidate.reasonCode !== null && !isBoundedIdentifier(candidate.reasonCode))
+  ) {
+    return null;
+  }
+  return candidate as unknown as Readonly<RendezvousArmReceipt>;
 }
 
-export function isRendezvousFinalizeIntent(value: unknown): value is RendezvousFinalizeIntent {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as RendezvousFinalizeIntent;
-  return (
-    candidate.kind === 'rendezvous-finalize' &&
-    hasValidIdentity(candidate) &&
-    isBoundedIdentifier(candidate.recipientId) &&
-    isFiniteNonNegative(candidate.startAtRoomTimeMs) &&
-    isFiniteNonNegative(candidate.finalizedAtRoomTimeMs) &&
-    candidate.finalizedAtRoomTimeMs <= candidate.startAtRoomTimeMs
-  );
+export function readRendezvousFinalizeIntent(
+  value: unknown,
+): Readonly<RendezvousFinalizeIntent> | null {
+  const candidate = snapshotRequiredDataRecord(value, FINALIZE_INTENT_KEYS);
+  if (
+    !candidate ||
+    candidate.kind !== 'rendezvous-finalize' ||
+    !hasValidIdentity(candidate) ||
+    !isBoundedIdentifier(candidate.recipientId) ||
+    !isFiniteNonNegative(candidate.startAtRoomTimeMs) ||
+    !isFiniteNonNegative(candidate.finalizedAtRoomTimeMs) ||
+    candidate.finalizedAtRoomTimeMs > candidate.startAtRoomTimeMs
+  ) {
+    return null;
+  }
+  return candidate as unknown as Readonly<RendezvousFinalizeIntent>;
 }
 
-export function isRendezvousFinalizeReceipt(value: unknown): value is RendezvousFinalizeReceipt {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as RendezvousFinalizeReceipt;
-  return (
-    candidate.kind === 'rendezvous-finalized' &&
-    hasValidIdentity(candidate) &&
-    isBoundedIdentifier(candidate.participantId) &&
-    (candidate.status === 'accepted' ||
-      candidate.status === 'missed-deadline' ||
-      candidate.status === 'rejected') &&
-    isFiniteNonNegative(candidate.observedAtRoomTimeMs) &&
-    (candidate.reasonCode === null || isBoundedIdentifier(candidate.reasonCode))
-  );
+export function readRendezvousFinalizeReceipt(
+  value: unknown,
+): Readonly<RendezvousFinalizeReceipt> | null {
+  const candidate = snapshotRequiredDataRecord(value, FINALIZE_RECEIPT_KEYS);
+  if (
+    !candidate ||
+    candidate.kind !== 'rendezvous-finalized' ||
+    !hasValidIdentity(candidate) ||
+    !isBoundedIdentifier(candidate.participantId) ||
+    (candidate.status !== 'accepted' &&
+      candidate.status !== 'missed-deadline' &&
+      candidate.status !== 'rejected') ||
+    !isFiniteNonNegative(candidate.observedAtRoomTimeMs) ||
+    (candidate.reasonCode !== null && !isBoundedIdentifier(candidate.reasonCode))
+  ) {
+    return null;
+  }
+  return candidate as unknown as Readonly<RendezvousFinalizeReceipt>;
 }
 
 function validateMatchingIdentity(
   expected: RendezvousIdentity,
   actual: RendezvousIdentity,
 ): RendezvousValidationResult {
-  if (!samePlaybackRun(expected, actual)) return invalid('identity-mismatch');
-  if (expected.revision !== actual.revision) return invalid('revision-mismatch');
-  if (expected.rendezvousId !== actual.rendezvousId) return invalid('rendezvous-mismatch');
+  if (!sameRun(expected, actual)) return invalid('identity-mismatch');
+  if (!sameState(expected, actual)) return invalid('revision-mismatch');
+  if (!sameAttempt(expected, actual)) return invalid('rendezvous-mismatch');
   return valid;
 }
 
@@ -177,14 +251,16 @@ export function validateRendezvousArmReceipt(
   intent: RendezvousArmIntent,
   receipt: RendezvousArmReceipt,
 ): RendezvousValidationResult {
-  if (!isRendezvousArmIntent(intent) || !isRendezvousArmReceipt(receipt)) {
-    return invalid('invalid-contract');
-  }
-  const identity = validateMatchingIdentity(intent, receipt);
+  const safeIntent = readRendezvousArmIntent(intent);
+  const safeReceipt = readRendezvousArmReceipt(receipt);
+  if (!safeIntent || !safeReceipt) return invalid('invalid-contract');
+  const identity = validateMatchingIdentity(safeIntent, safeReceipt);
   if (!identity.ok) return identity;
-  if (intent.recipientId !== receipt.participantId) return invalid('participant-mismatch');
-  if (receipt.status !== 'armed') return invalid('arm-rejected');
-  if (receipt.observedAtRoomTimeMs > intent.finalizeByRoomTimeMs) {
+  if (safeIntent.recipientId !== safeReceipt.participantId) {
+    return invalid('participant-mismatch');
+  }
+  if (safeReceipt.status !== 'armed') return invalid('arm-rejected');
+  if (safeReceipt.observedAtRoomTimeMs > safeIntent.finalizeByRoomTimeMs) {
     return invalid('arm-after-deadline');
   }
   return valid;
@@ -196,30 +272,33 @@ export function validateRendezvousFinalization(
   finalizeIntent: RendezvousFinalizeIntent,
   receivedAtRoomTimeMs: number,
 ): RendezvousValidationResult {
+  const safeArmIntent = readRendezvousArmIntent(armIntent);
+  const safeArmReceipt = readRendezvousArmReceipt(armReceipt);
+  const safeFinalizeIntent = readRendezvousFinalizeIntent(finalizeIntent);
   if (
-    !isRendezvousArmIntent(armIntent) ||
-    !isRendezvousArmReceipt(armReceipt) ||
-    !isRendezvousFinalizeIntent(finalizeIntent) ||
+    !safeArmIntent ||
+    !safeArmReceipt ||
+    !safeFinalizeIntent ||
     !isFiniteNonNegative(receivedAtRoomTimeMs)
   ) {
     return invalid('invalid-contract');
   }
-  const armed = validateRendezvousArmReceipt(armIntent, armReceipt);
+  const armed = validateRendezvousArmReceipt(safeArmIntent, safeArmReceipt);
   if (!armed.ok) return armed;
-  const identity = validateMatchingIdentity(armIntent, finalizeIntent);
+  const identity = validateMatchingIdentity(safeArmIntent, safeFinalizeIntent);
   if (!identity.ok) return identity;
   if (
-    armIntent.recipientId !== finalizeIntent.recipientId ||
-    armReceipt.participantId !== finalizeIntent.recipientId
+    safeArmIntent.recipientId !== safeFinalizeIntent.recipientId ||
+    safeArmReceipt.participantId !== safeFinalizeIntent.recipientId
   ) {
     return invalid('participant-mismatch');
   }
-  if (armIntent.startAtRoomTimeMs !== finalizeIntent.startAtRoomTimeMs) {
+  if (safeArmIntent.startAtRoomTimeMs !== safeFinalizeIntent.startAtRoomTimeMs) {
     return invalid('schedule-mismatch');
   }
   if (
-    finalizeIntent.finalizedAtRoomTimeMs > armIntent.finalizeByRoomTimeMs ||
-    receivedAtRoomTimeMs > armIntent.finalizeByRoomTimeMs
+    safeFinalizeIntent.finalizedAtRoomTimeMs > safeArmIntent.finalizeByRoomTimeMs ||
+    receivedAtRoomTimeMs > safeArmIntent.finalizeByRoomTimeMs
   ) {
     return invalid('finalization-after-deadline');
   }
@@ -230,18 +309,18 @@ export function validateRendezvousFinalizeReceipt(
   finalizeIntent: RendezvousFinalizeIntent,
   receipt: RendezvousFinalizeReceipt,
 ): RendezvousValidationResult {
-  if (!isRendezvousFinalizeIntent(finalizeIntent) || !isRendezvousFinalizeReceipt(receipt)) {
-    return invalid('invalid-contract');
-  }
-  const identity = validateMatchingIdentity(finalizeIntent, receipt);
+  const safeIntent = readRendezvousFinalizeIntent(finalizeIntent);
+  const safeReceipt = readRendezvousFinalizeReceipt(receipt);
+  if (!safeIntent || !safeReceipt) return invalid('invalid-contract');
+  const identity = validateMatchingIdentity(safeIntent, safeReceipt);
   if (!identity.ok) return identity;
-  if (finalizeIntent.recipientId !== receipt.participantId) {
+  if (safeIntent.recipientId !== safeReceipt.participantId) {
     return invalid('participant-mismatch');
   }
-  if (receipt.observedAtRoomTimeMs > finalizeIntent.startAtRoomTimeMs) {
+  if (safeReceipt.observedAtRoomTimeMs > safeIntent.startAtRoomTimeMs) {
     return invalid('finalization-after-deadline');
   }
-  if (receipt.status !== 'accepted') return invalid('finalization-rejected');
+  if (safeReceipt.status !== 'accepted') return invalid('finalization-rejected');
   return valid;
 }
 
@@ -249,9 +328,10 @@ export function isRendezvousFinalizationOpen(
   intent: RendezvousArmIntent,
   roomTimeMs: number,
 ): boolean {
+  const safeIntent = readRendezvousArmIntent(intent);
   return (
-    isRendezvousArmIntent(intent) &&
+    safeIntent !== null &&
     isFiniteNonNegative(roomTimeMs) &&
-    roomTimeMs <= intent.finalizeByRoomTimeMs
+    roomTimeMs <= safeIntent.finalizeByRoomTimeMs
   );
 }

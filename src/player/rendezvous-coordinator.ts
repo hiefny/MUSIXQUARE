@@ -1,7 +1,9 @@
 import { calculateRendezvousLeadMs } from '../network/clock-estimator.ts';
 import type { FilePlaybackCancelIntent } from './file-playback-source.ts';
+import { readPlaybackStateIdentity } from './playback-identity.ts';
 import {
-  isRevisionedPlaybackRun,
+  readRendezvousArmReceipt,
+  readRendezvousFinalizeReceipt,
   validateRendezvousArmReceipt,
   validateRendezvousFinalization,
   validateRendezvousFinalizeReceipt,
@@ -17,6 +19,7 @@ import {
 export const RENDEZVOUS_FINALIZATION_GUARD_MS = 100;
 
 const MAX_IDENTIFIER_LENGTH = 256;
+const COORDINATOR_OPTION_KEYS = Object.freeze(['nowRoomTimeMs', 'createRendezvousId'] as const);
 
 export interface HostRendezvousParticipant {
   readonly participantId: string;
@@ -133,17 +136,115 @@ interface ImmutableAttemptSchedule {
   readonly startAtRoomTimeMs: number;
 }
 
+interface DetachedStartInput {
+  readonly run: unknown;
+  readonly positionSeconds: unknown;
+  readonly playbackRate: unknown;
+  readonly participants: unknown;
+}
+
 function isBoundedIdentifier(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_IDENTIFIER_LENGTH;
 }
 
-function readReasonCode(value: unknown): string | null {
+function snapshotCoordinatorOptions(
+  value: unknown,
+): Readonly<Record<(typeof COORDINATOR_OPTION_KEYS)[number], unknown>> | null {
   try {
-    if (!value || typeof value !== 'object') return null;
-    const reasonCode = (value as Record<string, unknown>).reasonCode;
-    return isBoundedIdentifier(reasonCode) ? reasonCode : null;
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const expected: ReadonlySet<string> = new Set(COORDINATOR_OPTION_KEYS);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null) as Record<
+      (typeof COORDINATOR_OPTION_KEYS)[number],
+      unknown
+    >;
+    for (const key of COORDINATOR_OPTION_KEYS) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
   } catch {
     return null;
+  }
+}
+
+function readStartInput(input: unknown): DetachedStartInput {
+  try {
+    if (input === null || typeof input !== 'object') throw new TypeError();
+    return Object.freeze({
+      run: Reflect.get(input, 'run'),
+      positionSeconds: Reflect.get(input, 'positionSeconds'),
+      playbackRate: Reflect.get(input, 'playbackRate'),
+      participants: Reflect.get(input, 'participants'),
+    });
+  } catch {
+    throw new TypeError('Rendezvous start input is invalid');
+  }
+}
+
+function snapshotParticipant(value: unknown): HostRendezvousParticipant {
+  try {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
+      throw new TypeError();
+    }
+    const participantId = Reflect.get(value, 'participantId') as unknown;
+    const rttP95Ms = Reflect.get(value, 'rttP95Ms') as unknown;
+    const armP95Ms = Reflect.get(value, 'armP95Ms') as unknown;
+    const arm = Reflect.get(value, 'arm') as unknown;
+    const finalize = Reflect.get(value, 'finalize') as unknown;
+    const cancel = Reflect.get(value, 'cancel') as unknown;
+    if (
+      !isBoundedIdentifier(participantId) ||
+      typeof arm !== 'function' ||
+      typeof finalize !== 'function' ||
+      (cancel !== undefined && typeof cancel !== 'function')
+    ) {
+      throw new TypeError();
+    }
+    return Object.freeze({
+      participantId,
+      rttP95Ms: rttP95Ms as number,
+      armP95Ms: armP95Ms as number,
+      arm: (intent: RendezvousArmIntent) =>
+        Reflect.apply(arm, value, [intent]) as Promise<RendezvousArmReceipt>,
+      finalize: (intent: RendezvousFinalizeIntent) =>
+        Reflect.apply(finalize, value, [intent]) as Promise<RendezvousFinalizeReceipt>,
+      ...(cancel === undefined
+        ? {}
+        : {
+            cancel: (intent: FilePlaybackCancelIntent) => Reflect.apply(cancel, value, [intent]),
+          }),
+    });
+  } catch {
+    throw new TypeError('Rendezvous participant is invalid');
+  }
+}
+
+function snapshotParticipants(value: unknown): readonly HostRendezvousParticipant[] {
+  try {
+    if (!Array.isArray(value)) throw new TypeError();
+    const length = Reflect.get(value, 'length') as unknown;
+    if (!Number.isSafeInteger(length) || (length as number) < 0) throw new TypeError();
+    const participants: HostRendezvousParticipant[] = [];
+    for (let index = 0; index < (length as number); index += 1) {
+      participants.push(snapshotParticipant(Reflect.get(value, String(index))));
+    }
+    return Object.freeze(participants);
+  } catch (error) {
+    if (error instanceof TypeError && error.message === 'Rendezvous participant is invalid') {
+      throw error;
+    }
+    throw new TypeError('Rendezvous participants must be an array', { cause: error });
   }
 }
 
@@ -254,6 +355,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
 
   dispatch(): void {
     for (const outcome of this.#outcomes) {
+      if (this.#status !== 'open' || !this.#owner.isActive(this)) break;
       let pending: Promise<RendezvousArmReceipt>;
       try {
         pending = outcome.participant.arm(outcome.intent);
@@ -386,15 +488,24 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       return;
     }
 
-    const candidate = receipt as RendezvousArmReceipt;
-    const armValidation = validateRendezvousArmReceipt(outcome.intent, candidate);
+    const candidate = readRendezvousArmReceipt(receipt);
+    // Reading an untrusted Proxy can re-enter the coordinator. Never let the
+    // older receipt commit after cancellation, supersession, or another
+    // receipt has already advanced this participant outcome.
+    if (outcome.armStatus !== 'pending' || !this.#owner.isActive(this) || this.#status !== 'open') {
+      return;
+    }
+    const armValidation = candidate
+      ? validateRendezvousArmReceipt(outcome.intent, candidate)
+      : ({ ok: false, code: 'invalid-contract' } as const);
     if (!armValidation.ok) {
       outcome.armStatus = mapArmValidationStatus(armValidation.code);
       outcome.armValidationCode = armValidation.code;
-      outcome.armReasonCode = readReasonCode(receipt) ?? armValidation.code;
+      outcome.armReasonCode = candidate?.reasonCode ?? armValidation.code;
       this.#refreshCompletion();
       return;
     }
+    if (!candidate) return;
 
     outcome.armStatus = 'armed';
     outcome.bufferedAheadSeconds = candidate.bufferedAheadSeconds;
@@ -461,14 +572,23 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       return;
     }
 
-    const validation = validateRendezvousFinalizeReceipt(
-      intent,
-      receipt as RendezvousFinalizeReceipt,
-    );
+    const candidate = readRendezvousFinalizeReceipt(receipt);
+    // Receipt canonicalization may execute Proxy traps. Re-check the live
+    // authority before allowing the pre-canonicalization attempt to settle.
+    if (
+      outcome.finalizeStatus !== 'pending' ||
+      !this.#owner.isActive(this) ||
+      this.#status !== 'open'
+    ) {
+      return;
+    }
+    const validation = candidate
+      ? validateRendezvousFinalizeReceipt(intent, candidate)
+      : ({ ok: false, code: 'invalid-contract' } as const);
     if (!validation.ok) {
       outcome.finalizeStatus = mapFinalizeValidationStatus(validation.code);
       outcome.finalizeValidationCode = validation.code;
-      outcome.finalizeReasonCode = readReasonCode(receipt) ?? validation.code;
+      outcome.finalizeReasonCode = candidate?.reasonCode ?? validation.code;
     } else {
       outcome.finalizeStatus = 'accepted';
       outcome.finalizeReasonCode = null;
@@ -542,54 +662,61 @@ export class HostRendezvousCoordinator {
   readonly #createRendezvousId: () => string;
   #lastRoomTimeMs: number | null = null;
   #active: ActiveHostRendezvousAttempt | null = null;
+  #mutationEpoch = 0;
 
   constructor(options: HostRendezvousCoordinatorOptions) {
-    if (typeof options.nowRoomTimeMs !== 'function') {
+    const snapshot = snapshotCoordinatorOptions(options);
+    if (!snapshot) throw new TypeError('Rendezvous coordinator options are invalid');
+    if (typeof snapshot.nowRoomTimeMs !== 'function') {
       throw new TypeError('nowRoomTimeMs must be a function');
     }
-    if (typeof options.createRendezvousId !== 'function') {
+    if (typeof snapshot.createRendezvousId !== 'function') {
       throw new TypeError('createRendezvousId must be a function');
     }
-    this.#nowRoomTimeMs = options.nowRoomTimeMs;
-    this.#createRendezvousId = options.createRendezvousId;
+    this.#nowRoomTimeMs = snapshot.nowRoomTimeMs as () => number;
+    this.#createRendezvousId = snapshot.createRendezvousId as () => string;
   }
 
   start(input: StartHostRendezvousInput): HostRendezvousAttempt {
-    if (!isRevisionedPlaybackRun(input.run)) {
+    const mutationEpoch = this.#advanceMutationEpoch();
+    const detachedInput = readStartInput(input);
+    const run = readPlaybackStateIdentity(detachedInput.run);
+    if (!run) {
       throw new TypeError('Rendezvous playback run is invalid');
     }
-    if (this.#active && input.run.revision <= this.#active.revision) {
+    this.#assertMutationEpoch(mutationEpoch);
+    if (this.#active && run.revision <= this.#active.revision) {
       throw new RangeError('Rendezvous revision must be newer than the previous attempt');
     }
-    assertFiniteNonNegative(input.positionSeconds, 'Rendezvous position');
-    if (!Number.isFinite(input.playbackRate) || input.playbackRate <= 0) {
+    if (typeof detachedInput.positionSeconds !== 'number') {
+      throw new TypeError('Rendezvous position must be a number');
+    }
+    const positionSeconds = detachedInput.positionSeconds;
+    assertFiniteNonNegative(positionSeconds, 'Rendezvous position');
+    if (
+      typeof detachedInput.playbackRate !== 'number' ||
+      !Number.isFinite(detachedInput.playbackRate) ||
+      detachedInput.playbackRate <= 0
+    ) {
       throw new RangeError('Rendezvous playback rate must be a finite positive number');
     }
-    if (!Array.isArray(input.participants)) {
-      throw new TypeError('Rendezvous participants must be an array');
-    }
+    const playbackRate = detachedInput.playbackRate;
 
-    const participants = [...input.participants];
+    const participants = snapshotParticipants(detachedInput.participants);
     const participantIds = new Set<string>();
     const participantLeadTimesMs = participants.map((participant) => {
-      if (!isBoundedIdentifier(participant.participantId)) {
-        throw new TypeError('Rendezvous participant ID is invalid');
-      }
       if (participantIds.has(participant.participantId)) {
         throw new TypeError('Rendezvous participant IDs must be unique');
-      }
-      if (typeof participant.arm !== 'function' || typeof participant.finalize !== 'function') {
-        throw new TypeError('Rendezvous participant callbacks are invalid');
-      }
-      if (participant.cancel !== undefined && typeof participant.cancel !== 'function') {
-        throw new TypeError('Rendezvous participant cancel callback is invalid');
       }
       participantIds.add(participant.participantId);
       return calculateRendezvousLeadMs(participant.rttP95Ms, participant.armP95Ms);
     });
+    this.#assertMutationEpoch(mutationEpoch);
 
     const createdAtRoomTimeMs = this.#readRoomTimeMs();
+    this.#assertMutationEpoch(mutationEpoch);
     const rendezvousId = this.#createRendezvousId();
+    this.#assertMutationEpoch(mutationEpoch);
     if (!isBoundedIdentifier(rendezvousId)) {
       throw new TypeError('Generated rendezvous ID is invalid');
     }
@@ -604,9 +731,9 @@ export class HostRendezvousCoordinator {
     }
     const schedule: ImmutableAttemptSchedule = Object.freeze({
       rendezvousId,
-      run: immutableRun(input.run),
-      positionSeconds: input.positionSeconds,
-      playbackRate: input.playbackRate,
+      run: immutableRun(run),
+      positionSeconds,
+      playbackRate,
       createdAtRoomTimeMs,
       leadTimeMs,
       finalizeByRoomTimeMs: startAtRoomTimeMs - RENDEZVOUS_FINALIZATION_GUARD_MS,
@@ -619,13 +746,21 @@ export class HostRendezvousCoordinator {
       participantLeadTimesMs,
     );
 
-    this.#active?.supersede();
+    this.#assertMutationEpoch(mutationEpoch);
+    if (this.#active && run.revision <= this.#active.revision) {
+      throw new RangeError('Rendezvous revision was superseded during start');
+    }
+    const previous = this.#active;
     this.#active = attempt;
-    attempt.dispatch();
+    previous?.supersede();
+    if (this.#active === attempt && this.#mutationEpoch === mutationEpoch) {
+      attempt.dispatch();
+    }
     return attempt;
   }
 
   cancelActive(reasonCode?: string): HostRendezvousAttemptSnapshot | null {
+    this.#advanceMutationEpoch();
     return this.#active?.cancel(reasonCode) ?? null;
   }
 
@@ -649,5 +784,17 @@ export class HostRendezvousCoordinator {
     }
     this.#lastRoomTimeMs = current;
     return current;
+  }
+
+  #advanceMutationEpoch(): number {
+    this.#mutationEpoch =
+      this.#mutationEpoch === Number.MAX_SAFE_INTEGER ? 0 : this.#mutationEpoch + 1;
+    return this.#mutationEpoch;
+  }
+
+  #assertMutationEpoch(expected: number): void {
+    if (this.#mutationEpoch !== expected) {
+      throw new Error('Rendezvous start was superseded during validation');
+    }
   }
 }

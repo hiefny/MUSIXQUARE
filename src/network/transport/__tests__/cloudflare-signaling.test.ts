@@ -5,6 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../../core/constants.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
 import {
+  FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES,
+  FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+  FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+} from '../../file-playback-transport-contract.ts';
+import {
   createPeerRangeChunkFrames,
   createPeerRangeCloseHandleFrame,
   createPeerRangeErrorFrame,
@@ -20,6 +26,39 @@ import {
 const originalWebSocket = globalThis.WebSocket;
 const originalRTCPeerConnection = globalThis.RTCPeerConnection;
 const originalMediaStream = globalThis.MediaStream;
+const frameTextEncoder = new TextEncoder();
+
+function jsonFrameAtBytes(type: string, byteLength: number, escapedTypeKey = false): string {
+  const typeKey = escapedTypeKey ? '\\u0074ype' : 'type';
+  const prefix = `{"${typeKey}":"${type}","padding":"`;
+  const suffix = '"}';
+  const fixedBytes = frameTextEncoder.encode(prefix + suffix).byteLength;
+  if (fixedBytes > byteLength) throw new RangeError('requested JSON frame is too small');
+  const frame = `${prefix}${'x'.repeat(byteLength - fixedBytes)}${suffix}`;
+  expect(frameTextEncoder.encode(frame).byteLength).toBe(byteLength);
+  return frame;
+}
+
+function multibyteJsonFrameAtBytes(type: string, byteLength: number): string {
+  const prefix = `{"type":"${type}","padding":"`;
+  const suffix = '"}';
+  const remaining = byteLength - frameTextEncoder.encode(prefix + suffix).byteLength;
+  if (remaining < 0) throw new RangeError('requested JSON frame is too small');
+  const frame = `${prefix}${'한'.repeat(Math.floor(remaining / 3))}${'x'.repeat(remaining % 3)}${suffix}`;
+  expect(frameTextEncoder.encode(frame).byteLength).toBe(byteLength);
+  return frame;
+}
+
+function encodeBinaryFrame(headerJson: string, totalFrameBytes: number): ArrayBuffer {
+  const header = frameTextEncoder.encode(headerJson);
+  const bodyLength = totalFrameBytes - 4 - header.byteLength;
+  if (bodyLength < 0) throw new RangeError('requested binary frame is too small');
+  const frame = new Uint8Array(totalFrameBytes);
+  new DataView(frame.buffer).setUint32(0, header.byteLength, false);
+  frame.set(header, 4);
+  frame.fill(7, 4 + header.byteLength);
+  return frame.buffer;
+}
 
 type FakeSocketListener = (event: { data?: unknown }) => void;
 type FakeChannelListener = (event: { data?: unknown }) => void;
@@ -520,6 +559,246 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(received).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAYLIST_UPDATE }));
   });
 
+  it('enforces exact raw text budgets for source offers and run bindings', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const received = vi.fn();
+    const errors = vi.fn();
+    conn.on('data', received);
+    conn.on('error', errors);
+
+    const boundedTypes = [
+      [FILE_MEDIA_SOURCE_OFFER_V2_TYPE, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES],
+      [FILE_PLAYBACK_RUN_BINDING_V2_TYPE, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES],
+    ] as const;
+    for (const [type, budget] of boundedTypes) {
+      const expectedReceived = received.mock.calls.length + 1;
+      control.dispatch('message', jsonFrameAtBytes(type, budget));
+      await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(expectedReceived));
+      expect(received).toHaveBeenLastCalledWith(expect.objectContaining({ type }));
+
+      const expectedErrors = errors.mock.calls.length + 1;
+      control.dispatch('message', jsonFrameAtBytes(type, budget + 1, true));
+      await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(expectedErrors));
+      expect((errors.mock.calls.at(-1)?.[0] as Error).message).toBe(
+        'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
+      );
+    }
+    expect(received).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveBeenCalledTimes(2);
+  });
+
+  it('measures multibyte text frames by UTF-8 bytes rather than UTF-16 length', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const received = vi.fn();
+    const errors = vi.fn();
+    conn.on('data', received);
+    conn.on('error', errors);
+    control.dispatch(
+      'message',
+      multibyteJsonFrameAtBytes(
+        FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+        FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES,
+      ),
+    );
+    await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
+
+    const oversized = `{"type":"${FILE_MEDIA_SOURCE_OFFER_V2_TYPE}","padding":"${'한'.repeat(
+      Math.ceil(FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES / 3),
+    )}"}`;
+    expect(oversized.length).toBeLessThan(FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES);
+    expect(frameTextEncoder.encode(oversized).byteLength).toBeGreaterThan(
+      FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES,
+    );
+    control.dispatch('message', oversized);
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(1));
+    expect((errors.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
+    );
+    expect(received).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps last-string duplicate semantics for protocol budgets, not a general frame cap', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const received = vi.fn();
+    const errors = vi.fn();
+    conn.on('data', received);
+    conn.on('error', errors);
+    const padding = 'x'.repeat(FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES);
+
+    control.dispatch(
+      'message',
+      `{"type":"${FILE_MEDIA_SOURCE_OFFER_V2_TYPE}","padding":"${padding}","type":"${MSG.FILE_CHUNK}"}`,
+    );
+    await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
+    expect(received).toHaveBeenLastCalledWith(expect.objectContaining({ type: MSG.FILE_CHUNK }));
+
+    control.dispatch(
+      'message',
+      `{"type":"${MSG.FILE_CHUNK}","padding":"${padding}","\\u0074ype":"${FILE_MEDIA_SOURCE_OFFER_V2_TYPE}"}`,
+    );
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(1));
+    expect((errors.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
+    );
+
+    control.dispatch(
+      'message',
+      `{"type":"${FILE_PLAYBACK_RUN_BINDING_V2_TYPE}","padding":"${padding}","type":0}`,
+    );
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(2));
+    expect(received).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the entire binary frame budget for small offer and run-binding headers', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const received = vi.fn();
+    const errors = vi.fn();
+    conn.on('data', received);
+    conn.on('error', errors);
+    const boundedTypes = [
+      [FILE_MEDIA_SOURCE_OFFER_V2_TYPE, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES],
+      [FILE_PLAYBACK_RUN_BINDING_V2_TYPE, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES],
+    ] as const;
+
+    for (const [type, budget] of boundedTypes) {
+      const header = `{"chunk":{"__mxqrBinaryChunk":true},"type":"${type}"}`;
+      const expectedReceived = received.mock.calls.length + 1;
+      bulk.dispatch('message', encodeBinaryFrame(header, budget));
+      await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(expectedReceived));
+      expect(received).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type, chunk: expect.any(Uint8Array) }),
+      );
+
+      const escapedHeader = `{"chunk":{"__mxqrBinaryChunk":true},"\\u0074ype":"${type}"}`;
+      const expectedErrors = errors.mock.calls.length + 1;
+      bulk.dispatch('message', encodeBinaryFrame(escapedHeader, budget + 1));
+      await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(expectedErrors));
+      expect((errors.mock.calls.at(-1)?.[0] as Error).message).toBe(
+        'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
+      );
+    }
+    expect(received).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveBeenCalledTimes(2);
+  });
+
+  it('snapshots native Blob ranges so subclass getters cannot bypass the raw budget', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const received = vi.fn();
+    const errors = vi.fn();
+    conn.on('data', received);
+    conn.on('error', errors);
+    const header = `{"chunk":{"__mxqrBinaryChunk":true},"type":"${FILE_MEDIA_SOURCE_OFFER_V2_TYPE}"}`;
+
+    bulk.dispatch(
+      'message',
+      new Blob([encodeBinaryFrame(header, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES)]),
+    );
+    await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
+
+    let sizeGetterCalls = 0;
+    let sliceCalls = 0;
+    let arrayBufferCalls = 0;
+    class HostileBlob extends Blob {
+      override get size(): number {
+        sizeGetterCalls += 1;
+        return FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES;
+      }
+
+      override slice(start?: number, end?: number, contentType?: string): Blob {
+        sliceCalls += 1;
+        return super.slice(start, end, contentType);
+      }
+
+      override arrayBuffer(): Promise<ArrayBuffer> {
+        arrayBufferCalls += 1;
+        return super.arrayBuffer();
+      }
+    }
+    const hostile = new HostileBlob([
+      encodeBinaryFrame(header, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES + 1),
+    ]);
+    bulk.dispatch('message', hostile);
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(1));
+    expect((errors.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
+    );
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(sizeGetterCalls).toBe(0);
+    expect(sliceCalls).toBe(0);
+    expect(arrayBufferCalls).toBe(0);
+  });
+
+  it('uses native ArrayBuffer length so subclasses cannot bypass full-frame budgets', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const received = vi.fn();
+    const errors = vi.fn();
+    conn.on('data', received);
+    conn.on('error', errors);
+    const header = `{"chunk":{"__mxqrBinaryChunk":true},"type":"${FILE_MEDIA_SOURCE_OFFER_V2_TYPE}"}`;
+    const encoded = new Uint8Array(
+      encodeBinaryFrame(header, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES + 1),
+    );
+    let byteLengthGetterCalls = 0;
+    class HostileArrayBuffer extends ArrayBuffer {
+      override get byteLength(): number {
+        byteLengthGetterCalls += 1;
+        return FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES;
+      }
+    }
+    const hostile = new HostileArrayBuffer(encoded.byteLength);
+    new Uint8Array(hostile).set(encoded);
+
+    bulk.dispatch('message', hostile);
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(1));
+    expect((errors.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
+    );
+    expect(received).not.toHaveBeenCalled();
+    expect(byteLengthGetterCalls).toBe(0);
+  });
+
   it('applies the session preparse cap to binary headers without blocking bulk payload frames', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();
@@ -567,18 +846,18 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     const largeFileChunkHeader = JSON.stringify({
       type: MSG.FILE_CHUNK,
       chunk: { __mxqrBinaryChunk: true },
-      diagnosticPadding: 'f'.repeat(FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2),
+      diagnosticPadding: 'f'.repeat(FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES * 2),
     });
     bulk.dispatch(
       'message',
-      encodeBinary(largeFileChunkHeader, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2),
+      encodeBinary(largeFileChunkHeader, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES * 2),
     );
     await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
     expect(received).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: MSG.FILE_CHUNK, chunk: expect.any(Uint8Array) }),
     );
     expect((received.mock.calls[0]?.[0] as { chunk: Uint8Array }).chunk.byteLength).toBe(
-      FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2,
+      FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES * 2,
     );
 
     const largePeerRangeHeader = JSON.stringify({
@@ -587,11 +866,11 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       lane: 'bulk',
       type: 'chunk',
       payload: { __mxqrBinaryPayload: true },
-      diagnosticPadding: 'r'.repeat(FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2),
+      diagnosticPadding: 'r'.repeat(FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES * 2),
     });
     bulk.dispatch(
       'message',
-      encodeBinary(largePeerRangeHeader, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2),
+      encodeBinary(largePeerRangeHeader, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES * 2),
     );
     await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(2));
     expect(received).toHaveBeenLastCalledWith(
@@ -601,7 +880,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       }),
     );
     expect((received.mock.calls[1]?.[0] as { payload: ArrayBuffer }).payload.byteLength).toBe(
-      FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2,
+      FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES * 2,
     );
   });
 

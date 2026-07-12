@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
+import { sameRun, type PlaybackRunIdentity } from '../playback-identity.ts';
 import {
-  allocatePlaybackRevision,
   applyPlaybackTimelineIntent,
   createStoppedPlaybackTimeline,
   derivePlaybackPosition,
   isPlaybackTimelineSnapshot,
-  samePlaybackRun,
-  type PlaybackRunIdentity,
 } from '../playback-timeline.ts';
 
 const QID_A = '00000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -31,14 +29,6 @@ describe('playback timeline v2', () => {
     });
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(isPlaybackTimelineSnapshot(JSON.parse(JSON.stringify(snapshot)))).toBe(true);
-  });
-
-  it('allocates strictly increasing safe revisions', () => {
-    expect(allocatePlaybackRevision(0)).toBe(1);
-    expect(allocatePlaybackRevision(41)).toBe(42);
-    expect(() => allocatePlaybackRevision(-1)).toThrow(RangeError);
-    expect(() => allocatePlaybackRevision(1.5)).toThrow(RangeError);
-    expect(() => allocatePlaybackRevision(Number.MAX_SAFE_INTEGER)).toThrow(RangeError);
   });
 
   it('derives a playing position from the monotonic anchor and rate', () => {
@@ -123,10 +113,10 @@ describe('playback timeline v2', () => {
 
     expect(second.applied).toBe(true);
     expect(second.snapshot.run).toEqual(RUN_B);
-    expect(samePlaybackRun(second.snapshot.run, RUN_A)).toBe(false);
+    expect(sameRun(second.snapshot.run, RUN_A)).toBe(false);
   });
 
-  it('ignores stale revisions without allocating a replacement object', () => {
+  it('ignores stale revisions after detaching a canonical snapshot', () => {
     const playing = applyPlaybackTimelineIntent(
       createStoppedPlaybackTimeline(0, 5),
       { type: 'play', revision: 6, run: RUN_A, positionSeconds: 0, rate: 1 },
@@ -139,7 +129,7 @@ describe('playback timeline v2', () => {
       Number.NaN,
     );
     expect(stale).toEqual({ applied: false, reason: 'stale-revision', snapshot: playing });
-    expect(stale.snapshot).toBe(playing);
+    expect(stale.snapshot).toEqual(playing);
   });
 
   it('ignores a newer command for a superseded run', () => {
@@ -165,14 +155,14 @@ describe('playback timeline v2', () => {
         { type: 'play', revision: 1, run: RUN_A, positionSeconds: Number.NaN, rate: 1 },
         100,
       ),
-    ).toThrow(RangeError);
+    ).toThrow(TypeError);
     expect(() =>
       applyPlaybackTimelineIntent(
         stopped,
         { type: 'play', revision: 1, run: RUN_A, positionSeconds: 0, rate: 0 },
         100,
       ),
-    ).toThrow(RangeError);
+    ).toThrow(TypeError);
     expect(() => derivePlaybackPosition(stopped, 99)).toThrow(RangeError);
   });
 
@@ -196,5 +186,148 @@ describe('playback timeline v2', () => {
         audioNode: { connect: () => undefined },
       }),
     ).toBe(false);
+    expect(
+      isPlaybackTimelineSnapshot({
+        ...createStoppedPlaybackTimeline(),
+        positionSeconds: 1,
+      }),
+    ).toBe(false);
+    expect(
+      isPlaybackTimelineSnapshot({
+        ...createStoppedPlaybackTimeline(),
+        rate: 2,
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects hostile snapshot descriptors, symbols, and prototypes without [[Get]]', () => {
+    let getterCalls = 0;
+    const accessor = { ...createStoppedPlaybackTimeline() };
+    Object.defineProperty(accessor, 'phase', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return 'stopped';
+      },
+    });
+    expect(isPlaybackTimelineSnapshot(accessor)).toBe(false);
+    expect(getterCalls).toBe(0);
+
+    expect(
+      isPlaybackTimelineSnapshot({ ...createStoppedPlaybackTimeline(), [Symbol('extra')]: true }),
+    ).toBe(false);
+    const nonEnumerable = { ...createStoppedPlaybackTimeline() };
+    Object.defineProperty(nonEnumerable, 'rate', { value: 1, enumerable: false });
+    expect(isPlaybackTimelineSnapshot(nonEnumerable)).toBe(false);
+    expect(
+      isPlaybackTimelineSnapshot(
+        Object.assign(Object.create({ inherited: true }), createStoppedPlaybackTimeline()),
+      ),
+    ).toBe(false);
+
+    const proxied = new Proxy(createStoppedPlaybackTimeline(), {
+      get() {
+        getterCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+    expect(isPlaybackTimelineSnapshot(proxied)).toBe(true);
+    expect(derivePlaybackPosition(proxied, 0)).toBe(0);
+    expect(getterCalls).toBe(0);
+  });
+
+  it('applies only a detached canonical intent under hostile proxy re-entry', () => {
+    let getCalls = 0;
+    let nestedApplied = false;
+    let reentered = false;
+    const intent = new Proxy(
+      { type: 'play', revision: 1, run: RUN_A, positionSeconds: 0, rate: 1 } as const,
+      {
+        get() {
+          getCalls += 1;
+          throw new Error('dynamic [[Get]] must not run');
+        },
+        getOwnPropertyDescriptor(target, property) {
+          if (!reentered) {
+            reentered = true;
+            nestedApplied = applyPlaybackTimelineIntent(
+              createStoppedPlaybackTimeline(),
+              { type: 'play', revision: 1, run: RUN_B, positionSeconds: 0, rate: 1 },
+              0,
+            ).applied;
+          }
+          return Reflect.getOwnPropertyDescriptor(target, property);
+        },
+      },
+    );
+    const result = applyPlaybackTimelineIntent(createStoppedPlaybackTimeline(), intent, 0);
+    expect(result.applied).toBe(true);
+    expect(result.snapshot.run).toEqual(RUN_A);
+    expect(nestedApplied).toBe(true);
+    expect(getCalls).toBe(0);
+
+    const accessorIntent = {
+      type: 'play',
+      revision: 2,
+      run: RUN_A,
+      get positionSeconds() {
+        getCalls += 1;
+        return 0;
+      },
+      rate: 1,
+    } as const;
+    expect(() => applyPlaybackTimelineIntent(result.snapshot, accessorIntent, 1)).toThrow(
+      TypeError,
+    );
+    expect(getCalls).toBe(0);
+  });
+
+  it('snapshots a nested run exactly once under Proxy TOCTOU', () => {
+    let snapshotRunOwnKeys = 0;
+    const snapshotRun = new Proxy(RUN_A, {
+      ownKeys(target) {
+        snapshotRunOwnKeys += 1;
+        if (snapshotRunOwnKeys > 1) throw new Error('nested run was inspected twice');
+        return Reflect.ownKeys(target);
+      },
+      get() {
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+    const serialized = {
+      schemaVersion: 1,
+      revision: 1,
+      phase: 'playing',
+      run: snapshotRun,
+      positionSeconds: 0,
+      anchorMonotonicMs: 0,
+      rate: 1,
+    } as const;
+    let snapshotAccepted = false;
+    expect(() => {
+      snapshotAccepted = isPlaybackTimelineSnapshot(serialized);
+    }).not.toThrow();
+    expect(snapshotAccepted).toBe(true);
+    expect(snapshotRunOwnKeys).toBe(1);
+
+    let intentRunOwnKeys = 0;
+    const intentRun = new Proxy(RUN_A, {
+      ownKeys(target) {
+        intentRunOwnKeys += 1;
+        if (intentRunOwnKeys > 1) throw new Error('nested run was inspected twice');
+        return Reflect.ownKeys(target);
+      },
+      get() {
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+    const applied = applyPlaybackTimelineIntent(
+      createStoppedPlaybackTimeline(),
+      { type: 'play', revision: 1, run: intentRun, positionSeconds: 0, rate: 1 },
+      0,
+    );
+    expect(applied.applied).toBe(true);
+    expect(applied.snapshot.run).toEqual(RUN_A);
+    expect(intentRunOwnKeys).toBe(1);
   });
 });

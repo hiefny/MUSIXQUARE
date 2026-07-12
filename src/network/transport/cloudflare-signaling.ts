@@ -1,5 +1,11 @@
 import { log } from '../../core/log.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../../core/timers.ts';
+import {
+  FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES,
+  FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+  FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+} from '../file-playback-transport-contract.ts';
 import { TinyEmitter } from './emitter.ts';
 import type {
   TransportConnectOptions,
@@ -82,11 +88,27 @@ const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
 const BINARY_PAYLOAD_SENTINEL = '__mxqrBinaryPayload';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const nativeArrayBufferByteLength = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  'byteLength',
+)?.get;
 const FILE_PLAYBACK_SESSION_FRAME_TYPES = new Set<string>([
   FILE_PLAYBACK_SESSION_HELLO_TYPE,
   FILE_PLAYBACK_SESSION_WELCOME_TYPE,
   FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE,
   FILE_PLAYBACK_SESSION_APPLIED_TYPE,
+]);
+// These are protocol-specific pre-materialization budgets, not a general data
+// channel DoS cap. An exact, unbounded final `type` remains outside this table
+// and must still satisfy its own semantic parser; any future global frame cap
+// is a separate transport policy with explicit bulk-lane exemptions.
+const RAW_FRAME_BYTE_BUDGET_BY_EXACT_TYPE: ReadonlyMap<string, number> = new Map([
+  [FILE_PLAYBACK_SESSION_HELLO_TYPE, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES],
+  [FILE_PLAYBACK_SESSION_WELCOME_TYPE, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES],
+  [FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES],
+  [FILE_PLAYBACK_SESSION_APPLIED_TYPE, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES],
+  [FILE_MEDIA_SOURCE_OFFER_V2_TYPE, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES],
+  [FILE_PLAYBACK_RUN_BINDING_V2_TYPE, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES],
 ]);
 
 interface ScannedJsonString {
@@ -215,6 +237,31 @@ function utf8Exceeds(raw: string, limit: number): boolean {
   return false;
 }
 
+function rawFrameBudget(type: string | null): number | null {
+  if (type === null) return null;
+  return RAW_FRAME_BYTE_BUDGET_BY_EXACT_TYPE.get(type) ?? null;
+}
+
+function rawFrameBudgetError(type: string): string {
+  return FILE_PLAYBACK_SESSION_FRAME_TYPES.has(type)
+    ? 'FILE_PLAYBACK_SESSION_FRAME_TOO_LARGE'
+    : 'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE';
+}
+
+function enforceBinaryRawFrameBudget(type: string | null, frameByteLength: number): void {
+  const budget = rawFrameBudget(type);
+  if (type !== null && budget !== null && frameByteLength > budget) {
+    throw new Error(rawFrameBudgetError(type));
+  }
+}
+
+function enforceTextRawFrameBudget(type: string | null, raw: string): void {
+  const budget = rawFrameBudget(type);
+  if (type !== null && budget !== null && utf8Exceeds(raw, budget)) {
+    throw new Error(rawFrameBudgetError(type));
+  }
+}
+
 function randomBase64Url(bytes = 18): string {
   const data = new Uint8Array(bytes);
   crypto.getRandomValues(data);
@@ -259,49 +306,95 @@ function encodePayload(data: unknown): string | ArrayBuffer {
   return JSON.stringify(data);
 }
 
-function decodeBinaryPayload(frame: ArrayBuffer): unknown {
-  if (frame.byteLength < 4) throw new Error('INVALID_BINARY_FRAME');
-  const view = new DataView(frame);
-  const headerLength = view.getUint32(0, false);
-  if (headerLength <= 0 || headerLength > frame.byteLength - 4) {
-    throw new Error('INVALID_BINARY_HEADER');
-  }
-  const bytes = new Uint8Array(frame);
-  const headerJson = textDecoder.decode(bytes.slice(4, 4 + headerLength));
+function parseBinaryHeader(
+  headerJson: string,
+  frameByteLength: number,
+): { readonly payload: Record<string, unknown>; readonly hasChunk: boolean } {
   const headerType = scanTopLevelJsonType(headerJson);
-  if (
-    headerType &&
-    FILE_PLAYBACK_SESSION_FRAME_TYPES.has(headerType) &&
-    frame.byteLength > FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES
-  ) {
-    throw new Error('FILE_PLAYBACK_SESSION_FRAME_TOO_LARGE');
-  }
+  enforceBinaryRawFrameBudget(headerType, frameByteLength);
   const payload = JSON.parse(headerJson) as Record<string, unknown>;
   const chunkMarker = payload.chunk as Record<string, unknown> | undefined;
   const payloadMarker = payload.payload as Record<string, unknown> | undefined;
   const hasChunk = chunkMarker?.[BINARY_CHUNK_SENTINEL] === true;
   const hasPayload = payloadMarker?.[BINARY_PAYLOAD_SENTINEL] === true;
   if (hasChunk === hasPayload) throw new Error('INVALID_BINARY_MARKER');
+  return { payload, hasChunk };
+}
+
+function decodeBinaryPayload(frame: ArrayBuffer): unknown {
+  if (typeof nativeArrayBufferByteLength !== 'function') {
+    throw new Error('INVALID_BINARY_FRAME');
+  }
+  let frameByteLength: number;
+  try {
+    frameByteLength = Reflect.apply(nativeArrayBufferByteLength, frame, []) as number;
+  } catch {
+    throw new Error('INVALID_BINARY_FRAME');
+  }
+  if (!Number.isSafeInteger(frameByteLength) || frameByteLength < 4) {
+    throw new Error('INVALID_BINARY_FRAME');
+  }
+  const headerLength = new DataView(frame, 0, frameByteLength).getUint32(0, false);
+  if (headerLength <= 0 || headerLength > frameByteLength - 4) {
+    throw new Error('INVALID_BINARY_HEADER');
+  }
+  const bytes = new Uint8Array(frame, 0, frameByteLength);
+  const headerJson = textDecoder.decode(bytes.subarray(4, 4 + headerLength));
+  const { payload, hasChunk } = parseBinaryHeader(headerJson, frameByteLength);
   const body = bytes.slice(4 + headerLength);
   if (hasChunk) payload.chunk = body;
   else payload.payload = body.buffer;
   return payload;
 }
 
+async function decodeBlobPayload(frame: Blob): Promise<unknown> {
+  const nativeSize = Object.getOwnPropertyDescriptor(Blob.prototype, 'size')?.get;
+  const nativeSlice = Blob.prototype.slice;
+  const nativeArrayBuffer = Blob.prototype.arrayBuffer;
+  if (
+    typeof nativeSize !== 'function' ||
+    typeof nativeSlice !== 'function' ||
+    typeof nativeArrayBuffer !== 'function'
+  ) {
+    throw new Error('INVALID_BINARY_FRAME');
+  }
+  const frameByteLength = Reflect.apply(nativeSize, frame, []) as unknown;
+  if (!Number.isSafeInteger(frameByteLength) || (frameByteLength as number) < 4) {
+    throw new Error('INVALID_BINARY_FRAME');
+  }
+  const materializeRange = async (start: number, end: number): Promise<ArrayBuffer> => {
+    const expectedLength = end - start;
+    const chunk = Reflect.apply(nativeSlice, frame, [start, end]) as Blob;
+    const chunkSize = Reflect.apply(nativeSize, chunk, []) as unknown;
+    if (chunkSize !== expectedLength) throw new Error('INVALID_BINARY_FRAME');
+    const bytes = (await Reflect.apply(nativeArrayBuffer, chunk, [])) as unknown;
+    if (!(bytes instanceof ArrayBuffer) || bytes.byteLength !== expectedLength) {
+      throw new Error('INVALID_BINARY_FRAME');
+    }
+    return bytes;
+  };
+
+  const prefix = await materializeRange(0, 4);
+  const headerLength = new DataView(prefix).getUint32(0, false);
+  if (headerLength <= 0 || headerLength > (frameByteLength as number) - 4) {
+    throw new Error('INVALID_BINARY_HEADER');
+  }
+  const headerJson = textDecoder.decode(await materializeRange(4, 4 + headerLength));
+  const { payload, hasChunk } = parseBinaryHeader(headerJson, frameByteLength as number);
+  const body = await materializeRange(4 + headerLength, frameByteLength as number);
+  if (hasChunk) payload.chunk = new Uint8Array(body);
+  else payload.payload = body;
+  return payload;
+}
+
 async function decodePayload(data: unknown): Promise<unknown> {
   if (typeof data === 'string') {
     const type = scanTopLevelJsonType(data);
-    if (
-      type &&
-      FILE_PLAYBACK_SESSION_FRAME_TYPES.has(type) &&
-      utf8Exceeds(data, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES)
-    ) {
-      throw new Error('FILE_PLAYBACK_SESSION_FRAME_TOO_LARGE');
-    }
+    enforceTextRawFrameBudget(type, data);
     return JSON.parse(data);
   }
   if (data instanceof ArrayBuffer) return decodeBinaryPayload(data);
-  if (data instanceof Blob) return decodeBinaryPayload(await data.arrayBuffer());
+  if (data instanceof Blob) return decodeBlobPayload(data);
   return data;
 }
 

@@ -3,6 +3,9 @@ import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   createFilePlaybackSourceSnapshot,
+  readFilePlaybackCancelIntent,
+  readFilePlaybackPauseIntent,
+  readFilePlaybackSeekIntent,
   type FilePlaybackCancelIntent,
   type FilePlaybackPauseIntent,
   type FilePlaybackPosition,
@@ -29,10 +32,10 @@ import {
 import { FlacSeekIndex } from '../flac/seek-index.ts';
 import { type EncodedAudioSource, validateExactRead } from '../sources/encoded-audio-source.ts';
 import { EncodedSourcePortBroker } from '../sources/encoded-source-port.ts';
-import { isPlaybackRevision } from '../playback-timeline.ts';
+import { isPlaybackRevision } from '../playback-identity.ts';
 import {
-  isRendezvousArmIntent,
-  isRendezvousFinalizeIntent,
+  readRendezvousArmIntent,
+  readRendezvousFinalizeIntent,
   validateRendezvousFinalization,
   type RendezvousArmIntent,
   type RendezvousArmReceipt,
@@ -513,6 +516,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
   readonly #timerPrefix: string;
 
   #phase: FilePlaybackSourcePhase = 'new';
+  #ingressEpoch = 0;
   #revision = 0;
   #run: RevisionedPlaybackRun | null = null;
   #errorCode: string | null = null;
@@ -632,6 +636,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
   }
 
   async prepare(signal?: AbortSignal): Promise<FilePlaybackSourceSnapshot> {
+    this.#advanceIngressEpoch();
     this.#assertNotDestroyed();
     if (this.#phase === 'ready' || this.#phase === 'connected') return this.getSnapshot();
     if (this.#preparePromise) return this.#preparePromise;
@@ -661,6 +666,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
   }
 
   async connect(destination: AudioNode): Promise<FilePlaybackSourceSnapshot> {
+    this.#advanceIngressEpoch();
     this.#assertNotDestroyed();
     if (this.#phase === 'new' || this.#phase === 'preparing') {
       throw new Error('Streaming FLAC source must be prepared before it is connected');
@@ -682,12 +688,22 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     return this.getSnapshot();
   }
 
-  async arm(intent: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+  async arm(value: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+    const ingressEpoch = this.#advanceIngressEpoch();
     this.#expireUnfinalizedArm();
-    if (!isRendezvousArmIntent(intent)) {
-      return this.#armReceipt(intent, 'rejected', 'invalid-contract', this.#roomNow() ?? 0);
+    const intent = readRendezvousArmIntent(value);
+    if (!intent) {
+      return this.#armReceipt(null, 'rejected', 'invalid-contract', this.#roomNow() ?? 0);
     }
     const preflight = this.#preflightArm(intent);
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return this.#armReceipt(
+        intent,
+        'rejected',
+        'operation-superseded',
+        preflight.ok ? preflight.observedAtRoomTimeMs : (this.#roomNow() ?? 0),
+      );
+    }
     if (!preflight.ok) return preflight.receipt;
 
     const pending = this.#pendingArmOperation;
@@ -717,7 +733,8 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       }
       this.#finishControlOperation(operation);
     });
-    this.#pendingArmOperation = { intent: Object.freeze({ ...intent }), operation, promise };
+    if (!this.#isCurrentOperation(operation)) return promise;
+    this.#pendingArmOperation = { intent, operation, promise };
     return promise;
   }
 
@@ -836,6 +853,9 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         return this.#armReceipt(intent, 'rejected', 'operation-superseded', this.#roomNow() ?? 0);
       }
       observedAtRoomTimeMs = this.#roomNow() ?? 0;
+      if (!this.#isCurrentOperation(operation)) {
+        return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+      }
     }
     if (!this.#isContextRunning()) {
       return this.#armReceipt(
@@ -845,7 +865,16 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         observedAtRoomTimeMs,
       );
     }
-    if (this.#roomNow() === null) {
+    const currentRoomTimeMs = this.#roomNow();
+    if (!this.#isCurrentOperation(operation)) {
+      return this.#armReceipt(
+        intent,
+        'rejected',
+        'operation-superseded',
+        currentRoomTimeMs ?? observedAtRoomTimeMs,
+      );
+    }
+    if (currentRoomTimeMs === null) {
       return this.#armReceipt(intent, 'rejected', 'clock-unavailable', observedAtRoomTimeMs);
     }
     if (observedAtRoomTimeMs > intent.finalizeByRoomTimeMs) {
@@ -882,6 +911,9 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     }
 
     observedAtRoomTimeMs = this.#observedRoomTimeForArm(intent);
+    if (!this.#isCurrentOperation(operation)) {
+      return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+    }
     if (observedAtRoomTimeMs > intent.finalizeByRoomTimeMs) {
       this.#postCancel(identity);
       return this.#armReceipt(intent, 'rejected', 'arm-after-deadline', observedAtRoomTimeMs);
@@ -891,7 +923,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     this.#run = immutableRun(intent);
     this.#phase = 'armed';
     this.#activeArm = {
-      intent: Object.freeze({ ...intent }),
+      intent,
       receipt,
       targetFrame,
       finalized: false,
@@ -901,13 +933,32 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     return receipt;
   }
 
-  finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
+  finalize(value: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
+    const ingressEpoch = this.#advanceIngressEpoch();
     const active = this.#activeArm;
     const roomNow = this.#roomNow();
     const observedAtRoomTimeMs = roomNow ?? 0;
-    if (!isRendezvousFinalizeIntent(intent)) {
+    const intent = readRendezvousFinalizeIntent(value);
+    if (!intent) {
       return Promise.resolve(
-        this.#finalizeReceipt(intent, 'rejected', 'invalid-contract', observedAtRoomTimeMs),
+        this.#finalizeReceipt(null, 'rejected', 'invalid-contract', observedAtRoomTimeMs),
+      );
+    }
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return Promise.resolve(
+        this.#finalizeReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs),
+      );
+    }
+    // Intent canonicalization can invoke Proxy traps. Do not create a finalize
+    // operation for an arm that was cancelled or replaced during inspection.
+    if (this.#activeArm !== active || this.#isTerminalPhase()) {
+      return Promise.resolve(
+        this.#finalizeReceipt(
+          intent,
+          'rejected',
+          this.#phase === 'failed' ? (this.#errorCode ?? 'source-failed') : 'operation-superseded',
+          observedAtRoomTimeMs,
+        ),
       );
     }
     const pendingFinalize = this.#pendingFinalizeOperation;
@@ -944,7 +995,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       );
     }
 
-    const immutableIntent = Object.freeze({ ...intent });
+    const immutableIntent = intent;
     let resolvePromise!: (receipt: RendezvousFinalizeReceipt) => void;
     let rejectPromise!: (error: unknown) => void;
     const promise = new Promise<RendezvousFinalizeReceipt>((resolve, reject) => {
@@ -1065,7 +1116,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       }
       const rejectedAtRoomTimeMs = this.#roomNow() ?? observedAtRoomTimeMs;
       if (code === 'worklet-command-timeout' && active.finalized && this.#activeArm === active) {
-        active.finalizeIntent = Object.freeze({ ...intent });
+        active.finalizeIntent = intent;
         active.finalizeReceipt ??= this.#finalizeReceipt(
           intent,
           'accepted',
@@ -1081,7 +1132,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         // Main-thread acknowledgement delivery can lag behind the real-time
         // Worklet. Wait for its exact started/fail-silent event instead of
         // returning a receipt that a later audible state would contradict.
-        active.finalizeIntent = Object.freeze({ ...intent });
+        active.finalizeIntent = intent;
         return this.#waitForCommitResolution(active, intent);
       }
 
@@ -1123,23 +1174,41 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         this.#roomNow() ?? observedAtRoomTimeMs,
       );
     }
+    const acceptedAtRoomTimeMs = this.#roomNow() ?? observedAtRoomTimeMs;
+    const phaseAfterClock = this.#phase as FilePlaybackSourcePhase;
+    if (
+      this.#activeArm !== active ||
+      phaseAfterClock === 'failed' ||
+      phaseAfterClock === 'destroyed'
+    ) {
+      return this.#finalizeReceipt(
+        intent,
+        'rejected',
+        phaseAfterClock === 'failed'
+          ? (this.#errorCode ?? 'source-failed')
+          : 'operation-superseded',
+        acceptedAtRoomTimeMs,
+      );
+    }
     active.finalized = true;
-    active.finalizeIntent = Object.freeze({ ...intent });
+    active.finalizeIntent = intent;
     active.finalizeReceipt = this.#finalizeReceipt(
       intent,
       'accepted',
       null,
-      Math.min(this.#roomNow() ?? observedAtRoomTimeMs, intent.startAtRoomTimeMs),
+      Math.min(acceptedAtRoomTimeMs, intent.startAtRoomTimeMs),
     );
     return active.finalizeReceipt;
   }
 
   async cancel(intent: FilePlaybackCancelIntent): Promise<FilePlaybackSourceSnapshot> {
+    const ingressEpoch = this.#advanceIngressEpoch();
+    const canonicalIntent = readFilePlaybackCancelIntent(intent);
     const pendingRun = this.#pendingArmOperation?.intent ?? null;
     if (
-      intent.kind !== 'file-playback-cancel' ||
-      (!sameRun(this.#run, intent) && !sameRun(pendingRun, intent)) ||
-      !isBoundedIdentifier(intent.reasonCode)
+      ingressEpoch !== this.#ingressEpoch ||
+      !canonicalIntent ||
+      (!sameRun(this.#run, canonicalIntent) && !sameRun(pendingRun, canonicalIntent))
     ) {
       return this.getSnapshot();
     }
@@ -1158,11 +1227,12 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
   }
 
   async pause(intent: FilePlaybackPauseIntent): Promise<FilePlaybackSourceSnapshot> {
+    const ingressEpoch = this.#advanceIngressEpoch();
+    const canonicalIntent = readFilePlaybackPauseIntent(intent);
     if (
-      intent.kind !== 'file-playback-pause' ||
-      !sameRun(this.#run, intent) ||
-      !Number.isFinite(intent.atRoomTimeMs) ||
-      intent.atRoomTimeMs < 0 ||
+      ingressEpoch !== this.#ingressEpoch ||
+      !canonicalIntent ||
+      !sameRun(this.#run, canonicalIntent) ||
       this.#phase !== 'playing' ||
       !this.#activeArm ||
       !this.#isContextRunning()
@@ -1170,24 +1240,27 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       return this.getSnapshot();
     }
     if (this.#pendingPause) return this.getSnapshot();
-    this.#schedulePause(intent.atRoomTimeMs, runIdentity(this.#activeArm.intent));
+    this.#schedulePause(
+      canonicalIntent.atRoomTimeMs,
+      runIdentity(this.#activeArm.intent),
+      ingressEpoch,
+    );
     return this.getSnapshot();
   }
 
   async seek(intent: FilePlaybackSeekIntent): Promise<FilePlaybackSourceSnapshot> {
+    const ingressEpoch = this.#advanceIngressEpoch();
+    const canonicalIntent = readFilePlaybackSeekIntent(intent);
     if (
-      intent.kind !== 'file-playback-seek' ||
-      !sameRun(this.#run, intent) ||
-      !Number.isFinite(intent.positionSeconds) ||
-      intent.positionSeconds < 0 ||
-      !Number.isFinite(intent.atRoomTimeMs) ||
-      intent.atRoomTimeMs < 0
+      ingressEpoch !== this.#ingressEpoch ||
+      !canonicalIntent ||
+      !sameRun(this.#run, canonicalIntent)
     ) {
       return this.getSnapshot();
     }
     const operation = this.#beginControlOperation();
     try {
-      const positionSeconds = Math.min(this.#durationSeconds, intent.positionSeconds);
+      const positionSeconds = Math.min(this.#durationSeconds, canonicalIntent.positionSeconds);
       if (this.#phase === 'armed' && this.#activeArm) {
         this.#postCancel(runIdentity(this.#activeArm.intent));
         this.#activeArm = null;
@@ -1195,8 +1268,9 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       }
       if (this.#phase === 'playing' && this.#activeArm) {
         const target = this.#schedulePause(
-          intent.atRoomTimeMs,
+          canonicalIntent.atRoomTimeMs,
           runIdentity(this.#activeArm.intent),
+          ingressEpoch,
         );
         if (target === null) return this.getSnapshot();
         try {
@@ -1263,6 +1337,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
   }
 
   async destroy(): Promise<void> {
+    this.#advanceIngressEpoch();
     if (this.#phase === 'destroyed') return;
     this.#supersedeControlOperations('source-destroyed');
     this.#lifetimeAbort.abort(new DOMException('FLAC playback source was destroyed', 'AbortError'));
@@ -1719,33 +1794,41 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         break;
       case 'started':
         if (!this.#activeArm) return;
-        if (!sameStreamIdentity(value, runIdentity(this.#activeArm.intent))) return;
-        if (
-          value.targetFrame !== this.#activeArm.targetFrame ||
-          value.actualStartFrame !== this.#activeArm.targetFrame
-        ) {
-          this.#fail('worklet-start-target-mismatch');
-          return;
+        {
+          const active = this.#activeArm;
+          if (!sameStreamIdentity(value, runIdentity(active.intent))) return;
+          if (
+            value.targetFrame !== active.targetFrame ||
+            value.actualStartFrame !== active.targetFrame
+          ) {
+            this.#fail('worklet-start-target-mismatch');
+            return;
+          }
+          let observedAtRoomTimeMs: number | null = null;
+          if (active.finalizeIntent && !active.finalizeReceipt) {
+            observedAtRoomTimeMs = this.#roomNow();
+            if (this.#activeArm !== active) return;
+          }
+          this.#phase = 'playing';
+          active.finalized = true;
+          if (active.finalizeIntent && !active.finalizeReceipt) {
+            active.finalizeReceipt = this.#finalizeReceipt(
+              active.finalizeIntent,
+              'accepted',
+              null,
+              Math.min(
+                observedAtRoomTimeMs ?? active.intent.startAtRoomTimeMs,
+                active.intent.startAtRoomTimeMs,
+              ),
+            );
+          }
+          if (active.finalizeReceipt) {
+            this.#resolvePendingCommit(active, active.finalizeReceipt);
+          }
+          this.#mediaFrame = value.mediaFrame;
+          this.#statusRenderFrame = value.actualStartFrame;
+          this.#pendingPause = null;
         }
-        this.#phase = 'playing';
-        this.#activeArm.finalized = true;
-        if (this.#activeArm.finalizeIntent && !this.#activeArm.finalizeReceipt) {
-          this.#activeArm.finalizeReceipt = this.#finalizeReceipt(
-            this.#activeArm.finalizeIntent,
-            'accepted',
-            null,
-            Math.min(
-              this.#roomNow() ?? this.#activeArm.intent.startAtRoomTimeMs,
-              this.#activeArm.intent.startAtRoomTimeMs,
-            ),
-          );
-        }
-        if (this.#activeArm.finalizeReceipt) {
-          this.#resolvePendingCommit(this.#activeArm, this.#activeArm.finalizeReceipt);
-        }
-        this.#mediaFrame = value.mediaFrame;
-        this.#statusRenderFrame = value.actualStartFrame;
-        this.#pendingPause = null;
         break;
       case 'paused': {
         if (!this.#pendingPause) return;
@@ -1810,15 +1893,20 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
           const active = this.#activeArm;
           const pendingCommit = this.#pendingCommitResolution;
           if (pendingCommit?.active === active) {
+            const observedAtRoomTimeMs = this.#roomNow() ?? active.intent.startAtRoomTimeMs;
+            if (this.#activeArm !== active || this.#pendingCommitResolution !== pendingCommit) {
+              break;
+            }
             const receipt = this.#finalizeReceipt(
               pendingCommit.intent,
               'missed-deadline',
               value.code,
-              this.#roomNow() ?? active.intent.startAtRoomTimeMs,
+              observedAtRoomTimeMs,
             );
             active.finalizeReceipt = receipt;
             this.#resolvePendingCommit(active, receipt);
           }
+          if (this.#activeArm !== active) break;
           this.#activeArm = null;
           if (this.#phase !== 'cancelled') {
             this.#phase = 'paused';
@@ -1957,7 +2045,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     const timerKey = this.#nextTimerKey('commit-resolution');
     const pending: PendingCommitResolution = {
       active,
-      intent: Object.freeze({ ...intent }),
+      intent,
       promise,
       resolve: resolvePromise,
       timerKey,
@@ -1967,12 +2055,16 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       timerKey,
       () => {
         if (this.#pendingCommitResolution !== pending) return;
+        const observedAtRoomTimeMs = this.#roomNow() ?? pending.intent.startAtRoomTimeMs;
+        if (this.#pendingCommitResolution !== pending || this.#activeArm !== pending.active) {
+          return;
+        }
         this.#pendingCommitResolution = null;
         const receipt = this.#finalizeReceipt(
           pending.intent,
           'rejected',
           'commit-status-unknown',
-          this.#roomNow() ?? pending.intent.startAtRoomTimeMs,
+          observedAtRoomTimeMs,
         );
         this.#fail('commit-status-unknown');
         pending.resolve(receipt);
@@ -2001,14 +2093,21 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         pending.intent,
         'rejected',
         code,
-        this.#roomNow() ?? pending.intent.startAtRoomTimeMs,
+        // Cleanup must stay callback-free: a clock provider can synchronously
+        // start newer work that this supersession path would otherwise erase.
+        pending.intent.startAtRoomTimeMs,
       ),
     );
   }
 
-  #schedulePause(atRoomTimeMs: number, identity: FlacStreamRunIdentity): number | null {
+  #schedulePause(
+    atRoomTimeMs: number,
+    identity: FlacStreamRunIdentity,
+    ingressEpoch?: number,
+  ): number | null {
     if (!this.#isContextRunning()) return null;
     const mapped = this.#roomTimeToRenderFrame(atRoomTimeMs);
+    if (ingressEpoch !== undefined && ingressEpoch !== this.#ingressEpoch) return null;
     if (mapped === null) return null;
     const targetFrame = Math.max(mapped, this.#currentRenderFrame + 128);
     const current = this.#viewAtRenderFrame(targetFrame);
@@ -2080,6 +2179,13 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     if (!active || active.finalized) return;
     if (this.#pendingFinalizeOperation?.active === active) return;
     const observed = this.#roomNow();
+    if (
+      this.#activeArm !== active ||
+      active.finalized ||
+      this.#pendingFinalizeOperation?.active === active
+    ) {
+      return;
+    }
     if (
       this.#isContextRunning() &&
       observed !== null &&
@@ -2174,27 +2280,26 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     return this.#phase === 'failed' || this.#phase === 'destroyed';
   }
 
+  #advanceIngressEpoch(): number {
+    this.#ingressEpoch =
+      this.#ingressEpoch === Number.MAX_SAFE_INTEGER ? 0 : this.#ingressEpoch + 1;
+    return this.#ingressEpoch;
+  }
+
   #armReceipt(
-    intent: RendezvousArmIntent,
+    intent: Readonly<RendezvousArmIntent> | null,
     status: RendezvousArmReceipt['status'],
     reasonCode: string | null,
     observedAtRoomTimeMs: number,
   ): RendezvousArmReceipt {
-    const candidate = intent as unknown as Record<string, unknown>;
     return Object.freeze({
       protocolVersion: 2,
       kind: 'rendezvous-armed',
-      queueItemId: isBoundedIdentifier(candidate.queueItemId)
-        ? (candidate.queueItemId as QueueItemId)
-        : this.queueItemId,
-      runId: isBoundedIdentifier(candidate.runId) ? candidate.runId : 'invalid-run',
-      revision: isPlaybackRevision(candidate.revision) ? candidate.revision : this.#revision,
-      rendezvousId: isBoundedIdentifier(candidate.rendezvousId)
-        ? candidate.rendezvousId
-        : 'invalid-rendezvous',
-      participantId: isBoundedIdentifier(candidate.recipientId)
-        ? candidate.recipientId
-        : 'invalid-participant',
+      queueItemId: intent?.queueItemId ?? this.queueItemId,
+      runId: intent?.runId ?? 'invalid-run',
+      revision: intent?.revision ?? this.#revision,
+      rendezvousId: intent?.rendezvousId ?? 'invalid-rendezvous',
+      participantId: intent?.recipientId ?? 'invalid-participant',
       status,
       observedAtRoomTimeMs: Math.max(0, observedAtRoomTimeMs),
       bufferedAheadSeconds:
@@ -2204,26 +2309,19 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
   }
 
   #finalizeReceipt(
-    intent: RendezvousFinalizeIntent,
+    intent: Readonly<RendezvousFinalizeIntent> | null,
     status: RendezvousFinalizeReceipt['status'],
     reasonCode: string | null,
     observedAtRoomTimeMs: number,
   ): RendezvousFinalizeReceipt {
-    const candidate = intent as unknown as Record<string, unknown>;
     return Object.freeze({
       protocolVersion: 2,
       kind: 'rendezvous-finalized',
-      queueItemId: isBoundedIdentifier(candidate.queueItemId)
-        ? (candidate.queueItemId as QueueItemId)
-        : this.queueItemId,
-      runId: isBoundedIdentifier(candidate.runId) ? candidate.runId : 'invalid-run',
-      revision: isPlaybackRevision(candidate.revision) ? candidate.revision : this.#revision,
-      rendezvousId: isBoundedIdentifier(candidate.rendezvousId)
-        ? candidate.rendezvousId
-        : 'invalid-rendezvous',
-      participantId: isBoundedIdentifier(candidate.recipientId)
-        ? candidate.recipientId
-        : 'invalid-participant',
+      queueItemId: intent?.queueItemId ?? this.queueItemId,
+      runId: intent?.runId ?? 'invalid-run',
+      revision: intent?.revision ?? this.#revision,
+      rendezvousId: intent?.rendezvousId ?? 'invalid-rendezvous',
+      participantId: intent?.recipientId ?? 'invalid-participant',
       status,
       observedAtRoomTimeMs: Math.max(0, observedAtRoomTimeMs),
       reasonCode,

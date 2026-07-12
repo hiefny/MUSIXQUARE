@@ -197,6 +197,8 @@ function finalizeIntent(
 function harness(
   loadWorklet: () => Promise<void> = async () => undefined,
   sourceMetadata: FlacMetadata = metadata(),
+  nowRoomTimeMs?: () => number,
+  roomTimeMsToContextTime: (roomTimeMs: number) => number = (roomTimeMs) => roomTimeMs / 1_000,
 ) {
   const context = new FakeAudioContext();
   const destination = new FakeAudioNode(context);
@@ -238,8 +240,8 @@ function harness(
     encodedSource,
     metadata: sourceMetadata,
     audioContext: context as unknown as AudioContext,
-    nowRoomTimeMs: () => context.roomNowMs,
-    roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1_000,
+    nowRoomTimeMs: nowRoomTimeMs ?? (() => context.roomNowMs),
+    roomTimeMsToContextTime,
     localPerformanceMsToContextTime: (performanceTimeMs) => performanceTimeMs / 1_000,
     runtime,
   });
@@ -343,6 +345,235 @@ async function arm(
 }
 
 describe('StreamingFlacPlaybackSource v2', () => {
+  it('canonicalizes a hostile arm Proxy before queuing the control operation', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    let getCalls = 0;
+    const proxied = new Proxy(armIntent(), {
+      get() {
+        getCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+    });
+    await expect(arm(h.source, h.node, proxied)).resolves.toMatchObject({ status: 'armed' });
+    expect(getCalls).toBe(0);
+
+    const accessor = {
+      ...armIntent({ revision: 2, runId: 'run-stream-2', rendezvousId: 'rv-stream-2' }),
+    };
+    Object.defineProperty(accessor, 'positionSeconds', {
+      enumerable: true,
+      get() {
+        getCalls += 1;
+        return 0;
+      },
+    });
+    await expect(h.source.arm(accessor)).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'invalid-contract',
+    });
+    expect(getCalls).toBe(0);
+    await h.source.destroy();
+  });
+
+  it('does not finalize an arm cancelled by a reentrant intent Proxy', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    await arm(h.source, h.node);
+    const hostileFinalize = new Proxy(finalizeIntent(), {
+      ownKeys(target) {
+        void h.source.cancel({
+          kind: 'file-playback-cancel',
+          queueItemId: QID,
+          runId: 'run-stream-1',
+          revision: 1,
+          reasonCode: 'proxy-reentered-cancel',
+        });
+        return Reflect.ownKeys(target);
+      },
+    });
+
+    await expect(h.source.finalize(hostileFinalize)).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'operation-superseded',
+    });
+    expect(controlMessages(h.node).some((message) => message.type === 'finalize')).toBe(false);
+    expect(h.source.getSnapshot()).toMatchObject({ phase: 'cancelled' });
+    await h.source.destroy();
+  });
+
+  it('does not expire an arm when the room-clock callback starts finalization', async () => {
+    let triggerFinalize = false;
+    let finalizing: Promise<unknown> | null = null;
+    let h!: ReturnType<typeof harness>;
+    h = harness(
+      async () => undefined,
+      metadata(),
+      () => {
+        if (triggerFinalize) {
+          triggerFinalize = false;
+          finalizing = h.source.finalize(finalizeIntent());
+          return 1_900;
+        }
+        return h.context.roomNowMs;
+      },
+    );
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    await arm(h.source, h.node);
+    h.context.currentTime = 1.7;
+    triggerFinalize = true;
+
+    expect(h.source.getSnapshot()).toMatchObject({ phase: 'armed', revision: 1 });
+    const command = controlMessages(h.node).findLast((message) => message.type === 'finalize');
+    if (!command || command.type !== 'finalize') throw new Error('Missing finalize command');
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'finalized',
+      generation: command.generation,
+      revision: command.revision,
+      runId: command.runId,
+      rendezvousId: command.rendezvousId,
+      targetFrame: 96_000,
+    });
+    await expect(finalizing).resolves.toMatchObject({ status: 'accepted', reasonCode: null });
+    expect(controlMessages(h.node).filter((message) => message.type === 'cancel')).toHaveLength(0);
+    await h.source.destroy();
+  });
+
+  it('does not post a stale arm after a clock callback starts a newer operation', async () => {
+    let countArmClockReads = false;
+    let armClockReads = 0;
+    let nestedArm: Promise<unknown> | null = null;
+    let h!: ReturnType<typeof harness>;
+    h = harness(
+      async () => undefined,
+      metadata(),
+      () => {
+        if (countArmClockReads) {
+          armClockReads += 1;
+          if (armClockReads === 2) {
+            countArmClockReads = false;
+            nestedArm = h.source.arm(
+              armIntent({
+                revision: 2,
+                runId: 'run-stream-2',
+                rendezvousId: 'rv-stream-2',
+                startAtRoomTimeMs: 3_000,
+                finalizeByRoomTimeMs: 2_800,
+              }),
+            );
+          }
+        }
+        return h.context.roomNowMs;
+      },
+    );
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    countArmClockReads = true;
+
+    await expect(h.source.arm(armIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'operation-superseded',
+    });
+    const commands = controlMessages(h.node).filter((message) => message.type === 'arm');
+    expect(commands).toHaveLength(1);
+    const command = commands[0];
+    if (!command || command.type !== 'arm') throw new Error('Missing newer arm command');
+    expect(command).toMatchObject({ revision: 2, runId: 'run-stream-2' });
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'armed',
+      generation: command.generation,
+      revision: command.revision,
+      runId: command.runId,
+      rendezvousId: command.rendezvousId,
+      targetFrame: command.targetFrame,
+    });
+    await expect(nestedArm).resolves.toMatchObject({ status: 'armed' });
+    expect(h.source.getSnapshot()).toMatchObject({
+      revision: 2,
+      run: { runId: 'run-stream-2', revision: 2 },
+    });
+    await h.source.destroy();
+  });
+
+  it('does not post a stale playing-seek pause after mapper reentry cancels it', async () => {
+    let triggerCancel = false;
+    let h!: ReturnType<typeof harness>;
+    h = harness(
+      async () => undefined,
+      metadata(),
+      undefined,
+      (roomTimeMs) => {
+        if (triggerCancel) {
+          triggerCancel = false;
+          void h.source.cancel({
+            kind: 'file-playback-cancel',
+            queueItemId: QID,
+            runId: 'run-stream-1',
+            revision: 1,
+            reasonCode: 'mapper-reentered-cancel',
+          });
+        }
+        return roomTimeMs / 1_000;
+      },
+    );
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    await arm(h.source, h.node);
+    h.context.currentTime = 1.7;
+    const finalizing = h.source.finalize(finalizeIntent());
+    const finalizeCommand = controlMessages(h.node).findLast(
+      (message) => message.type === 'finalize',
+    );
+    if (!finalizeCommand || finalizeCommand.type !== 'finalize') {
+      throw new Error('Missing finalize command');
+    }
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'finalized',
+      generation: finalizeCommand.generation,
+      revision: finalizeCommand.revision,
+      runId: finalizeCommand.runId,
+      rendezvousId: finalizeCommand.rendezvousId,
+      targetFrame: 96_000,
+    });
+    await finalizing;
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'started',
+      generation: 1,
+      revision: 1,
+      runId: 'run-stream-1',
+      rendezvousId: 'rv-stream-1',
+      targetFrame: 96_000,
+      actualStartFrame: 96_000,
+      mediaFrame: 0,
+    });
+    expect(h.source.getSnapshot().phase).toBe('playing');
+    const pauseCommandsBefore = controlMessages(h.node).filter(
+      (message) => message.type === 'pause',
+    ).length;
+    triggerCancel = true;
+
+    await h.source.seek({
+      kind: 'file-playback-seek',
+      queueItemId: QID,
+      runId: 'run-stream-1',
+      revision: 1,
+      positionSeconds: 5,
+      atRoomTimeMs: 2_500,
+    });
+    expect(h.source.getSnapshot().phase).toBe('cancelled');
+    expect(controlMessages(h.node).filter((message) => message.type === 'pause')).toHaveLength(
+      pauseCommandsBefore,
+    );
+    await h.source.destroy();
+  });
+
   it('primes a bounded discrete ring off-graph and connects only after readiness', async () => {
     const h = harness();
     const { preparing } = await beginPrepare(h.source, h.worker);

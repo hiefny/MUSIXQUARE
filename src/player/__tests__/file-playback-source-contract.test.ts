@@ -4,6 +4,9 @@ import type { QueueItemId } from '../../types/index.ts';
 import {
   createFilePlaybackSourceSnapshot,
   isFilePlaybackSourceSnapshot,
+  readFilePlaybackCancelIntent,
+  readFilePlaybackPauseIntent,
+  readFilePlaybackSeekIntent,
   sourceOwnsRevisionedRun,
   type FilePlaybackSource,
   type FilePlaybackSourceSnapshot,
@@ -54,6 +57,51 @@ describe('file playback source contract', () => {
     expect(published).toEqual(input);
   });
 
+  it('rejects accessor snapshots without invoking application code', () => {
+    let getterCalls = 0;
+    const accessor = { ...snapshot() };
+    Object.defineProperty(accessor, 'queueItemId', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return QID;
+      },
+    });
+
+    expect(isFilePlaybackSourceSnapshot(accessor)).toBe(false);
+    expect(() => createFilePlaybackSourceSnapshot(accessor)).toThrow(TypeError);
+    expect(getterCalls).toBe(0);
+  });
+
+  it('publishes one detached descriptor snapshot under Proxy reentry and hostile gets', () => {
+    const input = snapshot();
+    let getCalls = 0;
+    let reentryCalls = 0;
+    const proxied = new Proxy(input, {
+      get() {
+        getCalls += 1;
+        throw new Error('dynamic [[Get]] must not run');
+      },
+      ownKeys(target) {
+        reentryCalls += 1;
+        const nested = createFilePlaybackSourceSnapshot(
+          snapshot({ phase: 'ready', revision: 0, run: null, positionSeconds: 0 }),
+        );
+        expect(nested.phase).toBe('ready');
+        return Reflect.ownKeys(target);
+      },
+    });
+
+    const published = createFilePlaybackSourceSnapshot(proxied);
+    expect(published).toEqual(input);
+    expect(published).not.toBe(input);
+    expect(Object.is(published, proxied)).toBe(false);
+    expect(Object.isFrozen(published)).toBe(true);
+    expect(Object.getPrototypeOf(published.run)).toBeNull();
+    expect(getCalls).toBe(0);
+    expect(reentryCalls).toBe(1);
+  });
+
   it('rejects unexpected native/runtime fields instead of publishing them globally', () => {
     const withNativeObject = {
       ...snapshot(),
@@ -63,6 +111,10 @@ describe('file playback source contract', () => {
     expect(() =>
       createFilePlaybackSourceSnapshot(withNativeObject as FilePlaybackSourceSnapshot),
     ).toThrow(TypeError);
+
+    const hiddenSymbol = snapshot() as FilePlaybackSourceSnapshot & { [key: symbol]: unknown };
+    Object.defineProperty(hiddenSymbol, Symbol('native'), { value: {}, enumerable: false });
+    expect(isFilePlaybackSourceSnapshot(hiddenSymbol)).toBe(false);
   });
 
   it('enforces the immutable queue occurrence and revision association', () => {
@@ -91,6 +143,51 @@ describe('file playback source contract', () => {
     expect(isFilePlaybackSourceSnapshot(snapshot({ durationSeconds: 0 }))).toBe(false);
     expect(isFilePlaybackSourceSnapshot(snapshot({ underrunCount: 0.5 }))).toBe(false);
     expect(isFilePlaybackSourceSnapshot(snapshot({ errorCode: '' }))).toBe(false);
+  });
+
+  it('canonicalizes pause, seek, and cancel without invoking accessors', () => {
+    let getterCalls = 0;
+    const values = [
+      {
+        kind: 'file-playback-pause',
+        ...RUN,
+        get atRoomTimeMs() {
+          getterCalls += 1;
+          return 1_000;
+        },
+      },
+      {
+        kind: 'file-playback-seek',
+        ...RUN,
+        positionSeconds: 5,
+        get atRoomTimeMs() {
+          getterCalls += 1;
+          return 1_000;
+        },
+      },
+      {
+        kind: 'file-playback-cancel',
+        ...RUN,
+        get reasonCode() {
+          getterCalls += 1;
+          return 'cancelled';
+        },
+      },
+    ] as const;
+
+    expect(readFilePlaybackPauseIntent(values[0])).toBeNull();
+    expect(readFilePlaybackSeekIntent(values[1])).toBeNull();
+    expect(readFilePlaybackCancelIntent(values[2])).toBeNull();
+    expect(getterCalls).toBe(0);
+
+    const pause = readFilePlaybackPauseIntent({
+      kind: 'file-playback-pause',
+      ...RUN,
+      atRoomTimeMs: 1_000,
+    });
+    expect(pause).toMatchObject({ kind: 'file-playback-pause', atRoomTimeMs: 1_000 });
+    expect(Object.getPrototypeOf(pause)).toBeNull();
+    expect(Object.isFrozen(pause)).toBe(true);
   });
 
   it('checks a runtime source against the run queue identity', () => {

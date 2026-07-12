@@ -1,6 +1,9 @@
 import type { QueueItemId } from '../../types/index.ts';
 import {
   createFilePlaybackSourceSnapshot,
+  readFilePlaybackCancelIntent,
+  readFilePlaybackPauseIntent,
+  readFilePlaybackSeekIntent,
   type FilePlaybackCancelIntent,
   type FilePlaybackPauseIntent,
   type FilePlaybackPosition,
@@ -9,10 +12,9 @@ import {
   type FilePlaybackSourcePhase,
   type FilePlaybackSourceSnapshot,
 } from '../file-playback-source.ts';
-import { isPlaybackRevision } from '../playback-timeline.ts';
 import {
-  isRendezvousArmIntent,
-  isRendezvousFinalizeIntent,
+  readRendezvousArmIntent,
+  readRendezvousFinalizeIntent,
   validateRendezvousFinalization,
   type RendezvousArmIntent,
   type RendezvousArmReceipt,
@@ -144,6 +146,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
   #destination: AudioNode | null = null;
   #active: ActiveExecution | null = null;
   #idleTransition: ScheduledTransition | null = null;
+  #ingressEpoch = 0;
 
   constructor(options: AudioBufferPlaybackSourceOptions) {
     if (!isBoundedIdentifier(options.queueItemId)) {
@@ -180,12 +183,14 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
   }
 
   async prepare(): Promise<FilePlaybackSourceSnapshot> {
+    this.#advanceIngressEpoch();
     this.#assertNotDestroyed();
     if (this.#phase === 'new') this.#phase = 'ready';
     return this.getSnapshot();
   }
 
   async connect(destination: AudioNode): Promise<FilePlaybackSourceSnapshot> {
+    this.#advanceIngressEpoch();
     this.#assertNotDestroyed();
     if (this.#phase === 'new') {
       throw new Error('AudioBuffer playback source must be prepared before it is connected');
@@ -201,12 +206,17 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     return this.getSnapshot();
   }
 
-  async arm(intent: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+  async arm(value: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+    const ingressEpoch = this.#advanceIngressEpoch();
     this.#settleCurrentExecution();
-    const observedAtRoomTimeMs = this.#observedRoomTimeForArm(intent);
+    const observedAtRoomTimeMs = this.#observedRoomTimeForArm();
+    const intent = readRendezvousArmIntent(value);
 
-    if (!isRendezvousArmIntent(intent)) {
-      return this.#armReceipt(intent, 'rejected', 'invalid-contract', observedAtRoomTimeMs);
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+    }
+    if (!intent) {
+      return this.#armReceipt(null, 'rejected', 'invalid-contract', observedAtRoomTimeMs);
     }
     if (this.#phase === 'destroyed') {
       return this.#armReceipt(intent, 'rejected', 'source-destroyed', observedAtRoomTimeMs);
@@ -219,7 +229,11 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
         observedAtRoomTimeMs,
       );
     }
-    if (this.#roomNow() === null) {
+    const roomNow = this.#roomNow();
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+    }
+    if (roomNow === null) {
       return this.#armReceipt(intent, 'rejected', 'clock-unavailable', observedAtRoomTimeMs);
     }
     if (this.#destination === null) {
@@ -252,6 +266,9 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     }
 
     const startContextTime = this.#mapRoomTime(intent.startAtRoomTimeMs);
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+    }
     if (startContextTime === null || startContextTime <= this.#audioContext.currentTime) {
       return this.#armReceipt(intent, 'rejected', 'start-not-in-future', observedAtRoomTimeMs);
     }
@@ -280,7 +297,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     }
     const receipt = this.#armReceipt(intent, 'armed', null, observedAtRoomTimeMs);
     const execution: ActiveExecution = {
-      armIntent: Object.freeze({ ...intent }),
+      armIntent: intent,
       armReceipt: receipt,
       source,
       gate,
@@ -323,14 +340,35 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     return receipt;
   }
 
-  async finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
+  async finalize(value: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
+    const ingressEpoch = this.#advanceIngressEpoch();
     this.#settleCurrentExecution(false);
     const active = this.#active;
     const roomNow = this.#roomNow();
     const observedAtRoomTimeMs = roomNow ?? 0;
+    const intent = readRendezvousFinalizeIntent(value);
 
-    if (!isRendezvousFinalizeIntent(intent)) {
-      return this.#finalizeReceipt(intent, 'rejected', 'invalid-contract', observedAtRoomTimeMs);
+    if (!intent) {
+      return this.#finalizeReceipt(null, 'rejected', 'invalid-contract', observedAtRoomTimeMs);
+    }
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return this.#finalizeReceipt(
+        intent,
+        'rejected',
+        'operation-superseded',
+        observedAtRoomTimeMs,
+      );
+    }
+    // Intent canonicalization can invoke Proxy traps. The active execution
+    // captured before that boundary is no longer authoritative if a trap
+    // cancelled, replaced, or retired it.
+    if (this.#active !== active || active?.retired) {
+      return this.#finalizeReceipt(
+        intent,
+        'rejected',
+        'operation-superseded',
+        observedAtRoomTimeMs,
+      );
     }
     if (active === null || active.retired) {
       return this.#finalizeReceipt(intent, 'rejected', 'source-not-armed', observedAtRoomTimeMs);
@@ -395,17 +433,19 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
 
     active.gate.gain.setValueAtTime(1, active.startContextTime);
     active.finalized = true;
-    active.finalizeIntent = Object.freeze({ ...intent });
+    active.finalizeIntent = intent;
     active.finalizeReceipt = this.#finalizeReceipt(intent, 'accepted', null, observedAtRoomTimeMs);
     return active.finalizeReceipt;
   }
 
   async cancel(intent: FilePlaybackCancelIntent): Promise<FilePlaybackSourceSnapshot> {
+    const ingressEpoch = this.#advanceIngressEpoch();
     this.#settleCurrentExecution();
+    const canonicalIntent = readFilePlaybackCancelIntent(intent);
     if (
-      intent.kind !== 'file-playback-cancel' ||
-      !sameRun(this.#run, intent) ||
-      !isBoundedIdentifier(intent.reasonCode)
+      ingressEpoch !== this.#ingressEpoch ||
+      !canonicalIntent ||
+      !sameRun(this.#run, canonicalIntent)
     ) {
       return this.getSnapshot();
     }
@@ -419,15 +459,23 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
   }
 
   async pause(intent: FilePlaybackPauseIntent): Promise<FilePlaybackSourceSnapshot> {
-    return this.#scheduleTransition(intent, 'pause', null);
+    const ingressEpoch = this.#advanceIngressEpoch();
+    const canonicalIntent = readFilePlaybackPauseIntent(intent);
+    return ingressEpoch === this.#ingressEpoch && canonicalIntent
+      ? this.#scheduleTransition(canonicalIntent, 'pause', null, ingressEpoch)
+      : this.getSnapshot();
   }
 
   async seek(intent: FilePlaybackSeekIntent): Promise<FilePlaybackSourceSnapshot> {
-    const requestedPosition =
-      Number.isFinite(intent.positionSeconds) && intent.positionSeconds >= 0
-        ? this.#clampPosition(intent.positionSeconds)
-        : null;
-    return this.#scheduleTransition(intent, 'seek', requestedPosition);
+    const ingressEpoch = this.#advanceIngressEpoch();
+    const canonicalIntent = readFilePlaybackSeekIntent(intent);
+    if (ingressEpoch !== this.#ingressEpoch || !canonicalIntent) return this.getSnapshot();
+    return this.#scheduleTransition(
+      canonicalIntent,
+      'seek',
+      this.#clampPosition(canonicalIntent.positionSeconds),
+      ingressEpoch,
+    );
   }
 
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition {
@@ -470,6 +518,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
   }
 
   async destroy(): Promise<void> {
+    this.#advanceIngressEpoch();
     if (this.#phase === 'destroyed') return;
     const current = this.#viewAtContextTime(this.#audioContext.currentTime);
     this.#positionSeconds = current.positionSeconds;
@@ -484,6 +533,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     intent: FilePlaybackPauseIntent | FilePlaybackSeekIntent,
     kind: ScheduledTransition['kind'],
     requestedPosition: number | null,
+    ingressEpoch: number,
   ): Promise<FilePlaybackSourceSnapshot> {
     this.#settleCurrentExecution();
     const active = this.#active;
@@ -498,6 +548,13 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       return this.getSnapshot();
     }
     const mappedContextTime = this.#mapRoomTime(intent.atRoomTimeMs);
+    if (
+      ingressEpoch !== this.#ingressEpoch ||
+      !sameRun(this.#run, intent) ||
+      this.#active !== active
+    ) {
+      return this.getSnapshot();
+    }
     if (mappedContextTime === null) return this.getSnapshot();
     const transitionContextTime = Math.max(this.#audioContext.currentTime, mappedContextTime);
     if (active === null) {
@@ -585,6 +642,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       return;
     }
     const roomNow = this.#roomNow();
+    if (this.#active !== active || active.retired) return;
     if (
       expireUnfinalized &&
       !active.finalized &&
@@ -661,66 +719,48 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
   }
 
   #armReceipt(
-    intent: RendezvousArmIntent,
+    intent: Readonly<RendezvousArmIntent> | null,
     status: RendezvousArmReceipt['status'],
     reasonCode: string | null,
     observedAtRoomTimeMs: number,
   ): RendezvousArmReceipt {
-    const candidate = intent as unknown as Record<string, unknown>;
     return Object.freeze({
       protocolVersion: 2,
       kind: 'rendezvous-armed',
-      queueItemId: isBoundedIdentifier(candidate.queueItemId)
-        ? (candidate.queueItemId as QueueItemId)
-        : this.queueItemId,
-      runId: isBoundedIdentifier(candidate.runId) ? candidate.runId : 'invalid-run',
-      revision: isPlaybackRevision(candidate.revision) ? candidate.revision : this.#revision,
-      rendezvousId: isBoundedIdentifier(candidate.rendezvousId)
-        ? candidate.rendezvousId
-        : 'invalid-rendezvous',
-      participantId: isBoundedIdentifier(candidate.recipientId)
-        ? candidate.recipientId
-        : 'invalid-participant',
+      queueItemId: intent?.queueItemId ?? this.queueItemId,
+      runId: intent?.runId ?? 'invalid-run',
+      revision: intent?.revision ?? this.#revision,
+      rendezvousId: intent?.rendezvousId ?? 'invalid-rendezvous',
+      participantId: intent?.recipientId ?? 'invalid-participant',
       status,
       observedAtRoomTimeMs: Math.max(0, observedAtRoomTimeMs),
       bufferedAheadSeconds:
-        status === 'armed'
-          ? this.#bufferedAhead(
-              typeof candidate.positionSeconds === 'number' ? candidate.positionSeconds : 0,
-            )
-          : 0,
+        status === 'armed' ? this.#bufferedAhead(intent?.positionSeconds ?? 0) : 0,
       reasonCode,
     });
   }
 
   #finalizeReceipt(
-    intent: RendezvousFinalizeIntent,
+    intent: Readonly<RendezvousFinalizeIntent> | null,
     status: RendezvousFinalizeReceipt['status'],
     reasonCode: string | null,
     observedAtRoomTimeMs: number,
   ): RendezvousFinalizeReceipt {
-    const candidate = intent as unknown as Record<string, unknown>;
     return Object.freeze({
       protocolVersion: 2,
       kind: 'rendezvous-finalized',
-      queueItemId: isBoundedIdentifier(candidate.queueItemId)
-        ? (candidate.queueItemId as QueueItemId)
-        : this.queueItemId,
-      runId: isBoundedIdentifier(candidate.runId) ? candidate.runId : 'invalid-run',
-      revision: isPlaybackRevision(candidate.revision) ? candidate.revision : this.#revision,
-      rendezvousId: isBoundedIdentifier(candidate.rendezvousId)
-        ? candidate.rendezvousId
-        : 'invalid-rendezvous',
-      participantId: isBoundedIdentifier(candidate.recipientId)
-        ? candidate.recipientId
-        : 'invalid-participant',
+      queueItemId: intent?.queueItemId ?? this.queueItemId,
+      runId: intent?.runId ?? 'invalid-run',
+      revision: intent?.revision ?? this.#revision,
+      rendezvousId: intent?.rendezvousId ?? 'invalid-rendezvous',
+      participantId: intent?.recipientId ?? 'invalid-participant',
       status,
       observedAtRoomTimeMs: Math.max(0, observedAtRoomTimeMs),
       reasonCode,
     });
   }
 
-  #observedRoomTimeForArm(_intent: RendezvousArmIntent): number {
+  #observedRoomTimeForArm(): number {
     return this.#roomNow() ?? 0;
   }
 
@@ -758,5 +798,11 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     if (this.#phase === 'destroyed') {
       throw new Error('AudioBuffer playback source has been destroyed');
     }
+  }
+
+  #advanceIngressEpoch(): number {
+    this.#ingressEpoch =
+      this.#ingressEpoch === Number.MAX_SAFE_INTEGER ? 0 : this.#ingressEpoch + 1;
+    return this.#ingressEpoch;
   }
 }

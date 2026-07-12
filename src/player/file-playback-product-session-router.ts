@@ -1,4 +1,8 @@
 import type {
+  FilePlaybackApplicationControllerConnectionSnapshot,
+  FilePlaybackApplicationTimelineAdoptedEvent,
+} from './file-playback-application-controller.ts';
+import type {
   FilePlaybackApplicationLifecycleEvent,
   FilePlaybackApplicationSessionHooks,
   FilePlaybackApplicationSessionRole,
@@ -27,11 +31,34 @@ const HOST_OWNER_KEYS = Object.freeze([
   'adoptWireMessage',
   'revoke',
 ] as const);
+const HOST_OWNER_OPTIONAL_KEYS = Object.freeze(['onHostReady'] as const);
 const GUEST_OWNER_KEYS = Object.freeze([
   'adoptAuxiliaryMessage',
   'adoptPeerRangeBulk',
   'adoptWireMessage',
   'revoke',
+] as const);
+const GUEST_OWNER_OPTIONAL_KEYS = Object.freeze(['onTimelineAdopted'] as const);
+const HOST_READY_KEYS = Object.freeze([
+  'baselineId',
+  'baselineStatus',
+  'clockReady',
+  'connectionId',
+  'epoch',
+  'playbackRevision',
+  'ready',
+  'role',
+  'roomGeneration',
+  'schemaVersion',
+  'sessionId',
+] as const);
+const TIMELINE_ADOPTED_KEYS = Object.freeze([
+  'connectionId',
+  'roomGeneration',
+  'schemaVersion',
+  'sessionId',
+  'status',
+  'timeline',
 ] as const);
 const LIFECYCLE_KEYS = Object.freeze(['channel', 'connection', 'kind', 'role'] as const);
 const AUXILIARY_KEYS = Object.freeze([
@@ -83,6 +110,9 @@ export interface FilePlaybackProductSessionRouterConnectionContext {
 }
 
 export interface FilePlaybackProductSessionRouterHostMediaOwnerPort {
+  readonly onHostReady?: (
+    snapshot: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>,
+  ) => void;
   readonly adoptWireMessage: (
     event: Readonly<FilePlaybackWireAdoptionEvent>,
     acknowledge: Acknowledge,
@@ -95,6 +125,9 @@ export interface FilePlaybackProductSessionRouterHostMediaOwnerPort {
 }
 
 export interface FilePlaybackProductSessionRouterGuestMediaOwnerPort {
+  readonly onTimelineAdopted?: (
+    event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>,
+  ) => void;
   readonly adoptAuxiliaryMessage: (
     event: Readonly<FilePlaybackAuxiliaryAdoptionEvent>,
     acknowledge: Acknowledge,
@@ -137,6 +170,9 @@ export interface FilePlaybackProductSessionRouterSnapshot {
 
 interface HostOwnerSnapshot {
   readonly role: 'host';
+  readonly onHostReady: NonNullable<
+    FilePlaybackProductSessionRouterHostMediaOwnerPort['onHostReady']
+  > | null;
   readonly adoptWireMessage: FilePlaybackProductSessionRouterHostMediaOwnerPort['adoptWireMessage'];
   readonly adoptPeerRangeControl: FilePlaybackProductSessionRouterHostMediaOwnerPort['adoptPeerRangeControl'];
   readonly revoke: FilePlaybackProductSessionRouterHostMediaOwnerPort['revoke'];
@@ -144,6 +180,9 @@ interface HostOwnerSnapshot {
 
 interface GuestOwnerSnapshot {
   readonly role: 'guest';
+  readonly onTimelineAdopted: NonNullable<
+    FilePlaybackProductSessionRouterGuestMediaOwnerPort['onTimelineAdopted']
+  > | null;
   readonly adoptAuxiliaryMessage: FilePlaybackProductSessionRouterGuestMediaOwnerPort['adoptAuxiliaryMessage'];
   readonly adoptWireMessage: FilePlaybackProductSessionRouterGuestMediaOwnerPort['adoptWireMessage'];
   readonly adoptPeerRangeBulk: FilePlaybackProductSessionRouterGuestMediaOwnerPort['adoptPeerRangeBulk'];
@@ -222,6 +261,49 @@ function snapshotMethodPort(
   return Object.freeze(port);
 }
 
+function snapshotMethodPortWithOptional(
+  value: unknown,
+  requiredKeys: readonly string[],
+  optionalKeys: readonly string[],
+): Readonly<Record<string, ((...args: never[]) => unknown) | null>> | null {
+  try {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const allowed = new Set([...requiredKeys, ...optionalKeys]);
+    if (
+      ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key)) ||
+      requiredKeys.some((key) => !Object.hasOwn(descriptors, key))
+    ) {
+      return null;
+    }
+    const port = Object.create(null) as Record<string, ((...args: never[]) => unknown) | null>;
+    for (const key of requiredKeys) {
+      const descriptor = descriptors[key];
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      if (typeof descriptor.value !== 'function') return null;
+      const method = descriptor.value;
+      port[key] = (...args: never[]) => Reflect.apply(method, value, args);
+    }
+    for (const key of optionalKeys) {
+      const descriptor = descriptors[key];
+      if (!descriptor) {
+        port[key] = null;
+        continue;
+      }
+      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      if (typeof descriptor.value !== 'function') return null;
+      const method = descriptor.value;
+      port[key] = (...args: never[]) => Reflect.apply(method, value, args);
+    }
+    return Object.freeze(port);
+  } catch {
+    return null;
+  }
+}
+
 function snapshotControllerPort(
   value: unknown,
 ): Readonly<FilePlaybackProductSessionRouterControllerPort> | null {
@@ -230,10 +312,11 @@ function snapshotControllerPort(
 }
 
 function snapshotHostOwner(value: unknown): Readonly<HostOwnerSnapshot> | null {
-  const port = snapshotMethodPort(value, HOST_OWNER_KEYS);
+  const port = snapshotMethodPortWithOptional(value, HOST_OWNER_KEYS, HOST_OWNER_OPTIONAL_KEYS);
   return port
     ? freezeCanonical({
         role: 'host' as const,
+        onHostReady: port.onHostReady as HostOwnerSnapshot['onHostReady'],
         adoptWireMessage:
           port.adoptWireMessage as FilePlaybackProductSessionRouterHostMediaOwnerPort['adoptWireMessage'],
         adoptPeerRangeControl:
@@ -244,10 +327,11 @@ function snapshotHostOwner(value: unknown): Readonly<HostOwnerSnapshot> | null {
 }
 
 function snapshotGuestOwner(value: unknown): Readonly<GuestOwnerSnapshot> | null {
-  const port = snapshotMethodPort(value, GUEST_OWNER_KEYS);
+  const port = snapshotMethodPortWithOptional(value, GUEST_OWNER_KEYS, GUEST_OWNER_OPTIONAL_KEYS);
   return port
     ? freezeCanonical({
         role: 'guest' as const,
+        onTimelineAdopted: port.onTimelineAdopted as GuestOwnerSnapshot['onTimelineAdopted'],
         adoptAuxiliaryMessage:
           port.adoptAuxiliaryMessage as FilePlaybackProductSessionRouterGuestMediaOwnerPort['adoptAuxiliaryMessage'],
         adoptWireMessage:
@@ -358,6 +442,52 @@ export class FilePlaybackProductSessionRouter {
       closed: this.#closed,
       activeConnectionCount: connections.length,
       connections,
+    });
+  }
+
+  /** Delivers the controller's deferred host READY effect to its exact media owner. */
+  notifyHostReady(value: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>): boolean {
+    const snapshot = snapshotExactRecord(value, HOST_READY_KEYS);
+    if (
+      !snapshot ||
+      snapshot.schemaVersion !== 1 ||
+      snapshot.role !== 'host' ||
+      snapshot.ready !== true ||
+      snapshot.baselineStatus !== 'ready' ||
+      typeof snapshot.sessionId !== 'string' ||
+      typeof snapshot.connectionId !== 'string' ||
+      !Number.isSafeInteger(snapshot.roomGeneration) ||
+      (snapshot.roomGeneration as number) <= 0
+    ) {
+      throw new TypeError('File playback router host READY notification is invalid');
+    }
+    return this.#notifyOwner('host', snapshot.sessionId, snapshot.connectionId, (owner) => {
+      if (owner.role !== 'host' || !owner.onHostReady) return false;
+      owner.onHostReady(value);
+      return true;
+    });
+  }
+
+  /** Delivers the controller's deferred guest timeline adoption to its exact media owner. */
+  notifyTimelineAdopted(value: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>): boolean {
+    const event = snapshotExactRecord(value, TIMELINE_ADOPTED_KEYS);
+    if (
+      !event ||
+      event.schemaVersion !== 1 ||
+      (event.status !== 'adopted' && event.status !== 'replayed') ||
+      typeof event.sessionId !== 'string' ||
+      typeof event.connectionId !== 'string' ||
+      !Number.isSafeInteger(event.roomGeneration) ||
+      (event.roomGeneration as number) <= 0 ||
+      event.timeline === null ||
+      typeof event.timeline !== 'object'
+    ) {
+      throw new TypeError('File playback router timeline notification is invalid');
+    }
+    return this.#notifyOwner('guest', event.sessionId, event.connectionId, (owner) => {
+      if (owner.role !== 'guest' || !owner.onTimelineAdopted) return false;
+      owner.onTimelineAdopted(value);
+      return true;
     });
   }
 
@@ -640,6 +770,40 @@ export class FilePlaybackProductSessionRouter {
           throw new Error('File playback router adoption requires one synchronous acknowledgement');
         }
         this.#assertRecord(record, record.role, channelValue, connectionTokenValue, authority);
+      } catch (cause) {
+        const cleanup = this.#retireRecord(record, authority);
+        throw mergeFailure(cause, cleanup);
+      }
+    });
+  }
+
+  #notifyOwner(
+    role: FilePlaybackApplicationSessionRole,
+    sessionId: string,
+    connectionId: string,
+    notify: (owner: OwnerSnapshot) => boolean,
+  ): boolean {
+    if (this.#closed) return false;
+    return this.#mutate((authority) => {
+      this.#assertOpen();
+      const matches = [...this.#records.values()].filter(
+        (record) =>
+          record.state === 'active' &&
+          record.role === role &&
+          record.context.sessionId === sessionId &&
+          record.context.connectionId === connectionId,
+      );
+      if (matches.length === 0) return false;
+      if (matches.length !== 1) {
+        throw new Error('File playback router notification identity is ambiguous');
+      }
+      const record = matches[0]!;
+      try {
+        this.#assertRecord(record, role, record.channel, record.connectionToken, authority);
+        if (!record.owner) throw new Error('File playback router media owner is unavailable');
+        const delivered = notify(record.owner);
+        this.#assertRecord(record, role, record.channel, record.connectionToken, authority);
+        return delivered;
       } catch (cause) {
         const cleanup = this.#retireRecord(record, authority);
         throw mergeFailure(cause, cleanup);

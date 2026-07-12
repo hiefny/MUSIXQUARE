@@ -19,6 +19,7 @@ import {
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
 } from '../../network/file-playback-transport-contract.ts';
 import type { DataConnection } from '../../types/index.ts';
+import { createStoppedPlaybackTimeline } from '../playback-timeline.ts';
 import {
   FilePlaybackProductSessionRouter,
   type FilePlaybackProductSessionRouterConnectionContext,
@@ -382,6 +383,116 @@ describe('FilePlaybackProductSessionRouter', () => {
         cases[index]!.connection,
       );
     });
+  });
+
+  it('delivers deferred READY and timeline effects only to the exact optional owner callback', () => {
+    const pair = channelPair();
+    const hostReady = vi.fn();
+    const timelineAdopted = vi.fn();
+    const harness = makeHarness({
+      createHostMediaOwner: () =>
+        Object.freeze({
+          onHostReady: hostReady,
+          adoptWireMessage: (_event, acknowledge) => acknowledge(),
+          adoptPeerRangeControl: (_event, acknowledge) => acknowledge(),
+          revoke: vi.fn(),
+        }),
+      createGuestMediaOwner: () =>
+        Object.freeze({
+          onTimelineAdopted: timelineAdopted,
+          adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
+          adoptWireMessage: (_event, acknowledge) => acknowledge(),
+          adoptPeerRangeBulk: (_event, acknowledge) => acknowledge(),
+          revoke: vi.fn(),
+        }),
+    });
+    establish(harness, pair, 'host');
+    establish(harness, pair, 'guest');
+    const hostBinding = pair.host.establishedBinding()!;
+    const guestBinding = pair.guest.establishedBinding()!;
+    const ready = Object.freeze({
+      schemaVersion: 1 as const,
+      roomGeneration: 2,
+      epoch: 1,
+      role: 'host' as const,
+      sessionId: hostBinding.sessionId,
+      connectionId: hostBinding.connectionId,
+      baselineStatus: 'ready' as const,
+      baselineId: 'baseline:ready',
+      playbackRevision: 0,
+      clockReady: true,
+      ready: true,
+    });
+    const timeline = createStoppedPlaybackTimeline(1_000, 0);
+    const adopted = Object.freeze({
+      schemaVersion: 1 as const,
+      roomGeneration: 2,
+      sessionId: guestBinding.sessionId,
+      connectionId: guestBinding.connectionId,
+      status: 'adopted' as const,
+      timeline,
+    });
+
+    expect(harness.router.notifyHostReady(ready)).toBe(true);
+    expect(harness.router.notifyTimelineAdopted(adopted)).toBe(true);
+    expect(hostReady).toHaveBeenCalledWith(ready);
+    expect(timelineAdopted).toHaveBeenCalledWith(adopted);
+    expect(
+      harness.router.notifyTimelineAdopted(
+        Object.freeze({ ...adopted, connectionId: 'connection:retired' }),
+      ),
+    ).toBe(false);
+    expect(timelineAdopted).toHaveBeenCalledOnce();
+  });
+
+  it('retires the exact owner when a deferred notification re-enters the router', () => {
+    const pair = channelPair();
+    let router!: FilePlaybackProductSessionRouter;
+    const revoke = vi.fn();
+    router = new FilePlaybackProductSessionRouter({
+      controller: Object.freeze({
+        onLifecycleEvent: vi.fn(),
+        adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
+      }),
+      createHostMediaOwner: () =>
+        Object.freeze({
+          onHostReady: () => router.close(),
+          adoptWireMessage: (_event, acknowledge) => acknowledge(),
+          adoptPeerRangeControl: (_event, acknowledge) => acknowledge(),
+          revoke,
+        }),
+      createGuestMediaOwner: () =>
+        Object.freeze({
+          adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
+          adoptWireMessage: (_event, acknowledge) => acknowledge(),
+          adoptPeerRangeBulk: (_event, acknowledge) => acknowledge(),
+          revoke: vi.fn(),
+        }),
+    });
+    router
+      .applicationSessionHooks()
+      .onLifecycleEvent(lifecycle('established', 'host', pair.hostConnection, pair.host));
+    const binding = pair.host.establishedBinding()!;
+
+    expect(() =>
+      router.notifyHostReady(
+        Object.freeze({
+          schemaVersion: 1 as const,
+          roomGeneration: 2,
+          epoch: 1,
+          role: 'host' as const,
+          sessionId: binding.sessionId,
+          connectionId: binding.connectionId,
+          baselineStatus: 'ready' as const,
+          baselineId: 'baseline:reentry',
+          playbackRevision: 0,
+          clockReady: true,
+          ready: true,
+        }),
+      ),
+    ).toThrow(/close superseded|re-entry|cleanup/u);
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(router.snapshot()).toMatchObject({ closed: true, activeConnectionCount: 0 });
   });
 
   it('routes wire and peer-range lanes to only the exact role owner with detached envelopes', () => {

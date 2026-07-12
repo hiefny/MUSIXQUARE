@@ -448,6 +448,7 @@ export class FilePlaybackAssetRegistry {
   #cleanupCallbackDepth = 0;
   #fatalError: FilePlaybackAssetRegistryFatalError | null = null;
   #closePromise: Promise<void> | null = null;
+  #bindingLookupActive = false;
 
   constructor(options: FilePlaybackAssetRegistryOptions) {
     const snapshot = snapshotOptions(options);
@@ -485,6 +486,27 @@ export class FilePlaybackAssetRegistry {
 
   retiredAssetCount(token: object): number | null {
     return token === this.#token && !this.#closed ? this.#retiredQueueItems.size : null;
+  }
+
+  leaseForBinding(token: object, value: unknown): FilePlaybackAssetLease | null {
+    if (token !== this.#token || this.#closed || this.#bindingLookupActive) return null;
+    this.#bindingLookupActive = true;
+    try {
+      const binding = parseFilePlaybackAssetBinding(value);
+      if (!binding || this.#closed) return null;
+      const entry = this.#entriesByQueue.get(binding.queueItemId);
+      return entry?.status === 'live' && sameBinding(entry.binding, binding) ? entry.lease : null;
+    } finally {
+      this.#bindingLookupActive = false;
+    }
+  }
+
+  leaseForSourceIdentity(token: object, sourceIdentity: unknown): FilePlaybackAssetLease | null {
+    if (token !== this.#token || this.#closed || !isIdentifier(sourceIdentity)) return null;
+    const entry = this.#entriesBySource.get(sourceIdentity);
+    return entry?.status === 'live' && entry.binding.sourceIdentity === sourceIdentity
+      ? entry.lease
+      : null;
   }
 
   admitBlob(

@@ -205,6 +205,191 @@ describe('FilePlaybackAssetRegistry', () => {
     );
   });
 
+  it('resolves exact live Blob and generic bindings to the same opaque lease only', () => {
+    const setup = registry();
+    const blobBinding = binding(0);
+    const genericBinding = binding(1);
+    const acquire = vi.fn(() => source(genericBinding));
+    const close = vi.fn(async () => undefined);
+    const blobLease = setup.registry.admitBlob(
+      TOKEN,
+      blobBinding,
+      new Blob([new Uint8Array([1, 2, 3])]),
+      metadata(0),
+    );
+    const genericLease = setup.registry.admitEncodedAsset(
+      TOKEN,
+      genericBinding,
+      new TestAsset(genericBinding, { acquire, close }),
+    );
+
+    expect(setup.registry.leaseForBinding(TOKEN, { ...blobBinding })).toBe(blobLease);
+    expect(setup.registry.leaseForBinding(TOKEN, { ...genericBinding })).toBe(genericLease);
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, blobBinding.sourceIdentity)).toBe(
+      blobLease,
+    );
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, genericBinding.sourceIdentity)).toBe(
+      genericLease,
+    );
+    expect(Object.keys(blobLease)).toEqual([]);
+    expect(Object.keys(genericLease)).toEqual([]);
+    expect(acquire).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed, forged, foreign, and mismatched binding lookups without accessors', () => {
+    const setup = registry();
+    const assetBinding = binding(0);
+    const lease = setup.registry.admitBlob(
+      TOKEN,
+      assetBinding,
+      new Blob([new Uint8Array([1])]),
+      metadata(),
+    );
+    const mismatches: unknown[] = [
+      { ...assetBinding, queueItemId: QIDS[1] },
+      { ...assetBinding, sourceIdentity: binding(1).sourceIdentity },
+      { ...assetBinding, transferSessionId: binding(1).transferSessionId },
+      { queueItemId: assetBinding.queueItemId, sourceIdentity: assetBinding.sourceIdentity },
+      { ...assetBinding, extra: true },
+      lease,
+      null,
+    ];
+    for (const mismatch of mismatches) {
+      expect(setup.registry.leaseForBinding(TOKEN, mismatch)).toBeNull();
+    }
+
+    let getterCalls = 0;
+    const accessorBinding = Object.defineProperties(
+      {},
+      Object.fromEntries(
+        Object.entries(assetBinding).map(([key, value]) => [
+          key,
+          {
+            enumerable: true,
+            get() {
+              getterCalls += 1;
+              return value;
+            },
+          },
+        ]),
+      ),
+    );
+    expect(setup.registry.leaseForBinding(TOKEN, accessorBinding)).toBeNull();
+    expect(setup.registry.leaseForBinding(FOREIGN_TOKEN, accessorBinding)).toBeNull();
+    expect(getterCalls).toBe(0);
+
+    let ownKeyCalls = 0;
+    let cyclic!: object;
+    cyclic = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          return cyclic;
+        },
+        ownKeys() {
+          ownKeyCalls += 1;
+          return [];
+        },
+      },
+    );
+    expect(setup.registry.leaseForBinding(TOKEN, cyclic)).toBeNull();
+    expect(ownKeyCalls).toBe(0);
+
+    expect(
+      setup.registry.leaseForSourceIdentity(FOREIGN_TOKEN, assetBinding.sourceIdentity),
+    ).toBeNull();
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, 'distributed-source:missing')).toBeNull();
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, '')).toBeNull();
+    expect(
+      setup.registry.leaseForSourceIdentity(TOKEN, ` ${assetBinding.sourceIdentity}`),
+    ).toBeNull();
+    expect(
+      setup.registry.leaseForSourceIdentity(TOKEN, `${assetBinding.sourceIdentity}\u0000`),
+    ).toBeNull();
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, 'x'.repeat(257))).toBeNull();
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, {})).toBeNull();
+    let identityTrapCalls = 0;
+    const hostileIdentity = new Proxy(
+      {},
+      {
+        get() {
+          identityTrapCalls += 1;
+          return assetBinding.sourceIdentity;
+        },
+      },
+    );
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, hostileIdentity)).toBeNull();
+    expect(identityTrapCalls).toBe(0);
+  });
+
+  it('revalidates lookup authority after binding inspection and rejects retired or closed assets', async () => {
+    const setup = registry();
+    const assetBinding = binding(0);
+    const lease = setup.registry.admitBlob(
+      TOKEN,
+      assetBinding,
+      new Blob([new Uint8Array([1])]),
+      metadata(),
+    );
+    let retiring: Promise<void> | null = null;
+    const reentrantBinding = new Proxy(
+      { ...assetBinding },
+      {
+        ownKeys(target) {
+          retiring = setup.registry.retire(TOKEN, lease);
+          return Reflect.ownKeys(target);
+        },
+      },
+    );
+
+    expect(setup.registry.leaseForBinding(TOKEN, reentrantBinding)).toBeNull();
+    await retiring;
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBeNull();
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, assetBinding.sourceIdentity)).toBeNull();
+
+    const closed = registry();
+    const closedBinding = binding(1);
+    closed.registry.admitBlob(TOKEN, closedBinding, new Blob([new Uint8Array([2])]), metadata(1));
+    await closed.registry.close(TOKEN);
+    let closedGetterCalls = 0;
+    const closedAccessor = {
+      get queueItemId() {
+        closedGetterCalls += 1;
+        return closedBinding.queueItemId;
+      },
+    };
+    expect(closed.registry.leaseForBinding(TOKEN, closedAccessor)).toBeNull();
+    expect(closed.registry.leaseForSourceIdentity(TOKEN, closedBinding.sourceIdentity)).toBeNull();
+    expect(closedGetterCalls).toBe(0);
+  });
+
+  it('bounds recursive binding inspection without hiding the outer exact live lookup', () => {
+    const setup = registry();
+    const assetBinding = binding(0);
+    const lease = setup.registry.admitBlob(
+      TOKEN,
+      assetBinding,
+      new Blob([new Uint8Array([1])]),
+      metadata(),
+    );
+    let nested: FilePlaybackAssetLease | null | undefined;
+    let recursive!: FilePlaybackAssetBinding;
+    recursive = new Proxy(
+      { ...assetBinding },
+      {
+        ownKeys(target) {
+          nested = setup.registry.leaseForBinding(TOKEN, recursive);
+          return Reflect.ownKeys(target);
+        },
+      },
+    );
+
+    expect(setup.registry.leaseForBinding(TOKEN, recursive)).toBe(lease);
+    expect(nested).toBeNull();
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBe(lease);
+  });
+
   it('enforces process-wide single ownership for transferred generic asset objects', async () => {
     const firstRoom = registry();
     const secondRoom = registry();

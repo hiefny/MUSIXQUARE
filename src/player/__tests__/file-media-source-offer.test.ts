@@ -15,6 +15,10 @@ import {
   type PeerRangeFileMediaSourceOfferV2Input,
 } from '../file-media-source-offer.ts';
 import { isQueueItemId } from '../queue-model.ts';
+import {
+  PEER_RANGE_MAX_CONNECTION_ID_LENGTH,
+  PEER_RANGE_MAX_HANDLE_ID_LENGTH,
+} from '../sources/peer-range-protocol.ts';
 
 const TOKEN = Object.freeze({ connection: 'live' });
 const SESSION_ID = 'session:one';
@@ -177,6 +181,16 @@ describe('file media source offer V2', () => {
     expect(() => offer({ expiresAtRoomTimeMs: Number.POSITIVE_INFINITY })).toThrow();
     expect(() => offer({ mime: 'not a mime' })).toThrow();
     expect(() => offer({ handleId: PREPARE_ONE })).toThrow();
+    expect(() =>
+      offer({
+        connectionId: 'c'.repeat(PEER_RANGE_MAX_CONNECTION_ID_LENGTH),
+        handleId: 'h'.repeat(PEER_RANGE_MAX_HANDLE_ID_LENGTH),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      offer({ connectionId: 'c'.repeat(PEER_RANGE_MAX_CONNECTION_ID_LENGTH + 1) }),
+    ).toThrow();
+    expect(() => offer({ handleId: 'h'.repeat(PEER_RANGE_MAX_HANDLE_ID_LENGTH + 1) })).toThrow();
     expect(() =>
       offer({
         sessionId: '\uac00'.repeat(FILE_MEDIA_SOURCE_OFFER_V2_MAX_IDENTIFIER_LENGTH),

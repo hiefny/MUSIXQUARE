@@ -2,6 +2,10 @@ import { MAX_FILE_PLAYBACK_ROOM_TIME_MS } from '../network/file-playback-clock-e
 import { FILE_MEDIA_SOURCE_OFFER_V2_TYPE } from '../network/file-playback-transport-contract.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { isQueueItemId } from './queue-model.ts';
+import {
+  PEER_RANGE_MAX_CONNECTION_ID_LENGTH,
+  PEER_RANGE_MAX_HANDLE_ID_LENGTH,
+} from './sources/peer-range-protocol.ts';
 
 export const FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION = 2 as const;
 /** Maximum canonical JSON size after exact offer validation. */
@@ -98,11 +102,14 @@ function containsControlCharacter(value: string): boolean {
   return false;
 }
 
-function isIdentifier(value: unknown): value is string {
+function isIdentifier(
+  value: unknown,
+  maximumLength = FILE_MEDIA_SOURCE_OFFER_V2_MAX_IDENTIFIER_LENGTH,
+): value is string {
   return (
     typeof value === 'string' &&
     value.length > 0 &&
-    value.length <= FILE_MEDIA_SOURCE_OFFER_V2_MAX_IDENTIFIER_LENGTH &&
+    value.length <= maximumLength &&
     value === value.trim() &&
     !containsControlCharacter(value)
   );
@@ -218,13 +225,13 @@ function canonicalize(snapshot: Snapshot): Readonly<FileMediaSourceOfferV2> | nu
     snapshot.type !== FILE_MEDIA_SOURCE_OFFER_V2_TYPE ||
     snapshot.transport !== 'peer-range' ||
     !isIdentifier(snapshot.sessionId) ||
-    !isIdentifier(snapshot.connectionId) ||
+    !isIdentifier(snapshot.connectionId, PEER_RANGE_MAX_CONNECTION_ID_LENGTH) ||
     !isQueueItemId(snapshot.prepareId) ||
     !isPositiveSafeInteger(snapshot.prepareRevision) ||
     !isQueueItemId(snapshot.queueItemId) ||
     !isIdentifier(snapshot.sourceIdentity) ||
     !isIdentifier(snapshot.transferSessionId) ||
-    !isIdentifier(snapshot.handleId) ||
+    !isIdentifier(snapshot.handleId, PEER_RANGE_MAX_HANDLE_ID_LENGTH) ||
     !isPositiveSafeInteger(snapshot.encodedSize) ||
     !isName(snapshot.name) ||
     !isMime(snapshot.mime) ||

@@ -53,7 +53,7 @@ The streaming path uses:
 
 - 64 KiB sequential encoded reads;
 - a decoder/resampler worker;
-- a stereo PCM ring with a fixed capacity and explicit high/low water marks;
+- a one-to-eight-channel PCM ring with a fixed capacity and explicit high/low water marks;
 - transferable channel buffers between worker and worklet; and
 - deterministic teardown of readers, WASM decoders, resamplers, ports,
   worklets, and source handles on supersession.

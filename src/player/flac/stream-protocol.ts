@@ -1,4 +1,7 @@
-import type { PlaybackRevision } from '../playback-timeline.ts';
+// Keep this worker-facing protocol on leaf primitives. PlaybackRevision is a
+// JSON-safe non-negative number; importing the full playback timeline here
+// would pull DOM-only application types into the isolated WebWorker build.
+type PlaybackRevision = number;
 
 export const FLAC_STREAM_PROTOCOL_VERSION = 1 as const;
 export const FLAC_STREAM_MAX_CHANNELS = 8;
@@ -19,7 +22,20 @@ export interface FlacStreamDescriptor {
   readonly channels: number;
   readonly bitDepth: number;
   readonly totalSourceSamples: number;
-  readonly startSourceSample: number;
+  /** Absolute byte offset immediately after native FLAC metadata. */
+  readonly firstAudioFrameOffset: number;
+  /** Exact absolute source-domain sample requested by the playback timeline. */
+  readonly targetSourceSample: number;
+  /** Verified frame boundary at or before targetSourceSample. */
+  readonly decodeAnchorByteOffset: number;
+  /** Absolute source-domain sample at decodeAnchorByteOffset. */
+  readonly decodeAnchorSourceSample: number;
+  readonly minBlockSize: number;
+  readonly maxBlockSize: number;
+  /** STREAMINFO may report zero when an encoded-frame size is unknown. */
+  readonly minFrameSize: number;
+  /** STREAMINFO may report zero when an encoded-frame size is unknown. */
+  readonly maxFrameSize: number;
 }
 
 export interface FlacDecoderInitMessage {
@@ -69,18 +85,20 @@ export type FlacDecoderEvent =
     }
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+      readonly type: 'frame-index-point';
+      readonly generation: FlacStreamGeneration;
+      /** Absolute source-domain PCM sample at a verified frame boundary. */
+      readonly sourceSample: number;
+      /** Absolute byte offset of that native FLAC frame. */
+      readonly byteOffset: number;
+    }
+  | {
+      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'decoder-error';
       readonly generation: FlacStreamGeneration;
       readonly code: string;
       readonly message: string;
     };
-
-export type PcmDemandMessage = {
-  readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
-  readonly type: 'need';
-  readonly generation: FlacStreamGeneration;
-  readonly maxFrames: number;
-};
 
 export type PcmSupplyMessage =
   | {
@@ -209,18 +227,4 @@ export type PcmRingEvent =
 
 export function isFlacStreamGeneration(value: unknown): value is FlacStreamGeneration {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
-export function isFlacStreamRunIdentity(value: unknown): value is FlacStreamRunIdentity {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.revision === 'number' &&
-    Number.isSafeInteger(candidate.revision) &&
-    candidate.revision >= 0 &&
-    typeof candidate.runId === 'string' &&
-    candidate.runId.length > 0 &&
-    typeof candidate.rendezvousId === 'string' &&
-    candidate.rendezvousId.length > 0
-  );
 }

@@ -252,4 +252,37 @@ describe('file playback source contract', () => {
     expect(Object.isFrozen(audioBuffer)).toBe(true);
     expect(Object.isFrozen(streaming)).toBe(true);
   });
+
+  it('does not upgrade evidence whose Proxy discriminator changes during snapshotting', () => {
+    const changingEvidence = (
+      firstKind: 'webaudio-schedule-passed' | 'worklet-observed',
+      laterKind: 'webaudio-schedule-passed' | 'worklet-observed',
+    ) => {
+      let kindDescriptorReads = 0;
+      const target =
+        firstKind === 'webaudio-schedule-passed'
+          ? { kind: firstKind, targetFrame: 96_000 }
+          : { kind: firstKind, targetFrame: 96_000, actualStartFrame: 96_000 };
+      const proxy = new Proxy(target, {
+        getOwnPropertyDescriptor(current, key) {
+          const descriptor = Reflect.getOwnPropertyDescriptor(current, key);
+          if (key !== 'kind' || !descriptor) return descriptor;
+          kindDescriptorReads += 1;
+          return {
+            ...descriptor,
+            value: kindDescriptorReads === 1 ? firstKind : laterKind,
+          };
+        },
+      });
+      return { proxy, descriptorReads: () => kindDescriptorReads };
+    };
+
+    const audioToStreaming = changingEvidence('webaudio-schedule-passed', 'worklet-observed');
+    expect(readFilePlaybackStartEvidence(audioToStreaming.proxy, 96_000)).toBeNull();
+    expect(audioToStreaming.descriptorReads()).toBeGreaterThanOrEqual(2);
+
+    const streamingToAudio = changingEvidence('worklet-observed', 'webaudio-schedule-passed');
+    expect(readFilePlaybackStartEvidence(streamingToAudio.proxy, 96_000)).toBeNull();
+    expect(streamingToAudio.descriptorReads()).toBeGreaterThanOrEqual(2);
+  });
 });

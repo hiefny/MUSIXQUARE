@@ -822,6 +822,38 @@ describe('StreamingFlacPlaybackSource v2', () => {
     }
   });
 
+  it('returns the same pending arm promise after mutable render preflight has drifted', async () => {
+    const h = harness(undefined, metadata(), () => 1_000);
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+
+    const intent = armIntent();
+    const first = h.source.armForCutover(intent);
+    await Promise.resolve();
+    const armCommand = controlMessages(h.node).findLast((message) => message.type === 'arm');
+    if (!armCommand || armCommand.type !== 'arm') throw new Error('Missing arm command');
+
+    // A fresh preflight would now reject start-not-in-future, but an exact
+    // retransmission still owns the in-flight Worklet acknowledgement.
+    h.context.currentTime = 2;
+    const retry = h.source.armForCutover({ ...intent });
+    expect(retry).toBe(first);
+
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'armed',
+      generation: armCommand.generation,
+      revision: armCommand.revision,
+      runId: armCommand.runId,
+      rendezvousId: armCommand.rendezvousId,
+      targetFrame: armCommand.targetFrame,
+    });
+    const result = await first;
+    expect(result.status).toBe('armed');
+    await expect(retry).resolves.toBe(result);
+    await h.source.destroy();
+  });
+
   it('rejects cutover evidence on an exact-identity Worklet start mismatch', async () => {
     const h = harness();
     await prepare(h.source, h.worker, h.node);

@@ -761,7 +761,6 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
 
   armForCutover(value: RendezvousArmIntent): Promise<FilePlaybackCutoverArmResult> {
     const ingressEpoch = this.#advanceIngressEpoch();
-    this.#expireUnfinalizedArm();
     const intent = readRendezvousArmIntent(value);
     if (!intent) {
       return Promise.resolve(
@@ -770,6 +769,29 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
         ),
       );
     }
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return Promise.resolve(
+        rejectedCutoverResult(
+          this.#armReceipt(intent, 'rejected', 'operation-superseded', this.#roomNow() ?? 0),
+        ),
+      );
+    }
+
+    // An exact retransmission owns the already-started operation. Mutable
+    // preflight state (render frame, context state, room deadline) may have
+    // advanced while the Worklet acknowledgement is in flight, but it must
+    // not turn that duplicate into a contradictory new rejection.
+    const pendingBeforePreflight = this.#pendingArmOperation;
+    if (
+      pendingBeforePreflight &&
+      sameArmIntent(pendingBeforePreflight.intent, intent) &&
+      ingressEpoch === this.#ingressEpoch &&
+      this.#pendingArmOperation === pendingBeforePreflight
+    ) {
+      return pendingBeforePreflight.promise;
+    }
+
+    this.#expireUnfinalizedArm();
     const preflight = this.#preflightArm(intent);
     if (ingressEpoch !== this.#ingressEpoch) {
       return Promise.resolve(

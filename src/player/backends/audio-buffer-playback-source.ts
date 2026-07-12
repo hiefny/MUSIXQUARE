@@ -559,6 +559,26 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
     }
 
     active.gate.gain.setValueAtTime(1, active.startContextTime);
+    // AudioParam mutation is a native authority boundary. A test double or a
+    // platform callback can synchronously cancel, destroy, or replace this
+    // execution from inside setValueAtTime(). Never issue an accepted receipt
+    // (or its evidence timer) for the retired outer operation.
+    if (
+      ingressEpoch !== this.#ingressEpoch ||
+      this.#active !== active ||
+      active.retired ||
+      active.finalized
+    ) {
+      if (this.#active === active && !active.retired && !active.finalized) {
+        this.#retireMissedFinalization(active);
+      }
+      return this.#finalizeReceipt(
+        intent,
+        'rejected',
+        'operation-superseded',
+        observedAtRoomTimeMs,
+      );
+    }
     active.finalized = true;
     active.finalizeIntent = intent;
     active.finalizeReceipt = this.#finalizeReceipt(intent, 'accepted', null, observedAtRoomTimeMs);

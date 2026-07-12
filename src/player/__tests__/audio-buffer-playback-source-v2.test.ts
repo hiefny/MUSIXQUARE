@@ -15,10 +15,12 @@ interface AutomationEvent {
 class FakeAudioParam {
   value = 1;
   readonly automation: AutomationEvent[] = [];
+  onSetValueAtTime: ((value: number, time: number) => void) | null = null;
 
   setValueAtTime(value: number, time: number): AudioParam {
     this.value = value;
     this.automation.push({ value, time });
+    this.onSetValueAtTime?.(value, time);
     return this as unknown as AudioParam;
   }
 }
@@ -229,6 +231,65 @@ describe('AudioBufferPlaybackSource v2', () => {
     expect(gate.gain.automation).not.toContainEqual({ value: 1, time: 2 });
     expect(source.getSnapshot()).toMatchObject({ phase: 'cancelled' });
   });
+
+  it.each(['cancel', 'destroy', 're-arm'] as const)(
+    'does not accept or prove a finalize whose inner gate setter re-enters %s',
+    async (action) => {
+      const { context, destination, source } = harness();
+      await prepareAndConnect(source, destination);
+      const armed = await source.armForCutover(armIntent());
+      if (armed.status !== 'armed') throw new Error('Expected an armed cutover');
+      const gate = context.gains[0]!;
+      let nestedOperation: Promise<unknown> | null = null;
+      gate.gain.onSetValueAtTime = (value, time) => {
+        if (value !== 1 || time !== 2 || nestedOperation !== null) return;
+        if (action === 'cancel') {
+          nestedOperation = source.cancel({
+            kind: 'file-playback-cancel',
+            queueItemId: QID,
+            runId: 'run-3',
+            revision: 3,
+            reasonCode: 'setter-reentered-cancel',
+          });
+        } else if (action === 'destroy') {
+          nestedOperation = source.destroy();
+        } else {
+          nestedOperation = source.armForCutover(
+            armIntent({
+              revision: 4,
+              runId: 'run-4',
+              rendezvousId: 'rv-4',
+              startAtRoomTimeMs: 3_000,
+              finalizeByRoomTimeMs: 2_800,
+            }),
+          );
+        }
+      };
+
+      context.currentTime = 1.7;
+      await expect(source.finalize(finalizeIntent())).resolves.toMatchObject({
+        status: 'rejected',
+        reasonCode: 'operation-superseded',
+      });
+      await nestedOperation;
+      await expect(armed.started).rejects.toMatchObject({
+        code: 'execution-retired',
+      });
+      expect(gate.disconnectCount).toBeGreaterThan(0);
+
+      if (action === 're-arm') {
+        expect(source.getSnapshot()).toMatchObject({
+          revision: 4,
+          phase: 'armed',
+          run: { runId: 'run-4', revision: 4 },
+        });
+      } else {
+        expect(source.getSnapshot()).toMatchObject({
+          phase: action === 'cancel' ? 'cancelled' : 'destroyed',
+        });
+      }
+    },
+  );
 
   it('does not let a reentrant room-time mapper roll a newer arm back', async () => {
     let source!: AudioBufferPlaybackSource;

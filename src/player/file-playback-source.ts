@@ -371,7 +371,13 @@ export function readFilePlaybackStartEvidence(
       AUDIO_BUFFER_START_EVIDENCE_KEYS,
       AUDIO_BUFFER_START_EVIDENCE_KEY_SET,
     );
-    if (!candidate || candidate.targetFrame !== expectedTargetFrame) return null;
+    if (
+      !candidate ||
+      candidate.kind !== 'webaudio-schedule-passed' ||
+      candidate.targetFrame !== expectedTargetFrame
+    ) {
+      return null;
+    }
     try {
       return createAudioBufferPlaybackStartEvidence(candidate.targetFrame as number);
     } catch {
@@ -384,7 +390,13 @@ export function readFilePlaybackStartEvidence(
       STREAMING_START_EVIDENCE_KEYS,
       STREAMING_START_EVIDENCE_KEY_SET,
     );
-    if (!candidate || candidate.targetFrame !== expectedTargetFrame) return null;
+    if (
+      !candidate ||
+      candidate.kind !== 'worklet-observed' ||
+      candidate.targetFrame !== expectedTargetFrame
+    ) {
+      return null;
+    }
     try {
       return createStreamingFlacPlaybackStartEvidence(
         candidate.targetFrame as number,

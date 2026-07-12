@@ -1,0 +1,154 @@
+import { describe, expect, it } from 'vitest';
+
+import { readFlacMetadata } from '../flac/metadata.ts';
+import { BlobEncodedAudioSource } from '../sources/blob-encoded-audio-source.ts';
+
+function uint64(value: bigint): Uint8Array {
+  const bytes = new Uint8Array(8);
+  for (let index = 7; index >= 0; index -= 1) {
+    bytes[index] = Number(value & 0xffn);
+    value >>= 8n;
+  }
+  return bytes;
+}
+
+function streamInfo(options?: {
+  sampleRate?: number;
+  channels?: number;
+  bitDepth?: number;
+  totalSamples?: number;
+}): Uint8Array {
+  const sampleRate = options?.sampleRate ?? 352_800;
+  const channels = options?.channels ?? 2;
+  const bitDepth = options?.bitDepth ?? 24;
+  const totalSamples = options?.totalSamples ?? 195_000_000;
+  const bytes = new Uint8Array(34);
+  bytes[0] = 0x10;
+  bytes[1] = 0x00;
+  bytes[2] = 0x10;
+  bytes[3] = 0x00;
+  bytes[4] = 0x00;
+  bytes[5] = 0x00;
+  bytes[6] = 0x12;
+  bytes[7] = 0x00;
+  bytes[8] = 0x80;
+  bytes[9] = 0x00;
+
+  const packed =
+    (BigInt(sampleRate) << 44n) |
+    (BigInt(channels - 1) << 41n) |
+    (BigInt(bitDepth - 1) << 36n) |
+    BigInt(totalSamples);
+  bytes.set(uint64(packed), 10);
+  for (let index = 18; index < 34; index += 1) bytes[index] = index;
+  return bytes;
+}
+
+function block(type: number, body: Uint8Array, last = false): Uint8Array {
+  const header = new Uint8Array(4);
+  header[0] = type | (last ? 0x80 : 0);
+  header[1] = (body.byteLength >>> 16) & 0xff;
+  header[2] = (body.byteLength >>> 8) & 0xff;
+  header[3] = body.byteLength & 0xff;
+  return new Uint8Array([...header, ...body]);
+}
+
+function seekPoint(sample: bigint, offset: bigint, frameSamples = 4096): Uint8Array {
+  return new Uint8Array([
+    ...uint64(sample),
+    ...uint64(offset),
+    (frameSamples >>> 8) & 0xff,
+    frameSamples & 0xff,
+  ]);
+}
+
+function flac(...blocks: Uint8Array[]): BlobEncodedAudioSource {
+  return new BlobEncodedAudioSource(
+    new Blob([new Uint8Array([0x66, 0x4c, 0x61, 0x43]), ...blocks, new Uint8Array([0xff, 0xf8])]),
+  );
+}
+
+describe('readFlacMetadata', () => {
+  it('parses high-rate multichannel STREAMINFO exactly', async () => {
+    const source = flac(block(0, streamInfo({ channels: 8, bitDepth: 24 }), true));
+    const metadata = await readFlacMetadata(source, new AbortController().signal);
+
+    expect(metadata.streamInfo).toMatchObject({
+      sampleRate: 352_800,
+      channels: 8,
+      bitDepth: 24,
+      totalSamples: 195_000_000,
+      minBlockSize: 4096,
+      maxBlockSize: 4096,
+      minFrameSize: 18,
+      maxFrameSize: 32_768,
+    });
+    expect(metadata.streamInfo.duration).toBeCloseTo(552.721, 3);
+    expect(metadata.firstAudioFrameOffset).toBe(42);
+    expect(metadata.streamInfo.md5).toBe('12131415161718191a1b1c1d1e1f2021');
+  });
+
+  it('parses ordered seek points and ignores placeholders', async () => {
+    const table = new Uint8Array([
+      ...seekPoint(0n, 0n),
+      ...seekPoint(1_000_000n, 2_000_000n),
+      ...seekPoint(0xffff_ffff_ffff_ffffn, 0n),
+    ]);
+    const metadata = await readFlacMetadata(
+      flac(block(0, streamInfo()), block(3, table, true)),
+      new AbortController().signal,
+    );
+
+    expect(metadata.seekPoints).toEqual([
+      { sample: 0, streamOffset: 0, frameSamples: 4096 },
+      { sample: 1_000_000, streamOffset: 2_000_000, frameSamples: 4096 },
+    ]);
+  });
+
+  it('skips a large picture block without treating it as audio metadata', async () => {
+    const picture = new Uint8Array(512 * 1024);
+    const metadata = await readFlacMetadata(
+      flac(block(0, streamInfo()), block(6, picture, true)),
+      new AbortController().signal,
+    );
+    expect(metadata.firstAudioFrameOffset).toBe(4 + 4 + 34 + 4 + picture.byteLength);
+    expect(metadata.metadataBlockCount).toBe(2);
+  });
+
+  it('rejects non-FLAC, missing-first STREAMINFO, malformed seek tables, and no audio', async () => {
+    const signal = new AbortController().signal;
+    await expect(
+      readFlacMetadata(new BlobEncodedAudioSource(new Blob(['not flac at all'])), signal),
+    ).rejects.toThrow('native FLAC');
+    await expect(readFlacMetadata(flac(block(1, new Uint8Array(0), true)), signal)).rejects.toThrow(
+      'STREAMINFO must be the first',
+    );
+    await expect(
+      readFlacMetadata(flac(block(0, streamInfo()), block(3, new Uint8Array(1), true)), signal),
+    ).rejects.toThrow('multiple of 18');
+
+    const noAudioBlob = new Blob([
+      new Uint8Array([0x66, 0x4c, 0x61, 0x43]),
+      block(0, streamInfo(), true),
+    ]);
+    await expect(readFlacMetadata(new BlobEncodedAudioSource(noAudioBlob), signal)).rejects.toThrow(
+      'no audio frames',
+    );
+  });
+
+  it('rejects unordered seek points and responds to cancellation', async () => {
+    const table = new Uint8Array([...seekPoint(10n, 20n), ...seekPoint(9n, 21n)]);
+    await expect(
+      readFlacMetadata(
+        flac(block(0, streamInfo()), block(3, table, true)),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('not strictly ordered');
+
+    const controller = new AbortController();
+    controller.abort(new Error('superseded'));
+    await expect(
+      readFlacMetadata(flac(block(0, streamInfo(), true)), controller.signal),
+    ).rejects.toThrow('superseded');
+  });
+});

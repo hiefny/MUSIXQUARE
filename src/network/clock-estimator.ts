@@ -214,7 +214,21 @@ export class ClockEstimator {
   }
 
   hostNow(): number {
-    return this.localToHost(this.readNow());
+    const observedNowMs = this.readNow();
+    if (this.hostClock) return observedNowMs;
+    return observedNowMs + this.qualityAt(observedNowMs).offsetMs;
+  }
+
+  /** Build quality from an already captured local monotonic observation. */
+  qualityAtLocalTime(localPerformanceTimeMs: number): ClockQuality {
+    return this.qualityAt(this.observeNow(localPerformanceTimeMs));
+  }
+
+  /** Map one already captured local observation into the host clock domain. */
+  hostNowAtLocalTime(localPerformanceTimeMs: number): number {
+    const observedNowMs = this.observeNow(localPerformanceTimeMs);
+    if (this.hostClock) return observedNowMs;
+    return observedNowMs + this.qualityAt(observedNowMs).offsetMs;
   }
 
   localToHost(localPerformanceTimeMs: number): number {
@@ -344,7 +358,10 @@ export class ClockEstimator {
   }
 
   private readNow(): number {
-    const nowMs = this.now();
+    return this.observeNow(this.now());
+  }
+
+  private observeNow(nowMs: number): number {
     assertFiniteNonNegative(nowMs, 'monotonic now');
 
     // performance.now() must not move backwards. If a platform violates that

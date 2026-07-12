@@ -19,7 +19,6 @@ export interface FilePlaybackClockBindings {
 
 export interface FilePlaybackClockOptions {
   readonly now?: MonotonicNow;
-  readonly estimator?: ClockEstimator;
   readonly estimatorOptions?: Omit<ClockEstimatorOptions, 'now'>;
 }
 
@@ -36,12 +35,10 @@ export class FilePlaybackClock {
 
   constructor(options: FilePlaybackClockOptions = {}) {
     this.#now = options.now ?? monotonicNow;
-    this.#estimator =
-      options.estimator ??
-      new ClockEstimator({
-        ...options.estimatorOptions,
-        now: this.#now,
-      });
+    this.#estimator = new ClockEstimator({
+      ...options.estimatorOptions,
+      now: this.#now,
+    });
   }
 
   estimator(): ClockEstimator {
@@ -60,8 +57,16 @@ export class FilePlaybackClock {
     return this.#estimator.quality();
   }
 
+  qualityAtLocalTime(localPerformanceTimeMs: number): ClockQuality {
+    return this.#estimator.qualityAtLocalTime(localPerformanceTimeMs);
+  }
+
   nowRoomTimeMs(): number {
     return this.#estimator.hostNow();
+  }
+
+  nowRoomTimeMsAtLocalTime(localPerformanceTimeMs: number): number {
+    return this.#estimator.hostNowAtLocalTime(localPerformanceTimeMs);
   }
 
   addNtpSample(t0: number, t1: number, t2: number, t3: number): ClockSampleResult {

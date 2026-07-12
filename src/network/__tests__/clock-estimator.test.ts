@@ -137,6 +137,24 @@ describe('ClockEstimator', () => {
     expect(estimator.hostNow()).toBe(5_125);
   });
 
+  it('reads the injected monotonic source once for hostNow and supports explicit observations', () => {
+    let sourceReads = 0;
+    const estimator = new ClockEstimator({
+      now: () => {
+        sourceReads += 1;
+        return 5_000;
+      },
+    });
+    addSample(estimator, 20, 125);
+    sourceReads = 0;
+
+    expect(estimator.hostNow()).toBe(5_125);
+    expect(sourceReads).toBe(1);
+    expect(estimator.qualityAtLocalTime(5_000).offsetMs).toBe(125);
+    expect(estimator.hostNowAtLocalTime(5_000)).toBe(5_125);
+    expect(sourceReads).toBe(1);
+  });
+
   it('treats the host as calibrated identity clock and resets on role changes', () => {
     const clock = makeNow(2_000);
     const estimator = new ClockEstimator({ now: clock.now });

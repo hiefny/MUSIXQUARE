@@ -60,6 +60,21 @@ describe('FilePlaybackClock', () => {
     expect(bindings.roomTimeMsToContextTime(2_250)).toBe(10.25);
   });
 
+  it('supports an already captured local time without rereading its source', () => {
+    let sourceReads = 0;
+    const clock = new FilePlaybackClock({
+      now: () => {
+        sourceReads += 1;
+        return 2_000;
+      },
+    });
+    clock.setHost(true);
+
+    expect(clock.qualityAtLocalTime(2_000).calibrated).toBe(true);
+    expect(clock.nowRoomTimeMsAtLocalTime(2_000)).toBe(2_000);
+    expect(sourceReads).toBe(0);
+  });
+
   it('resets role and samples at a full session boundary', () => {
     const clock = new FilePlaybackClock({ now: () => 100 });
     clock.setHost(true);

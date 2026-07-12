@@ -203,6 +203,49 @@ export class FilePlaybackManager {
     return source ? this.activate(source, destination) : Promise.resolve(null);
   }
 
+  /**
+   * Retire the current playback slot without tombstoning its queue item.
+   *
+   * Track replacement and session teardown need to release native audio and
+   * decode leases before a successor is admitted, but the same queue
+   * occurrence may still be selected again. A pending activation is ownership
+   * too, so it is cancelled before either source is destroyed.
+   */
+  async retireActive(): Promise<void> {
+    const states = new Set<ManagedSource>();
+    if (this.active) states.add(this.stateFor(this.active));
+
+    const pendingActive = this.pendingActive;
+    this.active = null;
+    this.pendingActive = null;
+    if (pendingActive) {
+      states.add(pendingActive.state);
+      pendingActive.cancel();
+    }
+
+    await Promise.all([...states].map((state) => this.destroyState(state)));
+  }
+
+  /**
+   * Drop speculative media without tombstoning its queue item. A later preload
+   * for the same occurrence therefore starts with a fresh source, while a late
+   * completion from the retired source cannot republish itself.
+   */
+  async clearStandby(): Promise<void> {
+    const states = new Set<ManagedSource>();
+    if (this.standby) states.add(this.stateFor(this.standby));
+
+    const pendingStandby = this.pendingStandby;
+    this.standby = null;
+    this.pendingStandby = null;
+    if (pendingStandby) {
+      states.add(pendingStandby.state);
+      pendingStandby.cancel();
+    }
+
+    await Promise.all([...states].map((state) => this.destroyState(state)));
+  }
+
   async discardQueueItem(queueItemId: QueueItemId): Promise<void> {
     this.discardedQueueItems.add(queueItemId);
     const states = new Set<ManagedSource>();

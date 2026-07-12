@@ -358,6 +358,66 @@ describe('FilePlaybackManager', () => {
     expect(manager.activeSource()).toBe(current.source);
   });
 
+  it('retires active ownership without tombstoning the queue occurrence', async () => {
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, 'ready');
+    await manager.activate(current.source, destination);
+
+    await manager.retireActive();
+
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+    expect(manager.activeSource()).toBeNull();
+
+    const replay = makeSource(Q1, 'ready');
+    await expect(manager.activate(replay.source, destination)).resolves.toMatchObject({
+      published: true,
+    });
+    expect(replay.source.connect).toHaveBeenCalledOnce();
+    expect(manager.activeSource()).toBe(replay.source);
+  });
+
+  it('retires a pending activation and prevents its late completion from publishing', async () => {
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, 'ready');
+    const pending = makeSource(Q2);
+    pending.gatePrepare();
+    await manager.activate(current.source, destination);
+    const activation = manager.activate(pending.source, destination);
+
+    await manager.retireActive();
+
+    await expect(activation).resolves.toMatchObject({ published: false, reason: 'superseded' });
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+    expect(pending.source.destroy).toHaveBeenCalledOnce();
+    expect(manager.activeSource()).toBeNull();
+
+    pending.resolvePrepare();
+    await Promise.resolve();
+    expect(pending.source.connect).not.toHaveBeenCalled();
+    expect(manager.activeSource()).toBeNull();
+  });
+
+  it('clears standby without tombstoning and ignores its late preparation', async () => {
+    const manager = new FilePlaybackManager();
+    const pending = makeSource(Q2);
+    pending.gatePrepare();
+    const preparation = manager.prepareStandby(pending.source);
+
+    await manager.clearStandby();
+
+    await expect(preparation).resolves.toMatchObject({ published: false, reason: 'superseded' });
+    expect(pending.source.destroy).toHaveBeenCalledOnce();
+    expect(manager.standbySource()).toBeNull();
+
+    pending.resolvePrepare();
+    await Promise.resolve();
+    expect(manager.standbySource()).toBeNull();
+
+    const retry = makeSource(Q2);
+    await expect(manager.prepareStandby(retry.source)).resolves.toMatchObject({ published: true });
+    expect(manager.standbySource()).toBe(retry.source);
+  });
+
   it('clear cancels every pending slot and ignores all late completions', async () => {
     const manager = new FilePlaybackManager();
     const pendingActive = makeSource(Q2);

@@ -21,6 +21,7 @@ import {
 import type { HostRendezvousParticipant } from './rendezvous-coordinator.ts';
 
 const MAX_IDENTIFIER_LENGTH = 256;
+const MAX_SAME_STATE_RENDEZVOUS_IDS = 256;
 const INVALID_METRIC_FALLBACK_MS = 2_500;
 const FALLBACK_QUEUE_ITEM_ID = 'invalid-queue-item';
 const FALLBACK_RUN_ID = 'invalid-run';
@@ -239,6 +240,8 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
   #finalizeOperation: FinalizeOperation | null = null;
   #armedBinding: ArmedSourceBinding | null = null;
   #committedBinding: ArmedSourceBinding | null = null;
+  #rendezvousHistoryRun: Readonly<RevisionedPlaybackRun> | null = null;
+  readonly #recentRendezvousIds = new Set<string>();
 
   constructor(options: LocalRendezvousParticipantOptions) {
     const snapshot = snapshotOptions(options);
@@ -268,6 +271,7 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
   }
 
   arm(value: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+    const admissionAuthority = this.#authority;
     try {
       const intent = readRendezvousArmIntent(value);
       if (!intent) return Promise.resolve(this.#rejectedArm(null, 'invalid-arm-intent'));
@@ -282,6 +286,9 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       }
       if (!this.#sourceOwnsQueueItem(source, intent.queueItemId)) {
         return Promise.resolve(this.#rejectedArm(intent, 'local-source-mismatch'));
+      }
+      if (this.#authority !== admissionAuthority) {
+        return Promise.resolve(this.#rejectedArm(intent, 'local-operation-superseded'));
       }
 
       const key = armOperationKey(intent);
@@ -301,25 +308,49 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
           existing.retired &&
           sameRevisionedRun(existing.intent, intent) &&
           existing.intent.rendezvousId !== intent.rendezvousId;
-        if (!canRearmRetiredRun) {
+        const committedBinding = this.#committedBinding;
+        const canRecoverCommittedRun =
+          existing !== null &&
+          !existing.retired &&
+          committedBinding !== null &&
+          existing.source === committedBinding.source &&
+          existing.sourceEpoch === committedBinding.sourceEpoch &&
+          sameRendezvousAttempt(existing.intent, committedBinding) &&
+          sameRevisionedRun(existing.intent, intent) &&
+          existing.intent.rendezvousId !== intent.rendezvousId;
+        if (
+          (!canRearmRetiredRun && !canRecoverCommittedRun) ||
+          this.#hasRecentRendezvousId(intent)
+        ) {
           return Promise.resolve(this.#rejectedArm(intent, 'local-operation-conflict'));
         }
       }
 
+      // Source providers and queueItemId getters are outside this adapter's
+      // trust boundary. If either re-entered and installed another operation,
+      // this caller must not roll that newer authority back.
+      if (this.#authority !== admissionAuthority) {
+        return Promise.resolve(this.#rejectedArm(intent, 'local-operation-superseded'));
+      }
+
+      const operationAuthority = this.#advanceAuthority();
       this.#retireForNewArm();
+      if (this.#authority !== operationAuthority) {
+        return Promise.resolve(this.#rejectedArm(intent, 'local-operation-superseded'));
+      }
       this.#latestArmRevision = intent.revision;
+      this.#rememberRendezvousId(intent);
       const operation: ArmOperation = {
         key,
-        authority: this.#advanceAuthority(),
+        authority: operationAuthority,
         source,
         sourceEpoch: observed.epoch,
         intent,
-        promise: Promise.resolve(this.#rejectedArm(intent, 'local-operation-not-started')),
+        promise: Promise.resolve().then(() => this.#executeArm(operation)),
         retired: false,
         retiredReason: null,
       };
       this.#armOperation = operation;
-      operation.promise = Promise.resolve().then(() => this.#executeArm(operation));
       return operation.promise;
     } catch {
       return Promise.resolve(this.#rejectedArm(null, 'local-participant-internal-failure'));
@@ -373,13 +404,12 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
         authority: this.#advanceAuthority(),
         binding,
         intent,
-        promise: Promise.resolve(this.#rejectedFinalize(intent, 'local-operation-not-started')),
+        promise: Promise.resolve().then(() => this.#executeFinalize(operation)),
         retired: false,
         retiredReason: null,
         accepted: false,
       };
       this.#finalizeOperation = operation;
-      operation.promise = Promise.resolve().then(() => this.#executeFinalize(operation));
       return operation.promise;
     } catch {
       return Promise.resolve(this.#rejectedFinalize(null, 'local-participant-internal-failure'));
@@ -565,7 +595,7 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       operation.authority !== this.#authority &&
       (binding === null ||
         binding.source !== operation.source ||
-        !bindingMatchesRun(binding, operation.intent))
+        !sameRendezvousAttempt(binding, operation.intent))
     ) {
       return 'local-operation-superseded';
     }
@@ -731,6 +761,32 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       sameRevisionedRun(current.intent, run) &&
       (run.rendezvousId === undefined || current.intent.rendezvousId !== run.rendezvousId)
     );
+  }
+
+  #hasRecentRendezvousId(intent: RendezvousArmIntent): boolean {
+    return (
+      this.#rendezvousHistoryRun !== null &&
+      sameRevisionedRun(this.#rendezvousHistoryRun, intent) &&
+      this.#recentRendezvousIds.has(intent.rendezvousId)
+    );
+  }
+
+  #rememberRendezvousId(intent: RendezvousArmIntent): void {
+    if (
+      this.#rendezvousHistoryRun === null ||
+      !sameRevisionedRun(this.#rendezvousHistoryRun, intent)
+    ) {
+      this.#rendezvousHistoryRun = Object.freeze({
+        queueItemId: intent.queueItemId,
+        runId: intent.runId,
+        revision: intent.revision,
+      });
+      this.#recentRendezvousIds.clear();
+    } else if (this.#recentRendezvousIds.size >= MAX_SAME_STATE_RENDEZVOUS_IDS) {
+      const oldest = this.#recentRendezvousIds.values().next().value as string | undefined;
+      if (oldest !== undefined) this.#recentRendezvousIds.delete(oldest);
+    }
+    this.#recentRendezvousIds.add(intent.rendezvousId);
   }
 
   #advanceAuthority(): OperationAuthority {

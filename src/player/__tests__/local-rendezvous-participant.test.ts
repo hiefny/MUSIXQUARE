@@ -483,6 +483,223 @@ describe('LocalRendezvousParticipant', () => {
     expect(active.cancel).not.toHaveBeenCalled();
   });
 
+  it('keeps committed playback untouched while a fresh same-state candidate is armed and cancelled', async () => {
+    const committedSource = source();
+    const candidateSource = source();
+    let active: FilePlaybackSource | null = committedSource;
+    const adapter = participant(() => active);
+    const committedIdentity = Object.freeze({
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    });
+    await adapter.arm(armIntent());
+    await adapter.finalize(finalizeIntent());
+    expect(adapter.commitAttempt(committedIdentity)).toBe(true);
+    committedSource.cancel.mockClear();
+    active = candidateSource;
+
+    const candidateArm = armIntent({ rendezvousId: 'rv-b', positionSeconds: 13 });
+    const candidateFinalize = finalizeIntent({ rendezvousId: 'rv-b' });
+    await expect(adapter.arm(candidateArm)).resolves.toMatchObject({
+      status: 'armed',
+      rendezvousId: 'rv-b',
+    });
+    await expect(adapter.finalize(candidateFinalize)).resolves.toMatchObject({
+      status: 'accepted',
+      rendezvousId: 'rv-b',
+    });
+
+    expect(committedSource.cancel).not.toHaveBeenCalled();
+    expect(candidateSource.cancel).not.toHaveBeenCalled();
+    expect(adapter.commitAttempt(committedIdentity)).toBe(true);
+    await adapter.cancel({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-b',
+      reasonCode: 'candidate-cancelled',
+    });
+    expect(candidateSource.cancel).toHaveBeenCalledOnce();
+    expect(candidateSource.cancel).toHaveBeenCalledWith(
+      expect.objectContaining({ rendezvousId: 'rv-b', reasonCode: 'candidate-cancelled' }),
+    );
+
+    await adapter.cancel({
+      kind: 'file-playback-cancel',
+      ...committedIdentity,
+      reasonCode: 'stale-attempt-close',
+    });
+    expect(committedSource.cancel).not.toHaveBeenCalled();
+    expect(candidateSource.cancel).toHaveBeenCalledOnce();
+    expect(adapter.commitAttempt(committedIdentity)).toBe(true);
+  });
+
+  it('atomically replaces the committed binding only after the recovery candidate commits', async () => {
+    const sourceA = source();
+    const sourceB = source();
+    const sourceC = source();
+    let active: FilePlaybackSource | null = sourceA;
+    const adapter = participant(() => active);
+    const identityA = Object.freeze({
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    });
+    const identityB = Object.freeze({ ...identityA, rendezvousId: 'rv-b' });
+    await adapter.arm(armIntent());
+    await adapter.finalize(finalizeIntent());
+    expect(adapter.commitAttempt(identityA)).toBe(true);
+
+    active = sourceB;
+    await adapter.arm(armIntent({ rendezvousId: 'rv-b' }));
+    await adapter.finalize(finalizeIntent({ rendezvousId: 'rv-b' }));
+    expect(adapter.commitAttempt(identityA)).toBe(true);
+    expect(adapter.commitAttempt(identityB)).toBe(true);
+    expect(adapter.commitAttempt(identityA)).toBe(false);
+
+    sourceA.cancel.mockClear();
+    sourceB.cancel.mockClear();
+    await adapter.cancel({
+      kind: 'file-playback-cancel',
+      ...identityB,
+      reasonCode: 'committed-attempt-close',
+    });
+    expect(sourceA.cancel).not.toHaveBeenCalled();
+    expect(sourceB.cancel).not.toHaveBeenCalled();
+
+    active = sourceC;
+    await expect(adapter.arm(armIntent({ rendezvousId: 'rv-c' }))).resolves.toMatchObject({
+      status: 'armed',
+      rendezvousId: 'rv-c',
+    });
+    expect(sourceA.cancel).not.toHaveBeenCalled();
+    expect(sourceB.cancel).not.toHaveBeenCalled();
+    expect(sourceC.arm).toHaveBeenCalledOnce();
+  });
+
+  it('rejects recent same-state rendezvous ABA but resets the history for a newer state', async () => {
+    const active = source();
+    const adapter = participant(() => active);
+    const identityA = Object.freeze({
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    });
+    await adapter.arm(armIntent());
+    await adapter.finalize(finalizeIntent());
+    expect(adapter.commitAttempt(identityA)).toBe(true);
+    await adapter.arm(armIntent({ rendezvousId: 'rv-b' }));
+    await adapter.cancel({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-b',
+      reasonCode: 'recovery-aborted',
+    });
+
+    await expect(adapter.arm(armIntent({ positionSeconds: 14 }))).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-operation-conflict',
+      rendezvousId: 'rv-a',
+    });
+    await expect(
+      adapter.arm(armIntent({ rendezvousId: 'rv-b', positionSeconds: 15 })),
+    ).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-operation-conflict',
+      rendezvousId: 'rv-b',
+    });
+    expect(active.arm).toHaveBeenCalledTimes(2);
+
+    await expect(
+      adapter.arm(armIntent({ runId: 'run-newer', revision: 8, positionSeconds: 0 })),
+    ).resolves.toMatchObject({
+      status: 'armed',
+      runId: 'run-newer',
+      revision: 8,
+      rendezvousId: 'rv-a',
+    });
+  });
+
+  it('bounds same-state rendezvous history while rejecting IDs still in the recent window', async () => {
+    const active = source();
+    const adapter = participant(() => active);
+    let current = armIntent({ rendezvousId: 'rv-window-0' });
+    await adapter.arm(current);
+
+    for (let index = 1; index <= 256; index += 1) {
+      await adapter.cancel({
+        kind: 'file-playback-cancel',
+        queueItemId: QID,
+        runId: 'run-a',
+        revision: 7,
+        rendezvousId: current.rendezvousId,
+        reasonCode: 'advance-history-window',
+      });
+      current = armIntent({ rendezvousId: `rv-window-${index}`, positionSeconds: index });
+      await expect(adapter.arm(current)).resolves.toMatchObject({ status: 'armed' });
+    }
+
+    await adapter.cancel({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: current.rendezvousId,
+      reasonCode: 'test-history-eviction',
+    });
+    await expect(
+      adapter.arm(armIntent({ rendezvousId: 'rv-window-1', positionSeconds: 300 })),
+    ).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-operation-conflict',
+    });
+    await expect(
+      adapter.arm(armIntent({ rendezvousId: 'rv-window-0', positionSeconds: 301 })),
+    ).resolves.toMatchObject({ status: 'armed', rendezvousId: 'rv-window-0' });
+  });
+
+  it('does not let a reentrant source provider roll a newer recovery back', async () => {
+    const active = source();
+    let reenter = false;
+    let nested: Promise<RendezvousArmReceipt> | null = null;
+    let adapter!: LocalRendezvousParticipant;
+    adapter = participant(() => {
+      if (reenter) {
+        reenter = false;
+        nested = adapter.arm(armIntent({ rendezvousId: 'rv-c' }));
+      }
+      return active;
+    });
+    const identityA = Object.freeze({
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    });
+    await adapter.arm(armIntent());
+    await adapter.finalize(finalizeIntent());
+    expect(adapter.commitAttempt(identityA)).toBe(true);
+    active.arm.mockClear();
+
+    reenter = true;
+    await expect(adapter.arm(armIntent({ rendezvousId: 'rv-b' }))).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'local-operation-superseded',
+    });
+    expect(nested).not.toBeNull();
+    await expect(nested!).resolves.toMatchObject({ status: 'armed', rendezvousId: 'rv-c' });
+    expect(active.arm).toHaveBeenCalledOnce();
+    expect(active.arm).toHaveBeenCalledWith(expect.objectContaining({ rendezvousId: 'rv-c' }));
+    expect(adapter.commitAttempt(identityA)).toBe(true);
+  });
+
   it('fences a pending finalize after the active source changes and never leaks acceptance', async () => {
     const oldSource = source();
     const replacement = source();

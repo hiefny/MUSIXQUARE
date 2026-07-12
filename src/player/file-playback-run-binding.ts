@@ -22,6 +22,17 @@ const RUN_BINDING_KEYS = Object.freeze([
   'transferSessionId',
   'type',
 ] as const);
+const RUN_BINDING_INPUT_KEYS = Object.freeze([
+  'connectionId',
+  'playbackRevision',
+  'prepareId',
+  'prepareRevision',
+  'queueItemId',
+  'runId',
+  'sessionId',
+  'sourceIdentity',
+  'transferSessionId',
+] as const);
 
 type Primitive = string | number;
 type PrimitiveSnapshot = Readonly<Record<string, Primitive>>;
@@ -48,9 +59,14 @@ export interface FilePlaybackRunBindingV2 {
   readonly playbackRevision: PlaybackRevision;
 }
 
+/**
+ * Exact controller-owned scope for one connection binding. The host generates
+ * `runId` once, then supplies that same value to every connection participating
+ * in the logical run; this constructor never allocates or substitutes one.
+ */
 export type FilePlaybackRunBindingV2Input = Omit<
   FilePlaybackRunBindingV2,
-  'protocolVersion' | 'runId' | 'type'
+  'protocolVersion' | 'type'
 >;
 
 interface FilePlaybackRunCryptoSource {
@@ -225,18 +241,12 @@ export function parseFilePlaybackRunBindingV2(
 export function createFilePlaybackRunBindingV2(
   input: FilePlaybackRunBindingV2Input,
 ): Readonly<FilePlaybackRunBindingV2> {
+  const snapshot = snapshotExactPrimitiveRecord(input, RUN_BINDING_INPUT_KEYS);
+  if (!snapshot) throw new TypeError('File playback run binding input is invalid');
   const candidate = {
     protocolVersion: FILE_PLAYBACK_RUN_BINDING_V2_PROTOCOL_VERSION,
     type: FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
-    sessionId: input.sessionId,
-    connectionId: input.connectionId,
-    prepareId: input.prepareId,
-    prepareRevision: input.prepareRevision,
-    queueItemId: input.queueItemId,
-    sourceIdentity: input.sourceIdentity,
-    transferSessionId: input.transferSessionId,
-    runId: createFilePlaybackRunId(),
-    playbackRevision: input.playbackRevision,
+    ...snapshot,
   };
   const parsed = parseFilePlaybackRunBindingV2(candidate);
   if (!parsed) throw new TypeError('File playback run binding is invalid');

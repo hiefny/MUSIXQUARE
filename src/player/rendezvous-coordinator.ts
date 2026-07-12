@@ -19,6 +19,7 @@ import {
 export const RENDEZVOUS_FINALIZATION_GUARD_MS = 100;
 
 const MAX_IDENTIFIER_LENGTH = 256;
+const MAX_SAME_STATE_RENDEZVOUS_IDS = 256;
 const COORDINATOR_OPTION_KEYS = Object.freeze(['nowRoomTimeMs', 'createRendezvousId'] as const);
 
 export interface HostRendezvousParticipant {
@@ -141,6 +142,8 @@ interface ImmutableAttemptSchedule {
   readonly finalizeByRoomTimeMs: number;
   readonly startAtRoomTimeMs: number;
 }
+
+type RendezvousSuccessorKind = 'initial' | 'replacement' | 'newer';
 
 interface DetachedStartInput {
   readonly run: unknown;
@@ -369,6 +372,14 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     return this.#schedule.run.revision;
   }
 
+  matchesState(run: RevisionedPlaybackRun): boolean {
+    return (
+      this.#schedule.run.queueItemId === run.queueItemId &&
+      this.#schedule.run.runId === run.runId &&
+      this.#schedule.run.revision === run.revision
+    );
+  }
+
   dispatch(): void {
     for (const outcome of this.#outcomes) {
       if (this.#status !== 'open' || !this.#owner.isActive(this)) break;
@@ -499,10 +510,10 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     return this.getSnapshot();
   }
 
-  supersede(): void {
+  supersede(reasonCode: 'replacement-rendezvous' | 'newer-rendezvous'): void {
     if (this.#status === 'cancelled' || this.#status === 'superseded') return;
-    this.#cancelArmedParticipants('newer-rendezvous');
-    this.#closePending('superseded', 'newer-rendezvous');
+    this.#cancelArmedParticipants(reasonCode);
+    this.#closePending('superseded', reasonCode);
   }
 
   #cancelArmedParticipants(reasonCode: string): void {
@@ -730,6 +741,7 @@ export class HostRendezvousCoordinator {
   readonly #createRendezvousId: () => string;
   #lastRoomTimeMs: number | null = null;
   #active: ActiveHostRendezvousAttempt | null = null;
+  readonly #issuedRendezvousIds = new Set<string>();
   #mutationEpoch = 0;
 
   constructor(options: HostRendezvousCoordinatorOptions) {
@@ -753,9 +765,7 @@ export class HostRendezvousCoordinator {
       throw new TypeError('Rendezvous playback run is invalid');
     }
     this.#assertMutationEpoch(mutationEpoch);
-    if (this.#active && run.revision <= this.#active.revision) {
-      throw new RangeError('Rendezvous revision must be newer than the previous attempt');
-    }
+    const initialSuccessorKind = this.#classifySuccessor(run);
     if (typeof detachedInput.positionSeconds !== 'number') {
       throw new TypeError('Rendezvous position must be a number');
     }
@@ -788,8 +798,11 @@ export class HostRendezvousCoordinator {
     if (!isBoundedIdentifier(rendezvousId)) {
       throw new TypeError('Generated rendezvous ID is invalid');
     }
-    if (this.#active?.rendezvousId === rendezvousId) {
-      throw new Error('Generated rendezvous ID must differ from the active attempt');
+    if (
+      this.#active?.rendezvousId === rendezvousId ||
+      (initialSuccessorKind === 'replacement' && this.#issuedRendezvousIds.has(rendezvousId))
+    ) {
+      throw new Error('Generated rendezvous ID must differ within the active playback state');
     }
 
     const leadTimeMs = Math.max(calculateRendezvousLeadMs(0, 0), ...participantLeadTimesMs);
@@ -815,12 +828,18 @@ export class HostRendezvousCoordinator {
     );
 
     this.#assertMutationEpoch(mutationEpoch);
-    if (this.#active && run.revision <= this.#active.revision) {
-      throw new RangeError('Rendezvous revision was superseded during start');
+    const successorKind = this.#classifySuccessor(run);
+    if (successorKind === 'replacement' && this.#issuedRendezvousIds.has(rendezvousId)) {
+      throw new Error('Generated rendezvous ID was claimed during start');
     }
+    this.#rememberRendezvousId(rendezvousId, successorKind);
     const previous = this.#active;
     this.#active = attempt;
-    previous?.supersede();
+    if (previous) {
+      previous.supersede(
+        successorKind === 'replacement' ? 'replacement-rendezvous' : 'newer-rendezvous',
+      );
+    }
     if (this.#active === attempt && this.#mutationEpoch === mutationEpoch) {
       attempt.dispatch();
     }
@@ -842,6 +861,29 @@ export class HostRendezvousCoordinator {
     } catch {
       return null;
     }
+  }
+
+  #classifySuccessor(run: RevisionedPlaybackRun): RendezvousSuccessorKind {
+    const active = this.#active;
+    if (!active) return 'initial';
+    if (run.revision < active.revision) {
+      throw new RangeError('Rendezvous revision must not be older than the active attempt');
+    }
+    if (run.revision > active.revision) return 'newer';
+    if (!active.matchesState(run)) {
+      throw new RangeError('Equal rendezvous revision must match the active playback state');
+    }
+    return 'replacement';
+  }
+
+  #rememberRendezvousId(rendezvousId: string, successorKind: RendezvousSuccessorKind): void {
+    if (successorKind !== 'replacement') {
+      this.#issuedRendezvousIds.clear();
+    } else if (this.#issuedRendezvousIds.size >= MAX_SAME_STATE_RENDEZVOUS_IDS) {
+      const oldest = this.#issuedRendezvousIds.values().next().value as string | undefined;
+      if (oldest !== undefined) this.#issuedRendezvousIds.delete(oldest);
+    }
+    this.#issuedRendezvousIds.add(rendezvousId);
   }
 
   #readRoomTimeMs(): number {

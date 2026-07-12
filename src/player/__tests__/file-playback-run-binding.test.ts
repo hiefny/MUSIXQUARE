@@ -63,6 +63,7 @@ function creatorInput(): FilePlaybackRunBindingV2Input {
     queueItemId: value.queueItemId,
     sourceIdentity: value.sourceIdentity,
     transferSessionId: value.transferSessionId,
+    runId: value.runId,
     playbackRevision: value.playbackRevision,
   };
 }
@@ -74,12 +75,14 @@ afterEach(() => {
 
 describe('FilePlaybackRunBindingV2 wire contract', () => {
   it('creates one canonical preparation-to-run binding without rendezvous or codec state', () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => RUN_ID) });
+    const randomUUID = vi.fn(() => '00000000-0000-4000-8000-000000000099');
+    vi.stubGlobal('crypto', { randomUUID });
     const value = createFilePlaybackRunBindingV2(creatorInput());
     const serialized = serializeFilePlaybackRunBindingV2(value);
 
     expect(value).toEqual(rawBinding());
     expect(value.runId).toBe(RUN_ID);
+    expect(randomUUID).not.toHaveBeenCalled();
     expect(value.transferSessionId).toContain(QID);
     expect(Object.getPrototypeOf(value)).toBeNull();
     expect(Object.isFrozen(value)).toBe(true);
@@ -90,6 +93,84 @@ describe('FilePlaybackRunBindingV2 wire contract', () => {
       /rendezvousId|startAt|position|codec|sampleRate|channelCount|duration/u,
     );
     expect(parseFilePlaybackRunBindingV2(JSON.parse(serialized))).toEqual(value);
+  });
+
+  it('reuses one caller-owned run ID across independent connection preparation scopes', () => {
+    const firstInput = creatorInput();
+    const secondInput: FilePlaybackRunBindingV2Input = {
+      ...firstInput,
+      connectionId: 'connection:beta',
+      prepareId: '00000000-0000-4000-8000-000000000012',
+      prepareRevision: 1,
+    };
+
+    const first = createFilePlaybackRunBindingV2(firstInput);
+    const second = createFilePlaybackRunBindingV2(secondInput);
+
+    expect(first.runId).toBe(RUN_ID);
+    expect(second.runId).toBe(RUN_ID);
+    expect(first.sessionId).toBe(second.sessionId);
+    expect(first.connectionId).not.toBe(second.connectionId);
+    expect(first.prepareId).not.toBe(second.prepareId);
+    expect(parseFilePlaybackRunBindingV2(first)).toEqual(first);
+    expect(parseFilePlaybackRunBindingV2(second)).toEqual(second);
+  });
+
+  it('requires an exact descriptor-safe caller input and is idempotent after validation', () => {
+    const input = creatorInput();
+    const first = createFilePlaybackRunBindingV2(input);
+    const recreated = createFilePlaybackRunBindingV2({
+      sessionId: first.sessionId,
+      connectionId: first.connectionId,
+      prepareId: first.prepareId,
+      prepareRevision: first.prepareRevision,
+      queueItemId: first.queueItemId,
+      sourceIdentity: first.sourceIdentity,
+      transferSessionId: first.transferSessionId,
+      runId: first.runId,
+      playbackRevision: first.playbackRevision,
+    });
+    expect(recreated).toEqual(first);
+
+    let getterCalls = 0;
+    const accessor = { ...input };
+    Object.defineProperty(accessor, 'runId', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return RUN_ID;
+      },
+    });
+    expect(() => createFilePlaybackRunBindingV2(accessor)).toThrow('input is invalid');
+    expect(getterCalls).toBe(0);
+    expect(() =>
+      createFilePlaybackRunBindingV2({ ...input, extra: true } as FilePlaybackRunBindingV2Input),
+    ).toThrow('input is invalid');
+    const missingRunId = { ...input } as Partial<FilePlaybackRunBindingV2Input>;
+    delete missingRunId.runId;
+    expect(() =>
+      createFilePlaybackRunBindingV2(missingRunId as FilePlaybackRunBindingV2Input),
+    ).toThrow('input is invalid');
+  });
+
+  it('keeps a reentrant creator call isolated from the outer caller-owned run binding', () => {
+    const outerInput = creatorInput();
+    let nested: Readonly<FilePlaybackRunBindingV2> | null = null;
+    const proxied = new Proxy(outerInput, {
+      ownKeys(target) {
+        nested = createFilePlaybackRunBindingV2({
+          ...target,
+          connectionId: 'connection:nested',
+          prepareId: '00000000-0000-4000-8000-000000000013',
+        });
+        return Reflect.ownKeys(target);
+      },
+    });
+
+    const outer = createFilePlaybackRunBindingV2(proxied);
+
+    expect(outer).toMatchObject({ connectionId: CONNECTION_ID, runId: RUN_ID });
+    expect(nested).toMatchObject({ connectionId: 'connection:nested', runId: RUN_ID });
   });
 
   it('requires exact own enumerable plain data fields without invoking accessors', () => {
@@ -192,6 +273,7 @@ describe('FilePlaybackRunBindingV2 wire contract', () => {
     expect(mathRandom).not.toHaveBeenCalled();
 
     vi.stubGlobal('crypto', undefined);
-    expect(() => createFilePlaybackRunBindingV2(creatorInput())).toThrow('unavailable');
+    expect(() => createFilePlaybackRunId()).toThrow('unavailable');
+    expect(createFilePlaybackRunBindingV2(creatorInput())).toEqual(rawBinding());
   });
 });

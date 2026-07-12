@@ -14,6 +14,7 @@ import {
 } from '../rendezvous-coordinator.ts';
 
 const QID = '00000000-0000-4000-8000-0000000000aa' as QueueItemId;
+const QID_B = '00000000-0000-4000-8000-0000000000bb' as QueueItemId;
 const RUN = Object.freeze({ queueItemId: QID, runId: 'run-a', revision: 12 });
 
 interface Deferred<T> {
@@ -605,7 +606,7 @@ describe('HostRendezvousCoordinator', () => {
     });
   });
 
-  it('refuses equal or older revisions without disturbing the latest attempt', () => {
+  it('refuses equal foreign state or older revisions without disturbing the latest attempt', () => {
     const host = coordinator(() => 1_250, ['rv-12', 'rv-13']);
     const latest = host.start({
       run: RUN,
@@ -621,7 +622,15 @@ describe('HostRendezvousCoordinator', () => {
         playbackRate: 1,
         participants: [],
       }),
-    ).toThrow(/revision must be newer/i);
+    ).toThrow(/must match the active playback state/i);
+    expect(() =>
+      host.start({
+        run: { ...RUN, queueItemId: QID_B },
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [],
+      }),
+    ).toThrow(/must match the active playback state/i);
     expect(() =>
       host.start({
         run: { ...RUN, runId: 'older-run', revision: RUN.revision - 1 },
@@ -629,7 +638,7 @@ describe('HostRendezvousCoordinator', () => {
         playbackRate: 1,
         participants: [],
       }),
-    ).toThrow(/revision must be newer/i);
+    ).toThrow(/must not be older/i);
     expect(latest.getSnapshot()).toMatchObject({
       status: 'complete',
       rendezvousId: 'rv-12',
@@ -645,6 +654,266 @@ describe('HostRendezvousCoordinator', () => {
     expect(newer.getSnapshot()).toMatchObject({
       status: 'complete',
       rendezvousId: 'rv-13',
+    });
+  });
+
+  it('replaces a pending same-state attempt and may target only a participant subset', async () => {
+    const pendingArm = deferred<RendezvousArmReceipt>();
+    const oldFinalize = vi.fn();
+    const host = coordinator(() => 1_300, ['rv-pending', 'rv-recovery']);
+    const pending = host.start({
+      run: RUN,
+      positionSeconds: 2,
+      playbackRate: 1,
+      participants: [
+        participant('retry-peer', { arm: () => pendingArm.promise, finalize: oldFinalize }),
+        participant('dropped-peer', { arm: () => pendingArm.promise, finalize: oldFinalize }),
+      ],
+    });
+
+    const recovery = host.start({
+      run: RUN,
+      positionSeconds: 2.5,
+      playbackRate: 1,
+      participants: [participant('retry-peer')],
+    });
+    await drainMicrotasks();
+
+    expect(pending.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'replacement-rendezvous',
+      participants: [
+        { participantId: 'retry-peer', armStatus: 'stale', finalizeStatus: 'stale' },
+        { participantId: 'dropped-peer', armStatus: 'stale', finalizeStatus: 'stale' },
+      ],
+    });
+    expect(oldFinalize).not.toHaveBeenCalled();
+    expect(recovery.getSnapshot()).toMatchObject({
+      status: 'complete',
+      run: RUN,
+      positionSeconds: 2.5,
+      participants: [{ participantId: 'retry-peer', finalizeStatus: 'accepted' }],
+    });
+  });
+
+  it('protects committed participants while replacing a complete same-state candidate set', async () => {
+    const committedCancel = vi.fn();
+    const candidateCancel = vi.fn();
+    const host = coordinator(() => 1_350, ['rv-complete', 'rv-recovery']);
+    const complete = host.start({
+      run: RUN,
+      positionSeconds: 3,
+      playbackRate: 1,
+      participants: [
+        participant('committed-peer', {
+          commitAttempt: () => true,
+          cancel: committedCancel,
+        }),
+        participant('candidate-peer', {
+          commitAttempt: () => true,
+          cancel: candidateCancel,
+        }),
+      ],
+    });
+    await drainMicrotasks();
+    expect(complete.getSnapshot().status).toBe('complete');
+    expect(complete.commitParticipant('committed-peer')).toBe(true);
+
+    const recovery = host.start({
+      run: RUN,
+      positionSeconds: 3,
+      playbackRate: 1,
+      participants: [participant('committed-peer')],
+    });
+    await drainMicrotasks();
+
+    expect(committedCancel).not.toHaveBeenCalled();
+    expect(candidateCancel).toHaveBeenCalledWith({
+      kind: 'file-playback-cancel',
+      ...RUN,
+      rendezvousId: 'rv-complete',
+      reasonCode: 'replacement-rendezvous',
+    });
+    expect(complete.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'replacement-rendezvous',
+    });
+    expect(recovery.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-recovery',
+      participants: [{ participantId: 'committed-peer', finalizeStatus: 'accepted' }],
+    });
+  });
+
+  it('starts same-state recovery after the active attempt was already cancelled', () => {
+    const host = coordinator(() => 1_375, ['rv-cancelled', 'rv-after-cancel']);
+    const cancelled = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    cancelled.cancel('manual-recovery');
+
+    const recovery = host.start({
+      run: RUN,
+      positionSeconds: 1,
+      playbackRate: 1,
+      participants: [],
+    });
+
+    expect(cancelled.getSnapshot()).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'manual-recovery',
+    });
+    expect(recovery.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-after-cancel',
+      run: RUN,
+    });
+  });
+
+  it('rejects rendezvous ID reuse across same-state replacement generations', () => {
+    const host = coordinator(() => 1_390, ['rv-a', 'rv-b', 'rv-a', 'rv-a']);
+    const first = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    const second = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+
+    expect(() =>
+      host.start({
+        run: RUN,
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [],
+      }),
+    ).toThrow(/must differ/);
+    expect(first.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'replacement-rendezvous',
+    });
+    expect(second.getSnapshot()).toMatchObject({ status: 'complete', rendezvousId: 'rv-b' });
+
+    const newerState = host.start({
+      run: { ...RUN, runId: 'run-newer', revision: RUN.revision + 1 },
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    expect(second.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'newer-rendezvous',
+    });
+    expect(newerState.getSnapshot()).toMatchObject({ status: 'complete', rendezvousId: 'rv-a' });
+  });
+
+  it('keeps same-state recovery available beyond the bounded recent-ID window', () => {
+    let nextId = 0;
+    let forcedId: string | null = null;
+    const host = new HostRendezvousCoordinator({
+      nowRoomTimeMs: () => 1_392,
+      createRendezvousId: () => forcedId ?? `rv-window-${nextId++}`,
+    });
+    let latest = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    let recentRetiredId = '';
+    for (let index = 1; index <= 300; index += 1) {
+      if (index === 300) recentRetiredId = latest.rendezvousId;
+      latest = host.start({
+        run: RUN,
+        positionSeconds: index,
+        playbackRate: 1,
+        participants: [],
+      });
+    }
+    expect(latest.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-window-300',
+      positionSeconds: 300,
+    });
+
+    forcedId = recentRetiredId;
+    expect(() =>
+      host.start({
+        run: RUN,
+        positionSeconds: 301,
+        playbackRate: 1,
+        participants: [],
+      }),
+    ).toThrow(/must differ/);
+    expect(latest.getSnapshot().status).toBe('complete');
+
+    forcedId = 'rv-window-0';
+    const afterEviction = host.start({
+      run: RUN,
+      positionSeconds: 302,
+      playbackRate: 1,
+      participants: [],
+    });
+    expect(afterEviction.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-window-0',
+      positionSeconds: 302,
+    });
+  });
+
+  it('does not let a reentrant same-state recovery get rolled back by its caller', () => {
+    let idCall = 0;
+    let nested: ReturnType<HostRendezvousCoordinator['start']> | null = null;
+    let host!: HostRendezvousCoordinator;
+    host = new HostRendezvousCoordinator({
+      nowRoomTimeMs: () => 1_395,
+      createRendezvousId: () => {
+        idCall += 1;
+        if (idCall === 1) return 'rv-initial';
+        if (idCall === 2) {
+          nested = host.start({
+            run: RUN,
+            positionSeconds: 4,
+            playbackRate: 1,
+            participants: [],
+          });
+          return 'rv-outer';
+        }
+        return 'rv-nested';
+      },
+    });
+    const initial = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+
+    expect(() =>
+      host.start({
+        run: RUN,
+        positionSeconds: 2,
+        playbackRate: 1,
+        participants: [],
+      }),
+    ).toThrow(/superseded/);
+    expect(initial.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'replacement-rendezvous',
+    });
+    expect(nested).not.toBeNull();
+    expect(nested!.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-nested',
+      positionSeconds: 4,
     });
   });
 

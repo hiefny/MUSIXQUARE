@@ -520,7 +520,9 @@ export async function playTrack(queueItemId: QueueItemId, subIndex?: number): Pr
     typeof File !== 'undefined' &&
     item.file instanceof File
   ) {
-    const replay = queueItemId === getCurrentQueueItemId();
+    const currentRenderer = filePlaybackProductRuntime.currentHostRendererSnapshot();
+    const replay =
+      queueItemId === getCurrentQueueItemId() && currentRenderer?.queueItemId === queueItemId;
     await playV2HostLocalFile(queueItemId, item.file, replay);
     return;
   }

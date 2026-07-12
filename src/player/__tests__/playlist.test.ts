@@ -48,6 +48,7 @@ const decodeMocks = vi.hoisted(() => ({
 
 const productRuntimeMocks = vi.hoisted(() => ({
   enabled: vi.fn(() => false),
+  currentHostRendererSnapshot: vi.fn(),
   replayCurrent: vi.fn(),
   startLocalTrack: vi.fn(),
 }));
@@ -72,6 +73,8 @@ beforeEach(() => {
   decodeMocks.loadAndBroadcastFile.mockReset();
   productRuntimeMocks.enabled.mockReset();
   productRuntimeMocks.enabled.mockReturnValue(false);
+  productRuntimeMocks.currentHostRendererSnapshot.mockReset();
+  productRuntimeMocks.currentHostRendererSnapshot.mockReturnValue(null);
   productRuntimeMocks.replayCurrent.mockReset();
   productRuntimeMocks.startLocalTrack.mockReset();
   resetState();
@@ -423,6 +426,9 @@ describe('playTrack V2 host-local cutover', () => {
     const item = fileItem('same.flac', media);
     setState('playlist.items', [item]);
     setState('playlist.currentQueueItemId', item.queueItemId);
+    productRuntimeMocks.currentHostRendererSnapshot.mockReturnValue({
+      queueItemId: item.queueItemId,
+    });
     productRuntimeMocks.replayCurrent.mockResolvedValueOnce(v2TrackCommit(item.queueItemId, 2));
 
     await playTrack(item.queueItemId);
@@ -433,6 +439,27 @@ describe('playTrack V2 host-local cutover', () => {
     expect(productRuntimeMocks.startLocalTrack).not.toHaveBeenCalled();
     expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
     expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();
+  });
+
+  it('starts the selected file again when stop or ended retirement left no renderer', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const media = new File(['same'], 'same.flac', { type: 'audio/flac' });
+    const item = fileItem('same.flac', media);
+    setState('playlist.items', [item]);
+    setState('playlist.currentQueueItemId', item.queueItemId);
+    productRuntimeMocks.currentHostRendererSnapshot.mockReturnValue(null);
+    productRuntimeMocks.startLocalTrack.mockResolvedValueOnce(v2TrackCommit(item.queueItemId, 3));
+
+    await playTrack(item.queueItemId);
+
+    expect(productRuntimeMocks.replayCurrent).not.toHaveBeenCalled();
+    expect(productRuntimeMocks.startLocalTrack).toHaveBeenCalledWith({
+      queueItemId: item.queueItemId,
+      file: media,
+      positionSeconds: 0,
+      signal: expect.any(AbortSignal),
+    });
+    expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
   });
 
   it('keeps a removed queue occurrence inert when its start completes late', async () => {

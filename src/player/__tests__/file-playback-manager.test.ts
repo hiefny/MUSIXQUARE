@@ -418,6 +418,30 @@ describe('FilePlaybackManager', () => {
     expect(manager.standbySource()).toBe(retry.source);
   });
 
+  it('retires only the exact stale source and leaves a same-queue successor intact', async () => {
+    const manager = new FilePlaybackManager();
+    const stale = makeSource(Q2);
+    stale.gatePrepare();
+    const stalePreparation = manager.prepareStandby(stale.source);
+
+    const successor = makeSource(Q2, 'ready');
+    const successorActivation = manager.activate(successor.source, destination);
+    await manager.retire(stale.source);
+
+    await expect(stalePreparation).resolves.toMatchObject({
+      published: false,
+      reason: 'superseded',
+    });
+    await expect(successorActivation).resolves.toMatchObject({ published: true });
+    expect(stale.source.destroy).toHaveBeenCalledOnce();
+    expect(successor.source.destroy).not.toHaveBeenCalled();
+    expect(manager.activeSource()).toBe(successor.source);
+
+    stale.resolvePrepare();
+    await Promise.resolve();
+    expect(manager.activeSource()).toBe(successor.source);
+  });
+
   it('clear cancels every pending slot and ignores all late completions', async () => {
     const manager = new FilePlaybackManager();
     const pendingActive = makeSource(Q2);

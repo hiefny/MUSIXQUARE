@@ -246,6 +246,29 @@ export class FilePlaybackManager {
     await Promise.all([...states].map((state) => this.destroyState(state)));
   }
 
+  /**
+   * Retire one exact native source without affecting a successor that happens
+   * to share its queue item. This is the stale-load cleanup primitive: callers
+   * keep object identity across an asynchronous publication and can safely
+   * withdraw only their own result after authority changes.
+   */
+  async retire(source: FilePlaybackSource): Promise<void> {
+    const state = this.stateFor(source);
+    if (this.active === source) this.active = null;
+    if (this.standby === source) this.standby = null;
+    if (this.pendingActive?.state === state) {
+      const operation = this.pendingActive;
+      this.pendingActive = null;
+      operation.cancel();
+    }
+    if (this.pendingStandby?.state === state) {
+      const operation = this.pendingStandby;
+      this.pendingStandby = null;
+      operation.cancel();
+    }
+    await this.destroyState(state);
+  }
+
   async discardQueueItem(queueItemId: QueueItemId): Promise<void> {
     this.discardedQueueItems.add(queueItemId);
     const states = new Set<ManagedSource>();

@@ -12,13 +12,18 @@ import {
   invalidateCapabilityToken,
   isCapabilityChallengeCancelled,
 } from '../core/capability.ts';
-import { REMOTE_SHARE_MAX_ENCRYPTED_BYTES } from '../core/constants.ts';
+import {
+  REMOTE_SHARE_AES_GCM_TAG_BYTES,
+  REMOTE_SHARE_MAX_BYTES,
+  REMOTE_SHARE_MAX_ENCRYPTED_BYTES,
+} from '../core/constants.ts';
 import type { QueueItemId } from '../types/index.ts';
 
-interface RemoteUploadResponse {
+export interface RemoteUploadResponse {
   objectId: string;
   downloadUrl?: string;
   expiresAt: number;
+  cleanupToken?: string;
 }
 
 interface RemoteUploadSessionResponse {
@@ -32,7 +37,7 @@ interface RemoteUploadSessionResponse {
   cleanupToken?: string;
 }
 
-interface RemoteUploadMeta {
+export interface RemoteUploadMeta {
   roomId: string;
   name: string;
   mime: string;
@@ -41,7 +46,23 @@ interface RemoteUploadMeta {
   queueItemId: QueueItemId;
 }
 
-type ProgressHandler = (progress: number) => void;
+export interface R2WholeBlobUploadMeta {
+  readonly storageRoomId: string;
+  readonly queueItemId: QueueItemId;
+  readonly name: string;
+  readonly mime: string;
+  readonly plaintextSize: number;
+}
+
+export interface R2WholeBlobUploadResult {
+  readonly objectId: string;
+  readonly expiresAt: number;
+  readonly cleanupToken: string;
+}
+
+export type R2WholeBlobDeleteResult = 'deleted' | 'not-found';
+
+export type ProgressHandler = (progress: number) => void;
 
 declare global {
   interface Window {
@@ -62,11 +83,81 @@ const REMOTE_SHARE_XHR_STALL_TIMEOUT_MS = 90_000;
 const REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS = 5 * 60_000;
 const REMOTE_OBJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STORAGE_ROOM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/u;
+const CLEANUP_TOKEN_RE = REMOTE_OBJECT_ID_RE;
+const MIME_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
+const MAX_NAME_LENGTH = 512;
+const MAX_MIME_LENGTH = 128;
 let remoteShareSecurityConfigCache: {
   endpoint: string;
   expiresAt: number;
   value: RemoteShareSecurityConfig;
 } | null = null;
+
+function freezeCanonical<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function assertV2Signal(signal: AbortSignal | undefined): void {
+  if (signal !== undefined && !(signal instanceof AbortSignal)) {
+    throw new TypeError('REMOTE_SHARE_V2_SIGNAL_INVALID');
+  }
+  if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
+}
+
+function assertStorageRoomId(storageRoomId: unknown): asserts storageRoomId is string {
+  if (typeof storageRoomId !== 'string' || !STORAGE_ROOM_ID_RE.test(storageRoomId)) {
+    throw new Error('REMOTE_SHARE_V2_STORAGE_SCOPE_INVALID');
+  }
+}
+
+function assertStorageObjectScope(
+  storageRoomId: unknown,
+  objectId: unknown,
+): asserts objectId is string {
+  assertStorageRoomId(storageRoomId);
+  if (typeof objectId !== 'string' || !REMOTE_OBJECT_ID_RE.test(objectId)) {
+    throw new Error('REMOTE_SHARE_V2_STORAGE_SCOPE_INVALID');
+  }
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+
+function assertUploadMeta(meta: R2WholeBlobUploadMeta, encryptedBlob: Blob): void {
+  if (!meta || typeof meta !== 'object') throw new TypeError('REMOTE_SHARE_V2_UPLOAD_META_INVALID');
+  assertStorageRoomId(meta.storageRoomId);
+  if (
+    !QUEUE_ITEM_ID_RE.test(meta.queueItemId) ||
+    typeof meta.name !== 'string' ||
+    meta.name.trim().length === 0 ||
+    meta.name.length > MAX_NAME_LENGTH ||
+    containsControlCharacter(meta.name) ||
+    typeof meta.mime !== 'string' ||
+    meta.mime.length > MAX_MIME_LENGTH ||
+    !MIME_PATTERN.test(meta.mime) ||
+    !Number.isSafeInteger(meta.plaintextSize) ||
+    meta.plaintextSize <= 0 ||
+    meta.plaintextSize > REMOTE_SHARE_MAX_BYTES ||
+    encryptedBlob.size !== meta.plaintextSize + REMOTE_SHARE_AES_GCM_TAG_BYTES
+  ) {
+    throw new Error('REMOTE_SHARE_V2_UPLOAD_META_INVALID');
+  }
+}
+
+function createTransportSessionId(): number {
+  const values = crypto.getRandomValues(new Uint32Array(2));
+  const high = (values[0] ?? 0) & 0x1fffff;
+  const low = values[1] ?? 0;
+  const value = high * 0x1_0000_0000 + low;
+  return value > 0 ? value : 1;
+}
 
 function normalizeEndpoint(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -112,6 +203,20 @@ function expectedDownloadUrl(roomId: string, objectId: string): URL {
   );
 }
 
+function expectedObjectUrl(roomId: string, objectId: string): URL {
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  return new URL(
+    `${endpoint}/object/${encodeURIComponent(roomId)}/${encodeURIComponent(objectId)}`,
+  );
+}
+
+/** V2-safe construction from the local configured endpoint; no wire URL is accepted. */
+export function buildExactRemoteObjectDownloadUrl(storageRoomId: string, objectId: string): string {
+  assertStorageObjectScope(storageRoomId, objectId);
+  return expectedDownloadUrl(storageRoomId, objectId).toString();
+}
+
 function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string): string {
   const expected = expectedDownloadUrl(roomId, objectId);
   if (!downloadUrl) return expected.toString();
@@ -133,6 +238,16 @@ function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string
     throw new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID');
   }
   return candidate.toString();
+}
+
+function hasExactResponseUrl(response: Response, expectedUrl: string): boolean {
+  if (response.redirected) return false;
+  if (response.url === '') return true;
+  try {
+    return new URL(response.url).toString() === expectedUrl;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -347,7 +462,10 @@ async function completeDirectUpload(
     if (
       typeof body?.objectId !== 'string' ||
       body.objectId !== session.objectId ||
-      typeof body.expiresAt !== 'number'
+      typeof body.expiresAt !== 'number' ||
+      (typeof body.cleanupToken === 'string' &&
+        typeof session.cleanupToken === 'string' &&
+        body.cleanupToken !== session.cleanupToken)
     ) {
       throw new Error('REMOTE_SHARE_BAD_COMPLETE_RESPONSE');
     }
@@ -355,6 +473,8 @@ async function completeDirectUpload(
       objectId: body.objectId,
       downloadUrl: body.downloadUrl,
       expiresAt: body.expiresAt,
+      cleanupToken:
+        typeof body.cleanupToken === 'string' ? body.cleanupToken : session.cleanupToken,
     };
   } catch (error) {
     if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
@@ -426,6 +546,49 @@ export async function uploadEncryptedBlob(
           : new Error('REMOTE_SHARE_UPLOAD_NETWORK', { cause: error }),
       );
     }
+  });
+}
+
+/**
+ * V2 whole-Blob upload wrapper. The Worker-only numeric session identity is
+ * generated internally, and endpoint/cleanup capabilities never enter offers.
+ */
+export async function uploadR2WholeBlobObject(
+  encryptedBlob: Blob,
+  meta: R2WholeBlobUploadMeta,
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+): Promise<Readonly<R2WholeBlobUploadResult>> {
+  if (!(encryptedBlob instanceof Blob)) throw new TypeError('REMOTE_SHARE_V2_BLOB_INVALID');
+  assertV2Signal(signal);
+  assertUploadMeta(meta, encryptedBlob);
+  const uploaded = await uploadEncryptedBlob(
+    encryptedBlob,
+    {
+      roomId: meta.storageRoomId,
+      name: meta.name,
+      mime: meta.mime,
+      size: meta.plaintextSize,
+      sessionId: createTransportSessionId(),
+      queueItemId: meta.queueItemId,
+    },
+    onProgress,
+    signal,
+  );
+  assertV2Signal(signal);
+  if (
+    !REMOTE_OBJECT_ID_RE.test(uploaded.objectId) ||
+    !Number.isSafeInteger(uploaded.expiresAt) ||
+    uploaded.expiresAt <= 0 ||
+    typeof uploaded.cleanupToken !== 'string' ||
+    !CLEANUP_TOKEN_RE.test(uploaded.cleanupToken)
+  ) {
+    throw new Error('REMOTE_SHARE_V2_UPLOAD_RESULT_INVALID');
+  }
+  return freezeCanonical({
+    objectId: uploaded.objectId,
+    expiresAt: uploaded.expiresAt,
+    cleanupToken: uploaded.cleanupToken,
   });
 }
 
@@ -524,4 +687,61 @@ export function downloadEncryptedObject(
       );
     }
   });
+}
+
+/** V2 download entry point that cannot consume a host-supplied URL. */
+export function downloadR2WholeBlobObject(
+  storageRoomId: string,
+  objectId: string,
+  expectedEncryptedSize: number,
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  assertStorageObjectScope(storageRoomId, objectId);
+  assertV2Signal(signal);
+  return downloadEncryptedObject(
+    storageRoomId,
+    objectId,
+    expectedEncryptedSize,
+    undefined,
+    onProgress,
+    signal,
+  );
+}
+
+/** Best-effort exact-origin cleanup capability retained only by the host owner. */
+export async function deleteR2WholeBlobObject(
+  storageRoomId: string,
+  objectId: string,
+  cleanupToken: string,
+  signal?: AbortSignal,
+): Promise<R2WholeBlobDeleteResult> {
+  assertStorageObjectScope(storageRoomId, objectId);
+  if (typeof cleanupToken !== 'string' || !CLEANUP_TOKEN_RE.test(cleanupToken)) {
+    throw new Error('REMOTE_SHARE_V2_CLEANUP_TOKEN_INVALID');
+  }
+  assertV2Signal(signal);
+  const requestUrl = expectedObjectUrl(storageRoomId, objectId).toString();
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+        'x-mxqr-cleanup-token': cleanupToken,
+      },
+      redirect: 'error',
+      signal,
+    });
+    assertV2Signal(signal);
+    if (!hasExactResponseUrl(response, requestUrl)) {
+      throw new Error('REMOTE_SHARE_DELETE_ORIGIN_INVALID');
+    }
+    if (response.status === 404) return 'not-found';
+    if (response.status >= 200 && response.status < 300) return 'deleted';
+    throw new Error(`REMOTE_SHARE_DELETE_HTTP_${response.status}`);
+  } catch (error) {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_DELETE_NETWORK', { cause: error });
+  }
 }

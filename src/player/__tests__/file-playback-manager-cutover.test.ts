@@ -20,8 +20,10 @@ import {
 } from '../file-playback-source.ts';
 import {
   FilePlaybackManager,
+  isExactFilePlaybackManager,
   type FilePlaybackCutoverCandidatePort,
 } from '../file-playback-manager.ts';
+import type { FilePlaybackStopTransitionIntent } from '../file-playback-stop-transition.ts';
 import type {
   RendezvousArmIntent,
   RendezvousArmReceipt,
@@ -83,6 +85,7 @@ class FakeGainNode {
 class FakeAudioContext {
   #currentTime = 0;
   readonly sampleRate = 48_000;
+  state: AudioContextState = 'running';
   readonly gains: FakeGainNode[] = [];
   onCurrentTimeRead: (() => void) | null = null;
 
@@ -149,6 +152,24 @@ function currentPauseIntent(queueItemId = Q1) {
     from: { queueItemId, runId: `run-${queueItemId}`, revision: 1 },
     to: { queueItemId, runId: `run-${queueItemId}`, revision: 2 },
     atRoomTimeMs: 2_000,
+  };
+}
+
+function currentStopIntent(
+  context: FakeAudioContext,
+  contextTimeSeconds: number,
+  revision = 1,
+): FilePlaybackStopTransitionIntent {
+  return {
+    kind: 'file-playback-stop-transition',
+    from: { queueItemId: Q1, runId: `run-${Q1}`, revision },
+    to: { queueItemId: Q1, runId: `run-${Q1}`, revision: revision + 1 },
+    atRoomTimeMs: contextTimeSeconds * 1_000,
+    target: createFilePlaybackCutoverTarget(
+      context as unknown as AudioContext,
+      contextTimeSeconds,
+      Math.round(contextTimeSeconds * context.sampleRate),
+    ),
   };
 }
 
@@ -420,6 +441,30 @@ async function startFirst(
 }
 
 describe('FilePlaybackManager V2 atomic cutover', () => {
+  it('brands only exact module-created manager objects', () => {
+    const exact = new FilePlaybackManager();
+    class ManagerSubclass extends FilePlaybackManager {}
+    const subclass = new ManagerSubclass();
+    class PrototypeResetSubclass extends FilePlaybackManager {
+      constructor() {
+        super();
+        Object.setPrototypeOf(this, FilePlaybackManager.prototype);
+      }
+    }
+    const prototypeResetSubclass = new PrototypeResetSubclass();
+    const transparentProxy = new Proxy(exact, {});
+    const lyingProxy = new Proxy(Object.create(null) as object, {
+      getPrototypeOf: () => FilePlaybackManager.prototype,
+    });
+
+    expect(isExactFilePlaybackManager(exact)).toBe(true);
+    expect(isExactFilePlaybackManager(subclass)).toBe(false);
+    expect(isExactFilePlaybackManager(prototypeResetSubclass)).toBe(false);
+    expect(isExactFilePlaybackManager(transparentProxy)).toBe(false);
+    expect(isExactFilePlaybackManager(lyingProxy)).toBe(false);
+    expect(isExactFilePlaybackManager(null)).toBe(false);
+  });
+
   it('keeps the first source silent until exact evidence promotes its opaque port', async () => {
     const context = new FakeAudioContext();
     const destination = destinationFor(context);
@@ -440,6 +485,46 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     expect(manager.currentCutoverSnapshot(port)?.queueItemId).toBe(Q1);
     expect(manager.snapshot().active?.queueItemId).toBe(Q1);
     expect(JSON.stringify(port)).toBe('{}');
+  });
+
+  it('observes a hostile fulfilled start value without re-assimilating it', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const candidate = makeSource(Q1, context, 1);
+    const port = await manager.stageCutoverCandidate({ source: candidate.source, destination });
+    const arm = armIntent(Q1, 'rv-hostile-start-value');
+    const hostileValue = {} as Record<PropertyKey, unknown>;
+    const hostileStarted = Promise.resolve(hostileValue as unknown as FilePlaybackStartEvidence);
+    await hostileStarted;
+    Object.defineProperty(hostileValue, 'then', {
+      configurable: true,
+      get() {
+        throw new Error('fulfilled value was re-assimilated');
+      },
+    });
+    vi.mocked(candidate.source.armForCutover).mockResolvedValueOnce({
+      status: 'armed',
+      receipt: armedReceipt(arm),
+      target: createFilePlaybackCutoverTarget(
+        context as unknown as AudioContext,
+        1,
+        context.sampleRate,
+      ),
+      started: hostileStarted,
+    });
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      await expect(manager.armCutoverCandidate(port, arm)).resolves.toMatchObject({
+        status: 'armed',
+      });
+      await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+      await manager.clear();
+    }
   });
 
   it('keeps old audio audible during prepare and arm, then schedules an exact simultaneous step', async () => {
@@ -1240,5 +1325,479 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     expect(manager.activeSource()).toBeNull();
     expect(legacy.source.destroy).toHaveBeenCalledOnce();
     expect(v2.source.destroy).not.toHaveBeenCalled();
+  });
+
+  it('commits STOP only after the exact outer-gate frame and never calls backend control', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      const intent = currentStopIntent(context, 2);
+
+      const first = manager.stopCurrentCutover(port, intent);
+      const retry = manager.stopCurrentCutover(port, { ...intent });
+      expect(retry).toBe(first);
+      const scheduled = await first;
+      expect(context.gains[0]!.gain.events).toContainEqual({ value: 0, time: 2 });
+      expect(current.source.pause).not.toHaveBeenCalled();
+      expect(current.source.seek).not.toHaveBeenCalled();
+      expect(current.source.cancel).not.toHaveBeenCalled();
+      expect(manager.currentCutoverPort()).toBe(port);
+
+      context.currentTime = 2;
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(scheduled.applied).resolves.toMatchObject({
+        kind: 'stop-applied',
+        observation: 'webaudio-schedule-passed',
+        targetFrame: 96_000,
+        appliedFrame: 96_000,
+      });
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(manager.snapshot().active).toBeNull();
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      expect(await manager.stopCurrentCutover(port, { ...intent })).toBe(scheduled);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('commits a consecutive paused-to-stopped revision on the same exact gate', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      const pausing = await manager.pauseCurrentCutover(port, currentPauseIntent());
+      context.currentTime = 2;
+      current.applyTransition(96_000);
+      if (pausing.status === 'scheduled') await pausing.applied;
+      expect(manager.currentCutoverSnapshot(port)).toMatchObject({ phase: 'paused', revision: 2 });
+
+      const stopped = await manager.stopCurrentCutover(port, currentStopIntent(context, 3, 2));
+      context.currentTime = 3;
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(stopped.applied).resolves.toMatchObject({
+        from: { revision: 2 },
+        to: { revision: 3 },
+        targetFrame: 144_000,
+      });
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(current.source.cancel).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves the exact current renderer when pre-target stop automation rolls back', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      context.gains[0]!.gain.throwOnValue = 0;
+
+      await expect(manager.stopCurrentCutover(port, currentStopIntent(context, 2))).rejects.toThrow(
+        'gate automation failed',
+      );
+      expect(manager.currentCutoverPort()).toBe(port);
+      expect(manager.cutoverRecoveryRequired()).toBe(false);
+      expect(current.source.destroy).not.toHaveBeenCalled();
+      expect(context.gains[0]!.gain.valueAt(context.currentTime)).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails silent when STOP rollback crosses the target between native clock reads', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      let rollbackClockReads = 0;
+      context.gains[0]!.gain.onSet = (value, time) => {
+        if (value !== 0 || time !== 2) return;
+        context.onCurrentTimeRead = () => {
+          rollbackClockReads += 1;
+          if (rollbackClockReads === 2) context.currentTime = 2;
+        };
+        throw new Error('native stop automation failed before rollback');
+      };
+
+      await expect(manager.stopCurrentCutover(port, currentStopIntent(context, 2))).rejects.toThrow(
+        'native stop automation failed',
+      );
+      context.onCurrentTimeRead = null;
+      expect(rollbackClockReads).toBeGreaterThanOrEqual(2);
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(manager.cutoverRecoveryRequired()).toBe(true);
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      expect(context.gains[0]!.gain.valueAt(2)).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not restore a stale STOP gate after a rollback clock read retires current', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      context.gains[0]!.gain.onSet = (value, time) => {
+        if (value !== 0 || time !== 2) return;
+        context.onCurrentTimeRead = () => {
+          context.onCurrentTimeRead = null;
+          void manager.retireCurrentCutover(port);
+        };
+        throw new Error('native stop automation entered stale rollback');
+      };
+
+      await expect(manager.stopCurrentCutover(port, currentStopIntent(context, 2))).rejects.toThrow(
+        'stale rollback',
+      );
+      const lastGateEvent = context.gains[0]!.gain.events.at(-1);
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      expect(lastGateEvent?.value).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails silent when native stop automation crosses its target before throwing', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      context.gains[0]!.gain.onSet = (value, time) => {
+        if (value !== 0 || time !== 2) return;
+        context.currentTime = 2;
+        throw new Error('native callback crossed target');
+      };
+
+      await expect(manager.stopCurrentCutover(port, currentStopIntent(context, 2))).rejects.toThrow(
+        'crossed target',
+      );
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(manager.cutoverRecoveryRequired()).toBe(true);
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails closed when native gate automation re-enters current retirement', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      context.gains[0]!.gain.onSet = (value, time) => {
+        if (value !== 0 || time !== 2) return;
+        context.gains[0]!.gain.onSet = null;
+        void manager.retireCurrentCutover(port);
+      };
+
+      await expect(manager.stopCurrentCutover(port, currentStopIntent(context, 2))).rejects.toThrow(
+        'authority',
+      );
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects and retires finite stop evidence when the AudioContext is interrupted', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      const scheduled = await manager.stopCurrentCutover(port, currentStopIntent(context, 2));
+
+      context.state = 'suspended';
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(scheduled.applied).rejects.toThrow('AudioContext stopped');
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(manager.cutoverRecoveryRequired()).toBe(true);
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rechecks current authority after native clock reads before committing STOP', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      let authorized = true;
+      const { port } = await startFirst(manager, current, destination, context, () => authorized);
+      const scheduled = await manager.stopCurrentCutover(port, currentStopIntent(context, 2));
+
+      context.currentTime = 2;
+      context.onCurrentTimeRead = () => {
+        context.onCurrentTimeRead = null;
+        authorized = false;
+      };
+      await vi.advanceTimersByTimeAsync(50);
+
+      await expect(scheduled.applied).rejects.toThrow(/lost authority|authority expired/u);
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(manager.cutoverRecoveryRequired()).toBe(true);
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails silent if the product destination changes AudioContext before STOP', async () => {
+    const context = new FakeAudioContext();
+    let destinationContext = context;
+    const destination = Object.defineProperty({}, 'context', {
+      configurable: true,
+      enumerable: true,
+      get: () => destinationContext,
+    }) as AudioNode;
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+
+    destinationContext = new FakeAudioContext();
+    await expect(manager.stopCurrentCutover(port, currentStopIntent(context, 2))).rejects.toThrow(
+      'one AudioContext clock',
+    );
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(manager.cutoverRecoveryRequired()).toBe(true);
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('bounds a running-but-frozen AudioContext and clears the evidence timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      const scheduled = await manager.stopCurrentCutover(port, currentStopIntent(context, 2));
+
+      await vi.advanceTimersByTimeAsync(3_100);
+      await expect(scheduled.applied).rejects.toThrow('deadline');
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(manager.cutoverRecoveryRequired()).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a pending stop on teardown without leaving a timer or promise behind', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      const scheduled = await manager.stopCurrentCutover(port, currentStopIntent(context, 2));
+
+      await manager.clear();
+      await expect(scheduled.applied).rejects.toThrow('retired before stop evidence');
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets a strictly later candidate replace a pending stop without stale retirement', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port: oldPort } = await startFirst(manager, current, destination, context);
+      const stopped = await manager.stopCurrentCutover(oldPort, currentStopIntent(context, 4));
+
+      const successor = makeSource(Q1, context, 2);
+      const successorPort = await manager.stageCutoverCandidate({
+        source: successor.source,
+        destination,
+      });
+      const successorArm: RendezvousArmIntent = {
+        ...armIntent(Q1, 'rv-successor'),
+        revision: 3,
+      };
+      await manager.armCutoverCandidate(successorPort, successorArm);
+      const finalized = await manager.finalizeCutoverCandidate(
+        successorPort,
+        finalizeIntent(successorArm),
+      );
+      await expect(stopped.applied).rejects.toThrow('superseded');
+
+      context.currentTime = 2;
+      successor.resolveStarted();
+      await finalized.started;
+      expect(manager.currentCutoverPort()).toBe(successorPort);
+      context.currentTime = 4;
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(manager.currentCutoverPort()).toBe(successorPort);
+      expect(successor.source.destroy).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails silent if a candidate that superseded STOP loses start evidence', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port: oldPort } = await startFirst(manager, current, destination, context);
+      const stopped = await manager.stopCurrentCutover(oldPort, currentStopIntent(context, 4));
+
+      const successor = makeSource(Q1, context, 2);
+      const successorPort = await manager.stageCutoverCandidate({
+        source: successor.source,
+        destination,
+      });
+      const successorArm: RendezvousArmIntent = {
+        ...armIntent(Q1, 'rv-failing-successor'),
+        revision: 3,
+      };
+      await manager.armCutoverCandidate(successorPort, successorArm);
+      const finalized = await manager.finalizeCutoverCandidate(
+        successorPort,
+        finalizeIntent(successorArm),
+      );
+      await expect(stopped.applied).rejects.toThrow('superseded');
+
+      successor.started.reject(new Error('successor start failed'));
+      await expect(finalized.started).rejects.toThrow('successor start failed');
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(manager.cutoverRecoveryRequired()).toBe(true);
+      expect(current.source.destroy).toHaveBeenCalledOnce();
+      expect(successor.source.destroy).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restores the pending STOP if a later candidate gate fails before replacement', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port: oldPort } = await startFirst(manager, current, destination, context);
+      const stopped = await manager.stopCurrentCutover(oldPort, currentStopIntent(context, 4));
+
+      const successor = makeSource(Q1, context, 2);
+      const successorPort = await manager.stageCutoverCandidate({
+        source: successor.source,
+        destination,
+      });
+      const successorArm: RendezvousArmIntent = {
+        ...armIntent(Q1, 'rv-gate-failing-successor'),
+        revision: 3,
+      };
+      await manager.armCutoverCandidate(successorPort, successorArm);
+      context.gains[1]!.gain.throwOnValue = 1;
+      await expect(
+        manager.finalizeCutoverCandidate(successorPort, finalizeIntent(successorArm)),
+      ).rejects.toThrow('gate automation failed');
+      expect(manager.currentCutoverPort()).toBe(oldPort);
+      expect(context.gains[0]!.gain.events).toContainEqual({ value: 0, time: 4 });
+
+      context.currentTime = 4;
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(stopped.applied).resolves.toMatchObject({ targetFrame: 192_000 });
+      expect(manager.currentCutoverPort()).toBeNull();
+      expect(successor.source.destroy).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects stale, conflicting, and unbounded STOP without disturbing current audio', async () => {
+    vi.useFakeTimers();
+    try {
+      const context = new FakeAudioContext();
+      const destination = destinationFor(context);
+      const manager = new FilePlaybackManager();
+      const current = makeSource(Q1, context, 1);
+      const { port } = await startFirst(manager, current, destination, context);
+      const stale = currentStopIntent(context, 2, 2);
+      await expect(manager.stopCurrentCutover(port, stale)).rejects.toThrow('not current');
+      const far = currentStopIntent(context, 32);
+      await expect(manager.stopCurrentCutover(port, far)).rejects.toThrow('bounded future');
+
+      const exact = currentStopIntent(context, 3);
+      const scheduled = await manager.stopCurrentCutover(port, exact);
+      const conflicting = currentStopIntent(context, 4);
+      await expect(manager.stopCurrentCutover(port, conflicting)).rejects.toThrow(
+        'another current transition',
+      );
+      await expect(manager.pauseCurrentCutover(port, currentPauseIntent())).rejects.toThrow(
+        'another current transition',
+      );
+      expect(manager.currentCutoverPort()).toBe(port);
+      expect(current.source.destroy).not.toHaveBeenCalled();
+      await manager.clear();
+      await expect(scheduled.applied).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('blocks STOP while pause evidence owns the revision transition slot', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    const pausing = await manager.pauseCurrentCutover(port, currentPauseIntent());
+    await expect(manager.stopCurrentCutover(port, currentStopIntent(context, 2))).rejects.toThrow(
+      'another current transition',
+    );
+    current.applyTransition();
+    if (pausing.status === 'scheduled') await pausing.applied;
   });
 });

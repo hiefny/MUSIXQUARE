@@ -24,6 +24,15 @@ import {
 } from './file-playback-source.ts';
 import { readPlaybackStateIdentity } from './playback-identity.ts';
 import {
+  createFilePlaybackStopTransitionEvidence,
+  createFilePlaybackStopTransitionResult,
+  readFilePlaybackStopTransitionIntent,
+  sameFilePlaybackStopTransitionIntent,
+  type FilePlaybackStopTransitionEvidence,
+  type FilePlaybackStopTransitionIntent,
+  type FilePlaybackStopTransitionResult,
+} from './file-playback-stop-transition.ts';
+import {
   readRendezvousArmIntent,
   readRendezvousArmReceipt,
   readRendezvousFinalizeIntent,
@@ -111,9 +120,24 @@ interface CutoverRecord {
   currentTransitionIntent: Readonly<FilePlaybackTransitionIntent> | null;
   currentTransitionPromise: Promise<FilePlaybackTransitionResult> | null;
   currentTransitionPending: boolean;
+  currentStopIntent: Readonly<FilePlaybackStopTransitionIntent> | null;
+  currentStopPromise: Promise<FilePlaybackStopTransitionResult> | null;
+  currentStopApplied: ReturnType<
+    typeof createDeferredPromise<FilePlaybackStopTransitionEvidence>
+  > | null;
+  currentStopTimer: ReturnType<typeof globalThis.setTimeout> | null;
+  currentStopDeadlineMonotonicMs: number | null;
+  currentStopPending: boolean;
+  supersededCurrentStop: boolean;
   gatesScheduled: boolean;
   cleanupPromise: Promise<void> | null;
 }
+
+const CURRENT_STOP_MAX_LEAD_SECONDS = 30;
+const CURRENT_STOP_EVIDENCE_GRACE_MS = 2_000;
+const CURRENT_STOP_MIN_POLL_MS = 4;
+const CURRENT_STOP_MAX_POLL_MS = 50;
+const EXACT_FILE_PLAYBACK_MANAGERS = new WeakSet<object>();
 
 interface ManagedSource {
   readonly source: FilePlaybackSource;
@@ -447,7 +471,10 @@ function markReturnedStartPromiseObserved(value: unknown): void {
     if (value === null || typeof value !== 'object') return;
     const descriptor = Object.getOwnPropertyDescriptor(value, 'started');
     if (!descriptor || !Object.hasOwn(descriptor, 'value') || descriptor.value === null) return;
-    void Promise.resolve(descriptor.value as Promise<unknown>).catch(() => undefined);
+    void Promise.resolve(descriptor.value as Promise<unknown>).then(
+      () => undefined,
+      () => undefined,
+    );
   } catch {
     // Invalid source results are rejected below; observation is best effort.
   }
@@ -460,7 +487,11 @@ function markReturnedTransitionPromiseObserved(value: unknown): void {
     if (!descriptor || !Object.hasOwn(descriptor, 'value')) return;
     const applied = descriptor.value;
     if (!(applied instanceof Promise)) return;
-    Promise.prototype.then.call(applied, undefined, () => undefined);
+    Promise.prototype.then.call(
+      applied,
+      () => undefined,
+      () => undefined,
+    );
   } catch {
     // Invalid source results are rejected below; observation is best effort.
   }
@@ -500,6 +531,14 @@ export class FilePlaybackManager {
   private readonly cutoverStageReservations = new Set<object>();
   private cutoverRetirementBarrier: Promise<void> = Promise.resolve();
   private recoveryRequired = false;
+
+  constructor() {
+    // `super()` also runs for subclasses, so branding every `this` would let a
+    // hostile subclass reset its prototype to FilePlaybackManager.prototype
+    // after mutating the runtime-private own fields. Only exact construction
+    // receives the unforgeable module brand.
+    if (new.target === FilePlaybackManager) EXACT_FILE_PLAYBACK_MANAGERS.add(this);
+  }
 
   /**
    * Prepares a silent V2 renderer behind a manager-owned outer gate. The
@@ -695,6 +734,31 @@ export class FilePlaybackManager {
     const epoch = this.cutoverEpoch;
     const intent = readFilePlaybackSeekTransitionIntent(value);
     return this.runCurrentCutoverTransition(port, intent, epoch);
+  }
+
+  /**
+   * Schedules logical STOP on the exact current renderer's manager-owned outer
+   * gate. The backend is deliberately not asked to synthesize stopped state;
+   * successful evidence synchronously revokes the current port before source
+   * destruction continues in the background.
+   */
+  stopCurrentCutover(
+    port: FilePlaybackCutoverCandidatePort,
+    value: FilePlaybackStopTransitionIntent,
+  ): Promise<FilePlaybackStopTransitionResult> {
+    const observedEpoch = this.cutoverEpoch;
+    const record = this.cutoverPorts.get(port);
+    const intent = record ? readFilePlaybackStopTransitionIntent(value, record.audioContext) : null;
+    if (
+      intent &&
+      record?.currentStopIntent &&
+      sameFilePlaybackStopTransitionIntent(record.currentStopIntent, intent, record.audioContext)
+    ) {
+      return (
+        record.currentStopPromise ?? Promise.reject(cutoverError('stop retry has no cached result'))
+      );
+    }
+    return this.runCurrentCutoverStop(port, intent, observedEpoch);
   }
 
   retireCurrentCutover(port: FilePlaybackCutoverCandidatePort): Promise<boolean> {
@@ -1102,6 +1166,13 @@ export class FilePlaybackManager {
       currentTransitionIntent: null,
       currentTransitionPromise: null,
       currentTransitionPending: false,
+      currentStopIntent: null,
+      currentStopPromise: null,
+      currentStopApplied: null,
+      currentStopTimer: null,
+      currentStopDeadlineMonotonicMs: null,
+      currentStopPending: false,
+      supersededCurrentStop: false,
       gatesScheduled: false,
       cleanupPromise: null,
     };
@@ -1172,7 +1243,10 @@ export class FilePlaybackManager {
     // Retirement before FINALIZE is expected and the source contract rejects
     // this promise in that case. Mark it observed now; the managed evidence
     // branch below still receives and validates the same settlement later.
-    void Promise.resolve(result.started).catch(() => undefined);
+    void Promise.resolve(result.started).then(
+      () => undefined,
+      () => undefined,
+    );
     deferred.resolve(result);
   }
 
@@ -1232,7 +1306,10 @@ export class FilePlaybackManager {
 
     record.phase = 'scheduled';
     const managedStarted = this.observeCandidateStart(record, sourceStarted, target);
-    void managedStarted.catch(() => undefined);
+    void managedStarted.then(
+      () => undefined,
+      () => undefined,
+    );
     record.managedStarted = managedStarted;
     const finalization = Object.freeze(
       Object.assign(Object.create(null), {
@@ -1344,11 +1421,16 @@ export class FilePlaybackManager {
     this.cutoverCandidate = null;
     record.phase = 'current';
     record.gatesScheduled = false;
+    record.supersededCurrentStop = false;
     this.cutoverCurrent = record;
     this.cutoverEpoch += 1;
     this.recoveryRequired = false;
 
     if (previous && previous !== record) {
+      this.cancelCurrentStop(
+        previous,
+        cutoverError('current renderer was replaced before its stop boundary'),
+      );
       previous.revoked = true;
       previous.phase = 'retiring';
       this.forceGate(previous, 0);
@@ -1385,7 +1467,7 @@ export class FilePlaybackManager {
         Promise.reject(cutoverError('transition retry has no cached result'))
       );
     }
-    if (record.currentTransitionPending) {
+    if (record.currentTransitionPending || record.currentStopPending) {
       return Promise.reject(cutoverError('another current transition is still pending'));
     }
 
@@ -1578,6 +1660,437 @@ export class FilePlaybackManager {
     deferred.reject(error);
   }
 
+  private runCurrentCutoverStop(
+    port: FilePlaybackCutoverCandidatePort,
+    intent: Readonly<FilePlaybackStopTransitionIntent> | null,
+    observedEpoch: number,
+  ): Promise<FilePlaybackStopTransitionResult> {
+    const record = this.cutoverPorts.get(port);
+    if (
+      !intent ||
+      observedEpoch !== this.cutoverEpoch ||
+      !record ||
+      !this.ownsLiveCurrent(record)
+    ) {
+      return Promise.reject(cutoverError('current port or stop intent is stale'));
+    }
+    if (record.currentTransitionPending || record.currentStopPending) {
+      return Promise.reject(cutoverError('another current transition is still pending'));
+    }
+    if (
+      this.cutoverCandidate?.phase === 'finalizing' ||
+      this.cutoverCandidate?.phase === 'scheduled'
+    ) {
+      return Promise.reject(cutoverError('a renderer replacement is already committing'));
+    }
+
+    let currentSnapshot: FilePlaybackSourceSnapshot;
+    try {
+      currentSnapshot = createFilePlaybackSourceSnapshot(record.source.getSnapshot());
+    } catch (error) {
+      if (this.ownsLiveCurrent(record)) {
+        void this.enterFailSilent(record, 'current-stop-snapshot-unavailable');
+      }
+      return Promise.reject(error);
+    }
+    if (observedEpoch !== this.cutoverEpoch || !this.ownsLiveCurrent(record)) {
+      return Promise.reject(cutoverError('current renderer changed during stop preflight'));
+    }
+    if (
+      currentSnapshot.queueItemId !== record.queueItemId ||
+      currentSnapshot.backend !== record.backend
+    ) {
+      void this.enterFailSilent(record, 'current-stop-source-identity-mismatch');
+      return Promise.reject(cutoverError('current backend snapshot changed managed source'));
+    }
+    if (
+      !this.transitionSnapshotMatches(record, currentSnapshot, intent.from) ||
+      (currentSnapshot.phase !== 'playing' && currentSnapshot.phase !== 'paused')
+    ) {
+      return Promise.reject(cutoverError('stop from state is not current'));
+    }
+    record.state.lastSnapshot = currentSnapshot;
+    if (!this.currentAuthorityAllows(record)) {
+      void this.enterFailSilent(record, 'current-stop-authority-expired');
+      return this.rejectedAuthorityPromise(record);
+    }
+
+    const gate = record.gate;
+    const target = readFilePlaybackCutoverTarget(intent.target, record.audioContext);
+    if (
+      !gate ||
+      !target ||
+      gate.context !== record.audioContext ||
+      this.audioContextForDestination(record.destination) !== record.audioContext
+    ) {
+      void this.enterFailSilent(record, 'current-stop-native-clock-mismatch');
+      return Promise.reject(cutoverError('current stop does not own one AudioContext clock'));
+    }
+    if (observedEpoch !== this.cutoverEpoch || !this.ownsLiveCurrent(record)) {
+      return Promise.reject(cutoverError('current renderer changed during stop clock preflight'));
+    }
+    if (!this.audioContextIsRunning(record.audioContext)) {
+      void this.enterFailSilent(record, 'current-stop-context-not-running');
+      return Promise.reject(cutoverError('AudioContext is not running at stop preflight'));
+    }
+
+    let now: number;
+    let sampleRate: number;
+    try {
+      now = this.readContextTime(record.audioContext);
+      sampleRate = this.readContextSampleRate(record.audioContext);
+    } catch (error) {
+      void this.enterFailSilent(record, 'current-stop-clock-unavailable');
+      return Promise.reject(error);
+    }
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !this.ownsLiveCurrent(record) ||
+      !this.currentAuthorityAllows(record)
+    ) {
+      return Promise.reject(cutoverError('current renderer changed during stop time preflight'));
+    }
+    const currentFrame = Math.round(now * sampleRate);
+    const leadSeconds = target.contextTimeSeconds - now;
+    if (
+      leadSeconds <= 0 ||
+      leadSeconds > CURRENT_STOP_MAX_LEAD_SECONDS ||
+      target.targetFrame <= currentFrame
+    ) {
+      return Promise.reject(cutoverError('stop target is not an exact bounded future frame'));
+    }
+
+    const resultDeferred = createDeferredPromise<FilePlaybackStopTransitionResult>();
+    const appliedDeferred = createDeferredPromise<FilePlaybackStopTransitionEvidence>();
+    void appliedDeferred.promise.then(
+      () => undefined,
+      () => undefined,
+    );
+    record.currentStopIntent = intent;
+    record.currentStopPromise = resultDeferred.promise;
+    record.currentStopApplied = appliedDeferred;
+    record.currentStopPending = true;
+
+    try {
+      record.currentStopDeadlineMonotonicMs =
+        this.readMonotonicTimeMs() + leadSeconds * 1_000 + CURRENT_STOP_EVIDENCE_GRACE_MS;
+      this.scheduleCurrentStopGate(record, intent, observedEpoch, now);
+      this.scheduleCurrentStopWatcher(record, intent);
+      resultDeferred.resolve(
+        createFilePlaybackStopTransitionResult(intent, appliedDeferred.promise),
+      );
+    } catch (error) {
+      this.clearCurrentStopTimer(record);
+      const preserved = this.rollbackCurrentStopGate(record, intent);
+      record.currentStopPending = false;
+      appliedDeferred.reject(error);
+      if (!preserved && this.ownsLiveCurrent(record)) {
+        void this.enterFailSilent(record, 'current-stop-scheduling-ambiguous');
+      }
+      resultDeferred.reject(error);
+    }
+    return resultDeferred.promise;
+  }
+
+  private scheduleCurrentStopGate(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+    observedEpoch: number,
+    now: number,
+  ): void {
+    const gate = record.gate;
+    if (!gate) throw cutoverError('current outer gate is unavailable');
+    this.assertCurrentStopTransactionOwned(record, intent, observedEpoch);
+    gate.gain.cancelScheduledValues(now);
+    this.assertCurrentStopTransactionOwned(record, intent, observedEpoch);
+    gate.gain.setValueAtTime(1, now);
+    this.assertCurrentStopTransactionOwned(record, intent, observedEpoch);
+    gate.gain.setValueAtTime(0, intent.target.contextTimeSeconds);
+    this.assertCurrentStopTransactionOwned(record, intent, observedEpoch);
+  }
+
+  private scheduleCurrentStopWatcher(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+  ): void {
+    this.clearCurrentStopTimer(record);
+    const now = this.readContextTime(record.audioContext);
+    const remainingMs = Math.max(0, (intent.target.contextTimeSeconds - now) * 1_000);
+    const delayMs = Math.min(
+      CURRENT_STOP_MAX_POLL_MS,
+      Math.max(CURRENT_STOP_MIN_POLL_MS, remainingMs),
+    );
+    record.currentStopTimer = globalThis.setTimeout(() => {
+      record.currentStopTimer = null;
+      this.watchCurrentStop(record, intent);
+    }, delayMs);
+  }
+
+  private watchCurrentStop(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+  ): void {
+    if (
+      !record.currentStopPending ||
+      record.currentStopIntent !== intent ||
+      !this.ownsLiveCurrent(record)
+    ) {
+      this.cancelCurrentStop(record, cutoverError('current renderer changed before stop evidence'));
+      return;
+    }
+    if (!this.currentAuthorityAllows(record)) {
+      this.rejectCurrentStopAfterScheduling(
+        record,
+        cutoverError('current stop authority expired'),
+        false,
+      );
+      return;
+    }
+    if (!this.audioContextIsRunning(record.audioContext)) {
+      this.rejectCurrentStopAfterScheduling(
+        record,
+        cutoverError('AudioContext stopped before stop evidence'),
+        false,
+      );
+      return;
+    }
+
+    let now: number;
+    let sampleRate: number;
+    try {
+      now = this.readContextTime(record.audioContext);
+      sampleRate = this.readContextSampleRate(record.audioContext);
+    } catch (error) {
+      this.rejectCurrentStopAfterScheduling(record, error, false);
+      return;
+    }
+    if (
+      !record.currentStopPending ||
+      record.currentStopIntent !== intent ||
+      !this.ownsLiveCurrent(record)
+    ) {
+      this.cancelCurrentStop(record, cutoverError('current renderer changed during stop evidence'));
+      return;
+    }
+    const currentFrame = Math.round(now * sampleRate);
+    if (now >= intent.target.contextTimeSeconds && currentFrame >= intent.target.targetFrame) {
+      this.commitCurrentStop(record, intent, currentFrame);
+      return;
+    }
+    const deadline = record.currentStopDeadlineMonotonicMs;
+    let monotonicTimeMs: number;
+    try {
+      monotonicTimeMs = this.readMonotonicTimeMs();
+    } catch (error) {
+      this.rejectCurrentStopAfterScheduling(record, error, false);
+      return;
+    }
+    if (deadline === null || !Number.isFinite(deadline) || monotonicTimeMs > deadline) {
+      this.rejectCurrentStopAfterScheduling(
+        record,
+        cutoverError('AudioContext did not pass the stop target before its deadline'),
+        false,
+      );
+      return;
+    }
+    try {
+      this.scheduleCurrentStopWatcher(record, intent);
+    } catch (error) {
+      this.rejectCurrentStopAfterScheduling(record, error, true);
+    }
+  }
+
+  private commitCurrentStop(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+    appliedFrame: number,
+  ): void {
+    if (
+      !record.currentStopPending ||
+      record.currentStopIntent !== intent ||
+      !this.ownsLiveCurrent(record)
+    ) {
+      this.cancelCurrentStop(record, cutoverError('current stop lost commit authority'));
+      return;
+    }
+    const observedEpoch = this.cutoverEpoch;
+    let evidence: FilePlaybackStopTransitionEvidence;
+    try {
+      evidence = createFilePlaybackStopTransitionEvidence(intent, appliedFrame);
+    } catch (error) {
+      this.rejectCurrentStopAfterScheduling(record, error, false);
+      return;
+    }
+    // Evidence canonicalization revalidates the AudioContext target and may
+    // read native sample-rate state. A hostile/native getter can synchronously
+    // revoke or replace this renderer, so no stop commit may use the authority
+    // captured before that read.
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !record.currentStopPending ||
+      record.currentStopIntent !== intent ||
+      !this.ownsLiveCurrent(record) ||
+      !this.currentAuthorityAllows(record) ||
+      observedEpoch !== this.cutoverEpoch ||
+      !record.currentStopPending ||
+      record.currentStopIntent !== intent ||
+      !this.ownsLiveCurrent(record)
+    ) {
+      if (record.currentStopPending && this.ownsLiveCurrent(record)) {
+        this.rejectCurrentStopAfterScheduling(
+          record,
+          cutoverError('current stop lost authority during evidence validation'),
+          false,
+        );
+      } else {
+        this.cancelCurrentStop(
+          record,
+          cutoverError('current stop was revoked during evidence validation'),
+        );
+      }
+      return;
+    }
+    const applied = record.currentStopApplied;
+    this.clearCurrentStopTimer(record);
+    record.currentStopPending = false;
+    this.cutoverCurrent = null;
+    record.revoked = true;
+    record.phase = 'retiring';
+    this.cutoverEpoch += 1;
+    this.forceGate(record, 0);
+    this.disconnectGate(record);
+    applied?.resolve(evidence);
+    record.cleanupPromise = this.destroyIfUnowned(record.state);
+    this.trackCutoverCleanup(record.cleanupPromise);
+  }
+
+  private rejectCurrentStopAfterScheduling(
+    record: CutoverRecord,
+    error: unknown,
+    mayPreserveBeforeTarget: boolean,
+  ): void {
+    if (!record.currentStopPending) return;
+    this.clearCurrentStopTimer(record);
+    const intent = record.currentStopIntent;
+    const mayPreserve =
+      mayPreserveBeforeTarget && intent !== null && this.rollbackCurrentStopGate(record, intent);
+    record.currentStopPending = false;
+    record.currentStopApplied?.reject(error);
+    if (!mayPreserve && this.ownsLiveCurrent(record)) {
+      void this.enterFailSilent(record, 'current-stop-evidence-ambiguous');
+    }
+  }
+
+  private rollbackCurrentStopGate(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+  ): boolean {
+    const gate = record.gate;
+    const observedEpoch = this.cutoverEpoch;
+    if (
+      !gate ||
+      !record.currentStopPending ||
+      record.currentStopIntent !== intent ||
+      !this.ownsLiveCurrent(record) ||
+      !this.currentAuthorityAllows(record)
+    ) {
+      return false;
+    }
+    try {
+      const before = this.readContextTime(record.audioContext);
+      const sampleRate = this.readContextSampleRate(record.audioContext);
+      if (
+        observedEpoch !== this.cutoverEpoch ||
+        !record.currentStopPending ||
+        record.currentStopIntent !== intent ||
+        !this.ownsLiveCurrent(record) ||
+        before >= intent.target.contextTimeSeconds ||
+        Math.round(before * sampleRate) >= intent.target.targetFrame
+      ) {
+        return false;
+      }
+
+      gate.gain.cancelScheduledValues(before);
+      if (
+        observedEpoch !== this.cutoverEpoch ||
+        !record.currentStopPending ||
+        record.currentStopIntent !== intent ||
+        !this.ownsLiveCurrent(record) ||
+        !this.currentAuthorityAllows(record)
+      ) {
+        return false;
+      }
+      gate.gain.setValueAtTime(1, before);
+      if (
+        observedEpoch !== this.cutoverEpoch ||
+        !record.currentStopPending ||
+        record.currentStopIntent !== intent ||
+        !this.ownsLiveCurrent(record) ||
+        !this.currentAuthorityAllows(record)
+      ) {
+        return false;
+      }
+
+      const after = this.readContextTime(record.audioContext);
+      const afterSampleRate = this.readContextSampleRate(record.audioContext);
+      return (
+        observedEpoch === this.cutoverEpoch &&
+        record.currentStopPending &&
+        record.currentStopIntent === intent &&
+        this.ownsLiveCurrent(record) &&
+        after < intent.target.contextTimeSeconds &&
+        Math.round(after * afterSampleRate) < intent.target.targetFrame
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private currentStopTargetIsFuture(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+  ): boolean {
+    try {
+      const now = this.readContextTime(record.audioContext);
+      const sampleRate = this.readContextSampleRate(record.audioContext);
+      return (
+        now < intent.target.contextTimeSeconds &&
+        Math.round(now * sampleRate) < intent.target.targetFrame
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private cancelCurrentStop(record: CutoverRecord, error: unknown): void {
+    this.clearCurrentStopTimer(record);
+    if (!record.currentStopPending) return;
+    record.currentStopPending = false;
+    record.currentStopApplied?.reject(error);
+  }
+
+  private clearCurrentStopTimer(record: CutoverRecord): void {
+    if (record.currentStopTimer === null) return;
+    globalThis.clearTimeout(record.currentStopTimer);
+    record.currentStopTimer = null;
+  }
+
+  private assertCurrentStopTransactionOwned(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+    observedEpoch: number,
+  ): void {
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !record.currentStopPending ||
+      record.currentStopIntent !== intent ||
+      !this.ownsLiveCurrent(record) ||
+      !this.currentAuthorityAllows(record)
+    ) {
+      throw cutoverError('current stop lost native automation authority');
+    }
+  }
+
   private transitionSnapshotMatches(
     record: CutoverRecord,
     snapshot: FilePlaybackSourceSnapshot,
@@ -1615,6 +2128,15 @@ export class FilePlaybackManager {
     if (previous && previous.audioContext !== canonicalTarget.audioContext) {
       throw cutoverError('current and candidate renderers use different AudioContexts');
     }
+    const supersededStop = previous?.currentStopPending ? previous.currentStopIntent : null;
+    if (
+      supersededStop &&
+      (record.armIntent === null ||
+        record.armIntent.revision <= supersededStop.to.revision ||
+        canonicalTarget.contextTimeSeconds >= supersededStop.target.contextTimeSeconds)
+    ) {
+      throw cutoverError('candidate does not precede a pending stop with a later revision');
+    }
 
     // Mark the transaction before the first native mutation. A mocked/native
     // callback may synchronously retire the candidate from inside any
@@ -1636,9 +2158,31 @@ export class FilePlaybackManager {
         previous.gate.gain.setValueAtTime(0, canonicalTarget.contextTimeSeconds);
         this.assertCutoverTransactionOwned(record);
       }
+      if (previous && supersededStop) {
+        record.supersededCurrentStop = true;
+        this.cancelCurrentStop(
+          previous,
+          cutoverError('a later renderer revision superseded the pending stop'),
+        );
+      }
     } catch (error) {
       if (this.readContextTime(record.audioContext) < canonicalTarget.contextTimeSeconds) {
-        if (!this.rollbackScheduledGates(record)) {
+        let rolledBack = this.rollbackScheduledGates(record);
+        if (
+          rolledBack &&
+          previous &&
+          supersededStop &&
+          previous.currentStopPending &&
+          this.currentStopTargetIsFuture(previous, supersededStop)
+        ) {
+          try {
+            const restoreNow = this.readContextTime(previous.audioContext);
+            this.scheduleCurrentStopGate(previous, supersededStop, this.cutoverEpoch, restoreNow);
+          } catch {
+            rolledBack = false;
+          }
+        }
+        if (!rolledBack) {
           void this.enterFailSilent(record, 'gate-rollback-ambiguous');
         }
       } else {
@@ -1677,6 +2221,9 @@ export class FilePlaybackManager {
   private retireCandidateRecord(record: CutoverRecord, _reason: string): Promise<void> {
     if (record.cleanupPromise) return record.cleanupPromise;
     if (this.cutoverCandidate !== record) return Promise.resolve();
+    if (record.supersededCurrentStop) {
+      return this.enterFailSilent(record, 'stop-superseding-candidate-retired');
+    }
     const wasScheduled = record.gatesScheduled;
     if (wasScheduled && this.targetHasPassed(record)) {
       if (record.cleanupPromise) return record.cleanupPromise;
@@ -1708,6 +2255,10 @@ export class FilePlaybackManager {
   private retireCurrentRecord(record: CutoverRecord): Promise<void> {
     if (record.cleanupPromise) return record.cleanupPromise;
     if (this.cutoverCurrent !== record) return Promise.resolve();
+    this.cancelCurrentStop(
+      record,
+      cutoverError('current renderer was retired before stop evidence'),
+    );
     if (this.cutoverCurrent === record) this.cutoverCurrent = null;
     record.revoked = true;
     record.phase = 'retiring';
@@ -1732,6 +2283,7 @@ export class FilePlaybackManager {
     this.cutoverEpoch += 1;
     this.recoveryRequired = true;
     if (candidate) {
+      this.cancelCurrentStop(candidate, cutoverError('renderer entered fail-silent mode'));
       candidate.gatesScheduled = false;
       candidate.revoked = true;
       candidate.phase = 'failed';
@@ -1740,6 +2292,7 @@ export class FilePlaybackManager {
       states.add(candidate.state);
     }
     if (current) {
+      this.cancelCurrentStop(current, cutoverError('renderer entered fail-silent mode'));
       current.gatesScheduled = false;
       current.revoked = true;
       current.phase = 'failed';
@@ -1748,6 +2301,7 @@ export class FilePlaybackManager {
       states.add(current.state);
     }
     if (!candidate && record !== current) {
+      this.cancelCurrentStop(record, cutoverError('renderer entered fail-silent mode'));
       record.gatesScheduled = false;
       record.revoked = true;
       record.phase = 'failed';
@@ -1825,6 +2379,28 @@ export class FilePlaybackManager {
     const now = audioContext.currentTime;
     if (!Number.isFinite(now) || now < 0) throw cutoverError('AudioContext time is invalid');
     return now;
+  }
+
+  private readContextSampleRate(audioContext: AudioContext): number {
+    const sampleRate = audioContext.sampleRate;
+    if (!Number.isFinite(sampleRate) || sampleRate <= 0 || sampleRate > 1_000_000) {
+      throw cutoverError('AudioContext sample rate is invalid');
+    }
+    return sampleRate;
+  }
+
+  private readMonotonicTimeMs(): number {
+    const now = globalThis.performance.now();
+    if (!Number.isFinite(now) || now < 0) throw cutoverError('monotonic clock is invalid');
+    return now;
+  }
+
+  private audioContextIsRunning(audioContext: AudioContext): boolean {
+    try {
+      return audioContext.state === 'running';
+    } catch {
+      return false;
+    }
   }
 
   private ownsLiveCandidate(record: CutoverRecord): boolean {
@@ -2211,5 +2787,29 @@ export class FilePlaybackManager {
     reason: 'superseded' | 'duplicates-active',
   ): FilePlaybackPublication {
     return { published: false, reason, snapshot: this.snapshotOf(state) };
+  }
+}
+
+/**
+ * Verifies the exact module-created manager object without invoking any value
+ * property or accepting subclasses/transparent Proxies. Adapter capabilities
+ * use this boundary before retaining a manager as native playback authority.
+ */
+export function isExactFilePlaybackManager(value: unknown): value is FilePlaybackManager {
+  try {
+    if (value === null || typeof value !== 'object') return false;
+    if (!EXACT_FILE_PLAYBACK_MANAGERS.has(value)) return false;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== FilePlaybackManager.prototype) return false;
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor');
+    return (
+      constructorDescriptor !== undefined &&
+      Object.hasOwn(constructorDescriptor, 'value') &&
+      constructorDescriptor.value === FilePlaybackManager &&
+      constructorDescriptor.get === undefined &&
+      constructorDescriptor.set === undefined
+    );
+  } catch {
+    return false;
   }
 }

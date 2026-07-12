@@ -16,6 +16,7 @@ import {
   play,
   pause,
   stopAllMedia,
+  requestV2HostFileStop,
   getTrackPosition,
   isFilePipelineBusyForPlay,
 } from './transport.ts';
@@ -146,6 +147,18 @@ async function playV2HostLocalFile(
     controller: new AbortController(),
   };
   v2PlaylistIntent = intent;
+
+  if (!replay && filePlaybackProductRuntime.currentHostRendererSnapshot()) {
+    const stopped = await requestV2HostFileStop({
+      silent: true,
+      cancelInFlight: true,
+      preservePlaylistIntent: true,
+    });
+    if (!stopped || v2PlaylistIntent !== intent || intent.controller.signal.aborted) {
+      if (v2PlaylistIntent === intent) v2PlaylistIntent = null;
+      return;
+    }
+  }
 
   let commit: unknown;
   try {
@@ -704,11 +717,9 @@ export async function playTrack(queueItemId: QueueItemId, subIndex?: number): Pr
     cancelPendingBroadcast();
 
     if (!hostConn) {
-      // Skip stopAllMedia for YouTube→YouTube transitions — loadYouTubeVideo
-      // reuses the existing player instance, preserving the iOS user gesture.
-      // Destroying the iframe forces a "tap to play" on mobile.
-      const isYtToYt = isYouTubeOwner();
-      if (!isYtToYt) stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
+      // The loader reuses the iframe for YouTube→YouTube and owns non-YT
+      // teardown. That keeps the iOS user gesture while allowing an async
+      // product-file stop to settle before YouTube claims output.
 
       // Broadcast one resolved videoId; playlistId is UI/navigation context,
       // not an instruction to start YouTube's native playlist engine. Prefer
@@ -871,12 +882,37 @@ export async function playTrack(queueItemId: QueueItemId, subIndex?: number): Pr
  */
 function handleEndOfPlaylist(reason: string): void {
   log.debug(`[Host] End of playlist: ${reason}. Resetting to deselected state.`);
+  const finish = (): void => {
+    setCurrentAudioBuffer(null);
+    setPlaybackTrackMeta(null);
+    selectQueueItemById(null);
+    setState('files.current', null);
+    setState('player.pausedAt', 0);
+    showToast(t('toast.playlist_ended'));
+  };
+  const expectedItems = getState('playlist.items');
+  const expectedRevision = getState('playlist.revision');
+  const expectedQueueItemId = getCurrentQueueItemId();
+  const v2Stop = requestV2HostFileStop({ cancelInFlight: true });
+  if (v2Stop) {
+    void v2Stop.then((stopped) => {
+      if (
+        !stopped ||
+        getState('playlist.items') !== expectedItems ||
+        getState('playlist.revision') !== expectedRevision ||
+        getCurrentQueueItemId() !== expectedQueueItemId
+      ) {
+        return;
+      }
+      // V2 guests receive the stopped revision through their exact media
+      // owner. A legacy PAUSE here would be a second, unauthenticated truth.
+      finish();
+    });
+    return;
+  }
+
   stopAllMedia();
-  setCurrentAudioBuffer(null);
-  setPlaybackTrackMeta(null);
-  selectQueueItemById(null);
-  setState('files.current', null);
-  setState('player.pausedAt', 0);
+  finish();
   // Host's own lifecycle: mirror the broadcast PAUSE{endOfPlaylist:true} so
   // playback.lifecycle returns to IDLE in lockstep with guests.
   transition({ type: 'PAUSE', time: 0, queueItemId: null, endOfPlaylist: true });
@@ -887,7 +923,6 @@ function handleEndOfPlaylist(reason: string): void {
     endOfPlaylist: true,
     reason: 'end-of-playlist',
   });
-  showToast(t('toast.playlist_ended'));
 }
 
 // ─── Play Next Track ───────────────────────────────────────────────
@@ -1515,7 +1550,7 @@ function findShuffleRemovalSuccessor(
   return null;
 }
 
-function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
+async function removeQueueItems(queueItemIds: readonly QueueItemId[]): Promise<void> {
   if (getState('network.hostConn')) return;
 
   const previousItems = getState('playlist.items') || [];
@@ -1553,6 +1588,27 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
             (getState('playlist.repeatMode') || 0) === 1,
           ) ?? sequentialSuccessor)
         : sequentialSuccessor;
+  }
+
+  let v2StoppedCurrent = false;
+  if (wasCurrent) {
+    const previousRevision = getState('playlist.revision');
+    const pendingStop = requestV2HostFileStop({
+      silent: true,
+      cancelInFlight: true,
+    });
+    if (pendingStop) {
+      const stopped = await pendingStop;
+      if (
+        !stopped ||
+        getState('playlist.items') !== previousItems ||
+        getState('playlist.revision') !== previousRevision ||
+        getCurrentQueueItemId() !== currentQueueItemId
+      ) {
+        return;
+      }
+      v2StoppedCurrent = true;
+    }
   }
 
   commitPlaylistItems(nextItems, { currentQueueItemId: successorQueueItemId });
@@ -1598,7 +1654,7 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
   }
 
   if (nextItems.length === 0) {
-    stopAllMedia({ cancelInFlight: true });
+    if (!v2StoppedCurrent) stopAllMedia({ cancelInFlight: true });
     clearPreloadState();
     cancelOutgoingFileTransfers();
     setCurrentAudioBuffer(null);
@@ -1726,7 +1782,11 @@ export function initPlaylist(): void {
 
   // Host: Remove track from playlist
   bus.on('playlist:remove-tracks', (queueItemIds) => {
-    removeQueueItems(queueItemIds);
+    void removeQueueItems(queueItemIds);
+  });
+
+  bus.on('playlist:cancel-v2-playback-intent', () => {
+    abortV2PlaylistIntent('V2 playlist intent was cancelled by a media transition');
   });
 
   bus.on('playlist:reorder-track', (queueItemId, beforeQueueItemId, baseRevision) => {

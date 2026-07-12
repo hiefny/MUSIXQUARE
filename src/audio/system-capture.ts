@@ -19,7 +19,7 @@ import {
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
-import { stopAllMedia } from '../player/transport.ts';
+import { stopAllMediaAsync } from '../player/transport.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -194,7 +194,15 @@ export async function startSystemAudioCapture(): Promise<void> {
   };
 
   // 3. Stop all current media
-  stopAllMedia({ silent: true, cancelInFlight: true });
+  const stoppedPreviousMedia = await stopAllMediaAsync({
+    silent: true,
+    cancelInFlight: true,
+  });
+  if (!stoppedPreviousMedia) {
+    _preSysAudioState = null;
+    for (const track of stream.getTracks()) track.stop();
+    return;
+  }
 
   // 3.5 UI only: show stereo button as active (actual channelMode unchanged)
   try {

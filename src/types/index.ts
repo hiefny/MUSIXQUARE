@@ -829,6 +829,7 @@ interface BaseEventMap {
   'playlist:toggle-repeat': [];
   'playlist:toggle-shuffle': [];
   'playlist:play-track': [queueItemId: QueueItemId, subIndex?: number];
+  'playlist:cancel-v2-playback-intent': [];
 
   // ── UI ────────────────────────────────────────────────────────────
   'ui:sync-reverb-preset': [type: string];

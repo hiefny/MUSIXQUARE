@@ -152,9 +152,17 @@ interface V2HostControlIntent {
 type V2HostSeekTargetResolver = (state: V2HostControlState) => number | null;
 type V2HostControlOperation = (intent: V2HostControlIntent) => Promise<void>;
 
+type V2HostTransitionIdentity = Readonly<{
+  room: V2HostControlState['room'];
+  queueItemId: QueueItemId;
+  runId: string;
+  revision: number;
+}>;
+
 let v2HostControlSequence = 0;
 let v2HostControlIntent: V2HostControlIntent | null = null;
 let v2HostControlTail: Promise<void> = Promise.resolve();
+let lastV2HostEndedObservationKey: string | null = null;
 
 function isV2HostFileControlContext(): boolean {
   return (
@@ -568,6 +576,202 @@ function exactV2HostResumeCommitPosition(
   }
 }
 
+function sameV2HostTransitionIdentity(
+  left: V2HostTransitionIdentity,
+  right: V2HostTransitionIdentity,
+): boolean {
+  return (
+    sameV2HostRoom(left.room, right.room) &&
+    left.queueItemId === right.queueItemId &&
+    left.runId === right.runId &&
+    left.revision === right.revision
+  );
+}
+
+function readExactV2HostTerminalIdentity(): V2HostTransitionIdentity | null {
+  if (!isV2HostFileProductControlContext()) return null;
+  try {
+    const roomBefore = filePlaybackProductRuntime.hostRoomSnapshot();
+    if (!isExactV2HostRoom(roomBefore)) return null;
+    const queueItemId = getCurrentQueueItemId();
+    const item = getQueueItemById(queueItemId);
+    const mode = getPlaybackModeActivity();
+    if (
+      !queueItemId ||
+      !item ||
+      item.type === 'youtube' ||
+      mode.mode !== 'file' ||
+      mode.activity !== 'playing'
+    ) {
+      return null;
+    }
+    const observation = filePlaybackProductRuntime.currentHostTerminalRendererObservation();
+    if (
+      !observation ||
+      !Object.isFrozen(observation) ||
+      observation.phase !== 'ended' ||
+      observation.queueItemId !== queueItemId ||
+      !Object.isFrozen(observation.run) ||
+      !observation.run ||
+      observation.run.queueItemId !== queueItemId ||
+      typeof observation.run.runId !== 'string' ||
+      observation.run.runId.length === 0 ||
+      !Number.isSafeInteger(observation.revision) ||
+      observation.revision <= 0 ||
+      observation.run.revision !== observation.revision
+    ) {
+      return null;
+    }
+    const observationAfter = filePlaybackProductRuntime.currentHostTerminalRendererObservation();
+    const roomAfter = filePlaybackProductRuntime.hostRoomSnapshot();
+    if (
+      !observationAfter ||
+      !Object.isFrozen(observationAfter) ||
+      observationAfter.phase !== 'ended' ||
+      observationAfter.queueItemId !== queueItemId ||
+      !Object.isFrozen(observationAfter.run) ||
+      !observationAfter.run ||
+      observationAfter.run.queueItemId !== queueItemId ||
+      observationAfter.run.runId !== observation.run.runId ||
+      observationAfter.revision !== observation.revision ||
+      observationAfter.run.revision !== observation.revision ||
+      !isExactV2HostRoom(roomAfter) ||
+      !sameV2HostRoom(roomBefore, roomAfter)
+    ) {
+      return null;
+    }
+    return Object.freeze({
+      room: roomAfter,
+      queueItemId,
+      runId: observationAfter.run.runId,
+      revision: observationAfter.revision,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function exactV2HostStoppedCommit(
+  value: unknown,
+  before: V2HostTransitionIdentity,
+  kind: 'stop' | 'ended',
+): boolean {
+  if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return false;
+  try {
+    const commit = value as {
+      readonly status?: unknown;
+      readonly kind?: unknown;
+      readonly roomGeneration?: unknown;
+      readonly applicationSessionId?: unknown;
+      readonly hostParticipantId?: unknown;
+      readonly evidence?: {
+        readonly kind?: unknown;
+        readonly observation?: unknown;
+        readonly from?: {
+          readonly queueItemId?: unknown;
+          readonly runId?: unknown;
+          readonly revision?: unknown;
+        };
+        readonly to?: {
+          readonly queueItemId?: unknown;
+          readonly runId?: unknown;
+          readonly revision?: unknown;
+        };
+        readonly targetFrame?: unknown;
+        readonly appliedFrame?: unknown;
+        readonly observedAtRoomTimeMs?: unknown;
+      };
+      readonly timeline?: {
+        readonly phase?: unknown;
+        readonly revision?: unknown;
+        readonly positionSeconds?: unknown;
+        readonly run?: unknown;
+      };
+    };
+    const evidence = commit.evidence;
+    const timeline = commit.timeline;
+    if (!evidence || !timeline) return false;
+    if (
+      commit.status !== 'committed' ||
+      commit.kind !== kind ||
+      commit.roomGeneration !== before.room.roomGeneration ||
+      commit.applicationSessionId !== before.room.applicationSessionId ||
+      commit.hostParticipantId !== before.room.hostParticipantId ||
+      !Object.isFrozen(evidence) ||
+      !Object.isFrozen(evidence?.from) ||
+      !Object.isFrozen(evidence?.to) ||
+      evidence.from?.queueItemId !== before.queueItemId ||
+      evidence.from.runId !== before.runId ||
+      evidence.from.revision !== before.revision ||
+      evidence.to?.queueItemId !== before.queueItemId ||
+      evidence.to.runId !== before.runId ||
+      evidence.to.revision !== before.revision + 1 ||
+      !Object.isFrozen(timeline) ||
+      timeline?.phase !== 'stopped' ||
+      timeline.revision !== before.revision + 1 ||
+      timeline.run !== null ||
+      timeline.positionSeconds !== 0
+    ) {
+      return false;
+    }
+    if (kind === 'stop') {
+      if (
+        evidence.kind !== 'stop-applied' ||
+        evidence.observation !== 'webaudio-schedule-passed' ||
+        !Number.isSafeInteger(evidence.targetFrame) ||
+        !Number.isSafeInteger(evidence.appliedFrame) ||
+        (evidence.targetFrame as number) < 0 ||
+        (evidence.appliedFrame as number) < (evidence.targetFrame as number)
+      ) {
+        return false;
+      }
+    } else if (
+      evidence.kind !== 'ended-renderer-retired' ||
+      typeof evidence.observedAtRoomTimeMs !== 'number' ||
+      !Number.isFinite(evidence.observedAtRoomTimeMs) ||
+      evidence.observedAtRoomTimeMs < 0
+    ) {
+      return false;
+    }
+
+    const roomAfter = filePlaybackProductRuntime.hostRoomSnapshot();
+    return !!(
+      isExactV2HostRoom(roomAfter) &&
+      sameV2HostRoom(roomAfter, before.room) &&
+      filePlaybackProductRuntime.currentHostRendererSnapshot() === null &&
+      filePlaybackProductRuntime.currentHostTerminalRendererObservation() === null &&
+      getCurrentQueueItemId() === before.queueItemId &&
+      getQueueItemById(before.queueItemId)
+    );
+  } catch {
+    return false;
+  }
+}
+
+type V2HostStopOptions = Readonly<{
+  silent?: boolean;
+  cancelInFlight?: boolean;
+  clearBuffer?: boolean;
+  preservePlaylistIntent?: boolean;
+}>;
+
+function publishV2HostStopped(options: V2HostStopOptions = {}): void {
+  if (options.cancelInFlight) {
+    newLoadEpoch();
+    incrementLoadSessionId();
+  }
+  clearManagedTimer('preloadScheduleTimer');
+  clearManagedTimer('autoPlayTimer');
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
+  clearManagedTimer('playback-replay-defer');
+  setPlaybackIdle();
+  setState('player.pausedAt', 0);
+  if (options.clearBuffer) setCurrentAudioBuffer(null);
+  bus.emit('ui:seek-reset');
+  bus.emit('visualizer:fade-out');
+}
+
 function publishV2HostPaused(
   positionSeconds: number,
   options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
@@ -589,7 +793,7 @@ function isCurrentV2HostControlIntent(intent: V2HostControlIntent): boolean {
   return v2HostControlIntent === intent && !intent.controller.signal.aborted;
 }
 
-function enqueueV2HostControl(label: string, operation: V2HostControlOperation): void {
+function enqueueV2HostControl(label: string, operation: V2HostControlOperation): Promise<void> {
   const predecessor = v2HostControlTail;
   const previousIntent = v2HostControlIntent;
   const intent: V2HostControlIntent = {
@@ -616,10 +820,11 @@ function enqueueV2HostControl(label: string, operation: V2HostControlOperation):
     () => undefined,
     () => undefined,
   );
+  return settlement;
 }
 
 function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): void {
-  enqueueV2HostControl('seek', async (intent) => {
+  void enqueueV2HostControl('seek', async (intent) => {
     const before = readExactV2HostControlState();
     if (!before) return;
     const target = resolveTarget(before);
@@ -730,7 +935,7 @@ async function applyV2HostResume(
 function enqueueV2HostPause(
   options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
 ): void {
-  enqueueV2HostControl('pause', async (intent) => {
+  void enqueueV2HostControl('pause', async (intent) => {
     const before = readExactV2HostControlState();
     if (!before) return;
     await applyV2HostPause(intent, before, options);
@@ -738,7 +943,7 @@ function enqueueV2HostPause(
 }
 
 function enqueueV2HostResume(requestedPositionSeconds?: number): void {
-  enqueueV2HostControl('resume', async (intent) => {
+  void enqueueV2HostControl('resume', async (intent) => {
     const before = readExactV2HostControlState();
     if (!before) return;
     await applyV2HostResume(intent, before, requestedPositionSeconds);
@@ -746,7 +951,7 @@ function enqueueV2HostResume(requestedPositionSeconds?: number): void {
 }
 
 function enqueueV2HostToggle(): void {
-  enqueueV2HostControl('toggle', async (intent) => {
+  void enqueueV2HostControl('toggle', async (intent) => {
     const before = readExactV2HostControlState();
     if (!before) return;
     if (before.phase === 'playing') {
@@ -758,6 +963,94 @@ function enqueueV2HostToggle(): void {
       await applyV2HostResume(intent, before);
     }
   });
+}
+
+async function enqueueV2HostStop(options: V2HostStopOptions): Promise<boolean> {
+  let committed = false;
+  await enqueueV2HostControl('stop', async (intent) => {
+    const before = readExactV2HostControlState();
+    const terminal = before ? null : readExactV2HostTerminalIdentity();
+    const identity = before ?? terminal;
+    if (!identity) return;
+    let commit: unknown;
+    try {
+      commit = before
+        ? await filePlaybackProductRuntime.stopCurrent({
+            signal: intent.controller.signal,
+          })
+        : await filePlaybackProductRuntime.settleEndedCurrent({
+            signal: intent.controller.signal,
+          });
+    } catch (error) {
+      if (isCurrentV2HostControlIntent(intent)) {
+        log.warn('[Transport] V2 host stop failed:', error);
+      }
+      return;
+    }
+    if (!exactV2HostStoppedCommit(commit, identity, before ? 'stop' : 'ended')) return;
+    publishV2HostStopped(options);
+    committed = isCurrentV2HostControlIntent(intent);
+  });
+  return committed;
+}
+
+function v2HostEndedObservationKey(identity: V2HostTransitionIdentity): string {
+  return JSON.stringify([
+    identity.room.roomGeneration,
+    identity.room.applicationSessionId,
+    identity.room.hostParticipantId,
+    identity.queueItemId,
+    identity.runId,
+    identity.revision,
+  ]);
+}
+
+function requestV2HostEndedSettlement(): boolean {
+  if (!isV2HostFileProductControlContext()) return false;
+  const observed = readExactV2HostTerminalIdentity();
+  if (!observed) return true;
+  const observationKey = v2HostEndedObservationKey(observed);
+  if (lastV2HostEndedObservationKey === observationKey) return true;
+  lastV2HostEndedObservationKey = observationKey;
+
+  const settlement = enqueueV2HostControl('ended', async (intent) => {
+    const before = readExactV2HostTerminalIdentity();
+    if (
+      !before ||
+      !sameV2HostTransitionIdentity(before, observed) ||
+      v2HostEndedObservationKey(before) !== observationKey
+    ) {
+      return;
+    }
+    let commit: unknown;
+    try {
+      commit = await filePlaybackProductRuntime.settleEndedCurrent({
+        signal: intent.controller.signal,
+      });
+    } catch (error) {
+      if (isCurrentV2HostControlIntent(intent)) {
+        log.warn('[Transport] V2 host ended settlement failed:', error);
+      }
+      return;
+    }
+    if (!exactV2HostStoppedCommit(commit, before, 'ended')) return;
+    publishV2HostStopped();
+    if (isCurrentV2HostControlIntent(intent)) bus.emit('player:ended');
+  });
+  void settlement.then(() => {
+    if (lastV2HostEndedObservationKey !== observationKey) return;
+    const stillTerminal = readExactV2HostTerminalIdentity();
+    if (
+      stillTerminal &&
+      sameV2HostTransitionIdentity(stillTerminal, observed) &&
+      v2HostEndedObservationKey(stillTerminal) === observationKey
+    ) {
+      // A failed or pre-dispatch-superseded settlement may be retried by the
+      // next safety poll. Successful settlement has no terminal observation.
+      lastV2HostEndedObservationKey = null;
+    }
+  });
+  return true;
 }
 
 function isV2HostFileProductControlContext(): boolean {
@@ -789,6 +1082,29 @@ export function requestV2HostFileResume(positionSeconds?: number): boolean {
   if (!isV2HostFileProductControlContext()) return false;
   enqueueV2HostResume(positionSeconds);
   return true;
+}
+
+/**
+ * Claims an exact host-local V2 stop. `null` leaves non-V2 owners on their
+ * existing transport; a Promise means the V2 boundary owns the request and
+ * resolves true only after its stopped room truth has been verified.
+ */
+export function requestV2HostFileStop(options: V2HostStopOptions = {}): Promise<boolean> | null {
+  if (!isV2HostFileProductControlContext()) return null;
+  if (!options.preservePlaylistIntent) {
+    bus.emit('playlist:cancel-v2-playback-intent');
+  }
+  const mode = getPlaybackModeActivity();
+  if (
+    mode.mode === null &&
+    mode.activity === 'idle' &&
+    isExactV2HostRoom(filePlaybackProductRuntime.hostRoomSnapshot()) &&
+    filePlaybackProductRuntime.currentHostRendererSnapshot() === null &&
+    filePlaybackProductRuntime.currentHostTerminalRendererObservation() === null
+  ) {
+    return Promise.resolve(true);
+  }
+  return enqueueV2HostStop(options);
 }
 
 function requestV2HostFileToggle(): boolean {
@@ -912,11 +1228,7 @@ export function stopPlayerNode(): void {
 
 // ─── Stop All Media ────────────────────────────────────────────────
 
-export function stopAllMedia(opts?: {
-  silent?: boolean;
-  cancelInFlight?: boolean;
-  clearBuffer?: boolean;
-}): void {
+function stopAllMediaLegacy(opts: V2HostStopOptions = {}): void {
   const queueItemId = getCurrentQueueItemId();
   const wasInYouTube = isYouTubeOwner();
 
@@ -990,6 +1302,26 @@ export function stopAllMedia(opts?: {
     });
   }
   bus.emit('visualizer:fade-out');
+}
+
+export function stopAllMedia(opts: V2HostStopOptions = {}): void {
+  const v2Stop = requestV2HostFileStop(opts);
+  if (v2Stop) {
+    void v2Stop;
+    return;
+  }
+  stopAllMediaLegacy(opts);
+}
+
+/**
+ * Ordered variant for cross-mode transitions. Legacy teardown still executes
+ * synchronously; V2 callers resume only after exact stopped room truth.
+ */
+export async function stopAllMediaAsync(options: V2HostStopOptions = {}): Promise<boolean> {
+  const v2Stop = requestV2HostFileStop(options);
+  if (v2Stop) return v2Stop;
+  stopAllMediaLegacy(options);
+  return true;
 }
 
 // ─── Seek ──────────────────────────────────────────────────────────
@@ -1318,6 +1650,11 @@ export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
 
+  // The product source exposes an exact ended renderer observation while the
+  // controller still owns the playing run. Settlement, stopped publication,
+  // and playlist advance stay serialized with every other V2 host control.
+  if (requestV2HostEndedSettlement()) return;
+
   const _currentAudioBuffer = getCurrentAudioBuffer();
 
   const hasBufferDuration = !!(
@@ -1476,7 +1813,17 @@ export function stopPlayback(): void {
     return;
   }
 
-  if (isCompatIdle()) return; // Nothing to stop
+  const wasCompatIdle = isCompatIdle();
+
+  const v2Stop = requestV2HostFileStop({ cancelInFlight: true });
+  if (v2Stop) {
+    void v2Stop.then((committed) => {
+      if (committed && !wasCompatIdle) showToast(t('common.stop'));
+    });
+    return;
+  }
+
+  if (wasCompatIdle) return; // Nothing to stop
 
   if (isSystemAudioPlaying()) {
     stopSystemAudioCapture();

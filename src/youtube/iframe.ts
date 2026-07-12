@@ -14,7 +14,7 @@ import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { broadcast } from '../network/peer.ts';
 import { IS_IOS } from '../core/platform.ts';
-import { fmtTime } from '../player/transport.ts';
+import { fmtTime, requestV2HostFileStop } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import {
@@ -107,6 +107,7 @@ type YouTubeApiReadyTask = {
 };
 
 const _ytApiReadyTasks: YouTubeApiReadyTask[] = [];
+let _ytLoadRequestGeneration = 0;
 
 function flushYouTubeApiReadyTasks(): void {
   window.isYouTubeAPIReady = true;
@@ -482,13 +483,14 @@ type LoadYouTubeVideoOptions = {
   indexingCallback?: (ids: string[]) => void;
 };
 
-export function loadYouTubeVideo(
+export async function loadYouTubeVideo(
   videoId: string | null,
   playlistId: string | null = null,
   autoplay = true,
   subIndex = 0,
   opts: LoadYouTubeVideoOptions = {},
-): void {
+): Promise<void> {
+  const loadRequestGeneration = ++_ytLoadRequestGeneration;
   setYtPriming(false);
   setYtPrimeReady(false);
   setYtPrimeBouncePending(false);
@@ -539,10 +541,19 @@ export function loadYouTubeVideo(
       const container = document.getElementById('youtube-player-container');
       if (container) resetYouTubePlayerHost(container);
     }
-    // Stop existing media BEFORE creating new scope/session — otherwise
-    // stopYouTubeMode() (triggered by player:stop-all-media) disposes the
-    // new scope immediately, causing the first-ever IFrame API load to abort.
-    bus.emit('player:stop-all-media');
+    // Stop existing media BEFORE creating the new scope/session. Legacy
+    // teardown remains synchronous; product file playback waits for exact
+    // stopped room truth before YouTube is allowed to claim output.
+    const v2Stop = requestV2HostFileStop({
+      silent: true,
+      cancelInFlight: true,
+    });
+    if (v2Stop) {
+      const stoppedPreviousMedia = await v2Stop;
+      if (!stoppedPreviousMedia || loadRequestGeneration !== _ytLoadRequestGeneration) return;
+    } else {
+      bus.emit('player:stop-all-media');
+    }
   }
   setEngineMode('youtube');
 

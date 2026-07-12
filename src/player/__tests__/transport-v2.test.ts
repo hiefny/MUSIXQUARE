@@ -8,19 +8,28 @@ const v2 = vi.hoisted(() => {
     room: unknown;
     renderer: unknown;
     position: unknown;
+    terminal: unknown;
   } = {
     room: null,
     renderer: null,
     position: null,
+    terminal: null,
   };
   return {
     state,
     runtime: {
+      enabled: vi.fn(() => true),
       hostRoomSnapshot: vi.fn(() => state.room),
       seekPlaying: vi.fn(),
       seekPaused: vi.fn(),
       pauseCurrent: vi.fn(),
       resumeCurrent: vi.fn(),
+      stopCurrent: vi.fn(),
+      settleEndedCurrent: vi.fn(),
+      startLocalTrack: vi.fn(),
+      replayCurrent: vi.fn(),
+      currentHostRendererSnapshot: vi.fn(() => state.renderer),
+      currentHostTerminalRendererObservation: vi.fn(() => state.terminal),
     },
   };
 });
@@ -72,6 +81,7 @@ import {
   setPlaybackYouTubePlaying,
 } from '../ownership.ts';
 import { initPlayback } from '../playback.ts';
+import { initPlaylist, playNextTrack, playTrack } from '../playlist.ts';
 import {
   adjustSync,
   getTrackPosition,
@@ -79,6 +89,9 @@ import {
   play,
   seekTo,
   skipTime,
+  stopAllMediaAsync,
+  stopPlayback,
+  handleEnded,
   togglePlay,
 } from '../transport.ts';
 
@@ -234,6 +247,89 @@ function pauseCommit(positionSeconds: number, revision: number) {
   });
 }
 
+function stoppedCommit(kind: 'stop' | 'ended', revision: number) {
+  const from = freezeCanonical({ queueItemId: Q1, runId: RUN_ID, revision: revision - 1 });
+  const to = freezeCanonical({ queueItemId: Q1, runId: RUN_ID, revision });
+  const evidence =
+    kind === 'stop'
+      ? freezeCanonical({
+          kind: 'stop-applied' as const,
+          observation: 'webaudio-schedule-passed' as const,
+          from,
+          to,
+          targetFrame: 48_000,
+          appliedFrame: 48_000,
+        })
+      : freezeCanonical({
+          kind: 'ended-renderer-retired' as const,
+          from,
+          to,
+          observedAtRoomTimeMs: 2_000,
+        });
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    status: 'committed' as const,
+    kind,
+    roomGeneration: (v2.state.room as ReturnType<typeof room>).roomGeneration,
+    applicationSessionId: (v2.state.room as ReturnType<typeof room>).applicationSessionId,
+    hostParticipantId: 'transport-v2-host',
+    evidence,
+    timeline: freezeCanonical({
+      schemaVersion: 1 as const,
+      phase: 'stopped' as const,
+      revision,
+      run: null,
+      positionSeconds: 0,
+      anchorMonotonicMs: 2_000,
+      rate: 0,
+    }),
+  });
+}
+
+function terminalSnapshot(revision: number, positionSeconds = 120) {
+  const run = freezeCanonical({ queueItemId: Q1, runId: RUN_ID, revision });
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    queueItemId: Q1,
+    backend: 'audio-buffer' as const,
+    phase: 'ended' as const,
+    revision,
+    run,
+    durationSeconds: 120,
+    positionSeconds,
+    bufferedAheadSeconds: 0,
+    outputSampleRateHz: 48_000,
+    channelCount: 2,
+    underrunCount: 0,
+    errorCode: null,
+  });
+}
+
+function playlistTrackCommit(queueItemId: QueueItemId, revision: number) {
+  const runId = `playlist-run-${revision}`;
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    status: 'committed' as const,
+    roomGeneration: (v2.state.room as ReturnType<typeof room>).roomGeneration,
+    applicationSessionId: (v2.state.room as ReturnType<typeof room>).applicationSessionId,
+    hostParticipantId: 'transport-v2-host',
+    backend: 'audio-buffer' as const,
+    asset: freezeCanonical({ queueItemId }),
+    attempt: freezeCanonical({ queueItemId, runId, revision }),
+    schedule: freezeCanonical({ positionSeconds: 0 }),
+    startEvidence: freezeCanonical({ kind: 'webaudio-schedule-passed' as const }),
+    timeline: freezeCanonical({
+      schemaVersion: 1 as const,
+      phase: 'playing' as const,
+      revision,
+      run: freezeCanonical({ queueItemId, runId }),
+      positionSeconds: 0,
+      anchorMonotonicMs: 3_000,
+      rate: 1,
+    }),
+  });
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -314,6 +410,7 @@ beforeEach(async () => {
   v2.state.room = room();
   v2.state.renderer = null;
   v2.state.position = null;
+  v2.state.terminal = null;
   v2.runtime.hostRoomSnapshot.mockImplementation(() => v2.state.room);
   v2.runtime.seekPlaying.mockImplementation(async ({ positionSeconds }) => {
     const current = v2.state.renderer as ReturnType<typeof sourceSnapshot>;
@@ -345,6 +442,22 @@ beforeEach(async () => {
       .positionSeconds;
     const commit = playingCommit(positionSeconds, revision);
     publishProjection('playing', revision, positionSeconds, current.durationSeconds ?? 120);
+    return commit;
+  });
+  v2.runtime.stopCurrent.mockImplementation(async () => {
+    const current = v2.state.renderer as ReturnType<typeof sourceSnapshot>;
+    const commit = stoppedCommit('stop', current.revision + 1);
+    v2.state.renderer = null;
+    v2.state.position = null;
+    v2.state.terminal = null;
+    return commit;
+  });
+  v2.runtime.settleEndedCurrent.mockImplementation(async () => {
+    const current = v2.state.terminal as ReturnType<typeof terminalSnapshot>;
+    const commit = stoppedCommit('ended', current.revision + 1);
+    v2.state.renderer = null;
+    v2.state.position = null;
+    v2.state.terminal = null;
     return commit;
   });
   setSelectedFile();
@@ -517,6 +630,281 @@ describe('V2 host-local file transport seek boundary', () => {
     expect(v2.runtime.resumeCurrent).toHaveBeenCalledOnce();
     expect(getState('playback.activity')).toBe('playing');
     expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('publishes stop semantics only after the exact product stop commit', async () => {
+    setPlaying(12);
+    const pending = deferred<ReturnType<typeof stoppedCommit>>();
+    const nodeStop = vi.fn();
+    const disconnect = vi.fn();
+    const seekReset = vi.fn();
+    bus.on('ui:seek-reset', seekReset);
+    setPlayerNode({
+      stop: nodeStop,
+      disconnect,
+      onended: null,
+      buffer: {},
+    } as unknown as AudioBufferSourceNode);
+    v2.runtime.stopCurrent.mockImplementationOnce(() => pending.promise);
+
+    stopPlayback();
+    await drainMicrotasks();
+    expect(v2.runtime.stopCurrent).toHaveBeenCalledWith({
+      signal: expect.any(AbortSignal),
+    });
+    expect(getState('playback.activity')).toBe('playing');
+    expect(getState('player.pausedAt')).toBe(12);
+    expect(seekReset).not.toHaveBeenCalled();
+
+    v2.state.renderer = null;
+    v2.state.position = null;
+    pending.resolve(stoppedCommit('stop', 2));
+    await drainMicrotasks();
+
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(getState('player.pausedAt')).toBe(0);
+    expect(seekReset).toHaveBeenCalledOnce();
+    expect(nodeStop).not.toHaveBeenCalled();
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('lets an ordered cross-mode caller continue only after product stop settles', async () => {
+    setPlaying(7);
+    const pending = deferred<ReturnType<typeof stoppedCommit>>();
+    v2.runtime.stopCurrent.mockImplementationOnce(() => pending.promise);
+
+    let continued = false;
+    const ordered = stopAllMediaAsync({ silent: true }).then((stopped) => {
+      continued = stopped;
+    });
+    await drainMicrotasks();
+    expect(continued).toBe(false);
+    expect(getState('playback.activity')).toBe('playing');
+
+    v2.state.renderer = null;
+    v2.state.position = null;
+    pending.resolve(stoppedCommit('stop', 2));
+    await ordered;
+
+    expect(continued).toBe(true);
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('keeps a selected row authoritative until its exact V2 stop commits before removal', async () => {
+    setPlaying(9);
+    const pending = deferred<ReturnType<typeof stoppedCommit>>();
+    v2.runtime.stopCurrent.mockImplementationOnce(() => pending.promise);
+    initPlaylist();
+
+    bus.emit('playlist:remove-tracks', [Q1]);
+    await drainMicrotasks();
+    expect(v2.runtime.stopCurrent).toHaveBeenCalledOnce();
+    expect(getState('playlist.items')).toHaveLength(1);
+    expect(getState('playlist.currentQueueItemId')).toBe(Q1);
+
+    v2.state.renderer = null;
+    v2.state.position = null;
+    pending.resolve(stoppedCommit('stop', 2));
+    await drainMicrotasks();
+
+    expect(getState('playlist.items')).toHaveLength(0);
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('does not start a newly selected local file before the prior V2 stop commits', async () => {
+    const next = fileItem(Q2);
+    setState('playlist.items', [fileItem(Q1), next]);
+    setState('playlist.currentQueueItemId', Q1);
+    setPlaying(4);
+    const pendingStop = deferred<ReturnType<typeof stoppedCommit>>();
+    v2.runtime.stopCurrent.mockImplementationOnce(() => pendingStop.promise);
+    v2.runtime.startLocalTrack.mockResolvedValueOnce(playlistTrackCommit(Q2, 3));
+
+    const pendingPlay = playTrack(Q2);
+    await drainMicrotasks();
+    expect(v2.runtime.stopCurrent).toHaveBeenCalledOnce();
+    expect(v2.runtime.startLocalTrack).not.toHaveBeenCalled();
+    expect(getState('playlist.currentQueueItemId')).toBe(Q1);
+
+    v2.state.renderer = null;
+    v2.state.position = null;
+    pendingStop.resolve(stoppedCommit('stop', 2));
+    await pendingPlay;
+
+    expect(v2.runtime.startLocalTrack).toHaveBeenCalledWith({
+      queueItemId: Q2,
+      file: next.file,
+      positionSeconds: 0,
+      signal: expect.any(AbortSignal),
+    });
+    expect(getState('playlist.currentQueueItemId')).toBe(Q2);
+    expect(getState('playback.activity')).toBe('playing');
+  });
+
+  it('cancels a not-yet-committed local start when stop is requested from product idle', async () => {
+    const next = fileItem(Q2);
+    setState('playlist.items', [fileItem(Q1), next]);
+    setState('playlist.currentQueueItemId', Q1);
+    const pendingStart = deferred<ReturnType<typeof playlistTrackCommit>>();
+    let startSignal: AbortSignal | null = null;
+    v2.runtime.startLocalTrack.mockImplementationOnce((options: { signal: AbortSignal }) => {
+      startSignal = options.signal;
+      return pendingStart.promise;
+    });
+    initPlaylist();
+
+    const pendingPlay = playTrack(Q2);
+    await drainMicrotasks();
+    expect(startSignal?.aborted).toBe(false);
+
+    stopPlayback();
+    expect(startSignal?.aborted).toBe(true);
+    pendingStart.reject(new Error('start cancelled'));
+    await pendingPlay;
+
+    expect(v2.runtime.stopCurrent).not.toHaveBeenCalled();
+    expect(getState('playlist.currentQueueItemId')).toBe(Q1);
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('serializes a rapid seek then stop from the physical seek revision', async () => {
+    setPlaying(5);
+    const pendingSeek = deferred<ReturnType<typeof playingCommit>>();
+    v2.runtime.seekPlaying.mockImplementationOnce(() => pendingSeek.promise);
+
+    seekTo(25);
+    await drainMicrotasks();
+    const seekSignal = v2.runtime.seekPlaying.mock.calls[0]?.[0].signal as AbortSignal;
+    stopPlayback();
+    expect(seekSignal.aborted).toBe(true);
+    expect(v2.runtime.stopCurrent).not.toHaveBeenCalled();
+
+    publishProjection('playing', 2, 25);
+    pendingSeek.resolve(playingCommit(25, 2));
+    await drainMicrotasks();
+
+    expect(v2.runtime.stopCurrent).toHaveBeenCalledOnce();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(getState('player.pausedAt')).toBe(0);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a physically committed stop superseded by seek, pause, and play', async () => {
+    setPlaying(5);
+    const pendingStop = deferred<ReturnType<typeof stoppedCommit>>();
+    v2.runtime.stopCurrent.mockImplementationOnce(() => pendingStop.promise);
+
+    stopPlayback();
+    await drainMicrotasks();
+    const stopSignal = v2.runtime.stopCurrent.mock.calls[0]?.[0].signal as AbortSignal;
+    seekTo(30);
+    pause(undefined, { showToast: false });
+    await play(30);
+    expect(stopSignal.aborted).toBe(true);
+
+    v2.state.renderer = null;
+    v2.state.position = null;
+    pendingStop.resolve(stoppedCommit('stop', 2));
+    await drainMicrotasks();
+
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(v2.runtime.seekPlaying).not.toHaveBeenCalled();
+    expect(v2.runtime.seekPaused).not.toHaveBeenCalled();
+    expect(v2.runtime.pauseCurrent).not.toHaveBeenCalled();
+    expect(v2.runtime.resumeCurrent).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates one exact natural-end observation and advances only after settlement', async () => {
+    setPlaybackFilePlaying();
+    setState('player.pausedAt', 120);
+    v2.state.renderer = null;
+    v2.state.position = null;
+    v2.state.terminal = terminalSnapshot(1);
+    const pending = deferred<ReturnType<typeof stoppedCommit>>();
+    v2.runtime.settleEndedCurrent.mockImplementationOnce(() => pending.promise);
+    const ended = vi.fn();
+    bus.on('player:ended', ended);
+
+    handleEnded();
+    handleEnded();
+    await drainMicrotasks();
+    expect(v2.runtime.settleEndedCurrent).toHaveBeenCalledOnce();
+    expect(ended).not.toHaveBeenCalled();
+    expect(getState('playback.activity')).toBe('playing');
+
+    v2.state.terminal = null;
+    pending.resolve(stoppedCommit('ended', 2));
+    await drainMicrotasks();
+
+    expect(getState('playback.activity')).toBe('idle');
+    expect(ended).toHaveBeenCalledOnce();
+    handleEnded();
+    await drainMicrotasks();
+    expect(v2.runtime.settleEndedCurrent).toHaveBeenCalledOnce();
+    expect(ended).toHaveBeenCalledOnce();
+  });
+
+  it('treats an explicit stop at the terminal renderer as stop, not auto-advance', async () => {
+    setPlaybackFilePlaying();
+    v2.state.renderer = null;
+    v2.state.position = null;
+    v2.state.terminal = terminalSnapshot(9);
+    const ended = vi.fn();
+    bus.on('player:ended', ended);
+
+    stopPlayback();
+    await drainMicrotasks();
+
+    expect(v2.runtime.stopCurrent).not.toHaveBeenCalled();
+    expect(v2.runtime.settleEndedCurrent).toHaveBeenCalledOnce();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(ended).not.toHaveBeenCalled();
+  });
+
+  it('does not advance when exact natural-end settlement fails', async () => {
+    setPlaybackFilePlaying();
+    v2.state.renderer = null;
+    v2.state.position = null;
+    v2.state.terminal = terminalSnapshot(7);
+    v2.runtime.settleEndedCurrent.mockRejectedValueOnce(new Error('retirement failed'));
+    const ended = vi.fn();
+    bus.on('player:ended', ended);
+
+    handleEnded();
+    await drainMicrotasks();
+
+    expect(v2.runtime.settleEndedCurrent).toHaveBeenCalledOnce();
+    expect(getState('playback.activity')).toBe('playing');
+    expect(ended).not.toHaveBeenCalled();
+  });
+
+  it('ends the V2 playlist only after stopped truth and never broadcasts legacy PAUSE', async () => {
+    setPlaying(5);
+    setState('playlist.repeatMode', 0);
+    setState('playlist.isShuffle', false);
+    const pending = deferred<ReturnType<typeof stoppedCommit>>();
+    v2.runtime.stopCurrent.mockImplementationOnce(() => pending.promise);
+
+    playNextTrack();
+    await drainMicrotasks();
+    expect(v2.runtime.stopCurrent).toHaveBeenCalledOnce();
+    expect(getState('playlist.currentQueueItemId')).toBe(Q1);
+
+    v2.state.renderer = null;
+    v2.state.position = null;
+    pending.resolve(stoppedCommit('stop', 2));
+    await drainMicrotasks();
+
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(broadcast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PAUSE, endOfPlaylist: true }),
+    );
   });
 
   it('fails closed for pause, resume, and toggle when the selected renderer is missing', async () => {

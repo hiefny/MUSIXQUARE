@@ -23,6 +23,10 @@ import { getPeer, detectConnectionType } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
 import { showToast } from '../ui/toast.ts';
 import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
+import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
+import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
+
+const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
@@ -135,7 +139,6 @@ export function setInitNetwork(fn: (requestedId: string | null) => Promise<strin
  * Connect to a host session as a guest.
  */
 export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0): void {
-  const applicationSessions = getFilePlaybackApplicationSessionManager();
   // Guard against duplicate calls (e.g. rapid double-click)
   // Only check on initial call — retries (retryAttempt > 0) must pass through
   // because isConnecting is already true from the initial call.
@@ -143,6 +146,11 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     log.warn('[Join] Already connecting — ignoring duplicate joinSession call');
     return;
   }
+
+  // Gate-off must not instantiate or query the V2 connection authority.
+  const applicationSessions = FILE_PLAYBACK_ENGINE_V2_ENABLED
+    ? getFilePlaybackApplicationSessionManager()
+    : null;
 
   const hostConn = getState('network.hostConn');
   if (hostConn) {
@@ -153,7 +161,26 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     // Retire the exact application epoch synchronously. Some transports emit
     // close asynchronously, after hostConn has already been replaced, so the
     // stale-close guard cannot be the sole owner of this cleanup.
-    applicationSessions.closeConnection(hostConn, false);
+    applicationSessions?.closeConnection(hostConn, false);
+    if (FILE_PLAYBACK_ENGINE_V2_ENABLED) {
+      try {
+        // A new explicit join intent gets a new room generation. The old
+        // channel may not have emitted close yet, so retire its room here
+        // before the later peer-ready path calls beginGuestRoom().
+        getFilePlaybackProductRuntime().endRoom();
+      } catch (error) {
+        log.error('[Join] Failed to retire the previous V2 guest room', error);
+        try {
+          hostConn.close();
+        } catch {
+          /* noop */
+        }
+        setState('network.hostConn', null);
+        setState('network.isConnecting', false);
+        bus.emit('network:error', error);
+        return;
+      }
+    }
     try {
       hostConn.close();
     } catch {
@@ -229,6 +256,32 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     return;
   }
 
+  const productRuntime = FILE_PLAYBACK_ENGINE_V2_ENABLED ? getFilePlaybackProductRuntime() : null;
+  let productRoomBegun = false;
+  const endProductRoom = (): void => {
+    if (!productRoomBegun || !productRuntime) return;
+    productRoomBegun = false;
+    try {
+      productRuntime.endRoom();
+    } catch (error) {
+      log.error('[Join] V2 guest room cleanup failed', error);
+    }
+  };
+  if (productRuntime) {
+    try {
+      // Peer initialization may itself retire a previous room. Begin only
+      // after the exact peer-ready retry reaches its one connect attempt, and
+      // still before the connection manager can emit HELLO.
+      productRoomBegun = productRuntime.beginGuestRoom();
+      if (!productRoomBegun) throw new Error('V2 guest room was not started');
+    } catch (error) {
+      log.error('[Join] V2 guest room initialization failed', error);
+      setState('network.isConnecting', false);
+      bus.emit('network:error', error);
+      return;
+    }
+  }
+
   let conn: DataConnection;
   try {
     const channelMode = getState('audio.channelMode');
@@ -238,6 +291,9 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       roomPassword,
     });
   } catch (e) {
+    // No transport owns this generation, so a later explicit join must get a
+    // fresh room instead of colliding with an orphaned active runtime.
+    endProductRoom();
     log.error('[Join] peer.connect failed', e);
     setState('network.isConnecting', false);
     bus.emit('network:error', new Error('CONNECT_FAILED'));
@@ -257,7 +313,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       applicationEstablished ||
       getState('network.hostConn') !== conn ||
       !conn.open ||
-      !applicationSessions.establishedChannel(conn)
+      (FILE_PLAYBACK_ENGINE_V2_ENABLED && !applicationSessions?.establishedChannel(conn))
     ) {
       return;
     }
@@ -272,6 +328,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   const handlePreOpenError = (err: unknown) => {
     if (dataChannelOpened) return;
     clearManagedTimer('join-timeout');
+    endProductRoom();
     log.warn('[Join] Host connection error before open', err);
     try {
       conn.close();
@@ -285,15 +342,25 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   // Register data handler BEFORE 'open' to avoid missing early messages
   // (e.g. WELCOME sent by host in its own 'open' handler).
   const processInboundData = (data: unknown): void => {
-    const application = applicationSessions.receive(data, conn);
-    if (application.handled) {
-      if (application.established) completeApplicationSession();
-      return;
+    if (FILE_PLAYBACK_ENGINE_V2_ENABLED) {
+      if (!applicationSessions) {
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+        return;
+      }
+      const application = applicationSessions.receive(data, conn);
+      if (application.handled) {
+        if (application.established) completeApplicationSession();
+        return;
+      }
     }
     bus.emit('network:data', data, conn);
   };
   conn.on('data', (data: unknown) => {
-    if (!dataChannelOpened) {
+    if (FILE_PLAYBACK_ENGINE_V2_ENABLED && !dataChannelOpened) {
       const queued = snapshotPreOpenLifecycleFrame(data);
       if (
         !queued ||
@@ -304,6 +371,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         preOpenFrames.length = 0;
         preOpenFrameBytes = 0;
         clearManagedTimer('join-timeout');
+        endProductRoom();
         setState('network.isConnecting', false);
         try {
           conn.close();
@@ -333,6 +401,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         } catch {
           /* noop */
         }
+        endProductRoom();
         setState('network.isConnecting', false);
         bus.emit('network:error', new Error('HOST_UNREACHABLE'));
       },
@@ -365,7 +434,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     conn.on('close', () => {
       // Exact connection records must be retired even when UI/state ownership
       // has already moved to a replacement connection.
-      applicationSessions.closeConnection(conn, false);
+      applicationSessions?.closeConnection(conn, false);
       // Stale-conn no-op (parity with host.ts's per-peer close guard): once
       // this conn no longer owns network.hostConn — replaced by a rejoin, or
       // already nulled by leaveSession/rejoin cleanup — its close is
@@ -383,6 +452,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         log.debug('[Join] Stale connection closed — ignoring');
         return;
       }
+      endProductRoom();
       log.warn('[Join] Host connection closed');
       setState('network.hostConn', null);
       setState('network.isConnecting', false);
@@ -403,7 +473,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     });
 
     conn.on('error', (err: unknown) => {
-      applicationSessions.closeConnection(conn, false);
+      applicationSessions?.closeConnection(conn, false);
       // Same stale-conn no-op as the close handler above: a replaced conn's
       // draining error (e.g. a malformed frame on a dying transport) must
       // not surface an error dialog over the live connection.
@@ -411,6 +481,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
         log.debug('[Join] Stale connection error — ignoring', err);
         return;
       }
+      endProductRoom();
       log.error('[Join] Host connection error', err);
       setState('network.hostConn', null);
       setState('network.isConnecting', false);
@@ -421,19 +492,32 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       bus.emit('network:error', new Error('HOST_CONNECTION_ERROR'));
     });
 
-    const guestParticipantId = getState('network.myId');
-    if (
-      !guestParticipantId ||
-      !applicationSessions.beginGuestConnection(conn, guestParticipantId)
-    ) {
-      return;
-    }
+    if (FILE_PLAYBACK_ENGINE_V2_ENABLED) {
+      const guestParticipantId = getState('network.myId');
+      if (
+        !applicationSessions ||
+        !guestParticipantId ||
+        !applicationSessions.beginGuestConnection(conn, guestParticipantId)
+      ) {
+        endProductRoom();
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+        return;
+      }
 
-    for (const queued of preOpenFrames.splice(0)) {
-      if (getState('network.hostConn') !== conn || !conn.open) break;
-      processInboundData(queued);
+      for (const queued of preOpenFrames.splice(0)) {
+        if (getState('network.hostConn') !== conn || !conn.open) break;
+        processInboundData(queued);
+      }
+      preOpenFrameBytes = 0;
+    } else {
+      // Legacy joins are owned solely by RTC open; no HELLO/APPLIED/session
+      // clock is created and generic protocol receives bootstrap frames.
+      completeApplicationSession();
     }
-    preOpenFrameBytes = 0;
 
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).
@@ -465,7 +549,9 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       }
     });
 
-    log.info('[Join] Transport open; awaiting application-session APPLIED');
+    if (FILE_PLAYBACK_ENGINE_V2_ENABLED) {
+      log.info('[Join] Transport open; awaiting application-session APPLIED');
+    }
   });
 }
 

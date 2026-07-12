@@ -2,6 +2,12 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// This suite's application-session assertions explicitly run in V2 mode.
+vi.mock('../../player/file-playback-engine-gate.ts', () => ({
+  isFilePlaybackEngineV2Enabled: () => true,
+  getFilePlaybackEngineMode: () => 'v2',
+}));
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import {

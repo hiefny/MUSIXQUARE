@@ -19,6 +19,9 @@ import type { AnyProtocolMsg, DataConnection, ProtocolMsg } from '../types/index
 import { hasQueueAuthority } from './queue-authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
 import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
+import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
+
+const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -577,22 +580,24 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   // lifecycle frames; ordered queue bootstrap and V2 session/clock frames are
   // consumed synchronously by the dedicated session manager before reaching
   // this generic dispatcher.
-  const applicationSessions = getFilePlaybackApplicationSessionManager();
-  if (
-    applicationSessions.isKnownConnection(conn) &&
-    applicationSessions.phase(conn) === 'handshaking'
-  ) {
-    if (!isGuest) {
-      log.debug(`[Protocol] Ignored guest command before APPLIED: ${msgType}`);
-      return;
-    }
-    const allowedGuestSetupFrame =
-      msgType === MSG.WELCOME ||
-      msgType === MSG.SESSION_FULL ||
-      msgType === MSG.FORCE_CLOSE_DUPLICATE;
-    if (!allowedGuestSetupFrame) {
-      log.debug(`[Protocol] Ignored host frame before APPLIED: ${msgType}`);
-      return;
+  if (FILE_PLAYBACK_ENGINE_V2_ENABLED) {
+    const applicationSessions = getFilePlaybackApplicationSessionManager();
+    if (
+      applicationSessions.isKnownConnection(conn) &&
+      applicationSessions.phase(conn) === 'handshaking'
+    ) {
+      if (!isGuest) {
+        log.debug(`[Protocol] Ignored guest command before APPLIED: ${msgType}`);
+        return;
+      }
+      const allowedGuestSetupFrame =
+        msgType === MSG.WELCOME ||
+        msgType === MSG.SESSION_FULL ||
+        msgType === MSG.FORCE_CLOSE_DUPLICATE;
+      if (!allowedGuestSetupFrame) {
+        log.debug(`[Protocol] Ignored host frame before APPLIED: ${msgType}`);
+        return;
+      }
     }
   }
 

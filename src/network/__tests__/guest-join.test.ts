@@ -9,6 +9,22 @@ const mocks = vi.hoisted(() => ({
   detectConnectionType: vi.fn(),
   startWorkerTimer: vi.fn(),
   showToast: vi.fn(),
+  beginGuestRoom: vi.fn(() => true),
+  endRoom: vi.fn(),
+}));
+
+// This suite exercises the V2 handshake path explicitly. Legacy gate-off
+// behavior has its own isolated module-reset callsite suite.
+vi.mock('../../player/file-playback-engine-gate.ts', () => ({
+  isFilePlaybackEngineV2Enabled: () => true,
+  getFilePlaybackEngineMode: () => 'v2',
+}));
+
+vi.mock('../../player/file-playback-product-runtime.ts', () => ({
+  getFilePlaybackProductRuntime: () => ({
+    beginGuestRoom: mocks.beginGuestRoom,
+    endRoom: mocks.endRoom,
+  }),
 }));
 
 vi.mock('../../core/log.ts', () => ({
@@ -107,6 +123,43 @@ afterEach(() => {
 });
 
 describe('joinSession reconnect racing', () => {
+  it('begins one guest room only when a recursive peer-ready retry reaches connect', async () => {
+    const { peer, connect, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValueOnce(null).mockReturnValue(peer);
+    setInitNetwork(() => Promise.resolve('guest-test-participant'));
+    const manager = getFilePlaybackApplicationSessionManager();
+    const beginConnection = vi.spyOn(manager, 'beginGuestConnection');
+
+    joinSession('HOST01');
+    expect(mocks.beginGuestRoom).not.toHaveBeenCalled();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.beginGuestRoom).toHaveBeenCalledOnce();
+    expect(connect).toHaveBeenCalledOnce();
+
+    conns[0].fire('open');
+    expect(beginConnection).toHaveBeenCalledOnce();
+    expect(mocks.beginGuestRoom.mock.invocationCallOrder[0]).toBeLessThan(
+      beginConnection.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('ends the V2 room when peer.connect throws before transport ownership', () => {
+    const connect = vi.fn(() => {
+      throw new Error('connect boom');
+    });
+    mocks.getPeer.mockReturnValue({ open: true, connect } as unknown as PeerInstance);
+    const errors = vi.fn();
+    bus.on('network:error', errors);
+
+    joinSession('HOST01');
+
+    expect(mocks.beginGuestRoom).toHaveBeenCalledOnce();
+    expect(mocks.endRoom).toHaveBeenCalledOnce();
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({ message: 'CONNECT_FAILED' }));
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
   it('queues bounded legacy setup data that arrives before RTC open and flushes after exact bind', () => {
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);
@@ -253,6 +306,9 @@ describe('joinSession reconnect racing', () => {
       .mock.calls.map(([value]) => value as { type?: string })
       .find((value) => value.type === 'FILE_PLAYBACK_SESSION_APPLIED_V2');
     expect(applied).toBeDefined();
+
+    conn.fire('close');
+    expect(mocks.endRoom).toHaveBeenCalledOnce();
   });
 
   it('ignores a duplicate joinSession call while the first attempt is still connecting', () => {
@@ -290,6 +346,11 @@ describe('joinSession reconnect racing', () => {
     first.open = false;
     joinSession('HOST01');
     expect(getFilePlaybackApplicationSessionManager().phase(first)).toBe('none');
+    expect(mocks.endRoom).toHaveBeenCalledOnce();
+    expect(mocks.beginGuestRoom).toHaveBeenCalledTimes(2);
+    expect(mocks.endRoom.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.beginGuestRoom.mock.invocationCallOrder[1],
+    );
     const second = conns[1];
     second.fire('open');
     setState('network.isConnecting', false);

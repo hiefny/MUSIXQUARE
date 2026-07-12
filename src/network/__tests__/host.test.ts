@@ -26,6 +26,13 @@ vi.mock('../../core/log.ts', () => ({
   },
 }));
 
+// This suite exercises the selected V2 connection protocol explicitly. Gate-off
+// legacy behavior has its own isolated callsite suite.
+vi.mock('../../player/file-playback-engine-gate.ts', () => ({
+  isFilePlaybackEngineV2Enabled: () => true,
+  getFilePlaybackEngineMode: () => 'v2',
+}));
+
 import { handleHostIncomingConnection } from '../host.ts';
 import { getFilePlaybackApplicationSessionManager } from '../file-playback-application-session.ts';
 import {

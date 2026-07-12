@@ -10,6 +10,7 @@ import type {
 import {
   HostRendezvousCoordinator,
   RENDEZVOUS_FINALIZATION_GUARD_MS,
+  type HostRendezvousAttempt,
   type HostRendezvousParticipant,
 } from '../rendezvous-coordinator.ts';
 
@@ -130,6 +131,135 @@ describe('HostRendezvousCoordinator', () => {
       instance.start({ run: RUN, positionSeconds: 0, playbackRate: 1, participants: [] }),
     ).toMatchObject({ rendezvousId: 'rv-options-proxy' });
     expect(getterCalls).toBe(0);
+  });
+
+  it('closes irreversibly, cancels once, and makes retained attempts inert', async () => {
+    const armGate = deferred<RendezvousArmReceipt>();
+    const finalize = vi.fn(async (intent: RendezvousFinalizeIntent) => finalizedReceipt(intent));
+    const cancel = vi.fn();
+    let clockReads = 0;
+    const host = coordinator(() => {
+      clockReads += 1;
+      return 10_000;
+    }, ['rv-close']);
+    const attempt = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('closing-peer', {
+          arm: () => armGate.promise,
+          finalize,
+          cancel,
+        }),
+      ],
+    });
+    const readsBeforeClose = clockReads;
+
+    host.close();
+    host.close();
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'coordinator-closed',
+      participants: [{ participantId: 'closing-peer', armStatus: 'stale' }],
+    });
+    expect(attempt.commitParticipant('closing-peer')).toBe(false);
+    expect(attempt.expire()).toMatchObject({ status: 'cancelled' });
+    expect(host.cancelActive()).toBeNull();
+    expect(host.tryReadRoomTimeMs()).toBeNull();
+    expect(clockReads).toBe(readsBeforeClose);
+    expect(() =>
+      host.start({ run: RUN, positionSeconds: 0, playbackRate: 1, participants: [] }),
+    ).toThrow('coordinator is closed');
+
+    armGate.resolve(
+      armedReceipt({
+        protocolVersion: 2,
+        kind: 'rendezvous-arm',
+        ...RUN,
+        rendezvousId: 'rv-close',
+        recipientId: 'closing-peer',
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: 10_450,
+        finalizeByRoomTimeMs: 10_350,
+      }),
+    );
+    await drainMicrotasks();
+    expect(finalize).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('fences close re-entry from participant cancellation before any successor can start', () => {
+    let nestedStartError: unknown = null;
+    let nestedCancelSnapshot: ReturnType<HostRendezvousAttempt['cancel']> | null = null;
+    let nestedExpireSnapshot: ReturnType<HostRendezvousAttempt['expire']> | null = null;
+    let host!: HostRendezvousCoordinator;
+    let attempt!: HostRendezvousAttempt;
+    const cancel = vi.fn(() => {
+      host.close();
+      nestedCancelSnapshot = attempt.cancel('participant-cancel-reentry');
+      nestedExpireSnapshot = attempt.expire();
+      try {
+        host.start({ run: RUN, positionSeconds: 0, playbackRate: 1, participants: [] });
+      } catch (error) {
+        nestedStartError = error;
+      }
+    });
+    host = coordinator(() => 1_000, ['rv-close-reentry', 'rv-must-not-start']);
+    attempt = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [participant('reentrant-peer', { arm: () => new Promise(() => {}), cancel })],
+    });
+
+    host.close();
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(nestedStartError).toBeInstanceOf(Error);
+    expect((nestedStartError as Error).message).toContain('coordinator is closed');
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'coordinator-closed',
+    });
+    expect(nestedCancelSnapshot).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'coordinator-closed',
+    });
+    expect(nestedExpireSnapshot).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'coordinator-closed',
+    });
+    expect(host.cancelActive()).toBeNull();
+  });
+
+  it('aborts a re-entrant start when the room clock closes the coordinator', () => {
+    let host!: HostRendezvousCoordinator;
+    const createRendezvousId = vi.fn(() => 'rv-never-created');
+    host = new HostRendezvousCoordinator({
+      nowRoomTimeMs: () => {
+        host.close();
+        return 5_000;
+      },
+      createRendezvousId,
+    });
+
+    expect(() =>
+      host.start({
+        run: RUN,
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [],
+      }),
+    ).toThrow('coordinator is closed');
+    expect(createRendezvousId).not.toHaveBeenCalled();
+    expect(host.cancelActive()).toBeNull();
+    expect(() =>
+      host.start({ run: RUN, positionSeconds: 0, playbackRate: 1, participants: [] }),
+    ).toThrow('coordinator is closed');
   });
 
   it('detaches start scalars and participant callbacks exactly once', async () => {

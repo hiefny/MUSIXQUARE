@@ -114,7 +114,8 @@ export interface HostRendezvousAttempt {
 }
 
 interface MutableParticipantOutcome {
-  readonly participant: HostRendezvousParticipant;
+  readonly participantId: string;
+  participant: HostRendezvousParticipant | null;
   readonly intent: RendezvousArmIntent;
   readonly estimatedLeadMs: number;
   readonly armDispatchedAtRoomTimeMs: number;
@@ -299,7 +300,7 @@ function immutableParticipantOutcome(
   outcome: MutableParticipantOutcome,
 ): HostRendezvousParticipantOutcome {
   return Object.freeze({
-    participantId: outcome.participant.participantId,
+    participantId: outcome.participantId,
     estimatedLeadMs: outcome.estimatedLeadMs,
     bufferedAheadSeconds: outcome.bufferedAheadSeconds,
     armStatus: outcome.armStatus,
@@ -330,6 +331,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     this.#owner = owner;
     this.#schedule = schedule;
     this.#outcomes = participants.map((participant, index) => ({
+      participantId: participant.participantId,
       participant,
       intent: Object.freeze({
         protocolVersion: 2,
@@ -389,9 +391,11 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     for (const outcome of this.#outcomes) {
       if (this.#status !== 'open' || !this.#owner.isActive(this)) break;
       outcome.armDispatched = true;
+      const participant = outcome.participant;
+      if (participant === null) break;
       let pending: Promise<RendezvousArmReceipt>;
       try {
-        pending = outcome.participant.arm(outcome.intent);
+        pending = participant.arm(outcome.intent);
       } catch {
         this.#recordArmFailure(outcome, 'arm-call-failed');
         continue;
@@ -469,9 +473,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     if (this.#closing || !this.#owner.isActive(this) || this.#isRetired()) {
       return false;
     }
-    const outcome = this.#outcomes.find(
-      (candidate) => candidate.participant.participantId === participantId,
-    );
+    const outcome = this.#outcomes.find((candidate) => candidate.participantId === participantId);
     if (!outcome || outcome.finalizeStatus !== 'accepted') return false;
     if (outcome.committed) return true;
     if (outcome.committing) return false;
@@ -482,7 +484,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
         rendezvousId: this.#schedule.rendezvousId,
       }),
     ) as Readonly<PlaybackAttemptIdentity>;
-    const commitAttempt = outcome.participant.commitAttempt;
+    const commitAttempt = outcome.participant?.commitAttempt;
     if (commitAttempt !== undefined) {
       outcome.committing = true;
       let accepted: boolean;
@@ -526,6 +528,13 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     if (!this.#isRetired()) this.#closePending('superseded', reasonCode);
   }
 
+  closeFromOwner(reasonCode: string): void {
+    this.#closing = true;
+    if (!this.#isRetired()) this.#closePending('cancelled', reasonCode);
+    this.#cancelDispatchedParticipants(reasonCode);
+    for (const outcome of this.#outcomes) outcome.participant = null;
+  }
+
   #cancelDispatchedParticipants(reasonCode: string): void {
     for (const outcome of this.#outcomes) {
       this.#cancelParticipant(outcome, reasonCode);
@@ -537,7 +546,8 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       return;
     }
     outcome.cancellationDispatched = true;
-    if (typeof outcome.participant.cancel !== 'function') return;
+    const cancel = outcome.participant?.cancel;
+    if (typeof cancel !== 'function') return;
     const intent: FilePlaybackCancelIntent = Object.freeze({
       kind: 'file-playback-cancel',
       ...this.#schedule.run,
@@ -545,7 +555,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       reasonCode,
     });
     try {
-      const pending = Promise.resolve(outcome.participant.cancel(intent));
+      const pending = Promise.resolve(cancel(intent));
       void pending.then(
         () => undefined,
         () => undefined,
@@ -604,7 +614,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       kind: 'rendezvous-finalize',
       ...this.#schedule.run,
       rendezvousId: this.#schedule.rendezvousId,
-      recipientId: outcome.participant.participantId,
+      recipientId: outcome.participantId,
       startAtRoomTimeMs: this.#schedule.startAtRoomTimeMs,
       finalizedAtRoomTimeMs: receivedAtRoomTimeMs,
     });
@@ -624,9 +634,15 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
 
     outcome.finalizeStatus = 'pending';
     outcome.finalizeDispatchedAtRoomTimeMs = receivedAtRoomTimeMs;
+    const participant = outcome.participant;
+    if (participant === null) {
+      outcome.finalizeStatus = 'stale';
+      outcome.finalizeReasonCode = 'rendezvous-not-active';
+      return;
+    }
     let pending: Promise<RendezvousFinalizeReceipt>;
     try {
-      pending = outcome.participant.finalize(finalizeIntent);
+      pending = participant.finalize(finalizeIntent);
     } catch {
       this.#recordFinalizeFailure(outcome, 'finalize-call-failed');
       return;
@@ -765,12 +781,13 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
  * advances each participant independently as its own asynchronous work settles.
  */
 export class HostRendezvousCoordinator {
-  readonly #nowRoomTimeMs: () => number;
-  readonly #createRendezvousId: () => string;
+  #nowRoomTimeMs: (() => number) | null;
+  #createRendezvousId: (() => string) | null;
   #lastRoomTimeMs: number | null = null;
   #active: ActiveHostRendezvousAttempt | null = null;
   readonly #issuedRendezvousIds = new Set<string>();
   #mutationEpoch = 0;
+  #closed = false;
 
   constructor(options: HostRendezvousCoordinatorOptions) {
     const snapshot = snapshotCoordinatorOptions(options);
@@ -786,6 +803,7 @@ export class HostRendezvousCoordinator {
   }
 
   start(input: StartHostRendezvousInput): HostRendezvousAttempt {
+    this.#assertOpen();
     const mutationEpoch = this.#advanceMutationEpoch();
     const detachedInput = readStartInput(input);
     const run = readPlaybackStateIdentity(detachedInput.run);
@@ -821,7 +839,9 @@ export class HostRendezvousCoordinator {
 
     const createdAtRoomTimeMs = this.#readRoomTimeMs();
     this.#assertMutationEpoch(mutationEpoch);
-    const rendezvousId = this.#createRendezvousId();
+    const createRendezvousId = this.#createRendezvousId;
+    if (createRendezvousId === null) throw new Error('Rendezvous coordinator is closed');
+    const rendezvousId = createRendezvousId();
     this.#assertMutationEpoch(mutationEpoch);
     if (!isBoundedIdentifier(rendezvousId)) {
       throw new TypeError('Generated rendezvous ID is invalid');
@@ -875,15 +895,31 @@ export class HostRendezvousCoordinator {
   }
 
   cancelActive(reasonCode?: string): HostRendezvousAttemptSnapshot | null {
+    if (this.#closed) return null;
     this.#advanceMutationEpoch();
     return this.#active?.cancel(reasonCode) ?? null;
   }
 
+  /** Irreversibly retires this room-scoped coordinator and its active barrier. */
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#advanceMutationEpoch();
+    const active = this.#active;
+    this.#active = null;
+    this.#issuedRendezvousIds.clear();
+    this.#lastRoomTimeMs = null;
+    this.#nowRoomTimeMs = null;
+    this.#createRendezvousId = null;
+    active?.closeFromOwner('coordinator-closed');
+  }
+
   isActive(attempt: ActiveHostRendezvousAttempt): boolean {
-    return this.#active === attempt;
+    return !this.#closed && this.#active === attempt;
   }
 
   tryReadRoomTimeMs(): number | null {
+    if (this.#closed) return null;
     try {
       return this.#readRoomTimeMs();
     } catch {
@@ -915,7 +951,12 @@ export class HostRendezvousCoordinator {
   }
 
   #readRoomTimeMs(): number {
-    const current = this.#nowRoomTimeMs();
+    const nowRoomTimeMs = this.#nowRoomTimeMs;
+    if (this.#closed || nowRoomTimeMs === null) {
+      throw new Error('Rendezvous coordinator is closed');
+    }
+    const current = nowRoomTimeMs();
+    if (this.#closed) throw new Error('Rendezvous coordinator is closed');
     assertFiniteNonNegative(current, 'Room time');
     if (this.#lastRoomTimeMs !== null && current < this.#lastRoomTimeMs) {
       throw new RangeError('Room time must not move backwards');
@@ -931,8 +972,13 @@ export class HostRendezvousCoordinator {
   }
 
   #assertMutationEpoch(expected: number): void {
+    this.#assertOpen();
     if (this.#mutationEpoch !== expected) {
       throw new Error('Rendezvous start was superseded during validation');
     }
+  }
+
+  #assertOpen(): void {
+    if (this.#closed) throw new Error('Rendezvous coordinator is closed');
   }
 }

@@ -133,6 +133,17 @@ interface CutoverRecord {
   cleanupPromise: Promise<void> | null;
 }
 
+/** Source-free tombstone used only for exact retries of an applied STOP. */
+interface CompletedCutoverStop {
+  readonly audioContext: WeakRef<AudioContext>;
+  readonly from: Readonly<{ queueItemId: QueueItemId; runId: string; revision: number }>;
+  readonly to: Readonly<{ queueItemId: QueueItemId; runId: string; revision: number }>;
+  readonly atRoomTimeMs: number;
+  readonly contextTimeSeconds: number;
+  readonly targetFrame: number;
+  readonly promise: WeakRef<Promise<FilePlaybackStopTransitionResult>>;
+}
+
 const CURRENT_STOP_MAX_LEAD_SECONDS = 30;
 const CURRENT_STOP_EVIDENCE_GRACE_MS = 2_000;
 const CURRENT_STOP_MIN_POLL_MS = 4;
@@ -524,6 +535,7 @@ export class FilePlaybackManager {
   private readonly sourceStates = new WeakMap<FilePlaybackSource, ManagedSource>();
   private readonly discardedQueueItems = new Set<QueueItemId>();
   private readonly cutoverPorts = new WeakMap<object, CutoverRecord>();
+  private readonly completedCutoverStops = new WeakMap<object, CompletedCutoverStop>();
   private cutoverCurrent: CutoverRecord | null = null;
   private cutoverCandidate: CutoverRecord | null = null;
   private cutoverEpoch = 0;
@@ -748,7 +760,8 @@ export class FilePlaybackManager {
   ): Promise<FilePlaybackStopTransitionResult> {
     const observedEpoch = this.cutoverEpoch;
     const record = this.cutoverPorts.get(port);
-    const intent = record ? readFilePlaybackStopTransitionIntent(value, record.audioContext) : null;
+    if (!record) return this.retryCompletedCutoverStop(port, value);
+    const intent = readFilePlaybackStopTransitionIntent(value, record.audioContext);
     if (
       intent &&
       record?.currentStopIntent &&
@@ -1437,8 +1450,7 @@ export class FilePlaybackManager {
       this.disconnectGate(previous);
       if (this.cutoverCurrent !== previous) {
         const cleanup = this.destroyIfUnowned(previous.state);
-        previous.cleanupPromise = cleanup;
-        this.trackCutoverCleanup(cleanup);
+        this.bindTerminalCutoverCleanup(previous, cleanup);
       }
     }
     return this.cutoverCurrent === record && !record.revoked && record.phase === 'current';
@@ -1960,8 +1972,47 @@ export class FilePlaybackManager {
     this.forceGate(record, 0);
     this.disconnectGate(record);
     applied?.resolve(evidence);
-    record.cleanupPromise = this.destroyIfUnowned(record.state);
-    this.trackCutoverCleanup(record.cleanupPromise);
+    const completedIntent = record.currentStopIntent;
+    const completedPromise = record.currentStopPromise;
+    if (completedIntent && completedPromise) {
+      this.completedCutoverStops.set(record.port, {
+        audioContext: new WeakRef(record.audioContext),
+        from: completedIntent.from,
+        to: completedIntent.to,
+        atRoomTimeMs: completedIntent.atRoomTimeMs,
+        contextTimeSeconds: completedIntent.target.contextTimeSeconds,
+        targetFrame: completedIntent.target.targetFrame,
+        promise: new WeakRef(completedPromise),
+      });
+    }
+    this.bindTerminalCutoverCleanup(record, this.destroyIfUnowned(record.state));
+  }
+
+  private retryCompletedCutoverStop(
+    port: FilePlaybackCutoverCandidatePort,
+    value: FilePlaybackStopTransitionIntent,
+  ): Promise<FilePlaybackStopTransitionResult> {
+    const completed = this.completedCutoverStops.get(port);
+    const audioContext = completed?.audioContext.deref();
+    const promise = completed?.promise.deref();
+    const intent = audioContext ? readFilePlaybackStopTransitionIntent(value, audioContext) : null;
+    if (
+      !completed ||
+      !promise ||
+      !intent ||
+      intent.from.queueItemId !== completed.from.queueItemId ||
+      intent.from.runId !== completed.from.runId ||
+      intent.from.revision !== completed.from.revision ||
+      intent.to.queueItemId !== completed.to.queueItemId ||
+      intent.to.runId !== completed.to.runId ||
+      intent.to.revision !== completed.to.revision ||
+      intent.atRoomTimeMs !== completed.atRoomTimeMs ||
+      intent.target.contextTimeSeconds !== completed.contextTimeSeconds ||
+      intent.target.targetFrame !== completed.targetFrame
+    ) {
+      return Promise.reject(cutoverError('current port or stop intent is stale'));
+    }
+    return promise;
   }
 
   private rejectCurrentStopAfterScheduling(
@@ -2247,9 +2298,7 @@ export class FilePlaybackManager {
     }
     this.forceGate(record, 0);
     this.disconnectGate(record);
-    record.cleanupPromise = this.destroyIfUnowned(record.state);
-    this.trackCutoverCleanup(record.cleanupPromise);
-    return record.cleanupPromise;
+    return this.bindTerminalCutoverCleanup(record, this.destroyIfUnowned(record.state));
   }
 
   private retireCurrentRecord(record: CutoverRecord): Promise<void> {
@@ -2265,9 +2314,7 @@ export class FilePlaybackManager {
     this.cutoverEpoch += 1;
     this.forceGate(record, 0);
     this.disconnectGate(record);
-    record.cleanupPromise = this.destroyIfUnowned(record.state);
-    this.trackCutoverCleanup(record.cleanupPromise);
-    return record.cleanupPromise;
+    return this.bindTerminalCutoverCleanup(record, this.destroyIfUnowned(record.state));
   }
 
   private enterFailSilent(record: CutoverRecord, _reason: string): Promise<void> {
@@ -2312,11 +2359,37 @@ export class FilePlaybackManager {
     const cleanup = Promise.all([...states].map((state) => this.destroyIfUnowned(state))).then(
       () => undefined,
     );
-    if (candidate) candidate.cleanupPromise = cleanup;
-    if (current) current.cleanupPromise = cleanup;
-    record.cleanupPromise = cleanup;
-    this.trackCutoverCleanup(cleanup);
-    return cleanup;
+    const records = new Set<CutoverRecord>();
+    if (candidate) records.add(candidate);
+    if (current) records.add(current);
+    records.add(record);
+    for (const terminalRecord of records) {
+      this.bindTerminalCutoverCleanup(terminalRecord, cleanup);
+    }
+    return record.cleanupPromise ?? cleanup;
+  }
+
+  /**
+   * Keeps a capability resolvable only until its terminal native cleanup has
+   * settled. Deleting after (rather than before) cleanup preserves the exact
+   * in-flight retirement promise and stale-call behavior while ensuring an
+   * externally retained opaque port cannot retain its source indefinitely.
+   */
+  private bindTerminalCutoverCleanup(record: CutoverRecord, cleanup: Promise<void>): Promise<void> {
+    if (record.cleanupPromise) return record.cleanupPromise;
+    const terminalCleanup = cleanup.finally(() => {
+      if (
+        record.cleanupPromise === terminalCleanup &&
+        record.revoked &&
+        this.cutoverCandidate !== record &&
+        this.cutoverCurrent !== record
+      ) {
+        this.cutoverPorts.delete(record.port);
+      }
+    });
+    record.cleanupPromise = terminalCleanup;
+    this.trackCutoverCleanup(terminalCleanup);
+    return terminalCleanup;
   }
 
   private trackCutoverCleanup(cleanup: Promise<void>): void {

@@ -775,6 +775,77 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     expect(source.source.finalize).toHaveBeenCalledOnce();
   });
 
+  it('forgets a retired candidate capability after exact cleanup settles', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1);
+    source.gateDestroy();
+    const port = await manager.stageCutoverCandidate({ source: source.source, destination });
+    const arm = armIntent(Q1, 'rv-retired-candidate');
+    await manager.armCutoverCandidate(port, arm);
+
+    const retirement = manager.retireCutoverCandidate(port);
+    await vi.waitFor(() => expect(source.source.destroy).toHaveBeenCalledOnce());
+    await expect(manager.retireCutoverCandidate(port)).resolves.toBe(false);
+    await expect(manager.armCutoverCandidate(port, { ...arm })).rejects.toThrow('stale');
+
+    source.destroyGate.resolve();
+    await expect(retirement).resolves.toBe(true);
+    await expect(manager.armCutoverCandidate(port, { ...arm })).rejects.toThrow('stale');
+    await expect(manager.finalizeCutoverCandidate(port, finalizeIntent(arm))).rejects.toThrow(
+      'stale',
+    );
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('forgets a retired current capability without repeating physical cleanup', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1);
+    source.gateDestroy();
+    const { port } = await startFirst(manager, source, destination, context);
+
+    const retirement = manager.retireCurrentCutover(port);
+    await vi.waitFor(() => expect(source.source.destroy).toHaveBeenCalledOnce());
+    expect(manager.currentCutoverSnapshot(port)).toBeNull();
+    await expect(manager.retireCurrentCutover(port)).resolves.toBe(false);
+    await expect(manager.pauseCurrentCutover(port, currentPauseIntent())).rejects.toThrow('stale');
+
+    source.destroyGate.resolve();
+    await expect(retirement).resolves.toBe(true);
+    expect(manager.currentCutoverSnapshot(port)).toBeNull();
+    await expect(manager.pauseCurrentCutover(port, currentPauseIntent())).rejects.toThrow('stale');
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('forgets an errored candidate port after cleanup instead of reviving cached work', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const source = makeSource(Q1, context, 1);
+    source.gateDestroy();
+    source.rejectFinalize();
+    const port = await manager.stageCutoverCandidate({ source: source.source, destination });
+    const arm = armIntent(Q1, 'rv-errored-candidate');
+    const firstArm = manager.armCutoverCandidate(port, arm);
+    await firstArm;
+    const finalize = finalizeIntent(arm);
+
+    await expect(manager.finalizeCutoverCandidate(port, finalize)).rejects.toThrow('finalization');
+    await vi.waitFor(() => expect(source.source.destroy).toHaveBeenCalledOnce());
+    await expect(manager.armCutoverCandidate(port, { ...arm })).rejects.toThrow('stale');
+
+    source.destroyGate.resolve();
+    await manager.clear();
+    await expect(manager.armCutoverCandidate(port, { ...arm })).rejects.toThrow('stale');
+    await expect(manager.finalizeCutoverCandidate(port, { ...finalize })).rejects.toThrow('stale');
+    expect(source.source.armForCutover).toHaveBeenCalledOnce();
+    expect(source.source.finalize).toHaveBeenCalledOnce();
+    expect(source.source.destroy).toHaveBeenCalledOnce();
+  });
+
   it('rejects a partial gate automation and preserves only old audio before target', async () => {
     const context = new FakeAudioContext();
     const destination = destinationFor(context);
@@ -1358,7 +1429,13 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
       expect(manager.currentCutoverPort()).toBeNull();
       expect(manager.snapshot().active).toBeNull();
       expect(current.source.destroy).toHaveBeenCalledOnce();
-      expect(await manager.stopCurrentCutover(port, { ...intent })).toBe(scheduled);
+      const completedRetry = manager.stopCurrentCutover(port, { ...intent });
+      expect(completedRetry).toBe(first);
+      expect(await completedRetry).toBe(scheduled);
+      await expect(
+        manager.stopCurrentCutover(port, { ...intent, atRoomTimeMs: intent.atRoomTimeMs + 1 }),
+      ).rejects.toThrow('stale');
+      expect(current.source.destroy).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }

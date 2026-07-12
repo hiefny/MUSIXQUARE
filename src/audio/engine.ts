@@ -57,9 +57,13 @@ import {
   VB_MID_MIX_GAIN,
   VB_LIMITER,
 } from './constants.ts';
+import { FilePlaybackRoute } from './file-playback-route.ts';
 
 // ─── AudioGraph Struct ────────────────────────────────────────────
 interface AudioGraph {
+  // Stable input shared by AudioBuffer and streaming file backends.
+  filePlaybackRoute: FilePlaybackRoute | null;
+
   // Channel & stereo processing
   toneSplit: ChannelSplitterNode | null;
   toneMerge: ChannelMergerNode | null;
@@ -112,6 +116,7 @@ interface AudioGraph {
 
 function createEmptyGraph(): AudioGraph {
   return {
+    filePlaybackRoute: null,
     toneSplit: null,
     toneMerge: null,
     gainL: null,
@@ -182,6 +187,9 @@ export function getPreamp(): GainNode | null {
 }
 export function getWidener(): StereoWidenerGraph | null {
   return _graph.widener;
+}
+export function getFilePlaybackDestination(): GainNode | null {
+  return _graph.filePlaybackRoute?.input ?? null;
 }
 export function getReverb(): ConvolverNode | null {
   return _graph.reverb;
@@ -311,6 +319,8 @@ async function _doInitAudio(): Promise<void> {
   // Preamplifier + Stereo Widener
   _graph.preamp = ctx.createGain();
   _graph.widener = createStereoWidener(0.5); // applySettings() overwrites with state default
+  _graph.filePlaybackRoute = new FilePlaybackRoute(ctx);
+  _graph.filePlaybackRoute.connect(_graph.widener.input);
 
   // Reverb uses a synchronously generated impulse response.
   _graph.reverb = ctx.createConvolver();
@@ -530,6 +540,8 @@ async function _doInitAudio(): Promise<void> {
 // ─── Cleanup ────────────────────────────────────────────────────
 
 function _cleanupAllNodes(): void {
+  _graph.filePlaybackRoute?.destroy();
+
   const simpleNodes: (AudioNode | null)[] = [
     _graph.toneSplit,
     _graph.toneMerge,

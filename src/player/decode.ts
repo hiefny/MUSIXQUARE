@@ -88,6 +88,12 @@ import {
   resolveDecodeMemoryBudget,
   waitForInFlightMemoryReservationChange,
 } from './decode-admission.ts';
+import {
+  publishAudioBufferShadow,
+  retireActiveManagedSourceBeforeDecode,
+  withdrawAudioBufferShadow,
+  type AudioBufferShadowPublicationOutcome,
+} from './audio-buffer-shadow-publication.ts';
 
 // ─── Decode Admission & Ownership ──────────────────────────────────
 // decodeAudioData has no cancellation API. Racing it against a timer only
@@ -110,6 +116,28 @@ function isDecodeSupersededError(error: unknown): error is DecodeSupersededError
 interface DecodeAdmissionLease {
   readonly audioBuffer: AudioBuffer;
   release(): void;
+}
+
+function clearCurrentAudioBufferIfOwned(audioBuffer: AudioBuffer): void {
+  if (getCurrentAudioBuffer() === audioBuffer) setCurrentAudioBuffer(null);
+}
+
+async function publishDecodedAudioBufferShadow(
+  blob: Blob,
+  queueItemId: QueueItemId,
+  decoded: DecodeAdmissionLease,
+  isCurrent: () => boolean,
+): Promise<AudioBufferShadowPublicationOutcome> {
+  return publishAudioBufferShadow({
+    queueItemId,
+    blob,
+    audioBuffer: decoded.audioBuffer,
+    audioContext: getAudioContext(),
+    releaseConstructionLease: decoded.release,
+    isCurrent,
+    publishResident: setCurrentAudioBuffer,
+    clearResidentIfOwned: clearCurrentAudioBufferIfOwned,
+  });
 }
 
 async function waitForMemoryReservationChangeWhileCurrent(
@@ -280,6 +308,8 @@ export async function loadAndBroadcastFile(
 
   showLoader(true, t('toast.preparing', { name: file.name }));
   stopAllMedia({ silent: true });
+  let shadowPublication: AudioBufferShadowPublicationOutcome | null = null;
+  let shadowAudioBuffer: AudioBuffer | null = null;
 
   // Lifecycle: host has the file locally (no download phase). Transition
   // straight into DECODING so the subsequent transition(DECODE_SUCCESS)
@@ -303,28 +333,34 @@ export async function loadAndBroadcastFile(
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
     showToast(t('toast.hprecision_sync'));
 
+    if (!(await retireActiveManagedSourceBeforeDecode({ isCurrent: isCurrentOwner }))) {
+      return false;
+    }
+
     // The previous track is already stopped. Drop the app-owned PCM reference
     // before admission so the next decode does not guarantee a two-buffer peak.
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
     const decoded = await decodeBlobToAudioBuffer(file, 'host-load', file.name, isCurrentOwner);
     const audioBuffer = decoded.audioBuffer;
-    try {
-      // Re-verify after async decode. The native decode reservation remains
-      // live until this result is either published or discarded.
-      if (!isCurrentOwner()) {
-        if (myLoadId === getActiveLoadSessionId()) {
-          log.warn('[Load] Queue owner or load epoch changed after decode. Aborting stale load.');
-          showLoader(false);
-        }
-        return false;
-      }
-
-      // Publishing transfers accounting from the in-flight reservation to the
-      // current-buffer state; release immediately afterward in finally.
-      setCurrentAudioBuffer(audioBuffer);
-    } finally {
+    // Re-verify after async decode. The native decode reservation remains live
+    // until both manager activation and exact resident publication settle.
+    if (!isCurrentOwner()) {
       decoded.release();
+      if (myLoadId === getActiveLoadSessionId()) {
+        log.warn('[Load] Queue owner or load epoch changed after decode. Aborting stale load.');
+        showLoader(false);
+      }
+      return false;
     }
+
+    shadowAudioBuffer = audioBuffer;
+    shadowPublication = await publishDecodedAudioBufferShadow(
+      file,
+      queueItemId,
+      decoded,
+      isCurrentOwner,
+    );
+    if (shadowPublication.status === 'unpublished') return false;
     log.debug(`[BufferMode] Loaded ${audioBuffer.duration.toFixed(2)}s into RAM.`);
 
     // Lifecycle: host-side decode completed → READY.
@@ -338,7 +374,14 @@ export async function loadAndBroadcastFile(
     }
 
     const indexHint = findQueueItemIndex(queueItemId);
-    if (indexHint < 0 || !isCurrentOwner()) return false;
+    if (indexHint < 0 || !isCurrentOwner()) {
+      await withdrawAudioBufferShadow({
+        outcome: shadowPublication,
+        audioBuffer,
+        clearResidentIfOwned: clearCurrentAudioBufferIfOwned,
+      });
+      return false;
+    }
     // Atomic publish: meta first, then blob — both in the same synchronous
     // tick so any subscriber (e.g. recovery.ts findMatchingBlob) always
     // sees them in sync. Order is meta→blob so a reader that checks blob
@@ -379,6 +422,17 @@ export async function loadAndBroadcastFile(
     }
     return true;
   } catch (err: unknown) {
+    // Any failure after shadow publication must withdraw this exact source and
+    // PCM object before the legacy failure path clears the matching Blob. The
+    // identity guards preserve an ABA successor even when it shares the same
+    // queueItemId.
+    if (shadowPublication && shadowAudioBuffer) {
+      await withdrawAudioBufferShadow({
+        outcome: shadowPublication,
+        audioBuffer: shadowAudioBuffer,
+        clearResidentIfOwned: clearCurrentAudioBufferIfOwned,
+      });
+    }
     if (isDecodeSupersededError(err)) {
       log.debug(`[Load] ${err.message}`);
       return false;
@@ -443,6 +497,10 @@ export async function loadAndBroadcastFile(
 export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: number): Promise<void> {
   const myLoadId = incrementLoadSessionId();
   const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
+  const ownsDemoLoad = (): boolean =>
+    myLoadId === getActiveLoadSessionId() &&
+    (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
+    !isExternalOwner();
 
   showLoader(true, t('transfer.demo_loading_short'));
   stopAllMedia({ silent: true });
@@ -461,16 +519,12 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
     }
     if (getAudioContext().state !== 'running') await ensureRunning();
 
+    // Demo playback remains legacy-only, but it must release an exact queue
+    // shadow before admitting another full-buffer decode.
+    if (!(await retireActiveManagedSourceBeforeDecode({ isCurrent: ownsDemoLoad }))) return;
+
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
-    const decoded = await decodeBlobToAudioBuffer(
-      file,
-      'demo-load',
-      file.name,
-      () =>
-        myLoadId === getActiveLoadSessionId() &&
-        (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
-        !isExternalOwner(),
-    );
+    const decoded = await decodeBlobToAudioBuffer(file, 'demo-load', file.name, ownsDemoLoad);
     const audioBuffer = decoded.audioBuffer;
     try {
       if (loadEpoch !== undefined && !isCurrentLoadEpoch(myEpoch)) {
@@ -852,6 +906,8 @@ export async function loadPreloadedTrack(
   const localBlob = ready.blob;
   const activationOwner = beginPreloadActivation(myEpoch, queueItemId, ready.sessionId);
   let published = false;
+  let shadowPublication: AudioBufferShadowPublicationOutcome | null = null;
+  let shadowAudioBuffer: AudioBuffer | null = null;
   const ownsTarget = (): boolean =>
     isCurrentPreloadActivation(activationOwner) &&
     activationOwner.queueItemId === queueItemId &&
@@ -877,6 +933,11 @@ export async function loadPreloadedTrack(
       return false;
     }
 
+    if (!(await retireActiveManagedSourceBeforeDecode({ isCurrent: ownsTarget }))) {
+      finishPreloadActivation(activationOwner);
+      return false;
+    }
+
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
 
     const priorResident = getState('files.current');
@@ -890,6 +951,8 @@ export async function loadPreloadedTrack(
 
     const decoded = await decodeBlobToAudioBuffer(localBlob, 'preload', ready.name, ownsTarget);
     const audioBuffer = decoded.audioBuffer;
+    shadowAudioBuffer = audioBuffer;
+    let shadowOwnsLease = false;
     try {
       if (!ownsTarget()) {
         log.debug('[Preload] Queue/session/epoch owner changed during decode');
@@ -900,29 +963,7 @@ export async function loadPreloadedTrack(
       const item = getQueueItemById(queueItemId);
       if (indexHint < 0 || !item) return false;
 
-      if (
-        priorResident &&
-        (priorResident.queueItemId !== queueItemId || priorResident.sessionId !== ready.sessionId)
-      ) {
-        cleanupStoredFile(
-          priorResident.queueItemId,
-          priorResident.name,
-          false,
-          priorResident.sessionId,
-        );
-      }
-
       const isAdmissionBoundPreload = encodedReceiveReservationIdForBlob(localBlob) !== undefined;
-      const promoted = promoteStoredFileAdmission(
-        queueItemId,
-        ready.name,
-        ready.sessionId,
-        localBlob,
-      );
-      if (isAdmissionBoundPreload && !promoted) {
-        throw new Error('PRELOAD_RESIDENT_PROMOTION_FAILED');
-      }
-
       const mime = ready.mime || localBlob.type || 'application/octet-stream';
       const size = ready.size || localBlob.size;
       const activeTarget = getState('preload.activeTarget');
@@ -954,6 +995,48 @@ export async function loadPreloadedTrack(
         ...(ready.objectId ? { objectId: ready.objectId } : {}),
       };
 
+      shadowOwnsLease = true;
+      shadowPublication = await publishDecodedAudioBufferShadow(
+        localBlob,
+        queueItemId,
+        decoded,
+        ownsTarget,
+      );
+      if (shadowPublication.status === 'unpublished') return false;
+      if (!ownsTarget()) {
+        await withdrawAudioBufferShadow({
+          outcome: shadowPublication,
+          audioBuffer,
+          clearResidentIfOwned: clearCurrentAudioBufferIfOwned,
+        });
+        shadowPublication = null;
+        return false;
+      }
+
+      // Admission ownership and serializable state form one synchronous
+      // commit. No preload/main ledger mutation is allowed before shadow
+      // activation and its final authority fence have both completed.
+      if (
+        priorResident &&
+        (priorResident.queueItemId !== queueItemId || priorResident.sessionId !== ready.sessionId)
+      ) {
+        cleanupStoredFile(
+          priorResident.queueItemId,
+          priorResident.name,
+          false,
+          priorResident.sessionId,
+        );
+      }
+      const promoted = promoteStoredFileAdmission(
+        queueItemId,
+        ready.name,
+        ready.sessionId,
+        localBlob,
+      );
+      if (isAdmissionBoundPreload && !promoted) {
+        throw new Error('PRELOAD_RESIDENT_PROMOTION_FAILED');
+      }
+
       // Promotion is one state publication: consumers never observe the blob
       // under preload and current ownership simultaneously.
       batchSetState({
@@ -964,11 +1047,13 @@ export async function loadPreloadedTrack(
         'preload.nextQueueItemId': null,
         'preload.isPreloading': false,
       });
-      setCurrentAudioBuffer(audioBuffer);
-      setPlaybackTrackMeta(item);
+      // The resident commit has happened even if a later UI/ownership side
+      // effect throws. Catch must treat those failures as post-publication and
+      // must not withdraw the now-authoritative source/buffer pair.
       published = true;
+      setPlaybackTrackMeta(item);
     } finally {
-      decoded.release();
+      if (!shadowOwnsLease) decoded.release();
     }
 
     finishPreloadActivation(activationOwner);
@@ -1023,6 +1108,13 @@ export async function loadPreloadedTrack(
     showLoader(false);
     return true;
   } catch (error: unknown) {
+    if (!published && shadowPublication && shadowAudioBuffer) {
+      await withdrawAudioBufferShadow({
+        outcome: shadowPublication,
+        audioBuffer: shadowAudioBuffer,
+        clearResidentIfOwned: clearCurrentAudioBufferIfOwned,
+      });
+    }
     if (published) {
       log.warn('[Preload] Post-publication side effect failed; resident remains active', error);
       showLoader(false);
@@ -1088,6 +1180,9 @@ export async function loadPreloadedTrack(
 
     requestFreshQueueItem(queueItemId, 'preload_activation_failed');
     return false;
+  } finally {
+    // Identity-safe: a stale activation cannot clear a successor's M4 owner.
+    finishPreloadActivation(activationOwner);
   }
 }
 
@@ -1115,6 +1210,11 @@ export function clearPreviousTrackState(reason = ''): void {
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('prepareWatchdog');
   if (reason === 'redundant-sync') return;
+
+  // This synchronous call path cannot await native cleanup, but manager.retire
+  // detaches the captured active object before its first await. A later same-ID
+  // successor is therefore never addressed by this teardown.
+  void retireActiveManagedSourceBeforeDecode({ isCurrent: () => true });
 
   batchSetState({
     'transfer.receivedCount': 0,
@@ -1199,6 +1299,9 @@ export async function finalizeGuestFile(
   const isAdmissionBoundFile = encodedReceiveReservationIdForBlob(file) !== undefined;
   const detachedPreviousBuffer = getCurrentAudioBuffer();
   const detachedPreviousResident = getState('files.current');
+  let shadowPublication: AudioBufferShadowPublicationOutcome | null = null;
+  let shadowAudioBuffer: AudioBuffer | null = null;
+  let decodedPublished = false;
   const ownsTarget = (): boolean => {
     const liveMeta = getState('transfer.meta');
     return (
@@ -1223,6 +1326,8 @@ export async function finalizeGuestFile(
       return;
     }
 
+    if (!(await retireActiveManagedSourceBeforeDecode({ isCurrent: ownsTarget }))) return;
+
     if (detachedPreviousBuffer) setCurrentAudioBuffer(null);
     const liveMeta = getState('transfer.meta');
     const fileName =
@@ -1232,6 +1337,8 @@ export async function finalizeGuestFile(
 
     const decoded = await decodeBlobToAudioBuffer(file, 'guest-finalize', fileName, ownsTarget);
     const audioBuffer = decoded.audioBuffer;
+    shadowAudioBuffer = audioBuffer;
+    let shadowOwnsLease = false;
     try {
       if (!ownsTarget()) {
         log.debug('[Guest] Stale finalize after decode');
@@ -1248,16 +1355,6 @@ export async function finalizeGuestFile(
         meta.sessionId !== myTransferSid
       ) {
         return;
-      }
-
-      const retained = retainStoredFileAdmission(queueItemId, fileName, false, myTransferSid, file);
-      if (isAdmissionBoundFile && !retained) {
-        throw new Error('CURRENT_RESIDENT_ADMISSION_FAILED');
-      }
-      if (!retained) {
-        log.warn(
-          `[Guest] Finalized file has no matching resident admission: ${queueItemId} (SID ${myTransferSid})`,
-        );
       }
 
       const mime = meta.mime || file.type || 'application/octet-stream';
@@ -1287,11 +1384,43 @@ export async function finalizeGuestFile(
         size,
         ...(meta.objectId ? { objectId: meta.objectId } : {}),
       };
+
+      shadowOwnsLease = true;
+      shadowPublication = await publishDecodedAudioBufferShadow(
+        file,
+        queueItemId,
+        decoded,
+        ownsTarget,
+      );
+      if (shadowPublication.status === 'unpublished') return;
+      if (!ownsTarget()) {
+        await withdrawAudioBufferShadow({
+          outcome: shadowPublication,
+          audioBuffer,
+          clearResidentIfOwned: clearCurrentAudioBufferIfOwned,
+        });
+        shadowPublication = null;
+        return;
+      }
+
+      // Like preload promotion, retaining the receive reservation is part of
+      // the final synchronous publication commit, never an operation that may
+      // precede the asynchronous shadow activation.
+      const retained = retainStoredFileAdmission(queueItemId, fileName, false, myTransferSid, file);
+      if (isAdmissionBoundFile && !retained) {
+        throw new Error('CURRENT_RESIDENT_ADMISSION_FAILED');
+      }
+      if (!retained) {
+        log.warn(
+          `[Guest] Finalized file has no matching resident admission: ${queueItemId} (SID ${myTransferSid})`,
+        );
+      }
+
       batchSetState({ 'transfer.meta': publishedMeta, 'files.current': resident });
-      setCurrentAudioBuffer(audioBuffer);
+      decodedPublished = true;
       setPlaybackTrackMeta(item);
     } finally {
-      decoded.release();
+      if (!shadowOwnsLease) decoded.release();
     }
 
     transition({ type: 'DECODE_SUCCESS' });
@@ -1328,6 +1457,20 @@ export async function finalizeGuestFile(
 
     bus.emit('ui:play-btn-state', true);
   } catch (error: unknown) {
+    if (!decodedPublished && shadowPublication && shadowAudioBuffer) {
+      await withdrawAudioBufferShadow({
+        outcome: shadowPublication,
+        audioBuffer: shadowAudioBuffer,
+        clearResidentIfOwned: clearCurrentAudioBufferIfOwned,
+      });
+    }
+    if (decodedPublished) {
+      // The file, PCM, admission, and managed source are already authoritative.
+      // A legacy play()/UI side effect failure is not a decode failure and must
+      // not poison the track, request a new copy, or report GUEST_DECODE_FAILED.
+      log.warn('[Guest] Post-publication side effect failed; resident remains active', error);
+      return;
+    }
     if (!ownsTarget()) {
       log.debug('[Guest] Decode failed for a superseded queue/session owner');
       return;
@@ -1364,6 +1507,7 @@ export async function finalizeGuestFile(
     if (
       detachedPreviousBuffer &&
       !getCurrentAudioBuffer() &&
+      getState('files.current') === detachedPreviousResident &&
       detachedPreviousResident?.queueItemId === queueItemId &&
       detachedPreviousResident.sessionId === myTransferSid &&
       ownsTarget()

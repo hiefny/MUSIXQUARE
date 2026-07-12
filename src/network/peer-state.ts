@@ -292,6 +292,9 @@ export function broadcastDeviceList(): void {
       joinOrder: 0,
     },
     ...[...connectedPeers]
+      // Transport-open handshakes reserve capacity but are not room members
+      // until their exact APPLIED receipt establishes the application session.
+      .filter((peer) => peer.status === 'connected')
       .sort((a, b) => a.joinOrder - b.joinOrder)
       .map((p) => ({
         id: p.id,

@@ -20,6 +20,7 @@ import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
 import { createTransportPeer, type TransportPeerOptions } from './transport/index.ts';
 import { setPlaybackIdle } from '../player/ownership.ts';
+import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -206,6 +207,10 @@ function assertNetworkInitStillActive(requestedId: string | null): void {
  * Returns the assigned peer ID.
  */
 async function initNetwork(requestedId: string | null = null): Promise<string> {
+  // A transport generation and its application-session epochs are inseparable.
+  // Retire channels before replacing the peer, while preserving the manager-
+  // lifetime ID issuer and its non-reuse tombstones.
+  getFilePlaybackApplicationSessionManager().endRoom();
   // Clean up existing peer instance
   const oldPeer = getPeer();
   if (oldPeer) {
@@ -337,6 +342,9 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     throw error;
   }
   setState('network.myId', id);
+  if (requestedId) {
+    getFilePlaybackApplicationSessionManager().beginHostRoom(id);
+  }
   log.info('[Network] Peer opened:', id);
   bus.emit('network:peer-ready', id);
   return id;
@@ -587,6 +595,7 @@ export function leaveSession(): void {
   log.debug('[Network] Leaving session — full cleanup...');
 
   setState('network.isIntentionalDisconnect', true);
+  getFilePlaybackApplicationSessionManager().endRoom();
 
   // ── 0. Stop system audio sharing ──
   bus.emit('system-audio:force-stop');

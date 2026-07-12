@@ -944,8 +944,18 @@ interface BaseEventMap {
 
   // ── Network ───────────────────────────────────────────────────────
   'network:peer-ready': [peerId: string];
-  /** Host-only ordered phase for authority snapshots before playback bootstrap. */
-  'network:peer-bootstrap': [conn: DataConnection];
+  /** Host-only ordered phase with synchronous send acknowledgement. */
+  'network:peer-bootstrap': [
+    conn: DataConnection,
+    send: (frame: unknown) => boolean,
+    acknowledge: (success: boolean) => void,
+  ];
+  /** Guest-only synchronous application of one ordered bootstrap frame. */
+  'network:peer-bootstrap-apply': [
+    frame: unknown,
+    conn: DataConnection,
+    acknowledge: (success: boolean) => void,
+  ];
   'network:peer-connected': [conn: DataConnection];
   'network:peer-disconnected': [peerId: string];
   'network:data': [data: unknown, conn: DataConnection];

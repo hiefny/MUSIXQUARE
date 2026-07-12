@@ -8,6 +8,13 @@ import type {
   TransportPeer,
   TransportPeerOptions,
 } from './types.ts';
+import {
+  FILE_PLAYBACK_SESSION_APPLIED_TYPE,
+  FILE_PLAYBACK_SESSION_HELLO_TYPE,
+  FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES,
+  FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE,
+  FILE_PLAYBACK_SESSION_WELCOME_TYPE,
+} from '../file-playback-session-handshake.ts';
 
 type SignalingMessage =
   | { type: 'peer-open'; peerId: string; roomId: string }
@@ -75,6 +82,138 @@ const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
 const BINARY_PAYLOAD_SENTINEL = '__mxqrBinaryPayload';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const FILE_PLAYBACK_SESSION_FRAME_TYPES = new Set<string>([
+  FILE_PLAYBACK_SESSION_HELLO_TYPE,
+  FILE_PLAYBACK_SESSION_WELCOME_TYPE,
+  FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE,
+  FILE_PLAYBACK_SESSION_APPLIED_TYPE,
+]);
+
+interface ScannedJsonString {
+  readonly value: string | null;
+  readonly end: number;
+}
+
+function scanJsonString(raw: string, start: number, captureLimit = 256): ScannedJsonString | null {
+  if (raw.charCodeAt(start) !== 0x22) return null;
+  let value = '';
+  let capturing = true;
+  for (let index = start + 1; index < raw.length; index += 1) {
+    const code = raw.charCodeAt(index);
+    if (code === 0x22) return { value: capturing ? value : null, end: index + 1 };
+    if (code <= 0x1f) return null;
+    let next = raw[index] ?? '';
+    if (code === 0x5c) {
+      index += 1;
+      if (index >= raw.length) return null;
+      const escape = raw[index] ?? '';
+      if (escape === 'u') {
+        const hex = raw.slice(index + 1, index + 5);
+        if (!/^[0-9a-fA-F]{4}$/u.test(hex)) return null;
+        next = String.fromCharCode(Number.parseInt(hex, 16));
+        index += 4;
+      } else {
+        const escaped: Readonly<Record<string, string>> = {
+          '"': '"',
+          '\\': '\\',
+          '/': '/',
+          b: '\b',
+          f: '\f',
+          n: '\n',
+          r: '\r',
+          t: '\t',
+        };
+        if (!Object.hasOwn(escaped, escape)) return null;
+        next = escaped[escape] ?? '';
+      }
+    }
+    if (capturing) {
+      value += next;
+      if (value.length > captureLimit) {
+        value = '';
+        capturing = false;
+      }
+    }
+  }
+  return null;
+}
+
+function skipWhitespace(raw: string, start: number): number {
+  let index = start;
+  while (index < raw.length && /[\t\n\r ]/u.test(raw[index] ?? '')) index += 1;
+  return index;
+}
+
+function skipJsonValue(raw: string, start: number): number | null {
+  let index = skipWhitespace(raw, start);
+  if (raw[index] === '"') return scanJsonString(raw, index)?.end ?? null;
+  let nesting = 0;
+  for (; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (char === '"') {
+      const string = scanJsonString(raw, index, 0);
+      if (!string) return null;
+      index = string.end - 1;
+      continue;
+    }
+    if (char === '{' || char === '[') nesting += 1;
+    else if (char === '}' || char === ']') {
+      if (nesting === 0) return index;
+      nesting -= 1;
+    } else if (char === ',' && nesting === 0) {
+      return index;
+    }
+  }
+  return index;
+}
+
+/** Reads only a top-level string `type`; it never materializes the JSON body. */
+function scanTopLevelJsonType(raw: string): string | null {
+  let index = skipWhitespace(raw, 0);
+  if (raw[index] !== '{') return null;
+  index += 1;
+  let lastType: string | null = null;
+  while (index < raw.length) {
+    index = skipWhitespace(raw, index);
+    if (raw[index] === '}') return lastType;
+    const key = scanJsonString(raw, index);
+    if (!key) return lastType;
+    index = skipWhitespace(raw, key.end);
+    if (raw[index] !== ':') return lastType;
+    index = skipWhitespace(raw, index + 1);
+    if (key.value === 'type' && raw[index] === '"') {
+      const type = scanJsonString(raw, index);
+      if (!type) return lastType;
+      lastType = type.value;
+    }
+    const end = skipJsonValue(raw, index);
+    if (end === null) return lastType;
+    index = skipWhitespace(raw, end);
+    if (raw[index] === ',') {
+      index += 1;
+      continue;
+    }
+    if (raw[index] === '}') return lastType;
+    return lastType;
+  }
+  return lastType;
+}
+
+function utf8Exceeds(raw: string, limit: number): boolean {
+  let bytes = 0;
+  for (let index = 0; index < raw.length; index += 1) {
+    const code = raw.charCodeAt(index);
+    if (code <= 0x7f) bytes += 1;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      const low = raw.charCodeAt(index + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) index += 1;
+      bytes += low >= 0xdc00 && low <= 0xdfff ? 4 : 3;
+    } else bytes += 3;
+    if (bytes > limit) return true;
+  }
+  return false;
+}
 
 function randomBase64Url(bytes = 18): string {
   const data = new Uint8Array(bytes);
@@ -129,6 +268,14 @@ function decodeBinaryPayload(frame: ArrayBuffer): unknown {
   }
   const bytes = new Uint8Array(frame);
   const headerJson = textDecoder.decode(bytes.slice(4, 4 + headerLength));
+  const headerType = scanTopLevelJsonType(headerJson);
+  if (
+    headerType &&
+    FILE_PLAYBACK_SESSION_FRAME_TYPES.has(headerType) &&
+    frame.byteLength > FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES
+  ) {
+    throw new Error('FILE_PLAYBACK_SESSION_FRAME_TOO_LARGE');
+  }
   const payload = JSON.parse(headerJson) as Record<string, unknown>;
   const chunkMarker = payload.chunk as Record<string, unknown> | undefined;
   const payloadMarker = payload.payload as Record<string, unknown> | undefined;
@@ -142,7 +289,17 @@ function decodeBinaryPayload(frame: ArrayBuffer): unknown {
 }
 
 async function decodePayload(data: unknown): Promise<unknown> {
-  if (typeof data === 'string') return JSON.parse(data);
+  if (typeof data === 'string') {
+    const type = scanTopLevelJsonType(data);
+    if (
+      type &&
+      FILE_PLAYBACK_SESSION_FRAME_TYPES.has(type) &&
+      utf8Exceeds(data, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES)
+    ) {
+      throw new Error('FILE_PLAYBACK_SESSION_FRAME_TOO_LARGE');
+    }
+    return JSON.parse(data);
+  }
   if (data instanceof ArrayBuffer) return decodeBinaryPayload(data);
   if (data instanceof Blob) return decodeBinaryPayload(await data.arrayBuffer());
   return data;

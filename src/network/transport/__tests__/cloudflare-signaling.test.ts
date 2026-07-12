@@ -12,6 +12,10 @@ import {
 } from '../../../player/sources/peer-range-protocol.ts';
 import { CloudflareDataConnection, CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
 import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
+import {
+  FILE_PLAYBACK_SESSION_HELLO_TYPE,
+  FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES,
+} from '../../file-playback-session-handshake.ts';
 
 const originalWebSocket = globalThis.WebSocket;
 const originalRTCPeerConnection = globalThis.RTCPeerConnection;
@@ -483,6 +487,124 @@ describe('Cloudflare client/Worker signaling contract', () => {
 });
 
 describe('Cloudflare signaling/data-channel boundary', () => {
+  it('rejects oversized session JSON before materialization but preserves large playlist frames', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const received = vi.fn();
+    const errors = vi.fn();
+    conn.on('data', received);
+    conn.on('error', errors);
+    const oversized = `{"padding":"${'x'.repeat(FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES)}","\\u0074ype":"${FILE_PLAYBACK_SESSION_HELLO_TYPE}"}`;
+    control.dispatch('message', oversized);
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(1));
+    expect((errors.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_SESSION_FRAME_TOO_LARGE',
+    );
+    expect(received).not.toHaveBeenCalled();
+
+    const playlist = JSON.stringify({
+      type: MSG.PLAYLIST_UPDATE,
+      list: [],
+      currentQueueItemId: null,
+      revision: 0,
+      diagnosticPadding: 'p'.repeat(FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 4),
+    });
+    control.dispatch('message', playlist);
+    await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
+    expect(received).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAYLIST_UPDATE }));
+  });
+
+  it('applies the session preparse cap to binary headers without blocking bulk payload frames', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const received = vi.fn();
+    const errors = vi.fn();
+    conn.on('data', received);
+    conn.on('error', errors);
+    const encodeBinary = (headerJson: string, bodyLength = 1): ArrayBuffer => {
+      const header = new TextEncoder().encode(headerJson);
+      const frame = new Uint8Array(4 + header.byteLength + bodyLength);
+      new DataView(frame.buffer).setUint32(0, header.byteLength, false);
+      frame.set(header, 4);
+      frame.fill(7, 4 + header.byteLength);
+      return frame.buffer;
+    };
+
+    const oversizedSessionHeader = `{"padding":"${'x'.repeat(FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES)}","chunk":{"__mxqrBinaryChunk":true},"\\u0074ype":"${FILE_PLAYBACK_SESSION_HELLO_TYPE}"}`;
+    bulk.dispatch('message', encodeBinary(oversizedSessionHeader));
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(1));
+    expect((errors.mock.calls[0]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_SESSION_FRAME_TOO_LARGE',
+    );
+    expect(received).not.toHaveBeenCalled();
+
+    const smallSessionHeader = JSON.stringify({
+      type: FILE_PLAYBACK_SESSION_HELLO_TYPE,
+      chunk: { __mxqrBinaryChunk: true },
+    });
+    bulk.dispatch(
+      'message',
+      encodeBinary(smallSessionHeader, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES),
+    );
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(2));
+    expect((errors.mock.calls[1]?.[0] as Error).message).toBe(
+      'FILE_PLAYBACK_SESSION_FRAME_TOO_LARGE',
+    );
+    expect(received).not.toHaveBeenCalled();
+
+    const largeFileChunkHeader = JSON.stringify({
+      type: MSG.FILE_CHUNK,
+      chunk: { __mxqrBinaryChunk: true },
+      diagnosticPadding: 'f'.repeat(FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2),
+    });
+    bulk.dispatch(
+      'message',
+      encodeBinary(largeFileChunkHeader, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2),
+    );
+    await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(1));
+    expect(received).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: MSG.FILE_CHUNK, chunk: expect.any(Uint8Array) }),
+    );
+    expect((received.mock.calls[0]?.[0] as { chunk: Uint8Array }).chunk.byteLength).toBe(
+      FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2,
+    );
+
+    const largePeerRangeHeader = JSON.stringify({
+      protocol: 'musixquare-peer-range',
+      version: 1,
+      lane: 'bulk',
+      type: 'chunk',
+      payload: { __mxqrBinaryPayload: true },
+      diagnosticPadding: 'r'.repeat(FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2),
+    });
+    bulk.dispatch(
+      'message',
+      encodeBinary(largePeerRangeHeader, FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2),
+    );
+    await vi.waitFor(() => expect(received).toHaveBeenCalledTimes(2));
+    expect(received).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        protocol: 'musixquare-peer-range',
+        payload: expect.any(ArrayBuffer),
+      }),
+    );
+    expect((received.mock.calls[1]?.[0] as { payload: ArrayBuffer }).payload.byteLength).toBe(
+      FILE_PLAYBACK_SESSION_MAX_MESSAGE_BYTES * 2,
+    );
+  });
+
   it('opens only after both channels are ready and keeps ordered control frames off bulk', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();

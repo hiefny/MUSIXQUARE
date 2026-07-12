@@ -63,6 +63,32 @@ function exchangeSample(
 }
 
 describe('FilePlaybackClockExchange', () => {
+  it('exposes one frozen exact active binding and clears it with the session', () => {
+    const exchange = new FilePlaybackClockExchange({
+      role: 'guest',
+      sessionId: 'room-binding-1',
+      connectionId: 'connection-binding-1',
+      now: () => 1_000,
+    });
+    expect(exchange.activeBinding()).toEqual({
+      role: 'guest',
+      sessionId: 'room-binding-1',
+      connectionId: 'connection-binding-1',
+    });
+    expect(Object.isFrozen(exchange.activeBinding())).toBe(true);
+
+    exchange.clearSession();
+    expect(exchange.activeBinding()).toBeNull();
+    exchange.bindSession('room-binding-2', 'connection-binding-2');
+    expect(exchange.activeBinding()).toEqual({
+      role: 'guest',
+      sessionId: 'room-binding-2',
+      connectionId: 'connection-binding-2',
+    });
+    exchange.setRole('host');
+    expect(exchange.activeBinding()?.role).toBe('host');
+  });
+
   it('feeds an exact four-timestamp offset and RTT sample into the room clock', () => {
     const guestNow = fakeNow();
     const hostNow = fakeNow();

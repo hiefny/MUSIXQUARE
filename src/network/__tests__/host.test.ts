@@ -27,6 +27,13 @@ vi.mock('../../core/log.ts', () => ({
 }));
 
 import { handleHostIncomingConnection } from '../host.ts';
+import { getFilePlaybackApplicationSessionManager } from '../file-playback-application-session.ts';
+import {
+  FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE,
+  FILE_PLAYBACK_SESSION_WELCOME_TYPE,
+  FilePlaybackGuestSessionHandshake,
+  FilePlaybackHandshakeIdIssuer,
+} from '../file-playback-session-handshake.ts';
 
 function makeConn(send: ReturnType<typeof vi.fn>): DataConnection {
   return {
@@ -53,9 +60,11 @@ function makePeer(conn: DataConnection): ConnectedPeer {
 }
 
 beforeEach(() => {
+  getFilePlaybackApplicationSessionManager().endRoom();
   resetState();
   vi.clearAllMocks();
   setState('network.myId', 'host-1');
+  getFilePlaybackApplicationSessionManager().beginHostRoom('host-1');
 });
 
 function makeSlottedPeer(id: string, slot: number, send: ReturnType<typeof vi.fn>): ConnectedPeer {
@@ -72,6 +81,45 @@ function makeSlottedPeer(id: string, slot: number, send: ReturnType<typeof vi.fn
     connectionType: 'local',
     lastHeartbeat: 0,
   };
+}
+
+function driveHostApplicationSession(conn: FiringConn): void {
+  const guest = new FilePlaybackGuestSessionHandshake({
+    idIssuer: new FilePlaybackHandshakeIdIssuer(),
+    guestParticipantId: conn.peer,
+  });
+  const hello = guest.createHello();
+  if (!hello.accepted) throw new Error(hello.reason);
+  conn.fire('data', hello.hello);
+
+  const sent = vi.mocked(conn.send).mock.calls.map(([value]) => value as Record<string, unknown>);
+  const welcome = sent.find((value) => value.type === FILE_PLAYBACK_SESSION_WELCOME_TYPE);
+  const snapshot = sent.find((value) => value.type === FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE);
+  if (!welcome || !snapshot) throw new Error('Host did not send application-session markers');
+  const acceptedWelcome = guest.handleWelcome(welcome);
+  if (!acceptedWelcome.accepted) throw new Error(acceptedWelcome.reason);
+  const acceptedSnapshot = guest.acceptSnapshot(snapshot);
+  if (!acceptedSnapshot.accepted) throw new Error(acceptedSnapshot.reason);
+  const applied = guest.createApplied();
+  if (!applied.accepted) throw new Error(applied.reason);
+  conn.fire('data', applied.applied);
+}
+
+function sendTestBootstrap(
+  send: (frame: unknown) => boolean,
+  acknowledge: (success: boolean) => void,
+): void {
+  acknowledge(
+    send({
+      type: MSG.PLAYLIST_UPDATE,
+      list: [],
+      currentQueueItemId: null,
+      revision: 0,
+      bootstrap: true,
+    }) &&
+      send({ type: MSG.REPEAT_MODE, value: 0, _bootstrap: true }) &&
+      send({ type: MSG.SHUFFLE_MODE, value: false, _bootstrap: true }),
+  );
 }
 
 // The reduction guard is count-based but enforcement is slot-index-based. With
@@ -209,7 +257,10 @@ describe('duplicate guest connection handoff', () => {
   it('does not bootstrap a replaced connection whose open event arrives late', () => {
     const bootstrapped: DataConnection[] = [];
     const connected: DataConnection[] = [];
-    const stopBootstrap = bus.on('network:peer-bootstrap', (conn) => bootstrapped.push(conn));
+    const stopBootstrap = bus.on('network:peer-bootstrap', (conn, send, acknowledge) => {
+      bootstrapped.push(conn);
+      sendTestBootstrap(send, acknowledge);
+    });
     const stopConnected = bus.on('network:peer-connected', (conn) => connected.push(conn));
     const first = makeIncomingConn('guest-late-open');
     const replacement = makeIncomingConn('guest-late-open');
@@ -222,6 +273,7 @@ describe('duplicate guest connection handoff', () => {
       expect(connected).toEqual([]);
 
       replacement.fire('open');
+      driveHostApplicationSession(replacement);
     } finally {
       stopBootstrap();
       stopConnected();
@@ -255,12 +307,110 @@ describe('duplicate guest connection handoff', () => {
 });
 
 describe('ordered host bootstrap phases', () => {
+  it('queues one canonical HELLO that arrives before RTC open and flushes it after manager bind', () => {
+    const conn = makeIncomingConn('guest-pre-open-hello');
+    const guest = new FilePlaybackGuestSessionHandshake({
+      idIssuer: new FilePlaybackHandshakeIdIssuer(),
+      guestParticipantId: conn.peer,
+    });
+    const hello = guest.createHello();
+    if (!hello.accepted) throw new Error(hello.reason);
+    const stopBootstrap = bus.on('network:peer-bootstrap', (_conn, send, acknowledge) => {
+      sendTestBootstrap(send, acknowledge);
+    });
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('data', hello.hello);
+      expect(conn.send).not.toHaveBeenCalled();
+
+      conn.fire('open');
+    } finally {
+      stopBootstrap();
+    }
+
+    const types = vi
+      .mocked(conn.send)
+      .mock.calls.map(([value]) => (value as { type?: string }).type);
+    expect(types[0]).toBe(MSG.WELCOME);
+    expect(types).toContain(FILE_PLAYBACK_SESSION_WELCOME_TYPE);
+    expect(types).toContain(FILE_PLAYBACK_SESSION_SNAPSHOT_TYPE);
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('handshaking');
+  });
+
+  it('fails closed on non-HELLO data before RTC open', () => {
+    const conn = makeIncomingConn('guest-pre-open-hostile');
+    const connected = vi.fn();
+    const stopConnected = bus.on('network:peer-connected', connected);
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('data', { type: MSG.CHAT, text: 'too early' });
+      conn.fire('open');
+    } finally {
+      stopConnected();
+    }
+
+    expect(conn.close).toHaveBeenCalled();
+    expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.WELCOME }));
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+    expect(connected).not.toHaveBeenCalled();
+  });
+
+  it('allows at most one pre-open HELLO on the exact host connection', () => {
+    const conn = makeIncomingConn('guest-pre-open-replay');
+    const guest = new FilePlaybackGuestSessionHandshake({
+      idIssuer: new FilePlaybackHandshakeIdIssuer(),
+      guestParticipantId: conn.peer,
+    });
+    const hello = guest.createHello();
+    if (!hello.accepted) throw new Error(hello.reason);
+
+    handleHostIncomingConnection(conn);
+    conn.fire('data', hello.hello);
+    conn.fire('data', hello.hello);
+    conn.fire('open');
+
+    expect(conn.close).toHaveBeenCalled();
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+    expect(conn.send).not.toHaveBeenCalled();
+  });
+
+  it('expires an RTC-open handshake without publishing join or leave UI', () => {
+    vi.useFakeTimers();
+    const conn = makeIncomingConn('guest-handshake-timeout');
+    const connected = vi.fn();
+    const stopConnected = bus.on('network:peer-connected', connected);
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+      vi.advanceTimersByTime(10_000);
+      expect(conn.close).toHaveBeenCalled();
+      expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+      expect(connected).not.toHaveBeenCalled();
+      expect(mocks.showToast).not.toHaveBeenCalled();
+      conn.fire('close');
+    } finally {
+      stopConnected();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+
+    expect(connected).not.toHaveBeenCalled();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(conn.send)
+        .mock.calls.some(([frame]) => (frame as { type?: string }).type === MSG.CHAT_SYSTEM),
+    ).toBe(false);
+  });
+
   it('runs queue authority bootstrap before playback-dependent peer listeners', () => {
     const conn = makeIncomingConn('guest-bootstrap');
     const phases: string[] = [];
-    const stopBootstrap = bus.on('network:peer-bootstrap', (current) => {
+    const stopBootstrap = bus.on('network:peer-bootstrap', (current, send, acknowledge) => {
       phases.push('queue');
-      current.send({ type: MSG.PLAYLIST_UPDATE } as never);
+      expect(current).toBe(conn);
+      sendTestBootstrap(send, acknowledge);
     });
     const stopConnected = bus.on('network:peer-connected', (current) => {
       phases.push('playback');
@@ -270,6 +420,7 @@ describe('ordered host bootstrap phases', () => {
     try {
       handleHostIncomingConnection(conn);
       conn.fire('open');
+      driveHostApplicationSession(conn);
     } finally {
       stopBootstrap();
       stopConnected();
@@ -282,6 +433,42 @@ describe('ordered host bootstrap phases', () => {
     expect(sentTypes.indexOf(MSG.WELCOME)).toBeLessThan(sentTypes.indexOf(MSG.PLAYLIST_UPDATE));
     expect(sentTypes.indexOf(MSG.PLAYLIST_UPDATE)).toBeLessThan(sentTypes.indexOf(MSG.CHAT_SYSTEM));
     expect(sentTypes.indexOf(MSG.PLAYLIST_UPDATE)).toBeLessThan(sentTypes.indexOf(MSG.PLAY));
+  });
+
+  it('keeps a pre-APPLIED transport out of join UI while still releasing its state', () => {
+    setState('setup.sessionStarted', true);
+    const conn = makeIncomingConn('guest-never-applied');
+    const connected = vi.fn();
+    const disconnected = vi.fn();
+    const stopConnected = bus.on('network:peer-connected', connected);
+    const stopDisconnected = bus.on('network:peer-disconnected', disconnected);
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+      expect(getState('network.connectedPeers').find((peer) => peer.id === conn.peer)?.status).toBe(
+        'handshaking',
+      );
+      expect(connected).not.toHaveBeenCalled();
+      expect(mocks.showToast).not.toHaveBeenCalled();
+
+      conn.fire('close');
+    } finally {
+      stopConnected();
+      stopDisconnected();
+    }
+
+    expect(connected).not.toHaveBeenCalled();
+    expect(disconnected).toHaveBeenCalledOnce();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(conn.send)
+        .mock.calls.some(([frame]) => (frame as { type?: string }).type === MSG.CHAT_SYSTEM),
+    ).toBe(false);
+    expect(getState('network.connectedPeers').some((peer) => peer.id === conn.peer)).toBe(false);
+    expect(getState('network.peerSlotByPeerId').has(conn.peer)).toBe(false);
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
   });
 });
 

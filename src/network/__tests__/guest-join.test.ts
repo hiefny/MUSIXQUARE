@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetState, getState } from '../../core/state.ts';
+import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
@@ -42,6 +42,13 @@ vi.mock('../sync-worker.ts', async (importOriginal) => {
 });
 
 import { joinSession, setInitNetwork } from '../guest.ts';
+import { getFilePlaybackApplicationSessionManager } from '../file-playback-application-session.ts';
+import {
+  FilePlaybackHandshakeIdIssuer,
+  FilePlaybackHostSessionHandshake,
+} from '../file-playback-session-handshake.ts';
+import { markQueueAuthorityReady } from '../queue-authority.ts';
+import { MSG } from '../../core/constants.ts';
 
 type FiringConn = DataConnection & {
   fire: (event: string, ...args: unknown[]) => void;
@@ -87,6 +94,8 @@ beforeEach(() => {
   vi.useRealTimers();
   clearAllManagedTimers();
   resetState();
+  getFilePlaybackApplicationSessionManager().endRoom();
+  setState('network.myId', 'guest-test-participant');
   bus.clear();
   vi.clearAllMocks();
   mocks.detectConnectionType.mockResolvedValue('local');
@@ -98,6 +107,154 @@ afterEach(() => {
 });
 
 describe('joinSession reconnect racing', () => {
+  it('queues bounded legacy setup data that arrives before RTC open and flushes after exact bind', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const inbound = vi.fn();
+    bus.on('network:data', inbound);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('data', {
+      type: MSG.WELCOME,
+      label: 'HOST',
+      lockChannel: false,
+      chatFrozen: false,
+      slowmodeSeconds: 0,
+      filterEnabled: false,
+    });
+    expect(inbound).not.toHaveBeenCalled();
+
+    conn.fire('open');
+
+    expect(inbound).toHaveBeenCalledTimes(1);
+    expect(inbound).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.WELCOME }), conn);
+    expect(getState('network.hostConn')).toBe(conn);
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('handshaking');
+  });
+
+  it('fails closed on arbitrary application data before RTC open', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const inbound = vi.fn();
+    bus.on('network:data', inbound);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('data', { type: MSG.PLAY, currentTime: 0 });
+    conn.fire('open');
+
+    expect(conn.close).toHaveBeenCalled();
+    expect(inbound).not.toHaveBeenCalled();
+    expect(getState('network.hostConn')).toBeNull();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+  });
+
+  it('caps the pre-open legacy queue by both frame count and encoded bytes', () => {
+    const first = makeFakePeer();
+    mocks.getPeer.mockReturnValue(first.peer);
+    joinSession('HOST01');
+    const countLimited = first.conns[0];
+    for (let index = 0; index < 4; index += 1) {
+      countLimited.fire('data', { type: MSG.FORCE_CLOSE_DUPLICATE });
+    }
+    expect(countLimited.close).toHaveBeenCalled();
+    expect(getState('network.isConnecting')).toBe(false);
+
+    resetState();
+    getFilePlaybackApplicationSessionManager().endRoom();
+    setState('network.myId', 'guest-test-participant');
+    const second = makeFakePeer();
+    mocks.getPeer.mockReturnValue(second.peer);
+    joinSession('HOST02');
+    const byteLimited = second.conns[0];
+    byteLimited.fire('data', { type: MSG.WELCOME, label: 'x'.repeat(2_100) });
+    expect(byteLimited.close).toHaveBeenCalled();
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('expires an RTC-open guest handshake without publishing join success', () => {
+    vi.useFakeTimers();
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const connected = vi.fn();
+    const joinSuccess = vi.fn();
+    bus.on('network:peer-connected', connected);
+    bus.on('setup:guest-join-success', joinSuccess);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('open');
+    vi.advanceTimersByTime(10_000);
+
+    expect(conn.close).toHaveBeenCalled();
+    expect(getFilePlaybackApplicationSessionManager().phase(conn)).toBe('none');
+    expect(connected).not.toHaveBeenCalled();
+    expect(joinSuccess).not.toHaveBeenCalled();
+    conn.fire('close');
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('publishes guest join success only after exact bootstrap and APPLIED send succeed', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const peerConnected = vi.fn();
+    const joinSuccess = vi.fn();
+    bus.on('network:peer-connected', peerConnected);
+    bus.on('setup:guest-join-success', joinSuccess);
+    bus.on('network:peer-bootstrap-apply', (frame, conn, acknowledge) => {
+      const message = frame as { type?: string };
+      if (message.type === MSG.PLAYLIST_UPDATE) markQueueAuthorityReady(conn);
+      acknowledge(true);
+    });
+
+    const hostIssuer = new FilePlaybackHandshakeIdIssuer();
+    const host = new FilePlaybackHostSessionHandshake({
+      idIssuer: hostIssuer,
+      sessionId: hostIssuer.issueSessionId(),
+      connectionId: hostIssuer.issueConnectionId(),
+      hostParticipantId: 'HOST01',
+      guestParticipantId: 'guest-test-participant',
+    });
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('open');
+    expect(peerConnected).not.toHaveBeenCalled();
+    expect(joinSuccess).not.toHaveBeenCalled();
+    expect(getState('network.isConnecting')).toBe(true);
+
+    const hello = vi.mocked(conn.send).mock.calls[0]?.[0];
+    const welcome = host.handleHello(hello);
+    if (!welcome.accepted) throw new Error(welcome.reason);
+    conn.fire('data', welcome.welcome);
+    expect(peerConnected).not.toHaveBeenCalled();
+
+    conn.fire('data', {
+      type: MSG.PLAYLIST_UPDATE,
+      list: [],
+      currentQueueItemId: null,
+      revision: 0,
+      bootstrap: true,
+    });
+    conn.fire('data', { type: MSG.REPEAT_MODE, value: 0, _bootstrap: true });
+    conn.fire('data', { type: MSG.SHUFFLE_MODE, value: false, _bootstrap: true });
+    const snapshot = host.createSnapshot();
+    if (!snapshot.accepted) throw new Error(snapshot.reason);
+    conn.fire('data', snapshot.snapshot);
+
+    expect(peerConnected).toHaveBeenCalledTimes(1);
+    expect(peerConnected).toHaveBeenCalledWith(conn);
+    expect(joinSuccess).toHaveBeenCalledTimes(1);
+    expect(getState('network.isConnecting')).toBe(false);
+    const applied = vi
+      .mocked(conn.send)
+      .mock.calls.map(([value]) => value as { type?: string })
+      .find((value) => value.type === 'FILE_PLAYBACK_SESSION_APPLIED_V2');
+    expect(applied).toBeDefined();
+  });
+
   it('ignores a duplicate joinSession call while the first attempt is still connecting', () => {
     vi.useFakeTimers();
     const { peer, connect } = makeFakePeer();
@@ -124,13 +281,18 @@ describe('joinSession reconnect racing', () => {
     const first = conns[0];
     first.fire('open');
     expect(getState('network.hostConn')).toBe(first);
+    // This suite isolates replacement lifecycle. APPLIED completion owns this
+    // transition in product; mark the fixture established for the legacy race.
+    setState('network.isConnecting', false);
 
     // Transport blip: the channel is dead but PeerJS has not delivered the
     // close event yet, and the user re-joins in that window.
     first.open = false;
     joinSession('HOST01');
+    expect(getFilePlaybackApplicationSessionManager().phase(first)).toBe('none');
     const second = conns[1];
     second.fire('open');
+    setState('network.isConnecting', false);
     expect(getState('network.hostConn')).toBe(second);
 
     first.fire('close');
@@ -162,11 +324,13 @@ describe('joinSession reconnect racing', () => {
     joinSession('HOST01');
     const first = conns[0];
     first.fire('open');
+    setState('network.isConnecting', false);
     first.open = false;
 
     joinSession('HOST01');
     const second = conns[1];
     second.fire('open');
+    setState('network.isConnecting', false);
     expect(getState('network.hostConn')).toBe(second);
 
     resolveFirst('remote');
@@ -188,6 +352,7 @@ describe('joinSession reconnect racing', () => {
     joinSession('HOST01');
     const first = conns[0];
     first.fire('open');
+    setState('network.isConnecting', false);
 
     // Rejoining during an undetected transport failure replaces the stale
     // connection while the successor is still connecting.

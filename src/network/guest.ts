@@ -22,6 +22,7 @@ import type { DataConnection, DeviceInfo } from '../types/index.ts';
 import { getPeer, detectConnectionType } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
 import { showToast } from '../ui/toast.ts';
+import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
@@ -29,6 +30,62 @@ let _initNetwork: ((requestedId: string | null) => Promise<string>) | null = nul
 type ConnectionType = 'local' | 'remote' | 'unknown';
 let _hostReportedConnectionType: ConnectionType | null = null;
 const _handledConnectionErrors = new WeakSet<DataConnection>();
+const PRE_OPEN_LIFECYCLE_FRAME_LIMIT = 3;
+const PRE_OPEN_LIFECYCLE_BYTE_LIMIT = 2_048;
+const PRE_OPEN_LIFECYCLE_TYPES = new Set<string>([
+  MSG.WELCOME,
+  MSG.SESSION_FULL,
+  MSG.FORCE_CLOSE_DUPLICATE,
+]);
+const PRE_OPEN_INVALID = Symbol('pre-open-invalid');
+const preOpenTextEncoder = new TextEncoder();
+
+function snapshotPreOpenValue(value: unknown, depth: number): unknown | typeof PRE_OPEN_INVALID {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  ) {
+    return value;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 3) {
+    return PRE_OPEN_INVALID;
+  }
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.length > 16 || keys.some((key) => typeof key !== 'string')) {
+      return PRE_OPEN_INVALID;
+    }
+    const output = Object.create(null) as Record<string, unknown>;
+    for (const key of keys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        return PRE_OPEN_INVALID;
+      }
+      const item = snapshotPreOpenValue(descriptor.value, depth + 1);
+      if (item === PRE_OPEN_INVALID) return PRE_OPEN_INVALID;
+      output[key] = item;
+    }
+    return Object.freeze(output);
+  } catch {
+    return PRE_OPEN_INVALID;
+  }
+}
+
+function snapshotPreOpenLifecycleFrame(
+  value: unknown,
+): Readonly<{ frame: Readonly<Record<string, unknown>>; bytes: number }> | null {
+  const snapshot = snapshotPreOpenValue(value, 0);
+  if (snapshot === PRE_OPEN_INVALID || !snapshot || typeof snapshot !== 'object') return null;
+  const frame = snapshot as Readonly<Record<string, unknown>>;
+  if (typeof frame.type !== 'string' || !PRE_OPEN_LIFECYCLE_TYPES.has(frame.type)) return null;
+  const serialized = JSON.stringify(frame);
+  const bytes = preOpenTextEncoder.encode(serialized).byteLength;
+  if (bytes <= 0 || bytes > PRE_OPEN_LIFECYCLE_BYTE_LIMIT) return null;
+  return Object.freeze({ frame, bytes });
+}
 
 function asConnectionType(value: unknown): ConnectionType | null {
   return value === 'local' || value === 'remote' || value === 'unknown' ? value : null;
@@ -78,6 +135,7 @@ export function setInitNetwork(fn: (requestedId: string | null) => Promise<strin
  * Connect to a host session as a guest.
  */
 export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0): void {
+  const applicationSessions = getFilePlaybackApplicationSessionManager();
   // Guard against duplicate calls (e.g. rapid double-click)
   // Only check on initial call — retries (retryAttempt > 0) must pass through
   // because isConnecting is already true from the initial call.
@@ -92,6 +150,10 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       log.warn('[Join] Already connected to host.');
       return;
     }
+    // Retire the exact application epoch synchronously. Some transports emit
+    // close asynchronously, after hostConn has already been replaced, so the
+    // stale-close guard cannot be the sole owner of this cleanup.
+    applicationSessions.closeConnection(hostConn, false);
     try {
       hostConn.close();
     } catch {
@@ -185,6 +247,27 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
   // Track the observed event; an adapter may expose conn.open before its open
   // callback has completed.
   let dataChannelOpened = false;
+  let applicationEstablished = false;
+  const preOpenFrames: Readonly<Record<string, unknown>>[] = [];
+  let preOpenFrameBytes = 0;
+  let preOpenRejected = false;
+
+  const completeApplicationSession = (): void => {
+    if (
+      applicationEstablished ||
+      getState('network.hostConn') !== conn ||
+      !conn.open ||
+      !applicationSessions.establishedChannel(conn)
+    ) {
+      return;
+    }
+    applicationEstablished = true;
+    setState('network.isConnecting', false);
+    startWorkerTimer('sync', 1000);
+    bus.emit('network:peer-connected', conn);
+    bus.emit('setup:guest-join-success');
+    log.info('[Join] Application session established with host:', hostId);
+  };
 
   const handlePreOpenError = (err: unknown) => {
     if (dataChannelOpened) return;
@@ -201,37 +284,77 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
 
   // Register data handler BEFORE 'open' to avoid missing early messages
   // (e.g. WELCOME sent by host in its own 'open' handler).
-  conn.on('data', (data: unknown) => {
+  const processInboundData = (data: unknown): void => {
+    const application = applicationSessions.receive(data, conn);
+    if (application.handled) {
+      if (application.established) completeApplicationSession();
+      return;
+    }
     bus.emit('network:data', data, conn);
+  };
+  conn.on('data', (data: unknown) => {
+    if (!dataChannelOpened) {
+      const queued = snapshotPreOpenLifecycleFrame(data);
+      if (
+        !queued ||
+        preOpenFrames.length >= PRE_OPEN_LIFECYCLE_FRAME_LIMIT ||
+        preOpenFrameBytes + queued.bytes > PRE_OPEN_LIFECYCLE_BYTE_LIMIT
+      ) {
+        preOpenRejected = true;
+        preOpenFrames.length = 0;
+        preOpenFrameBytes = 0;
+        clearManagedTimer('join-timeout');
+        setState('network.isConnecting', false);
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+        return;
+      }
+      preOpenFrames.push(queued.frame);
+      preOpenFrameBytes += queued.bytes;
+      return;
+    }
+    processInboundData(data);
   });
   conn.on('error', handlePreOpenError);
 
   // Timeout if host is unreachable (10s — beyond this, the network is too
   // unstable for a real-time sync session anyway).
-  setManagedTimer(
-    'join-timeout',
-    () => {
-      if (dataChannelOpened || getState('network.hostConn')) return;
-      log.warn('[Join] Connection timeout — data channel did not open in 10s');
+  if (!preOpenRejected)
+    setManagedTimer(
+      'join-timeout',
+      () => {
+        if (dataChannelOpened || getState('network.hostConn')) return;
+        log.warn('[Join] Connection timeout — data channel did not open in 10s');
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+        setState('network.isConnecting', false);
+        bus.emit('network:error', new Error('HOST_UNREACHABLE'));
+      },
+      10000,
+    );
+
+  conn.on('open', () => {
+    dataChannelOpened = true;
+    clearManagedTimer('join-timeout');
+    conn.off?.('error', handlePreOpenError);
+    if (preOpenRejected) {
       try {
         conn.close();
       } catch {
         /* noop */
       }
       setState('network.isConnecting', false);
-      bus.emit('network:error', new Error('HOST_UNREACHABLE'));
-    },
-    10000,
-  );
-
-  conn.on('open', () => {
-    dataChannelOpened = true;
-    clearManagedTimer('join-timeout');
-    conn.off?.('error', handlePreOpenError);
+      return;
+    }
     log.info('[Join] Connected to host:', hostId);
 
     setState('network.hostConn', conn);
-    setState('network.isConnecting', false);
 
     // close/error handlers are intentionally inside 'open' callback:
     // Before 'open' fires, the join-timeout timer handles failures.
@@ -240,6 +363,9 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     _handledConnectionErrors.delete(conn);
 
     conn.on('close', () => {
+      // Exact connection records must be retired even when UI/state ownership
+      // has already moved to a replacement connection.
+      applicationSessions.closeConnection(conn, false);
       // Stale-conn no-op (parity with host.ts's per-peer close guard): once
       // this conn no longer owns network.hostConn — replaced by a rejoin, or
       // already nulled by leaveSession/rejoin cleanup — its close is
@@ -277,6 +403,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
     });
 
     conn.on('error', (err: unknown) => {
+      applicationSessions.closeConnection(conn, false);
       // Same stale-conn no-op as the close handler above: a replaced conn's
       // draining error (e.g. a malformed frame on a dying transport) must
       // not surface an error dialog over the live connection.
@@ -294,8 +421,19 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       bus.emit('network:error', new Error('HOST_CONNECTION_ERROR'));
     });
 
-    // Start unified sync timer (replaces separate heartbeat + ping timers)
-    startWorkerTimer('sync', 1000);
+    const guestParticipantId = getState('network.myId');
+    if (
+      !guestParticipantId ||
+      !applicationSessions.beginGuestConnection(conn, guestParticipantId)
+    ) {
+      return;
+    }
+
+    for (const queued of preOpenFrames.splice(0)) {
+      if (getState('network.hostConn') !== conn || !conn.open) break;
+      processInboundData(queued);
+    }
+    preOpenFrameBytes = 0;
 
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).
@@ -327,8 +465,7 @@ export function joinSession(hostId: string, roomPassword = '', retryAttempt = 0)
       }
     });
 
-    bus.emit('network:peer-connected', conn);
-    bus.emit('setup:guest-join-success');
+    log.info('[Join] Transport open; awaiting application-session APPLIED');
   });
 }
 

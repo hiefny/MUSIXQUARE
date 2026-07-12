@@ -4,6 +4,7 @@ import {
   FILE_PLAYBACK_CONNECTION_CHANNEL_MAX_FRAME_BYTES,
   FilePlaybackConnectionChannel,
 } from '../file-playback-connection-channel.ts';
+import { FilePlaybackClockExchange } from '../file-playback-clock-exchange.ts';
 import {
   FilePlaybackHandshakeIdIssuer,
   FilePlaybackGuestSessionHandshake,
@@ -182,6 +183,125 @@ describe('FilePlaybackConnectionChannel', () => {
     });
     expect(setup.guest.nowRoomTimeMs()).toBe(1_520);
     expect(setup.host.quality()).toMatchObject({ calibrated: true, offsetMs: 0 });
+  });
+
+  it('adopts the exact provisional clock without losing its calibrated epoch', () => {
+    const handshakes = establishPair();
+    const binding = handshakes.guest.establishedBinding();
+    if (!binding) throw new Error('Missing established test binding');
+    const guestNow = fakeNow();
+    const hostNow = fakeNow();
+    const guestClock = new FilePlaybackClockExchange({
+      role: 'guest',
+      sessionId: binding.sessionId,
+      connectionId: binding.connectionId,
+      now: guestNow.now,
+    });
+    const hostClock = new FilePlaybackClockExchange({
+      role: 'host',
+      sessionId: binding.sessionId,
+      connectionId: binding.connectionId,
+      now: hostNow.now,
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      const t0 = 1_000 + index * 100;
+      guestNow.set(t0);
+      const ping = guestClock.createPing();
+      hostNow.set(t0 + 110);
+      const pong = hostClock.handlePing(ping);
+      if (!pong.accepted) throw new Error(pong.reason);
+      guestNow.set(t0 + 20);
+      expect(guestClock.handlePong(pong.pong)).toMatchObject({
+        accepted: true,
+        offsetMs: 100,
+        rttMs: 20,
+      });
+    }
+
+    const channel = new FilePlaybackConnectionChannel(
+      handshakes.guest,
+      {},
+      {
+        clockExchange: guestClock,
+        guestAppliedSendConfirmed: true,
+      },
+    );
+    expect(channel.clockReady()).toBe(true);
+    expect(channel.quality()).toMatchObject({ calibrated: true, offsetMs: 100, sampleCount: 5 });
+    expect(channel.nowRoomTimeMs()).toBe(1_520);
+
+    channel.handleWake();
+    expect(channel.clockReady()).toBe(false);
+    expect(guestClock.quality()).toMatchObject({ calibrated: false, sampleCount: 0 });
+  });
+
+  it('rejects mismatched or inactive adopted clocks without consuming the handshake', () => {
+    const handshakes = establishPair();
+    const binding = handshakes.host.establishedBinding();
+    if (!binding) throw new Error('Missing established test binding');
+    const wrongRole = new FilePlaybackClockExchange({
+      role: 'guest',
+      sessionId: binding.sessionId,
+      connectionId: binding.connectionId,
+      now: () => 1_000,
+    });
+    const wrongSession = new FilePlaybackClockExchange({
+      role: 'host',
+      sessionId: `${binding.sessionId}-other`,
+      connectionId: binding.connectionId,
+      now: () => 1_000,
+    });
+    const inactive = new FilePlaybackClockExchange({
+      role: 'host',
+      sessionId: binding.sessionId,
+      connectionId: binding.connectionId,
+      now: () => 1_000,
+    });
+    inactive.clearSession();
+
+    for (const clockExchange of [wrongRole, wrongSession, inactive]) {
+      expect(
+        () => new FilePlaybackConnectionChannel(handshakes.host, {}, { clockExchange }),
+      ).toThrow(/does not match/u);
+    }
+
+    const exact = new FilePlaybackClockExchange({
+      role: 'host',
+      sessionId: binding.sessionId,
+      connectionId: binding.connectionId,
+      now: () => 1_000,
+    });
+    expect(
+      new FilePlaybackConnectionChannel(handshakes.host, {}, { clockExchange: exact }).clockReady(),
+    ).toBe(true);
+  });
+
+  it('does not allow an adopted clock to be paired with a second monotonic source', () => {
+    const handshakes = establishPair();
+    const binding = handshakes.host.establishedBinding();
+    if (!binding) throw new Error('Missing established test binding');
+    const clockExchange = new FilePlaybackClockExchange({
+      role: 'host',
+      sessionId: binding.sessionId,
+      connectionId: binding.connectionId,
+      now: () => 1_000,
+    });
+
+    expect(
+      () =>
+        new FilePlaybackConnectionChannel(
+          handshakes.host,
+          {},
+          {
+            clockExchange,
+            now: () => 1_000,
+          },
+        ),
+    ).toThrow(/cannot override/u);
+    expect(
+      new FilePlaybackConnectionChannel(handshakes.host, {}, { clockExchange }).clockReady(),
+    ).toBe(true);
   });
 
   it('round-trips exact wire traffic in both participant directions', () => {

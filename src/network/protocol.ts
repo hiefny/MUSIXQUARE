@@ -18,6 +18,7 @@ import { isQueueItemId, parsePlaylistSnapshot } from '../player/queue-model.ts';
 import type { AnyProtocolMsg, DataConnection, ProtocolMsg } from '../types/index.ts';
 import { hasQueueAuthority } from './queue-authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
+import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -568,6 +569,31 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   ) {
     log.debug(`[Protocol] Ignored frame from stale guest connection: ${msgType}`);
     return;
+  }
+
+  // Product connections are application-session gated. Before APPLIED the
+  // host accepts no guest application commands. A guest admits only the
+  // legacy label/moderation WELCOME plus transport rejection/duplicate
+  // lifecycle frames; ordered queue bootstrap and V2 session/clock frames are
+  // consumed synchronously by the dedicated session manager before reaching
+  // this generic dispatcher.
+  const applicationSessions = getFilePlaybackApplicationSessionManager();
+  if (
+    applicationSessions.isKnownConnection(conn) &&
+    applicationSessions.phase(conn) === 'handshaking'
+  ) {
+    if (!isGuest) {
+      log.debug(`[Protocol] Ignored guest command before APPLIED: ${msgType}`);
+      return;
+    }
+    const allowedGuestSetupFrame =
+      msgType === MSG.WELCOME ||
+      msgType === MSG.SESSION_FULL ||
+      msgType === MSG.FORCE_CLOSE_DUPLICATE;
+    if (!allowedGuestSetupFrame) {
+      log.debug(`[Protocol] Ignored host frame before APPLIED: ${msgType}`);
+      return;
+    }
   }
 
   // Ordered channels are not enough across reconnects: a new host may restart

@@ -59,6 +59,10 @@ import { handleSyncWorkerFailure, setSyncWorker } from './network/sync-worker.ts
 // ── Player ──
 import { initPlayback } from './player/playback.ts';
 import { initPlaylist } from './player/playlist.ts';
+import {
+  getFilePlaybackApplicationSessionManager,
+  handleFilePlaybackApplicationWake,
+} from './network/file-playback-application-session.ts';
 import { initDecodeHandlers } from './player/decode.ts';
 import { initMediaSession } from './player/media-session.ts';
 
@@ -210,6 +214,7 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
   log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
 
   reacquireWakeLockIfActive();
+  handleFilePlaybackApplicationWake();
   await resumeAudioForBackgroundRecovery();
 
   const hostConn = getState('network.hostConn');
@@ -422,6 +427,9 @@ async function bootstrap(): Promise<void> {
   // 5. Network (registers listeners; transport startup is deferred to the
   // host/guest flow in setup.ts).
   safeInit('Protocol', initProtocol);
+  safeInit('FilePlaybackApplicationSessions', () => {
+    void getFilePlaybackApplicationSessionManager();
+  });
   safeInit('PeerHandlers', initPeerHandlers);
   safeInit('Sync', initSync);
   safeInit('Orchestrator', initOrchestrator);

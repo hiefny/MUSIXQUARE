@@ -20,11 +20,13 @@ import {
   initProtocol,
 } from '../protocol.ts';
 import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.ts';
+import { getFilePlaybackApplicationSessionManager } from '../file-playback-application-session.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
 beforeEach(() => {
+  getFilePlaybackApplicationSessionManager().endRoom();
   resetState();
   bus.clear();
 });
@@ -143,6 +145,55 @@ describe('registerHandlers', () => {
 
   it('hasHandler returns false for unregistered type', () => {
     expect(hasHandler('never-registered-type-xyz' as MsgType)).toBe(false);
+  });
+});
+
+describe('pre-APPLIED application-session gate', () => {
+  it('blocks every guest application command on a known host-side handshake', async () => {
+    const manager = getFilePlaybackApplicationSessionManager();
+    const handler = vi.fn();
+    const type = 'pre-applied-host-probe' as MsgType;
+    registerHandler(type, handler);
+    const conn = {
+      peer: 'guest-handshaking',
+      open: true,
+      send: vi.fn(),
+      close: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    manager.beginHostRoom('host-participant');
+    expect(manager.beginHostConnection(conn, conn.peer)).toBe(true);
+
+    await handleData({ type }, conn);
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(manager.phase(conn)).toBe('handshaking');
+  });
+
+  it('admits only legacy setup lifecycle frames on a known guest-side handshake', async () => {
+    const manager = getFilePlaybackApplicationSessionManager();
+    const welcome = vi.fn();
+    const blocked = vi.fn();
+    const blockedType = 'pre-applied-guest-probe' as MsgType;
+    registerHandler(MSG.WELCOME, welcome);
+    registerHandler(blockedType, blocked);
+    const conn = {
+      peer: 'host-participant',
+      open: true,
+      send: vi.fn(),
+      close: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+    expect(manager.beginGuestConnection(conn, 'guest-participant')).toBe(true);
+
+    await handleData({ type: blockedType }, conn);
+    await handleData({ type: MSG.WELCOME, label: 'HOST' }, conn);
+
+    expect(blocked).not.toHaveBeenCalled();
+    expect(welcome).toHaveBeenCalledOnce();
+    expect(manager.phase(conn)).toBe('handshaking');
   });
 });
 

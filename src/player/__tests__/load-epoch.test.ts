@@ -56,6 +56,7 @@ vi.mock('../../audio/context.ts', () => ({
   getAudioContext: vi.fn(() => ({
     state: 'running',
     currentTime: 0,
+    sampleRate: 48_000,
     decodeAudioData: mocks.decodeAudioData,
     createBufferSource: mocks.createBufferSource,
   })),

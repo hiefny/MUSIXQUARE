@@ -61,6 +61,22 @@ export type PlaybackTimelineApplyResult =
       readonly snapshot: PlaybackTimelineSnapshot;
     };
 
+export const PLAYBACK_TIMELINE_TRAJECTORY_TOLERANCE_SECONDS = 1e-6;
+
+export type PlaybackTimelineBaselineAdoptionResult =
+  | {
+      readonly accepted: true;
+      readonly status: 'adopted' | 'replayed';
+      readonly reason: null;
+      readonly snapshot: PlaybackTimelineSnapshot;
+    }
+  | {
+      readonly accepted: false;
+      readonly status: 'rejected';
+      readonly reason: 'stale-revision' | 'equal-revision-conflict';
+      readonly snapshot: PlaybackTimelineSnapshot;
+    };
+
 const SNAPSHOT_KEYS = Object.freeze([
   'schemaVersion',
   'revision',
@@ -306,6 +322,106 @@ function ignored(
   reason: 'stale-revision' | 'revision-gap' | 'run-mismatch',
 ): PlaybackTimelineApplyResult {
   return freezeCanonical({ applied: false as const, reason, snapshot });
+}
+
+function sameCanonicalRun(
+  left: PlaybackRunIdentity | null,
+  right: PlaybackRunIdentity | null,
+): boolean {
+  return (
+    left !== null &&
+    right !== null &&
+    left.queueItemId === right.queueItemId &&
+    left.runId === right.runId
+  );
+}
+
+function projectPlayingPositionForward(
+  snapshot: PlaybackTimelineSnapshot,
+  commonAnchorMonotonicMs: number,
+): number | null {
+  const elapsedMs = commonAnchorMonotonicMs - snapshot.anchorMonotonicMs;
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return null;
+  const position = snapshot.positionSeconds + (elapsedMs / 1000) * snapshot.rate;
+  return Number.isFinite(position) ? position : null;
+}
+
+function isEqualRevisionReplay(
+  current: PlaybackTimelineSnapshot,
+  baseline: PlaybackTimelineSnapshot,
+): boolean {
+  if (current.phase !== baseline.phase) return false;
+  if (current.phase === 'stopped') return true;
+  if (
+    baseline.phase === 'stopped' ||
+    !sameCanonicalRun(current.run, baseline.run) ||
+    current.rate !== baseline.rate
+  ) {
+    return false;
+  }
+  if (current.phase === 'paused') {
+    return baseline.phase === 'paused' && current.positionSeconds === baseline.positionSeconds;
+  }
+  if (baseline.phase !== 'playing') return false;
+
+  const commonAnchorMonotonicMs = Math.max(current.anchorMonotonicMs, baseline.anchorMonotonicMs);
+  const currentPosition = projectPlayingPositionForward(current, commonAnchorMonotonicMs);
+  const baselinePosition = projectPlayingPositionForward(baseline, commonAnchorMonotonicMs);
+  return (
+    currentPosition !== null &&
+    baselinePosition !== null &&
+    Math.abs(currentPosition - baselinePosition) <= PLAYBACK_TIMELINE_TRAJECTORY_TOLERANCE_SECONDS
+  );
+}
+
+function baselineAccepted(
+  status: 'adopted' | 'replayed',
+  snapshot: PlaybackTimelineSnapshot,
+): PlaybackTimelineBaselineAdoptionResult {
+  return freezeCanonical({ accepted: true as const, status, reason: null, snapshot });
+}
+
+function baselineRejected(
+  reason: 'stale-revision' | 'equal-revision-conflict',
+  snapshot: PlaybackTimelineSnapshot,
+): PlaybackTimelineBaselineAdoptionResult {
+  return freezeCanonical({
+    accepted: false as const,
+    status: 'rejected' as const,
+    reason,
+    snapshot,
+  });
+}
+
+/**
+ * Adopts an authoritative room-clock baseline without consulting wall clock or
+ * global state. Room/session scope belongs to the controller: this pure
+ * function does not authenticate a session ID. A controller must reset the
+ * timeline into a new room scope before adopting that room's first baseline;
+ * otherwise a prior room's revision watermark correctly rejects rollback.
+ *
+ * Equal playing revisions are replays only when their linear trajectories
+ * agree within one microsecond at a shared forward anchor. This small tolerance
+ * covers floating-point serialization noise without permitting a same-revision
+ * seek.
+ */
+export function adoptPlaybackTimelineBaseline(
+  current: PlaybackTimelineSnapshot,
+  baseline: PlaybackTimelineSnapshot,
+): PlaybackTimelineBaselineAdoptionResult {
+  const safeCurrent = requireTimeline(current);
+  const safeBaseline = requireTimeline(baseline);
+
+  if (safeBaseline.revision < safeCurrent.revision) {
+    return baselineRejected('stale-revision', safeCurrent);
+  }
+  if (safeBaseline.revision > safeCurrent.revision) {
+    return baselineAccepted('adopted', safeBaseline);
+  }
+  if (!isEqualRevisionReplay(safeCurrent, safeBaseline)) {
+    return baselineRejected('equal-revision-conflict', safeCurrent);
+  }
+  return baselineAccepted('replayed', safeCurrent);
 }
 
 /**

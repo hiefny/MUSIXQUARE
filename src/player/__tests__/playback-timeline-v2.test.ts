@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest';
 import type { QueueItemId } from '../../types/index.ts';
 import { sameRun, type PlaybackRunIdentity } from '../playback-identity.ts';
 import {
+  adoptPlaybackTimelineBaseline,
   applyPlaybackTimelineIntent,
   createStoppedPlaybackTimeline,
   derivePlaybackPosition,
   isPlaybackTimelineSnapshot,
+  PLAYBACK_TIMELINE_TRAJECTORY_TOLERANCE_SECONDS,
 } from '../playback-timeline.ts';
 
 const QID_A = '00000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -346,5 +348,237 @@ describe('playback timeline v2', () => {
     expect(applied.applied).toBe(true);
     expect(applied.snapshot.run).toEqual(RUN_A);
     expect(intentRunOwnKeys).toBe(1);
+  });
+
+  describe('product baseline adoption', () => {
+    function playing(
+      revision: number,
+      positionSeconds: number,
+      anchorMonotonicMs: number,
+      rate = 1,
+      run: PlaybackRunIdentity = RUN_A,
+    ) {
+      return {
+        schemaVersion: 1,
+        revision,
+        phase: 'playing',
+        run,
+        positionSeconds,
+        anchorMonotonicMs,
+        rate,
+      } as const;
+    }
+
+    function paused(
+      revision: number,
+      positionSeconds: number,
+      anchorMonotonicMs: number,
+      rate = 1,
+      run: PlaybackRunIdentity = RUN_A,
+    ) {
+      return {
+        schemaVersion: 1,
+        revision,
+        phase: 'paused',
+        run,
+        positionSeconds,
+        anchorMonotonicMs,
+        rate,
+      } as const;
+    }
+
+    it('adopts an arbitrary newer canonical snapshot without requiring contiguous revisions', () => {
+      const current = createStoppedPlaybackTimeline(10, 0);
+      const baseline = playing(73, 18.5, 25_000, 1.25);
+
+      const result = adoptPlaybackTimelineBaseline(current, baseline);
+
+      expect(result).toEqual({
+        accepted: true,
+        status: 'adopted',
+        reason: null,
+        snapshot: baseline,
+      });
+      expect(result.snapshot).not.toBe(baseline);
+      expect(result.snapshot.run).not.toBe(baseline.run);
+      expect(Object.getPrototypeOf(result)).toBeNull();
+      expect(Object.getPrototypeOf(result.snapshot)).toBeNull();
+      expect(Object.getPrototypeOf(result.snapshot.run)).toBeNull();
+      expect(Object.isFrozen(result)).toBe(true);
+      expect(Object.isFrozen(result.snapshot)).toBe(true);
+      expect(Object.isFrozen(result.snapshot.run)).toBe(true);
+      expect(JSON.parse(JSON.stringify(result.snapshot))).toEqual(baseline);
+    });
+
+    it('adopts a newer stopped high watermark without inventing a run', () => {
+      const result = adoptPlaybackTimelineBaseline(
+        playing(4, 1, 0),
+        createStoppedPlaybackTimeline(99_000, 500),
+      );
+
+      expect(result).toMatchObject({ accepted: true, status: 'adopted', reason: null });
+      expect(result.snapshot).toEqual({
+        schemaVersion: 1,
+        revision: 500,
+        phase: 'stopped',
+        run: null,
+        positionSeconds: 0,
+        anchorMonotonicMs: 99_000,
+        rate: 1,
+      });
+    });
+
+    it('adopts an arbitrary newer paused snapshot in the supplied room-clock domain', () => {
+      const baseline = paused(41, 123.75, 88_000, 0.75, RUN_B);
+      const result = adoptPlaybackTimelineBaseline(createStoppedPlaybackTimeline(), baseline);
+
+      expect(result).toMatchObject({ accepted: true, status: 'adopted', reason: null });
+      expect(result.snapshot).toEqual(baseline);
+      expect(result.snapshot).not.toBe(baseline);
+      expect(result.snapshot.run).not.toBe(baseline.run);
+    });
+
+    it('rejects stale baselines, including a fresh room baseline against a prior-room watermark', () => {
+      const priorRoom = createStoppedPlaybackTimeline(50_000, 900);
+      const freshRoomBaseline = playing(1, 0, 60_000);
+
+      const result = adoptPlaybackTimelineBaseline(priorRoom, freshRoomBaseline);
+
+      expect(result).toEqual({
+        accepted: false,
+        status: 'rejected',
+        reason: 'stale-revision',
+        snapshot: priorRoom,
+      });
+      expect(result.snapshot).not.toBe(priorRoom);
+      expect(Object.getPrototypeOf(result)).toBeNull();
+      expect(Object.isFrozen(result)).toBe(true);
+    });
+
+    it('accepts exact stopped and paused semantic replays while preserving local canonical state', () => {
+      const stopped = createStoppedPlaybackTimeline(100, 12);
+      const stoppedReplay = adoptPlaybackTimelineBaseline(
+        stopped,
+        createStoppedPlaybackTimeline(999, 12),
+      );
+      expect(stoppedReplay).toMatchObject({ accepted: true, status: 'replayed', reason: null });
+      expect(stoppedReplay.snapshot).toEqual(stopped);
+      expect(stoppedReplay.snapshot).not.toBe(stopped);
+
+      const currentPaused = paused(8, 42.25, 1_000, 1.5);
+      const pausedReplay = adoptPlaybackTimelineBaseline(
+        currentPaused,
+        paused(8, 42.25, 9_000, 1.5),
+      );
+      expect(pausedReplay).toMatchObject({ accepted: true, status: 'replayed', reason: null });
+      expect(pausedReplay.snapshot).toEqual(currentPaused);
+    });
+
+    it('rejects equal-revision phase, run, rate, and paused-position conflicts', () => {
+      const current = paused(8, 42.25, 1_000, 1.5);
+      const conflicts = [
+        playing(8, 42.25, 1_000, 1.5),
+        paused(8, 42.25, 1_000, 1.5, RUN_B),
+        paused(8, 42.25, 1_000, 1),
+        paused(8, 42.250_001, 1_000, 1.5),
+      ];
+
+      for (const baseline of conflicts) {
+        expect(adoptPlaybackTimelineBaseline(current, baseline)).toEqual({
+          accepted: false,
+          status: 'rejected',
+          reason: 'equal-revision-conflict',
+          snapshot: current,
+        });
+      }
+    });
+
+    it('accepts equal playing trajectories at either anchor direction within a microsecond', () => {
+      const current = playing(9, 10, 1_000, 1.25);
+      const later = playing(
+        9,
+        12.5 + PLAYBACK_TIMELINE_TRAJECTORY_TOLERANCE_SECONDS / 2,
+        3_000,
+        1.25,
+      );
+      const earlier = playing(9, 9.375, 500, 1.25);
+
+      expect(adoptPlaybackTimelineBaseline(current, later)).toMatchObject({
+        accepted: true,
+        status: 'replayed',
+        reason: null,
+      });
+      expect(adoptPlaybackTimelineBaseline(current, earlier)).toMatchObject({
+        accepted: true,
+        status: 'replayed',
+        reason: null,
+      });
+    });
+
+    it('rejects same-revision playing rewind, fast-forward, and non-finite projection', () => {
+      const current = playing(9, 10, 1_000, 1.25);
+      for (const baseline of [
+        playing(9, 12.499_998, 3_000, 1.25),
+        playing(9, 12.51, 3_000, 1.25),
+      ]) {
+        expect(adoptPlaybackTimelineBaseline(current, baseline)).toMatchObject({
+          accepted: false,
+          status: 'rejected',
+          reason: 'equal-revision-conflict',
+        });
+      }
+
+      expect(
+        adoptPlaybackTimelineBaseline(
+          playing(9, Number.MAX_VALUE, 0, Number.MAX_VALUE),
+          playing(9, Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE),
+        ),
+      ).toMatchObject({
+        accepted: false,
+        status: 'rejected',
+        reason: 'equal-revision-conflict',
+      });
+    });
+
+    it('detaches hostile descriptors and remains re-entry safe without dynamic [[Get]]', () => {
+      let getCalls = 0;
+      let reentered = false;
+      let nestedStatus: string | null = null;
+      const baselineTarget = playing(5, 4, 100);
+      const hostile = new Proxy(baselineTarget, {
+        get() {
+          getCalls += 1;
+          throw new Error('dynamic [[Get]] must not run');
+        },
+        getOwnPropertyDescriptor(target, property) {
+          if (!reentered) {
+            reentered = true;
+            nestedStatus = adoptPlaybackTimelineBaseline(
+              createStoppedPlaybackTimeline(),
+              playing(2, 0, 0, 1, RUN_B),
+            ).status;
+          }
+          return Reflect.getOwnPropertyDescriptor(target, property);
+        },
+      });
+
+      const result = adoptPlaybackTimelineBaseline(createStoppedPlaybackTimeline(), hostile);
+      expect(result).toMatchObject({ accepted: true, status: 'adopted' });
+      expect(result.snapshot.run).toEqual(RUN_A);
+      expect(nestedStatus).toBe('adopted');
+      expect(getCalls).toBe(0);
+
+      let accessorCalls = 0;
+      const accessor = { ...playing(6, 0, 0) };
+      Object.defineProperty(accessor, 'positionSeconds', {
+        enumerable: true,
+        get() {
+          accessorCalls += 1;
+          return 0;
+        },
+      });
+      expect(() => adoptPlaybackTimelineBaseline(result.snapshot, accessor)).toThrow(TypeError);
+      expect(accessorCalls).toBe(0);
+    });
   });
 });

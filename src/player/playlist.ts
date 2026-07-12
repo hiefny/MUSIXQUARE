@@ -50,7 +50,12 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { setPendingAutoSyncOnReady } from '../youtube/player.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
-import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
+import {
+  isPlaybackIdleCompat,
+  isYouTubeOwner,
+  setPlaybackFilePlaying,
+  setPlaybackTrackMeta,
+} from './ownership.ts';
 import type { DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -104,6 +109,7 @@ function isCommittedV2PlaylistTrack(value: unknown, queueItemId: QueueItemId): b
       readonly timeline?: {
         readonly phase?: unknown;
         readonly revision?: unknown;
+        readonly positionSeconds?: unknown;
         readonly run?: { readonly queueItemId?: unknown; readonly runId?: unknown } | null;
       };
     };
@@ -116,6 +122,9 @@ function isCommittedV2PlaylistTrack(value: unknown, queueItemId: QueueItemId): b
       Object.isFrozen(timeline) &&
       Object.isFrozen(run) &&
       timeline?.phase === 'playing' &&
+      typeof timeline.positionSeconds === 'number' &&
+      Number.isFinite(timeline.positionSeconds) &&
+      timeline.positionSeconds >= 0 &&
       timeline.revision === commit.attempt?.revision &&
       run?.queueItemId === queueItemId &&
       run.runId === commit.attempt?.runId &&
@@ -178,6 +187,14 @@ async function playV2HostLocalFile(
 
   selectQueueItemById(queueItemId);
   setPlaybackTrackMeta(liveItem);
+  setState(
+    'player.pausedAt',
+    (commit as { readonly timeline: { readonly positionSeconds: number } }).timeline
+      .positionSeconds,
+  );
+  setPlaybackFilePlaying();
+  bus.emit('visualizer:start');
+  bus.emit('ui:loop-start');
   bus.emit('ui:switch-tab', 'play');
   if (getState('player.isFirstTrackLoad')) {
     setState('player.isFirstTrackLoad', false);

@@ -392,7 +392,11 @@ describe('playTrack V2 host-local cutover', () => {
     setState('player.currentTrackMeta', previous);
     setState('player.isFirstTrackLoad', true);
     const tab = vi.fn();
+    const visualizerStart = vi.fn();
+    const loopStart = vi.fn();
     bus.on('ui:switch-tab', tab);
+    bus.on('visualizer:start', visualizerStart);
+    bus.on('ui:loop-start', loopStart);
     const committed = deferred<ReturnType<typeof v2TrackCommit>>();
     productRuntimeMocks.startLocalTrack.mockReturnValueOnce(committed.promise);
 
@@ -408,6 +412,10 @@ describe('playTrack V2 host-local cutover', () => {
     expect(getState('playlist.currentQueueItemId')).toBe(previous.queueItemId);
     expect(getState('player.currentTrackMeta')).toBe(previous);
     expect(getState('player.isFirstTrackLoad')).toBe(true);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(visualizerStart).not.toHaveBeenCalled();
+    expect(loopStart).not.toHaveBeenCalled();
     expect(tab).not.toHaveBeenCalled();
 
     committed.resolve(v2TrackCommit(next.queueItemId));
@@ -416,6 +424,11 @@ describe('playTrack V2 host-local cutover', () => {
     expect(getState('playlist.currentQueueItemId')).toBe(next.queueItemId);
     expect(getState('player.currentTrackMeta')).toBe(next);
     expect(getState('player.isFirstTrackLoad')).toBe(false);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(getState('player.pausedAt')).toBe(0);
+    expect(visualizerStart).toHaveBeenCalledOnce();
+    expect(loopStart).toHaveBeenCalledOnce();
     expect(tab).toHaveBeenCalledOnce();
     expect(tab).toHaveBeenCalledWith('play');
   });

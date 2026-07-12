@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flacCrc16, flacCrc8 } from '../../player/flac/frame-scanner.ts';
 import {
   FLAC_STREAM_PROTOCOL_VERSION,
-  type FlacDecoderInitMessage,
   type FlacStreamDescriptor,
 } from '../../player/flac/stream-protocol.ts';
+import { BlobEncodedAudioSource } from '../../player/sources/blob-encoded-audio-source.ts';
+import { EncodedSourcePortBroker } from '../../player/sources/encoded-source-port.ts';
 
 const mocks = vi.hoisted(() => ({
   decoderReadyQueue: [] as Promise<void>[],
@@ -18,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   bitDepth: 24,
   lanczosInitializations: 0,
 }));
+
+const sourceBrokers: EncodedSourcePortBroker[] = [];
 
 vi.mock('@wasm-audio-decoders/flac', () => ({
   FLACDecoder: class MockFlacDecoder {
@@ -169,20 +172,59 @@ function sourceBlob(frames: readonly Uint8Array[], prefixBytes = 8): Blob {
   return new Blob([new Uint8Array(prefixBytes), ...frames]);
 }
 
-function initMessage(
+function openSourceFixture(
+  scope: FakeWorkerScope,
+  blob: Blob,
+  identity: string,
+): EncodedSourcePortBroker {
+  const source = new BlobEncodedAudioSource(blob, {
+    identity,
+    metadata: { name: 'fixture.flac', mime: 'audio/flac' },
+  });
+  const sourceChannel = new MessageChannel();
+  const broker = new EncodedSourcePortBroker({
+    source,
+    port: sourceChannel.port1,
+    generation: 1,
+  });
+  sourceBrokers.push(broker);
+  dispatch(scope, {
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'open-source',
+    sourceLifetimeGeneration: 1,
+    sourceSize: source.size,
+    sourceIdentity: source.identity,
+    sourcePort: sourceChannel.port2,
+  });
+  return broker;
+}
+
+function dispatchDecoderInit(
+  scope: FakeWorkerScope,
+  generation: number,
+  pcmPort: MessagePort,
+  descriptor: FlacStreamDescriptor,
+): void {
+  dispatch(scope, {
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'init-decoder',
+    sourceLifetimeGeneration: 1,
+    decoderGeneration: generation,
+    descriptor,
+    pcmPort,
+  });
+}
+
+function dispatchInit(
+  scope: FakeWorkerScope,
   generation: number,
   pcmPort: MessagePort,
   descriptor = streamDescriptor(),
   blob = sourceBlob([nativeFrame(0, descriptor.totalSourceSamples)]),
-): FlacDecoderInitMessage {
-  return {
-    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-    type: 'init',
-    generation,
-    blob,
-    descriptor,
-    pcmPort,
-  };
+): EncodedSourcePortBroker {
+  const broker = openSourceFixture(scope, blob, `worker-test-source:${generation}`);
+  dispatchDecoderInit(scope, generation, pcmPort, descriptor);
+  return broker;
 }
 
 function dispatch(scope: FakeWorkerScope, data: unknown): void {
@@ -235,9 +277,13 @@ describe.sequential('bounded FLAC stream worker', () => {
     mocks.sampleRate = 48_000;
     mocks.bitDepth = 24;
     mocks.lanczosInitializations = 0;
+    sourceBrokers.length = 0;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(sourceBrokers.map((broker) => broker.close()));
+    sourceBrokers.length = 0;
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -245,10 +291,10 @@ describe.sequential('bounded FLAC stream worker', () => {
     const scope = await loadWorker();
     const channel = new MessageChannel();
     const received = nextPortMessage(channel.port2);
-    dispatch(scope, initMessage(1, channel.port1));
+    dispatchInit(scope, 1, channel.port1);
     await vi.waitFor(() => {
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 1 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 1 }),
       );
     });
     channel.port2.postMessage(demand(1));
@@ -262,7 +308,7 @@ describe.sequential('bounded FLAC stream worker', () => {
       expect(scope.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'frame-index-point',
-          generation: 1,
+          decoderGeneration: 1,
           sourceSample: 0,
           byteOffset: 8,
         }),
@@ -270,7 +316,7 @@ describe.sequential('bounded FLAC stream worker', () => {
       expect(scope.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'decoder-eof',
-          generation: 1,
+          decoderGeneration: 1,
           decodedInputBytes: 8 + nativeFrame(0, 4).byteLength,
           decodedSourceSamples: 4,
           producedOutputFrames: 4,
@@ -296,10 +342,10 @@ describe.sequential('bounded FLAC stream worker', () => {
     const scope = await loadWorker();
     const channel = new MessageChannel();
     const received = nextPortMessage(channel.port2);
-    dispatch(scope, initMessage(3, channel.port1, descriptor, sourceBlob([first, second])));
+    dispatchInit(scope, 3, channel.port1, descriptor, sourceBlob([first, second]));
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 3 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 3 }),
       ),
     );
     channel.port2.postMessage(demand(3));
@@ -326,10 +372,10 @@ describe.sequential('bounded FLAC stream worker', () => {
     const scope = await loadWorker();
     const channel = new MessageChannel();
     const received = nextPortMessage(channel.port2);
-    dispatch(scope, initMessage(4, channel.port1, descriptor, sourceBlob([frame])));
+    dispatchInit(scope, 4, channel.port1, descriptor, sourceBlob([frame]));
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 4 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 4 }),
       ),
     );
     channel.port2.postMessage(demand(4));
@@ -340,7 +386,8 @@ describe.sequential('bounded FLAC stream worker', () => {
     expect(scope.postMessage).toHaveBeenCalledWith({
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
       type: 'decode-anchor-rejected',
-      generation: 4,
+      sourceLifetimeGeneration: 1,
+      decoderGeneration: 4,
       sourceSample: 1,
       byteOffset: 9,
     });
@@ -348,7 +395,7 @@ describe.sequential('bounded FLAC stream worker', () => {
       expect.objectContaining({ type: 'frame-index-point', sourceSample: 0, byteOffset: 8 }),
     );
     expect(scope.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'decoder-error', generation: 4 }),
+      expect.objectContaining({ type: 'decoder-error', decoderGeneration: 4 }),
     );
     channel.port2.close();
   });
@@ -362,10 +409,10 @@ describe.sequential('bounded FLAC stream worker', () => {
     channel.port2.onmessage = (event: MessageEvent<Record<string, unknown>>) =>
       supplies.push(event.data);
     channel.port2.start();
-    dispatch(scope, initMessage(5, channel.port1));
+    dispatchInit(scope, 5, channel.port1);
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 5 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 5 }),
       ),
     );
     channel.port2.postMessage(demand(5));
@@ -385,10 +432,10 @@ describe.sequential('bounded FLAC stream worker', () => {
     const scope = await loadWorker();
     const channel = new MessageChannel();
     channel.port2.start();
-    dispatch(scope, initMessage(6, channel.port1));
+    dispatchInit(scope, 6, channel.port1);
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 6 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 6 }),
       ),
     );
     channel.port2.postMessage(demand(6));
@@ -396,7 +443,7 @@ describe.sequential('bounded FLAC stream worker', () => {
 
     scope.emit('messageerror');
     expect(scope.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'decoder-error', generation: 6 }),
+      expect.objectContaining({ type: 'decoder-error', decoderGeneration: 6 }),
     );
     expect(mocks.decoderInstances[0]?.free).not.toHaveBeenCalled();
 
@@ -408,10 +455,10 @@ describe.sequential('bounded FLAC stream worker', () => {
   it('does not let stale or same-generation duplicate init stop the active decoder', async () => {
     const scope = await loadWorker();
     const current = new MessageChannel();
-    dispatch(scope, initMessage(20, current.port1));
+    dispatchInit(scope, 20, current.port1);
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 20 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 20 }),
       ),
     );
 
@@ -419,33 +466,90 @@ describe.sequential('bounded FLAC stream worker', () => {
       const duplicate = new MessageChannel();
       dispatch(scope, {
         protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-        type: 'init',
-        generation,
-        blob: new Blob(),
-        descriptor: {},
+        type: 'init-decoder',
+        sourceLifetimeGeneration: 1,
+        decoderGeneration: generation,
+        descriptor: streamDescriptor(),
         pcmPort: duplicate.port1,
       });
       duplicate.port2.close();
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(scope.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'decoder-stopped', generation: 20 }),
+      expect.objectContaining({ type: 'decoder-stopped', decoderGeneration: 20 }),
     );
     expect(scope.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'decoder-error', generation: 20 }),
+      expect.objectContaining({ type: 'decoder-error', decoderGeneration: 20 }),
     );
 
     dispatch(scope, {
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-      type: 'stop',
-      generation: 20,
+      type: 'stop-decoder',
+      sourceLifetimeGeneration: 1,
+      decoderGeneration: 20,
     });
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-stopped', generation: 20 }),
+        expect.objectContaining({ type: 'decoder-stopped', decoderGeneration: 20 }),
       ),
     );
     current.port2.close();
+  });
+
+  it('keeps one source-port client across decoder generations and closes it once', async () => {
+    const scope = await loadWorker();
+    const { EncodedSourcePortClient: WorkerSourcePortClient } =
+      await import('../../player/sources/encoded-source-port.ts');
+    const beginGeneration = vi.spyOn(WorkerSourcePortClient.prototype, 'beginDecoderGeneration');
+    const descriptor = streamDescriptor();
+    const broker = openSourceFixture(
+      scope,
+      sourceBlob([nativeFrame(0, descriptor.totalSourceSamples)]),
+      'worker-test-source:lifetime',
+    );
+    const first = new MessageChannel();
+    dispatchDecoderInit(scope, 60, first.port1, descriptor);
+    await vi.waitFor(() =>
+      expect(scope.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 60 }),
+      ),
+    );
+    dispatch(scope, {
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'stop-decoder',
+      sourceLifetimeGeneration: 1,
+      decoderGeneration: 60,
+    });
+
+    const second = new MessageChannel();
+    dispatchDecoderInit(scope, 61, second.port1, descriptor);
+    await vi.waitFor(() =>
+      expect(scope.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 61 }),
+      ),
+    );
+    expect(beginGeneration).toHaveBeenCalledTimes(1);
+    expect(
+      scope.postMessage.mock.calls.filter(
+        ([message]) => (message as Record<string, unknown>).type === 'source-opened',
+      ),
+    ).toHaveLength(1);
+    expect(broker.closed).toBe(false);
+
+    dispatch(scope, {
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'close-source',
+      sourceLifetimeGeneration: 1,
+    });
+    await vi.waitFor(() => expect(broker.closed).toBe(true));
+    await vi.waitFor(() =>
+      expect(scope.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'source-closed', sourceLifetimeGeneration: 1 }),
+      ),
+    );
+    first.port2.close();
+    second.port2.close();
+    beginGeneration.mockRestore();
   });
 
   it('cancels during decoder initialization without publishing stale readiness', async () => {
@@ -453,20 +557,21 @@ describe.sequential('bounded FLAC stream worker', () => {
     mocks.decoderReadyQueue.push(new Promise<void>((resolve) => (releaseReady = resolve)));
     const scope = await loadWorker();
     const channel = new MessageChannel();
-    dispatch(scope, initMessage(30, channel.port1));
+    dispatchInit(scope, 30, channel.port1);
     await vi.waitFor(() => expect(mocks.decoderInstances).toHaveLength(1));
     dispatch(scope, {
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-      type: 'stop',
-      generation: 30,
+      type: 'stop-decoder',
+      sourceLifetimeGeneration: 1,
+      decoderGeneration: 30,
     });
     releaseReady?.();
     await vi.waitFor(() => expect(mocks.decoderInstances[0]?.free).toHaveBeenCalledOnce());
     expect(scope.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'decoder-ready', generation: 30 }),
+      expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 30 }),
     );
     expect(scope.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'decoder-error', generation: 30 }),
+      expect.objectContaining({ type: 'decoder-error', decoderGeneration: 30 }),
     );
     channel.port2.close();
   });
@@ -487,10 +592,10 @@ describe.sequential('bounded FLAC stream worker', () => {
     const scope = await loadWorker();
     const channel = new MessageChannel();
     const received = nextPortMessage(channel.port2);
-    dispatch(scope, initMessage(40, channel.port1, descriptor, sourceBlob([first, second])));
+    dispatchInit(scope, 40, channel.port1, descriptor, sourceBlob([first, second]));
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 40 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 40 }),
       ),
     );
     expect(mocks.lanczosInitializations).toBe(1);
@@ -519,10 +624,10 @@ describe.sequential('bounded FLAC stream worker', () => {
     const scope = await loadWorker();
     const channel = new MessageChannel();
     const received = nextPortMessage(channel.port2);
-    dispatch(scope, initMessage(45, channel.port1, descriptor, sourceBlob(frames)));
+    dispatchInit(scope, 45, channel.port1, descriptor, sourceBlob(frames));
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 45 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 45 }),
       ),
     );
     channel.port2.postMessage(demand(45));
@@ -531,7 +636,7 @@ describe.sequential('bounded FLAC stream worker', () => {
     expect(pcm).toMatchObject({ type: 'pcm', frames: 139, final: true });
     expect(mocks.decoderCalls).toBe(4);
     expect(scope.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'decoder-error', generation: 45 }),
+      expect.objectContaining({ type: 'decoder-error', decoderGeneration: 45 }),
     );
     channel.port2.close();
   });
@@ -550,10 +655,10 @@ describe.sequential('bounded FLAC stream worker', () => {
     const scope = await loadWorker();
     const channel = new MessageChannel();
     const received = nextPortMessage(channel.port2);
-    dispatch(scope, initMessage(50, channel.port1, descriptor, sourceBlob([frame])));
+    dispatchInit(scope, 50, channel.port1, descriptor, sourceBlob([frame]));
     await vi.waitFor(() =>
       expect(scope.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'decoder-ready', generation: 50 }),
+        expect.objectContaining({ type: 'decoder-ready', decoderGeneration: 50 }),
       ),
     );
     channel.port2.postMessage(demand(50));

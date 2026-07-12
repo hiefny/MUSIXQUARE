@@ -3,12 +3,18 @@
 // would pull DOM-only application types into the isolated WebWorker build.
 type PlaybackRevision = number;
 
-export const FLAC_STREAM_PROTOCOL_VERSION = 1 as const;
+export const FLAC_STREAM_PROTOCOL_VERSION = 2 as const;
 export const FLAC_STREAM_MAX_CHANNELS = 8;
+export const FLAC_STREAM_MAX_SOURCE_IDENTITY_LENGTH = 512;
 export const FLAC_STREAM_INPUT_CHUNK_BYTES = 64 * 1024;
 export const FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES = 32_768;
 
-export type FlacStreamGeneration = number;
+/** One immutable encoded-source bridge for the whole playback-source lifetime. */
+export type FlacSourceLifetimeGeneration = number;
+/** One decoder/ring incarnation; seeks advance this without replacing the source bridge. */
+export type FlacDecoderGeneration = number;
+/** AudioWorklet-facing alias; every ring generation is one decoder generation. */
+export type FlacStreamGeneration = FlacDecoderGeneration;
 
 export interface FlacStreamRunIdentity {
   readonly revision: PlaybackRevision;
@@ -38,34 +44,74 @@ export interface FlacStreamDescriptor {
   readonly maxFrameSize: number;
 }
 
+export interface FlacSourceOpenMessage {
+  readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+  readonly type: 'open-source';
+  readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+  readonly sourceSize: number;
+  readonly sourceIdentity: string;
+  readonly sourcePort: MessagePort;
+}
+
 export interface FlacDecoderInitMessage {
   readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
-  readonly type: 'init';
-  readonly generation: FlacStreamGeneration;
-  readonly blob: Blob;
+  readonly type: 'init-decoder';
+  readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+  readonly decoderGeneration: FlacDecoderGeneration;
   readonly descriptor: FlacStreamDescriptor;
   readonly pcmPort: MessagePort;
 }
 
 export interface FlacDecoderStopMessage {
   readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
-  readonly type: 'stop';
-  readonly generation: FlacStreamGeneration;
+  readonly type: 'stop-decoder';
+  readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+  readonly decoderGeneration: FlacDecoderGeneration;
 }
 
-export type FlacDecoderCommand = FlacDecoderInitMessage | FlacDecoderStopMessage;
+export interface FlacSourceCloseMessage {
+  readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+  readonly type: 'close-source';
+  readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+}
+
+export type FlacDecoderCommand =
+  | FlacSourceOpenMessage
+  | FlacDecoderInitMessage
+  | FlacDecoderStopMessage
+  | FlacSourceCloseMessage;
 
 export type FlacDecoderEvent =
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+      readonly type: 'source-opened';
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly sourceSize: number;
+      readonly sourceIdentity: string;
+    }
+  | {
+      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+      readonly type: 'source-closed';
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+    }
+  | {
+      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
+      readonly type: 'source-error';
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly code: string;
+    }
+  | {
+      readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'decoder-ready';
-      readonly generation: FlacStreamGeneration;
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly decoderGeneration: FlacDecoderGeneration;
       readonly descriptor: FlacStreamDescriptor;
     }
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'decode-progress';
-      readonly generation: FlacStreamGeneration;
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly decoderGeneration: FlacDecoderGeneration;
       readonly decodedInputBytes: number;
       readonly decodedSourceSamples: number;
       readonly producedOutputFrames: number;
@@ -73,7 +119,8 @@ export type FlacDecoderEvent =
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'decoder-eof';
-      readonly generation: FlacStreamGeneration;
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly decoderGeneration: FlacDecoderGeneration;
       readonly decodedInputBytes: number;
       readonly decodedSourceSamples: number;
       readonly producedOutputFrames: number;
@@ -81,12 +128,14 @@ export type FlacDecoderEvent =
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'decoder-stopped';
-      readonly generation: FlacStreamGeneration;
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly decoderGeneration: FlacDecoderGeneration;
     }
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'frame-index-point';
-      readonly generation: FlacStreamGeneration;
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly decoderGeneration: FlacDecoderGeneration;
       /** Absolute source-domain PCM sample at a verified frame boundary. */
       readonly sourceSample: number;
       /** Absolute byte offset of that native FLAC frame. */
@@ -95,7 +144,8 @@ export type FlacDecoderEvent =
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'decode-anchor-rejected';
-      readonly generation: FlacStreamGeneration;
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly decoderGeneration: FlacDecoderGeneration;
       /** Exact unverified SEEKTABLE candidate that failed scanner validation. */
       readonly sourceSample: number;
       readonly byteOffset: number;
@@ -103,7 +153,8 @@ export type FlacDecoderEvent =
   | {
       readonly protocolVersion: typeof FLAC_STREAM_PROTOCOL_VERSION;
       readonly type: 'decoder-error';
-      readonly generation: FlacStreamGeneration;
+      readonly sourceLifetimeGeneration: FlacSourceLifetimeGeneration;
+      readonly decoderGeneration: FlacDecoderGeneration;
       readonly code: string;
       readonly message: string;
     };
@@ -235,4 +286,24 @@ export type PcmRingEvent =
 
 export function isFlacStreamGeneration(value: unknown): value is FlacStreamGeneration {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+export const isFlacDecoderGeneration = isFlacStreamGeneration;
+
+export function isFlacSourceLifetimeGeneration(
+  value: unknown,
+): value is FlacSourceLifetimeGeneration {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+export function isFlacSourceSize(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+export function isFlacSourceIdentity(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= FLAC_STREAM_MAX_SOURCE_IDENTITY_LENGTH
+  );
 }

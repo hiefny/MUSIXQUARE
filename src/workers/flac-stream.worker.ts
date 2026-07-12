@@ -23,13 +23,22 @@ import {
   FLAC_STREAM_MAX_CHANNELS,
   FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES,
   FLAC_STREAM_PROTOCOL_VERSION,
-  isFlacStreamGeneration,
+  isFlacDecoderGeneration,
+  isFlacSourceIdentity,
+  isFlacSourceLifetimeGeneration,
+  isFlacSourceSize,
   type FlacDecoderCommand,
   type FlacDecoderEvent,
   type FlacDecoderInitMessage,
+  type FlacSourceCloseMessage,
+  type FlacSourceOpenMessage,
   type FlacStreamDescriptor,
   type PcmSupplyMessage,
 } from '../player/flac/stream-protocol.js';
+import {
+  EncodedSourcePortClient,
+  EncodedSourcePortError,
+} from '../player/sources/encoded-source-port.js';
 
 const scope = self as DedicatedWorkerGlobalScope;
 
@@ -58,13 +67,12 @@ class SessionCancelledError extends Error {
   }
 }
 
-/** Blob-backed random reader; a future range ByteSource can implement this seam. */
-class BlobRangeSource {
-  constructor(readonly blob: Blob) {}
-
-  get size(): number {
-    return this.blob.size;
-  }
+/** Decoder-facing view over the one source-lifetime MessagePort client. */
+class PortRangeSource {
+  constructor(
+    readonly size: number,
+    readonly client: EncodedSourcePortClient,
+  ) {}
 
   async readChunk(
     absoluteByteOffset: number,
@@ -80,20 +88,28 @@ class BlobRangeSource {
     ) {
       throw new FlacWorkerError('invalid-source-read', 'FLAC source read range is invalid');
     }
-    if (absoluteByteOffset >= this.blob.size) return new Uint8Array();
+    if (maximumBytes > FLAC_STREAM_INPUT_CHUNK_BYTES) {
+      throw new FlacWorkerError('invalid-source-read', 'FLAC source read exceeds its fixed bound');
+    }
+    if (absoluteByteOffset >= this.size) return new Uint8Array();
     const requestedEnd = absoluteByteOffset + maximumBytes;
     if (!Number.isSafeInteger(requestedEnd)) {
       throw new FlacWorkerError('invalid-source-read', 'FLAC source read exceeds safe integers');
     }
-    const end = Math.min(this.blob.size, requestedEnd);
-    const buffer = await this.blob.slice(absoluteByteOffset, end).arrayBuffer();
-    signal?.throwIfAborted();
-    const bytes = new Uint8Array(buffer);
-    if (bytes.byteLength !== end - absoluteByteOffset) {
-      throw new FlacWorkerError('source-read-short', 'Blob returned an incomplete FLAC read');
-    }
-    return bytes;
+    const end = Math.min(this.size, requestedEnd);
+    const readSignal = signal ?? new AbortController().signal;
+    return this.client.readAt(absoluteByteOffset, end - absoluteByteOffset, readSignal);
   }
+}
+
+interface SourceLifetime {
+  readonly generation: number;
+  readonly size: number;
+  readonly identity: string;
+  readonly client: EncodedSourcePortClient;
+  readonly rangeSource: PortRangeSource;
+  decoderStarted: boolean;
+  closed: boolean;
 }
 
 interface SourcePcmCarry {
@@ -108,9 +124,10 @@ interface PcmSegment {
 }
 
 interface DecoderSession {
-  readonly generation: number;
+  readonly sourceLifetimeGeneration: number;
+  readonly decoderGeneration: number;
   readonly descriptor: FlacStreamDescriptor;
-  readonly source: BlobRangeSource;
+  readonly source: PortRangeSource;
   readonly port: MessagePort;
   readonly portListener: (event: MessageEvent<unknown>) => void;
   readonly abortController: AbortController;
@@ -140,7 +157,8 @@ interface DecoderSession {
 }
 
 let activeSession: DecoderSession | null = null;
-let latestGeneration = 0;
+let activeSource: SourceLifetime | null = null;
+let latestDecoderGeneration = 0;
 let lanczosReadyPromise: Promise<void> | null = null;
 
 function ensureLanczosReady(): Promise<void> {
@@ -164,6 +182,7 @@ function errorMessage(error: unknown): string {
 function errorCode(error: unknown): string {
   if (error instanceof FlacWorkerError) return error.code;
   if (error instanceof NativeFlacFrameError) return 'invalid-flac-frame';
+  if (error instanceof EncodedSourcePortError) return `source-${error.code}`;
   return 'decode-failed';
 }
 
@@ -186,7 +205,8 @@ function postProgress(session: DecoderSession, force = false): void {
   postControl({
     protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
     type: 'decode-progress',
-    generation: session.generation,
+    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+    decoderGeneration: session.decoderGeneration,
     decodedInputBytes: session.decodedInputBytes,
     decodedSourceSamples: session.decodedSourceSamples,
     producedOutputFrames: session.producedOutputFrames,
@@ -247,7 +267,8 @@ function stopSession(session: DecoderSession): void {
   postControl({
     protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
     type: 'decoder-stopped',
-    generation: session.generation,
+    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+    decoderGeneration: session.decoderGeneration,
   });
   releaseAfterPendingDemand(session);
 }
@@ -262,7 +283,7 @@ function failSession(session: DecoderSession, error: unknown): void {
     const supply: PcmSupplyMessage = {
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
       type: 'source-error',
-      generation: session.generation,
+      generation: session.decoderGeneration,
       code,
     };
     session.port.postMessage(supply);
@@ -272,7 +293,8 @@ function failSession(session: DecoderSession, error: unknown): void {
   postControl({
     protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
     type: 'decoder-error',
-    generation: session.generation,
+    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+    decoderGeneration: session.decoderGeneration,
     code,
     message: errorMessage(error),
   });
@@ -303,7 +325,7 @@ function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
     const supply: PcmSupplyMessage = {
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
       type: 'eof',
-      generation: session.generation,
+      generation: session.decoderGeneration,
     };
     session.port.postMessage(supply);
   }
@@ -311,7 +333,8 @@ function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
   postControl({
     protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
     type: 'decoder-eof',
-    generation: session.generation,
+    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+    decoderGeneration: session.decoderGeneration,
     decodedInputBytes: session.decodedInputBytes,
     decodedSourceSamples: session.decodedSourceSamples,
     producedOutputFrames: session.producedOutputFrames,
@@ -349,7 +372,8 @@ function resetToOriginAfterUnverifiedAnchor(session: DecoderSession): void {
   postControl({
     protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
     type: 'decode-anchor-rejected',
-    generation: session.generation,
+    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+    decoderGeneration: session.decoderGeneration,
     sourceSample: descriptor.decodeAnchorSourceSample,
     byteOffset: descriptor.decodeAnchorByteOffset,
   });
@@ -405,7 +429,8 @@ function maybeEmitFrameIndexPoint(session: DecoderSession, frame: NativeFlacFram
   postControl({
     protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
     type: 'frame-index-point',
-    generation: session.generation,
+    sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+    decoderGeneration: session.decoderGeneration,
     sourceSample: frame.absoluteSourceSample,
     byteOffset: frame.byteOffset,
   });
@@ -548,7 +573,10 @@ async function decodeNextFrame(session: DecoderSession): Promise<boolean> {
     !Number.isSafeInteger(frameEndByte) ||
     frameEndByte > session.source.size
   ) {
-    throw new FlacWorkerError('frame-overrun', 'Verified FLAC frame exceeds STREAMINFO or Blob');
+    throw new FlacWorkerError(
+      'frame-overrun',
+      'Verified FLAC frame exceeds STREAMINFO or the encoded source',
+    );
   }
 
   assertCurrent(session);
@@ -775,7 +803,7 @@ function validateDemand(session: DecoderSession, value: unknown): number | null 
   if (
     value.protocolVersion !== FLAC_STREAM_PROTOCOL_VERSION ||
     value.type !== 'need' ||
-    value.generation !== session.generation
+    value.generation !== session.decoderGeneration
   ) {
     return null;
   }
@@ -840,7 +868,7 @@ async function handleDemand(session: DecoderSession, maxFrames: number): Promise
   const supply: PcmSupplyMessage = {
     protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
     type: 'pcm',
-    generation: session.generation,
+    generation: session.decoderGeneration,
     frames: collectedFrames,
     channels: buffers,
     final,
@@ -869,14 +897,14 @@ function queueDemand(session: DecoderSession, event: MessageEvent<unknown>): voi
     });
 }
 
-function createSession(message: FlacDecoderInitMessage): DecoderSession {
-  const descriptor = Object.freeze({ ...message.descriptor });
-  const source = new BlobRangeSource(message.blob);
+function createSession(message: FlacDecoderInitMessage, source: SourceLifetime): DecoderSession {
+  const descriptor = message.descriptor;
   const spacingByBound = Math.ceil(descriptor.totalSourceSamples / (MAX_FRAME_INDEX_EVENTS - 2));
   const session: DecoderSession = {
-    generation: message.generation,
+    sourceLifetimeGeneration: source.generation,
+    decoderGeneration: message.decoderGeneration,
     descriptor,
-    source,
+    source: source.rangeSource,
     port: message.pcmPort,
     portListener: (event) => queueDemand(session, event),
     abortController: new AbortController(),
@@ -908,34 +936,42 @@ function createSession(message: FlacDecoderInitMessage): DecoderSession {
   return session;
 }
 
-function validateSourceBounds(message: FlacDecoderInitMessage): void {
-  if (!(message.blob instanceof Blob) || message.blob.size <= 0) {
-    throw new FlacWorkerError('invalid-source', 'FLAC decoder requires a non-empty Blob source');
+function validateSourceBounds(message: FlacDecoderInitMessage, source: SourceLifetime): void {
+  if (message.descriptor.firstAudioFrameOffset >= source.size) {
+    throw new FlacWorkerError(
+      'invalid-source',
+      'FLAC audio-frame offset is outside the encoded source',
+    );
   }
-  if (message.descriptor.firstAudioFrameOffset >= message.blob.size) {
-    throw new FlacWorkerError('invalid-source', 'FLAC audio-frame offset is outside the Blob');
-  }
-  if (message.descriptor.decodeAnchorByteOffset >= message.blob.size) {
-    throw new FlacWorkerError('invalid-source', 'FLAC decode anchor is outside the Blob');
+  if (message.descriptor.decodeAnchorByteOffset >= source.size) {
+    throw new FlacWorkerError('invalid-source', 'FLAC decode anchor is outside the encoded source');
   }
 }
 
 async function initialize(message: FlacDecoderInitMessage): Promise<void> {
   let candidateDecoder: FLACDecoder | null = null;
   try {
-    if (message.generation <= latestGeneration) {
-      if (message.pcmPort instanceof MessagePort) message.pcmPort.close();
+    const source = activeSource;
+    if (
+      !source ||
+      source.closed ||
+      source.client.closed ||
+      source.generation !== message.sourceLifetimeGeneration
+    ) {
+      throw new FlacWorkerError('source-not-open', 'FLAC encoded source is not open');
+    }
+    if (message.decoderGeneration <= latestDecoderGeneration) {
+      message.pcmPort.close();
       return;
     }
-    if (!(message.pcmPort instanceof MessagePort)) {
-      throw new FlacWorkerError('invalid-port', 'FLAC decoder requires a MessagePort');
-    }
     validateFlacStreamDescriptor(message.descriptor);
-    validateSourceBounds(message);
-    latestGeneration = message.generation;
+    validateSourceBounds(message, source);
 
     if (activeSession) stopSession(activeSession);
-    const session = createSession(message);
+    if (source.decoderStarted) source.client.beginDecoderGeneration();
+    source.decoderStarted = true;
+    latestDecoderGeneration = message.decoderGeneration;
+    const session = createSession(message, source);
     activeSession = session;
     session.port.addEventListener('message', session.portListener);
 
@@ -953,7 +989,8 @@ async function initialize(message: FlacDecoderInitMessage): Promise<void> {
     postControl({
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
       type: 'decoder-ready',
-      generation: session.generation,
+      sourceLifetimeGeneration: session.sourceLifetimeGeneration,
+      decoderGeneration: session.decoderGeneration,
       descriptor: session.descriptor,
     });
     session.port.start();
@@ -964,7 +1001,7 @@ async function initialize(message: FlacDecoderInitMessage): Promise<void> {
       // Candidate initialization failed before it was owned by a session.
     }
     const session = activeSession;
-    if (session && session.generation === message.generation) {
+    if (session && session.decoderGeneration === message.decoderGeneration) {
       failSession(session, error);
     } else if (!(error instanceof SessionCancelledError)) {
       try {
@@ -975,7 +1012,8 @@ async function initialize(message: FlacDecoderInitMessage): Promise<void> {
       postControl({
         protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
         type: 'decoder-error',
-        generation: message.generation,
+        sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+        decoderGeneration: message.decoderGeneration,
         code: errorCode(error),
         message: errorMessage(error),
       });
@@ -983,26 +1021,270 @@ async function initialize(message: FlacDecoderInitMessage): Promise<void> {
   }
 }
 
-function handleCommand(value: unknown): void {
-  if (!isRecord(value) || !isFlacStreamGeneration(value.generation)) return;
-  const generation = value.generation;
-  if (value.protocolVersion !== FLAC_STREAM_PROTOCOL_VERSION) {
+type WorkerRecord = Readonly<Record<string, unknown>>;
+
+const DESCRIPTOR_KEYS = [
+  'sourceSampleRate',
+  'outputSampleRate',
+  'channels',
+  'bitDepth',
+  'totalSourceSamples',
+  'firstAudioFrameOffset',
+  'targetSourceSample',
+  'decodeAnchorByteOffset',
+  'decodeAnchorSourceSample',
+  'minBlockSize',
+  'maxBlockSize',
+  'minFrameSize',
+  'maxFrameSize',
+] as const satisfies readonly (keyof FlacStreamDescriptor)[];
+
+function snapshotWorkerRecord(value: unknown): WorkerRecord | null {
+  if (typeof value !== 'object' || value === null) return null;
+  let prototype: object | null;
+  let keys: readonly PropertyKey[];
+  try {
+    prototype = Reflect.getPrototypeOf(value);
+    keys = Reflect.ownKeys(value);
+  } catch {
+    return null;
+  }
+  if (prototype !== null && prototype !== Object.prototype) return null;
+  const record = Object.create(null) as Record<string, unknown>;
+  for (const key of keys) {
+    if (typeof key !== 'string' || Object.prototype.hasOwnProperty.call(record, key)) return null;
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+    } catch {
+      return null;
+    }
+    if (
+      !descriptor ||
+      descriptor.enumerable !== true ||
+      !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+    ) {
+      return null;
+    }
+    record[key] = descriptor.value;
+  }
+  return Object.freeze(record);
+}
+
+function hasExactKeys(record: WorkerRecord, keys: readonly string[]): boolean {
+  const actual = Object.keys(record);
+  return (
+    actual.length === keys.length &&
+    keys.every((key) => Object.prototype.hasOwnProperty.call(record, key))
+  );
+}
+
+function snapshotDescriptor(value: unknown): FlacStreamDescriptor | null {
+  const record = snapshotWorkerRecord(value);
+  if (!record || !hasExactKeys(record, DESCRIPTOR_KEYS)) return null;
+  const descriptor = Object.freeze({ ...record }) as unknown as FlacStreamDescriptor;
+  try {
+    validateFlacStreamDescriptor(descriptor);
+    return descriptor;
+  } catch {
+    return null;
+  }
+}
+
+function parseWorkerCommand(value: unknown): FlacDecoderCommand | null {
+  const record = snapshotWorkerRecord(value);
+  if (
+    !record ||
+    record.protocolVersion !== FLAC_STREAM_PROTOCOL_VERSION ||
+    typeof record.type !== 'string'
+  ) {
+    return null;
+  }
+  if (record.type === 'open-source') {
+    if (
+      !hasExactKeys(record, [
+        'protocolVersion',
+        'type',
+        'sourceLifetimeGeneration',
+        'sourceSize',
+        'sourceIdentity',
+        'sourcePort',
+      ]) ||
+      !isFlacSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
+      !isFlacSourceSize(record.sourceSize) ||
+      !isFlacSourceIdentity(record.sourceIdentity) ||
+      !(record.sourcePort instanceof MessagePort)
+    ) {
+      return null;
+    }
+    return record as unknown as FlacSourceOpenMessage;
+  }
+  if (record.type === 'init-decoder') {
+    if (
+      !hasExactKeys(record, [
+        'protocolVersion',
+        'type',
+        'sourceLifetimeGeneration',
+        'decoderGeneration',
+        'descriptor',
+        'pcmPort',
+      ]) ||
+      !isFlacSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
+      !isFlacDecoderGeneration(record.decoderGeneration) ||
+      !(record.pcmPort instanceof MessagePort)
+    ) {
+      return null;
+    }
+    const descriptor = snapshotDescriptor(record.descriptor);
+    if (!descriptor) return null;
+    return Object.freeze({ ...record, descriptor }) as unknown as FlacDecoderInitMessage;
+  }
+  if (record.type === 'stop-decoder') {
+    if (
+      !hasExactKeys(record, [
+        'protocolVersion',
+        'type',
+        'sourceLifetimeGeneration',
+        'decoderGeneration',
+      ]) ||
+      !isFlacSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
+      !isFlacDecoderGeneration(record.decoderGeneration)
+    ) {
+      return null;
+    }
+    return record as unknown as FlacDecoderCommand;
+  }
+  if (record.type === 'close-source') {
+    if (
+      !hasExactKeys(record, ['protocolVersion', 'type', 'sourceLifetimeGeneration']) ||
+      !isFlacSourceLifetimeGeneration(record.sourceLifetimeGeneration)
+    ) {
+      return null;
+    }
+    return record as unknown as FlacSourceCloseMessage;
+  }
+  return null;
+}
+
+function postSourceError(sourceLifetimeGeneration: number, code: string): void {
+  postControl({
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'source-error',
+    sourceLifetimeGeneration,
+    code,
+  });
+}
+
+function openSource(message: FlacSourceOpenMessage): void {
+  if (activeSource) {
+    message.sourcePort.close();
+    postSourceError(message.sourceLifetimeGeneration, 'source-already-open');
+    return;
+  }
+  try {
+    const client = new EncodedSourcePortClient({
+      port: message.sourcePort,
+      generation: message.sourceLifetimeGeneration,
+      size: message.sourceSize,
+      maxPendingReads: 1,
+    });
+    const source: SourceLifetime = {
+      generation: message.sourceLifetimeGeneration,
+      size: message.sourceSize,
+      identity: message.sourceIdentity,
+      client,
+      rangeSource: new PortRangeSource(message.sourceSize, client),
+      decoderStarted: false,
+      closed: false,
+    };
+    activeSource = source;
+    latestDecoderGeneration = 0;
     postControl({
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
-      type: 'decoder-error',
-      generation,
-      code: 'protocol-version',
-      message: 'Unsupported FLAC stream protocol version',
+      type: 'source-opened',
+      sourceLifetimeGeneration: source.generation,
+      sourceSize: source.size,
+      sourceIdentity: source.identity,
     });
+  } catch {
+    message.sourcePort.close();
+    postSourceError(message.sourceLifetimeGeneration, 'source-open-failed');
+  }
+}
+
+async function closeSource(source: SourceLifetime): Promise<void> {
+  if (source.closed) return;
+  source.closed = true;
+  if (activeSession?.sourceLifetimeGeneration === source.generation) stopSession(activeSession);
+  if (activeSource === source) activeSource = null;
+  await source.client.close();
+  postControl({
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'source-closed',
+    sourceLifetimeGeneration: source.generation,
+  });
+}
+
+function closeTransferredCommandPorts(value: unknown): void {
+  if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return;
+  for (const key of ['sourcePort', 'pcmPort'] as const) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+    } catch {
+      continue;
+    }
+    if (
+      descriptor &&
+      Object.prototype.hasOwnProperty.call(descriptor, 'value') &&
+      descriptor.value instanceof MessagePort
+    ) {
+      descriptor.value.close();
+    }
+  }
+}
+
+function protocolFailure(value?: unknown): void {
+  closeTransferredCommandPorts(value);
+  const session = activeSession;
+  if (session) {
+    failSession(
+      session,
+      new FlacWorkerError('invalid-command', 'FLAC worker command failed strict validation'),
+    );
+  }
+  const source = activeSource;
+  if (source) {
+    postSourceError(source.generation, 'invalid-command');
+    void closeSource(source);
+  }
+}
+
+function handleCommand(value: unknown): void {
+  const command = parseWorkerCommand(value);
+  if (!command) {
+    protocolFailure(value);
     return;
   }
-  if (value.type === 'stop') {
+  if (command.type === 'open-source') {
+    openSource(command);
+    return;
+  }
+  const source = activeSource;
+  if (!source || source.generation !== command.sourceLifetimeGeneration) {
+    protocolFailure(command);
+    return;
+  }
+  if (command.type === 'close-source') {
+    void closeSource(source);
+    return;
+  }
+  if (command.type === 'stop-decoder') {
     const session = activeSession;
-    if (session?.generation === generation) stopSession(session);
+    if (session?.decoderGeneration === command.decoderGeneration) stopSession(session);
     return;
   }
-  if (value.type !== 'init') return;
-  void initialize(value as unknown as FlacDecoderInitMessage);
+  void initialize(command);
 }
 
 scope.onmessage = (event: MessageEvent<FlacDecoderCommand>) => handleCommand(event.data);
@@ -1014,6 +1296,11 @@ scope.addEventListener('messageerror', () => {
       session,
       new FlacWorkerError('message-deserialization', 'Worker message failed to deserialize'),
     );
+  }
+  const source = activeSource;
+  if (source) {
+    postSourceError(source.generation, 'message-deserialization');
+    void closeSource(source);
   }
 });
 

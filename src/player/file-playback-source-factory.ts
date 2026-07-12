@@ -10,8 +10,14 @@ import {
 } from './backends/streaming-flac-playback-source.ts';
 import type { FilePlaybackSource } from './file-playback-source.ts';
 import { readFlacMetadata, type FlacMetadata } from './flac/metadata.ts';
+import { isFlacSourceIdentity } from './flac/stream-protocol.ts';
 import { BlobEncodedAudioSource } from './sources/blob-encoded-audio-source.ts';
-import { EncodedSourceIntegrityError, throwIfAborted } from './sources/encoded-audio-source.ts';
+import {
+  type EncodedAudioSource,
+  EncodedSourceIntegrityError,
+  throwIfAborted,
+  validateExactRead,
+} from './sources/encoded-audio-source.ts';
 
 const NATIVE_FLAC_MARKER = new Uint8Array([0x66, 0x4c, 0x61, 0x43]);
 const OGG_MARKER = new Uint8Array([0x4f, 0x67, 0x67, 0x53]);
@@ -54,24 +60,51 @@ export interface BlobFilePlaybackBackendFactories {
   ) => StreamingFlacSource;
 }
 
-export interface CreateBlobFilePlaybackSourceOptions {
-  readonly blob: Blob;
+interface FilePlaybackSourceFactoryCommonOptions {
   readonly queueItemId: QueueItemId;
   readonly audioContext: AudioContext;
   readonly nowRoomTimeMs: () => number;
   readonly roomTimeMsToContextTime: (roomTimeMs: number) => number;
   readonly localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
-  /** Product-owned ordinary-codec decoder. It must honor the supplied signal. */
-  readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
   readonly signal: AbortSignal;
   /** Runtime seam is forwarded only to the streaming backend; it is not started here. */
   readonly streamingRuntime?: Partial<StreamingFlacPlaybackRuntime>;
+}
+
+export interface CreateBlobFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
+  readonly blob: Blob;
+  /** Product-owned ordinary-codec decoder. It must honor the supplied signal. */
+  readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
   /** Deterministic constructor seams for browser-boundary tests. */
   readonly backendFactories?: Partial<BlobFilePlaybackBackendFactories>;
 }
 
-interface BlobFilePlaybackSourceResultBase {
-  /** Runtime identity of this exact Blob object, independent of filename and size. */
+/**
+ * Generic random-access routing used by LAN peer-range and R2 sources.
+ *
+ * This public path deliberately supports native FLAC streaming only. Ordinary
+ * browser decoding remains exclusive to createBlobFilePlaybackSource(), which
+ * constructs the BlobEncodedAudioSource from the exact Blob it decodes.
+ */
+export interface CreateEncodedFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
+  readonly encodedSource: EncodedAudioSource;
+  readonly backendFactories?: Partial<
+    Pick<BlobFilePlaybackBackendFactories, 'createStreamingFlacSource'>
+  >;
+}
+
+interface ExactOrdinaryBlobBinding {
+  readonly blob: Blob;
+  readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+}
+
+interface CreateOwnedEncodedFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
+  readonly encodedSource: EncodedAudioSource;
+  readonly backendFactories?: Partial<BlobFilePlaybackBackendFactories>;
+}
+
+interface FilePlaybackSourceResultBase {
+  /** Immutable identity of this exact encoded byte source. */
   readonly sourceIdentity: string;
   /**
    * Release the decoder's temporary construction lease after this source and
@@ -81,7 +114,7 @@ interface BlobFilePlaybackSourceResultBase {
   readonly releaseConstructionLease: () => void;
 }
 
-export interface AudioBufferFilePlaybackSourceResult extends BlobFilePlaybackSourceResultBase {
+export interface AudioBufferFilePlaybackSourceResult extends FilePlaybackSourceResultBase {
   readonly backend: 'audio-buffer';
   readonly source: AudioBufferSource;
   /** The exact object supplied to the AudioBuffer backend. */
@@ -89,7 +122,7 @@ export interface AudioBufferFilePlaybackSourceResult extends BlobFilePlaybackSou
   readonly flacMetadata: null;
 }
 
-export interface StreamingFlacFilePlaybackSourceResult extends BlobFilePlaybackSourceResultBase {
+export interface StreamingFlacFilePlaybackSourceResult extends FilePlaybackSourceResultBase {
   readonly backend: 'streaming-flac';
   readonly source: StreamingFlacSource;
   /** Metadata verified from the native FLAC byte stream with bounded exact reads. */
@@ -108,6 +141,13 @@ export class UnsupportedFlacContainerError extends EncodedSourceIntegrityError {
   }
 }
 
+export class UnsupportedOrdinaryEncodedSourceError extends EncodedSourceIntegrityError {
+  constructor() {
+    super('Ordinary audio codecs require a local Blob; this encoded source can stream native FLAC');
+    this.name = 'UnsupportedOrdinaryEncodedSourceError';
+  }
+}
+
 const defaultBackendFactories: BlobFilePlaybackBackendFactories = {
   createAudioBufferSource: (options) => new AudioBufferPlaybackSource(options),
   createStreamingFlacSource: (options) => new StreamingFlacPlaybackSource(options),
@@ -123,8 +163,7 @@ function claimsFlac(name: string, mime: string): boolean {
   return normalizedName.endsWith('.flac') || normalizedMime.includes('flac');
 }
 
-function assertFactoryInput(options: CreateBlobFilePlaybackSourceOptions): void {
-  if (!(options.blob instanceof Blob)) throw new TypeError('Playback source requires a Blob');
+function assertFactoryInput(options: FilePlaybackSourceFactoryCommonOptions): void {
   if (
     typeof options.queueItemId !== 'string' ||
     options.queueItemId.length === 0 ||
@@ -140,12 +179,33 @@ function assertFactoryInput(options: CreateBlobFilePlaybackSourceOptions): void 
   ) {
     throw new TypeError('Playback source clock mappings are invalid');
   }
-  if (typeof options.decodeOrdinaryAudio !== 'function') {
-    throw new TypeError('Ordinary audio decoder is required');
-  }
   if (!(options.signal instanceof AbortSignal)) {
     throw new TypeError('Playback source AbortSignal is required');
   }
+}
+
+function assertBlobFactoryInput(
+  options: CreateBlobFilePlaybackSourceOptions,
+  blob: Blob,
+  decodeOrdinaryAudio: OrdinaryAudioDecoder,
+): void {
+  assertFactoryInput(options);
+  if (!(blob instanceof Blob)) throw new TypeError('Playback source requires a Blob');
+  if (typeof decodeOrdinaryAudio !== 'function') {
+    throw new TypeError('Ordinary audio decoder is required');
+  }
+}
+
+function assertEncodedSource(source: EncodedAudioSource): void {
+  if (
+    !source ||
+    typeof source.readAt !== 'function' ||
+    typeof source.close !== 'function' ||
+    !isFlacSourceIdentity(source.identity)
+  ) {
+    throw new TypeError('Playback encoded source is invalid');
+  }
+  validateExactRead(source.size, 0, 0);
 }
 
 function assertCreatedSource(
@@ -210,34 +270,53 @@ async function destroyWithoutMasking(source: FilePlaybackSource | null): Promise
   }
 }
 
+function closeEncodedSourceOnce(source: EncodedAudioSource): () => Promise<void> {
+  let closePromise: Promise<void> | null = null;
+  return () => {
+    if (closePromise) return closePromise;
+    try {
+      closePromise = Promise.resolve(source.close()).catch(() => undefined);
+    } catch {
+      closePromise = Promise.resolve();
+    }
+    return closePromise;
+  };
+}
+
 /**
- * Select a Blob-backed playback backend without preparing or connecting it.
+ * Select an encoded playback backend without preparing or connecting it.
  *
  * Routing is content-first: every viable input is inspected through one exact
  * four-byte read. A verified native `fLaC` stream always uses bounded
  * streaming playback. A file that claims FLAC but fails that byte signature
  * is rejected instead of being silently handed to the AudioBuffer decoder.
  */
-export async function createBlobFilePlaybackSource(
-  options: CreateBlobFilePlaybackSourceOptions,
+async function createOwnedEncodedFilePlaybackSource(
+  options: CreateOwnedEncodedFilePlaybackSourceOptions,
+  ordinaryBinding?: ExactOrdinaryBlobBinding,
 ): Promise<BlobFilePlaybackSourceResult> {
-  assertFactoryInput(options);
-  throwIfAborted(options.signal);
-
-  const encodedSource = new BlobEncodedAudioSource(options.blob);
-  const factories: BlobFilePlaybackBackendFactories = {
-    createAudioBufferSource:
-      options.backendFactories?.createAudioBufferSource ??
-      defaultBackendFactories.createAudioBufferSource,
-    createStreamingFlacSource:
-      options.backendFactories?.createStreamingFlacSource ??
-      defaultBackendFactories.createStreamingFlacSource,
-  };
+  // Snapshot this public-boundary property exactly once. Runtime callers can
+  // supply accessors despite the TypeScript readonly contract; validation,
+  // ownership, reads, and the returned identity must all use one object.
+  const encodedSource = options.encodedSource;
+  assertEncodedSource(encodedSource);
+  const closeEncodedSource = closeEncodedSourceOnce(encodedSource);
   let createdSource: FilePlaybackSource | null = null;
   let releaseConstructionLease: (() => void) | null = null;
+  let streamingOwnsEncodedSource = false;
   let completed = false;
 
   try {
+    assertFactoryInput(options);
+    throwIfAborted(options.signal);
+    const factories: BlobFilePlaybackBackendFactories = {
+      createAudioBufferSource:
+        options.backendFactories?.createAudioBufferSource ??
+        defaultBackendFactories.createAudioBufferSource,
+      createStreamingFlacSource:
+        options.backendFactories?.createStreamingFlacSource ??
+        defaultBackendFactories.createStreamingFlacSource,
+    };
     if (encodedSource.size < NATIVE_FLAC_MARKER.byteLength) {
       throw new EncodedSourceIntegrityError(
         'Audio source is too short to identify its container safely',
@@ -252,7 +331,7 @@ export async function createBlobFilePlaybackSource(
       throwIfAborted(options.signal);
       const source = factories.createStreamingFlacSource({
         queueItemId: options.queueItemId,
-        blob: options.blob,
+        encodedSource,
         metadata,
         audioContext: options.audioContext,
         nowRoomTimeMs: options.nowRoomTimeMs,
@@ -261,6 +340,10 @@ export async function createBlobFilePlaybackSource(
         runtime: options.streamingRuntime,
       });
       createdSource = source;
+      // A successful constructor return transfers exact encoded-source
+      // ownership immediately. Every later assertion/abort failure tears down
+      // that returned source; the factory must not close the source again.
+      streamingOwnsEncodedSource = true;
       assertCreatedSource(source, 'streaming-flac', options.queueItemId);
       throwIfAborted(options.signal);
       completed = true;
@@ -284,8 +367,12 @@ export async function createBlobFilePlaybackSource(
       );
     }
 
-    const decoded = (await options.decodeOrdinaryAudio({
-      blob: options.blob,
+    if (!ordinaryBinding) {
+      throw new UnsupportedOrdinaryEncodedSourceError();
+    }
+
+    const decoded = (await ordinaryBinding.decodeOrdinaryAudio({
+      blob: ordinaryBinding.blob,
       audioContext: options.audioContext,
       signal: options.signal,
       sourceIdentity: encodedSource.identity,
@@ -322,10 +409,45 @@ export async function createBlobFilePlaybackSource(
       flacMetadata: null,
     });
   } finally {
-    await encodedSource.close();
     if (!completed) {
       await destroyWithoutMasking(createdSource);
       releaseWithoutMasking(releaseConstructionLease);
     }
+    if (!streamingOwnsEncodedSource) await closeEncodedSource();
   }
+}
+
+export async function createEncodedFilePlaybackSource(
+  options: CreateEncodedFilePlaybackSourceOptions,
+): Promise<BlobFilePlaybackSourceResult> {
+  return createOwnedEncodedFilePlaybackSource(options);
+}
+
+/** Local Blob adapter with an exact-by-construction ordinary decode binding. */
+export async function createBlobFilePlaybackSource(
+  options: CreateBlobFilePlaybackSourceOptions,
+): Promise<BlobFilePlaybackSourceResult> {
+  // Snapshot runtime-accessible fields once so the object inspected, wrapped,
+  // identified, and decoded is exact-by-construction even for hostile getters.
+  const blob = options.blob;
+  const decodeOrdinaryAudio = options.decodeOrdinaryAudio;
+  assertBlobFactoryInput(options, blob, decodeOrdinaryAudio);
+  const encodedSource = new BlobEncodedAudioSource(blob);
+  return createOwnedEncodedFilePlaybackSource(
+    {
+      encodedSource,
+      queueItemId: options.queueItemId,
+      audioContext: options.audioContext,
+      nowRoomTimeMs: options.nowRoomTimeMs,
+      roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+      localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+      signal: options.signal,
+      streamingRuntime: options.streamingRuntime,
+      backendFactories: options.backendFactories,
+    },
+    {
+      blob,
+      decodeOrdinaryAudio,
+    },
+  );
 }

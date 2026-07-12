@@ -14,6 +14,7 @@ import {
   type PcmRingEvent,
 } from '../flac/stream-protocol.ts';
 import type { RendezvousArmIntent, RendezvousFinalizeIntent } from '../rendezvous-contract.ts';
+import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 
 const QID = '00000000-0000-4000-8000-000000000101' as QueueItemId;
 const OTHER_QID = '00000000-0000-4000-8000-000000000202' as QueueItemId;
@@ -61,6 +62,17 @@ class FakeMessagePort {
   closeCount = 0;
   startCount = 0;
   throwOnType: string | null = null;
+  readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    this.listeners.get(type)?.delete(listener);
+  }
 
   postMessage(message: unknown, transfer: readonly Transferable[] = []): void {
     if (
@@ -101,6 +113,17 @@ class FakeWorker {
 
   postMessage(message: FlacDecoderCommand, transfer: readonly Transferable[] = []): void {
     this.messages.push({ message, transfer });
+    if (message.type === 'open-source') {
+      queueMicrotask(() => {
+        this.emit({
+          protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+          type: 'source-opened',
+          sourceLifetimeGeneration: message.sourceLifetimeGeneration,
+          sourceSize: message.sourceSize,
+          sourceIdentity: message.sourceIdentity,
+        });
+      });
+    }
   }
 
   terminate(): void {
@@ -180,6 +203,16 @@ function harness(
   const worker = new FakeWorker();
   const node = new FakeAudioWorkletNode(context);
   const channels: FakeMessageChannel[] = [];
+  const closeEncodedSource = vi.fn(async () => undefined);
+  const encodedSource: EncodedAudioSource = {
+    kind: 'blob',
+    size: 256,
+    identity: 'source:test-streaming-flac',
+    metadata: { name: 'fixture.flac', mime: 'audio/flac' },
+    readAt: async (offset, length) =>
+      Uint8Array.from({ length }, (_value, index) => offset + index),
+    close: closeEncodedSource,
+  };
   let workletLoadCount = 0;
   let nodeOptions: AudioWorkletNodeOptions | null = null;
 
@@ -202,7 +235,7 @@ function harness(
   };
   const source = new StreamingFlacPlaybackSource({
     queueItemId: QID,
-    blob: new Blob([new Uint8Array(256)]),
+    encodedSource,
     metadata: sourceMetadata,
     audioContext: context as unknown as AudioContext,
     nowRoomTimeMs: () => context.roomNowMs,
@@ -217,6 +250,8 @@ function harness(
     worker,
     node,
     channels,
+    encodedSource,
+    closeEncodedSource,
     source,
     get workletLoadCount() {
       return workletLoadCount;
@@ -228,8 +263,10 @@ function harness(
 }
 
 function lastWorkerInit(worker: FakeWorker) {
-  const init = worker.messages.findLast(({ message }) => message.type === 'init')?.message;
-  if (!init || init.type !== 'init') throw new Error('Expected a FLAC decoder init command');
+  const init = worker.messages.findLast(({ message }) => message.type === 'init-decoder')?.message;
+  if (!init || init.type !== 'init-decoder') {
+    throw new Error('Expected a FLAC decoder init command');
+  }
   return init;
 }
 
@@ -243,7 +280,7 @@ async function beginPrepare(
 ): Promise<{ preparing: Promise<unknown> }> {
   const preparing = source.prepare();
   for (let turn = 0; turn < 20; turn += 1) {
-    if (worker.messages.some(({ message }) => message.type === 'init')) {
+    if (worker.messages.some(({ message }) => message.type === 'init-decoder')) {
       return { preparing };
     }
     await Promise.resolve();
@@ -256,7 +293,8 @@ function emitDecoderReady(worker: FakeWorker): void {
   worker.emit({
     protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
     type: 'decoder-ready',
-    generation: init.generation,
+    sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+    decoderGeneration: init.decoderGeneration,
     descriptor: init.descriptor,
   });
 }
@@ -279,7 +317,7 @@ async function prepare(
 ) {
   const { preparing } = await beginPrepare(source, worker);
   emitDecoderReady(worker);
-  emitPrimed(node, lastWorkerInit(worker).generation);
+  emitPrimed(node, lastWorkerInit(worker).decoderGeneration);
   await preparing;
 }
 
@@ -333,10 +371,19 @@ describe('StreamingFlacPlaybackSource v2', () => {
         primeSeconds: 4,
       },
     });
-    expect(h.channels).toHaveLength(1);
+    expect(h.channels).toHaveLength(2);
+    const sourceOpen = h.worker.messages.find(({ message }) => message.type === 'open-source');
+    expect(sourceOpen?.message).toMatchObject({
+      type: 'open-source',
+      sourceSize: 256,
+      sourceIdentity: h.encodedSource.identity,
+    });
+    if (!sourceOpen || sourceOpen.message.type !== 'open-source') {
+      throw new Error('Expected encoded source open command');
+    }
+    expect(sourceOpen.transfer).toEqual([sourceOpen.message.sourcePort]);
     expect(lastWorkerInit(h.worker)).toMatchObject({
-      generation: 1,
-      blob: expect.any(Blob),
+      decoderGeneration: 1,
       descriptor: {
         sourceSampleRate: SOURCE_RATE,
         outputSampleRate: OUTPUT_RATE,
@@ -374,6 +421,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       /another AudioContext/,
     );
     await h.source.destroy();
+    expect(h.closeEncodedSource).toHaveBeenCalledTimes(1);
   });
 
   it('arms and finalizes one immutable render frame, then derives position from ring status', async () => {
@@ -1112,7 +1160,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       atRoomTimeMs: 1_000,
     });
     await Promise.resolve();
-    expect(lastWorkerInit(h.worker).generation).toBe(2);
+    expect(lastWorkerInit(h.worker).decoderGeneration).toBe(2);
     await expect(
       h.source.arm(
         armIntent({
@@ -1152,7 +1200,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
     const nextArm = h.source.arm(nextIntent);
     await Promise.resolve();
     const init = lastWorkerInit(h.worker);
-    expect(init.generation).toBe(2);
+    expect(init.decoderGeneration).toBe(2);
     emitDecoderReady(h.worker);
     emitPrimed(h.node, 2);
     for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
@@ -1227,7 +1275,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
     });
     const nextArm = h.source.arm(nextIntent);
     await Promise.resolve();
-    expect(lastWorkerInit(h.worker).generation).toBe(2);
+    expect(lastWorkerInit(h.worker).decoderGeneration).toBe(2);
     emitDecoderReady(h.worker);
     emitPrimed(h.node, 2);
     for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
@@ -1460,7 +1508,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       mediaFrame: 60_000,
     });
     for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
-    expect(lastWorkerInit(h.worker).generation).toBe(2);
+    expect(lastWorkerInit(h.worker).decoderGeneration).toBe(2);
     emitDecoderReady(h.worker);
     emitPrimed(h.node, 2);
 
@@ -1497,7 +1545,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       atRoomTimeMs: 1_000,
     });
     await Promise.resolve();
-    expect(lastWorkerInit(h.worker).generation).toBe(3);
+    expect(lastWorkerInit(h.worker).decoderGeneration).toBe(3);
     emitDecoderReady(h.worker);
     emitPrimed(h.node, 3);
     await expect(seekOne).resolves.toBeDefined();
@@ -1524,7 +1572,8 @@ describe('StreamingFlacPlaybackSource v2', () => {
     h.worker.emit({
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
       type: 'decoder-error',
-      generation: 4,
+      sourceLifetimeGeneration: lastWorkerInit(h.worker).sourceLifetimeGeneration,
+      decoderGeneration: 4,
       code: 'late-cancelled-generation',
       message: 'late cancelled generation error',
     });
@@ -1642,7 +1691,8 @@ describe('StreamingFlacPlaybackSource v2', () => {
     h.worker.emit({
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
       type: 'frame-index-point',
-      generation: 1,
+      sourceLifetimeGeneration: lastWorkerInit(h.worker).sourceLifetimeGeneration,
+      decoderGeneration: 1,
       sourceSample: SOURCE_RATE * 2,
       byteOffset: 100,
     });
@@ -1659,7 +1709,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
     await Promise.resolve();
     const init = lastWorkerInit(h.worker);
     expect(init).toMatchObject({
-      generation: 2,
+      decoderGeneration: 2,
       descriptor: {
         targetSourceSample: SOURCE_RATE * 2,
         decodeAnchorSourceSample: SOURCE_RATE * 2,
@@ -1678,7 +1728,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       phase: 'paused',
       positionSeconds: 2,
     });
-    expect(h.channels).toHaveLength(2);
+    expect(h.channels).toHaveLength(3);
     expect(h.node.connections).toEqual([h.destination]);
     expect(h.worker.terminateCount).toBe(0);
 
@@ -1715,7 +1765,8 @@ describe('StreamingFlacPlaybackSource v2', () => {
     h.worker.emit({
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
       type: 'decode-anchor-rejected',
-      generation: 1,
+      sourceLifetimeGeneration: lastWorkerInit(h.worker).sourceLifetimeGeneration,
+      decoderGeneration: 1,
       sourceSample: SOURCE_RATE * 2,
       byteOffset: 100,
     });
@@ -1736,8 +1787,74 @@ describe('StreamingFlacPlaybackSource v2', () => {
       decodeAnchorByteOffset: 42,
     });
     emitDecoderReady(h.worker);
-    emitPrimed(h.node, init.generation);
+    emitPrimed(h.node, init.decoderGeneration);
     await expect(seeking).resolves.toMatchObject({ phase: 'paused', positionSeconds: 2 });
+    await h.source.destroy();
+  });
+
+  it('keeps one encoded source bridge across seeks and closes ownership exactly once', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    await arm(h.source, h.node);
+
+    const seeking = h.source.seek({
+      kind: 'file-playback-seek',
+      queueItemId: QID,
+      runId: 'run-stream-1',
+      revision: 1,
+      positionSeconds: 1,
+      atRoomTimeMs: 1_000,
+    });
+    await Promise.resolve();
+    const secondInit = lastWorkerInit(h.worker);
+    expect(secondInit.decoderGeneration).toBe(2);
+    emitDecoderReady(h.worker);
+    emitPrimed(h.node, 2);
+    await expect(seeking).resolves.toMatchObject({ phase: 'paused', positionSeconds: 1 });
+
+    const sourceOpens = h.worker.messages.filter(({ message }) => message.type === 'open-source');
+    const decoderInits = h.worker.messages.filter(({ message }) => message.type === 'init-decoder');
+    expect(sourceOpens).toHaveLength(1);
+    expect(decoderInits).toHaveLength(2);
+    expect(h.channels).toHaveLength(3);
+    const sourceLifetimeGeneration = secondInit.sourceLifetimeGeneration;
+    for (const entry of decoderInits) {
+      if (entry.message.type !== 'init-decoder') throw new Error('Expected decoder init');
+      expect(entry.message.sourceLifetimeGeneration).toBe(sourceLifetimeGeneration);
+      expect(entry.transfer).toEqual([entry.message.pcmPort]);
+    }
+    expect(h.closeEncodedSource).not.toHaveBeenCalled();
+
+    await h.source.destroy();
+    await h.source.destroy();
+    expect(h.closeEncodedSource).toHaveBeenCalledTimes(1);
+    expect(h.worker.terminateCount).toBe(1);
+    expect(h.worker.messages.filter(({ message }) => message.type === 'close-source')).toHaveLength(
+      1,
+    );
+  });
+
+  it('fails closed on accessor worker events without invoking their getters', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    let getterCalls = 0;
+    const hostile = Object.defineProperty({}, 'type', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return 'decoder-ready';
+      },
+    });
+
+    h.worker.onmessage?.({ data: hostile } as MessageEvent<FlacDecoderEvent>);
+
+    expect(getterCalls).toBe(0);
+    expect(h.source.getSnapshot()).toMatchObject({
+      phase: 'failed',
+      errorCode: 'decoder-invalid-event',
+    });
+    await vi.waitFor(() => expect(h.closeEncodedSource).toHaveBeenCalledTimes(1));
     await h.source.destroy();
   });
 
@@ -1760,5 +1877,6 @@ describe('StreamingFlacPlaybackSource v2', () => {
     releaseLoad();
     await h.source.destroy();
     await h.source.destroy();
+    expect(h.closeEncodedSource).toHaveBeenCalledTimes(1);
   });
 });

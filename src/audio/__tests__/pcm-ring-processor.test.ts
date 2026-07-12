@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const SAMPLE_RATE = 48_000;
 const processorSource = readFileSync(
   new URL('../worklets/pcm-ring-processor.js', import.meta.url),

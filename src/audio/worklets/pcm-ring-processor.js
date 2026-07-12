@@ -5,7 +5,7 @@
  * production asset, while the AudioWorklet global scope executes it directly.
  */
 
-const PCM_RING_PROTOCOL_VERSION = 1;
+const PCM_RING_PROTOCOL_VERSION = 2;
 const PCM_RING_MAX_CHANNELS = 8;
 const PCM_RING_MAX_MESSAGE_FRAMES = 32_768;
 const PCM_RING_DEFAULT_CAPACITY_SECONDS = 12;

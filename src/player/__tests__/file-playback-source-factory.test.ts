@@ -2,14 +2,24 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import { AudioBufferPlaybackSource } from '../backends/audio-buffer-playback-source.ts';
+import { StreamingFlacPlaybackSource } from '../backends/streaming-flac-playback-source.ts';
 import {
   createBlobFilePlaybackSource,
+  createEncodedFilePlaybackSource,
   UnsupportedFlacContainerError,
+  UnsupportedOrdinaryEncodedSourceError,
   type CreateBlobFilePlaybackSourceOptions,
+  type CreateEncodedFilePlaybackSourceOptions,
   type OrdinaryAudioDecodeRequest,
   type OrdinaryAudioDecodeResult,
 } from '../file-playback-source-factory.ts';
-import { EncodedSourceIntegrityError } from '../sources/encoded-audio-source.ts';
+import {
+  EncodedSourceClosedError,
+  EncodedSourceIntegrityError,
+  type EncodedAudioSource,
+  validateExactRead,
+} from '../sources/encoded-audio-source.ts';
+import { BlobEncodedAudioSource } from '../sources/blob-encoded-audio-source.ts';
 
 const QID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
 
@@ -83,6 +93,55 @@ function baseOptions(
   };
 }
 
+function encodedOptions(
+  encodedSource: EncodedAudioSource,
+  overrides: Partial<CreateEncodedFilePlaybackSourceOptions> = {},
+): CreateEncodedFilePlaybackSourceOptions {
+  return {
+    encodedSource,
+    queueItemId: QID,
+    audioContext: { sampleRate: 48_000, currentTime: 0 } as AudioContext,
+    nowRoomTimeMs: () => 1_000,
+    roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1000,
+    localPerformanceMsToContextTime: (localTimeMs) => localTimeMs / 1000,
+    signal: new AbortController().signal,
+    ...overrides,
+  };
+}
+
+function memoryEncodedSource(
+  bytes: Uint8Array,
+  options: {
+    readonly name?: string;
+    readonly mime?: string;
+    readonly identity?: string;
+    readonly closeError?: Error;
+  } = {},
+): { readonly source: EncodedAudioSource; readonly close: ReturnType<typeof vi.fn> } {
+  let closed = false;
+  const close = vi.fn(async () => {
+    closed = true;
+    if (options.closeError) throw options.closeError;
+  });
+  const source: EncodedAudioSource = {
+    kind: 'peer-range',
+    size: bytes.byteLength,
+    identity: options.identity ?? 'peer-range:test-source',
+    metadata: {
+      name: options.name ?? 'fixture.bin',
+      mime: options.mime ?? 'application/octet-stream',
+    },
+    readAt: async (offset, length, signal) => {
+      if (closed) throw new EncodedSourceClosedError();
+      signal.throwIfAborted();
+      const end = validateExactRead(bytes.byteLength, offset, length);
+      return bytes.slice(offset, end);
+    },
+    close,
+  };
+  return { source, close };
+}
+
 describe('createBlobFilePlaybackSource', () => {
   it.each([1, 8])(
     'routes a verified native FLAC with %i channel(s) to bounded streaming',
@@ -100,6 +159,7 @@ describe('createBlobFilePlaybackSource', () => {
       expect(result.flacMetadata.streamInfo.sampleRate).toBe(48_000);
       expect(() => result.releaseConstructionLease()).not.toThrow();
       expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+      await result.source.destroy();
     },
   );
 
@@ -281,5 +341,271 @@ describe('createBlobFilePlaybackSource', () => {
     expect(first.name).toBe(second.name);
     expect(first.size).toBe(second.size);
     expect(firstResult.sourceIdentity).not.toBe(secondResult.sourceIdentity);
+  });
+
+  it('snapshots a hostile Blob getter once for validation, identity, and decoding', async () => {
+    const first = new Blob([Uint8Array.of(0x49, 0x44, 0x33, 0x01)], {
+      type: 'audio/mpeg',
+    });
+    const second = new Blob([Uint8Array.of(0x49, 0x44, 0x33, 0x02)], {
+      type: 'audio/mpeg',
+    });
+    let getterCalls = 0;
+    let decodedBlob: Blob | null = null;
+    const options = baseOptions(first, {
+      decodeOrdinaryAudio: vi.fn(async (request) => {
+        decodedBlob = request.blob;
+        return decodedOrdinaryAudio();
+      }),
+    });
+    Object.defineProperty(options, 'blob', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return getterCalls === 1 ? first : second;
+      },
+    });
+    const expectedIdentity = new BlobEncodedAudioSource(first).identity;
+
+    const result = await createBlobFilePlaybackSource(options);
+
+    expect(result.backend).toBe('audio-buffer');
+    expect(getterCalls).toBe(1);
+    expect(decodedBlob).toBe(first);
+    expect(result.sourceIdentity).toBe(expectedIdentity);
+    result.releaseConstructionLease();
+    await result.source.destroy();
+  });
+
+  it('returns a valid ordinary source when exact Blob source cleanup rejects', async () => {
+    const closeError = new Error('blob close rejected');
+    const close = vi.spyOn(BlobEncodedAudioSource.prototype, 'close').mockRejectedValue(closeError);
+    const release = vi.fn();
+
+    try {
+      const result = await createBlobFilePlaybackSource(
+        baseOptions(new Blob(['ID3!'], { type: 'audio/mpeg' }), {
+          decodeOrdinaryAudio: vi.fn(async () => decodedOrdinaryAudio(fakeAudioBuffer(), release)),
+        }),
+      );
+
+      expect(result.backend).toBe('audio-buffer');
+      expect(close).toHaveBeenCalledOnce();
+      expect(release).not.toHaveBeenCalled();
+      result.releaseConstructionLease();
+      result.releaseConstructionLease();
+      expect(release).toHaveBeenCalledOnce();
+    } finally {
+      close.mockRestore();
+    }
+  });
+
+  it('preserves a primary construction failure when exact Blob cleanup rejects', async () => {
+    const closeError = new Error('blob close rejected');
+    const close = vi.spyOn(BlobEncodedAudioSource.prototype, 'close').mockRejectedValue(closeError);
+    const release = vi.fn();
+    const destroy = vi.fn(async () => undefined);
+    const mismatchedSource = {
+      backend: 'audio-buffer',
+      queueItemId: 'wrong-queue-item',
+      destroy,
+    };
+
+    try {
+      await expect(
+        createBlobFilePlaybackSource(
+          baseOptions(new Blob(['ID3!'], { type: 'audio/mpeg' }), {
+            decodeOrdinaryAudio: vi.fn(async () =>
+              decodedOrdinaryAudio(fakeAudioBuffer(), release),
+            ),
+            backendFactories: {
+              createAudioBufferSource: (() => mismatchedSource) as never,
+            },
+          }),
+        ),
+      ).rejects.toThrow('mismatched source');
+
+      expect(destroy).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      close.mockRestore();
+    }
+  });
+});
+
+describe('createEncodedFilePlaybackSource', () => {
+  it('snapshots a hostile encodedSource getter once before validation and ownership', async () => {
+    const file = nativeFlac(2);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const first = memoryEncodedSource(bytes, {
+      name: file.name,
+      mime: file.type,
+      identity: 'peer-range:getter-first',
+    });
+    const second = memoryEncodedSource(bytes, {
+      name: file.name,
+      mime: file.type,
+      identity: 'peer-range:getter-second',
+    });
+    let getterCalls = 0;
+    let receivedSource: EncodedAudioSource | null = null;
+    const options = encodedOptions(first.source, {
+      backendFactories: {
+        createStreamingFlacSource: (sourceOptions) => {
+          receivedSource = sourceOptions.encodedSource;
+          return new StreamingFlacPlaybackSource(sourceOptions);
+        },
+      },
+    });
+    Object.defineProperty(options, 'encodedSource', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return getterCalls === 1 ? first.source : second.source;
+      },
+    });
+
+    const result = await createEncodedFilePlaybackSource(options);
+
+    expect(result.backend).toBe('streaming-flac');
+    expect(getterCalls).toBe(1);
+    expect(receivedSource).toBe(first.source);
+    expect(result.sourceIdentity).toBe(first.source.identity);
+    expect(first.close).not.toHaveBeenCalled();
+    expect(second.close).not.toHaveBeenCalled();
+    await result.source.destroy();
+    expect(first.close).toHaveBeenCalledOnce();
+    expect(second.close).not.toHaveBeenCalled();
+  });
+
+  it('transfers the exact generic FLAC source to streaming ownership until destroy', async () => {
+    const file = nativeFlac(2);
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+      name: file.name,
+      mime: file.type,
+      identity: 'peer-range:exact-stream-source',
+    });
+    let receivedSource: EncodedAudioSource | null = null;
+    const result = await createEncodedFilePlaybackSource(
+      encodedOptions(fixture.source, {
+        backendFactories: {
+          createStreamingFlacSource: (options) => {
+            receivedSource = options.encodedSource;
+            return new StreamingFlacPlaybackSource(options);
+          },
+        },
+      }),
+    );
+
+    expect(result.backend).toBe('streaming-flac');
+    expect(receivedSource).toBe(fixture.source);
+    expect(result.sourceIdentity).toBe(fixture.source.identity);
+    expect(fixture.close).not.toHaveBeenCalled();
+    await result.source.destroy();
+    await result.source.destroy();
+    expect(fixture.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects ordinary generic sources even when callers inject an unrelated Blob seam', async () => {
+    const fixture = memoryEncodedSource(Uint8Array.of(0x49, 0x44, 0x33, 0x04), {
+      name: 'peer.mp3',
+      mime: 'audio/mpeg',
+    });
+    const decoder = vi.fn(async () => decodedOrdinaryAudio());
+    const injectedOptions = Object.assign(encodedOptions(fixture.source), {
+      ordinaryBlob: new Blob(['different bytes'], { type: 'audio/mpeg' }),
+      decodeOrdinaryAudio: decoder,
+      ordinaryBinding: {
+        blob: new Blob(['also different'], { type: 'audio/mpeg' }),
+        decodeOrdinaryAudio: decoder,
+      },
+    });
+
+    await expect(createEncodedFilePlaybackSource(injectedOptions)).rejects.toBeInstanceOf(
+      UnsupportedOrdinaryEncodedSourceError,
+    );
+    expect(decoder).not.toHaveBeenCalled();
+    expect(fixture.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits returned streaming ownership before validating the backend identity', async () => {
+    const file = nativeFlac(2);
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+      name: file.name,
+      mime: file.type,
+    });
+    let destroy: ReturnType<typeof vi.spyOn> | null = null;
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(fixture.source, {
+          backendFactories: {
+            createStreamingFlacSource: (options) => {
+              const source = new StreamingFlacPlaybackSource({
+                ...options,
+                queueItemId: 'wrong-queue-item',
+              });
+              destroy = vi.spyOn(source, 'destroy');
+              return source;
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('mismatched source');
+
+    expect(destroy).not.toBeNull();
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(fixture.close).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a streaming factory failure when encoded-source cleanup rejects', async () => {
+    const file = nativeFlac(2);
+    const closeError = new Error('encoded close rejected');
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+      name: file.name,
+      mime: file.type,
+      closeError,
+    });
+    const primaryError = new Error('streaming constructor failed');
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(fixture.source, {
+          backendFactories: {
+            createStreamingFlacSource: () => {
+              throw primaryError;
+            },
+          },
+        }),
+      ),
+    ).rejects.toBe(primaryError);
+
+    expect(fixture.close).toHaveBeenCalledOnce();
+  });
+
+  it('destroys transferred streaming ownership exactly once when superseded during routing', async () => {
+    const file = nativeFlac(2);
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+      name: file.name,
+      mime: file.type,
+    });
+    const controller = new AbortController();
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(fixture.source, {
+          signal: controller.signal,
+          backendFactories: {
+            createStreamingFlacSource: (options) => {
+              const source = new StreamingFlacPlaybackSource(options);
+              controller.abort(new Error('streaming-source-superseded'));
+              return source;
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('streaming-source-superseded');
+    expect(fixture.close).toHaveBeenCalledTimes(1);
   });
 });

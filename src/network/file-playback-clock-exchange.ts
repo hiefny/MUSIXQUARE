@@ -326,6 +326,11 @@ export class FilePlaybackClockExchange {
     return roomTimeMs;
   }
 
+  /** Structural room-clock provider alias used by playback source ownership. */
+  nowRoomTimeMs(): number {
+    return this.hostNow();
+  }
+
   /**
    * Bind render-frame mappings to the exact calibrated clock owned by this
    * connection exchange. Product adapters must use this instead of creating a

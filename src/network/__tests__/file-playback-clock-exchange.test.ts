@@ -93,6 +93,7 @@ describe('FilePlaybackClockExchange', () => {
     expect(pong).toMatchObject({ t0: 1_000, t1: 1_110, t2: 1_110 });
     expect(result).toMatchObject({ accepted: true, rttMs: 20, offsetMs: 100 });
     expect(guest.hostNow()).toBe(1_120);
+    expect(guest.nowRoomTimeMs()).toBe(1_120);
     expect(Object.isFrozen(ping)).toBe(true);
     expect(Object.isFrozen(pong)).toBe(true);
     expect(Object.isFrozen(result)).toBe(true);

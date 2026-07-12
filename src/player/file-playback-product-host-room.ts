@@ -6,14 +6,18 @@ import { FilePlaybackApplicationController } from './file-playback-application-c
 import {
   FilePlaybackHostFirstFileEngine,
   type FilePlaybackHostFirstFileEngineOptions,
+  type HostCurrentPlaybackOperationOptions,
+  type HostCurrentPlaybackTransitionCommit,
   type HostFirstLocalFilePlaybackCommit,
+  type SeekHostPausedOptions,
+  type SeekHostPlayingOptions,
   type StartHostFirstLocalFileOptions,
+  type StartHostLocalTrackOptions,
 } from './file-playback-host-first-file-engine.ts';
 import { FilePlaybackRoomClock, getFilePlaybackRoomClock } from './file-playback-room-clock.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
 import type { OrdinaryAudioDecoder } from './file-playback-source-factory.ts';
 import { decodeOrdinaryAudio } from './ordinary-audio-decoder.ts';
-import type { PlaybackTimelineSnapshot } from './playback-timeline.ts';
 import { isQueueItemId } from './queue-model.ts';
 
 const OPTION_KEYS = Object.freeze([
@@ -26,7 +30,10 @@ const OPTION_KEYS = Object.freeze([
 const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
   (key) => key !== 'roomClock' && key !== 'runtimeForTests',
 );
-const START_KEYS = Object.freeze(['file', 'queueItemId', 'signal'] as const);
+const FIRST_FILE_KEYS = Object.freeze(['file', 'queueItemId', 'signal'] as const);
+const TRACK_KEYS = Object.freeze(['file', 'positionSeconds', 'queueItemId', 'signal'] as const);
+const CURRENT_KEYS = Object.freeze(['signal'] as const);
+const SEEK_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
 const HOST_ROOM_KEYS = Object.freeze([
   'applicationSessionId',
   'hostParticipantId',
@@ -51,6 +58,28 @@ export interface FilePlaybackProductHostFirstEnginePort {
   startFirstLocalFile(
     options: StartHostFirstLocalFileOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
+  startLocalTrack(
+    options: StartHostLocalTrackOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
+  pauseCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>>;
+  seekPlaying(options: SeekHostPlayingOptions): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
+  seekPaused(
+    options: SeekHostPausedOptions,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>>;
+  resumeCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
+  replayCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
+  stopCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>>;
+  settleEndedCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>>;
   close(): Promise<void>;
   currentRendererSnapshot(): FilePlaybackSourceSnapshot | null;
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
@@ -98,13 +127,35 @@ export interface StartFilePlaybackProductHostFirstLocalFileOptions {
   readonly signal: AbortSignal;
 }
 
+export interface StartFilePlaybackProductHostLocalTrackOptions extends StartFilePlaybackProductHostFirstLocalFileOptions {
+  readonly positionSeconds: number;
+}
+
+export interface FilePlaybackProductHostCurrentOptions {
+  readonly signal: AbortSignal;
+}
+
+export interface FilePlaybackProductHostSeekOptions extends FilePlaybackProductHostCurrentOptions {
+  readonly positionSeconds: number;
+}
+
 /** Frozen, serializable control result. Encoded bodies and native graph objects stay private. */
-export interface FilePlaybackProductHostFirstLocalFileCommit extends HostFirstLocalFilePlaybackCommit {
+export interface FilePlaybackProductHostLocalTrackCommit extends HostFirstLocalFilePlaybackCommit {
   readonly status: 'committed';
   readonly applicationSessionId: string;
   readonly hostParticipantId: string;
 }
 
+export interface FilePlaybackProductHostTransitionCommit extends HostCurrentPlaybackTransitionCommit {
+  readonly status: 'committed';
+  readonly applicationSessionId: string;
+  readonly hostParticipantId: string;
+}
+
+/** Compatibility name retained until the product runtime migrates its first-file surface. */
+export type FilePlaybackProductHostFirstLocalFileCommit = FilePlaybackProductHostLocalTrackCommit;
+
+/** @deprecated No facade operation returns this result. */
 export interface FilePlaybackProductHostFirstLocalFileRejection {
   readonly schemaVersion: 1;
   readonly status: 'rejected';
@@ -114,6 +165,7 @@ export interface FilePlaybackProductHostFirstLocalFileRejection {
   readonly currentQueueItemId: QueueItemId;
 }
 
+/** Compatibility union for the gate-aware runtime while it migrates to startLocalTrack(). */
 export type FilePlaybackProductHostFirstLocalFileResult = Readonly<
   FilePlaybackProductHostFirstLocalFileCommit | FilePlaybackProductHostFirstLocalFileRejection
 >;
@@ -147,21 +199,27 @@ interface FileIntent {
   readonly mime: string;
   readonly size: number;
   readonly lastModified: number;
+  readonly positionSeconds: number;
+  readonly signal: AbortSignal;
+}
+
+interface AudioRuntime {
+  readonly audioContext: AudioContext;
+  readonly destination: AudioNode;
 }
 
 interface EngineRecord {
   readonly token: object;
   readonly engine: FilePlaybackProductHostFirstEnginePort;
-  readonly intent: FileIntent;
-  commitObserved: boolean;
 }
 
-interface StartOperation {
-  readonly epoch: number;
+interface RoomOperation {
   readonly controller: AbortController;
   readonly externalSignal: AbortSignal;
   readonly removeExternalAbort: () => void;
-  task: Promise<FilePlaybackProductHostFirstLocalFileResult> | null;
+  readonly settlement: Promise<void>;
+  readonly settle: () => void;
+  cleanupFailure: unknown;
 }
 
 const claimedRoomTokens = new WeakSet<object>();
@@ -178,6 +236,10 @@ const trustedControllerTimeline = FilePlaybackApplicationController.prototype.ti
 const trustedRoomClockRole = FilePlaybackRoomClock.prototype.role;
 const trustedRoomClockNow = FilePlaybackRoomClock.prototype.nowRoomTimeMs;
 const trustedAbortThrowIfAborted = AbortSignal.prototype.throwIfAborted;
+const trustedEventTargetAdd = EventTarget.prototype.addEventListener;
+const trustedEventTargetRemove = EventTarget.prototype.removeEventListener;
+const trustedAbortControllerAbort = AbortController.prototype.abort;
+const trustedAbortReason = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason')?.get;
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
@@ -356,6 +418,22 @@ function throwIfAborted(signal: AbortSignal): void {
   Reflect.apply(trustedAbortThrowIfAborted, signal, []);
 }
 
+function readAbortReason(signal: AbortSignal): unknown {
+  return trustedAbortReason ? Reflect.apply(trustedAbortReason, signal, []) : undefined;
+}
+
+function abortController(controller: AbortController, reason?: unknown): void {
+  Reflect.apply(trustedAbortControllerAbort, controller, [reason]);
+}
+
+function addAbortListener(signal: AbortSignal, listener: EventListener): void {
+  Reflect.apply(trustedEventTargetAdd, signal, ['abort', listener, { once: true }]);
+}
+
+function removeAbortListener(signal: AbortSignal, listener: EventListener): void {
+  Reflect.apply(trustedEventTargetRemove, signal, ['abort', listener]);
+}
+
 function asError(value: unknown, message: string): Error {
   return value instanceof Error ? value : new Error(message, { cause: value });
 }
@@ -376,26 +454,21 @@ function isEnginePort(
   structural: boolean,
 ): value is FilePlaybackProductHostFirstEnginePort {
   if (!structural && !(value instanceof FilePlaybackHostFirstFileEngine)) return false;
+  if (value === null || typeof value !== 'object') return false;
+  const candidate = value as Partial<FilePlaybackProductHostFirstEnginePort>;
   return (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof (value as Partial<FilePlaybackProductHostFirstEnginePort>).startFirstLocalFile ===
-      'function' &&
-    typeof (value as Partial<FilePlaybackProductHostFirstEnginePort>).close === 'function' &&
-    typeof (value as Partial<FilePlaybackProductHostFirstEnginePort>).currentRendererSnapshot ===
-      'function' &&
-    typeof (value as Partial<FilePlaybackProductHostFirstEnginePort>).positionAt === 'function'
-  );
-}
-
-function sameIntent(left: FileIntent, right: FileIntent): boolean {
-  return (
-    left.queueItemId === right.queueItemId &&
-    left.file === right.file &&
-    left.name === right.name &&
-    left.mime === right.mime &&
-    left.size === right.size &&
-    left.lastModified === right.lastModified
+    typeof candidate.startFirstLocalFile === 'function' &&
+    typeof candidate.startLocalTrack === 'function' &&
+    typeof candidate.pauseCurrent === 'function' &&
+    typeof candidate.seekPlaying === 'function' &&
+    typeof candidate.seekPaused === 'function' &&
+    typeof candidate.resumeCurrent === 'function' &&
+    typeof candidate.replayCurrent === 'function' &&
+    typeof candidate.stopCurrent === 'function' &&
+    typeof candidate.settleEndedCurrent === 'function' &&
+    typeof candidate.close === 'function' &&
+    typeof candidate.currentRendererSnapshot === 'function' &&
+    typeof candidate.positionAt === 'function'
   );
 }
 
@@ -440,25 +513,84 @@ function validateDestination(
   }
 }
 
+function readSignalOptions(value: unknown, keys: readonly string[], label: string): AbortSignal {
+  const input = snapshotExactRecord(value, keys);
+  if (!input || !(input.signal instanceof AbortSignal)) {
+    throw new TypeError(`Product ${label} options are invalid`);
+  }
+  return input.signal;
+}
+
+function readSeekOptions(
+  value: unknown,
+  label: string,
+): Readonly<{ positionSeconds: number; signal: AbortSignal }> {
+  const input = snapshotExactRecord(value, SEEK_KEYS);
+  if (
+    !input ||
+    !(input.signal instanceof AbortSignal) ||
+    typeof input.positionSeconds !== 'number' ||
+    !Number.isFinite(input.positionSeconds) ||
+    input.positionSeconds < 0
+  ) {
+    throw new TypeError(`Product ${label} options are invalid`);
+  }
+  return freezeCanonical({ positionSeconds: input.positionSeconds, signal: input.signal });
+}
+
+function readFileIntent(
+  value: unknown,
+  keys: readonly string[],
+  defaultPositionSeconds?: number,
+): FileIntent {
+  const input = snapshotExactRecord(value, keys);
+  const positionSeconds = defaultPositionSeconds ?? input?.positionSeconds;
+  if (
+    !input ||
+    !isQueueItemId(input.queueItemId) ||
+    typeof File === 'undefined' ||
+    !(input.file instanceof File) ||
+    !(input.signal instanceof AbortSignal) ||
+    typeof positionSeconds !== 'number' ||
+    !Number.isFinite(positionSeconds) ||
+    positionSeconds < 0
+  ) {
+    throw new TypeError('Product local track options are invalid');
+  }
+  const file = input.file;
+  return Object.freeze({
+    queueItemId: input.queueItemId,
+    file,
+    name: file.name,
+    mime: file.type,
+    size: file.size,
+    lastModified: file.lastModified,
+    positionSeconds,
+    signal: input.signal,
+  });
+}
+
 /**
- * Product-only owner for one exact host room's first local-file renderer.
+ * Product-only owner for one exact host room's complete local-file renderer lifetime.
  *
- * It deliberately performs no playlist, UI, network, or application-session
- * mutation. The product runtime owns room creation/teardown; this facade only
- * prepares the shared graph, serializes first-file intent replacement, and
- * delegates physical/timeline commit to a private host engine.
+ * The facade owns one engine and one graph binding until room close. Track changes
+ * are engine candidate cutovers, while pause/seek/resume/stop/end remain physical
+ * operations on that same authority. Playlist, UI and peer publication stay outside.
  */
 export class FilePlaybackProductHostRoom {
   readonly #controller: FilePlaybackApplicationController;
   readonly #hostRoom: Readonly<FilePlaybackProductHostRoomAuthority>;
-  readonly #baselineTimeline: PlaybackTimelineSnapshot;
   readonly #roomClock: FilePlaybackRoomClock;
   readonly #roomToken: object;
   readonly #onFatalRoom: (error: Error) => void;
   readonly #runtime: RuntimeSnapshot;
+  readonly #operations = new Set<RoomOperation>();
   #engineRecord: EngineRecord | null = null;
-  #operationEpoch = 0;
-  #activeOperation: StartOperation | null = null;
+  #initPromise: Promise<void> | null = null;
+  #graphPromise: Promise<AudioRuntime> | null = null;
+  #audioRuntime: AudioRuntime | null = null;
+  #candidateOperation: RoomOperation | null = null;
+  #transitionOperation: RoomOperation | null = null;
   #closed = false;
   #fatalError: Error | null = null;
   #fatalNotified = false;
@@ -494,91 +626,164 @@ export class FilePlaybackProductHostRoom {
     this.#roomToken = roomToken;
     this.#onFatalRoom = input.onFatalRoom as (error: Error) => void;
     this.#runtime = runtime;
-    this.#baselineTimeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
-    this.#assertStoppedAuthority();
+    this.#assertRoomAuthority();
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    if (timeline.phase !== 'stopped' || timeline.run !== null) {
+      throw new Error('File playback product host room requires stopped initial authority');
+    }
   }
 
   startFirstLocalFile(
     options: StartFilePlaybackProductHostFirstLocalFileOptions,
-  ): Promise<FilePlaybackProductHostFirstLocalFileResult> {
-    const input = snapshotExactRecord(options, START_KEYS);
-    if (!input)
-      return Promise.reject(new TypeError('Product first local file options are invalid'));
-    if (!isQueueItemId(input.queueItemId)) {
-      return Promise.reject(new TypeError('Product first local file queue item ID is invalid'));
-    }
-    if (typeof File === 'undefined' || !(input.file instanceof File)) {
-      return Promise.reject(new TypeError('Product first local file requires an exact File'));
-    }
-    if (!(input.signal instanceof AbortSignal)) {
-      return Promise.reject(new TypeError('Product first local file requires an AbortSignal'));
-    }
-    if (this.#closed) {
-      return Promise.reject(
-        this.#fatalError ?? new Error('File playback product host room is closed'),
-      );
-    }
+  ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>> {
+    let intent: FileIntent;
     try {
-      throwIfAborted(input.signal);
+      intent = readFileIntent(options, FIRST_FILE_KEYS, 0);
     } catch (error) {
       return Promise.reject(error);
     }
+    return this.#enqueueCandidate(intent.signal, async (operation) =>
+      this.#startTrack(operation, intent),
+    );
+  }
 
-    const file = input.file;
-    const intent: FileIntent = Object.freeze({
-      queueItemId: input.queueItemId,
-      file,
-      name: file.name,
-      mime: file.type,
-      size: file.size,
-      lastModified: file.lastModified,
+  startLocalTrack(
+    options: StartFilePlaybackProductHostLocalTrackOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    let intent: FileIntent;
+    try {
+      intent = readFileIntent(options, TRACK_KEYS);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#enqueueCandidate(intent.signal, async (operation) =>
+      this.#startTrack(operation, intent),
+    );
+  }
+
+  pauseCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    return this.#enqueueCurrent(options, 'pause', (engine, signal) =>
+      engine.pauseCurrent({ signal }),
+    );
+  }
+
+  seekPlaying(
+    options: FilePlaybackProductHostSeekOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    let input: Readonly<{ positionSeconds: number; signal: AbortSignal }>;
+    try {
+      input = readSeekOptions(options, 'playing seek');
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#enqueueCandidate(input.signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      return this.#invokeCandidate(operation, null, () =>
+        record.engine.seekPlaying({
+          positionSeconds: input.positionSeconds,
+          signal: operation.controller.signal,
+        }),
+      );
     });
-    this.#operationEpoch += 1;
-    const controller = new AbortController();
-    const externalSignal = input.signal;
-    const forwardAbort = () => controller.abort(externalSignal.reason);
-    externalSignal.addEventListener('abort', forwardAbort, { once: true });
-    const operation: StartOperation = {
-      epoch: this.#operationEpoch,
-      controller,
-      externalSignal,
-      removeExternalAbort: () => externalSignal.removeEventListener('abort', forwardAbort),
-      task: null,
-    };
-    const predecessor = this.#activeOperation;
-    this.#activeOperation = operation;
-    predecessor?.controller.abort(new Error('Product first local file intent was superseded'));
-    const task = this.#executeStart(operation, intent, predecessor?.task ?? null);
-    operation.task = task;
-    return task;
+  }
+
+  seekPaused(
+    options: FilePlaybackProductHostSeekOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    let input: Readonly<{ positionSeconds: number; signal: AbortSignal }>;
+    try {
+      input = readSeekOptions(options, 'paused seek');
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#enqueueTransition(input.signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      return this.#invokeTransition(operation, 'seek', () =>
+        record.engine.seekPaused({
+          positionSeconds: input.positionSeconds,
+          signal: operation.controller.signal,
+        }),
+      );
+    });
+  }
+
+  resumeCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    return this.#enqueueCandidateCurrent(options, 'resume', (engine, signal) =>
+      engine.resumeCurrent({ signal }),
+    );
+  }
+
+  replayCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    return this.#enqueueCandidateCurrent(options, 'replay', (engine, signal) =>
+      engine.replayCurrent({ signal }),
+    );
+  }
+
+  stopCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    return this.#enqueueCurrent(options, 'stop', (engine, signal) =>
+      engine.stopCurrent({ signal }),
+    );
+  }
+
+  settleEndedCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    return this.#enqueueCurrent(options, 'ended', (engine, signal) =>
+      engine.settleEndedCurrent({ signal }),
+    );
   }
 
   close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
+
+    let resolveClose!: () => void;
+    let rejectClose!: (reason: unknown) => void;
+    const closePromise = new Promise<void>((resolve, reject) => {
+      resolveClose = resolve;
+      rejectClose = reject;
+    });
+    // Publish terminal identity before aborting a renderer or invoking any
+    // engine-owned callback. Both boundaries may synchronously re-enter close.
+    this.#closePromise = closePromise;
     this.#closed = true;
-    this.#operationEpoch += 1;
-    const active = this.#activeOperation;
-    active?.controller.abort(new Error('File playback product host room closed'));
+    const operations = [...this.#operations];
+    let synchronousFailure: unknown = null;
+    for (const operation of operations) {
+      try {
+        abortController(operation.controller, new Error('File playback product host room closed'));
+      } catch (error) {
+        synchronousFailure = mergeCleanupFailure(synchronousFailure, error);
+      }
+    }
     const record = this.#engineRecord;
     let engineClose: Promise<void> | null = null;
     if (record) {
       try {
-        // Invocation, not just awaiting, synchronously fences the private
-        // engine and its rendezvous coordinator.
         engineClose = record.engine.close();
       } catch (error) {
         engineClose = Promise.reject(error);
       }
     }
-    this.#closePromise = this.#closeOwnedRoom(active?.task ?? null, engineClose);
-    return this.#closePromise;
+    const cleanup = this.#closeOwnedRoom(operations, engineClose, synchronousFailure);
+    void cleanup.then(resolveClose, rejectClose);
+    return closePromise;
   }
 
   currentRendererSnapshot(): FilePlaybackSourceSnapshot | null {
     const record = this.#engineRecord;
-    if (!record || !this.#hasProjectionAuthority(record)) return null;
+    if (!record || !this.#hasProjectionAuthority()) return null;
     const snapshot = record.engine.currentRendererSnapshot();
-    return snapshot && this.#hasProjectionAuthority(record) ? snapshot : null;
+    return snapshot && this.#matchesTimeline(snapshot) && this.#hasProjectionAuthority()
+      ? snapshot
+      : null;
   }
 
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null {
@@ -590,105 +795,288 @@ export class FilePlaybackProductHostRoom {
       return null;
     }
     const record = this.#engineRecord;
-    if (!record || !this.#hasProjectionAuthority(record)) return null;
+    if (!record || !this.#hasProjectionAuthority()) return null;
     const position = record.engine.positionAt(localPerformanceTimeMs);
-    return position && this.#hasProjectionAuthority(record) ? position : null;
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    return position &&
+      timeline.run &&
+      position.run &&
+      position.queueItemId === timeline.run.queueItemId &&
+      position.run.runId === timeline.run.runId &&
+      position.run.revision === timeline.revision &&
+      this.#hasProjectionAuthority()
+      ? position
+      : null;
   }
 
-  async #executeStart(
-    operation: StartOperation,
-    intent: FileIntent,
-    predecessor: Promise<unknown> | null,
-  ): Promise<FilePlaybackProductHostFirstLocalFileResult> {
-    let engineStartInvoked = false;
+  #enqueueCandidateCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+    label: string,
+    invoke: (
+      engine: FilePlaybackProductHostFirstEnginePort,
+      signal: AbortSignal,
+    ) => Promise<Readonly<HostFirstLocalFilePlaybackCommit>>,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    let signal: AbortSignal;
     try {
-      if (predecessor) {
+      signal = readSignalOptions(options, CURRENT_KEYS, label);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#enqueueCandidate(signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      return this.#invokeCandidate(operation, null, () =>
+        invoke(record.engine, operation.controller.signal),
+      );
+    });
+  }
+
+  #enqueueCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+    kind: HostCurrentPlaybackTransitionCommit['kind'],
+    invoke: (
+      engine: FilePlaybackProductHostFirstEnginePort,
+      signal: AbortSignal,
+    ) => Promise<Readonly<HostCurrentPlaybackTransitionCommit>>,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    let signal: AbortSignal;
+    try {
+      signal = readSignalOptions(options, CURRENT_KEYS, kind);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#enqueueTransition(signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      return this.#invokeTransition(operation, kind, () =>
+        invoke(record.engine, operation.controller.signal),
+      );
+    });
+  }
+
+  #enqueueCandidate<T>(
+    externalSignal: AbortSignal,
+    execute: (operation: RoomOperation) => Promise<T>,
+  ): Promise<T> {
+    if (this.#transitionOperation) {
+      return Promise.reject(
+        new Error('Product host candidate conflicts with an active renderer transition'),
+      );
+    }
+    const predecessor = this.#candidateOperation;
+    const created = this.#createOperation(externalSignal);
+    if (!created.operation) return created.failure as Promise<T>;
+    const operation = created.operation;
+    this.#candidateOperation = operation;
+    if (predecessor) {
+      try {
+        abortController(predecessor.controller, new Error('Product host candidate was superseded'));
+      } catch (error) {
+        operation.cleanupFailure = error;
+        this.#quarantine(asError(error, 'Product host candidate supersession failed'));
+      }
+    }
+    return this.#executeOperation(operation, predecessor?.settlement ?? null, execute, 'candidate');
+  }
+
+  #enqueueTransition<T>(
+    externalSignal: AbortSignal,
+    execute: (operation: RoomOperation) => Promise<T>,
+  ): Promise<T> {
+    if (this.#candidateOperation || this.#transitionOperation) {
+      return Promise.reject(new Error('Product host renderer transition is busy'));
+    }
+    const created = this.#createOperation(externalSignal);
+    if (!created.operation) return created.failure as Promise<T>;
+    const operation = created.operation;
+    this.#transitionOperation = operation;
+    return this.#executeOperation(operation, null, execute, 'transition');
+  }
+
+  #createOperation(externalSignal: AbortSignal): Readonly<{
+    operation: RoomOperation | null;
+    failure: Promise<never> | null;
+  }> {
+    if (!(externalSignal instanceof AbortSignal)) {
+      return Object.freeze({
+        operation: null,
+        failure: Promise.reject(new TypeError('Product host operation requires an AbortSignal')),
+      });
+    }
+    if (this.#closed) {
+      return Object.freeze({
+        operation: null,
+        failure: Promise.reject(
+          this.#fatalError ?? new Error('File playback product host room is closed'),
+        ),
+      });
+    }
+    try {
+      throwIfAborted(externalSignal);
+    } catch (error) {
+      return Object.freeze({ operation: null, failure: Promise.reject(error) });
+    }
+    const controller = new AbortController();
+    const forwardAbort: EventListener = () => {
+      let reason: unknown;
+      try {
+        reason = readAbortReason(externalSignal);
+      } catch (error) {
+        reason = error;
+      }
+      try {
+        abortController(controller, reason);
+      } catch {
+        // The exact operation still revalidates the external signal before
+        // every authority boundary; a broken platform abort cannot publish.
+      }
+    };
+    try {
+      addAbortListener(externalSignal, forwardAbort);
+      // Close the add-listener race for a signal which aborted between the
+      // first throwIfAborted() and listener registration.
+      throwIfAborted(externalSignal);
+    } catch (error) {
+      try {
+        removeAbortListener(externalSignal, forwardAbort);
+      } catch {
+        // No room-owned operation has been published yet.
+      }
+      return Object.freeze({ operation: null, failure: Promise.reject(error) });
+    }
+    let settle!: () => void;
+    const settlement = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const operation: RoomOperation = {
+      controller,
+      externalSignal,
+      removeExternalAbort: () => removeAbortListener(externalSignal, forwardAbort),
+      settlement,
+      settle,
+      cleanupFailure: null,
+    };
+    this.#operations.add(operation);
+    return Object.freeze({ operation, failure: null });
+  }
+
+  #executeOperation<T>(
+    operation: RoomOperation,
+    predecessor: Promise<void> | null,
+    execute: (operation: RoomOperation) => Promise<T>,
+    kind: 'candidate' | 'transition',
+  ): Promise<T> {
+    const task = (async () => {
+      if (predecessor) await predecessor;
+      try {
+        this.#assertOperationReady(operation);
+        return await execute(operation);
+      } catch (error) {
+        if (containsCleanupFailure(error)) {
+          operation.cleanupFailure = mergeCleanupFailure(operation.cleanupFailure, error);
+        }
+        throw error;
+      } finally {
         try {
-          await predecessor;
+          operation.removeExternalAbort();
         } catch {
-          // Supersession and user cancellation are expected. Exact room truth
-          // below decides whether replacement is still permitted.
+          // The trusted EventTarget method should not fail for an AbortSignal.
+          // Authority removal and settlement remain terminal either way.
+        } finally {
+          this.#operations.delete(operation);
+          if (kind === 'candidate' && this.#candidateOperation === operation) {
+            this.#candidateOperation = null;
+          }
+          if (kind === 'transition' && this.#transitionOperation === operation) {
+            this.#transitionOperation = null;
+          }
+          operation.settle();
         }
       }
-      this.#assertOperationEnvelope(operation);
+    })();
+    return task;
+  }
 
-      const controllerTimeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
-      if (controllerTimeline !== this.#baselineTimeline) {
-        return this.#replacementRejected();
-      }
-      this.#assertStoppedAuthority();
-
-      let record = this.#engineRecord;
-      if (record && !sameIntent(record.intent, intent)) {
-        const retiring = record;
-        try {
-          // This call synchronously fences the old coordinator before any
-          // successor graph or asset preparation can begin.
-          const retired = retiring.engine.close();
-          await retired;
-        } catch (cause) {
-          const error = asError(cause, 'File playback product engine replacement cleanup failed');
-          this.#quarantine(error);
-          throw error;
-        }
-        if (this.#engineRecord !== retiring) {
-          throw new Error('File playback product engine ownership changed during replacement');
-        }
-        this.#engineRecord = null;
-        record = null;
-        this.#assertOperation(operation);
-        this.#assertStoppedAuthority();
-      }
-
-      await this.#runtime.initAudio();
-      this.#assertOperation(operation);
-      await this.#runtime.ensureRunning();
-      this.#assertOperation(operation);
-      const audioContext = this.#runtime.getAudioContext();
-      validateAudioContext(audioContext);
-      const destination = this.#runtime.getFilePlaybackDestination();
-      validateDestination(destination, audioContext);
-      this.#assertOperation(operation);
-
-      record ??= await this.#createEngine(operation, intent);
-      if (this.#engineRecord !== record || !sameIntent(record.intent, intent)) {
-        throw new Error('File playback product engine ownership changed before start');
-      }
-      this.#assertOperation(operation);
-      engineStartInvoked = true;
-      const commit = await record.engine.startFirstLocalFile({
+  async #startTrack(
+    operation: RoomOperation,
+    intent: FileIntent,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    const audioRuntime = await this.#prepareGraph(operation);
+    this.#assertOperationReady(operation);
+    const record = await this.#getOrCreateEngine(operation);
+    this.#assertOperationReady(operation);
+    return this.#invokeCandidate(operation, intent.queueItemId, () =>
+      record.engine.startLocalTrack({
         queueItemId: intent.queueItemId,
         blob: intent.file,
         name: intent.name,
         mime: intent.mime,
-        audioContext,
-        destination,
+        positionSeconds: intent.positionSeconds,
+        audioContext: audioRuntime.audioContext,
+        destination: audioRuntime.destination,
         decodeOrdinaryAudio: this.#runtime.decodeOrdinaryAudio,
         signal: operation.controller.signal,
-      });
-      const result = this.#projectCommit(record, commit);
-      record.commitObserved = true;
-      this.#assertCommittedPublication(record);
-      return result;
-    } catch (cause) {
-      if (
-        engineStartInvoked &&
-        !this.#closed &&
-        Reflect.apply(trustedControllerTimeline, this.#controller, []) !== this.#baselineTimeline
-      ) {
-        this.#quarantine(
-          asError(cause, 'File playback product engine failed after timeline commit'),
-        );
-      }
-      throw cause;
-    } finally {
-      operation.removeExternalAbort();
-      if (this.#activeOperation === operation) this.#activeOperation = null;
-    }
+      }),
+    );
   }
 
-  async #createEngine(operation: StartOperation, intent: FileIntent): Promise<EngineRecord> {
-    this.#assertStoppedAuthority();
+  async #prepareGraph(operation: RoomOperation): Promise<AudioRuntime> {
+    if (this.#audioRuntime) return this.#audioRuntime;
+    if (!this.#initPromise) {
+      let resolveInit!: () => void;
+      let rejectInit!: (reason: unknown) => void;
+      const pendingInit = new Promise<void>((resolve, reject) => {
+        resolveInit = resolve;
+        rejectInit = reject;
+      });
+      this.#initPromise = pendingInit;
+      // The sentinel is installed before an injected/runtime callback can
+      // re-enter room close or supersede this operation.
+      void Promise.resolve()
+        .then(() => {
+          this.#assertOperationReady(operation);
+          return this.#runtime.initAudio();
+        })
+        .then(resolveInit, rejectInit);
+      void pendingInit.catch(() => {
+        if (this.#initPromise === pendingInit && !this.#closed) this.#initPromise = null;
+      });
+    }
+    await this.#initPromise;
+    this.#assertOperationReady(operation);
+    if (this.#audioRuntime) return this.#audioRuntime;
+    if (!this.#graphPromise) {
+      let resolveGraph!: (runtime: AudioRuntime) => void;
+      let rejectGraph!: (reason: unknown) => void;
+      const pending = new Promise<AudioRuntime>((resolve, reject) => {
+        resolveGraph = resolve;
+        rejectGraph = reject;
+      });
+      this.#graphPromise = pending;
+      void (async () => {
+        this.#assertOperationReady(operation);
+        await this.#runtime.ensureRunning();
+        this.#assertOperationReady(operation);
+        const audioContext = this.#runtime.getAudioContext();
+        this.#assertOperationReady(operation);
+        validateAudioContext(audioContext);
+        const destination = this.#runtime.getFilePlaybackDestination();
+        this.#assertOperationReady(operation);
+        validateDestination(destination, audioContext);
+        return Object.freeze({ audioContext, destination });
+      })().then(resolveGraph, rejectGraph);
+      void pending.catch(() => {
+        if (this.#graphPromise === pending && !this.#closed) this.#graphPromise = null;
+      });
+    }
+    const runtime = await this.#graphPromise;
+    this.#assertOperationReady(operation);
+    if (!this.#audioRuntime) this.#audioRuntime = runtime;
+    return this.#audioRuntime;
+  }
+
+  async #getOrCreateEngine(operation: RoomOperation): Promise<EngineRecord> {
+    if (this.#engineRecord) return this.#engineRecord;
+    this.#assertOperationReady(operation);
     const token = Object.freeze(Object.create(null) as object);
     let pendingFatal: Error | null = null;
     const engine = this.#runtime.createEngine({
@@ -708,17 +1096,14 @@ export class FilePlaybackProductHostRoom {
     }
     try {
       if (pendingFatal) throw pendingFatal;
-      this.#assertOperation(operation);
+      this.#assertOperationReady(operation);
       if (this.#engineRecord !== null) {
         throw new Error('File playback product engine was installed during factory re-entry');
       }
     } catch (cause) {
       let cleanupFailure: unknown = null;
       try {
-        // A factory re-entry may have revoked this operation. Close the
-        // unpublished candidate synchronously and never install it afterward.
-        const cleanup = engine.close();
-        await cleanup;
+        await engine.close();
       } catch (error) {
         cleanupFailure = error;
       }
@@ -726,42 +1111,73 @@ export class FilePlaybackProductHostRoom {
       if (cleanupFailure !== null) {
         throw new ProductHostRoomCleanupError(
           'Stale product host engine candidate cleanup failed',
-          new AggregateError(
-            [cause, cleanupFailure],
-            'Stale product host engine and candidate cleanup both failed',
-          ),
+          new AggregateError([cause, cleanupFailure], 'Candidate cleanup failed after re-entry'),
         );
       }
       throw cause;
     }
-    const record: EngineRecord = {
-      token,
-      engine,
-      intent,
-      commitObserved: false,
-    };
+    const record = Object.freeze({ token, engine });
     this.#engineRecord = record;
     return record;
   }
 
-  #projectCommit(
-    record: EngineRecord,
+  #requireEngine(operation: RoomOperation): EngineRecord {
+    this.#assertOperationReady(operation);
+    const record = this.#engineRecord;
+    if (!record) throw new Error('File playback product host renderer is unavailable');
+    return record;
+  }
+
+  async #invokeCandidate(
+    operation: RoomOperation,
+    expectedQueueItemId: QueueItemId | null,
+    invoke: () => Promise<Readonly<HostFirstLocalFilePlaybackCommit>>,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    this.#assertOperationReady(operation);
+    const commit = await invoke();
+    try {
+      return this.#projectCandidateCommit(commit, expectedQueueItemId);
+    } catch (cause) {
+      this.#quarantine(asError(cause, 'File playback product candidate failed after commit'));
+      throw cause;
+    }
+  }
+
+  async #invokeTransition(
+    operation: RoomOperation,
+    kind: HostCurrentPlaybackTransitionCommit['kind'],
+    invoke: () => Promise<Readonly<HostCurrentPlaybackTransitionCommit>>,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    this.#assertOperationReady(operation);
+    const commit = await invoke();
+    try {
+      return this.#projectTransitionCommit(commit, kind);
+    } catch (cause) {
+      this.#quarantine(asError(cause, 'File playback product transition failed after commit'));
+      throw cause;
+    }
+  }
+
+  #projectCandidateCommit(
     commit: Readonly<HostFirstLocalFilePlaybackCommit>,
-  ): Readonly<FilePlaybackProductHostFirstLocalFileCommit> {
+    expectedQueueItemId: QueueItemId | null,
+  ): Readonly<FilePlaybackProductHostLocalTrackCommit> {
     if (!commit || typeof commit !== 'object') {
       throw new TypeError('File playback product host engine returned an invalid commit');
     }
     const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    const queueItemId = expectedQueueItemId ?? timeline.run?.queueItemId ?? null;
     if (
+      !queueItemId ||
       commit.schemaVersion !== 1 ||
       commit.roomGeneration !== this.#hostRoom.roomGeneration ||
-      commit.attempt?.queueItemId !== record.intent.queueItemId ||
+      commit.attempt?.queueItemId !== queueItemId ||
       commit.timeline !== timeline ||
-      timeline === this.#baselineTimeline ||
-      timeline.run?.queueItemId !== record.intent.queueItemId ||
+      timeline.phase !== 'playing' ||
+      timeline.run?.queueItemId !== queueItemId ||
       timeline.run.runId !== commit.attempt.runId ||
       timeline.revision !== commit.attempt.revision ||
-      commit.asset?.queueItemId !== record.intent.queueItemId
+      commit.asset?.queueItemId !== queueItemId
     ) {
       throw new Error('File playback product host engine commit did not match room truth');
     }
@@ -779,92 +1195,69 @@ export class FilePlaybackProductHostRoom {
       timeline: commit.timeline,
     });
     assertBodyFree(result);
+    this.#assertRoomAuthority(true);
     return result;
   }
 
-  #assertOperation(operation: StartOperation, committed = false): void {
-    this.#assertOperationEnvelope(operation);
-    if (committed) this.#assertCommittedAuthority();
-    else this.#assertStoppedAuthority();
-    throwIfAborted(operation.externalSignal);
-    throwIfAborted(operation.controller.signal);
+  #projectTransitionCommit(
+    commit: Readonly<HostCurrentPlaybackTransitionCommit>,
+    expectedKind: HostCurrentPlaybackTransitionCommit['kind'],
+  ): Readonly<FilePlaybackProductHostTransitionCommit> {
+    if (!commit || typeof commit !== 'object') {
+      throw new TypeError('File playback product host engine returned an invalid transition');
+    }
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    const expectedPhase =
+      expectedKind === 'pause' || expectedKind === 'seek' ? 'paused' : 'stopped';
+    if (
+      commit.schemaVersion !== 1 ||
+      commit.kind !== expectedKind ||
+      commit.roomGeneration !== this.#hostRoom.roomGeneration ||
+      commit.timeline !== timeline ||
+      timeline.phase !== expectedPhase ||
+      (expectedPhase === 'stopped' ? timeline.run !== null : timeline.run === null)
+    ) {
+      throw new Error('File playback product host transition did not match room truth');
+    }
+    const result = freezeCanonical({
+      schemaVersion: 1 as const,
+      status: 'committed' as const,
+      kind: commit.kind,
+      roomGeneration: commit.roomGeneration,
+      applicationSessionId: this.#hostRoom.applicationSessionId,
+      hostParticipantId: this.#hostRoom.hostParticipantId,
+      evidence: commit.evidence,
+      timeline: commit.timeline,
+    });
+    assertBodyFree(result);
+    this.#assertRoomAuthority(true);
+    return result;
   }
 
-  #assertOperationEnvelope(operation: StartOperation): void {
+  #assertOperationReady(operation: RoomOperation): void {
     throwIfAborted(operation.externalSignal);
     throwIfAborted(operation.controller.signal);
-    if (
-      this.#closed ||
-      this.#activeOperation !== operation ||
-      this.#operationEpoch !== operation.epoch
-    ) {
+    if (this.#closed || !this.#operations.has(operation)) {
       throw this.#fatalError ?? new Error('File playback product operation was superseded');
     }
-    this.#assertClockAuthority();
-    const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
-    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
-    if (
-      snapshot.roomGeneration !== this.#hostRoom.roomGeneration ||
-      snapshot.roomRole !== 'host' ||
-      snapshot.activeConnectionCount !== 0 ||
-      snapshot.timeline !== timeline
-    ) {
-      throw new Error('File playback product host operation authority is stale');
-    }
-    this.#assertClockAuthority();
+    this.#assertRoomAuthority();
     throwIfAborted(operation.externalSignal);
     throwIfAborted(operation.controller.signal);
   }
 
-  #assertStoppedAuthority(): void {
+  #assertRoomAuthority(allowClosed = false): void {
     this.#assertClockAuthority();
     const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
     const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
     if (
-      this.#closed ||
+      (!allowClosed && this.#closed) ||
       snapshot.roomGeneration !== this.#hostRoom.roomGeneration ||
       snapshot.roomRole !== 'host' ||
-      snapshot.activeConnectionCount !== 0 ||
-      snapshot.timeline !== timeline ||
-      timeline !== this.#baselineTimeline ||
-      timeline.phase !== 'stopped' ||
-      timeline.run !== null
+      snapshot.timeline !== timeline
     ) {
-      throw this.#fatalError ?? new Error('File playback product stopped host authority is stale');
+      throw this.#fatalError ?? new Error('File playback product host room authority is stale');
     }
     this.#assertClockAuthority();
-  }
-
-  #assertCommittedAuthority(): void {
-    this.#assertClockAuthority();
-    const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
-    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
-    const record = this.#engineRecord;
-    if (
-      this.#closed ||
-      !record ||
-      snapshot.roomGeneration !== this.#hostRoom.roomGeneration ||
-      snapshot.roomRole !== 'host' ||
-      snapshot.activeConnectionCount !== 0 ||
-      snapshot.timeline !== timeline ||
-      timeline === this.#baselineTimeline ||
-      timeline.run?.queueItemId !== record.intent.queueItemId
-    ) {
-      throw (
-        this.#fatalError ?? new Error('File playback product committed host authority is stale')
-      );
-    }
-    this.#assertClockAuthority();
-  }
-
-  #assertCommittedPublication(record: EngineRecord): void {
-    if (this.#closed || this.#engineRecord !== record) {
-      throw this.#fatalError ?? new Error('Committed product renderer ownership is stale');
-    }
-    this.#assertCommittedAuthority();
-    if (this.#closed || this.#engineRecord !== record) {
-      throw this.#fatalError ?? new Error('Committed product renderer ownership is stale');
-    }
   }
 
   #assertClockAuthority(): void {
@@ -875,14 +1268,26 @@ export class FilePlaybackProductHostRoom {
     }
   }
 
-  #hasProjectionAuthority(record: EngineRecord): boolean {
+  #hasProjectionAuthority(): boolean {
     try {
-      if (this.#closed || this.#engineRecord !== record || !record.commitObserved) return false;
-      this.#assertCommittedAuthority();
-      return !this.#closed && this.#engineRecord === record;
+      if (this.#closed || !this.#engineRecord) return false;
+      this.#assertRoomAuthority();
+      const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+      return timeline.phase !== 'stopped' && timeline.run !== null;
     } catch {
       return false;
     }
+  }
+
+  #matchesTimeline(snapshot: FilePlaybackSourceSnapshot): boolean {
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    return (
+      timeline.run !== null &&
+      snapshot.queueItemId === timeline.run.queueItemId &&
+      snapshot.run?.runId === timeline.run.runId &&
+      snapshot.run.revision === timeline.revision &&
+      snapshot.phase === timeline.phase
+    );
   }
 
   #handleEngineFatal(token: object, value: unknown): void {
@@ -912,27 +1317,35 @@ export class FilePlaybackProductHostRoom {
   }
 
   async #closeOwnedRoom(
-    activeTask: Promise<unknown> | null,
+    operations: readonly RoomOperation[],
     engineClose: Promise<void> | null,
+    synchronousFailure: unknown,
   ): Promise<void> {
-    let failure: unknown = null;
+    let failure: unknown = synchronousFailure;
     const settlements = await Promise.allSettled([
-      activeTask ?? Promise.resolve(),
+      Promise.all(operations.map((operation) => operation.settlement)),
       engineClose ?? Promise.resolve(),
+      Promise.all([
+        this.#initPromise ?? Promise.resolve(),
+        this.#graphPromise ?? Promise.resolve(),
+      ]),
     ]);
-    const activeSettlement = settlements[0];
-    if (
-      activeSettlement?.status === 'rejected' &&
-      containsCleanupFailure(activeSettlement.reason)
-    ) {
-      failure = mergeCleanupFailure(failure, activeSettlement.reason);
+    for (const operation of operations) {
+      if (operation.cleanupFailure !== null) {
+        failure = mergeCleanupFailure(failure, operation.cleanupFailure);
+      }
     }
     const engineSettlement = settlements[1];
     if (engineSettlement?.status === 'rejected') {
       failure = mergeCleanupFailure(failure, engineSettlement.reason);
     }
     this.#engineRecord = null;
-    this.#activeOperation = null;
+    this.#audioRuntime = null;
+    this.#initPromise = null;
+    this.#graphPromise = null;
+    this.#candidateOperation = null;
+    this.#transitionOperation = null;
+    this.#operations.clear();
     this.#releaseReferencesOnce();
     if (failure !== null) throw failure;
   }
@@ -951,22 +1364,5 @@ export class FilePlaybackProductHostRoom {
     } catch {
       // A test/diagnostic observer cannot weaken terminal native cleanup.
     }
-  }
-
-  #replacementRejected(): Readonly<FilePlaybackProductHostFirstLocalFileRejection> {
-    this.#assertCommittedAuthority();
-    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
-    const currentQueueItemId = timeline.run?.queueItemId;
-    if (!currentQueueItemId) {
-      throw new Error('Committed product playback has no queue identity');
-    }
-    return freezeCanonical({
-      schemaVersion: 1 as const,
-      status: 'rejected' as const,
-      reason: 'replacement-not-supported' as const,
-      roomGeneration: this.#hostRoom.roomGeneration,
-      applicationSessionId: this.#hostRoom.applicationSessionId,
-      currentQueueItemId,
-    });
   }
 }

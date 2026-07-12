@@ -559,6 +559,232 @@ describe('HostRendezvousCoordinator', () => {
     });
   });
 
+  it('retires every non-accepted terminal participant exactly once', async () => {
+    const armRejectedCancel = vi.fn();
+    const armInvalidCancel = vi.fn();
+    const armFailedCancel = vi.fn();
+    const finalizeRejectedCancel = vi.fn();
+    const finalizeFailedCancel = vi.fn();
+    const acceptedCancel = vi.fn();
+    const attempt = coordinator(() => 10_000, ['rv-terminal-cleanup']).start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('arm-rejected', {
+          arm: async (intent) =>
+            armedReceipt(intent, { status: 'rejected', reasonCode: 'not-ready' }),
+          cancel: armRejectedCancel,
+        }),
+        participant('arm-invalid', {
+          arm: async (intent) => armedReceipt(intent, { runId: 'foreign-run' }),
+          cancel: armInvalidCancel,
+        }),
+        participant('arm-failed', {
+          arm: async () => Promise.reject(new Error('arm transport failed')),
+          cancel: armFailedCancel,
+        }),
+        participant('finalize-rejected', {
+          finalize: async (intent) =>
+            finalizedReceipt(intent, {
+              status: 'rejected',
+              reasonCode: 'backend-rejected',
+            }),
+          cancel: finalizeRejectedCancel,
+        }),
+        participant('finalize-failed', {
+          finalize: async () => Promise.reject(new Error('finalize transport failed')),
+          cancel: finalizeFailedCancel,
+        }),
+        participant('accepted', { cancel: acceptedCancel }),
+      ],
+    });
+
+    await drainMicrotasks();
+
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'complete',
+      participants: [
+        { armStatus: 'rejected' },
+        { armStatus: 'invalid' },
+        { armStatus: 'failed' },
+        { finalizeStatus: 'rejected' },
+        { finalizeStatus: 'failed' },
+        { finalizeStatus: 'accepted' },
+      ],
+    });
+    for (const cancel of [
+      armRejectedCancel,
+      armInvalidCancel,
+      armFailedCancel,
+      finalizeRejectedCancel,
+      finalizeFailedCancel,
+    ]) {
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+    expect(acceptedCancel).not.toHaveBeenCalled();
+
+    attempt.cancel('explicit-after-terminal-cleanup');
+    for (const cancel of [
+      armRejectedCancel,
+      armInvalidCancel,
+      armFailedCancel,
+      finalizeRejectedCancel,
+      finalizeFailedCancel,
+    ]) {
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+    expect(acceptedCancel).toHaveBeenCalledOnce();
+  });
+
+  it('does not overwrite cancellation or replacement caused by terminal cleanup re-entry', async () => {
+    let cancelledAttempt!: ReturnType<HostRendezvousCoordinator['start']>;
+    const cancelHost = coordinator(() => 10_250, ['rv-terminal-cancel-reentry']);
+    const cancel = vi.fn(() => {
+      cancelledAttempt.cancel('terminal-cleanup-reentered-cancel');
+    });
+    cancelledAttempt = cancelHost.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('cancel-reentry', {
+          arm: async (intent) =>
+            armedReceipt(intent, { status: 'rejected', reasonCode: 'not-ready' }),
+          cancel,
+        }),
+      ],
+    });
+    await drainMicrotasks();
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(cancelledAttempt.getSnapshot()).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'terminal-cleanup-reentered-cancel',
+    });
+
+    let replacement: ReturnType<HostRendezvousCoordinator['start']> | null = null;
+    const ids = ['rv-terminal-old', 'rv-terminal-recovery'];
+    const replacementHost = coordinator(() => 10_300, ids);
+    const old = replacementHost.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('replacement-reentry', {
+          arm: async (intent) =>
+            armedReceipt(intent, { status: 'rejected', reasonCode: 'not-ready' }),
+          cancel: () => {
+            replacement = replacementHost.start({
+              run: RUN,
+              positionSeconds: 1,
+              playbackRate: 1,
+              participants: [],
+            });
+          },
+        }),
+      ],
+    });
+    await drainMicrotasks();
+
+    expect(old.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'replacement-rendezvous',
+    });
+    expect(replacement).not.toBeNull();
+    expect(replacement!.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-terminal-recovery',
+    });
+  });
+
+  it('preserves a newer active attempt when explicit cancellation re-enters start', () => {
+    let newer: ReturnType<HostRendezvousCoordinator['start']> | null = null;
+    const ids = ['rv-explicit-old', 'rv-explicit-newer'];
+    const host = coordinator(() => 10_400, ids);
+    const pendingArm = deferred<RendezvousArmReceipt>();
+    const old = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('explicit-reentry', {
+          arm: () => pendingArm.promise,
+          cancel: () => {
+            newer = host.start({
+              run: { ...RUN, runId: 'run-explicit-newer', revision: RUN.revision + 1 },
+              positionSeconds: 1,
+              playbackRate: 1,
+              participants: [],
+            });
+          },
+        }),
+      ],
+    });
+
+    old.cancel('outer-explicit-cancel');
+
+    expect(old.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'newer-rendezvous',
+    });
+    expect(newer).not.toBeNull();
+    expect(newer!.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-explicit-newer',
+    });
+    expect(host.cancelActive('prove-newer-remains-active')).toMatchObject({
+      status: 'cancelled',
+      rendezvousId: 'rv-explicit-newer',
+    });
+  });
+
+  it('retires an arm dispatched before the room clock becomes invalid', async () => {
+    let clockValid = true;
+    const cancel = vi.fn();
+    const attempt = coordinator(
+      () => (clockValid ? 10_500 : Number.NaN),
+      ['rv-invalid-clock-cleanup'],
+    ).start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [participant('clock-peer', { cancel })],
+    });
+    clockValid = false;
+    await drainMicrotasks();
+
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'complete',
+      participants: [{ armStatus: 'failed', armReasonCode: 'invalid-room-clock' }],
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+
+    let expireClockValid = true;
+    const pendingArm = deferred<RendezvousArmReceipt>();
+    const expireCancel = vi.fn();
+    const expiring = coordinator(
+      () => (expireClockValid ? 10_600 : Number.NaN),
+      ['rv-invalid-expire-cleanup'],
+    ).start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('expire-clock-peer', {
+          arm: () => pendingArm.promise,
+          cancel: expireCancel,
+        }),
+      ],
+    });
+    expireClockValid = false;
+    expect(expiring.expire()).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'invalid-room-clock',
+    });
+    expect(expireCancel).toHaveBeenCalledOnce();
+  });
+
   it('supersedes the old generation so its late receipt cannot finalize', async () => {
     let roomNow = 1_000;
     const oldArm = deferred<RendezvousArmReceipt>();

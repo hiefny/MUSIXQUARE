@@ -28,7 +28,7 @@ export interface HostRendezvousParticipant {
   readonly armP95Ms: number;
   arm(intent: RendezvousArmIntent): Promise<RendezvousArmReceipt>;
   finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt>;
-  /** Synchronously promotes one exact finalized candidate into the audible current source. */
+  /** After exact start evidence, verifies physical current and commits the logical attempt. */
   commitAttempt?(identity: PlaybackAttemptIdentity): boolean;
   /** Best-effort retirement of a finalized but not yet committed candidate. */
   cancel?(intent: FilePlaybackCancelIntent): Promise<unknown> | unknown;
@@ -118,6 +118,7 @@ interface MutableParticipantOutcome {
   readonly intent: RendezvousArmIntent;
   readonly estimatedLeadMs: number;
   readonly armDispatchedAtRoomTimeMs: number;
+  armDispatched: boolean;
   bufferedAheadSeconds: number | null;
   armStatus: RendezvousArmOutcomeStatus;
   armLatencyMs: number | null;
@@ -130,6 +131,7 @@ interface MutableParticipantOutcome {
   finalizeReasonCode: string | null;
   committed: boolean;
   committing: boolean;
+  cancellationDispatched: boolean;
 }
 
 interface ImmutableAttemptSchedule {
@@ -317,6 +319,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
   readonly #outcomes: MutableParticipantOutcome[];
   #status: HostRendezvousAttemptStatus = 'open';
   #reasonCode: string | null = null;
+  #closing = false;
 
   constructor(
     owner: HostRendezvousCoordinator,
@@ -341,6 +344,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       }),
       estimatedLeadMs: participantLeadTimesMs[index]!,
       armDispatchedAtRoomTimeMs: schedule.createdAtRoomTimeMs,
+      armDispatched: false,
       bufferedAheadSeconds: null,
       armStatus: 'pending',
       armLatencyMs: null,
@@ -353,6 +357,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       finalizeReasonCode: null,
       committed: false,
       committing: false,
+      cancellationDispatched: false,
     }));
   }
 
@@ -383,6 +388,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
   dispatch(): void {
     for (const outcome of this.#outcomes) {
       if (this.#status !== 'open' || !this.#owner.isActive(this)) break;
+      outcome.armDispatched = true;
       let pending: Promise<RendezvousArmReceipt>;
       try {
         pending = outcome.participant.arm(outcome.intent);
@@ -421,7 +427,9 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     if (this.#status !== 'open') return this.getSnapshot();
     const now = this.#owner.tryReadRoomTimeMs();
     if (now === null) {
-      this.#closePending('cancelled', 'invalid-room-clock');
+      this.#closing = true;
+      this.#cancelDispatchedParticipants('invalid-room-clock');
+      if (!this.#isRetired()) this.#closePending('cancelled', 'invalid-room-clock');
       return this.getSnapshot();
     }
 
@@ -458,7 +466,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
 
   commitParticipant(participantId: string): boolean {
     if (!isBoundedIdentifier(participantId)) return false;
-    if (!this.#owner.isActive(this) || this.#isRetired()) {
+    if (this.#closing || !this.#owner.isActive(this) || this.#isRetired()) {
       return false;
     }
     const outcome = this.#outcomes.find(
@@ -504,39 +512,46 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       throw new TypeError('Rendezvous cancellation reason is invalid');
     }
     if (this.#status !== 'cancelled' && this.#status !== 'superseded') {
-      this.#cancelArmedParticipants(reasonCode);
-      this.#closePending('cancelled', reasonCode);
+      this.#closing = true;
+      this.#cancelDispatchedParticipants(reasonCode);
+      if (!this.#isRetired()) this.#closePending('cancelled', reasonCode);
     }
     return this.getSnapshot();
   }
 
   supersede(reasonCode: 'replacement-rendezvous' | 'newer-rendezvous'): void {
     if (this.#status === 'cancelled' || this.#status === 'superseded') return;
-    this.#cancelArmedParticipants(reasonCode);
-    this.#closePending('superseded', reasonCode);
+    this.#closing = true;
+    this.#cancelDispatchedParticipants(reasonCode);
+    if (!this.#isRetired()) this.#closePending('superseded', reasonCode);
   }
 
-  #cancelArmedParticipants(reasonCode: string): void {
+  #cancelDispatchedParticipants(reasonCode: string): void {
+    for (const outcome of this.#outcomes) {
+      this.#cancelParticipant(outcome, reasonCode);
+    }
+  }
+
+  #cancelParticipant(outcome: MutableParticipantOutcome, reasonCode: string): void {
+    if (!outcome.armDispatched || outcome.committed || outcome.cancellationDispatched) {
+      return;
+    }
+    outcome.cancellationDispatched = true;
+    if (typeof outcome.participant.cancel !== 'function') return;
     const intent: FilePlaybackCancelIntent = Object.freeze({
       kind: 'file-playback-cancel',
       ...this.#schedule.run,
       rendezvousId: this.#schedule.rendezvousId,
       reasonCode,
     });
-    for (const outcome of this.#outcomes) {
-      if (
-        outcome.armStatus !== 'armed' ||
-        outcome.committed ||
-        typeof outcome.participant.cancel !== 'function'
-      ) {
-        continue;
-      }
-      try {
-        const pending = Promise.resolve(outcome.participant.cancel(intent));
-        void pending.catch(() => undefined);
-      } catch {
-        // Retirement is best-effort. A broken peer must not block the new run.
-      }
+    try {
+      const pending = Promise.resolve(outcome.participant.cancel(intent));
+      void pending.then(
+        () => undefined,
+        () => undefined,
+      );
+    } catch {
+      // Retirement is best-effort. A broken peer must not block the new run.
     }
   }
 
@@ -725,6 +740,19 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
 
   #refreshCompletion(): void {
     if (this.#status !== 'open') return;
+    for (const outcome of this.#outcomes) {
+      if (
+        outcome.armStatus !== 'pending' &&
+        outcome.finalizeStatus !== 'pending' &&
+        outcome.finalizeStatus !== 'accepted'
+      ) {
+        this.#cancelParticipant(
+          outcome,
+          outcome.finalizeReasonCode ?? outcome.armReasonCode ?? 'rendezvous-participant-terminal',
+        );
+      }
+    }
+    if (this.#status !== 'open' || !this.#owner.isActive(this)) return;
     const settled = this.#outcomes.every(
       (outcome) => outcome.armStatus !== 'pending' && outcome.finalizeStatus !== 'pending',
     );

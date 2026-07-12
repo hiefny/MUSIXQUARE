@@ -67,6 +67,23 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', '_legacy/', 'src/workers/', 'src/**/__tests__/'],
+    // Dedicated workers use their own WebWorker-only TypeScript project.
+    // Keeping them in the normal lint run is important because decoder and
+    // transport workers are production code, not generated assets.
+    files: ['src/workers/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: './src/workers/tsconfig.json',
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // Worker lifetimes are owned by their parent and do not use the window
+      // timer registry.
+      'no-restricted-globals': 'off',
+    },
+  },
+  {
+    ignores: ['dist/', 'node_modules/', '_legacy/', 'src/**/__tests__/'],
   },
 );

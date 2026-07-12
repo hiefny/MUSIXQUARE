@@ -592,6 +592,8 @@ const id: Record<I18nKey, string> = {
   'chat.seek_to': 'Pindah ke {{time}}',
   'chat.peer_connected': '{{name}} bergabung',
   'chat.peer_disconnected': '{{name}} keluar',
+  'chat.participant_connection_unstable_recovering':
+    'Koneksi {{name}} tidak stabil. Mencoba memulihkannya.',
   'chat.empty_html': 'Belum ada pesan.<br>Kirim pesan pertama!',
   'chat.msg_truncated': 'Pesan dipotong menjadi {{max}} karakter',
   'chat.scroll_to_bottom': 'Gulir ke bawah',

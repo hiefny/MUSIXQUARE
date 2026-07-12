@@ -594,6 +594,8 @@ const ja: Record<I18nKey, string> = {
   'chat.seek_to': '{{time}} へ移動',
   'chat.peer_connected': '{{name}} が参加しました',
   'chat.peer_disconnected': '{{name}} が退出しました',
+  'chat.participant_connection_unstable_recovering':
+    '{{name}} の接続が不安定です。復旧を試みています。',
   'chat.empty_html': 'まだメッセージはありません。<br>最初のメッセージを送ってみましょう！',
   'chat.msg_truncated': 'メッセージは {{max}} 文字に切り詰められました',
   'chat.scroll_to_bottom': '一番下へスクロール',

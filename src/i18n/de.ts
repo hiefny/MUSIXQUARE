@@ -596,6 +596,8 @@ const de: Record<I18nKey, string> = {
   'chat.seek_to': 'Zu {{time}} springen',
   'chat.peer_connected': '{{name}} ist beigetreten',
   'chat.peer_disconnected': '{{name}} ist gegangen',
+  'chat.participant_connection_unstable_recovering':
+    'Die Verbindung von {{name}} ist instabil. Wiederherstellung wird versucht.',
   'chat.empty_html': 'Noch keine Nachrichten.<br>Sende die erste Nachricht!',
   'chat.msg_truncated': 'Nachricht auf {{max}} Zeichen gekürzt',
   'chat.scroll_to_bottom': 'Nach unten scrollen',

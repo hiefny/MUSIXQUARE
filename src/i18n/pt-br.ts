@@ -599,6 +599,8 @@ const ptBr: Record<I18nKey, string> = {
   'chat.seek_to': 'Ir para {{time}}',
   'chat.peer_connected': '{{name}} entrou',
   'chat.peer_disconnected': '{{name}} saiu',
+  'chat.participant_connection_unstable_recovering':
+    'A conexão de {{name}} está instável. Tentando restabelecer.',
   'chat.empty_html': 'Ainda não há mensagens.<br>Envie a primeira!',
   'chat.msg_truncated': 'Mensagem cortada para {{max}} caracteres',
   'chat.scroll_to_bottom': 'Rolar para o fim',

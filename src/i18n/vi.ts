@@ -589,6 +589,8 @@ const vi: Record<I18nKey, string> = {
   'chat.seek_to': 'Chuyển đến {{time}}',
   'chat.peer_connected': '{{name}} đã tham gia',
   'chat.peer_disconnected': '{{name}} đã rời',
+  'chat.participant_connection_unstable_recovering':
+    'Kết nối của {{name}} không ổn định. Đang thử khôi phục.',
   'chat.empty_html': 'Chưa có tin nhắn.<br>Hãy gửi tin nhắn đầu tiên!',
   'chat.msg_truncated': 'Tin nhắn đã bị cắt còn {{max}} ký tự',
   'chat.scroll_to_bottom': 'Cuộn xuống cuối',

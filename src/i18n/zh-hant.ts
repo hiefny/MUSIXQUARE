@@ -571,6 +571,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.seek_to': '跳至 {{time}}',
   'chat.peer_connected': '{{name}} 已加入',
   'chat.peer_disconnected': '{{name}} 已離開',
+  'chat.participant_connection_unstable_recovering': '{{name}} 的連線不穩定，正在嘗試恢復。',
   'chat.empty_html': '還沒有訊息。<br>傳送第一則訊息吧！',
   'chat.msg_truncated': '訊息已截斷為 {{max}} 個字元',
   'chat.scroll_to_bottom': '捲動到底部',

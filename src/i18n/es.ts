@@ -601,6 +601,8 @@ const es: Record<I18nKey, string> = {
   'chat.seek_to': 'Ir a {{time}}',
   'chat.peer_connected': '{{name}} se unió',
   'chat.peer_disconnected': '{{name}} salió',
+  'chat.participant_connection_unstable_recovering':
+    'La conexión de {{name}} es inestable. Intentando recuperarla.',
   'chat.empty_html': 'Aún no hay mensajes.<br>¡Envía el primero!',
   'chat.msg_truncated': 'Mensaje recortado a {{max}} caracteres',
   'chat.scroll_to_bottom': 'Desplazar al final',

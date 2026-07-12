@@ -587,6 +587,8 @@ const th: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>ใส่รหัสแล้วแต่เชื่อมต่อไม่ได้:</strong> ตรวจสอบรหัสแล้วลองอีกครั้งในอีกสักครู่ เครือข่ายบริษัท โรงเรียน หรือ VPN อาจจำกัดการเชื่อมต่อ</li><li><strong>การเชื่อมต่อไม่เสถียร:</strong> ผู้เข้าร่วมในเครือข่ายเดียวกันควรอยู่ใกล้เราเตอร์มากขึ้น และผู้เข้าร่วมระยะไกลควรใช้การเชื่อมต่ออินเทอร์เน็ตที่เสถียร</li><li><strong>ปัญหาอื่น ๆ:</strong> ตรวจสอบสถานะเครือข่ายและรีสตาร์ตแอปบนทุกอุปกรณ์ หากมีคำถาม โปรดดู <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> หรือติดต่อเราผ่านอีเมลด้านล่างสุด</li></ul>',
   'chat.peer_connected': '{{name}} เข้าร่วมแล้ว',
   'chat.peer_disconnected': '{{name}} ออกแล้ว',
+  'chat.participant_connection_unstable_recovering':
+    'การเชื่อมต่อของ {{name}} ไม่เสถียร กำลังพยายามกู้คืน',
   'chat.empty_html': 'ยังไม่มีข้อความ<br>ส่งข้อความแรกเลย!',
   'chat.msg_truncated': 'ข้อความถูกตัดเหลือ {{max}} ตัวอักษร',
   'chat.scroll_to_bottom': 'เลื่อนไปด้านล่าง',

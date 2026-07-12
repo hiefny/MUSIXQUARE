@@ -571,6 +571,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.seek_to': '跳转到 {{time}}',
   'chat.peer_connected': '{{name}} 已加入',
   'chat.peer_disconnected': '{{name}} 已离开',
+  'chat.participant_connection_unstable_recovering': '{{name}} 的连接不稳定，正在尝试恢复。',
   'chat.empty_html': '还没有消息。<br>发送第一条消息吧！',
   'chat.msg_truncated': '消息已截断为 {{max}} 个字符',
   'chat.scroll_to_bottom': '滚动到底部',

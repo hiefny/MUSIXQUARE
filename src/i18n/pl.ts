@@ -605,6 +605,8 @@ const pl: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Nie mogę się połączyć po wpisaniu kodu:</strong> Sprawdź kod i spróbuj ponownie za chwilę. Sieci korporacyjne, szkolne lub VPN mogą blokować połączenie.</li><li><strong>Niestabilne połączenie:</strong> Zaleca się, aby goście lokalni znajdowali się blisko routera Wi-Fi, a goście zdalni korzystali ze stabilnej sieci.</li><li><strong>Inne problemy:</strong> Sprawdź stan sieci i zrestartuj aplikację na wszystkich urządzeniach. W przypadku innych pytań, zapoznaj się z sekcją <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Najczęściej zadawanych pytań (FAQ)</a> lub skontaktuj się z nami poprzez adres e-mail na dole strony.</li></ul>',
   'chat.peer_connected': '{{name}} wszedł do pokoju',
   'chat.peer_disconnected': '{{name}} wyszedł z pokoju',
+  'chat.participant_connection_unstable_recovering':
+    'Połączenie użytkownika {{name}} jest niestabilne. Trwa próba przywrócenia.',
   'chat.empty_html': 'Brak wiadomości.<br>Napisz pierwszą wiadomość!',
   'chat.msg_truncated': 'Wiadomość została skrócona do {{max}} znaków',
   'chat.scroll_to_bottom': 'Przewiń na dół',

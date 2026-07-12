@@ -363,6 +363,8 @@ const nl: Record<I18nKey, string> = {
   'chat.seek_to': 'Spoel naar {{time}}',
   'chat.peer_connected': '{{name}} is gejoined',
   'chat.peer_disconnected': '{{name}} is vertrokken',
+  'chat.participant_connection_unstable_recovering':
+    'De verbinding van {{name}} is instabiel. Herstel wordt geprobeerd.',
   'chat.empty_html': 'Nog geen berichten.<br>Stuur het eerste bericht!',
   'chat.msg_truncated': 'Bericht ingekort tot {{max}} tekens',
   'chat.scroll_to_bottom': 'Naar onderen scrollen',

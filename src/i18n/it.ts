@@ -608,6 +608,8 @@ const it: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Ho inserito il codice ma non si connette:</strong> Verifica il codice e riprova tra qualche istante. Le reti aziendali, scolastiche o VPN potrebbero bloccare la connessione.</li><li><strong>Connessione instabile:</strong> Si raccomanda agli ospiti locali di posizionarsi vicino al router Wi-Fi e agli ospiti remoti di utilizzare una rete stabile.</li><li><strong>Altri problemi:</strong> Verifica lo stato della rete e riavvia l\'app su tutti i dispositivi. Per altre domande, consulta le <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o contattaci all\'indirizzo email in fondo alla pagina.</li></ul>',
   'chat.peer_connected': '{{name}} è entrato nella stanza',
   'chat.peer_disconnected': '{{name}} è uscito dalla stanza',
+  'chat.participant_connection_unstable_recovering':
+    'La connessione di {{name}} è instabile. Tentativo di ripristino in corso.',
   'chat.empty_html': 'Nessun messaggio presente.<br>Scrivi il primo messaggio!',
   'chat.msg_truncated': 'Il messaggio è stato troncato a {{max}} caratteri',
   'chat.scroll_to_bottom': 'Scorri in fondo',

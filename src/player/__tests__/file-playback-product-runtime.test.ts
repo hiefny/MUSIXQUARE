@@ -4,15 +4,23 @@ import type {
   FilePlaybackApplicationSessionHooks,
   FilePlaybackHostApplicationSessionAuthority,
 } from '../../network/file-playback-application-session.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
+import type {
+  FilePlaybackProductHostFirstLocalFileResult,
+  FilePlaybackProductHostRoomOptions,
+  StartFilePlaybackProductHostFirstLocalFileOptions,
+} from '../file-playback-product-host-room.ts';
 import {
   FilePlaybackProductRuntime,
   type FilePlaybackProductRuntimeControllerFactoryInput,
+  type FilePlaybackProductRuntimeHostRoomPort,
   type FilePlaybackProductRuntimeSessionAdapter,
 } from '../file-playback-product-runtime.ts';
 import type { PlaybackTimelineSnapshot } from '../playback-timeline.ts';
+
+const Q1 = '98000000-0000-4000-8000-000000000001' as QueueItemId;
 
 interface RuntimeHarness {
   readonly runtime: FilePlaybackProductRuntime;
@@ -24,22 +32,48 @@ interface RuntimeHarness {
   readonly handleWake: ReturnType<typeof vi.fn>;
   readonly roomNow: ReturnType<typeof vi.fn>;
   readonly monotonicNow: ReturnType<typeof vi.fn>;
+  readonly createHostRoom: ReturnType<typeof vi.fn>;
+  readonly hostRooms: ProductHostRoomHarness[];
   readonly events: string[];
   controller(): FilePlaybackApplicationController;
   setRoomNow(value: number): void;
 }
 
+interface ProductHostRoomHarness {
+  readonly port: FilePlaybackProductRuntimeHostRoomPort;
+  readonly options: Readonly<FilePlaybackProductHostRoomOptions>;
+  readonly startFirstLocalFile: ReturnType<typeof vi.fn>;
+  readonly close: ReturnType<typeof vi.fn>;
+  fatal(error: Error): void;
+}
+
+interface HostRoomClosePlan {
+  readonly gate?: ReturnType<typeof deferred<void>>;
+  readonly failure?: Error;
+}
+
+interface RuntimeHarnessOptions {
+  readonly enabled?: boolean;
+  readonly installFailure?: Error;
+  readonly endFailure?: Error;
+  readonly roomNow?: number;
+  readonly monotonicNow?: number;
+  readonly hostRoomClosePlans?: readonly HostRoomClosePlan[];
+}
+
 let harnessSequence = 0;
 
-function harness(
-  options: {
-    readonly enabled?: boolean;
-    readonly installFailure?: Error;
-    readonly endFailure?: Error;
-    readonly roomNow?: number;
-    readonly monotonicNow?: number;
-  } = {},
-): RuntimeHarness {
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
   const events: string[] = [];
   let roomTime = options.roomNow ?? 7_000;
   let monotonicTime = options.monotonicNow ?? 3_000;
@@ -109,11 +143,60 @@ function harness(
       return controller;
     },
   );
+  const hostRooms: ProductHostRoomHarness[] = [];
+  const createHostRoom = vi.fn((roomOptions: Readonly<FilePlaybackProductHostRoomOptions>) => {
+    const index = hostRooms.length + 1;
+    const closePlan = options.hostRoomClosePlans?.[index - 1];
+    let closePromise: Promise<void> | null = null;
+    events.push('host-room:create');
+    const startFirstLocalFile = vi.fn(
+      async (
+        _input: StartFilePlaybackProductHostFirstLocalFileOptions,
+      ): Promise<FilePlaybackProductHostFirstLocalFileResult> => {
+        events.push(`host-room:${index}:start`);
+        return Object.freeze({
+          schemaVersion: 1 as const,
+          status: 'rejected' as const,
+          reason: 'replacement-not-supported' as const,
+          roomGeneration: roomOptions.hostRoomSnapshot.roomGeneration,
+          applicationSessionId: roomOptions.hostRoomSnapshot.applicationSessionId,
+          currentQueueItemId: Q1,
+        });
+      },
+    );
+    const close = vi.fn(() => {
+      if (!closePromise) {
+        events.push(`host-room:${index}:close`);
+        closePromise = (async () => {
+          if (closePlan?.gate) await closePlan.gate.promise;
+          if (closePlan?.failure) throw closePlan.failure;
+          events.push(`host-room:${index}:closed`);
+        })();
+      }
+      return closePromise;
+    });
+    const port: FilePlaybackProductRuntimeHostRoomPort = {
+      startFirstLocalFile,
+      close,
+      currentRendererSnapshot: vi.fn(() => null),
+      positionAt: vi.fn(() => null),
+    };
+    const room: ProductHostRoomHarness = {
+      port,
+      options: roomOptions,
+      startFirstLocalFile,
+      close,
+      fatal: (error) => roomOptions.onFatalRoom(error),
+    };
+    hostRooms.push(room);
+    return port;
+  });
   const runtime = new FilePlaybackProductRuntime({
     enabled: options.enabled ?? true,
     sessions,
     createController,
     nowMonotonicMs: monotonicNow,
+    createHostRoom,
   });
 
   return {
@@ -126,6 +209,8 @@ function harness(
     handleWake,
     roomNow,
     monotonicNow,
+    createHostRoom,
+    hostRooms,
     events,
     controller: () => {
       if (!currentController) throw new Error('Controller has not been created');
@@ -144,6 +229,10 @@ function connection(): DataConnection {
   } as unknown as DataConnection;
 }
 
+function localFile(name = 'product-runtime.mp3'): File {
+  return new File([new Uint8Array([1, 2, 3])], name, { type: 'audio/mpeg' });
+}
+
 function lastBeganTimeline(setup: RuntimeHarness): PlaybackTimelineSnapshot {
   const calls = vi.mocked(setup.controller().beginRoom).mock.calls;
   const timeline = calls.at(-1)?.[0];
@@ -152,7 +241,7 @@ function lastBeganTimeline(setup: RuntimeHarness): PlaybackTimelineSnapshot {
 }
 
 describe('FilePlaybackProductRuntime', () => {
-  it('is a complete no-op while its fixed gate is off', () => {
+  it('is a complete no-op while its fixed gate is off', async () => {
     const setup = harness({ enabled: false });
 
     expect(setup.runtime.enabled()).toBe(false);
@@ -163,6 +252,15 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.runtime.beginHostRoom('host-off')).toBe(false);
     expect(setup.runtime.beginGuestRoom()).toBe(false);
     expect(setup.runtime.handleWake(connection())).toBe(false);
+    expect(setup.runtime.currentHostRendererSnapshot()).toBeNull();
+    expect(setup.runtime.hostPositionAt(1_000)).toBeNull();
+    await expect(
+      setup.runtime.startHostFirstLocalFile({
+        queueItemId: Q1,
+        file: localFile(),
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/disabled/u);
     expect(() => setup.runtime.endRoom()).not.toThrow();
 
     expect(setup.createController).not.toHaveBeenCalled();
@@ -172,6 +270,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.handleWake).not.toHaveBeenCalled();
     expect(setup.roomNow).not.toHaveBeenCalled();
     expect(setup.monotonicNow).not.toHaveBeenCalled();
+    expect(setup.createHostRoom).not.toHaveBeenCalled();
     expect(setup.events).toEqual([]);
   });
 
@@ -240,6 +339,7 @@ describe('FilePlaybackProductRuntime', () => {
       'clock:room-now',
       'controller:begin-room',
       'controller:claim-host',
+      'host-room:create',
     ]);
     expect(lastBeganTimeline(setup)).toMatchObject({
       revision: 0,
@@ -261,6 +361,9 @@ describe('FilePlaybackProductRuntime', () => {
       'applicationSessionId',
       'hostParticipantId',
     ]);
+    expect(setup.createHostRoom).toHaveBeenCalledOnce();
+    expect(setup.hostRooms[0]?.options.controller).toBe(setup.controller());
+    expect(setup.hostRooms[0]?.options.hostRoomSnapshot).toBe(hostRoom);
     expect(() => setup.runtime.beginHostRoom('reconnect-must-not-begin-a-room')).toThrow(
       /already owns an active room/u,
     );
@@ -283,6 +386,89 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.beginHostRoom).not.toHaveBeenCalled();
     expect(setup.controller().snapshot().roomRole).toBe('guest');
     expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+    expect(setup.createHostRoom).not.toHaveBeenCalled();
+  });
+
+  it('fences the host renderer before session and controller teardown', () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('ordered-host');
+    setup.events.length = 0;
+
+    setup.runtime.endRoom();
+
+    const closeIndex = setup.events.indexOf('host-room:1:close');
+    const sessionIndex = setup.events.indexOf('sessions:end-room');
+    const controllerIndex = setup.events.indexOf('controller:begin-room');
+    expect(closeIndex).toBeGreaterThanOrEqual(0);
+    expect(closeIndex).toBeLessThan(sessionIndex);
+    expect(sessionIndex).toBeLessThan(controllerIndex);
+    expect(setup.hostRooms[0]?.close).toHaveBeenCalledOnce();
+    expect(setup.runtime.currentHostRendererSnapshot()).toBeNull();
+    expect(setup.runtime.hostPositionAt(1_000)).toBeNull();
+  });
+
+  it('waits for the previous native renderer cleanup before starting media in a new room', async () => {
+    const cleanupGate = deferred<void>();
+    const setup = harness({ hostRoomClosePlans: [{ gate: cleanupGate }, {}] });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('host-a');
+    setup.runtime.endRoom();
+    setup.runtime.beginHostRoom('host-b');
+
+    const startPromise = setup.runtime.startHostFirstLocalFile({
+      queueItemId: Q1,
+      file: localFile(),
+      signal: new AbortController().signal,
+    });
+    await Promise.resolve();
+
+    expect(setup.hostRooms[1]?.startFirstLocalFile).not.toHaveBeenCalled();
+    cleanupGate.resolve();
+    await expect(startPromise).resolves.toMatchObject({
+      status: 'rejected',
+      reason: 'replacement-not-supported',
+    });
+    expect(setup.hostRooms[1]?.startFirstLocalFile).toHaveBeenCalledOnce();
+  });
+
+  it('fail-closes the new room when an older native renderer cleanup failed', async () => {
+    const cleanupFailure = new Error('old native renderer cleanup failed');
+    const setup = harness({ hostRoomClosePlans: [{ failure: cleanupFailure }, {}] });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('host-a');
+    setup.runtime.endRoom();
+    setup.runtime.beginHostRoom('host-b');
+
+    await expect(
+      setup.runtime.startHostFirstLocalFile({
+        queueItemId: Q1,
+        file: localFile(),
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toBe(cleanupFailure);
+
+    expect(setup.hostRooms[1]?.startFirstLocalFile).not.toHaveBeenCalled();
+    expect(setup.hostRooms[1]?.close).toHaveBeenCalledOnce();
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+    expect(setup.controller().snapshot().roomRole).toBeNull();
+  });
+
+  it('ignores a stale host-room fatal callback but retires the exact active room', () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('host-a');
+    setup.runtime.endRoom();
+    setup.runtime.beginHostRoom('host-b');
+    const active = setup.runtime.hostRoomSnapshot();
+
+    setup.hostRooms[0]?.fatal(new Error('stale fatal'));
+    expect(setup.runtime.hostRoomSnapshot()).toBe(active);
+
+    setup.hostRooms[1]?.fatal(new Error('active fatal'));
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+    expect(setup.controller().snapshot().roomRole).toBeNull();
+    expect(setup.endRoom).toHaveBeenCalledTimes(2);
   });
 
   it('ends the manager before advancing a stopped revision-zero continuation fence', () => {
@@ -381,6 +567,7 @@ describe('FilePlaybackProductRuntime', () => {
       'clock:room-now',
       'controller:begin-room',
       'controller:claim-host',
+      'host-room:create',
     ]);
   });
 

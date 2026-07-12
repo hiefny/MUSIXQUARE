@@ -10,7 +10,14 @@ import type { DataConnection } from '../types/index.ts';
 import { FilePlaybackApplicationController } from './file-playback-application-controller.ts';
 import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
 import { FilePlaybackProductBaselineIdIssuer } from './file-playback-product-baseline-session.ts';
+import {
+  FilePlaybackProductHostRoom,
+  type FilePlaybackProductHostFirstLocalFileResult,
+  type FilePlaybackProductHostRoomOptions,
+  type StartFilePlaybackProductHostFirstLocalFileOptions,
+} from './file-playback-product-host-room.ts';
 import { getFilePlaybackRoomClock } from './file-playback-room-clock.ts';
+import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
 import {
   createStoppedPlaybackTimeline,
   type PlaybackTimelineSnapshot,
@@ -43,6 +50,16 @@ export interface FilePlaybackProductRuntimeControllerFactoryInput {
   readonly sessions: FilePlaybackProductRuntimeSessionAdapter;
 }
 
+/** Narrow room capability retained by the product runtime. */
+export interface FilePlaybackProductRuntimeHostRoomPort {
+  startFirstLocalFile(
+    options: StartFilePlaybackProductHostFirstLocalFileOptions,
+  ): Promise<FilePlaybackProductHostFirstLocalFileResult>;
+  close(): Promise<void>;
+  currentRendererSnapshot(): FilePlaybackSourceSnapshot | null;
+  positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
+}
+
 export interface FilePlaybackProductRuntimeOptions {
   /** Fixed for this facade's entire lifetime. It is never re-read at runtime. */
   readonly enabled?: boolean;
@@ -51,6 +68,15 @@ export interface FilePlaybackProductRuntimeOptions {
     input: Readonly<FilePlaybackProductRuntimeControllerFactoryInput>,
   ) => FilePlaybackApplicationController;
   readonly nowMonotonicMs?: () => number;
+  readonly createHostRoom?: (
+    options: Readonly<FilePlaybackProductHostRoomOptions>,
+  ) => FilePlaybackProductRuntimeHostRoomPort;
+}
+
+interface ActiveProductHostRoom {
+  readonly token: object;
+  readonly roomGeneration: number;
+  readonly port: FilePlaybackProductRuntimeHostRoomPort;
 }
 
 function productionSessionAdapter(): FilePlaybackProductRuntimeSessionAdapter {
@@ -84,6 +110,12 @@ function defaultMonotonicNow(): number {
   return globalThis.performance?.now?.() ?? 0;
 }
 
+function defaultHostRoomFactory(
+  options: Readonly<FilePlaybackProductHostRoomOptions>,
+): FilePlaybackProductRuntimeHostRoomPort {
+  return new FilePlaybackProductHostRoom(options);
+}
+
 function assertSessionAdapter(value: FilePlaybackProductRuntimeSessionAdapter): void {
   if (
     !value ||
@@ -96,6 +128,21 @@ function assertSessionAdapter(value: FilePlaybackProductRuntimeSessionAdapter): 
     typeof value.closeConnection !== 'function'
   ) {
     throw new TypeError('File playback product runtime session adapter is invalid');
+  }
+}
+
+function assertHostRoomPort(
+  value: FilePlaybackProductRuntimeHostRoomPort,
+): asserts value is FilePlaybackProductRuntimeHostRoomPort {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof value.startFirstLocalFile !== 'function' ||
+    typeof value.close !== 'function' ||
+    typeof value.currentRendererSnapshot !== 'function' ||
+    typeof value.positionAt !== 'function'
+  ) {
+    throw new TypeError('File playback product host room factory is invalid');
   }
 }
 
@@ -131,12 +178,17 @@ export class FilePlaybackProductRuntime {
     input: Readonly<FilePlaybackProductRuntimeControllerFactoryInput>,
   ) => FilePlaybackApplicationController;
   readonly #nowMonotonicMs: () => number;
+  readonly #createHostRoom: (
+    options: Readonly<FilePlaybackProductHostRoomOptions>,
+  ) => FilePlaybackProductRuntimeHostRoomPort;
   #sessions: FilePlaybackProductRuntimeSessionAdapter | null = null;
   #controller: FilePlaybackApplicationController | null = null;
   #state: RuntimeState = 'idle';
   #failure: Error | null = null;
   #roomActive = false;
   #hostRoomSnapshot: Readonly<FilePlaybackProductHostRoomSnapshot> | null = null;
+  #activeHostRoom: ActiveProductHostRoom | null = null;
+  #hostRoomRetirement: Promise<void> = Promise.resolve();
 
   constructor(options: FilePlaybackProductRuntimeOptions = {}) {
     if (
@@ -144,7 +196,8 @@ export class FilePlaybackProductRuntime {
       options === null ||
       (options.enabled !== undefined && typeof options.enabled !== 'boolean') ||
       (options.createController !== undefined && typeof options.createController !== 'function') ||
-      (options.nowMonotonicMs !== undefined && typeof options.nowMonotonicMs !== 'function')
+      (options.nowMonotonicMs !== undefined && typeof options.nowMonotonicMs !== 'function') ||
+      (options.createHostRoom !== undefined && typeof options.createHostRoom !== 'function')
     ) {
       throw new TypeError('File playback product runtime options are invalid');
     }
@@ -153,6 +206,7 @@ export class FilePlaybackProductRuntime {
     this.#providedSessions = options.sessions ?? null;
     this.#createController = options.createController ?? defaultControllerFactory;
     this.#nowMonotonicMs = options.nowMonotonicMs ?? defaultMonotonicNow;
+    this.#createHostRoom = options.createHostRoom ?? defaultHostRoomFactory;
   }
 
   enabled(): boolean {
@@ -198,6 +252,7 @@ export class FilePlaybackProductRuntime {
       this.#controller = null;
       this.#roomActive = false;
       this.#hostRoomSnapshot = null;
+      this.#activeHostRoom = null;
       this.#state = 'failed';
       this.#failure = error;
       throw error;
@@ -215,6 +270,47 @@ export class FilePlaybackProductRuntime {
     return this.#enabled ? this.#hostRoomSnapshot : null;
   }
 
+  /** Starts media only after every renderer from an older room has retired. */
+  async startHostFirstLocalFile(
+    options: StartFilePlaybackProductHostFirstLocalFileOptions,
+  ): Promise<FilePlaybackProductHostFirstLocalFileResult> {
+    if (!this.#enabled) {
+      throw new Error('File playback product runtime is disabled');
+    }
+    this.#requireReady();
+    const active = this.#activeHostRoom;
+    if (!active) throw new Error('File playback product host room is unavailable');
+    const retirement = this.#hostRoomRetirement;
+    try {
+      await retirement;
+    } catch (cause) {
+      if (this.#activeHostRoom === active) {
+        try {
+          this.endRoom();
+        } catch {
+          // The renderer cleanup failure remains the primary media failure.
+        }
+      }
+      throw asError(cause);
+    }
+    if (this.#hostRoomRetirement !== retirement || !this.#ownsExactHostRoom(active)) {
+      throw new Error('File playback product host room changed before media start');
+    }
+    return active.port.startFirstLocalFile(options);
+  }
+
+  currentHostRendererSnapshot(): FilePlaybackSourceSnapshot | null {
+    const active = this.#activeHostRoom;
+    if (!this.#enabled || !active || !this.#ownsExactHostRoom(active)) return null;
+    return active.port.currentRendererSnapshot();
+  }
+
+  hostPositionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null {
+    const active = this.#activeHostRoom;
+    if (!this.#enabled || !active || !this.#ownsExactHostRoom(active)) return null;
+    return active.port.positionAt(localPerformanceTimeMs);
+  }
+
   beginHostRoom(hostParticipantId: string): boolean {
     if (!this.#enabled) return false;
     const { controller, sessions } = this.#requireReady();
@@ -223,6 +319,7 @@ export class FilePlaybackProductRuntime {
       throw new TypeError('Host participant ID is invalid');
     }
 
+    let candidate: FilePlaybackProductRuntimeHostRoomPort | null = null;
     try {
       const authority = snapshotFilePlaybackHostApplicationSessionAuthority(
         sessions.beginHostRoom(hostParticipantId),
@@ -240,15 +337,43 @@ export class FilePlaybackProductRuntime {
       ) {
         throw new Error('Host controller room authority is invalid');
       }
-      this.#hostRoomSnapshot = Object.freeze({
+      const hostRoomSnapshot = Object.freeze({
         schemaVersion: 1 as const,
         roomGeneration: claimed.roomGeneration,
         applicationSessionId: authority.applicationSessionId,
         hostParticipantId: authority.hostParticipantId,
       });
+      const token = Object.freeze(Object.create(null) as object);
+      let pendingFatal: Error | null = null;
+      let published = false;
+      candidate = this.#createHostRoom(
+        Object.freeze({
+          controller,
+          hostRoomSnapshot,
+          onFatalRoom: (value: Error) => {
+            const error = asError(value);
+            if (this.#activeHostRoom?.token === token) {
+              this.#handleExactHostRoomFatal(token, error);
+            } else if (!published) {
+              pendingFatal = error;
+            }
+          },
+        }),
+      );
+      assertHostRoomPort(candidate);
+      if (pendingFatal) throw pendingFatal;
+      this.#hostRoomSnapshot = hostRoomSnapshot;
+      this.#activeHostRoom = Object.freeze({
+        token,
+        roomGeneration: claimed.roomGeneration,
+        port: candidate,
+      });
+      published = true;
       this.#roomActive = true;
       return true;
     } catch (cause) {
+      if (candidate) this.#retireHostRoomPort(candidate);
+      this.#activeHostRoom = null;
       this.#hostRoomSnapshot = null;
       try {
         sessions.endRoom();
@@ -271,6 +396,7 @@ export class FilePlaybackProductRuntime {
     const { controller } = this.#requireReady();
     this.#assertCanBeginRoom();
     this.#hostRoomSnapshot = null;
+    this.#activeHostRoom = null;
     // Before the guest application handshake there is no shared room clock.
     // Zero is the only safe stopped baseline anchor: an arbitrary local
     // performance timestamp could survive an equal-revision replay and then
@@ -285,10 +411,16 @@ export class FilePlaybackProductRuntime {
     if (!this.#enabled) return;
     const { controller, sessions } = this.#requireReady();
     if (!this.#roomActive) {
+      const orphan = this.#activeHostRoom;
+      this.#activeHostRoom = null;
+      if (orphan) this.#retireHostRoomPort(orphan.port);
       this.#hostRoomSnapshot = null;
       return;
     }
 
+    const activeHostRoom = this.#activeHostRoom;
+    this.#activeHostRoom = null;
+    if (activeHostRoom) this.#retireHostRoomPort(activeHostRoom.port);
     // Clear public host identity before any synchronous teardown callback can
     // observe a room whose manager authority is already being revoked.
     this.#hostRoomSnapshot = null;
@@ -312,6 +444,7 @@ export class FilePlaybackProductRuntime {
     } finally {
       this.#roomActive = false;
       this.#hostRoomSnapshot = null;
+      this.#activeHostRoom = null;
     }
     if (failed) throw failure;
   }
@@ -319,6 +452,62 @@ export class FilePlaybackProductRuntime {
   handleWake(connection?: DataConnection): boolean {
     if (!this.#enabled || this.#state !== 'ready' || !this.#sessions) return false;
     return this.#sessions.handleWake(connection);
+  }
+
+  #ownsExactHostRoom(active: ActiveProductHostRoom): boolean {
+    try {
+      const hostRoom = this.#hostRoomSnapshot;
+      const controller = this.#controller;
+      if (
+        !this.#roomActive ||
+        this.#activeHostRoom !== active ||
+        !hostRoom ||
+        !controller ||
+        hostRoom.roomGeneration !== active.roomGeneration
+      ) {
+        return false;
+      }
+      const snapshot = controller.snapshot();
+      return (
+        snapshot.roomGeneration === active.roomGeneration &&
+        snapshot.roomRole === 'host' &&
+        snapshot.timeline === controller.timelineSnapshot()
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  #handleExactHostRoomFatal(token: object, _error: Error): void {
+    if (this.#activeHostRoom?.token !== token) return;
+    try {
+      this.endRoom();
+    } catch {
+      // The room and controller are fenced even when teardown reports an error.
+    }
+  }
+
+  #retireHostRoomPort(port: FilePlaybackProductRuntimeHostRoomPort): void {
+    let cleanup: Promise<void>;
+    try {
+      cleanup = Promise.resolve(port.close());
+    } catch (cause) {
+      cleanup = Promise.reject(cause);
+    }
+    const previous = this.#hostRoomRetirement;
+    const retirement = Promise.allSettled([previous, cleanup]).then((settlements) => {
+      const failures = settlements
+        .filter(
+          (settlement): settlement is PromiseRejectedResult => settlement.status === 'rejected',
+        )
+        .map((settlement) => settlement.reason);
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Multiple product host room cleanup operations failed');
+      }
+    });
+    this.#hostRoomRetirement = retirement;
+    void retirement.catch(() => undefined);
   }
 
   #assertCanBeginRoom(): void {

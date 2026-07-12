@@ -8,7 +8,11 @@ import {
 } from '../file-playback-asset-registry.ts';
 import { stageFilePlaybackAssetSource } from '../file-playback-asset-source-stager.ts';
 import {
+  completeLocalFilePlaybackParticipant,
+  retireLocalFilePlaybackParticipant,
+  stageLocalFilePlaybackParticipant,
   startLocalFilePlayback,
+  type StageLocalFilePlaybackParticipantOptions,
   type StartLocalFilePlaybackOptions,
 } from '../file-playback-local-start-coordinator.ts';
 import {
@@ -36,7 +40,10 @@ import type {
   RendezvousFinalizeIntent,
   RendezvousFinalizeReceipt,
 } from '../rendezvous-contract.ts';
-import { HostRendezvousCoordinator } from '../rendezvous-coordinator.ts';
+import {
+  HostRendezvousCoordinator,
+  type HostRendezvousParticipant,
+} from '../rendezvous-coordinator.ts';
 
 const TOKEN = Object.freeze({ room: 'local-start-coordinator' });
 const Q1 = '92000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -129,6 +136,22 @@ function acceptedReceipt(intent: RendezvousFinalizeIntent): RendezvousFinalizeRe
     status: 'accepted',
     observedAtRoomTimeMs: 1_000,
     reasonCode: null,
+  });
+}
+
+function rejectedArmReceipt(intent: RendezvousArmIntent): RendezvousArmReceipt {
+  return Object.freeze({
+    protocolVersion: 2,
+    kind: 'rendezvous-armed',
+    queueItemId: intent.queueItemId,
+    runId: intent.runId,
+    revision: intent.revision,
+    rendezvousId: intent.rendezvousId,
+    participantId: intent.recipientId,
+    status: 'rejected',
+    observedAtRoomTimeMs: 1_000,
+    bufferedAheadSeconds: 0,
+    reasonCode: 'fixture-remote-rejected',
   });
 }
 
@@ -449,6 +472,29 @@ function roomHarness(ids = ['rv-local-1', 'rv-local-2', 'rv-local-3']): RoomHarn
   };
 }
 
+function splitStageOptions(
+  options: StartLocalFilePlaybackOptions,
+): StageLocalFilePlaybackParticipantOptions {
+  return {
+    registry: options.registry,
+    roomToken: options.roomToken,
+    assetLease: options.assetLease,
+    expectedBinding: options.expectedBinding,
+    manager: options.manager,
+    audioContext: options.audioContext,
+    destination: options.destination,
+    clockBindings: options.clockBindings,
+    signal: options.signal,
+    isCurrent: options.isCurrent,
+    decodeOrdinaryAudio: options.decodeOrdinaryAudio,
+    playbackState: options.playbackState,
+    participantId: options.participantId,
+    rttP95Ms: options.rttP95Ms,
+    armP95Ms: options.armP95Ms,
+    runtimeForTests: options.runtimeForTests,
+  };
+}
+
 async function resolveStarted(
   pending: Promise<unknown>,
   room: RoomHarness,
@@ -463,6 +509,335 @@ async function resolveStarted(
   source.resolveStart();
   void pending.catch(() => undefined);
 }
+
+describe('split local rendezvous participant lifecycle', () => {
+  it('returns a frozen silent construction and retires it exactly once', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'split-silent', 'audio-buffer');
+    const staged = await stageLocalFilePlaybackParticipant(splitStageOptions(fixture.options));
+
+    expect(Object.isFrozen(staged)).toBe(true);
+    expect(Object.isFrozen(staged.source)).toBe(true);
+    expect(Object.isFrozen(staged.playbackState)).toBe(true);
+    expect(staged.port).toBe(fixture.getPort());
+    expect(staged.participant.participantId).toBe(PARTICIPANT_ID);
+    expect(fixture.source.events).toEqual(['prepare', 'connect']);
+    expect(fixture.source.stats.arm).not.toHaveBeenCalled();
+    expect(fixture.source.stats.finalize).not.toHaveBeenCalled();
+    expect(room.manager.currentCutoverPort()).toBeNull();
+
+    const firstRetirement = retireLocalFilePlaybackParticipant(staged, 'split-test-retired');
+    const duplicateRetirement = retireLocalFilePlaybackParticipant(staged, 'split-test-retired');
+    expect(duplicateRetirement).toBe(firstRetirement);
+    await firstRetirement;
+    expect(fixture.source.stats.destroy).toHaveBeenCalledTimes(1);
+    expect(room.manager.currentCutoverPort()).toBeNull();
+  });
+
+  it('rejects a copied construction and an attempt that omits the exact local participant', async () => {
+    const forgedRoom = roomHarness();
+    const forgedFixture = forgedRoom.admit(Q1, 'split-forged', 'audio-buffer');
+    const exact = await stageLocalFilePlaybackParticipant(splitStageOptions(forgedFixture.options));
+    const forged = Object.freeze({ ...exact });
+    const emptyAttempt = forgedRoom.coordinator.start({
+      run: exact.playbackState,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    await expect(
+      completeLocalFilePlaybackParticipant({ staged: forged, attempt: emptyAttempt }),
+    ).rejects.toThrow(/construction is invalid/);
+    expect(forgedFixture.source.stats.destroy).not.toHaveBeenCalled();
+    await retireLocalFilePlaybackParticipant(exact, 'split-forged-cleanup');
+    expect(forgedFixture.source.stats.destroy).toHaveBeenCalledTimes(1);
+
+    const omittedRoom = roomHarness();
+    const omittedFixture = omittedRoom.admit(Q1, 'split-omitted', 'streaming-flac');
+    const omitted = await stageLocalFilePlaybackParticipant(
+      splitStageOptions(omittedFixture.options),
+    );
+    const omittedAttempt = omittedRoom.coordinator.start({
+      run: omitted.playbackState,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    await expect(
+      completeLocalFilePlaybackParticipant({ staged: omitted, attempt: omittedAttempt }),
+    ).rejects.toThrow(/does not belong/);
+    await drainMicrotasks();
+    expect(omittedRoom.manager.currentCutoverPort()).toBeNull();
+    expect(omittedFixture.source.stats.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits the local participant while an unrelated remote arm stays pending', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'split-remote-pending', 'streaming-flac');
+    const staged = await stageLocalFilePlaybackParticipant(splitStageOptions(fixture.options));
+    const remoteCancel = vi.fn();
+    const remote: HostRendezvousParticipant = {
+      participantId: 'remote-pending',
+      rttP95Ms: 50,
+      armP95Ms: 100,
+      arm: () => new Promise<RendezvousArmReceipt>(() => undefined),
+      finalize: vi.fn(),
+      cancel: remoteCancel,
+    };
+    const attempt = room.coordinator.start({
+      run: staged.playbackState,
+      positionSeconds: 3,
+      playbackRate: 1,
+      participants: [remote, staged.participant],
+    });
+    const pending = completeLocalFilePlaybackParticipant({ staged, attempt });
+
+    await resolveStarted(pending, room, fixture.source);
+    const result = await pending;
+    expect(result.schedule.positionSeconds).toBe(3);
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'open',
+      participants: [
+        { participantId: 'remote-pending', armStatus: 'pending' },
+        {
+          participantId: PARTICIPANT_ID,
+          armStatus: 'armed',
+          finalizeStatus: 'accepted',
+        },
+      ],
+    });
+    expect(remoteCancel).not.toHaveBeenCalled();
+    expect(room.manager.currentCutoverPort()).toBe(result.port);
+
+    room.coordinator.close();
+    await room.manager.retireCurrentCutover(result.port);
+  });
+
+  it('commits the local participant when an unrelated remote is rejected', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'split-remote-rejected', 'audio-buffer');
+    const staged = await stageLocalFilePlaybackParticipant(splitStageOptions(fixture.options));
+    const remoteFinalize = vi.fn();
+    const remote: HostRendezvousParticipant = {
+      participantId: 'remote-rejected',
+      rttP95Ms: 0,
+      armP95Ms: 0,
+      arm: async (intent) => rejectedArmReceipt(intent),
+      finalize: remoteFinalize,
+    };
+    const attempt = room.coordinator.start({
+      run: staged.playbackState,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [staged.participant, remote],
+    });
+    const pending = completeLocalFilePlaybackParticipant({ staged, attempt });
+
+    await resolveStarted(pending, room, fixture.source);
+    const result = await pending;
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'complete',
+      participants: [
+        { participantId: PARTICIPANT_ID, finalizeStatus: 'accepted' },
+        {
+          participantId: 'remote-rejected',
+          armStatus: 'rejected',
+          finalizeStatus: 'not-requested',
+        },
+      ],
+    });
+    expect(remoteFinalize).not.toHaveBeenCalled();
+    await room.manager.retireCurrentCutover(result.port);
+  });
+
+  it('aborts and retires only local work while a finalized remote stays live', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'split-local-abort', 'streaming-flac');
+    const controller = new AbortController();
+    const staged = await stageLocalFilePlaybackParticipant({
+      ...splitStageOptions(fixture.options),
+      signal: controller.signal,
+    });
+    const remoteCancel = vi.fn();
+    const remote: HostRendezvousParticipant = {
+      participantId: 'remote-finalized',
+      rttP95Ms: 0,
+      armP95Ms: 0,
+      arm: async (intent) => armedReceipt(intent),
+      finalize: async (intent) => acceptedReceipt(intent),
+      cancel: remoteCancel,
+    };
+    const attempt = room.coordinator.start({
+      run: staged.playbackState,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [staged.participant, remote],
+    });
+    const pending = completeLocalFilePlaybackParticipant({ staged, attempt });
+    await drainMicrotasks();
+    expect(fixture.source.stats.finalize).toHaveBeenCalledTimes(1);
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'complete',
+      participants: [
+        { participantId: PARTICIPANT_ID, finalizeStatus: 'accepted' },
+        { participantId: 'remote-finalized', finalizeStatus: 'accepted' },
+      ],
+    });
+
+    controller.abort(new Error('split-local-aborted'));
+    await expect(pending).rejects.toThrow('split-local-aborted');
+    await drainMicrotasks();
+    expect(attempt.getSnapshot().status).toBe('complete');
+    expect(remoteCancel).not.toHaveBeenCalled();
+    expect(room.manager.currentCutoverPort()).toBeNull();
+    expect(fixture.source.stats.destroy).toHaveBeenCalledTimes(1);
+
+    room.context.currentTime = fixture.source.startAtContextTime()!;
+    fixture.source.resolveStart();
+    await drainMicrotasks();
+    expect(room.manager.currentCutoverPort()).toBeNull();
+    expect(fixture.source.stats.destroy).toHaveBeenCalledTimes(1);
+    room.coordinator.close();
+  });
+
+  it('coalesces exact completion and rejects an ABA attempt without disturbing it', async () => {
+    const room = roomHarness(['rv-split-primary']);
+    const fixture = room.admit(Q1, 'split-attempt-fence', 'audio-buffer');
+    const staged = await stageLocalFilePlaybackParticipant(splitStageOptions(fixture.options));
+    const attempt = room.coordinator.start({
+      run: staged.playbackState,
+      positionSeconds: 4,
+      playbackRate: 1,
+      participants: [staged.participant],
+    });
+    const otherCoordinator = new HostRendezvousCoordinator({
+      nowRoomTimeMs: () => room.nowRoomTimeMs.value,
+      createRendezvousId: () => 'rv-split-aba',
+    });
+    const otherAttempt = otherCoordinator.start({
+      run: staged.playbackState,
+      positionSeconds: 4,
+      playbackRate: 1,
+      participants: [],
+    });
+
+    const first = completeLocalFilePlaybackParticipant({ staged, attempt });
+    const duplicate = completeLocalFilePlaybackParticipant({ staged, attempt });
+    expect(duplicate).toBe(first);
+    await expect(
+      completeLocalFilePlaybackParticipant({ staged, attempt: otherAttempt }),
+    ).rejects.toThrow(/another attempt/);
+
+    await resolveStarted(first, room, fixture.source);
+    const result = await first;
+    expect(result.attempt.rendezvousId).toBe('rv-split-primary');
+    expect(room.manager.currentCutoverPort()).toBe(result.port);
+    otherCoordinator.close();
+    await room.manager.retireCurrentCutover(result.port);
+  });
+
+  it('fails closed when retirement re-enters immediately before participant commit', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'split-retire-reentry', 'streaming-flac');
+    let staged: Awaited<ReturnType<typeof stageLocalFilePlaybackParticipant>> | null = null;
+    let retirement: Promise<void> | null = null;
+    staged = await stageLocalFilePlaybackParticipant({
+      ...splitStageOptions(fixture.options),
+      runtimeForTests: {
+        ...fixture.options.runtimeForTests,
+        beforeParticipantCommitForTests: () => {
+          retirement = retireLocalFilePlaybackParticipant(staged!, 'split-reentrant-retire');
+        },
+      },
+    });
+    const attempt = room.coordinator.start({
+      run: staged.playbackState,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [staged.participant],
+    });
+    const pending = completeLocalFilePlaybackParticipant({ staged, attempt });
+
+    await resolveStarted(pending, room, fixture.source);
+    await expect(pending).rejects.toThrow(/retired/);
+    await retirement;
+    expect(attempt.getSnapshot()).toMatchObject({
+      status: 'complete',
+      participants: [{ finalizeStatus: 'accepted' }],
+    });
+    expect(room.manager.currentCutoverPort()).toBeNull();
+    expect(fixture.source.stats.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('retires a stage result that arrives after the caller aborts', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'split-late-stage', 'audio-buffer');
+    const controller = new AbortController();
+    type StagedSource = Awaited<ReturnType<typeof stageFilePlaybackAssetSource>>;
+    const stageReady = deferred<StagedSource>();
+    const stageGate = deferred<StagedSource>();
+    const actualStage = fixture.options.runtimeForTests!.stageAssetSourceForTests!;
+    const pending = stageLocalFilePlaybackParticipant({
+      ...splitStageOptions(fixture.options),
+      signal: controller.signal,
+      runtimeForTests: {
+        stageAssetSourceForTests: async (options) => {
+          const value = await actualStage(options);
+          stageReady.resolve(value);
+          return stageGate.promise;
+        },
+      },
+    });
+    const late = await stageReady.promise;
+    controller.abort(new Error('split-stage-aborted'));
+    await expect(pending).rejects.toThrow('split-stage-aborted');
+    expect(fixture.source.stats.destroy).not.toHaveBeenCalled();
+
+    stageGate.resolve(late);
+    await drainMicrotasks();
+    expect(room.manager.currentCutoverPort()).toBeNull();
+    expect(fixture.source.stats.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the compatibility API result equal to explicit stage/start/complete composition', async () => {
+    const splitRoom = roomHarness(['rv-parity']);
+    const splitFixture = splitRoom.admit(Q1, 'split-parity', 'audio-buffer');
+    const staged = await stageLocalFilePlaybackParticipant(splitStageOptions(splitFixture.options));
+    const attempt = splitRoom.coordinator.start({
+      run: staged.playbackState,
+      positionSeconds: splitFixture.options.positionSeconds,
+      playbackRate: splitFixture.options.playbackRate,
+      participants: [staged.participant],
+    });
+    const splitPending = completeLocalFilePlaybackParticipant({ staged, attempt });
+    await resolveStarted(splitPending, splitRoom, splitFixture.source);
+    const splitResult = await splitPending;
+
+    const compatibilityRoom = roomHarness(['rv-parity']);
+    const compatibilityFixture = compatibilityRoom.admit(Q1, 'split-parity', 'audio-buffer');
+    const compatibilityPending = startLocalFilePlayback(compatibilityFixture.options);
+    await resolveStarted(compatibilityPending, compatibilityRoom, compatibilityFixture.source);
+    const compatibilityResult = await compatibilityPending;
+
+    expect({
+      backend: splitResult.backend,
+      source: splitResult.source,
+      asset: splitResult.asset,
+      attempt: splitResult.attempt,
+      schedule: splitResult.schedule,
+      startEvidence: splitResult.startEvidence,
+    }).toEqual({
+      backend: compatibilityResult.backend,
+      source: compatibilityResult.source,
+      asset: compatibilityResult.asset,
+      attempt: compatibilityResult.attempt,
+      schedule: compatibilityResult.schedule,
+      startEvidence: compatibilityResult.startEvidence,
+    });
+    await splitRoom.manager.retireCurrentCutover(splitResult.port);
+    await compatibilityRoom.manager.retireCurrentCutover(compatibilityResult.port);
+  });
+});
 
 describe('startLocalFilePlayback', () => {
   it.each([

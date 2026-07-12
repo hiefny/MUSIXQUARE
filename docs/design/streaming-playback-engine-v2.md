@@ -130,10 +130,69 @@ interface PlaybackTimeline {
 The host output is a participant. If the host AudioContext is interrupted, the
 timeline and healthy guest outputs continue.
 
-`queueItemId` remains the immutable identity of one queue occurrence.
-`playbackRevision` orders playback intent, `runId` identifies one audible
-play/seek/resume run, `rendezvousId` identifies one cohort joining that run,
-and file-transfer `sessionId` remains independent.
+`queueItemId` remains the immutable identity of one queue occurrence. Playback
+identity is deliberately split into three nested scopes:
+
+```ts
+type PlaybackRun = { queueItemId: QueueItemId; runId: string };
+type PlaybackState = PlaybackRun & { revision: number };
+type PlaybackAttempt = PlaybackState & { rendezvousId: string };
+```
+
+- A run binds one selected queue occurrence to its prepared media. Pause,
+  seek, and resume do not invent a different media binding.
+- A state is one semantic timeline revision. The first applied state is
+  positive; every subsequent state transition is exactly `revision + 1`.
+- An attempt is one physical ARM/FINALIZE exchange. Renderer recovery may use
+  a fresh rendezvous ID for the same state without fabricating a new timeline
+  revision.
+- `controlSequence` prevents replay on one ordered connection. It is not a
+  playback revision, run ID, or rendezvous ID.
+- File-transfer `sessionId` remains independent of all three playback scopes.
+
+The transition policy is binding:
+
+| Command | Run | Revision | Rendezvous |
+| --- | --- | --- | --- |
+| first play | new | +1 | new |
+| pause | same | +1 | none |
+| paused seek | same | +1 | none |
+| playing seek | same | +1 | new |
+| resume | same | +1 | new |
+| renderer recovery | same | same | new, target participant only |
+| restart or track change | new | +1 | new |
+| stop | retired | +1 | none |
+| exact transport retry | same | same | same, idempotent |
+
+An attempt-specific cancellation includes the rendezvous ID and can retire
+only that silent candidate. A logical stop targets the state/run separately.
+Neither operation is represented by the other.
+
+### Atomic audible cutover
+
+Prepared media and audible renderers have different lifetimes. A prepared
+encoded asset owns the stable Blob, peer-range handle, or R2 manifest and can
+issue bounded reader leases. The playback manager owns at most two live
+renderer instances for one output lane:
+
+```text
+AUDIBLE (gain 1) + CANDIDATE (gain 0) -> FINALIZE at one context frame -> new AUDIBLE
+```
+
+ARM always builds and primes a separate silent candidate. It never seeks,
+stops, disconnects, or mutates the currently audible renderer. Before the
+target frame, candidate rejection or cancellation destroys only the candidate
+and leaves the old renderer intact. At a successful target, the manager opens
+the candidate gate and closes the old gate at the same AudioContext time, then
+destroys the old renderer only after start evidence belongs to the finalized
+attempt. Same-media recovery may use a short 20-50 ms fade to avoid clicks;
+track changes retain an exact scheduled boundary rather than blending songs.
+
+After the canonical target has passed, an output failure must not resurrect
+the old timeline. That participant starts a same-state, new-rendezvous recovery
+while healthy participants continue. Asset close aborts all leases and releases
+a peer-range handle exactly once; individual renderer teardown must not consume
+a new host handle or close a handle still used by its sibling.
 
 ### Clock quality and rendezvous
 

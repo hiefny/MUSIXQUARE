@@ -14,7 +14,10 @@ import {
   parseFilePlaybackRunBindingV2,
   type FilePlaybackRunBindingV2,
 } from './file-playback-run-binding.ts';
-import type { FilePlaybackWireStateLease } from './file-playback-wire-binding.ts';
+import type {
+  FilePlaybackWireAttemptLease,
+  FilePlaybackWireStateLease,
+} from './file-playback-wire-binding.ts';
 import {
   isPlaybackRevisionWatermark,
   readPlaybackStateIdentity,
@@ -33,6 +36,8 @@ const OPTION_KEYS = Object.freeze([
 declare const mediaOperationBrand: unique symbol;
 declare const mediaEpochBrand: unique symbol;
 declare const mediaOperationEpochBrand: unique symbol;
+declare const mediaStateOperationBrand: unique symbol;
+declare const mediaStateOperationEpochBrand: unique symbol;
 
 export type FilePlaybackConnectionMediaBootstrapKind = 'baseline' | 'successor';
 
@@ -98,6 +103,36 @@ export interface FilePlaybackConnectionMediaOperationSnapshot {
   readonly binding: Readonly<FilePlaybackRunBindingV2>;
 }
 
+/** Opaque identity for one exact same-run state/rendezvous candidate. */
+export interface FilePlaybackConnectionMediaStateOperationEpoch {
+  readonly [mediaStateOperationEpochBrand]: never;
+}
+
+export interface FilePlaybackConnectionMediaStateOperationFence {
+  readonly epoch: FilePlaybackConnectionMediaStateOperationEpoch;
+  readonly signal: AbortSignal;
+  readonly isCurrent: () => boolean;
+}
+
+/**
+ * Body-free authority for an exact-next same-run state and the rendezvous
+ * attempt which will render it. The prepared run/source remains separately
+ * owned by `FilePlaybackConnectionMediaOperation`.
+ */
+export interface FilePlaybackConnectionMediaStateOperation {
+  readonly [mediaStateOperationBrand]: never;
+  readonly previous: Readonly<PlaybackStateIdentity>;
+  readonly state: Readonly<PlaybackStateIdentity>;
+  readonly rendezvousId: string;
+  readonly fence: Readonly<FilePlaybackConnectionMediaStateOperationFence>;
+}
+
+export interface FilePlaybackConnectionMediaStateOperationSnapshot {
+  readonly previous: Readonly<PlaybackStateIdentity>;
+  readonly state: Readonly<PlaybackStateIdentity>;
+  readonly rendezvousId: string;
+}
+
 export interface FilePlaybackConnectionMediaSessionSnapshot {
   readonly schemaVersion: 1;
   readonly role: 'guest';
@@ -112,6 +147,8 @@ export interface FilePlaybackConnectionMediaSessionSnapshot {
   readonly activeOfferCount: number;
   readonly candidate: Readonly<FilePlaybackConnectionMediaOperationSnapshot> | null;
   readonly current: Readonly<FilePlaybackConnectionMediaOperationSnapshot> | null;
+  readonly candidateState: Readonly<FilePlaybackConnectionMediaStateOperationSnapshot> | null;
+  readonly currentState: Readonly<PlaybackStateIdentity> | null;
 }
 
 type ExactOptions = Readonly<Record<(typeof OPTION_KEYS)[number], unknown>>;
@@ -119,7 +156,7 @@ type ExactOptions = Readonly<Record<(typeof OPTION_KEYS)[number], unknown>>;
 interface OperationRecord {
   readonly operation: Readonly<FilePlaybackConnectionMediaOperation>;
   readonly runLease: FilePlaybackRunLease;
-  readonly channelStateLease: FilePlaybackWireStateLease;
+  channelStateLease: FilePlaybackWireStateLease;
   readonly offer: Readonly<FileMediaSourceOfferV2>;
   readonly binding: Readonly<FilePlaybackRunBindingV2>;
   readonly kind: FilePlaybackConnectionMediaBootstrapKind;
@@ -130,6 +167,24 @@ interface OperationRecord {
   status: 'candidate' | 'current' | 'retired';
 }
 
+interface StateOperationRecord {
+  readonly operation: Readonly<FilePlaybackConnectionMediaStateOperation>;
+  readonly prepared: OperationRecord;
+  readonly stateLease: FilePlaybackWireStateLease;
+  readonly attemptLease: FilePlaybackWireAttemptLease;
+  readonly previous: Readonly<PlaybackStateIdentity>;
+  readonly state: Readonly<PlaybackStateIdentity>;
+  readonly rendezvousId: string;
+  readonly epoch: FilePlaybackConnectionMediaStateOperationEpoch;
+  readonly abortController: AbortController;
+  status: 'candidate' | 'current' | 'retired';
+}
+
+interface CommittedStopTombstone {
+  readonly expected: Readonly<PlaybackStateIdentity>;
+  readonly stopped: Readonly<PlaybackStateIdentity>;
+}
+
 const channelRole = FilePlaybackConnectionChannel.prototype.role;
 const channelEstablishedBinding = FilePlaybackConnectionChannel.prototype.establishedBinding;
 const channelLiveConnectionToken = FilePlaybackConnectionChannel.prototype.liveConnectionToken;
@@ -137,9 +192,12 @@ const channelBootstrapStopped = FilePlaybackConnectionChannel.prototype.bootstra
 const channelStageMedia = FilePlaybackConnectionChannel.prototype.stageMedia;
 const channelCommitMedia = FilePlaybackConnectionChannel.prototype.commitMedia;
 const channelRetireMedia = FilePlaybackConnectionChannel.prototype.retireMedia;
+const channelStageAttempt = FilePlaybackConnectionChannel.prototype.stageAttempt;
+const channelCommitAttempt = FilePlaybackConnectionChannel.prototype.commitAttempt;
 const offerRegistryActiveOffer = FileMediaOfferRegistry.prototype.activeOffer;
 const abortControllerAbort = AbortController.prototype.abort;
 const MAX_EXPIRY_TIMER_DELAY_MS = 2_147_483_647;
+const MAX_RENDEZVOUS_ID_LENGTH = 256;
 const CLAIMED_MEDIA_CHANNELS = new WeakSet<FilePlaybackConnectionChannel>();
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
@@ -200,6 +258,35 @@ function sameState(
   );
 }
 
+function sameStateIdentity(
+  left: Readonly<PlaybackStateIdentity>,
+  right: Readonly<PlaybackStateIdentity>,
+): boolean {
+  return (
+    left.queueItemId === right.queueItemId &&
+    left.runId === right.runId &&
+    left.revision === right.revision
+  );
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+
+function isBoundedRendezvousId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_RENDEZVOUS_ID_LENGTH &&
+    value === value.trim() &&
+    !containsControlCharacter(value)
+  );
+}
+
 function sameBinding(
   left: Readonly<FilePlaybackRunBindingV2>,
   right: Readonly<FilePlaybackRunBindingV2>,
@@ -236,6 +323,16 @@ function operationSnapshot(
   });
 }
 
+function stateOperationSnapshot(
+  record: StateOperationRecord,
+): Readonly<FilePlaybackConnectionMediaStateOperationSnapshot> {
+  return freezeCanonical({
+    previous: record.previous,
+    state: record.state,
+    rendezvousId: record.rendezvousId,
+  });
+}
+
 export class FilePlaybackConnectionMediaSessionFatalError extends Error {
   constructor(message: string) {
     super(message);
@@ -249,10 +346,12 @@ export class FilePlaybackConnectionMediaSessionFatalError extends Error {
  *
  * This class owns no bytes, decoder, READY claim, or renderer start. An active
  * baseline is represented as a stopped N-1 watermark plus an N candidate so
- * `commitStarted()` can promote the run and channel state in one callback-free
- * critical section. If the second promotion ever fails, the exact connection
- * is fail-closed through the owner callback; this class deliberately does not
- * close the shared channel itself.
+ * `commitStarted()` can promote the prepared run/source and initial channel
+ * state in one callback-free critical section. Later same-run revisions own
+ * separate state/attempt leases and never restage the OFFER or RUN_BINDING. If
+ * a split promotion ever fails, the exact connection is fail-closed through
+ * the owner callback; this class deliberately does not close the shared
+ * channel itself.
  */
 export class FilePlaybackConnectionMediaSession {
   readonly #channel: FilePlaybackConnectionChannel;
@@ -272,8 +371,24 @@ export class FilePlaybackConnectionMediaSession {
     FilePlaybackConnectionMediaOperationEpoch,
     OperationRecord
   >();
+  readonly #stateOperations = new WeakMap<
+    FilePlaybackConnectionMediaStateOperation,
+    StateOperationRecord
+  >();
+  readonly #stateOperationEpochs = new WeakMap<
+    FilePlaybackConnectionMediaStateOperationEpoch,
+    StateOperationRecord
+  >();
+  /** Weak keys preserve exact retry without retaining offer/fence/source snapshots. */
+  readonly #committedStops = new WeakMap<
+    FilePlaybackConnectionMediaOperation,
+    Readonly<CommittedStopTombstone>
+  >();
   #candidate: OperationRecord | null = null;
   #current: OperationRecord | null = null;
+  #candidateState: StateOperationRecord | null = null;
+  #currentStateOperation: StateOperationRecord | null = null;
+  #currentState: Readonly<PlaybackStateIdentity> | null = null;
   #bootstrapKind: 'active' | 'none' | 'stopped' = 'none';
   #committedRevisionWatermark: PlaybackRevisionWatermark = 0;
   #admittedRevisionWatermark: PlaybackRevisionWatermark = 0;
@@ -565,59 +680,262 @@ export class FilePlaybackConnectionMediaSession {
     expectedNow: PlaybackStateIdentity,
     isStillCurrent: () => boolean,
   ): FilePlaybackConnectionMediaSessionSnapshot {
+    return this.#mutate(() =>
+      this.#commitPreparedUnchecked(operation, expectedNow, isStillCurrent, 'started'),
+    );
+  }
+
+  /**
+   * Commits an active late-join baseline after its source is fully prepared,
+   * without claiming that a renderer started or making any renderer audible.
+   */
+  commitPreparedPausedBaseline(
+    operation: FilePlaybackConnectionMediaOperation,
+    expectedNow: PlaybackStateIdentity,
+    isStillCurrent: () => boolean,
+  ): FilePlaybackConnectionMediaSessionSnapshot {
     return this.#mutate(() => {
       const record = this.#requireCandidate(operation);
+      if (record.kind !== 'baseline') {
+        throw new Error('Only an active baseline can commit as prepared and paused');
+      }
+      return this.#commitPreparedUnchecked(operation, expectedNow, isStillCurrent, 'paused');
+    });
+  }
+
+  /**
+   * Stages the exact-next state of the already prepared logical run together
+   * with its exact rendezvous attempt. No OFFER or RUN_BINDING is consumed.
+   */
+  stageSameRunStateSuccessor(
+    preparedOperation: FilePlaybackConnectionMediaOperation,
+    expectedCurrent: PlaybackStateIdentity,
+    successor: PlaybackStateIdentity,
+    rendezvousId: string,
+  ): Readonly<FilePlaybackConnectionMediaStateOperation> {
+    return this.#mutate(() => {
+      const prepared = this.#requireCurrent(preparedOperation);
+      const expected = readPlaybackStateIdentity(expectedCurrent);
+      const next = readPlaybackStateIdentity(successor);
+      if (!expected || !next || !isBoundedRendezvousId(rendezvousId)) {
+        throw new TypeError('File playback same-run state successor authority is invalid');
+      }
+      const existing = this.#candidateState;
+      if (existing) {
+        if (
+          existing.prepared === prepared &&
+          sameStateIdentity(existing.previous, expected) &&
+          sameStateIdentity(existing.state, next) &&
+          existing.rendezvousId === rendezvousId
+        ) {
+          return existing.operation;
+        }
+        throw new Error('File playback same-run state candidate conflicts with active authority');
+      }
+      if (
+        !this.#currentState ||
+        !sameStateIdentity(this.#currentState, expected) ||
+        next.queueItemId !== expected.queueItemId ||
+        next.runId !== expected.runId ||
+        next.revision !== this.#admittedRevisionWatermark + 1 ||
+        expected.queueItemId !== prepared.binding.queueItemId ||
+        expected.runId !== prepared.binding.runId
+      ) {
+        throw new Error('File playback same-run state is not the exact current successor');
+      }
+
+      const stateLease: FilePlaybackWireStateLease = Reflect.apply(
+        channelStageMedia,
+        this.#channel,
+        [
+          freezeCanonical({
+            run: next,
+            sourceIdentity: prepared.binding.sourceIdentity,
+            transferSessionId: prepared.binding.transferSessionId,
+          }),
+        ],
+      );
+      this.#admittedRevisionWatermark = next.revision;
+
+      let attemptLease: FilePlaybackWireAttemptLease;
+      try {
+        attemptLease = Reflect.apply(channelStageAttempt, this.#channel, [
+          stateLease,
+          rendezvousId,
+        ]);
+      } catch {
+        try {
+          Reflect.apply(channelRetireMedia, this.#channel, [stateLease]);
+        } catch {
+          // The fatal teardown below owns the exact connection scope.
+        }
+        throw this.#fatal('The shared channel could not atomically stage a state rendezvous');
+      }
+
+      const epoch = Object.freeze(
+        Object.create(null),
+      ) as FilePlaybackConnectionMediaStateOperationEpoch;
+      const abortController = new AbortController();
+      const fence = freezeCanonical({
+        epoch,
+        signal: abortController.signal,
+        isCurrent: () => this.#isStateOperationEpochCurrent(epoch),
+      });
+      const operation = freezeCanonical({
+        previous: expected,
+        state: next,
+        rendezvousId,
+        fence,
+      }) as Readonly<FilePlaybackConnectionMediaStateOperation>;
+      const record: StateOperationRecord = {
+        operation,
+        prepared,
+        stateLease,
+        attemptLease,
+        previous: expected,
+        state: next,
+        rendezvousId,
+        epoch,
+        abortController,
+        status: 'candidate',
+      };
+      this.#stateOperations.set(operation, record);
+      this.#stateOperationEpochs.set(epoch, record);
+      this.#candidateState = record;
+      return operation;
+    });
+  }
+
+  commitStateSuccessor(
+    operation: FilePlaybackConnectionMediaStateOperation,
+    expectedNow: PlaybackStateIdentity,
+    isStillCurrent: () => boolean,
+  ): FilePlaybackConnectionMediaSessionSnapshot {
+    return this.#mutate(() => {
+      const record = this.#requireStateCandidate(operation);
       const expected = readPlaybackStateIdentity(expectedNow);
       if (
         !expected ||
-        !sameState(record.binding, expected) ||
+        !sameStateIdentity(record.state, expected) ||
         typeof isStillCurrent !== 'function'
       ) {
-        this.#retireRecord(record);
-        throw new Error('File playback started operation is not the expected current state');
+        this.#retireStateRecord(record);
+        throw new Error('File playback state successor is not the expected current state');
+      }
+      if (!this.#readStateCommitAuthority(record, isStillCurrent)) {
+        this.#retireStateRecord(record);
+        throw new Error('File playback state successor is no longer controller-current');
+      }
+      if (!this.#readStateCommitAuthority(record, isStillCurrent)) {
+        this.#retireStateRecord(record);
+        throw new Error('File playback state successor is no longer controller-current');
       }
 
-      const guardedCurrent = (): boolean => {
-        this.#assertOperationCurrent(record);
-        let accepted: boolean;
-        try {
-          accepted = Reflect.apply(isStillCurrent, undefined, []) === true;
-        } catch {
-          accepted = false;
-        }
-        this.#assertOperationCurrent(record);
-        return accepted;
-      };
-
       try {
-        this.#runAuthority.commitCandidate(
-          this.#connectionToken,
-          record.runLease,
-          expected,
-          guardedCurrent,
-        );
-      } catch (error) {
-        this.#cleanupFailedCandidate(record);
-        if (this.#revoked) throw this.#fatalError ?? error;
-        throw error;
-      }
-
-      // No callback or await is permitted between these promotions. The run
-      // authority has already performed all fallible external revalidation.
-      try {
-        Reflect.apply(channelCommitMedia, this.#channel, [record.channelStateLease]);
+        Reflect.apply(channelCommitAttempt, this.#channel, [record.attemptLease]);
+        Reflect.apply(channelCommitMedia, this.#channel, [record.stateLease]);
       } catch {
-        throw this.#fatal('The shared channel failed after the file playback run was committed');
+        throw this.#fatal('The shared channel failed while committing a state rendezvous');
       }
 
-      const previous = this.#current;
-      if (previous) this.#retireRecordLocally(previous);
-      this.#clearCandidateExpiry(record);
+      const previousStateOperation = this.#currentStateOperation;
+      if (previousStateOperation) this.#retireStateRecordLocally(previousStateOperation);
       record.status = 'current';
-      this.#candidate = null;
-      this.#current = record;
-      this.#committedRevisionWatermark = record.binding.playbackRevision;
-      this.#admittedRevisionWatermark = record.binding.playbackRevision;
+      this.#candidateState = null;
+      this.#currentStateOperation = record;
+      record.prepared.channelStateLease = record.stateLease;
+      this.#currentState = record.state;
+      this.#committedRevisionWatermark = record.state.revision;
+      this.#admittedRevisionWatermark = record.state.revision;
+      return this.#snapshotUnchecked();
+    });
+  }
+
+  retireStateSuccessor(operation: FilePlaybackConnectionMediaStateOperation): void {
+    this.#mutate(() => this.#retireStateRecord(this.#requireStateOperation(operation)));
+  }
+
+  /**
+   * Commits an exact-next STOP state and retires both the prepared run and its
+   * current state. The exact retry is idempotent and returns the stopped
+   * projection; no source body or renderer is retained.
+   */
+  commitStop(
+    preparedOperation: FilePlaybackConnectionMediaOperation,
+    expectedCurrent: PlaybackStateIdentity,
+    stopped: PlaybackStateIdentity,
+    isStillCurrent: () => boolean,
+  ): FilePlaybackConnectionMediaSessionSnapshot {
+    return this.#mutate(() => {
+      const expected = readPlaybackStateIdentity(expectedCurrent);
+      const next = readPlaybackStateIdentity(stopped);
+      if (!expected || !next || typeof isStillCurrent !== 'function') {
+        throw new TypeError('File playback stop authority is invalid');
+      }
+      if (this.#isExactStopReplay(preparedOperation, expected, next)) {
+        return this.#snapshotUnchecked();
+      }
+      const prepared = this.#requireCurrent(preparedOperation);
+      if (
+        this.#candidateState ||
+        !this.#currentState ||
+        !sameStateIdentity(this.#currentState, expected) ||
+        expected.queueItemId !== prepared.binding.queueItemId ||
+        expected.runId !== prepared.binding.runId ||
+        next.queueItemId !== expected.queueItemId ||
+        next.runId !== expected.runId ||
+        next.revision !== this.#admittedRevisionWatermark + 1
+      ) {
+        throw new Error('File playback stop is not the exact current successor');
+      }
+      if (!this.#readPreparedCommitAuthority(prepared, isStillCurrent)) {
+        throw new Error('File playback stop is no longer controller-current');
+      }
+      if (!this.#readPreparedCommitAuthority(prepared, isStillCurrent)) {
+        throw new Error('File playback stop is no longer controller-current');
+      }
+
+      const stopLease: FilePlaybackWireStateLease = Reflect.apply(
+        channelStageMedia,
+        this.#channel,
+        [
+          freezeCanonical({
+            run: next,
+            sourceIdentity: prepared.binding.sourceIdentity,
+            transferSessionId: prepared.binding.transferSessionId,
+          }),
+        ],
+      );
+      this.#admittedRevisionWatermark = next.revision;
+      try {
+        // This metadata owner does not serialize the already-defined STOP
+        // wire message, so its sender-side mirror has no mark-stop step. The
+        // same exact result is obtained by retiring the validated current and
+        // exact-next leases after the successor consumed its revision.
+        Reflect.apply(channelRetireMedia, this.#channel, [prepared.channelStateLease]);
+        Reflect.apply(channelRetireMedia, this.#channel, [stopLease]);
+      } catch {
+        throw this.#fatal('The shared channel failed while committing file playback stop');
+      }
+      try {
+        this.#runAuthority.retireCurrent(this.#connectionToken, prepared.runLease);
+      } catch {
+        throw this.#fatal('Run authority failed after the shared channel committed stop');
+      }
+
+      const stopTombstone = freezeCanonical({
+        expected,
+        stopped: next,
+      });
+      if (this.#currentStateOperation) {
+        this.#retireStateRecordLocally(this.#currentStateOperation);
+      }
+      this.#retireRecordLocally(prepared);
+      this.#currentState = null;
+      this.#bootstrapKind = 'stopped';
+      this.#committedRevisionWatermark = next.revision;
+      this.#admittedRevisionWatermark = next.revision;
+      this.#committedStops.set(prepared.operation, stopTombstone);
       return this.#snapshotUnchecked();
     });
   }
@@ -631,6 +949,10 @@ export class FilePlaybackConnectionMediaSession {
     if (this.#revoked) return;
     this.#revoked = true;
     this.#abortFence();
+    const stateRecords = this.#liveStateRecords();
+    for (const record of stateRecords) this.#abortStateOperationFence(record);
+    if (this.#candidateState) this.#retireStateChannelBestEffort(this.#candidateState);
+    for (const record of stateRecords) this.#retireStateRecordLocally(record);
     const records = this.#liveRecords();
     for (const record of records) this.#abortOperationFence(record);
     for (const record of records) this.#retireChannelRecordBestEffort(record);
@@ -705,10 +1027,136 @@ export class FilePlaybackConnectionMediaSession {
     return value;
   }
 
+  #commitPreparedUnchecked(
+    operation: FilePlaybackConnectionMediaOperation,
+    expectedNow: PlaybackStateIdentity,
+    isStillCurrent: () => boolean,
+    mode: 'paused' | 'started',
+  ): FilePlaybackConnectionMediaSessionSnapshot {
+    const record = this.#requireCandidate(operation);
+    const expected = readPlaybackStateIdentity(expectedNow);
+    if (!expected || !sameState(record.binding, expected) || typeof isStillCurrent !== 'function') {
+      this.#retireRecord(record);
+      throw new Error(
+        mode === 'paused'
+          ? 'File playback prepared baseline is not the expected current state'
+          : 'File playback started operation is not the expected current state',
+      );
+    }
+
+    const guardedCurrent = (): boolean => {
+      this.#assertOperationCurrent(record);
+      let accepted: boolean;
+      try {
+        accepted = Reflect.apply(isStillCurrent, undefined, []) === true;
+      } catch {
+        accepted = false;
+      }
+      this.#assertOperationCurrent(record);
+      return accepted;
+    };
+
+    try {
+      this.#runAuthority.commitCandidate(
+        this.#connectionToken,
+        record.runLease,
+        expected,
+        guardedCurrent,
+      );
+    } catch (error) {
+      this.#cleanupFailedCandidate(record);
+      if (this.#revoked) throw this.#fatalError ?? error;
+      throw error;
+    }
+
+    // No callback or await is permitted between these promotions. The run
+    // authority has already performed all fallible external revalidation.
+    try {
+      Reflect.apply(channelCommitMedia, this.#channel, [record.channelStateLease]);
+    } catch {
+      throw this.#fatal('The shared channel failed after the file playback run was committed');
+    }
+
+    const previous = this.#current;
+    if (previous) this.#retireRecordLocally(previous);
+    if (this.#currentStateOperation) {
+      this.#retireStateRecordLocally(this.#currentStateOperation);
+    }
+    this.#clearCandidateExpiry(record);
+    record.status = 'current';
+    this.#candidate = null;
+    this.#current = record;
+    this.#currentState = expected;
+    this.#committedRevisionWatermark = record.binding.playbackRevision;
+    this.#admittedRevisionWatermark = record.binding.playbackRevision;
+    return this.#snapshotUnchecked();
+  }
+
+  #readStateCommitAuthority(record: StateOperationRecord, isStillCurrent: () => boolean): boolean {
+    this.#assertStateOperationCurrent(record);
+    let accepted: boolean;
+    try {
+      accepted = Reflect.apply(isStillCurrent, undefined, []) === true;
+    } catch {
+      accepted = false;
+    }
+    this.#assertStateOperationCurrent(record);
+    return accepted;
+  }
+
+  #readPreparedCommitAuthority(record: OperationRecord, isStillCurrent: () => boolean): boolean {
+    this.#assertPreparedCurrent(record);
+    let accepted: boolean;
+    try {
+      accepted = Reflect.apply(isStillCurrent, undefined, []) === true;
+    } catch {
+      accepted = false;
+    }
+    this.#assertPreparedCurrent(record);
+    return accepted;
+  }
+
+  #isExactStopReplay(
+    operation: FilePlaybackConnectionMediaOperation,
+    expected: Readonly<PlaybackStateIdentity>,
+    stopped: Readonly<PlaybackStateIdentity>,
+  ): boolean {
+    const committed =
+      operation !== null && typeof operation === 'object'
+        ? this.#committedStops.get(operation)
+        : undefined;
+    return (
+      committed !== undefined &&
+      this.#bootstrapKind === 'stopped' &&
+      this.#candidate === null &&
+      this.#current === null &&
+      this.#candidateState === null &&
+      this.#currentState === null &&
+      this.#committedRevisionWatermark === committed.stopped.revision &&
+      this.#admittedRevisionWatermark === committed.stopped.revision &&
+      sameStateIdentity(committed.expected, expected) &&
+      sameStateIdentity(committed.stopped, stopped)
+    );
+  }
+
   #assertOperationCurrent(record: OperationRecord): void {
     this.#assertLiveChannel();
     if (record !== this.#candidate || record.status !== 'candidate') {
       throw new Error('File playback media operation is no longer the exact candidate');
+    }
+  }
+
+  #assertPreparedCurrent(record: OperationRecord): void {
+    this.#assertLiveChannel();
+    if (record !== this.#current || record.status !== 'current') {
+      throw new Error('File playback prepared run is no longer exact current authority');
+    }
+  }
+
+  #assertStateOperationCurrent(record: StateOperationRecord): void {
+    this.#assertPreparedCurrent(record.prepared);
+    if (record !== this.#candidateState || record.status !== 'candidate') {
+      throw new Error('File playback state operation is no longer the exact candidate');
     }
   }
 
@@ -729,8 +1177,36 @@ export class FilePlaybackConnectionMediaSession {
     return record;
   }
 
+  #requireCurrent(value: FilePlaybackConnectionMediaOperation): OperationRecord {
+    const record = this.#requireOperation(value);
+    if (record !== this.#current || record.status !== 'current') {
+      throw new Error('Only the exact prepared file playback run can change state');
+    }
+    return record;
+  }
+
+  #requireStateOperation(value: FilePlaybackConnectionMediaStateOperation): StateOperationRecord {
+    const record =
+      value !== null && typeof value === 'object' ? this.#stateOperations.get(value) : undefined;
+    if (!record || record.status === 'retired') {
+      throw new Error('File playback state operation is forged or retired');
+    }
+    return record;
+  }
+
+  #requireStateCandidate(value: FilePlaybackConnectionMediaStateOperation): StateOperationRecord {
+    const record = this.#requireStateOperation(value);
+    if (record !== this.#candidateState || record.status !== 'candidate') {
+      throw new Error('Only the exact staged file playback state can be committed');
+    }
+    return record;
+  }
+
   #retireRecord(record: OperationRecord): void {
     const abandonsActiveBaseline = record.status === 'candidate' && record.kind === 'baseline';
+    if (this.#candidateState?.prepared === record) {
+      this.#retireStateRecord(this.#candidateState);
+    }
     if (record.status === 'candidate') {
       this.#runAuthority.retireCandidate(this.#connectionToken, record.runLease);
     } else if (record.status === 'current') {
@@ -743,6 +1219,10 @@ export class FilePlaybackConnectionMediaSession {
     } catch {
       throw this.#fatal('The shared channel rejected exact media operation retirement');
     }
+    if (this.#currentStateOperation?.prepared === record) {
+      this.#retireStateRecordLocally(this.#currentStateOperation);
+    }
+    if (this.#current === record) this.#currentState = null;
     this.#retireRecordLocally(record);
     if (abandonsActiveBaseline) {
       throw this.#fatal('An uncommitted active baseline was retired and cannot be recovered');
@@ -889,6 +1369,61 @@ export class FilePlaybackConnectionMediaSession {
     return records;
   }
 
+  #liveStateRecords(): StateOperationRecord[] {
+    const records: StateOperationRecord[] = [];
+    if (this.#candidateState) records.push(this.#candidateState);
+    if (this.#currentStateOperation && this.#currentStateOperation !== this.#candidateState) {
+      records.push(this.#currentStateOperation);
+    }
+    return records;
+  }
+
+  #retireStateRecord(record: StateOperationRecord): void {
+    if (record.status === 'retired') {
+      throw new Error('File playback state operation is already retired');
+    }
+    if (record.status === 'candidate') {
+      try {
+        Reflect.apply(channelRetireMedia, this.#channel, [record.stateLease]);
+      } catch {
+        throw this.#fatal('The shared channel rejected exact state candidate retirement');
+      }
+    } else if (record.prepared !== this.#current) {
+      throw this.#fatal('Committed state operation lost its prepared run authority');
+    } else {
+      throw new Error('The current state remains owned by its prepared run');
+    }
+    this.#retireStateRecordLocally(record);
+  }
+
+  #retireStateChannelBestEffort(record: StateOperationRecord): void {
+    if (record.status !== 'candidate') return;
+    try {
+      Reflect.apply(channelRetireMedia, this.#channel, [record.stateLease]);
+    } catch {
+      // Revocation/fatal teardown still closes the exact internal authorities.
+    }
+  }
+
+  #abortStateOperationFence(record: StateOperationRecord): void {
+    if (record.abortController.signal.aborted) return;
+    try {
+      Reflect.apply(abortControllerAbort, record.abortController, []);
+    } catch {
+      // Record retirement remains authoritative if the platform is broken.
+    }
+  }
+
+  #retireStateRecordLocally(record: StateOperationRecord | null): void {
+    if (!record || record.status === 'retired') return;
+    this.#abortStateOperationFence(record);
+    record.status = 'retired';
+    this.#stateOperations.delete(record.operation);
+    this.#stateOperationEpochs.delete(record.epoch);
+    if (this.#candidateState === record) this.#candidateState = null;
+    if (this.#currentStateOperation === record) this.#currentStateOperation = null;
+  }
+
   #retireChannelRecordBestEffort(record: OperationRecord): void {
     try {
       Reflect.apply(channelRetireMedia, this.#channel, [record.channelStateLease]);
@@ -899,12 +1434,21 @@ export class FilePlaybackConnectionMediaSession {
 
   #retireRecordLocally(record: OperationRecord | null): void {
     if (!record || record.status === 'retired') return;
+    if (this.#candidateState?.prepared === record) {
+      this.#retireStateRecordLocally(this.#candidateState);
+    }
+    if (this.#currentStateOperation?.prepared === record) {
+      this.#retireStateRecordLocally(this.#currentStateOperation);
+    }
     this.#abortOperationFence(record);
     record.status = 'retired';
     this.#operations.delete(record.operation);
     this.#operationEpochs.delete(record.epoch);
     if (this.#candidate === record) this.#candidate = null;
-    if (this.#current === record) this.#current = null;
+    if (this.#current === record) {
+      this.#current = null;
+      this.#currentState = null;
+    }
   }
 
   #fatal(message: string): FilePlaybackConnectionMediaSessionFatalError {
@@ -914,6 +1458,10 @@ export class FilePlaybackConnectionMediaSession {
     this.#fatalCallbackPending = true;
     this.#revoked = true;
     this.#abortFence();
+    const stateRecords = this.#liveStateRecords();
+    for (const record of stateRecords) this.#abortStateOperationFence(record);
+    if (this.#candidateState) this.#retireStateChannelBestEffort(this.#candidateState);
+    for (const record of stateRecords) this.#retireStateRecordLocally(record);
     const records = this.#liveRecords();
     for (const record of records) this.#abortOperationFence(record);
     for (const record of records) this.#retireChannelRecordBestEffort(record);
@@ -1028,6 +1576,25 @@ export class FilePlaybackConnectionMediaSession {
     }
   }
 
+  #isStateOperationEpochCurrent(epoch: FilePlaybackConnectionMediaStateOperationEpoch): boolean {
+    if (this.#revoked || this.#authoritiesClosed || this.#abortController.signal.aborted) {
+      return false;
+    }
+    const record = this.#stateOperationEpochs.get(epoch);
+    if (
+      !record ||
+      record.epoch !== epoch ||
+      record.status === 'retired' ||
+      record.abortController.signal.aborted ||
+      record.prepared !== this.#current ||
+      record.prepared.status !== 'current' ||
+      (record !== this.#candidateState && record !== this.#currentStateOperation)
+    ) {
+      return false;
+    }
+    return this.#isEpochCurrent(this.#epoch);
+  }
+
   #readFenceRoomTime(): number | null {
     if (this.#readingFenceRoomTime) return null;
     this.#readingFenceRoomTime = true;
@@ -1063,6 +1630,8 @@ export class FilePlaybackConnectionMediaSession {
       activeOfferCount: this.#revoked ? 0 : this.#offerRegistry.activeOfferCount(),
       candidate: this.#candidate ? operationSnapshot(this.#candidate) : null,
       current: this.#current ? operationSnapshot(this.#current) : null,
+      candidateState: this.#candidateState ? stateOperationSnapshot(this.#candidateState) : null,
+      currentState: this.#currentState,
     });
   }
 }

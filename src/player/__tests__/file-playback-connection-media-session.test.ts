@@ -1,5 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const channelFault = vi.hoisted(() => ({ failRetireMedia: false, failStageAttempt: false }));
+
+vi.mock('../../network/file-playback-connection-channel.ts', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../network/file-playback-connection-channel.ts')>();
+  const prototype = actual.FilePlaybackConnectionChannel.prototype;
+  const stageAttempt = prototype.stageAttempt;
+  const retireMedia = prototype.retireMedia;
+  Object.defineProperties(prototype, {
+    stageAttempt: {
+      configurable: true,
+      value(this: FilePlaybackConnectionChannel, ...args: Parameters<typeof stageAttempt>) {
+        if (channelFault.failStageAttempt) throw new Error('injected stage-attempt failure');
+        return Reflect.apply(stageAttempt, this, args);
+      },
+      writable: true,
+    },
+    retireMedia: {
+      configurable: true,
+      value(this: FilePlaybackConnectionChannel, ...args: Parameters<typeof retireMedia>) {
+        if (channelFault.failRetireMedia) throw new Error('injected retire-media failure');
+        return Reflect.apply(retireMedia, this, args);
+      },
+      writable: true,
+    },
+  });
+  return actual;
+});
+
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { FilePlaybackConnectionChannel } from '../../network/file-playback-connection-channel.ts';
 import {
@@ -16,6 +45,7 @@ import {
   FilePlaybackConnectionMediaSession,
   FilePlaybackConnectionMediaSessionFatalError,
   type FilePlaybackConnectionMediaOperation,
+  type FilePlaybackConnectionMediaStateOperation,
 } from '../file-playback-connection-media-session.ts';
 import { createFilePlaybackMediaScope } from '../file-playback-media-scope.ts';
 import {
@@ -43,7 +73,11 @@ const RUN_IDS = [
 
 let pairSequence = 0;
 
-afterEach(() => clearAllManagedTimers());
+afterEach(() => {
+  channelFault.failRetireMedia = false;
+  channelFault.failStageAttempt = false;
+  clearAllManagedTimers();
+});
 
 function issuer(prefix: string): FilePlaybackHandshakeIdIssuer {
   return new FilePlaybackHandshakeIdIssuer({
@@ -180,6 +214,12 @@ function stageBaseline(h: Harness, revision = 1) {
   const binding = bindingFor(offer, revision, RUN_IDS[0]);
   const operation = h.session.stageRunBinding(binding, expectedFor(binding), 'baseline');
   return { offer, binding, operation };
+}
+
+function commitBaseline(h: Harness, revision = 1) {
+  const staged = stageBaseline(h, revision);
+  h.session.commitStarted(staged.operation, expectedFor(staged.binding), () => true);
+  return staged;
 }
 
 describe('FilePlaybackConnectionMediaSession', () => {
@@ -712,6 +752,459 @@ describe('FilePlaybackConnectionMediaSession', () => {
     expect(Reflect.has(operation, 'channelStateLease')).toBe(false);
     expect(Object.getPrototypeOf(operation.fence)).toBeNull();
     expect(Object.isFrozen(operation.fence)).toBe(true);
+  });
+
+  it('commits a prepared paused late-join baseline without requiring renderer-start semantics', () => {
+    const h = harness();
+    const { operation, binding } = stageBaseline(h, 40);
+
+    expect(
+      h.session.commitPreparedPausedBaseline(operation, expectedFor(binding), () => true),
+    ).toMatchObject({
+      status: 'active',
+      committedRevisionWatermark: 40,
+      current: { kind: 'baseline', binding: { playbackRevision: 40 } },
+      currentState: expectedFor(binding),
+      candidateState: null,
+    });
+    expect(operation.fence.isCurrent()).toBe(true);
+    expect(h.fatal).not.toHaveBeenCalled();
+
+    const stopped = harness();
+    stopped.session.bootstrapStopped(0);
+    const offer = offerFor(stopped);
+    admitOffer(stopped, offer);
+    const successorBinding = bindingFor(offer, 1);
+    const successor = stopped.session.stageRunBinding(
+      successorBinding,
+      expectedFor(successorBinding),
+      'successor',
+    );
+    expect(() =>
+      stopped.session.commitPreparedPausedBaseline(
+        successor,
+        expectedFor(successorBinding),
+        () => true,
+      ),
+    ).toThrow(/active baseline/u);
+    expect(stopped.session.snapshot().status).toBe('candidate');
+  });
+
+  it('revalidates paused-baseline authority twice and preserves its exact watermark', () => {
+    const h = harness();
+    const { operation, binding } = stageBaseline(h, 400);
+    let authorityReads = 0;
+    h.session.commitPreparedPausedBaseline(operation, expectedFor(binding), () => {
+      authorityReads += 1;
+      expect(operation.fence.isCurrent()).toBe(true);
+      return true;
+    });
+
+    expect(authorityReads).toBe(2);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      committedRevisionWatermark: 400,
+      admittedRevisionWatermark: 400,
+      currentState: expectedFor(binding),
+    });
+
+    const reentrant = harness();
+    const staged = stageBaseline(reentrant, 700);
+    expect(() =>
+      reentrant.session.commitPreparedPausedBaseline(
+        staged.operation,
+        expectedFor(staged.binding),
+        () => {
+          expect(() => reentrant.session.snapshot()).toThrow(
+            FilePlaybackConnectionMediaSessionFatalError,
+          );
+          return true;
+        },
+      ),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(reentrant.session.snapshot()).toMatchObject({
+      status: 'revoked',
+      committedRevisionWatermark: 699,
+      admittedRevisionWatermark: 700,
+      currentState: null,
+    });
+    expect(reentrant.fatal).toHaveBeenCalledOnce();
+  });
+
+  it('stages and commits exact-next same-run state separately from its prepared source', () => {
+    const h = harness();
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const state = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      current,
+      successor,
+      'rendezvous:state-2',
+    );
+
+    expect(state).toMatchObject({
+      previous: current,
+      state: successor,
+      rendezvousId: 'rendezvous:state-2',
+    });
+    expect(state.fence.isCurrent()).toBe(true);
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      current: { binding: { playbackRevision: 1 } },
+      currentState: current,
+      candidateState: { previous: current, state: successor },
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+
+    let authorityReads = 0;
+    expect(
+      h.session.commitStateSuccessor(state, successor, () => {
+        authorityReads += 1;
+        expect(state.fence.isCurrent()).toBe(true);
+        expect(prepared.operation.fence.isCurrent()).toBe(true);
+        return true;
+      }),
+    ).toMatchObject({
+      status: 'active',
+      current: { binding: { playbackRevision: 1 } },
+      currentState: successor,
+      candidateState: null,
+      committedRevisionWatermark: 2,
+      admittedRevisionWatermark: 2,
+    });
+    expect(authorityReads).toBe(2);
+    expect(state.fence.isCurrent()).toBe(true);
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('makes exact state staging replay idempotent and rejects conflicts without consuming revision', () => {
+    const h = harness();
+    const prepared = commitBaseline(h, 10);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 11 };
+    const first = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      current,
+      successor,
+      'rendezvous:11',
+    );
+    const replay = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      { ...current },
+      { ...successor },
+      'rendezvous:11',
+    );
+    expect(replay).toBe(first);
+    expect(replay.fence).toBe(first.fence);
+
+    expect(() =>
+      h.session.stageSameRunStateSuccessor(
+        prepared.operation,
+        current,
+        successor,
+        'rendezvous:conflict',
+      ),
+    ).toThrow(/conflicts/u);
+    expect(() =>
+      h.session.stageSameRunStateSuccessor(
+        prepared.operation,
+        current,
+        { ...successor, revision: 12 },
+        'rendezvous:12',
+      ),
+    ).toThrow(/conflicts/u);
+    expect(h.session.snapshot()).toMatchObject({
+      committedRevisionWatermark: 10,
+      admittedRevisionWatermark: 11,
+      candidateState: { rendezvousId: 'rendezvous:11' },
+    });
+  });
+
+  it.each([false, true])(
+    'fail-closes a partial state/attempt admission even when rollback failure is %s',
+    (rollbackFails) => {
+      const h = harness();
+      const prepared = commitBaseline(h);
+      const current = expectedFor(prepared.binding);
+      channelFault.failStageAttempt = true;
+      channelFault.failRetireMedia = rollbackFails;
+
+      expect(() =>
+        h.session.stageSameRunStateSuccessor(
+          prepared.operation,
+          current,
+          { ...current, revision: 2 },
+          'rendezvous:partial-admission',
+        ),
+      ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+      expect(h.session.snapshot()).toMatchObject({
+        status: 'revoked',
+        committedRevisionWatermark: 1,
+        admittedRevisionWatermark: 2,
+        candidateState: null,
+        currentState: null,
+      });
+      expect(prepared.operation.fence.signal.aborted).toBe(true);
+      expect(h.fatal).toHaveBeenCalledOnce();
+      expect(h.channel.isClosed()).toBe(false);
+    },
+  );
+
+  it('retires a rejected state attempt while preserving the prepared run and consumed revision', () => {
+    const h = harness();
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const rejectedState = { ...current, revision: 2 };
+    const rejected = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      current,
+      rejectedState,
+      'rendezvous:rejected',
+    );
+
+    expect(() => h.session.commitStateSuccessor(rejected, rejectedState, () => false)).toThrow(
+      /no longer controller-current/u,
+    );
+    expect(rejected.fence.signal.aborted).toBe(true);
+    expect(rejected.fence.isCurrent()).toBe(false);
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      currentState: current,
+      candidateState: null,
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+
+    const next = { ...current, revision: 3 };
+    const replacement = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      current,
+      next,
+      'rendezvous:replacement',
+    );
+    h.session.commitStateSuccessor(replacement, next, () => true);
+    expect(h.session.snapshot()).toMatchObject({
+      currentState: next,
+      committedRevisionWatermark: 3,
+      admittedRevisionWatermark: 3,
+    });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('supports explicit state-candidate cancellation and rejects forged state authority', () => {
+    const h = harness();
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const state = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      current,
+      successor,
+      'rendezvous:cancel',
+    );
+    const forged = Object.freeze({ ...state }) as FilePlaybackConnectionMediaStateOperation;
+
+    expect(() => h.session.commitStateSuccessor(forged, successor, () => true)).toThrow(/forged/u);
+    h.session.retireStateSuccessor(state);
+    expect(state.fence.signal.aborted).toBe(true);
+    expect(() => h.session.retireStateSuccessor(state)).toThrow(/forged|retired/u);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+      candidateState: null,
+    });
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('replaces only the prior state-attempt fence while retaining one prepared-run fence', () => {
+    const h = harness();
+    const prepared = commitBaseline(h);
+    const initial = expectedFor(prepared.binding);
+    const stateTwo = { ...initial, revision: 2 };
+    const first = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      initial,
+      stateTwo,
+      'rendezvous:two',
+    );
+    h.session.commitStateSuccessor(first, stateTwo, () => true);
+    const stateThree = { ...initial, revision: 3 };
+    const second = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      stateTwo,
+      stateThree,
+      'rendezvous:three',
+    );
+
+    expect(first.fence.isCurrent()).toBe(true);
+    h.session.commitStateSuccessor(second, stateThree, () => true);
+    expect(first.fence.signal.aborted).toBe(true);
+    expect(first.fence.isCurrent()).toBe(false);
+    expect(second.fence.isCurrent()).toBe(true);
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+  });
+
+  it('commits exact stop/run retirement, supports exact retry, and admits a fresh run afterward', () => {
+    const h = harness();
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const stopped = { ...current, revision: 2 };
+
+    let authorityReads = 0;
+    const result = h.session.commitStop(prepared.operation, current, stopped, () => {
+      authorityReads += 1;
+      expect(prepared.operation.fence.isCurrent()).toBe(true);
+      expect(h.session.captureFence().isCurrent()).toBe(true);
+      return true;
+    });
+    expect(authorityReads).toBe(2);
+    expect(result).toMatchObject({
+      status: 'stopped',
+      current: null,
+      currentState: null,
+      candidateState: null,
+      committedRevisionWatermark: 2,
+      admittedRevisionWatermark: 2,
+    });
+    expect(prepared.operation.fence.signal.aborted).toBe(true);
+    expect(prepared.operation.fence.isCurrent()).toBe(false);
+    expect(h.session.commitStop(prepared.operation, current, stopped, () => true)).toMatchObject({
+      status: 'stopped',
+      committedRevisionWatermark: 2,
+    });
+
+    const nextOffer = offerFor(h, 1);
+    expect(h.session.adoptSourceOffer(nextOffer)).toMatchObject({ accepted: true });
+    const nextBinding = bindingFor(nextOffer, 3, RUN_IDS[1]);
+    const next = h.session.stageRunBinding(nextBinding, expectedFor(nextBinding), 'successor');
+    h.session.commitStarted(next, expectedFor(nextBinding), () => true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      current: { binding: { runId: RUN_IDS[1], playbackRevision: 3 } },
+      currentState: expectedFor(nextBinding),
+    });
+    expect(() => h.session.commitStop(prepared.operation, current, stopped, () => true)).toThrow(
+      /forged|retired/u,
+    );
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid stop authority before staging and leaves the live run unchanged', () => {
+    const h = harness();
+    const prepared = commitBaseline(h, 5);
+    const current = expectedFor(prepared.binding);
+
+    expect(() =>
+      h.session.commitStop(prepared.operation, current, { ...current, revision: 7 }, () => true),
+    ).toThrow(/exact current successor/u);
+    expect(() =>
+      h.session.commitStop(prepared.operation, current, { ...current, revision: 6 }, () => false),
+    ).toThrow(/no longer controller-current/u);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      currentState: current,
+      committedRevisionWatermark: 5,
+      admittedRevisionWatermark: 5,
+    });
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('fail-closes stop-authority reentry before consuming its successor revision', () => {
+    const h = harness();
+    const prepared = commitBaseline(h, 5);
+    const current = expectedFor(prepared.binding);
+
+    expect(() =>
+      h.session.commitStop(prepared.operation, current, { ...current, revision: 6 }, () => {
+        expect(() => h.session.snapshot()).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+        return true;
+      }),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'revoked',
+      committedRevisionWatermark: 5,
+      admittedRevisionWatermark: 5,
+      currentState: null,
+    });
+    expect(h.fatal).toHaveBeenCalledOnce();
+    expect(prepared.operation.fence.signal.aborted).toBe(true);
+  });
+
+  it('fail-closes reentrant same-run commit authority before state promotion', () => {
+    const h = harness();
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const state = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      current,
+      successor,
+      'rendezvous:reentrant',
+    );
+    let fatalCallsInsideCallback = -1;
+
+    expect(() =>
+      h.session.commitStateSuccessor(state, successor, () => {
+        try {
+          h.session.snapshot();
+        } catch {
+          // Re-entry must poison this exact connection before promotion.
+        }
+        fatalCallsInsideCallback = h.fatal.mock.calls.length;
+        return true;
+      }),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(fatalCallsInsideCallback).toBe(0);
+    expect(h.fatal).toHaveBeenCalledOnce();
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'revoked',
+      current: null,
+      candidateState: null,
+      currentState: null,
+    });
+    expect(state.fence.signal.aborted).toBe(true);
+    expect(prepared.operation.fence.signal.aborted).toBe(true);
+    expect(h.channel.isClosed()).toBe(false);
+  });
+
+  it('keeps state-transition authority frozen, private, body-free, and revocation-safe', () => {
+    const h = harness();
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const state = h.session.stageSameRunStateSuccessor(
+      prepared.operation,
+      current,
+      successor,
+      'rendezvous:body-free',
+    );
+    const serialized = JSON.stringify({ state, snapshot: h.session.snapshot() });
+
+    expect(Object.getPrototypeOf(state)).toBeNull();
+    expect(Object.isFrozen(state)).toBe(true);
+    expect(Object.getPrototypeOf(state.fence)).toBeNull();
+    expect(Object.isFrozen(state.fence)).toBe(true);
+    expect(Reflect.has(state, 'stateLease')).toBe(false);
+    expect(Reflect.has(state, 'attemptLease')).toBe(false);
+    expect(Reflect.has(state, 'prepared')).toBe(false);
+    expect(serialized).not.toMatch(/Blob|ArrayBuffer|ReadableStream|mediaBody|connectionToken/iu);
+
+    h.session.revoke();
+    expect(state.fence.signal.aborted).toBe(true);
+    expect(state.fence.isCurrent()).toBe(false);
+    expect(prepared.operation.fence.signal.aborted).toBe(true);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'revoked',
+      candidateState: null,
+      currentState: null,
+    });
   });
 
   it('claims one exact APPLIED guest channel for its process-local lifetime', () => {

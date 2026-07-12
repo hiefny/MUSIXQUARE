@@ -4,6 +4,9 @@ import type { QueueItemId } from '../../types/index.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
   createFilePlaybackCutoverTarget,
+  createFilePlaybackRejectedTransitionResult,
+  createFilePlaybackScheduledTransitionResult,
+  createFilePlaybackTransitionEvidence,
   createStreamingFlacPlaybackStartEvidence,
   type FilePlaybackBackend,
   type FilePlaybackCutoverArmResult,
@@ -11,6 +14,9 @@ import {
   type FilePlaybackSourcePhase,
   type FilePlaybackSourceSnapshot,
   type FilePlaybackStartEvidence,
+  type FilePlaybackTransitionEvidence,
+  type FilePlaybackTransitionIntent,
+  type FilePlaybackTransitionResult,
 } from '../file-playback-source.ts';
 import {
   FilePlaybackManager,
@@ -137,6 +143,15 @@ function finalizeIntent(arm: RendezvousArmIntent): RendezvousFinalizeIntent {
   };
 }
 
+function currentPauseIntent(queueItemId = Q1) {
+  return {
+    kind: 'file-playback-pause-transition' as const,
+    from: { queueItemId, runId: `run-${queueItemId}`, revision: 1 },
+    to: { queueItemId, runId: `run-${queueItemId}`, revision: 2 },
+    atRoomTimeMs: 2_000,
+  };
+}
+
 function armedReceipt(intent: RendezvousArmIntent): RendezvousArmReceipt {
   return {
     protocolVersion: 2,
@@ -184,6 +199,7 @@ interface FakeCutoverSource {
   gateDestroy(): void;
   rejectFinalize(): void;
   resolveStarted(): void;
+  applyTransition(appliedFrame?: number): void;
 }
 
 function makeSource(
@@ -198,6 +214,14 @@ function makeSource(
   let destroyGated = false;
   let finalizeRejected = false;
   let armWasCalled = false;
+  let revision = 0;
+  let run: FilePlaybackSourceSnapshot['run'] = null;
+  let positionSeconds = 0;
+  let pendingTransition: {
+    readonly intent: FilePlaybackTransitionIntent;
+    readonly targetFrame: number;
+    readonly evidence: ReturnType<typeof deferred<FilePlaybackTransitionEvidence>>;
+  } | null = null;
   const started = deferred<FilePlaybackStartEvidence>();
   void started.promise.catch(() => undefined);
   const prepareGate = deferred<FilePlaybackSourceSnapshot>();
@@ -209,10 +233,10 @@ function makeSource(
     queueItemId,
     backend,
     phase,
-    revision: 0,
-    run: null,
+    revision,
+    run,
     durationSeconds: 60,
-    positionSeconds: 0,
+    positionSeconds,
     bufferedAheadSeconds: phase === 'new' || phase === 'preparing' ? 0 : 8,
     outputSampleRateHz: context.sampleRate,
     channelCount: 2,
@@ -249,6 +273,12 @@ function makeSource(
       armWasCalled = true;
       if (armGated) return armGate.promise;
       phase = 'armed';
+      revision = intent.revision;
+      run = Object.freeze({
+        queueItemId: intent.queueItemId,
+        runId: intent.runId,
+        revision: intent.revision,
+      });
       return createArmResult(intent);
     }),
     finalize: vi.fn(async (intent) => {
@@ -258,6 +288,38 @@ function makeSource(
     cancel: vi.fn(async () => snapshot()),
     pause: vi.fn(async () => snapshot()),
     seek: vi.fn(async () => snapshot()),
+    pauseRevisioned: vi.fn(async (intent): Promise<FilePlaybackTransitionResult> => {
+      const evidence = deferred<FilePlaybackTransitionEvidence>();
+      void evidence.promise.catch(() => undefined);
+      const targetFrame = Math.round((targetTime + 1) * context.sampleRate);
+      pendingTransition = { intent, targetFrame, evidence };
+      return createFilePlaybackScheduledTransitionResult(
+        intent,
+        createFilePlaybackCutoverTarget(
+          context as unknown as AudioContext,
+          targetTime + 1,
+          targetFrame,
+        ),
+        snapshot(),
+        evidence.promise,
+      );
+    }),
+    seekRevisioned: vi.fn(async (intent): Promise<FilePlaybackTransitionResult> => {
+      const evidence = deferred<FilePlaybackTransitionEvidence>();
+      void evidence.promise.catch(() => undefined);
+      const targetFrame = Math.round((targetTime + 1) * context.sampleRate);
+      pendingTransition = { intent, targetFrame, evidence };
+      return createFilePlaybackScheduledTransitionResult(
+        intent,
+        createFilePlaybackCutoverTarget(
+          context as unknown as AudioContext,
+          targetTime + 1,
+          targetFrame,
+        ),
+        snapshot(),
+        evidence.promise,
+      );
+    }),
     positionAt: vi.fn(() => ({
       queueItemId,
       run: null,
@@ -296,12 +358,31 @@ function makeSource(
       finalizeRejected = true;
     },
     resolveStarted() {
-      phase = 'connected';
+      phase = 'playing';
       const frame = Math.round(targetTime * context.sampleRate);
       started.resolve(
         backend === 'audio-buffer'
           ? createAudioBufferPlaybackStartEvidence(frame)
           : createStreamingFlacPlaybackStartEvidence(frame, frame),
+      );
+    },
+    applyTransition(appliedFrame) {
+      const pending = pendingTransition;
+      if (!pending) throw new Error('No transition is pending');
+      pendingTransition = null;
+      revision = pending.intent.to.revision;
+      run = Object.freeze({ ...pending.intent.to });
+      phase = 'paused';
+      if (pending.intent.kind === 'file-playback-seek-transition') {
+        positionSeconds = pending.intent.positionSeconds;
+      }
+      pending.evidence.resolve(
+        createFilePlaybackTransitionEvidence(
+          pending.intent,
+          backend === 'audio-buffer' ? 'webaudio-schedule-passed' : 'worklet-observed',
+          pending.targetFrame,
+          appliedFrame ?? pending.targetFrame,
+        ),
       );
     },
   };
@@ -311,8 +392,13 @@ async function stageArmFinalize(
   manager: FilePlaybackManager,
   fake: FakeCutoverSource,
   destination: AudioNode,
+  authority?: () => boolean,
 ) {
-  const port = await manager.stageCutoverCandidate({ source: fake.source, destination });
+  const port = await manager.stageCutoverCandidate({
+    source: fake.source,
+    destination,
+    ...(authority ? { authority } : {}),
+  });
   const arm = armIntent(fake.source.queueItemId);
   await manager.armCutoverCandidate(port, arm);
   const finalization = await manager.finalizeCutoverCandidate(port, finalizeIntent(arm));
@@ -324,8 +410,9 @@ async function startFirst(
   fake: FakeCutoverSource,
   destination: AudioNode,
   context: FakeAudioContext,
+  authority?: () => boolean,
 ) {
-  const result = await stageArmFinalize(manager, fake, destination);
+  const result = await stageArmFinalize(manager, fake, destination, authority);
   context.currentTime = result.finalization.target.contextTimeSeconds;
   fake.resolveStarted();
   await result.finalization.started;
@@ -727,6 +814,182 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     await expect(manager.retireCurrentCutover(port)).resolves.toBe(true);
     expect(manager.currentCutoverPort()).toBeNull();
     expect(current.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('exposes revisioned pause only through the exact opaque current port', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    const intent = currentPauseIntent();
+
+    await expect(
+      manager.pauseCurrentCutover({} as FilePlaybackCutoverCandidatePort, intent),
+    ).rejects.toThrow('stale');
+    const first = manager.pauseCurrentCutover(port, intent);
+    const retry = manager.pauseCurrentCutover(port, { ...intent });
+    expect(retry).toBe(first);
+    const scheduled = await first;
+    expect(scheduled).toMatchObject({
+      status: 'scheduled',
+      snapshot: { phase: 'playing', revision: 1 },
+      from: { revision: 1 },
+      to: { revision: 2 },
+    });
+    expect(current.source.pauseRevisioned).toHaveBeenCalledOnce();
+    if (scheduled.status !== 'scheduled') throw new Error('Expected scheduled pause');
+
+    current.applyTransition();
+    await expect(scheduled.applied).resolves.toMatchObject({
+      kind: 'pause-applied',
+      observation: 'worklet-observed',
+      from: { revision: 1 },
+      to: { revision: 2 },
+    });
+    expect(manager.currentCutoverSnapshot(port)).toMatchObject({
+      phase: 'paused',
+      revision: 2,
+      run: { revision: 2 },
+    });
+  });
+
+  it('rejects a wrong current from-state before invoking the backend', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    const wrong = currentPauseIntent();
+    const wrongIntent = {
+      ...wrong,
+      from: { ...wrong.from, runId: 'wrong-current-run' },
+      to: { ...wrong.to, runId: 'wrong-current-run' },
+    };
+
+    await expect(manager.pauseCurrentCutover(port, wrongIntent)).rejects.toThrow(
+      'from state is not current',
+    );
+    expect(current.source.pauseRevisioned).not.toHaveBeenCalled();
+    expect(manager.currentCutoverPort()).toBe(port);
+    expect(current.source.destroy).not.toHaveBeenCalled();
+  });
+
+  it('fails silent on hostile rejected and scheduled snapshots from another backend', async () => {
+    const rejectedContext = new FakeAudioContext();
+    const rejectedDestination = destinationFor(rejectedContext);
+    const rejectedManager = new FilePlaybackManager();
+    const rejectedSource = makeSource(Q1, rejectedContext, 1);
+    const rejectedCurrent = await startFirst(
+      rejectedManager,
+      rejectedSource,
+      rejectedDestination,
+      rejectedContext,
+    );
+    vi.mocked(rejectedSource.source.pauseRevisioned).mockImplementationOnce(async (intent) =>
+      createFilePlaybackRejectedTransitionResult(intent, 'wrong-phase', {
+        ...rejectedSource.source.getSnapshot(),
+        backend: 'audio-buffer',
+      }),
+    );
+    await expect(
+      rejectedManager.pauseCurrentCutover(rejectedCurrent.port, currentPauseIntent()),
+    ).rejects.toThrow('snapshot is not current');
+    expect(rejectedManager.currentCutoverPort()).toBeNull();
+    expect(rejectedManager.cutoverRecoveryRequired()).toBe(true);
+
+    const scheduledContext = new FakeAudioContext();
+    const scheduledDestination = destinationFor(scheduledContext);
+    const scheduledManager = new FilePlaybackManager();
+    const scheduledSource = makeSource(Q1, scheduledContext, 1);
+    const scheduledCurrent = await startFirst(
+      scheduledManager,
+      scheduledSource,
+      scheduledDestination,
+      scheduledContext,
+    );
+    const hostileEvidence = deferred<FilePlaybackTransitionEvidence>();
+    void hostileEvidence.promise.catch(() => undefined);
+    vi.mocked(scheduledSource.source.pauseRevisioned).mockImplementationOnce(async (intent) =>
+      createFilePlaybackScheduledTransitionResult(
+        intent,
+        createFilePlaybackCutoverTarget(scheduledContext as unknown as AudioContext, 2, 96_000),
+        { ...scheduledSource.source.getSnapshot(), backend: 'audio-buffer' },
+        hostileEvidence.promise,
+      ),
+    );
+    await expect(
+      scheduledManager.pauseCurrentCutover(scheduledCurrent.port, currentPauseIntent()),
+    ).rejects.toThrow('snapshot is not current');
+    hostileEvidence.reject(new Error('hostile result retired'));
+    expect(scheduledManager.currentCutoverPort()).toBeNull();
+    expect(scheduledManager.cutoverRecoveryRequired()).toBe(true);
+  });
+
+  it('fails silent when current authority expires before transition evidence', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    let authorized = true;
+    let authorityCalls = 0;
+    const authority = () => {
+      authorityCalls += 1;
+      return authorized;
+    };
+    const { port } = await startFirst(manager, current, destination, context, authority);
+    const scheduled = await manager.pauseCurrentCutover(port, currentPauseIntent());
+    if (scheduled.status !== 'scheduled') throw new Error('Expected scheduled pause');
+    const callsBeforeEvidence = authorityCalls;
+
+    authorized = false;
+    current.applyTransition();
+    await expect(scheduled.applied).rejects.toThrow('invalid or revoked');
+    expect(authorityCalls).toBe(callsBeforeEvidence + 1);
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(manager.cutoverRecoveryRequired()).toBe(true);
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('fails silent when a backend reports an unsafe partial-schedule rejection', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    vi.mocked(current.source.pauseRevisioned).mockImplementationOnce(async (intent) =>
+      createFilePlaybackRejectedTransitionResult(
+        intent,
+        'schedule-failed',
+        current.source.getSnapshot(),
+      ),
+    );
+
+    await expect(manager.pauseCurrentCutover(port, currentPauseIntent())).rejects.toThrow(
+      'schedule-failed',
+    );
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(manager.cutoverRecoveryRequired()).toBe(true);
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('rechecks exact current ownership after a transition snapshot re-enters clear', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    const scheduled = await manager.pauseCurrentCutover(port, currentPauseIntent());
+    if (scheduled.status !== 'scheduled') throw new Error('Expected scheduled pause');
+    const originalSnapshot = current.source.getSnapshot;
+    vi.mocked(current.source.getSnapshot).mockImplementationOnce(() => {
+      void manager.clear();
+      return originalSnapshot();
+    });
+
+    current.applyTransition();
+    await expect(scheduled.applied).rejects.toThrow('did not match evidence');
+    expect(manager.currentCutoverPort()).toBeNull();
   });
 
   it('rejects cached exact retries after their opaque port is replaced', async () => {

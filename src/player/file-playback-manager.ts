@@ -1,15 +1,26 @@
 import type { QueueItemId } from '../types/index.ts';
 import {
+  createFilePlaybackScheduledTransitionResult,
   createFilePlaybackSourceSnapshot,
   readFilePlaybackCutoverTarget,
+  readFilePlaybackPauseTransitionIntent,
+  readFilePlaybackSeekTransitionIntent,
   readFilePlaybackStartEvidence,
+  readFilePlaybackTransitionEvidence,
+  readFilePlaybackTransitionResult,
+  sameFilePlaybackTransitionIntent,
   type FilePlaybackCutoverArmResult,
   type FilePlaybackCutoverSource,
   type FilePlaybackCutoverTarget,
   type FilePlaybackSource,
   type FilePlaybackPosition,
+  type FilePlaybackPauseTransitionIntent,
+  type FilePlaybackSeekTransitionIntent,
   type FilePlaybackSourceSnapshot,
   type FilePlaybackStartEvidence,
+  type FilePlaybackTransitionEvidence,
+  type FilePlaybackTransitionIntent,
+  type FilePlaybackTransitionResult,
 } from './file-playback-source.ts';
 import { readPlaybackStateIdentity } from './playback-identity.ts';
 import {
@@ -80,6 +91,7 @@ type CutoverRecordPhase =
 interface CutoverRecord {
   readonly state: ManagedSource;
   readonly source: FilePlaybackCutoverSource;
+  readonly queueItemId: QueueItemId;
   readonly backend: FilePlaybackSourceSnapshot['backend'];
   readonly destination: AudioNode;
   readonly audioContext: AudioContext;
@@ -96,6 +108,9 @@ interface CutoverRecord {
   finalizePromise: Promise<FilePlaybackCutoverFinalization> | null;
   target: FilePlaybackCutoverTarget | null;
   managedStarted: Promise<FilePlaybackStartEvidence> | null;
+  currentTransitionIntent: Readonly<FilePlaybackTransitionIntent> | null;
+  currentTransitionPromise: Promise<FilePlaybackTransitionResult> | null;
+  currentTransitionPending: boolean;
   gatesScheduled: boolean;
   cleanupPromise: Promise<void> | null;
 }
@@ -438,6 +453,30 @@ function markReturnedStartPromiseObserved(value: unknown): void {
   }
 }
 
+function markReturnedTransitionPromiseObserved(value: unknown): void {
+  try {
+    if (value === null || typeof value !== 'object') return;
+    const descriptor = Object.getOwnPropertyDescriptor(value, 'applied');
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return;
+    const applied = descriptor.value;
+    if (!(applied instanceof Promise)) return;
+    Promise.prototype.then.call(applied, undefined, () => undefined);
+  } catch {
+    // Invalid source results are rejected below; observation is best effort.
+  }
+}
+
+function transitionRejectionCompromisesCurrent(
+  reason: Extract<FilePlaybackTransitionResult, { readonly status: 'rejected' }>['reason'],
+): boolean {
+  return (
+    reason === 'operation-superseded' ||
+    reason === 'schedule-failed' ||
+    reason === 'source-failed' ||
+    reason === 'source-destroyed'
+  );
+}
+
 /**
  * Owns native file playback sources outside the serializable application tree.
  *
@@ -638,6 +677,24 @@ export class FilePlaybackManager {
     );
     if (this.cutoverCurrent !== record || record.revoked) return null;
     return position;
+  }
+
+  pauseCurrentCutover(
+    port: FilePlaybackCutoverCandidatePort,
+    value: FilePlaybackPauseTransitionIntent,
+  ): Promise<FilePlaybackTransitionResult> {
+    const epoch = this.cutoverEpoch;
+    const intent = readFilePlaybackPauseTransitionIntent(value);
+    return this.runCurrentCutoverTransition(port, intent, epoch);
+  }
+
+  seekCurrentCutover(
+    port: FilePlaybackCutoverCandidatePort,
+    value: FilePlaybackSeekTransitionIntent,
+  ): Promise<FilePlaybackTransitionResult> {
+    const epoch = this.cutoverEpoch;
+    const intent = readFilePlaybackSeekTransitionIntent(value);
+    return this.runCurrentCutoverTransition(port, intent, epoch);
   }
 
   retireCurrentCutover(port: FilePlaybackCutoverCandidatePort): Promise<boolean> {
@@ -1025,6 +1082,7 @@ export class FilePlaybackManager {
     const record: CutoverRecord = {
       state,
       source,
+      queueItemId: initialSnapshot.queueItemId,
       backend: initialSnapshot.backend,
       destination,
       audioContext,
@@ -1041,6 +1099,9 @@ export class FilePlaybackManager {
       finalizePromise: null,
       target: null,
       managedStarted: null,
+      currentTransitionIntent: null,
+      currentTransitionPromise: null,
+      currentTransitionPending: false,
       gatesScheduled: false,
       cleanupPromise: null,
     };
@@ -1301,6 +1362,240 @@ export class FilePlaybackManager {
     return this.cutoverCurrent === record && !record.revoked && record.phase === 'current';
   }
 
+  private runCurrentCutoverTransition(
+    port: FilePlaybackCutoverCandidatePort,
+    intent: Readonly<FilePlaybackTransitionIntent> | null,
+    observedEpoch: number,
+  ): Promise<FilePlaybackTransitionResult> {
+    const record = this.cutoverPorts.get(port);
+    if (
+      !intent ||
+      observedEpoch !== this.cutoverEpoch ||
+      !record ||
+      !this.ownsLiveCurrent(record)
+    ) {
+      return Promise.reject(cutoverError('current port or transition intent is stale'));
+    }
+    if (
+      record.currentTransitionIntent &&
+      sameFilePlaybackTransitionIntent(record.currentTransitionIntent, intent)
+    ) {
+      return (
+        record.currentTransitionPromise ??
+        Promise.reject(cutoverError('transition retry has no cached result'))
+      );
+    }
+    if (record.currentTransitionPending) {
+      return Promise.reject(cutoverError('another current transition is still pending'));
+    }
+
+    let currentSnapshot: FilePlaybackSourceSnapshot;
+    try {
+      currentSnapshot = createFilePlaybackSourceSnapshot(record.source.getSnapshot());
+    } catch (error) {
+      if (this.ownsLiveCurrent(record)) {
+        void this.enterFailSilent(record, 'current-transition-snapshot-unavailable');
+      }
+      return Promise.reject(error);
+    }
+    if (observedEpoch !== this.cutoverEpoch || !this.ownsLiveCurrent(record)) {
+      return Promise.reject(cutoverError('current renderer changed during transition preflight'));
+    }
+    if (
+      currentSnapshot.queueItemId !== record.queueItemId ||
+      currentSnapshot.backend !== record.backend
+    ) {
+      void this.enterFailSilent(record, 'current-transition-source-identity-mismatch');
+      return Promise.reject(cutoverError('current backend snapshot changed managed source'));
+    }
+    if (!this.transitionSnapshotMatches(record, currentSnapshot, intent.from)) {
+      return Promise.reject(cutoverError('transition from state is not current'));
+    }
+    record.state.lastSnapshot = currentSnapshot;
+    if (!this.currentAuthorityAllows(record)) {
+      void this.enterFailSilent(record, 'current-transition-authority-expired');
+      return this.rejectedAuthorityPromise(record);
+    }
+
+    const deferred = createDeferredPromise<FilePlaybackTransitionResult>();
+    record.currentTransitionIntent = intent;
+    record.currentTransitionPromise = deferred.promise;
+    record.currentTransitionPending = true;
+    let task: Promise<FilePlaybackTransitionResult>;
+    try {
+      task =
+        intent.kind === 'file-playback-pause-transition'
+          ? Promise.resolve(record.source.pauseRevisioned(intent))
+          : Promise.resolve(record.source.seekRevisioned(intent));
+    } catch (error) {
+      task = Promise.reject(error);
+    }
+    void task.then(
+      (result) =>
+        this.completeCurrentCutoverTransition(record, intent, currentSnapshot, result, deferred),
+      (error: unknown) => this.failCurrentCutoverTransition(record, error, deferred),
+    );
+    return deferred.promise;
+  }
+
+  private completeCurrentCutoverTransition(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackTransitionIntent>,
+    preflightSnapshot: FilePlaybackSourceSnapshot,
+    value: unknown,
+    deferred: ReturnType<typeof createDeferredPromise<FilePlaybackTransitionResult>>,
+  ): void {
+    markReturnedTransitionPromiseObserved(value);
+    if (!this.ownsLiveCurrent(record)) {
+      record.currentTransitionPending = false;
+      deferred.reject(cutoverError('current renderer was replaced during transition'));
+      return;
+    }
+    const result = readFilePlaybackTransitionResult(value, intent, record.audioContext);
+    if (!result) {
+      record.currentTransitionPending = false;
+      void this.enterFailSilent(record, 'invalid-current-transition-result');
+      deferred.reject(cutoverError('backend returned invalid transition authority'));
+      return;
+    }
+    if (
+      !this.transitionSnapshotMatches(record, result.snapshot, intent.from, preflightSnapshot.phase)
+    ) {
+      record.currentTransitionPending = false;
+      void this.enterFailSilent(record, 'current-transition-returned-foreign-snapshot');
+      deferred.reject(cutoverError('backend transition snapshot is not current'));
+      return;
+    }
+    if (result.status === 'rejected') {
+      record.currentTransitionPending = false;
+      record.state.lastSnapshot = result.snapshot;
+      if (transitionRejectionCompromisesCurrent(result.reason)) {
+        void this.enterFailSilent(record, 'current-transition-rejected-unsafely');
+        deferred.reject(cutoverError(`current transition failed: ${result.reason}`));
+        return;
+      }
+      deferred.resolve(result);
+      return;
+    }
+
+    const appliedDeferred = createDeferredPromise<FilePlaybackTransitionEvidence>();
+    const expectedObservation =
+      record.backend === 'audio-buffer' ? 'webaudio-schedule-passed' : 'worklet-observed';
+    try {
+      Promise.prototype.then.call(
+        result.applied,
+        (evidence: unknown) => {
+          const canonical = readFilePlaybackTransitionEvidence(
+            evidence,
+            intent,
+            expectedObservation,
+            result.target.targetFrame,
+          );
+          const authorityAccepted = canonical !== null && this.currentAuthorityAllows(record);
+          if (!canonical || !authorityAccepted) {
+            record.currentTransitionPending = false;
+            if (this.ownsLiveCurrent(record)) {
+              void this.enterFailSilent(
+                record,
+                canonical
+                  ? 'current-transition-authority-expired'
+                  : 'invalid-current-transition-evidence',
+              );
+            }
+            appliedDeferred.reject(
+              cutoverError('current transition evidence is invalid or revoked'),
+            );
+            return;
+          }
+          const authorityEpoch = this.cutoverEpoch;
+          let snapshot: FilePlaybackSourceSnapshot;
+          try {
+            snapshot = createFilePlaybackSourceSnapshot(record.source.getSnapshot());
+          } catch {
+            record.currentTransitionPending = false;
+            void this.enterFailSilent(record, 'transition-snapshot-unavailable');
+            appliedDeferred.reject(cutoverError('transition snapshot is unavailable'));
+            return;
+          }
+          const snapshotRun = snapshot.run ? readPlaybackStateIdentity(snapshot.run) : null;
+          if (
+            authorityEpoch !== this.cutoverEpoch ||
+            !this.ownsLiveCurrent(record) ||
+            !snapshotRun ||
+            !this.transitionSnapshotMatches(record, snapshot, intent.to) ||
+            snapshot.phase !== 'paused'
+          ) {
+            record.currentTransitionPending = false;
+            if (this.ownsLiveCurrent(record)) {
+              void this.enterFailSilent(record, 'transition-state-not-applied');
+            }
+            appliedDeferred.reject(cutoverError('transition state did not match evidence'));
+            return;
+          }
+          record.state.lastSnapshot = snapshot;
+          record.currentTransitionPending = false;
+          appliedDeferred.resolve(canonical);
+        },
+        (error: unknown) => {
+          record.currentTransitionPending = false;
+          if (this.ownsLiveCurrent(record)) {
+            void this.enterFailSilent(record, 'current-transition-evidence-rejected');
+          }
+          appliedDeferred.reject(error);
+        },
+      );
+    } catch (error) {
+      record.currentTransitionPending = false;
+      void this.enterFailSilent(record, 'current-transition-promise-invalid');
+      appliedDeferred.reject(error);
+    }
+
+    try {
+      deferred.resolve(
+        createFilePlaybackScheduledTransitionResult(
+          intent,
+          result.target,
+          result.snapshot,
+          appliedDeferred.promise,
+        ),
+      );
+    } catch (error) {
+      record.currentTransitionPending = false;
+      void this.enterFailSilent(record, 'current-transition-result-wrap-failed');
+      deferred.reject(error);
+    }
+  }
+
+  private failCurrentCutoverTransition(
+    record: CutoverRecord,
+    error: unknown,
+    deferred: ReturnType<typeof createDeferredPromise<FilePlaybackTransitionResult>>,
+  ): void {
+    record.currentTransitionPending = false;
+    if (this.ownsLiveCurrent(record)) {
+      void this.enterFailSilent(record, 'current-transition-call-failed');
+    }
+    deferred.reject(error);
+  }
+
+  private transitionSnapshotMatches(
+    record: CutoverRecord,
+    snapshot: FilePlaybackSourceSnapshot,
+    state: Readonly<FilePlaybackTransitionIntent>['from'],
+    expectedPhase?: FilePlaybackSourceSnapshot['phase'],
+  ): boolean {
+    const run = snapshot.run ? readPlaybackStateIdentity(snapshot.run) : null;
+    return (
+      snapshot.queueItemId === record.queueItemId &&
+      snapshot.backend === record.backend &&
+      run !== null &&
+      run.queueItemId === state.queueItemId &&
+      run.runId === state.runId &&
+      run.revision === state.revision &&
+      (expectedPhase === undefined || snapshot.phase === expectedPhase)
+    );
+  }
+
   private scheduleExactCutover(record: CutoverRecord, target: FilePlaybackCutoverTarget): void {
     const canonicalTarget = readFilePlaybackCutoverTarget(target, record.audioContext);
     const gate = record.gate;
@@ -1536,6 +1831,15 @@ export class FilePlaybackManager {
     return this.cutoverCandidate === record && !record.revoked && !record.state.destroyed;
   }
 
+  private ownsLiveCurrent(record: CutoverRecord): boolean {
+    return (
+      this.cutoverCurrent === record &&
+      record.phase === 'current' &&
+      !record.revoked &&
+      !record.state.destroyed
+    );
+  }
+
   private ownsRetryableCutoverRecord(record: CutoverRecord): boolean {
     return (
       !record.revoked &&
@@ -1582,6 +1886,20 @@ export class FilePlaybackManager {
       }
     }
     return epoch === this.cutoverEpoch && this.ownsLiveCandidate(record);
+  }
+
+  private currentAuthorityAllows(record: CutoverRecord): boolean {
+    if (!this.ownsLiveCurrent(record) || record.authorityError.present) return false;
+    const epoch = this.cutoverEpoch;
+    if (record.authority !== null) {
+      try {
+        if (!record.authority()) return false;
+      } catch (error) {
+        record.authorityError = { present: true, error };
+        return false;
+      }
+    }
+    return epoch === this.cutoverEpoch && this.ownsLiveCurrent(record);
   }
 
   private detachedAuthorityError: AuthorityError = { present: false };

@@ -4,14 +4,20 @@ import type { QueueItemId } from '../../types/index.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
   createFilePlaybackCutoverTarget,
+  createFilePlaybackScheduledTransitionResult,
   createFilePlaybackSourceSnapshot,
+  createFilePlaybackTransitionEvidence,
   createStreamingFlacPlaybackStartEvidence,
   isFilePlaybackSourceSnapshot,
   readFilePlaybackCutoverTarget,
   readFilePlaybackCancelIntent,
   readFilePlaybackPauseIntent,
+  readFilePlaybackPauseTransitionIntent,
   readFilePlaybackSeekIntent,
+  readFilePlaybackSeekTransitionIntent,
   readFilePlaybackStartEvidence,
+  readFilePlaybackTransitionEvidence,
+  readFilePlaybackTransitionResult,
   sourceOwnsRevisionedRun,
   type FilePlaybackSource,
   type FilePlaybackSourceSnapshot,
@@ -213,6 +219,84 @@ describe('file playback source contract', () => {
         reasonCode: 'legacy-run-only-cancel',
       }),
     ).toBeNull();
+  });
+
+  it('canonicalizes exact from-to transition intents without invoking nested accessors', () => {
+    const from = { queueItemId: QID, runId: 'run-3', revision: 3 };
+    const to = { queueItemId: QID, runId: 'run-3', revision: 4 };
+    const pause = readFilePlaybackPauseTransitionIntent({
+      kind: 'file-playback-pause-transition',
+      from,
+      to,
+      atRoomTimeMs: 2_000,
+    });
+    const seek = readFilePlaybackSeekTransitionIntent({
+      kind: 'file-playback-seek-transition',
+      from,
+      to,
+      positionSeconds: 9,
+      atRoomTimeMs: 2_000,
+    });
+    expect(pause).toMatchObject({ from, to, atRoomTimeMs: 2_000 });
+    expect(seek).toMatchObject({ from, to, positionSeconds: 9 });
+    expect(Object.getPrototypeOf(pause)).toBeNull();
+    expect(Object.isFrozen(pause?.from)).toBe(true);
+
+    let getterCalls = 0;
+    const hostileFrom = { ...from };
+    Object.defineProperty(hostileFrom, 'revision', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return 3;
+      },
+    });
+    expect(
+      readFilePlaybackPauseTransitionIntent({
+        kind: 'file-playback-pause-transition',
+        from: hostileFrom,
+        to,
+        atRoomTimeMs: 2_000,
+      }),
+    ).toBeNull();
+    expect(getterCalls).toBe(0);
+  });
+
+  it('binds immutable transition evidence and enforces exact Worklet pause frames', () => {
+    const context = { sampleRate: 48_000 } as AudioContext;
+    const intent = {
+      kind: 'file-playback-pause-transition' as const,
+      from: { queueItemId: QID, runId: 'run-3', revision: 3 },
+      to: { queueItemId: QID, runId: 'run-3', revision: 4 },
+      atRoomTimeMs: 2_000,
+    };
+    const evidence = createFilePlaybackTransitionEvidence(
+      intent,
+      'worklet-observed',
+      96_000,
+      96_000,
+    );
+    expect(
+      readFilePlaybackTransitionEvidence(evidence, intent, 'worklet-observed', 96_000),
+    ).toEqual(evidence);
+    expect(() =>
+      createFilePlaybackTransitionEvidence(intent, 'worklet-observed', 96_000, 96_001),
+    ).toThrow(TypeError);
+    const applied = Promise.resolve(evidence);
+    const result = createFilePlaybackScheduledTransitionResult(
+      intent,
+      createFilePlaybackCutoverTarget(context, 2, 96_000),
+      snapshot(),
+      applied,
+    );
+    expect(readFilePlaybackTransitionResult(result, intent, context)).toMatchObject({
+      status: 'scheduled',
+      from: { revision: 3 },
+      to: { revision: 4 },
+      target: { targetFrame: 96_000 },
+    });
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(evidence)).toBe(true);
   });
 
   it('checks a runtime source against the run queue identity', () => {

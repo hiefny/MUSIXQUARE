@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import { AudioBufferPlaybackSource } from '../backends/audio-buffer-playback-source.ts';
+import type {
+  FilePlaybackPauseTransitionIntent,
+  FilePlaybackSeekTransitionIntent,
+} from '../file-playback-source.ts';
 import type { RendezvousArmIntent, RendezvousFinalizeIntent } from '../rendezvous-contract.ts';
 
 const QID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -140,6 +144,31 @@ function finalizeIntent(
     recipientId: 'peer-1',
     startAtRoomTimeMs: 2_000,
     finalizedAtRoomTimeMs: 1_700,
+    ...overrides,
+  };
+}
+
+function pauseTransition(
+  overrides: Partial<FilePlaybackPauseTransitionIntent> = {},
+): FilePlaybackPauseTransitionIntent {
+  return {
+    kind: 'file-playback-pause-transition',
+    from: { queueItemId: QID, runId: 'run-3', revision: 3 },
+    to: { queueItemId: QID, runId: 'run-3', revision: 4 },
+    atRoomTimeMs: 3_000,
+    ...overrides,
+  };
+}
+
+function seekTransition(
+  overrides: Partial<FilePlaybackSeekTransitionIntent> = {},
+): FilePlaybackSeekTransitionIntent {
+  return {
+    kind: 'file-playback-seek-transition',
+    from: { queueItemId: QID, runId: 'run-3', revision: 4 },
+    to: { queueItemId: QID, runId: 'run-3', revision: 5 },
+    positionSeconds: 12,
+    atRoomTimeMs: 4_000,
     ...overrides,
   };
 }
@@ -792,6 +821,203 @@ describe('AudioBufferPlaybackSource v2', () => {
     ).resolves.toMatchObject({ status: 'armed' });
     expect(context.sources).toHaveLength(2);
     expect(context.sources[1]?.starts).toEqual([{ when: 4, offset: 12 }]);
+  });
+
+  it('advances a pause revision only after the exact WebAudio boundary passes', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await source.armForCutover(armIntent());
+    context.currentTime = 1.7;
+    await source.finalize(finalizeIntent());
+    context.currentTime = 2.5;
+
+    const scheduled = await source.pauseRevisioned(pauseTransition());
+    expect(scheduled).toMatchObject({
+      status: 'scheduled',
+      from: { revision: 3 },
+      to: { revision: 4 },
+      target: { contextTimeSeconds: 3, targetFrame: 144_000 },
+      snapshot: { phase: 'playing', revision: 3 },
+    });
+    if (scheduled.status !== 'scheduled') throw new Error('Expected scheduled pause');
+    let applied = false;
+    void scheduled.applied.then(() => {
+      applied = true;
+    });
+    await Promise.resolve();
+    expect(applied).toBe(false);
+    expect(context.sources[0]?.stops).toEqual([3]);
+    expect(source.getSnapshot()).toMatchObject({ phase: 'playing', revision: 3 });
+
+    const retry = await source.pauseRevisioned({ ...pauseTransition() });
+    expect(retry).toBe(scheduled);
+    expect(context.sources[0]?.stops).toEqual([3]);
+
+    context.currentTime = 3;
+    expect(source.getSnapshot()).toMatchObject({
+      phase: 'paused',
+      revision: 4,
+      run: { runId: 'run-3', revision: 4 },
+      positionSeconds: 5,
+    });
+    await expect(scheduled.applied).resolves.toMatchObject({
+      kind: 'pause-applied',
+      observation: 'webaudio-schedule-passed',
+      targetFrame: 144_000,
+      appliedFrame: 144_000,
+      from: { revision: 3 },
+      to: { revision: 4 },
+    });
+  });
+
+  it('applies a paused seek as the next revision without exposing it early', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await source.armForCutover(armIntent());
+    context.currentTime = 1.7;
+    await source.finalize(finalizeIntent());
+    context.currentTime = 2.5;
+    const pause = await source.pauseRevisioned(pauseTransition());
+    if (pause.status !== 'scheduled') throw new Error('Expected scheduled pause');
+    context.currentTime = 3;
+    await pause.applied;
+
+    const seek = await source.seekRevisioned(seekTransition());
+    expect(seek).toMatchObject({
+      status: 'scheduled',
+      snapshot: { phase: 'paused', revision: 4, positionSeconds: 5 },
+    });
+    if (seek.status !== 'scheduled') throw new Error('Expected scheduled seek');
+    context.currentTime = 3.9;
+    expect(source.getSnapshot()).toMatchObject({ revision: 4, positionSeconds: 5 });
+    context.currentTime = 4.01;
+    expect(source.getSnapshot()).toMatchObject({
+      phase: 'paused',
+      revision: 5,
+      positionSeconds: 12,
+    });
+    await expect(seek.applied).resolves.toMatchObject({
+      kind: 'seek-applied',
+      positionSeconds: 12,
+      targetFrame: 192_000,
+      appliedFrame: 192_480,
+    });
+  });
+
+  it('rejects stale, non-consecutive, playing-seek, and past controls without native mutation', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await source.armForCutover(armIntent());
+    context.currentTime = 1.7;
+    await source.finalize(finalizeIntent());
+    context.currentTime = 2.5;
+    const node = context.sources[0];
+    const automationCount = context.gains[0]?.gain.automation.length;
+
+    await expect(
+      source.pauseRevisioned(
+        pauseTransition({
+          from: { queueItemId: QID, runId: 'other-run', revision: 3 },
+          to: { queueItemId: QID, runId: 'other-run', revision: 4 },
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'identity-mismatch' });
+    await expect(
+      source.pauseRevisioned(
+        pauseTransition({ to: { queueItemId: QID, runId: 'run-3', revision: 3 } }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'non-consecutive-revision' });
+    await expect(
+      source.pauseRevisioned(
+        pauseTransition({ to: { queueItemId: QID, runId: 'run-3', revision: 5 } }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'non-consecutive-revision' });
+    await expect(
+      source.seekRevisioned(
+        seekTransition({
+          from: { queueItemId: QID, runId: 'run-3', revision: 3 },
+          to: { queueItemId: QID, runId: 'run-3', revision: 4 },
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: 'rejected',
+      reason: 'playing-seek-requires-cutover',
+    });
+    await expect(
+      source.seekRevisioned(
+        seekTransition({
+          from: { queueItemId: QID, runId: 'run-3', revision: 3 },
+          to: { queueItemId: QID, runId: 'run-3', revision: 4 },
+          positionSeconds: 21,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'position-out-of-range' });
+    await expect(
+      source.pauseRevisioned(pauseTransition({ atRoomTimeMs: 2_500 })),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'target-not-in-future' });
+    expect(node?.stops).toEqual([]);
+    expect(context.gains[0]?.gain.automation).toHaveLength(automationCount ?? 0);
+  });
+
+  it('rejects pending transition evidence on destruction and never advances its revision', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await source.armForCutover(armIntent());
+    context.currentTime = 1.7;
+    await source.finalize(finalizeIntent());
+    context.currentTime = 2.5;
+    const pause = await source.pauseRevisioned(pauseTransition());
+    if (pause.status !== 'scheduled') throw new Error('Expected scheduled pause');
+
+    await source.destroy();
+    await expect(pause.applied).rejects.toMatchObject({
+      name: 'FilePlaybackTransitionEvidenceError',
+      code: 'source-destroyed',
+    });
+    expect(source.getSnapshot()).toMatchObject({ phase: 'destroyed', revision: 3, run: null });
+  });
+
+  it('revokes an applied transition retry cache when the source is destroyed', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await source.armForCutover(armIntent());
+    context.currentTime = 1.7;
+    await source.finalize(finalizeIntent());
+    context.currentTime = 2.5;
+    const pause = await source.pauseRevisioned(pauseTransition());
+    if (pause.status !== 'scheduled') throw new Error('Expected scheduled pause');
+    context.currentTime = 3;
+    await pause.applied;
+    expect(await source.pauseRevisioned({ ...pauseTransition() })).toBe(pause);
+
+    await source.destroy();
+    await expect(source.pauseRevisioned({ ...pauseTransition() })).resolves.toMatchObject({
+      status: 'rejected',
+      reason: 'source-destroyed',
+      target: null,
+      applied: null,
+    });
+  });
+
+  it('rejects a pause whose native scheduling callback crosses the target boundary', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await source.armForCutover(armIntent());
+    context.currentTime = 1.7;
+    await source.finalize(finalizeIntent());
+    context.currentTime = 2.5;
+    const gain = context.gains[0]?.gain;
+    if (!gain) throw new Error('Expected playback gate');
+    gain.onSetValueAtTime = (value, time) => {
+      if (value === 0 && time === 3) context.currentTime = 3;
+    };
+
+    await expect(source.pauseRevisioned(pauseTransition())).resolves.toMatchObject({
+      status: 'rejected',
+      reason: 'operation-superseded',
+      snapshot: { revision: 3 },
+    });
+    expect(source.getSnapshot()).toMatchObject({ phase: 'paused', revision: 3 });
   });
 
   it('clamps deterministic positions and paused seeks to the media duration', async () => {

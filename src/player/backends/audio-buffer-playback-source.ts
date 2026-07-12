@@ -2,19 +2,32 @@ import type { QueueItemId } from '../../types/index.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
   createFilePlaybackCutoverTarget,
+  createFilePlaybackRejectedTransitionResult,
+  createFilePlaybackScheduledTransitionResult,
   createFilePlaybackSourceSnapshot,
+  createFilePlaybackTransitionEvidence,
+  isConsecutiveFilePlaybackTransition,
   readFilePlaybackCancelIntent,
   readFilePlaybackPauseIntent,
+  readFilePlaybackPauseTransitionIntent,
   readFilePlaybackSeekIntent,
+  readFilePlaybackSeekTransitionIntent,
+  sameFilePlaybackTransitionIntent,
   type FilePlaybackCancelIntent,
   type FilePlaybackCutoverArmResult,
   type FilePlaybackCutoverSource,
   type FilePlaybackCutoverTarget,
   type FilePlaybackPauseIntent,
+  type FilePlaybackPauseTransitionIntent,
   type FilePlaybackPosition,
   type FilePlaybackSeekIntent,
+  type FilePlaybackSeekTransitionIntent,
   type FilePlaybackSourcePhase,
   type FilePlaybackSourceSnapshot,
+  type FilePlaybackTransitionEvidence,
+  type FilePlaybackTransitionIntent,
+  type FilePlaybackTransitionRejectReason,
+  type FilePlaybackTransitionResult,
   type AudioBufferPlaybackStartEvidence,
 } from '../file-playback-source.ts';
 import {
@@ -71,6 +84,28 @@ interface StartEvidenceDeferred {
   settled: boolean;
 }
 
+interface TransitionEvidenceDeferred {
+  readonly promise: Promise<FilePlaybackTransitionEvidence>;
+  readonly resolve: (evidence: FilePlaybackTransitionEvidence) => void;
+  readonly reject: (error: Error) => void;
+  settled: boolean;
+}
+
+interface PendingRevisionTransition {
+  readonly intent: Readonly<FilePlaybackTransitionIntent>;
+  readonly target: FilePlaybackCutoverTarget;
+  readonly positionSeconds: number;
+  readonly execution: ActiveExecution | null;
+  readonly evidence: TransitionEvidenceDeferred;
+  readonly result: Extract<FilePlaybackTransitionResult, { readonly status: 'scheduled' }>;
+  timerHandle: ReturnType<typeof globalThis.setTimeout> | null;
+}
+
+interface CachedRevisionTransition {
+  readonly intent: Readonly<FilePlaybackTransitionIntent>;
+  readonly result: Extract<FilePlaybackTransitionResult, { readonly status: 'scheduled' }>;
+}
+
 interface PlaybackView {
   readonly phase: FilePlaybackSourcePhase;
   readonly positionSeconds: number;
@@ -114,6 +149,37 @@ function createStartEvidenceDeferred(): StartEvidenceDeferred {
   // Mark the original promise handled without changing what await observes.
   void deferred.promise.catch(() => undefined);
   return deferred;
+}
+
+function createTransitionEvidenceDeferred(): TransitionEvidenceDeferred {
+  let resolvePromise!: (evidence: FilePlaybackTransitionEvidence) => void;
+  let rejectPromise!: (error: Error) => void;
+  const deferred: TransitionEvidenceDeferred = {
+    promise: new Promise<FilePlaybackTransitionEvidence>((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    }),
+    resolve: (evidence) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      resolvePromise(evidence);
+    },
+    reject: (error) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      rejectPromise(error);
+    },
+    settled: false,
+  };
+  void deferred.promise.catch(() => undefined);
+  return deferred;
+}
+
+function transitionEvidenceError(code: string): Error {
+  const error = new Error(`AudioBuffer playback transition evidence unavailable: ${code}`);
+  error.name = 'FilePlaybackTransitionEvidenceError';
+  Object.defineProperty(error, 'code', { value: code, enumerable: true });
+  return error;
 }
 
 function rejectedCutoverResult(
@@ -214,6 +280,8 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
   #destination: AudioNode | null = null;
   #active: ActiveExecution | null = null;
   #idleTransition: ScheduledTransition | null = null;
+  #revisionTransition: PendingRevisionTransition | null = null;
+  #lastRevisionTransition: CachedRevisionTransition | null = null;
   #ingressEpoch = 0;
 
   constructor(options: AudioBufferPlaybackSourceOptions) {
@@ -628,6 +696,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
       return this.#snapshotWithoutReconciliation();
     }
     this.#positionSeconds = current.positionSeconds;
+    this.#rejectRevisionTransition('attempt-cancelled');
     this.#retireActiveExecution();
     this.#idleTransition = null;
     this.#phase = 'cancelled';
@@ -652,6 +721,22 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
       this.#clampPosition(canonicalIntent.positionSeconds),
       ingressEpoch,
     );
+  }
+
+  async pauseRevisioned(
+    value: FilePlaybackPauseTransitionIntent,
+  ): Promise<FilePlaybackTransitionResult> {
+    const ingressEpoch = this.#ingressEpoch;
+    const intent = readFilePlaybackPauseTransitionIntent(value);
+    return this.#scheduleRevisionTransition(intent, ingressEpoch);
+  }
+
+  async seekRevisioned(
+    value: FilePlaybackSeekTransitionIntent,
+  ): Promise<FilePlaybackTransitionResult> {
+    const ingressEpoch = this.#ingressEpoch;
+    const intent = readFilePlaybackSeekTransitionIntent(value);
+    return this.#scheduleRevisionTransition(intent, ingressEpoch);
   }
 
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition {
@@ -700,6 +785,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
   async destroy(): Promise<void> {
     this.#advanceIngressEpoch();
     if (this.#phase === 'destroyed') return;
+    this.#rejectRevisionTransition('source-destroyed');
     const current = this.#viewAtContextTime(this.#audioContext.currentTime);
     this.#positionSeconds = current.positionSeconds;
     this.#retireActiveExecution();
@@ -707,6 +793,227 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
     this.#destination = null;
     this.#run = null;
     this.#phase = 'destroyed';
+  }
+
+  async #scheduleRevisionTransition(
+    intent: Readonly<FilePlaybackTransitionIntent> | null,
+    ingressEpoch: number,
+  ): Promise<FilePlaybackTransitionResult> {
+    if (!intent) return this.#rejectedRevisionTransition(null, 'invalid-contract');
+
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    if (this.#phase === 'destroyed') {
+      return this.#rejectedRevisionTransition(intent, 'source-destroyed');
+    }
+    const last = this.#lastRevisionTransition;
+    if (last && sameFilePlaybackTransitionIntent(last.intent, intent)) return last.result;
+    const pending = this.#revisionTransition;
+    if (pending) {
+      return sameFilePlaybackTransitionIntent(pending.intent, intent)
+        ? pending.result
+        : this.#rejectedRevisionTransition(intent, 'transition-pending');
+    }
+    if (!isConsecutiveFilePlaybackTransition(intent.from, intent.to)) {
+      return this.#rejectedRevisionTransition(intent, 'non-consecutive-revision');
+    }
+    if (!sameRun(this.#run, intent.from)) {
+      return this.#rejectedRevisionTransition(intent, 'identity-mismatch');
+    }
+    if (
+      intent.kind === 'file-playback-seek-transition' &&
+      intent.positionSeconds > this.#audioBuffer.duration
+    ) {
+      return this.#rejectedRevisionTransition(intent, 'position-out-of-range');
+    }
+    const preflightContextTime = this.#audioContext.currentTime;
+    if (ingressEpoch !== this.#ingressEpoch || !Number.isFinite(preflightContextTime)) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    const preflightPhase = this.#viewAtContextTime(preflightContextTime).phase;
+    if (intent.kind === 'file-playback-seek-transition' && preflightPhase === 'playing') {
+      return this.#rejectedRevisionTransition(intent, 'playing-seek-requires-cutover');
+    }
+    if (
+      (intent.kind === 'file-playback-pause-transition' && preflightPhase !== 'playing') ||
+      (intent.kind === 'file-playback-seek-transition' && preflightPhase !== 'paused')
+    ) {
+      return this.#rejectedRevisionTransition(intent, 'wrong-phase');
+    }
+    if (!this.#isContextRunning()) {
+      return this.#rejectedRevisionTransition(intent, 'audio-context-not-running');
+    }
+
+    const mappedContextTime = this.#mapRoomTime(intent.atRoomTimeMs);
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    if (mappedContextTime === null) {
+      return this.#rejectedRevisionTransition(intent, 'clock-unavailable');
+    }
+    const sampleRate = this.#audioContext.sampleRate;
+    const targetFrame = Math.round(mappedContextTime * sampleRate);
+    const targetContextTime = targetFrame / sampleRate;
+    const currentContextTime = this.#audioContext.currentTime;
+    if (ingressEpoch !== this.#ingressEpoch) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    if (
+      !Number.isSafeInteger(targetFrame) ||
+      targetFrame < 0 ||
+      !Number.isFinite(currentContextTime) ||
+      targetFrame < Math.round(currentContextTime * sampleRate) + 128
+    ) {
+      return this.#rejectedRevisionTransition(intent, 'target-not-in-future');
+    }
+
+    let active = this.#active;
+    let positionSeconds: number;
+    if (intent.kind === 'file-playback-pause-transition') {
+      if (!active || active.retired || !active.finalized || active.transition !== null) {
+        return this.#rejectedRevisionTransition(
+          intent,
+          active?.transition ? 'transition-pending' : 'wrong-phase',
+        );
+      }
+      if (targetContextTime >= active.naturalEndContextTime) {
+        return this.#rejectedRevisionTransition(intent, 'target-after-media-end');
+      }
+      positionSeconds = this.#viewAtContextTime(targetContextTime).positionSeconds;
+    } else {
+      if (active !== null || this.#idleTransition !== null) {
+        return this.#rejectedRevisionTransition(intent, 'transition-pending');
+      }
+      positionSeconds = intent.positionSeconds;
+    }
+
+    let target: FilePlaybackCutoverTarget;
+    try {
+      target = createFilePlaybackCutoverTarget(this.#audioContext, targetContextTime, targetFrame);
+    } catch {
+      return this.#rejectedRevisionTransition(intent, 'schedule-failed');
+    }
+    const claimedIngressEpoch = this.#advanceIngressEpoch();
+    this.#settleCurrentExecution();
+    const phaseAfterSettle = this.#phase as FilePlaybackSourcePhase;
+    if (
+      claimedIngressEpoch !== this.#ingressEpoch ||
+      !sameRun(this.#run, intent.from) ||
+      this.#revisionTransition !== null ||
+      phaseAfterSettle === 'destroyed'
+    ) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    active = this.#active;
+    if (
+      (intent.kind === 'file-playback-pause-transition' &&
+        (!active || active.retired || !active.finalized || phaseAfterSettle !== 'playing')) ||
+      (intent.kind === 'file-playback-seek-transition' &&
+        (active !== null || phaseAfterSettle !== 'paused'))
+    ) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    const evidence = createTransitionEvidenceDeferred();
+    const snapshot = this.#snapshotWithoutReconciliation();
+    let result: Extract<FilePlaybackTransitionResult, { readonly status: 'scheduled' }>;
+    try {
+      result = createFilePlaybackScheduledTransitionResult(
+        intent,
+        target,
+        snapshot,
+        evidence.promise,
+      );
+    } catch {
+      evidence.reject(transitionEvidenceError('invalid-pre-transition-snapshot'));
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    const transition: PendingRevisionTransition = {
+      intent,
+      target,
+      positionSeconds,
+      execution: intent.kind === 'file-playback-pause-transition' ? active : null,
+      evidence,
+      result,
+      timerHandle: null,
+    };
+    this.#revisionTransition = transition;
+
+    if (intent.kind === 'file-playback-pause-transition') {
+      const execution = active as ActiveExecution;
+      execution.transition = {
+        kind: 'pause',
+        atContextTime: targetContextTime,
+        positionSeconds,
+      };
+      try {
+        execution.gate.gain.setValueAtTime(0, targetContextTime);
+        const contextTimeAfterGate = this.#audioContext.currentTime;
+        if (
+          claimedIngressEpoch !== this.#ingressEpoch ||
+          this.#revisionTransition !== transition ||
+          this.#active !== execution ||
+          execution.retired ||
+          !Number.isFinite(contextTimeAfterGate) ||
+          contextTimeAfterGate >= targetContextTime
+        ) {
+          throw transitionEvidenceError('operation-superseded');
+        }
+        execution.source.stop(targetContextTime);
+        const contextTimeAfterStop = this.#audioContext.currentTime;
+        if (
+          claimedIngressEpoch !== this.#ingressEpoch ||
+          this.#revisionTransition !== transition ||
+          this.#active !== execution ||
+          execution.retired ||
+          !Number.isFinite(contextTimeAfterStop) ||
+          contextTimeAfterStop >= targetContextTime
+        ) {
+          throw transitionEvidenceError('operation-superseded');
+        }
+      } catch (error) {
+        if (this.#revisionTransition === transition) {
+          this.#rejectRevisionTransition(
+            error instanceof Error && error.name === 'FilePlaybackTransitionEvidenceError'
+              ? 'operation-superseded'
+              : 'schedule-failed',
+          );
+          if (this.#active === execution && !execution.retired) {
+            const current = this.#viewAtContextTime(this.#audioContext.currentTime);
+            this.#positionSeconds = current.positionSeconds;
+            this.#phase = 'paused';
+            this.#retireActiveExecution();
+          }
+        }
+        return this.#rejectedRevisionTransition(
+          intent,
+          error instanceof Error && error.name === 'FilePlaybackTransitionEvidenceError'
+            ? 'operation-superseded'
+            : 'schedule-failed',
+        );
+      }
+    } else {
+      this.#idleTransition = {
+        kind: 'seek',
+        atContextTime: targetContextTime,
+        positionSeconds,
+      };
+    }
+
+    this.#lastRevisionTransition = { intent, result };
+    this.#scheduleRevisionTransitionTimer(transition);
+    return result;
+  }
+
+  #rejectedRevisionTransition(
+    intent: Readonly<FilePlaybackTransitionIntent> | null,
+    reason: FilePlaybackTransitionRejectReason,
+  ): Extract<FilePlaybackTransitionResult, { readonly status: 'rejected' }> {
+    return createFilePlaybackRejectedTransitionResult(
+      intent,
+      reason,
+      this.#snapshotWithoutReconciliation(),
+    );
   }
 
   async #scheduleTransition(
@@ -723,7 +1030,8 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
       !sameRun(this.#run, intent) ||
       !Number.isFinite(intent.atRoomTimeMs) ||
       intent.atRoomTimeMs < 0 ||
-      (kind === 'seek' && requestedPosition === null)
+      (kind === 'seek' && requestedPosition === null) ||
+      this.#revisionTransition !== null
     ) {
       return this.getSnapshot();
     }
@@ -766,6 +1074,77 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
     }
     this.#settleCurrentExecution();
     return this.getSnapshot();
+  }
+
+  #scheduleRevisionTransitionTimer(transition: PendingRevisionTransition): void {
+    this.#clearRevisionTransitionTimer(transition);
+    const currentTime = this.#audioContext.currentTime;
+    const remainingMs = Number.isFinite(currentTime)
+      ? Math.max(0, (transition.target.contextTimeSeconds - currentTime) * 1_000)
+      : 50;
+    transition.timerHandle = globalThis.setTimeout(
+      () => {
+        transition.timerHandle = null;
+        this.#watchRevisionTransition(transition);
+      },
+      Math.min(50, Math.max(4, remainingMs)),
+    );
+  }
+
+  #watchRevisionTransition(transition: PendingRevisionTransition): void {
+    if (this.#revisionTransition !== transition || transition.evidence.settled) return;
+    if (this.#phase === 'destroyed') {
+      this.#rejectRevisionTransition('source-destroyed');
+      return;
+    }
+    this.#settleCurrentExecution();
+    if (this.#revisionTransition !== transition || transition.evidence.settled) return;
+    this.#scheduleRevisionTransitionTimer(transition);
+  }
+
+  #applyRevisionTransition(transition: PendingRevisionTransition, appliedFrame: number): boolean {
+    if (
+      this.#revisionTransition !== transition ||
+      transition.evidence.settled ||
+      appliedFrame < transition.target.targetFrame ||
+      !sameRun(this.#run, transition.intent.from)
+    ) {
+      return false;
+    }
+    this.#clearRevisionTransitionTimer(transition);
+    this.#revisionTransition = null;
+    this.#revision = transition.intent.to.revision;
+    this.#run = immutableRun(transition.intent.to);
+    this.#phase = 'paused';
+    this.#positionSeconds = transition.positionSeconds;
+    transition.evidence.resolve(
+      createFilePlaybackTransitionEvidence(
+        transition.intent,
+        'webaudio-schedule-passed',
+        transition.target.targetFrame,
+        appliedFrame,
+      ),
+    );
+    return true;
+  }
+
+  #rejectRevisionTransition(code: string): void {
+    const transition = this.#revisionTransition;
+    this.#lastRevisionTransition = null;
+    if (!transition) return;
+    this.#revisionTransition = null;
+    this.#clearRevisionTransitionTimer(transition);
+    if (transition.execution?.transition) transition.execution.transition = null;
+    if (transition.execution === null && this.#idleTransition?.kind === 'seek') {
+      this.#idleTransition = null;
+    }
+    transition.evidence.reject(transitionEvidenceError(code));
+  }
+
+  #clearRevisionTransitionTimer(transition: PendingRevisionTransition): void {
+    if (transition.timerHandle === null) return;
+    globalThis.clearTimeout(transition.timerHandle);
+    transition.timerHandle = null;
   }
 
   #viewAtContextTime(contextTime: number): PlaybackView {
@@ -899,6 +1278,16 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
         this.#idleTransition !== null &&
         this.#audioContext.currentTime >= this.#idleTransition.atContextTime
       ) {
+        const transition = this.#revisionTransition;
+        if (transition?.execution === null) {
+          const appliedFrame = Math.max(
+            transition.target.targetFrame,
+            Math.round(this.#audioContext.currentTime * this.#audioContext.sampleRate),
+          );
+          if (!this.#applyRevisionTransition(transition, appliedFrame)) {
+            this.#rejectRevisionTransition('operation-superseded');
+          }
+        }
         this.#phase = 'paused';
         this.#positionSeconds = this.#idleTransition.positionSeconds;
         this.#idleTransition = null;
@@ -931,6 +1320,21 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
       return;
     }
 
+    if (transitionPassed) {
+      const transition = this.#revisionTransition;
+      if (transition?.execution === active) {
+        const appliedFrame = Math.max(
+          transition.target.targetFrame,
+          Math.round(this.#audioContext.currentTime * this.#audioContext.sampleRate),
+        );
+        if (!this.#applyRevisionTransition(transition, appliedFrame)) {
+          this.#rejectRevisionTransition('operation-superseded');
+        }
+      }
+    } else if (this.#revisionTransition?.execution === active) {
+      this.#rejectRevisionTransition('execution-ended-before-target');
+    }
+
     this.#phase = view.phase;
     this.#positionSeconds = view.positionSeconds;
     this.#rejectStartEvidence(active, 'execution-ended');
@@ -945,6 +1349,22 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
     safeDisconnect(execution.source);
     safeDisconnect(execution.gate);
     if (execution.retired || this.#active !== execution) return;
+
+    const revisionTransition = this.#revisionTransition;
+    if (revisionTransition?.execution === execution) {
+      const currentFrame = Math.round(
+        this.#audioContext.currentTime * this.#audioContext.sampleRate,
+      );
+      if (
+        currentFrame >= revisionTransition.target.targetFrame &&
+        this.#applyRevisionTransition(revisionTransition, currentFrame)
+      ) {
+        // The exact scheduled pause, rather than a natural end, owns this
+        // callback and has already advanced the logical revision.
+      } else {
+        this.#rejectRevisionTransition('execution-ended-before-target');
+      }
+    }
 
     if (execution.finalized) {
       this.#watchForStartEvidence(execution);
@@ -980,6 +1400,9 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
   #retireActiveExecution(): void {
     const active = this.#active;
     if (active === null) return;
+    if (this.#revisionTransition?.execution === active) {
+      this.#rejectRevisionTransition('execution-retired');
+    }
     this.#rejectStartEvidence(active, 'execution-retired');
     active.retired = true;
     active.source.onended = null;

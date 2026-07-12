@@ -58,16 +58,108 @@ export interface FilePlaybackPosition {
   readonly underrunCount: number;
 }
 
+/** @deprecated Use FilePlaybackPauseTransitionIntent on the V2 current port. */
 export interface FilePlaybackPauseIntent extends RevisionedPlaybackRun {
   readonly kind: 'file-playback-pause';
   readonly atRoomTimeMs: number;
 }
 
+/** @deprecated Use FilePlaybackSeekTransitionIntent on the V2 current port. */
 export interface FilePlaybackSeekIntent extends RevisionedPlaybackRun {
   readonly kind: 'file-playback-seek';
   readonly positionSeconds: number;
   readonly atRoomTimeMs: number;
 }
+
+/**
+ * Revision-bearing local control intents used by the V2 current-renderer
+ * capability. `from` is the exact state that may be changed and `to` is the
+ * only state that may become visible after native application evidence.
+ *
+ * The older flat pause/seek intents above remain only for the inactive legacy
+ * control path. They cannot safely advance the authoritative revision.
+ */
+export interface FilePlaybackPauseTransitionIntent {
+  readonly kind: 'file-playback-pause-transition';
+  readonly from: RevisionedPlaybackRun;
+  readonly to: RevisionedPlaybackRun;
+  readonly atRoomTimeMs: number;
+}
+
+export interface FilePlaybackSeekTransitionIntent {
+  readonly kind: 'file-playback-seek-transition';
+  readonly from: RevisionedPlaybackRun;
+  readonly to: RevisionedPlaybackRun;
+  readonly positionSeconds: number;
+  readonly atRoomTimeMs: number;
+}
+
+export type FilePlaybackTransitionIntent =
+  | FilePlaybackPauseTransitionIntent
+  | FilePlaybackSeekTransitionIntent;
+
+export type FilePlaybackTransitionRejectReason =
+  | 'invalid-contract'
+  | 'operation-superseded'
+  | 'identity-mismatch'
+  | 'non-consecutive-revision'
+  | 'wrong-phase'
+  | 'playing-seek-requires-cutover'
+  | 'transition-pending'
+  | 'audio-context-not-running'
+  | 'clock-unavailable'
+  | 'target-not-in-future'
+  | 'target-after-media-end'
+  | 'position-out-of-range'
+  | 'schedule-failed'
+  | 'source-failed'
+  | 'source-destroyed';
+
+export type FilePlaybackTransitionObservation = 'webaudio-schedule-passed' | 'worklet-observed';
+
+export interface FilePlaybackPauseTransitionEvidence {
+  readonly kind: 'pause-applied';
+  readonly observation: FilePlaybackTransitionObservation;
+  readonly from: RevisionedPlaybackRun;
+  readonly to: RevisionedPlaybackRun;
+  readonly targetFrame: number;
+  readonly appliedFrame: number;
+}
+
+export interface FilePlaybackSeekTransitionEvidence {
+  readonly kind: 'seek-applied';
+  readonly observation: FilePlaybackTransitionObservation;
+  readonly from: RevisionedPlaybackRun;
+  readonly to: RevisionedPlaybackRun;
+  readonly targetFrame: number;
+  readonly appliedFrame: number;
+  readonly positionSeconds: number;
+}
+
+export type FilePlaybackTransitionEvidence =
+  | FilePlaybackPauseTransitionEvidence
+  | FilePlaybackSeekTransitionEvidence;
+
+export type FilePlaybackTransitionResult =
+  | Readonly<{
+      readonly status: 'scheduled';
+      readonly reason: null;
+      readonly from: RevisionedPlaybackRun;
+      readonly to: RevisionedPlaybackRun;
+      readonly target: FilePlaybackCutoverTarget;
+      /** Snapshot before the native boundary; it must still identify `from`. */
+      readonly snapshot: FilePlaybackSourceSnapshot;
+      readonly applied: Promise<FilePlaybackTransitionEvidence>;
+    }>
+  | Readonly<{
+      readonly status: 'rejected';
+      readonly reason: FilePlaybackTransitionRejectReason;
+      readonly from: RevisionedPlaybackRun | null;
+      readonly to: RevisionedPlaybackRun | null;
+      readonly target: null;
+      readonly snapshot: FilePlaybackSourceSnapshot;
+      readonly applied: null;
+    }>;
 
 export interface FilePlaybackCancelIntent extends RevisionedPlaybackRun {
   readonly kind: 'file-playback-cancel';
@@ -134,7 +226,9 @@ export interface FilePlaybackSource {
   arm(intent: RendezvousArmIntent): Promise<RendezvousArmReceipt>;
   finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt>;
   cancel(intent: FilePlaybackCancelIntent): Promise<FilePlaybackSourceSnapshot>;
+  /** @deprecated Snapshot-only legacy control; it cannot advance a revision. */
   pause(intent: FilePlaybackPauseIntent): Promise<FilePlaybackSourceSnapshot>;
+  /** @deprecated Snapshot-only legacy control; it cannot advance a revision. */
   seek(intent: FilePlaybackSeekIntent): Promise<FilePlaybackSourceSnapshot>;
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition;
   getSnapshot(): FilePlaybackSourceSnapshot;
@@ -148,6 +242,8 @@ export interface FilePlaybackSource {
  */
 export interface FilePlaybackCutoverSource extends FilePlaybackSource {
   armForCutover(intent: RendezvousArmIntent): Promise<FilePlaybackCutoverArmResult>;
+  pauseRevisioned(intent: FilePlaybackPauseTransitionIntent): Promise<FilePlaybackTransitionResult>;
+  seekRevisioned(intent: FilePlaybackSeekTransitionIntent): Promise<FilePlaybackTransitionResult>;
 }
 
 const SNAPSHOT_KEYS = Object.freeze([
@@ -176,6 +272,13 @@ const PAUSE_INTENT_KEYS = Object.freeze([
 const PAUSE_INTENT_KEY_SET: ReadonlySet<string> = new Set(PAUSE_INTENT_KEYS);
 const SEEK_INTENT_KEYS = Object.freeze([...PAUSE_INTENT_KEYS, 'positionSeconds'] as const);
 const SEEK_INTENT_KEY_SET: ReadonlySet<string> = new Set(SEEK_INTENT_KEYS);
+const PAUSE_TRANSITION_INTENT_KEYS = Object.freeze(['kind', 'from', 'to', 'atRoomTimeMs'] as const);
+const PAUSE_TRANSITION_INTENT_KEY_SET: ReadonlySet<string> = new Set(PAUSE_TRANSITION_INTENT_KEYS);
+const SEEK_TRANSITION_INTENT_KEYS = Object.freeze([
+  ...PAUSE_TRANSITION_INTENT_KEYS,
+  'positionSeconds',
+] as const);
+const SEEK_TRANSITION_INTENT_KEY_SET: ReadonlySet<string> = new Set(SEEK_TRANSITION_INTENT_KEYS);
 const CANCEL_INTENT_KEYS = Object.freeze([
   'kind',
   'queueItemId',
@@ -203,6 +306,34 @@ const STREAMING_START_EVIDENCE_KEYS = Object.freeze([
 const STREAMING_START_EVIDENCE_KEY_SET: ReadonlySet<string> = new Set(
   STREAMING_START_EVIDENCE_KEYS,
 );
+const PAUSE_TRANSITION_EVIDENCE_KEYS = Object.freeze([
+  'kind',
+  'observation',
+  'from',
+  'to',
+  'targetFrame',
+  'appliedFrame',
+] as const);
+const PAUSE_TRANSITION_EVIDENCE_KEY_SET: ReadonlySet<string> = new Set(
+  PAUSE_TRANSITION_EVIDENCE_KEYS,
+);
+const SEEK_TRANSITION_EVIDENCE_KEYS = Object.freeze([
+  ...PAUSE_TRANSITION_EVIDENCE_KEYS,
+  'positionSeconds',
+] as const);
+const SEEK_TRANSITION_EVIDENCE_KEY_SET: ReadonlySet<string> = new Set(
+  SEEK_TRANSITION_EVIDENCE_KEYS,
+);
+const TRANSITION_RESULT_KEYS = Object.freeze([
+  'status',
+  'reason',
+  'from',
+  'to',
+  'target',
+  'snapshot',
+  'applied',
+] as const);
+const TRANSITION_RESULT_KEY_SET: ReadonlySet<string> = new Set(TRANSITION_RESULT_KEYS);
 const VALID_PHASES: ReadonlySet<FilePlaybackSourcePhase> = new Set([
   'new',
   'preparing',
@@ -215,6 +346,23 @@ const VALID_PHASES: ReadonlySet<FilePlaybackSourcePhase> = new Set([
   'cancelled',
   'failed',
   'destroyed',
+]);
+const TRANSITION_REJECT_REASONS: ReadonlySet<FilePlaybackTransitionRejectReason> = new Set([
+  'invalid-contract',
+  'operation-superseded',
+  'identity-mismatch',
+  'non-consecutive-revision',
+  'wrong-phase',
+  'playing-seek-requires-cutover',
+  'transition-pending',
+  'audio-context-not-running',
+  'clock-unavailable',
+  'target-not-in-future',
+  'target-after-media-end',
+  'position-out-of-range',
+  'schedule-failed',
+  'source-failed',
+  'source-destroyed',
 ]);
 const MAX_TEXT_LENGTH = 256;
 
@@ -412,6 +560,124 @@ export function readFilePlaybackStartEvidence(
   return null;
 }
 
+function sameCanonicalState(left: RevisionedPlaybackRun, right: RevisionedPlaybackRun): boolean {
+  return (
+    left.queueItemId === right.queueItemId &&
+    left.runId === right.runId &&
+    left.revision === right.revision
+  );
+}
+
+export function sameFilePlaybackTransitionIntent(
+  left: FilePlaybackTransitionIntent,
+  right: FilePlaybackTransitionIntent,
+): boolean {
+  const safeLeft = readFilePlaybackTransitionIntent(left);
+  const safeRight = readFilePlaybackTransitionIntent(right);
+  return (
+    safeLeft !== null &&
+    safeRight !== null &&
+    safeLeft.kind === safeRight.kind &&
+    sameCanonicalState(safeLeft.from, safeRight.from) &&
+    sameCanonicalState(safeLeft.to, safeRight.to) &&
+    safeLeft.atRoomTimeMs === safeRight.atRoomTimeMs &&
+    (safeLeft.kind === 'file-playback-pause-transition' ||
+      (safeRight.kind === 'file-playback-seek-transition' &&
+        safeLeft.positionSeconds === safeRight.positionSeconds))
+  );
+}
+
+export function createFilePlaybackTransitionEvidence(
+  intent: FilePlaybackTransitionIntent,
+  observation: FilePlaybackTransitionObservation,
+  targetFrame: number,
+  appliedFrame: number,
+): FilePlaybackTransitionEvidence {
+  const canonical = readFilePlaybackTransitionIntent(intent);
+  if (
+    !canonical ||
+    !isConsecutiveFilePlaybackTransition(canonical.from, canonical.to) ||
+    (observation !== 'webaudio-schedule-passed' && observation !== 'worklet-observed') ||
+    !isSafeNonNegativeInteger(targetFrame) ||
+    !isSafeNonNegativeInteger(appliedFrame) ||
+    appliedFrame < targetFrame ||
+    (canonical.kind === 'file-playback-pause-transition' &&
+      observation === 'worklet-observed' &&
+      appliedFrame !== targetFrame)
+  ) {
+    throw new TypeError('File playback transition evidence is invalid');
+  }
+  if (canonical.kind === 'file-playback-pause-transition') {
+    return freezeControlIntent({
+      kind: 'pause-applied',
+      observation,
+      from: canonical.from,
+      to: canonical.to,
+      targetFrame,
+      appliedFrame,
+    });
+  }
+  return freezeControlIntent({
+    kind: 'seek-applied',
+    observation,
+    from: canonical.from,
+    to: canonical.to,
+    targetFrame,
+    appliedFrame,
+    positionSeconds: canonical.positionSeconds,
+  });
+}
+
+export function readFilePlaybackTransitionEvidence(
+  value: unknown,
+  expectedIntent: FilePlaybackTransitionIntent,
+  expectedObservation?: FilePlaybackTransitionObservation,
+  expectedTargetFrame?: number,
+): FilePlaybackTransitionEvidence | null {
+  const intent = readFilePlaybackTransitionIntent(expectedIntent);
+  if (!intent || !isConsecutiveFilePlaybackTransition(intent.from, intent.to)) return null;
+  const expectedKind =
+    intent.kind === 'file-playback-pause-transition' ? 'pause-applied' : 'seek-applied';
+  const keys =
+    expectedKind === 'pause-applied'
+      ? PAUSE_TRANSITION_EVIDENCE_KEYS
+      : SEEK_TRANSITION_EVIDENCE_KEYS;
+  const keySet =
+    expectedKind === 'pause-applied'
+      ? PAUSE_TRANSITION_EVIDENCE_KEY_SET
+      : SEEK_TRANSITION_EVIDENCE_KEY_SET;
+  const candidate = snapshotExactDataRecord(value, keys, keySet);
+  const identities = candidate ? readTransitionIdentities(candidate) : null;
+  if (
+    !candidate ||
+    !identities ||
+    candidate.kind !== expectedKind ||
+    (candidate.observation !== 'webaudio-schedule-passed' &&
+      candidate.observation !== 'worklet-observed') ||
+    (expectedObservation !== undefined && candidate.observation !== expectedObservation) ||
+    !sameCanonicalState(identities.from, intent.from) ||
+    !sameCanonicalState(identities.to, intent.to) ||
+    !isSafeNonNegativeInteger(candidate.targetFrame) ||
+    !isSafeNonNegativeInteger(candidate.appliedFrame) ||
+    candidate.appliedFrame < candidate.targetFrame ||
+    (expectedTargetFrame !== undefined && candidate.targetFrame !== expectedTargetFrame) ||
+    (intent.kind === 'file-playback-seek-transition' &&
+      candidate.positionSeconds !== intent.positionSeconds)
+  ) {
+    return null;
+  }
+  try {
+    return createFilePlaybackTransitionEvidence(
+      intent,
+      candidate.observation,
+      candidate.targetFrame,
+      candidate.appliedFrame,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function readFilePlaybackPauseIntent(
   value: unknown,
 ): Readonly<FilePlaybackPauseIntent> | null {
@@ -452,6 +718,110 @@ export function readFilePlaybackSeekIntent(
     positionSeconds: candidate.positionSeconds,
     atRoomTimeMs: candidate.atRoomTimeMs,
   });
+}
+
+function samePlaybackRunIdentity(
+  left: RevisionedPlaybackRun,
+  right: RevisionedPlaybackRun,
+): boolean {
+  return left.queueItemId === right.queueItemId && left.runId === right.runId;
+}
+
+export function isConsecutiveFilePlaybackTransition(
+  from: RevisionedPlaybackRun,
+  to: RevisionedPlaybackRun,
+): boolean {
+  const safeFrom = readPlaybackStateIdentity(from);
+  const safeTo = readPlaybackStateIdentity(to);
+  return (
+    safeFrom !== null &&
+    safeTo !== null &&
+    samePlaybackRunIdentity(safeFrom, safeTo) &&
+    safeFrom.revision < Number.MAX_SAFE_INTEGER &&
+    safeTo.revision === safeFrom.revision + 1
+  );
+}
+
+function readTransitionIdentities(
+  candidate: Readonly<Record<string, unknown>>,
+): Readonly<{ from: RevisionedPlaybackRun; to: RevisionedPlaybackRun }> | null {
+  const from = readPlaybackStateIdentity(candidate.from);
+  const to = readPlaybackStateIdentity(candidate.to);
+  if (!from || !to) return null;
+  return freezeControlIntent({ from, to });
+}
+
+export function readFilePlaybackPauseTransitionIntent(
+  value: unknown,
+): Readonly<FilePlaybackPauseTransitionIntent> | null {
+  const candidate = snapshotExactDataRecord(
+    value,
+    PAUSE_TRANSITION_INTENT_KEYS,
+    PAUSE_TRANSITION_INTENT_KEY_SET,
+  );
+  const identities = candidate ? readTransitionIdentities(candidate) : null;
+  if (
+    !candidate ||
+    !identities ||
+    candidate.kind !== 'file-playback-pause-transition' ||
+    !isFiniteNonNegative(candidate.atRoomTimeMs)
+  ) {
+    return null;
+  }
+  return freezeControlIntent({
+    kind: 'file-playback-pause-transition',
+    from: identities.from,
+    to: identities.to,
+    atRoomTimeMs: candidate.atRoomTimeMs,
+  });
+}
+
+export function readFilePlaybackSeekTransitionIntent(
+  value: unknown,
+): Readonly<FilePlaybackSeekTransitionIntent> | null {
+  const candidate = snapshotExactDataRecord(
+    value,
+    SEEK_TRANSITION_INTENT_KEYS,
+    SEEK_TRANSITION_INTENT_KEY_SET,
+  );
+  const identities = candidate ? readTransitionIdentities(candidate) : null;
+  if (
+    !candidate ||
+    !identities ||
+    candidate.kind !== 'file-playback-seek-transition' ||
+    !isFiniteNonNegative(candidate.atRoomTimeMs) ||
+    !isFiniteNonNegative(candidate.positionSeconds)
+  ) {
+    return null;
+  }
+  return freezeControlIntent({
+    kind: 'file-playback-seek-transition',
+    from: identities.from,
+    to: identities.to,
+    positionSeconds: candidate.positionSeconds,
+    atRoomTimeMs: candidate.atRoomTimeMs,
+  });
+}
+
+export function readFilePlaybackTransitionIntent(
+  value: unknown,
+): Readonly<FilePlaybackTransitionIntent> | null {
+  const kindDescriptor = (() => {
+    try {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+      return Object.getOwnPropertyDescriptor(value, 'kind');
+    } catch {
+      return null;
+    }
+  })();
+  if (!kindDescriptor || !Object.hasOwn(kindDescriptor, 'value')) return null;
+  if (kindDescriptor.value === 'file-playback-pause-transition') {
+    return readFilePlaybackPauseTransitionIntent(value);
+  }
+  if (kindDescriptor.value === 'file-playback-seek-transition') {
+    return readFilePlaybackSeekTransitionIntent(value);
+  }
+  return null;
 }
 
 export function readFilePlaybackCancelIntent(
@@ -554,6 +924,130 @@ export function createFilePlaybackSourceSnapshot(
   const snapshot = canonicalSourceSnapshot(input);
   if (snapshot) return snapshot;
   throw new TypeError('File playback source snapshot is invalid');
+}
+
+function snapshotIdentifiesState(
+  snapshot: FilePlaybackSourceSnapshot,
+  state: RevisionedPlaybackRun,
+): boolean {
+  return snapshot.run !== null && sameCanonicalState(snapshot.run, state);
+}
+
+export function createFilePlaybackScheduledTransitionResult(
+  intent: FilePlaybackTransitionIntent,
+  target: FilePlaybackCutoverTarget,
+  snapshot: FilePlaybackSourceSnapshot,
+  applied: Promise<FilePlaybackTransitionEvidence>,
+): Extract<FilePlaybackTransitionResult, { readonly status: 'scheduled' }> {
+  const canonicalIntent = readFilePlaybackTransitionIntent(intent);
+  const canonicalSnapshot = createFilePlaybackSourceSnapshot(snapshot);
+  if (
+    !canonicalIntent ||
+    !isConsecutiveFilePlaybackTransition(canonicalIntent.from, canonicalIntent.to) ||
+    !snapshotIdentifiesState(canonicalSnapshot, canonicalIntent.from) ||
+    !(applied instanceof Promise)
+  ) {
+    throw new TypeError('Scheduled file playback transition result is invalid');
+  }
+  const canonicalTarget = readFilePlaybackCutoverTarget(target, target.audioContext);
+  if (!canonicalTarget) {
+    throw new TypeError('Scheduled file playback transition target is invalid');
+  }
+  return freezeControlIntent({
+    status: 'scheduled',
+    reason: null,
+    from: canonicalIntent.from,
+    to: canonicalIntent.to,
+    target: canonicalTarget,
+    snapshot: canonicalSnapshot,
+    applied,
+  });
+}
+
+export function createFilePlaybackRejectedTransitionResult(
+  intent: FilePlaybackTransitionIntent | null,
+  reason: FilePlaybackTransitionRejectReason,
+  snapshot: FilePlaybackSourceSnapshot,
+): Extract<FilePlaybackTransitionResult, { readonly status: 'rejected' }> {
+  const canonicalIntent = intent ? readFilePlaybackTransitionIntent(intent) : null;
+  if (!TRANSITION_REJECT_REASONS.has(reason)) {
+    throw new TypeError('File playback transition rejection reason is invalid');
+  }
+  return freezeControlIntent({
+    status: 'rejected',
+    reason,
+    from: canonicalIntent?.from ?? null,
+    to: canonicalIntent?.to ?? null,
+    target: null,
+    snapshot: createFilePlaybackSourceSnapshot(snapshot),
+    applied: null,
+  });
+}
+
+/**
+ * Canonicalizes a backend transition result at the manager boundary. Native
+ * promises are retained as opaque process-local evidence channels; no thenable
+ * or accessor is invoked during this synchronous read.
+ */
+export function readFilePlaybackTransitionResult(
+  value: unknown,
+  expectedIntent: FilePlaybackTransitionIntent,
+  expectedAudioContext: AudioContext,
+): FilePlaybackTransitionResult | null {
+  const intent = readFilePlaybackTransitionIntent(expectedIntent);
+  const candidate = snapshotExactDataRecord(
+    value,
+    TRANSITION_RESULT_KEYS,
+    TRANSITION_RESULT_KEY_SET,
+  );
+  if (!intent || !candidate) return null;
+  const snapshot = canonicalSourceSnapshot(candidate.snapshot);
+  if (!snapshot) return null;
+  const status = candidate.status;
+  const from = candidate.from === null ? null : readPlaybackStateIdentity(candidate.from);
+  const to = candidate.to === null ? null : readPlaybackStateIdentity(candidate.to);
+  if (status === 'rejected') {
+    if (
+      !TRANSITION_REJECT_REASONS.has(candidate.reason as FilePlaybackTransitionRejectReason) ||
+      !from ||
+      !to ||
+      !sameCanonicalState(from, intent.from) ||
+      !sameCanonicalState(to, intent.to) ||
+      candidate.target !== null ||
+      candidate.applied !== null
+    ) {
+      return null;
+    }
+    return createFilePlaybackRejectedTransitionResult(
+      intent,
+      candidate.reason as FilePlaybackTransitionRejectReason,
+      snapshot,
+    );
+  }
+  if (
+    status !== 'scheduled' ||
+    candidate.reason !== null ||
+    !from ||
+    !to ||
+    !sameCanonicalState(from, intent.from) ||
+    !sameCanonicalState(to, intent.to) ||
+    !snapshotIdentifiesState(snapshot, intent.from) ||
+    !(candidate.applied instanceof Promise)
+  ) {
+    return null;
+  }
+  const target = readFilePlaybackCutoverTarget(candidate.target, expectedAudioContext);
+  if (!target) return null;
+  try {
+    return createFilePlaybackScheduledTransitionResult(
+      intent,
+      target,
+      snapshot,
+      candidate.applied as Promise<FilePlaybackTransitionEvidence>,
+    );
+  } catch {
+    return null;
+  }
 }
 
 export function sourceOwnsRevisionedRun(

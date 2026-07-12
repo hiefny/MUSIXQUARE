@@ -3,20 +3,33 @@ import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   createFilePlaybackCutoverTarget,
+  createFilePlaybackRejectedTransitionResult,
+  createFilePlaybackScheduledTransitionResult,
   createFilePlaybackSourceSnapshot,
+  createFilePlaybackTransitionEvidence,
   createStreamingFlacPlaybackStartEvidence,
+  isConsecutiveFilePlaybackTransition,
   readFilePlaybackCancelIntent,
   readFilePlaybackPauseIntent,
+  readFilePlaybackPauseTransitionIntent,
   readFilePlaybackSeekIntent,
+  readFilePlaybackSeekTransitionIntent,
+  sameFilePlaybackTransitionIntent,
   type FilePlaybackCancelIntent,
   type FilePlaybackCutoverArmResult,
   type FilePlaybackCutoverSource,
   type FilePlaybackCutoverTarget,
   type FilePlaybackPauseIntent,
+  type FilePlaybackPauseTransitionIntent,
   type FilePlaybackPosition,
   type FilePlaybackSeekIntent,
+  type FilePlaybackSeekTransitionIntent,
   type FilePlaybackSourcePhase,
   type FilePlaybackSourceSnapshot,
+  type FilePlaybackTransitionEvidence,
+  type FilePlaybackTransitionIntent,
+  type FilePlaybackTransitionRejectReason,
+  type FilePlaybackTransitionResult,
   type StreamingFlacPlaybackStartEvidence,
 } from '../file-playback-source.ts';
 import type { FlacMetadata } from '../flac/metadata.ts';
@@ -195,6 +208,32 @@ interface PendingPauseWait {
   readonly operation: ControlOperation;
   readonly targetFrame: number;
   readonly resolve: () => void;
+}
+
+interface TransitionEvidenceDeferred {
+  readonly promise: Promise<FilePlaybackTransitionEvidence>;
+  readonly resolve: (evidence: FilePlaybackTransitionEvidence) => void;
+  readonly reject: (error: Error) => void;
+  settled: boolean;
+}
+
+interface PendingRevisionTransition {
+  readonly intent: Readonly<FilePlaybackTransitionIntent>;
+  readonly target: FilePlaybackCutoverTarget;
+  readonly positionSeconds: number;
+  readonly visibleSnapshot: FilePlaybackSourceSnapshot;
+  readonly evidence: TransitionEvidenceDeferred;
+  readonly result: Extract<FilePlaybackTransitionResult, { readonly status: 'scheduled' }>;
+  readonly pauseIdentity: FlacStreamRunIdentity | null;
+  stage: 'scheduled' | 'applying-seek' | 'awaiting-seek-status';
+  expectedGeneration: number | null;
+  controlOperation: ControlOperation | null;
+  timerHandle: ReturnType<typeof globalThis.setTimeout> | null;
+}
+
+interface CachedRevisionTransition {
+  readonly intent: Readonly<FilePlaybackTransitionIntent>;
+  readonly result: Extract<FilePlaybackTransitionResult, { readonly status: 'scheduled' }>;
 }
 
 const defaultRuntime: StreamingFlacPlaybackRuntime = {
@@ -552,6 +591,37 @@ function createStartEvidenceDeferred(): StartEvidenceDeferred {
   return deferred;
 }
 
+function transitionEvidenceError(code: string): Error {
+  const error = new Error(`Streaming FLAC transition evidence unavailable: ${code}`);
+  error.name = 'FilePlaybackTransitionEvidenceError';
+  Object.defineProperty(error, 'code', { value: code, enumerable: true });
+  return error;
+}
+
+function createTransitionEvidenceDeferred(): TransitionEvidenceDeferred {
+  let resolvePromise!: (evidence: FilePlaybackTransitionEvidence) => void;
+  let rejectPromise!: (error: Error) => void;
+  const deferred: TransitionEvidenceDeferred = {
+    promise: new Promise<FilePlaybackTransitionEvidence>((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    }),
+    resolve: (evidence) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      resolvePromise(evidence);
+    },
+    reject: (error) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      rejectPromise(error);
+    },
+    settled: false,
+  };
+  void deferred.promise.catch(() => undefined);
+  return deferred;
+}
+
 function rejectedCutoverResult(
   receipt: RendezvousArmReceipt,
 ): Extract<FilePlaybackCutoverArmResult, { readonly status: 'rejected' }> {
@@ -619,6 +689,8 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   #pendingFinalizeAck: PendingAck | null = null;
   #pendingPause: PendingPause | null = null;
   #pendingPauseWait: PendingPauseWait | null = null;
+  #revisionTransition: PendingRevisionTransition | null = null;
+  #lastRevisionTransition: CachedRevisionTransition | null = null;
   #mediaFrame = 0;
   #statusRenderFrame = 0;
   #bufferedFrames = 0;
@@ -1455,6 +1527,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     this.#postCancel(identity);
     if (!stillOwnsAttempt()) return this.#snapshotWithoutReconciliation();
 
+    this.#rejectRevisionTransition('attempt-cancelled');
     this.#supersedeControlOperations('cancelled');
     if (matchingActive !== null) {
       this.#retireActiveArm('cancelled', matchingActive);
@@ -1476,7 +1549,8 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       !sameRun(this.#run, canonicalIntent) ||
       this.#phase !== 'playing' ||
       !this.#activeArm ||
-      !this.#isContextRunning()
+      !this.#isContextRunning() ||
+      this.#revisionTransition !== null
     ) {
       return this.getSnapshot();
     }
@@ -1495,7 +1569,8 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     if (
       ingressEpoch !== this.#ingressEpoch ||
       !canonicalIntent ||
-      !sameRun(this.#run, canonicalIntent)
+      !sameRun(this.#run, canonicalIntent) ||
+      this.#revisionTransition !== null
     ) {
       return this.getSnapshot();
     }
@@ -1538,6 +1613,195 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     }
   }
 
+  async pauseRevisioned(
+    value: FilePlaybackPauseTransitionIntent,
+  ): Promise<FilePlaybackTransitionResult> {
+    const ingressEpoch = this.#ingressEpoch;
+    const intent = readFilePlaybackPauseTransitionIntent(value);
+    return this.#scheduleRevisionTransition(intent, ingressEpoch);
+  }
+
+  async seekRevisioned(
+    value: FilePlaybackSeekTransitionIntent,
+  ): Promise<FilePlaybackTransitionResult> {
+    const ingressEpoch = this.#ingressEpoch;
+    const intent = readFilePlaybackSeekTransitionIntent(value);
+    return this.#scheduleRevisionTransition(intent, ingressEpoch);
+  }
+
+  async #scheduleRevisionTransition(
+    intent: Readonly<FilePlaybackTransitionIntent> | null,
+    observedIngressEpoch: number,
+  ): Promise<FilePlaybackTransitionResult> {
+    if (!intent) return this.#rejectedRevisionTransition(null, 'invalid-contract');
+    if (observedIngressEpoch !== this.#ingressEpoch) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    if (this.#phase === 'destroyed') {
+      return this.#rejectedRevisionTransition(intent, 'source-destroyed');
+    }
+    if (this.#phase === 'failed') {
+      return this.#rejectedRevisionTransition(intent, 'source-failed');
+    }
+    const last = this.#lastRevisionTransition;
+    if (last && sameFilePlaybackTransitionIntent(last.intent, intent)) return last.result;
+    if (!isConsecutiveFilePlaybackTransition(intent.from, intent.to)) {
+      return this.#rejectedRevisionTransition(intent, 'non-consecutive-revision');
+    }
+    if (!sameRun(this.#run, intent.from)) {
+      return this.#rejectedRevisionTransition(intent, 'identity-mismatch');
+    }
+    if (
+      intent.kind === 'file-playback-seek-transition' &&
+      intent.positionSeconds > this.#durationSeconds
+    ) {
+      return this.#rejectedRevisionTransition(intent, 'position-out-of-range');
+    }
+    const pending = this.#revisionTransition;
+    if (pending) {
+      return sameFilePlaybackTransitionIntent(pending.intent, intent)
+        ? pending.result
+        : this.#rejectedRevisionTransition(intent, 'transition-pending');
+    }
+    if (intent.kind === 'file-playback-seek-transition' && this.#phase === 'playing') {
+      return this.#rejectedRevisionTransition(intent, 'playing-seek-requires-cutover');
+    }
+    if (
+      (intent.kind === 'file-playback-pause-transition' &&
+        (this.#phase !== 'playing' || !this.#activeArm)) ||
+      (intent.kind === 'file-playback-seek-transition' && this.#phase !== 'paused')
+    ) {
+      return this.#rejectedRevisionTransition(intent, 'wrong-phase');
+    }
+    if (!this.#isContextRunning()) {
+      return this.#rejectedRevisionTransition(intent, 'audio-context-not-running');
+    }
+    const targetFrame = this.#roomTimeToRenderFrame(intent.atRoomTimeMs);
+    if (observedIngressEpoch !== this.#ingressEpoch) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    if (targetFrame === null) {
+      return this.#rejectedRevisionTransition(intent, 'clock-unavailable');
+    }
+    const currentFrame = this.#currentRenderFrame;
+    if (observedIngressEpoch !== this.#ingressEpoch) {
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    const minimumLeadFrames = intent.kind === 'file-playback-pause-transition' ? 128 : 1;
+    if (targetFrame < currentFrame + minimumLeadFrames) {
+      return this.#rejectedRevisionTransition(intent, 'target-not-in-future');
+    }
+
+    let target: FilePlaybackCutoverTarget;
+    try {
+      target = createFilePlaybackCutoverTarget(
+        this.#audioContext,
+        targetFrame / this.#audioContext.sampleRate,
+        targetFrame,
+      );
+    } catch {
+      return this.#rejectedRevisionTransition(intent, 'schedule-failed');
+    }
+    const positionSeconds =
+      intent.kind === 'file-playback-seek-transition'
+        ? intent.positionSeconds
+        : this.#viewAtRenderFrame(targetFrame).mediaFrame / this.#audioContext.sampleRate;
+    const visibleSnapshot = this.#snapshotWithoutReconciliation();
+    const evidence = createTransitionEvidenceDeferred();
+    let result: Extract<FilePlaybackTransitionResult, { readonly status: 'scheduled' }>;
+    try {
+      result = createFilePlaybackScheduledTransitionResult(
+        intent,
+        target,
+        visibleSnapshot,
+        evidence.promise,
+      );
+    } catch {
+      evidence.reject(transitionEvidenceError('invalid-pre-transition-snapshot'));
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+
+    // Everything above is a pure preflight. Claim ingress only for the exact
+    // new native operation, then revalidate the authority snapshot.
+    const ingressEpoch = this.#advanceIngressEpoch();
+    const phaseAfterClaim = this.#phase as FilePlaybackSourcePhase;
+    if (
+      ingressEpoch !== this.#ingressEpoch ||
+      !sameRun(this.#run, intent.from) ||
+      this.#revisionTransition !== null ||
+      phaseAfterClaim === 'failed' ||
+      phaseAfterClaim === 'destroyed' ||
+      (intent.kind === 'file-playback-pause-transition' &&
+        (phaseAfterClaim !== 'playing' || !this.#activeArm)) ||
+      (intent.kind === 'file-playback-seek-transition' && phaseAfterClaim !== 'paused')
+    ) {
+      evidence.reject(transitionEvidenceError('operation-superseded'));
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    const pauseIdentity =
+      intent.kind === 'file-playback-pause-transition' && this.#activeArm
+        ? runIdentity(this.#activeArm.intent)
+        : null;
+    if (intent.kind === 'file-playback-pause-transition' && pauseIdentity === null) {
+      evidence.reject(transitionEvidenceError('operation-superseded'));
+      return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+    }
+    const transition: PendingRevisionTransition = {
+      intent,
+      target,
+      positionSeconds,
+      visibleSnapshot,
+      evidence,
+      result,
+      pauseIdentity,
+      stage: 'scheduled',
+      expectedGeneration: null,
+      controlOperation: null,
+      timerHandle: null,
+    };
+    this.#revisionTransition = transition;
+
+    if (pauseIdentity) {
+      this.#pendingPause = {
+        targetFrame,
+        mediaFrame: this.#viewAtRenderFrame(targetFrame).mediaFrame,
+        identity: pauseIdentity,
+      };
+      this.#postWorklet({
+        protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+        type: 'pause',
+        generation: this.#generation,
+        ...pauseIdentity,
+        targetFrame,
+      });
+      const phaseAfterPost = this.#phase as FilePlaybackSourcePhase;
+      if (
+        ingressEpoch !== this.#ingressEpoch ||
+        this.#revisionTransition !== transition ||
+        phaseAfterPost === 'failed' ||
+        phaseAfterPost === 'destroyed'
+      ) {
+        this.#rejectRevisionTransition('operation-superseded');
+        return this.#rejectedRevisionTransition(intent, 'operation-superseded');
+      }
+    }
+
+    this.#lastRevisionTransition = { intent, result };
+    this.#scheduleRevisionTransitionTimer(transition);
+    return result;
+  }
+
+  #rejectedRevisionTransition(
+    intent: Readonly<FilePlaybackTransitionIntent> | null,
+    reason: FilePlaybackTransitionRejectReason,
+  ): Extract<FilePlaybackTransitionResult, { readonly status: 'rejected' }> {
+    return createFilePlaybackRejectedTransitionResult(
+      intent,
+      reason,
+      this.#snapshotWithoutReconciliation(),
+    );
+  }
+
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition {
     if (!Number.isFinite(localPerformanceTimeMs) || localPerformanceTimeMs < 0) {
       throw new RangeError('Local performance time must be a finite non-negative number');
@@ -1545,6 +1809,18 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     const contextTime = this.#localPerformanceMsToContextTime(localPerformanceTimeMs);
     if (!Number.isFinite(contextTime) || contextTime < 0) {
       throw new RangeError('Local performance time could not be mapped to AudioContext time');
+    }
+    const transition = this.#revisionTransition;
+    if (transition?.intent.kind === 'file-playback-seek-transition') {
+      const visible = transition.visibleSnapshot;
+      return Object.freeze({
+        queueItemId: this.queueItemId,
+        run: visible.run ? immutableRun(visible.run) : null,
+        phase: visible.phase,
+        positionSeconds: visible.positionSeconds,
+        bufferedAheadSeconds: visible.bufferedAheadSeconds,
+        underrunCount: visible.underrunCount,
+      });
     }
     const frame = this.#contextTimeToFrame(contextTime);
     const view = this.#viewAtRenderFrame(frame);
@@ -1564,6 +1840,10 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   }
 
   #snapshotWithoutReconciliation(): FilePlaybackSourceSnapshot {
+    const transition = this.#revisionTransition;
+    if (transition?.intent.kind === 'file-playback-seek-transition') {
+      return createFilePlaybackSourceSnapshot(transition.visibleSnapshot);
+    }
     const view = this.#viewAtRenderFrame(this.#currentRenderFrame);
     return createFilePlaybackSourceSnapshot({
       schemaVersion: 1,
@@ -1585,6 +1865,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   async destroy(): Promise<void> {
     this.#advanceIngressEpoch();
     if (this.#phase === 'destroyed') return;
+    this.#rejectRevisionTransition('source-destroyed');
     this.#supersedeControlOperations('source-destroyed');
     this.#lifetimeAbort.abort(new DOMException('FLAC playback source was destroyed', 'AbortError'));
     this.#clearAcks('source-destroyed');
@@ -2103,6 +2384,17 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
         this.#mediaFrame = value.mediaFrame;
         this.#statusRenderFrame = value.actualPauseFrame;
         this.#pendingPause = null;
+        const transition = this.#revisionTransition;
+        if (
+          transition?.intent.kind === 'file-playback-pause-transition' &&
+          transition.target.targetFrame === value.targetFrame &&
+          sameStreamIdentity(transition.pauseIdentity, value)
+        ) {
+          if (!this.#applyRevisionTransition(transition, value.actualPauseFrame)) {
+            this.#fail('worklet-pause-transition-authority-lost');
+            return;
+          }
+        }
         this.#retireActiveArm('playback-paused');
         const pauseWait = this.#pendingPauseWait;
         if (pauseWait?.targetFrame === value.targetFrame) {
@@ -2124,6 +2416,26 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
         this.#statusRenderFrame = value.renderFrame;
         this.#bufferedFrames = value.bufferedFrames;
         this.#underrunCount = value.underruns;
+        {
+          const transition = this.#revisionTransition;
+          if (
+            transition?.intent.kind === 'file-playback-seek-transition' &&
+            transition.stage === 'awaiting-seek-status' &&
+            transition.expectedGeneration === value.generation &&
+            value.renderFrame >= transition.target.targetFrame &&
+            (value.state === 'ready' || value.state === 'paused')
+          ) {
+            const expectedMediaFrame = this.#positionToOutputFrame(transition.positionSeconds);
+            if (value.mediaFrame !== expectedMediaFrame) {
+              this.#fail('worklet-seek-transition-position-mismatch');
+              return;
+            }
+            if (!this.#applyRevisionTransition(transition, value.renderFrame)) {
+              this.#fail('worklet-seek-transition-authority-lost');
+              return;
+            }
+          }
+        }
         if (value.state === 'playing') this.#phase = 'playing';
         else if (value.state === 'paused') {
           this.#phase = 'paused';
@@ -2360,6 +2672,172 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
         pending.intent.startAtRoomTimeMs,
       ),
     );
+  }
+
+  #scheduleRevisionTransitionTimer(transition: PendingRevisionTransition): void {
+    this.#clearRevisionTransitionTimer(transition);
+    const currentFrame = this.#currentRenderFrame;
+    const remainingMs = Math.max(
+      0,
+      ((transition.target.targetFrame - currentFrame) / this.#audioContext.sampleRate) * 1_000,
+    );
+    transition.timerHandle = globalThis.setTimeout(
+      () => {
+        transition.timerHandle = null;
+        this.#watchRevisionTransition(transition);
+      },
+      Math.min(100, Math.max(4, remainingMs)),
+    );
+  }
+
+  #watchRevisionTransition(transition: PendingRevisionTransition): void {
+    if (this.#revisionTransition !== transition || transition.evidence.settled) return;
+    if (this.#phase === 'failed' || this.#phase === 'destroyed') {
+      this.#rejectRevisionTransition(
+        this.#phase === 'destroyed' ? 'source-destroyed' : 'source-failed',
+      );
+      return;
+    }
+    const roomNow = this.#roomNow();
+    if (this.#revisionTransition !== transition) return;
+    const timeoutMs =
+      transition.intent.kind === 'file-playback-seek-transition'
+        ? this.#prepareTimeoutMs
+        : this.#commandTimeoutMs;
+    if (roomNow === null || roomNow > transition.intent.atRoomTimeMs + timeoutMs) {
+      this.#rejectRevisionTransition(
+        roomNow === null ? 'clock-unavailable' : 'transition-evidence-timeout',
+      );
+      const phaseAfterRejection = this.#phase as FilePlaybackSourcePhase;
+      if (phaseAfterRejection !== 'destroyed' && phaseAfterRejection !== 'failed') {
+        this.#fail('worklet-transition-timeout');
+      }
+      return;
+    }
+    if (this.#currentRenderFrame < transition.target.targetFrame) {
+      this.#scheduleRevisionTransitionTimer(transition);
+      return;
+    }
+    if (transition.intent.kind === 'file-playback-pause-transition') {
+      // Only the exact Worklet `paused` event may commit a playing pause.
+      this.#scheduleRevisionTransitionTimer(transition);
+      return;
+    }
+    if (transition.stage === 'scheduled') {
+      this.#beginRevisionedSeek(transition);
+      return;
+    }
+    this.#scheduleRevisionTransitionTimer(transition);
+  }
+
+  #beginRevisionedSeek(transition: PendingRevisionTransition): void {
+    if (
+      this.#revisionTransition !== transition ||
+      transition.intent.kind !== 'file-playback-seek-transition' ||
+      transition.stage !== 'scheduled' ||
+      !sameRun(this.#run, transition.intent.from)
+    ) {
+      return;
+    }
+    transition.stage = 'applying-seek';
+    const operation = this.#beginControlOperation();
+    transition.controlOperation = operation;
+    let resetting: Promise<void>;
+    try {
+      resetting = this.#resetGeneration(transition.positionSeconds, operation, 'paused');
+      transition.expectedGeneration = this.#generation;
+    } catch (error) {
+      this.#finishControlOperation(operation);
+      this.#rejectRevisionTransition('seek-reset-failed');
+      this.#fail('seek-transition-failed', error);
+      return;
+    }
+    void resetting.then(
+      () => {
+        if (
+          this.#revisionTransition !== transition ||
+          transition.controlOperation !== operation ||
+          !this.#isCurrentOperation(operation)
+        ) {
+          return;
+        }
+        this.#finishControlOperation(operation);
+        transition.controlOperation = null;
+        transition.stage = 'awaiting-seek-status';
+        this.#scheduleRevisionTransitionTimer(transition);
+      },
+      (error: unknown) => {
+        if (this.#revisionTransition !== transition) return;
+        this.#finishControlOperation(operation);
+        transition.controlOperation = null;
+        this.#rejectRevisionTransition('seek-reset-failed');
+        if (this.#phase !== 'destroyed' && this.#phase !== 'failed') {
+          this.#fail('seek-transition-failed', error);
+        }
+      },
+    );
+  }
+
+  #applyRevisionTransition(transition: PendingRevisionTransition, appliedFrame: number): boolean {
+    if (
+      this.#revisionTransition !== transition ||
+      transition.evidence.settled ||
+      appliedFrame < transition.target.targetFrame ||
+      !sameRun(this.#run, transition.intent.from)
+    ) {
+      return false;
+    }
+    this.#clearRevisionTransitionTimer(transition);
+    this.#revisionTransition = null;
+    if (transition.controlOperation) this.#finishControlOperation(transition.controlOperation);
+    transition.controlOperation = null;
+    this.#revision = transition.intent.to.revision;
+    this.#run = immutableRun(transition.intent.to);
+    this.#phase = 'paused';
+    if (transition.intent.kind === 'file-playback-seek-transition') {
+      this.#mediaFrame = this.#positionToOutputFrame(transition.positionSeconds);
+      this.#statusRenderFrame = appliedFrame;
+    }
+    transition.evidence.resolve(
+      createFilePlaybackTransitionEvidence(
+        transition.intent,
+        'worklet-observed',
+        transition.target.targetFrame,
+        appliedFrame,
+      ),
+    );
+    return true;
+  }
+
+  #rejectRevisionTransition(code: string): void {
+    const transition = this.#revisionTransition;
+    this.#lastRevisionTransition = null;
+    if (!transition) return;
+    this.#revisionTransition = null;
+    this.#clearRevisionTransitionTimer(transition);
+    if (
+      transition.pauseIdentity &&
+      this.#pendingPause &&
+      sameStreamIdentity(this.#pendingPause.identity, transition.pauseIdentity)
+    ) {
+      this.#pendingPause = null;
+    }
+    const operation = transition.controlOperation;
+    transition.controlOperation = null;
+    if (operation && this.#controlOperation === operation) {
+      this.#controlEpoch += 1;
+      this.#controlOperation = null;
+      if (!operation.controller.signal.aborted) {
+        operation.controller.abort(new SupersededPlaybackOperationError());
+      }
+    }
+    transition.evidence.reject(transitionEvidenceError(code));
+  }
+
+  #clearRevisionTransitionTimer(transition: PendingRevisionTransition): void {
+    if (transition.timerHandle === null) return;
+    globalThis.clearTimeout(transition.timerHandle);
+    transition.timerHandle = null;
   }
 
   #schedulePause(
@@ -2669,6 +3147,14 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   }
 
   #supersedeControlOperations(code: string): void {
+    const revisionTransition = this.#revisionTransition;
+    if (
+      revisionTransition?.pauseIdentity ||
+      (revisionTransition?.controlOperation !== null &&
+        revisionTransition?.controlOperation === this.#controlOperation)
+    ) {
+      this.#rejectRevisionTransition(code);
+    }
     this.#controlEpoch += 1;
     const operation = this.#controlOperation;
     this.#controlOperation = null;
@@ -2743,6 +3229,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
 
   #fail(code: string, cause?: unknown): void {
     if (this.#phase === 'destroyed' || this.#phase === 'failed') return;
+    this.#rejectRevisionTransition(code);
     this.#errorCode = safeErrorCode(code, 'streaming-flac-failed');
     this.#phase = 'failed';
     this.#currentRendezvousId = null;

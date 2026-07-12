@@ -14,6 +14,10 @@ import {
   type PcmRingEvent,
 } from '../flac/stream-protocol.ts';
 import type { RendezvousArmIntent, RendezvousFinalizeIntent } from '../rendezvous-contract.ts';
+import type {
+  FilePlaybackPauseTransitionIntent,
+  FilePlaybackSeekTransitionIntent,
+} from '../file-playback-source.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 
 const QID = '00000000-0000-4000-8000-000000000101' as QueueItemId;
@@ -196,6 +200,31 @@ function finalizeIntent(
   };
 }
 
+function pauseTransition(
+  overrides: Partial<FilePlaybackPauseTransitionIntent> = {},
+): FilePlaybackPauseTransitionIntent {
+  return {
+    kind: 'file-playback-pause-transition',
+    from: { queueItemId: QID, runId: 'run-stream-1', revision: 1 },
+    to: { queueItemId: QID, runId: 'run-stream-1', revision: 2 },
+    atRoomTimeMs: 3_000,
+    ...overrides,
+  };
+}
+
+function seekTransition(
+  overrides: Partial<FilePlaybackSeekTransitionIntent> = {},
+): FilePlaybackSeekTransitionIntent {
+  return {
+    kind: 'file-playback-seek-transition',
+    from: { queueItemId: QID, runId: 'run-stream-1', revision: 2 },
+    to: { queueItemId: QID, runId: 'run-stream-1', revision: 3 },
+    positionSeconds: 2,
+    atRoomTimeMs: 4_000,
+    ...overrides,
+  };
+}
+
 function harness(
   loadWorklet: () => Promise<void> = async () => undefined,
   sourceMetadata: FlacMetadata = metadata(),
@@ -344,6 +373,60 @@ async function arm(
     targetFrame: command.targetFrame,
   });
   return pending;
+}
+
+async function startPlaying(h: ReturnType<typeof harness>): Promise<void> {
+  await prepare(h.source, h.worker, h.node);
+  await h.source.connect(h.destination as unknown as AudioNode);
+  await arm(h.source, h.node);
+  h.context.currentTime = 1.7;
+  const finalizing = h.source.finalize(finalizeIntent());
+  await Promise.resolve();
+  const command = controlMessages(h.node).findLast((message) => message.type === 'finalize');
+  if (!command || command.type !== 'finalize') throw new Error('Expected finalize command');
+  const armed = controlMessages(h.node).findLast((message) => message.type === 'arm');
+  if (!armed || armed.type !== 'arm') throw new Error('Expected arm command');
+  h.node.port.emit({
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'finalized',
+    generation: command.generation,
+    revision: command.revision,
+    runId: command.runId,
+    rendezvousId: command.rendezvousId,
+    targetFrame: armed.targetFrame,
+  });
+  await finalizing;
+  h.node.port.emit({
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'started',
+    generation: command.generation,
+    revision: command.revision,
+    runId: command.runId,
+    rendezvousId: command.rendezvousId,
+    targetFrame: armed.targetFrame,
+    actualStartFrame: armed.targetFrame,
+    mediaFrame: 0,
+  });
+}
+
+async function applyRevisionedPause(h: ReturnType<typeof harness>) {
+  h.context.currentTime = 2.5;
+  const pause = await h.source.pauseRevisioned(pauseTransition());
+  if (pause.status !== 'scheduled') throw new Error('Expected scheduled pause');
+  h.context.currentTime = 3;
+  h.node.port.emit({
+    protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+    type: 'paused',
+    generation: 1,
+    revision: 1,
+    runId: 'run-stream-1',
+    rendezvousId: 'rv-stream-1',
+    targetFrame: 144_000,
+    actualPauseFrame: 144_000,
+    mediaFrame: OUTPUT_RATE,
+  });
+  await pause.applied;
+  return pause;
 }
 
 describe('StreamingFlacPlaybackSource v2', () => {
@@ -2379,6 +2462,255 @@ describe('StreamingFlacPlaybackSource v2', () => {
         }),
       ),
     ).resolves.toMatchObject({ status: 'armed' });
+    await h.source.destroy();
+  });
+
+  it('commits a pause revision only from the exact Worklet paused frame', async () => {
+    const h = harness();
+    await startPlaying(h);
+    h.context.currentTime = 2.5;
+
+    const pause = await h.source.pauseRevisioned(pauseTransition());
+    if (pause.status !== 'scheduled') {
+      throw new Error(`${pause.reason}:${pause.snapshot.errorCode ?? 'no-error'}`);
+    }
+    expect(pause).toMatchObject({
+      status: 'scheduled',
+      from: { revision: 1 },
+      to: { revision: 2 },
+      target: { targetFrame: 144_000, contextTimeSeconds: 3 },
+      snapshot: { phase: 'playing', revision: 1 },
+    });
+    const pauseCommands = () =>
+      controlMessages(h.node).filter((message) => message.type === 'pause');
+    expect(pauseCommands()).toHaveLength(1);
+    expect(await h.source.pauseRevisioned({ ...pauseTransition() })).toBe(pause);
+    expect(pauseCommands()).toHaveLength(1);
+    expect(h.source.getSnapshot()).toMatchObject({ phase: 'playing', revision: 1 });
+
+    h.context.currentTime = 3;
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'paused',
+      generation: 1,
+      revision: 1,
+      runId: 'run-stream-1',
+      rendezvousId: 'rv-stream-1',
+      targetFrame: 144_000,
+      actualPauseFrame: 144_000,
+      mediaFrame: OUTPUT_RATE,
+    });
+    await expect(pause.applied).resolves.toMatchObject({
+      kind: 'pause-applied',
+      observation: 'worklet-observed',
+      targetFrame: 144_000,
+      appliedFrame: 144_000,
+      from: { revision: 1 },
+      to: { revision: 2 },
+    });
+    expect(h.source.getSnapshot()).toMatchObject({
+      phase: 'paused',
+      revision: 2,
+      run: { revision: 2 },
+      positionSeconds: 1,
+    });
+    await h.source.destroy();
+  });
+
+  it('revokes an applied transition retry cache on destroy and terminal failure', async () => {
+    const destroyed = harness();
+    await startPlaying(destroyed);
+    const destroyedPause = await applyRevisionedPause(destroyed);
+    expect(await destroyed.source.pauseRevisioned({ ...pauseTransition() })).toBe(destroyedPause);
+    await destroyed.source.destroy();
+    await expect(destroyed.source.pauseRevisioned({ ...pauseTransition() })).resolves.toMatchObject(
+      {
+        status: 'rejected',
+        reason: 'source-destroyed',
+        target: null,
+        applied: null,
+      },
+    );
+
+    const failed = harness();
+    await startPlaying(failed);
+    const failedPause = await applyRevisionedPause(failed);
+    expect(await failed.source.pauseRevisioned({ ...pauseTransition() })).toBe(failedPause);
+    failed.node.onprocessorerror?.(new Event('processorerror'));
+    await expect(failed.source.pauseRevisioned({ ...pauseTransition() })).resolves.toMatchObject({
+      status: 'rejected',
+      reason: 'source-failed',
+      target: null,
+      applied: null,
+    });
+    await failed.source.destroy();
+  });
+
+  it('revokes an applied transition retry cache on exact current cancellation', async () => {
+    const h = harness();
+    await startPlaying(h);
+    const pause = await applyRevisionedPause(h);
+    expect(await h.source.pauseRevisioned({ ...pauseTransition() })).toBe(pause);
+
+    await expect(
+      h.source.cancel({
+        kind: 'file-playback-cancel',
+        queueItemId: QID,
+        runId: 'run-stream-1',
+        revision: 2,
+        rendezvousId: 'rv-stream-1',
+        reasonCode: 'test-current-cancel',
+      }),
+    ).resolves.toMatchObject({ phase: 'cancelled', revision: 2 });
+    await expect(h.source.pauseRevisioned({ ...pauseTransition() })).resolves.toMatchObject({
+      status: 'rejected',
+      reason: 'identity-mismatch',
+      target: null,
+      applied: null,
+    });
+    await h.source.destroy();
+  });
+
+  it('keeps a paused seek logically hidden until a matching Worklet status proves it', async () => {
+    const h = harness();
+    await startPlaying(h);
+    h.context.currentTime = 2.5;
+    const pause = await h.source.pauseRevisioned(pauseTransition());
+    if (pause.status !== 'scheduled') throw new Error('Expected scheduled pause');
+    h.context.currentTime = 3;
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'paused',
+      generation: 1,
+      revision: 1,
+      runId: 'run-stream-1',
+      rendezvousId: 'rv-stream-1',
+      targetFrame: 144_000,
+      actualPauseFrame: 144_000,
+      mediaFrame: OUTPUT_RATE,
+    });
+    await pause.applied;
+
+    vi.useFakeTimers();
+    try {
+      const seek = await h.source.seekRevisioned(seekTransition());
+      if (seek.status !== 'scheduled') throw new Error('Expected scheduled seek');
+      expect(seek.snapshot).toMatchObject({ revision: 2, positionSeconds: 1 });
+      expect(h.source.getSnapshot()).toMatchObject({ revision: 2, positionSeconds: 1 });
+
+      h.context.currentTime = 4;
+      await vi.advanceTimersByTimeAsync(100);
+      await Promise.resolve();
+      const init = lastWorkerInit(h.worker);
+      expect(init.decoderGeneration).toBe(2);
+      emitDecoderReady(h.worker);
+      emitPrimed(h.node, 2);
+      for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+      expect(h.source.getSnapshot()).toMatchObject({ revision: 2, positionSeconds: 1 });
+
+      h.node.port.emit({
+        protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+        type: 'status',
+        generation: 2,
+        state: 'ready',
+        bufferedFrames: 192_000,
+        mediaFrame: OUTPUT_RATE * 2,
+        renderFrame: 192_000,
+        underruns: 0,
+        overflows: 0,
+      });
+      await expect(seek.applied).resolves.toMatchObject({
+        kind: 'seek-applied',
+        observation: 'worklet-observed',
+        targetFrame: 192_000,
+        appliedFrame: 192_000,
+        positionSeconds: 2,
+        from: { revision: 2 },
+        to: { revision: 3 },
+      });
+      expect(h.source.getSnapshot()).toMatchObject({
+        phase: 'paused',
+        revision: 3,
+        positionSeconds: 2,
+      });
+    } finally {
+      vi.useRealTimers();
+      await h.source.destroy();
+    }
+  });
+
+  it('rejects invalid revision transitions without posting Worklet control', async () => {
+    const h = harness();
+    await startPlaying(h);
+    h.context.currentTime = 2.5;
+    const before = controlMessages(h.node).length;
+
+    await expect(
+      h.source.pauseRevisioned(
+        pauseTransition({
+          from: { queueItemId: QID, runId: 'wrong-run', revision: 1 },
+          to: { queueItemId: QID, runId: 'wrong-run', revision: 2 },
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'identity-mismatch' });
+    await expect(
+      h.source.pauseRevisioned(
+        pauseTransition({
+          to: { queueItemId: QID, runId: 'run-stream-1', revision: 1 },
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'non-consecutive-revision' });
+    await expect(
+      h.source.seekRevisioned(
+        seekTransition({
+          from: { queueItemId: QID, runId: 'run-stream-1', revision: 1 },
+          to: { queueItemId: QID, runId: 'run-stream-1', revision: 2 },
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: 'rejected',
+      reason: 'playing-seek-requires-cutover',
+    });
+    await expect(
+      h.source.seekRevisioned(
+        seekTransition({
+          from: { queueItemId: QID, runId: 'run-stream-1', revision: 1 },
+          to: { queueItemId: QID, runId: 'run-stream-1', revision: 2 },
+          positionSeconds: 11,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'position-out-of-range' });
+    await expect(
+      h.source.pauseRevisioned(pauseTransition({ atRoomTimeMs: 2_500 })),
+    ).resolves.toMatchObject({ status: 'rejected', reason: 'target-not-in-future' });
+    expect(controlMessages(h.node)).toHaveLength(before);
+    await h.source.destroy();
+  });
+
+  it('fails closed when Worklet pause evidence misses the exact target', async () => {
+    const h = harness();
+    await startPlaying(h);
+    h.context.currentTime = 2.5;
+    const pause = await h.source.pauseRevisioned(pauseTransition());
+    if (pause.status !== 'scheduled') throw new Error('Expected scheduled pause');
+    h.context.currentTime = 3;
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'paused',
+      generation: 1,
+      revision: 1,
+      runId: 'run-stream-1',
+      rendezvousId: 'rv-stream-1',
+      targetFrame: 144_000,
+      actualPauseFrame: 144_128,
+      mediaFrame: OUTPUT_RATE,
+    });
+
+    await expect(pause.applied).rejects.toMatchObject({
+      name: 'FilePlaybackTransitionEvidenceError',
+      code: 'worklet-pause-target-mismatch',
+    });
+    expect(h.source.getSnapshot()).toMatchObject({ phase: 'failed', revision: 1 });
     await h.source.destroy();
   });
 

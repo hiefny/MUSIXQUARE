@@ -9,6 +9,13 @@ import { isFilePlaybackSessionId } from '../network/file-playback-session-handsh
 import type { DataConnection } from '../types/index.ts';
 import { FilePlaybackApplicationController } from './file-playback-application-controller.ts';
 import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
+import type {
+  HostPeerPlaybackPublication,
+  HostPeerRangeSource,
+  HostRemoteRecoveryCommit,
+  RecoverHostRemoteParticipantOptions,
+  ResolveHostPeerRangeSourceOptions,
+} from './file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from './file-playback-product-baseline-session.ts';
 import {
   FilePlaybackProductHostRoom,
@@ -95,6 +102,13 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
   settleEndedCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>>;
+  currentPeerPublication(): Readonly<HostPeerPlaybackPublication> | null;
+  resolveCurrentPeerRangeSource(
+    options: ResolveHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource>;
+  recoverRemoteParticipant(
+    options: RecoverHostRemoteParticipantOptions,
+  ): Promise<Readonly<HostRemoteRecoveryCommit>>;
   close(): Promise<void>;
   currentRendererSnapshot(): FilePlaybackSourceSnapshot | null;
   currentTerminalRendererObservation(): FilePlaybackProductHostTerminalObservation | null;
@@ -194,6 +208,9 @@ function assertHostRoomPort(
     typeof value.replayCurrent !== 'function' ||
     typeof value.stopCurrent !== 'function' ||
     typeof value.settleEndedCurrent !== 'function' ||
+    typeof value.currentPeerPublication !== 'function' ||
+    typeof value.resolveCurrentPeerRangeSource !== 'function' ||
+    typeof value.recoverRemoteParticipant !== 'function' ||
     typeof value.close !== 'function' ||
     typeof value.currentRendererSnapshot !== 'function' ||
     typeof value.currentTerminalRendererObservation !== 'function' ||
@@ -385,6 +402,33 @@ export class FilePlaybackProductRuntime {
   ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
     return this.#dispatchExactHostRoom('ended settlement', (port) =>
       port.settleEndedCurrent(options),
+    );
+  }
+
+  currentHostPeerPublication(): Readonly<HostPeerPlaybackPublication> | null {
+    const active = this.#activeHostRoom;
+    if (!this.#enabled || !active || !this.#ownsExactHostRoom(active)) return null;
+    try {
+      const publication = active.port.currentPeerPublication();
+      return publication && this.#ownsExactHostRoom(active) ? publication : null;
+    } catch {
+      return null;
+    }
+  }
+
+  resolveCurrentHostPeerRangeSource(
+    options: ResolveHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource> {
+    return this.#dispatchExactHostRoom('peer-range source resolution', (port) =>
+      port.resolveCurrentPeerRangeSource(options),
+    );
+  }
+
+  recoverHostRemoteParticipant(
+    options: RecoverHostRemoteParticipantOptions,
+  ): Promise<Readonly<HostRemoteRecoveryCommit>> {
+    return this.#dispatchExactHostRoom('remote participant recovery', (port) =>
+      port.recoverRemoteParticipant(options),
     );
   }
 

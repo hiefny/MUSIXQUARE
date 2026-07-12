@@ -250,6 +250,13 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
     });
     let terminalObservation: FilePlaybackProductHostTerminalObservation | null = null;
     const currentTerminalRendererObservation = vi.fn(() => terminalObservation);
+    const currentPeerPublication = vi.fn(() => null);
+    const resolveCurrentPeerRangeSource = vi.fn(async () => {
+      throw new Error('fixture has no peer source');
+    });
+    const recoverRemoteParticipant = vi.fn(async () => {
+      throw new Error('fixture has no remote participant');
+    });
     const close = vi.fn(() => {
       if (!closePromise) {
         events.push(`host-room:${index}:close`);
@@ -271,6 +278,9 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       replayCurrent,
       stopCurrent,
       settleEndedCurrent,
+      currentPeerPublication,
+      resolveCurrentPeerRangeSource,
+      recoverRemoteParticipant,
       close,
       currentRendererSnapshot: vi.fn(() => null),
       currentTerminalRendererObservation,

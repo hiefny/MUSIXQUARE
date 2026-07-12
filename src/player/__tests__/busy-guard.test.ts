@@ -133,6 +133,24 @@ describe('busy-window guards (SA-04 family)', () => {
     expect(getState('player.pausedAt')).toBe(0);
   });
 
+  it('keeps legacy OP seek silent when the selected resident file is unavailable', async () => {
+    initPlayback();
+    setPlaybackFilePlaying();
+
+    const opConn = getState('network.connectedPeers')[0].conn as DataConnection;
+    await handleData(
+      {
+        type: MSG.REQUEST_SEEK,
+        time: 42,
+        queueItemId: getState('playlist.currentQueueItemId')!,
+      },
+      opConn,
+    );
+
+    expect(send).not.toHaveBeenCalled();
+    expect(getState('player.pausedAt')).toBe(0);
+  });
+
   it('playPrevTrack restart-current branch drops while preparing (first track)', () => {
     setState('playlist.currentQueueItemId', getState('playlist.items')[0]?.queueItemId ?? null);
     enterBusyWindow(0, 'prev.mp3');

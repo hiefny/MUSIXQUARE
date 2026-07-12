@@ -1,0 +1,573 @@
+/**
+ * @vitest-environment jsdom
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const v2 = vi.hoisted(() => {
+  const state: {
+    room: unknown;
+    renderer: unknown;
+    position: unknown;
+  } = {
+    room: null,
+    renderer: null,
+    position: null,
+  };
+  return {
+    state,
+    runtime: {
+      hostRoomSnapshot: vi.fn(() => state.room),
+      seekPlaying: vi.fn(),
+      seekPaused: vi.fn(),
+    },
+  };
+});
+
+vi.mock('../file-playback-engine-gate.ts', () => ({
+  isFilePlaybackEngineV2Enabled: () => true,
+}));
+
+vi.mock('../file-playback-product-runtime.ts', () => ({
+  getFilePlaybackProductRuntime: () => v2.runtime,
+}));
+
+vi.mock('../file-playback-runtime.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../file-playback-runtime.ts')>();
+  return {
+    ...actual,
+    getActiveFilePlaybackSnapshot: vi.fn(() => v2.state.renderer),
+    getManagedFilePlaybackPosition: vi.fn((queueItemId: string) => {
+      const position = v2.state.position as { readonly queueItemId?: unknown } | null;
+      return position?.queueItemId === queueItemId ? position : null;
+    }),
+    hasPlayableFileSource: vi.fn(() => true),
+  };
+});
+
+vi.mock('../../network/peer.ts', () => ({
+  broadcast: vi.fn(),
+  sendToHost: vi.fn(),
+  isRemoteGuest: vi.fn(() => false),
+}));
+
+import { MSG } from '../../core/constants.ts';
+import { bus } from '../../core/events.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
+import { broadcast, sendToHost } from '../../network/peer.ts';
+import { handleData } from '../../network/protocol.ts';
+import type {
+  ConnectedPeer,
+  DataConnection,
+  PlaylistItem,
+  QueueItemId,
+} from '../../types/index.ts';
+import { setCurrentAudioBuffer, setPlayerNode } from '../_state.ts';
+import {
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackSystemAudioPlaying,
+  setPlaybackYouTubePlaying,
+} from '../ownership.ts';
+import { initPlayback } from '../playback.ts';
+import { adjustSync, getTrackPosition, seekTo, skipTime } from '../transport.ts';
+
+const Q1 = '99000000-0000-4000-8000-000000000001' as QueueItemId;
+const Q2 = '99000000-0000-4000-8000-000000000002' as QueueItemId;
+const RUN_ID = 'transport-v2-run-1';
+
+function freezeCanonical<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function room(applicationSessionId = 'transport-v2-session-1') {
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    roomGeneration: applicationSessionId.endsWith('-2') ? 2 : 1,
+    applicationSessionId,
+    hostParticipantId: 'transport-v2-host',
+  });
+}
+
+function sourceSnapshot(
+  phase: 'playing' | 'paused',
+  revision: number,
+  positionSeconds: number,
+  durationSeconds = 120,
+  queueItemId = Q1,
+  runId = RUN_ID,
+) {
+  const run = freezeCanonical({ queueItemId, runId, revision });
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    queueItemId,
+    backend: 'audio-buffer' as const,
+    phase,
+    revision,
+    run,
+    durationSeconds,
+    positionSeconds,
+    bufferedAheadSeconds: 8,
+    outputSampleRateHz: 48_000,
+    channelCount: 2,
+    underrunCount: 0,
+    errorCode: null,
+  });
+}
+
+function positionProjection(
+  phase: 'playing' | 'paused',
+  revision: number,
+  positionSeconds: number,
+  queueItemId = Q1,
+  runId = RUN_ID,
+) {
+  return freezeCanonical({
+    queueItemId,
+    run: freezeCanonical({ queueItemId, runId, revision }),
+    phase,
+    positionSeconds,
+    bufferedAheadSeconds: 8,
+    underrunCount: 0,
+  });
+}
+
+function publishProjection(
+  phase: 'playing' | 'paused',
+  revision: number,
+  positionSeconds: number,
+  durationSeconds = 120,
+): void {
+  v2.state.renderer = sourceSnapshot(phase, revision, positionSeconds, durationSeconds);
+  v2.state.position = positionProjection(phase, revision, positionSeconds);
+}
+
+function playingCommit(positionSeconds: number, revision: number) {
+  const run = freezeCanonical({ queueItemId: Q1, runId: RUN_ID });
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    status: 'committed' as const,
+    roomGeneration: (v2.state.room as ReturnType<typeof room>).roomGeneration,
+    applicationSessionId: (v2.state.room as ReturnType<typeof room>).applicationSessionId,
+    hostParticipantId: 'transport-v2-host',
+    backend: 'audio-buffer' as const,
+    asset: freezeCanonical({ queueItemId: Q1 }),
+    attempt: freezeCanonical({ queueItemId: Q1, runId: RUN_ID, revision }),
+    schedule: freezeCanonical({ positionSeconds }),
+    startEvidence: freezeCanonical({ kind: 'webaudio-schedule-passed' as const }),
+    timeline: freezeCanonical({
+      schemaVersion: 1 as const,
+      phase: 'playing' as const,
+      revision,
+      run,
+      positionSeconds,
+      anchorMonotonicMs: 1_000,
+      rate: 1,
+    }),
+  });
+}
+
+function pausedCommit(positionSeconds: number, revision: number) {
+  const run = freezeCanonical({ queueItemId: Q1, runId: RUN_ID });
+  const from = freezeCanonical({ queueItemId: Q1, runId: RUN_ID, revision: revision - 1 });
+  const to = freezeCanonical({ queueItemId: Q1, runId: RUN_ID, revision });
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    status: 'committed' as const,
+    kind: 'seek' as const,
+    roomGeneration: (v2.state.room as ReturnType<typeof room>).roomGeneration,
+    applicationSessionId: (v2.state.room as ReturnType<typeof room>).applicationSessionId,
+    hostParticipantId: 'transport-v2-host',
+    evidence: freezeCanonical({
+      kind: 'seek-applied' as const,
+      from,
+      to,
+      positionSeconds,
+    }),
+    timeline: freezeCanonical({
+      schemaVersion: 1 as const,
+      phase: 'paused' as const,
+      revision,
+      run,
+      positionSeconds,
+      anchorMonotonicMs: 1_000,
+      rate: 1,
+    }),
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function drainMicrotasks(turns = 48): Promise<void> {
+  for (let index = 0; index < turns; index += 1) await Promise.resolve();
+}
+
+function fileItem(queueItemId = Q1): PlaylistItem {
+  const file = new File(['audio'], 'transport-v2.mp3', { type: 'audio/mpeg' });
+  return {
+    queueItemId,
+    type: 'file',
+    name: file.name,
+    title: 'Transport V2',
+    videoId: null,
+    playlistId: null,
+    file,
+  };
+}
+
+function setSelectedFile(): void {
+  setState('playlist.items', [fileItem()]);
+  setState('playlist.currentQueueItemId', Q1);
+}
+
+function setPlaying(positionSeconds = 5, revision = 1, durationSeconds = 120): void {
+  publishProjection('playing', revision, positionSeconds, durationSeconds);
+  setPlaybackFilePlaying();
+  setState('player.pausedAt', positionSeconds);
+}
+
+function setPaused(positionSeconds = 5, revision = 1, durationSeconds = 120): void {
+  publishProjection('paused', revision, positionSeconds, durationSeconds);
+  setPlaybackFilePaused();
+  setState('player.pausedAt', positionSeconds);
+}
+
+function operatorConnection(): DataConnection {
+  const conn = {
+    peer: 'transport-v2-op',
+    open: true,
+    send: vi.fn(),
+    close: vi.fn(),
+  } as unknown as DataConnection;
+  const peer: ConnectedPeer = {
+    id: conn.peer,
+    slot: 1,
+    label: 'OP',
+    conn,
+    isOp: true,
+    preloadedQueueItemIds: new Set<QueueItemId>(),
+    status: 'connected',
+    isDataTarget: true,
+    joinOrder: 1,
+    connectionType: 'local',
+    lastHeartbeat: Date.now(),
+  };
+  setState('network.connectedPeers', [peer]);
+  setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+  return conn;
+}
+
+beforeEach(async () => {
+  await drainMicrotasks();
+  resetState();
+  bus.clear();
+  clearAllManagedTimers();
+  setCurrentAudioBuffer(null);
+  setPlayerNode(null);
+  vi.clearAllMocks();
+  v2.state.room = room();
+  v2.state.renderer = null;
+  v2.state.position = null;
+  v2.runtime.hostRoomSnapshot.mockImplementation(() => v2.state.room);
+  v2.runtime.seekPlaying.mockImplementation(async ({ positionSeconds }) => {
+    const current = v2.state.renderer as ReturnType<typeof sourceSnapshot>;
+    const revision = current.revision + 1;
+    const commit = playingCommit(positionSeconds, revision);
+    publishProjection('playing', revision, positionSeconds, current.durationSeconds ?? 120);
+    return commit;
+  });
+  v2.runtime.seekPaused.mockImplementation(async ({ positionSeconds }) => {
+    const current = v2.state.renderer as ReturnType<typeof sourceSnapshot>;
+    const revision = current.revision + 1;
+    const commit = pausedCommit(positionSeconds, revision);
+    publishProjection('paused', revision, positionSeconds, current.durationSeconds ?? 120);
+    return commit;
+  });
+  setSelectedFile();
+});
+
+describe('V2 host-local file transport seek boundary', () => {
+  it('projects track position exclusively from the exact product run', () => {
+    setPlaying(12.5);
+    setState('player.startedAt', 1);
+    setState('player.pausedAt', 91);
+    setCurrentAudioBuffer({ duration: 999 } as AudioBuffer);
+
+    expect(getTrackPosition()).toBe(12.5);
+  });
+
+  it('fails closed when product projection is missing or belongs to another occurrence', async () => {
+    setPlaybackFilePlaying();
+    setState('player.pausedAt', 77);
+    setCurrentAudioBuffer({ duration: 999 } as AudioBuffer);
+    const stop = vi.fn();
+    const disconnect = vi.fn();
+    setPlayerNode({
+      stop,
+      disconnect,
+      onended: null,
+      buffer: {},
+    } as unknown as AudioBufferSourceNode);
+    v2.state.renderer = sourceSnapshot('playing', 1, 50, 120, Q2);
+    v2.state.position = positionProjection('playing', 1, 50, Q2);
+
+    expect(getTrackPosition()).toBe(0);
+    seekTo(30);
+    await drainMicrotasks();
+
+    expect(v2.runtime.seekPlaying).not.toHaveBeenCalled();
+    expect(v2.runtime.seekPaused).not.toHaveBeenCalled();
+    expect(getState('player.pausedAt')).toBe(77);
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it('commits a playing seek before publishing compatibility position', async () => {
+    setPlaying(5);
+    const stop = vi.fn();
+    const disconnect = vi.fn();
+    setPlayerNode({
+      stop,
+      disconnect,
+      onended: null,
+      buffer: {},
+    } as unknown as AudioBufferSourceNode);
+
+    seekTo(30);
+    expect(getState('player.pausedAt')).toBe(5);
+    await drainMicrotasks();
+
+    expect(v2.runtime.seekPlaying).toHaveBeenCalledWith({
+      positionSeconds: 30,
+      signal: expect.any(AbortSignal),
+    });
+    expect(v2.runtime.seekPaused).not.toHaveBeenCalled();
+    expect(getState('player.pausedAt')).toBe(30);
+    expect(stop).not.toHaveBeenCalled();
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('uses the paused transition without any legacy PAUSE publication', async () => {
+    setPaused(8);
+
+    seekTo(44);
+    expect(getState('player.pausedAt')).toBe(8);
+    await drainMicrotasks();
+
+    expect(v2.runtime.seekPaused).toHaveBeenCalledWith({
+      positionSeconds: 44,
+      signal: expect.any(AbortSignal),
+    });
+    expect(v2.runtime.seekPlaying).not.toHaveBeenCalled();
+    expect(getState('player.pausedAt')).toBe(44);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('serializes supersession and resolves a relative skip from the physical predecessor', async () => {
+    setPlaying(5);
+    const first = deferred<ReturnType<typeof playingCommit>>();
+    const second = deferred<ReturnType<typeof playingCommit>>();
+    v2.runtime.seekPlaying
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    seekTo(20);
+    await drainMicrotasks();
+    const firstSignal = v2.runtime.seekPlaying.mock.calls[0]?.[0].signal as AbortSignal;
+    skipTime(10);
+
+    expect(firstSignal.aborted).toBe(true);
+    await drainMicrotasks();
+    expect(v2.runtime.seekPlaying).toHaveBeenCalledTimes(1);
+
+    publishProjection('playing', 2, 20);
+    first.resolve(playingCommit(20, 2));
+    await drainMicrotasks();
+
+    expect(v2.runtime.seekPlaying).toHaveBeenCalledTimes(2);
+    expect(v2.runtime.seekPlaying.mock.calls[1]?.[0].positionSeconds).toBe(30);
+    expect(getState('player.pausedAt')).toBe(5);
+
+    publishProjection('playing', 3, 30);
+    second.resolve(playingCommit(30, 3));
+    await drainMicrotasks();
+
+    expect(getState('player.pausedAt')).toBe(30);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('clamps skip to the product duration without consulting AudioBuffer', async () => {
+    setPlaying(95, 1, 100);
+    setCurrentAudioBuffer({ duration: 1_000 } as AudioBuffer);
+
+    skipTime(10);
+    await drainMicrotasks();
+
+    expect(v2.runtime.seekPlaying.mock.calls[0]?.[0].positionSeconds).toBeCloseTo(99.9, 8);
+    expect(getState('player.pausedAt')).toBeCloseTo(99.9, 8);
+  });
+
+  it('keeps a stale post-commit room completion inert', async () => {
+    setPlaying(5);
+    const pending = deferred<ReturnType<typeof playingCommit>>();
+    v2.runtime.seekPlaying.mockImplementationOnce(() => pending.promise);
+    seekTo(40);
+    await drainMicrotasks();
+
+    const oldCommit = playingCommit(40, 2);
+    publishProjection('playing', 2, 40);
+    v2.state.room = room('transport-v2-session-2');
+    pending.resolve(oldCommit);
+    await drainMicrotasks();
+
+    expect(getState('player.pausedAt')).toBe(5);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it.each(['queueItemId', 'runId', 'revision', 'phase'] as const)(
+    'keeps a post-commit %s projection mismatch inert',
+    async (kind) => {
+      setPlaying(5);
+      const pending = deferred<ReturnType<typeof playingCommit>>();
+      v2.runtime.seekPlaying.mockImplementationOnce(() => pending.promise);
+      seekTo(40);
+      await drainMicrotasks();
+
+      const commit = playingCommit(40, 2);
+      if (kind === 'queueItemId') {
+        v2.state.renderer = sourceSnapshot('playing', 2, 40, 120, Q2);
+        v2.state.position = positionProjection('playing', 2, 40, Q2);
+      } else if (kind === 'runId') {
+        v2.state.renderer = sourceSnapshot('playing', 2, 40, 120, Q1, 'stale-run');
+        v2.state.position = positionProjection('playing', 2, 40, Q1, 'stale-run');
+      } else if (kind === 'revision') {
+        publishProjection('playing', 3, 40);
+      } else {
+        publishProjection('paused', 2, 40);
+      }
+      pending.resolve(commit);
+      await drainMicrotasks();
+
+      expect(getState('player.pausedAt')).toBe(5);
+      expect(broadcast).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a commit whose revision does not match the physical projection', async () => {
+    setPlaying(5);
+    v2.runtime.seekPlaying.mockImplementationOnce(async ({ positionSeconds }) => {
+      publishProjection('playing', 2, positionSeconds);
+      return playingCommit(positionSeconds, 3);
+    });
+
+    seekTo(40);
+    await drainMicrotasks();
+
+    expect(getState('player.pausedAt')).toBe(5);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('preserves current state when the product seek rejects', async () => {
+    setPaused(9);
+    v2.runtime.seekPaused.mockRejectedValueOnce(new Error('physical seek failed'));
+
+    seekTo(33);
+    await drainMicrotasks();
+
+    expect(getState('player.pausedAt')).toBe(9);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('routes an authorized OP seek through the same product lane with no immediate frame', async () => {
+    setPlaying(6);
+    const conn = operatorConnection();
+    initPlayback();
+
+    await handleData({ type: MSG.REQUEST_SEEK, time: 36, queueItemId: Q1 }, conn);
+    await drainMicrotasks();
+
+    expect(v2.runtime.seekPlaying).toHaveBeenCalledWith({
+      positionSeconds: 36,
+      signal: expect.any(AbortSignal),
+    });
+    expect(getState('player.pausedAt')).toBe(36);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('keeps REQUEST_SKIP_TIME on the product seek family', async () => {
+    setPlaying(10);
+    const conn = operatorConnection();
+    initPlayback();
+
+    await handleData({ type: MSG.REQUEST_SKIP_TIME, sec: 7, queueItemId: Q1 }, conn);
+    await drainMicrotasks();
+
+    expect(v2.runtime.seekPlaying.mock.calls[0]?.[0].positionSeconds).toBe(17);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('does not reinterpret a local sync nudge as a canonical V2 seek', async () => {
+    setPlaying(14);
+    setState('sync.localOffset', 0.25);
+
+    adjustSync(0.1);
+    await drainMicrotasks();
+
+    expect(getState('sync.localOffset')).toBe(0.25);
+    expect(v2.runtime.seekPlaying).not.toHaveBeenCalled();
+    expect(v2.runtime.seekPaused).not.toHaveBeenCalled();
+  });
+
+  it('preserves operator guest request routing under the selected V2 build', () => {
+    setPlaying(5);
+    const host = {
+      peer: 'transport-v2-host',
+      open: true,
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+
+    seekTo(28);
+
+    expect(sendToHost).toHaveBeenCalledWith({ type: MSG.REQUEST_SEEK, time: 28, queueItemId: Q1 });
+    expect(v2.runtime.seekPlaying).not.toHaveBeenCalled();
+  });
+
+  it('keeps external and demo controls on their existing transports', async () => {
+    const youtubeSeek = vi.fn();
+    bus.on('youtube:seek-to', youtubeSeek);
+    setPlaybackYouTubePlaying();
+    seekTo(18);
+    expect(youtubeSeek).toHaveBeenCalledWith(18);
+    expect(v2.runtime.seekPlaying).not.toHaveBeenCalled();
+
+    setPlaybackSystemAudioPlaying();
+    seekTo(20);
+    expect(v2.runtime.seekPlaying).not.toHaveBeenCalled();
+    expect(v2.runtime.seekPaused).not.toHaveBeenCalled();
+
+    setPaused(4);
+    setState('demo.active', true);
+    seekTo(22);
+    await drainMicrotasks();
+    expect(getState('player.pausedAt')).toBe(22);
+    expect(broadcast).toHaveBeenCalledWith({
+      type: MSG.PAUSE,
+      time: 22,
+      queueItemId: Q1,
+      reason: 'seek',
+    });
+    expect(v2.runtime.seekPaused).not.toHaveBeenCalled();
+  });
+});

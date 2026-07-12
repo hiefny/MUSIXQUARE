@@ -45,6 +45,7 @@ import {
   getTrackPosition,
   handleEnded,
   isFilePipelineBusyForPlay,
+  requestV2HostFileSeek,
   skipTime,
 } from './transport.ts';
 
@@ -599,6 +600,11 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     bus.emit('youtube:seek-to', time);
     return;
   }
+
+  // V2 publication belongs to the product coordinator and occurs only after
+  // physical commit. A missing exact projection still belongs to this boundary
+  // and must fail closed instead of reaching the resident AudioBuffer below.
+  if (requestV2HostFileSeek(time)) return;
 
   // A busy file pipeline still holds the previous track's AudioBuffer. Keep
   // this guard after YouTube handling because file lifecycle state must not

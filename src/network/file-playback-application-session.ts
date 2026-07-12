@@ -16,6 +16,7 @@ import type {
   FilePlaybackWireStateLease,
 } from '../player/file-playback-wire-binding.ts';
 import type { FilePlaybackWireMessage } from '../player/file-playback-wire.ts';
+import { PEER_RANGE_PROTOCOL } from '../player/sources/peer-range-protocol.ts';
 import {
   FILE_PLAYBACK_CLOCK_PING_TYPE,
   FILE_PLAYBACK_CLOCK_PONG_TYPE,
@@ -81,11 +82,13 @@ const APPLICATION_OPTION_KEYS = Object.freeze([
   'cancelTimeout',
   'adoptWireMessage',
   'adoptAuxiliaryMessage',
+  'adoptPeerRangeMessage',
   'onLifecycleEvent',
 ] as const);
 const APPLICATION_HOOK_KEYS = Object.freeze([
   'adoptWireMessage',
   'adoptAuxiliaryMessage',
+  'adoptPeerRangeMessage',
   'onLifecycleEvent',
 ] as const);
 
@@ -129,6 +132,15 @@ export interface FilePlaybackApplicationSessionManagerOptions {
     event: Readonly<FilePlaybackAuxiliaryAdoptionEvent>,
     acknowledge: () => void,
   ) => void;
+  /**
+   * Synchronous adoption boundary for bounded peer-range control/bulk frames.
+   * The sink must parse and consume `event.frame` before acknowledging; the
+   * raw object is deliberately not retained or cloned by the session layer.
+   */
+  readonly adoptPeerRangeMessage?: (
+    event: Readonly<FilePlaybackPeerRangeAdoptionEvent>,
+    acknowledge: () => void,
+  ) => void;
   /** Detached lifecycle seam for a later async controller integration. */
   readonly onLifecycleEvent?: (event: Readonly<FilePlaybackApplicationLifecycleEvent>) => void;
 }
@@ -147,6 +159,16 @@ export type FilePlaybackAuxiliaryFrame = Readonly<Record<string, FilePlaybackAux
 
 export interface FilePlaybackAuxiliaryAdoptionEvent {
   readonly frame: FilePlaybackAuxiliaryFrame;
+  readonly connection: DataConnection;
+  readonly channel: FilePlaybackConnectionChannel;
+  readonly connectionToken: object;
+}
+
+export interface FilePlaybackPeerRangeAdoptionEvent {
+  /** Untrusted transport-owned frame; consume synchronously before ACK. */
+  readonly frame: unknown;
+  readonly lane: 'control' | 'bulk';
+  readonly role: FilePlaybackApplicationSessionRole;
   readonly connection: DataConnection;
   readonly channel: FilePlaybackConnectionChannel;
   readonly connectionToken: object;
@@ -172,6 +194,9 @@ export interface FilePlaybackApplicationSessionHooks {
   >;
   readonly adoptAuxiliaryMessage: NonNullable<
     FilePlaybackApplicationSessionManagerOptions['adoptAuxiliaryMessage']
+  >;
+  readonly adoptPeerRangeMessage: NonNullable<
+    FilePlaybackApplicationSessionManagerOptions['adoptPeerRangeMessage']
   >;
   readonly onLifecycleEvent: NonNullable<
     FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent']
@@ -365,6 +390,21 @@ function ownDataDiscriminator(value: unknown): Readonly<{
   }
 }
 
+function peerRangeLaneClaim(value: unknown): 'control' | 'bulk' | 'malformed' | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const protocol = Object.getOwnPropertyDescriptor(value, 'protocol');
+    if (!protocol) return null;
+    if (protocol.enumerable !== true || !Object.hasOwn(protocol, 'value')) return 'malformed';
+    if (protocol.value !== PEER_RANGE_PROTOCOL) return null;
+    const lane = Object.getOwnPropertyDescriptor(value, 'lane');
+    if (lane?.enumerable !== true || !Object.hasOwn(lane, 'value')) return 'malformed';
+    return lane.value === 'control' || lane.value === 'bulk' ? lane.value : 'malformed';
+  } catch {
+    return 'malformed';
+  }
+}
+
 interface SnapshotBudget {
   nodes: number;
 }
@@ -475,6 +515,9 @@ export class FilePlaybackApplicationSessionManager {
   #adoptAuxiliaryMessage:
     | FilePlaybackApplicationSessionManagerOptions['adoptAuxiliaryMessage']
     | undefined;
+  #adoptPeerRangeMessage:
+    | FilePlaybackApplicationSessionManagerOptions['adoptPeerRangeMessage']
+    | undefined;
   #onLifecycleEvent: FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent'] | undefined;
   #hooksInstalled = false;
   #hookInstallationClosed = false;
@@ -509,11 +552,14 @@ export class FilePlaybackApplicationSessionManager {
       snapshot.adoptWireMessage as FilePlaybackApplicationSessionManagerOptions['adoptWireMessage'];
     this.#adoptAuxiliaryMessage =
       snapshot.adoptAuxiliaryMessage as FilePlaybackApplicationSessionManagerOptions['adoptAuxiliaryMessage'];
+    this.#adoptPeerRangeMessage =
+      snapshot.adoptPeerRangeMessage as FilePlaybackApplicationSessionManagerOptions['adoptPeerRangeMessage'];
     this.#onLifecycleEvent =
       snapshot.onLifecycleEvent as FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent'];
     this.#hooksInstalled =
       this.#adoptWireMessage !== undefined ||
       this.#adoptAuxiliaryMessage !== undefined ||
+      this.#adoptPeerRangeMessage !== undefined ||
       this.#onLifecycleEvent !== undefined;
 
     for (const [value, label] of [
@@ -537,6 +583,8 @@ export class FilePlaybackApplicationSessionManager {
       (this.#adoptWireMessage !== undefined && typeof this.#adoptWireMessage !== 'function') ||
       (this.#adoptAuxiliaryMessage !== undefined &&
         typeof this.#adoptAuxiliaryMessage !== 'function') ||
+      (this.#adoptPeerRangeMessage !== undefined &&
+        typeof this.#adoptPeerRangeMessage !== 'function') ||
       (this.#onLifecycleEvent !== undefined && typeof this.#onLifecycleEvent !== 'function')
     ) {
       throw new RangeError('Application-session timer options are invalid');
@@ -555,6 +603,7 @@ export class FilePlaybackApplicationSessionManager {
 
     this.#adoptWireMessage = snapshot.adoptWireMessage;
     this.#adoptAuxiliaryMessage = snapshot.adoptAuxiliaryMessage;
+    this.#adoptPeerRangeMessage = snapshot.adoptPeerRangeMessage;
     this.#onLifecycleEvent = snapshot.onLifecycleEvent;
     this.#hooksInstalled = true;
   }
@@ -681,6 +730,16 @@ export class FilePlaybackApplicationSessionManager {
       if (!discriminator) {
         this.#teardown(record, true);
         return result(true);
+      }
+
+      const peerRangeLane = peerRangeLaneClaim(value);
+      if (peerRangeLane !== null) {
+        const expectedLane = record.role === 'host' ? 'control' : 'bulk';
+        if (!record.channel || peerRangeLane === 'malformed' || peerRangeLane !== expectedLane) {
+          this.#teardown(record, true);
+          return result(true);
+        }
+        return this.#receivePeerRangeMessage(record, value, peerRangeLane);
       }
 
       if (discriminator.type && SESSION_TYPES.has(discriminator.type)) {
@@ -1088,6 +1147,76 @@ export class FilePlaybackApplicationSessionManager {
       );
     } catch (error) {
       log.warn('[AppSession] Auxiliary adoption failed closed', error);
+      this.#teardown(record, true);
+      return result(true);
+    } finally {
+      acceptingAcknowledgement = false;
+    }
+    if (
+      acknowledgementCount !== 1 ||
+      this.#records.get(record.conn) !== record ||
+      record.channel !== channel ||
+      record.closing ||
+      channel.liveConnectionToken() !== connectionToken
+    ) {
+      this.#teardown(record, true);
+    }
+    return result(true);
+  }
+
+  #receivePeerRangeMessage(
+    record: ConnectionRecord,
+    frame: unknown,
+    lane: 'control' | 'bulk',
+  ): Readonly<FilePlaybackApplicationReceiveResult> {
+    const channel = record.channel;
+    const connectionToken = channel?.liveConnectionToken() ?? null;
+    if (
+      !channel ||
+      connectionToken === null ||
+      this.#records.get(record.conn) !== record ||
+      record.channel !== channel ||
+      record.closing ||
+      channel.liveConnectionToken() !== connectionToken
+    ) {
+      this.#teardown(record, true);
+      return result(true);
+    }
+
+    const sink = this.#adoptPeerRangeMessage;
+    if (!sink) {
+      this.#teardown(record, true);
+      return result(true);
+    }
+    let acknowledgementCount = 0;
+    let acceptingAcknowledgement = true;
+    const acknowledge = () => {
+      acknowledgementCount += 1;
+      if (
+        !acceptingAcknowledgement ||
+        acknowledgementCount !== 1 ||
+        this.#records.get(record.conn) !== record ||
+        record.channel !== channel ||
+        record.closing ||
+        channel.liveConnectionToken() !== connectionToken
+      ) {
+        this.#teardown(record, true);
+      }
+    };
+    try {
+      sink(
+        Object.freeze({
+          frame,
+          lane,
+          role: record.role,
+          connection: record.conn,
+          channel,
+          connectionToken,
+        }),
+        acknowledge,
+      );
+    } catch (error) {
+      log.warn('[AppSession] Peer-range adoption failed closed', error);
       this.#teardown(record, true);
       return result(true);
     } finally {

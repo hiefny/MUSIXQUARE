@@ -34,6 +34,10 @@ import {
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
 } from '../file-playback-transport-contract.ts';
+import {
+  createPeerRangeChunkFrames,
+  createPeerRangeReadFrame,
+} from '../../player/sources/peer-range-protocol.ts';
 
 interface QueuedFrame {
   readonly from: 'host' | 'guest';
@@ -241,6 +245,7 @@ function applicationHooks(
   return {
     adoptWireMessage: (_event, acknowledge) => acknowledge(),
     adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
+    adoptPeerRangeMessage: (_event, acknowledge) => acknowledge(),
     onLifecycleEvent: () => undefined,
     ...overrides,
   };
@@ -395,6 +400,160 @@ describe('FilePlaybackApplicationSessionManager', () => {
       expect(Object.isFrozen(event)).toBe(true);
     }
     expect(setup.host.phase(setup.hostConn)).toBe('established');
+  });
+
+  it('routes peer-range control and bulk frames through exact live connection authority', () => {
+    const hostAdopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const guestAdopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({
+      hostManagerOptions: { adoptPeerRangeMessage: hostAdopted },
+      guestManagerOptions: { adoptPeerRangeMessage: guestAdopted },
+    });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+
+    const descriptor = {
+      connectionId: 'range-connection',
+      sourceIdentity: 'range-source',
+      handleId: 'range-handle',
+      requestId: 'range-request',
+      offset: 0,
+      totalLength: 4,
+    } as const;
+    const control = createPeerRangeReadFrame(descriptor);
+    const bulk = createPeerRangeChunkFrames(descriptor, new Uint8Array([1, 2, 3, 4]))[0]!;
+
+    expect(setup.host.receive(control, setup.hostConn)).toMatchObject({ handled: true });
+    expect(setup.guest.receive(bulk, setup.guestConn)).toMatchObject({ handled: true });
+
+    const hostChannel = setup.host.establishedChannel(setup.hostConn);
+    const guestChannel = setup.guest.establishedChannel(setup.guestConn);
+    expect(hostAdopted).toHaveBeenCalledOnce();
+    expect(guestAdopted).toHaveBeenCalledOnce();
+    expect(hostAdopted.mock.calls[0]![0]).toMatchObject({
+      frame: control,
+      lane: 'control',
+      role: 'host',
+      connection: setup.hostConn,
+      channel: hostChannel,
+      connectionToken: hostChannel?.liveConnectionToken(),
+    });
+    expect(guestAdopted.mock.calls[0]![0]).toMatchObject({
+      frame: bulk,
+      lane: 'bulk',
+      role: 'guest',
+      connection: setup.guestConn,
+      channel: guestChannel,
+      connectionToken: guestChannel?.liveConnectionToken(),
+    });
+    // The range parser/transport consumes this raw frame synchronously. The
+    // session layer neither retains it nor pays for a second chunk copy.
+    expect(hostAdopted.mock.calls[0]![0].frame).toBe(control);
+    expect(guestAdopted.mock.calls[0]![0].frame).toBe(bulk);
+    expect(Object.isFrozen(hostAdopted.mock.calls[0]![0])).toBe(true);
+    expect(Object.isFrozen(guestAdopted.mock.calls[0]![0])).toBe(true);
+    expect(setup.host.phase(setup.hostConn)).toBe('established');
+    expect(setup.guest.phase(setup.guestConn)).toBe('established');
+  });
+
+  it('claims and closes peer-range traffic sent on the wrong role lane', () => {
+    const hostAdopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({ hostManagerOptions: { adoptPeerRangeMessage: hostAdopted } });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const descriptor = {
+      connectionId: 'range-connection',
+      sourceIdentity: 'range-source',
+      handleId: 'range-handle',
+      requestId: 'wrong-role-lane',
+      offset: 0,
+      totalLength: 1,
+    } as const;
+    const guestOnlyBulk = createPeerRangeChunkFrames(descriptor, new Uint8Array([1]))[0]!;
+
+    expect(setup.host.receive(guestOnlyBulk, setup.hostConn)).toMatchObject({ handled: true });
+    expect(hostAdopted).not.toHaveBeenCalled();
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+    expect(setup.hostConn.close).toHaveBeenCalled();
+  });
+
+  it('fails closed on an accessor-shaped peer-range protocol claim without invoking it', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({ hostManagerOptions: { adoptPeerRangeMessage: adopted } });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    let getterReads = 0;
+    const hostile = { type: 'read', lane: 'control' } as Record<string, unknown>;
+    Object.defineProperty(hostile, 'protocol', {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return 'musixquare-peer-range';
+      },
+    });
+
+    expect(setup.host.receive(hostile, setup.hostConn)).toMatchObject({ handled: true });
+    expect(getterReads).toBe(0);
+    expect(adopted).not.toHaveBeenCalled();
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+  });
+
+  it.each(['missing', 'zero', 'twice', 'throw'] as const)(
+    'tears down when the peer-range adoption sink is %s',
+    (mode) => {
+      const hostManagerOptions: FilePlaybackApplicationSessionManagerOptions =
+        mode === 'missing'
+          ? {}
+          : {
+              adoptPeerRangeMessage(_event, acknowledge) {
+                if (mode === 'zero') return;
+                if (mode === 'throw') throw new Error('peer-range adoption failed');
+                acknowledge();
+                acknowledge();
+              },
+            };
+      const setup = fixture({ hostManagerOptions });
+      expect(setup.startGuest()).toBe(true);
+      setup.pump();
+      const control = createPeerRangeReadFrame({
+        connectionId: 'range-connection',
+        sourceIdentity: 'range-source',
+        handleId: 'range-handle',
+        requestId: `range-request-${mode}`,
+        offset: 0,
+        totalLength: 1,
+      });
+
+      expect(setup.host.receive(control, setup.hostConn)).toMatchObject({ handled: true });
+      expect(setup.host.phase(setup.hostConn)).toBe('none');
+      expect(setup.hostConn.close).toHaveBeenCalled();
+    },
+  );
+
+  it('fails closed when peer-range adoption re-enters the exact connection', () => {
+    let setup!: ReturnType<typeof fixture>;
+    setup = fixture({
+      hostManagerOptions: {
+        adoptPeerRangeMessage(event, acknowledge) {
+          acknowledge();
+          setup.host.receive(event.frame, setup.hostConn);
+        },
+      },
+    });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const control = createPeerRangeReadFrame({
+      connectionId: 'range-connection',
+      sourceIdentity: 'range-source',
+      handleId: 'range-handle',
+      requestId: 'range-reentry',
+      offset: 0,
+      totalLength: 1,
+    });
+
+    expect(setup.host.receive(control, setup.hostConn)).toMatchObject({ handled: true });
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+    expect(setup.hostConn.close).toHaveBeenCalled();
   });
 
   it.each(['missing', 'zero', 'twice', 'throw'] as const)(

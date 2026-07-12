@@ -268,6 +268,23 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
     this.options.onFatalRoom(error);
   }
 
+  observeNaturalEndForTests(): void {
+    if (this.phase !== 'playing') throw new Error('Fixture renderer is not playing');
+    this.phase = 'ended';
+  }
+
+  replaceRendererIdentityForTests(
+    input: Readonly<{
+      queueItemId?: QueueItemId;
+      runId?: string;
+      revision?: number;
+    }>,
+  ): void {
+    if (input.queueItemId !== undefined) this.queueItemId = input.queueItemId;
+    if (input.runId !== undefined) this.runId = input.runId;
+    if (input.revision !== undefined) this.revision = input.revision;
+  }
+
   async #commitFileCandidate(
     input: StartHostFirstLocalFileOptions,
     positionSeconds: number,
@@ -799,6 +816,90 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     expect(setup.room.positionAt(2_000)?.positionSeconds).toBe(77);
   });
 
+  it.each([
+    ['ordinary', file('terminal.mp3'), 'audio-buffer'],
+    ['streaming FLAC', file('terminal.flac', 'audio/flac'), 'streaming-flac'],
+  ] as const)(
+    'exposes an exact %s natural end only through the terminal observation boundary',
+    async (_label, media, backend) => {
+      const setup = makeHarness();
+      const started = await first(setup.room, Q1, media);
+
+      expect(setup.room.currentTerminalRendererObservation()).toBeNull();
+      setup.engines[0]?.observeNaturalEndForTests();
+
+      expect(setup.room.currentRendererSnapshot()).toBeNull();
+      const observation = setup.room.currentTerminalRendererObservation();
+      expect(observation).toMatchObject({
+        queueItemId: Q1,
+        backend,
+        phase: 'ended',
+        revision: started.attempt.revision,
+        run: {
+          queueItemId: Q1,
+          runId: started.attempt.runId,
+          revision: started.attempt.revision,
+        },
+      });
+      expect(Object.isFrozen(observation)).toBe(true);
+      expect(Object.isFrozen(observation?.run)).toBe(true);
+    },
+  );
+
+  it.each(['queueItemId', 'runId', 'revision'] as const)(
+    'rejects an ended renderer with a mismatched %s identity',
+    async (kind) => {
+      const setup = makeHarness();
+      const started = await first(setup.room, Q1, file('identity.mp3'));
+      setup.engines[0]?.observeNaturalEndForTests();
+      if (kind === 'queueItemId') {
+        setup.engines[0]?.replaceRendererIdentityForTests({ queueItemId: Q2 });
+      } else if (kind === 'runId') {
+        setup.engines[0]?.replaceRendererIdentityForTests({
+          runId: `${started.attempt.runId}-stale-aba`,
+        });
+      } else {
+        setup.engines[0]?.replaceRendererIdentityForTests({
+          revision: started.attempt.revision + 1,
+        });
+      }
+
+      expect(setup.room.currentTerminalRendererObservation()).toBeNull();
+    },
+  );
+
+  it.each(['stale-generation', 'guest-role'] as const)(
+    'fail-closes terminal observation under %s authority',
+    async (authority) => {
+      const setup = makeHarness();
+      await first(setup.room, Q1, file('stale-authority.mp3'));
+      setup.engines[0]?.observeNaturalEndForTests();
+      expect(setup.room.currentTerminalRendererObservation()).not.toBeNull();
+
+      setup.controller.beginRoom(createStoppedPlaybackTimeline(2_000, 0));
+      setup.controller.claimRoomRole(authority === 'guest-role' ? 'guest' : 'host');
+
+      expect(setup.room.currentTerminalRendererObservation()).toBeNull();
+    },
+  );
+
+  it('fail-closes terminal observation after close or fatal quarantine', async () => {
+    const closed = makeHarness();
+    await first(closed.room, Q1, file('closed.mp3'));
+    closed.engines[0]?.observeNaturalEndForTests();
+    expect(closed.room.currentTerminalRendererObservation()).not.toBeNull();
+    await closed.room.close();
+    expect(closed.room.currentTerminalRendererObservation()).toBeNull();
+
+    const fatal = makeHarness();
+    await first(fatal.room, Q1, file('fatal-terminal.flac', 'audio/flac'));
+    fatal.engines[0]?.observeNaturalEndForTests();
+    expect(fatal.room.currentTerminalRendererObservation()).not.toBeNull();
+    fatal.engines[0]?.fatal(new Error('terminal renderer fatal'));
+    expect(fatal.room.currentTerminalRendererObservation()).toBeNull();
+    await drainMicrotasks();
+  });
+
   it('replays at zero with a new run on the stable engine', async () => {
     const setup = makeHarness();
     const started = await first(setup.room, Q1, file('one.mp3'));
@@ -838,6 +939,8 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
   it('settles natural end and leaves stopped room truth', async () => {
     const setup = makeHarness();
     await first(setup.room, Q1, file('one.mp3'));
+    setup.engines[0]?.observeNaturalEndForTests();
+    expect(setup.room.currentTerminalRendererObservation()).not.toBeNull();
 
     const ended = await setup.room.settleEndedCurrent(signalOptions());
 
@@ -848,6 +951,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       timeline: { phase: 'stopped', run: null },
     });
     expect(setup.room.currentRendererSnapshot()).toBeNull();
+    expect(setup.room.currentTerminalRendererObservation()).toBeNull();
   });
 
   it('rejects candidates and other transitions while a physical transition is pending', async () => {

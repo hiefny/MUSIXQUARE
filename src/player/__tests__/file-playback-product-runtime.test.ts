@@ -13,6 +13,7 @@ import type {
   FilePlaybackProductHostLocalTrackCommit,
   FilePlaybackProductHostRoomOptions,
   FilePlaybackProductHostSeekOptions,
+  FilePlaybackProductHostTerminalObservation,
   FilePlaybackProductHostTransitionCommit,
   StartFilePlaybackProductHostFirstLocalFileOptions,
   StartFilePlaybackProductHostLocalTrackOptions,
@@ -57,7 +58,9 @@ interface ProductHostRoomHarness {
   readonly replayCurrent: ReturnType<typeof vi.fn>;
   readonly stopCurrent: ReturnType<typeof vi.fn>;
   readonly settleEndedCurrent: ReturnType<typeof vi.fn>;
+  readonly currentTerminalRendererObservation: ReturnType<typeof vi.fn>;
   readonly close: ReturnType<typeof vi.fn>;
+  setTerminalObservation(value: FilePlaybackProductHostTerminalObservation | null): void;
   fatal(error: Error): void;
 }
 
@@ -244,6 +247,8 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       events.push(`host-room:${index}:ended`);
       return transition('ended');
     });
+    let terminalObservation: FilePlaybackProductHostTerminalObservation | null = null;
+    const currentTerminalRendererObservation = vi.fn(() => terminalObservation);
     const close = vi.fn(() => {
       if (!closePromise) {
         events.push(`host-room:${index}:close`);
@@ -267,6 +272,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       settleEndedCurrent,
       close,
       currentRendererSnapshot: vi.fn(() => null),
+      currentTerminalRendererObservation,
       positionAt: vi.fn(() => null),
     };
     if (options.omitHostRoomMethod) {
@@ -287,7 +293,9 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       replayCurrent,
       stopCurrent,
       settleEndedCurrent,
+      currentTerminalRendererObservation,
       close,
+      setTerminalObservation: (value) => void (terminalObservation = value),
       fatal: (error) => roomOptions.onFatalRoom(error),
     };
     hostRooms.push(room);
@@ -335,6 +343,65 @@ function localFile(name = 'product-runtime.mp3'): File {
   return new File([new Uint8Array([1, 2, 3])], name, { type: 'audio/mpeg' });
 }
 
+function freezeCanonical<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function commitHostPlayingForTerminalObservation(
+  setup: RuntimeHarness,
+  input: Readonly<{
+    queueItemId?: QueueItemId;
+    runId?: string;
+    backend?: FilePlaybackProductHostTerminalObservation['backend'];
+  }> = {},
+): FilePlaybackProductHostTerminalObservation {
+  const controller = setup.controller();
+  const previous = controller.timelineSnapshot();
+  const queueItemId = input.queueItemId ?? Q1;
+  const runId = input.runId ?? `product-runtime-run-${harnessSequence}-${previous.revision + 1}`;
+  const revision = previous.revision + 1;
+  const attempt = freezeCanonical({
+    queueItemId,
+    runId,
+    revision,
+    rendezvousId: `product-runtime-rendezvous-${harnessSequence}-${revision}`,
+  });
+  const createdAtRoomTimeMs = Math.max(previous.anchorMonotonicMs, 1_000);
+  const committed = controller.commitHostStartedPlayback({
+    roomGeneration: controller.snapshot().roomGeneration,
+    expectedPreviousRevision: previous.revision,
+    attempt,
+    schedule: freezeCanonical({
+      createdAtRoomTimeMs,
+      finalizeByRoomTimeMs: createdAtRoomTimeMs + 300,
+      leadTimeMs: 500,
+      playbackRate: 1,
+      positionSeconds: 0,
+      startAtRoomTimeMs: createdAtRoomTimeMs + 500,
+    }),
+    startEvidence: freezeCanonical({
+      kind: 'webaudio-schedule-passed' as const,
+      targetFrame: 72_000,
+    }),
+  });
+  const run = freezeCanonical({ queueItemId, runId, revision });
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    queueItemId,
+    backend: input.backend ?? 'audio-buffer',
+    phase: 'ended' as const,
+    revision,
+    run,
+    durationSeconds: 180,
+    positionSeconds: committed.timeline.positionSeconds,
+    bufferedAheadSeconds: 0,
+    outputSampleRateHz: 48_000,
+    channelCount: 2,
+    underrunCount: 0,
+    errorCode: null,
+  });
+}
+
 function containsBody(value: unknown, seen = new Set<object>()): boolean {
   if (value === null || typeof value !== 'object') return false;
   if (value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
@@ -367,6 +434,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.runtime.beginGuestRoom()).toBe(false);
     expect(setup.runtime.handleWake(connection())).toBe(false);
     expect(setup.runtime.currentHostRendererSnapshot()).toBeNull();
+    expect(setup.runtime.currentHostTerminalRendererObservation()).toBeNull();
     expect(setup.runtime.hostPositionAt(1_000)).toBeNull();
     await expect(
       setup.runtime.startHostFirstLocalFile({
@@ -501,6 +569,97 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.beginHostRoom).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ['ordinary', 'audio-buffer'],
+    ['streaming FLAC', 'streaming-flac'],
+  ] as const)(
+    'returns the exact active %s terminal observation without weakening normal projection',
+    (_label, backend) => {
+      const setup = harness();
+      setup.runtime.initializeBeforeProtocol();
+      setup.runtime.beginHostRoom(`terminal-${backend}`);
+      const observation = commitHostPlayingForTerminalObservation(setup, { backend });
+      const room = setup.hostRooms[0];
+      room?.setTerminalObservation(observation);
+
+      expect(setup.runtime.currentHostRendererSnapshot()).toBeNull();
+      expect(setup.runtime.currentHostTerminalRendererObservation()).toBe(observation);
+      expect(room?.currentTerminalRendererObservation).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['phase', 'queueItemId', 'runId', 'revision'] as const)(
+    'rejects a terminal port observation with a mismatched %s',
+    (kind) => {
+      const setup = harness();
+      setup.runtime.initializeBeforeProtocol();
+      setup.runtime.beginHostRoom(`terminal-mismatch-${kind}`);
+      const exact = commitHostPlayingForTerminalObservation(setup);
+      let invalid: unknown;
+      if (kind === 'phase') {
+        invalid = freezeCanonical({ ...exact, phase: 'playing' as const });
+      } else if (kind === 'queueItemId') {
+        invalid = freezeCanonical({
+          ...exact,
+          queueItemId: Q2,
+          run: freezeCanonical({ ...exact.run, queueItemId: Q2 }),
+        });
+      } else if (kind === 'runId') {
+        invalid = freezeCanonical({
+          ...exact,
+          run: freezeCanonical({ ...exact.run, runId: `${exact.run.runId}-stale-aba` }),
+        });
+      } else {
+        invalid = freezeCanonical({
+          ...exact,
+          revision: exact.revision + 1,
+          run: freezeCanonical({ ...exact.run, revision: exact.run.revision + 1 }),
+        });
+      }
+      setup.hostRooms[0]?.setTerminalObservation(
+        invalid as FilePlaybackProductHostTerminalObservation,
+      );
+
+      expect(setup.runtime.currentHostTerminalRendererObservation()).toBeNull();
+    },
+  );
+
+  it('rejects a terminal observation when its exact port retires during the read', () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('terminal-old-host');
+    const observation = commitHostPlayingForTerminalObservation(setup);
+    const oldRoom = setup.hostRooms[0];
+    oldRoom?.currentTerminalRendererObservation.mockImplementationOnce(() => {
+      setup.runtime.endRoom();
+      setup.runtime.beginHostRoom('terminal-new-host');
+      return observation;
+    });
+
+    expect(setup.runtime.currentHostTerminalRendererObservation()).toBeNull();
+    expect(setup.runtime.hostRoomSnapshot()?.hostParticipantId).toBe('terminal-new-host');
+  });
+
+  it('fail-closes terminal reads from a throwing or fatally retired exact port', () => {
+    const throwing = harness();
+    throwing.runtime.initializeBeforeProtocol();
+    throwing.runtime.beginHostRoom('terminal-throwing-host');
+    commitHostPlayingForTerminalObservation(throwing);
+    throwing.hostRooms[0]?.currentTerminalRendererObservation.mockImplementationOnce(() => {
+      throw new Error('terminal observation failed');
+    });
+    expect(throwing.runtime.currentHostTerminalRendererObservation()).toBeNull();
+
+    const fatal = harness();
+    fatal.runtime.initializeBeforeProtocol();
+    fatal.runtime.beginHostRoom('terminal-fatal-host');
+    const observation = commitHostPlayingForTerminalObservation(fatal);
+    fatal.hostRooms[0]?.setTerminalObservation(observation);
+    expect(fatal.runtime.currentHostTerminalRendererObservation()).toBe(observation);
+    fatal.hostRooms[0]?.fatal(new Error('terminal host fatal'));
+    expect(fatal.runtime.currentHostTerminalRendererObservation()).toBeNull();
+  });
+
   it('begins a guest generation from the safe zero anchor without starting a guest connection', () => {
     const setup = harness({ monotonicNow: 9_876 });
     setup.runtime.initializeBeforeProtocol();
@@ -517,6 +676,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.beginHostRoom).not.toHaveBeenCalled();
     expect(setup.controller().snapshot().roomRole).toBe('guest');
     expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+    expect(setup.runtime.currentHostTerminalRendererObservation()).toBeNull();
     expect(setup.createHostRoom).not.toHaveBeenCalled();
   });
 
@@ -547,18 +707,21 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.createHostRoom).not.toHaveBeenCalled();
   });
 
-  it('fails host entry when the expanded structural room port is incomplete', () => {
-    const setup = harness({ omitHostRoomMethod: 'seekPlaying' });
-    setup.runtime.initializeBeforeProtocol();
+  it.each(['seekPlaying', 'currentTerminalRendererObservation'] as const)(
+    'fails host entry when the expanded structural room port omits %s',
+    (method) => {
+      const setup = harness({ omitHostRoomMethod: method });
+      setup.runtime.initializeBeforeProtocol();
 
-    expect(() => setup.runtime.beginHostRoom('incomplete-port-host')).toThrow(
-      /host room factory is invalid/u,
-    );
+      expect(() => setup.runtime.beginHostRoom('incomplete-port-host')).toThrow(
+        /host room factory is invalid/u,
+      );
 
-    expect(setup.hostRooms[0]?.close).toHaveBeenCalledOnce();
-    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
-    expect(setup.controller().snapshot().roomRole).toBeNull();
-  });
+      expect(setup.hostRooms[0]?.close).toHaveBeenCalledOnce();
+      expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+      expect(setup.controller().snapshot().roomRole).toBeNull();
+    },
+  );
 
   it('routes the complete transport surface through one exact stable host-room port', async () => {
     const setup = harness();
@@ -704,6 +867,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(sessionIndex).toBeLessThan(controllerIndex);
     expect(setup.hostRooms[0]?.close).toHaveBeenCalledOnce();
     expect(setup.runtime.currentHostRendererSnapshot()).toBeNull();
+    expect(setup.runtime.currentHostTerminalRendererObservation()).toBeNull();
     expect(setup.runtime.hostPositionAt(1_000)).toBeNull();
   });
 

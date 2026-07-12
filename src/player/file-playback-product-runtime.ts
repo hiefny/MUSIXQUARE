@@ -18,6 +18,7 @@ import {
   type FilePlaybackProductHostRoomOptions,
   type FilePlaybackProductHostSeekOptions,
   type FilePlaybackProductHostTransitionCommit,
+  type FilePlaybackProductHostTerminalObservation,
   type StartFilePlaybackProductHostFirstLocalFileOptions,
   type StartFilePlaybackProductHostLocalTrackOptions,
 } from './file-playback-product-host-room.ts';
@@ -86,6 +87,7 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
   ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>>;
   close(): Promise<void>;
   currentRendererSnapshot(): FilePlaybackSourceSnapshot | null;
+  currentTerminalRendererObservation(): FilePlaybackProductHostTerminalObservation | null;
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
 }
 
@@ -177,6 +179,7 @@ function assertHostRoomPort(
     typeof value.settleEndedCurrent !== 'function' ||
     typeof value.close !== 'function' ||
     typeof value.currentRendererSnapshot !== 'function' ||
+    typeof value.currentTerminalRendererObservation !== 'function' ||
     typeof value.positionAt !== 'function'
   ) {
     throw new TypeError('File playback product host room factory is invalid');
@@ -372,6 +375,22 @@ export class FilePlaybackProductRuntime {
     const active = this.#activeHostRoom;
     if (!this.#enabled || !active || !this.#ownsExactHostRoom(active)) return null;
     return active.port.currentRendererSnapshot();
+  }
+
+  currentHostTerminalRendererObservation(): FilePlaybackProductHostTerminalObservation | null {
+    const active = this.#activeHostRoom;
+    if (!this.#enabled || !active || !this.#ownsExactHostRoom(active)) return null;
+    try {
+      const observation = active.port.currentTerminalRendererObservation();
+      return observation &&
+        this.#ownsExactHostRoom(active) &&
+        this.#matchesCurrentHostTerminalObservation(observation) &&
+        this.#ownsExactHostRoom(active)
+        ? observation
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   hostPositionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null {
@@ -572,6 +591,29 @@ export class FilePlaybackProductRuntime {
         snapshot.roomGeneration === active.roomGeneration &&
         snapshot.roomRole === 'host' &&
         snapshot.timeline === controller.timelineSnapshot()
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  #matchesCurrentHostTerminalObservation(
+    observation: FilePlaybackProductHostTerminalObservation,
+  ): boolean {
+    try {
+      const controller = this.#controller;
+      if (!controller) return false;
+      const timeline = controller.timelineSnapshot();
+      return (
+        timeline.phase === 'playing' &&
+        timeline.run !== null &&
+        observation.phase === 'ended' &&
+        observation.run !== null &&
+        observation.queueItemId === timeline.run.queueItemId &&
+        observation.run.queueItemId === timeline.run.queueItemId &&
+        observation.run.runId === timeline.run.runId &&
+        observation.revision === timeline.revision &&
+        observation.run.revision === timeline.revision
       );
     } catch {
       return false;

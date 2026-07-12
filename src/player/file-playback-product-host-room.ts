@@ -85,6 +85,19 @@ export interface FilePlaybackProductHostFirstEnginePort {
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
 }
 
+/**
+ * Exact source-native natural-end observation for the still-playing host truth.
+ *
+ * This is deliberately separate from `currentRendererSnapshot()`: ordinary
+ * projections keep requiring source and controller phases to agree, while the
+ * ended-settlement boundary may observe the one valid transitional mismatch
+ * (`source=ended`, `controller=playing`).
+ */
+export interface FilePlaybackProductHostTerminalObservation extends FilePlaybackSourceSnapshot {
+  readonly phase: 'ended';
+  readonly run: NonNullable<FilePlaybackSourceSnapshot['run']>;
+}
+
 export interface FilePlaybackProductHostRoomRuntimeForTests {
   readonly initAudioForTests?: () => Promise<void>;
   readonly ensureRunningForTests?: () => Promise<void>;
@@ -786,6 +799,22 @@ export class FilePlaybackProductHostRoom {
       : null;
   }
 
+  currentTerminalRendererObservation(): FilePlaybackProductHostTerminalObservation | null {
+    try {
+      const record = this.#engineRecord;
+      if (!record || !this.#hasProjectionAuthority()) return null;
+      const snapshot = record.engine.currentRendererSnapshot();
+      return snapshot &&
+        this.#matchesTerminalTimeline(snapshot) &&
+        this.#hasProjectionAuthority() &&
+        this.#matchesTerminalTimeline(snapshot)
+        ? snapshot
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null {
     if (
       typeof localPerformanceTimeMs !== 'number' ||
@@ -1287,6 +1316,23 @@ export class FilePlaybackProductHostRoom {
       snapshot.run?.runId === timeline.run.runId &&
       snapshot.run.revision === timeline.revision &&
       snapshot.phase === timeline.phase
+    );
+  }
+
+  #matchesTerminalTimeline(
+    snapshot: FilePlaybackSourceSnapshot,
+  ): snapshot is FilePlaybackProductHostTerminalObservation {
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    return (
+      timeline.phase === 'playing' &&
+      timeline.run !== null &&
+      snapshot.phase === 'ended' &&
+      snapshot.run !== null &&
+      snapshot.queueItemId === timeline.run.queueItemId &&
+      snapshot.run.queueItemId === timeline.run.queueItemId &&
+      snapshot.run.runId === timeline.run.runId &&
+      snapshot.revision === timeline.revision &&
+      snapshot.run.revision === timeline.revision
     );
   }
 

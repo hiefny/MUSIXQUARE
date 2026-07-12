@@ -23,6 +23,8 @@ import {
   resetClockState,
 } from '../shared-clock.ts';
 import { setCurrentAudioBuffer, setLocalFilePaused } from '../../player/_state.ts';
+import { clearFilePlaybackRuntime } from '../../player/file-playback-runtime.ts';
+import { publishManagedFilePlaybackSource } from '../../player/__tests__/managed-file-playback-fixture.ts';
 import {
   createSystemAudioTrackMeta,
   setPlaybackFilePaused,
@@ -35,6 +37,19 @@ import {
 } from '../../player/ownership.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
+function setResidentFile(queueItemId = QUEUE_ITEM_ID): void {
+  const blob = new File(['audio'], 'track.mp3', { type: 'audio/mpeg' });
+  setState('files.current', {
+    queueItemId,
+    indexHint: 0,
+    name: blob.name,
+    sessionId: 1,
+    blob,
+    mime: blob.type,
+    size: blob.size,
+  });
+}
 
 const transportMocks = vi.hoisted(() => ({
   play: vi.fn(),
@@ -317,6 +332,7 @@ describe('background resume recovery', () => {
 describe('local-file sync correction', () => {
   beforeEach(() => {
     setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setResidentFile();
   });
 
   async function deliverPlayingFilePong(
@@ -342,6 +358,45 @@ describe('local-file sync correction', () => {
       conn,
     );
   }
+
+  it('bootstraps from an exact managed source without a legacy AudioBuffer', async () => {
+    await publishManagedFilePlaybackSource(QUEUE_ITEM_ID, 10);
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(1000);
+      initSync();
+
+      const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+      setState('network.hostConn', hostConn);
+      setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+
+      await deliverPlayingFilePong(hostConn, 70, 1000, 5);
+
+      expect(transportMocks.play).toHaveBeenCalledWith(expect.closeTo(5.025, 3));
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
+
+  it('uses managed-source duration for the near-end sync fence', async () => {
+    await publishManagedFilePlaybackSource(QUEUE_ITEM_ID, 10);
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(1000);
+      initSync();
+
+      const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+      setState('network.hostConn', hostConn);
+      setPlaybackFilePlaying();
+      setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+
+      await deliverPlayingFilePong(hostConn, 71, 1000, 9.96);
+
+      expect(transportMocks.play).not.toHaveBeenCalled();
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
 
   it('does not seek a guest to the decoded track end while waiting for host repeat', async () => {
     vi.useFakeTimers();

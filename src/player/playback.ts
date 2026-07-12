@@ -29,7 +29,6 @@ import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
 
 import {
-  getCurrentAudioBuffer,
   getPlayerNode,
   isCurrentLoadEpoch,
   newLoadEpoch,
@@ -39,6 +38,7 @@ import {
   setLastClearedQueueItemId,
   setLocalFilePaused,
 } from './_state.ts';
+import { hasPlayableFileSource } from './file-playback-runtime.ts';
 
 import {
   play,
@@ -303,14 +303,15 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     return;
   }
 
-  // A decoded AudioBuffer is playable only together with the atomic resident
-  // identity that owns it. A leftover buffer from another occurrence must
+  // A prepared file source is playable only together with the atomic resident
+  // identity that owns it. A leftover source from another occurrence must
   // never be replayed under the selected queue item.
   const resident = getState('files.current');
-  const hasOwnedBuffer = !!getCurrentAudioBuffer() && resident?.queueItemId === incomingQueueItemId;
+  const hasOwnedSource =
+    hasPlayableFileSource(incomingQueueItemId) && resident?.queueItemId === incomingQueueItemId;
 
-  if (hasOwnedBuffer) {
-    // Lifecycle: we have a decoded buffer → we're in
+  if (hasOwnedSource) {
+    // Lifecycle: we have a prepared source → we're in
     // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
     // transition() handles same-track seek, resume from PAUSED, and restart
     // from READY under the tested lifecycle contract.
@@ -528,7 +529,7 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
 
   const currentResident = getState('files.current');
   if (
-    !getCurrentAudioBuffer() ||
+    !hasPlayableFileSource(currentQueueItemId) ||
     !currentResident ||
     currentResident.queueItemId !== currentQueueItemId
   ) {
@@ -673,9 +674,14 @@ export function initPlayback(): void {
   // so don't start playing until then" — prevents the 3-second drift
   // window when host re-clicks a currently-playing track.
   bus.on('playback:replay-current', (delayMs?: number) => {
-    if (!getCurrentAudioBuffer()) return;
     const queueItemId = getCurrentQueueItemId();
-    if (!queueItemId || getState('files.current')?.queueItemId !== queueItemId) return;
+    if (
+      !queueItemId ||
+      !hasPlayableFileSource(queueItemId) ||
+      getState('files.current')?.queueItemId !== queueItemId
+    ) {
+      return;
+    }
 
     const doReplay = () => {
       log.debug('[Guest] Replaying current track from start');
@@ -698,13 +704,18 @@ export function initPlayback(): void {
     }
   });
 
-  // Long background resume recovery: rebuild the current AudioBufferSourceNode
-  // at the current logical position without surfacing a manual-sync toast.
+  // Long background resume recovery: rebuild/re-arm the current file source at
+  // the logical position without surfacing a manual-sync toast.
   bus.on('playback:refresh-current-position', () => {
-    if (!getCurrentAudioBuffer()) return;
     if (!isPlaybackPlayingFile()) return;
     const queueItemId = getCurrentQueueItemId();
-    if (!queueItemId || getState('files.current')?.queueItemId !== queueItemId) return;
+    if (
+      !queueItemId ||
+      !hasPlayableFileSource(queueItemId) ||
+      getState('files.current')?.queueItemId !== queueItemId
+    ) {
+      return;
+    }
     // A background resume may occur during a track change, while the resident
     // buffer still belongs to the previous track. Decode completion owns restart.
     if (isFilePipelineBusyForPlay()) return;

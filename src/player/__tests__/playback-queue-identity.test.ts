@@ -14,7 +14,9 @@ import type {
   ResidentFile,
 } from '../../types/index.ts';
 import { setCurrentAudioBuffer } from '../_state.ts';
+import { clearFilePlaybackRuntime } from '../file-playback-runtime.ts';
 import { setPlaybackFilePlaying } from '../ownership.ts';
+import { publishManagedFilePlaybackSource } from './managed-file-playback-fixture.ts';
 
 const QID_A = '00000000-0000-4000-8000-000000000001';
 const QID_B = '00000000-0000-4000-8000-000000000002';
@@ -112,6 +114,42 @@ beforeEach(() => {
 
 describe('PLAY/PAUSE queue identity guards', () => {
   const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+
+  it('accepts an exact managed source without requiring a legacy AudioBuffer', async () => {
+    await publishManagedFilePlaybackSource(QID_B);
+    try {
+      setState('network.hostConn', hostConn);
+      setState('playlist.items', [item(QID_A, 'a.flac'), item(QID_B, 'b.flac')]);
+      setState('playlist.currentQueueItemId', QID_B);
+      setState('files.current', resident(QID_B, 1, 'b.flac', 2));
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      initPlayback();
+
+      await handleData({ type: 'play', time: 12, queueItemId: QID_B, name: 'b.flac' }, hostConn);
+
+      expect(mocks.play).toHaveBeenCalled();
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
+
+  it('does not accept a managed source owned by another queue occurrence', async () => {
+    await publishManagedFilePlaybackSource(QID_A);
+    try {
+      setState('network.hostConn', hostConn);
+      setState('playlist.items', [item(QID_A, 'a.flac'), item(QID_B, 'b.flac')]);
+      setState('playlist.currentQueueItemId', QID_B);
+      setState('files.current', resident(QID_B, 1, 'b.flac', 2));
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      initPlayback();
+
+      await handleData({ type: 'play', time: 12, queueItemId: QID_B, name: 'b.flac' }, hostConn);
+
+      expect(mocks.play).not.toHaveBeenCalled();
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
 
   it('does not replay a decoded buffer owned by another queue occurrence', async () => {
     setState('network.hostConn', hostConn);

@@ -20,12 +20,8 @@ import {
   isFilePipelineBusyForPlay,
 } from './transport.ts';
 import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
-import {
-  newLoadEpoch,
-  isCurrentLoadEpoch,
-  getCurrentAudioBuffer,
-  setCurrentAudioBuffer,
-} from './_state.ts';
+import { newLoadEpoch, isCurrentLoadEpoch, setCurrentAudioBuffer } from './_state.ts';
+import { hasPlayableFileSource } from './file-playback-runtime.ts';
 import { isMediaVideo } from './video.ts';
 import { transition } from './lifecycle.ts';
 
@@ -416,15 +412,16 @@ export async function playTrack(queueItemId: QueueItemId, subIndex?: number): Pr
   // with autoPlayDelayMs which routes through their same-file replay
   // branch — no re-download.
   //
-  // Buffer existence alone does not establish ownership: superseded loads may
+  // Source existence alone does not establish ownership: superseded loads may
   // leave the previous track resident while selection has advanced. The
   // resident's queueItemId, not its name or former array slot, proves ownership.
   const _isSameTrack = queueItemId === getCurrentQueueItemId();
   const _isLocalFileTrack = item.type !== 'youtube' && !!item.file;
   const _resident = getState('files.current');
-  const _bufferMatchesTrack = !!getCurrentAudioBuffer() && _resident?.queueItemId === queueItemId;
+  const _sourceMatchesTrack =
+    hasPlayableFileSource(queueItemId) && _resident?.queueItemId === queueItemId;
 
-  if (!hostConn && _isSameTrack && _isLocalFileTrack && _bufferMatchesTrack) {
+  if (!hostConn && _isSameTrack && _isLocalFileTrack && _sourceMatchesTrack) {
     log.debug('[Host] Same-track re-click — fast replay path (no redecode/rebroadcast)');
 
     const file = item.file!;

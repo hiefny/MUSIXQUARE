@@ -13,6 +13,8 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
 import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { getFilePlaybackDuration } from '../player/file-playback-runtime.ts';
+import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { syncRangeProgress } from './range-drag.ts';
 
 function isSeekUnavailable(): boolean {
@@ -280,10 +282,16 @@ function initSeekBarBusHandlers(): void {
       if (tc) tc.innerText = '0:00';
       if (tDur) tDur.innerText = '0:00';
     } else if (mode === 'file') {
-      const buf = getCurrentAudioBuffer();
-      if (buf && Number.isFinite(buf.duration) && buf.duration > 0) {
-        if (slider) setSeekSliderMax(slider, String(buf.duration));
-        if (tDur) tDur.innerText = fmtTime(buf.duration);
+      // Demo files intentionally have no queueItemId/ResidentFile owner.
+      const queueItemId = getCurrentQueueItemId();
+      const duration = getState('demo.active')
+        ? getCurrentAudioBuffer()?.duration
+        : queueItemId
+          ? getFilePlaybackDuration(queueItemId)
+          : null;
+      if (duration && Number.isFinite(duration) && duration > 0) {
+        if (slider) setSeekSliderMax(slider, String(duration));
+        if (tDur) tDur.innerText = fmtTime(duration);
       }
     }
   });

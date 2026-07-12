@@ -7,6 +7,8 @@ import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
+import { clearFilePlaybackRuntime } from '../../player/file-playback-runtime.ts';
+import { publishManagedFilePlaybackSource } from '../../player/__tests__/managed-file-playback-fixture.ts';
 import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
@@ -21,6 +23,20 @@ import {
 
 const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
+
+function setResidentFile(queueItemId: string): void {
+  const blob = new File(['audio'], 'track.mp3', { type: 'audio/mpeg' });
+  setState('playlist.currentQueueItemId', queueItemId);
+  setState('files.current', {
+    queueItemId,
+    indexHint: 0,
+    name: blob.name,
+    sessionId: 1,
+    blob,
+    mime: blob.type,
+    size: blob.size,
+  });
+}
 
 vi.mock('../../youtube/sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
@@ -429,6 +445,7 @@ describe('initPlayerControls sync button', () => {
     setState('playback.mode', 'file');
     setState('playback.activity', 'playing');
     setState('sync.localOffset', 0.12);
+    setResidentFile(PLAY_QUEUE_ITEM_ID);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     const forceResyncSpy = vi.fn();
     bus.on('sync:force-resync', forceResyncSpy);
@@ -439,6 +456,27 @@ describe('initPlayerControls sync button', () => {
     expect(forceResyncSpy).toHaveBeenCalledTimes(1);
     expect(getState('sync.localOffset')).toBe(0.12);
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+  });
+
+  it('opens manual sync for an exact managed source without a legacy AudioBuffer', async () => {
+    await publishManagedFilePlaybackSource(PLAY_QUEUE_ITEM_ID);
+    try {
+      renderSyncControls();
+      setState('network.hostConn', makeConnection('host-1'));
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      setResidentFile(PLAY_QUEUE_ITEM_ID);
+      const forceResyncSpy = vi.fn();
+      bus.on('sync:force-resync', forceResyncSpy);
+
+      initPlayerControls();
+      document.getElementById('btn-sync')?.click();
+
+      expect(forceResyncSpy).toHaveBeenCalledOnce();
+      expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
   });
 
   it('does not open the local-file manual panel before the guest has a decoded buffer', () => {
@@ -462,6 +500,7 @@ describe('initPlayerControls sync button', () => {
     setState('network.hostConn', makeConnection('host-1'));
     setState('playback.mode', 'file');
     setState('playback.activity', 'playing');
+    setResidentFile(PLAY_QUEUE_ITEM_ID);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     initPlayerControls();

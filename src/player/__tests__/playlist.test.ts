@@ -38,6 +38,8 @@ import type {
   ResidentFile,
 } from '../../types/index.ts';
 import { findQueueItemIndex } from '../queue-model.ts';
+import { clearFilePlaybackRuntime } from '../file-playback-runtime.ts';
+import { publishManagedFilePlaybackSource } from './managed-file-playback-fixture.ts';
 
 const decodeMocks = vi.hoisted(() => ({
   loadPreloadedTrack: vi.fn<(queueItemId: QueueItemId, epoch?: number) => Promise<boolean>>(),
@@ -1089,6 +1091,27 @@ describe('repeat-one ended-advance after a mid-window removal (SA-12)', () => {
 });
 
 describe('fast-replay autoPlayTimer stable identity (F-2404)', () => {
+  it('takes the fast replay path for an exact managed source without an AudioBuffer', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'stream.flac', {
+      type: 'audio/flac',
+    });
+    const track = fileItem('stream.flac', file);
+    setState('playlist.items', [track]);
+    selectIndex(0);
+    setState('files.current', residentFor(track, file));
+    setState('player.isFirstTrackLoad', false);
+    await publishManagedFilePlaybackSource(track.queueItemId);
+
+    try {
+      initPlaylist();
+      await playTrack(track.queueItemId);
+
+      expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
+
   it('broadcasts the same qid after a lower row is removed during the delay', async () => {
     vi.useFakeTimers();
     const send = vi.fn();

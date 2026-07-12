@@ -7,6 +7,10 @@ import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initSeekBar } from '../seekbar.ts';
 import { seekTo } from '../../player/transport.ts';
+import { clearFilePlaybackRuntime } from '../../player/file-playback-runtime.ts';
+import { publishManagedFilePlaybackSource } from '../../player/__tests__/managed-file-playback-fixture.ts';
+
+const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: vi.fn((seconds: number) => `fmt:${Math.floor(seconds)}`),
@@ -27,6 +31,36 @@ beforeEach(() => {
 });
 
 describe('initSeekBar playback mode gates', () => {
+  it('repaints duration from an exact managed file source', async () => {
+    await publishManagedFilePlaybackSource(QUEUE_ITEM_ID, 345);
+    try {
+      initSeekBar();
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('playback.mode', 'file');
+
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      expect(slider.max).toBe('345');
+      expect(document.getElementById('time-dur')?.innerText).toBe('fmt:345');
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
+
+  it('does not repaint duration from a managed source owned by another queue item', async () => {
+    await publishManagedFilePlaybackSource(QUEUE_ITEM_ID, 345);
+    try {
+      initSeekBar();
+      setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000002');
+      setState('playback.mode', 'file');
+
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      expect(slider.max).toBe('120');
+      expect(document.getElementById('time-dur')?.innerText).toBeUndefined();
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
+
   it('blocks seek interaction while system audio owns playback', () => {
     setState('playback.mode', 'system-audio');
     setState('playback.activity', 'playing');

@@ -28,6 +28,7 @@ import { showDialog } from './dialog.ts';
 import { getTrackPosition, isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { hasPlayableFileSource } from '../player/file-playback-runtime.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
@@ -472,7 +473,14 @@ function canUseManualSyncPanel(): boolean {
   if (!hostConn?.open) return false;
   if (isPlaybackModeSystemAudio()) return false;
   if (isPlaybackModeYouTube()) return true;
-  return isPlaybackModeFile() && !!getCurrentAudioBuffer();
+  if (!isPlaybackModeFile()) return false;
+
+  // Demo files deliberately have no queue occurrence/ResidentFile owner and
+  // remain on their legacy AudioBuffer path.
+  if (getState('demo.active')) return !!getCurrentAudioBuffer();
+
+  const queueItemId = getCurrentQueueItemId();
+  return !!queueItemId && hasPlayableFileSource(queueItemId);
 }
 
 function handleMainSyncBtn(): void {

@@ -29,6 +29,7 @@ import {
   setLocalManualSyncOffset,
 } from '../player/transport.ts';
 import { getCurrentAudioBuffer, isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
+import { getFilePlaybackDuration, hasPlayableFileSource } from '../player/file-playback-runtime.ts';
 import { containsProfanity } from '../chat/profanity.ts';
 import { releasePeerSlot } from './peer-state.ts';
 import {
@@ -111,7 +112,14 @@ function canApplyManualSyncAction(): boolean {
   const hostConn = getState('network.hostConn');
   if (!hostConn?.open) return false;
   if (isPlaybackModeYouTube()) return true;
-  return isPlaybackModeFile() && !!getCurrentAudioBuffer();
+  if (!isPlaybackModeFile()) return false;
+
+  // Demo tracks intentionally have no queueItemId/ResidentFile authority and
+  // remain on the legacy AudioBuffer engine.
+  if (getState('demo.active')) return !!getCurrentAudioBuffer();
+
+  const queueItemId = getState('playlist.currentQueueItemId');
+  return !!queueItemId && hasPlayableFileSource(queueItemId);
 }
 
 function rejectManualSyncAction(): void {
@@ -269,10 +277,19 @@ function getSafeSyncPongPosition(isFilePlaying: boolean): number {
 function getPlayableFileSyncPosition(estimatedHostPos: number): number | null {
   if (!Number.isFinite(estimatedHostPos)) return null;
 
-  const buffer = getCurrentAudioBuffer();
-  if (!buffer) return null;
+  let duration: number;
+  if (getState('demo.active')) {
+    // Demo playback is intentionally outside queueItemId ownership and stays
+    // AudioBuffer-specific until that separate engine is migrated.
+    const buffer = getCurrentAudioBuffer();
+    if (!buffer) return null;
+    duration = Number.isFinite(buffer.duration) ? buffer.duration : 0;
+  } else {
+    const queueItemId = getState('playlist.currentQueueItemId');
+    if (!queueItemId || !hasPlayableFileSource(queueItemId)) return null;
+    duration = getFilePlaybackDuration(queueItemId) ?? 0;
+  }
 
-  const duration = Number.isFinite(buffer.duration) ? buffer.duration : 0;
   const syncPosition = Math.max(0, estimatedHostPos);
   if (duration <= 0) return syncPosition;
 

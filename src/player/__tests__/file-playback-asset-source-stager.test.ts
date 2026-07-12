@@ -68,7 +68,21 @@ function fakeCutoverSource(
     seek: vi.fn(async () => ({}) as never),
     seekRevisioned: vi.fn(async () => ({}) as never),
     positionAt: vi.fn(() => ({}) as never),
-    getSnapshot: vi.fn(() => ({}) as never),
+    getSnapshot: vi.fn(() => ({
+      schemaVersion: 1,
+      queueItemId: QID,
+      backend,
+      phase: 'connected',
+      revision: 0,
+      run: null,
+      durationSeconds: 12,
+      positionSeconds: 0,
+      bufferedAheadSeconds: backend === 'streaming-flac' ? 4 : 12,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+      underrunCount: 0,
+      errorCode: null,
+    })),
     destroy,
   };
 }
@@ -401,6 +415,51 @@ describe('stageFilePlaybackAssetSource', () => {
     expect(source.destroy).not.toHaveBeenCalled();
   });
 
+  it('retires the exact staged candidate instead of publishing invalid readiness', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource();
+    vi.mocked(source.getSnapshot).mockReturnValue({
+      schemaVersion: 1,
+      queueItemId: QID,
+      backend: 'audio-buffer',
+      phase: 'connected',
+      revision: 0,
+      run: null,
+      durationSeconds: null,
+      positionSeconds: 0,
+      bufferedAheadSeconds: 0,
+      outputSampleRateHz: null,
+      channelCount: null,
+      underrunCount: 0,
+      errorCode: null,
+    });
+    const h = successfulRuntime(factoryResult(source));
+
+    await expect(
+      stageFilePlaybackAssetSource(baseOptions(setup.registry, setup.lease, h.runtime)),
+    ).rejects.toThrow(/readiness/u);
+    expect(h.retireCandidate).toHaveBeenCalledOnce();
+  });
+
+  it('does not publish readiness when authority changes during its exact snapshot', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource();
+    const exactSnapshot = source.getSnapshot();
+    let current = true;
+    vi.mocked(source.getSnapshot).mockImplementation(() => {
+      current = false;
+      return exactSnapshot;
+    });
+    const h = successfulRuntime(factoryResult(source));
+
+    await expect(
+      stageFilePlaybackAssetSource(
+        baseOptions(setup.registry, setup.lease, h.runtime, { isCurrent: () => current }),
+      ),
+    ).rejects.toThrow(/superseded/u);
+    expect(h.retireCandidate).toHaveBeenCalledOnce();
+  });
+
   it('lets manager rejection own source destruction without a second destroy', async () => {
     const setup = blobRegistry();
     const destroy = vi.fn(async () => undefined);
@@ -572,6 +631,12 @@ describe('stageFilePlaybackAssetSource', () => {
         ...METADATA,
       },
       metadata: METADATA,
+      readiness: {
+        durationSeconds: 12,
+        bufferedAheadSeconds: 12,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      },
     });
     expect(Object.getPrototypeOf(staged)).toBeNull();
     expect(Object.isFrozen(staged)).toBe(true);
@@ -579,6 +644,8 @@ describe('stageFilePlaybackAssetSource', () => {
     expect(Object.isFrozen(staged.asset)).toBe(true);
     expect(Object.getPrototypeOf(staged.metadata)).toBeNull();
     expect(Object.isFrozen(staged.metadata)).toBe(true);
+    expect(Object.getPrototypeOf(staged.readiness)).toBeNull();
+    expect(Object.isFrozen(staged.readiness)).toBe(true);
     expect(JSON.stringify(staged)).not.toMatch(/"blob":|audioBuffer|"source":|arrayBuffer/u);
   });
 });

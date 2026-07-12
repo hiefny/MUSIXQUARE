@@ -15,7 +15,11 @@ import {
   type FilePlaybackCutoverCandidateOptions,
   type FilePlaybackCutoverCandidatePort,
 } from './file-playback-manager.ts';
-import type { FilePlaybackCutoverSource } from './file-playback-source.ts';
+import {
+  createFilePlaybackSourceSnapshot,
+  type FilePlaybackCutoverSource,
+  type FilePlaybackSourceSnapshot,
+} from './file-playback-source.ts';
 import {
   createBlobFilePlaybackSource,
   createEncodedFilePlaybackSource,
@@ -142,6 +146,15 @@ export interface StagedFilePlaybackAssetSource {
   readonly sourceIdentity: string;
   readonly asset: Readonly<FilePlaybackAssetSnapshot>;
   readonly metadata: Readonly<FilePlaybackAssetMetadata>;
+  /** Exact body-free readiness observed from the manager-owned silent source. */
+  readonly readiness: Readonly<FilePlaybackPreparedSourceReadiness>;
+}
+
+export interface FilePlaybackPreparedSourceReadiness {
+  readonly durationSeconds: number;
+  readonly bufferedAheadSeconds: number;
+  readonly outputSampleRateHz: number;
+  readonly channelCount: number;
 }
 
 interface RuntimeSnapshot {
@@ -157,6 +170,7 @@ interface FactoryResultSnapshot {
   readonly sourceIdentity: string;
   readonly releaseConstructionLease: () => void;
   readonly destroySource: () => Promise<void>;
+  readonly getSnapshot: () => unknown;
 }
 
 const registrySnapshotForLease = FilePlaybackAssetRegistry.prototype.snapshotForLease;
@@ -472,7 +486,8 @@ function inspectFactoryResult(
     return null;
   }
   const destroySource = cutoverSourceDestroyer(result.source);
-  if (!destroySource) return null;
+  const getSnapshot = findDataMethod(result.source as object, 'getSnapshot');
+  if (!destroySource || !getSnapshot) return null;
   if (
     (backend === 'audio-buffer' && result.flacMetadata !== null) ||
     (backend === 'streaming-flac' &&
@@ -486,6 +501,43 @@ function inspectFactoryResult(
     sourceIdentity: expectedSourceIdentity,
     releaseConstructionLease: result.releaseConstructionLease as () => void,
     destroySource,
+    getSnapshot: () => Reflect.apply(getSnapshot, result.source, []),
+  });
+}
+
+function preparedReadiness(
+  factory: FactoryResultSnapshot,
+  expected: Readonly<FilePlaybackAssetSnapshot>,
+): Readonly<FilePlaybackPreparedSourceReadiness> | null {
+  let snapshot: FilePlaybackSourceSnapshot;
+  try {
+    snapshot = createFilePlaybackSourceSnapshot(
+      factory.getSnapshot() as FilePlaybackSourceSnapshot,
+    );
+  } catch {
+    return null;
+  }
+  if (
+    snapshot.queueItemId !== expected.queueItemId ||
+    snapshot.backend !== factory.backend ||
+    snapshot.phase !== 'connected' ||
+    snapshot.revision !== 0 ||
+    snapshot.run !== null ||
+    snapshot.durationSeconds === null ||
+    snapshot.durationSeconds <= 0 ||
+    snapshot.bufferedAheadSeconds < 0 ||
+    snapshot.bufferedAheadSeconds > snapshot.durationSeconds ||
+    snapshot.outputSampleRateHz === null ||
+    snapshot.channelCount === null ||
+    snapshot.errorCode !== null
+  ) {
+    return null;
+  }
+  return freezeCanonical({
+    durationSeconds: snapshot.durationSeconds,
+    bufferedAheadSeconds: snapshot.bufferedAheadSeconds,
+    outputSampleRateHz: snapshot.outputSampleRateHz,
+    channelCount: snapshot.channelCount,
   });
 }
 
@@ -744,6 +796,11 @@ export async function stageFilePlaybackAssetSource(
     if (postHandoffError !== null) throw postHandoffError;
     assertCutoverPort(cutoverPort);
     assertAuthority();
+    const readiness = preparedReadiness(factoryResult, canonicalAsset);
+    if (!readiness) {
+      throw new TypeError('File playback staged source readiness is invalid');
+    }
+    assertAuthority();
 
     try {
       releaseCalled = true;
@@ -764,6 +821,7 @@ export async function stageFilePlaybackAssetSource(
       sourceIdentity: factoryResult.sourceIdentity,
       asset: canonicalAsset,
       metadata,
+      readiness,
     });
   } catch (error) {
     if (cutoverPort) {

@@ -82,6 +82,7 @@ const STAGED_KEYS = Object.freeze([
   'sourceIdentity',
   'asset',
   'metadata',
+  'readiness',
 ] as const);
 const ASSET_KEYS = Object.freeze([
   'queueItemId',
@@ -93,6 +94,12 @@ const ASSET_KEYS = Object.freeze([
   'mime',
 ] as const);
 const METADATA_KEYS = Object.freeze(['name', 'mime'] as const);
+const READINESS_KEYS = Object.freeze([
+  'durationSeconds',
+  'bufferedAheadSeconds',
+  'outputSampleRateHz',
+  'channelCount',
+] as const);
 const MAX_IDENTIFIER_LENGTH = 256;
 const MAX_COORDINATOR_SETTLEMENT_TURNS = 32;
 
@@ -500,6 +507,36 @@ function canonicalMetadata(
   return freezeCanonical({ name: asset.name, mime: asset.mime });
 }
 
+function canonicalReadiness(
+  value: unknown,
+): Readonly<StagedFilePlaybackAssetSource['readiness']> | null {
+  const readiness = snapshotExactRecord(value, READINESS_KEYS);
+  if (
+    !readiness ||
+    typeof readiness.durationSeconds !== 'number' ||
+    !Number.isFinite(readiness.durationSeconds) ||
+    readiness.durationSeconds <= 0 ||
+    typeof readiness.bufferedAheadSeconds !== 'number' ||
+    !Number.isFinite(readiness.bufferedAheadSeconds) ||
+    readiness.bufferedAheadSeconds < 0 ||
+    readiness.bufferedAheadSeconds > readiness.durationSeconds ||
+    typeof readiness.outputSampleRateHz !== 'number' ||
+    !Number.isSafeInteger(readiness.outputSampleRateHz) ||
+    readiness.outputSampleRateHz <= 0 ||
+    typeof readiness.channelCount !== 'number' ||
+    !Number.isSafeInteger(readiness.channelCount) ||
+    readiness.channelCount <= 0
+  ) {
+    return null;
+  }
+  return freezeCanonical({
+    durationSeconds: readiness.durationSeconds,
+    bufferedAheadSeconds: readiness.bufferedAheadSeconds,
+    outputSampleRateHz: readiness.outputSampleRateHz,
+    channelCount: readiness.channelCount,
+  });
+}
+
 function canonicalStagedResult(
   value: unknown,
   expectedBinding: Readonly<FilePlaybackAssetBinding>,
@@ -507,10 +544,12 @@ function canonicalStagedResult(
   const snapshot = snapshotExactRecord(value, STAGED_KEYS);
   const asset = snapshot ? canonicalAsset(snapshot.asset) : null;
   const metadata = asset ? canonicalMetadata(snapshot?.metadata, asset) : null;
+  const readiness = snapshot ? canonicalReadiness(snapshot.readiness) : null;
   if (
     !snapshot ||
     !asset ||
     !metadata ||
+    !readiness ||
     (snapshot.backend !== 'audio-buffer' && snapshot.backend !== 'streaming-flac') ||
     snapshot.sourceIdentity !== asset.sourceIdentity ||
     asset.queueItemId !== expectedBinding.queueItemId ||
@@ -527,6 +566,7 @@ function canonicalStagedResult(
     sourceIdentity: asset.sourceIdentity,
     asset,
     metadata,
+    readiness,
   });
 }
 

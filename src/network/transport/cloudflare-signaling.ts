@@ -72,6 +72,7 @@ interface GuestRoomRecord {
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const CONTROL_CHANNEL_LABEL = 'musixquare-control';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
+const BINARY_PAYLOAD_SENTINEL = '__mxqrBinaryPayload';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -102,13 +103,17 @@ function encodePayload(data: unknown): string | ArrayBuffer {
   if (data && typeof data === 'object') {
     const record = data as Record<string, unknown>;
     const chunk = toUint8Array(record.chunk);
-    if (chunk) {
-      const header = { ...record, chunk: { [BINARY_CHUNK_SENTINEL]: true } };
+    const peerRangePayload = isPeerRangeChunk(record) ? toUint8Array(record.payload) : null;
+    const bytes = chunk ?? peerRangePayload;
+    if (bytes) {
+      const field = chunk ? 'chunk' : 'payload';
+      const sentinel = chunk ? BINARY_CHUNK_SENTINEL : BINARY_PAYLOAD_SENTINEL;
+      const header = { ...record, [field]: { [sentinel]: true } };
       const headerBytes = textEncoder.encode(JSON.stringify(header));
-      const frame = new Uint8Array(4 + headerBytes.byteLength + chunk.byteLength);
+      const frame = new Uint8Array(4 + headerBytes.byteLength + bytes.byteLength);
       new DataView(frame.buffer).setUint32(0, headerBytes.byteLength, false);
       frame.set(headerBytes, 4);
-      frame.set(chunk, 4 + headerBytes.byteLength);
+      frame.set(bytes, 4 + headerBytes.byteLength);
       return frame.buffer;
     }
   }
@@ -125,9 +130,14 @@ function decodeBinaryPayload(frame: ArrayBuffer): unknown {
   const bytes = new Uint8Array(frame);
   const headerJson = textDecoder.decode(bytes.slice(4, 4 + headerLength));
   const payload = JSON.parse(headerJson) as Record<string, unknown>;
-  const marker = payload.chunk as Record<string, unknown> | undefined;
-  if (!marker?.[BINARY_CHUNK_SENTINEL]) throw new Error('INVALID_BINARY_MARKER');
-  payload.chunk = bytes.slice(4 + headerLength);
+  const chunkMarker = payload.chunk as Record<string, unknown> | undefined;
+  const payloadMarker = payload.payload as Record<string, unknown> | undefined;
+  const hasChunk = chunkMarker?.[BINARY_CHUNK_SENTINEL] === true;
+  const hasPayload = payloadMarker?.[BINARY_PAYLOAD_SENTINEL] === true;
+  if (hasChunk === hasPayload) throw new Error('INVALID_BINARY_MARKER');
+  const body = bytes.slice(4 + headerLength);
+  if (hasChunk) payload.chunk = body;
+  else payload.payload = body.buffer;
   return payload;
 }
 
@@ -138,9 +148,23 @@ async function decodePayload(data: unknown): Promise<unknown> {
   return data;
 }
 
+function isPeerRangeFrame(record: Record<string, unknown>): boolean {
+  return (
+    record.protocol === 'musixquare-peer-range' &&
+    record.version === 1 &&
+    record.lane === 'bulk' &&
+    (record.type === 'chunk' || record.type === 'error')
+  );
+}
+
+function isPeerRangeChunk(record: Record<string, unknown>): boolean {
+  return isPeerRangeFrame(record) && record.type === 'chunk';
+}
+
 function isBulkPayload(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
-  return !!toUint8Array((data as Record<string, unknown>).chunk);
+  const record = data as Record<string, unknown>;
+  return !!toUint8Array(record.chunk) || isPeerRangeFrame(record);
 }
 
 export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {

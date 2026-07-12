@@ -4,6 +4,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../../core/constants.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
+import {
+  createPeerRangeChunkFrames,
+  createPeerRangeErrorFrame,
+  createPeerRangeReadFrame,
+} from '../../../player/sources/peer-range-protocol.ts';
 import { CloudflareDataConnection, CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
 import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
 
@@ -556,6 +561,53 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     ).toThrow('DATA_CHANNEL_NOT_OPEN');
 
     expect(bulk.sent).toHaveLength(0);
+  });
+
+  it('keeps peer range bytes and terminal errors on bulk with exact binary round trips', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const descriptor = createPeerRangeReadFrame({
+      connectionId: 'connection-1',
+      sourceIdentity: 'source-1',
+      handleId: 'handle-1',
+      requestId: 'request-1',
+      offset: 64,
+      totalLength: 4,
+    });
+    const chunk = createPeerRangeChunkFrames(descriptor, Uint8Array.of(7, 8, 9, 10))[0];
+    const error = createPeerRangeErrorFrame(descriptor, 'unavailable', 'Source unavailable');
+
+    conn.send(descriptor);
+    conn.send(chunk);
+    conn.send(error);
+
+    expect(control.sent).toHaveLength(1);
+    expect(bulk.sent).toHaveLength(2);
+    expect(bulk.sent[0]).toBeInstanceOf(ArrayBuffer);
+    expect(typeof bulk.sent[1]).toBe('string');
+
+    const received: unknown[] = [];
+    conn.on('data', (value) => received.push(value));
+    bulk.dispatch('message', bulk.sent[0]);
+    bulk.dispatch('message', bulk.sent[1]);
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+
+    expect(received[0]).toMatchObject({
+      protocol: 'musixquare-peer-range',
+      lane: 'bulk',
+      type: 'chunk',
+      payload: expect.any(ArrayBuffer),
+    });
+    expect(new Uint8Array((received[0] as { payload: ArrayBuffer }).payload)).toEqual(
+      Uint8Array.of(7, 8, 9, 10),
+    );
+    expect(received[1]).toMatchObject({ type: 'error', code: 'unavailable' });
   });
 
   it('keeps a live guest data channel when only the signaling socket errors', () => {

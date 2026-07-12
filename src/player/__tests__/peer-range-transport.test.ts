@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 
 import {
   EncodedSourceClosedError,
@@ -342,6 +343,24 @@ describe('FramedPeerRangeClientTransport', () => {
     expect(client.activeRequestCount).toBe(0);
     // The raw callback is still physically pending and remains accounted for.
     expect(client.physicalDeliveryTaskCount).toBe(1);
+  });
+
+  it('keeps its owned delivery deadline when unrelated managed timers are cleared', async () => {
+    const fatalConnection = vi.fn();
+    const client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: fatalConnection,
+      canSend: allowSend,
+      sendControl: () => new Promise<void>(() => undefined),
+      deliveryTimeoutMs: 10,
+    });
+
+    const result = client.read(request({ requestId: 'request:owned-timeout' }));
+    clearAllManagedTimers();
+
+    await expect(result).rejects.toBeInstanceOf(PeerRangeConnectionFatalError);
+    expect(fatalConnection).toHaveBeenCalledOnce();
+    expect(client.activeRequestCount).toBe(0);
   });
 
   it('requires the exact locally bound connection token for inbound bulk routing', () => {

@@ -5,7 +5,6 @@ import {
   type EncodedAudioSource,
   throwIfAborted,
 } from './encoded-audio-source.ts';
-import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import type {
   PeerRangeReadRequest,
   PeerRangeTransport,
@@ -43,7 +42,6 @@ const MAX_TERMINAL_EGRESS_REFILL_MS = 60_000;
 const DEFAULT_DELIVERY_TIMEOUT_MS = 5_000;
 const DEFAULT_TERMINAL_EGRESS_CREDITS = 128;
 const DEFAULT_TERMINAL_EGRESS_REFILL_MS = 5;
-let deliveryTimerSequence = 0;
 
 type MaybePromise<T> = T | PromiseLike<T>;
 
@@ -151,12 +149,6 @@ function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('Peer range request was aborted', 'AbortError');
 }
 
-function nextDeliveryTimerName(): string {
-  deliveryTimerSequence =
-    deliveryTimerSequence >= Number.MAX_SAFE_INTEGER ? 1 : deliveryTimerSequence + 1;
-  return `peer-range-delivery:${deliveryTimerSequence.toString(36)}`;
-}
-
 function monotonicNow(): number {
   try {
     const now = globalThis.performance?.now();
@@ -188,7 +180,7 @@ export class PeerRangeDeliveryTimeoutError extends PeerRangeConnectionFatalError
 
 interface DeliveryWaiter {
   readonly reject: (error: unknown) => void;
-  readonly timerName: string;
+  timer: ReturnType<typeof globalThis.setTimeout> | null;
   settled: boolean;
 }
 
@@ -351,37 +343,39 @@ class BoundedDeliveryTracker<TFrame> {
     if (this.#quarantined) return Promise.reject(this.#quarantinedReason);
 
     return new Promise<void>((resolve, reject) => {
-      const timerName = nextDeliveryTimerName();
       const waiter: DeliveryWaiter = {
         reject,
-        timerName,
+        timer: null,
         settled: false,
       };
-      setManagedTimer(
-        timerName,
-        () => {
-          if (waiter.settled) return;
-          waiter.settled = true;
-          this.#waiters.delete(waiter);
-          const error = new PeerRangeDeliveryTimeoutError();
-          reject(error);
-          this.#onFatal(error);
-        },
-        this.#timeoutMs,
-      );
+      // Delivery deadlines are physical connection resources, not UI/session
+      // timers. Keeping the native handle here prevents a global managed-timer
+      // cleanup from silently removing the deadline while leaving this Promise
+      // and its retained send task pending forever.
       this.#waiters.add(waiter);
+      waiter.timer = globalThis.setTimeout(() => {
+        if (waiter.settled) return;
+        waiter.settled = true;
+        waiter.timer = null;
+        this.#waiters.delete(waiter);
+        const error = new PeerRangeDeliveryTimeoutError();
+        reject(error);
+        this.#onFatal(error);
+      }, this.#timeoutMs);
       void task.then(
         () => {
           if (waiter.settled) return;
           waiter.settled = true;
-          clearManagedTimer(waiter.timerName);
+          if (waiter.timer !== null) globalThis.clearTimeout(waiter.timer);
+          waiter.timer = null;
           this.#waiters.delete(waiter);
           resolve();
         },
         (error: unknown) => {
           if (waiter.settled) return;
           waiter.settled = true;
-          clearManagedTimer(waiter.timerName);
+          if (waiter.timer !== null) globalThis.clearTimeout(waiter.timer);
+          waiter.timer = null;
           this.#waiters.delete(waiter);
           const fatal = new PeerRangeConnectionFatalError('Peer range delivery rejected', error);
           reject(fatal);
@@ -398,7 +392,8 @@ class BoundedDeliveryTracker<TFrame> {
     for (const waiter of this.#waiters) {
       if (waiter.settled) continue;
       waiter.settled = true;
-      clearManagedTimer(waiter.timerName);
+      if (waiter.timer !== null) globalThis.clearTimeout(waiter.timer);
+      waiter.timer = null;
       waiter.reject(reason);
     }
     this.#waiters.clear();

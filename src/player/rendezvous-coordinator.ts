@@ -41,6 +41,14 @@ export interface StartHostRendezvousInput {
   readonly participants: readonly HostRendezvousParticipant[];
 }
 
+/** A same-state recovery is deliberately unicast and occupies one peer slot. */
+export interface StartHostRendezvousRecoveryInput {
+  readonly run: RevisionedPlaybackRun;
+  readonly positionSeconds: number;
+  readonly playbackRate: number;
+  readonly participants: readonly [HostRendezvousParticipant];
+}
+
 export interface HostRendezvousCoordinatorOptions {
   /** Monotonic time translated into the shared room clock domain. */
   readonly nowRoomTimeMs: () => number;
@@ -785,6 +793,7 @@ export class HostRendezvousCoordinator {
   #createRendezvousId: (() => string) | null;
   #lastRoomTimeMs: number | null = null;
   #active: ActiveHostRendezvousAttempt | null = null;
+  readonly #activeRecoveries = new Map<string, ActiveHostRendezvousAttempt>();
   readonly #issuedRendezvousIds = new Set<string>();
   #mutationEpoch = 0;
   #closed = false;
@@ -847,7 +856,7 @@ export class HostRendezvousCoordinator {
       throw new TypeError('Generated rendezvous ID is invalid');
     }
     if (
-      this.#active?.rendezvousId === rendezvousId ||
+      this.#hasActiveRendezvousId(rendezvousId) ||
       (initialSuccessorKind === 'replacement' && this.#issuedRendezvousIds.has(rendezvousId))
     ) {
       throw new Error('Generated rendezvous ID must differ within the active playback state');
@@ -882,15 +891,107 @@ export class HostRendezvousCoordinator {
     }
     this.#rememberRendezvousId(rendezvousId, successorKind);
     const previous = this.#active;
+    const previousRecoveries =
+      successorKind === 'newer' ? [...this.#activeRecoveries.values()] : [];
+    if (successorKind === 'newer') this.#activeRecoveries.clear();
     this.#active = attempt;
     if (previous) {
       previous.supersede(
         successorKind === 'replacement' ? 'replacement-rendezvous' : 'newer-rendezvous',
       );
     }
-    if (this.#active === attempt && this.#mutationEpoch === mutationEpoch) {
-      attempt.dispatch();
+    for (const recovery of previousRecoveries) {
+      recovery.supersede('newer-rendezvous');
     }
+    if (this.isActive(attempt)) attempt.dispatch();
+    return attempt;
+  }
+
+  /**
+   * Starts one same-state recovery without replacing the room transition or a
+   * recovery owned by another participant. The participant tuple is enforced
+   * again at runtime so untyped callers cannot accidentally create a barrier.
+   */
+  startRecovery(input: StartHostRendezvousRecoveryInput): HostRendezvousAttempt {
+    this.#assertOpen();
+    const mutationEpoch = this.#advanceMutationEpoch();
+    const detachedInput = readStartInput(input);
+    const run = readPlaybackStateIdentity(detachedInput.run);
+    if (!run) {
+      throw new TypeError('Rendezvous recovery playback run is invalid');
+    }
+    this.#assertMutationEpoch(mutationEpoch);
+    this.#assertRecoveryState(run);
+    if (typeof detachedInput.positionSeconds !== 'number') {
+      throw new TypeError('Rendezvous recovery position must be a number');
+    }
+    const positionSeconds = detachedInput.positionSeconds;
+    assertFiniteNonNegative(positionSeconds, 'Rendezvous recovery position');
+    if (
+      typeof detachedInput.playbackRate !== 'number' ||
+      !Number.isFinite(detachedInput.playbackRate) ||
+      detachedInput.playbackRate <= 0
+    ) {
+      throw new RangeError('Rendezvous recovery playback rate must be a finite positive number');
+    }
+    const playbackRate = detachedInput.playbackRate;
+
+    const participants = snapshotParticipants(detachedInput.participants);
+    if (participants.length !== 1) {
+      throw new TypeError('Rendezvous recovery requires exactly one participant');
+    }
+    const participant = participants[0]!;
+    const participantLeadTimeMs = calculateRendezvousLeadMs(
+      participant.rttP95Ms,
+      participant.armP95Ms,
+    );
+    this.#assertMutationEpoch(mutationEpoch);
+
+    const createdAtRoomTimeMs = this.#readRoomTimeMs();
+    this.#assertMutationEpoch(mutationEpoch);
+    const createRendezvousId = this.#createRendezvousId;
+    if (createRendezvousId === null) throw new Error('Rendezvous coordinator is closed');
+    const rendezvousId = createRendezvousId();
+    this.#assertMutationEpoch(mutationEpoch);
+    if (!isBoundedIdentifier(rendezvousId)) {
+      throw new TypeError('Generated recovery rendezvous ID is invalid');
+    }
+    if (this.#hasActiveRendezvousId(rendezvousId) || this.#issuedRendezvousIds.has(rendezvousId)) {
+      throw new Error('Generated recovery rendezvous ID must be fresh for the playback state');
+    }
+
+    const leadTimeMs = Math.max(calculateRendezvousLeadMs(0, 0), participantLeadTimeMs);
+    const startAtRoomTimeMs = createdAtRoomTimeMs + leadTimeMs;
+    if (!Number.isFinite(startAtRoomTimeMs)) {
+      throw new RangeError('Rendezvous recovery schedule overflowed');
+    }
+    const schedule: ImmutableAttemptSchedule = Object.freeze({
+      rendezvousId,
+      run: immutableRun(run),
+      positionSeconds,
+      playbackRate,
+      createdAtRoomTimeMs,
+      leadTimeMs,
+      finalizeByRoomTimeMs: startAtRoomTimeMs - RENDEZVOUS_FINALIZATION_GUARD_MS,
+      startAtRoomTimeMs,
+    });
+    const attempt = new ActiveHostRendezvousAttempt(
+      this,
+      schedule,
+      participants,
+      Object.freeze([participantLeadTimeMs]),
+    );
+
+    this.#assertMutationEpoch(mutationEpoch);
+    this.#assertRecoveryState(run);
+    if (this.#hasActiveRendezvousId(rendezvousId) || this.#issuedRendezvousIds.has(rendezvousId)) {
+      throw new Error('Generated recovery rendezvous ID was claimed during start');
+    }
+    this.#rememberRendezvousId(rendezvousId, 'replacement');
+    const previous = this.#activeRecoveries.get(participant.participantId) ?? null;
+    this.#activeRecoveries.set(participant.participantId, attempt);
+    previous?.supersede('replacement-rendezvous');
+    if (this.isActive(attempt)) attempt.dispatch();
     return attempt;
   }
 
@@ -906,16 +1007,24 @@ export class HostRendezvousCoordinator {
     this.#closed = true;
     this.#advanceMutationEpoch();
     const active = this.#active;
+    const recoveries = [...this.#activeRecoveries.values()];
     this.#active = null;
+    this.#activeRecoveries.clear();
     this.#issuedRendezvousIds.clear();
     this.#lastRoomTimeMs = null;
     this.#nowRoomTimeMs = null;
     this.#createRendezvousId = null;
     active?.closeFromOwner('coordinator-closed');
+    for (const recovery of recoveries) recovery.closeFromOwner('coordinator-closed');
   }
 
   isActive(attempt: ActiveHostRendezvousAttempt): boolean {
-    return !this.#closed && this.#active === attempt;
+    if (this.#closed) return false;
+    if (this.#active === attempt) return true;
+    for (const recovery of this.#activeRecoveries.values()) {
+      if (recovery === attempt) return true;
+    }
+    return false;
   }
 
   tryReadRoomTimeMs(): number | null {
@@ -938,6 +1047,30 @@ export class HostRendezvousCoordinator {
       throw new RangeError('Equal rendezvous revision must match the active playback state');
     }
     return 'replacement';
+  }
+
+  #assertRecoveryState(run: RevisionedPlaybackRun): void {
+    const active = this.#active;
+    if (!active) {
+      throw new Error('Rendezvous recovery requires an active playback state');
+    }
+    if (run.revision < active.revision) {
+      throw new RangeError('Rendezvous recovery revision is stale');
+    }
+    if (run.revision > active.revision) {
+      throw new RangeError('Rendezvous recovery cannot advance the playback revision');
+    }
+    if (!active.matchesState(run)) {
+      throw new RangeError('Rendezvous recovery must match the active playback state');
+    }
+  }
+
+  #hasActiveRendezvousId(rendezvousId: string): boolean {
+    if (this.#active?.rendezvousId === rendezvousId) return true;
+    for (const recovery of this.#activeRecoveries.values()) {
+      if (recovery.rendezvousId === rendezvousId) return true;
+    }
+    return false;
   }
 
   #rememberRendezvousId(rendezvousId: string, successorKind: RendezvousSuccessorKind): void {

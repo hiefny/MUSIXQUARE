@@ -1052,6 +1052,260 @@ describe('HostRendezvousCoordinator', () => {
     });
   });
 
+  it('keeps the room transition and participant recovery slots independently active', async () => {
+    const oldArm = deferred<RendezvousArmReceipt>();
+    const peerBArm = deferred<RendezvousArmReceipt>();
+    let oldIntent: RendezvousArmIntent | null = null;
+    let peerBIntent: RendezvousArmIntent | null = null;
+    const oldFinalize = vi.fn();
+    const peerBFinalize = vi.fn(async (intent: RendezvousFinalizeIntent) =>
+      finalizedReceipt(intent),
+    );
+    const oldCancel = vi.fn();
+    const peerBCancel = vi.fn();
+    const replacementCancel = vi.fn();
+    const host = coordinator(
+      () => 1_325,
+      ['rv-transition', 'rv-recovery-a', 'rv-recovery-b', 'rv-recovery-a-2'],
+    );
+    const transition = host.start({
+      run: RUN,
+      positionSeconds: 2,
+      playbackRate: 1,
+      participants: [],
+    });
+    const recoveryA = host.startRecovery({
+      run: RUN,
+      positionSeconds: 2,
+      playbackRate: 1,
+      participants: [
+        participant('peer-a', {
+          arm: (intent) => {
+            oldIntent = intent;
+            return oldArm.promise;
+          },
+          finalize: oldFinalize,
+          cancel: oldCancel,
+        }),
+      ],
+    });
+    const recoveryB = host.startRecovery({
+      run: RUN,
+      positionSeconds: 2,
+      playbackRate: 1,
+      participants: [
+        participant('peer-b', {
+          arm: (intent) => {
+            peerBIntent = intent;
+            return peerBArm.promise;
+          },
+          finalize: peerBFinalize,
+          cancel: peerBCancel,
+        }),
+      ],
+    });
+    const replacementA = host.startRecovery({
+      run: RUN,
+      positionSeconds: 2.25,
+      playbackRate: 1,
+      participants: [participant('peer-a', { cancel: replacementCancel })],
+    });
+    await drainMicrotasks();
+
+    expect(transition.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-transition',
+    });
+    expect(recoveryA.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'replacement-rendezvous',
+    });
+    expect(oldCancel).toHaveBeenCalledOnce();
+    expect(recoveryB.getSnapshot()).toMatchObject({
+      status: 'open',
+      rendezvousId: 'rv-recovery-b',
+    });
+    expect(peerBCancel).not.toHaveBeenCalled();
+    expect(replacementA.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-recovery-a-2',
+      positionSeconds: 2.25,
+    });
+
+    oldArm.resolve(armedReceipt(oldIntent!));
+    peerBArm.resolve(armedReceipt(peerBIntent!));
+    await drainMicrotasks();
+    expect(oldFinalize).not.toHaveBeenCalled();
+    expect(peerBFinalize).toHaveBeenCalledOnce();
+    expect(recoveryB.getSnapshot()).toMatchObject({
+      status: 'complete',
+      participants: [{ participantId: 'peer-b', finalizeStatus: 'accepted' }],
+    });
+
+    host.close();
+    expect(transition.getSnapshot()).toMatchObject({
+      status: 'cancelled',
+      reasonCode: 'coordinator-closed',
+    });
+    expect(recoveryB.getSnapshot().status).toBe('cancelled');
+    expect(replacementA.getSnapshot().status).toBe('cancelled');
+    expect(peerBCancel).toHaveBeenCalledOnce();
+    expect(replacementCancel).toHaveBeenCalledOnce();
+    expect(recoveryB.commitParticipant('peer-b')).toBe(false);
+    expect(replacementA.commitParticipant('peer-a')).toBe(false);
+  });
+
+  it('lets recovery replacement cancellation re-enter a different participant slot', async () => {
+    const pendingArm = deferred<RendezvousArmReceipt>();
+    const outerArm = vi.fn(async (intent: RendezvousArmIntent) => armedReceipt(intent));
+    let nested: ReturnType<HostRendezvousCoordinator['startRecovery']> | null = null;
+    let host!: HostRendezvousCoordinator;
+    host = coordinator(() => 1_330, ['rv-transition', 'rv-old-a', 'rv-outer-a', 'rv-nested-b']);
+    const transition = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    const old = host.startRecovery({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('peer-a', {
+          arm: () => pendingArm.promise,
+          cancel: () => {
+            nested = host.startRecovery({
+              run: RUN,
+              positionSeconds: 0,
+              playbackRate: 1,
+              participants: [participant('peer-b')],
+            });
+          },
+        }),
+      ],
+    });
+
+    const outer = host.startRecovery({
+      run: RUN,
+      positionSeconds: 1,
+      playbackRate: 1,
+      participants: [participant('peer-a', { arm: outerArm })],
+    });
+    await drainMicrotasks();
+
+    expect(old.getSnapshot()).toMatchObject({ status: 'superseded' });
+    expect(transition.getSnapshot()).toMatchObject({ status: 'complete' });
+    expect(outerArm).toHaveBeenCalledOnce();
+    expect(outer.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-outer-a',
+    });
+    expect(nested).not.toBeNull();
+    expect(nested!.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-nested-b',
+    });
+  });
+
+  it('supersedes every older recovery only when playback advances', async () => {
+    const transitionArm = deferred<RendezvousArmReceipt>();
+    const recoveryAArm = deferred<RendezvousArmReceipt>();
+    const recoveryBArm = deferred<RendezvousArmReceipt>();
+    const transitionFinalize = vi.fn();
+    const recoveryAFinalize = vi.fn();
+    const recoveryBFinalize = vi.fn();
+    const transitionCancel = vi.fn();
+    const recoveryACancel = vi.fn();
+    const recoveryBCancel = vi.fn();
+    const host = coordinator(
+      () => 1_335,
+      ['rv-transition', 'rv-recovery-a', 'rv-recovery-b', 'rv-newer', 'rv-new-state-recovery'],
+    );
+    const transition = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('transition-peer', {
+          arm: () => transitionArm.promise,
+          finalize: transitionFinalize,
+          cancel: transitionCancel,
+        }),
+      ],
+    });
+    const recoveryA = host.startRecovery({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('peer-a', {
+          arm: () => recoveryAArm.promise,
+          finalize: recoveryAFinalize,
+          cancel: recoveryACancel,
+        }),
+      ],
+    });
+    const recoveryB = host.startRecovery({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [
+        participant('peer-b', {
+          arm: () => recoveryBArm.promise,
+          finalize: recoveryBFinalize,
+          cancel: recoveryBCancel,
+        }),
+      ],
+    });
+
+    const newerRun = Object.freeze({ ...RUN, runId: 'run-newer', revision: RUN.revision + 1 });
+    const newer = host.start({
+      run: newerRun,
+      positionSeconds: 4,
+      playbackRate: 1,
+      participants: [],
+    });
+    expect(newer.getSnapshot()).toMatchObject({ status: 'complete', run: newerRun });
+    for (const attempt of [transition, recoveryA, recoveryB]) {
+      expect(attempt.getSnapshot()).toMatchObject({
+        status: 'superseded',
+        reasonCode: 'newer-rendezvous',
+      });
+    }
+    expect(transitionCancel).toHaveBeenCalledOnce();
+    expect(recoveryACancel).toHaveBeenCalledOnce();
+    expect(recoveryBCancel).toHaveBeenCalledOnce();
+
+    transitionArm.resolve({} as RendezvousArmReceipt);
+    recoveryAArm.resolve({} as RendezvousArmReceipt);
+    recoveryBArm.resolve({} as RendezvousArmReceipt);
+    await drainMicrotasks();
+    expect(transitionFinalize).not.toHaveBeenCalled();
+    expect(recoveryAFinalize).not.toHaveBeenCalled();
+    expect(recoveryBFinalize).not.toHaveBeenCalled();
+
+    expect(() =>
+      host.startRecovery({
+        run: RUN,
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [participant('stale-peer')],
+      }),
+    ).toThrow(/stale/u);
+    const currentRecovery = host.startRecovery({
+      run: newerRun,
+      positionSeconds: 4,
+      playbackRate: 1,
+      participants: [participant('current-peer')],
+    });
+    await drainMicrotasks();
+    expect(currentRecovery.getSnapshot()).toMatchObject({
+      status: 'complete',
+      rendezvousId: 'rv-new-state-recovery',
+    });
+  });
+
   it('protects committed participants while replacing a complete same-state candidate set', async () => {
     const committedCancel = vi.fn();
     const candidateCancel = vi.fn();
@@ -1171,6 +1425,97 @@ describe('HostRendezvousCoordinator', () => {
     expect(newerState.getSnapshot()).toMatchObject({ status: 'complete', rendezvousId: 'rv-a' });
   });
 
+  it('requires one exact current-state participant and a fresh recovery ID', () => {
+    const noState = coordinator(() => 1_388, ['rv-unused']);
+    expect(() =>
+      noState.startRecovery({
+        run: RUN,
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [participant('peer')],
+      }),
+    ).toThrow(/requires an active playback state/u);
+
+    const pendingArm = deferred<RendezvousArmReceipt>();
+    const host = coordinator(() => 1_389, ['rv-state', 'rv-fresh', 'rv-fresh', 'rv-after-cancel']);
+    const transition = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    expect(() =>
+      host.startRecovery({
+        run: RUN,
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [],
+      } as never),
+    ).toThrow(/exactly one participant/u);
+    expect(() =>
+      host.startRecovery({
+        run: RUN,
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [participant('peer-a'), participant('peer-b')],
+      } as never),
+    ).toThrow(/exactly one participant/u);
+    expect(() =>
+      host.startRecovery({
+        run: { ...RUN, revision: RUN.revision - 1 },
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [participant('peer')],
+      }),
+    ).toThrow(/stale/u);
+    expect(() =>
+      host.startRecovery({
+        run: { ...RUN, revision: RUN.revision + 1 },
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [participant('peer')],
+      }),
+    ).toThrow(/cannot advance/u);
+    expect(() =>
+      host.startRecovery({
+        run: { ...RUN, runId: 'foreign-run' },
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [participant('peer')],
+      }),
+    ).toThrow(/must match/u);
+
+    const recovery = host.startRecovery({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [participant('peer-a', { arm: () => pendingArm.promise })],
+    });
+    expect(() =>
+      host.startRecovery({
+        run: RUN,
+        positionSeconds: 0,
+        playbackRate: 1,
+        participants: [participant('peer-b')],
+      }),
+    ).toThrow(/must be fresh/u);
+    expect(recovery.getSnapshot()).toMatchObject({
+      status: 'open',
+      rendezvousId: 'rv-fresh',
+    });
+    expect(transition.getSnapshot()).toMatchObject({ status: 'complete' });
+
+    transition.cancel('room-transition-retired');
+    const afterCancel = host.startRecovery({
+      run: RUN,
+      positionSeconds: 1,
+      playbackRate: 1,
+      participants: [participant('peer-b')],
+    });
+    expect(afterCancel.rendezvousId).toBe('rv-after-cancel');
+    expect(recovery.getSnapshot().status).toBe('open');
+  });
+
   it('keeps same-state recovery available beyond the bounded recent-ID window', () => {
     let nextId = 0;
     let forcedId: string | null = null;
@@ -1222,6 +1567,72 @@ describe('HostRendezvousCoordinator', () => {
       status: 'complete',
       rendezvousId: 'rv-window-0',
       positionSeconds: 302,
+    });
+  });
+
+  it('bounds recovery ID history without permitting any still-active ID', () => {
+    let nextId = 0;
+    let forcedId: string | null = null;
+    const neverArmed = new Promise<RendezvousArmReceipt>(() => undefined);
+    const host = new HostRendezvousCoordinator({
+      nowRoomTimeMs: () => 1_393,
+      createRendezvousId: () => forcedId ?? `rv-recovery-window-${nextId++}`,
+    });
+    const transition = host.start({
+      run: RUN,
+      positionSeconds: 0,
+      playbackRate: 1,
+      participants: [],
+    });
+    let latest: HostRendezvousAttempt | null = null;
+    for (let index = 1; index <= 300; index += 1) {
+      latest = host.startRecovery({
+        run: RUN,
+        positionSeconds: index,
+        playbackRate: 1,
+        participants: [participant('window-peer', { arm: () => neverArmed })],
+      });
+    }
+    expect(latest!.getSnapshot()).toMatchObject({
+      status: 'open',
+      rendezvousId: 'rv-recovery-window-300',
+      positionSeconds: 300,
+    });
+
+    forcedId = 'rv-recovery-window-299';
+    expect(() =>
+      host.startRecovery({
+        run: RUN,
+        positionSeconds: 301,
+        playbackRate: 1,
+        participants: [participant('window-peer', { arm: () => neverArmed })],
+      }),
+    ).toThrow(/must be fresh/u);
+    forcedId = transition.rendezvousId;
+    expect(() =>
+      host.startRecovery({
+        run: RUN,
+        positionSeconds: 301,
+        playbackRate: 1,
+        participants: [participant('window-peer', { arm: () => neverArmed })],
+      }),
+    ).toThrow(/must be fresh/u);
+
+    forcedId = 'rv-recovery-window-1';
+    const afterEviction = host.startRecovery({
+      run: RUN,
+      positionSeconds: 302,
+      playbackRate: 1,
+      participants: [participant('window-peer', { arm: () => neverArmed })],
+    });
+    expect(afterEviction.getSnapshot()).toMatchObject({
+      status: 'open',
+      rendezvousId: 'rv-recovery-window-1',
+      positionSeconds: 302,
+    });
+    expect(latest!.getSnapshot()).toMatchObject({
+      status: 'superseded',
+      reasonCode: 'replacement-rendezvous',
     });
   });
 

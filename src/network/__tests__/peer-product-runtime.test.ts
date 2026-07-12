@@ -72,6 +72,7 @@ function sessions(): SessionSpies {
       handleWake,
       nowRoomTimeMs: vi.fn(() => 1_000),
       sendRequired: vi.fn(() => true),
+      sendWire: vi.fn(() => Object.freeze({ kind: 'source-ready' }) as never),
       closeConnection: vi.fn(),
     },
   };

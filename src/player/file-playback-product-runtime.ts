@@ -24,6 +24,11 @@ import {
 } from './file-playback-product-host-room.ts';
 import { getFilePlaybackRoomClock } from './file-playback-room-clock.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
+import type { FilePlaybackWireLease } from './file-playback-wire-binding.ts';
+import type {
+  FilePlaybackWireMessageForKind,
+  FilePlaybackWirePayloadByKind,
+} from './file-playback-wire-sender.ts';
 import {
   createStoppedPlaybackTimeline,
   type PlaybackTimelineSnapshot,
@@ -40,6 +45,11 @@ export interface FilePlaybackProductRuntimeSessionAdapter {
   handleWake(connection?: DataConnection): boolean;
   nowRoomTimeMs(): number;
   sendRequired(connection: DataConnection, frame: unknown): boolean;
+  sendWire<const Kind extends keyof FilePlaybackWirePayloadByKind>(
+    connection: DataConnection,
+    lease: FilePlaybackWireLease,
+    payload: FilePlaybackWirePayloadByKind[Kind],
+  ): FilePlaybackWireMessageForKind<Kind> | null;
   closeConnection(connection: DataConnection): void;
 }
 
@@ -122,6 +132,12 @@ function productionSessionAdapter(): FilePlaybackProductRuntimeSessionAdapter {
     nowRoomTimeMs: () => getFilePlaybackRoomClock().nowRoomTimeMs(),
     sendRequired: (connection: DataConnection, frame: unknown) =>
       manager().sendRequired(connection, frame),
+    sendWire: <const Kind extends keyof FilePlaybackWirePayloadByKind>(
+      connection: DataConnection,
+      lease: FilePlaybackWireLease,
+      payload: FilePlaybackWirePayloadByKind[Kind],
+    ): FilePlaybackWireMessageForKind<Kind> | null =>
+      manager().sendWire(connection, lease, payload),
     closeConnection: (connection: DataConnection) => manager().closeConnection(connection, true),
   });
 }
@@ -156,6 +172,7 @@ function assertSessionAdapter(value: FilePlaybackProductRuntimeSessionAdapter): 
     typeof value.handleWake !== 'function' ||
     typeof value.nowRoomTimeMs !== 'function' ||
     typeof value.sendRequired !== 'function' ||
+    typeof value.sendWire !== 'function' ||
     typeof value.closeConnection !== 'function'
   ) {
     throw new TypeError('File playback product runtime session adapter is invalid');

@@ -162,6 +162,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
     handleWake,
     nowRoomTimeMs: roomNow,
     sendRequired: vi.fn(() => true),
+    sendWire: vi.fn(() => Object.freeze({ kind: 'source-ready' }) as never),
     closeConnection: vi.fn(),
   };
   const createController = vi.fn(

@@ -8,9 +8,14 @@ import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
 import type {
-  FilePlaybackProductHostFirstLocalFileResult,
+  FilePlaybackProductHostCurrentOptions,
+  FilePlaybackProductHostFirstLocalFileCommit,
+  FilePlaybackProductHostLocalTrackCommit,
   FilePlaybackProductHostRoomOptions,
+  FilePlaybackProductHostSeekOptions,
+  FilePlaybackProductHostTransitionCommit,
   StartFilePlaybackProductHostFirstLocalFileOptions,
+  StartFilePlaybackProductHostLocalTrackOptions,
 } from '../file-playback-product-host-room.ts';
 import {
   FilePlaybackProductRuntime,
@@ -21,6 +26,7 @@ import {
 import type { PlaybackTimelineSnapshot } from '../playback-timeline.ts';
 
 const Q1 = '98000000-0000-4000-8000-000000000001' as QueueItemId;
+const Q2 = '98000000-0000-4000-8000-000000000002' as QueueItemId;
 
 interface RuntimeHarness {
   readonly runtime: FilePlaybackProductRuntime;
@@ -43,6 +49,14 @@ interface ProductHostRoomHarness {
   readonly port: FilePlaybackProductRuntimeHostRoomPort;
   readonly options: Readonly<FilePlaybackProductHostRoomOptions>;
   readonly startFirstLocalFile: ReturnType<typeof vi.fn>;
+  readonly startLocalTrack: ReturnType<typeof vi.fn>;
+  readonly pauseCurrent: ReturnType<typeof vi.fn>;
+  readonly seekPlaying: ReturnType<typeof vi.fn>;
+  readonly seekPaused: ReturnType<typeof vi.fn>;
+  readonly resumeCurrent: ReturnType<typeof vi.fn>;
+  readonly replayCurrent: ReturnType<typeof vi.fn>;
+  readonly stopCurrent: ReturnType<typeof vi.fn>;
+  readonly settleEndedCurrent: ReturnType<typeof vi.fn>;
   readonly close: ReturnType<typeof vi.fn>;
   fatal(error: Error): void;
 }
@@ -59,6 +73,7 @@ interface RuntimeHarnessOptions {
   readonly roomNow?: number;
   readonly monotonicNow?: number;
   readonly hostRoomClosePlans?: readonly HostRoomClosePlan[];
+  readonly omitHostRoomMethod?: keyof FilePlaybackProductRuntimeHostRoomPort;
 }
 
 let harnessSequence = 0;
@@ -71,6 +86,34 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function candidateResult(
+  roomGeneration: number,
+  applicationSessionId: string,
+  operation: string,
+): Readonly<FilePlaybackProductHostLocalTrackCommit> {
+  return Object.freeze({
+    schemaVersion: 1,
+    status: 'committed',
+    roomGeneration,
+    applicationSessionId,
+    fixtureOperation: operation,
+  }) as unknown as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+}
+
+function transitionResult(
+  roomGeneration: number,
+  applicationSessionId: string,
+  operation: string,
+): Readonly<FilePlaybackProductHostTransitionCommit> {
+  return Object.freeze({
+    schemaVersion: 1,
+    status: 'committed',
+    roomGeneration,
+    applicationSessionId,
+    fixtureOperation: operation,
+  }) as unknown as Readonly<FilePlaybackProductHostTransitionCommit>;
 }
 
 function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
@@ -149,21 +192,58 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
     const closePlan = options.hostRoomClosePlans?.[index - 1];
     let closePromise: Promise<void> | null = null;
     events.push('host-room:create');
+    const candidate = (operation: string) =>
+      candidateResult(
+        roomOptions.hostRoomSnapshot.roomGeneration,
+        roomOptions.hostRoomSnapshot.applicationSessionId,
+        operation,
+      );
+    const transition = (operation: string) =>
+      transitionResult(
+        roomOptions.hostRoomSnapshot.roomGeneration,
+        roomOptions.hostRoomSnapshot.applicationSessionId,
+        operation,
+      );
     const startFirstLocalFile = vi.fn(
       async (
         _input: StartFilePlaybackProductHostFirstLocalFileOptions,
-      ): Promise<FilePlaybackProductHostFirstLocalFileResult> => {
-        events.push(`host-room:${index}:start`);
-        return Object.freeze({
-          schemaVersion: 1 as const,
-          status: 'rejected' as const,
-          reason: 'replacement-not-supported' as const,
-          roomGeneration: roomOptions.hostRoomSnapshot.roomGeneration,
-          applicationSessionId: roomOptions.hostRoomSnapshot.applicationSessionId,
-          currentQueueItemId: Q1,
-        });
+      ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>> => {
+        events.push(`host-room:${index}:first`);
+        return candidate('first');
       },
     );
+    const startLocalTrack = vi.fn(async (_input: StartFilePlaybackProductHostLocalTrackOptions) => {
+      events.push(`host-room:${index}:track`);
+      return candidate('track');
+    });
+    const pauseCurrent = vi.fn(async (_input: FilePlaybackProductHostCurrentOptions) => {
+      events.push(`host-room:${index}:pause`);
+      return transition('pause');
+    });
+    const seekPlaying = vi.fn(async (_input: FilePlaybackProductHostSeekOptions) => {
+      events.push(`host-room:${index}:seek-playing`);
+      return candidate('seek-playing');
+    });
+    const seekPaused = vi.fn(async (_input: FilePlaybackProductHostSeekOptions) => {
+      events.push(`host-room:${index}:seek-paused`);
+      return transition('seek-paused');
+    });
+    const resumeCurrent = vi.fn(async (_input: FilePlaybackProductHostCurrentOptions) => {
+      events.push(`host-room:${index}:resume`);
+      return candidate('resume');
+    });
+    const replayCurrent = vi.fn(async (_input: FilePlaybackProductHostCurrentOptions) => {
+      events.push(`host-room:${index}:replay`);
+      return candidate('replay');
+    });
+    const stopCurrent = vi.fn(async (_input: FilePlaybackProductHostCurrentOptions) => {
+      events.push(`host-room:${index}:stop`);
+      return transition('stop');
+    });
+    const settleEndedCurrent = vi.fn(async (_input: FilePlaybackProductHostCurrentOptions) => {
+      events.push(`host-room:${index}:ended`);
+      return transition('ended');
+    });
     const close = vi.fn(() => {
       if (!closePromise) {
         events.push(`host-room:${index}:close`);
@@ -177,14 +257,36 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
     });
     const port: FilePlaybackProductRuntimeHostRoomPort = {
       startFirstLocalFile,
+      startLocalTrack,
+      pauseCurrent,
+      seekPlaying,
+      seekPaused,
+      resumeCurrent,
+      replayCurrent,
+      stopCurrent,
+      settleEndedCurrent,
       close,
       currentRendererSnapshot: vi.fn(() => null),
       positionAt: vi.fn(() => null),
     };
+    if (options.omitHostRoomMethod) {
+      Reflect.deleteProperty(
+        port as unknown as Record<string, unknown>,
+        options.omitHostRoomMethod,
+      );
+    }
     const room: ProductHostRoomHarness = {
       port,
       options: roomOptions,
       startFirstLocalFile,
+      startLocalTrack,
+      pauseCurrent,
+      seekPlaying,
+      seekPaused,
+      resumeCurrent,
+      replayCurrent,
+      stopCurrent,
+      settleEndedCurrent,
       close,
       fatal: (error) => roomOptions.onFatalRoom(error),
     };
@@ -233,6 +335,18 @@ function localFile(name = 'product-runtime.mp3'): File {
   return new File([new Uint8Array([1, 2, 3])], name, { type: 'audio/mpeg' });
 }
 
+function containsBody(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  if (value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    return true;
+  }
+  if (seen.has(value)) return false;
+  seen.add(value);
+  return Object.values(Object.getOwnPropertyDescriptors(value)).some(
+    (descriptor) => Object.hasOwn(descriptor, 'value') && containsBody(descriptor.value, seen),
+  );
+}
+
 function lastBeganTimeline(setup: RuntimeHarness): PlaybackTimelineSnapshot {
   const calls = vi.mocked(setup.controller().beginRoom).mock.calls;
   const timeline = calls.at(-1)?.[0];
@@ -261,6 +375,23 @@ describe('FilePlaybackProductRuntime', () => {
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow(/disabled/u);
+    const current = { signal: new AbortController().signal };
+    const seek = { ...current, positionSeconds: 12 };
+    await expect(
+      setup.runtime.startLocalTrack({
+        queueItemId: Q1,
+        file: localFile(),
+        positionSeconds: 0,
+        signal: current.signal,
+      }),
+    ).rejects.toThrow(/disabled/u);
+    await expect(setup.runtime.pauseCurrent(current)).rejects.toThrow(/disabled/u);
+    await expect(setup.runtime.seekPlaying(seek)).rejects.toThrow(/disabled/u);
+    await expect(setup.runtime.seekPaused(seek)).rejects.toThrow(/disabled/u);
+    await expect(setup.runtime.resumeCurrent(current)).rejects.toThrow(/disabled/u);
+    await expect(setup.runtime.replayCurrent(current)).rejects.toThrow(/disabled/u);
+    await expect(setup.runtime.stopCurrent(current)).rejects.toThrow(/disabled/u);
+    await expect(setup.runtime.settleEndedCurrent(current)).rejects.toThrow(/disabled/u);
     expect(() => setup.runtime.endRoom()).not.toThrow();
 
     expect(setup.createController).not.toHaveBeenCalled();
@@ -389,6 +520,174 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.createHostRoom).not.toHaveBeenCalled();
   });
 
+  it('rejects every host transport operation in a guest room', async () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginGuestRoom();
+    const signal = new AbortController().signal;
+    const attempts = [
+      setup.runtime.startHostFirstLocalFile({ queueItemId: Q1, file: localFile(), signal }),
+      setup.runtime.startLocalTrack({
+        queueItemId: Q1,
+        file: localFile(),
+        positionSeconds: 0,
+        signal,
+      }),
+      setup.runtime.pauseCurrent({ signal }),
+      setup.runtime.seekPlaying({ positionSeconds: 1, signal }),
+      setup.runtime.seekPaused({ positionSeconds: 1, signal }),
+      setup.runtime.resumeCurrent({ signal }),
+      setup.runtime.replayCurrent({ signal }),
+      setup.runtime.stopCurrent({ signal }),
+      setup.runtime.settleEndedCurrent({ signal }),
+    ];
+
+    const results = await Promise.allSettled(attempts);
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(setup.createHostRoom).not.toHaveBeenCalled();
+  });
+
+  it('fails host entry when the expanded structural room port is incomplete', () => {
+    const setup = harness({ omitHostRoomMethod: 'seekPlaying' });
+    setup.runtime.initializeBeforeProtocol();
+
+    expect(() => setup.runtime.beginHostRoom('incomplete-port-host')).toThrow(
+      /host room factory is invalid/u,
+    );
+
+    expect(setup.hostRooms[0]?.close).toHaveBeenCalledOnce();
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+    expect(setup.controller().snapshot().roomRole).toBeNull();
+  });
+
+  it('routes the complete transport surface through one exact stable host-room port', async () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('transport-host');
+    const signal = new AbortController().signal;
+    const first = { queueItemId: Q1, file: localFile('first.mp3'), signal };
+    const replacement = {
+      queueItemId: Q2,
+      file: localFile('replacement.flac'),
+      positionSeconds: 3,
+      signal,
+    };
+    const current = { signal };
+    const seek = { positionSeconds: 24, signal };
+
+    const results = [
+      await setup.runtime.startHostFirstLocalFile(first),
+      await setup.runtime.startLocalTrack(replacement),
+      await setup.runtime.pauseCurrent(current),
+      await setup.runtime.seekPaused(seek),
+      await setup.runtime.resumeCurrent(current),
+      await setup.runtime.seekPlaying(seek),
+      await setup.runtime.replayCurrent(current),
+      await setup.runtime.stopCurrent(current),
+      await setup.runtime.settleEndedCurrent(current),
+    ];
+
+    const room = setup.hostRooms[0];
+    expect(setup.createHostRoom).toHaveBeenCalledOnce();
+    expect(room?.startFirstLocalFile).toHaveBeenCalledWith(first);
+    expect(room?.startLocalTrack).toHaveBeenCalledWith(replacement);
+    expect(room?.pauseCurrent).toHaveBeenCalledWith(current);
+    expect(room?.seekPaused).toHaveBeenCalledWith(seek);
+    expect(room?.resumeCurrent).toHaveBeenCalledWith(current);
+    expect(room?.seekPlaying).toHaveBeenCalledWith(seek);
+    expect(room?.replayCurrent).toHaveBeenCalledWith(current);
+    expect(room?.stopCurrent).toHaveBeenCalledWith(current);
+    expect(room?.settleEndedCurrent).toHaveBeenCalledWith(current);
+    expect(results.every((result) => Object.isFrozen(result))).toBe(true);
+    expect(results.some((result) => containsBody(result))).toBe(false);
+  });
+
+  it('never dispatches any captured operation after the exact room retires', async () => {
+    const oldCleanup = deferred<void>();
+    const setup = harness({ hostRoomClosePlans: [{ gate: oldCleanup }, {}] });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('old-host');
+    setup.runtime.endRoom();
+    setup.runtime.beginHostRoom('captured-host');
+    const signal = new AbortController().signal;
+    const room = setup.hostRooms[1];
+    const pending = [
+      setup.runtime.startHostFirstLocalFile({ queueItemId: Q1, file: localFile(), signal }),
+      setup.runtime.startLocalTrack({
+        queueItemId: Q2,
+        file: localFile('two.mp3'),
+        positionSeconds: 0,
+        signal,
+      }),
+      setup.runtime.pauseCurrent({ signal }),
+      setup.runtime.seekPlaying({ positionSeconds: 1, signal }),
+      setup.runtime.seekPaused({ positionSeconds: 2, signal }),
+      setup.runtime.resumeCurrent({ signal }),
+      setup.runtime.replayCurrent({ signal }),
+      setup.runtime.stopCurrent({ signal }),
+      setup.runtime.settleEndedCurrent({ signal }),
+    ];
+    await Promise.resolve();
+    setup.runtime.endRoom();
+    oldCleanup.resolve();
+
+    const settlements = await Promise.allSettled(pending);
+    expect(settlements.every((settlement) => settlement.status === 'rejected')).toBe(true);
+    expect(room?.startFirstLocalFile).not.toHaveBeenCalled();
+    expect(room?.startLocalTrack).not.toHaveBeenCalled();
+    expect(room?.pauseCurrent).not.toHaveBeenCalled();
+    expect(room?.seekPlaying).not.toHaveBeenCalled();
+    expect(room?.seekPaused).not.toHaveBeenCalled();
+    expect(room?.resumeCurrent).not.toHaveBeenCalled();
+    expect(room?.replayCurrent).not.toHaveBeenCalled();
+    expect(room?.stopCurrent).not.toHaveBeenCalled();
+    expect(room?.settleEndedCurrent).not.toHaveBeenCalled();
+  });
+
+  it('keeps a dispatched commit-dominant task while endRoom fences its port immediately', async () => {
+    const gate = deferred<Readonly<FilePlaybackProductHostLocalTrackCommit>>();
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('commit-dominant-host');
+    const room = setup.hostRooms[0];
+    room?.startLocalTrack.mockImplementationOnce(async () => gate.promise);
+    const task = setup.runtime.startLocalTrack({
+      queueItemId: Q1,
+      file: localFile(),
+      positionSeconds: 0,
+      signal: new AbortController().signal,
+    });
+    await Promise.resolve();
+
+    setup.runtime.endRoom();
+
+    expect(room?.startLocalTrack).toHaveBeenCalledOnce();
+    expect(room?.close).toHaveBeenCalledOnce();
+    const committed = candidateResult(
+      room?.options.hostRoomSnapshot.roomGeneration ?? 1,
+      room?.options.hostRoomSnapshot.applicationSessionId ?? 'fixture-session',
+      'commit-dominant',
+    );
+    gate.resolve(committed);
+    await expect(task).resolves.toBe(committed);
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+  });
+
+  it('drops a captured operation when an exact fatal retires the room before dispatch', async () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('fatal-race-host');
+    const room = setup.hostRooms[0];
+
+    const pending = setup.runtime.pauseCurrent({ signal: new AbortController().signal });
+    room?.fatal(new Error('exact host renderer fatal'));
+
+    await expect(pending).rejects.toThrow(/host room changed/u);
+    expect(room?.pauseCurrent).not.toHaveBeenCalled();
+    expect(room?.close).toHaveBeenCalledOnce();
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+  });
+
   it('fences the host renderer before session and controller teardown', () => {
     const setup = harness();
     setup.runtime.initializeBeforeProtocol();
@@ -425,10 +724,7 @@ describe('FilePlaybackProductRuntime', () => {
 
     expect(setup.hostRooms[1]?.startFirstLocalFile).not.toHaveBeenCalled();
     cleanupGate.resolve();
-    await expect(startPromise).resolves.toMatchObject({
-      status: 'rejected',
-      reason: 'replacement-not-supported',
-    });
+    await expect(startPromise).resolves.toMatchObject({ status: 'committed' });
     expect(setup.hostRooms[1]?.startFirstLocalFile).toHaveBeenCalledOnce();
   });
 

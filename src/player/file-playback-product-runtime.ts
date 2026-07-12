@@ -12,9 +12,14 @@ import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
 import { FilePlaybackProductBaselineIdIssuer } from './file-playback-product-baseline-session.ts';
 import {
   FilePlaybackProductHostRoom,
-  type FilePlaybackProductHostFirstLocalFileResult,
+  type FilePlaybackProductHostCurrentOptions,
+  type FilePlaybackProductHostFirstLocalFileCommit,
+  type FilePlaybackProductHostLocalTrackCommit,
   type FilePlaybackProductHostRoomOptions,
+  type FilePlaybackProductHostSeekOptions,
+  type FilePlaybackProductHostTransitionCommit,
   type StartFilePlaybackProductHostFirstLocalFileOptions,
+  type StartFilePlaybackProductHostLocalTrackOptions,
 } from './file-playback-product-host-room.ts';
 import { getFilePlaybackRoomClock } from './file-playback-room-clock.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
@@ -54,7 +59,31 @@ export interface FilePlaybackProductRuntimeControllerFactoryInput {
 export interface FilePlaybackProductRuntimeHostRoomPort {
   startFirstLocalFile(
     options: StartFilePlaybackProductHostFirstLocalFileOptions,
-  ): Promise<FilePlaybackProductHostFirstLocalFileResult>;
+  ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>>;
+  startLocalTrack(
+    options: StartFilePlaybackProductHostLocalTrackOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
+  pauseCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>>;
+  seekPlaying(
+    options: FilePlaybackProductHostSeekOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
+  seekPaused(
+    options: FilePlaybackProductHostSeekOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>>;
+  resumeCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
+  replayCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
+  stopCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>>;
+  settleEndedCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>>;
   close(): Promise<void>;
   currentRendererSnapshot(): FilePlaybackSourceSnapshot | null;
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
@@ -138,6 +167,14 @@ function assertHostRoomPort(
     !value ||
     typeof value !== 'object' ||
     typeof value.startFirstLocalFile !== 'function' ||
+    typeof value.startLocalTrack !== 'function' ||
+    typeof value.pauseCurrent !== 'function' ||
+    typeof value.seekPlaying !== 'function' ||
+    typeof value.seekPaused !== 'function' ||
+    typeof value.resumeCurrent !== 'function' ||
+    typeof value.replayCurrent !== 'function' ||
+    typeof value.stopCurrent !== 'function' ||
+    typeof value.settleEndedCurrent !== 'function' ||
     typeof value.close !== 'function' ||
     typeof value.currentRendererSnapshot !== 'function' ||
     typeof value.positionAt !== 'function'
@@ -270,33 +307,65 @@ export class FilePlaybackProductRuntime {
     return this.#enabled ? this.#hostRoomSnapshot : null;
   }
 
-  /** Starts media only after every renderer from an older room has retired. */
+  /** Compatibility alias retained while the first product callsite migrates. */
   async startHostFirstLocalFile(
     options: StartFilePlaybackProductHostFirstLocalFileOptions,
-  ): Promise<FilePlaybackProductHostFirstLocalFileResult> {
-    if (!this.#enabled) {
-      throw new Error('File playback product runtime is disabled');
-    }
-    this.#requireReady();
-    const active = this.#activeHostRoom;
-    if (!active) throw new Error('File playback product host room is unavailable');
-    const retirement = this.#hostRoomRetirement;
-    try {
-      await retirement;
-    } catch (cause) {
-      if (this.#activeHostRoom === active) {
-        try {
-          this.endRoom();
-        } catch {
-          // The renderer cleanup failure remains the primary media failure.
-        }
-      }
-      throw asError(cause);
-    }
-    if (this.#hostRoomRetirement !== retirement || !this.#ownsExactHostRoom(active)) {
-      throw new Error('File playback product host room changed before media start');
-    }
-    return active.port.startFirstLocalFile(options);
+  ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>> {
+    return this.#dispatchExactHostRoom('first local file start', (port) =>
+      port.startFirstLocalFile(options),
+    );
+  }
+
+  startLocalTrack(
+    options: StartFilePlaybackProductHostLocalTrackOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    return this.#dispatchExactHostRoom('local track start', (port) =>
+      port.startLocalTrack(options),
+    );
+  }
+
+  pauseCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    return this.#dispatchExactHostRoom('pause', (port) => port.pauseCurrent(options));
+  }
+
+  seekPlaying(
+    options: FilePlaybackProductHostSeekOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    return this.#dispatchExactHostRoom('playing seek', (port) => port.seekPlaying(options));
+  }
+
+  seekPaused(
+    options: FilePlaybackProductHostSeekOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    return this.#dispatchExactHostRoom('paused seek', (port) => port.seekPaused(options));
+  }
+
+  resumeCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    return this.#dispatchExactHostRoom('resume', (port) => port.resumeCurrent(options));
+  }
+
+  replayCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    return this.#dispatchExactHostRoom('replay', (port) => port.replayCurrent(options));
+  }
+
+  stopCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    return this.#dispatchExactHostRoom('stop', (port) => port.stopCurrent(options));
+  }
+
+  settleEndedCurrent(
+    options: FilePlaybackProductHostCurrentOptions,
+  ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
+    return this.#dispatchExactHostRoom('ended settlement', (port) =>
+      port.settleEndedCurrent(options),
+    );
   }
 
   currentHostRendererSnapshot(): FilePlaybackSourceSnapshot | null {
@@ -452,6 +521,37 @@ export class FilePlaybackProductRuntime {
   handleWake(connection?: DataConnection): boolean {
     if (!this.#enabled || this.#state !== 'ready' || !this.#sessions) return false;
     return this.#sessions.handleWake(connection);
+  }
+
+  /**
+   * Dispatches one renderer operation only after the previous-room native
+   * cleanup barrier and an exact ABA-resistant host-room ownership check.
+   */
+  async #dispatchExactHostRoom<T>(
+    label: string,
+    dispatch: (port: FilePlaybackProductRuntimeHostRoomPort) => Promise<T>,
+  ): Promise<T> {
+    if (!this.#enabled) throw new Error('File playback product runtime is disabled');
+    this.#requireReady();
+    const active = this.#activeHostRoom;
+    if (!active) throw new Error('File playback product host room is unavailable');
+    const retirement = this.#hostRoomRetirement;
+    try {
+      await retirement;
+    } catch (cause) {
+      if (this.#activeHostRoom === active) {
+        try {
+          this.endRoom();
+        } catch {
+          // The renderer cleanup failure remains the primary media failure.
+        }
+      }
+      throw asError(cause);
+    }
+    if (this.#hostRoomRetirement !== retirement || !this.#ownsExactHostRoom(active)) {
+      throw new Error(`File playback product host room changed before ${label}`);
+    }
+    return dispatch(active.port);
   }
 
   #ownsExactHostRoom(active: ActiveProductHostRoom): boolean {

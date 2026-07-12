@@ -418,17 +418,7 @@ export class FilePlaybackWireBindingRegistry {
     if (state.currentAttempt?.key === key || this.#retiredAttempts.has(key)) {
       throw new Error('File playback rendezvous binding is active or retired');
     }
-    const lease = createAttemptLease();
-    const entry: AttemptEntry = {
-      lease,
-      state,
-      rendezvousId,
-      key,
-      status: 'candidate',
-    };
-    this.#attempts.set(lease as object, entry);
-    state.candidateAttempt = entry;
-    return lease;
+    return this.#stageAttemptUnchecked(state, rendezvousId, key);
   }
 
   commitAttempt(lease: FilePlaybackWireAttemptLease): void {
@@ -698,12 +688,118 @@ export class FilePlaybackWireBindingRegistry {
     return freezeCanonical({ stateLease: state.lease, attemptLease });
   }
 
+  /**
+   * Atomically admits an exact-next same-run state and the rendezvous attempt
+   * that first introduced it. An exact retry may recover only the still-staged
+   * pair; partial, conflicting, committed, or retired authority fails closed.
+   */
+  admitRemoteRendezvousSuccessor(
+    reference: FilePlaybackWireStateReference,
+    rendezvousId: string,
+  ): Readonly<{
+    stateLease: FilePlaybackWireStateLease;
+    attemptLease: FilePlaybackWireAttemptLease;
+  }> {
+    const safeReference = readStateReference(reference);
+    this.#assertUsable();
+    if (!safeReference || !isBoundedIdentifier(rendezvousId)) {
+      throw new TypeError('File playback remote rendezvous successor authority is invalid');
+    }
+
+    const key = stateKey(safeReference);
+    const candidate = this.#candidate;
+    if (candidate) {
+      const attempt = candidate.candidateAttempt;
+      const current = this.#current;
+      if (
+        current?.status === 'current' &&
+        current.purpose === 'media' &&
+        candidate.key === key &&
+        candidate.status === 'candidate' &&
+        candidate.purpose === 'media' &&
+        candidate.binding.run.queueItemId === current.binding.run.queueItemId &&
+        candidate.binding.run.runId === current.binding.run.runId &&
+        candidate.binding.run.revision === this.#revisionWatermark &&
+        candidate.binding.sourceIdentity === current.binding.sourceIdentity &&
+        candidate.binding.transferSessionId === current.binding.transferSessionId &&
+        attempt?.status === 'candidate' &&
+        attempt.rendezvousId === rendezvousId
+      ) {
+        return freezeCanonical({
+          stateLease: candidate.lease,
+          attemptLease: attempt.lease,
+        });
+      }
+      throw new Error('File playback remote rendezvous successor conflicts with current authority');
+    }
+
+    const current = this.#current;
+    if (
+      !current ||
+      current.status !== 'current' ||
+      current.purpose !== 'media' ||
+      safeReference.queueItemId !== current.binding.run.queueItemId ||
+      safeReference.runId !== current.binding.run.runId ||
+      safeReference.revision !== this.#revisionWatermark + 1 ||
+      safeReference.sourceIdentity !== current.binding.sourceIdentity ||
+      safeReference.transferSessionId !== current.binding.transferSessionId
+    ) {
+      throw new Error('File playback remote rendezvous successor conflicts with current authority');
+    }
+
+    const successorAttemptKey = attemptKey(key, rendezvousId);
+    if (
+      this.#retiredAttempts.has(successorAttemptKey) ||
+      current.currentAttempt?.key === successorAttemptKey ||
+      current.candidateAttempt?.key === successorAttemptKey
+    ) {
+      throw new Error('File playback remote rendezvous successor conflicts with current authority');
+    }
+
+    const stateLease = this.stageMedia({
+      run: {
+        queueItemId: safeReference.queueItemId,
+        runId: safeReference.runId,
+        revision: safeReference.revision,
+      },
+      sourceIdentity: safeReference.sourceIdentity,
+      transferSessionId: safeReference.transferSessionId,
+    });
+    // Every fallible attempt-authority check is complete before stageMedia()
+    // consumes the revision. The fresh exact-next state has no attempt slots,
+    // so the remaining construction cannot leave a semantic half-admission.
+    const attemptLease = this.#stageAttemptUnchecked(
+      this.#candidate!,
+      rendezvousId,
+      successorAttemptKey,
+    );
+    return freezeCanonical({ stateLease, attemptLease });
+  }
+
   revokeAll(): void {
     this.#poison();
   }
 
   isRevoked(): boolean {
     return this.#poisoned;
+  }
+
+  #stageAttemptUnchecked(
+    state: StateEntry,
+    rendezvousId: string,
+    key: string,
+  ): FilePlaybackWireAttemptLease {
+    const lease = createAttemptLease();
+    const entry: AttemptEntry = {
+      lease,
+      state,
+      rendezvousId,
+      key,
+      status: 'candidate',
+    };
+    this.#attempts.set(lease as object, entry);
+    state.candidateAttempt = entry;
+    return lease;
   }
 
   #requireState(lease: FilePlaybackWireStateLease): StateEntry {

@@ -343,6 +343,78 @@ describe('createBlobFilePlaybackSource', () => {
     expect(firstResult.sourceIdentity).not.toBe(secondResult.sourceIdentity);
   });
 
+  it('preserves an exact distributed source identity for streaming and ordinary blobs', async () => {
+    const ordinaryIdentity = 'source:room-bound-ordinary';
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const ordinary = await createBlobFilePlaybackSource(
+      baseOptions(new Blob(['ID3!'], { type: 'audio/mpeg' }), {
+        sourceIdentity: ordinaryIdentity,
+        decodeOrdinaryAudio,
+      }),
+    );
+
+    expect(ordinary.sourceIdentity).toBe(ordinaryIdentity);
+    expect(decodeOrdinaryAudio.mock.calls[0]?.[0].sourceIdentity).toBe(ordinaryIdentity);
+    ordinary.releaseConstructionLease();
+    await ordinary.source.destroy();
+
+    const streamingIdentity = 'source:room-bound-flac';
+    const streaming = await createBlobFilePlaybackSource(
+      baseOptions(nativeFlac(2), { sourceIdentity: streamingIdentity }),
+    );
+
+    expect(streaming.sourceIdentity).toBe(streamingIdentity);
+    await streaming.source.destroy();
+  });
+
+  it('rejects a malformed explicit identity before reading or decoding the Blob', async () => {
+    const blob = new Blob(['ID3!'], { type: 'audio/mpeg' });
+    const arrayBuffer = vi.spyOn(Blob.prototype, 'arrayBuffer');
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+
+    try {
+      for (const sourceIdentity of ['', '  source:changes-if-trimmed  ']) {
+        await expect(
+          createBlobFilePlaybackSource(
+            baseOptions(blob, {
+              sourceIdentity,
+              decodeOrdinaryAudio,
+            }),
+          ),
+        ).rejects.toThrow('identity is invalid');
+      }
+      expect(arrayBuffer).not.toHaveBeenCalled();
+      expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    } finally {
+      arrayBuffer.mockRestore();
+    }
+  });
+
+  it('snapshots a hostile distributed identity getter exactly once', async () => {
+    const firstIdentity = 'source:distributed-first';
+    const secondIdentity = 'source:distributed-second';
+    let getterCalls = 0;
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const options = baseOptions(new Blob(['ID3!'], { type: 'audio/mpeg' }), {
+      decodeOrdinaryAudio,
+    });
+    Object.defineProperty(options, 'sourceIdentity', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return getterCalls === 1 ? firstIdentity : secondIdentity;
+      },
+    });
+
+    const result = await createBlobFilePlaybackSource(options);
+
+    expect(getterCalls).toBe(1);
+    expect(result.sourceIdentity).toBe(firstIdentity);
+    expect(decodeOrdinaryAudio.mock.calls[0]?.[0].sourceIdentity).toBe(firstIdentity);
+    result.releaseConstructionLease();
+    await result.source.destroy();
+  });
+
   it('snapshots a hostile Blob getter once for validation, identity, and decoding', async () => {
     const first = new Blob([Uint8Array.of(0x49, 0x44, 0x33, 0x01)], {
       type: 'audio/mpeg',

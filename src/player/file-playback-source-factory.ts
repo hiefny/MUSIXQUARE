@@ -73,6 +73,11 @@ interface FilePlaybackSourceFactoryCommonOptions {
 
 export interface CreateBlobFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
   readonly blob: Blob;
+  /**
+   * Exact distributed identity already bound to this queue occurrence.
+   * Omit only for process-local/demo playback where object identity is enough.
+   */
+  readonly sourceIdentity?: string;
   /** Product-owned ordinary-codec decoder. It must honor the supplied signal. */
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
   /** Deterministic constructor seams for browser-boundary tests. */
@@ -188,9 +193,16 @@ function assertBlobFactoryInput(
   options: CreateBlobFilePlaybackSourceOptions,
   blob: Blob,
   decodeOrdinaryAudio: OrdinaryAudioDecoder,
+  sourceIdentity: string | undefined,
 ): void {
   assertFactoryInput(options);
   if (!(blob instanceof Blob)) throw new TypeError('Playback source requires a Blob');
+  if (
+    sourceIdentity !== undefined &&
+    (!isFlacSourceIdentity(sourceIdentity) || sourceIdentity.trim() !== sourceIdentity)
+  ) {
+    throw new TypeError('Playback source identity is invalid');
+  }
   if (typeof decodeOrdinaryAudio !== 'function') {
     throw new TypeError('Ordinary audio decoder is required');
   }
@@ -431,8 +443,9 @@ export async function createBlobFilePlaybackSource(
   // identified, and decoded is exact-by-construction even for hostile getters.
   const blob = options.blob;
   const decodeOrdinaryAudio = options.decodeOrdinaryAudio;
-  assertBlobFactoryInput(options, blob, decodeOrdinaryAudio);
-  const encodedSource = new BlobEncodedAudioSource(blob);
+  const sourceIdentity = options.sourceIdentity;
+  assertBlobFactoryInput(options, blob, decodeOrdinaryAudio, sourceIdentity);
+  const encodedSource = new BlobEncodedAudioSource(blob, { identity: sourceIdentity });
   return createOwnedEncodedFilePlaybackSource(
     {
       encodedSource,

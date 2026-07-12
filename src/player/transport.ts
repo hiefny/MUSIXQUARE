@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { IS_WINDOWS } from '../core/platform.ts';
-import { initAudio, getWidener } from '../audio/engine.ts';
+import { getFilePlaybackDestination, initAudio } from '../audio/engine.ts';
 import { isSystemAudioActive, stopSystemAudioCapture } from '../audio/system-capture.ts';
 import {
   getPlaybackOwnership,
@@ -527,8 +527,8 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
       bus.emit('audio:connect-surround', newNode, surroundChannelIndex);
       log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
     } else {
-      const widener = getWidener();
-      if (widener) newNode.connect(widener.input);
+      const destination = getFilePlaybackDestination();
+      if (destination) newNode.connect(destination);
       log.debug('[BufferMode] Playing in Stereo');
     }
 

@@ -63,7 +63,7 @@ vi.mock('../../audio/context.ts', () => ({
 
 vi.mock('../../audio/engine.ts', () => ({
   initAudio: mocks.initAudio,
-  getWidener: vi.fn(() => null),
+  getFilePlaybackDestination: vi.fn(() => null),
   getSurroundSplitter: vi.fn(() => null),
 }));
 

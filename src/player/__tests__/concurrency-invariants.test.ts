@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => ({
   ensureRunning: vi.fn(),
   getCurrentTime: vi.fn(() => 100),
   initAudio: vi.fn(),
+  filePlaybackDestination: {} as AudioNode,
   sendRecoveryRequest: vi.fn(),
   broadcastSystemMessage: vi.fn(),
   showLoader: vi.fn(),
@@ -86,7 +87,7 @@ vi.mock('../../audio/context.ts', () => ({
 
 vi.mock('../../audio/engine.ts', () => ({
   initAudio: mocks.initAudio,
-  getWidener: vi.fn(() => null),
+  getFilePlaybackDestination: vi.fn(() => mocks.filePlaybackDestination),
   getSurroundSplitter: vi.fn(() => null),
 }));
 
@@ -1306,6 +1307,10 @@ describe('pin (g) — owner decision: finalizeGuestFile is immune to loadToken b
     expect(getPendingPlayTime()).toBeUndefined();
     await vi.waitFor(() => expect(getState('playback.activity')).toBe('playing'));
     expect(mocks.createBufferSource).toHaveBeenCalled();
+    const sourceNode = mocks.createBufferSource.mock.results.at(-1)?.value as
+      | FakeSourceNode
+      | undefined;
+    expect(sourceNode?.connect).toHaveBeenCalledWith(mocks.filePlaybackDestination);
   });
 });
 

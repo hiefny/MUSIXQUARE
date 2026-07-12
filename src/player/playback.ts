@@ -45,6 +45,8 @@ import {
   getTrackPosition,
   handleEnded,
   isFilePipelineBusyForPlay,
+  requestV2HostFilePause,
+  requestV2HostFileResume,
   requestV2HostFileSeek,
   skipTime,
 } from './transport.ts';
@@ -519,6 +521,8 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   }
   if (!currentQueueItemId) return;
 
+  if (requestV2HostFileResume(time)) return;
+
   // A busy pipeline still holds the previous track's AudioBuffer. Ignore the
   // request; decode completion owns playback of the newly selected track.
   if (isFilePipelineBusyForPlay()) {
@@ -562,6 +566,14 @@ function handleRequestPause(data: Record<string, unknown>, conn: DataConnection)
   clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
+  if (
+    requestV2HostFilePause({
+      holdVisualizer: true,
+      showToast: true,
+    })
+  ) {
+    return;
+  }
   const currentQueueItemId = getCurrentQueueItemId();
   pause();
   broadcast({

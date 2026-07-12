@@ -94,6 +94,24 @@ record cache, and rechecks cancellation before and after every fetch and
 decrypt operation. It uses direct, exact `Range` reads; no browser-local
 persistent media store is involved.
 
+Encryption authority is deliberately asymmetric. `createEncryptor(objectId,
+size)` is the only API that can generate an upload key/nonce domain; an
+arbitrary received descriptor can create only a decryptor. The encryptor moves
+strictly from record 0 through record N-1 and issues one opaque ciphertext
+lease at a time. Upload retry reuses the exact leased bytes, and the next record
+cannot be encrypted until the current lease is acknowledged. Once WebCrypto
+has been invoked, abort or failure poisons that encryptor and requires a new
+key, nonce prefix, manifest, and multipart upload. This prevents accidental
+AES-GCM nonce reuse even across retry paths.
+
+R2 object metadata is redacted and contains no key. The protected signaling
+descriptor adds `keyB64`; the runtime cipher imports it into a non-extractable
+`CryptoKey` and does not expose it through enumerable instance state. Disposal
+zeros the retained nonce bytes, releases the key reference and record lease,
+and permanently closes the instance. JavaScript strings and `CryptoKey`
+objects cannot promise physical memory erasure, so the protected descriptor is
+kept short-lived and never stored beside ciphertext.
+
 ### Existing audio graph is preserved
 
 Every file backend connects to the product graph input in `src/audio/engine.ts`.
@@ -152,17 +170,17 @@ type PlaybackAttempt = PlaybackState & { rendezvousId: string };
 
 The transition policy is binding:
 
-| Command | Run | Revision | Rendezvous |
-| --- | --- | --- | --- |
-| first play | new | +1 | new |
-| pause | same | +1 | none |
-| paused seek | same | +1 | none |
-| playing seek | same | +1 | new |
-| resume | same | +1 | new |
-| renderer recovery | same | same | new, target participant only |
-| restart or track change | new | +1 | new |
-| stop | retired | +1 | none |
-| exact transport retry | same | same | same, idempotent |
+| Command                 | Run     | Revision | Rendezvous                   |
+| ----------------------- | ------- | -------- | ---------------------------- |
+| first play              | new     | +1       | new                          |
+| pause                   | same    | +1       | none                         |
+| paused seek             | same    | +1       | none                         |
+| playing seek            | same    | +1       | new                          |
+| resume                  | same    | +1       | new                          |
+| renderer recovery       | same    | same     | new, target participant only |
+| restart or track change | new     | +1       | new                          |
+| stop                    | retired | +1       | none                         |
+| exact transport retry   | same    | same     | same, idempotent             |
 
 An attempt-specific cancellation includes the rendezvous ID and can retire
 only that silent candidate. A logical stop targets the state/run separately.
@@ -193,6 +211,13 @@ the old timeline. That participant starts a same-state, new-rendezvous recovery
 while healthy participants continue. Asset close aborts all leases and releases
 a peer-range handle exactly once; individual renderer teardown must not consume
 a new host handle or close a handle still used by its sibling.
+
+The renderer port returns the exact local target chosen by its backend. The
+manager schedules both outer gates against that same AudioContext frame; it
+does not independently remap room time. Streaming FLAC reports an observed
+Worklet start frame, while AudioBuffer reports only that its Web Audio schedule
+boundary has passed. Those evidence classes remain distinct and neither is
+upgraded into a stronger claim by the manager.
 
 ### Clock quality and rendezvous
 
@@ -239,6 +264,20 @@ Room application is explicit:
 ```text
 SESSION_HELLO -> SESSION_WELCOME -> SESSION_SNAPSHOT -> SESSION_APPLIED
 ```
+
+Each established connection owns a bounded registry of at most two playback
+state bindings: committed current and staged candidate. Attempt-scoped frames
+also carry an exact rendezvous lease, so same-state recovery may keep its old
+and new attempts distinct. Known retired bindings are bounded tombstones and
+late frames are dropped as stale; malformed, forged, wrong-scope, or unknown
+bindings remain connection-fatal.
+
+The application-session layer never consumes a validated wire frame by itself.
+After validation and sequence commit it must synchronously hand one detached
+event, with the exact live channel lease, to the single playback application
+controller. Missing, throwing, duplicate, or re-entrant adoption fails closed.
+Session revocation reaches that controller before the channel and room-clock
+leases are closed, preventing late asynchronous work from reviving authority.
 
 The host emits the joined-room system message only after `SESSION_APPLIED`, not
 merely after a socket or data channel opens. There is no legacy positional
@@ -293,6 +332,13 @@ The new object contract adds:
 - aligned single-range downloads with strict `206`, `Content-Range`, length,
   encoding, redirect, ETag, origin, and expiry validation; and
 - separate upload-window and playback/share expiry contracts.
+
+The upload state machine never encrypts the same `(key, nonce-prefix,
+record-index)` twice. A successful ciphertext stays in one immutable upload
+lease until the Worker acknowledges that exact part; a transport retry sends
+the same bytes. A crypto failure after invocation aborts the multipart upload
+and starts with a fresh secret descriptor. Download decryptors remain
+random-access and may authenticate records in seek order.
 
 The client V2 path has no V1 fallback. During the first live rollout only, the
 Cloudflare Worker may keep the current endpoints additively so reverting the

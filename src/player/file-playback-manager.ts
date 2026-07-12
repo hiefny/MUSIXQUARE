@@ -1,5 +1,28 @@
 import type { QueueItemId } from '../types/index.ts';
-import type { FilePlaybackSource, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
+import {
+  createFilePlaybackSourceSnapshot,
+  readFilePlaybackCutoverTarget,
+  readFilePlaybackStartEvidence,
+  type FilePlaybackCutoverArmResult,
+  type FilePlaybackCutoverSource,
+  type FilePlaybackCutoverTarget,
+  type FilePlaybackSource,
+  type FilePlaybackPosition,
+  type FilePlaybackSourceSnapshot,
+  type FilePlaybackStartEvidence,
+} from './file-playback-source.ts';
+import { readPlaybackStateIdentity } from './playback-identity.ts';
+import {
+  readRendezvousArmIntent,
+  readRendezvousArmReceipt,
+  readRendezvousFinalizeIntent,
+  readRendezvousFinalizeReceipt,
+  validateRendezvousArmReceipt,
+  validateRendezvousFinalizeReceipt,
+  type RendezvousArmIntent,
+  type RendezvousFinalizeIntent,
+  type RendezvousFinalizeReceipt,
+} from './rendezvous-contract.ts';
 
 export interface FilePlaybackManagerSnapshot {
   readonly active: FilePlaybackSourceSnapshot | null;
@@ -19,6 +42,63 @@ export type FilePlaybackPublication =
 
 /** A synchronous authority fence owned by the caller that created a source. */
 export type FilePlaybackActivationAuthority = () => boolean;
+
+declare const cutoverCandidatePortBrand: unique symbol;
+
+/**
+ * An opaque, process-local capability for one staged renderer. Runtime
+ * authority is held only in the manager's WeakMap; the object has no readable
+ * identity or source properties and a structurally forged value is inert.
+ */
+export type FilePlaybackCutoverCandidatePort = object & {
+  readonly [cutoverCandidatePortBrand]: never;
+};
+
+export interface FilePlaybackCutoverCandidateOptions {
+  readonly source: FilePlaybackCutoverSource;
+  readonly destination: AudioNode;
+  readonly authority?: FilePlaybackActivationAuthority;
+}
+
+export interface FilePlaybackCutoverFinalization {
+  readonly receipt: RendezvousFinalizeReceipt;
+  readonly target: FilePlaybackCutoverTarget;
+  readonly started: Promise<FilePlaybackStartEvidence>;
+}
+
+type CutoverRecordPhase =
+  | 'staging'
+  | 'staged'
+  | 'arming'
+  | 'armed'
+  | 'finalizing'
+  | 'scheduled'
+  | 'current'
+  | 'retiring'
+  | 'failed';
+
+interface CutoverRecord {
+  readonly state: ManagedSource;
+  readonly source: FilePlaybackCutoverSource;
+  readonly backend: FilePlaybackSourceSnapshot['backend'];
+  readonly destination: AudioNode;
+  readonly audioContext: AudioContext;
+  readonly authority: FilePlaybackActivationAuthority | null;
+  readonly port: FilePlaybackCutoverCandidatePort;
+  gate: GainNode | null;
+  phase: CutoverRecordPhase;
+  revoked: boolean;
+  authorityError: AuthorityError;
+  armIntent: Readonly<RendezvousArmIntent> | null;
+  armPromise: Promise<FilePlaybackCutoverArmResult> | null;
+  armResult: FilePlaybackCutoverArmResult | null;
+  finalizeIntent: Readonly<RendezvousFinalizeIntent> | null;
+  finalizePromise: Promise<FilePlaybackCutoverFinalization> | null;
+  target: FilePlaybackCutoverTarget | null;
+  managedStarted: Promise<FilePlaybackStartEvidence> | null;
+  gatesScheduled: boolean;
+  cleanupPromise: Promise<void> | null;
+}
 
 interface ManagedSource {
   readonly source: FilePlaybackSource;
@@ -86,6 +166,278 @@ function waitForOperation<T>(
   ]);
 }
 
+const CUTOVER_OPTION_KEYS = new Set<PropertyKey>(['source', 'destination', 'authority']);
+const POSITION_KEYS = new Set<PropertyKey>([
+  'queueItemId',
+  'run',
+  'phase',
+  'positionSeconds',
+  'bufferedAheadSeconds',
+  'underrunCount',
+]);
+const POSITION_PHASES = new Set([
+  'new',
+  'preparing',
+  'ready',
+  'connected',
+  'armed',
+  'playing',
+  'paused',
+  'ended',
+  'cancelled',
+  'failed',
+  'destroyed',
+]);
+
+function readCutoverCandidateOptions(value: unknown): FilePlaybackCutoverCandidateOptions | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.length < 2 || keys.length > 3 || keys.some((key) => !CUTOVER_OPTION_KEYS.has(key))) {
+      return null;
+    }
+    const sourceDescriptor = descriptors.source;
+    const destinationDescriptor = descriptors.destination;
+    const authorityDescriptor = descriptors.authority;
+    if (
+      !sourceDescriptor?.enumerable ||
+      !Object.hasOwn(sourceDescriptor, 'value') ||
+      !destinationDescriptor?.enumerable ||
+      !Object.hasOwn(destinationDescriptor, 'value') ||
+      (authorityDescriptor !== undefined &&
+        (!authorityDescriptor.enumerable || !Object.hasOwn(authorityDescriptor, 'value')))
+    ) {
+      return null;
+    }
+    const source = sourceDescriptor.value as unknown;
+    const destination = destinationDescriptor.value as unknown;
+    const authority = authorityDescriptor?.value as unknown;
+    if (
+      source === null ||
+      typeof source !== 'object' ||
+      destination === null ||
+      typeof destination !== 'object' ||
+      (authority !== undefined && typeof authority !== 'function')
+    ) {
+      return null;
+    }
+    return Object.freeze(
+      Object.assign(Object.create(null), {
+        source: source as FilePlaybackCutoverSource,
+        destination: destination as AudioNode,
+        ...(authority === undefined
+          ? {}
+          : { authority: authority as FilePlaybackActivationAuthority }),
+      }),
+    ) as FilePlaybackCutoverCandidateOptions;
+  } catch {
+    return null;
+  }
+}
+
+function readCutoverPosition(
+  value: unknown,
+  expectedQueueItemId: QueueItemId,
+): FilePlaybackPosition | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.length !== POSITION_KEYS.size ||
+      keys.some((key) => !POSITION_KEYS.has(key)) ||
+      keys.some((key) => {
+        const descriptor = descriptors[key as keyof typeof descriptors];
+        return !descriptor?.enumerable || !Object.hasOwn(descriptor, 'value');
+      })
+    ) {
+      return null;
+    }
+    if (descriptors.queueItemId?.value !== expectedQueueItemId) return null;
+    const runValue = descriptors.run?.value;
+    const run = runValue === null ? null : readPlaybackStateIdentity(runValue);
+    if (runValue !== null && (!run || run.queueItemId !== expectedQueueItemId)) return null;
+    const phase = descriptors.phase?.value;
+    const positionSeconds = descriptors.positionSeconds?.value;
+    const bufferedAheadSeconds = descriptors.bufferedAheadSeconds?.value;
+    const underrunCount = descriptors.underrunCount?.value;
+    if (
+      typeof phase !== 'string' ||
+      !POSITION_PHASES.has(phase) ||
+      typeof positionSeconds !== 'number' ||
+      !Number.isFinite(positionSeconds) ||
+      positionSeconds < 0 ||
+      typeof bufferedAheadSeconds !== 'number' ||
+      !Number.isFinite(bufferedAheadSeconds) ||
+      bufferedAheadSeconds < 0 ||
+      typeof underrunCount !== 'number' ||
+      !Number.isSafeInteger(underrunCount) ||
+      underrunCount < 0
+    ) {
+      return null;
+    }
+    return Object.freeze(
+      Object.assign(Object.create(null), {
+        queueItemId: expectedQueueItemId,
+        run,
+        phase,
+        positionSeconds,
+        bufferedAheadSeconds,
+        underrunCount,
+      }),
+    ) as FilePlaybackPosition;
+  } catch {
+    return null;
+  }
+}
+
+function sameArmIntent(left: RendezvousArmIntent, right: RendezvousArmIntent): boolean {
+  return (
+    left.protocolVersion === right.protocolVersion &&
+    left.kind === right.kind &&
+    left.queueItemId === right.queueItemId &&
+    left.runId === right.runId &&
+    left.revision === right.revision &&
+    left.rendezvousId === right.rendezvousId &&
+    left.recipientId === right.recipientId &&
+    left.positionSeconds === right.positionSeconds &&
+    left.playbackRate === right.playbackRate &&
+    left.startAtRoomTimeMs === right.startAtRoomTimeMs &&
+    left.finalizeByRoomTimeMs === right.finalizeByRoomTimeMs
+  );
+}
+
+function sameFinalizeIntent(
+  left: RendezvousFinalizeIntent,
+  right: RendezvousFinalizeIntent,
+): boolean {
+  return (
+    left.protocolVersion === right.protocolVersion &&
+    left.kind === right.kind &&
+    left.queueItemId === right.queueItemId &&
+    left.runId === right.runId &&
+    left.revision === right.revision &&
+    left.rendezvousId === right.rendezvousId &&
+    left.recipientId === right.recipientId &&
+    left.startAtRoomTimeMs === right.startAtRoomTimeMs &&
+    left.finalizedAtRoomTimeMs === right.finalizedAtRoomTimeMs
+  );
+}
+
+function finalizeMatchesArm(arm: RendezvousArmIntent, finalize: RendezvousFinalizeIntent): boolean {
+  return (
+    arm.protocolVersion === finalize.protocolVersion &&
+    arm.queueItemId === finalize.queueItemId &&
+    arm.runId === finalize.runId &&
+    arm.revision === finalize.revision &&
+    arm.rendezvousId === finalize.rendezvousId &&
+    arm.recipientId === finalize.recipientId &&
+    arm.startAtRoomTimeMs === finalize.startAtRoomTimeMs
+  );
+}
+
+function createOpaqueCutoverPort(): FilePlaybackCutoverCandidatePort {
+  return Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
+}
+
+function cutoverError(message: string): Error {
+  return new Error(`File playback cutover: ${message}`);
+}
+
+function createDeferredPromise<T>(): {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function readCutoverArmResult(
+  value: unknown,
+  intent: RendezvousArmIntent,
+  audioContext: AudioContext,
+): FilePlaybackCutoverArmResult | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.length !== 4 ||
+      keys.some(
+        (key) =>
+          typeof key !== 'string' ||
+          (key !== 'status' && key !== 'receipt' && key !== 'target' && key !== 'started'),
+      ) ||
+      keys.some((key) => {
+        const descriptor = descriptors[key as keyof typeof descriptors];
+        return !descriptor?.enumerable || !Object.hasOwn(descriptor, 'value');
+      })
+    ) {
+      return null;
+    }
+    const status = descriptors.status?.value as unknown;
+    const receipt = readRendezvousArmReceipt(descriptors.receipt?.value);
+    if (!receipt) return null;
+    const validation = validateRendezvousArmReceipt(intent, receipt);
+    if (status === 'rejected') {
+      if (
+        descriptors.target?.value !== null ||
+        descriptors.started?.value !== null ||
+        validation.ok ||
+        validation.code !== 'arm-rejected'
+      ) {
+        return null;
+      }
+      return Object.freeze(
+        Object.assign(Object.create(null), {
+          status: 'rejected' as const,
+          receipt,
+          target: null,
+          started: null,
+        }),
+      ) as FilePlaybackCutoverArmResult;
+    }
+    if (status !== 'armed' || !validation.ok) return null;
+    const target = readFilePlaybackCutoverTarget(descriptors.target?.value, audioContext);
+    const started = descriptors.started?.value;
+    if (target === null || started === null || typeof started !== 'object') return null;
+    return Object.freeze(
+      Object.assign(Object.create(null), {
+        status: 'armed' as const,
+        receipt,
+        target,
+        started: started as Promise<FilePlaybackStartEvidence>,
+      }),
+    ) as FilePlaybackCutoverArmResult;
+  } catch {
+    return null;
+  }
+}
+
+function markReturnedStartPromiseObserved(value: unknown): void {
+  try {
+    if (value === null || typeof value !== 'object') return;
+    const descriptor = Object.getOwnPropertyDescriptor(value, 'started');
+    if (!descriptor || !Object.hasOwn(descriptor, 'value') || descriptor.value === null) return;
+    void Promise.resolve(descriptor.value as Promise<unknown>).catch(() => undefined);
+  } catch {
+    // Invalid source results are rejected below; observation is best effort.
+  }
+}
+
 /**
  * Owns native file playback sources outside the serializable application tree.
  *
@@ -101,6 +453,199 @@ export class FilePlaybackManager {
   private pendingStandby: PendingStandbyOperation | null = null;
   private readonly sourceStates = new WeakMap<FilePlaybackSource, ManagedSource>();
   private readonly discardedQueueItems = new Set<QueueItemId>();
+  private readonly cutoverPorts = new WeakMap<object, CutoverRecord>();
+  private cutoverCurrent: CutoverRecord | null = null;
+  private cutoverCandidate: CutoverRecord | null = null;
+  private cutoverEpoch = 0;
+  private cutoverStageSequence = 0;
+  private cutoverStageReservations = 0;
+  private cutoverRetirementBarrier: Promise<void> = Promise.resolve();
+  private recoveryRequired = false;
+
+  /**
+   * Prepares a silent V2 renderer behind a manager-owned outer gate. The
+   * returned capability is intentionally opaque and valid only while this
+   * exact candidate remains staged.
+   */
+  stageCutoverCandidate(
+    options: FilePlaybackCutoverCandidateOptions,
+  ): Promise<FilePlaybackCutoverCandidatePort> {
+    const epoch = this.cutoverEpoch;
+    const safeOptions = readCutoverCandidateOptions(options);
+    if (!safeOptions || epoch !== this.cutoverEpoch) {
+      return Promise.reject(cutoverError('candidate options are invalid or re-entrant'));
+    }
+    if (this.hasLegacyOwnership()) {
+      return this.rejectCutoverStageDuringLegacy(safeOptions.source);
+    }
+    this.cutoverStageSequence += 1;
+    this.cutoverStageReservations += 1;
+    return this.stageCutoverCandidateInternal(safeOptions, this.cutoverStageSequence).finally(
+      () => {
+        this.cutoverStageReservations = Math.max(0, this.cutoverStageReservations - 1);
+      },
+    );
+  }
+
+  armCutoverCandidate(
+    port: FilePlaybackCutoverCandidatePort,
+    intent: RendezvousArmIntent,
+  ): Promise<FilePlaybackCutoverArmResult> {
+    const epoch = this.cutoverEpoch;
+    const safeIntent = readRendezvousArmIntent(intent);
+    const record = this.cutoverPorts.get(port);
+    if (
+      safeIntent &&
+      record?.armIntent &&
+      sameArmIntent(record.armIntent, safeIntent) &&
+      this.ownsRetryableCutoverRecord(record)
+    ) {
+      return record.armPromise ?? Promise.reject(cutoverError('arm retry has no cached result'));
+    }
+    if (!safeIntent || epoch !== this.cutoverEpoch || !record || !this.ownsLiveCandidate(record)) {
+      return Promise.reject(cutoverError('candidate port or arm intent is stale'));
+    }
+    if (record.armIntent) {
+      return Promise.reject(cutoverError('candidate is already bound to another attempt'));
+    }
+    if (record.phase !== 'staged') {
+      return Promise.reject(cutoverError('candidate is not ready to arm'));
+    }
+    if (!this.authorityAllows(record)) {
+      void this.retireCandidateRecord(record, 'authority-expired');
+      return this.rejectedAuthorityPromise(record);
+    }
+
+    const deferred = createDeferredPromise<FilePlaybackCutoverArmResult>();
+    record.armIntent = safeIntent;
+    record.armPromise = deferred.promise;
+    record.phase = 'arming';
+    let task: Promise<FilePlaybackCutoverArmResult>;
+    try {
+      task = Promise.resolve(record.source.armForCutover(safeIntent));
+    } catch (error) {
+      task = Promise.reject(error);
+    }
+    void task.then(
+      (result) => this.completeCandidateArm(record, result, deferred),
+      (error: unknown) => this.failCandidateArm(record, error, deferred),
+    );
+    return deferred.promise;
+  }
+
+  /**
+   * Commits only after the source accepted finalization and both outer gates
+   * accepted automation for the exact backend-selected native target. The
+   * returned started promise remains a distinct evidence boundary.
+   */
+  finalizeCutoverCandidate(
+    port: FilePlaybackCutoverCandidatePort,
+    intent: RendezvousFinalizeIntent,
+  ): Promise<FilePlaybackCutoverFinalization> {
+    const epoch = this.cutoverEpoch;
+    const safeIntent = readRendezvousFinalizeIntent(intent);
+    const record = this.cutoverPorts.get(port);
+    if (
+      safeIntent &&
+      record?.finalizeIntent &&
+      sameFinalizeIntent(record.finalizeIntent, safeIntent) &&
+      this.ownsRetryableCutoverRecord(record)
+    ) {
+      return (
+        record.finalizePromise ??
+        Promise.reject(cutoverError('finalize retry has no cached result'))
+      );
+    }
+    if (!safeIntent || epoch !== this.cutoverEpoch || !record || !this.ownsLiveCandidate(record)) {
+      return Promise.reject(cutoverError('candidate port or finalize intent is stale'));
+    }
+    if (record.finalizeIntent) {
+      return Promise.reject(cutoverError('candidate is already bound to another finalization'));
+    }
+    if (
+      record.phase !== 'armed' ||
+      record.armIntent === null ||
+      record.armResult?.status !== 'armed' ||
+      record.target === null ||
+      !finalizeMatchesArm(record.armIntent, safeIntent)
+    ) {
+      return Promise.reject(cutoverError('candidate was not armed for this exact attempt'));
+    }
+    if (!this.authorityAllows(record)) {
+      void this.retireCandidateRecord(record, 'authority-expired');
+      return this.rejectedAuthorityPromise(record);
+    }
+
+    const deferred = createDeferredPromise<FilePlaybackCutoverFinalization>();
+    record.finalizeIntent = safeIntent;
+    record.finalizePromise = deferred.promise;
+    record.phase = 'finalizing';
+    let task: Promise<RendezvousFinalizeReceipt>;
+    try {
+      task = Promise.resolve(record.source.finalize(safeIntent));
+    } catch (error) {
+      task = Promise.reject(error);
+    }
+    void task.then(
+      (receipt) => this.completeCandidateFinalization(record, safeIntent, receipt, deferred),
+      (error: unknown) => this.failCandidateFinalization(record, error, deferred),
+    );
+    return deferred.promise;
+  }
+
+  /** Withdraws only the exact still-staged candidate capability. */
+  retireCutoverCandidate(port: FilePlaybackCutoverCandidatePort): Promise<boolean> {
+    const record = this.cutoverPorts.get(port);
+    if (!record || !this.ownsLiveCandidate(record)) return Promise.resolve(false);
+    return this.retireCandidateRecord(record, 'caller-retired').then(() => true);
+  }
+
+  cutoverRecoveryRequired(): boolean {
+    return this.recoveryRequired;
+  }
+
+  currentCutoverPort(): FilePlaybackCutoverCandidatePort | null {
+    return this.cutoverCurrent?.port ?? null;
+  }
+
+  currentCutoverSnapshot(
+    port: FilePlaybackCutoverCandidatePort,
+  ): FilePlaybackSourceSnapshot | null {
+    const record = this.cutoverPorts.get(port);
+    if (!record || this.cutoverCurrent !== record || record.revoked) return null;
+    let snapshot: FilePlaybackSourceSnapshot;
+    try {
+      snapshot = createFilePlaybackSourceSnapshot(record.source.getSnapshot());
+    } catch {
+      return null;
+    }
+    if (this.cutoverCurrent !== record || record.revoked) return null;
+    record.state.lastSnapshot = snapshot;
+    return snapshot;
+  }
+
+  currentCutoverPosition(
+    port: FilePlaybackCutoverCandidatePort,
+    localPerformanceTimeMs: number,
+  ): FilePlaybackPosition | null {
+    if (!Number.isFinite(localPerformanceTimeMs) || localPerformanceTimeMs < 0) return null;
+    const record = this.cutoverPorts.get(port);
+    if (!record || this.cutoverCurrent !== record || record.revoked) return null;
+    const position = readCutoverPosition(
+      record.source.positionAt(localPerformanceTimeMs),
+      record.state.lastSnapshot.queueItemId,
+    );
+    if (this.cutoverCurrent !== record || record.revoked) return null;
+    return position;
+  }
+
+  retireCurrentCutover(port: FilePlaybackCutoverCandidatePort): Promise<boolean> {
+    const record = this.cutoverPorts.get(port);
+    if (!record || this.cutoverCurrent !== record || record.revoked) {
+      return Promise.resolve(false);
+    }
+    return this.retireCurrentRecord(record).then(() => true);
+  }
 
   activeSource(): FilePlaybackSource | null {
     return this.active;
@@ -112,13 +657,19 @@ export class FilePlaybackManager {
 
   snapshot(): FilePlaybackManagerSnapshot {
     return Object.freeze({
-      active: this.active?.getSnapshot() ?? null,
+      active:
+        (this.cutoverCurrent
+          ? this.currentCutoverSnapshot(this.cutoverCurrent.port)
+          : this.active?.getSnapshot()) ?? null,
       standby: this.standby?.getSnapshot() ?? null,
     });
   }
 
   prepareStandby(source: FilePlaybackSource): Promise<FilePlaybackPublication> {
     const state = this.stateFor(source);
+    if (this.hasCutoverOwnership()) {
+      return this.rejectAndDestroy(state, 'superseded');
+    }
     if (this.discardedQueueItems.has(source.queueItemId) || state.destroyed) {
       return this.rejectAndDestroy(state, 'superseded');
     }
@@ -162,6 +713,9 @@ export class FilePlaybackManager {
     destination: AudioNode,
     authority?: FilePlaybackActivationAuthority,
   ): Promise<FilePlaybackPublication> {
+    if (this.hasCutoverOwnership()) {
+      return this.rejectAndDestroy(this.stateFor(source), 'superseded');
+    }
     // The authority check deliberately precedes every playback-slot mutation.
     // A stale replacement may be destroyed, but cannot cancel a current load,
     // claim standby, or disturb the previously published active source.
@@ -170,6 +724,11 @@ export class FilePlaybackManager {
     }
 
     const state = this.stateFor(source);
+    // Authority and source snapshot callbacks are application code. Either may
+    // synchronously reserve V2 mode after the first check above.
+    if (this.hasCutoverOwnership()) {
+      return this.rejectAndDestroy(state, 'superseded');
+    }
     if (this.discardedQueueItems.has(source.queueItemId) || state.destroyed) {
       return this.rejectAndDestroy(state, 'superseded');
     }
@@ -236,6 +795,12 @@ export class FilePlaybackManager {
   async retireActive(): Promise<void> {
     const states = new Set<ManagedSource>();
     if (this.active) states.add(this.stateFor(this.active));
+    const cutoverCleanup: Promise<void>[] = [];
+    const currentCutover = this.cutoverCurrent;
+    const candidateCutover = this.cutoverCandidate;
+    if (candidateCutover)
+      cutoverCleanup.push(this.retireCandidateRecord(candidateCutover, 'retire-active'));
+    if (currentCutover) cutoverCleanup.push(this.retireCurrentRecord(currentCutover));
 
     const pendingActive = this.pendingActive;
     this.active = null;
@@ -245,7 +810,7 @@ export class FilePlaybackManager {
       pendingActive.cancel();
     }
 
-    await Promise.all([...states].map((state) => this.destroyState(state)));
+    await Promise.all([...[...states].map((state) => this.destroyState(state)), ...cutoverCleanup]);
   }
 
   /**
@@ -276,6 +841,13 @@ export class FilePlaybackManager {
    */
   async retire(source: FilePlaybackSource): Promise<void> {
     const state = this.stateFor(source);
+    const cutoverCleanup: Promise<void>[] = [];
+    if (this.cutoverCandidate?.state === state) {
+      cutoverCleanup.push(this.retireCandidateRecord(this.cutoverCandidate, 'exact-source-retire'));
+    }
+    if (this.cutoverCurrent?.state === state) {
+      cutoverCleanup.push(this.retireCurrentRecord(this.cutoverCurrent));
+    }
     if (this.active === source) this.active = null;
     if (this.standby === source) this.standby = null;
     if (this.pendingActive?.state === state) {
@@ -288,12 +860,21 @@ export class FilePlaybackManager {
       this.pendingStandby = null;
       operation.cancel();
     }
-    await this.destroyState(state);
+    await Promise.all([this.destroyState(state), ...cutoverCleanup]);
   }
 
   async discardQueueItem(queueItemId: QueueItemId): Promise<void> {
     this.discardedQueueItems.add(queueItemId);
     const states = new Set<ManagedSource>();
+    const cutoverCleanup: Promise<void>[] = [];
+    if (this.cutoverCandidate?.source.queueItemId === queueItemId) {
+      cutoverCleanup.push(
+        this.retireCandidateRecord(this.cutoverCandidate, 'queue-item-discarded'),
+      );
+    }
+    if (this.cutoverCurrent?.source.queueItemId === queueItemId) {
+      cutoverCleanup.push(this.retireCurrentRecord(this.cutoverCurrent));
+    }
 
     if (this.active?.queueItemId === queueItemId) {
       states.add(this.stateFor(this.active));
@@ -316,15 +897,26 @@ export class FilePlaybackManager {
       operation.cancel();
     }
 
-    await Promise.all([...states].map((state) => this.destroyState(state)));
+    await Promise.all([...[...states].map((state) => this.destroyState(state)), ...cutoverCleanup]);
   }
 
   async clear(): Promise<void> {
+    // Invalidate even an options/authority callback that re-enters an otherwise
+    // empty manager. This is a synchronous application-session boundary.
+    this.cutoverEpoch += 1;
+    this.cutoverStageSequence += 1;
     const states = new Set<ManagedSource>();
     if (this.active) states.add(this.stateFor(this.active));
     if (this.standby) states.add(this.stateFor(this.standby));
     if (this.pendingActive) states.add(this.pendingActive.state);
     if (this.pendingStandby) states.add(this.pendingStandby.state);
+    const cutoverCleanup: Promise<void>[] = [];
+    const cutoverCandidate = this.cutoverCandidate;
+    const cutoverCurrent = this.cutoverCurrent;
+    if (cutoverCandidate) {
+      cutoverCleanup.push(this.retireCandidateRecord(cutoverCandidate, 'manager-clear'));
+    }
+    if (cutoverCurrent) cutoverCleanup.push(this.retireCurrentRecord(cutoverCurrent));
 
     const pendingActive = this.pendingActive;
     const pendingStandby = this.pendingStandby;
@@ -340,7 +932,674 @@ export class FilePlaybackManager {
     // while a future authoritative snapshot may legitimately reuse an ID.
     this.discardedQueueItems.clear();
 
-    await Promise.all([...states].map((state) => this.destroyState(state)));
+    this.recoveryRequired = false;
+    await Promise.all([...[...states].map((state) => this.destroyState(state)), ...cutoverCleanup]);
+  }
+
+  private async stageCutoverCandidateInternal(
+    options: FilePlaybackCutoverCandidateOptions,
+    stageSequence: number,
+  ): Promise<FilePlaybackCutoverCandidatePort> {
+    const { source, destination } = options;
+    const authority = options.authority ?? null;
+    const state = this.stateFor(source);
+    let initialSnapshot: FilePlaybackSourceSnapshot;
+    try {
+      initialSnapshot = createFilePlaybackSourceSnapshot(source.getSnapshot());
+    } catch (error) {
+      await this.destroyIfUnowned(state);
+      throw error;
+    }
+    if (initialSnapshot.queueItemId !== source.queueItemId) {
+      await this.destroyIfUnowned(state);
+      throw cutoverError('source and snapshot queue identities differ');
+    }
+    state.lastSnapshot = initialSnapshot;
+    const audioContext = this.audioContextForDestination(destination);
+    if (audioContext === null) {
+      await this.destroyIfUnowned(state);
+      throw cutoverError('destination has no usable AudioContext');
+    }
+    if (this.discardedQueueItems.has(initialSnapshot.queueItemId) || state.destroyed) {
+      await this.destroyIfUnowned(state);
+      throw cutoverError('candidate queue item was discarded');
+    }
+    if (!this.detachedAuthorityAllows(authority)) {
+      const error = this.detachedAuthorityError;
+      await this.destroyIfUnowned(state);
+      if (error.present) throw error.error;
+      throw cutoverError('candidate authority expired');
+    }
+    if (this.cutoverCurrent?.state === state) {
+      throw cutoverError('current renderer cannot also be staged as its own candidate');
+    }
+
+    await this.waitForCutoverRetirements();
+    if (stageSequence !== this.cutoverStageSequence) {
+      await this.destroyIfUnowned(state);
+      throw cutoverError('candidate staging was superseded');
+    }
+    if (state.destroyed || this.discardedQueueItems.has(initialSnapshot.queueItemId)) {
+      await this.destroyIfUnowned(state);
+      throw cutoverError('candidate authority was retired while waiting for a renderer slot');
+    }
+
+    const previous = this.cutoverCandidate;
+    if (previous) {
+      if (previous.state === state) {
+        throw cutoverError('the exact source is already staged');
+      }
+      if (previous.phase === 'finalizing' || previous.phase === 'scheduled') {
+        await this.destroyIfUnowned(state);
+        throw cutoverError('a finalized cutover already occupies the second renderer slot');
+      }
+      await this.retireCandidateRecord(previous, 'candidate-replaced');
+    }
+    if (stageSequence !== this.cutoverStageSequence) {
+      await this.destroyIfUnowned(state);
+      throw cutoverError('candidate staging was superseded');
+    }
+    if (this.cutoverCandidate !== null) {
+      await this.destroyIfUnowned(state);
+      throw cutoverError('candidate slot changed while staging');
+    }
+    if (state.destroyed || this.discardedQueueItems.has(initialSnapshot.queueItemId)) {
+      await this.destroyIfUnowned(state);
+      throw cutoverError('candidate authority was retired while replacing a renderer');
+    }
+    if (!this.detachedAuthorityAllows(authority)) {
+      const error = this.detachedAuthorityError;
+      await this.destroyIfUnowned(state);
+      if (error.present) throw error.error;
+      throw cutoverError('candidate authority expired');
+    }
+
+    const port = createOpaqueCutoverPort();
+    const record: CutoverRecord = {
+      state,
+      source,
+      backend: initialSnapshot.backend,
+      destination,
+      audioContext,
+      authority,
+      port,
+      gate: null,
+      phase: 'staging',
+      revoked: false,
+      authorityError: { present: false },
+      armIntent: null,
+      armPromise: null,
+      armResult: null,
+      finalizeIntent: null,
+      finalizePromise: null,
+      target: null,
+      managedStarted: null,
+      gatesScheduled: false,
+      cleanupPromise: null,
+    };
+    this.cutoverCandidate = record;
+    this.cutoverPorts.set(port, record);
+    this.cutoverEpoch += 1;
+
+    try {
+      const gate = audioContext.createGain();
+      record.gate = gate;
+      if (!this.ownsLiveCandidate(record) || !this.authorityAllows(record)) {
+        throw this.authorityOrStaleError(record);
+      }
+      const now = this.readContextTime(audioContext);
+      gate.gain.cancelScheduledValues(now);
+      gate.gain.setValueAtTime(0, now);
+      gate.connect(destination);
+      if (!this.ownsLiveCandidate(record) || !this.authorityAllows(record)) {
+        throw this.authorityOrStaleError(record);
+      }
+
+      await this.prepareOnce(state);
+      if (!this.ownsLiveCandidate(record) || !this.authorityAllows(record)) {
+        throw this.authorityOrStaleError(record);
+      }
+      await this.connectAndRemember(state, gate);
+      if (!this.ownsLiveCandidate(record) || !this.authorityAllows(record)) {
+        throw this.authorityOrStaleError(record);
+      }
+      record.phase = 'staged';
+      return port;
+    } catch (error) {
+      await this.retireCandidateRecord(record, 'stage-failed');
+      throw error;
+    }
+  }
+
+  private completeCandidateArm(
+    record: CutoverRecord,
+    value: unknown,
+    deferred: ReturnType<typeof createDeferredPromise<FilePlaybackCutoverArmResult>>,
+  ): void {
+    markReturnedStartPromiseObserved(value);
+    const safeIntent = record.armIntent;
+    const result = safeIntent ? readCutoverArmResult(value, safeIntent, record.audioContext) : null;
+    if (
+      !this.ownsLiveCandidate(record) ||
+      record.phase !== 'arming' ||
+      result === null ||
+      !this.authorityAllows(record)
+    ) {
+      const error =
+        result === null
+          ? cutoverError('source returned an invalid arm result')
+          : this.authorityOrStaleError(record);
+      void this.retireCandidateRecord(record, 'arm-failed');
+      deferred.reject(error);
+      return;
+    }
+    record.armResult = result;
+    if (result.status === 'rejected') {
+      record.phase = 'staged';
+      deferred.resolve(result);
+      return;
+    }
+    record.target = result.target;
+    record.phase = 'armed';
+    // Retirement before FINALIZE is expected and the source contract rejects
+    // this promise in that case. Mark it observed now; the managed evidence
+    // branch below still receives and validates the same settlement later.
+    void Promise.resolve(result.started).catch(() => undefined);
+    deferred.resolve(result);
+  }
+
+  private failCandidateArm(
+    record: CutoverRecord,
+    error: unknown,
+    deferred: ReturnType<typeof createDeferredPromise<FilePlaybackCutoverArmResult>>,
+  ): void {
+    void this.retireCandidateRecord(record, 'arm-failed');
+    deferred.reject(error);
+  }
+
+  private completeCandidateFinalization(
+    record: CutoverRecord,
+    intent: Readonly<RendezvousFinalizeIntent>,
+    value: unknown,
+    deferred: ReturnType<typeof createDeferredPromise<FilePlaybackCutoverFinalization>>,
+  ): void {
+    const receipt = readRendezvousFinalizeReceipt(value);
+    const target = record.target;
+    const sourceStarted = record.armResult?.status === 'armed' ? record.armResult.started : null;
+    if (!this.ownsLiveCandidate(record) || record.phase !== 'finalizing') {
+      deferred.reject(cutoverError('source finalization completed after candidate revocation'));
+      return;
+    }
+    if (
+      receipt === null ||
+      target === null ||
+      sourceStarted === null ||
+      !validateRendezvousFinalizeReceipt(intent, receipt).ok ||
+      !this.authorityAllows(record)
+    ) {
+      const error = cutoverError('source finalization was rejected or became stale');
+      if (this.targetHasPassed(record)) {
+        void this.enterFailSilent(record, 'finalize-invalid-after-target');
+      } else {
+        void this.retireCandidateRecord(record, 'finalize-failed');
+      }
+      deferred.reject(error);
+      return;
+    }
+
+    try {
+      this.scheduleExactCutover(record, target);
+      if (!this.ownsLiveCandidate(record) || !this.authorityAllows(record)) {
+        throw this.authorityOrStaleError(record);
+      }
+    } catch (error) {
+      if (this.targetHasPassed(record)) {
+        void this.enterFailSilent(record, 'gate-scheduling-failed');
+      } else {
+        void this.retireCandidateRecord(record, 'gate-scheduling-failed');
+      }
+      deferred.reject(error);
+      return;
+    }
+
+    record.phase = 'scheduled';
+    const managedStarted = this.observeCandidateStart(record, sourceStarted, target);
+    void managedStarted.catch(() => undefined);
+    record.managedStarted = managedStarted;
+    const finalization = Object.freeze(
+      Object.assign(Object.create(null), {
+        receipt,
+        target,
+        started: managedStarted,
+      }),
+    ) as FilePlaybackCutoverFinalization;
+    deferred.resolve(finalization);
+  }
+
+  private failCandidateFinalization(
+    record: CutoverRecord,
+    error: unknown,
+    deferred: ReturnType<typeof createDeferredPromise<FilePlaybackCutoverFinalization>>,
+  ): void {
+    if (!this.ownsLiveCandidate(record) || record.phase !== 'finalizing') {
+      deferred.reject(error);
+      return;
+    }
+    if (this.targetHasPassed(record)) {
+      void this.enterFailSilent(record, 'finalize-promise-failed');
+    } else {
+      void this.retireCandidateRecord(record, 'finalize-promise-failed');
+    }
+    deferred.reject(error);
+  }
+
+  private observeCandidateStart(
+    record: CutoverRecord,
+    sourceStarted: Promise<FilePlaybackStartEvidence>,
+    target: FilePlaybackCutoverTarget,
+  ): Promise<FilePlaybackStartEvidence> {
+    const deferred = createDeferredPromise<FilePlaybackStartEvidence>();
+    let task: Promise<FilePlaybackStartEvidence>;
+    try {
+      task = Promise.resolve(sourceStarted);
+    } catch (error) {
+      task = Promise.reject(error);
+    }
+    void task.then(
+      (value) => {
+        const evidence = readFilePlaybackStartEvidence(value, target.targetFrame);
+        const evidenceMatchesBackend =
+          (record.backend === 'audio-buffer' && evidence?.kind === 'webaudio-schedule-passed') ||
+          (record.backend === 'streaming-flac' && evidence?.kind === 'worklet-observed');
+        if (!this.ownsLiveCandidate(record) || record.phase !== 'scheduled') {
+          deferred.reject(cutoverError('start evidence completed after candidate revocation'));
+          return;
+        }
+        if (evidence === null || !evidenceMatchesBackend || record.target !== target) {
+          const error = cutoverError('start evidence was invalid or stale');
+          if (this.targetHasPassed(record)) {
+            void this.enterFailSilent(record, 'start-evidence-invalid');
+          } else {
+            void this.retireCandidateRecord(record, 'start-evidence-invalid');
+          }
+          deferred.reject(error);
+          return;
+        }
+        if (!this.authorityAllows(record)) {
+          const error = this.authorityOrStaleError(record);
+          if (this.targetHasPassed(record)) {
+            void this.enterFailSilent(record, 'start-evidence-authority-expired');
+          } else {
+            void this.retireCandidateRecord(record, 'start-evidence-authority-expired');
+          }
+          deferred.reject(error);
+          return;
+        }
+        const targetPassed = this.targetHasPassed(record);
+        if (!this.ownsLiveCandidate(record) || record.phase !== 'scheduled') {
+          deferred.reject(cutoverError('start evidence completed after candidate revocation'));
+          return;
+        }
+        if (!targetPassed) {
+          void this.retireCandidateRecord(record, 'start-evidence-before-target');
+          deferred.reject(cutoverError('start evidence was invalid or stale'));
+          return;
+        }
+        if (!this.promoteStartedCandidate(record, evidence)) {
+          deferred.reject(cutoverError('candidate promotion lost authority'));
+          return;
+        }
+        deferred.resolve(evidence);
+      },
+      (error: unknown) => {
+        if (!this.ownsLiveCandidate(record) || record.phase !== 'scheduled') {
+          deferred.reject(error);
+          return;
+        }
+        if (this.targetHasPassed(record)) {
+          void this.enterFailSilent(record, 'start-evidence-rejected');
+        } else {
+          void this.retireCandidateRecord(record, 'start-evidence-rejected');
+        }
+        deferred.reject(error);
+      },
+    );
+    return deferred.promise;
+  }
+
+  private promoteStartedCandidate(
+    record: CutoverRecord,
+    _evidence: FilePlaybackStartEvidence,
+  ): boolean {
+    if (!this.ownsLiveCandidate(record) || record.phase !== 'scheduled') return false;
+    const previous = this.cutoverCurrent;
+    this.cutoverCandidate = null;
+    record.phase = 'current';
+    record.gatesScheduled = false;
+    this.cutoverCurrent = record;
+    this.cutoverEpoch += 1;
+    this.recoveryRequired = false;
+
+    if (previous && previous !== record) {
+      previous.revoked = true;
+      previous.phase = 'retiring';
+      this.forceGate(previous, 0);
+      this.disconnectGate(previous);
+      if (this.cutoverCurrent !== previous) {
+        const cleanup = this.destroyIfUnowned(previous.state);
+        previous.cleanupPromise = cleanup;
+        this.trackCutoverCleanup(cleanup);
+      }
+    }
+    return this.cutoverCurrent === record && !record.revoked && record.phase === 'current';
+  }
+
+  private scheduleExactCutover(record: CutoverRecord, target: FilePlaybackCutoverTarget): void {
+    const canonicalTarget = readFilePlaybackCutoverTarget(target, record.audioContext);
+    const gate = record.gate;
+    if (
+      !canonicalTarget ||
+      !gate ||
+      canonicalTarget.audioContext !== gate.context ||
+      !this.ownsLiveCandidate(record)
+    ) {
+      throw cutoverError('backend target does not use the candidate gate context');
+    }
+    const now = this.readContextTime(record.audioContext);
+    if (now >= canonicalTarget.contextTimeSeconds) {
+      throw cutoverError('backend target already passed before gate scheduling');
+    }
+    const previous = this.cutoverCurrent;
+    if (previous && previous.audioContext !== canonicalTarget.audioContext) {
+      throw cutoverError('current and candidate renderers use different AudioContexts');
+    }
+
+    // Mark the transaction before the first native mutation. A mocked/native
+    // callback may synchronously retire the candidate from inside any
+    // AudioParam call; retirement must then know that the old gate may already
+    // contain a target-time mute even though the record is still finalizing.
+    record.gatesScheduled = true;
+    try {
+      gate.gain.cancelScheduledValues(now);
+      this.assertCutoverTransactionOwned(record);
+      gate.gain.setValueAtTime(0, now);
+      this.assertCutoverTransactionOwned(record);
+      gate.gain.setValueAtTime(1, canonicalTarget.contextTimeSeconds);
+      this.assertCutoverTransactionOwned(record);
+      if (previous?.gate) {
+        previous.gate.gain.cancelScheduledValues(now);
+        this.assertCutoverTransactionOwned(record);
+        previous.gate.gain.setValueAtTime(1, now);
+        this.assertCutoverTransactionOwned(record);
+        previous.gate.gain.setValueAtTime(0, canonicalTarget.contextTimeSeconds);
+        this.assertCutoverTransactionOwned(record);
+      }
+    } catch (error) {
+      if (this.readContextTime(record.audioContext) < canonicalTarget.contextTimeSeconds) {
+        if (!this.rollbackScheduledGates(record)) {
+          void this.enterFailSilent(record, 'gate-rollback-ambiguous');
+        }
+      } else {
+        record.gatesScheduled = false;
+        void this.enterFailSilent(record, 'gate-scheduling-crossed-target');
+      }
+      throw error;
+    }
+  }
+
+  private rollbackScheduledGates(record: CutoverRecord): boolean {
+    // Clear first so a re-entrant retirement from native automation does not
+    // recursively attempt the same transaction rollback.
+    record.gatesScheduled = false;
+    const candidateSilenced = this.forceGate(record, 0);
+    const previous = this.cutoverCurrent;
+    const currentRestored = previous === null || previous === record || this.forceGate(previous, 1);
+    return candidateSilenced && currentRestored;
+  }
+
+  private forceGate(record: CutoverRecord, value: 0 | 1): boolean {
+    const gate = record.gate;
+    if (!gate) return true;
+    try {
+      const now = this.readContextTime(record.audioContext);
+      gate.gain.cancelScheduledValues(now);
+      gate.gain.setValueAtTime(value, now);
+      return true;
+    } catch {
+      // A candidate is disconnected below on ambiguity. For a current gate,
+      // preserving native state is safer than attempting a second clock.
+      return false;
+    }
+  }
+
+  private retireCandidateRecord(record: CutoverRecord, _reason: string): Promise<void> {
+    if (record.cleanupPromise) return record.cleanupPromise;
+    if (this.cutoverCandidate !== record) return Promise.resolve();
+    const wasScheduled = record.gatesScheduled;
+    if (wasScheduled && this.targetHasPassed(record)) {
+      if (record.cleanupPromise) return record.cleanupPromise;
+      if (this.cutoverCandidate !== record) return Promise.resolve();
+      return this.enterFailSilent(record, 'retire-after-target');
+    }
+    if (record.cleanupPromise) return record.cleanupPromise;
+    if (this.cutoverCandidate !== record) return Promise.resolve();
+    this.cutoverCandidate = null;
+    record.revoked = true;
+    record.phase = 'retiring';
+    this.cutoverEpoch += 1;
+    if (wasScheduled && !this.rollbackScheduledGates(record)) {
+      // Reinstall the candidate slot just for fail-silent ownership. The
+      // rollback proved the old gate cannot be trusted, so preserving it as a
+      // current renderer would create a delayed mute at the old target.
+      this.cutoverCandidate = record;
+      record.revoked = false;
+      record.phase = 'scheduled';
+      return this.enterFailSilent(record, 'candidate-retire-rollback-ambiguous');
+    }
+    this.forceGate(record, 0);
+    this.disconnectGate(record);
+    record.cleanupPromise = this.destroyIfUnowned(record.state);
+    this.trackCutoverCleanup(record.cleanupPromise);
+    return record.cleanupPromise;
+  }
+
+  private retireCurrentRecord(record: CutoverRecord): Promise<void> {
+    if (record.cleanupPromise) return record.cleanupPromise;
+    if (this.cutoverCurrent !== record) return Promise.resolve();
+    if (this.cutoverCurrent === record) this.cutoverCurrent = null;
+    record.revoked = true;
+    record.phase = 'retiring';
+    this.cutoverEpoch += 1;
+    this.forceGate(record, 0);
+    this.disconnectGate(record);
+    record.cleanupPromise = this.destroyIfUnowned(record.state);
+    this.trackCutoverCleanup(record.cleanupPromise);
+    return record.cleanupPromise;
+  }
+
+  private enterFailSilent(record: CutoverRecord, _reason: string): Promise<void> {
+    if (record.cleanupPromise) return record.cleanupPromise;
+    if (this.cutoverCandidate !== record && this.cutoverCurrent !== record) {
+      return Promise.resolve();
+    }
+    const states = new Set<ManagedSource>();
+    const candidate = this.cutoverCandidate;
+    const current = this.cutoverCurrent;
+    this.cutoverCandidate = null;
+    this.cutoverCurrent = null;
+    this.cutoverEpoch += 1;
+    this.recoveryRequired = true;
+    if (candidate) {
+      candidate.gatesScheduled = false;
+      candidate.revoked = true;
+      candidate.phase = 'failed';
+      this.forceGate(candidate, 0);
+      this.disconnectGate(candidate);
+      states.add(candidate.state);
+    }
+    if (current) {
+      current.gatesScheduled = false;
+      current.revoked = true;
+      current.phase = 'failed';
+      this.forceGate(current, 0);
+      this.disconnectGate(current);
+      states.add(current.state);
+    }
+    if (!candidate && record !== current) {
+      record.gatesScheduled = false;
+      record.revoked = true;
+      record.phase = 'failed';
+      this.forceGate(record, 0);
+      this.disconnectGate(record);
+      states.add(record.state);
+    }
+    const cleanup = Promise.all([...states].map((state) => this.destroyIfUnowned(state))).then(
+      () => undefined,
+    );
+    if (candidate) candidate.cleanupPromise = cleanup;
+    if (current) current.cleanupPromise = cleanup;
+    record.cleanupPromise = cleanup;
+    this.trackCutoverCleanup(cleanup);
+    return cleanup;
+  }
+
+  private trackCutoverCleanup(cleanup: Promise<void>): void {
+    this.cutoverRetirementBarrier = Promise.all([this.cutoverRetirementBarrier, cleanup]).then(
+      () => undefined,
+    );
+  }
+
+  private async waitForCutoverRetirements(): Promise<void> {
+    for (;;) {
+      const barrier = this.cutoverRetirementBarrier;
+      await barrier;
+      if (barrier === this.cutoverRetirementBarrier) return;
+    }
+  }
+
+  private targetHasPassed(record: CutoverRecord): boolean {
+    if (record.target === null) return false;
+    try {
+      return record.audioContext.currentTime >= record.target.contextTimeSeconds;
+    } catch {
+      return true;
+    }
+  }
+
+  private assertCutoverTransactionOwned(record: CutoverRecord): void {
+    if (!this.ownsLiveCandidate(record)) {
+      throw cutoverError('candidate was revoked during gate automation');
+    }
+  }
+
+  private disconnectGate(record: CutoverRecord): void {
+    const gate = record.gate;
+    if (!gate) return;
+    try {
+      gate.disconnect();
+    } catch {
+      // Native cleanup is best effort and source destruction remains idempotent.
+    }
+  }
+
+  private audioContextForDestination(destination: AudioNode): AudioContext | null {
+    try {
+      const context = destination.context;
+      if (
+        !context ||
+        typeof context.createGain !== 'function' ||
+        typeof context.currentTime !== 'number' ||
+        !Number.isFinite(context.currentTime)
+      ) {
+        return null;
+      }
+      return context as AudioContext;
+    } catch {
+      return null;
+    }
+  }
+
+  private readContextTime(audioContext: AudioContext): number {
+    const now = audioContext.currentTime;
+    if (!Number.isFinite(now) || now < 0) throw cutoverError('AudioContext time is invalid');
+    return now;
+  }
+
+  private ownsLiveCandidate(record: CutoverRecord): boolean {
+    return this.cutoverCandidate === record && !record.revoked && !record.state.destroyed;
+  }
+
+  private ownsRetryableCutoverRecord(record: CutoverRecord): boolean {
+    return (
+      !record.revoked &&
+      !record.state.destroyed &&
+      (this.cutoverCandidate === record || this.cutoverCurrent === record)
+    );
+  }
+
+  private hasLegacyOwnership(): boolean {
+    return (
+      this.active !== null ||
+      this.standby !== null ||
+      this.pendingActive !== null ||
+      this.pendingStandby !== null
+    );
+  }
+
+  private hasCutoverOwnership(): boolean {
+    return (
+      this.cutoverStageReservations > 0 ||
+      this.cutoverCandidate !== null ||
+      this.cutoverCurrent !== null
+    );
+  }
+
+  private async rejectCutoverStageDuringLegacy(
+    source: FilePlaybackCutoverSource,
+  ): Promise<FilePlaybackCutoverCandidatePort> {
+    const state = this.stateFor(source);
+    await this.destroyIfUnowned(state);
+    throw cutoverError('legacy playback slots must be retired before staging a cutover renderer');
+  }
+
+  private authorityAllows(record: CutoverRecord): boolean {
+    if (!this.ownsLiveCandidate(record)) return false;
+    if (record.authorityError.present) return false;
+    const epoch = this.cutoverEpoch;
+    if (record.authority !== null) {
+      try {
+        if (!record.authority()) return false;
+      } catch (error) {
+        record.authorityError = { present: true, error };
+        return false;
+      }
+    }
+    return epoch === this.cutoverEpoch && this.ownsLiveCandidate(record);
+  }
+
+  private detachedAuthorityError: AuthorityError = { present: false };
+
+  private detachedAuthorityAllows(authority: FilePlaybackActivationAuthority | null): boolean {
+    this.detachedAuthorityError = { present: false };
+    if (authority === null) return true;
+    const epoch = this.cutoverEpoch;
+    try {
+      if (!authority()) return false;
+    } catch (error) {
+      this.detachedAuthorityError = { present: true, error };
+      return false;
+    }
+    return epoch === this.cutoverEpoch;
+  }
+
+  private authorityOrStaleError(record: CutoverRecord): unknown {
+    return record.authorityError.present
+      ? record.authorityError.error
+      : cutoverError('candidate authority expired or was superseded');
+  }
+
+  private rejectedAuthorityPromise<T>(record: CutoverRecord): Promise<T> {
+    return Promise.reject(this.authorityOrStaleError(record));
   }
 
   private async runStandby(operation: PendingStandbyOperation): Promise<FilePlaybackPublication> {
@@ -529,7 +1788,7 @@ export class FilePlaybackManager {
       preparePromise: null,
       destroyPromise: null,
       destroyed: false,
-      lastSnapshot: source.getSnapshot(),
+      lastSnapshot: createFilePlaybackSourceSnapshot(source.getSnapshot()),
     };
     this.sourceStates.set(source, state);
     return state;
@@ -538,7 +1797,7 @@ export class FilePlaybackManager {
   private snapshotOf(state: ManagedSource): FilePlaybackSourceSnapshot {
     if (!state.destroyed) {
       try {
-        state.lastSnapshot = state.source.getSnapshot();
+        state.lastSnapshot = createFilePlaybackSourceSnapshot(state.source.getSnapshot());
       } catch {
         // Preserve the last valid snapshot if a failed backend cannot report.
       }
@@ -555,8 +1814,9 @@ export class FilePlaybackManager {
     }
     try {
       state.preparePromise = Promise.resolve(state.source.prepare()).then((snapshot) => {
-        state.lastSnapshot = snapshot;
-        return snapshot;
+        const canonical = createFilePlaybackSourceSnapshot(snapshot);
+        state.lastSnapshot = canonical;
+        return canonical;
       });
     } catch (error) {
       state.preparePromise = Promise.reject(error);
@@ -569,8 +1829,9 @@ export class FilePlaybackManager {
     destination: AudioNode,
   ): Promise<FilePlaybackSourceSnapshot> {
     const snapshot = await state.source.connect(destination);
-    state.lastSnapshot = snapshot;
-    return snapshot;
+    const canonical = createFilePlaybackSourceSnapshot(snapshot);
+    state.lastSnapshot = canonical;
+    return canonical;
   }
 
   private owns(state: ManagedSource): boolean {
@@ -578,7 +1839,9 @@ export class FilePlaybackManager {
       this.active === state.source ||
       this.standby === state.source ||
       this.pendingActive?.state === state ||
-      this.pendingStandby?.state === state
+      this.pendingStandby?.state === state ||
+      this.cutoverCurrent?.state === state ||
+      this.cutoverCandidate?.state === state
     );
   }
 

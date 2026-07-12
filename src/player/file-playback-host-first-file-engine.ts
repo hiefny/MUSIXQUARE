@@ -10,6 +10,7 @@ import {
   FilePlaybackAssetRegistry,
   type FilePlaybackAssetBinding,
   type FilePlaybackAssetLease,
+  type FilePlaybackAssetMetadata,
   type FilePlaybackAssetSnapshot,
 } from './file-playback-asset-registry.ts';
 import type { FilePlaybackClockBindings } from './file-playback-clock.ts';
@@ -57,9 +58,15 @@ import {
   type PlaybackAttemptIdentity,
   type PlaybackStateIdentity,
 } from './playback-identity.ts';
-import type { PlaybackTimelineSnapshot } from './playback-timeline.ts';
+import { derivePlaybackPosition, type PlaybackTimelineSnapshot } from './playback-timeline.ts';
 import { isQueueItemId } from './queue-model.ts';
-import { HostRendezvousCoordinator, type HostRendezvousAttempt } from './rendezvous-coordinator.ts';
+import { RemoteRendezvousParticipant } from './remote-rendezvous-participant.ts';
+import {
+  HostRendezvousCoordinator,
+  type HostRendezvousAttempt,
+  type HostRendezvousParticipant,
+} from './rendezvous-coordinator.ts';
+import type { EncodedAudioSource } from './sources/encoded-audio-source.ts';
 
 const DEFAULT_MIME = 'application/octet-stream';
 const MAX_APPLICATION_SCOPE_ID_LENGTH = 128;
@@ -89,6 +96,17 @@ const START_LOCAL_TRACK_KEYS = Object.freeze([...START_KEYS, 'positionSeconds'] 
 const CURRENT_OPERATION_KEYS = Object.freeze(['signal'] as const);
 const SEEK_PLAYING_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
 const SEEK_PAUSED_KEYS = SEEK_PLAYING_KEYS;
+const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
+  'publication',
+  'signal',
+  'sourceIdentity',
+] as const);
+const RECOVER_REMOTE_KEYS = Object.freeze([
+  'bindAttempt',
+  'participant',
+  'publication',
+  'signal',
+] as const);
 const RUNTIME_KEYS = Object.freeze([
   'createRunIdForTests',
   'localStartRuntimeForTests',
@@ -100,6 +118,7 @@ const RUNTIME_KEYS = Object.freeze([
   'onCoordinatorClosedForTests',
   'beforeManagerTransitionForTests',
   'beforeTransitionControllerCommitForTests',
+  'admitAssetForTests',
 ] as const);
 
 type ExactRecord = Readonly<Record<string, unknown>>;
@@ -111,6 +130,14 @@ export interface FilePlaybackHostFirstFileEngineRuntimeForTests {
   readonly beforeControllerCommitForTests?: () => void;
   readonly beforeManagerTransitionForTests?: () => void;
   readonly beforeTransitionControllerCommitForTests?: () => void;
+  /** Transfers a non-Blob asset into the exact production registry in source-resolution tests. */
+  readonly admitAssetForTests?: (
+    registry: FilePlaybackAssetRegistry,
+    roomToken: object,
+    binding: Readonly<FilePlaybackAssetBinding>,
+    blob: Blob,
+    metadata: Readonly<FilePlaybackAssetMetadata>,
+  ) => FilePlaybackAssetLease;
   /** Exact empty manager factory; production always creates a private manager. */
   readonly createManagerForTests?: () => FilePlaybackManager;
   readonly createRendezvousIdForTests?: () => string;
@@ -195,6 +222,52 @@ export interface HostCurrentPlaybackTransitionCommit {
   readonly timeline: PlaybackTimelineSnapshot;
 }
 
+export interface HostPeerPlaybackAssetPublication {
+  readonly kind: FilePlaybackAssetSnapshot['kind'];
+  readonly binding: Readonly<FilePlaybackAssetBinding>;
+  readonly metadata: Readonly<FilePlaybackAssetMetadata>;
+  readonly encodedSize: number;
+}
+
+/** Exact, immutable, body-free description of the host's current peer-readable run. */
+export interface HostPeerPlaybackPublication {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly state: Readonly<PlaybackStateIdentity>;
+  readonly timeline: PlaybackTimelineSnapshot;
+  readonly asset: Readonly<HostPeerPlaybackAssetPublication>;
+}
+
+export type HostPeerRangeSource = Blob | EncodedAudioSource;
+
+export interface ResolveHostPeerRangeSourceOptions {
+  readonly publication: Readonly<HostPeerPlaybackPublication>;
+  readonly sourceIdentity: string;
+  readonly signal: AbortSignal;
+}
+
+/**
+ * `bindAttempt` synchronously publishes the exact attempt to the connection
+ * owner and returns a native Promise which resolves only after exact renderer
+ * start evidence has been admitted. The engine performs participant commit.
+ */
+export interface RecoverHostRemoteParticipantOptions {
+  readonly publication: Readonly<HostPeerPlaybackPublication>;
+  readonly participant: RemoteRendezvousParticipant;
+  readonly signal: AbortSignal;
+  readonly bindAttempt: (attempt: HostRendezvousAttempt) => Promise<void>;
+}
+
+export interface HostRemoteRecoveryCommit {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly participantId: string;
+  readonly publication: Readonly<HostPeerPlaybackPublication>;
+  readonly attempt: Readonly<PlaybackAttemptIdentity>;
+  readonly schedule: Readonly<LocalFilePlaybackSchedule>;
+  readonly timeline: PlaybackTimelineSnapshot;
+}
+
 interface RuntimeSnapshot {
   readonly createRunId: () => string;
   readonly localStartRuntime: FilePlaybackLocalStartCoordinatorRuntimeForTests | undefined;
@@ -215,6 +288,13 @@ interface RuntimeSnapshot {
   readonly createRendezvousId: () => string;
   readonly fatalAfterAdmission: boolean;
   readonly onCoordinatorClosed: (() => void) | null;
+  readonly admitAsset: (
+    registry: FilePlaybackAssetRegistry,
+    roomToken: object,
+    binding: Readonly<FilePlaybackAssetBinding>,
+    blob: Blob,
+    metadata: Readonly<FilePlaybackAssetMetadata>,
+  ) => FilePlaybackAssetLease;
 }
 
 interface AdmittedLocalFile {
@@ -305,6 +385,30 @@ interface ActiveTransitionOperation {
 
 type ActiveRoomOperation = ActiveStartOperation | ActiveTransitionOperation;
 
+interface PeerPublicationAuthority {
+  readonly publication: Readonly<HostPeerPlaybackPublication>;
+  readonly timeline: PlaybackTimelineSnapshot;
+  readonly state: Readonly<PlaybackStateIdentity>;
+  readonly asset: Readonly<FilePlaybackAssetSnapshot>;
+  readonly lease: FilePlaybackAssetLease;
+}
+
+interface ActiveRemoteRecovery {
+  readonly participantId: string;
+  readonly participant: RemoteRendezvousParticipant;
+  readonly publication: Readonly<HostPeerPlaybackPublication>;
+  readonly controller: AbortController;
+  readonly externalSignal: AbortSignal;
+  readonly removeExternalAbort: () => void;
+  attempt: HostRendezvousAttempt | null;
+}
+
+interface DeferredRemoteParticipant {
+  readonly participant: HostRendezvousParticipant;
+  release(): void;
+  reject(error: Error): void;
+}
+
 class HostFirstFileCleanupError extends Error {
   constructor(message: string, cause: unknown) {
     super(message, { cause });
@@ -337,6 +441,7 @@ const trustedRoomClockNow = FilePlaybackRoomClock.prototype.nowRoomTimeMs;
 const trustedRoomClockBind = FilePlaybackRoomClock.prototype.bindAudioContext;
 const trustedAbortThrowIfAborted = AbortSignal.prototype.throwIfAborted;
 const trustedRendezvousCoordinatorStart = HostRendezvousCoordinator.prototype.start;
+const trustedRendezvousCoordinatorStartRecovery = HostRendezvousCoordinator.prototype.startRecovery;
 const trustedRendezvousCoordinatorClose = HostRendezvousCoordinator.prototype.close;
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
@@ -412,6 +517,8 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
       createRendezvousId: () => createFilePlaybackRunId(),
       fatalAfterAdmission: false,
       onCoordinatorClosed: null,
+      admitAsset: (registry, roomToken, binding, blob, metadata) =>
+        registry.admitBlob(roomToken, binding, blob, metadata),
     });
   }
   try {
@@ -437,6 +544,7 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     const createRendezvousId = descriptors.createRendezvousIdForTests?.value;
     const fatalAfterAdmission = descriptors.fatalAfterAdmissionForTests?.value;
     const onCoordinatorClosed = descriptors.onCoordinatorClosedForTests?.value;
+    const admitAsset = descriptors.admitAssetForTests?.value;
     if (
       (createRunId !== undefined && typeof createRunId !== 'function') ||
       (beforeControllerCommit !== undefined && typeof beforeControllerCommit !== 'function') ||
@@ -449,6 +557,7 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
       (createRendezvousId !== undefined && typeof createRendezvousId !== 'function') ||
       (fatalAfterAdmission !== undefined && typeof fatalAfterAdmission !== 'boolean') ||
       (onCoordinatorClosed !== undefined && typeof onCoordinatorClosed !== 'function') ||
+      (admitAsset !== undefined && typeof admitAsset !== 'function') ||
       (localStartRuntime !== undefined &&
         (localStartRuntime === null || typeof localStartRuntime !== 'object'))
     ) {
@@ -481,6 +590,10 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
         (createRendezvousId as (() => string) | undefined) ?? (() => createFilePlaybackRunId()),
       fatalAfterAdmission: (fatalAfterAdmission as boolean | undefined) ?? false,
       onCoordinatorClosed: (onCoordinatorClosed as (() => void) | undefined) ?? null,
+      admitAsset:
+        (admitAsset as RuntimeSnapshot['admitAsset'] | undefined) ??
+        ((registry, roomToken, binding, blob, metadata) =>
+          registry.admitBlob(roomToken, binding, blob, metadata)),
     });
   } catch {
     return null;
@@ -505,6 +618,18 @@ function isExactRoomClock(value: unknown): value is FilePlaybackRoomClock {
       value !== null &&
       typeof value === 'object' &&
       Reflect.getPrototypeOf(value) === FilePlaybackRoomClock.prototype
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isExactRemoteParticipant(value: unknown): value is RemoteRendezvousParticipant {
+  try {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      Reflect.getPrototypeOf(value) === RemoteRendezvousParticipant.prototype
     );
   } catch {
     return false;
@@ -548,6 +673,101 @@ function observe(value: Promise<unknown>): void {
   );
 }
 
+function abortReason(signal: AbortSignal, fallback: string): Error {
+  const reason = signal.reason as unknown;
+  return reason instanceof Error ? reason : new Error(fallback, { cause: reason });
+}
+
+function waitWithSignal<T>(task: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortReason(signal, 'Remote recovery was aborted'));
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(abortReason(signal, 'Remote recovery was aborted')));
+    signal.addEventListener('abort', onAbort, { once: true });
+    task.then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error)),
+    );
+  });
+}
+
+function deferredRemoteParticipant(remote: RemoteRendezvousParticipant): DeferredRemoteParticipant {
+  let target: RemoteRendezvousParticipant | null = remote;
+  let resolveGate!: () => void;
+  let rejectGate!: (error: Error) => void;
+  let settled = false;
+  const gate = new Promise<void>((resolve, reject) => {
+    resolveGate = resolve;
+    rejectGate = reject;
+  });
+  void gate.catch(() => undefined);
+  const rttP95Ms = remote.rttP95Ms;
+  const armP95Ms = remote.armP95Ms;
+  // calculateRendezvousLeadMs validates both detached metrics before the
+  // coordinator can retain this wrapper.
+  calculateRendezvousLeadMs(rttP95Ms, armP95Ms);
+  const participant = Object.freeze({
+    participantId: remote.participantId,
+    rttP95Ms,
+    armP95Ms,
+    arm: (intent: Parameters<RemoteRendezvousParticipant['arm']>[0]) =>
+      gate.then(() => {
+        if (!target) throw new Error('Remote recovery participant is released');
+        return target.arm(intent);
+      }),
+    finalize: (intent: Parameters<RemoteRendezvousParticipant['finalize']>[0]) =>
+      gate.then(() => {
+        if (!target) throw new Error('Remote recovery participant is released');
+        return target.finalize(intent);
+      }),
+    commitAttempt: (identity: PlaybackAttemptIdentity) => {
+      if (!settled || !target) return false;
+      const accepted = target.commitAttempt(identity);
+      if (accepted) target = null;
+      return accepted;
+    },
+    cancel: (intent: Parameters<RemoteRendezvousParticipant['cancel']>[0]) =>
+      gate.then(
+        async () => {
+          const current = target;
+          target = null;
+          await current?.cancel(intent);
+        },
+        () => {
+          target = null;
+        },
+      ),
+  }) satisfies HostRendezvousParticipant;
+  return {
+    participant,
+    release() {
+      if (settled) return;
+      settled = true;
+      resolveGate();
+    },
+    reject(error: Error) {
+      if (settled) return;
+      settled = true;
+      target = null;
+      rejectGate(error);
+    },
+  };
+}
+
+async function closeEncodedSourceWithoutMasking(source: EncodedAudioSource): Promise<void> {
+  try {
+    await source.close();
+  } catch {
+    // The stale/aborted authority error remains primary.
+  }
+}
+
 function sameLocalPlaybackSchedule(
   left: Readonly<LocalFilePlaybackSchedule>,
   right: Readonly<LocalFilePlaybackSchedule>,
@@ -579,9 +799,8 @@ function containsCleanupFailure(value: unknown): boolean {
 /**
  * One-room, host-only candidate engine for V2 file playback.
  *
- * Peer publication and remote-participant injection remain later product
- * slices. Active guest connections do not revoke this exact host-generation
- * authority; for now each candidate rendezvous contains its local participant.
+ * Peer publication is body-free. Exact source leases and same-state remote
+ * recovery remain private capabilities of this room-generation engine.
  * The historical class name and startFirstLocalFile method remain as
  * compatibility surfaces while one instance owns the local renderer lifetime.
  */
@@ -602,6 +821,8 @@ export class FilePlaybackHostFirstFileEngine {
   readonly #assets = new Map<QueueItemId, AdmittedLocalFile>();
   readonly #ownedPorts = new Set<FilePlaybackCutoverCandidatePort>();
   readonly #portRetirements = new Map<FilePlaybackCutoverCandidatePort, Promise<void>>();
+  readonly #remoteRecoveries = new Map<string, ActiveRemoteRecovery>();
+  #peerPublicationAuthority: PeerPublicationAuthority | null = null;
   #audioContext: AudioContext | null = null;
   #destination: AudioNode | null = null;
   #clockBindings: FilePlaybackClockBindings | null = null;
@@ -879,6 +1100,8 @@ export class FilePlaybackHostFirstFileEngine {
     if (this.#closePromise) return this.#closePromise;
     const active = this.#activeOperation;
     this.#closed = true;
+    this.#peerPublicationAuthority = null;
+    this.#cancelAllRemoteRecoveries('remote-recovery-room-closed');
     if (!active?.commitDominant) this.#operationEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
     if (this.#closePromise) return this.#closePromise;
@@ -903,6 +1126,182 @@ export class FilePlaybackHostFirstFileEngine {
       return null;
     }
     return snapshot;
+  }
+
+  currentPeerPublication(): Readonly<HostPeerPlaybackPublication> | null {
+    try {
+      if (this.#activeOperation !== null || !this.#hasLiveProjectionAuthority()) return null;
+      const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+      const run = timeline.run;
+      if (!run || timeline.phase === 'stopped') return null;
+      const admitted = this.#assets.get(run.queueItemId);
+      if (!admitted) return null;
+      const asset = this.#registry.snapshotForLease(this.#roomToken, admitted.lease);
+      if (
+        !asset ||
+        asset.queueItemId !== run.queueItemId ||
+        asset.sourceIdentity !== admitted.binding.sourceIdentity ||
+        asset.transferSessionId !== admitted.binding.transferSessionId
+      ) {
+        return null;
+      }
+      const cached = this.#peerPublicationAuthority;
+      if (
+        cached &&
+        cached.timeline === timeline &&
+        cached.lease === admitted.lease &&
+        this.#samePeerAsset(cached.asset, asset)
+      ) {
+        this.#assertPeerPublicationAuthority(cached);
+        return cached.publication;
+      }
+      const state = freezeCanonical({
+        queueItemId: run.queueItemId,
+        runId: run.runId,
+        revision: timeline.revision,
+      });
+      const publication = freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: this.#roomGeneration,
+        state,
+        timeline,
+        asset: freezeCanonical({
+          kind: asset.kind,
+          binding: freezeCanonical({
+            queueItemId: asset.queueItemId,
+            sourceIdentity: asset.sourceIdentity,
+            transferSessionId: asset.transferSessionId,
+          }),
+          metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
+          encodedSize: asset.size,
+        }),
+      });
+      const authority: PeerPublicationAuthority = {
+        publication,
+        timeline,
+        state,
+        asset,
+        lease: admitted.lease,
+      };
+      this.#peerPublicationAuthority = authority;
+      this.#assertPeerPublicationAuthority(authority);
+      return publication;
+    } catch {
+      this.#peerPublicationAuthority = null;
+      return null;
+    }
+  }
+
+  async resolveCurrentPeerRangeSource(
+    options: ResolveHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource> {
+    const input = snapshotExactRecord(options, RESOLVE_PEER_SOURCE_KEYS);
+    if (
+      !input ||
+      !(input.signal instanceof AbortSignal) ||
+      !isBoundedIdentifier(input.sourceIdentity, MAX_APPLICATION_SCOPE_ID_LENGTH * 2)
+    ) {
+      throw new TypeError('Host peer-range source resolution options are invalid');
+    }
+    const signal = input.signal;
+    const authority = this.#requirePeerPublication(input.publication);
+    if (input.sourceIdentity !== authority.asset.sourceIdentity) {
+      throw new Error('Host peer-range source identity is not the current publication');
+    }
+    throwIfAborted(signal);
+    this.#assertPeerPublicationAuthority(authority);
+
+    const blobResolution = this.#registry.resolveBlobAsset(this.#roomToken, authority.lease);
+    if (blobResolution) {
+      if (
+        blobResolution.binding.queueItemId !== authority.asset.queueItemId ||
+        blobResolution.binding.sourceIdentity !== authority.asset.sourceIdentity ||
+        blobResolution.binding.transferSessionId !== authority.asset.transferSessionId ||
+        blobResolution.metadata.name !== authority.asset.name ||
+        blobResolution.metadata.mime !== authority.asset.mime ||
+        blobResolution.blob.size !== authority.asset.size
+      ) {
+        throw new Error('Host peer-range Blob resolution changed its exact binding');
+      }
+      await Promise.resolve();
+      throwIfAborted(signal);
+      this.#assertPeerPublicationAuthority(authority);
+      return blobResolution.blob;
+    }
+
+    let source: EncodedAudioSource | null = null;
+    try {
+      source = this.#registry.acquireSource(this.#roomToken, authority.lease);
+      if (
+        source.kind !== authority.asset.kind ||
+        source.identity !== authority.asset.sourceIdentity ||
+        source.size !== authority.asset.size ||
+        source.metadata.name !== authority.asset.name ||
+        source.metadata.mime !== authority.asset.mime
+      ) {
+        throw new Error('Host peer-range encoded source changed its exact binding');
+      }
+      await Promise.resolve();
+      throwIfAborted(signal);
+      this.#assertPeerPublicationAuthority(authority);
+      const resolved = source;
+      source = null;
+      return resolved;
+    } catch (error) {
+      if (source) await closeEncodedSourceWithoutMasking(source);
+      throw error;
+    }
+  }
+
+  recoverRemoteParticipant(
+    options: RecoverHostRemoteParticipantOptions,
+  ): Promise<Readonly<HostRemoteRecoveryCommit>> {
+    const input = snapshotExactRecord(options, RECOVER_REMOTE_KEYS);
+    if (
+      !input ||
+      !(input.signal instanceof AbortSignal) ||
+      !isExactRemoteParticipant(input.participant) ||
+      typeof input.bindAttempt !== 'function'
+    ) {
+      return Promise.reject(new TypeError('Host remote recovery options are invalid'));
+    }
+    try {
+      throwIfAborted(input.signal);
+      const authority = this.#requirePeerPublication(input.publication);
+      this.#assertPeerPublicationAuthority(authority);
+      if (authority.timeline.phase !== 'playing' || this.#activeOperation !== null) {
+        throw new Error('Host remote recovery requires an exact idle playing publication');
+      }
+      const participant = input.participant;
+      const previous = this.#remoteRecoveries.get(participant.participantId);
+      if (previous) this.#abortRemoteRecovery(previous, 'remote-recovery-replaced');
+
+      const controller = new AbortController();
+      const externalSignal = input.signal;
+      const forwardExternalAbort = () =>
+        controller.abort(abortReason(externalSignal, 'Remote recovery was aborted'));
+      externalSignal.addEventListener('abort', forwardExternalAbort, { once: true });
+      const operation: ActiveRemoteRecovery = {
+        participantId: participant.participantId,
+        participant,
+        publication: authority.publication,
+        controller,
+        externalSignal,
+        removeExternalAbort: () =>
+          externalSignal.removeEventListener('abort', forwardExternalAbort),
+        attempt: null,
+      };
+      this.#remoteRecoveries.set(operation.participantId, operation);
+      if (externalSignal.aborted) forwardExternalAbort();
+      const task = this.#executeRemoteRecovery(
+        operation,
+        authority,
+        input.bindAttempt as RecoverHostRemoteParticipantOptions['bindAttempt'],
+      );
+      return task;
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null {
@@ -1068,6 +1467,8 @@ export class FilePlaybackHostFirstFileEngine {
       task: null,
     };
     this.#activeOperation = operation;
+    this.#peerPublicationAuthority = null;
+    this.#cancelAllRemoteRecoveries(`remote-recovery-${action}-transition`);
     if (signal.aborted) forwardExternalAbort();
     const task = this.#executeCurrentTransition(operation);
     operation.task = task;
@@ -1558,10 +1959,13 @@ export class FilePlaybackHostFirstFileEngine {
     this.#assertTimelineAuthority(previousTimeline, false);
     const scope = createFilePlaybackMediaScope(this.#applicationScopeId, input.queueItemId);
     const binding = freezeCanonical({ queueItemId: input.queueItemId, ...scope });
-    const lease = this.#registry.admitBlob(this.#roomToken, binding, input.blob, {
-      name: input.name,
-      mime: input.mime,
-    });
+    const lease = Reflect.apply(this.#runtime.admitAsset, undefined, [
+      this.#registry,
+      this.#roomToken,
+      binding,
+      input.blob,
+      freezeCanonical({ name: input.name, mime: input.mime }),
+    ]);
     const admitted = Object.freeze({
       queueItemId: input.queueItemId,
       blob: input.blob,
@@ -1687,6 +2091,8 @@ export class FilePlaybackHostFirstFileEngine {
       task: null,
     };
     this.#activeOperation = operation;
+    this.#peerPublicationAuthority = null;
+    this.#cancelAllRemoteRecoveries('remote-recovery-renderer-candidate');
     previousOperation?.controller.abort(new Error('Host local file candidate was superseded'));
     if (input.signal.aborted) forwardExternalAbort();
     const task = this.#executeCandidateStart(operation, input);
@@ -1880,6 +2286,222 @@ export class FilePlaybackHostFirstFileEngine {
       throw this.#fatalError ?? new Error('Host local-file room authority is stale');
     }
     this.#assertRoomClockAuthority();
+  }
+
+  #samePeerAsset(
+    left: Readonly<FilePlaybackAssetSnapshot>,
+    right: Readonly<FilePlaybackAssetSnapshot>,
+  ): boolean {
+    return (
+      left.queueItemId === right.queueItemId &&
+      left.sourceIdentity === right.sourceIdentity &&
+      left.transferSessionId === right.transferSessionId &&
+      left.kind === right.kind &&
+      left.size === right.size &&
+      left.name === right.name &&
+      left.mime === right.mime
+    );
+  }
+
+  #requirePeerPublication(value: unknown): PeerPublicationAuthority {
+    const authority = this.#peerPublicationAuthority;
+    if (!authority || value !== authority.publication) {
+      throw new Error('Host peer publication is not the exact current publication');
+    }
+    this.#assertPeerPublicationAuthority(authority);
+    return authority;
+  }
+
+  #assertPeerPublicationAuthority(authority: PeerPublicationAuthority): void {
+    if (
+      this.#peerPublicationAuthority !== authority ||
+      this.#activeOperation !== null ||
+      !this.#hasLiveProjectionAuthority()
+    ) {
+      throw new Error('Host peer publication authority is stale');
+    }
+    const controller = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    const run = timeline.run;
+    const currentAsset = this.#registry.snapshotForLease(this.#roomToken, authority.lease);
+    const admitted = run ? this.#assets.get(run.queueItemId) : null;
+    const port = this.#committedPort;
+    const renderer = port
+      ? Reflect.apply(trustedManagerCurrentSnapshot, this.#manager, [port])
+      : null;
+    if (
+      controller.roomGeneration !== this.#roomGeneration ||
+      controller.roomRole !== 'host' ||
+      controller.timeline !== timeline ||
+      timeline !== authority.timeline ||
+      authority.publication.roomGeneration !== this.#roomGeneration ||
+      authority.publication.timeline !== timeline ||
+      authority.publication.state !== authority.state ||
+      timeline.phase === 'stopped' ||
+      renderer?.phase !== timeline.phase ||
+      !run ||
+      run.queueItemId !== authority.state.queueItemId ||
+      run.runId !== authority.state.runId ||
+      timeline.revision !== authority.state.revision ||
+      admitted?.lease !== authority.lease ||
+      !currentAsset ||
+      !this.#samePeerAsset(currentAsset, authority.asset)
+    ) {
+      throw new Error('Host peer publication authority changed');
+    }
+  }
+
+  async #executeRemoteRecovery(
+    operation: ActiveRemoteRecovery,
+    authority: PeerPublicationAuthority,
+    bindAttempt: RecoverHostRemoteParticipantOptions['bindAttempt'],
+  ): Promise<Readonly<HostRemoteRecoveryCommit>> {
+    const deferred = deferredRemoteParticipant(operation.participant);
+    let attempt: HostRendezvousAttempt | null = null;
+    try {
+      this.#assertRemoteRecoveryAuthority(operation, authority, null);
+      const leadTimeMs = Math.max(
+        calculateRendezvousLeadMs(0, 0),
+        calculateRendezvousLeadMs(deferred.participant.rttP95Ms, deferred.participant.armP95Ms),
+      );
+      const nowRoomTimeMs = this.#clockBindings
+        ? this.#clockBindings.nowRoomTimeMs()
+        : Reflect.apply(trustedRoomClockNow, this.#roomClock, []);
+      const projectedStartAtRoomTimeMs = nowRoomTimeMs + leadTimeMs;
+      if (!Number.isFinite(projectedStartAtRoomTimeMs)) {
+        throw new RangeError('Host remote recovery schedule overflowed');
+      }
+      const positionSeconds = derivePlaybackPosition(
+        authority.timeline,
+        projectedStartAtRoomTimeMs,
+      );
+      attempt = Reflect.apply(
+        trustedRendezvousCoordinatorStartRecovery,
+        this.#rendezvousCoordinator,
+        [
+          freezeCanonical({
+            run: authority.state,
+            positionSeconds,
+            playbackRate: authority.timeline.rate,
+            participants: Object.freeze([deferred.participant]) as readonly [
+              HostRendezvousParticipant,
+            ],
+          }),
+        ],
+      );
+      const firstAcceptedTask = attempt.whenFirstParticipantAccepted();
+      observe(firstAcceptedTask);
+      operation.attempt = attempt;
+      this.#assertRemoteRecoveryAuthority(operation, authority, attempt);
+
+      const evidenceTask = Reflect.apply(bindAttempt, undefined, [attempt]) as unknown;
+      if (!(evidenceTask instanceof Promise)) {
+        throw new TypeError('Host remote recovery attempt binding must return a native Promise');
+      }
+      observe(evidenceTask);
+      this.#assertRemoteRecoveryAuthority(operation, authority, attempt);
+
+      // The exact attempt is now connection-owned. Only now may ARM reach the
+      // transport and race renderer evidence/receipts.
+      deferred.release();
+      const evidenceFailure = new Promise<never>((_resolve, reject) => {
+        void evidenceTask.catch(reject);
+      });
+      const accepted = await waitWithSignal(
+        Promise.race([firstAcceptedTask, evidenceFailure]),
+        operation.controller.signal,
+      );
+      this.#assertRemoteRecoveryAuthority(operation, authority, attempt);
+      const expectedAttempt = freezeCanonical({
+        queueItemId: authority.state.queueItemId,
+        runId: authority.state.runId,
+        revision: authority.state.revision,
+        rendezvousId: attempt.rendezvousId,
+      });
+      const attemptSnapshot = attempt.getSnapshot();
+      if (
+        accepted.acceptedParticipantId !== operation.participantId ||
+        !sameAttempt(accepted.attempt, expectedAttempt) ||
+        attemptSnapshot.rendezvousId !== attempt.rendezvousId ||
+        attemptSnapshot.run.queueItemId !== authority.state.queueItemId ||
+        attemptSnapshot.run.runId !== authority.state.runId ||
+        attemptSnapshot.run.revision !== authority.state.revision ||
+        !sameLocalPlaybackSchedule(accepted.schedule, attemptSnapshot)
+      ) {
+        throw new Error('Host remote recovery accepted a mismatched participant or schedule');
+      }
+
+      await waitWithSignal(evidenceTask, operation.controller.signal);
+      this.#assertRemoteRecoveryAuthority(operation, authority, attempt);
+      if (!attempt.commitParticipant(operation.participantId)) {
+        throw new Error('Host remote recovery renderer evidence was not committed');
+      }
+      this.#assertRemoteRecoveryAuthority(operation, authority, attempt);
+      return freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: this.#roomGeneration,
+        participantId: operation.participantId,
+        publication: authority.publication,
+        attempt: accepted.attempt,
+        schedule: accepted.schedule,
+        timeline: authority.timeline,
+      });
+    } catch (error) {
+      const failure = asError(error, 'Host remote recovery failed');
+      deferred.reject(failure);
+      try {
+        attempt?.cancel('remote-recovery-failed');
+      } catch {
+        // The recovery rejection remains primary and never quarantines the room.
+      }
+      throw failure;
+    } finally {
+      operation.removeExternalAbort();
+      if (this.#remoteRecoveries.get(operation.participantId) === operation) {
+        this.#remoteRecoveries.delete(operation.participantId);
+      }
+      operation.attempt = null;
+    }
+  }
+
+  #assertRemoteRecoveryAuthority(
+    operation: ActiveRemoteRecovery,
+    authority: PeerPublicationAuthority,
+    attempt: HostRendezvousAttempt | null,
+  ): void {
+    throwIfAborted(operation.externalSignal);
+    throwIfAborted(operation.controller.signal);
+    if (
+      this.#remoteRecoveries.get(operation.participantId) !== operation ||
+      operation.publication !== authority.publication ||
+      operation.participant.participantId !== operation.participantId ||
+      operation.attempt !== attempt
+    ) {
+      throw new Error('Host remote recovery was superseded');
+    }
+    if (attempt) {
+      const status = attempt.getSnapshot().status;
+      if (status === 'cancelled' || status === 'superseded') {
+        throw new Error('Host remote recovery attempt is stale');
+      }
+    }
+    this.#assertPeerPublicationAuthority(authority);
+  }
+
+  #abortRemoteRecovery(operation: ActiveRemoteRecovery, reason: string): void {
+    operation.controller.abort(new Error(reason));
+    try {
+      operation.attempt?.cancel(reason);
+    } catch {
+      // Abort is authoritative; best-effort transport cancellation cannot mask it.
+    }
+  }
+
+  #cancelAllRemoteRecoveries(reason: string): void {
+    if (this.#remoteRecoveries.size === 0) return;
+    const operations = [...this.#remoteRecoveries.values()];
+    this.#remoteRecoveries.clear();
+    for (const operation of operations) this.#abortRemoteRecovery(operation, reason);
   }
 
   #hasLiveProjectionAuthority(): boolean {
@@ -2153,6 +2775,8 @@ export class FilePlaybackHostFirstFileEngine {
     const error = asError(cause, 'Host local-file physical commit failed');
     if (!this.#fatalError) this.#fatalError = error;
     this.#closed = true;
+    this.#peerPublicationAuthority = null;
+    this.#cancelAllRemoteRecoveries('remote-recovery-room-quarantined');
     this.#operationEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
     this.#activeOperation?.controller.abort(error);
@@ -2169,6 +2793,8 @@ export class FilePlaybackHostFirstFileEngine {
   #handleRegistryFatal(error: Error): void {
     if (!this.#fatalError) this.#fatalError = error;
     this.#closed = true;
+    this.#peerPublicationAuthority = null;
+    this.#cancelAllRemoteRecoveries('remote-recovery-registry-fatal');
     this.#operationEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
     this.#activeOperation?.controller.abort(error);
@@ -2229,6 +2855,8 @@ export class FilePlaybackHostFirstFileEngine {
         null,
       );
     }
+    this.#peerPublicationAuthority = null;
+    this.#cancelAllRemoteRecoveries('remote-recovery-terminal-cleanup');
     this.#assets.clear();
     this.#legacyFirstQueueItemId = null;
     this.#pendingNewRun = null;

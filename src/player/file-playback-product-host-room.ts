@@ -9,6 +9,11 @@ import {
   type HostCurrentPlaybackOperationOptions,
   type HostCurrentPlaybackTransitionCommit,
   type HostFirstLocalFilePlaybackCommit,
+  type HostPeerPlaybackPublication,
+  type HostPeerRangeSource,
+  type HostRemoteRecoveryCommit,
+  type RecoverHostRemoteParticipantOptions,
+  type ResolveHostPeerRangeSourceOptions,
   type SeekHostPausedOptions,
   type SeekHostPlayingOptions,
   type StartHostFirstLocalFileOptions,
@@ -34,6 +39,17 @@ const FIRST_FILE_KEYS = Object.freeze(['file', 'queueItemId', 'signal'] as const
 const TRACK_KEYS = Object.freeze(['file', 'positionSeconds', 'queueItemId', 'signal'] as const);
 const CURRENT_KEYS = Object.freeze(['signal'] as const);
 const SEEK_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
+const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
+  'publication',
+  'signal',
+  'sourceIdentity',
+] as const);
+const RECOVER_REMOTE_KEYS = Object.freeze([
+  'bindAttempt',
+  'participant',
+  'publication',
+  'signal',
+] as const);
 const HOST_ROOM_KEYS = Object.freeze([
   'applicationSessionId',
   'hostParticipantId',
@@ -80,6 +96,13 @@ export interface FilePlaybackProductHostFirstEnginePort {
   settleEndedCurrent(
     options: HostCurrentPlaybackOperationOptions,
   ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>>;
+  currentPeerPublication(): Readonly<HostPeerPlaybackPublication> | null;
+  resolveCurrentPeerRangeSource(
+    options: ResolveHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource>;
+  recoverRemoteParticipant(
+    options: RecoverHostRemoteParticipantOptions,
+  ): Promise<Readonly<HostRemoteRecoveryCommit>>;
   close(): Promise<void>;
   currentRendererSnapshot(): FilePlaybackSourceSnapshot | null;
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
@@ -464,6 +487,9 @@ function isEnginePort(
     typeof candidate.replayCurrent === 'function' &&
     typeof candidate.stopCurrent === 'function' &&
     typeof candidate.settleEndedCurrent === 'function' &&
+    typeof candidate.currentPeerPublication === 'function' &&
+    typeof candidate.resolveCurrentPeerRangeSource === 'function' &&
+    typeof candidate.recoverRemoteParticipant === 'function' &&
     typeof candidate.close === 'function' &&
     typeof candidate.currentRendererSnapshot === 'function' &&
     typeof candidate.positionAt === 'function'
@@ -573,7 +599,8 @@ function readFileIntent(
  *
  * The facade owns one engine and one graph binding until room close. Track changes
  * are engine candidate cutovers, while pause/seek/resume/stop/end remain physical
- * operations on that same authority. Playlist, UI and peer publication stay outside.
+ * operations on that same authority. Peer publication and connection-scoped
+ * recovery are forwarded without initializing or retaining another audio graph.
  */
 export class FilePlaybackProductHostRoom {
   readonly #controller: FilePlaybackApplicationController;
@@ -737,6 +764,78 @@ export class FilePlaybackProductHostRoom {
     return this.#enqueueCurrent(options, 'ended', (engine, signal) =>
       engine.settleEndedCurrent({ signal }),
     );
+  }
+
+  currentPeerPublication(): Readonly<HostPeerPlaybackPublication> | null {
+    try {
+      const record = this.#engineRecord;
+      if (!record || !this.#hasProjectionAuthority()) return null;
+      const publication = record.engine.currentPeerPublication();
+      if (!publication || !this.#hasProjectionAuthority()) return null;
+      assertBodyFree(publication);
+      return publication;
+    } catch {
+      return null;
+    }
+  }
+
+  resolveCurrentPeerRangeSource(
+    options: ResolveHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource> {
+    const input = snapshotExactRecord(options, RESOLVE_PEER_SOURCE_KEYS);
+    if (
+      !input ||
+      !(input.signal instanceof AbortSignal) ||
+      typeof input.sourceIdentity !== 'string'
+    ) {
+      return Promise.reject(new TypeError('Product host peer-range source options are invalid'));
+    }
+    return this.#enqueuePeer(input.signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      const source = await record.engine.resolveCurrentPeerRangeSource({
+        publication: input.publication as Readonly<HostPeerPlaybackPublication>,
+        sourceIdentity: input.sourceIdentity as string,
+        signal: operation.controller.signal,
+      });
+      try {
+        this.#assertOperationReady(operation);
+        return source;
+      } catch (error) {
+        if (!(source instanceof Blob)) {
+          try {
+            await source.close();
+          } catch {
+            // The stale room authority remains the primary rejection.
+          }
+        }
+        throw error;
+      }
+    });
+  }
+
+  recoverRemoteParticipant(
+    options: RecoverHostRemoteParticipantOptions,
+  ): Promise<Readonly<HostRemoteRecoveryCommit>> {
+    const input = snapshotExactRecord(options, RECOVER_REMOTE_KEYS);
+    if (
+      !input ||
+      !(input.signal instanceof AbortSignal) ||
+      typeof input.bindAttempt !== 'function'
+    ) {
+      return Promise.reject(new TypeError('Product host remote recovery options are invalid'));
+    }
+    return this.#enqueuePeer(input.signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      const commit = await record.engine.recoverRemoteParticipant({
+        publication: input.publication as Readonly<HostPeerPlaybackPublication>,
+        participant: input.participant as RecoverHostRemoteParticipantOptions['participant'],
+        signal: operation.controller.signal,
+        bindAttempt: input.bindAttempt as RecoverHostRemoteParticipantOptions['bindAttempt'],
+      });
+      this.#assertOperationReady(operation);
+      assertBodyFree(commit);
+      return commit;
+    });
   }
 
   close(): Promise<void> {
@@ -906,6 +1005,15 @@ export class FilePlaybackProductHostRoom {
     return this.#executeOperation(operation, null, execute, 'transition');
   }
 
+  #enqueuePeer<T>(
+    externalSignal: AbortSignal,
+    execute: (operation: RoomOperation) => Promise<T>,
+  ): Promise<T> {
+    const created = this.#createOperation(externalSignal);
+    if (!created.operation) return created.failure as Promise<T>;
+    return this.#executeOperation(created.operation, null, execute, 'peer');
+  }
+
   #createOperation(externalSignal: AbortSignal): Readonly<{
     operation: RoomOperation | null;
     failure: Promise<never> | null;
@@ -977,7 +1085,7 @@ export class FilePlaybackProductHostRoom {
     operation: RoomOperation,
     predecessor: Promise<void> | null,
     execute: (operation: RoomOperation) => Promise<T>,
-    kind: 'candidate' | 'transition',
+    kind: 'candidate' | 'transition' | 'peer',
   ): Promise<T> {
     const task = (async () => {
       if (predecessor) await predecessor;

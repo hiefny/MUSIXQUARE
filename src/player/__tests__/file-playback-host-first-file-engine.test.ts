@@ -12,11 +12,16 @@ import { FilePlaybackClock } from '../file-playback-clock.ts';
 import {
   FilePlaybackHostFirstFileEngine,
   type FilePlaybackHostFirstFileEngineRuntimeForTests,
+  type HostPeerPlaybackPublication,
   type StartHostFirstLocalFileOptions,
   type StartHostLocalTrackOptions,
 } from '../file-playback-host-first-file-engine.ts';
 import { FilePlaybackManager } from '../file-playback-manager.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
+import {
+  RemoteRendezvousParticipant,
+  type RemoteRendererEvidenceScope,
+} from '../remote-rendezvous-participant.ts';
 import { FilePlaybackRoomClock } from '../file-playback-room-clock.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
@@ -47,6 +52,10 @@ import type {
   RendezvousFinalizeIntent,
   RendezvousFinalizeReceipt,
 } from '../rendezvous-contract.ts';
+import type { HostRendezvousAttempt } from '../rendezvous-coordinator.ts';
+import type { EncodedAudioAsset } from '../sources/encoded-audio-asset.ts';
+import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
+import type { RendererHealthWireMessage } from '../file-playback-wire.ts';
 
 const Q1 = '96000000-0000-4000-8000-000000000001' as QueueItemId;
 const Q2 = '96000000-0000-4000-8000-000000000002' as QueueItemId;
@@ -520,6 +529,9 @@ function makeHarness(
     readonly initialTimeline?: PlaybackTimelineSnapshot;
     readonly onCoordinatorClosed?: () => void;
     readonly establishActiveGuest?: boolean;
+    readonly admitAsset?: NonNullable<
+      FilePlaybackHostFirstFileEngineRuntimeForTests['admitAssetForTests']
+    >;
   } = {},
 ): EngineHarness {
   const sendRequired = vi.fn(() => true);
@@ -578,6 +590,9 @@ function makeHarness(
         createBlobSource: vi.fn(async () =>
           factoryResult(source, stageOptions.expectedBinding.sourceIdentity),
         ),
+        createEncodedSource: vi.fn(async () =>
+          factoryResult(source, stageOptions.expectedBinding.sourceIdentity),
+        ),
       },
     });
     if (plan.holdAfterStage) await plan.holdAfterStage.promise;
@@ -612,6 +627,7 @@ function makeHarness(
           onTerminalReferencesReleasedForTests: options.onTerminalReferencesReleased,
         }
       : {}),
+    ...(options.admitAsset ? { admitAssetForTests: options.admitAsset } : {}),
   };
   const roomGeneration = controller.snapshot().roomGeneration;
   const engine = new FilePlaybackHostFirstFileEngine({
@@ -747,7 +763,327 @@ function expectBodyFree(value: unknown): void {
   visit(value);
 }
 
+function transferredAsset(
+  blob: Blob,
+  identity: string,
+  metadata: Readonly<{ name: string; mime: string }>,
+  sourceClosed: ReturnType<typeof vi.fn>,
+  onAcquire?: () => void,
+): EncodedAudioAsset {
+  let activeLeaseCount = 0;
+  return {
+    kind: 'peer-range',
+    size: blob.size,
+    identity,
+    metadata,
+    get activeLeaseCount() {
+      return activeLeaseCount;
+    },
+    acquire(): EncodedAudioSource {
+      onAcquire?.();
+      activeLeaseCount += 1;
+      let closed = false;
+      return {
+        kind: 'peer-range',
+        size: blob.size,
+        identity,
+        metadata,
+        async readAt(_offset, length, signal) {
+          signal.throwIfAborted();
+          return new Uint8Array(length);
+        },
+        async close() {
+          if (closed) return;
+          closed = true;
+          activeLeaseCount -= 1;
+          sourceClosed();
+        },
+      };
+    },
+    async close() {},
+  };
+}
+
+interface RemoteRecoveryHarness {
+  readonly participant: RemoteRendezvousParticipant;
+  readonly arms: RendezvousArmIntent[];
+  readonly finalizes: RendezvousFinalizeIntent[];
+  readonly cancels: unknown[];
+  accept(attempt: HostRendezvousAttempt): Promise<void>;
+}
+
+function remoteRecoveryHarness(
+  participantId: string,
+  publication: Readonly<HostPeerPlaybackPublication>,
+): RemoteRecoveryHarness {
+  const arms: RendezvousArmIntent[] = [];
+  const finalizes: RendezvousFinalizeIntent[] = [];
+  const cancels: unknown[] = [];
+  let nowRoomTimeMs = 0;
+  const scope: RemoteRendererEvidenceScope = Object.freeze({
+    sessionId: `recovery-session-${participantId}`,
+    connectionId: `recovery-connection-${participantId}`,
+    recipientParticipantId: 'host-first-participant',
+    sourceIdentity: publication.asset.binding.sourceIdentity,
+    transferSessionId: publication.asset.binding.transferSessionId,
+  });
+  const participant = new RemoteRendezvousParticipant({
+    participantId,
+    rendererEvidenceScope: scope,
+    rttP95Ms: 40,
+    armP95Ms: 80,
+    nowRoomTimeMs: () => nowRoomTimeMs,
+    dispatchArm: (intent) => arms.push(intent),
+    dispatchFinalize: (intent) => finalizes.push(intent),
+    dispatchCancel: (intent) => cancels.push(intent),
+  });
+  return {
+    participant,
+    arms,
+    finalizes,
+    cancels,
+    async accept(attempt) {
+      const arm = arms.at(-1);
+      if (!arm) throw new Error('Remote recovery ARM was not dispatched');
+      nowRoomTimeMs = Math.max(nowRoomTimeMs, arm.finalizeByRoomTimeMs - 1);
+      expect(participant.acceptArmReceipt(armedReceipt(arm))).toBe(true);
+      await drainMicrotasks();
+      const finalize = finalizes.at(-1);
+      if (!finalize) throw new Error('Remote recovery FINALIZE was not dispatched');
+      nowRoomTimeMs = Math.max(nowRoomTimeMs, finalize.finalizedAtRoomTimeMs);
+      expect(participant.acceptFinalizeReceipt(acceptedReceipt(finalize))).toBe(true);
+      await drainMicrotasks();
+      nowRoomTimeMs = Math.max(nowRoomTimeMs, attempt.startAtRoomTimeMs);
+      const evidence: RendererHealthWireMessage = {
+        protocolVersion: 2,
+        kind: 'renderer-health',
+        sessionId: scope.sessionId,
+        connectionId: scope.connectionId,
+        senderParticipantId: participantId,
+        recipientParticipantId: scope.recipientParticipantId,
+        controlSequence: 1,
+        queueItemId: publication.state.queueItemId,
+        runId: publication.state.runId,
+        revision: publication.state.revision,
+        sourceIdentity: scope.sourceIdentity,
+        transferSessionId: scope.transferSessionId,
+        rendezvousId: attempt.rendezvousId,
+        value: 'healthy',
+        observedAtRoomTimeMs: attempt.startAtRoomTimeMs,
+        leaseUntilRoomTimeMs: attempt.startAtRoomTimeMs + 5_000,
+        renderedFrame: Math.round(attempt.startAtRoomTimeMs * 48),
+        underrunCount: 0,
+        reasonCode: null,
+      };
+      expect(participant.acceptRendererStartEvidence(evidence)).toBe(true);
+    },
+  };
+}
+
 describe('FilePlaybackHostFirstFileEngine', () => {
+  it('publishes body-free exact current metadata and resolves the original Blob by reference', async () => {
+    const harness = makeHarness([{ backend: 'audio-buffer' }]);
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/mpeg' });
+    await resolveLatestStart(harness, harness.start(blob, { name: 'peer.mp3' }));
+
+    const publication = harness.engine.currentPeerPublication();
+    expect(publication).not.toBeNull();
+    expect(harness.engine.currentPeerPublication()).toBe(publication);
+    expect(publication).toMatchObject({
+      schemaVersion: 1,
+      roomGeneration: harness.controller.snapshot().roomGeneration,
+      state: { queueItemId: Q1, runId: RUN_1, revision: 1 },
+      asset: {
+        kind: 'blob',
+        metadata: { name: 'peer.mp3', mime: 'audio/mpeg' },
+        encodedSize: blob.size,
+      },
+    });
+    expectBodyFree(publication);
+
+    const resolved = await harness.engine.resolveCurrentPeerRangeSource({
+      publication: publication!,
+      sourceIdentity: publication!.asset.binding.sourceIdentity,
+      signal: new AbortController().signal,
+    });
+    expect(resolved).toBe(blob);
+
+    await pauseCurrent(harness);
+    await expect(
+      harness.engine.resolveCurrentPeerRangeSource({
+        publication: publication!,
+        sourceIdentity: publication!.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/publication|authority|current/iu);
+    await harness.engine.close();
+  });
+
+  it('returns a caller-owned encoded source lease and closes a stale acquired lease', async () => {
+    const sourceClosed = vi.fn();
+    const staleResolution = new AbortController();
+    let acquireCount = 0;
+    const harness = makeHarness([{ backend: 'streaming-flac' }], {
+      admitAsset: (registry, roomToken, binding, blob, metadata) =>
+        registry.admitEncodedAsset(
+          roomToken,
+          binding,
+          transferredAsset(blob, binding.sourceIdentity, metadata, sourceClosed, () => {
+            acquireCount += 1;
+            if (acquireCount === 3) staleResolution.abort(new Error('fixture source became stale'));
+          }),
+        ),
+    });
+    const blob = new Blob([new Uint8Array([5, 6, 7, 8])], { type: 'audio/flac' });
+    await resolveLatestStart(harness, harness.start(blob, { name: 'range.flac' }));
+    const publication = harness.engine.currentPeerPublication();
+    expect(publication?.asset.kind).toBe('peer-range');
+
+    const source = await harness.engine.resolveCurrentPeerRangeSource({
+      publication: publication!,
+      sourceIdentity: publication!.asset.binding.sourceIdentity,
+      signal: new AbortController().signal,
+    });
+    expect(source).not.toBeInstanceOf(Blob);
+    if (source instanceof Blob) throw new Error('Expected an encoded source lease');
+    expect(source.identity).toBe(publication!.asset.binding.sourceIdentity);
+    expect(await source.readAt(1, 2, new AbortController().signal)).toEqual(new Uint8Array([0, 0]));
+    await source.close();
+    expect(sourceClosed).toHaveBeenCalledOnce();
+    await expect(
+      harness.engine.resolveCurrentPeerRangeSource({
+        publication: publication!,
+        sourceIdentity: publication!.asset.binding.sourceIdentity,
+        signal: staleResolution.signal,
+      }),
+    ).rejects.toThrow(/fixture source became stale/u);
+    expect(sourceClosed).toHaveBeenCalledTimes(2);
+    await harness.engine.close();
+  });
+
+  it('recovers delayed peers independently and commits exact renderer evidence', async () => {
+    const harness = makeHarness([{ backend: 'audio-buffer' }]);
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([9])], { type: 'audio/mpeg' })),
+    );
+    const publication = harness.engine.currentPeerPublication()!;
+    const failed = remoteRecoveryHarness('recovery-failed-peer', publication);
+    const healthy = remoteRecoveryHarness('recovery-healthy-peer', publication);
+    const failedEvidence = deferred<void>();
+    const healthyEvidence = deferred<void>();
+    let healthyAttempt: HostRendezvousAttempt | null = null;
+
+    const failedTask = harness.engine.recoverRemoteParticipant({
+      publication,
+      participant: failed.participant,
+      signal: new AbortController().signal,
+      bindAttempt: () => failedEvidence.promise,
+    });
+    const healthyTask = harness.engine.recoverRemoteParticipant({
+      publication,
+      participant: healthy.participant,
+      signal: new AbortController().signal,
+      bindAttempt: (attempt) => {
+        healthyAttempt = attempt;
+        return healthyEvidence.promise;
+      },
+    });
+    await drainMicrotasks(128);
+    expect(failed.arms).toHaveLength(1);
+    expect(healthy.arms).toHaveLength(1);
+
+    failedEvidence.reject(new Error('fixture remote renderer failed'));
+    await expect(failedTask).rejects.toThrow(/renderer failed/u);
+    expect(harness.engine.currentPeerPublication()).toBe(publication);
+    expect(harness.fatal).not.toHaveBeenCalled();
+
+    await healthy.accept(healthyAttempt!);
+    healthyEvidence.resolve();
+    const commit = await healthyTask;
+    expect(commit).toMatchObject({
+      participantId: 'recovery-healthy-peer',
+      publication,
+      timeline: publication.timeline,
+      attempt: publication.state,
+    });
+    expect(commit.publication).toBe(publication);
+    expect(commit.timeline).toBe(publication.timeline);
+    expectBodyFree(commit);
+    expect(harness.engine.currentRendererSnapshot()?.phase).toBe('playing');
+    await harness.engine.close();
+  });
+
+  it('fences same-participant ABA and cancels only stale recovery on revision or close', async () => {
+    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([10])], { type: 'audio/flac' })),
+    );
+    const publication = harness.engine.currentPeerPublication()!;
+    const first = remoteRecoveryHarness('recovery-aba-peer', publication);
+    const replacement = remoteRecoveryHarness('recovery-aba-peer', publication);
+    const firstEvidence = deferred<void>();
+    const replacementEvidence = deferred<void>();
+    let replacementAttempt: HostRendezvousAttempt | null = null;
+    const firstTask = harness.engine.recoverRemoteParticipant({
+      publication,
+      participant: first.participant,
+      signal: new AbortController().signal,
+      bindAttempt: () => firstEvidence.promise,
+    });
+    const replacementTask = harness.engine.recoverRemoteParticipant({
+      publication,
+      participant: replacement.participant,
+      signal: new AbortController().signal,
+      bindAttempt: (attempt) => {
+        replacementAttempt = attempt;
+        return replacementEvidence.promise;
+      },
+    });
+    await expect(firstTask).rejects.toThrow(/replaced|superseded/u);
+    await drainMicrotasks();
+    await replacement.accept(replacementAttempt!);
+    replacementEvidence.resolve();
+    await expect(replacementTask).resolves.toMatchObject({
+      participantId: 'recovery-aba-peer',
+    });
+
+    const revision = remoteRecoveryHarness('recovery-revision-peer', publication);
+    const revisionTask = harness.engine.recoverRemoteParticipant({
+      publication,
+      participant: revision.participant,
+      signal: new AbortController().signal,
+      bindAttempt: () => new Promise<void>(() => undefined),
+    });
+    const pause = harness.engine.pauseCurrent({ signal: new AbortController().signal });
+    await expect(revisionTask).rejects.toThrow(/transition|superseded|recovery/iu);
+    await drainMicrotasks();
+    expect(harness.sources[0]?.hasPendingPause()).toBe(true);
+    harness.sources[0]?.resolvePause();
+    await expect(pause).resolves.toMatchObject({ kind: 'pause' });
+    expect(harness.fatal).not.toHaveBeenCalled();
+    await harness.engine.close();
+
+    const closeHarness = makeHarness([{ backend: 'audio-buffer' }]);
+    await resolveLatestStart(
+      closeHarness,
+      closeHarness.start(new Blob([new Uint8Array([11])], { type: 'audio/mpeg' })),
+    );
+    const closePublication = closeHarness.engine.currentPeerPublication()!;
+    const closing = remoteRecoveryHarness('recovery-close-peer', closePublication);
+    const closingTask = closeHarness.engine.recoverRemoteParticipant({
+      publication: closePublication,
+      participant: closing.participant,
+      signal: new AbortController().signal,
+      bindAttempt: () => new Promise<void>(() => undefined),
+    });
+    const close = closeHarness.engine.close();
+    await expect(closingTask).rejects.toThrow(/closed|recovery|stale/iu);
+    await close;
+    expect(closeHarness.fatal).not.toHaveBeenCalled();
+  });
+
   it('keeps production manager ownership private and rejects an inexact test factory', () => {
     class InexactManager extends FilePlaybackManager {}
     expect(() =>

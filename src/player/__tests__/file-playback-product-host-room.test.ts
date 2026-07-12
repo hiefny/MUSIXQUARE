@@ -14,6 +14,11 @@ import type {
   HostCurrentPlaybackOperationOptions,
   HostCurrentPlaybackTransitionCommit,
   HostFirstLocalFilePlaybackCommit,
+  HostPeerPlaybackPublication,
+  HostPeerRangeSource,
+  HostRemoteRecoveryCommit,
+  RecoverHostRemoteParticipantOptions,
+  ResolveHostPeerRangeSourceOptions,
   SeekHostPausedOptions,
   SeekHostPlayingOptions,
   StartHostFirstLocalFileOptions,
@@ -25,6 +30,7 @@ import {
   type FilePlaybackProductHostFirstEnginePort,
 } from '../file-playback-product-host-room.ts';
 import { FilePlaybackRoomClock } from '../file-playback-room-clock.ts';
+import { RemoteRendezvousParticipant } from '../remote-rendezvous-participant.ts';
 import type {
   FilePlaybackBackend,
   FilePlaybackPosition,
@@ -194,6 +200,15 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   );
   readonly settleEndedCurrent = vi.fn((input: HostCurrentPlaybackOperationOptions) =>
     this.#commitTransition('ended', input.signal),
+  );
+  readonly currentPeerPublication = vi.fn((): Readonly<HostPeerPlaybackPublication> | null => null);
+  readonly resolveCurrentPeerRangeSource = vi.fn(
+    (_input: ResolveHostPeerRangeSourceOptions): Promise<HostPeerRangeSource> =>
+      Promise.reject(new Error('Fixture peer source is unavailable')),
+  );
+  readonly recoverRemoteParticipant = vi.fn(
+    (_input: RecoverHostRemoteParticipantOptions): Promise<Readonly<HostRemoteRecoveryCommit>> =>
+      Promise.reject(new Error('Fixture remote recovery is unavailable')),
   );
   readonly close = vi.fn((): Promise<void> => {
     if (!this.closePromise) {
@@ -701,6 +716,102 @@ function containsBody(value: unknown, seen = new Set<object>()): boolean {
 }
 
 describe('FilePlaybackProductHostRoom stable facade', () => {
+  it('forwards peer publication, range source, and recovery without reinitializing audio', async () => {
+    const setup = makeHarness();
+    const media = file('peer-forward.mp3');
+    const started = await first(setup.room, Q1, media);
+    const engine = setup.engines[0]!;
+    const publication = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: started.roomGeneration,
+      state: freezeCanonical({
+        queueItemId: started.attempt.queueItemId,
+        runId: started.attempt.runId,
+        revision: started.attempt.revision,
+      }),
+      timeline: started.timeline,
+      asset: freezeCanonical({
+        kind: started.asset.kind,
+        binding: freezeCanonical({
+          queueItemId: started.asset.queueItemId,
+          sourceIdentity: started.asset.sourceIdentity,
+          transferSessionId: started.asset.transferSessionId,
+        }),
+        metadata: freezeCanonical({ name: started.asset.name, mime: started.asset.mime }),
+        encodedSize: started.asset.size,
+      }),
+    });
+    engine.currentPeerPublication.mockReturnValue(publication);
+    engine.resolveCurrentPeerRangeSource.mockResolvedValue(media);
+    const participant = new RemoteRendezvousParticipant({
+      participantId: 'product-recovery-peer',
+      rendererEvidenceScope: Object.freeze({
+        sessionId: 'product-recovery-session',
+        connectionId: 'product-recovery-connection',
+        recipientParticipantId: 'product-recovery-host',
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        transferSessionId: publication.asset.binding.transferSessionId,
+      }),
+      rttP95Ms: 10,
+      armP95Ms: 10,
+      nowRoomTimeMs: () => 1_000,
+      dispatchArm: vi.fn(),
+      dispatchFinalize: vi.fn(),
+      dispatchCancel: vi.fn(),
+    });
+    const recoveryCommit = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: started.roomGeneration,
+      participantId: participant.participantId,
+      publication,
+      attempt: started.attempt,
+      schedule: started.schedule,
+      timeline: started.timeline,
+    });
+    engine.recoverRemoteParticipant.mockResolvedValue(recoveryCommit);
+    const graphCalls = {
+      init: setup.initAudio.mock.calls.length,
+      running: setup.ensureRunning.mock.calls.length,
+      context: setup.getAudioContext.mock.calls.length,
+      destination: setup.getDestination.mock.calls.length,
+    };
+
+    expect(setup.room.currentPeerPublication()).toBe(publication);
+    const sourceSignal = new AbortController().signal;
+    await expect(
+      setup.room.resolveCurrentPeerRangeSource({
+        publication,
+        sourceIdentity: publication.asset.binding.sourceIdentity,
+        signal: sourceSignal,
+      }),
+    ).resolves.toBe(media);
+    const bindAttempt = vi.fn(async () => undefined);
+    await expect(
+      setup.room.recoverRemoteParticipant({
+        publication,
+        participant,
+        signal: new AbortController().signal,
+        bindAttempt,
+      }),
+    ).resolves.toBe(recoveryCommit);
+    expect(engine.resolveCurrentPeerRangeSource).toHaveBeenCalledWith({
+      publication,
+      sourceIdentity: publication.asset.binding.sourceIdentity,
+      signal: expect.any(AbortSignal),
+    });
+    expect(engine.recoverRemoteParticipant).toHaveBeenCalledWith({
+      publication,
+      participant,
+      signal: expect.any(AbortSignal),
+      bindAttempt,
+    });
+    expect(setup.initAudio).toHaveBeenCalledTimes(graphCalls.init);
+    expect(setup.ensureRunning).toHaveBeenCalledTimes(graphCalls.running);
+    expect(setup.getAudioContext).toHaveBeenCalledTimes(graphCalls.context);
+    expect(setup.getDestination).toHaveBeenCalledTimes(graphCalls.destination);
+    await setup.room.close();
+  });
+
   it.each([
     ['ordinary to FLAC', file('one.mp3'), file('two.flac', 'audio/flac'), 'streaming-flac'],
     [

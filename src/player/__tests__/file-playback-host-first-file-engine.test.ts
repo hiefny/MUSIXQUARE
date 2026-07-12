@@ -192,6 +192,7 @@ function acceptedReceipt(intent: RendezvousFinalizeIntent): RendezvousFinalizeRe
 
 interface FakeSourceOptions {
   readonly rejectArm?: boolean;
+  readonly finalizeGate?: ReturnType<typeof deferred<void>>;
 }
 
 interface FakeSourceHarness {
@@ -302,6 +303,7 @@ function makeSource(
     },
     async finalize(intent) {
       finalize();
+      if (options.finalizeGate) await options.finalizeGate.promise;
       return acceptedReceipt(intent);
     },
     async cancel() {
@@ -461,6 +463,7 @@ function factoryResult(
 interface StagePlan {
   readonly backend: FilePlaybackBackend;
   readonly rejectArm?: boolean;
+  readonly finalizeGate?: ReturnType<typeof deferred<void>>;
   readonly neverStage?: boolean;
   readonly holdAfterStage?: ReturnType<typeof deferred<void>>;
 }
@@ -566,6 +569,7 @@ function makeHarness(
     if (plan.neverStage) return new Promise(() => undefined);
     const source = makeSource(stageOptions.expectedBinding.queueItemId, plan.backend, context, {
       rejectArm: plan.rejectArm,
+      finalizeGate: plan.finalizeGate,
     });
     sources.push(source);
     const staged = await stageFilePlaybackAssetSource({
@@ -844,6 +848,54 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
     expect(harness.engine.currentRendererSnapshot()).toBeNull();
     expect(harness.engine.positionAt(1_500)).toBeNull();
+  });
+
+  it('waits for arbitrarily delayed FINALIZE acceptance without a polling deadline', async () => {
+    const finalizeGate = deferred<void>();
+    const harness = makeHarness([{ backend: 'audio-buffer', finalizeGate }]);
+    const pending = harness.start(new Blob([new Uint8Array([50])], { type: 'audio/mpeg' }), {
+      name: 'delayed-finalize.mp3',
+    });
+    let settled = false;
+    void pending.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await drainMicrotasks(256);
+    expect(harness.sources[0]?.arm).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.finalize).toHaveBeenCalledOnce();
+    expect(harness.controller.timelineSnapshot()).toMatchObject({
+      revision: 0,
+      phase: 'stopped',
+      run: null,
+    });
+    expect(harness.manager.currentCutoverPort()).toBeNull();
+    expect(settled).toBe(false);
+
+    finalizeGate.resolve();
+    await drainMicrotasks();
+    expect(harness.controller.timelineSnapshot()).toMatchObject({
+      revision: 1,
+      phase: 'playing',
+      run: { queueItemId: Q1, runId: RUN_1 },
+    });
+    expect(settled).toBe(false);
+
+    const source = harness.sources[0];
+    const target = source?.startAtContextTime();
+    expect(target).not.toBeNull();
+    harness.context.currentTime = target!;
+    source?.resolveStart();
+    await expect(pending).resolves.toMatchObject({
+      attempt: { queueItemId: Q1, runId: RUN_1, revision: 1 },
+      timeline: { revision: 1, phase: 'playing' },
+    });
+    await harness.engine.close();
   });
 
   it('keeps canonical accepted timeline truth when only the local renderer later fails', async () => {

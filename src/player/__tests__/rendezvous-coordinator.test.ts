@@ -34,11 +34,8 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-async function drainMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+async function drainMicrotasks(turns = 4): Promise<void> {
+  for (let index = 0; index < turns; index += 1) await Promise.resolve();
 }
 
 function armedReceipt(
@@ -154,12 +151,18 @@ describe('HostRendezvousCoordinator', () => {
         }),
       ],
     });
+    const firstAccepted = attempt.whenFirstParticipantAccepted();
+    const closedSettlement = expect(firstAccepted).rejects.toThrow(
+      'Host rendezvous first acceptance cancelled: coordinator-closed',
+    );
     const readsBeforeClose = clockReads;
 
     host.close();
     host.close();
+    await closedSettlement;
 
     expect(cancel).toHaveBeenCalledOnce();
+    expect(attempt.whenFirstParticipantAccepted()).toBe(firstAccepted);
     expect(attempt.getSnapshot()).toMatchObject({
       status: 'cancelled',
       reasonCode: 'coordinator-closed',
@@ -388,6 +391,10 @@ describe('HostRendezvousCoordinator', () => {
       playbackRate: 1,
       participants: [participant('arm-reentry', { arm: () => armGate.promise, finalize })],
     });
+    const armFirstAccepted = armAttempt.whenFirstParticipantAccepted();
+    const armSettlement = expect(armFirstAccepted).rejects.toThrow(
+      'Host rendezvous first acceptance cancelled: proxy-reentered-cancel',
+    );
     const armTarget = armedReceipt(
       Object.freeze({
         protocolVersion: 2,
@@ -410,8 +417,10 @@ describe('HostRendezvousCoordinator', () => {
       }),
     );
     await drainMicrotasks();
+    await armSettlement;
 
     expect(finalize).not.toHaveBeenCalled();
+    expect(armAttempt.whenFirstParticipantAccepted()).toBe(armFirstAccepted);
     expect(armAttempt.getSnapshot()).toMatchObject({
       status: 'cancelled',
       participants: [{ armStatus: 'stale', finalizeStatus: 'stale' }],
@@ -431,6 +440,10 @@ describe('HostRendezvousCoordinator', () => {
         }),
       ],
     });
+    const finalizeFirstAccepted = finalizeAttempt.whenFirstParticipantAccepted();
+    const finalizeSettlement = expect(finalizeFirstAccepted).rejects.toThrow(
+      'Host rendezvous first acceptance cancelled: proxy-reentered-cancel',
+    );
     await drainMicrotasks();
     expect(capturedFinalize).not.toBeNull();
     finalizeGate.resolve(
@@ -442,11 +455,13 @@ describe('HostRendezvousCoordinator', () => {
       }),
     );
     await drainMicrotasks();
+    await finalizeSettlement;
 
     expect(finalizeAttempt.getSnapshot()).toMatchObject({
       status: 'cancelled',
       participants: [{ armStatus: 'armed', finalizeStatus: 'stale' }],
     });
+    expect(finalizeAttempt.whenFirstParticipantAccepted()).toBe(finalizeFirstAccepted);
   });
 
   it('does not let a clock callback roll a newer reentrant start back', () => {
@@ -661,6 +676,95 @@ describe('HostRendezvousCoordinator', () => {
     });
   });
 
+  it('publishes one stable body-free settlement after an arbitrarily delayed first acceptance', async () => {
+    const armGate = deferred<RendezvousArmReceipt>();
+    const finalizeGate = deferred<RendezvousFinalizeReceipt>();
+    const failedCancel = vi.fn();
+    let armIntent: RendezvousArmIntent | null = null;
+    let finalizeIntent: RendezvousFinalizeIntent | null = null;
+    const attempt = coordinator(() => 20_000, ['rv-delayed-acceptance']).start({
+      run: RUN,
+      positionSeconds: 37.5,
+      playbackRate: 1.25,
+      participants: [
+        participant('failed-peer', {
+          arm: async () => Promise.reject(new Error('fixture peer transport failed')),
+          cancel: failedCancel,
+        }),
+        participant('eventual-peer', {
+          arm: (intent) => {
+            armIntent = intent;
+            return armGate.promise;
+          },
+          finalize: (intent) => {
+            finalizeIntent = intent;
+            return finalizeGate.promise;
+          },
+        }),
+      ],
+    });
+    const firstAccepted = attempt.whenFirstParticipantAccepted();
+    expect(attempt.whenFirstParticipantAccepted()).toBe(firstAccepted);
+    let settled = false;
+    void firstAccepted.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await drainMicrotasks(128);
+    expect(failedCancel).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+    expect(armIntent).not.toBeNull();
+    expect(finalizeIntent).toBeNull();
+
+    armGate.resolve(armedReceipt(armIntent!));
+    await drainMicrotasks(128);
+    expect(settled).toBe(false);
+    expect(finalizeIntent).not.toBeNull();
+
+    finalizeGate.resolve(finalizedReceipt(finalizeIntent!));
+    const settlement = await firstAccepted;
+    const snapshot = attempt.getSnapshot();
+
+    expect(settlement).toEqual({
+      protocolVersion: 2,
+      kind: 'host-rendezvous-first-accepted',
+      acceptedParticipantId: 'eventual-peer',
+      attempt: {
+        ...RUN,
+        rendezvousId: 'rv-delayed-acceptance',
+      },
+      schedule: {
+        positionSeconds: snapshot.positionSeconds,
+        playbackRate: snapshot.playbackRate,
+        createdAtRoomTimeMs: snapshot.createdAtRoomTimeMs,
+        leadTimeMs: snapshot.leadTimeMs,
+        finalizeByRoomTimeMs: snapshot.finalizeByRoomTimeMs,
+        startAtRoomTimeMs: snapshot.startAtRoomTimeMs,
+      },
+    });
+    expect(Object.isFrozen(settlement)).toBe(true);
+    expect(Object.isFrozen(settlement.attempt)).toBe(true);
+    expect(Object.isFrozen(settlement.schedule)).toBe(true);
+    expect(Reflect.getPrototypeOf(settlement)).toBeNull();
+    expect(Reflect.getPrototypeOf(settlement.attempt)).toBeNull();
+    expect(Reflect.getPrototypeOf(settlement.schedule)).toBeNull();
+    expect(Object.keys(settlement)).toEqual([
+      'protocolVersion',
+      'kind',
+      'acceptedParticipantId',
+      'attempt',
+      'schedule',
+    ]);
+    expect(JSON.stringify(settlement)).not.toContain('body');
+    expect(JSON.stringify(settlement)).not.toContain('receipt');
+    expect(attempt.whenFirstParticipantAccepted()).toBe(firstAccepted);
+  });
+
   it('completes without issuing any finalization when every arm is rejected', async () => {
     const finalize = vi.fn();
     const attempt = coordinator(() => 500).start({
@@ -679,10 +783,16 @@ describe('HostRendezvousCoordinator', () => {
         }),
       ),
     });
+    const firstAccepted = attempt.whenFirstParticipantAccepted();
+    const rejectedSettlement = expect(firstAccepted).rejects.toThrow(
+      'Host rendezvous arm/finalize completed without an accepted participant',
+    );
 
     await drainMicrotasks();
+    await rejectedSettlement;
 
     expect(finalize).not.toHaveBeenCalled();
+    expect(attempt.whenFirstParticipantAccepted()).toBe(firstAccepted);
     expect(attempt.getSnapshot()).toMatchObject({
       status: 'complete',
       participants: [{ armStatus: 'rejected' }, { armStatus: 'rejected' }],
@@ -939,6 +1049,10 @@ describe('HostRendezvousCoordinator', () => {
         }),
       ],
     });
+    const oldFirstAccepted = oldAttempt.whenFirstParticipantAccepted();
+    const oldSettlement = expect(oldFirstAccepted).rejects.toThrow(
+      'Host rendezvous first acceptance superseded: newer-rendezvous',
+    );
     roomNow = 1_010;
     const currentAttempt = host.start({
       run: { ...RUN, revision: 13 },
@@ -948,9 +1062,16 @@ describe('HostRendezvousCoordinator', () => {
     });
     oldArm.resolve(armedReceipt(oldIntent!, { observedAtRoomTimeMs: roomNow }));
     await drainMicrotasks();
+    await oldSettlement;
+    const currentSettlement = await currentAttempt.whenFirstParticipantAccepted();
 
     expect(oldFinalize).not.toHaveBeenCalled();
     expect(currentFinalize).toHaveBeenCalledTimes(1);
+    expect(oldAttempt.whenFirstParticipantAccepted()).toBe(oldFirstAccepted);
+    expect(currentSettlement).toMatchObject({
+      acceptedParticipantId: 'peer',
+      attempt: { revision: 13, rendezvousId: 'rv-current' },
+    });
     expect(oldAttempt.getSnapshot()).toMatchObject({
       status: 'superseded',
       reasonCode: 'newer-rendezvous',

@@ -105,6 +105,24 @@ export interface HostRendezvousAttemptSnapshot {
   readonly participants: readonly HostRendezvousParticipantOutcome[];
 }
 
+export interface HostRendezvousAcceptedSchedule {
+  readonly positionSeconds: number;
+  readonly playbackRate: number;
+  readonly createdAtRoomTimeMs: number;
+  readonly leadTimeMs: number;
+  readonly finalizeByRoomTimeMs: number;
+  readonly startAtRoomTimeMs: number;
+}
+
+/** Body-free immutable settlement for the first exact FINALIZE acceptance. */
+export interface HostRendezvousFirstAcceptedSettlement {
+  readonly protocolVersion: 2;
+  readonly kind: 'host-rendezvous-first-accepted';
+  readonly acceptedParticipantId: string;
+  readonly attempt: Readonly<PlaybackAttemptIdentity>;
+  readonly schedule: Readonly<HostRendezvousAcceptedSchedule>;
+}
+
 /**
  * An attempt is intentionally not PromiseLike. A permanently pending peer must
  * never prevent the host timeline or any healthy peer from progressing.
@@ -114,6 +132,8 @@ export interface HostRendezvousAttempt {
   readonly startAtRoomTimeMs: number;
   readonly finalizeByRoomTimeMs: number;
   getSnapshot(): HostRendezvousAttemptSnapshot;
+  /** Stable Promise that settles once for the first accepted participant. */
+  whenFirstParticipantAccepted(): Promise<Readonly<HostRendezvousFirstAcceptedSettlement>>;
   /** Closes unresolved work after advancing the injected room clock. */
   expire(): HostRendezvousAttemptSnapshot;
   /** Commits one exact accepted participant after start evidence is established. */
@@ -161,6 +181,10 @@ interface DetachedStartInput {
   readonly positionSeconds: unknown;
   readonly playbackRate: unknown;
   readonly participants: unknown;
+}
+
+function freezeCanonical<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
 }
 
 function isBoundedIdentifier(value: unknown): value is string {
@@ -326,6 +350,11 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
   readonly #owner: HostRendezvousCoordinator;
   readonly #schedule: ImmutableAttemptSchedule;
   readonly #outcomes: MutableParticipantOutcome[];
+  readonly #firstAcceptedPromise: Promise<Readonly<HostRendezvousFirstAcceptedSettlement>>;
+  #resolveFirstAccepted:
+    | ((settlement: Readonly<HostRendezvousFirstAcceptedSettlement>) => void)
+    | null;
+  #rejectFirstAccepted: ((error: Error) => void) | null;
   #status: HostRendezvousAttemptStatus = 'open';
   #reasonCode: string | null = null;
   #closing = false;
@@ -338,6 +367,20 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
   ) {
     this.#owner = owner;
     this.#schedule = schedule;
+    let resolveFirstAccepted!: (
+      settlement: Readonly<HostRendezvousFirstAcceptedSettlement>,
+    ) => void;
+    let rejectFirstAccepted!: (error: Error) => void;
+    this.#firstAcceptedPromise = new Promise((resolve, reject) => {
+      resolveFirstAccepted = resolve;
+      rejectFirstAccepted = reject;
+    });
+    this.#resolveFirstAccepted = resolveFirstAccepted;
+    this.#rejectFirstAccepted = rejectFirstAccepted;
+    void this.#firstAcceptedPromise.then(
+      () => undefined,
+      () => undefined,
+    );
     this.#outcomes = participants.map((participant, index) => ({
       participantId: participant.participantId,
       participant,
@@ -433,6 +476,48 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       startAtRoomTimeMs: this.#schedule.startAtRoomTimeMs,
       participants,
     });
+  }
+
+  whenFirstParticipantAccepted(): Promise<Readonly<HostRendezvousFirstAcceptedSettlement>> {
+    return this.#firstAcceptedPromise;
+  }
+
+  #settleFirstAccepted(participantId: string): void {
+    const resolve = this.#resolveFirstAccepted;
+    if (!resolve) return;
+    this.#resolveFirstAccepted = null;
+    this.#rejectFirstAccepted = null;
+    const attempt = freezeCanonical({
+      queueItemId: this.#schedule.run.queueItemId,
+      runId: this.#schedule.run.runId,
+      revision: this.#schedule.run.revision,
+      rendezvousId: this.#schedule.rendezvousId,
+    });
+    const schedule = freezeCanonical({
+      positionSeconds: this.#schedule.positionSeconds,
+      playbackRate: this.#schedule.playbackRate,
+      createdAtRoomTimeMs: this.#schedule.createdAtRoomTimeMs,
+      leadTimeMs: this.#schedule.leadTimeMs,
+      finalizeByRoomTimeMs: this.#schedule.finalizeByRoomTimeMs,
+      startAtRoomTimeMs: this.#schedule.startAtRoomTimeMs,
+    });
+    resolve(
+      freezeCanonical({
+        protocolVersion: 2 as const,
+        kind: 'host-rendezvous-first-accepted' as const,
+        acceptedParticipantId: participantId,
+        attempt,
+        schedule,
+      }),
+    );
+  }
+
+  #rejectFirstAcceptedSettlement(reason: string): void {
+    const reject = this.#rejectFirstAccepted;
+    if (!reject) return;
+    this.#resolveFirstAccepted = null;
+    this.#rejectFirstAccepted = null;
+    reject(new Error(reason));
   }
 
   expire(): HostRendezvousAttemptSnapshot {
@@ -706,6 +791,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     } else {
       outcome.finalizeStatus = 'accepted';
       outcome.finalizeReasonCode = null;
+      this.#settleFirstAccepted(outcome.participantId);
     }
     this.#refreshCompletion();
   }
@@ -746,6 +832,9 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
   ): void {
     this.#status = status;
     this.#reasonCode = reasonCode;
+    this.#rejectFirstAcceptedSettlement(
+      `Host rendezvous first acceptance ${status}: ${reasonCode}`,
+    );
     for (const outcome of this.#outcomes) {
       if (outcome.armStatus === 'pending') {
         outcome.armStatus = 'stale';
@@ -780,7 +869,12 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     const settled = this.#outcomes.every(
       (outcome) => outcome.armStatus !== 'pending' && outcome.finalizeStatus !== 'pending',
     );
-    if (settled) this.#status = 'complete';
+    if (settled) {
+      this.#status = 'complete';
+      this.#rejectFirstAcceptedSettlement(
+        'Host rendezvous arm/finalize completed without an accepted participant',
+      );
+    }
   }
 }
 

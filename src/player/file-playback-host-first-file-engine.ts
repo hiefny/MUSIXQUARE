@@ -53,23 +53,17 @@ import type {
 } from './file-playback-stop-transition.ts';
 import {
   createPlaybackStateIdentity,
-  readPlaybackAttemptIdentity,
   sameAttempt,
   type PlaybackAttemptIdentity,
   type PlaybackStateIdentity,
 } from './playback-identity.ts';
 import type { PlaybackTimelineSnapshot } from './playback-timeline.ts';
 import { isQueueItemId } from './queue-model.ts';
-import {
-  HostRendezvousCoordinator,
-  type HostRendezvousAttempt,
-  type HostRendezvousAttemptSnapshot,
-} from './rendezvous-coordinator.ts';
+import { HostRendezvousCoordinator, type HostRendezvousAttempt } from './rendezvous-coordinator.ts';
 
 const DEFAULT_MIME = 'application/octet-stream';
 const MAX_APPLICATION_SCOPE_ID_LENGTH = 128;
 const MAX_PARTICIPANT_ID_LENGTH = 256;
-const MAX_RENDEZVOUS_ACCEPTANCE_TURNS = 64;
 const OPTION_KEYS = Object.freeze([
   'controller',
   'roomGeneration',
@@ -285,11 +279,6 @@ interface ActiveStartOperation {
   commitDominant: boolean;
   published: boolean;
   task: Promise<Readonly<HostFirstLocalFilePlaybackCommit>> | null;
-}
-
-interface AcceptedHostRendezvous {
-  readonly attempt: Readonly<PlaybackAttemptIdentity>;
-  readonly schedule: Readonly<LocalFilePlaybackSchedule>;
 }
 
 type TransitionAction = 'pause' | 'seek' | 'stop' | 'ended';
@@ -557,89 +546,6 @@ function observe(value: Promise<unknown>): void {
     () => undefined,
     () => undefined,
   );
-}
-
-function isFiniteNonNegative(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
-}
-
-function readAcceptedHostRendezvous(
-  snapshot: HostRendezvousAttemptSnapshot,
-  state: Readonly<PlaybackStateIdentity>,
-): Readonly<AcceptedHostRendezvous> | null {
-  if (
-    (snapshot.status !== 'open' && snapshot.status !== 'complete') ||
-    snapshot.reasonCode !== null ||
-    snapshot.run.queueItemId !== state.queueItemId ||
-    snapshot.run.runId !== state.runId ||
-    snapshot.run.revision !== state.revision ||
-    !snapshot.participants.some((participant) => participant.finalizeStatus === 'accepted') ||
-    !isFiniteNonNegative(snapshot.positionSeconds) ||
-    !isFiniteNonNegative(snapshot.createdAtRoomTimeMs) ||
-    !isFiniteNonNegative(snapshot.leadTimeMs) ||
-    !isFiniteNonNegative(snapshot.finalizeByRoomTimeMs) ||
-    !isFiniteNonNegative(snapshot.startAtRoomTimeMs) ||
-    !Number.isFinite(snapshot.playbackRate) ||
-    snapshot.playbackRate <= 0 ||
-    snapshot.finalizeByRoomTimeMs > snapshot.startAtRoomTimeMs
-  ) {
-    return null;
-  }
-  const attempt = readPlaybackAttemptIdentity({
-    queueItemId: snapshot.run.queueItemId,
-    runId: snapshot.run.runId,
-    revision: snapshot.run.revision,
-    rendezvousId: snapshot.rendezvousId,
-  });
-  if (!attempt) return null;
-  return freezeCanonical({
-    attempt: freezeCanonical({
-      queueItemId: attempt.queueItemId,
-      runId: attempt.runId,
-      revision: attempt.revision,
-      rendezvousId: attempt.rendezvousId,
-    }),
-    schedule: freezeCanonical({
-      positionSeconds: snapshot.positionSeconds,
-      playbackRate: snapshot.playbackRate,
-      createdAtRoomTimeMs: snapshot.createdAtRoomTimeMs,
-      leadTimeMs: snapshot.leadTimeMs,
-      finalizeByRoomTimeMs: snapshot.finalizeByRoomTimeMs,
-      startAtRoomTimeMs: snapshot.startAtRoomTimeMs,
-    }),
-  });
-}
-
-async function awaitAcceptedHostRendezvous(
-  attempt: HostRendezvousAttempt,
-  state: Readonly<PlaybackStateIdentity>,
-  assertAuthority: () => void,
-): Promise<Readonly<AcceptedHostRendezvous>> {
-  for (let turn = 0; turn < MAX_RENDEZVOUS_ACCEPTANCE_TURNS; turn += 1) {
-    const snapshot = attempt.getSnapshot();
-    const accepted = readAcceptedHostRendezvous(snapshot, state);
-    if (accepted) {
-      if (
-        attempt.rendezvousId !== accepted.attempt.rendezvousId ||
-        attempt.startAtRoomTimeMs !== accepted.schedule.startAtRoomTimeMs ||
-        attempt.finalizeByRoomTimeMs !== accepted.schedule.finalizeByRoomTimeMs
-      ) {
-        throw new Error('Host rendezvous acceptance changed its exact schedule');
-      }
-      return accepted;
-    }
-    if (
-      snapshot.status === 'cancelled' ||
-      snapshot.status === 'superseded' ||
-      snapshot.status === 'complete'
-    ) {
-      throw new Error('Host rendezvous arm/finalize completed without an accepted participant');
-    }
-    assertAuthority();
-    await Promise.resolve();
-    assertAuthority();
-  }
-  throw new Error('Host rendezvous did not publish an accepted participant');
 }
 
 function sameLocalPlaybackSchedule(
@@ -1840,15 +1746,37 @@ export class FilePlaybackHostFirstFileEngine {
       this.#assertOperationFence(operation);
       const localCompletion = completeLocalFilePlaybackParticipant({ staged, attempt });
       observe(localCompletion);
-      const accepted = await awaitAcceptedHostRendezvous(attempt, playbackState, () =>
-        this.#assertOperationFence(operation),
-      );
+      const accepted = await attempt.whenFirstParticipantAccepted();
+      this.#assertOperationFence(operation);
+      const acceptedSnapshot = attempt.getSnapshot();
       if (
+        (acceptedSnapshot.status !== 'open' && acceptedSnapshot.status !== 'complete') ||
+        acceptedSnapshot.reasonCode !== null ||
+        acceptedSnapshot.rendezvousId !== accepted.attempt.rendezvousId ||
+        acceptedSnapshot.run.queueItemId !== playbackState.queueItemId ||
+        acceptedSnapshot.run.runId !== playbackState.runId ||
+        acceptedSnapshot.run.revision !== playbackState.revision ||
+        !acceptedSnapshot.participants.some(
+          (participant) =>
+            participant.participantId === accepted.acceptedParticipantId &&
+            participant.finalizeStatus === 'accepted',
+        ) ||
+        accepted.attempt.queueItemId !== playbackState.queueItemId ||
+        accepted.attempt.runId !== playbackState.runId ||
+        accepted.attempt.revision !== playbackState.revision ||
+        accepted.attempt.rendezvousId !== attempt.rendezvousId ||
         accepted.schedule.positionSeconds !== input.positionSeconds ||
-        accepted.schedule.playbackRate !== input.playbackRate
+        accepted.schedule.playbackRate !== input.playbackRate ||
+        accepted.schedule.createdAtRoomTimeMs !== acceptedSnapshot.createdAtRoomTimeMs ||
+        accepted.schedule.leadTimeMs !== acceptedSnapshot.leadTimeMs ||
+        accepted.schedule.finalizeByRoomTimeMs !== acceptedSnapshot.finalizeByRoomTimeMs ||
+        accepted.schedule.startAtRoomTimeMs !== acceptedSnapshot.startAtRoomTimeMs ||
+        accepted.schedule.startAtRoomTimeMs !== attempt.startAtRoomTimeMs ||
+        accepted.schedule.finalizeByRoomTimeMs !== attempt.finalizeByRoomTimeMs
       ) {
         throw new Error('Host rendezvous acceptance changed the requested schedule');
       }
+      this.#assertOperationFence(operation);
       operation.commitDominant = true;
       this.#assertTimelineCommitFence(operation);
 

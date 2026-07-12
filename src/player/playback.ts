@@ -25,11 +25,9 @@ import { broadcast, isRemoteGuest } from '../network/peer.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
-import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
 
 import {
-  getPlayerNode,
   isCurrentLoadEpoch,
   newLoadEpoch,
   setPendingRecoveryTarget,
@@ -720,30 +718,6 @@ export function initPlayback(): void {
     // buffer still belongs to the previous track. Decode completion owns restart.
     if (isFilePipelineBusyForPlay()) return;
     play(getTrackPosition());
-  });
-
-  // Disconnect playerNode from surround splitter (called when surround mode turns off)
-  bus.on('audio:disconnect-surround', () => {
-    const _playerNode = getPlayerNode();
-    if (_playerNode) {
-      try {
-        _playerNode.disconnect(getSurroundSplitter()!);
-      } catch {
-        /* may not be connected */
-      }
-    }
-  });
-
-  // Surround mode toggled during playback: restart at current position
-  bus.on('audio:surround-toggled', () => {
-    const queueItemId = getCurrentQueueItemId();
-    if (
-      isPlaybackPlayingFile() &&
-      queueItemId &&
-      getState('files.current')?.queueItemId === queueItemId
-    ) {
-      play(getTrackPosition());
-    }
   });
 
   // Safety polling: periodically check if track ended (called from UI loop)

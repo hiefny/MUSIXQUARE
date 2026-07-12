@@ -789,14 +789,13 @@ interface BaseEventMap {
   'audio:set-volume': [volume: number];
   'audio:volume-changed': [volume: number];
   'audio:apply-youtube-volume': [];
-  'audio:connect-surround': [playerNode: unknown, channelIdx: number];
-  'audio:disconnect-surround': [];
+  /** Switch the stable file-playback route; source-node identities are never accepted. */
+  'audio:connect-surround': [channelIdx: number];
   'audio:set-channel-mode': [mode: number];
   'audio:update-effect': [type: string, param: string, value: number, isPreview?: boolean];
   'audio:set-eq': [band: number, value: number, isPreview?: boolean];
   'audio:reverb-type-change': [type: string];
   'audio:reset-eq': [];
-  'audio:surround-toggled': [];
   // Host → effects.ts: resend the effect-settings snapshot to one peer
   // (fired on OPERATOR_REVOKE to re-baseline a demoted OP's optimistic applies)
   'effects:resync-peer': [conn: DataConnection];

@@ -228,7 +228,8 @@ export function isAudioReady(): boolean {
 // Public audio-domain facade for the shared context helpers.
 export { getAudioContext } from './context.ts';
 
-// For surround mode setup (creates nodes only; connected later in setSurroundChannel)
+// FilePlaybackRoute is the sole owner of connections between these shared
+// surround nodes; channel.ts only publishes selection and output-role policy.
 export function ensureSurroundNodes(): { splitter: ChannelSplitterNode; gain: GainNode } {
   if (!_graph.surroundSplitter || !_graph.surroundGain) {
     const ctx = getAudioContext();
@@ -320,7 +321,18 @@ async function _doInitAudio(): Promise<void> {
   _graph.preamp = ctx.createGain();
   _graph.widener = createStereoWidener(0.5); // applySettings() overwrites with state default
   _graph.filePlaybackRoute = new FilePlaybackRoute(ctx);
-  _graph.filePlaybackRoute.connect(_graph.widener.input);
+  const initialSurroundChannel = getState('audio.surroundChannelIndex');
+  if (
+    getState('audio.isSurroundMode') &&
+    Number.isInteger(initialSurroundChannel) &&
+    initialSurroundChannel >= 0 &&
+    initialSurroundChannel <= 7
+  ) {
+    const { splitter, gain } = ensureSurroundNodes();
+    _graph.filePlaybackRoute.connectSurround(splitter, gain, _graph.preamp, initialSurroundChannel);
+  } else {
+    _graph.filePlaybackRoute.connectStereo(_graph.widener.input);
+  }
 
   // Reverb uses a synchronously generated impulse response.
   _graph.reverb = ctx.createConvolver();
@@ -620,47 +632,58 @@ bus.on('audio:apply-youtube-volume', () => {
   bus.emit('youtube:set-volume', Math.round(vol * 100));
 });
 
-/** Connect player node to surround routing */
-bus.on('audio:connect-surround', (playerNode, channelIdx) => {
-  if (!playerNode) return;
-  if (typeof channelIdx !== 'number' || channelIdx < 0 || channelIdx > 7) {
+function connectFilePlaybackStereoRoute(): void {
+  const route = _graph.filePlaybackRoute;
+  const widener = _graph.widener;
+  if (!route || !widener) return;
+
+  try {
+    route.connectStereo(widener.input);
+  } catch (error) {
+    log.warn('[Audio] Failed to restore the stereo file-playback route:', error);
+  }
+}
+
+function connectFilePlaybackSurroundRoute(channelIdx: unknown): void {
+  if (!Number.isInteger(channelIdx) || (channelIdx as number) < 0 || (channelIdx as number) > 7) {
     log.warn(`[Audio] Invalid surround channelIdx: ${channelIdx}`);
     return;
   }
 
-  const pre = getPreamp();
-  if (!pre) return;
+  const route = _graph.filePlaybackRoute;
+  const preamp = _graph.preamp;
+  if (!route || !preamp) return;
   const { splitter, gain } = ensureSurroundNodes();
 
   try {
-    gain.disconnect();
-  } catch {
-    /* expected */
+    route.connectSurround(splitter, gain, preamp, channelIdx as number);
+    log.debug(`[Audio] File playback routed to surround channel ${channelIdx}`);
+  } catch (error) {
+    log.warn('[Audio] Failed to switch the file-playback surround route:', error);
   }
-  gain.connect(pre);
+}
 
-  try {
-    splitter.disconnect();
-  } catch {
-    /* expected */
+/** Switch the stable file-playback route; no source node identity is accepted. */
+bus.on('audio:connect-surround', (channelIdx) => {
+  connectFilePlaybackSurroundRoute(channelIdx);
+});
+
+bus.on('state:audio.isSurroundMode', (enabled) => {
+  if (enabled === true) {
+    const channelIdx = getState('audio.surroundChannelIndex');
+    // toggleSurroundMode(true) intentionally publishes `enabled` before it
+    // assigns the default center channel. The channel state event below owns
+    // that first valid switch, so the transient -1 is not an error.
+    if (Number.isInteger(channelIdx) && channelIdx >= 0 && channelIdx <= 7) {
+      connectFilePlaybackSurroundRoute(channelIdx);
+    }
+  } else if (enabled === false) {
+    connectFilePlaybackStereoRoute();
   }
+});
 
-  (playerNode as AudioNode).connect(splitter);
-
-  // 7.1 layout: L(0) R(1) C(2) LFE(3) SL(4) SR(5) RL(6) RR(7).
-  // For 5.1 sources (no RL/RR), mix the rear channel into the matching side
-  // so "rear" selection still produces audio on 5.1 tracks.
-  if (channelIdx === 6) {
-    splitter.connect(gain, 6, 0);
-    splitter.connect(gain, 4, 0);
-  } else if (channelIdx === 7) {
-    splitter.connect(gain, 7, 0);
-    splitter.connect(gain, 5, 0);
-  } else {
-    splitter.connect(gain, channelIdx, 0);
-  }
-
-  log.debug(`[Audio] Surround connected: channel ${channelIdx}`);
+bus.on('state:audio.surroundChannelIndex', (channelIdx) => {
+  if (getState('audio.isSurroundMode')) connectFilePlaybackSurroundRoute(channelIdx);
 });
 
 /** Activate audio engine (triggered from setup UI on user interaction) */

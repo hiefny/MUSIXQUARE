@@ -4,24 +4,20 @@
  * Manages channel routing (stereo/left/right/subwoofer) for the per-device
  * speaker roles exposed as Center, Left, Right, and Subwoofer.
  *
- * It also owns the dormant multichannel routing primitives described in the
- * "7.1 Surround Mode" section below.
+ * It also owns the dormant multichannel role and low-pass policy described in
+ * the "7.1 Surround Mode" section below. FilePlaybackRoute alone owns the
+ * stable input, splitter, and surround-gain connections.
  */
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
-import { isPlaybackPlayingFile, isPlaybackPlayingSystemAudio } from '../player/ownership.ts';
 import {
   getMasterGain,
   getToneMerge,
   getGainL,
   getGainR,
-  getPreamp,
   getGlobalLowPass,
-  ensureSurroundNodes,
-  getSurroundSplitter,
-  getSurroundGain,
   initAudio,
   safeDisconnect,
 } from './engine.ts';
@@ -100,8 +96,8 @@ export function setChannelMode(mode: number): void {
 
 // ─── 7.1 Surround Mode (dormant; no production UI) ────────────────
 // Each device may select one source channel from FL/FR/C/LFE/SL/SR/BL/BR.
-// The graph, state, and bus integration are implemented, including 5.1 rear
-// folding and LFE low-pass routing, but the feature remains hidden because
+// FilePlaybackRoute implements 5.1 rear folding while this module retains the
+// selected-role and LFE low-pass policy. The feature remains hidden because
 // stereo sources leave most channels silent and the product has no placement
 // or calibration flow. Exposing it requires an explicit product decision and
 // UI for enabling the mode and assigning channels.
@@ -115,28 +111,15 @@ export function toggleSurroundMode(enabled: boolean): void {
   setState('audio.isSurroundMode', enabled);
 
   if (enabled) {
-    ensureSurroundNodes();
     const idx = getState('audio.surroundChannelIndex');
     if (idx === -1)
       setSurroundChannel(2); // Default to Center
     else setSurroundChannel(idx);
   } else {
-    // Disconnect surround nodes from the audio graph
-    const splitter = getSurroundSplitter();
-    const sGain = getSurroundGain();
-    if (splitter) safeDisconnect(splitter);
-    if (sGain) safeDisconnect(sGain);
-
-    // Disconnect playerNode→splitter input (playerNode is in playback.ts scope)
-    bus.emit('audio:disconnect-surround');
-
-    // Restore standard channel mode (reconnects stereo path)
+    // FilePlaybackRoute owns the input, splitter, and surround gain. Publishing
+    // the mode above switches that route back to the stereo widener; this
+    // module only restores the per-device output-role/effect policy.
     setChannelMode(getState('audio.channelMode'));
-  }
-
-  // Instant refresh: restart playback at current position if currently playing
-  if (isPlaybackPlayingFile() || isPlaybackPlayingSystemAudio()) {
-    bus.emit('audio:surround-toggled');
   }
 }
 
@@ -157,44 +140,18 @@ export function setSurroundChannel(idx: number): void {
   idx = Math.floor(idx);
   setState('audio.surroundChannelIndex', idx);
 
-  const splitter = getSurroundSplitter();
-  const sGain = getSurroundGain();
-  if (!splitter || !sGain) return;
-
   const isSurround = getState('audio.isSurroundMode');
   if (!isSurround) return;
 
   const gL = getGainL();
   const gR = getGainR();
   const merge = getToneMerge();
-  const preampNode = getPreamp();
-  if (!gL || !gR || !merge || !preampNode) return;
+  if (!gL || !gR || !merge) return;
 
   const lowPass = getGlobalLowPass();
   const subFreq = getState('audio.subFreq');
 
   try {
-    safeDisconnect(sGain);
-    sGain.connect(preampNode);
-    safeDisconnect(splitter);
-
-    // Channel mapping — mirrors audio:connect-surround in engine.ts
-    if (idx === 3) {
-      // LFE (Sub) — direct
-      splitter.connect(sGain, 3, 0);
-    } else if (idx === 6) {
-      // Rear Left (BL) — also include Side Left (SL) for 5.1 compatibility
-      splitter.connect(sGain, 6, 0);
-      splitter.connect(sGain, 4, 0);
-    } else if (idx === 7) {
-      // Rear Right (BR) — also include Side Right (SR) for 5.1 compatibility
-      splitter.connect(sGain, 7, 0);
-      splitter.connect(sGain, 5, 0);
-    } else {
-      // Standard 1:1 mapping (FL, FR, C, SL, SR)
-      splitter.connect(sGain, idx, 0);
-    }
-
     // LowPass for LFE channel; ramping avoids clicks on the active signal path.
     if (lowPass) {
       const fullRange = getFullRangeFrequency(lowPass.context.sampleRate);

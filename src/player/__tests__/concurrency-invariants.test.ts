@@ -1341,3 +1341,39 @@ describe('decode admission waiter ownership', () => {
     }
   });
 });
+
+describe('stable file-playback surround route', () => {
+  it('keeps legacy AudioBuffer playback on the stable destination without restarting on toggle', async () => {
+    const file = makeFile('surround.flac');
+    setState('playlist.items', [makeTrack(file.name)]);
+    const item = itemAt(0);
+    selectIndex(0);
+    setState('files.current', {
+      ...fileMetaFor(item, file, 12, 0),
+      blob: file,
+    });
+    setState('audio.isSurroundMode', true);
+    setState('audio.surroundChannelIndex', 6);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    initPlayback();
+    const emitSpy = vi.spyOn(bus, 'emit');
+
+    await play(0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 15));
+
+    expect(mocks.createBufferSource).toHaveBeenCalledTimes(1);
+    const source = mocks.createBufferSource.mock.results[0]?.value as FakeSourceNode;
+    expect(source.connect).toHaveBeenCalledTimes(1);
+    expect(source.connect).toHaveBeenCalledWith(mocks.filePlaybackDestination);
+    expect(emitSpy).toHaveBeenCalledWith('audio:connect-surround', 6);
+
+    setState('audio.isSurroundMode', false);
+    setState('audio.isSurroundMode', true);
+    await flushAsync();
+
+    expect(mocks.createBufferSource).toHaveBeenCalledTimes(1);
+    expect(getPlayerNode()).toBe(source);
+    expect(source.start).toHaveBeenCalledTimes(1);
+    emitSpy.mockRestore();
+  });
+});

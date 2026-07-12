@@ -2,24 +2,41 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resetState, getState, setState } from '../../core/state.ts';
-import { bus } from '../../core/events.ts';
+import { resetState, getState } from '../../core/state.ts';
 
-// Mock ensureSurroundNodes because jsdom has no real AudioContext.
+const engineMocks = vi.hoisted(() => ({
+  getGainL: vi.fn(() => null as GainNode | null),
+  getGainR: vi.fn(() => null as GainNode | null),
+  getToneMerge: vi.fn(() => null as ChannelMergerNode | null),
+  getGlobalLowPass: vi.fn(() => null as BiquadFilterNode | null),
+}));
+
+const helperMocks = vi.hoisted(() => ({
+  rampParam: vi.fn(),
+}));
+
+// Keep jsdom away from native Web Audio while exposing graph-policy seams.
 vi.mock('../engine.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../engine.ts')>();
   return {
     ...actual,
-    ensureSurroundNodes: vi.fn(() => ({
-      splitter: { connect: vi.fn(), disconnect: vi.fn(), dispose: vi.fn() },
-      gain: { connect: vi.fn(), disconnect: vi.fn(), dispose: vi.fn() },
-    })),
+    ...engineMocks,
   };
+});
+
+vi.mock('../helpers.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../helpers.ts')>();
+  return { ...actual, rampParam: helperMocks.rampParam };
 });
 
 import { setChannelMode, toggleSurroundMode, setSurroundChannel } from '../channel.ts';
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  engineMocks.getGainL.mockReturnValue(null);
+  engineMocks.getGainR.mockReturnValue(null);
+  engineMocks.getToneMerge.mockReturnValue(null);
+  engineMocks.getGlobalLowPass.mockReturnValue(null);
   resetState();
 });
 
@@ -84,26 +101,49 @@ describe('toggleSurroundMode', () => {
     expect(getState('audio.isSurroundMode')).toBe(false);
   });
 
-  it('refreshes the active graph when file playback is currently playing', () => {
-    setState('playback.mode', 'file');
-    setState('playback.activity', 'playing');
-    const emitSpy = vi.spyOn(bus, 'emit');
-
+  it('preserves the selected channel across an off/on cycle without graph primitives', () => {
+    toggleSurroundMode(true);
+    setSurroundChannel(6);
+    toggleSurroundMode(false);
     toggleSurroundMode(true);
 
-    expect(emitSpy).toHaveBeenCalledWith('audio:surround-toggled');
-    emitSpy.mockRestore();
+    expect(getState('audio.isSurroundMode')).toBe(true);
+    expect(getState('audio.surroundChannelIndex')).toBe(6);
   });
 
-  it('does not refresh the active graph while system audio is only pending', () => {
-    setState('playback.mode', 'system-audio');
-    setState('playback.activity', 'pending');
-    const emitSpy = vi.spyOn(bus, 'emit');
+  it('retains the LFE low-pass and output-role policy outside route ownership', () => {
+    const gainL = {
+      gain: {},
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    } as unknown as GainNode;
+    const gainR = {
+      gain: {},
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    } as unknown as GainNode;
+    const merge = {} as ChannelMergerNode;
+    const frequency = {} as AudioParam;
+    const lowPass = {
+      context: { sampleRate: 48_000 },
+      frequency,
+    } as unknown as BiquadFilterNode;
+    engineMocks.getGainL.mockReturnValue(gainL);
+    engineMocks.getGainR.mockReturnValue(gainR);
+    engineMocks.getToneMerge.mockReturnValue(merge);
+    engineMocks.getGlobalLowPass.mockReturnValue(lowPass);
 
     toggleSurroundMode(true);
+    helperMocks.rampParam.mockClear();
+    setSurroundChannel(3);
 
-    expect(emitSpy).not.toHaveBeenCalledWith('audio:surround-toggled');
-    emitSpy.mockRestore();
+    expect(helperMocks.rampParam).toHaveBeenCalledWith(
+      frequency,
+      getState('audio.subFreq'),
+      expect.any(Number),
+    );
+    expect(gainL.connect).toHaveBeenCalledWith(merge, 0, 0);
+    expect(gainR.connect).toHaveBeenCalledWith(merge, 0, 1);
   });
 });
 

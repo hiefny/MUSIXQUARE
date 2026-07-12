@@ -524,13 +524,17 @@ async function _internalPlay(offset: number, scheduleDelay = 0): Promise<void> {
     const surroundChannelIndex = getState('audio.surroundChannelIndex');
 
     if (isSurroundMode) {
-      bus.emit('audio:connect-surround', newNode, surroundChannelIndex);
+      bus.emit('audio:connect-surround', surroundChannelIndex);
       log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
     } else {
-      const destination = getFilePlaybackDestination();
-      if (destination) newNode.connect(destination);
       log.debug('[BufferMode] Playing in Stereo');
     }
+
+    // Every backend connects exactly once to the stable route input. Surround
+    // changes only rewire nodes downstream of that input, so toggling a role
+    // never recreates or restarts this source.
+    const destination = getFilePlaybackDestination();
+    if (destination) newNode.connect(destination);
 
     newNode.addEventListener('ended', () => {
       if (!isCurrentLoadEpoch(myLoadEpoch)) return;

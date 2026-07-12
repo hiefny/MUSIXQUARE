@@ -6,6 +6,7 @@ import { MSG } from '../../../core/constants.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
 import {
   createPeerRangeChunkFrames,
+  createPeerRangeCloseHandleFrame,
   createPeerRangeErrorFrame,
   createPeerRangeReadFrame,
 } from '../../../player/sources/peer-range-protocol.ts';
@@ -582,12 +583,19 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     });
     const chunk = createPeerRangeChunkFrames(descriptor, Uint8Array.of(7, 8, 9, 10))[0];
     const error = createPeerRangeErrorFrame(descriptor, 'unavailable', 'Source unavailable');
+    const closeHandle = createPeerRangeCloseHandleFrame(descriptor);
 
     conn.send(descriptor);
+    conn.send(closeHandle);
     conn.send(chunk);
     conn.send(error);
 
-    expect(control.sent).toHaveLength(1);
+    expect(control.sent).toHaveLength(2);
+    expect(JSON.parse(control.sent[1] as string)).toMatchObject({
+      protocol: 'musixquare-peer-range',
+      lane: 'control',
+      type: 'close-handle',
+    });
     expect(bulk.sent).toHaveLength(2);
     expect(bulk.sent[0]).toBeInstanceOf(ArrayBuffer);
     expect(typeof bulk.sent[1]).toBe('string');
@@ -596,7 +604,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     conn.on('data', (value) => received.push(value));
     bulk.dispatch('message', bulk.sent[0]);
     bulk.dispatch('message', bulk.sent[1]);
-    await vi.waitFor(() => expect(received).toHaveLength(2));
+    control.dispatch('message', control.sent[1]);
+    await vi.waitFor(() => expect(received).toHaveLength(3));
 
     expect(received[0]).toMatchObject({
       protocol: 'musixquare-peer-range',
@@ -608,6 +617,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       Uint8Array.of(7, 8, 9, 10),
     );
     expect(received[1]).toMatchObject({ type: 'error', code: 'unavailable' });
+    expect(received[2]).toMatchObject({ lane: 'control', type: 'close-handle' });
   });
 
   it('keeps a live guest data channel when only the signaling socket errors', () => {

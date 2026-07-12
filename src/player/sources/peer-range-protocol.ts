@@ -64,6 +64,16 @@ export interface PeerRangeCancelFrame extends PeerRangeFrameBase {
   readonly type: 'cancel';
 }
 
+export interface PeerRangeCloseHandleFrame {
+  readonly protocol: typeof PEER_RANGE_PROTOCOL;
+  readonly version: typeof PEER_RANGE_PROTOCOL_VERSION;
+  readonly lane: 'control';
+  readonly type: 'close-handle';
+  readonly connectionId: string;
+  readonly sourceIdentity: string;
+  readonly handleId: string;
+}
+
 interface PeerRangeBulkFrameBase extends PeerRangeFrameBase {
   readonly lane: 'bulk';
   readonly chunkIndex: number;
@@ -82,7 +92,10 @@ export interface PeerRangeErrorFrame extends PeerRangeBulkFrameBase {
   readonly message: string;
 }
 
-export type PeerRangeControlFrame = PeerRangeReadFrame | PeerRangeCancelFrame;
+export type PeerRangeControlFrame =
+  | PeerRangeReadFrame
+  | PeerRangeCancelFrame
+  | PeerRangeCloseHandleFrame;
 export type PeerRangeBulkFrame = PeerRangeChunkFrame | PeerRangeErrorFrame;
 
 export type PeerRangeAssemblyStatus = 'accepted' | 'completed' | 'failed' | 'ignored';
@@ -134,6 +147,7 @@ export class PeerRangeRequestCancelledError extends Error {
 }
 
 type PlainRecord = Record<string, unknown>;
+const MAX_FRAME_FIELD_COUNT = 14;
 
 interface AssemblyState {
   readonly request: PeerRangeReadFrame;
@@ -147,18 +161,73 @@ interface AssemblyState {
   retainedBytes: number;
 }
 
-function isPlainRecord(value: unknown): value is PlainRecord {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
 function assertExactKeys(record: PlainRecord, expected: readonly string[]): void {
   const actual = Object.keys(record).sort();
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new PeerRangeProtocolError('Peer range frame has an inexact schema');
   }
+}
+
+/**
+ * Detach one inert snapshot without evaluating frame-owned accessors.
+ *
+ * Reflective operations against a Proxy can still trap, but every trap is
+ * observed at most once and the original object is never read after this
+ * function returns. A mutation between ownKeys and a descriptor lookup makes
+ * the snapshot invalid instead of producing a mixed-time frame.
+ */
+function snapshotFrameRecord(value: unknown): PlainRecord {
+  if (typeof value !== 'object' || value === null) {
+    throw new PeerRangeProtocolError('Peer range frame must be an object');
+  }
+
+  let array: boolean;
+  let prototype: object | null;
+  let keys: readonly PropertyKey[];
+  try {
+    array = Array.isArray(value);
+    prototype = Object.getPrototypeOf(value);
+    keys = Reflect.ownKeys(value);
+  } catch {
+    throw new PeerRangeProtocolError('Peer range frame reflection failed');
+  }
+  if (array) throw new PeerRangeProtocolError('Peer range frame must be an object');
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new PeerRangeProtocolError('Peer range frame must be a plain object');
+  }
+  if (keys.length > MAX_FRAME_FIELD_COUNT || keys.some((key) => typeof key !== 'string')) {
+    throw new PeerRangeProtocolError('Peer range frame has an inexact schema');
+  }
+
+  const snapshot = Object.create(null) as PlainRecord;
+  for (const propertyKey of keys) {
+    const key = propertyKey as string;
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, key);
+    } catch {
+      throw new PeerRangeProtocolError('Peer range frame reflection failed');
+    }
+    if (
+      !descriptor ||
+      descriptor.enumerable !== true ||
+      !Object.prototype.hasOwnProperty.call(descriptor, 'value') ||
+      descriptor.get !== undefined ||
+      descriptor.set !== undefined
+    ) {
+      throw new PeerRangeProtocolError(
+        'Peer range frame fields must be own enumerable data properties',
+      );
+    }
+    Object.defineProperty(snapshot, key, {
+      value: descriptor.value,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+  }
+  return Object.freeze(snapshot);
 }
 
 /**
@@ -293,6 +362,37 @@ export function createPeerRangeCancelFrame(
   });
 }
 
+export function createPeerRangeCloseHandleFrame(value: {
+  readonly connectionId: string;
+  readonly sourceIdentity: string;
+  readonly handleId: string;
+}): PeerRangeCloseHandleFrame {
+  const connectionId = validatePeerRangeOpaqueId(
+    value.connectionId,
+    'connectionId',
+    PEER_RANGE_MAX_CONNECTION_ID_LENGTH,
+  );
+  const sourceIdentity = validatePeerRangeOpaqueId(
+    value.sourceIdentity,
+    'sourceIdentity',
+    PEER_RANGE_MAX_SOURCE_IDENTITY_LENGTH,
+  );
+  const handleId = validatePeerRangeOpaqueId(
+    value.handleId,
+    'handleId',
+    PEER_RANGE_MAX_HANDLE_ID_LENGTH,
+  );
+  return Object.freeze({
+    protocol: PEER_RANGE_PROTOCOL,
+    version: PEER_RANGE_PROTOCOL_VERSION,
+    lane: 'control' as const,
+    type: 'close-handle' as const,
+    connectionId,
+    sourceIdentity,
+    handleId,
+  });
+}
+
 export function createPeerRangeChunkFrames(
   descriptor: PeerRangeReadDescriptor,
   bytes: ArrayBuffer | Uint8Array,
@@ -373,6 +473,16 @@ const CONTROL_KEYS = [
   'totalLength',
 ] as const;
 
+const CLOSE_HANDLE_KEYS = [
+  'protocol',
+  'version',
+  'lane',
+  'type',
+  'connectionId',
+  'sourceIdentity',
+  'handleId',
+] as const;
+
 const CHUNK_KEYS = [...CONTROL_KEYS, 'chunkIndex', 'chunkCount', 'payload'] as const;
 const ERROR_KEYS = [...CONTROL_KEYS, 'chunkIndex', 'chunkCount', 'code', 'message'] as const;
 
@@ -390,49 +500,95 @@ function parseFrameBase(record: PlainRecord): PeerRangeFrameBase {
   });
 }
 
-export function parsePeerRangeControlFrame(value: unknown): PeerRangeControlFrame {
-  if (!isPlainRecord(value)) throw new PeerRangeProtocolError('Peer range frame must be an object');
-  assertExactKeys(value, CONTROL_KEYS);
-  if (value.lane !== 'control' || (value.type !== 'read' && value.type !== 'cancel')) {
+function parsePeerRangeControlSnapshot(record: PlainRecord): PeerRangeControlFrame {
+  if (record.type === 'close-handle') {
+    assertExactKeys(record, CLOSE_HANDLE_KEYS);
+    if (
+      record.protocol !== PEER_RANGE_PROTOCOL ||
+      record.version !== PEER_RANGE_PROTOCOL_VERSION ||
+      record.lane !== 'control'
+    ) {
+      throw new PeerRangeProtocolError('Peer range close-handle frame is unsupported');
+    }
+    return createPeerRangeCloseHandleFrame({
+      connectionId: record.connectionId as string,
+      sourceIdentity: record.sourceIdentity as string,
+      handleId: record.handleId as string,
+    });
+  }
+  assertExactKeys(record, CONTROL_KEYS);
+  if (record.lane !== 'control' || (record.type !== 'read' && record.type !== 'cancel')) {
     throw new PeerRangeProtocolError('Peer range control frame has an invalid lane or type');
   }
-  const base = parseFrameBase(value);
-  return Object.freeze({ ...base, lane: 'control' as const, type: value.type });
+  const base = parseFrameBase(record);
+  return Object.freeze({ ...base, lane: 'control' as const, type: record.type });
 }
 
-export function parsePeerRangeBulkFrame(value: unknown): PeerRangeBulkFrame {
-  if (!isPlainRecord(value)) throw new PeerRangeProtocolError('Peer range frame must be an object');
-  if (value.type === 'chunk') assertExactKeys(value, CHUNK_KEYS);
-  else if (value.type === 'error') assertExactKeys(value, ERROR_KEYS);
+export function parsePeerRangeControlFrame(value: unknown): PeerRangeControlFrame {
+  return parsePeerRangeControlSnapshot(snapshotFrameRecord(value));
+}
+
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  'byteLength',
+)?.get;
+
+function copyArrayBufferPayload(value: unknown, expectedByteLength: number): ArrayBuffer {
+  if (!arrayBufferByteLengthGetter) {
+    throw new PeerRangeProtocolError('ArrayBuffer validation is unavailable');
+  }
+  let byteLength: number;
+  try {
+    byteLength = arrayBufferByteLengthGetter.call(value) as number;
+  } catch {
+    throw new PeerRangeProtocolError('Peer range chunk payload must be an ArrayBuffer');
+  }
+  if (byteLength !== expectedByteLength) {
+    throw new PeerRangeProtocolError(
+      'Peer range chunk payload length does not match its semantic position',
+    );
+  }
+  try {
+    const source = new Uint8Array(value as ArrayBuffer);
+    const copy = new Uint8Array(byteLength);
+    copy.set(source);
+    return copy.buffer;
+  } catch (error) {
+    if (error instanceof PeerRangeProtocolError) throw error;
+    throw new PeerRangeProtocolError('Peer range chunk payload could not be copied');
+  }
+}
+
+function parsePeerRangeBulkSnapshot(record: PlainRecord): PeerRangeBulkFrame {
+  if (record.type === 'chunk') assertExactKeys(record, CHUNK_KEYS);
+  else if (record.type === 'error') assertExactKeys(record, ERROR_KEYS);
   else throw new PeerRangeProtocolError('Peer range bulk frame type is invalid');
-  if (value.lane !== 'bulk') {
+  if (record.lane !== 'bulk') {
     throw new PeerRangeProtocolError('Peer range bulk frame has an invalid lane');
   }
 
-  const base = parseFrameBase(value);
+  const base = parseFrameBase(record);
   const chunkCount = positiveSafeInteger(
-    value.chunkCount,
+    record.chunkCount,
     'chunkCount',
     PEER_RANGE_MAX_CHUNK_COUNT,
   );
   if (chunkCount !== expectedChunkCount(base.totalLength)) {
     throw new PeerRangeProtocolError('Peer range chunkCount does not match totalLength');
   }
-  const chunkIndex = nonNegativeSafeInteger(value.chunkIndex, 'chunkIndex');
+  const chunkIndex = nonNegativeSafeInteger(record.chunkIndex, 'chunkIndex');
   if (chunkIndex >= chunkCount) {
     throw new PeerRangeProtocolError('Peer range chunkIndex exceeds chunkCount');
   }
 
-  if (value.type === 'chunk') {
-    if (!(value.payload instanceof ArrayBuffer)) {
-      throw new PeerRangeProtocolError('Peer range chunk payload must be an ArrayBuffer');
-    }
-    if (value.payload.byteLength !== expectedChunkLength(base.totalLength, chunkIndex)) {
-      throw new PeerRangeProtocolError(
-        'Peer range chunk payload length does not match its semantic position',
-      );
-    }
-    const payload = value.payload.slice(0);
+  if (record.type === 'chunk') {
+    // Capture this detached data-property reference exactly once before the
+    // bounded defensive copy. No frame-owned getter can swap it mid-parse.
+    const payloadValue = record.payload;
+    const payload = copyArrayBufferPayload(
+      payloadValue,
+      expectedChunkLength(base.totalLength, chunkIndex),
+    );
     return Object.freeze({
       ...base,
       lane: 'bulk' as const,
@@ -443,10 +599,10 @@ export function parsePeerRangeBulkFrame(value: unknown): PeerRangeBulkFrame {
     });
   }
 
-  if (!REMOTE_ERROR_CODES.has(value.code as PeerRangeRemoteErrorCode)) {
+  if (!REMOTE_ERROR_CODES.has(record.code as PeerRangeRemoteErrorCode)) {
     throw new PeerRangeProtocolError('Peer range error code is not supported');
   }
-  const message = value.message;
+  const message = record.message;
   if (
     typeof message !== 'string' ||
     message.length === 0 ||
@@ -462,9 +618,13 @@ export function parsePeerRangeBulkFrame(value: unknown): PeerRangeBulkFrame {
     type: 'error' as const,
     chunkIndex,
     chunkCount,
-    code: value.code as PeerRangeRemoteErrorCode,
+    code: record.code as PeerRangeRemoteErrorCode,
     message,
   });
+}
+
+export function parsePeerRangeBulkFrame(value: unknown): PeerRangeBulkFrame {
+  return parsePeerRangeBulkSnapshot(snapshotFrameRecord(value));
 }
 
 function requestKey(descriptor: PeerRangeReadDescriptor): string {
@@ -495,17 +655,17 @@ function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('Peer range request was aborted', 'AbortError');
 }
 
-function candidateRequestKey(value: unknown): string | null {
-  if (!isPlainRecord(value)) return null;
+function candidateRequestKey(snapshot: PlainRecord | null): string | null {
+  if (!snapshot) return null;
   try {
     return requestKey(
       validatedDescriptor({
-        connectionId: value.connectionId as string,
-        sourceIdentity: value.sourceIdentity as string,
-        handleId: value.handleId as string,
-        requestId: value.requestId as string,
-        offset: value.offset as number,
-        totalLength: value.totalLength as number,
+        connectionId: snapshot.connectionId as string,
+        sourceIdentity: snapshot.sourceIdentity as string,
+        handleId: snapshot.handleId as string,
+        requestId: snapshot.requestId as string,
+        offset: snapshot.offset as number,
+        totalLength: snapshot.totalLength as number,
       }),
     );
   } catch {
@@ -620,10 +780,12 @@ export class PeerRangeResponseAssembler {
     if (this.#closed) return 'ignored';
 
     let frame: PeerRangeBulkFrame;
+    let snapshot: PlainRecord | null = null;
     try {
-      frame = parsePeerRangeBulkFrame(value);
+      snapshot = snapshotFrameRecord(value);
+      frame = parsePeerRangeBulkSnapshot(snapshot);
     } catch (error) {
-      const candidateKey = candidateRequestKey(value);
+      const candidateKey = candidateRequestKey(snapshot);
       if (candidateKey && this.#active.has(candidateKey)) {
         this.#fail(candidateKey, error);
         return 'failed';

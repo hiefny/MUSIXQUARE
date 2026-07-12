@@ -11,6 +11,7 @@ import {
   PeerRangeRequestCancelledError,
   createPeerRangeCancelFrame,
   createPeerRangeChunkFrames,
+  createPeerRangeCloseHandleFrame,
   createPeerRangeErrorFrame,
   createPeerRangeReadFrame,
   parsePeerRangeBulkFrame,
@@ -70,11 +71,16 @@ describe('peer range protocol framing', () => {
   it('uses exact versioned schemas and rejects noncanonical opaque identifiers', () => {
     const read = createPeerRangeReadFrame(descriptor({ totalLength: 1 }));
     const cancel = createPeerRangeCancelFrame(read);
+    const closeHandle = createPeerRangeCloseHandleFrame(read);
 
     expect(parsePeerRangeControlFrame(read)).toEqual(read);
     expect(parsePeerRangeControlFrame(cancel)).toEqual(cancel);
+    expect(parsePeerRangeControlFrame(closeHandle)).toEqual(closeHandle);
     expect(Object.isFrozen(read)).toBe(true);
     expect(() => parsePeerRangeControlFrame({ ...read, surprise: true })).toThrow(
+      PeerRangeProtocolError,
+    );
+    expect(() => parsePeerRangeControlFrame({ ...closeHandle, requestId: 'extra' })).toThrow(
       PeerRangeProtocolError,
     );
     expect(() => parsePeerRangeControlFrame({ ...read, version: 2 })).toThrow(
@@ -134,6 +140,119 @@ describe('peer range protocol framing', () => {
         }),
       ),
     ).toThrow(PeerRangeProtocolError);
+  });
+
+  it('accepts only exact own enumerable data properties without invoking accessors', () => {
+    const read = { ...createPeerRangeReadFrame(descriptor({ totalLength: 1 })) };
+    let accessorCalls = 0;
+    const accessorFrame = { ...read };
+    Object.defineProperty(accessorFrame, 'requestId', {
+      enumerable: true,
+      configurable: true,
+      get() {
+        accessorCalls += 1;
+        return read.requestId;
+      },
+    });
+    expect(() => parsePeerRangeControlFrame(accessorFrame)).toThrow(PeerRangeProtocolError);
+    expect(accessorCalls).toBe(0);
+
+    const hiddenExtra = { ...read };
+    Object.defineProperty(hiddenExtra, 'hidden', { value: true, enumerable: false });
+    expect(() => parsePeerRangeControlFrame(hiddenExtra)).toThrow(PeerRangeProtocolError);
+
+    const symbolicExtra = { ...read, [Symbol('extra')]: true };
+    expect(() => parsePeerRangeControlFrame(symbolicExtra)).toThrow(PeerRangeProtocolError);
+
+    const nonEnumerableField = { ...read };
+    Object.defineProperty(nonEnumerableField, 'requestId', {
+      value: read.requestId,
+      enumerable: false,
+    });
+    expect(() => parsePeerRangeControlFrame(nonEnumerableField)).toThrow(PeerRangeProtocolError);
+  });
+
+  it('takes one detached Proxy snapshot and never uses frame property reads', () => {
+    const frame = createPeerRangeChunkFrames(
+      descriptor({ totalLength: 3 }),
+      Uint8Array.of(1, 2, 3),
+    )[0]!;
+    const target = { ...frame };
+    let ownKeysCalls = 0;
+    let getCalls = 0;
+    const descriptorCalls = new Map<PropertyKey, number>();
+    const proxy = new Proxy(target, {
+      ownKeys(value) {
+        ownKeysCalls += 1;
+        return Reflect.ownKeys(value);
+      },
+      get() {
+        getCalls += 1;
+        throw new Error('frame property getter must not run');
+      },
+      getOwnPropertyDescriptor(value, key) {
+        descriptorCalls.set(key, (descriptorCalls.get(key) ?? 0) + 1);
+        return Reflect.getOwnPropertyDescriptor(value, key);
+      },
+    });
+
+    const parsed = parsePeerRangeBulkFrame(proxy);
+    expect(parsed).toMatchObject({ type: 'chunk', requestId: frame.requestId });
+    expect(ownKeysCalls).toBe(1);
+    expect(getCalls).toBe(0);
+    expect([...descriptorCalls.values()].every((count) => count === 1)).toBe(true);
+  });
+
+  it('uses the captured payload reference once and ignores shadow byteLength accessors', () => {
+    const request = descriptor({ totalLength: 3 });
+    const frame = createPeerRangeChunkFrames(request, Uint8Array.of(4, 5, 6))[0]!;
+    let byteLengthAccessorCalls = 0;
+    let constructorAccessorCalls = 0;
+    Object.defineProperty(frame.payload, 'byteLength', {
+      configurable: true,
+      get() {
+        byteLengthAccessorCalls += 1;
+        return 99;
+      },
+    });
+    Object.defineProperty(frame.payload, 'constructor', {
+      configurable: true,
+      get() {
+        constructorAccessorCalls += 1;
+        throw new Error('payload species must not be read');
+      },
+    });
+
+    const parsed = parsePeerRangeBulkFrame({ ...frame });
+    expect(parsed.type).toBe('chunk');
+    if (parsed.type !== 'chunk') throw new Error('expected a chunk');
+    expect(new Uint8Array(parsed.payload)).toEqual(Uint8Array.of(4, 5, 6));
+    expect(byteLengthAccessorCalls).toBe(0);
+    expect(constructorAccessorCalls).toBe(0);
+  });
+
+  it('rejects an oversized payload by its internal length before attempting any copy', () => {
+    const frame = createPeerRangeChunkFrames(descriptor({ totalLength: 1 }), Uint8Array.of(1))[0]!;
+    const oversized = new ArrayBuffer(1024 * 1024);
+    let constructorAccessorCalls = 0;
+    Object.defineProperty(oversized, 'constructor', {
+      configurable: true,
+      get() {
+        constructorAccessorCalls += 1;
+        throw new Error('oversized payload must not be copied');
+      },
+    });
+
+    expect(() => parsePeerRangeBulkFrame({ ...frame, payload: oversized })).toThrow(
+      /payload length/,
+    );
+    expect(constructorAccessorCalls).toBe(0);
+  });
+
+  it('normalizes revoked Proxy reflection failures into protocol errors', () => {
+    const revocable = Proxy.revocable({}, {});
+    revocable.revoke();
+    expect(() => parsePeerRangeControlFrame(revocable.proxy)).toThrow(PeerRangeProtocolError);
   });
 });
 
@@ -245,6 +364,32 @@ describe('PeerRangeResponseAssembler', () => {
     expect(assembler.accept({ ...frame, extra: true })).toBe('failed');
     await expect(pending).rejects.toBeInstanceOf(PeerRangeProtocolError);
     expect(() => assembler.accept({ nope: true })).toThrow(PeerRangeProtocolError);
+  });
+
+  it('derives correlated failure only from the same detached hostile snapshot', async () => {
+    const request = createPeerRangeReadFrame(descriptor({ totalLength: 4 }));
+    const valid = createPeerRangeChunkFrames(request, Uint8Array.of(1, 2, 3, 4))[0]!;
+    const target = { ...valid, payload: new ArrayBuffer(1) };
+    let ownKeysCalls = 0;
+    let getCalls = 0;
+    const hostile = new Proxy(target, {
+      ownKeys(value) {
+        ownKeysCalls += 1;
+        if (ownKeysCalls > 1) throw new Error('frame was reflected twice');
+        return Reflect.ownKeys(value);
+      },
+      get() {
+        getCalls += 1;
+        throw new Error('frame property getter must not run');
+      },
+    });
+    const assembler = createAssembler();
+    const pending = assembler.open(request);
+
+    expect(assembler.accept(hostile)).toBe('failed');
+    await expect(pending).rejects.toBeInstanceOf(PeerRangeProtocolError);
+    expect(ownKeysCalls).toBe(1);
+    expect(getCalls).toBe(0);
   });
 
   it('caps concurrency and retained bytes independently', async () => {

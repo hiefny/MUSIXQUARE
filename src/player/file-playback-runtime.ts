@@ -325,10 +325,6 @@ const filePlaybackReadProjection = new FilePlaybackReadProjection({
   productRuntime: productProjectionPort,
 });
 
-export function getFilePlaybackRuntime(): FilePlaybackRuntime {
-  return filePlaybackRuntime;
-}
-
 export function getFilePlaybackManager(): FilePlaybackManager {
   return filePlaybackRuntime.manager();
 }
@@ -352,10 +348,6 @@ export function getManagedFilePlaybackPosition(
 }
 
 /** Migration-only legacy mutation; V2 call sites must retire through the product room owner. */
-export function discardFilePlaybackQueueItem(queueItemId: QueueItemId): Promise<void> {
-  return filePlaybackRuntime.discardQueueItem(queueItemId);
-}
-
 /** Migration-only legacy mutation; this intentionally does not clear a live V2 product room. */
 export function clearFilePlaybackRuntime(): Promise<void> {
   return filePlaybackRuntime.clear();

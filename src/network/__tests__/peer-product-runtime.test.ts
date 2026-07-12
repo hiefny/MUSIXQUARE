@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import type { DataConnection } from '../../types/index.ts';
-import type { FilePlaybackProductRuntimeSessionAdapter } from '../../player/file-playback-product-runtime.ts';
+import type {
+  FilePlaybackProductRuntimeHostRoomPort,
+  FilePlaybackProductRuntimeSessionAdapter,
+} from '../../player/file-playback-product-runtime.ts';
 import type { TransportPeer } from '../transport/types.ts';
 
 const runtimeHolder = vi.hoisted(() => ({ current: undefined as unknown }));
@@ -72,6 +75,27 @@ function sessions(): SessionSpies {
       closeConnection: vi.fn(),
     },
   };
+}
+
+function inertHostRoom(): FilePlaybackProductRuntimeHostRoomPort {
+  const unsupported = vi.fn(async () => {
+    throw new Error('peer lifecycle fixture does not exercise media');
+  });
+  return {
+    startFirstLocalFile: unsupported,
+    startLocalTrack: unsupported,
+    pauseCurrent: unsupported,
+    seekPlaying: unsupported,
+    seekPaused: unsupported,
+    resumeCurrent: unsupported,
+    replayCurrent: unsupported,
+    stopCurrent: unsupported,
+    settleEndedCurrent: unsupported,
+    close: vi.fn(async () => undefined),
+    currentRendererSnapshot: vi.fn(() => null),
+    currentTerminalRendererObservation: vi.fn(() => null),
+    positionAt: vi.fn(() => null),
+  } as FilePlaybackProductRuntimeHostRoomPort;
 }
 
 function readyPeer(id: string): TransportPeer & {
@@ -148,6 +172,7 @@ describe('peer product runtime lifecycle', () => {
       enabled: true,
       sessions: sessionSpies.adapter,
       nowMonotonicMs: () => 500,
+      createHostRoom: () => inertHostRoom(),
     });
     runtime.initializeBeforeProtocol();
     runtimeHolder.current = runtime;

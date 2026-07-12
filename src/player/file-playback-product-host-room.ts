@@ -168,21 +168,6 @@ export interface FilePlaybackProductHostTransitionCommit extends HostCurrentPlay
 /** Compatibility name retained until the product runtime migrates its first-file surface. */
 export type FilePlaybackProductHostFirstLocalFileCommit = FilePlaybackProductHostLocalTrackCommit;
 
-/** @deprecated No facade operation returns this result. */
-export interface FilePlaybackProductHostFirstLocalFileRejection {
-  readonly schemaVersion: 1;
-  readonly status: 'rejected';
-  readonly reason: 'replacement-not-supported';
-  readonly roomGeneration: number;
-  readonly applicationSessionId: string;
-  readonly currentQueueItemId: QueueItemId;
-}
-
-/** Compatibility union for the gate-aware runtime while it migrates to startLocalTrack(). */
-export type FilePlaybackProductHostFirstLocalFileResult = Readonly<
-  FilePlaybackProductHostFirstLocalFileCommit | FilePlaybackProductHostFirstLocalFileRejection
->;
-
 interface RuntimeSnapshot {
   readonly initAudio: () => Promise<void>;
   readonly ensureRunning: () => Promise<void>;

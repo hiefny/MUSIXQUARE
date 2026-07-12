@@ -103,6 +103,7 @@ function cancelIntent(overrides: Partial<FilePlaybackCancelIntent> = {}): FilePl
     queueItemId: QID,
     runId: 'run-a',
     revision: 7,
+    rendezvousId: 'rv-a',
     reasonCode: 'host-cancelled',
     ...overrides,
   });
@@ -345,6 +346,10 @@ describe('RemoteRendezvousParticipant', () => {
 
     await expect(remote.cancel(cancelIntent({ runId: 'wrong' }))).resolves.toBeUndefined();
     expect(dispatchCancel).not.toHaveBeenCalled();
+    await expect(
+      remote.cancel(cancelIntent({ rendezvousId: 'rv-stale' })),
+    ).resolves.toBeUndefined();
+    expect(dispatchCancel).not.toHaveBeenCalled();
     await expect(remote.cancel(cancelIntent())).resolves.toBeUndefined();
     await expect(pending).resolves.toMatchObject({
       status: 'rejected',
@@ -371,6 +376,50 @@ describe('RemoteRendezvousParticipant', () => {
       reasonCode: 'remote-operation-cancelled',
     });
     expect(remote.acceptFinalizeReceipt(finalizeReceipt(finalize))).toBe(false);
+  });
+
+  it('keeps an accepted finalization cancellable before explicit commit', async () => {
+    const dispatchCancel = vi.fn();
+    const remote = participant({ dispatchCancel });
+    const arm = armIntent();
+    const finalize = finalizeIntent();
+    const pendingArm = remote.arm(arm);
+    expect(remote.acceptArmReceipt(armReceipt(arm))).toBe(true);
+    await pendingArm;
+    const pendingFinalize = remote.finalize(finalize);
+    expect(remote.acceptFinalizeReceipt(finalizeReceipt(finalize))).toBe(true);
+    await expect(pendingFinalize).resolves.toMatchObject({ status: 'accepted' });
+
+    await expect(remote.cancel(cancelIntent())).resolves.toBeUndefined();
+
+    expect(dispatchCancel).toHaveBeenCalledOnce();
+  });
+
+  it('commits only the exact accepted correlation and then suppresses dispatch', async () => {
+    const dispatchCancel = vi.fn();
+    const remote = participant({ dispatchCancel });
+    const arm = armIntent();
+    const finalize = finalizeIntent();
+    const identity = Object.freeze({
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    });
+    const pendingArm = remote.arm(arm);
+    expect(remote.acceptArmReceipt(armReceipt(arm))).toBe(true);
+    await pendingArm;
+    expect(remote.commitAttempt(identity)).toBe(false);
+    const pendingFinalize = remote.finalize(finalize);
+    expect(remote.acceptFinalizeReceipt(finalizeReceipt(finalize))).toBe(true);
+    await expect(pendingFinalize).resolves.toMatchObject({ status: 'accepted' });
+    expect(remote.commitAttempt({ ...identity, rendezvousId: 'rv-wrong' })).toBe(false);
+    expect(remote.commitAttempt(identity)).toBe(true);
+    expect(remote.commitAttempt(identity)).toBe(true);
+
+    await remote.cancel(cancelIntent());
+
+    expect(dispatchCancel).not.toHaveBeenCalled();
   });
 
   it('allows same-run recovery with a fresh rendezvous after cancellation', async () => {

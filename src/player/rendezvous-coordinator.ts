@@ -1,6 +1,6 @@
 import { calculateRendezvousLeadMs } from '../network/clock-estimator.ts';
 import type { FilePlaybackCancelIntent } from './file-playback-source.ts';
-import { readPlaybackStateIdentity } from './playback-identity.ts';
+import { readPlaybackStateIdentity, type PlaybackAttemptIdentity } from './playback-identity.ts';
 import {
   readRendezvousArmReceipt,
   readRendezvousFinalizeReceipt,
@@ -27,7 +27,9 @@ export interface HostRendezvousParticipant {
   readonly armP95Ms: number;
   arm(intent: RendezvousArmIntent): Promise<RendezvousArmReceipt>;
   finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt>;
-  /** Best-effort retirement of an old target that may already be audible. */
+  /** Synchronously promotes one exact finalized candidate into the audible current source. */
+  commitAttempt?(identity: PlaybackAttemptIdentity): boolean;
+  /** Best-effort retirement of a finalized but not yet committed candidate. */
   cancel?(intent: FilePlaybackCancelIntent): Promise<unknown> | unknown;
 }
 
@@ -105,6 +107,8 @@ export interface HostRendezvousAttempt {
   getSnapshot(): HostRendezvousAttemptSnapshot;
   /** Closes unresolved work after advancing the injected room clock. */
   expire(): HostRendezvousAttemptSnapshot;
+  /** Commits one exact accepted participant after start evidence is established. */
+  commitParticipant(participantId: string): boolean;
   cancel(reasonCode?: string): HostRendezvousAttemptSnapshot;
 }
 
@@ -123,6 +127,8 @@ interface MutableParticipantOutcome {
   finalizeLatencyMs: number | null;
   finalizeValidationCode: RendezvousValidationCode | null;
   finalizeReasonCode: string | null;
+  committed: boolean;
+  committing: boolean;
 }
 
 interface ImmutableAttemptSchedule {
@@ -202,11 +208,13 @@ function snapshotParticipant(value: unknown): HostRendezvousParticipant {
     const armP95Ms = Reflect.get(value, 'armP95Ms') as unknown;
     const arm = Reflect.get(value, 'arm') as unknown;
     const finalize = Reflect.get(value, 'finalize') as unknown;
+    const commitAttempt = Reflect.get(value, 'commitAttempt') as unknown;
     const cancel = Reflect.get(value, 'cancel') as unknown;
     if (
       !isBoundedIdentifier(participantId) ||
       typeof arm !== 'function' ||
       typeof finalize !== 'function' ||
+      (commitAttempt !== undefined && typeof commitAttempt !== 'function') ||
       (cancel !== undefined && typeof cancel !== 'function')
     ) {
       throw new TypeError();
@@ -219,6 +227,12 @@ function snapshotParticipant(value: unknown): HostRendezvousParticipant {
         Reflect.apply(arm, value, [intent]) as Promise<RendezvousArmReceipt>,
       finalize: (intent: RendezvousFinalizeIntent) =>
         Reflect.apply(finalize, value, [intent]) as Promise<RendezvousFinalizeReceipt>,
+      ...(commitAttempt === undefined
+        ? {}
+        : {
+            commitAttempt: (identity: PlaybackAttemptIdentity) =>
+              Reflect.apply(commitAttempt, value, [identity]) === true,
+          }),
       ...(cancel === undefined
         ? {}
         : {
@@ -334,6 +348,8 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       finalizeLatencyMs: null,
       finalizeValidationCode: null,
       finalizeReasonCode: null,
+      committed: false,
+      committing: false,
     }));
   }
 
@@ -429,6 +445,49 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     return this.getSnapshot();
   }
 
+  commitParticipant(participantId: string): boolean {
+    if (!isBoundedIdentifier(participantId)) return false;
+    if (!this.#owner.isActive(this) || this.#isRetired()) {
+      return false;
+    }
+    const outcome = this.#outcomes.find(
+      (candidate) => candidate.participant.participantId === participantId,
+    );
+    if (!outcome || outcome.finalizeStatus !== 'accepted') return false;
+    if (outcome.committed) return true;
+    if (outcome.committing) return false;
+
+    const identity = Object.freeze(
+      Object.assign(Object.create(null), {
+        ...this.#schedule.run,
+        rendezvousId: this.#schedule.rendezvousId,
+      }),
+    ) as Readonly<PlaybackAttemptIdentity>;
+    const commitAttempt = outcome.participant.commitAttempt;
+    if (commitAttempt !== undefined) {
+      outcome.committing = true;
+      let accepted: boolean;
+      try {
+        accepted = commitAttempt(identity) === true;
+      } catch {
+        accepted = false;
+      } finally {
+        outcome.committing = false;
+      }
+      if (!accepted) return false;
+    }
+    if (
+      !this.#owner.isActive(this) ||
+      this.#isRetired() ||
+      outcome.finalizeStatus !== 'accepted' ||
+      outcome.committed
+    ) {
+      return outcome.committed;
+    }
+    outcome.committed = true;
+    return true;
+  }
+
   cancel(reasonCode = 'cancelled-by-host'): HostRendezvousAttemptSnapshot {
     if (!isBoundedIdentifier(reasonCode)) {
       throw new TypeError('Rendezvous cancellation reason is invalid');
@@ -450,10 +509,15 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     const intent: FilePlaybackCancelIntent = Object.freeze({
       kind: 'file-playback-cancel',
       ...this.#schedule.run,
+      rendezvousId: this.#schedule.rendezvousId,
       reasonCode,
     });
     for (const outcome of this.#outcomes) {
-      if (outcome.armStatus !== 'armed' || typeof outcome.participant.cancel !== 'function') {
+      if (
+        outcome.armStatus !== 'armed' ||
+        outcome.committed ||
+        typeof outcome.participant.cancel !== 'function'
+      ) {
         continue;
       }
       try {
@@ -642,6 +706,10 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
         outcome.finalizeReasonCode = reasonCode;
       }
     }
+  }
+
+  #isRetired(): boolean {
+    return this.#status === 'cancelled' || this.#status === 'superseded';
   }
 
   #refreshCompletion(): void {

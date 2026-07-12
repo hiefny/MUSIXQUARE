@@ -160,6 +160,10 @@ describe('HostRendezvousCoordinator', () => {
           ? stableFinalize
           : () => Promise.reject(new Error('stale finalize'));
       },
+      get commitAttempt() {
+        read('commitAttempt');
+        return undefined;
+      },
       get cancel() {
         read('cancel');
         return undefined;
@@ -201,6 +205,7 @@ describe('HostRendezvousCoordinator', () => {
       'armP95Ms',
       'arm',
       'finalize',
+      'commitAttempt',
       'cancel',
     ]) {
       expect(reads.get(key)).toBe(1);
@@ -351,6 +356,7 @@ describe('HostRendezvousCoordinator', () => {
   it('commits before supersede callbacks so a reentrant newer start wins', async () => {
     let nested: ReturnType<HostRendezvousCoordinator['start']> | null = null;
     let instance!: HostRendezvousCoordinator;
+    const pendingFinalize = deferred<RendezvousFinalizeReceipt>();
     const ids = ['rv-old', 'rv-outer', 'rv-nested'];
     instance = new HostRendezvousCoordinator({
       nowRoomTimeMs: () => 10_000,
@@ -362,6 +368,7 @@ describe('HostRendezvousCoordinator', () => {
       playbackRate: 1,
       participants: [
         participant('old-peer', {
+          finalize: () => pendingFinalize.promise,
           cancel: () => {
             nested = instance.start({
               run: { ...RUN, revision: 14 },
@@ -374,7 +381,10 @@ describe('HostRendezvousCoordinator', () => {
       ],
     });
     await drainMicrotasks();
-    expect(old.getSnapshot().status).toBe('complete');
+    expect(old.getSnapshot()).toMatchObject({
+      status: 'open',
+      participants: [{ finalizeStatus: 'pending' }],
+    });
 
     const outer = instance.start({
       run: { ...RUN, revision: 13 },
@@ -659,6 +669,7 @@ describe('HostRendezvousCoordinator', () => {
       armStatus: 'armed',
       finalizeStatus: 'pending',
     });
+    expect(oldAttempt.commitParticipant('peer')).toBe(false);
 
     const currentAttempt = host.start({
       run: { ...RUN, runId: 'run-b', revision: RUN.revision + 1 },
@@ -672,6 +683,7 @@ describe('HostRendezvousCoordinator', () => {
     expect(oldCancel).toHaveBeenCalledWith({
       kind: 'file-playback-cancel',
       ...RUN,
+      rendezvousId: 'rv-old',
       reasonCode: 'newer-rendezvous',
     });
     expect(Object.isFrozen(oldCancel.mock.calls[0]![0])).toBe(true);
@@ -690,8 +702,101 @@ describe('HostRendezvousCoordinator', () => {
       queueItemId: RUN.queueItemId,
       runId: 'run-b',
       revision: RUN.revision + 1,
+      rendezvousId: 'rv-current',
       reasonCode: 'manual-stop',
     });
+  });
+
+  it('does not cancel an explicitly committed participant when a newer attempt supersedes it', async () => {
+    const promotedCancel = vi.fn();
+    const commitAttempt = vi.fn(() => true);
+    const host = coordinator(() => 1_400, ['rv-promoted', 'rv-next']);
+    const promoted = host.start({
+      run: RUN,
+      positionSeconds: 3,
+      playbackRate: 1,
+      participants: [participant('peer', { commitAttempt, cancel: promotedCancel })],
+    });
+    await drainMicrotasks();
+    expect(promoted.getSnapshot()).toMatchObject({
+      status: 'complete',
+      participants: [{ finalizeStatus: 'accepted' }],
+    });
+    expect(promoted.commitParticipant('missing-peer')).toBe(false);
+    expect(promoted.commitParticipant('peer')).toBe(true);
+    expect(promoted.commitParticipant('peer')).toBe(true);
+    expect(commitAttempt).toHaveBeenCalledOnce();
+    expect(commitAttempt).toHaveBeenCalledWith({
+      ...RUN,
+      rendezvousId: 'rv-promoted',
+    });
+    expect(Object.isFrozen(commitAttempt.mock.calls[0]![0])).toBe(true);
+    expect(Object.getPrototypeOf(commitAttempt.mock.calls[0]![0])).toBeNull();
+
+    host.start({
+      run: { ...RUN, runId: 'run-next', revision: RUN.revision + 1 },
+      positionSeconds: 5,
+      playbackRate: 1,
+      participants: [],
+    });
+
+    expect(promoted.getSnapshot().status).toBe('superseded');
+    expect(promotedCancel).not.toHaveBeenCalled();
+  });
+
+  it('cancels only the accepted participant that was not explicitly committed', async () => {
+    const committedCancel = vi.fn();
+    const candidateCancel = vi.fn();
+    const attempt = coordinator(() => 1_400, ['rv-mixed']).start({
+      run: RUN,
+      positionSeconds: 3,
+      playbackRate: 1,
+      participants: [
+        participant('committed-peer', {
+          commitAttempt: () => true,
+          cancel: committedCancel,
+        }),
+        participant('candidate-peer', {
+          commitAttempt: () => true,
+          cancel: candidateCancel,
+        }),
+      ],
+    });
+    await drainMicrotasks();
+    expect(attempt.getSnapshot().participants).toMatchObject([
+      { participantId: 'committed-peer', finalizeStatus: 'accepted' },
+      { participantId: 'candidate-peer', finalizeStatus: 'accepted' },
+    ]);
+    expect(attempt.commitParticipant('committed-peer')).toBe(true);
+
+    attempt.cancel('mixed-cancel');
+
+    expect(committedCancel).not.toHaveBeenCalled();
+    expect(candidateCancel).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['returns false', () => false],
+    [
+      'throws',
+      () => {
+        throw new Error('commit failed');
+      },
+    ],
+  ] as const)('keeps an accepted candidate cancellable when commit %s', async (_label, commit) => {
+    const cancel = vi.fn();
+    const attempt = coordinator(() => 1_400, ['rv-failed-commit']).start({
+      run: RUN,
+      positionSeconds: 3,
+      playbackRate: 1,
+      participants: [participant('peer', { commitAttempt: commit, cancel })],
+    });
+    await drainMicrotasks();
+
+    expect(attempt.commitParticipant('peer')).toBe(false);
+    attempt.cancel('commit-not-established');
+
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('cancels pending participants so their later receipts stay stale', async () => {

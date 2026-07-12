@@ -391,6 +391,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
           queueItemId: QID,
           runId: 'run-stream-1',
           revision: 1,
+          rendezvousId: 'rv-stream-1',
           reasonCode: 'proxy-reentered-cancel',
         });
         return Reflect.ownKeys(target);
@@ -403,6 +404,80 @@ describe('StreamingFlacPlaybackSource v2', () => {
     });
     expect(controlMessages(h.node).some((message) => message.type === 'finalize')).toBe(false);
     expect(h.source.getSnapshot()).toMatchObject({ phase: 'cancelled' });
+    await h.source.destroy();
+  });
+
+  it('does not let a stale rendezvous cancel reentry supersede exact finalization', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    await arm(h.source, h.node);
+    h.context.currentTime = 1.7;
+    const hostileFinalize = new Proxy(finalizeIntent(), {
+      ownKeys(target) {
+        void h.source.cancel({
+          kind: 'file-playback-cancel',
+          queueItemId: QID,
+          runId: 'run-stream-1',
+          revision: 1,
+          rendezvousId: 'rv-stale',
+          reasonCode: 'stale-reentrant-cancel',
+        });
+        return Reflect.ownKeys(target);
+      },
+    });
+
+    const finalizing = h.source.finalize(hostileFinalize);
+    await Promise.resolve();
+    const finalizeCommand = controlMessages(h.node).findLast(
+      (message) => message.type === 'finalize',
+    );
+    if (!finalizeCommand || finalizeCommand.type !== 'finalize') {
+      throw new Error('Expected a PCM ring finalize command');
+    }
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'finalized',
+      generation: finalizeCommand.generation,
+      revision: finalizeCommand.revision,
+      runId: finalizeCommand.runId,
+      rendezvousId: finalizeCommand.rendezvousId,
+      targetFrame: 96_000,
+    });
+
+    await expect(finalizing).resolves.toMatchObject({ status: 'accepted', reasonCode: null });
+    expect(controlMessages(h.node).some((message) => message.type === 'cancel')).toBe(false);
+    await h.source.destroy();
+  });
+
+  it('does not expire a due arm while rejecting a stale rendezvous cancel', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    await arm(h.source, h.node);
+    h.context.currentTime = 1.9;
+    const cancelCount = controlMessages(h.node).filter(
+      (message) => message.type === 'cancel',
+    ).length;
+
+    await expect(
+      h.source.cancel({
+        kind: 'file-playback-cancel',
+        queueItemId: QID,
+        runId: 'run-stream-1',
+        revision: 1,
+        rendezvousId: 'rv-stale',
+        reasonCode: 'stale-after-finalize-deadline',
+      }),
+    ).resolves.toMatchObject({ phase: 'armed' });
+    expect(controlMessages(h.node).filter((message) => message.type === 'cancel')).toHaveLength(
+      cancelCount,
+    );
+
+    expect(h.source.getSnapshot()).toMatchObject({ phase: 'paused' });
+    expect(controlMessages(h.node).filter((message) => message.type === 'cancel')).toHaveLength(
+      cancelCount + 1,
+    );
     await h.source.destroy();
   });
 
@@ -517,6 +592,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
             queueItemId: QID,
             runId: 'run-stream-1',
             revision: 1,
+            rendezvousId: 'rv-stream-1',
             reasonCode: 'mapper-reentered-cancel',
           });
         }
@@ -938,6 +1014,16 @@ describe('StreamingFlacPlaybackSource v2', () => {
       queueItemId: QID,
       runId: 'run-stream-1',
       revision: 1,
+      rendezvousId: 'rv-stale',
+      reasonCode: 'stale-attempt-cancel',
+    });
+    expect(cancelled.source.getSnapshot()).toMatchObject({ phase: 'armed' });
+    await cancelled.source.cancel({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-stream-1',
+      revision: 1,
+      rendezvousId: 'rv-stream-1',
       reasonCode: 'test-cancel',
     });
     await expect(cancelledCutover.started).rejects.toMatchObject({
@@ -1901,6 +1987,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       queueItemId: QID,
       runId: 'run-stream-1',
       revision: 1,
+      rendezvousId: 'rv-stream-1',
       reasonCode: 'user-cancelled',
     });
     await expect(arming).resolves.toMatchObject({
@@ -1972,6 +2059,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       queueItemId: QID,
       runId: 'run-stream-1',
       revision: 1,
+      rendezvousId: 'rv-stream-1',
       reasonCode: 'user-cancelled',
     });
     await expect(seeking).resolves.toBeDefined();
@@ -2112,6 +2200,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
       queueItemId: QID,
       runId: 'run-stream-1',
       revision: 1,
+      rendezvousId: 'rv-stream-1',
       reasonCode: 'user-cancelled',
     });
     await expect(seekThree).resolves.toBeDefined();

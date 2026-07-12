@@ -599,23 +599,39 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
   }
 
   async cancel(intent: FilePlaybackCancelIntent): Promise<FilePlaybackSourceSnapshot> {
-    const ingressEpoch = this.#advanceIngressEpoch();
-    this.#settleCurrentExecution();
     const canonicalIntent = readFilePlaybackCancelIntent(intent);
     if (
-      ingressEpoch !== this.#ingressEpoch ||
       !canonicalIntent ||
-      !sameRun(this.#run, canonicalIntent)
+      this.#active === null ||
+      this.#active.retired ||
+      !sameRun(this.#active.armIntent, canonicalIntent) ||
+      this.#active.armIntent.rendezvousId !== canonicalIntent.rendezvousId
     ) {
-      return this.getSnapshot();
+      return this.#snapshotWithoutReconciliation();
+    }
+
+    const active = this.#active;
+    const ingressEpoch = this.#advanceIngressEpoch();
+    this.#settleCurrentExecution();
+    if (
+      ingressEpoch !== this.#ingressEpoch ||
+      this.#active !== active ||
+      active.retired ||
+      !sameRun(active.armIntent, canonicalIntent) ||
+      active.armIntent.rendezvousId !== canonicalIntent.rendezvousId
+    ) {
+      return this.#snapshotWithoutReconciliation();
     }
 
     const current = this.#viewAtContextTime(this.#audioContext.currentTime);
+    if (ingressEpoch !== this.#ingressEpoch || this.#active !== active || active.retired) {
+      return this.#snapshotWithoutReconciliation();
+    }
     this.#positionSeconds = current.positionSeconds;
     this.#retireActiveExecution();
     this.#idleTransition = null;
     this.#phase = 'cancelled';
-    return this.getSnapshot();
+    return this.#snapshotWithoutReconciliation();
   }
 
   async pause(intent: FilePlaybackPauseIntent): Promise<FilePlaybackSourceSnapshot> {
@@ -659,6 +675,10 @@ export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
 
   getSnapshot(): FilePlaybackSourceSnapshot {
     this.#settleCurrentExecution();
+    return this.#snapshotWithoutReconciliation();
+  }
+
+  #snapshotWithoutReconciliation(): FilePlaybackSourceSnapshot {
     const view = this.#viewAtContextTime(this.#audioContext.currentTime);
     return createFilePlaybackSourceSnapshot({
       schemaVersion: 1,

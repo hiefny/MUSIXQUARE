@@ -173,6 +173,7 @@ describe('file playback source contract', () => {
       {
         kind: 'file-playback-cancel',
         ...RUN,
+        rendezvousId: 'rv-contract',
         get reasonCode() {
           getterCalls += 1;
           return 'cancelled';
@@ -193,6 +194,25 @@ describe('file playback source contract', () => {
     expect(pause).toMatchObject({ kind: 'file-playback-pause', atRoomTimeMs: 1_000 });
     expect(Object.getPrototypeOf(pause)).toBeNull();
     expect(Object.isFrozen(pause)).toBe(true);
+
+    const cancel = readFilePlaybackCancelIntent({
+      kind: 'file-playback-cancel',
+      ...RUN,
+      rendezvousId: 'rv-contract',
+      reasonCode: 'cancelled',
+    });
+    expect(cancel).toMatchObject({
+      kind: 'file-playback-cancel',
+      rendezvousId: 'rv-contract',
+      reasonCode: 'cancelled',
+    });
+    expect(
+      readFilePlaybackCancelIntent({
+        kind: 'file-playback-cancel',
+        ...RUN,
+        reasonCode: 'legacy-run-only-cancel',
+      }),
+    ).toBeNull();
   });
 
   it('checks a runtime source against the run queue identity', () => {

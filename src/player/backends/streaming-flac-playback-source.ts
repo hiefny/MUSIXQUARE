@@ -358,8 +358,19 @@ function sameRun(left: RevisionedPlaybackRun | null, right: RevisionedPlaybackRu
   );
 }
 
+function sameCancelAttempt(
+  left: RendezvousArmIntent | null | undefined,
+  right: FilePlaybackCancelIntent,
+): boolean {
+  return !!left && sameRun(left, right) && left.rendezvousId === right.rendezvousId;
+}
+
 function runIdentity(
-  intent: RendezvousArmIntent | RendezvousFinalizeIntent,
+  intent: Readonly<{
+    revision: number;
+    runId: string;
+    rendezvousId: string;
+  }>,
 ): FlacStreamRunIdentity {
   return Object.freeze({
     revision: intent.revision,
@@ -586,6 +597,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   #ingressEpoch = 0;
   #revision = 0;
   #run: RevisionedPlaybackRun | null = null;
+  #currentRendezvousId: string | null = null;
   #errorCode: string | null = null;
   #destination: AudioNode | null = null;
   #worker: Worker | null = null;
@@ -913,6 +925,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       const previousActive = this.#activeArm;
       this.#revision = intent.revision;
       this.#run = immutableRun(intent);
+      this.#currentRendezvousId = null;
       if (supersededPendingIntent) {
         this.#postCancel(runIdentity(supersededPendingIntent));
         forceReset = this.#phase === 'preparing';
@@ -1084,6 +1097,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       finalizeIntent: null,
       finalizeReceipt: null,
     };
+    this.#currentRendezvousId = intent.rendezvousId;
     return cutoverResult;
   }
 
@@ -1388,28 +1402,69 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   }
 
   async cancel(intent: FilePlaybackCancelIntent): Promise<FilePlaybackSourceSnapshot> {
-    const ingressEpoch = this.#advanceIngressEpoch();
     const canonicalIntent = readFilePlaybackCancelIntent(intent);
-    const pendingRun = this.#pendingArmOperation?.intent ?? null;
+    const active = this.#activeArm;
+    const pending = this.#pendingArmOperation;
+    const matchingActive =
+      pending === null && canonicalIntent && sameCancelAttempt(active?.intent, canonicalIntent)
+        ? active
+        : null;
+    const matchingPending =
+      canonicalIntent && sameCancelAttempt(pending?.intent, canonicalIntent) ? pending : null;
+    const matchingCurrent =
+      pending === null &&
+      active === null &&
+      canonicalIntent !== null &&
+      sameRun(this.#run, canonicalIntent) &&
+      this.#currentRendezvousId === canonicalIntent.rendezvousId &&
+      (this.#phase === 'preparing' ||
+        this.#phase === 'armed' ||
+        this.#phase === 'playing' ||
+        this.#phase === 'paused');
     if (
-      ingressEpoch !== this.#ingressEpoch ||
       !canonicalIntent ||
-      (!sameRun(this.#run, canonicalIntent) && !sameRun(pendingRun, canonicalIntent))
+      (matchingActive === null && matchingPending === null && !matchingCurrent)
     ) {
-      return this.getSnapshot();
+      return this.#snapshotWithoutReconciliation();
     }
+
+    const ingressEpoch = this.#advanceIngressEpoch();
+    const stillOwnsAttempt = (): boolean => {
+      if (ingressEpoch !== this.#ingressEpoch) return false;
+      if (matchingPending !== null) {
+        return this.#pendingArmOperation === matchingPending;
+      }
+      if (matchingActive !== null) {
+        return this.#pendingArmOperation === null && this.#activeArm === matchingActive;
+      }
+      return (
+        this.#pendingArmOperation === null &&
+        this.#activeArm === null &&
+        sameRun(this.#run, canonicalIntent) &&
+        this.#currentRendezvousId === canonicalIntent.rendezvousId &&
+        (this.#phase === 'preparing' ||
+          this.#phase === 'armed' ||
+          this.#phase === 'playing' ||
+          this.#phase === 'paused')
+      );
+    };
+    if (!stillOwnsAttempt()) return this.#snapshotWithoutReconciliation();
+
     this.#cancelRequested = true;
-    const identity = this.#activeArm
-      ? runIdentity(this.#activeArm.intent)
-      : this.#pendingArmOperation
-        ? runIdentity(this.#pendingArmOperation.intent)
-        : undefined;
+    const identity = runIdentity((matchingActive ?? matchingPending)?.intent ?? canonicalIntent);
     this.#postCancel(identity);
+    if (!stillOwnsAttempt()) return this.#snapshotWithoutReconciliation();
+
     this.#supersedeControlOperations('cancelled');
-    this.#retireActiveArm('cancelled');
+    if (matchingActive !== null) {
+      this.#retireActiveArm('cancelled', matchingActive);
+    }
     this.#pendingPause = null;
-    if (this.#phase !== 'failed' && this.#phase !== 'destroyed') this.#phase = 'cancelled';
-    return this.getSnapshot();
+    this.#currentRendezvousId = null;
+    if (this.#phase !== 'failed' && this.#phase !== 'destroyed') {
+      this.#phase = 'cancelled';
+    }
+    return this.#snapshotWithoutReconciliation();
   }
 
   async pause(intent: FilePlaybackPauseIntent): Promise<FilePlaybackSourceSnapshot> {
@@ -1505,6 +1560,10 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
 
   getSnapshot(): FilePlaybackSourceSnapshot {
     this.#expireUnfinalizedArm();
+    return this.#snapshotWithoutReconciliation();
+  }
+
+  #snapshotWithoutReconciliation(): FilePlaybackSourceSnapshot {
     const view = this.#viewAtRenderFrame(this.#currentRenderFrame);
     return createFilePlaybackSourceSnapshot({
       schemaVersion: 1,
@@ -1533,6 +1592,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     const teardown = this.#teardownRuntime();
     this.#destination = null;
     this.#run = null;
+    this.#currentRendezvousId = null;
     this.#retireActiveArm('source-destroyed');
     this.#pendingPause = null;
     this.#phase = 'destroyed';
@@ -2053,6 +2113,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       }
       case 'finished':
         this.#phase = 'ended';
+        this.#currentRendezvousId = null;
         this.#mediaFrame = value.mediaFrame;
         this.#bufferedFrames = 0;
         this.#pendingPause = null;
@@ -2069,12 +2130,14 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
           this.#retireActiveArm('worklet-status-paused');
         } else if (value.state === 'finished') {
           this.#phase = 'ended';
+          this.#currentRendezvousId = null;
           this.#retireActiveArm('worklet-status-finished');
         } else if (value.state === 'interrupted') this.#fail('worklet:interrupted');
         break;
       case 'interrupted':
         if (this.#cancelRequested && value.code === 'cancelled-after-start') {
           this.#phase = 'cancelled';
+          this.#currentRendezvousId = null;
           this.#cancelRequested = false;
         } else {
           this.#fail(`worklet:${safeErrorCode(value.code, 'interrupted')}`);
@@ -2682,6 +2745,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     if (this.#phase === 'destroyed' || this.#phase === 'failed') return;
     this.#errorCode = safeErrorCode(code, 'streaming-flac-failed');
     this.#phase = 'failed';
+    this.#currentRendezvousId = null;
     this.#retireActiveArm(this.#errorCode);
     this.#supersedeControlOperations(this.#errorCode);
     const error = cause instanceof Error ? cause : new Error(this.#errorCode);

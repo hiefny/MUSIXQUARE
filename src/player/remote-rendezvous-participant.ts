@@ -1,6 +1,6 @@
 import type { QueueItemId } from '../types/index.ts';
 import type { FilePlaybackCancelIntent } from './file-playback-source.ts';
-import { readPlaybackStateIdentity } from './playback-identity.ts';
+import { readPlaybackAttemptIdentity, type PlaybackAttemptIdentity } from './playback-identity.ts';
 import {
   readRendezvousArmIntent,
   readRendezvousArmReceipt,
@@ -34,6 +34,7 @@ const CANCEL_INTENT_KEYS = Object.freeze([
   'queueItemId',
   'runId',
   'revision',
+  'rendezvousId',
   'reasonCode',
 ]);
 
@@ -64,6 +65,8 @@ interface ActiveCorrelation {
   readonly intent: RendezvousArmIntent;
   readonly deferred: DeferredReceipt<RendezvousArmReceipt>;
   armAccepted: boolean;
+  finalizeAccepted: boolean;
+  committed: boolean;
   finalize: FinalizeOperation | null;
   retired: boolean;
 }
@@ -154,18 +157,18 @@ function freezeCanonical<T extends object>(value: T): T {
 
 function snapshotCancelIntent(value: unknown): FilePlaybackCancelIntent | null {
   const snapshot = snapshotExactDataRecord(value, CANCEL_INTENT_KEYS);
-  const run = readPlaybackStateIdentity(snapshot);
+  const attempt = readPlaybackAttemptIdentity(snapshot);
   if (
     snapshot === null ||
     snapshot.kind !== 'file-playback-cancel' ||
-    !run ||
+    !attempt ||
     !isBoundedIdentifier(snapshot.reasonCode)
   ) {
     return null;
   }
   return freezeCanonical({
     kind: 'file-playback-cancel' as const,
-    ...run,
+    ...attempt,
     reasonCode: snapshot.reasonCode,
   });
 }
@@ -341,6 +344,8 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       intent: canonical,
       deferred: deferredReceipt<RendezvousArmReceipt>(),
       armAccepted: false,
+      finalizeAccepted: false,
+      committed: false,
       finalize: null,
       retired: false,
     };
@@ -477,15 +482,23 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       );
       return false;
     }
-    return this.#settleFinalize(operation, canonical);
+    const settled = this.#settleFinalize(operation, canonical);
+    if (settled && canonical.status === 'accepted') active.finalizeAccepted = true;
+    return settled;
   }
 
   cancel(intent: FilePlaybackCancelIntent): Promise<void> {
     const canonical = snapshotCancelIntent(intent);
     const active = this.#active;
-    if (canonical === null || active === null || !sameRevisionedRun(active.intent, canonical)) {
+    if (
+      canonical === null ||
+      active === null ||
+      !sameRevisionedRun(active.intent, canonical) ||
+      active.intent.rendezvousId !== canonical.rendezvousId
+    ) {
       return Promise.resolve();
     }
+    if (active.committed) return Promise.resolve();
 
     this.#retire(active, 'remote-operation-cancelled');
     if (this.#active === active) this.#active = null;
@@ -496,6 +509,24 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       // Cancellation is best-effort and must not wait for a broken transport.
     }
     return Promise.resolve();
+  }
+
+  commitAttempt(value: PlaybackAttemptIdentity): boolean {
+    const identity = readPlaybackAttemptIdentity(value);
+    const active = this.#active;
+    if (
+      identity === null ||
+      active === null ||
+      active.retired ||
+      !active.finalizeAccepted ||
+      !sameRevisionedRun(active.intent, identity) ||
+      active.intent.rendezvousId !== identity.rendezvousId
+    ) {
+      return false;
+    }
+    if (active.committed) return true;
+    active.committed = true;
+    return true;
   }
 
   #retire(operation: ActiveCorrelation, reasonCode: string): void {

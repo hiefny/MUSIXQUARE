@@ -218,6 +218,7 @@ describe('LocalRendezvousParticipant', () => {
       queueItemId: QID,
       runId: 'run-a',
       revision: 7,
+      rendezvousId: 'rv-a',
       reasonCode: 'proxy-reentered-cancel',
     });
 
@@ -267,6 +268,7 @@ describe('LocalRendezvousParticipant', () => {
           queueItemId: QID,
           runId: 'run-a',
           revision: 7,
+          rendezvousId: 'rv-a',
           reasonCode: 'provider-reentered-cancel',
         });
       }
@@ -294,6 +296,7 @@ describe('LocalRendezvousParticipant', () => {
             queueItemId: QID,
             runId: 'run-a',
             revision: 7,
+            rendezvousId: 'rv-a',
             reasonCode: 'provider-reentered-cancel',
           });
         }
@@ -408,9 +411,12 @@ describe('LocalRendezvousParticipant', () => {
       queueItemId: QID,
       runId: 'run-a',
       revision: 7,
+      rendezvousId: 'rv-a',
       reasonCode: 'cancel-pending-arm',
     });
 
+    await expect(adapter.cancel({ ...cancel, rendezvousId: 'rv-stale' })).resolves.toBeUndefined();
+    expect(active.cancel).not.toHaveBeenCalled();
     await expect(adapter.cancel(cancel)).resolves.toBeUndefined();
     expect(active.cancel).toHaveBeenCalledWith(cancel);
     gate.resolve(armedReceipt(arm));
@@ -426,6 +432,55 @@ describe('LocalRendezvousParticipant', () => {
       reasonCode: 'local-rendezvous-not-armed',
     });
     expect(active.finalize).not.toHaveBeenCalled();
+  });
+
+  it('keeps an accepted finalization cancellable before explicit commit', async () => {
+    const active = source();
+    const adapter = participant(() => active);
+    await expect(adapter.arm(armIntent())).resolves.toMatchObject({ status: 'armed' });
+    await expect(adapter.finalize(finalizeIntent())).resolves.toMatchObject({
+      status: 'accepted',
+    });
+
+    await expect(
+      adapter.cancel({
+        kind: 'file-playback-cancel',
+        queueItemId: QID,
+        runId: 'run-a',
+        revision: 7,
+        rendezvousId: 'rv-a',
+        reasonCode: 'attempt-closed-after-promotion',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(active.cancel).toHaveBeenCalledOnce();
+  });
+
+  it('commits only the exact accepted finalization and then suppresses attempt cancel', async () => {
+    const active = source();
+    const adapter = participant(() => active);
+    const identity = Object.freeze({
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    });
+    await expect(adapter.arm(armIntent())).resolves.toMatchObject({ status: 'armed' });
+    expect(adapter.commitAttempt(identity)).toBe(false);
+    await expect(adapter.finalize(finalizeIntent())).resolves.toMatchObject({
+      status: 'accepted',
+    });
+    expect(adapter.commitAttempt({ ...identity, rendezvousId: 'rv-wrong' })).toBe(false);
+    expect(adapter.commitAttempt(identity)).toBe(true);
+    expect(adapter.commitAttempt(identity)).toBe(true);
+
+    await adapter.cancel({
+      kind: 'file-playback-cancel',
+      ...identity,
+      reasonCode: 'attempt-closed-after-commit',
+    });
+
+    expect(active.cancel).not.toHaveBeenCalled();
   });
 
   it('fences a pending finalize after the active source changes and never leaks acceptance', async () => {
@@ -519,6 +574,7 @@ describe('LocalRendezvousParticipant', () => {
       queueItemId: QID,
       runId: 'run-a',
       revision: 7,
+      rendezvousId: 'rv-a',
       reasonCode: 'retry-with-new-rendezvous',
     });
 
@@ -548,6 +604,7 @@ describe('LocalRendezvousParticipant', () => {
       queueItemId: QID,
       runId: 'run-a',
       revision: 7,
+      rendezvousId: 'rv-a',
       reasonCode: 'replace-pending-rendezvous',
     });
     const cancelCallsBeforeReplacement = active.cancel.mock.calls.length;
@@ -578,6 +635,7 @@ describe('LocalRendezvousParticipant', () => {
       queueItemId: QID,
       runId: 'run-a',
       revision: 7,
+      rendezvousId: 'rv-a',
       reasonCode: 'cancel-first-run',
     });
 
@@ -642,6 +700,7 @@ describe('LocalRendezvousParticipant', () => {
       queueItemId: QID,
       runId: 'run-a',
       revision: 7,
+      rendezvousId: 'rv-a',
       reasonCode: 'superseded',
     });
     armedSource.cancel.mockRejectedValueOnce(new Error('already stopped'));

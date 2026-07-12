@@ -218,6 +218,7 @@ describe('AudioBufferPlaybackSource v2', () => {
           queueItemId: QID,
           runId: 'run-3',
           revision: 3,
+          rendezvousId: 'rv-3',
           reasonCode: 'proxy-reentered-cancel',
         });
         return Reflect.ownKeys(target);
@@ -230,6 +231,54 @@ describe('AudioBufferPlaybackSource v2', () => {
     });
     expect(gate.gain.automation).not.toContainEqual({ value: 1, time: 2 });
     expect(source.getSnapshot()).toMatchObject({ phase: 'cancelled' });
+  });
+
+  it('does not let a stale rendezvous cancel reentry supersede exact finalization', async () => {
+    const { destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await expect(source.arm(armIntent())).resolves.toMatchObject({ status: 'armed' });
+    const hostileFinalize = new Proxy(finalizeIntent(), {
+      ownKeys(target) {
+        void source.cancel({
+          kind: 'file-playback-cancel',
+          queueItemId: QID,
+          runId: 'run-3',
+          revision: 3,
+          rendezvousId: 'rv-stale',
+          reasonCode: 'stale-reentrant-cancel',
+        });
+        return Reflect.ownKeys(target);
+      },
+    });
+
+    await expect(source.finalize(hostileFinalize)).resolves.toMatchObject({
+      status: 'accepted',
+      reasonCode: null,
+    });
+    expect(source.getSnapshot()).toMatchObject({ phase: 'armed' });
+  });
+
+  it('does not reconcile a due arm while rejecting a stale rendezvous cancel', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await expect(source.arm(armIntent())).resolves.toMatchObject({ status: 'armed' });
+    const nativeSource = context.sources[0]!;
+    context.currentTime = 1.9;
+
+    await expect(
+      source.cancel({
+        kind: 'file-playback-cancel',
+        queueItemId: QID,
+        runId: 'run-3',
+        revision: 3,
+        rendezvousId: 'rv-stale',
+        reasonCode: 'stale-after-finalize-deadline',
+      }),
+    ).resolves.toMatchObject({ phase: 'armed' });
+    expect(nativeSource.stops).toHaveLength(0);
+
+    expect(source.getSnapshot()).toMatchObject({ phase: 'paused' });
+    expect(nativeSource.stops).toHaveLength(1);
   });
 
   it.each(['cancel', 'destroy', 're-arm'] as const)(
@@ -249,6 +298,7 @@ describe('AudioBufferPlaybackSource v2', () => {
             queueItemId: QID,
             runId: 'run-3',
             revision: 3,
+            rendezvousId: 'rv-3',
             reasonCode: 'setter-reentered-cancel',
           });
         } else if (action === 'destroy') {
@@ -354,6 +404,7 @@ describe('AudioBufferPlaybackSource v2', () => {
       queueItemId: QID,
       runId: 'run-3',
       revision: 3,
+      rendezvousId: 'rv-3',
       reasonCode: 'prepare-idle-seek',
     });
     triggerReentry = true;
@@ -533,6 +584,20 @@ describe('AudioBufferPlaybackSource v2', () => {
       queueItemId: QID,
       runId: 'run-4',
       revision: 4,
+      rendezvousId: 'rv-stale',
+      reasonCode: 'stale-attempt-cancel',
+    });
+    expect(source.getSnapshot()).toMatchObject({
+      phase: 'armed',
+      run: { runId: 'run-4', revision: 4 },
+    });
+
+    await source.cancel({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-4',
+      revision: 4,
+      rendezvousId: 'rv-4',
       reasonCode: 'test-cancel',
     });
     await expect(second.started).rejects.toMatchObject({
@@ -766,6 +831,7 @@ describe('AudioBufferPlaybackSource v2', () => {
       queueItemId: QID,
       runId: 'run-3',
       revision: 3,
+      rendezvousId: 'rv-3',
       reasonCode: 'superseded',
     });
     expect(oldNode?.stops).toEqual([undefined]);

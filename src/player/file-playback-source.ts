@@ -2,6 +2,7 @@ import type { QueueItemId } from '../types/index.ts';
 import {
   createPlaybackStateIdentity,
   isPlaybackRevisionWatermark,
+  readPlaybackAttemptIdentity,
   readPlaybackStateIdentity,
   type PlaybackRevisionWatermark,
 } from './playback-identity.ts';
@@ -70,6 +71,7 @@ export interface FilePlaybackSeekIntent extends RevisionedPlaybackRun {
 
 export interface FilePlaybackCancelIntent extends RevisionedPlaybackRun {
   readonly kind: 'file-playback-cancel';
+  readonly rendezvousId: string;
   readonly reasonCode: string;
 }
 
@@ -179,6 +181,7 @@ const CANCEL_INTENT_KEYS = Object.freeze([
   'queueItemId',
   'runId',
   'revision',
+  'rendezvousId',
   'reasonCode',
 ] as const);
 const CANCEL_INTENT_KEY_SET: ReadonlySet<string> = new Set(CANCEL_INTENT_KEYS);
@@ -455,7 +458,7 @@ export function readFilePlaybackCancelIntent(
   value: unknown,
 ): Readonly<FilePlaybackCancelIntent> | null {
   const candidate = snapshotExactDataRecord(value, CANCEL_INTENT_KEYS, CANCEL_INTENT_KEY_SET);
-  const identity = candidate ? readPlaybackStateIdentity(candidate) : null;
+  const identity = candidate ? readPlaybackAttemptIdentity(candidate) : null;
   if (
     !candidate ||
     !identity ||

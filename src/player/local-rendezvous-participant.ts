@@ -1,6 +1,10 @@
 import type { QueueItemId } from '../types/index.ts';
 import type { FilePlaybackCancelIntent, FilePlaybackSource } from './file-playback-source.ts';
-import { readPlaybackStateIdentity, sameState } from './playback-identity.ts';
+import {
+  readPlaybackAttemptIdentity,
+  sameState,
+  type PlaybackAttemptIdentity,
+} from './playback-identity.ts';
 import {
   readRendezvousArmIntent,
   readRendezvousArmReceipt,
@@ -33,6 +37,7 @@ const CANCEL_INTENT_KEYS = Object.freeze([
   'queueItemId',
   'runId',
   'revision',
+  'rendezvousId',
   'reasonCode',
 ] as const);
 
@@ -80,6 +85,7 @@ interface FinalizeOperation {
   promise: Promise<RendezvousFinalizeReceipt>;
   retired: boolean;
   retiredReason: string | null;
+  accepted: boolean;
 }
 
 function isBoundedIdentifier(value: unknown): value is string {
@@ -152,9 +158,9 @@ function readCancelIntent(value: unknown): FilePlaybackCancelIntent | null {
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
       snapshot[key] = descriptor.value;
     }
-    const run = readPlaybackStateIdentity(snapshot);
+    const attempt = readPlaybackAttemptIdentity(snapshot);
     if (
-      !run ||
+      !attempt ||
       snapshot.kind !== 'file-playback-cancel' ||
       !isBoundedIdentifier(snapshot.reasonCode)
     ) {
@@ -163,7 +169,7 @@ function readCancelIntent(value: unknown): FilePlaybackCancelIntent | null {
     return Object.freeze(
       Object.assign(Object.create(null), {
         kind: 'file-playback-cancel' as const,
-        ...run,
+        ...attempt,
         reasonCode: snapshot.reasonCode,
       }),
     ) as FilePlaybackCancelIntent;
@@ -202,6 +208,13 @@ function bindingMatchesRun(binding: ArmedSourceBinding, run: RevisionedPlaybackR
   return sameRevisionedRun(binding, run);
 }
 
+function sameRendezvousAttempt(
+  left: RevisionedPlaybackRun & { readonly rendezvousId: string },
+  right: RevisionedPlaybackRun & { readonly rendezvousId: string },
+): boolean {
+  return sameRevisionedRun(left, right) && left.rendezvousId === right.rendezvousId;
+}
+
 function sameRevisionedRun(left: RevisionedPlaybackRun, right: RevisionedPlaybackRun): boolean {
   return sameState(left, right);
 }
@@ -225,6 +238,7 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
   #armOperation: ArmOperation | null = null;
   #finalizeOperation: FinalizeOperation | null = null;
   #armedBinding: ArmedSourceBinding | null = null;
+  #committedBinding: ArmedSourceBinding | null = null;
 
   constructor(options: LocalRendezvousParticipantOptions) {
     const snapshot = snapshotOptions(options);
@@ -362,6 +376,7 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
         promise: Promise.resolve(this.#rejectedFinalize(intent, 'local-operation-not-started')),
         retired: false,
         retiredReason: null,
+        accepted: false,
       };
       this.#finalizeOperation = operation;
       operation.promise = Promise.resolve().then(() => this.#executeFinalize(operation));
@@ -376,12 +391,17 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       const intent = readCancelIntent(value);
       if (!intent) return Promise.resolve();
 
+      const committedBinding = this.#committedBinding;
+      if (committedBinding !== null && sameRendezvousAttempt(committedBinding, intent)) {
+        return Promise.resolve();
+      }
+
       const binding = this.#armedBinding;
       const operation = this.#armOperation;
       const matchingBinding =
-        binding !== null && bindingMatchesRun(binding, intent) ? binding : null;
+        binding !== null && sameRendezvousAttempt(binding, intent) ? binding : null;
       const matchingOperation =
-        operation !== null && sameRevisionedRun(operation.intent, intent) ? operation : null;
+        operation !== null && sameRendezvousAttempt(operation.intent, intent) ? operation : null;
       if (matchingBinding === null && matchingOperation === null) {
         return Promise.resolve();
       }
@@ -393,7 +413,7 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
       }
       if (
         this.#finalizeOperation !== null &&
-        sameRevisionedRun(this.#finalizeOperation.binding, intent)
+        sameRendezvousAttempt(this.#finalizeOperation.binding, intent)
       ) {
         this.#finalizeOperation.retired = true;
         this.#finalizeOperation.retiredReason = 'local-operation-cancelled';
@@ -409,6 +429,38 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
     } catch {
       return Promise.resolve();
     }
+  }
+
+  commitAttempt(value: PlaybackAttemptIdentity): boolean {
+    const identity = readPlaybackAttemptIdentity(value);
+    if (!identity) return false;
+    const committedBinding = this.#committedBinding;
+    if (committedBinding !== null && sameRendezvousAttempt(committedBinding, identity)) {
+      return true;
+    }
+    const operation = this.#finalizeOperation;
+    if (
+      operation === null ||
+      operation.retired ||
+      !operation.accepted ||
+      this.#armedBinding !== operation.binding ||
+      !sameRendezvousAttempt(operation.binding, identity)
+    ) {
+      return false;
+    }
+    const observed = this.#observeActiveSource();
+    if (
+      this.#finalizeOperation !== operation ||
+      operation.retired ||
+      !operation.accepted ||
+      this.#armedBinding !== operation.binding ||
+      operation.binding.source !== observed.source ||
+      operation.binding.sourceEpoch !== observed.epoch
+    ) {
+      return false;
+    }
+    this.#committedBinding = operation.binding;
+    return true;
   }
 
   async #executeArm(operation: ArmOperation): Promise<RendezvousArmReceipt> {
@@ -499,6 +551,7 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
     ) {
       return this.#rejectedFinalize(operation.intent, 'local-source-invalid-finalize-receipt');
     }
+    if (validation.ok) operation.accepted = true;
     return canonicalReceipt;
   }
 
@@ -638,14 +691,23 @@ export class LocalRendezvousParticipant implements HostRendezvousParticipant {
 
   #bestEffortCancel(
     source: FilePlaybackSource,
-    run: RevisionedPlaybackRun,
+    run: RevisionedPlaybackRun & { readonly rendezvousId: string },
     reasonCode: string,
   ): void {
+    const committedBinding = this.#committedBinding;
+    if (
+      committedBinding !== null &&
+      committedBinding.source === source &&
+      sameRendezvousAttempt(committedBinding, run)
+    ) {
+      return;
+    }
     const intent: FilePlaybackCancelIntent = Object.freeze({
       kind: 'file-playback-cancel',
       queueItemId: run.queueItemId,
       runId: run.runId,
       revision: run.revision,
+      rendezvousId: run.rendezvousId,
       reasonCode: isBoundedIdentifier(reasonCode) ? reasonCode : 'local-operation-retired',
     });
     try {

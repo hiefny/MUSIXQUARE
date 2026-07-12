@@ -449,9 +449,8 @@ function setPinnedNotice(sender: string, text: string, timestamp?: number): void
   const time = document.getElementById('chat-pinned-notice-time');
   const body = document.getElementById('chat-pinned-notice-text');
   if (!banner || !label || !body) return;
-  // System-originated notices (broadcastSystemNotice in chat/protocol.ts) ship
-  // with sender=''. Fall back at render time so each device sees its own
-  // locale's word for "system".
+  // Keep an empty-sender fallback for older system-originated pinned notices.
+  // New automatic application events use gray CHAT_SYSTEM rows instead.
   const displayName = sender || t('chat.system_sender');
   label.textContent = `${t('chat.cmd_notice_prefix')} · ${displayName}`;
   if (time) time.textContent = formatNoticeTime(timestamp);

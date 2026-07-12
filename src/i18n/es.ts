@@ -538,16 +538,17 @@ const es: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Espera {{sec}}s antes de enviar',
   'chat.cmd_notice_prefix': 'Aviso',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice': 'Pista omitida: formato no compatible en algunos dispositivos.',
-  'chat.system_audio_started_notice':
+  'chat.decode_skip_system_message':
+    'Pista omitida: formato no compatible en algunos dispositivos.',
+  'chat.system_audio_started_system_message':
     'Se inició la compartición de audio del sistema. Es normal que haya una leve latencia entre el host y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo host para evitar ecos.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Terminó la compartición de audio del sistema. Host, vuelve a subir el volumen para ser el altavoz de la sala.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Se unió un participante remoto. La calidad de conexión puede variar según la red.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Se alcanzó el límite de subida de archivos.\nLos participantes remotos deberían intentarlo más tarde.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Falló la subida de archivo remoto.\nLos participantes remotos deberían intentarlo pronto.',
   'chat.pinned_close': 'Descartar aviso',
   'chat.cmd_whisper_from': 'Susurro de {{name}}',

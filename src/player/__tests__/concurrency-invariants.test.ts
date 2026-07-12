@@ -64,7 +64,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentTime: vi.fn(() => 100),
   initAudio: vi.fn(),
   sendRecoveryRequest: vi.fn(),
-  broadcastSystemNotice: vi.fn(),
+  broadcastSystemMessage: vi.fn(),
   showLoader: vi.fn(),
   showToast: vi.fn(),
   updateLoader: vi.fn(),
@@ -133,7 +133,7 @@ vi.mock('../../share/remote-share.ts', () => ({
 }));
 
 vi.mock('../../chat/protocol.ts', () => ({
-  broadcastSystemNotice: mocks.broadcastSystemNotice,
+  broadcastSystemMessage: mocks.broadcastSystemMessage,
 }));
 
 vi.mock('../../ui/toast.ts', () => ({

@@ -305,17 +305,17 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Poczekaj {{sec}} s przed wysłaniem kolejnej wiadomości',
   'chat.cmd_notice_prefix': 'Ogłoszenie',
   'chat.system_sender': 'System',
-  'chat.decode_skip_notice':
+  'chat.decode_skip_system_message':
     'Niektóre urządzenia nie mogły odtworzyć tego utworu. Przejście do kolejnego utworu...',
-  'chat.system_audio_started_notice':
+  'chat.system_audio_started_system_message':
     'Rozpoczęto udostępnianie dźwięku systemowego. Ponieważ opóźnienie między hostem a gośćmi jest nieuniknione, zalecamy hostowi maksymalne zmniejszenie głośności swojego urządzenia.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Udostępnianie dźwięku systemowego zostało zakończone. Host może ponownie podgłośnić swoje urządzenie, aby powrócić do roli głośnika.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Dołączył gość zdalny. Jakość połączenia może się różnić w zależności od stabilności sieci.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Osiągnięto limit przesyłania plików.\nGoście zdalni mogą spróbować ponownie później.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Nie udało się przesłać pliku zdalnego.\nZdalni goście mogą spróbować ponownie za chwilę.',
   'chat.pinned_close': 'Zamknij ogłoszenie',
   'chat.cmd_whisper_from': 'Wiadomość prywatna od {{name}}',

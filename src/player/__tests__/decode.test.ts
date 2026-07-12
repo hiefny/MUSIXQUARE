@@ -27,7 +27,7 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
-  broadcastSystemNotice: vi.fn(),
+  broadcastSystemMessage: vi.fn(),
   decodeAudioData: vi.fn(),
   isFilePipelineBusyForPlay: vi.fn(() => false),
   sendRecoveryRequest: vi.fn(),
@@ -86,7 +86,7 @@ vi.mock('../../storage/recovery.ts', () => ({
 }));
 
 vi.mock('../../chat/protocol.ts', () => ({
-  broadcastSystemNotice: mocks.broadcastSystemNotice,
+  broadcastSystemMessage: mocks.broadcastSystemMessage,
 }));
 
 vi.mock('../../ui/toast.ts', () => ({
@@ -245,7 +245,7 @@ describe('guest decode failure reports', () => {
       guest.conn!,
     );
 
-    expect(mocks.broadcastSystemNotice).not.toHaveBeenCalled();
+    expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
     expect(mocks.showToast).toHaveBeenCalledWith(
       'A device failed to decode this track. Playback is continuing for everyone else.',
     );
@@ -280,7 +280,7 @@ describe('guest decode failure reports', () => {
       guestA.conn!,
     );
 
-    expect(mocks.broadcastSystemNotice).not.toHaveBeenCalled();
+    expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
     expect(getState('playback.failedTrackKeys').size).toBe(0);
   });
 
@@ -298,7 +298,7 @@ describe('guest decode failure reports', () => {
       guestB.conn!,
     );
 
-    expect(mocks.broadcastSystemNotice).toHaveBeenCalledOnce();
+    expect(mocks.broadcastSystemMessage).toHaveBeenCalledOnce();
   });
 
   it('still lets an operator report advance immediately', async () => {
@@ -311,7 +311,7 @@ describe('guest decode failure reports', () => {
       op.conn!,
     );
 
-    expect(mocks.broadcastSystemNotice).toHaveBeenCalledOnce();
+    expect(mocks.broadcastSystemMessage).toHaveBeenCalledOnce();
   });
 
   it('shows a local wait notice when guest decoding gives up', async () => {
@@ -1000,7 +1000,7 @@ describe('superseded host load is inert (rapid-click / remove-track supersession
 
     // The stale failure must be fully inert:
     expect(getState('files.current')?.blob).toBe(fileB); // B's published blob survives
-    expect(mocks.broadcastSystemNotice).not.toHaveBeenCalled(); // no room-wide skip notice
+    expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled(); // no room-wide skip notice
     expect(mocks.transition).not.toHaveBeenCalled(); // no DECODE_ERROR stomp on B's FSM
 
     // ...and no decode-fail-advance hijack: 700ms later the room is still on B.
@@ -1097,7 +1097,7 @@ describe('superseded host load is inert (rapid-click / remove-track supersession
     expect(fileB.arrayBuffer).toHaveBeenCalledOnce();
     expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2);
     expect(getState('files.current')?.blob).toBe(fileB);
-    expect(mocks.broadcastSystemNotice).not.toHaveBeenCalled();
+    expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
   });
 });
 

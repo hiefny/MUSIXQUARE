@@ -536,17 +536,17 @@ const ptBr: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Aguarde {{sec}}s antes de enviar',
   'chat.cmd_notice_prefix': 'Aviso',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice':
+  'chat.decode_skip_system_message':
     'Alguns dispositivos não conseguiram tocar esta faixa, pulando para a próxima',
-  'chat.system_audio_started_notice':
+  'chat.system_audio_started_system_message':
     'Compartilhamento de áudio do sistema iniciado. Um pequeno atraso entre o host e os participantes é normal, então recomendamos baixar ao máximo o volume do dispositivo do host.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Compartilhamento de áudio do sistema encerrado. Host, aumente o volume novamente para ser o alto-falante da sala.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Um participante remoto entrou. A qualidade da conexão pode variar conforme a rede.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Limite de upload de arquivo atingido.\nParticipantes remotos devem tentar novamente depois.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Falha no upload de arquivo remoto.\nParticipantes remotos devem tentar novamente em breve.',
   'chat.pinned_close': 'Dispensar aviso',
   'chat.cmd_whisper_from': 'Sussurro de {{name}}',

@@ -19,7 +19,7 @@ import { batchSetState, getState, setState } from '../core/state.ts';
 import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
-import { sendSystemNotice } from '../chat/protocol.ts';
+import { sendSystemMessage } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
   broadcast,
@@ -223,7 +223,7 @@ function adoptRemoteContext(descriptor: RemoteFileSharePayload): void {
     sessionId: descriptor.sessionId,
   };
 }
-let _lastUploadFailureNoticeAt = 0;
+let _lastUploadFailureMessageAt = 0;
 
 function rawRemoteShareError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -380,7 +380,7 @@ function isUploadLimitError(error: unknown): boolean {
   );
 }
 
-function getRemoteNoticeTargets(targetConn?: DataConnection): DataConnection[] {
+function getRemoteMessageTargets(targetConn?: DataConnection): DataConnection[] {
   if (targetConn?.open) return [targetConn];
 
   const peers = getState('network.connectedPeers') || [];
@@ -402,7 +402,7 @@ function maybeNotifyRemoteUploadFailure(
   targetConn?: DataConnection,
 ): void {
   const now = Date.now();
-  const targets = getRemoteNoticeTargets(targetConn);
+  const targets = getRemoteMessageTargets(targetConn);
   if (targets.length === 0) return;
 
   const limited = isUploadLimitError(error);
@@ -411,11 +411,13 @@ function maybeNotifyRemoteUploadFailure(
     safeSend(conn, unavailable);
   }
 
-  if (now - _lastUploadFailureNoticeAt < 60_000) return;
-  _lastUploadFailureNoticeAt = now;
-  const key = limited ? 'chat.remote_upload_limited_notice' : 'chat.remote_upload_failed_notice';
+  if (now - _lastUploadFailureMessageAt < 60_000) return;
+  _lastUploadFailureMessageAt = now;
+  const key = limited
+    ? 'chat.remote_upload_limited_system_message'
+    : 'chat.remote_upload_failed_system_message';
   for (const conn of targets) {
-    sendSystemNotice(conn, key);
+    sendSystemMessage(conn, key);
   }
 }
 
@@ -1276,8 +1278,8 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
   }
 
   const message = data.limited
-    ? t('chat.remote_upload_limited_notice')
-    : t('chat.remote_upload_failed_notice');
+    ? t('chat.remote_upload_limited_system_message')
+    : t('chat.remote_upload_failed_system_message');
   clearManagedTimer(REMOTE_WAIT_TIMER);
   showLoader(false);
   showToast(message);

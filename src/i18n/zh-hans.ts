@@ -513,14 +513,14 @@ const zhHans: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': '请等待 {{sec}} 秒后再发送',
   'chat.cmd_notice_prefix': '公告',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice': '跳过此曲目：部分设备不支持该格式。',
-  'chat.system_audio_started_notice':
+  'chat.decode_skip_system_message': '跳过此曲目：部分设备不支持该格式。',
+  'chat.system_audio_started_system_message':
     '系统音频共享已启动。主持人和嘉宾设备之间有轻微延迟是正常现象。为避免回音，建议尽量降低源设备音量。',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     '系统音频共享已结束。主持人可以恢复设备音量，继续作为音箱播放。',
-  'chat.remote_guest_detected_notice': '远程参与者已加入。连接质量可能因网络状况而变化。',
-  'chat.remote_upload_limited_notice': '文件上传已达到限制。\n远程参与者请稍后再试。',
-  'chat.remote_upload_failed_notice': '远程文件上传失败。\n远程参与者请稍后重试。',
+  'chat.remote_guest_detected_system_message': '远程参与者已加入。连接质量可能因网络状况而变化。',
+  'chat.remote_upload_limited_system_message': '文件上传已达到限制。\n远程参与者请稍后再试。',
+  'chat.remote_upload_failed_system_message': '远程文件上传失败。\n远程参与者请稍后重试。',
   'chat.pinned_close': '关闭公告',
   'chat.cmd_whisper_from': '来自 {{name}} 的私聊',
   'chat.cmd_whisper_to': '发给 {{name}} 的私聊',

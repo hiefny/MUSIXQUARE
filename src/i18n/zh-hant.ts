@@ -513,14 +513,14 @@ const zhHant: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': '請等待 {{sec}} 秒後再傳送',
   'chat.cmd_notice_prefix': '公告',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice': '跳過此曲目：部分裝置不支援該格式。',
-  'chat.system_audio_started_notice':
+  'chat.decode_skip_system_message': '跳過此曲目：部分裝置不支援該格式。',
+  'chat.system_audio_started_system_message':
     '系統音訊分享已啟動。主持人與參與者裝置之間有些微延遲是正常現象。為避免回音，建議儘量降低來源裝置音量。',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     '系統音訊分享已結束。主持人可以恢復裝置音量，繼續作為喇叭播放。',
-  'chat.remote_guest_detected_notice': '遠端參與者已加入。連線品質可能因網路狀況而變化。',
-  'chat.remote_upload_limited_notice': '檔案上傳已達限制。\n遠端參與者請稍後再試。',
-  'chat.remote_upload_failed_notice': '遠端檔案上傳失敗。\n遠端參與者請稍後重試。',
+  'chat.remote_guest_detected_system_message': '遠端參與者已加入。連線品質可能因網路狀況而變化。',
+  'chat.remote_upload_limited_system_message': '檔案上傳已達限制。\n遠端參與者請稍後再試。',
+  'chat.remote_upload_failed_system_message': '遠端檔案上傳失敗。\n遠端參與者請稍後重試。',
   'chat.pinned_close': '關閉公告',
   'chat.cmd_whisper_from': '來自 {{name}} 的私訊',
   'chat.cmd_whisper_to': '傳給 {{name}} 的私訊',

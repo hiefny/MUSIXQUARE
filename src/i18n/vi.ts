@@ -526,17 +526,17 @@ const vi: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Chờ {{sec}} giây trước khi gửi',
   'chat.cmd_notice_prefix': 'Thông báo',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice':
+  'chat.decode_skip_system_message':
     'Một số thiết bị không phát được bài này, đang chuyển sang bài tiếp theo',
-  'chat.system_audio_started_notice':
+  'chat.system_audio_started_system_message':
     'Chia sẻ âm thanh hệ thống đã bắt đầu. Độ trễ giữa host và người tham gia là bình thường, nên host hãy giảm âm lượng thiết bị nguồn càng nhiều càng tốt.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Chia sẻ âm thanh hệ thống đã kết thúc. Host hãy tăng lại âm lượng để làm loa của phòng.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Một người tham gia từ xa đã vào. Chất lượng kết nối có thể thay đổi theo điều kiện mạng.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Đã đạt giới hạn tải tệp lên.\nNgười tham gia từ xa nên thử lại sau.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Tải tệp từ xa lên thất bại.\nNgười tham gia từ xa nên thử lại sớm.',
   'chat.pinned_close': 'Đóng thông báo',
   'chat.cmd_whisper_from': 'Tin riêng từ {{name}}',

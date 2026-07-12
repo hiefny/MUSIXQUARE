@@ -466,55 +466,37 @@ function handleChatSystem(data: Record<string, unknown>, conn?: DataConnection):
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
- * Broadcast a localized system chat-notice to every device in the room.
+ * Broadcast a localized, transient system-message row to every device.
  *
- * Each receiver looks up `i18nKey` in its own dictionary at render time, so a
- * single host-side broadcast renders in ko on Korean clients and en on English
- * clients without the host needing to know each guest's locale. The host's own
- * chat is updated locally (broadcast() doesn't loopback) using the host's
- * locale via the `chat:notice-message` bus event — same pattern as
- * network/sync.ts's OP /notice command.
- *
- * `text` is sent in the host's locale as a fallback so any older client that
- * doesn't have the i18nKey yet still displays a readable message instead of
- * the raw key.
+ * Automatic application events belong here. The pinned CHAT_NOTICE channel is
+ * reserved for human-authored room notices and MUSIXQUARE operations notices.
  */
-export function broadcastSystemNotice(
+export function broadcastSystemMessage(
   i18nKey: I18nKey,
   params?: Record<string, string | number>,
 ): void {
   const fallbackText = t(i18nKey, params);
-  const ts = Date.now();
-  const payload = {
-    type: MSG.CHAT_NOTICE,
-    senderLabel: '',
+  broadcast({
+    type: MSG.CHAT_SYSTEM,
     text: fallbackText,
-    ts,
     i18nKey,
     ...(params ? { i18nParams: params } : {}),
-  };
-  rememberPinnedNotice(payload);
-  broadcast(payload);
-  bus.emit('chat:notice-message', '', fallbackText, ts);
+  });
+  bus.emit('chat:system-message', fallbackText);
 }
 
 /**
- * Send the same localized system notice shape to one peer only.
- *
- * This does not update the room's remembered latest notice; use
- * broadcastSystemNotice() for room-wide notices that late joiners should see.
+ * Send a localized, transient system-message row to one peer only.
  */
-export function sendSystemNotice(
+export function sendSystemMessage(
   conn: DataConnection | null | undefined,
   i18nKey: I18nKey,
   params?: Record<string, string | number>,
 ): void {
   const fallbackText = t(i18nKey, params);
   safeSend(conn, {
-    type: MSG.CHAT_NOTICE,
-    senderLabel: '',
+    type: MSG.CHAT_SYSTEM,
     text: fallbackText,
-    ts: Date.now(),
     i18nKey,
     ...(params ? { i18nParams: params } : {}),
   });

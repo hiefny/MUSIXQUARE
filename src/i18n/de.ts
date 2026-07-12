@@ -533,17 +533,17 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Warte {{sec}}s vor dem Senden',
   'chat.cmd_notice_prefix': 'Hinweis',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice':
+  'chat.decode_skip_system_message':
     'Einige Geräte konnten diesen Titel nicht abspielen, springe zum nächsten',
-  'chat.system_audio_started_notice':
+  'chat.system_audio_started_system_message':
     'Systemaudio-Freigabe gestartet. Etwas Verzögerung zwischen Host und Teilnehmern ist normal, daher sollte der Host die Lautstärke des Quellgeräts möglichst weit senken.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Systemaudio-Freigabe beendet. Host, erhöhe die Lautstärke wieder, um als Lautsprecher zu fungieren.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Ein Remote-Teilnehmer ist beigetreten. Die Verbindungsqualität kann je nach Netzwerkbedingungen variieren.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Datei-Upload-Limit erreicht.\nRemote-Teilnehmer sollten es später erneut versuchen.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Remote-Datei-Upload fehlgeschlagen.\nRemote-Teilnehmer sollten es gleich erneut versuchen.',
   'chat.pinned_close': 'Hinweis schließen',
   'chat.cmd_whisper_from': 'Flüstern von {{name}}',

@@ -302,17 +302,17 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Yeni bir mesaj göndermek için lütfen {{sec}} saniye bekleyin',
   'chat.cmd_notice_prefix': 'Duyuru',
   'chat.system_sender': 'Sistem',
-  'chat.decode_skip_notice':
+  'chat.decode_skip_system_message':
     'Bazı cihazlar şarkının kodunu çözemediğinden sonraki şarkıya geçiliyor',
-  'chat.system_audio_started_notice':
+  'chat.system_audio_started_system_message':
     'Sistem sesi paylaşımı başladı. Oda sahibi ile misafir cihazlar arasında hafif bir gecikme olması normaldir. Yankıyı önlemek için oda sahibinin cihaz sesini kısması önerilir.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Sistem sesi paylaşımı sona erdi. Oda sahibi, hoparlör rolüne dönmek için sesi tekrar açabilir.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Uzaktan bir misafir katıldı. Bağlantı kalitesi ağ koşullarına bağlı olarak değişebilir.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Dosya yükleme sınırına ulaşıldı.\nUzaktaki misafirler daha sonra tekrar deneyebilir.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Dosya uzaktan yüklenemedi.\nUzaktaki misafirler kısa süre sonra tekrar deneyebilir.',
   'chat.pinned_close': 'Bildirimi Kapat',
   'chat.cmd_whisper_from': '{{name}} kullanıcısından özel mesaj',

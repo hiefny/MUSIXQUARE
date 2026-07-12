@@ -297,16 +297,16 @@ const ko = {
   'chat.cmd_slowmode_wait': '{{sec}}초 후에 메시지를 보낼 수 있어요',
   'chat.cmd_notice_prefix': '공지',
   'chat.system_sender': '시스템',
-  'chat.decode_skip_notice': '일부 기기에서 재생할 수 없어 다음 곡으로 넘어갑니다',
-  'chat.system_audio_started_notice':
+  'chat.decode_skip_system_message': '일부 기기에서 재생할 수 없어 다음 곡으로 넘어갑니다',
+  'chat.system_audio_started_system_message':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연은 필연적으로 발생하기 때문에 방장 기기의 볼륨은 최대한 낮춰주세요.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     '시스템 오디오 공유가 종료됐어요. 방장은 다시 소리를 키워서 스피커 역할을 해주세요.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     '원격 참여자가 들어왔어요. 네트워크 환경에 따라 연결이 불안정할 수 있어요.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     '파일 업로드 제한에 걸렸어요.\n원격 참여자는 나중에 다시 시도해주세요.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     '원격 파일 업로드에 실패했어요.\n원격 참여자는 잠시 후 다시 시도해주세요.',
   'chat.pinned_close': '공지 닫기',
   'chat.cmd_whisper_from': '{{name}} 님의 귓속말',

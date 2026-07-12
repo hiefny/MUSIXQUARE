@@ -41,7 +41,7 @@ import type {
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
-import { broadcastSystemNotice } from '../chat/protocol.ts';
+import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
@@ -530,7 +530,7 @@ function markFailedAndAdvance(failedQueueItemId: QueueItemId): void {
   const failedItem = getQueueItemById(failedQueueItemId);
   if (!failedItem || getCurrentQueueItemId() !== failedQueueItemId) return;
 
-  broadcastSystemNotice('chat.decode_skip_notice');
+  broadcastSystemMessage('chat.decode_skip_system_message');
   markTrackFailed(getTrackKeyFromItem(failedItem));
 
   const playlist = getState('playlist.items') || [];

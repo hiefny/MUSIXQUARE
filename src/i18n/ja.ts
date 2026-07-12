@@ -531,16 +531,17 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': '送信する前に {{sec}}秒お待ちください',
   'chat.cmd_notice_prefix': 'お知らせ',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice': '一部のデバイスで再生できないため、次のトラックへスキップします',
-  'chat.system_audio_started_notice':
+  'chat.decode_skip_system_message':
+    '一部のデバイスで再生できないため、次のトラックへスキップします',
+  'chat.system_audio_started_system_message':
     'システムオーディオの共有を開始しました。ホストと参加者の間には一定の遅延が発生するため、ハウリングを防ぐためにホストデバイスの音量をできるだけ下げてご使用ください。',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'システムオーディオの共有を終了しました。ホストデバイスの音量を戻して、スピーカーとして再生してください。',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'リモート参加者が参加しました。接続品質はネットワーク状況により変わる場合があります。',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'ファイルアップロード制限に達しました。\nリモート参加者は後でもう一度お試しください。',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'リモートファイルのアップロードに失敗しました。\nリモート参加者は少し後で再試行してください。',
   'chat.pinned_close': 'お知らせを閉じる',
   'chat.cmd_whisper_from': '{{name}} からのささやき',

@@ -50,7 +50,7 @@ vi.mock('../../ui/toast.ts', () => ({
 }));
 
 vi.mock('../../chat/protocol.ts', () => ({
-  sendSystemNotice: vi.fn(),
+  sendSystemMessage: vi.fn(),
 }));
 
 vi.mock('../../i18n/index.ts', () => ({
@@ -659,11 +659,11 @@ describe('remote file share policy', () => {
       conn,
     );
 
-    expect(showToast).toHaveBeenCalledWith('chat.remote_upload_failed_notice');
+    expect(showToast).toHaveBeenCalledWith('chat.remote_upload_failed_system_message');
     expect(getState('share.remote').download).toMatchObject({
       status: 'error',
       progress: 0,
-      error: 'chat.remote_upload_failed_notice',
+      error: 'chat.remote_upload_failed_system_message',
     });
     expect(mocks.transition).toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
   });

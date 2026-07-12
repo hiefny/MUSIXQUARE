@@ -307,17 +307,17 @@ const it: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Attendi {{sec}} secondi prima di inviare un nuovo messaggio',
   'chat.cmd_notice_prefix': 'Avviso',
   'chat.system_sender': 'Sistema',
-  'chat.decode_skip_notice':
+  'chat.decode_skip_system_message':
     'Impossibile riprodurre il brano su alcuni dispositivi. Passaggio al brano successivo...',
-  'chat.system_audio_started_notice':
+  'chat.system_audio_started_system_message':
     "La condivisione dell'audio di sistema è iniziata. Poiché è inevitabile un certo ritardo tra il gestore e gli ospiti, consigliamo al gestore di abbassare al minimo il volume del proprio dispositivo.",
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     "La condivisione dell'audio di sistema è terminata. Il gestore può rialzare il volume per riprendere il ruolo di altoparlante.",
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Un ospite remoto è entrato nella stanza. La qualità della connessione potrebbe variare a seconda della rete.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Limite di caricamento raggiunto.\nGli ospiti remoti possono riprovare più tardi.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Impossibile caricare il file remoto.\nGli ospiti remoti possono riprovare tra qualche istante.',
   'chat.pinned_close': 'Chiudi avviso',
   'chat.cmd_whisper_from': 'Messaggio privato da {{name}}',

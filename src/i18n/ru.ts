@@ -304,17 +304,17 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Подождите {{sec}} сек. перед отправкой следующего сообщения',
   'chat.cmd_notice_prefix': 'Объявление',
   'chat.system_sender': 'Система',
-  'chat.decode_skip_notice':
+  'chat.decode_skip_system_message':
     'Некоторые устройства не смогли декодировать трек. Переход к следующему треку...',
-  'chat.system_audio_started_notice':
+  'chat.system_audio_started_system_message':
     'Общий доступ к системному звуку запущен. Возможна небольшая задержка между хостом и гостями. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Общий доступ к системному звуку завершен. Хост может снова прибавить громкость, чтобы вернуться к роли динамика.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Удаленный гость вошел в комнату. Качество соединения может варьироваться в зависимости от стабильности сети.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Достигнут лимит загрузки файлов.\nУдаленные гости могут попробовать позже.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Не удалось загрузить удаленный файл.\nУдаленные гости могут попробовать еще раз через минуту.',
   'chat.pinned_close': 'Закрыть объявление',
   'chat.cmd_whisper_from': 'Личное сообщение от {{name}}',

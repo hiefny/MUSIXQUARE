@@ -499,11 +499,8 @@ export interface ProtocolMap {
     senderLabel: string;
     text: string;
     ts: number;
-    // Optional i18n key — when present, each receiver renders this key in
-    // their own locale instead of using `text`. Lets system notices (e.g.
-    // "skipped a track that one device couldn't decode") be localized
-    // per-recipient even though the host doesn't know each guest's lang.
-    // Sender also fills `text` so notices with an unknown key remain readable.
+    // Optional i18n key retained for protocol compatibility. New pinned
+    // notices are human-authored or operations-authored and normally use text.
     i18nKey?: string;
     i18nParams?: Record<string, string | number>;
   };
@@ -511,6 +508,8 @@ export interface ProtocolMap {
   'chat-filter': { on: boolean };
   'chat-system': {
     text: string;
+    // Automatic application events use this channel. Receivers localize the
+    // key independently while `text` remains a readable fallback.
     i18nKey?: string;
     i18nParams?: Record<string, string | number>;
   };

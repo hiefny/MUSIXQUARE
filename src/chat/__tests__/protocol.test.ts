@@ -12,7 +12,13 @@ import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
-import { registerChatProtocolHandlers } from '../protocol.ts';
+import {
+  broadcastSystemMessage,
+  registerChatProtocolHandlers,
+  rememberPinnedNotice,
+  sendLatestPinnedNotice,
+  sendSystemMessage,
+} from '../protocol.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 // Mock renderer functions only. Keep the wire caps
@@ -74,5 +80,73 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
     const relayed = sendChat('z'.repeat(5000)); // over the 4000 wire cap
 
     expect(relayed).toHaveLength(0);
+  });
+});
+
+describe('automatic system-message channel', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+  });
+
+  it('does not replace the latest human-authored pinned notice', () => {
+    const roomSend = vi.fn();
+    const lateJoinSend = vi.fn();
+    setState('network.connectedPeers', [
+      {
+        id: 'guest-room',
+        label: 'GUEST 1',
+        status: 'connected',
+        conn: { peer: 'guest-room', open: true, send: roomSend } as unknown as DataConnection,
+      },
+    ]);
+    rememberPinnedNotice({
+      type: MSG.CHAT_NOTICE,
+      senderLabel: 'HOST',
+      text: 'Important room notice',
+      ts: 123,
+    });
+
+    const localMessages: string[] = [];
+    bus.on('chat:system-message', (text) => localMessages.push(text));
+    broadcastSystemMessage('chat.decode_skip_system_message');
+
+    expect(roomSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.CHAT_SYSTEM,
+        i18nKey: 'chat.decode_skip_system_message',
+      }),
+    );
+    expect(localMessages).toHaveLength(1);
+
+    const delivered = sendLatestPinnedNotice({
+      peer: 'guest-late',
+      open: true,
+      send: lateJoinSend,
+    } as unknown as DataConnection);
+    expect(delivered).toBe(true);
+    expect(lateJoinSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.CHAT_NOTICE,
+        senderLabel: 'HOST',
+        text: 'Important room notice',
+      }),
+    );
+  });
+
+  it('sends targeted automatic events as CHAT_SYSTEM rather than CHAT_NOTICE', () => {
+    const send = vi.fn();
+    sendSystemMessage(
+      { peer: 'guest-remote', open: true, send } as unknown as DataConnection,
+      'chat.remote_upload_failed_system_message',
+    );
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.CHAT_SYSTEM,
+        i18nKey: 'chat.remote_upload_failed_system_message',
+      }),
+    );
   });
 });

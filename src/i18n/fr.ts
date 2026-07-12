@@ -542,16 +542,17 @@ const fr: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Attendez {{sec}}s avant d’envoyer',
   'chat.cmd_notice_prefix': 'Annonce',
   'chat.system_sender': 'SYSTÈME',
-  'chat.decode_skip_notice': 'Piste ignorée : format non pris en charge sur certains appareils.',
-  'chat.system_audio_started_notice':
+  'chat.decode_skip_system_message':
+    'Piste ignorée : format non pris en charge sur certains appareils.',
+  'chat.system_audio_started_system_message':
     'Le partage audio système a démarré. Une légère latence entre l’hôte et les invités est normale. Nous recommandons de baisser le volume de l’appareil de l’hôte pour éviter les échos.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Le partage audio système est terminé. Hôte, vous pouvez remonter le volume pour reprendre votre rôle d’enceinte.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Un participant distant a rejoint. La qualité de connexion peut varier selon le réseau.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Limite d’envoi de fichier atteinte.\nLes participants distants devraient réessayer plus tard.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Échec de l’envoi du fichier distant.\nLes participants distants devraient réessayer bientôt.',
   'chat.pinned_close': 'Fermer l’annonce',
   'chat.cmd_whisper_from': 'Message privé de {{name}}',

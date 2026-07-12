@@ -530,17 +530,17 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Tunggu {{sec}} dtk sebelum mengirim',
   'chat.cmd_notice_prefix': 'Pemberitahuan',
   'chat.system_sender': 'SYSTEM',
-  'chat.decode_skip_notice':
+  'chat.decode_skip_system_message':
     'Beberapa perangkat tidak dapat memutar track ini, melewati ke berikutnya',
-  'chat.system_audio_started_notice':
+  'chat.system_audio_started_system_message':
     'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi sebaiknya turunkan volume perangkat host sebisa mungkin agar tidak bergema.',
-  'chat.system_audio_stopped_notice':
+  'chat.system_audio_stopped_system_message':
     'Berbagi audio sistem berakhir. Host, naikkan kembali volume untuk menjadi speaker ruang.',
-  'chat.remote_guest_detected_notice':
+  'chat.remote_guest_detected_system_message':
     'Peserta jarak jauh bergabung. Kualitas koneksi dapat bervariasi sesuai kondisi jaringan.',
-  'chat.remote_upload_limited_notice':
+  'chat.remote_upload_limited_system_message':
     'Batas unggahan file tercapai.\nPeserta jarak jauh sebaiknya mencoba lagi nanti.',
-  'chat.remote_upload_failed_notice':
+  'chat.remote_upload_failed_system_message':
     'Unggahan file jarak jauh gagal.\nPeserta jarak jauh sebaiknya mencoba lagi sebentar lagi.',
   'chat.pinned_close': 'Tutup pemberitahuan',
   'chat.cmd_whisper_from': 'Bisikan dari {{name}}',

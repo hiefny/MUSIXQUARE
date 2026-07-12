@@ -29,7 +29,7 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
-import { broadcastSystemNotice, clearLatestPinnedNotice } from '../chat/protocol.ts';
+import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasSysAudioWarned, markSysAudioWarned } from '../ui/large-room-warnings.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
@@ -269,9 +269,9 @@ export async function startSystemAudioCapture(): Promise<void> {
   _debugLastStreamsReadyAt = Date.now();
   bus.emit('system-audio:streams-ready');
 
-  // 9.1 Localized chat notice for everyone in the room. Same pattern as the
-  // decode-skip notice — each device renders in its own locale.
-  broadcastSystemNotice('chat.system_audio_started_notice');
+  // 9.1 Localized transient system message for everyone in the room. Each
+  // device renders the i18n key in its own locale.
+  broadcastSystemMessage('chat.system_audio_started_system_message');
 
   // 10. Advisory toast — latency is unavoidable, and the host's
   // desktop speakers would otherwise drown out the distributed feed.
@@ -307,10 +307,7 @@ export function stopSystemAudioCapture(opts?: { restore?: boolean }): void {
 
   _debugLastStopBroadcastAt = Date.now();
   broadcast({ type: MSG.SYSTEM_AUDIO_STOP });
-  broadcastSystemNotice('chat.system_audio_stopped_notice');
-  // Current participants should see the stop notice, but late joiners should not
-  // inherit a stale "stopped" banner after regular playback resumes.
-  clearLatestPinnedNotice();
+  broadcastSystemMessage('chat.system_audio_stopped_system_message');
   cleanupCapture();
   muteLocalOutput(false);
 

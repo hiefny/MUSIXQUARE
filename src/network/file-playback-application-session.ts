@@ -36,6 +36,16 @@ import {
   parseFilePlaybackSessionMessageV2,
   type FilePlaybackHandshakeIdToken,
 } from './file-playback-session-handshake.ts';
+import {
+  FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES,
+  FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+  FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
+  FILE_PLAYBACK_PRODUCT_READY_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
+  FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+} from './file-playback-transport-contract.ts';
 import { hasQueueAuthority } from './queue-authority.ts';
 
 const INITIAL_CLOCK_SAMPLE_COUNT = 5;
@@ -48,6 +58,7 @@ const MAX_RETIRED_CLOCK_PING_IDS = 100;
 const MAX_BOOTSTRAP_SNAPSHOT_NODES = 10_000;
 const MAX_BOOTSTRAP_SNAPSHOT_DEPTH = 8;
 const MAX_BOOTSTRAP_OBJECT_KEYS = 32;
+const MAX_AUXILIARY_OBJECT_KEYS = 32;
 
 const RECOVERABLE_CLOCK_SAMPLE_REJECTIONS = new Set<FilePlaybackClockExchangeRejectionReason>([
   'expired-ping',
@@ -69,6 +80,12 @@ const APPLICATION_OPTION_KEYS = Object.freeze([
   'scheduleTimeout',
   'cancelTimeout',
   'adoptWireMessage',
+  'adoptAuxiliaryMessage',
+  'onLifecycleEvent',
+] as const);
+const APPLICATION_HOOK_KEYS = Object.freeze([
+  'adoptWireMessage',
+  'adoptAuxiliaryMessage',
   'onLifecycleEvent',
 ] as const);
 
@@ -79,6 +96,12 @@ const SESSION_TYPES = new Set<string>([
   FILE_PLAYBACK_SESSION_APPLIED_TYPE,
 ]);
 const CLOCK_TYPES = new Set<string>([FILE_PLAYBACK_CLOCK_PING_TYPE, FILE_PLAYBACK_CLOCK_PONG_TYPE]);
+const AUXILIARY_RAW_FRAME_BUDGETS: ReadonlyMap<string, number> = new Map([
+  [FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE, FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES],
+  [FILE_PLAYBACK_PRODUCT_READY_V2_TYPE, FILE_PLAYBACK_PRODUCT_READY_V2_MAX_RAW_FRAME_BYTES],
+  [FILE_MEDIA_SOURCE_OFFER_V2_TYPE, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES],
+  [FILE_PLAYBACK_RUN_BINDING_V2_TYPE, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES],
+]);
 
 export type FilePlaybackApplicationSessionRole = 'host' | 'guest';
 export type FilePlaybackApplicationSessionPhase = 'none' | 'handshaking' | 'established';
@@ -101,6 +124,11 @@ export interface FilePlaybackApplicationSessionManagerOptions {
     event: Readonly<FilePlaybackWireAdoptionEvent>,
     acknowledge: () => void,
   ) => void;
+  /** Synchronous exact-once adoption boundary for bounded product control frames. */
+  readonly adoptAuxiliaryMessage?: (
+    event: Readonly<FilePlaybackAuxiliaryAdoptionEvent>,
+    acknowledge: () => void,
+  ) => void;
   /** Detached lifecycle seam for a later async controller integration. */
   readonly onLifecycleEvent?: (event: Readonly<FilePlaybackApplicationLifecycleEvent>) => void;
 }
@@ -111,6 +139,17 @@ export interface FilePlaybackWireAdoptionEvent {
   readonly channel: FilePlaybackConnectionChannel;
   readonly stateLease: FilePlaybackWireStateLease;
   readonly attemptLease: FilePlaybackWireAttemptLease | null;
+}
+
+export type FilePlaybackAuxiliaryPrimitive = string | number | boolean | null;
+
+export type FilePlaybackAuxiliaryFrame = Readonly<Record<string, FilePlaybackAuxiliaryPrimitive>>;
+
+export interface FilePlaybackAuxiliaryAdoptionEvent {
+  readonly frame: FilePlaybackAuxiliaryFrame;
+  readonly connection: DataConnection;
+  readonly channel: FilePlaybackConnectionChannel;
+  readonly connectionToken: object;
 }
 
 export type FilePlaybackApplicationLifecycleEvent =
@@ -126,6 +165,18 @@ export type FilePlaybackApplicationLifecycleEvent =
       connection: DataConnection;
       channel: FilePlaybackConnectionChannel | null;
     }>;
+
+export interface FilePlaybackApplicationSessionHooks {
+  readonly adoptWireMessage: NonNullable<
+    FilePlaybackApplicationSessionManagerOptions['adoptWireMessage']
+  >;
+  readonly adoptAuxiliaryMessage: NonNullable<
+    FilePlaybackApplicationSessionManagerOptions['adoptAuxiliaryMessage']
+  >;
+  readonly onLifecycleEvent: NonNullable<
+    FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent']
+  >;
+}
 
 export interface FilePlaybackApplicationReceiveResult {
   readonly handled: boolean;
@@ -195,6 +246,98 @@ function snapshotApplicationOptions(value: unknown): Readonly<Record<string, unk
       const descriptor = descriptors[key];
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
       snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+function snapshotApplicationHooks(
+  value: unknown,
+): Readonly<FilePlaybackApplicationSessionHooks> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const expected = new Set<string>(APPLICATION_HOOK_KEYS);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of APPLICATION_HOOK_KEYS) {
+      const descriptor = descriptors[key];
+      if (
+        !descriptor ||
+        !descriptor.enumerable ||
+        !Object.hasOwn(descriptor, 'value') ||
+        typeof descriptor.value !== 'function'
+      ) {
+        return null;
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot) as Readonly<FilePlaybackApplicationSessionHooks>;
+  } catch {
+    return null;
+  }
+}
+
+function isAuxiliaryPrimitive(value: unknown): value is FilePlaybackAuxiliaryPrimitive {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  );
+}
+
+function snapshotAuxiliaryFrame(
+  value: unknown,
+  expectedType: string,
+  maxRawFrameBytes: number,
+): FilePlaybackAuxiliaryFrame | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.length === 0 ||
+      ownKeys.length > MAX_AUXILIARY_OBJECT_KEYS ||
+      ownKeys.some((key) => typeof key !== 'string' || key.length > maxRawFrameBytes)
+    ) {
+      return null;
+    }
+
+    const snapshot = Object.create(null) as Record<string, FilePlaybackAuxiliaryPrimitive>;
+    for (const key of ownKeys as string[]) {
+      const descriptor = descriptors[key];
+      if (
+        !descriptor ||
+        !descriptor.enumerable ||
+        !Object.hasOwn(descriptor, 'value') ||
+        !isAuxiliaryPrimitive(descriptor.value) ||
+        (typeof descriptor.value === 'string' && descriptor.value.length > maxRawFrameBytes)
+      ) {
+        return null;
+      }
+      snapshot[key] = descriptor.value;
+    }
+    if (snapshot.type !== expectedType) return null;
+
+    const serialized = JSON.stringify(snapshot);
+    if (
+      typeof serialized !== 'string' ||
+      new TextEncoder().encode(serialized).byteLength > maxRawFrameBytes
+    ) {
+      return null;
     }
     return Object.freeze(snapshot);
   } catch {
@@ -328,12 +471,13 @@ export class FilePlaybackApplicationSessionManager {
     delayMs: number,
   ) => ApplicationSessionTimerHandle;
   readonly #cancelTimeout: (handle: ApplicationSessionTimerHandle) => void;
-  readonly #adoptWireMessage:
-    | FilePlaybackApplicationSessionManagerOptions['adoptWireMessage']
+  #adoptWireMessage: FilePlaybackApplicationSessionManagerOptions['adoptWireMessage'] | undefined;
+  #adoptAuxiliaryMessage:
+    | FilePlaybackApplicationSessionManagerOptions['adoptAuxiliaryMessage']
     | undefined;
-  readonly #onLifecycleEvent:
-    | FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent']
-    | undefined;
+  #onLifecycleEvent: FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent'] | undefined;
+  #hooksInstalled = false;
+  #hookInstallationClosed = false;
   #hostRoom: HostRoomAuthority | null = null;
 
   constructor(
@@ -363,8 +507,14 @@ export class FilePlaybackApplicationSessionManager {
       ((handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>));
     this.#adoptWireMessage =
       snapshot.adoptWireMessage as FilePlaybackApplicationSessionManagerOptions['adoptWireMessage'];
+    this.#adoptAuxiliaryMessage =
+      snapshot.adoptAuxiliaryMessage as FilePlaybackApplicationSessionManagerOptions['adoptAuxiliaryMessage'];
     this.#onLifecycleEvent =
       snapshot.onLifecycleEvent as FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent'];
+    this.#hooksInstalled =
+      this.#adoptWireMessage !== undefined ||
+      this.#adoptAuxiliaryMessage !== undefined ||
+      this.#onLifecycleEvent !== undefined;
 
     for (const [value, label] of [
       [this.#applicationHandshakeDeadlineMs, 'applicationHandshakeDeadlineMs'],
@@ -385,13 +535,32 @@ export class FilePlaybackApplicationSessionManager {
       typeof this.#scheduleTimeout !== 'function' ||
       typeof this.#cancelTimeout !== 'function' ||
       (this.#adoptWireMessage !== undefined && typeof this.#adoptWireMessage !== 'function') ||
+      (this.#adoptAuxiliaryMessage !== undefined &&
+        typeof this.#adoptAuxiliaryMessage !== 'function') ||
       (this.#onLifecycleEvent !== undefined && typeof this.#onLifecycleEvent !== 'function')
     ) {
       throw new RangeError('Application-session timer options are invalid');
     }
   }
 
+  installHooks(hooks: FilePlaybackApplicationSessionHooks): void {
+    const snapshot = snapshotApplicationHooks(hooks);
+    if (!snapshot) throw new TypeError('Application-session hooks are invalid');
+    if (this.#hooksInstalled) throw new Error('Application-session hooks were already installed');
+    if (this.#hookInstallationClosed || this.#hostRoom !== null || this.#records.size > 0) {
+      throw new Error(
+        'Application-session hooks must be installed before session authority starts',
+      );
+    }
+
+    this.#adoptWireMessage = snapshot.adoptWireMessage;
+    this.#adoptAuxiliaryMessage = snapshot.adoptAuxiliaryMessage;
+    this.#onLifecycleEvent = snapshot.onLifecycleEvent;
+    this.#hooksInstalled = true;
+  }
+
   beginHostRoom(hostParticipantId: string): void {
+    this.#hookInstallationClosed = true;
     this.endRoom();
     const roomClock = getFilePlaybackRoomClock();
     this.#hostRoom = Object.freeze({
@@ -444,6 +613,7 @@ export class FilePlaybackApplicationSessionManager {
       this.#closeTransport(conn);
       return false;
     }
+    this.#hookInstallationClosed = true;
     try {
       // A browser document can own only one guest room authority. Retire every
       // exact predecessor before issuing HELLO for its replacement.
@@ -528,6 +698,16 @@ export class FilePlaybackApplicationSessionManager {
           discriminator.type === MSG.SHUFFLE_MODE)
       ) {
         return this.#receiveGuestBootstrap(record, value);
+      }
+      if (discriminator.type !== null) {
+        const auxiliaryBudget = AUXILIARY_RAW_FRAME_BUDGETS.get(discriminator.type);
+        if (auxiliaryBudget !== undefined) {
+          if (!record.channel) {
+            this.#teardown(record, true);
+            return result(true);
+          }
+          return this.#receiveAuxiliaryMessage(record, value, discriminator.type, auxiliaryBudget);
+        }
       }
       if (discriminator.kind !== null) {
         if (!record.channel) {
@@ -848,6 +1028,77 @@ export class FilePlaybackApplicationSessionManager {
       this.#records.get(record.conn) !== record ||
       record.channel !== channel ||
       record.closing
+    ) {
+      this.#teardown(record, true);
+    }
+    return result(true);
+  }
+
+  #receiveAuxiliaryMessage(
+    record: ConnectionRecord,
+    value: unknown,
+    expectedType: string,
+    maxRawFrameBytes: number,
+  ): Readonly<FilePlaybackApplicationReceiveResult> {
+    const channel = record.channel;
+    const connectionToken = channel?.liveConnectionToken() ?? null;
+    const frame = snapshotAuxiliaryFrame(value, expectedType, maxRawFrameBytes);
+    if (
+      !channel ||
+      connectionToken === null ||
+      !frame ||
+      this.#records.get(record.conn) !== record ||
+      record.channel !== channel ||
+      record.closing ||
+      channel.liveConnectionToken() !== connectionToken
+    ) {
+      this.#teardown(record, true);
+      return result(true);
+    }
+
+    const sink = this.#adoptAuxiliaryMessage;
+    if (!sink) {
+      this.#teardown(record, true);
+      return result(true);
+    }
+    let acknowledgementCount = 0;
+    let acceptingAcknowledgement = true;
+    const acknowledge = () => {
+      acknowledgementCount += 1;
+      if (
+        !acceptingAcknowledgement ||
+        acknowledgementCount !== 1 ||
+        this.#records.get(record.conn) !== record ||
+        record.channel !== channel ||
+        record.closing ||
+        channel.liveConnectionToken() !== connectionToken
+      ) {
+        this.#teardown(record, true);
+      }
+    };
+    try {
+      sink(
+        Object.freeze({
+          frame,
+          connection: record.conn,
+          channel,
+          connectionToken,
+        }),
+        acknowledge,
+      );
+    } catch (error) {
+      log.warn('[AppSession] Auxiliary adoption failed closed', error);
+      this.#teardown(record, true);
+      return result(true);
+    } finally {
+      acceptingAcknowledgement = false;
+    }
+    if (
+      acknowledgementCount !== 1 ||
+      this.#records.get(record.conn) !== record ||
+      record.channel !== channel ||
+      record.closing ||
+      channel.liveConnectionToken() !== connectionToken
     ) {
       this.#teardown(record, true);
     }
@@ -1361,6 +1612,12 @@ export class FilePlaybackApplicationSessionManager {
 }
 
 const filePlaybackApplicationSessions = new FilePlaybackApplicationSessionManager();
+
+export function installFilePlaybackApplicationSessionHooks(
+  hooks: FilePlaybackApplicationSessionHooks,
+): void {
+  filePlaybackApplicationSessions.installHooks(hooks);
+}
 
 export function getFilePlaybackApplicationSessionManager(): FilePlaybackApplicationSessionManager {
   return filePlaybackApplicationSessions;

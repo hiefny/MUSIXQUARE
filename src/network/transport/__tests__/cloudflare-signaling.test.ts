@@ -7,6 +7,10 @@ import { clearAllManagedTimers } from '../../../core/timers.ts';
 import {
   FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+  FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
+  FILE_PLAYBACK_PRODUCT_READY_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
 } from '../../file-playback-transport-contract.ts';
@@ -576,6 +580,11 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     const boundedTypes = [
       [FILE_MEDIA_SOURCE_OFFER_V2_TYPE, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES],
       [FILE_PLAYBACK_RUN_BINDING_V2_TYPE, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES],
+      [
+        FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
+        FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES,
+      ],
+      [FILE_PLAYBACK_PRODUCT_READY_V2_TYPE, FILE_PLAYBACK_PRODUCT_READY_V2_MAX_RAW_FRAME_BYTES],
     ] as const;
     for (const [type, budget] of boundedTypes) {
       const expectedReceived = received.mock.calls.length + 1;
@@ -590,8 +599,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
         'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
       );
     }
-    expect(received).toHaveBeenCalledTimes(2);
-    expect(errors).toHaveBeenCalledTimes(2);
+    expect(received).toHaveBeenCalledTimes(4);
+    expect(errors).toHaveBeenCalledTimes(4);
   });
 
   it('measures multibyte text frames by UTF-8 bytes rather than UTF-16 length', async () => {
@@ -686,6 +695,11 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     const boundedTypes = [
       [FILE_MEDIA_SOURCE_OFFER_V2_TYPE, FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES],
       [FILE_PLAYBACK_RUN_BINDING_V2_TYPE, FILE_PLAYBACK_RUN_BINDING_V2_MAX_RAW_FRAME_BYTES],
+      [
+        FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
+        FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES,
+      ],
+      [FILE_PLAYBACK_PRODUCT_READY_V2_TYPE, FILE_PLAYBACK_PRODUCT_READY_V2_MAX_RAW_FRAME_BYTES],
     ] as const;
 
     for (const [type, budget] of boundedTypes) {
@@ -705,8 +719,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
         'FILE_PLAYBACK_CONTROL_FRAME_TOO_LARGE',
       );
     }
-    expect(received).toHaveBeenCalledTimes(2);
-    expect(errors).toHaveBeenCalledTimes(2);
+    expect(received).toHaveBeenCalledTimes(4);
+    expect(errors).toHaveBeenCalledTimes(4);
   });
 
   it('snapshots native Blob ranges so subclass getters cannot bypass the raw budget', async () => {

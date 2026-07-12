@@ -9,6 +9,8 @@ import {
 } from '../file-playback-clock-exchange.ts';
 import {
   FilePlaybackApplicationSessionManager,
+  installFilePlaybackApplicationSessionHooks,
+  type FilePlaybackApplicationSessionHooks,
   type FilePlaybackApplicationSessionManagerOptions,
   type FilePlaybackApplicationReceiveResult,
 } from '../file-playback-application-session.ts';
@@ -25,6 +27,13 @@ import type {
   FilePlaybackWireMediaBinding,
   FilePlaybackWireStateLease,
 } from '../../player/file-playback-wire-binding.ts';
+import {
+  FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+  FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
+  FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
+  FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+} from '../file-playback-transport-contract.ts';
 
 interface QueuedFrame {
   readonly from: 'host' | 'guest';
@@ -210,6 +219,33 @@ const WIRE_MEDIA: FilePlaybackWireMediaBinding = Object.freeze({
   transferSessionId: 'transfer-wire',
 });
 
+const AUXILIARY_TYPES = Object.freeze([
+  FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
+  FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
+  FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+  FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+] as const);
+
+function auxiliaryFrame(type: (typeof AUXILIARY_TYPES)[number], sequence = 1) {
+  return {
+    protocolVersion: 2,
+    type,
+    sequence,
+    marker: `${type}-${sequence}`,
+  };
+}
+
+function applicationHooks(
+  overrides: Partial<FilePlaybackApplicationSessionHooks> = {},
+): FilePlaybackApplicationSessionHooks {
+  return {
+    adoptWireMessage: (_event, acknowledge) => acknowledge(),
+    adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
+    onLifecycleEvent: () => undefined,
+    ...overrides,
+  };
+}
+
 function bootstrapWirePair(setup: ReturnType<typeof fixture>): Readonly<{
   hostChannel: NonNullable<ReturnType<typeof setup.host.establishedChannel>>;
   guestChannel: NonNullable<ReturnType<typeof setup.guest.establishedChannel>>;
@@ -237,6 +273,55 @@ afterEach(() => {
 });
 
 describe('FilePlaybackApplicationSessionManager', () => {
+  it('installs descriptor-safe hooks atomically once before session authority starts', () => {
+    const manager = new FilePlaybackApplicationSessionManager(issuer('hook-installer'));
+    const invalid = applicationHooks() as FilePlaybackApplicationSessionHooks &
+      Record<string, unknown>;
+    let getterReads = 0;
+    Object.defineProperty(invalid, 'adoptAuxiliaryMessage', {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return () => undefined;
+      },
+    });
+    expect(() => manager.installHooks(invalid)).toThrow('hooks are invalid');
+    expect(getterReads).toBe(0);
+
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const hooks = applicationHooks({ adoptAuxiliaryMessage: adopted });
+    expect(() => manager.installHooks(hooks)).not.toThrow();
+    expect(() => manager.installHooks(applicationHooks())).toThrow('already installed');
+
+    const setup = fixture({ guestManager: manager });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    expect(
+      setup.guest.receive(auxiliaryFrame(FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE), setup.guestConn),
+    ).toMatchObject({ handled: true });
+    expect(adopted).toHaveBeenCalledOnce();
+    expect(setup.guest.phase(setup.guestConn)).toBe('established');
+  });
+
+  it('permanently closes hook installation after a host room has existed', () => {
+    const manager = new FilePlaybackApplicationSessionManager(issuer('late-hook-installer'));
+    manager.beginHostRoom('late-hook-host');
+    manager.endRoom();
+
+    expect(() => manager.installHooks(applicationHooks())).toThrow(
+      'before session authority starts',
+    );
+  });
+
+  it('exports an atomic one-shot installer for the global manager', () => {
+    const invalid = { ...applicationHooks(), extra: true } as FilePlaybackApplicationSessionHooks;
+    expect(() => installFilePlaybackApplicationSessionHooks(invalid)).toThrow('hooks are invalid');
+    expect(() => installFilePlaybackApplicationSessionHooks(applicationHooks())).not.toThrow();
+    expect(() => installFilePlaybackApplicationSessionHooks(applicationHooks())).toThrow(
+      'already installed',
+    );
+  });
+
   it('establishes the exact HELLO/WELCOME/bootstrap/SNAPSHOT/APPLIED flow and five-sample clock', () => {
     const setup = fixture();
     expect(setup.startGuest()).toBe(true);
@@ -273,6 +358,157 @@ describe('FilePlaybackApplicationSessionManager', () => {
     expect(guestTypes[0]).toBe(FILE_PLAYBACK_SESSION_HELLO_TYPE);
     expect(guestTypes.filter((type) => type === FILE_PLAYBACK_CLOCK_PING_TYPE)).toHaveLength(5);
     expect(guestTypes).toContain(FILE_PLAYBACK_SESSION_APPLIED_TYPE);
+  });
+
+  it('adopts recognized auxiliary frames synchronously in receive order with exact authority', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({ hostManagerOptions: { adoptAuxiliaryMessage: adopted } });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const channel = setup.host.establishedChannel(setup.hostConn);
+    if (!channel) throw new Error('Expected an established host channel');
+    const token = channel.liveConnectionToken();
+    if (!token) throw new Error('Expected a live connection token');
+
+    const originals = AUXILIARY_TYPES.map((type, index) => auxiliaryFrame(type, index + 1));
+    for (const frame of originals) {
+      expect(setup.host.receive(frame, setup.hostConn)).toEqual({
+        handled: true,
+        established: false,
+        clockBecameReady: false,
+      });
+    }
+
+    expect(adopted).toHaveBeenCalledTimes(AUXILIARY_TYPES.length);
+    expect(adopted.mock.calls.map(([event]) => event.frame.type)).toEqual(AUXILIARY_TYPES);
+    for (let index = 0; index < originals.length; index += 1) {
+      const event = adopted.mock.calls[index]![0];
+      expect(event).toMatchObject({
+        connection: setup.hostConn,
+        channel,
+        connectionToken: token,
+      });
+      expect(event.frame).toEqual(originals[index]);
+      expect(event.frame).not.toBe(originals[index]);
+      expect(Object.getPrototypeOf(event.frame)).toBeNull();
+      expect(Object.isFrozen(event.frame)).toBe(true);
+      expect(Object.isFrozen(event)).toBe(true);
+    }
+    expect(setup.host.phase(setup.hostConn)).toBe('established');
+  });
+
+  it.each(['missing', 'zero', 'twice', 'throw'] as const)(
+    'tears down when the auxiliary adoption sink is %s',
+    (mode) => {
+      const hostManagerOptions: FilePlaybackApplicationSessionManagerOptions =
+        mode === 'missing'
+          ? {}
+          : {
+              adoptAuxiliaryMessage(_event, acknowledge) {
+                if (mode === 'zero') return;
+                if (mode === 'throw') throw new Error('auxiliary adoption failed');
+                acknowledge();
+                acknowledge();
+              },
+            };
+      const setup = fixture({ hostManagerOptions });
+      expect(setup.startGuest()).toBe(true);
+      setup.pump();
+
+      expect(
+        setup.host.receive(auxiliaryFrame(FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE), setup.hostConn),
+      ).toMatchObject({ handled: true });
+      expect(setup.host.phase(setup.hostConn)).toBe('none');
+      expect(setup.hostConn.close).toHaveBeenCalled();
+    },
+  );
+
+  it('fails closed on auxiliary adoption reentry and publishes revocation before channel close', () => {
+    const lifecycle: Array<{ kind: string; channelClosed: boolean | null }> = [];
+    let setup!: ReturnType<typeof fixture>;
+    setup = fixture({
+      hostManagerOptions: {
+        adoptAuxiliaryMessage(event, acknowledge) {
+          acknowledge();
+          setup.host.receive(event.frame, setup.hostConn);
+        },
+        onLifecycleEvent(event) {
+          lifecycle.push({
+            kind: event.kind,
+            channelClosed: event.channel ? event.channel.isClosed() : null,
+          });
+        },
+      },
+    });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+
+    expect(
+      setup.host.receive(auxiliaryFrame(FILE_PLAYBACK_PRODUCT_READY_V2_TYPE), setup.hostConn),
+    ).toMatchObject({ handled: true });
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+    expect(lifecycle.map((event) => event.kind)).toEqual(['established', 'clock-ready', 'revoked']);
+    expect(lifecycle.at(-1)).toEqual({ kind: 'revoked', channelClosed: false });
+  });
+
+  it('leaves unknown legacy types untouched but claims malformed or oversized known auxiliary frames', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({ hostManagerOptions: { adoptAuxiliaryMessage: adopted } });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+
+    expect(
+      setup.host.receive({ type: 'LEGACY_PRODUCT_MESSAGE', value: 1 }, setup.hostConn),
+    ).toEqual({
+      handled: false,
+      established: false,
+      clockBecameReady: false,
+    });
+    expect(adopted).not.toHaveBeenCalled();
+    expect(setup.host.phase(setup.hostConn)).toBe('established');
+
+    expect(
+      setup.host.receive(
+        {
+          type: FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
+          nested: { forbidden: true },
+        },
+        setup.hostConn,
+      ),
+    ).toMatchObject({ handled: true });
+    expect(adopted).not.toHaveBeenCalled();
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+  });
+
+  it('rejects a recognized auxiliary frame above its raw byte budget', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const oversized = fixture({ hostManagerOptions: { adoptAuxiliaryMessage: adopted } });
+    expect(oversized.startGuest()).toBe(true);
+    oversized.pump();
+    expect(
+      oversized.host.receive(
+        {
+          type: FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
+          padding: 'x'.repeat(FILE_PLAYBACK_PRODUCT_BASELINE_V2_MAX_RAW_FRAME_BYTES),
+        },
+        oversized.hostConn,
+      ),
+    ).toMatchObject({ handled: true });
+    expect(adopted).not.toHaveBeenCalled();
+    expect(oversized.host.phase(oversized.hostConn)).toBe('none');
+    expect(oversized.hostConn.close).toHaveBeenCalled();
+  });
+
+  it('claims recognized auxiliary traffic before APPLIED without invoking the sink', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({ hostManagerOptions: { adoptAuxiliaryMessage: adopted } });
+
+    expect(
+      setup.host.receive(auxiliaryFrame(FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE), setup.hostConn),
+    ).toMatchObject({ handled: true });
+    expect(adopted).not.toHaveBeenCalled();
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+    expect(setup.hostConn.close).toHaveBeenCalledOnce();
   });
 
   it('adopts each accepted canonical wire frame synchronously exactly once with exact leases', () => {

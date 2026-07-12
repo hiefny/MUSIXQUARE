@@ -1,7 +1,10 @@
 import type { QueueItemId } from '../types/index.ts';
+import { calculateRendezvousLeadMs } from '../network/clock-estimator.ts';
 import {
   FilePlaybackApplicationController,
+  type FilePlaybackHostEndedCommit,
   type FilePlaybackHostStartedPlaybackCommit,
+  type FilePlaybackHostTransitionCommit,
 } from './file-playback-application-controller.ts';
 import {
   FilePlaybackAssetRegistry,
@@ -10,6 +13,10 @@ import {
   type FilePlaybackAssetSnapshot,
 } from './file-playback-asset-registry.ts';
 import type { FilePlaybackClockBindings } from './file-playback-clock.ts';
+import type {
+  FilePlaybackEndedTransitionEvidence,
+  FilePlaybackEndedTransitionIntent,
+} from './file-playback-ended-transition.ts';
 import {
   startLocalFilePlayback,
   type FilePlaybackLocalStartCoordinatorRuntimeForTests,
@@ -24,13 +31,24 @@ import {
 import { createFilePlaybackMediaScope } from './file-playback-media-scope.ts';
 import { createFilePlaybackRunId } from './file-playback-run-binding.ts';
 import { FilePlaybackRoomClock } from './file-playback-room-clock.ts';
-import type {
-  FilePlaybackBackend,
-  FilePlaybackPosition,
-  FilePlaybackSourceSnapshot,
-  FilePlaybackStartEvidence,
+import {
+  createFilePlaybackCutoverTarget,
+  type FilePlaybackBackend,
+  type FilePlaybackPauseTransitionEvidence,
+  type FilePlaybackPauseTransitionIntent,
+  type FilePlaybackPosition,
+  type FilePlaybackSeekTransitionEvidence,
+  type FilePlaybackSeekTransitionIntent,
+  type FilePlaybackSourceSnapshot,
+  type FilePlaybackStartEvidence,
+  type FilePlaybackTransitionResult,
 } from './file-playback-source.ts';
 import type { OrdinaryAudioDecoder } from './file-playback-source-factory.ts';
+import type {
+  FilePlaybackStopTransitionEvidence,
+  FilePlaybackStopTransitionIntent,
+  FilePlaybackStopTransitionResult,
+} from './file-playback-stop-transition.ts';
 import {
   createPlaybackStateIdentity,
   type PlaybackAttemptIdentity,
@@ -67,6 +85,7 @@ const START_KEYS = Object.freeze([
 const START_LOCAL_TRACK_KEYS = Object.freeze([...START_KEYS, 'positionSeconds'] as const);
 const CURRENT_OPERATION_KEYS = Object.freeze(['signal'] as const);
 const SEEK_PLAYING_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
+const SEEK_PAUSED_KEYS = SEEK_PLAYING_KEYS;
 const RUNTIME_KEYS = Object.freeze([
   'createRunIdForTests',
   'localStartRuntimeForTests',
@@ -76,6 +95,8 @@ const RUNTIME_KEYS = Object.freeze([
   'createRendezvousIdForTests',
   'fatalAfterAdmissionForTests',
   'onCoordinatorClosedForTests',
+  'beforeManagerTransitionForTests',
+  'beforeTransitionControllerCommitForTests',
 ] as const);
 
 type ExactRecord = Readonly<Record<string, unknown>>;
@@ -85,6 +106,8 @@ export interface FilePlaybackHostFirstFileEngineRuntimeForTests {
   readonly createRunIdForTests?: () => string;
   readonly localStartRuntimeForTests?: FilePlaybackLocalStartCoordinatorRuntimeForTests;
   readonly beforeControllerCommitForTests?: () => void;
+  readonly beforeManagerTransitionForTests?: () => void;
+  readonly beforeTransitionControllerCommitForTests?: () => void;
   /** Exact empty manager factory; production always creates a private manager. */
   readonly createManagerForTests?: () => FilePlaybackManager;
   readonly createRendezvousIdForTests?: () => string;
@@ -138,6 +161,10 @@ export interface SeekHostPlayingOptions extends HostCurrentPlaybackOperationOpti
   readonly positionSeconds: number;
 }
 
+export interface SeekHostPausedOptions extends HostCurrentPlaybackOperationOptions {
+  readonly positionSeconds: number;
+}
+
 /** Serializable, body-free result published only after physical and timeline commit. */
 export interface HostFirstLocalFilePlaybackCommit {
   readonly schemaVersion: 1;
@@ -150,10 +177,27 @@ export interface HostFirstLocalFilePlaybackCommit {
   readonly timeline: PlaybackTimelineSnapshot;
 }
 
+export type HostCurrentPlaybackTransitionEvidence =
+  | FilePlaybackPauseTransitionEvidence
+  | FilePlaybackSeekTransitionEvidence
+  | FilePlaybackStopTransitionEvidence
+  | FilePlaybackEndedTransitionEvidence;
+
+/** Body-free result published only after manager evidence and timeline commit. */
+export interface HostCurrentPlaybackTransitionCommit {
+  readonly schemaVersion: 1;
+  readonly kind: 'pause' | 'seek' | 'stop' | 'ended';
+  readonly roomGeneration: number;
+  readonly evidence: Readonly<HostCurrentPlaybackTransitionEvidence>;
+  readonly timeline: PlaybackTimelineSnapshot;
+}
+
 interface RuntimeSnapshot {
   readonly createRunId: () => string;
   readonly localStartRuntime: FilePlaybackLocalStartCoordinatorRuntimeForTests | undefined;
   readonly beforeControllerCommit: (() => void) | null;
+  readonly beforeManagerTransition: (() => void) | null;
+  readonly beforeTransitionControllerCommit: (() => void) | null;
   readonly onTerminalReferencesReleased:
     | ((
         snapshot: Readonly<{
@@ -221,6 +265,7 @@ interface BeginCandidateOperationInput extends CandidateAudioRuntime {
 }
 
 interface ActiveStartOperation {
+  readonly kind: 'candidate';
   readonly epoch: number;
   readonly action: CandidateAction;
   readonly previousTimeline: PlaybackTimelineSnapshot;
@@ -233,6 +278,30 @@ interface ActiveStartOperation {
   task: Promise<Readonly<HostFirstLocalFilePlaybackCommit>> | null;
 }
 
+type TransitionAction = 'pause' | 'seek' | 'stop' | 'ended';
+type HostCurrentTransitionIntent =
+  | FilePlaybackPauseTransitionIntent
+  | FilePlaybackSeekTransitionIntent
+  | FilePlaybackStopTransitionIntent
+  | FilePlaybackEndedTransitionIntent;
+
+interface ActiveTransitionOperation {
+  readonly kind: 'transition';
+  readonly epoch: number;
+  readonly action: TransitionAction;
+  readonly positionSeconds: number | null;
+  readonly previousTimeline: PlaybackTimelineSnapshot;
+  readonly expectedCurrentPort: FilePlaybackCutoverCandidatePort;
+  readonly controller: AbortController;
+  readonly externalSignal: AbortSignal;
+  readonly removeExternalAbort: () => void;
+  commitDominant: boolean;
+  physicalBoundaryClaimed: boolean;
+  task: Promise<Readonly<HostCurrentPlaybackTransitionCommit>> | null;
+}
+
+type ActiveRoomOperation = ActiveStartOperation | ActiveTransitionOperation;
+
 class HostFirstFileCleanupError extends Error {
   constructor(message: string, cause: unknown) {
     super(message, { cause });
@@ -244,6 +313,10 @@ const trustedControllerSnapshot = FilePlaybackApplicationController.prototype.sn
 const trustedControllerTimeline = FilePlaybackApplicationController.prototype.timelineSnapshot;
 const trustedControllerCommit =
   FilePlaybackApplicationController.prototype.commitHostStartedPlayback;
+const trustedControllerTransitionCommit =
+  FilePlaybackApplicationController.prototype.commitHostPlaybackTransition;
+const trustedControllerEndedCommit =
+  FilePlaybackApplicationController.prototype.commitHostEndedPlayback;
 const trustedManagerCurrentPort = FilePlaybackManager.prototype.currentCutoverPort;
 const trustedManagerSnapshot = FilePlaybackManager.prototype.snapshot;
 const trustedManagerClear = FilePlaybackManager.prototype.clear;
@@ -251,6 +324,11 @@ const trustedManagerRetireCandidate = FilePlaybackManager.prototype.retireCutove
 const trustedManagerRetireCurrent = FilePlaybackManager.prototype.retireCurrentCutover;
 const trustedManagerCurrentSnapshot = FilePlaybackManager.prototype.currentCutoverSnapshot;
 const trustedManagerCurrentPosition = FilePlaybackManager.prototype.currentCutoverPosition;
+const trustedManagerPauseCurrent = FilePlaybackManager.prototype.pauseCurrentCutover;
+const trustedManagerSeekCurrent = FilePlaybackManager.prototype.seekCurrentCutover;
+const trustedManagerStopCurrent = FilePlaybackManager.prototype.stopCurrentCutover;
+const trustedManagerRetireEnded = FilePlaybackManager.prototype.retireEndedCurrent;
+const trustedManagerRecoveryRequired = FilePlaybackManager.prototype.cutoverRecoveryRequired;
 const trustedRoomClockRole = FilePlaybackRoomClock.prototype.role;
 const trustedRoomClockNow = FilePlaybackRoomClock.prototype.nowRoomTimeMs;
 const trustedRoomClockBind = FilePlaybackRoomClock.prototype.bindAudioContext;
@@ -323,6 +401,8 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
       createRunId: () => createFilePlaybackRunId(),
       localStartRuntime: undefined,
       beforeControllerCommit: null,
+      beforeManagerTransition: null,
+      beforeTransitionControllerCommit: null,
       onTerminalReferencesReleased: null,
       createManager: () => new FilePlaybackManager(),
       createRendezvousId: () => createFilePlaybackRunId(),
@@ -344,6 +424,9 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     }
     const createRunId = descriptors.createRunIdForTests?.value;
     const beforeControllerCommit = descriptors.beforeControllerCommitForTests?.value;
+    const beforeManagerTransition = descriptors.beforeManagerTransitionForTests?.value;
+    const beforeTransitionControllerCommit =
+      descriptors.beforeTransitionControllerCommitForTests?.value;
     const localStartRuntime = descriptors.localStartRuntimeForTests?.value;
     const onTerminalReferencesReleased = descriptors.onTerminalReferencesReleasedForTests?.value;
     const createManager = descriptors.createManagerForTests?.value;
@@ -353,6 +436,9 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     if (
       (createRunId !== undefined && typeof createRunId !== 'function') ||
       (beforeControllerCommit !== undefined && typeof beforeControllerCommit !== 'function') ||
+      (beforeManagerTransition !== undefined && typeof beforeManagerTransition !== 'function') ||
+      (beforeTransitionControllerCommit !== undefined &&
+        typeof beforeTransitionControllerCommit !== 'function') ||
       (onTerminalReferencesReleased !== undefined &&
         typeof onTerminalReferencesReleased !== 'function') ||
       (createManager !== undefined && typeof createManager !== 'function') ||
@@ -370,6 +456,9 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
         | FilePlaybackLocalStartCoordinatorRuntimeForTests
         | undefined,
       beforeControllerCommit: (beforeControllerCommit as (() => void) | undefined) ?? null,
+      beforeManagerTransition: (beforeManagerTransition as (() => void) | undefined) ?? null,
+      beforeTransitionControllerCommit:
+        (beforeTransitionControllerCommit as (() => void) | undefined) ?? null,
       onTerminalReferencesReleased:
         (onTerminalReferencesReleased as
           | ((
@@ -503,7 +592,7 @@ export class FilePlaybackHostFirstFileEngine {
   #pendingNewRun: PendingNewRun | null = null;
   #committedPort: FilePlaybackCutoverCandidatePort | null = null;
   #operationEpoch = 0;
-  #activeOperation: ActiveStartOperation | null = null;
+  #activeOperation: ActiveRoomOperation | null = null;
   #startingSynchronously = false;
   #closed = false;
   #fatalError: Error | null = null;
@@ -726,13 +815,56 @@ export class FilePlaybackHostFirstFileEngine {
     });
   }
 
+  pauseCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    return this.#runSynchronousTransition(() => {
+      const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
+      return this.#beginCurrentTransition('pause', input.signal, null);
+    });
+  }
+
+  seekPaused(
+    options: SeekHostPausedOptions,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    return this.#runSynchronousTransition(() => {
+      const input = this.#readCurrentOperationInput(options, SEEK_PAUSED_KEYS);
+      if (
+        typeof input.positionSeconds !== 'number' ||
+        !Number.isFinite(input.positionSeconds) ||
+        input.positionSeconds < 0
+      ) {
+        throw new TypeError('Host paused seek position is invalid');
+      }
+      return this.#beginCurrentTransition('seek', input.signal, input.positionSeconds);
+    });
+  }
+
+  stopCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    return this.#runSynchronousTransition(() => {
+      const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
+      return this.#beginCurrentTransition('stop', input.signal, null);
+    });
+  }
+
+  settleEndedCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    return this.#runSynchronousTransition(() => {
+      const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
+      return this.#beginCurrentTransition('ended', input.signal, null);
+    });
+  }
+
   close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
+    const active = this.#activeOperation;
     this.#closed = true;
-    this.#operationEpoch += 1;
+    if (!active?.commitDominant) this.#operationEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
     if (this.#closePromise) return this.#closePromise;
-    const active = this.#activeOperation;
     if (active && !active.commitDominant) {
       active.controller.abort(new Error('Host first-file room closed'));
     }
@@ -861,7 +993,440 @@ export class FilePlaybackHostFirstFileEngine {
     return freezeCanonical({ signal: input.signal, positionSeconds: input.positionSeconds });
   }
 
+  #runSynchronousTransition(
+    start: () => Promise<Readonly<HostCurrentPlaybackTransitionCommit>>,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    if (this.#startingSynchronously) {
+      return Promise.reject(new Error('Host renderer transition re-entered synchronously'));
+    }
+    this.#startingSynchronously = true;
+    try {
+      return start();
+    } catch (error) {
+      return Promise.reject(error);
+    } finally {
+      this.#startingSynchronously = false;
+    }
+  }
+
+  #beginCurrentTransition(
+    action: TransitionAction,
+    signal: AbortSignal,
+    positionSeconds: number | null,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    const active = this.#activeOperation;
+    if (active?.kind === 'candidate') {
+      throw new Error(`Host ${action} conflicts with an active renderer candidate`);
+    }
+    if (active) {
+      if (
+        active.action === action &&
+        active.positionSeconds === positionSeconds &&
+        active.externalSignal === signal &&
+        active.task
+      ) {
+        return active.task;
+      }
+      throw new Error(`Host ${action} conflicts with an active renderer transition`);
+    }
+    throwIfAborted(signal);
+    const previousTimeline = this.#captureTransitionTimeline(action);
+    const expectedCurrentPort = this.#assertTransitionRenderer(previousTimeline, action);
+    this.#operationEpoch += 1;
+    const operationController = new AbortController();
+    const forwardExternalAbort = () => operationController.abort(signal.reason);
+    signal.addEventListener('abort', forwardExternalAbort, { once: true });
+    const operation: ActiveTransitionOperation = {
+      kind: 'transition',
+      epoch: this.#operationEpoch,
+      action,
+      positionSeconds,
+      previousTimeline,
+      expectedCurrentPort,
+      controller: operationController,
+      externalSignal: signal,
+      removeExternalAbort: () => signal.removeEventListener('abort', forwardExternalAbort),
+      commitDominant: false,
+      physicalBoundaryClaimed: false,
+      task: null,
+    };
+    this.#activeOperation = operation;
+    if (signal.aborted) forwardExternalAbort();
+    const task = this.#executeCurrentTransition(operation);
+    operation.task = task;
+    return task;
+  }
+
+  #captureTransitionTimeline(action: TransitionAction): PlaybackTimelineSnapshot {
+    this.#assertRoomClockAuthority();
+    const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    const phaseAccepted =
+      action === 'pause'
+        ? timeline.phase === 'playing'
+        : action === 'seek'
+          ? timeline.phase === 'paused'
+          : action === 'stop'
+            ? timeline.phase === 'playing' || timeline.phase === 'paused'
+            : timeline.phase === 'playing';
+    if (
+      this.#closed ||
+      this.#fatalError ||
+      snapshot.roomGeneration !== this.#roomGeneration ||
+      snapshot.roomRole !== 'host' ||
+      snapshot.activeConnectionCount !== 0 ||
+      snapshot.timeline !== timeline ||
+      !phaseAccepted ||
+      timeline.run === null ||
+      timeline.revision === Number.MAX_SAFE_INTEGER
+    ) {
+      throw this.#fatalError ?? new Error(`Host ${action} timeline authority is stale`);
+    }
+    this.#assertRoomClockAuthority();
+    return timeline;
+  }
+
+  #assertTransitionRenderer(
+    timeline: PlaybackTimelineSnapshot,
+    action: TransitionAction,
+  ): FilePlaybackCutoverCandidatePort {
+    const port = this.#committedPort;
+    const run = timeline.run;
+    if (!port || !run || currentPort(this.#manager) !== port) {
+      throw new Error(`Host ${action} current renderer authority is stale`);
+    }
+    const snapshot = Reflect.apply(trustedManagerCurrentSnapshot, this.#manager, [port]);
+    if (
+      !snapshot ||
+      snapshot.queueItemId !== run.queueItemId ||
+      snapshot.revision !== timeline.revision ||
+      snapshot.run?.queueItemId !== run.queueItemId ||
+      snapshot.run.runId !== run.runId ||
+      snapshot.run.revision !== timeline.revision
+    ) {
+      throw new Error(`Host ${action} renderer identity does not match timeline truth`);
+    }
+    const phaseAccepted =
+      action === 'pause'
+        ? timeline.phase === 'playing' && snapshot.phase === 'playing'
+        : action === 'seek'
+          ? timeline.phase === 'paused' && snapshot.phase === 'paused'
+          : action === 'stop'
+            ? snapshot.phase === timeline.phase
+            : timeline.phase === 'playing' && snapshot.phase === 'ended';
+    if (!phaseAccepted) throw new Error(`Host ${action} renderer phase is stale`);
+    return port;
+  }
+
+  #transitionStates(timeline: PlaybackTimelineSnapshot): Readonly<{
+    readonly from: PlaybackStateIdentity;
+    readonly to: PlaybackStateIdentity;
+  }> {
+    const run = timeline.run;
+    if (!run) throw new Error('Host renderer transition has no active run');
+    return freezeCanonical({
+      from: createPlaybackStateIdentity({
+        queueItemId: run.queueItemId,
+        runId: run.runId,
+        revision: timeline.revision,
+      }),
+      to: createPlaybackStateIdentity({
+        queueItemId: run.queueItemId,
+        runId: run.runId,
+        revision: timeline.revision + 1,
+      }),
+    });
+  }
+
+  #futureTransitionRoomTime(timeline: PlaybackTimelineSnapshot): number {
+    const clockBindings = this.#clockBindings;
+    if (!clockBindings) throw new Error('Host renderer transition has no room clock binding');
+    const nowRoomTimeMs = clockBindings.nowRoomTimeMs();
+    if (!Number.isFinite(nowRoomTimeMs) || nowRoomTimeMs < 0) {
+      throw new Error('Host renderer transition room clock is unavailable');
+    }
+    const atRoomTimeMs =
+      Math.max(nowRoomTimeMs, timeline.anchorMonotonicMs) + calculateRendezvousLeadMs(0, 0);
+    if (!Number.isFinite(atRoomTimeMs) || atRoomTimeMs < 0) {
+      throw new RangeError('Host renderer transition room target is invalid');
+    }
+    return atRoomTimeMs;
+  }
+
+  #endedObservationRoomTime(timeline: PlaybackTimelineSnapshot): number {
+    const clockBindings = this.#clockBindings;
+    if (!clockBindings) throw new Error('Host ended renderer has no room clock binding');
+    const observedAtRoomTimeMs = clockBindings.nowRoomTimeMs();
+    if (
+      !Number.isFinite(observedAtRoomTimeMs) ||
+      observedAtRoomTimeMs < timeline.anchorMonotonicMs
+    ) {
+      throw new Error('Host ended renderer observation clock is stale');
+    }
+    return observedAtRoomTimeMs;
+  }
+
+  async #executeCurrentTransition(
+    operation: ActiveTransitionOperation,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    try {
+      this.#assertTransitionOperationFence(operation);
+      this.#runtime.beforeManagerTransition?.();
+      this.#assertTransitionOperationFence(operation);
+      const states = this.#transitionStates(operation.previousTimeline);
+      if (operation.action === 'ended') {
+        return await this.#executeEndedTransition(operation, states.from, states.to);
+      }
+      const atRoomTimeMs = this.#futureTransitionRoomTime(operation.previousTimeline);
+      if (operation.action === 'pause') {
+        return await this.#executePauseTransition(operation, states.from, states.to, atRoomTimeMs);
+      }
+      if (operation.action === 'seek') {
+        return await this.#executePausedSeekTransition(
+          operation,
+          states.from,
+          states.to,
+          atRoomTimeMs,
+        );
+      }
+      return await this.#executeStopTransition(operation, states.from, states.to, atRoomTimeMs);
+    } catch (error) {
+      const recoveryRequired = Reflect.apply(trustedManagerRecoveryRequired, this.#manager, []);
+      const currentChanged =
+        currentPort(this.#manager) !== operation.expectedCurrentPort &&
+        currentPort(this.#manager) !== null;
+      if (operation.physicalBoundaryClaimed || recoveryRequired || currentChanged) {
+        this.#quarantineAfterPhysicalFailure(error);
+      }
+      throw error;
+    } finally {
+      operation.removeExternalAbort();
+      if (this.#activeOperation === operation) this.#activeOperation = null;
+    }
+  }
+
+  async #executePauseTransition(
+    operation: ActiveTransitionOperation,
+    from: PlaybackStateIdentity,
+    to: PlaybackStateIdentity,
+    atRoomTimeMs: number,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    const intent: Readonly<FilePlaybackPauseTransitionIntent> = freezeCanonical({
+      kind: 'file-playback-pause-transition' as const,
+      from,
+      to,
+      atRoomTimeMs,
+    });
+    const pending = Reflect.apply(trustedManagerPauseCurrent, this.#manager, [
+      operation.expectedCurrentPort,
+      intent,
+    ]) as Promise<FilePlaybackTransitionResult>;
+    operation.commitDominant = true;
+    const result = await pending;
+    if (result.status === 'rejected') {
+      operation.commitDominant = false;
+      throw new Error(`Host pause was rejected before scheduling: ${result.reason}`);
+    }
+    operation.physicalBoundaryClaimed = true;
+    const evidence = (await result.applied) as Readonly<FilePlaybackPauseTransitionEvidence>;
+    this.#assertTransitionCommitFence(operation, intent, true);
+    this.#runtime.beforeTransitionControllerCommit?.();
+    this.#assertTransitionCommitFence(operation, intent, true);
+    const committed = Reflect.apply(trustedControllerTransitionCommit, this.#controller, [
+      {
+        kind: 'pause',
+        roomGeneration: this.#roomGeneration,
+        expectedPrevious: operation.previousTimeline,
+        intent,
+        evidence,
+      },
+    ]) as Readonly<FilePlaybackHostTransitionCommit>;
+    this.#assertTransitionControllerCommit(operation, intent, committed, 'paused', null);
+    return this.#transitionResult('pause', evidence, committed.timeline);
+  }
+
+  async #executePausedSeekTransition(
+    operation: ActiveTransitionOperation,
+    from: PlaybackStateIdentity,
+    to: PlaybackStateIdentity,
+    atRoomTimeMs: number,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    const positionSeconds = operation.positionSeconds;
+    if (positionSeconds === null) throw new Error('Host paused seek lost its exact position');
+    const intent: Readonly<FilePlaybackSeekTransitionIntent> = freezeCanonical({
+      kind: 'file-playback-seek-transition' as const,
+      from,
+      to,
+      positionSeconds,
+      atRoomTimeMs,
+    });
+    const pending = Reflect.apply(trustedManagerSeekCurrent, this.#manager, [
+      operation.expectedCurrentPort,
+      intent,
+    ]) as Promise<FilePlaybackTransitionResult>;
+    operation.commitDominant = true;
+    const result = await pending;
+    if (result.status === 'rejected') {
+      operation.commitDominant = false;
+      throw new Error(`Host paused seek was rejected before scheduling: ${result.reason}`);
+    }
+    operation.physicalBoundaryClaimed = true;
+    const evidence = (await result.applied) as Readonly<FilePlaybackSeekTransitionEvidence>;
+    this.#assertTransitionCommitFence(operation, intent, true);
+    this.#runtime.beforeTransitionControllerCommit?.();
+    this.#assertTransitionCommitFence(operation, intent, true);
+    const committed = Reflect.apply(trustedControllerTransitionCommit, this.#controller, [
+      {
+        kind: 'seek',
+        roomGeneration: this.#roomGeneration,
+        expectedPrevious: operation.previousTimeline,
+        intent,
+        evidence,
+      },
+    ]) as Readonly<FilePlaybackHostTransitionCommit>;
+    this.#assertTransitionControllerCommit(operation, intent, committed, 'paused', positionSeconds);
+    return this.#transitionResult('seek', evidence, committed.timeline);
+  }
+
+  async #executeStopTransition(
+    operation: ActiveTransitionOperation,
+    from: PlaybackStateIdentity,
+    to: PlaybackStateIdentity,
+    atRoomTimeMs: number,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    const audioContext = this.#audioContext;
+    const clockBindings = this.#clockBindings;
+    if (!audioContext || !clockBindings) {
+      throw new Error('Host stop has no exact audio clock authority');
+    }
+    const contextTimeSeconds = clockBindings.roomTimeMsToContextTime(atRoomTimeMs);
+    const sampleRate = audioContext.sampleRate;
+    if (
+      !Number.isFinite(contextTimeSeconds) ||
+      contextTimeSeconds < 0 ||
+      !Number.isFinite(sampleRate) ||
+      sampleRate <= 0
+    ) {
+      throw new Error('Host stop audio target is invalid');
+    }
+    const targetFrame = Math.round(contextTimeSeconds * sampleRate);
+    const intent: Readonly<FilePlaybackStopTransitionIntent> = freezeCanonical({
+      kind: 'file-playback-stop-transition' as const,
+      from,
+      to,
+      atRoomTimeMs,
+      target: createFilePlaybackCutoverTarget(audioContext, contextTimeSeconds, targetFrame),
+    });
+    const pending = Reflect.apply(trustedManagerStopCurrent, this.#manager, [
+      operation.expectedCurrentPort,
+      intent,
+    ]) as Promise<FilePlaybackStopTransitionResult>;
+    operation.commitDominant = true;
+    const result = await pending;
+    operation.physicalBoundaryClaimed = true;
+    const evidence = await result.applied;
+    this.#assertTransitionCommitFence(operation, intent, false);
+    this.#runtime.beforeTransitionControllerCommit?.();
+    this.#assertTransitionCommitFence(operation, intent, false);
+    const committed = Reflect.apply(trustedControllerTransitionCommit, this.#controller, [
+      {
+        kind: 'stop',
+        roomGeneration: this.#roomGeneration,
+        expectedPrevious: operation.previousTimeline,
+        intent,
+        evidence,
+      },
+    ]) as Readonly<FilePlaybackHostTransitionCommit>;
+    this.#assertTransitionControllerCommit(operation, intent, committed, 'stopped', null);
+    this.#committedPort = null;
+    return this.#transitionResult('stop', evidence, committed.timeline);
+  }
+
+  async #executeEndedTransition(
+    operation: ActiveTransitionOperation,
+    from: PlaybackStateIdentity,
+    to: PlaybackStateIdentity,
+  ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>> {
+    const intent: Readonly<FilePlaybackEndedTransitionIntent> = freezeCanonical({
+      kind: 'file-playback-ended-transition' as const,
+      from,
+      to,
+      observedAtRoomTimeMs: this.#endedObservationRoomTime(operation.previousTimeline),
+    });
+    const pending = Reflect.apply(trustedManagerRetireEnded, this.#manager, [
+      operation.expectedCurrentPort,
+      intent,
+    ]) as Promise<Readonly<FilePlaybackEndedTransitionEvidence>>;
+    operation.commitDominant = true;
+    operation.physicalBoundaryClaimed = true;
+    const evidence = await pending;
+    this.#assertTransitionCommitFence(operation, intent, false);
+    this.#runtime.beforeTransitionControllerCommit?.();
+    this.#assertTransitionCommitFence(operation, intent, false);
+    const committed = Reflect.apply(trustedControllerEndedCommit, this.#controller, [
+      {
+        roomGeneration: this.#roomGeneration,
+        expectedPrevious: operation.previousTimeline,
+        intent,
+        evidence,
+      },
+    ]) as Readonly<FilePlaybackHostEndedCommit>;
+    if (
+      committed.previous !== operation.previousTimeline ||
+      committed.timeline.revision !== intent.to.revision ||
+      committed.timeline.phase !== 'stopped' ||
+      committed.timeline.run !== null
+    ) {
+      throw new Error('Host ended timeline commit did not match manager evidence');
+    }
+    this.#committedPort = null;
+    return this.#transitionResult('ended', evidence, committed.timeline);
+  }
+
+  #assertTransitionControllerCommit(
+    operation: ActiveTransitionOperation,
+    intent:
+      | Readonly<FilePlaybackPauseTransitionIntent>
+      | Readonly<FilePlaybackSeekTransitionIntent>
+      | Readonly<FilePlaybackStopTransitionIntent>,
+    committed: Readonly<FilePlaybackHostTransitionCommit>,
+    expectedPhase: 'paused' | 'stopped',
+    expectedPositionSeconds: number | null,
+  ): void {
+    const timeline = committed.timeline;
+    const run = timeline.run;
+    if (
+      committed.kind !== operation.action ||
+      committed.previous !== operation.previousTimeline ||
+      timeline.revision !== intent.to.revision ||
+      timeline.phase !== expectedPhase ||
+      (expectedPositionSeconds !== null && timeline.positionSeconds !== expectedPositionSeconds) ||
+      (expectedPhase === 'stopped'
+        ? run !== null
+        : !run || run.queueItemId !== intent.to.queueItemId || run.runId !== intent.to.runId)
+    ) {
+      throw new Error(`Host ${operation.action} timeline commit did not match manager evidence`);
+    }
+  }
+
+  #transitionResult(
+    kind: HostCurrentPlaybackTransitionCommit['kind'],
+    evidence: Readonly<HostCurrentPlaybackTransitionEvidence>,
+    timeline: PlaybackTimelineSnapshot,
+  ): Readonly<HostCurrentPlaybackTransitionCommit> {
+    return freezeCanonical({
+      schemaVersion: 1 as const,
+      kind,
+      roomGeneration: this.#roomGeneration,
+      evidence,
+      timeline,
+    });
+  }
+
   #captureTimeline(action: CandidateAction): PlaybackTimelineSnapshot {
+    if (this.#activeOperation?.kind === 'transition') {
+      throw new Error(`Host ${action} conflicts with an active renderer transition`);
+    }
     if (this.#activeOperation?.commitDominant) {
       throw new Error(`Host ${action} cannot supersede a physical renderer commit`);
     }
@@ -1082,6 +1647,9 @@ export class FilePlaybackHostFirstFileEngine {
     input: Readonly<BeginCandidateOperationInput>,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
     const previousOperation = this.#activeOperation;
+    if (previousOperation?.kind === 'transition') {
+      throw new Error('Host local file candidate conflicts with a renderer transition');
+    }
     if (previousOperation?.commitDominant) {
       throw new Error('Host renderer physical commit cannot be superseded');
     }
@@ -1091,6 +1659,7 @@ export class FilePlaybackHostFirstFileEngine {
     const forwardExternalAbort = () => operationController.abort(input.signal.reason);
     input.signal.addEventListener('abort', forwardExternalAbort, { once: true });
     const operation: ActiveStartOperation = {
+      kind: 'candidate',
       epoch: this.#operationEpoch,
       action: input.action,
       previousTimeline: input.previousTimeline,
@@ -1289,6 +1858,62 @@ export class FilePlaybackHostFirstFileEngine {
     throwIfAborted(operation.controller.signal);
   }
 
+  #assertTransitionOperationFence(operation: ActiveTransitionOperation): void {
+    throwIfAborted(operation.externalSignal);
+    throwIfAborted(operation.controller.signal);
+    if (
+      operation.commitDominant ||
+      this.#activeOperation !== operation ||
+      this.#operationEpoch !== operation.epoch
+    ) {
+      throw new Error(`Host ${operation.action} operation was superseded`);
+    }
+    this.#assertTimelineAuthority(operation.previousTimeline, false);
+    if (currentPort(this.#manager) !== operation.expectedCurrentPort) {
+      throw new Error(`Host ${operation.action} current renderer changed before scheduling`);
+    }
+    throwIfAborted(operation.externalSignal);
+    throwIfAborted(operation.controller.signal);
+  }
+
+  #assertTransitionCommitFence(
+    operation: ActiveTransitionOperation,
+    intent: Readonly<HostCurrentTransitionIntent>,
+    keepsCurrentPort: boolean,
+  ): void {
+    if (
+      !operation.commitDominant ||
+      !operation.physicalBoundaryClaimed ||
+      this.#activeOperation !== operation ||
+      this.#operationEpoch !== operation.epoch
+    ) {
+      throw new Error(`Host ${operation.action} physical commit authority was superseded`);
+    }
+    this.#assertTimelineAuthority(operation.previousTimeline, true);
+    const managerPort = currentPort(this.#manager);
+    if (!keepsCurrentPort) {
+      if (managerPort !== null) {
+        throw new Error(`Host ${operation.action} evidence did not retire the exact current port`);
+      }
+      return;
+    }
+    if (managerPort !== operation.expectedCurrentPort) {
+      throw new Error(`Host ${operation.action} evidence lost the exact current port`);
+    }
+    const snapshot = Reflect.apply(trustedManagerCurrentSnapshot, this.#manager, [managerPort]);
+    if (
+      !snapshot ||
+      snapshot.phase !== 'paused' ||
+      snapshot.queueItemId !== intent.to.queueItemId ||
+      snapshot.revision !== intent.to.revision ||
+      snapshot.run?.queueItemId !== intent.to.queueItemId ||
+      snapshot.run.runId !== intent.to.runId ||
+      snapshot.run.revision !== intent.to.revision
+    ) {
+      throw new Error(`Host ${operation.action} renderer state did not match physical evidence`);
+    }
+  }
+
   #candidateAuthorityAllows(
     operation: ActiveStartOperation,
     playbackState: PlaybackStateIdentity,
@@ -1302,7 +1927,15 @@ export class FilePlaybackHostFirstFileEngine {
         }
         return true;
       }
-      if (!operation.published || this.#closed || this.#coordinatorClosed || this.#fatalError) {
+      const closingDominantTransition =
+        this.#activeOperation?.kind === 'transition' &&
+        this.#activeOperation.commitDominant &&
+        (this.#closed || this.#coordinatorClosed);
+      if (
+        !operation.published ||
+        this.#fatalError ||
+        ((this.#closed || this.#coordinatorClosed) && !closingDominantTransition)
+      ) {
         return false;
       }
       this.#assertRoomClockAuthority();
@@ -1383,7 +2016,7 @@ export class FilePlaybackHostFirstFileEngine {
   }
 
   async #closeOwnedRoom(
-    activeTask: Promise<Readonly<HostFirstLocalFilePlaybackCommit>> | null,
+    activeTask: Promise<unknown> | null,
     coordinatorFailure: unknown,
   ): Promise<void> {
     // Always leave the registry mutation that may have reported a fatal error

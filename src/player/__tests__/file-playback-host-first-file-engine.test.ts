@@ -202,6 +202,9 @@ interface FakeSourceHarness {
   readonly startAtContextTime: () => number | null;
   resolveStart(): void;
   resolvePause(): void;
+  resolveSeek(): void;
+  hasPendingPause(): boolean;
+  hasPendingSeek(): boolean;
   markEnded(): void;
 }
 
@@ -221,6 +224,14 @@ function makeSource(
     intent: Extract<
       FilePlaybackTransitionIntent,
       { readonly kind: 'file-playback-pause-transition' }
+    >;
+    targetFrame: number;
+    applied: ReturnType<typeof deferred<ReturnType<typeof createFilePlaybackTransitionEvidence>>>;
+  }> | null = null;
+  let pendingSeek: Readonly<{
+    intent: Extract<
+      FilePlaybackTransitionIntent,
+      { readonly kind: 'file-playback-seek-transition' }
     >;
     targetFrame: number;
     applied: ReturnType<typeof deferred<ReturnType<typeof createFilePlaybackTransitionEvidence>>>;
@@ -320,7 +331,21 @@ function makeSource(
       );
     },
     async seekRevisioned(intent) {
-      return rejectedTransition(intent);
+      if (phase !== 'paused') return rejectedTransition(intent);
+      const seekTargetTime = intent.atRoomTimeMs / 1_000;
+      const seekTargetFrame = Math.round(seekTargetTime * context.sampleRate);
+      const applied = deferred<ReturnType<typeof createFilePlaybackTransitionEvidence>>();
+      pendingSeek = Object.freeze({ intent, targetFrame: seekTargetFrame, applied });
+      return createFilePlaybackScheduledTransitionResult(
+        intent,
+        createFilePlaybackCutoverTarget(
+          context as unknown as AudioContext,
+          seekTargetTime,
+          seekTargetFrame,
+        ),
+        snapshot(),
+        applied.promise,
+      );
     },
     positionAt() {
       return {
@@ -370,6 +395,25 @@ function makeSource(
         ),
       );
     },
+    resolveSeek() {
+      if (!pendingSeek) throw new Error('No seek transition is scheduled');
+      const currentSeek = pendingSeek;
+      pendingSeek = null;
+      phase = 'paused';
+      revision = currentSeek.intent.to.revision;
+      run = Object.freeze({ ...currentSeek.intent.to });
+      positionSeconds = currentSeek.intent.positionSeconds;
+      currentSeek.applied.resolve(
+        createFilePlaybackTransitionEvidence(
+          currentSeek.intent,
+          backend === 'audio-buffer' ? 'webaudio-schedule-passed' : 'worklet-observed',
+          currentSeek.targetFrame,
+          currentSeek.targetFrame,
+        ),
+      );
+    },
+    hasPendingPause: () => pendingPause !== null,
+    hasPendingSeek: () => pendingSeek !== null,
     markEnded() {
       if (phase !== 'playing') throw new Error('Only a playing fixture can end');
       phase = 'ended';
@@ -446,6 +490,8 @@ function makeHarness(
   plans: StagePlan[],
   options: {
     readonly beforeControllerCommit?: () => void;
+    readonly beforeManagerTransition?: () => void;
+    readonly beforeTransitionControllerCommit?: () => void;
     readonly fatal?: (error: Error) => void;
     readonly roomTimeMs?: number;
     readonly fatalAfterAdmission?: boolean;
@@ -540,6 +586,14 @@ function makeHarness(
     localStartRuntimeForTests: { stageAssetSourceForTests },
     ...(options.beforeControllerCommit
       ? { beforeControllerCommitForTests: options.beforeControllerCommit }
+      : {}),
+    ...(options.beforeManagerTransition
+      ? { beforeManagerTransitionForTests: options.beforeManagerTransition }
+      : {}),
+    ...(options.beforeTransitionControllerCommit
+      ? {
+          beforeTransitionControllerCommitForTests: options.beforeTransitionControllerCommit,
+        }
       : {}),
     ...(options.fatalAfterAdmission ? { fatalAfterAdmissionForTests: true } : {}),
     ...(options.onCoordinatorClosed
@@ -1013,6 +1067,283 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await expect(reentrant).rejects.toThrow(/cannot supersede|physical commit/u);
     expect(harness.sources).toHaveLength(1);
     await harness.engine.close();
+  });
+
+  it.each(['audio-buffer', 'streaming-flac'] as const)(
+    'pauses and resumes a %s renderer through exact manager evidence',
+    async (backend) => {
+      const harness = makeHarness([{ backend }, { backend }]);
+      const blob = new Blob([new Uint8Array([61])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      const first = await resolveLatestStart(
+        harness,
+        harness.start(blob, { name: 'engine-pause-resume' }),
+      );
+      const currentPort = harness.manager.currentCutoverPort();
+      const previous = harness.controller.timelineSnapshot();
+      harness.setRoomTime(2_000);
+      const signal = new AbortController().signal;
+      const pending = harness.engine.pauseCurrent({ signal });
+      const retry = harness.engine.pauseCurrent({ signal });
+      expect(retry).toBe(pending);
+      await expect(
+        harness.engine.stopCurrent({ signal: new AbortController().signal }),
+      ).rejects.toThrow(/conflicts/u);
+      await expect(
+        harness.engine.replayCurrent({ signal: new AbortController().signal }),
+      ).rejects.toThrow(/conflicts/u);
+      await drainMicrotasks();
+      expect(harness.sources[0]?.hasPendingPause()).toBe(true);
+      expect(harness.controller.timelineSnapshot()).toBe(previous);
+      expect(harness.manager.currentCutoverPort()).toBe(currentPort);
+      expect(harness.manager.currentCutoverSnapshot(currentPort!)).toMatchObject({
+        phase: 'playing',
+        revision: 1,
+      });
+
+      harness.sources[0]?.resolvePause();
+      const paused = await pending;
+      expect(paused).toMatchObject({
+        kind: 'pause',
+        evidence: { kind: 'pause-applied', to: { revision: 2 } },
+        timeline: { phase: 'paused', revision: 2 },
+      });
+      expect(paused.timeline.run).toEqual(first.timeline.run);
+      expect(harness.manager.currentCutoverPort()).toBe(currentPort);
+      expect(harness.manager.currentCutoverSnapshot(currentPort!)).toMatchObject({
+        phase: 'paused',
+        revision: 2,
+      });
+      expectBodyFree(paused);
+
+      harness.setRoomTime(3_000);
+      const resumed = await resolveLatestStart(
+        harness,
+        harness.engine.resumeCurrent({ signal: new AbortController().signal }),
+      );
+      expect(resumed).toMatchObject({
+        attempt: { runId: first.attempt.runId, revision: 3 },
+        schedule: { positionSeconds: paused.timeline.positionSeconds },
+        timeline: { phase: 'playing', revision: 3 },
+      });
+      expect(harness.createRunId).toHaveBeenCalledTimes(1);
+      await harness.engine.close();
+    },
+  );
+
+  it.each(['audio-buffer', 'streaming-flac'] as const)(
+    'seeks a paused %s renderer only after native evidence',
+    async (backend) => {
+      const harness = makeHarness([{ backend }]);
+      const blob = new Blob([new Uint8Array([62])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      await resolveLatestStart(harness, harness.start(blob, { name: 'engine-paused-seek' }));
+      harness.setRoomTime(2_000);
+      const pausing = harness.engine.pauseCurrent({ signal: new AbortController().signal });
+      await drainMicrotasks();
+      harness.sources[0]?.resolvePause();
+      await pausing;
+
+      harness.setRoomTime(3_000);
+      const previous = harness.controller.timelineSnapshot();
+      const port = harness.manager.currentCutoverPort();
+      const pending = harness.engine.seekPaused({
+        positionSeconds: 33,
+        signal: new AbortController().signal,
+      });
+      await drainMicrotasks();
+      expect(harness.sources[0]?.hasPendingSeek()).toBe(true);
+      expect(harness.controller.timelineSnapshot()).toBe(previous);
+      expect(harness.manager.currentCutoverSnapshot(port!)).toMatchObject({
+        phase: 'paused',
+        revision: 2,
+      });
+
+      harness.sources[0]?.resolveSeek();
+      const committed = await pending;
+      expect(committed).toMatchObject({
+        kind: 'seek',
+        evidence: { kind: 'seek-applied', positionSeconds: 33, to: { revision: 3 } },
+        timeline: { phase: 'paused', revision: 3, positionSeconds: 33 },
+      });
+      expect(harness.manager.currentCutoverPort()).toBe(port);
+      expect(harness.manager.currentCutoverSnapshot(port!)).toMatchObject({
+        phase: 'paused',
+        revision: 3,
+        positionSeconds: 33,
+      });
+      expectBodyFree(committed);
+      await harness.engine.close();
+    },
+  );
+
+  it('honors abort before a manager transition is scheduled', async () => {
+    const abort = new AbortController();
+    const harness = makeHarness([{ backend: 'audio-buffer' }], {
+      beforeManagerTransition: () => abort.abort(new Error('cancel before native schedule')),
+    });
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([63])], { type: 'audio/mpeg' }), {
+        name: 'abort-before-pause',
+      }),
+    );
+    const previous = harness.controller.timelineSnapshot();
+
+    await expect(harness.engine.pauseCurrent({ signal: abort.signal })).rejects.toThrow(
+      'cancel before native schedule',
+    );
+    expect(harness.sources[0]?.hasPendingPause()).toBe(false);
+    expect(harness.controller.timelineSnapshot()).toBe(previous);
+    expect(harness.manager.currentCutoverPort()).not.toBeNull();
+    await harness.engine.close();
+  });
+
+  it('lets scheduled evidence dominate a later abort and close', async () => {
+    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([64])], { type: 'audio/flac' }), {
+        name: 'dominant-pause.flac',
+      }),
+    );
+    harness.setRoomTime(2_000);
+    const abort = new AbortController();
+    const pending = harness.engine.pauseCurrent({ signal: abort.signal });
+    await drainMicrotasks();
+    expect(harness.sources[0]?.hasPendingPause()).toBe(true);
+    abort.abort(new Error('too late to cancel'));
+    const close = harness.engine.close();
+    harness.sources[0]?.resolvePause();
+
+    await expect(pending).resolves.toMatchObject({
+      kind: 'pause',
+      timeline: { phase: 'paused', revision: 2 },
+    });
+    await close;
+    expect(harness.controller.timelineSnapshot()).toMatchObject({ phase: 'paused', revision: 2 });
+    expect(harness.manager.currentCutoverPort()).toBeNull();
+    expect(harness.fatal).not.toHaveBeenCalled();
+  });
+
+  it.each(['audio-buffer', 'streaming-flac'] as const)(
+    'stops a %s renderer at one mapped frame and can start the next track',
+    async (backend) => {
+      vi.useFakeTimers();
+      try {
+        const harness = makeHarness([{ backend }, { backend }]);
+        const blob = new Blob([new Uint8Array([65])], {
+          type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+        });
+        await resolveLatestStart(harness, harness.start(blob, { name: 'engine-stop' }));
+        const previous = harness.controller.timelineSnapshot();
+        harness.setRoomTime(2_000);
+        const pending = harness.engine.stopCurrent({ signal: new AbortController().signal });
+        await drainMicrotasks();
+        expect(harness.controller.timelineSnapshot()).toBe(previous);
+        expect(harness.manager.currentCutoverPort()).not.toBeNull();
+
+        harness.context.currentTime = 10;
+        await vi.advanceTimersByTimeAsync(1_000);
+        const stopped = await pending;
+        expect(stopped).toMatchObject({
+          kind: 'stop',
+          evidence: { kind: 'stop-applied', to: { revision: 2 } },
+          timeline: { phase: 'stopped', revision: 2, run: null },
+        });
+        expect(harness.manager.currentCutoverPort()).toBeNull();
+        expect(harness.engine.currentRendererSnapshot()).toBeNull();
+        expectBodyFree(stopped);
+
+        harness.setRoomTime(11_000);
+        const nextBlob = new Blob([new Uint8Array([66])], { type: blob.type });
+        const next = await resolveLatestStart(
+          harness,
+          harness.engine.startLocalTrack(localTrackOptions(harness, Q2, nextBlob, 0)),
+        );
+        expect(next).toMatchObject({
+          attempt: { queueItemId: Q2, revision: 3 },
+          timeline: { phase: 'playing', revision: 3 },
+        });
+        await harness.engine.close();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each(['audio-buffer', 'streaming-flac'] as const)(
+    'settles natural end for a %s renderer without synthesizing a scheduled stop',
+    async (backend) => {
+      const harness = makeHarness([{ backend }]);
+      const blob = new Blob([new Uint8Array([67])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      await resolveLatestStart(harness, harness.start(blob, { name: 'engine-ended' }));
+      harness.sources[0]?.markEnded();
+      harness.setRoomTime(2_000);
+      const previous = harness.controller.timelineSnapshot();
+      const committed = await harness.engine.settleEndedCurrent({
+        signal: new AbortController().signal,
+      });
+
+      expect(previous).toMatchObject({ phase: 'playing', revision: 1 });
+      expect(committed).toMatchObject({
+        kind: 'ended',
+        evidence: { kind: 'ended-renderer-retired', to: { revision: 2 } },
+        timeline: { phase: 'stopped', revision: 2, run: null },
+      });
+      expect(harness.manager.currentCutoverPort()).toBeNull();
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+      expectBodyFree(committed);
+      await harness.engine.close();
+    },
+  );
+
+  it('rejects a transition after room-clock authority becomes stale', async () => {
+    const harness = makeHarness([{ backend: 'audio-buffer' }]);
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([68])], { type: 'audio/mpeg' }), {
+        name: 'stale-transition-clock',
+      }),
+    );
+    const previous = harness.controller.timelineSnapshot();
+    harness.roomClock.beginHostSession();
+
+    await expect(
+      harness.engine.pauseCurrent({ signal: new AbortController().signal }),
+    ).rejects.toThrow(/ROOM_CLOCK_REVOKED|stale/u);
+    expect(harness.controller.timelineSnapshot()).toBe(previous);
+    expect(harness.sources[0]?.hasPendingPause()).toBe(false);
+    await harness.engine.close();
+  });
+
+  it('quarantines the room when controller authority changes after transition evidence', async () => {
+    let controller!: FilePlaybackApplicationController;
+    const harness = makeHarness([{ backend: 'audio-buffer' }], {
+      beforeTransitionControllerCommit: () => {
+        controller.beginRoom(createStoppedPlaybackTimeline(5_000, 0));
+        controller.claimRoomRole('host');
+      },
+    });
+    controller = harness.controller;
+    const blob = new Blob([new Uint8Array([69])], { type: 'audio/mpeg' });
+    await resolveLatestStart(harness, harness.start(blob, { name: 'transition-aba' }));
+    harness.setRoomTime(2_000);
+    const pending = harness.engine.pauseCurrent({ signal: new AbortController().signal });
+    await drainMicrotasks();
+    harness.sources[0]?.resolvePause();
+
+    await expect(pending).rejects.toThrow(/stale|superseded/u);
+    await expect(
+      harness.engine.pauseCurrent({ signal: new AbortController().signal }),
+    ).rejects.toThrow(/closed|stale/u);
+    await harness.engine.close();
+    expect(harness.manager.currentCutoverPort()).toBeNull();
+    expect(harness.fatal).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes an empty browser MIME without changing the immutable file binding', async () => {

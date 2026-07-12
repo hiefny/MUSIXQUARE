@@ -10,7 +10,11 @@ import {
   FilePlaybackGuestSessionHandshake,
   FilePlaybackHostSessionHandshake,
 } from '../file-playback-session-handshake.ts';
-import type { FilePlaybackWireMediaBinding } from '../../player/file-playback-wire.ts';
+import type {
+  FilePlaybackWireAttemptLease,
+  FilePlaybackWireMediaBinding,
+  FilePlaybackWireStateLease,
+} from '../../player/file-playback-wire-binding.ts';
 
 const HOST_ID = 'host-participant-1';
 const GUEST_ID = 'guest-participant-1';
@@ -18,7 +22,11 @@ const MEDIA: FilePlaybackWireMediaBinding = Object.freeze({
   run: Object.freeze({ queueItemId: 'queue-item-1', runId: 'run-1', revision: 1 }),
   sourceIdentity: 'source-identity-1',
   transferSessionId: 'transfer-session-1',
-  rendezvousId: 'rendezvous-1',
+});
+const SUCCESSOR: FilePlaybackWireMediaBinding = Object.freeze({
+  run: Object.freeze({ queueItemId: 'queue-item-1', runId: 'run-1', revision: 2 }),
+  sourceIdentity: 'source-identity-1',
+  transferSessionId: 'transfer-session-1',
 });
 
 function fakeNow(initial = 1_000) {
@@ -147,6 +155,32 @@ function wireEnvelope(
     transferSessionId: MEDIA.transferSessionId,
   };
 }
+
+function bindCurrent(
+  channel: FilePlaybackConnectionChannel,
+  binding: FilePlaybackWireMediaBinding = MEDIA,
+  rendezvousId = 'rendezvous-1',
+): Readonly<{
+  state: FilePlaybackWireStateLease;
+  attempt: FilePlaybackWireAttemptLease;
+}> {
+  const state = channel.bootstrapCurrentMedia(binding);
+  const attempt = channel.stageAttempt(state, rendezvousId);
+  return { state, attempt };
+}
+
+function bindPair(setup: ReturnType<typeof channels>) {
+  return {
+    host: bindCurrent(setup.host),
+    guest: bindCurrent(setup.guest),
+  };
+}
+
+const expectedCurrent = Object.freeze({
+  expectedQueueItemId: MEDIA.run.queueItemId,
+  expectedRunId: MEDIA.run.runId,
+  expectedRevision: MEDIA.run.revision,
+});
 
 describe('FilePlaybackConnectionChannel', () => {
   it('derives immutable endpoint scope from one fully APPLIED handshake pair', () => {
@@ -307,12 +341,11 @@ describe('FilePlaybackConnectionChannel', () => {
   it('round-trips exact wire traffic in both participant directions', () => {
     const setup = channels();
     calibrate(setup);
-    setup.host.bindMedia(MEDIA);
-    setup.guest.bindMedia(MEDIA);
+    const leases = bindPair(setup);
     setup.hostNow.set(2_100);
     setup.guestNow.set(2_000);
 
-    const ready = setup.guest.createWire({
+    const ready = setup.guest.createWire(leases.guest.state, {
       kind: 'source-ready',
       observedAtRoomTimeMs: 2_100,
       readyLeaseUntilRoomTimeMs: 12_100,
@@ -322,20 +355,27 @@ describe('FilePlaybackConnectionChannel', () => {
       outputSampleRateHz: 48_000,
       channelCount: 2,
     });
-    expect(setup.host.receive(ready, setup.hostToken)).toEqual({
+    expect(setup.host.receive(ready, setup.hostToken)).toMatchObject({
       accepted: true,
       frame: 'wire',
       message: ready,
+      stateLease: leases.host.state,
+      attemptLease: null,
     });
 
-    const pause = setup.host.createWire({
+    const hostSuccessor = setup.host.stageMedia(SUCCESSOR);
+    const guestSuccessor = setup.guest.stageMedia(SUCCESSOR);
+    const pause = setup.host.createWire(hostSuccessor, {
       kind: 'file-playback-pause',
+      ...expectedCurrent,
       atRoomTimeMs: 2_100,
     });
-    expect(setup.guest.receive(pause, setup.guestToken)).toEqual({
+    expect(setup.guest.receive(pause, setup.guestToken)).toMatchObject({
       accepted: true,
       frame: 'wire',
       message: pause,
+      stateLease: guestSuccessor,
+      attemptLease: null,
     });
 
     expect(Object.getPrototypeOf(ready)).toBeNull();
@@ -345,13 +385,12 @@ describe('FilePlaybackConnectionChannel', () => {
   it('enforces the exhaustive role-kind table before outbound sequence and inbound watermark', () => {
     const setup = channels();
     calibrate(setup);
-    setup.host.bindMedia(MEDIA);
-    setup.guest.bindMedia(MEDIA);
+    const leases = bindPair(setup);
     setup.hostNow.set(2_100);
     setup.guestNow.set(2_000);
 
     expect(() =>
-      setup.host.createWire({
+      setup.host.createWire(leases.host.state, {
         kind: 'source-not-ready',
         observedAtRoomTimeMs: 2_100,
         reasonCode: 'illegal-host-kind',
@@ -359,7 +398,7 @@ describe('FilePlaybackConnectionChannel', () => {
       }),
     ).toThrow(/host cannot send source-not-ready/u);
     expect(() =>
-      setup.guest.createWire({
+      setup.guest.createWire(leases.guest.attempt, {
         kind: 'rendezvous-arm',
         rendezvousId: 'rendezvous-1',
         positionSeconds: 0,
@@ -369,7 +408,7 @@ describe('FilePlaybackConnectionChannel', () => {
       }),
     ).toThrow(/guest cannot send rendezvous-arm/u);
 
-    const hostArm = setup.host.createWire({
+    const hostArm = setup.host.createWire(leases.host.attempt, {
       kind: 'rendezvous-arm',
       rendezvousId: 'rendezvous-1',
       positionSeconds: 0,
@@ -377,7 +416,7 @@ describe('FilePlaybackConnectionChannel', () => {
       startAtRoomTimeMs: 2_300,
       finalizeByRoomTimeMs: 2_200,
     });
-    const guestNotReady = setup.guest.createWire({
+    const guestNotReady = setup.guest.createWire(leases.guest.state, {
       kind: 'source-not-ready',
       observedAtRoomTimeMs: 2_100,
       reasonCode: 'legal-guest-kind',
@@ -425,8 +464,9 @@ describe('FilePlaybackConnectionChannel', () => {
 
   it('gates guest temporal authority before calibration and across wake/recalibration', () => {
     const setup = channels();
-    setup.host.bindMedia(MEDIA);
-    setup.guest.bindMedia(MEDIA);
+    const leases = bindPair(setup);
+    const hostSuccessor = setup.host.stageMedia(SUCCESSOR);
+    setup.guest.stageMedia(SUCCESSOR);
     setup.hostNow.set(1_000);
     setup.guestNow.set(1_000);
 
@@ -438,7 +478,7 @@ describe('FilePlaybackConnectionChannel', () => {
       /not calibrated/u,
     );
     expect(() =>
-      setup.guest.createWire({
+      setup.guest.createWire(leases.guest.state, {
         kind: 'source-not-ready',
         observedAtRoomTimeMs: 1_100,
         reasonCode: 'not-calibrated',
@@ -446,8 +486,9 @@ describe('FilePlaybackConnectionChannel', () => {
       }),
     ).toThrow(/not calibrated/u);
 
-    const preCalibrationPause = setup.host.createWire({
+    const preCalibrationPause = setup.host.createWire(hostSuccessor, {
       kind: 'file-playback-pause',
+      ...expectedCurrent,
       atRoomTimeMs: 1_100,
     });
     expect(preCalibrationPause.controlSequence).toBe(1);
@@ -473,8 +514,9 @@ describe('FilePlaybackConnectionChannel', () => {
     expect(() => bindings.localPerformanceMsToContextTime(2_000)).toThrow(/not calibrated/u);
 
     setup.hostNow.set(2_100);
-    const postWakeSeek = setup.host.createWire({
+    const postWakeSeek = setup.host.createWire(hostSuccessor, {
       kind: 'file-playback-seek',
+      ...expectedCurrent,
       positionSeconds: 4,
       atRoomTimeMs: 2_100,
     });
@@ -617,7 +659,7 @@ describe('FilePlaybackConnectionChannel', () => {
   it('fails closed and revokes media, clock, token, binding, and old audio bindings', () => {
     const setup = channels();
     calibrate(setup);
-    setup.guest.bindMedia(MEDIA);
+    const lease = bindCurrent(setup.guest);
     const audioBindings = setup.guest.bindAudioContext({ currentTime: 5 } as AudioContext);
 
     setup.guest.close();
@@ -631,10 +673,14 @@ describe('FilePlaybackConnectionChannel', () => {
     });
     expect(() => setup.guest.createClockPing()).toThrow(/closed/u);
     expect(() =>
-      setup.guest.createWire({ kind: 'file-playback-cancel', reasonCode: 'closed' }),
+      setup.guest.createWire(lease.attempt, {
+        kind: 'file-playback-cancel',
+        rendezvousId: 'rendezvous-1',
+        reasonCode: 'closed',
+      }),
     ).toThrow(/closed/u);
-    expect(() => setup.guest.bindMedia(MEDIA)).toThrow(/closed/u);
-    expect(() => setup.guest.clearMedia()).toThrow(/closed/u);
+    expect(() => setup.guest.stageMedia(MEDIA)).toThrow(/closed/u);
+    expect(() => setup.guest.retireMedia(lease.state)).toThrow(/closed/u);
     expect(() => setup.guest.quality()).toThrow(/closed/u);
     expect(() => setup.guest.nowRoomTimeMs()).toThrow(/closed/u);
     expect(() => setup.guest.handleWake()).toThrow(/closed/u);
@@ -649,8 +695,9 @@ describe('FilePlaybackConnectionChannel', () => {
   it('rejects clock and wire direction errors without advancing either clock or watermark', () => {
     const setup = channels();
     calibrate(setup);
-    setup.host.bindMedia(MEDIA);
-    setup.guest.bindMedia(MEDIA);
+    const leases = bindPair(setup);
+    const hostSuccessor = setup.host.stageMedia(SUCCESSOR);
+    setup.guest.stageMedia(SUCCESSOR);
     expect(() => setup.host.createClockPing()).toThrow(/guest channel/u);
     setup.guestNow.set(2_000);
     const ping = setup.guest.createClockPing();
@@ -663,8 +710,9 @@ describe('FilePlaybackConnectionChannel', () => {
     expect(setup.guestNow.reads()).toBe(guestReads);
 
     setup.hostNow.set(2_100);
-    const ownHostFrame = setup.host.createWire({
+    const ownHostFrame = setup.host.createWire(hostSuccessor, {
       kind: 'file-playback-pause',
+      ...expectedCurrent,
       atRoomTimeMs: 2_100,
     });
     const hostReads = setup.hostNow.reads();
@@ -674,7 +722,7 @@ describe('FilePlaybackConnectionChannel', () => {
     });
     expect(setup.hostNow.reads()).toBe(hostReads);
 
-    const guestFrame = setup.guest.createWire({
+    const guestFrame = setup.guest.createWire(leases.guest.state, {
       kind: 'source-not-ready',
       observedAtRoomTimeMs: 2_100,
       reasonCode: 'still-sequence-one',
@@ -718,17 +766,16 @@ describe('FilePlaybackConnectionChannel', () => {
   it('classifies hostile frames once, blocks re-entry, and commits only the outer frame', () => {
     const setup = channels();
     calibrate(setup);
-    setup.host.bindMedia(MEDIA);
-    setup.guest.bindMedia(MEDIA);
+    const leases = bindPair(setup);
     setup.guestNow.set(2_000);
     setup.hostNow.set(2_100);
-    const first = setup.guest.createWire({
+    const first = setup.guest.createWire(leases.guest.state, {
       kind: 'source-not-ready',
       observedAtRoomTimeMs: 2_100,
       reasonCode: 'first',
       retryable: true,
     });
-    const second = setup.guest.createWire({
+    const second = setup.guest.createWire(leases.guest.state, {
       kind: 'source-not-ready',
       observedAtRoomTimeMs: 2_100,
       reasonCode: 'second',
@@ -795,14 +842,13 @@ describe('FilePlaybackConnectionChannel', () => {
     expect(typeDescriptorReads).toBe(1);
   });
 
-  it('uses the latest media authority after hostile classification side effects', () => {
+  it('stale-drops an exact retired state after hostile classification side effects', () => {
     const setup = channels();
     calibrate(setup);
-    setup.host.bindMedia(MEDIA);
-    setup.guest.bindMedia(MEDIA);
+    const leases = bindPair(setup);
     setup.guestNow.set(2_000);
     setup.hostNow.set(2_100);
-    const message = setup.guest.createWire({
+    const message = setup.guest.createWire(leases.guest.state, {
       kind: 'source-not-ready',
       observedAtRoomTimeMs: 2_100,
       reasonCode: 'old-media',
@@ -813,92 +859,201 @@ describe('FilePlaybackConnectionChannel', () => {
       ownKeys(target) {
         if (!rebound) {
           rebound = true;
-          setup.host.bindMedia({
+          setup.host.retireMedia(leases.host.state);
+          const replacement = setup.host.stageMedia({
             run: { queueItemId: 'queue-item-2', runId: 'run-2', revision: 2 },
             sourceIdentity: 'source-identity-2',
             transferSessionId: null,
           });
+          setup.host.commitMedia(replacement);
         }
         return Reflect.ownKeys(target);
       },
     });
 
     expect(setup.host.receive(hostile, setup.hostToken)).toEqual({
+      accepted: true,
+      frame: 'wire-stale',
+      scope: 'state',
+      controlSequence: 1,
+    });
+    expect(setup.host.receive(message, setup.hostToken)).toMatchObject({
       accepted: false,
       reason: 'wire-rejected',
     });
-    setup.host.bindMedia(MEDIA);
-    expect(setup.host.receive(message, setup.hostToken)).toMatchObject({
-      accepted: true,
-      frame: 'wire',
-    });
   });
 
-  it('prevents an outer hostile bind from overwriting re-entrant clear or newer media', () => {
+  it('enforces two state slots and never revives a candidate retired during Proxy detachment', () => {
     const setup = channels();
     calibrate(setup);
-    setup.host.bindMedia(MEDIA);
-    setup.guest.bindMedia(MEDIA);
+    bindPair(setup);
     const media2: FilePlaybackWireMediaBinding = {
-      run: { queueItemId: 'queue-item-2', runId: 'run-2', revision: 2 },
-      sourceIdentity: 'source-identity-2',
-      transferSessionId: null,
-      rendezvousId: 'rendezvous-2',
+      ...SUCCESSOR,
     };
     const media3: FilePlaybackWireMediaBinding = {
-      run: { queueItemId: 'queue-item-3', runId: 'run-3', revision: 3 },
-      sourceIdentity: 'source-identity-3',
-      transferSessionId: null,
-      rendezvousId: 'rendezvous-3',
+      ...SUCCESSOR,
+      run: { ...SUCCESSOR.run, revision: 3 },
     };
+    const hostCandidate2 = setup.host.stageMedia(media2);
+    expect(() => setup.host.stageMedia(media3)).toThrow(/candidate/u);
 
-    let cleared = false;
-    const clearDuringBind = new Proxy(media3, {
+    let retired = false;
+    const retireDuringStage = new Proxy(media3, {
       ownKeys(target) {
-        if (!cleared) {
-          cleared = true;
-          setup.host.clearMedia();
+        if (!retired) {
+          retired = true;
+          setup.host.retireMedia(hostCandidate2);
         }
         return Reflect.ownKeys(target);
       },
     });
-    expect(() => setup.host.bindMedia(clearDuringBind)).toThrow(/authority changed/u);
-    expect(() =>
-      setup.host.createWire({ kind: 'file-playback-cancel', reasonCode: 'must-have-no-media' }),
-    ).toThrow(/no media binding/u);
-
-    setup.host.bindMedia(MEDIA);
-    let rebound = false;
-    const rebindDuringBind = new Proxy(media3, {
-      ownKeys(target) {
-        if (!rebound) {
-          rebound = true;
-          setup.host.bindMedia(media2);
-        }
-        return Reflect.ownKeys(target);
-      },
-    });
-    expect(() => setup.host.bindMedia(rebindDuringBind)).toThrow(/authority changed/u);
-    const cancel = setup.host.createWire({
-      kind: 'file-playback-cancel',
-      reasonCode: 'newer-media-wins',
-    });
-    expect(cancel.sourceIdentity).toBe('source-identity-2');
-    expect(cancel.queueItemId).toBe('queue-item-2');
-
-    setup.guest.bindMedia(media2);
+    const hostCandidate3 = setup.host.stageMedia(retireDuringStage);
+    const guestCandidate2 = setup.guest.stageMedia(media2);
+    setup.guest.retireMedia(guestCandidate2);
+    const guestCandidate3 = setup.guest.stageMedia(media3);
     setup.hostNow.set(2_100);
     setup.guestNow.set(2_000);
-    const ready = setup.guest.createWire({
-      kind: 'source-not-ready',
-      observedAtRoomTimeMs: 2_100,
-      reasonCode: 'receiver-kept-newer-media',
-      retryable: true,
+    const pause = setup.host.createWire(hostCandidate3, {
+      kind: 'file-playback-pause',
+      ...expectedCurrent,
+      atRoomTimeMs: 2_100,
     });
-    expect(setup.host.receive(ready, setup.hostToken)).toMatchObject({
+    expect(setup.guest.receive(pause, setup.guestToken)).toMatchObject({
       accepted: true,
       frame: 'wire',
-      message: { sourceIdentity: 'source-identity-2' },
+      message: { revision: 3 },
+      stateLease: guestCandidate3,
+    });
+    setup.host.retireMedia(hostCandidate3);
+    expect(() => setup.host.stageMedia(media3)).toThrow(/exact next/u);
+  });
+
+  it('uses stop as a successor state and stale-drops late old-current work after commit', () => {
+    const setup = channels();
+    calibrate(setup);
+    const leases = bindPair(setup);
+    const hostStop = setup.host.stageMedia(SUCCESSOR);
+    setup.hostNow.set(2_100);
+    setup.guestNow.set(2_000);
+    const stop = setup.host.createWire(hostStop, {
+      kind: 'file-playback-stop',
+      ...expectedCurrent,
+      atRoomTimeMs: 2_100,
+    });
+    const oldArm = setup.host.createWire(leases.host.attempt, {
+      kind: 'rendezvous-arm',
+      rendezvousId: 'rendezvous-1',
+      positionSeconds: 0,
+      playbackRate: 1,
+      startAtRoomTimeMs: 2_300,
+      finalizeByRoomTimeMs: 2_200,
+    });
+
+    const receivedStop = setup.guest.receive(stop, setup.guestToken);
+    expect(receivedStop).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      attemptLease: null,
+      message: { kind: 'file-playback-stop', revision: 2, expectedRevision: 1 },
+    });
+    if (!receivedStop.accepted || receivedStop.frame !== 'wire') {
+      throw new Error('Expected remote stop admission');
+    }
+    setup.guest.commitStop(receivedStop.stateLease, MEDIA.run);
+    setup.host.commitStop(hostStop, MEDIA.run);
+    expect(setup.guest.receive(oldArm, setup.guestToken)).toEqual({
+      accepted: true,
+      frame: 'wire-stale',
+      scope: 'attempt',
+      controlSequence: 2,
+    });
+    expect(() => setup.guest.stageMedia(SUCCESSOR)).toThrow(/active or retired|exact next/u);
+    const next = setup.guest.stageMedia({
+      run: { queueItemId: 'queue-item-next', runId: 'run-next', revision: 3 },
+      sourceIdentity: 'sha256:source-next',
+      transferSessionId: null,
+    });
+    setup.guest.commitMedia(next);
+    expect(() => setup.guest.stageAttempt(next, 'rendezvous-next')).not.toThrow();
+    expect(() =>
+      setup.host.createWire(leases.host.attempt, {
+        kind: 'file-playback-stop',
+        ...expectedCurrent,
+        atRoomTimeMs: 2_100,
+      }),
+    ).toThrow(/forged|retired/u);
+  });
+
+  it('keeps current and recovery attempts live together and stale-drops promoted candidate cancel', () => {
+    const setup = channels();
+    calibrate(setup);
+    const leases = bindPair(setup);
+    setup.host.commitAttempt(leases.host.attempt);
+    setup.guest.commitAttempt(leases.guest.attempt);
+    const hostRecovery = setup.host.stageAttempt(leases.host.state, 'rendezvous-recovery');
+    const guestRecovery = setup.guest.stageAttempt(leases.guest.state, 'rendezvous-recovery');
+    expect(() => setup.host.stageAttempt(leases.host.state, 'rendezvous-third')).toThrow(
+      /candidate/u,
+    );
+    setup.hostNow.set(2_100);
+    setup.guestNow.set(2_000);
+
+    const currentReceipt = setup.guest.createWire(leases.guest.attempt, {
+      kind: 'rendezvous-armed',
+      rendezvousId: 'rendezvous-1',
+      status: 'armed',
+      observedAtRoomTimeMs: 2_100,
+      bufferedAheadSeconds: 5,
+      reasonCode: null,
+    });
+    const recoveryReceipt = setup.guest.createWire(guestRecovery, {
+      kind: 'rendezvous-armed',
+      rendezvousId: 'rendezvous-recovery',
+      status: 'armed',
+      observedAtRoomTimeMs: 2_100,
+      bufferedAheadSeconds: 5,
+      reasonCode: null,
+    });
+    expect(setup.host.receive(currentReceipt, setup.hostToken)).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      attemptLease: leases.host.attempt,
+    });
+    expect(setup.host.receive(recoveryReceipt, setup.hostToken)).toMatchObject({
+      accepted: true,
+      frame: 'wire',
+      attemptLease: hostRecovery,
+    });
+
+    const lateCurrentHealth = setup.guest.createWire(leases.guest.attempt, {
+      kind: 'renderer-health',
+      rendezvousId: 'rendezvous-1',
+      value: 'healthy',
+      observedAtRoomTimeMs: 2_100,
+      leaseUntilRoomTimeMs: 7_100,
+      renderedFrame: 100,
+      underrunCount: 0,
+      reasonCode: null,
+    });
+    const candidateCancel = setup.host.createWire(hostRecovery, {
+      kind: 'file-playback-cancel',
+      rendezvousId: 'rendezvous-recovery',
+      reasonCode: 'candidate-retired',
+    });
+    setup.host.commitAttempt(hostRecovery);
+    setup.guest.commitAttempt(guestRecovery);
+
+    expect(setup.host.receive(lateCurrentHealth, setup.hostToken)).toEqual({
+      accepted: true,
+      frame: 'wire-stale',
+      scope: 'attempt',
+      controlSequence: 3,
+    });
+    expect(setup.guest.receive(candidateCancel, setup.guestToken)).toEqual({
+      accepted: true,
+      frame: 'wire-stale',
+      scope: 'attempt',
+      controlSequence: 1,
     });
   });
 

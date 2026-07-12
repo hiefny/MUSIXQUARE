@@ -86,12 +86,20 @@ const messages: readonly FilePlaybackWireMessage[] = Object.freeze([
     ...envelope,
     kind: 'file-playback-pause',
     controlSequence: 47,
+    revision: 8,
+    expectedQueueItemId: 'queue-item-1',
+    expectedRunId: 'run-7',
+    expectedRevision: 7,
     atRoomTimeMs: 13_000,
   },
   {
     ...envelope,
     kind: 'file-playback-seek',
     controlSequence: 48,
+    revision: 9,
+    expectedQueueItemId: 'queue-item-1',
+    expectedRunId: 'run-7',
+    expectedRevision: 7,
     positionSeconds: 99.5,
     atRoomTimeMs: 13_100,
   },
@@ -99,12 +107,23 @@ const messages: readonly FilePlaybackWireMessage[] = Object.freeze([
     ...envelope,
     kind: 'file-playback-cancel',
     controlSequence: 49,
+    rendezvousId: 'rendezvous-7',
     reasonCode: 'superseded-by-newer-revision',
   },
   {
     ...envelope,
-    kind: 'renderer-health',
+    kind: 'file-playback-stop',
     controlSequence: 50,
+    revision: 10,
+    expectedQueueItemId: 'queue-item-1',
+    expectedRunId: 'run-7',
+    expectedRevision: 7,
+    atRoomTimeMs: 13_150,
+  },
+  {
+    ...envelope,
+    kind: 'renderer-health',
+    controlSequence: 51,
     rendezvousId: 'rendezvous-7',
     value: 'healthy',
     observedAtRoomTimeMs: 13_200,
@@ -442,7 +461,7 @@ describe('file playback V2 control wire', () => {
   });
 
   it('validates renderer leases, counters, and status/reason coherence', () => {
-    const healthy = messages[9];
+    const healthy = messages[10];
     const unhealthy = replace(healthy, {
       value: 'unhealthy',
       leaseUntilRoomTimeMs: 13_200,
@@ -488,14 +507,14 @@ describe('file playback V2 control wire', () => {
       }),
     ).not.toBeNull();
     expect(
-      parseFilePlaybackWireMessage(record(messages[9]), {
+      parseFilePlaybackWireMessage(record(messages[10]), {
         receivedAtRoomTimeMs: 13_210,
         maxClockSkewMs: 250,
         rendezvousId: 'rendezvous-7',
       }),
     ).not.toBeNull();
     expect(
-      parseFilePlaybackWireMessage(record(messages[9]), {
+      parseFilePlaybackWireMessage(record(messages[10]), {
         receivedAtRoomTimeMs: 18_200,
         maxClockSkewMs: 250,
         rendezvousId: 'rendezvous-7',
@@ -525,8 +544,8 @@ describe('file playback V2 control wire', () => {
     ).toBeNull();
   });
 
-  it('atomically gates every received kind behind media identity and one sequence watermark', () => {
-    let now = 13_200;
+  it('atomically gates current/candidate state and rendezvous leases behind one sequence', () => {
+    let now = 11_800;
     const receiver = new FilePlaybackWireReceiver({
       sessionId: 'app-session-1',
       connectionId: 'connection-1',
@@ -534,25 +553,491 @@ describe('file playback V2 control wire', () => {
       recipientParticipantId: 'participant-host',
       nowRoomTimeMs: () => now,
     });
-    expect(receiver.receive(record(messages[0]))).toBeNull();
+    expect(receiver.receive(record(messages[0]))).toMatchObject({
+      accepted: false,
+      reason: 'unknown-binding',
+    });
     expect(receiver.lastControlSequence()).toBe(0);
 
-    receiver.bindMedia({
+    const current = receiver.bootstrapCurrentMedia({
       run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
       sourceIdentity: 'sha256:source-1',
       transferSessionId: 'transfer-session-9',
-      rendezvousId: 'rendezvous-7',
     });
-    expect(receiver.receive(record(messages[0]))?.kind).toBe('source-ready');
-    expect(receiver.receive(record(messages[6]))?.kind).toBe('file-playback-pause');
-    expect(receiver.receive(record(messages[9]))?.kind).toBe('renderer-health');
-    expect(receiver.lastControlSequence()).toBe(50);
-    expect(receiver.receive(record(messages[7]))).toBeNull();
+    const attempt = receiver.stageAttempt(current, 'rendezvous-7');
+    expect(receiver.receive(record(messages[0]))).toMatchObject({
+      accepted: true,
+      status: 'message',
+      stateLease: current,
+      attemptLease: null,
+    });
+    expect(receiver.receive(record(messages[2]))).toMatchObject({
+      accepted: true,
+      status: 'message',
+      stateLease: current,
+      attemptLease: attempt,
+    });
+    receiver.commitAttempt(attempt);
+    now = 13_200;
+    const successor = receiver.stageMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 8 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    expect(receiver.receive(record(messages[6]))).toMatchObject({
+      accepted: true,
+      status: 'message',
+      stateLease: successor,
+    });
+    expect(receiver.receive(record(messages[10]))).toMatchObject({
+      accepted: true,
+      status: 'message',
+      stateLease: current,
+      attemptLease: attempt,
+    });
+    expect(receiver.lastControlSequence()).toBe(51);
 
-    receiver.clearMedia();
+    receiver.retireMedia(successor);
     now += 1;
-    expect(receiver.receive(replace(messages[9], { controlSequence: 51 }))).toBeNull();
-    expect(receiver.lastControlSequence()).toBe(50);
+    expect(receiver.receive(replace(messages[6], { controlSequence: 52 }))).toEqual({
+      accepted: true,
+      status: 'stale',
+      scope: 'state',
+      controlSequence: 52,
+    });
+    expect(receiver.lastControlSequence()).toBe(52);
+    expect(
+      receiver.receive(
+        replace(messages[0], { controlSequence: 53, sourceIdentity: 'unknown-source' }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+
+    receiver.retireMedia(current);
+    expect(receiver.receive(replace(messages[10], { controlSequence: 54 }))).toEqual({
+      accepted: true,
+      status: 'stale',
+      scope: 'attempt',
+      controlSequence: 54,
+    });
+  });
+
+  it.each([
+    ['file-playback-pause', messages[6]],
+    ['file-playback-seek', messages[7]],
+  ] as const)('atomically admits an unstaged remote %s successor', (_kind, template) => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 13_200,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+
+    const accepted = receiver.receive(
+      replace(template, {
+        revision: 8,
+        controlSequence: 60,
+        atRoomTimeMs: 13_100,
+      }),
+    );
+    expect(accepted).toMatchObject({
+      accepted: true,
+      status: 'message',
+      message: { kind: _kind, revision: 8, expectedRevision: 7 },
+      attemptLease: null,
+    });
+    if (!accepted.accepted || accepted.status !== 'message') {
+      throw new Error('Expected an admitted remote successor');
+    }
+    expect(() => receiver.commitMedia(accepted.stateLease)).not.toThrow();
+  });
+
+  it('admits an unstaged stop as exact stop authority and commits to no-current atomically', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 13_200,
+    });
+    const current = receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    const accepted = receiver.receive(
+      replace(messages[9], { revision: 8, controlSequence: 60, atRoomTimeMs: 13_100 }),
+    );
+    expect(accepted).toMatchObject({
+      accepted: true,
+      status: 'message',
+      message: { kind: 'file-playback-stop', revision: 8, expectedRevision: 7 },
+    });
+    if (!accepted.accepted || accepted.status !== 'message') {
+      throw new Error('Expected an admitted remote stop');
+    }
+    expect(() => receiver.stageAttempt(accepted.stateLease, 'stop-attempt')).toThrow(
+      /stop successor/u,
+    );
+    expect(() => receiver.commitMedia(accepted.stateLease)).toThrow(/candidate state/u);
+    receiver.commitStop(accepted.stateLease, {
+      queueItemId: 'queue-item-1',
+      runId: 'run-7',
+      revision: 7,
+    });
+    expect(() => receiver.stageAttempt(current, 'old-attempt')).toThrow(/forged|retired/u);
+    const next = receiver.stageMedia({
+      run: { queueItemId: 'queue-item-2', runId: 'run-next', revision: 9 },
+      sourceIdentity: 'sha256:source-2',
+      transferSessionId: null,
+    });
+    expect(() => receiver.commitMedia(next)).not.toThrow();
+  });
+
+  it('does not consume a remote successor revision for replayed or temporal-invalid frames', () => {
+    let now = 13_000;
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => now,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    expect(receiver.receive(replace(messages[0], { controlSequence: 41 }))).toMatchObject({
+      accepted: true,
+      status: 'message',
+    });
+    expect(
+      receiver.receive(
+        replace(messages[6], {
+          revision: 8,
+          controlSequence: 41,
+          atRoomTimeMs: now,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'replayed-sequence' });
+    expect(
+      receiver.receive(
+        replace(messages[6], {
+          revision: 8,
+          controlSequence: 42,
+          atRoomTimeMs: now + 1_000,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'temporal-invalid' });
+    now += 1;
+    expect(
+      receiver.receive(
+        replace(messages[6], {
+          revision: 8,
+          controlSequence: 43,
+          atRoomTimeMs: now,
+        }),
+      ),
+    ).toMatchObject({ accepted: true, status: 'message', message: { revision: 8 } });
+  });
+
+  it('requires current+1, the exact media binding, and an empty candidate slot', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 13_200,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    expect(
+      receiver.receive(
+        replace(messages[6], { revision: 9, controlSequence: 60, atRoomTimeMs: 13_100 }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    expect(
+      receiver.receive(
+        replace(messages[6], {
+          revision: 8,
+          controlSequence: 61,
+          sourceIdentity: 'sha256:wrong-source',
+          atRoomTimeMs: 13_100,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+
+    const conflicting = receiver.stageMedia({
+      run: { queueItemId: 'queue-item-other', runId: 'run-other', revision: 8 },
+      sourceIdentity: 'sha256:other-source',
+      transferSessionId: null,
+    });
+    expect(
+      receiver.receive(
+        replace(messages[6], { revision: 8, controlSequence: 62, atRoomTimeMs: 13_100 }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    receiver.retireMedia(conflicting);
+
+    expect(
+      receiver.receive(
+        replace(messages[6], { revision: 9, controlSequence: 63, atRoomTimeMs: 13_100 }),
+      ),
+    ).toMatchObject({ accepted: true, status: 'message', message: { revision: 9 } });
+  });
+
+  it('auto-admits a first-play ARM attempt on an active candidate state', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    receiver.bootstrapStopped(6);
+    const candidate = receiver.stageMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+
+    expect(receiver.receive(record(messages[2]))).toMatchObject({
+      accepted: true,
+      status: 'message',
+      stateLease: candidate,
+      message: { kind: 'rendezvous-arm', rendezvousId: 'rendezvous-7' },
+    });
+  });
+
+  it('auto-admits same-state recovery while preserving the current attempt', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    const state = receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    const current = receiver.stageAttempt(state, 'rendezvous-current');
+    receiver.commitAttempt(current);
+    const recovery = receiver.receive(
+      replace(messages[2], { rendezvousId: 'rendezvous-recovery', controlSequence: 43 }),
+    );
+    expect(recovery).toMatchObject({
+      accepted: true,
+      status: 'message',
+      stateLease: state,
+      message: { rendezvousId: 'rendezvous-recovery' },
+    });
+    expect(() => receiver.stageAttempt(state, 'rendezvous-third')).toThrow(/candidate/u);
+    expect(
+      receiver.receive(
+        replace(messages[10], {
+          rendezvousId: 'rendezvous-current',
+          controlSequence: 44,
+          observedAtRoomTimeMs: 11_800,
+          leaseUntilRoomTimeMs: 16_800,
+        }),
+      ),
+    ).toMatchObject({
+      accepted: true,
+      status: 'message',
+      stateLease: state,
+      attemptLease: current,
+    });
+  });
+
+  it('does not consume a remote ARM slot for replayed or temporal-invalid frames', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    expect(receiver.receive(record(messages[0]))).toMatchObject({ accepted: true });
+    expect(receiver.receive(replace(messages[2], { controlSequence: 41 }))).toMatchObject({
+      accepted: false,
+      reason: 'replayed-sequence',
+    });
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          controlSequence: 42,
+          startAtRoomTimeMs: 20_000,
+          finalizeByRoomTimeMs: 19_900,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'temporal-invalid' });
+    expect(receiver.receive(replace(messages[2], { controlSequence: 43 }))).toMatchObject({
+      accepted: true,
+      status: 'message',
+    });
+  });
+
+  it('rejects a conflicting ARM candidate without consuming the available slot', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    const state = receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    const existing = receiver.stageAttempt(state, 'rendezvous-existing');
+    expect(
+      receiver.receive(
+        replace(messages[2], { rendezvousId: 'rendezvous-remote', controlSequence: 43 }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    receiver.retireAttempt(existing);
+    expect(
+      receiver.receive(
+        replace(messages[2], { rendezvousId: 'rendezvous-remote', controlSequence: 44 }),
+      ),
+    ).toMatchObject({ accepted: true, status: 'message' });
+  });
+
+  it('rejects current ARM reuse and stale-drops only the exact retired attempt', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    const state = receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    const current = receiver.stageAttempt(state, 'rendezvous-7');
+    receiver.commitAttempt(current);
+    expect(receiver.receive(record(messages[2]))).toMatchObject({
+      accepted: false,
+      reason: 'unknown-binding',
+    });
+    receiver.retireAttempt(current);
+    expect(receiver.receive(replace(messages[2], { controlSequence: 44 }))).toEqual({
+      accepted: true,
+      status: 'stale',
+      scope: 'attempt',
+      controlSequence: 44,
+    });
+  });
+
+  it('never auto-admits unknown attempts for receipts, finalize, health, or cancel', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    for (const template of [messages[3], messages[4], messages[5], messages[8], messages[10]]) {
+      expect(receiver.receive(record(template))).toMatchObject({
+        accepted: false,
+        reason: 'unknown-binding',
+      });
+    }
+    expect(receiver.receive(replace(messages[2], { controlSequence: 60 }))).toMatchObject({
+      accepted: true,
+      status: 'message',
+    });
+  });
+
+  it('validates stale replay and temporal bounds before advancing the watermark', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 11_800,
+    });
+    const state = receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    const retired = receiver.stageAttempt(state, 'rendezvous-7');
+    receiver.retireAttempt(retired);
+    expect(
+      receiver.receive(
+        replace(messages[2], {
+          controlSequence: 43,
+          startAtRoomTimeMs: 20_000,
+          finalizeByRoomTimeMs: 19_900,
+        }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'temporal-invalid' });
+    expect(receiver.lastControlSequence()).toBe(0);
+    expect(receiver.receive(replace(messages[2], { controlSequence: 44 }))).toMatchObject({
+      accepted: true,
+      status: 'stale',
+    });
+    expect(receiver.lastControlSequence()).toBe(44);
+    expect(receiver.receive(replace(messages[2], { controlSequence: 44 }))).toMatchObject({
+      accepted: false,
+      reason: 'replayed-sequence',
+    });
+    expect(receiver.lastControlSequence()).toBe(44);
+  });
+
+  it('does not retype a pre-staged media successor when a stop frame targets it', () => {
+    const receiver = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => 13_200,
+    });
+    receiver.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    const successor = receiver.stageMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 8 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    expect(
+      receiver.receive(
+        replace(messages[9], { revision: 8, controlSequence: 60, atRoomTimeMs: 13_100 }),
+      ),
+    ).toMatchObject({ accepted: false, reason: 'unknown-binding' });
+    expect(
+      receiver.receive(
+        replace(messages[6], { revision: 8, controlSequence: 61, atRoomTimeMs: 13_100 }),
+      ),
+    ).toMatchObject({ accepted: true, status: 'message', stateLease: successor });
   });
 
   it('prevents a re-entrant older Proxy frame from overwriting a newer inner commit', () => {
@@ -563,24 +1048,32 @@ describe('file playback V2 control wire', () => {
       recipientParticipantId: 'participant-host',
       nowRoomTimeMs: () => 11_800,
     });
-    receiver.bindMedia({
+    const current = receiver.bootstrapCurrentMedia({
       run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
       sourceIdentity: 'sha256:source-1',
       transferSessionId: 'transfer-session-9',
     });
+    receiver.stageAttempt(current, 'rendezvous-7');
 
     let reentered = false;
     const outer = new Proxy(record(messages[1]), {
       ownKeys(target) {
         if (!reentered) {
           reentered = true;
-          expect(receiver.receive(record(messages[2]))?.controlSequence).toBe(43);
+          expect(receiver.receive(record(messages[2]))).toMatchObject({
+            accepted: true,
+            status: 'message',
+            message: { controlSequence: 43 },
+          });
         }
         return Reflect.ownKeys(target);
       },
     });
 
-    expect(receiver.receive(outer)).toBeNull();
+    expect(receiver.receive(outer)).toMatchObject({
+      accepted: false,
+      reason: 'replayed-sequence',
+    });
     expect(receiver.lastControlSequence()).toBe(43);
   });
 

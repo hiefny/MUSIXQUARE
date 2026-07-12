@@ -1,13 +1,22 @@
 import type { QueueItemId } from '../types/index.ts';
 import type { FilePlaybackBackend } from './file-playback-source.ts';
+import type { PlaybackRevisionWatermark } from './playback-identity.ts';
 import {
   FILE_PLAYBACK_WIRE_MAX_IDENTIFIER_LENGTH,
   createFilePlaybackWireMessage,
+  isFilePlaybackAttemptScopedWireKind,
+  isFilePlaybackSuccessorScopedWireKind,
   type FilePlaybackWireKind,
-  type FilePlaybackWireMediaBinding,
   type FilePlaybackWireMessage,
 } from './file-playback-wire.ts';
-import { isPlaybackRevision, isPlaybackStateIdentity } from './playback-identity.ts';
+import {
+  FilePlaybackWireBindingRegistry,
+  type FilePlaybackWireAttemptLease,
+  type FilePlaybackWireExpectedStateIdentity,
+  type FilePlaybackWireLease,
+  type FilePlaybackWireMediaBinding,
+  type FilePlaybackWireStateLease,
+} from './file-playback-wire-binding.ts';
 
 /** Immutable connection authority owned by one outbound control lane. */
 export interface FilePlaybackWireSenderOptions {
@@ -70,18 +79,33 @@ export interface RendezvousFinalizedWirePayload {
 
 export interface FilePlaybackPauseWirePayload {
   readonly kind: 'file-playback-pause';
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: number;
   readonly atRoomTimeMs: number;
 }
 
 export interface FilePlaybackSeekWirePayload {
   readonly kind: 'file-playback-seek';
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: number;
   readonly positionSeconds: number;
   readonly atRoomTimeMs: number;
 }
 
 export interface FilePlaybackCancelWirePayload {
   readonly kind: 'file-playback-cancel';
+  readonly rendezvousId: string;
   readonly reasonCode: string;
+}
+
+export interface FilePlaybackStopWirePayload {
+  readonly kind: 'file-playback-stop';
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: number;
+  readonly atRoomTimeMs: number;
 }
 
 export interface RendererHealthWirePayload {
@@ -106,6 +130,7 @@ export interface FilePlaybackWirePayloadByKind {
   readonly 'file-playback-pause': FilePlaybackPauseWirePayload;
   readonly 'file-playback-seek': FilePlaybackSeekWirePayload;
   readonly 'file-playback-cancel': FilePlaybackCancelWirePayload;
+  readonly 'file-playback-stop': FilePlaybackStopWirePayload;
   readonly 'renderer-health': RendererHealthWirePayload;
 }
 
@@ -122,13 +147,6 @@ const CONNECTION_KEYS = Object.freeze([
   'connectionId',
   'senderParticipantId',
   'recipientParticipantId',
-] as const);
-
-const MEDIA_KEYS = Object.freeze([
-  'run',
-  'sourceIdentity',
-  'transferSessionId',
-  'rendezvousId',
 ] as const);
 
 const PAYLOAD_KEYS: Readonly<Record<FilePlaybackWireKind, readonly string[]>> = Object.freeze({
@@ -172,9 +190,29 @@ const PAYLOAD_KEYS: Readonly<Record<FilePlaybackWireKind, readonly string[]>> = 
     'observedAtRoomTimeMs',
     'reasonCode',
   ]),
-  'file-playback-pause': Object.freeze(['kind', 'atRoomTimeMs']),
-  'file-playback-seek': Object.freeze(['kind', 'positionSeconds', 'atRoomTimeMs']),
-  'file-playback-cancel': Object.freeze(['kind', 'reasonCode']),
+  'file-playback-pause': Object.freeze([
+    'kind',
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'atRoomTimeMs',
+  ]),
+  'file-playback-seek': Object.freeze([
+    'kind',
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'positionSeconds',
+    'atRoomTimeMs',
+  ]),
+  'file-playback-cancel': Object.freeze(['kind', 'rendezvousId', 'reasonCode']),
+  'file-playback-stop': Object.freeze([
+    'kind',
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'atRoomTimeMs',
+  ]),
   'renderer-health': Object.freeze([
     'kind',
     'rendezvousId',
@@ -192,18 +230,11 @@ const RENDEZVOUS_KINDS = new Set<FilePlaybackWireKind>([
   'rendezvous-armed',
   'rendezvous-finalize',
   'rendezvous-finalized',
+  'file-playback-cancel',
   'renderer-health',
 ]);
 
 type ConnectionSnapshot = FilePlaybackWireSenderOptions;
-
-interface MediaSnapshot extends FilePlaybackWireMediaBinding {
-  readonly run: {
-    readonly queueItemId: QueueItemId;
-    readonly runId: string;
-    readonly revision: number;
-  };
-}
 
 function containsControlCharacter(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -260,34 +291,6 @@ function snapshotExactDataRecord(
   }
 }
 
-function snapshotAllowedDataRecord(
-  value: unknown,
-  allowedKeys: readonly string[],
-  requiredKeys: readonly string[],
-): Record<string, unknown> | null {
-  try {
-    if (!isPlainRecord(value)) return null;
-    const allowed = new Set(allowedKeys);
-    const ownKeys = Reflect.ownKeys(value);
-    if (
-      ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key)) ||
-      requiredKeys.some((key) => !ownKeys.includes(key))
-    ) {
-      return null;
-    }
-
-    const snapshot = Object.create(null) as Record<string, unknown>;
-    for (const key of ownKeys as string[]) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
-      snapshot[key] = descriptor.value;
-    }
-    return snapshot;
-  } catch {
-    return null;
-  }
-}
-
 function freezeCanonical<T extends object>(value: T): T {
   return Object.freeze(Object.assign(Object.create(null), value)) as T;
 }
@@ -309,39 +312,6 @@ function snapshotConnection(value: unknown): ConnectionSnapshot | null {
     connectionId: snapshot.connectionId,
     senderParticipantId: snapshot.senderParticipantId,
     recipientParticipantId: snapshot.recipientParticipantId,
-  });
-}
-
-function snapshotMedia(value: unknown): MediaSnapshot | null {
-  const snapshot = snapshotAllowedDataRecord(value, MEDIA_KEYS, MEDIA_KEYS.slice(0, 3));
-  if (!snapshot) return null;
-
-  const run = snapshotExactDataRecord(snapshot.run, ['queueItemId', 'runId', 'revision']);
-  if (
-    !run ||
-    !isPlaybackStateIdentity(run) ||
-    !isPlaybackRevision(run.revision) ||
-    Object.is(run.revision, -0) ||
-    !isBoundedIdentifier(run.queueItemId) ||
-    !isBoundedIdentifier(run.runId) ||
-    !isBoundedIdentifier(snapshot.sourceIdentity) ||
-    (snapshot.transferSessionId !== null && !isBoundedIdentifier(snapshot.transferSessionId)) ||
-    (Object.hasOwn(snapshot, 'rendezvousId') && !isBoundedIdentifier(snapshot.rendezvousId))
-  ) {
-    return null;
-  }
-
-  return freezeCanonical({
-    run: freezeCanonical({
-      queueItemId: run.queueItemId as QueueItemId,
-      runId: run.runId,
-      revision: run.revision,
-    }),
-    sourceIdentity: snapshot.sourceIdentity,
-    transferSessionId: snapshot.transferSessionId as string | null,
-    ...(Object.hasOwn(snapshot, 'rendezvousId')
-      ? { rendezvousId: snapshot.rendezvousId as string }
-      : {}),
   });
 }
 
@@ -401,52 +371,109 @@ function payloadRendezvousId(payload: Record<string, unknown>): string | null {
  */
 export class FilePlaybackWireSender {
   readonly #connection: ConnectionSnapshot;
+  readonly #bindings: FilePlaybackWireBindingRegistry;
   #lastControlSequence = 0;
-  #media: MediaSnapshot | null = null;
 
-  constructor(options: FilePlaybackWireSenderOptions) {
+  constructor(
+    options: FilePlaybackWireSenderOptions,
+    bindings: FilePlaybackWireBindingRegistry = new FilePlaybackWireBindingRegistry(),
+  ) {
     const connection = snapshotConnection(options);
     if (!connection) throw new TypeError('File playback sender scope is invalid');
+    if (!(bindings instanceof FilePlaybackWireBindingRegistry)) {
+      throw new TypeError('File playback sender binding registry is invalid');
+    }
     this.#connection = connection;
+    this.#bindings = bindings;
   }
 
   lastControlSequence(): number {
     return this.#lastControlSequence;
   }
 
-  bindMedia(binding: FilePlaybackWireMediaBinding): void {
-    const media = snapshotMedia(binding);
-    if (!media) throw new TypeError('File playback sender media binding is invalid');
-    this.#media = media;
+  bootstrapStopped(revisionWatermark: PlaybackRevisionWatermark): void {
+    this.#bindings.bootstrapStopped(revisionWatermark);
   }
 
-  clearMedia(): void {
-    this.#media = null;
+  bootstrapCurrentMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
+    return this.#bindings.bootstrapCurrentMedia(binding);
+  }
+
+  stageMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
+    return this.#bindings.stageMedia(binding);
+  }
+
+  commitMedia(lease: FilePlaybackWireStateLease): void {
+    this.#bindings.commitMedia(lease);
+  }
+
+  commitStop(
+    successorLease: FilePlaybackWireStateLease,
+    expected: FilePlaybackWireExpectedStateIdentity,
+  ): void {
+    this.#bindings.commitStop(successorLease, expected);
+  }
+
+  retireMedia(lease: FilePlaybackWireStateLease): void {
+    this.#bindings.retireMedia(lease);
+  }
+
+  stageAttempt(
+    stateLease: FilePlaybackWireStateLease,
+    rendezvousId: string,
+  ): FilePlaybackWireAttemptLease {
+    return this.#bindings.stageAttempt(stateLease, rendezvousId);
+  }
+
+  commitAttempt(lease: FilePlaybackWireAttemptLease): void {
+    this.#bindings.commitAttempt(lease);
+  }
+
+  retireAttempt(lease: FilePlaybackWireAttemptLease): void {
+    this.#bindings.retireAttempt(lease);
+  }
+
+  revokeAll(): void {
+    this.#bindings.revokeAll();
   }
 
   create<const Kind extends FilePlaybackWireKind>(
+    lease: FilePlaybackWireLease,
     payload: FilePlaybackWirePayloadByKind[Kind],
   ): FilePlaybackWireMessageForKind<Kind> {
-    // Detach first. Proxy traps may re-enter create(), bindMedia(), or
-    // clearMedia(); the outer operation intentionally observes their latest
+    // Detach first. Proxy traps may re-enter create(), stageMedia(), or
+    // retireMedia(); the outer operation intentionally observes their latest
     // committed state only after every hostile trap has finished.
     const detached = snapshotPayload(payload);
     if (!detached) throw new TypeError('File playback wire payload is invalid');
 
-    const media = this.#media;
-    if (!media) throw new TypeError('File playback sender has no media binding');
-
     const rendezvousId = payloadRendezvousId(detached);
-    if (detached.kind === 'renderer-health' && media.rendezvousId === undefined) {
-      throw new TypeError('Renderer health requires a bound rendezvous');
+    let stateLease: FilePlaybackWireStateLease;
+    if (isFilePlaybackAttemptScopedWireKind(detached.kind as FilePlaybackWireKind)) {
+      const attempt = this.#bindings.authorityForAttemptLease(
+        lease as FilePlaybackWireAttemptLease,
+      );
+      if (detached.kind === 'file-playback-cancel') {
+        this.#bindings.assertCandidateAttemptLease(lease as FilePlaybackWireAttemptLease);
+      }
+      stateLease = attempt.stateLease;
+      if (rendezvousId === null || rendezvousId !== attempt.rendezvousId) {
+        throw new TypeError('File playback payload rendezvous does not match its exact lease');
+      }
+    } else {
+      stateLease = lease as FilePlaybackWireStateLease;
     }
-    if (
-      rendezvousId !== null &&
-      media.rendezvousId !== undefined &&
-      rendezvousId !== media.rendezvousId
-    ) {
-      throw new TypeError('File playback payload rendezvous does not match the media binding');
+    const isStop = detached.kind === 'file-playback-stop';
+    if (isFilePlaybackSuccessorScopedWireKind(detached.kind as FilePlaybackWireKind)) {
+      const expected = {
+        queueItemId: detached.expectedQueueItemId as QueueItemId,
+        runId: detached.expectedRunId as string,
+        revision: detached.expectedRevision as number,
+      } satisfies FilePlaybackWireExpectedStateIdentity;
+      if (isStop) this.#bindings.assertStopSuccessorLease(stateLease, expected);
+      else this.#bindings.assertSuccessorLease(stateLease, expected);
     }
+    const media = this.#bindings.bindingForStateLease(stateLease, isStop ? 'either' : 'media');
 
     // Read only after detachment so a nested successful create always wins
     // before the outer operation allocates its own strictly greater value.
@@ -467,6 +494,14 @@ export class FilePlaybackWireSender {
       transferSessionId: media.transferSessionId,
       ...detached,
     } as FilePlaybackWireMessage);
+
+    if (isStop) {
+      this.#bindings.markStopSuccessorLease(stateLease, {
+        queueItemId: detached.expectedQueueItemId as QueueItemId,
+        runId: detached.expectedRunId as string,
+        revision: detached.expectedRevision as number,
+      });
+    }
 
     // Canonicalization above operates exclusively on detached primitive data.
     // No hostile callback exists between this commit and returning the frame.

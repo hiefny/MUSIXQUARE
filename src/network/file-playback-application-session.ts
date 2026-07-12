@@ -10,6 +10,12 @@ import type {
   FilePlaybackWireMessageForKind,
   FilePlaybackWirePayloadByKind,
 } from '../player/file-playback-wire-sender.ts';
+import type {
+  FilePlaybackWireAttemptLease,
+  FilePlaybackWireLease,
+  FilePlaybackWireStateLease,
+} from '../player/file-playback-wire-binding.ts';
+import type { FilePlaybackWireMessage } from '../player/file-playback-wire.ts';
 import {
   FILE_PLAYBACK_CLOCK_PING_TYPE,
   FILE_PLAYBACK_CLOCK_PONG_TYPE,
@@ -55,6 +61,16 @@ const BOOTSTRAP_FRAME_KEYS = Object.freeze([
   Object.freeze(['_bootstrap', 'type', 'value']),
   Object.freeze(['_bootstrap', 'type', 'value']),
 ] as const);
+const APPLICATION_OPTION_KEYS = Object.freeze([
+  'applicationHandshakeDeadlineMs',
+  'clockCalibrationRetryMs',
+  'clockCalibrationDeadlineMs',
+  'maxClockCalibrationAttempts',
+  'scheduleTimeout',
+  'cancelTimeout',
+  'adoptWireMessage',
+  'onLifecycleEvent',
+] as const);
 
 const SESSION_TYPES = new Set<string>([
   FILE_PLAYBACK_SESSION_HELLO_TYPE,
@@ -80,7 +96,36 @@ export interface FilePlaybackApplicationSessionManagerOptions {
     delayMs: number,
   ) => ApplicationSessionTimerHandle;
   readonly cancelTimeout?: (handle: ApplicationSessionTimerHandle) => void;
+  /** Synchronous exact-once adoption boundary for accepted canonical wire frames. */
+  readonly adoptWireMessage?: (
+    event: Readonly<FilePlaybackWireAdoptionEvent>,
+    acknowledge: () => void,
+  ) => void;
+  /** Detached lifecycle seam for a later async controller integration. */
+  readonly onLifecycleEvent?: (event: Readonly<FilePlaybackApplicationLifecycleEvent>) => void;
 }
+
+export interface FilePlaybackWireAdoptionEvent {
+  readonly message: FilePlaybackWireMessage;
+  readonly connection: DataConnection;
+  readonly channel: FilePlaybackConnectionChannel;
+  readonly stateLease: FilePlaybackWireStateLease;
+  readonly attemptLease: FilePlaybackWireAttemptLease | null;
+}
+
+export type FilePlaybackApplicationLifecycleEvent =
+  | Readonly<{
+      kind: 'established' | 'clock-ready' | 'clock-degraded';
+      role: FilePlaybackApplicationSessionRole;
+      connection: DataConnection;
+      channel: FilePlaybackConnectionChannel;
+    }>
+  | Readonly<{
+      kind: 'revoked';
+      role: FilePlaybackApplicationSessionRole;
+      connection: DataConnection;
+      channel: FilePlaybackConnectionChannel | null;
+    }>;
 
 export interface FilePlaybackApplicationReceiveResult {
   readonly handled: boolean;
@@ -97,6 +142,7 @@ interface BaseConnectionRecord {
   receiving: boolean;
   closing: boolean;
   clockReadyNotified: boolean;
+  revocationPublished: boolean;
   handshakeDeadline: ApplicationSessionTimerHandle | null;
   handshakeDeadlineEpoch: number;
 }
@@ -133,6 +179,27 @@ function result(
   clockBecameReady = false,
 ): Readonly<FilePlaybackApplicationReceiveResult> {
   return Object.freeze({ handled, established, clockBecameReady });
+}
+
+function snapshotApplicationOptions(value: unknown): Readonly<Record<string, unknown>> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const allowed = new Set<string>(APPLICATION_OPTION_KEYS);
+    if (ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key))) return null;
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of ownKeys as string[]) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
 }
 
 function ownDataDiscriminator(value: unknown): Readonly<{
@@ -261,26 +328,43 @@ export class FilePlaybackApplicationSessionManager {
     delayMs: number,
   ) => ApplicationSessionTimerHandle;
   readonly #cancelTimeout: (handle: ApplicationSessionTimerHandle) => void;
+  readonly #adoptWireMessage:
+    | FilePlaybackApplicationSessionManagerOptions['adoptWireMessage']
+    | undefined;
+  readonly #onLifecycleEvent:
+    | FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent']
+    | undefined;
   #hostRoom: HostRoomAuthority | null = null;
 
   constructor(
     issuer: FilePlaybackHandshakeIdIssuer = new FilePlaybackHandshakeIdIssuer(),
     options: FilePlaybackApplicationSessionManagerOptions = {},
   ) {
+    const snapshot = snapshotApplicationOptions(options);
+    if (!snapshot) throw new TypeError('Application-session manager options are invalid');
     this.#issuer = issuer;
     this.#applicationHandshakeDeadlineMs =
-      options.applicationHandshakeDeadlineMs ?? DEFAULT_APPLICATION_HANDSHAKE_DEADLINE_MS;
+      (snapshot.applicationHandshakeDeadlineMs as number | undefined) ??
+      DEFAULT_APPLICATION_HANDSHAKE_DEADLINE_MS;
     this.#clockCalibrationRetryMs =
-      options.clockCalibrationRetryMs ?? DEFAULT_CLOCK_CALIBRATION_RETRY_MS;
+      (snapshot.clockCalibrationRetryMs as number | undefined) ??
+      DEFAULT_CLOCK_CALIBRATION_RETRY_MS;
     this.#clockCalibrationDeadlineMs =
-      options.clockCalibrationDeadlineMs ?? DEFAULT_CLOCK_CALIBRATION_DEADLINE_MS;
+      (snapshot.clockCalibrationDeadlineMs as number | undefined) ??
+      DEFAULT_CLOCK_CALIBRATION_DEADLINE_MS;
     this.#maxClockCalibrationAttempts =
-      options.maxClockCalibrationAttempts ?? DEFAULT_MAX_CLOCK_CALIBRATION_ATTEMPTS;
+      (snapshot.maxClockCalibrationAttempts as number | undefined) ??
+      DEFAULT_MAX_CLOCK_CALIBRATION_ATTEMPTS;
     this.#scheduleTimeout =
-      options.scheduleTimeout ?? ((callback, delayMs) => globalThis.setTimeout(callback, delayMs));
+      (snapshot.scheduleTimeout as FilePlaybackApplicationSessionManagerOptions['scheduleTimeout']) ??
+      ((callback, delayMs) => globalThis.setTimeout(callback, delayMs));
     this.#cancelTimeout =
-      options.cancelTimeout ??
+      (snapshot.cancelTimeout as FilePlaybackApplicationSessionManagerOptions['cancelTimeout']) ??
       ((handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>));
+    this.#adoptWireMessage =
+      snapshot.adoptWireMessage as FilePlaybackApplicationSessionManagerOptions['adoptWireMessage'];
+    this.#onLifecycleEvent =
+      snapshot.onLifecycleEvent as FilePlaybackApplicationSessionManagerOptions['onLifecycleEvent'];
 
     for (const [value, label] of [
       [this.#applicationHandshakeDeadlineMs, 'applicationHandshakeDeadlineMs'],
@@ -299,7 +383,9 @@ export class FilePlaybackApplicationSessionManager {
     if (
       this.#clockCalibrationDeadlineMs < this.#clockCalibrationRetryMs ||
       typeof this.#scheduleTimeout !== 'function' ||
-      typeof this.#cancelTimeout !== 'function'
+      typeof this.#cancelTimeout !== 'function' ||
+      (this.#adoptWireMessage !== undefined && typeof this.#adoptWireMessage !== 'function') ||
+      (this.#onLifecycleEvent !== undefined && typeof this.#onLifecycleEvent !== 'function')
     ) {
       throw new RangeError('Application-session timer options are invalid');
     }
@@ -339,6 +425,7 @@ export class FilePlaybackApplicationSessionManager {
         receiving: false,
         closing: false,
         clockReadyNotified: false,
+        revocationPublished: false,
         handshakeDeadline: null,
         handshakeDeadlineEpoch: 0,
       });
@@ -377,6 +464,7 @@ export class FilePlaybackApplicationSessionManager {
         receiving: false,
         closing: false,
         clockReadyNotified: false,
+        revocationPublished: false,
         handshakeDeadline: null,
         handshakeDeadlineEpoch: 0,
         clockLease: null,
@@ -485,13 +573,18 @@ export class FilePlaybackApplicationSessionManager {
 
   sendWire<const Kind extends keyof FilePlaybackWirePayloadByKind>(
     conn: DataConnection,
+    lease: FilePlaybackWireLease,
     payload: FilePlaybackWirePayloadByKind[Kind],
   ): FilePlaybackWireMessageForKind<Kind> | null {
     const record = this.#records.get(conn);
+    if (record?.receiving) {
+      this.#teardown(record, true);
+      return null;
+    }
     const channel = record?.channel;
     if (!record || !channel || !channel.clockReady()) return null;
     try {
-      const message = channel.createWire(payload);
+      const message = channel.createWire(lease, payload);
       return this.#sendRequired(record, message) ? message : null;
     } catch (error) {
       log.warn('[AppSession] Wire send failed closed', error);
@@ -711,6 +804,53 @@ export class FilePlaybackApplicationSessionManager {
     if (received.frame === 'clock-pong') {
       return result(true, false, this.#publishClockReady(record));
     }
+    if (received.frame === 'wire-stale') return result(true);
+
+    const sink = this.#adoptWireMessage;
+    if (!sink) {
+      this.#teardown(record, true);
+      return result(true);
+    }
+    let acknowledgementCount = 0;
+    let acceptingAcknowledgement = true;
+    const acknowledge = () => {
+      acknowledgementCount += 1;
+      if (
+        !acceptingAcknowledgement ||
+        acknowledgementCount !== 1 ||
+        this.#records.get(record.conn) !== record ||
+        record.channel !== channel ||
+        record.closing
+      ) {
+        this.#teardown(record, true);
+      }
+    };
+    try {
+      sink(
+        Object.freeze({
+          message: received.message,
+          connection: record.conn,
+          channel,
+          stateLease: received.stateLease,
+          attemptLease: received.attemptLease,
+        }),
+        acknowledge,
+      );
+    } catch (error) {
+      log.warn('[AppSession] Wire adoption failed closed', error);
+      this.#teardown(record, true);
+      return result(true);
+    } finally {
+      acceptingAcknowledgement = false;
+    }
+    if (
+      acknowledgementCount !== 1 ||
+      this.#records.get(record.conn) !== record ||
+      record.channel !== channel ||
+      record.closing
+    ) {
+      this.#teardown(record, true);
+    }
     return result(true);
   }
 
@@ -896,6 +1036,9 @@ export class FilePlaybackApplicationSessionManager {
     record.clockReadyNotified = false;
     this.#cancelCalibrationTimers(record);
     this.#retireCalibrationPending(record);
+    if (record.channel && !this.#emitLifecycle(record, 'clock-degraded')) {
+      this.#teardown(record, true);
+    }
   }
 
   #retireCalibrationPending(record: GuestConnectionRecord): void {
@@ -1071,6 +1214,10 @@ export class FilePlaybackApplicationSessionManager {
         clockExchange: record.clock ?? undefined,
       });
       record.channel = channel;
+      if (!this.#emitLifecycle(record, 'established')) {
+        this.#teardown(record, true);
+        return result(true);
+      }
       this.#clearHandshakeDeadline(record);
       return result(true, true, this.#publishClockReady(record));
     } catch (error) {
@@ -1089,6 +1236,10 @@ export class FilePlaybackApplicationSessionManager {
       const roomClock = getFilePlaybackRoomClock();
       record.clockLease = roomClock.bindGuestSession(channel);
       record.channel = channel;
+      if (!this.#emitLifecycle(record, 'established')) {
+        this.#teardown(record, true);
+        return result(true);
+      }
       this.#clearHandshakeDeadline(record);
       if (channel.clockReady()) this.#markCalibrationReady(record);
       return result(true, true, this.#publishClockReady(record));
@@ -1104,7 +1255,40 @@ export class FilePlaybackApplicationSessionManager {
     if (!channel || record.clockReadyNotified || !channel.clockReady()) return false;
     if (record.role === 'guest') this.#markCalibrationReady(record);
     record.clockReadyNotified = true;
+    if (!this.#emitLifecycle(record, 'clock-ready')) {
+      this.#teardown(record, true);
+      return false;
+    }
     return true;
+  }
+
+  #emitLifecycle(
+    record: ConnectionRecord,
+    kind: 'established' | 'clock-ready' | 'clock-degraded',
+  ): boolean {
+    const sink = this.#onLifecycleEvent;
+    if (!sink) return true;
+    const channel = record.channel;
+    if (!channel) return false;
+    try {
+      sink(
+        Object.freeze({
+          kind,
+          role: record.role,
+          connection: record.conn,
+          channel,
+        }),
+      );
+    } catch (error) {
+      log.warn('[AppSession] Lifecycle sink failed closed', error);
+      return false;
+    }
+    return (
+      !record.closing &&
+      this.#records.get(record.conn) === record &&
+      record.channel === channel &&
+      !channel.isClosed()
+    );
   }
 
   #sendRequired(record: ConnectionRecord, frame: unknown): boolean {
@@ -1140,7 +1324,23 @@ export class FilePlaybackApplicationSessionManager {
       this.#cancelCalibrationTimers(record);
       this.#retireCalibrationPending(record);
     }
-    if (record.channel) record.channel.close();
+    const channel = record.channel;
+    if (!record.revocationPublished) {
+      record.revocationPublished = true;
+      try {
+        this.#onLifecycleEvent?.(
+          Object.freeze({
+            kind: 'revoked' as const,
+            role: record.role,
+            connection: record.conn,
+            channel,
+          }),
+        );
+      } catch (error) {
+        log.warn('[AppSession] Revocation lifecycle sink failed', error);
+      }
+    }
+    if (channel) channel.close();
     else record.clock?.clearSession();
     record.channel = null;
     record.clock = null;

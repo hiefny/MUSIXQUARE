@@ -21,6 +21,10 @@ import {
   FilePlaybackHandshakeIdIssuer,
 } from '../file-playback-session-handshake.ts';
 import { markQueueAuthorityReady } from '../queue-authority.ts';
+import type {
+  FilePlaybackWireMediaBinding,
+  FilePlaybackWireStateLease,
+} from '../../player/file-playback-wire-binding.ts';
 
 interface QueuedFrame {
   readonly from: 'host' | 'guest';
@@ -200,6 +204,29 @@ function fixture(
   };
 }
 
+const WIRE_MEDIA: FilePlaybackWireMediaBinding = Object.freeze({
+  run: Object.freeze({ queueItemId: 'queue-item-wire', runId: 'run-wire', revision: 500 }),
+  sourceIdentity: 'source-wire',
+  transferSessionId: 'transfer-wire',
+});
+
+function bootstrapWirePair(setup: ReturnType<typeof fixture>): Readonly<{
+  hostChannel: NonNullable<ReturnType<typeof setup.host.establishedChannel>>;
+  guestChannel: NonNullable<ReturnType<typeof setup.guest.establishedChannel>>;
+  hostLease: FilePlaybackWireStateLease;
+  guestLease: FilePlaybackWireStateLease;
+}> {
+  const hostChannel = setup.host.establishedChannel(setup.hostConn);
+  const guestChannel = setup.guest.establishedChannel(setup.guestConn);
+  if (!hostChannel || !guestChannel) throw new Error('Expected established wire channels');
+  return {
+    hostChannel,
+    guestChannel,
+    hostLease: hostChannel.bootstrapCurrentMedia(WIRE_MEDIA),
+    guestLease: guestChannel.bootstrapCurrentMedia(WIRE_MEDIA),
+  };
+}
+
 beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
@@ -248,6 +275,199 @@ describe('FilePlaybackApplicationSessionManager', () => {
     expect(guestTypes).toContain(FILE_PLAYBACK_SESSION_APPLIED_TYPE);
   });
 
+  it('adopts each accepted canonical wire frame synchronously exactly once with exact leases', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({ hostManagerOptions: { adoptWireMessage: adopted } });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const wire = bootstrapWirePair(setup);
+    const observedAtRoomTimeMs = wire.guestChannel.nowRoomTimeMs();
+
+    const sent = setup.guest.sendWire(setup.guestConn, wire.guestLease, {
+      kind: 'source-not-ready',
+      observedAtRoomTimeMs,
+      reasonCode: 'still-loading',
+      retryable: true,
+    });
+    expect(sent).not.toBeNull();
+    setup.pump();
+
+    expect(adopted).toHaveBeenCalledTimes(1);
+    const event = adopted.mock.calls[0]![0];
+    expect(event).toMatchObject({
+      message: { kind: 'source-not-ready', controlSequence: 1 },
+      connection: setup.hostConn,
+      channel: wire.hostChannel,
+      stateLease: wire.hostLease,
+      attemptLease: null,
+    });
+    expect(Object.isFrozen(event)).toBe(true);
+    expect(setup.host.phase(setup.hostConn)).toBe('established');
+  });
+
+  it('adopts attempt-scoped wire with the exact remote attempt lease', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const setup = fixture({ guestManagerOptions: { adoptWireMessage: adopted } });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const wire = bootstrapWirePair(setup);
+    const hostAttempt = wire.hostChannel.stageAttempt(wire.hostLease, 'rendezvous-wire');
+    const guestAttempt = wire.guestChannel.stageAttempt(wire.guestLease, 'rendezvous-wire');
+    const now = wire.hostChannel.nowRoomTimeMs();
+
+    expect(
+      setup.host.sendWire(setup.hostConn, hostAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: 'rendezvous-wire',
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: now + 500,
+        finalizeByRoomTimeMs: now + 400,
+      }),
+    ).not.toBeNull();
+    setup.pump();
+
+    expect(adopted).toHaveBeenCalledTimes(1);
+    expect(adopted.mock.calls[0]![0]).toMatchObject({
+      connection: setup.guestConn,
+      channel: wire.guestChannel,
+      stateLease: wire.guestLease,
+      attemptLease: guestAttempt,
+      message: { rendezvousId: 'rendezvous-wire' },
+    });
+  });
+
+  it.each(['missing', 'zero', 'twice', 'throw'] as const)(
+    'tears down when the adoption sink is %s',
+    (mode) => {
+      const hostManagerOptions: FilePlaybackApplicationSessionManagerOptions =
+        mode === 'missing'
+          ? {}
+          : {
+              adoptWireMessage(_event, acknowledge) {
+                if (mode === 'zero') return;
+                if (mode === 'throw') throw new Error('adoption failed');
+                acknowledge();
+                acknowledge();
+              },
+            };
+      const setup = fixture({ hostManagerOptions });
+      expect(setup.startGuest()).toBe(true);
+      setup.pump();
+      const wire = bootstrapWirePair(setup);
+      const now = wire.guestChannel.nowRoomTimeMs();
+      expect(
+        setup.guest.sendWire(setup.guestConn, wire.guestLease, {
+          kind: 'source-not-ready',
+          observedAtRoomTimeMs: now,
+          reasonCode: 'adoption-contract',
+          retryable: true,
+        }),
+      ).not.toBeNull();
+      setup.pump();
+
+      expect(setup.host.phase(setup.hostConn)).toBe('none');
+      expect(setup.hostConn.close).toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the connection alive while stale-dropping a retired known state without adoption', () => {
+    const setup = fixture();
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const wire = bootstrapWirePair(setup);
+    const now = wire.guestChannel.nowRoomTimeMs();
+    expect(
+      setup.guest.sendWire(setup.guestConn, wire.guestLease, {
+        kind: 'source-not-ready',
+        observedAtRoomTimeMs: now,
+        reasonCode: 'late-retired-state',
+        retryable: true,
+      }),
+    ).not.toBeNull();
+    wire.hostChannel.retireMedia(wire.hostLease);
+    setup.pump();
+
+    expect(setup.host.phase(setup.hostConn)).toBe('established');
+    expect(setup.hostConn.close).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on adoption reentry and publishes revocation before channel close', () => {
+    const lifecycle: Array<{ kind: string; channelClosed: boolean | null }> = [];
+    let setup!: ReturnType<typeof fixture>;
+    setup = fixture({
+      hostManagerOptions: {
+        adoptWireMessage(event, acknowledge) {
+          acknowledge();
+          setup.host.receive(event.message, setup.hostConn);
+        },
+        onLifecycleEvent(event) {
+          lifecycle.push({
+            kind: event.kind,
+            channelClosed: event.channel ? event.channel.isClosed() : null,
+          });
+        },
+      },
+    });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const wire = bootstrapWirePair(setup);
+    const now = wire.guestChannel.nowRoomTimeMs();
+    expect(
+      setup.guest.sendWire(setup.guestConn, wire.guestLease, {
+        kind: 'source-not-ready',
+        observedAtRoomTimeMs: now,
+        reasonCode: 'reentrant-adoption',
+        retryable: true,
+      }),
+    ).not.toBeNull();
+    setup.pump();
+
+    expect(setup.host.phase(setup.hostConn)).toBe('none');
+    expect(lifecycle.map((event) => event.kind)).toEqual(['established', 'clock-ready', 'revoked']);
+    expect(lifecycle.at(-1)).toEqual({ kind: 'revoked', channelClosed: false });
+  });
+
+  it('fails closed when an adoption sink re-enters the outbound wire lane', () => {
+    let setup!: ReturnType<typeof fixture>;
+    setup = fixture({
+      guestManagerOptions: {
+        adoptWireMessage(event, acknowledge) {
+          acknowledge();
+          expect(
+            setup.guest.sendWire(event.connection, event.stateLease, {
+              kind: 'source-not-ready',
+              observedAtRoomTimeMs: 2_000,
+              reasonCode: 'reentrant-send',
+              retryable: true,
+            }),
+          ).toBeNull();
+        },
+      },
+    });
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const wire = bootstrapWirePair(setup);
+    const hostAttempt = wire.hostChannel.stageAttempt(wire.hostLease, 'rendezvous-reentry');
+    wire.guestChannel.stageAttempt(wire.guestLease, 'rendezvous-reentry');
+    const now = wire.hostChannel.nowRoomTimeMs();
+
+    expect(
+      setup.host.sendWire(setup.hostConn, hostAttempt, {
+        kind: 'rendezvous-arm',
+        rendezvousId: 'rendezvous-reentry',
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: now + 500,
+        finalizeByRoomTimeMs: now + 400,
+      }),
+    ).not.toBeNull();
+    setup.pump();
+
+    expect(setup.guest.phase(setup.guestConn)).toBe('none');
+    expect(setup.guestConn.close).toHaveBeenCalled();
+  });
+
   it('closes exact connections on bootstrap failure without publishing establishment', () => {
     const setup = fixture();
     bus.clear('network:peer-bootstrap');
@@ -291,7 +511,7 @@ describe('FilePlaybackApplicationSessionManager', () => {
     expect(setup.guest.handleWake(setup.guestConn)).toBe(true);
     expect(channel?.clockReady()).toBe(false);
     expect(
-      setup.guest.sendWire(setup.guestConn, {
+      setup.guest.sendWire(setup.guestConn, {} as FilePlaybackWireStateLease, {
         kind: 'source-not-ready',
         observedAtRoomTimeMs: 1,
         reasonCode: 'wake',
@@ -603,7 +823,13 @@ describe('FilePlaybackApplicationSessionManager', () => {
 
   it('degrades bounded calibration without closing the room and wake starts a fresh epoch', () => {
     const timers = manualTimers();
-    const setup = fixture({ guestManagerOptions: timers.options });
+    const lifecycle: string[] = [];
+    const setup = fixture({
+      guestManagerOptions: {
+        ...timers.options,
+        onLifecycleEvent: (event) => lifecycle.push(event.kind),
+      },
+    });
     expect(setup.startGuest()).toBe(true);
     while (setup.host.phase(setup.hostConn) !== 'established') {
       if (!setup.deliverNext()) throw new Error('Handshake did not establish');
@@ -616,6 +842,7 @@ describe('FilePlaybackApplicationSessionManager', () => {
     expect(setup.guest.clockCalibrationState(setup.guestConn)).toBe('degraded');
     expect(setup.guest.phase(setup.guestConn)).toBe('established');
     expect(setup.guestConn.close).not.toHaveBeenCalled();
+    expect(lifecycle).toContain('clock-degraded');
     expect(
       setup.guestConn.sent.filter(
         (value) => (value as { type?: string }).type === FILE_PLAYBACK_CLOCK_PING_TYPE,

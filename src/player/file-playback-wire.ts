@@ -5,6 +5,7 @@ import {
   isPlaybackRunIdentity,
   isPlaybackStateIdentity,
   type PlaybackRevision,
+  type PlaybackRevisionWatermark,
 } from './playback-identity.ts';
 import {
   readRendezvousArmIntent,
@@ -17,6 +18,14 @@ import {
   type RendezvousFinalizeReceipt,
   type RevisionedPlaybackRun,
 } from './rendezvous-contract.ts';
+import {
+  FilePlaybackWireBindingRegistry,
+  type FilePlaybackWireAttemptLease,
+  type FilePlaybackWireExpectedStateIdentity,
+  type FilePlaybackWireMediaBinding,
+  type FilePlaybackWireStateLease,
+  type FilePlaybackWireStateReference,
+} from './file-playback-wire-binding.ts';
 
 export const FILE_PLAYBACK_WIRE_PROTOCOL_VERSION = 2 as const;
 export const FILE_PLAYBACK_WIRE_MAX_PAYLOAD_BYTES = 4_096;
@@ -45,10 +54,33 @@ export const FILE_PLAYBACK_WIRE_KINDS = Object.freeze([
   'file-playback-pause',
   'file-playback-seek',
   'file-playback-cancel',
+  'file-playback-stop',
   'renderer-health',
 ] as const);
 
 export type FilePlaybackWireKind = (typeof FILE_PLAYBACK_WIRE_KINDS)[number];
+
+const ATTEMPT_SCOPED_WIRE_KINDS = new Set<FilePlaybackWireKind>([
+  'rendezvous-arm',
+  'rendezvous-armed',
+  'rendezvous-finalize',
+  'rendezvous-finalized',
+  'file-playback-cancel',
+  'renderer-health',
+]);
+const SUCCESSOR_SCOPED_WIRE_KINDS = new Set<FilePlaybackWireKind>([
+  'file-playback-pause',
+  'file-playback-seek',
+  'file-playback-stop',
+]);
+
+export function isFilePlaybackAttemptScopedWireKind(kind: FilePlaybackWireKind): boolean {
+  return ATTEMPT_SCOPED_WIRE_KINDS.has(kind);
+}
+
+export function isFilePlaybackSuccessorScopedWireKind(kind: FilePlaybackWireKind): boolean {
+  return SUCCESSOR_SCOPED_WIRE_KINDS.has(kind);
+}
 
 /**
  * Connection-scoped identity common to every V2 file-control message.
@@ -125,18 +157,36 @@ export interface RendezvousFinalizedWireMessage extends FilePlaybackWireEnvelope
 
 export interface FilePlaybackPauseWireMessage extends FilePlaybackWireEnvelope {
   readonly kind: 'file-playback-pause';
+  /** State that must still be current; the envelope identifies its successor. */
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: PlaybackRevision;
   readonly atRoomTimeMs: number;
 }
 
 export interface FilePlaybackSeekWireMessage extends FilePlaybackWireEnvelope {
   readonly kind: 'file-playback-seek';
+  /** State that must still be current; the envelope identifies its successor. */
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: PlaybackRevision;
   readonly positionSeconds: number;
   readonly atRoomTimeMs: number;
 }
 
 export interface FilePlaybackCancelWireMessage extends FilePlaybackWireEnvelope {
   readonly kind: 'file-playback-cancel';
+  /** Cancels exactly one rendezvous attempt, never the logical playback state. */
+  readonly rendezvousId: string;
   readonly reasonCode: string;
+}
+
+export interface FilePlaybackStopWireMessage extends FilePlaybackWireEnvelope {
+  readonly kind: 'file-playback-stop';
+  readonly expectedQueueItemId: QueueItemId;
+  readonly expectedRunId: string;
+  readonly expectedRevision: PlaybackRevision;
+  readonly atRoomTimeMs: number;
 }
 
 export interface RendererHealthWireMessage extends FilePlaybackWireEnvelope {
@@ -161,6 +211,7 @@ export type FilePlaybackWireMessage =
   | FilePlaybackPauseWireMessage
   | FilePlaybackSeekWireMessage
   | FilePlaybackCancelWireMessage
+  | FilePlaybackStopWireMessage
   | RendererHealthWireMessage;
 
 /** Optional binding checks supplied by the connection owner at receive time. */
@@ -200,12 +251,32 @@ export interface FilePlaybackWireReceiverOptions {
   readonly maxClockSkewMs?: number;
 }
 
-export interface FilePlaybackWireMediaBinding {
-  readonly run: RevisionedPlaybackRun;
-  readonly sourceIdentity: string;
-  readonly transferSessionId: string | null;
-  readonly rendezvousId?: string;
-}
+export type FilePlaybackWireReceiverRejectionReason =
+  | 'revoked'
+  | 'malformed-frame'
+  | 'wrong-scope'
+  | 'unknown-binding'
+  | 'replayed-sequence'
+  | 'temporal-invalid';
+
+export type FilePlaybackWireReceiverResult =
+  | Readonly<{
+      accepted: true;
+      status: 'message';
+      message: FilePlaybackWireMessage;
+      stateLease: FilePlaybackWireStateLease;
+      attemptLease: FilePlaybackWireAttemptLease | null;
+    }>
+  | Readonly<{
+      accepted: true;
+      status: 'stale';
+      scope: 'state' | 'attempt';
+      controlSequence: number;
+    }>
+  | Readonly<{
+      accepted: false;
+      reason: FilePlaybackWireReceiverRejectionReason;
+    }>;
 
 const COMMON_KEYS = [
   'protocolVersion',
@@ -258,9 +329,26 @@ const SPECIFIC_KEYS: Readonly<Record<FilePlaybackWireKind, readonly string[]>> =
     'observedAtRoomTimeMs',
     'reasonCode',
   ]),
-  'file-playback-pause': Object.freeze(['atRoomTimeMs']),
-  'file-playback-seek': Object.freeze(['positionSeconds', 'atRoomTimeMs']),
-  'file-playback-cancel': Object.freeze(['reasonCode']),
+  'file-playback-pause': Object.freeze([
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'atRoomTimeMs',
+  ]),
+  'file-playback-seek': Object.freeze([
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'positionSeconds',
+    'atRoomTimeMs',
+  ]),
+  'file-playback-cancel': Object.freeze(['rendezvousId', 'reasonCode']),
+  'file-playback-stop': Object.freeze([
+    'expectedQueueItemId',
+    'expectedRunId',
+    'expectedRevision',
+    'atRoomTimeMs',
+  ]),
   'renderer-health': Object.freeze([
     'rendezvousId',
     'value',
@@ -410,6 +498,26 @@ function asRevisionedRun(candidate: Record<string, unknown>): RevisionedPlayback
   };
 }
 
+function asExpectedState(
+  candidate: Record<string, unknown>,
+): FilePlaybackWireExpectedStateIdentity {
+  return {
+    queueItemId: candidate.expectedQueueItemId as QueueItemId,
+    runId: candidate.expectedRunId as string,
+    revision: candidate.expectedRevision as PlaybackRevision,
+  };
+}
+
+function hasValidSuccessorState(candidate: Record<string, unknown>): boolean {
+  const expected = asExpectedState(candidate);
+  return (
+    isPlaybackStateIdentity(expected) &&
+    expected.queueItemId === candidate.queueItemId &&
+    expected.runId === candidate.runId &&
+    expected.revision < (candidate.revision as number)
+  );
+}
+
 function asArmIntent(candidate: Record<string, unknown>): RendezvousArmIntent {
   return {
     protocolVersion: 2,
@@ -551,11 +659,17 @@ function hasValidKindPayload(candidate: Record<string, unknown>): boolean {
       );
     }
     case 'file-playback-pause':
-      return isRoomTime(candidate.atRoomTimeMs);
+      return hasValidSuccessorState(candidate) && isRoomTime(candidate.atRoomTimeMs);
     case 'file-playback-seek':
-      return isMediaTime(candidate.positionSeconds) && isRoomTime(candidate.atRoomTimeMs);
+      return (
+        hasValidSuccessorState(candidate) &&
+        isMediaTime(candidate.positionSeconds) &&
+        isRoomTime(candidate.atRoomTimeMs)
+      );
     case 'file-playback-cancel':
-      return isBoundedReason(candidate.reasonCode);
+      return isBoundedIdentifier(candidate.rendezvousId) && isBoundedReason(candidate.reasonCode);
+    case 'file-playback-stop':
+      return hasValidSuccessorState(candidate) && isRoomTime(candidate.atRoomTimeMs);
     case 'renderer-health': {
       const healthy = candidate.value === 'healthy';
       if (!healthy && candidate.value !== 'unhealthy') return false;
@@ -830,6 +944,7 @@ function hasValidTemporalBindings(
       );
     case 'file-playback-pause':
     case 'file-playback-seek':
+    case 'file-playback-stop':
       return message.atRoomTimeMs <= receivedAt + skew;
     default:
       return true;
@@ -921,12 +1036,18 @@ function canonicalMessage(candidate: Record<string, unknown>): FilePlaybackWireM
       return freezeCanonical({
         ...envelope,
         kind: 'file-playback-pause',
+        expectedQueueItemId: candidate.expectedQueueItemId as QueueItemId,
+        expectedRunId: candidate.expectedRunId as string,
+        expectedRevision: candidate.expectedRevision as PlaybackRevision,
         atRoomTimeMs: candidate.atRoomTimeMs as number,
       });
     case 'file-playback-seek':
       return freezeCanonical({
         ...envelope,
         kind: 'file-playback-seek',
+        expectedQueueItemId: candidate.expectedQueueItemId as QueueItemId,
+        expectedRunId: candidate.expectedRunId as string,
+        expectedRevision: candidate.expectedRevision as PlaybackRevision,
         positionSeconds: candidate.positionSeconds as number,
         atRoomTimeMs: candidate.atRoomTimeMs as number,
       });
@@ -934,7 +1055,17 @@ function canonicalMessage(candidate: Record<string, unknown>): FilePlaybackWireM
       return freezeCanonical({
         ...envelope,
         kind: 'file-playback-cancel',
+        rendezvousId: candidate.rendezvousId as string,
         reasonCode: candidate.reasonCode as string,
+      });
+    case 'file-playback-stop':
+      return freezeCanonical({
+        ...envelope,
+        kind: 'file-playback-stop',
+        expectedQueueItemId: candidate.expectedQueueItemId as QueueItemId,
+        expectedRunId: candidate.expectedRunId as string,
+        expectedRevision: candidate.expectedRevision as PlaybackRevision,
+        atRoomTimeMs: candidate.atRoomTimeMs as number,
       });
     case 'renderer-health':
       return freezeCanonical({
@@ -996,33 +1127,30 @@ export function createFilePlaybackWireMessage(
   return message;
 }
 
-function snapshotMediaExpectations(
-  value: FilePlaybackWireMediaBinding,
-): FilePlaybackWireMediaBinding | null {
-  const snapshot = snapshotAllowedDataRecord(
-    value,
-    new Set(['run', 'sourceIdentity', 'transferSessionId', 'rendezvousId']),
-    ['run', 'sourceIdentity', 'transferSessionId'],
-  );
-  if (!snapshot) return null;
-  const run = snapshotExpectedRun(snapshot.run);
-  if (run === null || !isBoundedIdentifier(snapshot.sourceIdentity)) {
-    return null;
-  }
-  if (snapshot.transferSessionId !== null && !isBoundedIdentifier(snapshot.transferSessionId)) {
-    return null;
-  }
-  if (Object.hasOwn(snapshot, 'rendezvousId') && !isBoundedIdentifier(snapshot.rendezvousId)) {
-    return null;
-  }
+function stateReferenceFromMessage(
+  message: FilePlaybackWireMessage,
+): Readonly<FilePlaybackWireStateReference> {
   return freezeCanonical({
-    run,
-    sourceIdentity: snapshot.sourceIdentity,
-    transferSessionId: snapshot.transferSessionId as string | null,
-    ...(Object.hasOwn(snapshot, 'rendezvousId')
-      ? { rendezvousId: snapshot.rendezvousId as string }
-      : {}),
+    queueItemId: message.queueItemId,
+    runId: message.runId,
+    revision: message.revision,
+    sourceIdentity: message.sourceIdentity,
+    transferSessionId: message.transferSessionId,
   });
+}
+
+function expectedStateFromMessage(
+  message: FilePlaybackPauseWireMessage | FilePlaybackSeekWireMessage | FilePlaybackStopWireMessage,
+): Readonly<FilePlaybackWireExpectedStateIdentity> {
+  return freezeCanonical({
+    queueItemId: message.expectedQueueItemId,
+    runId: message.expectedRunId,
+    revision: message.expectedRevision,
+  });
+}
+
+function receiverResult<T extends object>(value: T): Readonly<T> {
+  return freezeCanonical(value);
 }
 
 /**
@@ -1038,10 +1166,13 @@ export class FilePlaybackWireReceiver {
   readonly #recipientParticipantId: string;
   readonly #nowRoomTimeMs: () => number;
   readonly #maxClockSkewMs: number;
+  readonly #bindings: FilePlaybackWireBindingRegistry;
   #lastControlSequence = 0;
-  #media: FilePlaybackWireMediaBinding | null = null;
 
-  constructor(options: FilePlaybackWireReceiverOptions) {
+  constructor(
+    options: FilePlaybackWireReceiverOptions,
+    bindings: FilePlaybackWireBindingRegistry = new FilePlaybackWireBindingRegistry(),
+  ) {
     const snapshot = snapshotAllowedDataRecord(
       options,
       new Set([
@@ -1084,23 +1215,66 @@ export class FilePlaybackWireReceiver {
     this.#recipientParticipantId = snapshot.recipientParticipantId;
     this.#nowRoomTimeMs = snapshot.nowRoomTimeMs as () => number;
     this.#maxClockSkewMs = maxClockSkewMs;
+    if (!(bindings instanceof FilePlaybackWireBindingRegistry)) {
+      throw new TypeError('File playback receiver binding registry is invalid');
+    }
+    this.#bindings = bindings;
   }
 
   lastControlSequence(): number {
     return this.#lastControlSequence;
   }
 
-  bindMedia(expectations: FilePlaybackWireMediaBinding): void {
-    const snapshot = snapshotMediaExpectations(expectations);
-    if (!snapshot) throw new TypeError('File playback receiver media binding is invalid');
-    this.#media = snapshot;
+  bootstrapStopped(revisionWatermark: PlaybackRevisionWatermark): void {
+    this.#bindings.bootstrapStopped(revisionWatermark);
   }
 
-  clearMedia(): void {
-    this.#media = null;
+  bootstrapCurrentMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
+    return this.#bindings.bootstrapCurrentMedia(binding);
   }
 
-  receive(value: unknown): FilePlaybackWireMessage | null {
+  stageMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
+    return this.#bindings.stageMedia(binding);
+  }
+
+  commitMedia(lease: FilePlaybackWireStateLease): void {
+    this.#bindings.commitMedia(lease);
+  }
+
+  commitStop(
+    successorLease: FilePlaybackWireStateLease,
+    expected: FilePlaybackWireExpectedStateIdentity,
+  ): void {
+    this.#bindings.commitStop(successorLease, expected);
+  }
+
+  retireMedia(lease: FilePlaybackWireStateLease): void {
+    this.#bindings.retireMedia(lease);
+  }
+
+  stageAttempt(
+    stateLease: FilePlaybackWireStateLease,
+    rendezvousId: string,
+  ): FilePlaybackWireAttemptLease {
+    return this.#bindings.stageAttempt(stateLease, rendezvousId);
+  }
+
+  commitAttempt(lease: FilePlaybackWireAttemptLease): void {
+    this.#bindings.commitAttempt(lease);
+  }
+
+  retireAttempt(lease: FilePlaybackWireAttemptLease): void {
+    this.#bindings.retireAttempt(lease);
+  }
+
+  revokeAll(): void {
+    this.#bindings.revokeAll();
+  }
+
+  receive(value: unknown): FilePlaybackWireReceiverResult {
+    if (this.#bindings.isRevoked()) {
+      return receiverResult({ accepted: false as const, reason: 'revoked' as const });
+    }
     // Capture ingress time before hostile Proxy traps can consume main-thread
     // time. Mutable media authority and the watermark are still read after
     // detachment, so a re-entrant trap cannot make an older outer frame win.
@@ -1108,14 +1282,89 @@ export class FilePlaybackWireReceiver {
     try {
       receivedAtRoomTimeMs = this.#nowRoomTimeMs();
     } catch {
-      return null;
+      return receiverResult({ accepted: false as const, reason: 'temporal-invalid' as const });
     }
     const message = canonicalizeFilePlaybackWireMessage(value);
-    if (!message) return null;
+    if (!message) {
+      return receiverResult({ accepted: false as const, reason: 'malformed-frame' as const });
+    }
+    if (
+      message.sessionId !== this.#sessionId ||
+      message.connectionId !== this.#connectionId ||
+      message.senderParticipantId !== this.#senderParticipantId ||
+      message.recipientParticipantId !== this.#recipientParticipantId
+    ) {
+      return receiverResult({ accepted: false as const, reason: 'wrong-scope' as const });
+    }
 
-    const media = this.#media;
-    if (!media) return null;
+    const reference = stateReferenceFromMessage(message);
+    let stateLease: FilePlaybackWireStateLease | null = null;
+    let attemptLease: FilePlaybackWireAttemptLease | null = null;
+    let staleScope: 'state' | 'attempt' | null = null;
+    let remoteSuccessorAdmission: Readonly<{
+      expected: Readonly<FilePlaybackWireExpectedStateIdentity>;
+      purpose: 'media' | 'stop';
+    }> | null = null;
+    let remoteAttemptAdmission: Readonly<{ rendezvousId: string }> | null = null;
+    if (isFilePlaybackAttemptScopedWireKind(message.kind)) {
+      if (!('rendezvousId' in message)) {
+        return receiverResult({ accepted: false as const, reason: 'malformed-frame' as const });
+      }
+      const resolved =
+        message.kind === 'rendezvous-arm'
+          ? this.#bindings.resolveArmAttempt(reference, message.rendezvousId)
+          : message.kind === 'file-playback-cancel'
+            ? this.#bindings.resolveCandidateAttempt(reference, message.rendezvousId)
+            : this.#bindings.resolveAttempt(reference, message.rendezvousId);
+      if (resolved.status === 'active') {
+        stateLease = resolved.stateLease;
+        attemptLease = resolved.attemptLease;
+      } else if (resolved.status === 'stale') {
+        staleScope = 'attempt';
+      } else if (message.kind === 'rendezvous-arm') {
+        const state = this.#bindings.resolveState(reference);
+        if (state.status !== 'active') {
+          return receiverResult({ accepted: false as const, reason: 'unknown-binding' as const });
+        }
+        stateLease = state.stateLease;
+        remoteAttemptAdmission = freezeCanonical({ rendezvousId: message.rendezvousId });
+      } else {
+        return receiverResult({ accepted: false as const, reason: 'unknown-binding' as const });
+      }
+    } else if (isFilePlaybackSuccessorScopedWireKind(message.kind)) {
+      if (
+        message.kind !== 'file-playback-pause' &&
+        message.kind !== 'file-playback-seek' &&
+        message.kind !== 'file-playback-stop'
+      ) {
+        return receiverResult({ accepted: false as const, reason: 'malformed-frame' as const });
+      }
+      const expected = expectedStateFromMessage(message);
+      const resolved =
+        message.kind === 'file-playback-stop'
+          ? this.#bindings.resolveStopSuccessor(reference, expected)
+          : this.#bindings.resolveSuccessor(reference, expected);
+      if (resolved.status === 'active') stateLease = resolved.stateLease;
+      else if (resolved.status === 'stale') staleScope = 'state';
+      else {
+        remoteSuccessorAdmission = freezeCanonical({
+          expected,
+          purpose: message.kind === 'file-playback-stop' ? ('stop' as const) : ('media' as const),
+        });
+      }
+    } else {
+      const resolved = this.#bindings.resolveState(reference);
+      if (resolved.status === 'active') stateLease = resolved.stateLease;
+      else if (resolved.status === 'stale') staleScope = 'state';
+      else {
+        return receiverResult({ accepted: false as const, reason: 'unknown-binding' as const });
+      }
+    }
+
     const currentWatermark = this.#lastControlSequence;
+    if (message.controlSequence <= currentWatermark) {
+      return receiverResult({ accepted: false as const, reason: 'replayed-sequence' as const });
+    }
     const expectations: FilePlaybackWireReceiveExpectations = freezeCanonical({
       sessionId: this.#sessionId,
       connectionId: this.#connectionId,
@@ -1124,15 +1373,65 @@ export class FilePlaybackWireReceiver {
       lastControlSequence: currentWatermark,
       receivedAtRoomTimeMs,
       maxClockSkewMs: this.#maxClockSkewMs,
-      ...media,
+      ...((attemptLease || staleScope === 'attempt') && 'rendezvousId' in message
+        ? { rendezvousId: message.rendezvousId }
+        : {}),
     });
-    if (!hasValidExpectationBindings(message, expectations)) return null;
+    if (!hasValidExpectationBindings(message, expectations)) {
+      return receiverResult({ accepted: false as const, reason: 'temporal-invalid' as const });
+    }
+
+    if (staleScope) {
+      this.#lastControlSequence = message.controlSequence;
+      return receiverResult({
+        accepted: true as const,
+        status: 'stale' as const,
+        scope: staleScope,
+        controlSequence: message.controlSequence,
+      });
+    }
+
+    if (remoteAttemptAdmission) {
+      try {
+        const admitted = this.#bindings.admitRemoteAttempt(
+          reference,
+          remoteAttemptAdmission.rendezvousId,
+        );
+        stateLease = admitted.stateLease;
+        attemptLease = admitted.attemptLease;
+      } catch {
+        return receiverResult({ accepted: false as const, reason: 'unknown-binding' as const });
+      }
+    }
+
+    if (remoteSuccessorAdmission) {
+      try {
+        stateLease = this.#bindings.admitRemoteSuccessor(
+          reference,
+          remoteSuccessorAdmission.expected,
+          remoteSuccessorAdmission.purpose,
+        );
+      } catch {
+        return receiverResult({ accepted: false as const, reason: 'unknown-binding' as const });
+      }
+    }
 
     // No untrusted callback occurs between the final current-watermark check
     // and this commit. Dispatch may safely become async only after receive().
-    if (message.controlSequence <= this.#lastControlSequence) return null;
+    if (message.controlSequence <= this.#lastControlSequence) {
+      return receiverResult({ accepted: false as const, reason: 'replayed-sequence' as const });
+    }
+    if (message.kind === 'file-playback-stop') {
+      this.#bindings.markStopSuccessorLease(stateLease!, expectedStateFromMessage(message));
+    }
     this.#lastControlSequence = message.controlSequence;
-    return message;
+    return receiverResult({
+      accepted: true as const,
+      status: 'message' as const,
+      message,
+      stateLease: stateLease!,
+      attemptLease,
+    });
   }
 }
 

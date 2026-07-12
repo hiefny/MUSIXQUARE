@@ -17,15 +17,23 @@ import {
   type FilePlaybackSessionBindingV2,
 } from './file-playback-session-handshake.ts';
 import type { FilePlaybackClockBindings } from '../player/file-playback-clock.ts';
+import type { PlaybackRevisionWatermark } from '../player/playback-identity.ts';
 import {
   FILE_PLAYBACK_WIRE_KINDS,
   FILE_PLAYBACK_WIRE_MAX_PAYLOAD_BYTES,
   FilePlaybackWireReceiver,
   createFilePlaybackWireMessage,
   type FilePlaybackWireKind,
-  type FilePlaybackWireMediaBinding,
   type FilePlaybackWireMessage,
 } from '../player/file-playback-wire.ts';
+import {
+  FilePlaybackWireBindingRegistry,
+  type FilePlaybackWireAttemptLease,
+  type FilePlaybackWireExpectedStateIdentity,
+  type FilePlaybackWireLease,
+  type FilePlaybackWireMediaBinding,
+  type FilePlaybackWireStateLease,
+} from '../player/file-playback-wire-binding.ts';
 import {
   FilePlaybackWireSender,
   type FilePlaybackWireMessageForKind,
@@ -52,15 +60,6 @@ const CHANNEL_OPTION_KEYS = Object.freeze([
   'maxClockSkewMs',
   'now',
 ] as const);
-const MEDIA_KEYS = Object.freeze([
-  'rendezvousId',
-  'run',
-  'sourceIdentity',
-  'transferSessionId',
-] as const);
-const RUN_KEYS = Object.freeze(['queueItemId', 'revision', 'runId'] as const);
-const RUN_KEY_SET = new Set<string>(RUN_KEYS);
-
 /** Exhaustive, fail-closed ownership table for every control kind. */
 const WIRE_KIND_SENDER_ROLE: Readonly<Record<FilePlaybackWireKind, FilePlaybackClockRole>> =
   Object.freeze({
@@ -73,6 +72,7 @@ const WIRE_KIND_SENDER_ROLE: Readonly<Record<FilePlaybackWireKind, FilePlaybackC
     'file-playback-pause': 'host',
     'file-playback-seek': 'host',
     'file-playback-cancel': 'host',
+    'file-playback-stop': 'host',
     'renderer-health': 'guest',
   });
 
@@ -131,6 +131,14 @@ export type FilePlaybackConnectionChannelReceiveResult =
       accepted: true;
       frame: 'wire';
       message: FilePlaybackWireMessage;
+      stateLease: FilePlaybackWireStateLease;
+      attemptLease: FilePlaybackWireAttemptLease | null;
+    }>
+  | Readonly<{
+      accepted: true;
+      frame: 'wire-stale';
+      scope: 'state' | 'attempt';
+      controlSequence: number;
     }>
   | Readonly<{
       accepted: false;
@@ -141,10 +149,6 @@ export type FilePlaybackConnectionChannelReceiveResult =
       reason: 'clock-rejected';
       clockReason: FilePlaybackClockExchangeRejectionReason;
     }>;
-
-interface DetachedMediaBinding extends FilePlaybackWireMediaBinding {
-  readonly run: FilePlaybackWireMediaBinding['run'];
-}
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
@@ -280,55 +284,6 @@ function snapshotMaterializedFrame(value: unknown): DetachedFrame | null {
   }
 }
 
-function snapshotMediaBinding(value: unknown): Readonly<DetachedMediaBinding> | null {
-  try {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-    const allowed = new Set<string>(MEDIA_KEYS);
-    const ownKeys = Reflect.ownKeys(value);
-    if (
-      !ownKeys.includes('run') ||
-      !ownKeys.includes('sourceIdentity') ||
-      !ownKeys.includes('transferSessionId') ||
-      ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key))
-    ) {
-      return null;
-    }
-
-    const outer = Object.create(null) as Record<string, unknown>;
-    for (const key of ownKeys as string[]) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
-      outer[key] = descriptor.value;
-    }
-    const runValue = outer.run;
-    if (runValue === null || typeof runValue !== 'object' || Array.isArray(runValue)) return null;
-    const runKeys = Reflect.ownKeys(runValue);
-    if (
-      runKeys.length !== RUN_KEYS.length ||
-      runKeys.some((key) => typeof key !== 'string' || !RUN_KEY_SET.has(key))
-    ) {
-      return null;
-    }
-    const run = Object.create(null) as Record<string, unknown>;
-    for (const key of RUN_KEYS) {
-      const descriptor = Object.getOwnPropertyDescriptor(runValue, key);
-      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
-      run[key] = descriptor.value;
-    }
-
-    return freezeCanonical({
-      run: freezeCanonical(run) as unknown as FilePlaybackWireMediaBinding['run'],
-      sourceIdentity: outer.sourceIdentity as string,
-      transferSessionId: outer.transferSessionId as string | null,
-      ...(Object.hasOwn(outer, 'rendezvousId')
-        ? { rendezvousId: outer.rendezvousId as string }
-        : {}),
-    });
-  } catch {
-    return null;
-  }
-}
-
 function inferEstablishedBinding(handshake: EstablishedHandshake): Readonly<{
   binding: Readonly<FilePlaybackSessionBindingV2>;
   role: FilePlaybackClockRole;
@@ -362,6 +317,7 @@ interface ClaimedChannelAuthority {
   readonly binding: Readonly<FilePlaybackSessionBindingV2>;
   readonly connectionToken: object;
   readonly clock: FilePlaybackClockExchange;
+  readonly bindings: FilePlaybackWireBindingRegistry;
   readonly sender: FilePlaybackWireSender;
   readonly receiver: FilePlaybackWireReceiver;
 }
@@ -425,28 +381,36 @@ function claimChannelAuthority(
       established.role === 'host' ? binding.hostParticipantId : binding.guestParticipantId;
     const recipientParticipantId =
       established.role === 'host' ? binding.guestParticipantId : binding.hostParticipantId;
-    const sender = new FilePlaybackWireSender({
-      sessionId: binding.sessionId,
-      connectionId: binding.connectionId,
-      senderParticipantId,
-      recipientParticipantId,
-    });
-    const receiver = new FilePlaybackWireReceiver({
-      sessionId: binding.sessionId,
-      connectionId: binding.connectionId,
-      senderParticipantId: recipientParticipantId,
-      recipientParticipantId: senderParticipantId,
-      nowRoomTimeMs: () => clock.nowRoomTimeMs(),
-      ...(optionSnapshot.maxClockSkewMs === undefined
-        ? {}
-        : { maxClockSkewMs: optionSnapshot.maxClockSkewMs as number }),
-    });
+    const bindings = new FilePlaybackWireBindingRegistry();
+    const sender = new FilePlaybackWireSender(
+      {
+        sessionId: binding.sessionId,
+        connectionId: binding.connectionId,
+        senderParticipantId,
+        recipientParticipantId,
+      },
+      bindings,
+    );
+    const receiver = new FilePlaybackWireReceiver(
+      {
+        sessionId: binding.sessionId,
+        connectionId: binding.connectionId,
+        senderParticipantId: recipientParticipantId,
+        recipientParticipantId: senderParticipantId,
+        nowRoomTimeMs: () => clock.nowRoomTimeMs(),
+        ...(optionSnapshot.maxClockSkewMs === undefined
+          ? {}
+          : { maxClockSkewMs: optionSnapshot.maxClockSkewMs as number }),
+      },
+      bindings,
+    );
 
     const authority = freezeCanonical({
       role: established.role,
       binding,
       connectionToken: liveConnectionToken,
       clock,
+      bindings,
       sender,
       receiver,
     });
@@ -477,12 +441,11 @@ export class FilePlaybackConnectionChannel {
   #binding: Readonly<FilePlaybackSessionBindingV2> | null;
   #connectionToken: object | null;
   readonly #clock: FilePlaybackClockExchange;
+  readonly #bindings: FilePlaybackWireBindingRegistry;
   readonly #sender: FilePlaybackWireSender;
   readonly #receiver: FilePlaybackWireReceiver;
-  #media: Readonly<DetachedMediaBinding> | null = null;
   #closed = false;
   #receiving = false;
-  #mediaMutationEpoch = 0;
 
   constructor(
     handshake: EstablishedHandshake,
@@ -494,6 +457,7 @@ export class FilePlaybackConnectionChannel {
     this.#binding = authority.binding;
     this.#connectionToken = authority.connectionToken;
     this.#clock = authority.clock;
+    this.#bindings = authority.bindings;
     this.#sender = authority.sender;
     this.#receiver = authority.receiver;
   }
@@ -569,45 +533,71 @@ export class FilePlaybackConnectionChannel {
     return ping;
   }
 
-  bindMedia(binding: FilePlaybackWireMediaBinding): void {
+  bootstrapCurrentMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
     this.#assertOpen();
-    const entryEpoch = this.#mediaMutationEpoch;
-    const detached = snapshotMediaBinding(binding);
-    if (!detached) throw new TypeError('File playback channel media binding is invalid');
-    // A hostile Proxy may synchronously close the channel while its own-data
-    // descriptors are detached. Never republish media after that revocation.
+    const lease = this.#sender.bootstrapCurrentMedia(binding);
     this.#assertOpen();
-    if (this.#mediaMutationEpoch !== entryEpoch) {
-      throw new Error('File playback media authority changed during binding');
-    }
-    const previous = this.#media;
-    try {
-      this.#sender.bindMedia(detached);
-      this.#receiver.bindMedia(detached);
-      this.#media = detached;
-    } catch (error) {
-      if (previous) {
-        this.#sender.bindMedia(previous);
-        this.#receiver.bindMedia(previous);
-      } else {
-        this.#sender.clearMedia();
-        this.#receiver.clearMedia();
-      }
-      throw error;
-    }
-    this.#mediaMutationEpoch = entryEpoch + 1;
+    return lease;
+  }
+
+  bootstrapStopped(revisionWatermark: PlaybackRevisionWatermark): void {
+    this.#assertOpen();
+    this.#sender.bootstrapStopped(revisionWatermark);
     this.#assertOpen();
   }
 
-  clearMedia(): void {
+  stageMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
     this.#assertOpen();
-    this.#mediaMutationEpoch += 1;
-    this.#media = null;
-    this.#sender.clearMedia();
-    this.#receiver.clearMedia();
+    const lease = this.#sender.stageMedia(binding);
+    this.#assertOpen();
+    return lease;
+  }
+
+  commitMedia(lease: FilePlaybackWireStateLease): void {
+    this.#assertOpen();
+    this.#sender.commitMedia(lease);
+    this.#assertOpen();
+  }
+
+  commitStop(
+    successorLease: FilePlaybackWireStateLease,
+    expected: FilePlaybackWireExpectedStateIdentity,
+  ): void {
+    this.#assertOpen();
+    this.#sender.commitStop(successorLease, expected);
+    this.#assertOpen();
+  }
+
+  retireMedia(lease: FilePlaybackWireStateLease): void {
+    this.#assertOpen();
+    this.#sender.retireMedia(lease);
+    this.#assertOpen();
+  }
+
+  stageAttempt(
+    stateLease: FilePlaybackWireStateLease,
+    rendezvousId: string,
+  ): FilePlaybackWireAttemptLease {
+    this.#assertOpen();
+    const lease = this.#sender.stageAttempt(stateLease, rendezvousId);
+    this.#assertOpen();
+    return lease;
+  }
+
+  commitAttempt(lease: FilePlaybackWireAttemptLease): void {
+    this.#assertOpen();
+    this.#sender.commitAttempt(lease);
+    this.#assertOpen();
+  }
+
+  retireAttempt(lease: FilePlaybackWireAttemptLease): void {
+    this.#assertOpen();
+    this.#sender.retireAttempt(lease);
+    this.#assertOpen();
   }
 
   createWire<const Kind extends keyof FilePlaybackWirePayloadByKind>(
+    lease: FilePlaybackWireLease,
     payload: FilePlaybackWirePayloadByKind[Kind],
   ): FilePlaybackWireMessageForKind<Kind> {
     this.#assertTemporalAuthority();
@@ -629,7 +619,10 @@ export class FilePlaybackConnectionChannel {
     if (WIRE_KIND_SENDER_ROLE[kind as FilePlaybackWireKind] !== this.#role) {
       throw new TypeError(`File playback ${this.#role} cannot send ${kind}`);
     }
-    const message = this.#sender.create(detached as unknown as FilePlaybackWirePayloadByKind[Kind]);
+    const message = this.#sender.create(
+      lease,
+      detached as unknown as FilePlaybackWirePayloadByKind[Kind],
+    );
     this.#assertTemporalAuthority();
     return message;
   }
@@ -662,10 +655,7 @@ export class FilePlaybackConnectionChannel {
     this.#closed = true;
     this.#connectionToken = null;
     this.#binding = null;
-    this.#media = null;
-    this.#mediaMutationEpoch += 1;
-    this.#sender.clearMedia();
-    this.#receiver.clearMedia();
+    this.#bindings.revokeAll();
     this.#clock.clearSession();
   }
 
@@ -742,9 +732,22 @@ export class FilePlaybackConnectionChannel {
       return rejected('wrong-role-kind');
     }
 
-    const message = this.#receiver.receive(canonical);
+    const received = this.#receiver.receive(canonical);
     if (this.#closed) return rejected('closed');
-    return message ? accepted({ frame: 'wire' as const, message }) : rejected('wire-rejected');
+    if (!received.accepted) return rejected('wire-rejected');
+    if (received.status === 'stale') {
+      return accepted({
+        frame: 'wire-stale' as const,
+        scope: received.scope,
+        controlSequence: received.controlSequence,
+      });
+    }
+    return accepted({
+      frame: 'wire' as const,
+      message: received.message,
+      stateLease: received.stateLease,
+      attemptLease: received.attemptLease,
+    });
   }
 
   #assertOpen(): void {

@@ -52,6 +52,10 @@ class FakeBufferSourceNode extends FakeAudioNode {
   readonly stops: Array<number | undefined> = [];
 
   start(when = 0, offset = 0): void {
+    if (this.context.failNextStart) {
+      this.context.failNextStart = false;
+      throw new Error('Synthetic AudioBufferSource start failure');
+    }
     this.starts.push({ when, offset });
   }
 
@@ -65,10 +69,22 @@ class FakeBufferSourceNode extends FakeAudioNode {
 }
 
 class FakeAudioContext {
-  currentTime = 1;
+  #currentTime = 1;
+  roomNowMs = 1_000;
+  state: AudioContextState = 'running';
+  failNextStart = false;
   readonly sampleRate = 48_000;
   readonly sources: FakeBufferSourceNode[] = [];
   readonly gains: FakeGainNode[] = [];
+
+  get currentTime(): number {
+    return this.#currentTime;
+  }
+
+  set currentTime(value: number) {
+    this.#currentTime = value;
+    this.roomNowMs = value * 1_000;
+  }
 
   createBufferSource(): AudioBufferSourceNode {
     const source = new FakeBufferSourceNode(this);
@@ -133,6 +149,7 @@ function harness(duration = 20) {
     queueItemId: QID,
     audioBuffer: fakeBuffer(duration),
     audioContext: context as unknown as AudioContext,
+    nowRoomTimeMs: () => context.roomNowMs,
     roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1000,
     localPerformanceMsToContextTime: (localPerformanceTimeMs) => localPerformanceTimeMs / 1000,
   });
@@ -242,6 +259,41 @@ describe('AudioBufferPlaybackSource v2', () => {
     expect(context.gains[0]?.gain.automation.some(({ value }) => value === 1)).toBe(false);
     expect(context.sources[0]?.stops).toEqual([undefined]);
     expect(source.getSnapshot()).toMatchObject({ phase: 'paused', positionSeconds: 4 });
+  });
+
+  it('uses the monotonic room clock when AudioContext time is frozen', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await source.arm(armIntent());
+
+    context.currentTime = 1.7;
+    context.roomNowMs = 1_900;
+    await expect(source.finalize(finalizeIntent())).resolves.toMatchObject({
+      status: 'missed-deadline',
+      reasonCode: 'finalization-after-deadline',
+      observedAtRoomTimeMs: 1_900,
+    });
+    expect(context.gains[0]?.gain.automation.some(({ value }) => value === 1)).toBe(false);
+  });
+
+  it('refuses to arm or finalize while the shared AudioContext is not running', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    context.state = 'suspended';
+    await expect(source.arm(armIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'audio-context-not-running',
+    });
+
+    context.state = 'running';
+    await source.arm(armIntent());
+    context.currentTime = 1.7;
+    context.state = 'suspended';
+    await expect(source.finalize(finalizeIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'audio-context-not-running',
+    });
+    expect(context.gains.at(-1)?.gain.automation.some(({ value }) => value === 1)).toBe(false);
   });
 
   it('rejects invalid offsets, past schedules, stale revisions, and mismatched identities', async () => {
@@ -399,5 +451,96 @@ describe('AudioBufferPlaybackSource v2', () => {
     await source.destroy();
     await source.destroy();
     expect(source.getSnapshot()).toMatchObject({ phase: 'destroyed', run: null });
+  });
+
+  it('retires an older execution before a newer revision can fail scheduling', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    await source.arm(armIntent());
+    context.currentTime = 1.7;
+    await source.finalize(finalizeIntent());
+    const oldSource = context.sources[0];
+
+    context.currentTime = 2.2;
+    context.failNextStart = true;
+    await expect(
+      source.arm(
+        armIntent({
+          revision: 4,
+          runId: 'run-4',
+          rendezvousId: 'rv-4',
+          startAtRoomTimeMs: 3_000,
+          finalizeByRoomTimeMs: 2_800,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reasonCode: 'schedule-failed' });
+
+    expect(oldSource?.stops).toEqual([undefined]);
+    expect(oldSource?.disconnectCount).toBe(1);
+    oldSource?.emitEnded();
+    expect(source.getSnapshot()).toMatchObject({
+      phase: 'connected',
+      revision: 4,
+      run: { queueItemId: QID, runId: 'run-4', revision: 4 },
+      positionSeconds: 4.2,
+    });
+
+    await expect(
+      source.arm(
+        armIntent({
+          revision: 3,
+          startAtRoomTimeMs: 3_000,
+          finalizeByRoomTimeMs: 2_800,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reasonCode: 'stale-revision' });
+    await expect(
+      source.arm(
+        armIntent({
+          revision: 4,
+          runId: 'different-run-4',
+          rendezvousId: 'different-rv-4',
+          startAtRoomTimeMs: 3_000,
+          finalizeByRoomTimeMs: 2_800,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'rejected', reasonCode: 'run-mismatch' });
+    await expect(
+      source.arm(
+        armIntent({
+          revision: 4,
+          runId: 'run-4',
+          rendezvousId: 'rv-4',
+          startAtRoomTimeMs: 3_000,
+          finalizeByRoomTimeMs: 2_800,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 'armed' });
+  });
+
+  it('claims a validated run watermark before first-run scheduling can fail', async () => {
+    const { context, destination, source } = harness();
+    await prepareAndConnect(source, destination);
+    context.failNextStart = true;
+    const intent = armIntent();
+
+    await expect(source.arm(intent)).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'schedule-failed',
+    });
+    expect(source.getSnapshot()).toMatchObject({
+      phase: 'connected',
+      revision: 3,
+      run: { queueItemId: QID, runId: 'run-3', revision: 3 },
+    });
+    await expect(source.arm(armIntent({ revision: 2 }))).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'stale-revision',
+    });
+    await expect(source.arm(armIntent({ runId: 'other-run' }))).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'run-mismatch',
+    });
+    await expect(source.arm(intent)).resolves.toMatchObject({ status: 'armed' });
   });
 });

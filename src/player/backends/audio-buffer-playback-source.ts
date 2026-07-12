@@ -25,6 +25,8 @@ export interface AudioBufferPlaybackSourceOptions {
   readonly queueItemId: QueueItemId;
   readonly audioBuffer: AudioBuffer;
   readonly audioContext: AudioContext;
+  /** Authoritative monotonic room clock. It must not derive from AudioContext.currentTime. */
+  readonly nowRoomTimeMs: () => number;
   readonly roomTimeMsToContextTime: (roomTimeMs: number) => number;
   readonly localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
 }
@@ -131,6 +133,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
 
   readonly #audioBuffer: AudioBuffer;
   readonly #audioContext: AudioContext;
+  readonly #nowRoomTimeMs: () => number;
   readonly #roomTimeMsToContextTime: (roomTimeMs: number) => number;
   readonly #localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
 
@@ -161,6 +164,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       throw new TypeError('AudioBuffer playback context is invalid');
     }
     if (
+      typeof options.nowRoomTimeMs !== 'function' ||
       typeof options.roomTimeMsToContextTime !== 'function' ||
       typeof options.localPerformanceMsToContextTime !== 'function'
     ) {
@@ -170,6 +174,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     this.queueItemId = options.queueItemId;
     this.#audioBuffer = options.audioBuffer;
     this.#audioContext = options.audioContext;
+    this.#nowRoomTimeMs = options.nowRoomTimeMs;
     this.#roomTimeMsToContextTime = options.roomTimeMsToContextTime;
     this.#localPerformanceMsToContextTime = options.localPerformanceMsToContextTime;
   }
@@ -205,6 +210,17 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     }
     if (this.#phase === 'destroyed') {
       return this.#armReceipt(intent, 'rejected', 'source-destroyed', observedAtRoomTimeMs);
+    }
+    if (!this.#isContextRunning()) {
+      return this.#armReceipt(
+        intent,
+        'rejected',
+        'audio-context-not-running',
+        observedAtRoomTimeMs,
+      );
+    }
+    if (this.#roomNow() === null) {
+      return this.#armReceipt(intent, 'rejected', 'clock-unavailable', observedAtRoomTimeMs);
     }
     if (this.#destination === null) {
       return this.#armReceipt(intent, 'rejected', 'source-not-connected', observedAtRoomTimeMs);
@@ -243,8 +259,25 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       return this.#armReceipt(intent, 'rejected', 'arm-after-deadline', observedAtRoomTimeMs);
     }
 
-    const source = this.#audioContext.createBufferSource();
-    const gate = this.#audioContext.createGain();
+    const claimsRunWatermark = intent.revision > this.#revision || this.#run === null;
+    if (claimsRunWatermark) {
+      const previous = this.#viewAtContextTime(this.#audioContext.currentTime);
+      this.#positionSeconds = previous.positionSeconds;
+      this.#retireActiveExecution();
+      this.#idleTransition = null;
+      this.#revision = intent.revision;
+      this.#run = immutableRun(intent);
+      this.#phase = 'connected';
+    }
+
+    let source: AudioBufferSourceNode;
+    let gate: GainNode;
+    try {
+      source = this.#audioContext.createBufferSource();
+      gate = this.#audioContext.createGain();
+    } catch {
+      return this.#armReceipt(intent, 'rejected', 'schedule-failed', observedAtRoomTimeMs);
+    }
     const receipt = this.#armReceipt(intent, 'armed', null, observedAtRoomTimeMs);
     const execution: ActiveExecution = {
       armIntent: Object.freeze({ ...intent }),
@@ -293,9 +326,8 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
   async finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
     this.#settleCurrentExecution(false);
     const active = this.#active;
-    const observedAtRoomTimeMs = active
-      ? this.#observeRoomTime(active.armIntent.startAtRoomTimeMs, active.startContextTime)
-      : 0;
+    const roomNow = this.#roomNow();
+    const observedAtRoomTimeMs = roomNow ?? 0;
 
     if (!isRendezvousFinalizeIntent(intent)) {
       return this.#finalizeReceipt(intent, 'rejected', 'invalid-contract', observedAtRoomTimeMs);
@@ -313,7 +345,26 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       }
       return this.#finalizeReceipt(intent, 'rejected', 'finalize-mismatch', observedAtRoomTimeMs);
     }
-
+    if (!this.#isContextRunning()) {
+      const receipt = this.#finalizeReceipt(
+        intent,
+        'rejected',
+        'audio-context-not-running',
+        observedAtRoomTimeMs,
+      );
+      this.#retireMissedFinalization(active);
+      return receipt;
+    }
+    if (roomNow === null) {
+      const receipt = this.#finalizeReceipt(
+        intent,
+        'rejected',
+        'clock-unavailable',
+        observedAtRoomTimeMs,
+      );
+      this.#retireMissedFinalization(active);
+      return receipt;
+    }
     const validation = validateRendezvousFinalization(
       active.armIntent,
       active.armReceipt,
@@ -533,11 +584,11 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       }
       return;
     }
+    const roomNow = this.#roomNow();
     if (
       expireUnfinalized &&
       !active.finalized &&
-      this.#observeRoomTime(active.armIntent.startAtRoomTimeMs, active.startContextTime) >
-        active.armIntent.finalizeByRoomTimeMs
+      (roomNow === null || roomNow > active.armIntent.finalizeByRoomTimeMs)
     ) {
       this.#retireMissedFinalization(active);
       return;
@@ -669,19 +720,21 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     });
   }
 
-  #observedRoomTimeForArm(intent: RendezvousArmIntent): number {
-    const candidate = intent as unknown as Record<string, unknown>;
-    if (typeof candidate.startAtRoomTimeMs !== 'number') return 0;
-    const startContextTime = this.#mapRoomTime(candidate.startAtRoomTimeMs);
-    if (startContextTime === null) return 0;
-    return this.#observeRoomTime(candidate.startAtRoomTimeMs, startContextTime);
+  #observedRoomTimeForArm(_intent: RendezvousArmIntent): number {
+    return this.#roomNow() ?? 0;
   }
 
-  #observeRoomTime(referenceRoomTimeMs: number, referenceContextTime: number): number {
-    return Math.max(
-      0,
-      referenceRoomTimeMs - (referenceContextTime - this.#audioContext.currentTime) * 1000,
-    );
+  #roomNow(): number | null {
+    try {
+      const roomTimeMs = this.#nowRoomTimeMs();
+      return Number.isFinite(roomTimeMs) && roomTimeMs >= 0 ? roomTimeMs : null;
+    } catch {
+      return null;
+    }
+  }
+
+  #isContextRunning(): boolean {
+    return (this.#audioContext.state as string | undefined) === 'running';
   }
 
   #mapRoomTime(roomTimeMs: number): number | null {

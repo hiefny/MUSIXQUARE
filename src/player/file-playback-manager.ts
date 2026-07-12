@@ -1,5 +1,12 @@
 import type { QueueItemId } from '../types/index.ts';
 import {
+  createFilePlaybackEndedTransitionEvidence,
+  readFilePlaybackEndedTransitionIntent,
+  sameFilePlaybackEndedTransitionIntent,
+  type FilePlaybackEndedTransitionEvidence,
+  type FilePlaybackEndedTransitionIntent,
+} from './file-playback-ended-transition.ts';
+import {
   createFilePlaybackScheduledTransitionResult,
   createFilePlaybackSourceSnapshot,
   readFilePlaybackCutoverTarget,
@@ -142,6 +149,12 @@ interface CompletedCutoverStop {
   readonly contextTimeSeconds: number;
   readonly targetFrame: number;
   readonly promise: WeakRef<Promise<FilePlaybackStopTransitionResult>>;
+}
+
+/** Source-free tombstone used only for an exact ended-retirement retry. */
+interface CompletedCutoverEnd {
+  readonly intent: Readonly<FilePlaybackEndedTransitionIntent>;
+  readonly promise: WeakRef<Promise<Readonly<FilePlaybackEndedTransitionEvidence>>>;
 }
 
 const CURRENT_STOP_MAX_LEAD_SECONDS = 30;
@@ -536,6 +549,7 @@ export class FilePlaybackManager {
   private readonly discardedQueueItems = new Set<QueueItemId>();
   private readonly cutoverPorts = new WeakMap<object, CutoverRecord>();
   private readonly completedCutoverStops = new WeakMap<object, CompletedCutoverStop>();
+  private readonly completedCutoverEnds = new WeakMap<object, CompletedCutoverEnd>();
   private cutoverCurrent: CutoverRecord | null = null;
   private cutoverCandidate: CutoverRecord | null = null;
   private cutoverEpoch = 0;
@@ -780,6 +794,77 @@ export class FilePlaybackManager {
       return Promise.resolve(false);
     }
     return this.retireCurrentRecord(record).then(() => true);
+  }
+
+  /**
+   * Retires only an exact current renderer that has already reached native
+   * EOF. The body-free evidence lets the room controller commit STOP without
+   * pretending a scheduled stop or destroying a still-playing renderer.
+   */
+  retireEndedCurrent(
+    port: FilePlaybackCutoverCandidatePort,
+    value: FilePlaybackEndedTransitionIntent,
+  ): Promise<Readonly<FilePlaybackEndedTransitionEvidence>> {
+    const observedEpoch = this.cutoverEpoch;
+    const intent = readFilePlaybackEndedTransitionIntent(value);
+    const record = this.cutoverPorts.get(port);
+    if (!intent || !record || this.cutoverCurrent !== record || record.revoked) {
+      return this.retryCompletedCutoverEnd(port, intent);
+    }
+    if (
+      this.cutoverCandidate !== null ||
+      record.currentTransitionPending ||
+      record.currentStopPending
+    ) {
+      return Promise.reject(cutoverError('ended renderer has a conflicting transition'));
+    }
+    if (!this.currentAuthorityAllows(record)) {
+      void this.enterFailSilent(record, 'ended-renderer-authority-expired');
+      return Promise.reject(cutoverError('ended renderer authority expired'));
+    }
+    if (observedEpoch !== this.cutoverEpoch || !this.ownsLiveCurrent(record)) {
+      return Promise.reject(cutoverError('ended renderer changed during authority preflight'));
+    }
+
+    let snapshot: FilePlaybackSourceSnapshot;
+    try {
+      snapshot = createFilePlaybackSourceSnapshot(record.source.getSnapshot());
+    } catch (error) {
+      void this.enterFailSilent(record, 'ended-renderer-snapshot-unavailable');
+      return Promise.reject(error);
+    }
+    if (observedEpoch !== this.cutoverEpoch || !this.ownsLiveCurrent(record)) {
+      return Promise.reject(cutoverError('ended renderer changed during snapshot preflight'));
+    }
+    const run = snapshot.run ? readPlaybackStateIdentity(snapshot.run) : null;
+    if (
+      snapshot.queueItemId !== record.queueItemId ||
+      snapshot.backend !== record.backend ||
+      snapshot.phase !== 'ended' ||
+      !run ||
+      run.queueItemId !== intent.from.queueItemId ||
+      run.runId !== intent.from.runId ||
+      run.revision !== intent.from.revision
+    ) {
+      return Promise.reject(cutoverError('current renderer has not ended for this exact state'));
+    }
+
+    if (!this.currentAuthorityAllows(record)) {
+      void this.enterFailSilent(record, 'ended-renderer-authority-expired');
+      return Promise.reject(cutoverError('ended renderer authority expired'));
+    }
+    if (observedEpoch !== this.cutoverEpoch || !this.ownsLiveCurrent(record)) {
+      return Promise.reject(cutoverError('ended renderer changed before retirement'));
+    }
+
+    const evidence = createFilePlaybackEndedTransitionEvidence(intent);
+    const cleanup = this.retireCurrentRecord(record);
+    const completed = cleanup.then(() => evidence);
+    this.completedCutoverEnds.set(port, {
+      intent,
+      promise: new WeakRef(completed),
+    });
+    return completed;
   }
 
   activeSource(): FilePlaybackSource | null {
@@ -2011,6 +2096,23 @@ export class FilePlaybackManager {
       intent.target.targetFrame !== completed.targetFrame
     ) {
       return Promise.reject(cutoverError('current port or stop intent is stale'));
+    }
+    return promise;
+  }
+
+  private retryCompletedCutoverEnd(
+    port: FilePlaybackCutoverCandidatePort,
+    intent: Readonly<FilePlaybackEndedTransitionIntent> | null,
+  ): Promise<Readonly<FilePlaybackEndedTransitionEvidence>> {
+    const completed = this.completedCutoverEnds.get(port);
+    const promise = completed?.promise.deref();
+    if (
+      !completed ||
+      !promise ||
+      !intent ||
+      !sameFilePlaybackEndedTransitionIntent(completed.intent, intent)
+    ) {
+      return Promise.reject(cutoverError('current port or ended intent is stale'));
     }
     return promise;
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
+import type { FilePlaybackEndedTransitionIntent } from '../file-playback-ended-transition.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
   createFilePlaybackCutoverTarget,
@@ -170,6 +171,15 @@ function currentStopIntent(
       contextTimeSeconds,
       Math.round(contextTimeSeconds * context.sampleRate),
     ),
+  };
+}
+
+function currentEndedIntent(revision = 1): FilePlaybackEndedTransitionIntent {
+  return {
+    kind: 'file-playback-ended-transition',
+    from: { queueItemId: Q1, runId: `run-${Q1}`, revision },
+    to: { queueItemId: Q1, runId: `run-${Q1}`, revision: revision + 1 },
+    observedAtRoomTimeMs: 60_000,
   };
 }
 
@@ -1876,5 +1886,55 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     );
     current.applyTransition();
     if (pausing.status === 'scheduled') await pausing.applied;
+  });
+
+  it('retires an exact ended renderer and returns idempotent body-free evidence', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    current.phase('ended');
+    current.gateDestroy();
+    const intent = currentEndedIntent();
+
+    const first = manager.retireEndedCurrent(port, intent);
+    const retry = manager.retireEndedCurrent(port, { ...intent });
+
+    expect(retry).toBe(first);
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+    current.destroyGate.resolve();
+    await expect(first).resolves.toEqual({
+      kind: 'ended-renderer-retired',
+      from: intent.from,
+      to: intent.to,
+      observedAtRoomTimeMs: intent.observedAtRoomTimeMs,
+    });
+    expect(JSON.stringify(await first)).not.toContain('AudioContext');
+    expect(manager.currentCutoverSnapshot(port)).toBeNull();
+  });
+
+  it('never retires a playing renderer or an ended renderer with a staged successor', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+
+    await expect(manager.retireEndedCurrent(port, currentEndedIntent())).rejects.toThrow(
+      'has not ended',
+    );
+    expect(manager.currentCutoverPort()).toBe(port);
+    expect(current.source.destroy).not.toHaveBeenCalled();
+
+    current.phase('ended');
+    const successor = makeSource(Q2, context, 3);
+    await manager.stageCutoverCandidate({ source: successor.source, destination });
+    await expect(manager.retireEndedCurrent(port, currentEndedIntent())).rejects.toThrow(
+      'conflicting transition',
+    );
+    expect(manager.currentCutoverPort()).toBe(port);
+    expect(current.source.destroy).not.toHaveBeenCalled();
   });
 });

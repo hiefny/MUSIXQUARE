@@ -15,12 +15,31 @@ import {
   type FilePlaybackProductBaselineSessionStatus,
 } from './file-playback-product-baseline-session.ts';
 import type { FilePlaybackProductBaselineV2 } from './file-playback-product-baseline.ts';
+import {
+  readFilePlaybackEndedTransitionEvidence,
+  readFilePlaybackEndedTransitionIntent,
+  type FilePlaybackEndedTransitionEvidence,
+  type FilePlaybackEndedTransitionIntent,
+} from './file-playback-ended-transition.ts';
 import type { LocalFilePlaybackSchedule } from './file-playback-local-start-coordinator.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
   createStreamingFlacPlaybackStartEvidence,
+  isConsecutiveFilePlaybackTransition,
+  readFilePlaybackTransitionEvidence,
+  readFilePlaybackTransitionIntent,
+  type FilePlaybackPauseTransitionEvidence,
+  type FilePlaybackPauseTransitionIntent,
+  type FilePlaybackSeekTransitionEvidence,
+  type FilePlaybackSeekTransitionIntent,
   type FilePlaybackStartEvidence,
 } from './file-playback-source.ts';
+import {
+  readFilePlaybackStopTransitionEvidence,
+  readFilePlaybackStopTransitionIntent,
+  type FilePlaybackStopTransitionEvidence,
+  type FilePlaybackStopTransitionIntent,
+} from './file-playback-stop-transition.ts';
 import {
   createPlaybackRunIdentity,
   isPlaybackRevisionWatermark,
@@ -33,6 +52,7 @@ import {
   createStoppedPlaybackTimeline,
   isPlaybackTimelineSnapshot,
   type PlaybackTimelineBaselineAdoptionResult,
+  type PlaybackTimelineIntent,
   type PlaybackTimelineSnapshot,
 } from './playback-timeline.ts';
 
@@ -82,6 +102,31 @@ const HOST_STARTED_COMMIT_KEYS = Object.freeze([
   'roomGeneration',
   'schedule',
   'startEvidence',
+] as const);
+const HOST_TRANSITION_COMMIT_KEYS = Object.freeze([
+  'evidence',
+  'expectedPrevious',
+  'intent',
+  'kind',
+  'roomGeneration',
+] as const);
+const HOST_ENDED_COMMIT_KEYS = Object.freeze([
+  'evidence',
+  'expectedPrevious',
+  'intent',
+  'roomGeneration',
+] as const);
+const STOP_TRANSITION_INTENT_KEYS = Object.freeze([
+  'atRoomTimeMs',
+  'from',
+  'kind',
+  'target',
+  'to',
+] as const);
+const CUTOVER_TARGET_KEYS = Object.freeze([
+  'audioContext',
+  'contextTimeSeconds',
+  'targetFrame',
 ] as const);
 const ATTEMPT_KEYS = Object.freeze(['queueItemId', 'rendezvousId', 'revision', 'runId'] as const);
 const LOCAL_SCHEDULE_KEYS = Object.freeze([
@@ -150,6 +195,57 @@ export interface FilePlaybackHostStartedPlaybackCommitInput {
 
 /** Body-free result of advancing the authoritative host timeline after physical start. */
 export interface FilePlaybackHostStartedPlaybackCommit {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly previous: PlaybackTimelineSnapshot;
+  readonly timeline: PlaybackTimelineSnapshot;
+}
+
+interface FilePlaybackHostTransitionCommitBase {
+  readonly roomGeneration: number;
+  /** Exact controller snapshot identity observed before the physical operation. */
+  readonly expectedPrevious: PlaybackTimelineSnapshot;
+}
+
+/**
+ * Physical transition evidence plus the exact host timeline it is allowed to
+ * replace. The discriminant prevents pause, paused-seek, and stop evidence
+ * from being interchanged at this authority boundary.
+ */
+export type FilePlaybackHostTransitionCommitInput =
+  | (FilePlaybackHostTransitionCommitBase & {
+      readonly kind: 'pause';
+      readonly intent: Readonly<FilePlaybackPauseTransitionIntent>;
+      readonly evidence: Readonly<FilePlaybackPauseTransitionEvidence>;
+    })
+  | (FilePlaybackHostTransitionCommitBase & {
+      readonly kind: 'seek';
+      readonly intent: Readonly<FilePlaybackSeekTransitionIntent>;
+      readonly evidence: Readonly<FilePlaybackSeekTransitionEvidence>;
+    })
+  | (FilePlaybackHostTransitionCommitBase & {
+      readonly kind: 'stop';
+      readonly intent: Readonly<FilePlaybackStopTransitionIntent>;
+      readonly evidence: Readonly<FilePlaybackStopTransitionEvidence>;
+    });
+
+/** Body-free result of advancing host truth after exact physical evidence. */
+export interface FilePlaybackHostTransitionCommit {
+  readonly schemaVersion: 1;
+  readonly kind: FilePlaybackHostTransitionCommitInput['kind'];
+  readonly roomGeneration: number;
+  readonly previous: PlaybackTimelineSnapshot;
+  readonly timeline: PlaybackTimelineSnapshot;
+}
+
+export interface FilePlaybackHostEndedCommitInput {
+  readonly roomGeneration: number;
+  readonly expectedPrevious: PlaybackTimelineSnapshot;
+  readonly intent: Readonly<FilePlaybackEndedTransitionIntent>;
+  readonly evidence: Readonly<FilePlaybackEndedTransitionEvidence>;
+}
+
+export interface FilePlaybackHostEndedCommit {
   readonly schemaVersion: 1;
   readonly roomGeneration: number;
   readonly previous: PlaybackTimelineSnapshot;
@@ -389,6 +485,125 @@ function canonicalHostStartedCommitInput(
     attempt,
     schedule,
     startEvidence,
+  });
+}
+
+function canonicalHostTransitionCommitInput(
+  value: unknown,
+): Readonly<FilePlaybackHostTransitionCommitInput> | null {
+  const snapshot = snapshotExactRecord(value, HOST_TRANSITION_COMMIT_KEYS);
+  const expectedPrevious = snapshot ? canonicalTimeline(snapshot.expectedPrevious) : null;
+  if (
+    !snapshot ||
+    !expectedPrevious ||
+    !Number.isSafeInteger(snapshot.roomGeneration) ||
+    (snapshot.roomGeneration as number) <= 0 ||
+    (snapshot.kind !== 'pause' && snapshot.kind !== 'seek' && snapshot.kind !== 'stop')
+  ) {
+    return null;
+  }
+
+  if (snapshot.kind === 'pause' || snapshot.kind === 'seek') {
+    const intent = readFilePlaybackTransitionIntent(snapshot.intent);
+    if (
+      !intent ||
+      !isConsecutiveFilePlaybackTransition(intent.from, intent.to) ||
+      (snapshot.kind === 'pause' && intent.kind !== 'file-playback-pause-transition') ||
+      (snapshot.kind === 'seek' && intent.kind !== 'file-playback-seek-transition')
+    ) {
+      return null;
+    }
+    const evidence = readFilePlaybackTransitionEvidence(snapshot.evidence, intent);
+    if (
+      !evidence ||
+      (snapshot.kind === 'pause' && evidence.kind !== 'pause-applied') ||
+      (snapshot.kind === 'seek' && evidence.kind !== 'seek-applied')
+    ) {
+      return null;
+    }
+    if (
+      snapshot.kind === 'pause' &&
+      intent.kind === 'file-playback-pause-transition' &&
+      evidence.kind === 'pause-applied'
+    ) {
+      return freezeCanonical({
+        kind: 'pause' as const,
+        roomGeneration: snapshot.roomGeneration as number,
+        expectedPrevious: snapshot.expectedPrevious as PlaybackTimelineSnapshot,
+        intent,
+        evidence,
+      });
+    }
+    if (
+      snapshot.kind === 'seek' &&
+      intent.kind === 'file-playback-seek-transition' &&
+      evidence.kind === 'seek-applied'
+    ) {
+      return freezeCanonical({
+        kind: 'seek' as const,
+        roomGeneration: snapshot.roomGeneration as number,
+        expectedPrevious: snapshot.expectedPrevious as PlaybackTimelineSnapshot,
+        intent,
+        evidence,
+      });
+    }
+    return null;
+  }
+
+  const intentSnapshot = snapshotExactRecord(snapshot.intent, STOP_TRANSITION_INTENT_KEYS);
+  const targetSnapshot = intentSnapshot
+    ? snapshotExactRecord(intentSnapshot.target, CUTOVER_TARGET_KEYS)
+    : null;
+  if (
+    !targetSnapshot ||
+    targetSnapshot.audioContext === null ||
+    typeof targetSnapshot.audioContext !== 'object'
+  ) {
+    return null;
+  }
+  const intent = readFilePlaybackStopTransitionIntent(
+    snapshot.intent,
+    targetSnapshot.audioContext as AudioContext,
+  );
+  const evidence = intent
+    ? readFilePlaybackStopTransitionEvidence(snapshot.evidence, intent)
+    : null;
+  if (!intent || !evidence || !isConsecutiveFilePlaybackTransition(intent.from, intent.to)) {
+    return null;
+  }
+  return freezeCanonical({
+    kind: 'stop' as const,
+    roomGeneration: snapshot.roomGeneration as number,
+    expectedPrevious: snapshot.expectedPrevious as PlaybackTimelineSnapshot,
+    intent,
+    evidence,
+  });
+}
+
+function canonicalHostEndedCommitInput(
+  value: unknown,
+): Readonly<FilePlaybackHostEndedCommitInput> | null {
+  const snapshot = snapshotExactRecord(value, HOST_ENDED_COMMIT_KEYS);
+  const expectedPrevious = snapshot ? canonicalTimeline(snapshot.expectedPrevious) : null;
+  const intent = snapshot ? readFilePlaybackEndedTransitionIntent(snapshot.intent) : null;
+  const evidence = intent
+    ? readFilePlaybackEndedTransitionEvidence(snapshot?.evidence, intent)
+    : null;
+  if (
+    !snapshot ||
+    !expectedPrevious ||
+    !intent ||
+    !evidence ||
+    !Number.isSafeInteger(snapshot.roomGeneration) ||
+    (snapshot.roomGeneration as number) <= 0
+  ) {
+    return null;
+  }
+  return freezeCanonical({
+    roomGeneration: snapshot.roomGeneration as number,
+    expectedPrevious: snapshot.expectedPrevious as PlaybackTimelineSnapshot,
+    intent,
+    evidence,
   });
 }
 
@@ -645,6 +860,168 @@ export class FilePlaybackApplicationController {
         );
         if (!applied.applied) {
           throw new Error(`Host playback timeline commit was rejected: ${applied.reason}`);
+        }
+        this.#assertMutation(authority);
+        this.#timeline = applied.snapshot;
+        const result = freezeCanonical({
+          schemaVersion: 1 as const,
+          roomGeneration: this.#roomGeneration,
+          previous,
+          timeline: this.#timeline,
+        });
+        this.#assertMutation(authority);
+        return result;
+      });
+    } finally {
+      this.#flushDeferredEffects();
+    }
+  }
+
+  /**
+   * Commits pause, paused-seek, or stop only after the local manager has
+   * supplied canonical evidence that the exact physical boundary was applied.
+   * This synchronous authority boundary deliberately has no publication or
+   * callback side effects.
+   */
+  commitHostPlaybackTransition(
+    value: FilePlaybackHostTransitionCommitInput,
+  ): Readonly<FilePlaybackHostTransitionCommit> {
+    try {
+      return this.#mutate((authority) => {
+        const input = canonicalHostTransitionCommitInput(value);
+        this.#assertMutation(authority);
+        if (!input) throw new TypeError('Host playback transition commit is invalid');
+        if (this.#roomRole !== 'host') {
+          throw new Error('Host playback transition commit requires the exact host room role');
+        }
+        if (input.roomGeneration !== this.#roomGeneration) {
+          throw new Error('Host playback transition commit belongs to a stale room generation');
+        }
+
+        const previous = this.#timeline;
+        if (input.expectedPrevious !== previous) {
+          throw new Error('Host playback transition expected previous timeline is not current');
+        }
+        if (
+          previous.run === null ||
+          input.intent.from.revision !== previous.revision ||
+          input.intent.from.queueItemId !== previous.run.queueItemId ||
+          input.intent.from.runId !== previous.run.runId
+        ) {
+          throw new Error('Host playback transition from identity does not match current truth');
+        }
+        if (!isConsecutiveFilePlaybackTransition(input.intent.from, input.intent.to)) {
+          throw new Error('Host playback transition must use consecutive identical run identities');
+        }
+        if (input.kind === 'pause' && previous.phase !== 'playing') {
+          throw new Error('Host playback pause transition requires playing truth');
+        }
+        if (input.kind === 'seek' && previous.phase !== 'paused') {
+          throw new Error('Host playback seek transition requires paused truth');
+        }
+        if (input.kind === 'stop' && previous.phase !== 'playing' && previous.phase !== 'paused') {
+          throw new Error('Host playback stop transition requires active run truth');
+        }
+        if (input.intent.atRoomTimeMs < previous.anchorMonotonicMs) {
+          throw new Error('Host playback transition precedes the current timeline anchor');
+        }
+
+        const run = createPlaybackRunIdentity({
+          queueItemId: input.intent.to.queueItemId,
+          runId: input.intent.to.runId,
+        });
+        const timelineIntent: PlaybackTimelineIntent =
+          input.kind === 'pause'
+            ? freezeCanonical({
+                type: 'pause' as const,
+                revision: input.intent.to.revision,
+                run,
+              })
+            : input.kind === 'seek'
+              ? freezeCanonical({
+                  type: 'seek' as const,
+                  revision: input.intent.to.revision,
+                  run,
+                  positionSeconds: input.intent.positionSeconds,
+                })
+              : freezeCanonical({
+                  type: 'stop' as const,
+                  revision: input.intent.to.revision,
+                  run,
+                });
+        const applied = applyPlaybackTimelineIntent(
+          previous,
+          timelineIntent,
+          input.intent.atRoomTimeMs,
+        );
+        if (!applied.applied) {
+          throw new Error(`Host playback transition commit was rejected: ${applied.reason}`);
+        }
+        this.#assertMutation(authority);
+        this.#timeline = applied.snapshot;
+        const result = freezeCanonical({
+          schemaVersion: 1 as const,
+          kind: input.kind,
+          roomGeneration: this.#roomGeneration,
+          previous,
+          timeline: this.#timeline,
+        });
+        this.#assertMutation(authority);
+        return result;
+      });
+    } finally {
+      this.#flushDeferredEffects();
+    }
+  }
+
+  /** Commits natural end only after the manager retired the exact ended renderer. */
+  commitHostEndedPlayback(
+    value: FilePlaybackHostEndedCommitInput,
+  ): Readonly<FilePlaybackHostEndedCommit> {
+    try {
+      return this.#mutate((authority) => {
+        const input = canonicalHostEndedCommitInput(value);
+        this.#assertMutation(authority);
+        if (!input) throw new TypeError('Host ended playback commit is invalid');
+        if (this.#roomRole !== 'host') {
+          throw new Error('Host ended playback commit requires the exact host room role');
+        }
+        if (input.roomGeneration !== this.#roomGeneration) {
+          throw new Error('Host ended playback commit belongs to a stale room generation');
+        }
+
+        const previous = this.#timeline;
+        if (input.expectedPrevious !== previous) {
+          throw new Error('Host ended playback expected previous timeline is not current');
+        }
+        if (
+          previous.phase !== 'playing' ||
+          previous.run === null ||
+          input.intent.from.revision !== previous.revision ||
+          input.intent.from.queueItemId !== previous.run.queueItemId ||
+          input.intent.from.runId !== previous.run.runId ||
+          !isConsecutiveFilePlaybackTransition(input.intent.from, input.intent.to)
+        ) {
+          throw new Error('Host ended playback identity does not match current playing truth');
+        }
+        if (input.intent.observedAtRoomTimeMs < previous.anchorMonotonicMs) {
+          throw new Error('Host ended playback observation precedes the current timeline anchor');
+        }
+
+        const applied = applyPlaybackTimelineIntent(
+          previous,
+          freezeCanonical({
+            type: 'stop' as const,
+            revision: input.intent.to.revision,
+            run: createPlaybackRunIdentity({
+              queueItemId: input.intent.to.queueItemId,
+              runId: input.intent.to.runId,
+            }),
+          }),
+          input.intent.observedAtRoomTimeMs,
+        );
+        if (!applied.applied) {
+          throw new Error(`Host ended playback commit was rejected: ${applied.reason}`);
         }
         this.#assertMutation(authority);
         this.#timeline = applied.snapshot;

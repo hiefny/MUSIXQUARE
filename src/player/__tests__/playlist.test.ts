@@ -46,6 +46,12 @@ const decodeMocks = vi.hoisted(() => ({
   loadAndBroadcastFile: vi.fn(),
 }));
 
+const productRuntimeMocks = vi.hoisted(() => ({
+  enabled: vi.fn(() => false),
+  replayCurrent: vi.fn(),
+  startLocalTrack: vi.fn(),
+}));
+
 vi.mock('../decode.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../decode.ts')>();
   return {
@@ -55,11 +61,19 @@ vi.mock('../decode.ts', async (importOriginal) => {
   };
 });
 
+vi.mock('../file-playback-product-runtime.ts', () => ({
+  getFilePlaybackProductRuntime: () => productRuntimeMocks,
+}));
+
 beforeEach(() => {
   vi.restoreAllMocks();
   decodeMocks.loadPreloadedTrack.mockReset();
   decodeMocks.loadPreloadedTrack.mockResolvedValue(false);
   decodeMocks.loadAndBroadcastFile.mockReset();
+  productRuntimeMocks.enabled.mockReset();
+  productRuntimeMocks.enabled.mockReturnValue(false);
+  productRuntimeMocks.replayCurrent.mockReset();
+  productRuntimeMocks.startLocalTrack.mockReset();
   resetState();
   bus.clear();
   setPendingAutoSyncOnReady(false);
@@ -154,6 +168,48 @@ function residentFor(item: PlaylistItem, blob: Blob, sessionId = 7): ResidentFil
     mime: blob.type || 'audio/mpeg',
     size: blob.size,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function v2TrackCommit(queueItemId: QueueItemId, revision = 1) {
+  const runId = `playlist-v2-run-${revision}`;
+  const run = Object.freeze({ queueItemId, runId });
+  const timeline = Object.freeze({
+    schemaVersion: 1 as const,
+    revision,
+    phase: 'playing' as const,
+    run,
+    anchorMonotonicMs: 1_000,
+    positionSeconds: 0,
+    rate: 1,
+  });
+  return Object.freeze({
+    schemaVersion: 1 as const,
+    status: 'committed' as const,
+    roomGeneration: 1,
+    applicationSessionId: 'playlist-v2-session',
+    hostParticipantId: 'playlist-v2-host',
+    backend: 'audio-buffer' as const,
+    asset: Object.freeze({ queueItemId }),
+    attempt: Object.freeze({
+      queueItemId,
+      runId,
+      revision,
+      rendezvousId: `playlist-v2-rendezvous-${revision}`,
+    }),
+    schedule: Object.freeze({ positionSeconds: 0 }),
+    startEvidence: Object.freeze({ kind: 'webaudio-schedule-passed' as const, targetFrame: 1 }),
+    timeline,
+  });
 }
 
 describe('setRepeatMode', () => {
@@ -287,6 +343,251 @@ describe('clearPreloadState', () => {
     setRepeatMode(0, false);
     clearPreloadState();
     expect(getState('preload.nextQueueItemId')).toBeNull();
+  });
+});
+
+describe('playTrack V2 host-local cutover', () => {
+  it('keeps the gate-off local-file path exactly on legacy decode', async () => {
+    const media = new File(['legacy'], 'legacy.mp3', { type: 'audio/mpeg' });
+    const item = fileItem('legacy.mp3', media);
+    setState('playlist.items', [item]);
+    decodeMocks.loadAndBroadcastFile.mockResolvedValue(false);
+    const beforeEpoch = getCurrentLoadEpoch();
+
+    await playTrack(item.queueItemId);
+
+    expect(productRuntimeMocks.enabled).toHaveBeenCalled();
+    expect(productRuntimeMocks.startLocalTrack).not.toHaveBeenCalled();
+    expect(productRuntimeMocks.replayCurrent).not.toHaveBeenCalled();
+    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledOnce();
+    expect(getCurrentLoadEpoch()).toBeGreaterThan(beforeEpoch);
+    expect(getState('playlist.currentQueueItemId')).toBe(item.queueItemId);
+  });
+
+  it('keeps YouTube on its legacy branch while the V2 gate is on', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const item = youtubeItem('Video', 'V2_GATE_VIDEO');
+    setState('playlist.items', [item]);
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+
+    await playTrack(item.queueItemId);
+
+    expect(productRuntimeMocks.startLocalTrack).not.toHaveBeenCalled();
+    expect(productRuntimeMocks.replayCurrent).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledOnce();
+    expect(getState('playlist.currentQueueItemId')).toBe(item.queueItemId);
+  });
+
+  it('publishes selection, metadata, play tab, and first-load UX only after commit', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const previous = fileItem('previous.mp3', new File(['old'], 'previous.mp3'));
+    const media = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    const next = fileItem('next.mp3', media);
+    setState('playlist.items', [previous, next]);
+    setState('playlist.currentQueueItemId', previous.queueItemId);
+    setState('player.currentTrackMeta', previous);
+    setState('player.isFirstTrackLoad', true);
+    const tab = vi.fn();
+    bus.on('ui:switch-tab', tab);
+    const committed = deferred<ReturnType<typeof v2TrackCommit>>();
+    productRuntimeMocks.startLocalTrack.mockReturnValueOnce(committed.promise);
+
+    const pending = playTrack(next.queueItemId);
+    await Promise.resolve();
+
+    expect(productRuntimeMocks.startLocalTrack).toHaveBeenCalledWith({
+      queueItemId: next.queueItemId,
+      file: media,
+      positionSeconds: 0,
+      signal: expect.any(AbortSignal),
+    });
+    expect(getState('playlist.currentQueueItemId')).toBe(previous.queueItemId);
+    expect(getState('player.currentTrackMeta')).toBe(previous);
+    expect(getState('player.isFirstTrackLoad')).toBe(true);
+    expect(tab).not.toHaveBeenCalled();
+
+    committed.resolve(v2TrackCommit(next.queueItemId));
+    await pending;
+
+    expect(getState('playlist.currentQueueItemId')).toBe(next.queueItemId);
+    expect(getState('player.currentTrackMeta')).toBe(next);
+    expect(getState('player.isFirstTrackLoad')).toBe(false);
+    expect(tab).toHaveBeenCalledOnce();
+    expect(tab).toHaveBeenCalledWith('play');
+  });
+
+  it('replays the selected current file without starting another track', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const media = new File(['same'], 'same.flac', { type: 'audio/flac' });
+    const item = fileItem('same.flac', media);
+    setState('playlist.items', [item]);
+    setState('playlist.currentQueueItemId', item.queueItemId);
+    productRuntimeMocks.replayCurrent.mockResolvedValueOnce(v2TrackCommit(item.queueItemId, 2));
+
+    await playTrack(item.queueItemId);
+
+    expect(productRuntimeMocks.replayCurrent).toHaveBeenCalledWith({
+      signal: expect.any(AbortSignal),
+    });
+    expect(productRuntimeMocks.startLocalTrack).not.toHaveBeenCalled();
+    expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+    expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();
+  });
+
+  it('keeps a removed queue occurrence inert when its start completes late', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const previous = fileItem('previous.mp3', new File(['old'], 'previous.mp3'));
+    const next = fileItem('next.mp3', new File(['next'], 'next.mp3'));
+    setState('playlist.items', [previous, next]);
+    setState('playlist.currentQueueItemId', previous.queueItemId);
+    setState('player.currentTrackMeta', previous);
+    const tab = vi.fn();
+    bus.on('ui:switch-tab', tab);
+    const committed = deferred<ReturnType<typeof v2TrackCommit>>();
+    productRuntimeMocks.startLocalTrack.mockReturnValueOnce(committed.promise);
+
+    const pending = playTrack(next.queueItemId);
+    await Promise.resolve();
+    setState('playlist.items', [previous]);
+    committed.resolve(v2TrackCommit(next.queueItemId));
+    await pending;
+
+    expect(getState('playlist.currentQueueItemId')).toBe(previous.queueItemId);
+    expect(getState('player.currentTrackMeta')).toBe(previous);
+    expect(tab).not.toHaveBeenCalled();
+  });
+
+  it('aborts older publication authority and publishes only the newest choice', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const previous = fileItem('previous.mp3', new File(['old'], 'previous.mp3'));
+    const firstChoice = fileItem('first.mp3', new File(['first'], 'first.mp3'));
+    const secondChoice = fileItem('second.mp3', new File(['second'], 'second.mp3'));
+    setState('playlist.items', [previous, firstChoice, secondChoice]);
+    setState('playlist.currentQueueItemId', previous.queueItemId);
+    setState('player.currentTrackMeta', previous);
+    const firstCommit = deferred<ReturnType<typeof v2TrackCommit>>();
+    const secondCommit = deferred<ReturnType<typeof v2TrackCommit>>();
+    const signals: AbortSignal[] = [];
+    productRuntimeMocks.startLocalTrack.mockImplementation((options: { signal: AbortSignal }) => {
+      signals.push(options.signal);
+      return signals.length === 1 ? firstCommit.promise : secondCommit.promise;
+    });
+
+    const firstPending = playTrack(firstChoice.queueItemId);
+    await Promise.resolve();
+    const secondPending = playTrack(secondChoice.queueItemId);
+    await Promise.resolve();
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+
+    firstCommit.resolve(v2TrackCommit(firstChoice.queueItemId, 1));
+    await firstPending;
+    expect(getState('playlist.currentQueueItemId')).toBe(previous.queueItemId);
+
+    secondCommit.resolve(v2TrackCommit(secondChoice.queueItemId, 2));
+    await secondPending;
+    expect(getState('playlist.currentQueueItemId')).toBe(secondChoice.queueItemId);
+    expect(getState('player.currentTrackMeta')).toBe(secondChoice);
+  });
+
+  it('aborts pending publication when queue authority is reset', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const item = fileItem('pending.mp3', new File(['pending'], 'pending.mp3'));
+    setState('playlist.items', [item]);
+    const committed = deferred<ReturnType<typeof v2TrackCommit>>();
+    let signal: AbortSignal | null = null;
+    productRuntimeMocks.startLocalTrack.mockImplementationOnce(
+      (options: { signal: AbortSignal }) => {
+        signal = options.signal;
+        return committed.promise;
+      },
+    );
+    const pending = playTrack(item.queueItemId);
+    await Promise.resolve();
+
+    const conn = {
+      peer: 'replacement-host',
+      open: true,
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+    initPlaylist();
+    await handleData(
+      {
+        type: MSG.PLAYLIST_UPDATE,
+        list: [],
+        revision: 0,
+        currentQueueItemId: null,
+        bootstrap: true,
+      },
+      conn,
+    );
+
+    expect(signal?.aborted).toBe(true);
+    committed.resolve(v2TrackCommit(item.queueItemId));
+    await pending;
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
+  });
+
+  it('leaves prior selection and metadata untouched on engine failure', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const previous = fileItem('previous.mp3', new File(['old'], 'previous.mp3'));
+    const next = fileItem('next.mp3', new File(['next'], 'next.mp3'));
+    setState('playlist.items', [previous, next]);
+    setState('playlist.currentQueueItemId', previous.queueItemId);
+    setState('player.currentTrackMeta', previous);
+    productRuntimeMocks.startLocalTrack.mockRejectedValueOnce(new Error('fixture start failed'));
+
+    await expect(playTrack(next.queueItemId)).resolves.toBeUndefined();
+
+    expect(getState('playlist.currentQueueItemId')).toBe(previous.queueItemId);
+    expect(getState('player.currentTrackMeta')).toBe(previous);
+  });
+
+  it('requires a frozen identity-matching commit before publishing', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const previous = fileItem('previous.mp3', new File(['old'], 'previous.mp3'));
+    const next = fileItem('next.mp3', new File(['next'], 'next.mp3'));
+    setState('playlist.items', [previous, next]);
+    setState('playlist.currentQueueItemId', previous.queueItemId);
+    productRuntimeMocks.startLocalTrack.mockResolvedValueOnce({
+      ...v2TrackCommit(next.queueItemId),
+    });
+
+    await playTrack(next.queueItemId);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(previous.queueItemId);
+  });
+
+  it('has zero legacy file/preload/transport/protocol side effects', async () => {
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const send = vi.fn();
+    const conn = { peer: 'guest-v2', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-v2', false), conn }]);
+    const previous = fileItem('previous.mp3', new File(['old'], 'previous.mp3'));
+    const next = fileItem('next.mp3', new File(['next'], 'next.mp3'));
+    setState('playlist.items', [previous, next]);
+    setState('playlist.currentQueueItemId', previous.queueItemId);
+    setState('preload.isPreloading', true);
+    setState('preload.nextQueueItemId', previous.queueItemId);
+    const beforeEpoch = getCurrentLoadEpoch();
+    const stopAll = vi.fn();
+    bus.on('player:stop-all-media', stopAll);
+    productRuntimeMocks.startLocalTrack.mockResolvedValueOnce(v2TrackCommit(next.queueItemId));
+
+    await playTrack(next.queueItemId);
+
+    expect(getCurrentLoadEpoch()).toBe(beforeEpoch);
+    expect(getState('preload.isPreloading')).toBe(true);
+    expect(getState('preload.nextQueueItemId')).toBe(previous.queueItemId);
+    expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+    expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();
+    expect(stopAll).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: expect.stringMatching(/FILE_PREPARE|PLAY/u) }),
+    );
   });
 });
 

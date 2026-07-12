@@ -22,6 +22,7 @@ import {
 import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import { newLoadEpoch, isCurrentLoadEpoch, setCurrentAudioBuffer } from './_state.ts';
 import { hasPlayableFileSource } from './file-playback-runtime.ts';
+import { getFilePlaybackProductRuntime } from './file-playback-product-runtime.ts';
 import { isMediaVideo } from './video.ts';
 import { transition } from './lifecycle.ts';
 
@@ -72,6 +73,118 @@ import {
 } from './queue-model.ts';
 
 const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
+const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
+const trustedAbortControllerAbort = AbortController.prototype.abort;
+
+interface V2PlaylistIntent {
+  readonly controller: AbortController;
+}
+
+let v2PlaylistIntent: V2PlaylistIntent | null = null;
+
+function abortV2PlaylistIntent(reason: string): void {
+  const intent = v2PlaylistIntent;
+  if (!intent) return;
+  v2PlaylistIntent = null;
+  if (intent.controller.signal.aborted) return;
+  Reflect.apply(trustedAbortControllerAbort, intent.controller, [new Error(reason)]);
+}
+
+function isCommittedV2PlaylistTrack(value: unknown, queueItemId: QueueItemId): boolean {
+  if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return false;
+  try {
+    const commit = value as {
+      readonly status?: unknown;
+      readonly asset?: { readonly queueItemId?: unknown };
+      readonly attempt?: {
+        readonly queueItemId?: unknown;
+        readonly revision?: unknown;
+        readonly runId?: unknown;
+      };
+      readonly timeline?: {
+        readonly phase?: unknown;
+        readonly revision?: unknown;
+        readonly run?: { readonly queueItemId?: unknown; readonly runId?: unknown } | null;
+      };
+    };
+    const timeline = commit.timeline;
+    const run = timeline?.run;
+    return (
+      commit.status === 'committed' &&
+      Object.isFrozen(commit.asset) &&
+      Object.isFrozen(commit.attempt) &&
+      Object.isFrozen(timeline) &&
+      Object.isFrozen(run) &&
+      timeline?.phase === 'playing' &&
+      timeline.revision === commit.attempt?.revision &&
+      run?.queueItemId === queueItemId &&
+      run.runId === commit.attempt?.runId &&
+      commit.attempt?.queueItemId === queueItemId &&
+      commit.asset?.queueItemId === queueItemId
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function playV2HostLocalFile(
+  queueItemId: QueueItemId,
+  file: File,
+  replay: boolean,
+): Promise<void> {
+  abortV2PlaylistIntent('V2 playlist intent was superseded');
+  const intent: V2PlaylistIntent = {
+    controller: new AbortController(),
+  };
+  v2PlaylistIntent = intent;
+
+  let commit: unknown;
+  try {
+    commit = replay
+      ? await filePlaybackProductRuntime.replayCurrent({ signal: intent.controller.signal })
+      : await filePlaybackProductRuntime.startLocalTrack({
+          queueItemId,
+          file,
+          positionSeconds: 0,
+          signal: intent.controller.signal,
+        });
+  } catch (error) {
+    if (v2PlaylistIntent === intent) v2PlaylistIntent = null;
+    if (!intent.controller.signal.aborted) {
+      log.warn('[Playlist] V2 local track intent failed:', error);
+    }
+    return;
+  }
+
+  if (
+    v2PlaylistIntent !== intent ||
+    intent.controller.signal.aborted ||
+    !isCommittedV2PlaylistTrack(commit, queueItemId)
+  ) {
+    if (v2PlaylistIntent === intent) v2PlaylistIntent = null;
+    return;
+  }
+  const liveItem = getQueueItemById(queueItemId);
+  if (
+    !liveItem ||
+    liveItem.type === 'youtube' ||
+    liveItem.file !== file ||
+    typeof File === 'undefined' ||
+    !(liveItem.file instanceof File)
+  ) {
+    v2PlaylistIntent = null;
+    return;
+  }
+
+  selectQueueItemById(queueItemId);
+  setPlaybackTrackMeta(liveItem);
+  bus.emit('ui:switch-tab', 'play');
+  if (getState('player.isFirstTrackLoad')) {
+    setState('player.isFirstTrackLoad', false);
+    showToast(t('toast.file_ready'));
+  }
+  if (v2PlaylistIntent === intent) v2PlaylistIntent = null;
+}
 
 function getLocalFileHostPlayAt(): number {
   return getHostNow() + LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS;
@@ -397,14 +510,27 @@ export async function playTrack(queueItemId: QueueItemId, subIndex?: number): Pr
     return;
   }
 
+  const hostConn = getState('network.hostConn');
+  const v2Enabled = filePlaybackProductRuntime.enabled();
+  if (v2Enabled) abortV2PlaylistIntent('A newer playlist choice was made');
+  if (
+    v2Enabled &&
+    !hostConn &&
+    item.type !== 'youtube' &&
+    typeof File !== 'undefined' &&
+    item.file instanceof File
+  ) {
+    const replay = queueItemId === getCurrentQueueItemId();
+    await playV2HostLocalFile(queueItemId, item.file, replay);
+    return;
+  }
+
   clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
   // A direct track choice supersedes any scheduled decode-failure advance.
   // The timer also validates its load epoch when it fires.
   clearManagedTimer('decode-fail-advance');
-
-  const hostConn = getState('network.hostConn');
 
   // ─── Fast Path: Host re-clicks currently-playing local file ─────────
   // Skip full reload/rebroadcast/preload-reset. Just reset position to 0
@@ -1025,6 +1151,7 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
     (getState('preload.ready')?.queueItemId === previousCurrentQueueItemId ||
       getState('preload.activeTarget')?.queueItemId === previousCurrentQueueItemId);
   if (authorityChanged || playlistEmptied || removedCurrentOwner) {
+    abortV2PlaylistIntent('Playlist room authority was reset');
     const reason = authorityChanged
       ? 'playlist-authority-rebased'
       : playlistEmptied

@@ -832,6 +832,105 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     await expect(pending).resolves.toMatchObject({ published: true });
   });
 
+  it('rejects V2 staging while legacy standby or pending-active slots are owned', async () => {
+    const standbyContext = new FakeAudioContext();
+    const standbyDestination = destinationFor(standbyContext);
+    const standbyManager = new FilePlaybackManager();
+    const legacyStandby = makeSource(Q1, standbyContext, 1);
+    await expect(standbyManager.prepareStandby(legacyStandby.source)).resolves.toMatchObject({
+      published: true,
+    });
+    const blockedByStandby = makeSource(Q2, standbyContext, 2);
+    await expect(
+      standbyManager.stageCutoverCandidate({
+        source: blockedByStandby.source,
+        destination: standbyDestination,
+      }),
+    ).rejects.toThrow('legacy playback slots');
+    expect(blockedByStandby.source.destroy).toHaveBeenCalledOnce();
+    expect(legacyStandby.source.destroy).not.toHaveBeenCalled();
+
+    const activeContext = new FakeAudioContext();
+    const activeDestination = destinationFor(activeContext);
+    const activeManager = new FilePlaybackManager();
+    const legacyPendingActive = makeSource(Q1, activeContext, 1);
+    legacyPendingActive.gatePrepare();
+    const activation = activeManager.activate(legacyPendingActive.source, activeDestination);
+    await vi.waitFor(() => expect(legacyPendingActive.source.prepare).toHaveBeenCalledOnce());
+    const blockedByPendingActive = makeSource(Q2, activeContext, 2);
+    await expect(
+      activeManager.stageCutoverCandidate({
+        source: blockedByPendingActive.source,
+        destination: activeDestination,
+      }),
+    ).rejects.toThrow('legacy playback slots');
+    expect(blockedByPendingActive.source.destroy).toHaveBeenCalledOnce();
+    expect(legacyPendingActive.source.destroy).not.toHaveBeenCalled();
+    legacyPendingActive.phase('ready');
+    legacyPendingActive.prepareGate.resolve(legacyPendingActive.source.getSnapshot());
+    await expect(activation).resolves.toMatchObject({ published: true });
+  });
+
+  it('clears a hung V2 stage reservation so legacy activation can proceed', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const stale = makeSource(Q1, context, 1);
+    stale.gatePrepare();
+    const staging = manager.stageCutoverCandidate({ source: stale.source, destination });
+    void staging.catch(() => undefined);
+    await vi.waitFor(() => expect(stale.source.prepare).toHaveBeenCalledOnce());
+
+    await expect(manager.clear()).resolves.toBeUndefined();
+    expect(stale.source.destroy).toHaveBeenCalledOnce();
+
+    const legacy = makeSource(Q2, context, 2);
+    await expect(manager.activate(legacy.source, destination)).resolves.toMatchObject({
+      published: true,
+    });
+    expect(manager.activeSource()).toBe(legacy.source);
+
+    stale.phase('ready');
+    stale.prepareGate.resolve(stale.source.getSnapshot());
+    await expect(staging).rejects.toThrow('expired or was superseded');
+    expect(stale.source.connect).not.toHaveBeenCalled();
+    expect(manager.activeSource()).toBe(legacy.source);
+    expect(legacy.source.destroy).not.toHaveBeenCalled();
+  });
+
+  it('does not let an old stage finalizer release a next-generation reservation', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const stale = makeSource(Q1, context, 1);
+    stale.gatePrepare();
+    const staleStaging = manager.stageCutoverCandidate({ source: stale.source, destination });
+    void staleStaging.catch(() => undefined);
+    await vi.waitFor(() => expect(stale.source.prepare).toHaveBeenCalledOnce());
+    await manager.clear();
+
+    const current = makeSource(Q2, context, 2);
+    current.gatePrepare();
+    const currentStaging = manager.stageCutoverCandidate({ source: current.source, destination });
+    await vi.waitFor(() => expect(current.source.prepare).toHaveBeenCalledOnce());
+
+    stale.phase('ready');
+    stale.prepareGate.resolve(stale.source.getSnapshot());
+    await expect(staleStaging).rejects.toThrow('expired or was superseded');
+
+    const blockedLegacy = makeSource(Q3, context, 3);
+    await expect(manager.activate(blockedLegacy.source, destination)).resolves.toMatchObject({
+      published: false,
+      reason: 'superseded',
+    });
+    expect(blockedLegacy.source.destroy).toHaveBeenCalledOnce();
+
+    current.phase('ready');
+    current.prepareGate.resolve(current.source.getSnapshot());
+    await expect(currentStaging).resolves.not.toBeNull();
+    expect(current.source.destroy).not.toHaveBeenCalled();
+  });
+
   it('rejects legacy activation and standby without disturbing V2 ownership', async () => {
     const context = new FakeAudioContext();
     const destination = destinationFor(context);

@@ -458,7 +458,7 @@ export class FilePlaybackManager {
   private cutoverCandidate: CutoverRecord | null = null;
   private cutoverEpoch = 0;
   private cutoverStageSequence = 0;
-  private cutoverStageReservations = 0;
+  private readonly cutoverStageReservations = new Set<object>();
   private cutoverRetirementBarrier: Promise<void> = Promise.resolve();
   private recoveryRequired = false;
 
@@ -479,10 +479,11 @@ export class FilePlaybackManager {
       return this.rejectCutoverStageDuringLegacy(safeOptions.source);
     }
     this.cutoverStageSequence += 1;
-    this.cutoverStageReservations += 1;
+    const reservation = Object.freeze(Object.create(null)) as object;
+    this.cutoverStageReservations.add(reservation);
     return this.stageCutoverCandidateInternal(safeOptions, this.cutoverStageSequence).finally(
       () => {
-        this.cutoverStageReservations = Math.max(0, this.cutoverStageReservations - 1);
+        this.cutoverStageReservations.delete(reservation);
       },
     );
   }
@@ -905,6 +906,12 @@ export class FilePlaybackManager {
     // empty manager. This is a synchronous application-session boundary.
     this.cutoverEpoch += 1;
     this.cutoverStageSequence += 1;
+    // Reservations belong to the generation that created them. A backend
+    // prepare may never settle even after its exact source is destroyed, so a
+    // full session clear must synchronously make those old reservations inert.
+    // Opaque tickets keep an old promise's `finally` from touching any ticket
+    // created by the next generation.
+    this.cutoverStageReservations.clear();
     const states = new Set<ManagedSource>();
     if (this.active) states.add(this.stateFor(this.active));
     if (this.standby) states.add(this.stateFor(this.standby));
@@ -1548,7 +1555,7 @@ export class FilePlaybackManager {
 
   private hasCutoverOwnership(): boolean {
     return (
-      this.cutoverStageReservations > 0 ||
+      this.cutoverStageReservations.size > 0 ||
       this.cutoverCandidate !== null ||
       this.cutoverCurrent !== null
     );

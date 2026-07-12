@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import type { FilePlaybackCancelIntent } from '../file-playback-source.ts';
+import type { RendererHealthWireMessage } from '../file-playback-wire.ts';
 import {
   RemoteRendezvousParticipant,
+  type RemoteRendererEvidenceScope,
   type RemoteRendezvousParticipantOptions,
 } from '../remote-rendezvous-participant.ts';
 import {
@@ -18,6 +20,13 @@ import {
 const QID = '00000000-0000-4000-8000-0000000000aa' as QueueItemId;
 const OTHER_QID = '00000000-0000-4000-8000-0000000000bb' as QueueItemId;
 const PARTICIPANT_ID = 'remote-peer';
+const RENDERER_EVIDENCE_SCOPE: RemoteRendererEvidenceScope = Object.freeze({
+  sessionId: 'session-a',
+  connectionId: 'connection-a',
+  recipientParticipantId: 'host-peer',
+  sourceIdentity: 'sha256:source-a',
+  transferSessionId: null,
+});
 
 async function drainMicrotasks(): Promise<void> {
   await Promise.resolve();
@@ -109,11 +118,39 @@ function cancelIntent(overrides: Partial<FilePlaybackCancelIntent> = {}): FilePl
   });
 }
 
+function rendererHealth(
+  overrides: Partial<RendererHealthWireMessage> = {},
+): RendererHealthWireMessage {
+  return {
+    protocolVersion: 2,
+    kind: 'renderer-health',
+    sessionId: 'session-a',
+    connectionId: 'connection-a',
+    senderParticipantId: PARTICIPANT_ID,
+    recipientParticipantId: 'host-peer',
+    controlSequence: 9,
+    queueItemId: QID,
+    runId: 'run-a',
+    revision: 7,
+    sourceIdentity: 'sha256:source-a',
+    transferSessionId: null,
+    rendezvousId: 'rv-a',
+    value: 'healthy',
+    observedAtRoomTimeMs: 2_000,
+    leaseUntilRoomTimeMs: 5_000,
+    renderedFrame: 96_000,
+    underrunCount: 0,
+    reasonCode: null,
+    ...overrides,
+  };
+}
+
 function participant(
   overrides: Partial<RemoteRendezvousParticipantOptions> = {},
 ): RemoteRendezvousParticipant {
   return new RemoteRendezvousParticipant({
     participantId: PARTICIPANT_ID,
+    rendererEvidenceScope: RENDERER_EVIDENCE_SCOPE,
     rttP95Ms: 40,
     armP95Ms: 80,
     nowRoomTimeMs: () => 1_600,
@@ -396,8 +433,9 @@ describe('RemoteRendezvousParticipant', () => {
   });
 
   it('commits only the exact accepted correlation and then suppresses dispatch', async () => {
+    let now = 1_600;
     const dispatchCancel = vi.fn();
-    const remote = participant({ dispatchCancel });
+    const remote = participant({ dispatchCancel, nowRoomTimeMs: () => now });
     const arm = armIntent();
     const finalize = finalizeIntent();
     const identity = Object.freeze({
@@ -414,12 +452,481 @@ describe('RemoteRendezvousParticipant', () => {
     expect(remote.acceptFinalizeReceipt(finalizeReceipt(finalize))).toBe(true);
     await expect(pendingFinalize).resolves.toMatchObject({ status: 'accepted' });
     expect(remote.commitAttempt({ ...identity, rendezvousId: 'rv-wrong' })).toBe(false);
+    expect(remote.commitAttempt(identity)).toBe(false);
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(false);
+    now = 2_100;
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(true);
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(false);
     expect(remote.commitAttempt(identity)).toBe(true);
     expect(remote.commitAttempt(identity)).toBe(true);
 
     await remote.cancel(cancelIntent());
 
     expect(dispatchCancel).not.toHaveBeenCalled();
+  });
+
+  it('admits only exact current healthy start evidence with a live host-time lease', async () => {
+    let now = 1_600;
+    const remote = participant({ nowRoomTimeMs: () => now });
+    const arm = armIntent();
+    const finalize = finalizeIntent();
+    const pendingArm = remote.arm(arm);
+    expect(remote.acceptArmReceipt(armReceipt(arm))).toBe(true);
+    await pendingArm;
+    const pendingFinalize = remote.finalize(finalize);
+    expect(remote.acceptFinalizeReceipt(finalizeReceipt(finalize))).toBe(true);
+    await pendingFinalize;
+
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(false);
+    now = 2_100;
+    expect(
+      remote.acceptRendererStartEvidence(rendererHealth({ senderParticipantId: 'other-peer' })),
+    ).toBe(false);
+    expect(remote.acceptRendererStartEvidence(rendererHealth({ queueItemId: OTHER_QID }))).toBe(
+      false,
+    );
+    expect(remote.acceptRendererStartEvidence(rendererHealth({ runId: 'run-other' }))).toBe(false);
+    expect(remote.acceptRendererStartEvidence(rendererHealth({ revision: 8 }))).toBe(false);
+    expect(remote.acceptRendererStartEvidence(rendererHealth({ rendezvousId: 'rv-stale' }))).toBe(
+      false,
+    );
+    expect(remote.acceptRendererStartEvidence(rendererHealth({ sessionId: 'session-other' }))).toBe(
+      false,
+    );
+    expect(
+      remote.acceptRendererStartEvidence(rendererHealth({ connectionId: 'connection-other' })),
+    ).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(rendererHealth({ recipientParticipantId: 'host-other' })),
+    ).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(rendererHealth({ sourceIdentity: 'sha256:source-other' })),
+    ).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(rendererHealth({ transferSessionId: 'transfer-other' })),
+    ).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          value: 'unhealthy',
+          observedAtRoomTimeMs: 2_100,
+          leaseUntilRoomTimeMs: 2_100,
+          reasonCode: 'renderer-interrupted',
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          controlSequence: 10,
+          observedAtRoomTimeMs: 1_999,
+          leaseUntilRoomTimeMs: 4_000,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          controlSequence: 10,
+          observedAtRoomTimeMs: 2_200,
+          leaseUntilRoomTimeMs: 4_000,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({ controlSequence: 10, leaseUntilRoomTimeMs: 2_100 }),
+      ),
+    ).toBe(false);
+    expect(remote.acceptRendererStartEvidence({ ...rendererHealth(), extra: true })).toBe(false);
+
+    let accessorReads = 0;
+    const accessorEvidence = { ...rendererHealth() };
+    Object.defineProperty(accessorEvidence, 'value', {
+      enumerable: true,
+      get() {
+        accessorReads += 1;
+        return 'healthy';
+      },
+    });
+    expect(remote.acceptRendererStartEvidence(accessorEvidence)).toBe(false);
+    expect(accessorReads).toBe(0);
+
+    const proxiedWrongAttempt = new Proxy(rendererHealth({ rendezvousId: 'rv-stale' }), {
+      get(target, property, receiver) {
+        accessorReads += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(remote.acceptRendererStartEvidence(proxiedWrongAttempt)).toBe(false);
+    expect(accessorReads).toBe(0);
+
+    expect(remote.acceptRendererStartEvidence(rendererHealth({ controlSequence: 11 }))).toBe(true);
+    expect(remote.acceptRendererStartEvidence(rendererHealth({ controlSequence: 10 }))).toBe(false);
+  });
+
+  it('lets exact newer unhealthy evidence revoke a pre-commit start lease', async () => {
+    let now = 1_600;
+    const remote = participant({ nowRoomTimeMs: () => now });
+    const arm = armIntent();
+    remote.arm(arm);
+    remote.acceptArmReceipt(armReceipt(arm));
+    const finalize = finalizeIntent();
+    remote.finalize(finalize);
+    remote.acceptFinalizeReceipt(finalizeReceipt(finalize));
+    const identity = {
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    } as const;
+
+    now = 2_100;
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(true);
+    now = 2_200;
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          controlSequence: 10,
+          value: 'unhealthy',
+          observedAtRoomTimeMs: 2_200,
+          leaseUntilRoomTimeMs: 2_200,
+          reasonCode: 'renderer-interrupted',
+        }),
+      ),
+    ).toBe(false);
+    expect(remote.commitAttempt(identity)).toBe(false);
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(false);
+
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          controlSequence: 11,
+          observedAtRoomTimeMs: 2_200,
+          leaseUntilRoomTimeMs: 5_000,
+        }),
+      ),
+    ).toBe(true);
+    expect(remote.commitAttempt(identity)).toBe(true);
+    now = 6_000;
+    expect(remote.commitAttempt(identity)).toBe(true);
+  });
+
+  it('burns reentrant unhealthy evidence before a first-commit clock read can reuse old health', () => {
+    let now = 1_600;
+    let injectUnhealthy = false;
+    let nestedUnhealthyResult: boolean | null = null;
+    let remote!: RemoteRendezvousParticipant;
+    const unhealthy = rendererHealth({
+      controlSequence: 10,
+      value: 'unhealthy',
+      observedAtRoomTimeMs: 2_200,
+      leaseUntilRoomTimeMs: 2_200,
+      reasonCode: 'renderer-interrupted',
+    });
+    remote = participant({
+      nowRoomTimeMs: () => {
+        if (injectUnhealthy) {
+          injectUnhealthy = false;
+          nestedUnhealthyResult = remote.acceptRendererStartEvidence(unhealthy);
+        }
+        return now;
+      },
+    });
+    const arm = armIntent();
+    remote.arm(arm);
+    remote.acceptArmReceipt(armReceipt(arm));
+    const finalize = finalizeIntent();
+    remote.finalize(finalize);
+    remote.acceptFinalizeReceipt(finalizeReceipt(finalize));
+    const identity = {
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    } as const;
+
+    now = 2_100;
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(true);
+    now = 2_200;
+    injectUnhealthy = true;
+    expect(remote.commitAttempt(identity)).toBe(false);
+    expect(nestedUnhealthyResult).toBe(false);
+    expect(remote.commitAttempt(identity)).toBe(false);
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          controlSequence: 10,
+          observedAtRoomTimeMs: 2_200,
+          leaseUntilRoomTimeMs: 5_000,
+        }),
+      ),
+    ).toBe(false);
+
+    now = 2_300;
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          controlSequence: 11,
+          observedAtRoomTimeMs: 2_300,
+          leaseUntilRoomTimeMs: 5_000,
+        }),
+      ),
+    ).toBe(true);
+    expect(remote.commitAttempt(identity)).toBe(true);
+  });
+
+  it('revalidates the stored lease and room clock on the first commit', async () => {
+    let now = 1_600;
+    let clockThrows = false;
+    const remote = participant({
+      nowRoomTimeMs: () => {
+        if (clockThrows) throw new Error('clock unavailable');
+        return now;
+      },
+    });
+    const arm = armIntent();
+    remote.arm(arm);
+    remote.acceptArmReceipt(armReceipt(arm));
+    const finalize = finalizeIntent();
+    remote.finalize(finalize);
+    remote.acceptFinalizeReceipt(finalizeReceipt(finalize));
+    const identity = {
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    } as const;
+
+    now = 2_100;
+    expect(
+      remote.acceptRendererStartEvidence(rendererHealth({ leaseUntilRoomTimeMs: 2_200 })),
+    ).toBe(true);
+    now = 2_200;
+    expect(remote.commitAttempt(identity)).toBe(false);
+
+    now = 2_300;
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          controlSequence: 10,
+          observedAtRoomTimeMs: 2_300,
+          leaseUntilRoomTimeMs: 5_000,
+        }),
+      ),
+    ).toBe(true);
+    clockThrows = true;
+    expect(remote.commitAttempt(identity)).toBe(false);
+    clockThrows = false;
+    now = 2_200;
+    expect(remote.commitAttempt(identity)).toBe(false);
+    now = 2_400;
+    expect(remote.commitAttempt(identity)).toBe(true);
+  });
+
+  it('fails a first commit when the room-clock callback cancels or supersedes it', async () => {
+    for (const action of ['cancel', 'supersede'] as const) {
+      let now = 1_600;
+      let actDuringRead = false;
+      let remote!: RemoteRendezvousParticipant;
+      const replacement = armIntent({
+        runId: 'run-b',
+        revision: 8,
+        rendezvousId: 'rv-b',
+        startAtRoomTimeMs: 3_000,
+        finalizeByRoomTimeMs: 2_900,
+      });
+      remote = participant({
+        nowRoomTimeMs: () => {
+          if (actDuringRead) {
+            actDuringRead = false;
+            if (action === 'cancel') void remote.cancel(cancelIntent());
+            else void remote.arm(replacement);
+          }
+          return now;
+        },
+      });
+      const arm = armIntent();
+      remote.arm(arm);
+      remote.acceptArmReceipt(armReceipt(arm));
+      const finalize = finalizeIntent();
+      remote.finalize(finalize);
+      remote.acceptFinalizeReceipt(finalizeReceipt(finalize));
+      now = 2_100;
+      expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(true);
+
+      actDuringRead = true;
+      now = 2_200;
+      expect(
+        remote.commitAttempt({
+          queueItemId: QID,
+          runId: 'run-a',
+          revision: 7,
+          rendezvousId: 'rv-a',
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it('revokes start evidence authority on cancel and same-state recovery', async () => {
+    let now = 1_600;
+    const remote = participant({ nowRoomTimeMs: () => now });
+    const first = armIntent();
+    remote.arm(first);
+    remote.acceptArmReceipt(armReceipt(first));
+    const firstFinalize = finalizeIntent();
+    const firstFinalizePending = remote.finalize(firstFinalize);
+    remote.acceptFinalizeReceipt(finalizeReceipt(firstFinalize));
+    await firstFinalizePending;
+
+    now = 2_100;
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(true);
+    await remote.cancel(cancelIntent());
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(false);
+
+    const recovery = armIntent({
+      rendezvousId: 'rv-recovery',
+      startAtRoomTimeMs: 3_000,
+      finalizeByRoomTimeMs: 2_900,
+    });
+    const recoveryArmPending = remote.arm(recovery);
+    expect(remote.acceptArmReceipt(armReceipt(recovery, { observedAtRoomTimeMs: 2_200 }))).toBe(
+      true,
+    );
+    await recoveryArmPending;
+    const recoveryFinalize = finalizeIntent({
+      rendezvousId: 'rv-recovery',
+      startAtRoomTimeMs: 3_000,
+      finalizedAtRoomTimeMs: 2_800,
+    });
+    const recoveryFinalizePending = remote.finalize(recoveryFinalize);
+    expect(
+      remote.acceptFinalizeReceipt(
+        finalizeReceipt(recoveryFinalize, { observedAtRoomTimeMs: 2_800 }),
+      ),
+    ).toBe(true);
+    await recoveryFinalizePending;
+
+    now = 3_100;
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(false);
+    const recoveryEvidence = rendererHealth({
+      controlSequence: 10,
+      rendezvousId: 'rv-recovery',
+      observedAtRoomTimeMs: 3_000,
+      leaseUntilRoomTimeMs: 5_000,
+    });
+    expect(remote.acceptRendererStartEvidence(recoveryEvidence)).toBe(true);
+    await remote.cancel(cancelIntent({ rendezvousId: 'rv-recovery' }));
+    expect(
+      remote.commitAttempt({
+        queueItemId: QID,
+        runId: 'run-a',
+        revision: 7,
+        rendezvousId: 'rv-recovery',
+      }),
+    ).toBe(false);
+    expect(remote.acceptRendererStartEvidence(recoveryEvidence)).toBe(false);
+  });
+
+  it('rechecks evidence authority after the host clock cancels or supersedes it', async () => {
+    let phase: 'receipts' | 'cancel' | 'supersede' | 'steady' = 'receipts';
+    let remote!: RemoteRendezvousParticipant;
+    const replacement = armIntent({
+      runId: 'run-b',
+      revision: 8,
+      rendezvousId: 'rv-b',
+      startAtRoomTimeMs: 3_000,
+      finalizeByRoomTimeMs: 2_900,
+    });
+    remote = participant({
+      nowRoomTimeMs: () => {
+        const currentPhase = phase;
+        if (currentPhase === 'cancel') {
+          phase = 'steady';
+          void remote.cancel(cancelIntent());
+        } else if (currentPhase === 'supersede') {
+          phase = 'steady';
+          void remote.arm(replacement);
+        }
+        if (currentPhase === 'receipts') return 1_600;
+        return currentPhase === 'supersede' ? 3_100 : 2_100;
+      },
+    });
+
+    const arm = armIntent();
+    remote.arm(arm);
+    remote.acceptArmReceipt(armReceipt(arm));
+    const finalize = finalizeIntent();
+    remote.finalize(finalize);
+    remote.acceptFinalizeReceipt(finalizeReceipt(finalize));
+    phase = 'cancel';
+    expect(remote.acceptRendererStartEvidence(rendererHealth())).toBe(false);
+
+    const retry = armIntent({
+      rendezvousId: 'rv-retry',
+      startAtRoomTimeMs: 2_800,
+      finalizeByRoomTimeMs: 2_700,
+    });
+    remote.arm(retry);
+    remote.acceptArmReceipt(armReceipt(retry));
+    const retryFinalize = finalizeIntent({ rendezvousId: 'rv-retry', startAtRoomTimeMs: 2_800 });
+    remote.finalize(retryFinalize);
+    remote.acceptFinalizeReceipt(finalizeReceipt(retryFinalize));
+    phase = 'supersede';
+    expect(
+      remote.acceptRendererStartEvidence(
+        rendererHealth({
+          rendezvousId: 'rv-retry',
+          observedAtRoomTimeMs: 2_800,
+          leaseUntilRoomTimeMs: 5_000,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('fails reentrant evidence and first-commit room-clock reads closed', async () => {
+    let now = 1_600;
+    let reenter: 'evidence' | 'commit' | null = null;
+    let nestedEvidenceResult: boolean | null = null;
+    let nestedCommitResult: boolean | null = null;
+    let remote!: RemoteRendezvousParticipant;
+    const evidence = rendererHealth();
+    const identity = {
+      queueItemId: QID,
+      runId: 'run-a',
+      revision: 7,
+      rendezvousId: 'rv-a',
+    } as const;
+    remote = participant({
+      nowRoomTimeMs: () => {
+        const operation = reenter;
+        reenter = null;
+        if (operation === 'evidence') {
+          nestedEvidenceResult = remote.acceptRendererStartEvidence(evidence);
+        } else if (operation === 'commit') {
+          nestedCommitResult = remote.commitAttempt(identity);
+        }
+        return now;
+      },
+    });
+    const arm = armIntent();
+    remote.arm(arm);
+    remote.acceptArmReceipt(armReceipt(arm));
+    const finalize = finalizeIntent();
+    remote.finalize(finalize);
+    remote.acceptFinalizeReceipt(finalizeReceipt(finalize));
+
+    now = 2_100;
+    reenter = 'evidence';
+    expect(remote.acceptRendererStartEvidence(evidence)).toBe(false);
+    expect(nestedEvidenceResult).toBe(false);
+    expect(remote.acceptRendererStartEvidence(evidence)).toBe(true);
+
+    now = 2_200;
+    reenter = 'commit';
+    expect(remote.commitAttempt(identity)).toBe(false);
+    expect(nestedCommitResult).toBe(false);
+    expect(remote.commitAttempt(identity)).toBe(true);
   });
 
   it('allows same-run recovery with a fresh rendezvous after cancellation', async () => {
@@ -647,6 +1154,7 @@ describe('RemoteRendezvousParticipant', () => {
     let accessorReads = 0;
     const rawOptions: Record<string, unknown> = {
       participantId: PARTICIPANT_ID,
+      rendererEvidenceScope: RENDERER_EVIDENCE_SCOPE,
       rttP95Ms: 40,
       armP95Ms: 80,
       nowRoomTimeMs: () => 1_600,
@@ -665,6 +1173,7 @@ describe('RemoteRendezvousParticipant', () => {
     expect(accessorReads).toBe(0);
     const cleanOptions: RemoteRendezvousParticipantOptions = {
       participantId: PARTICIPANT_ID,
+      rendererEvidenceScope: RENDERER_EVIDENCE_SCOPE,
       rttP95Ms: 40,
       armP95Ms: 80,
       nowRoomTimeMs: () => 1_600,
@@ -672,6 +1181,29 @@ describe('RemoteRendezvousParticipant', () => {
       dispatchFinalize: () => undefined,
       dispatchCancel: () => undefined,
     };
+    const hostileScope = { ...RENDERER_EVIDENCE_SCOPE };
+    Object.defineProperty(hostileScope, 'sessionId', {
+      enumerable: true,
+      get() {
+        accessorReads += 1;
+        return 'session-a';
+      },
+    });
+    expect(
+      () =>
+        new RemoteRendezvousParticipant({
+          ...cleanOptions,
+          rendererEvidenceScope: hostileScope,
+        }),
+    ).toThrow(/rendererEvidenceScope/);
+    expect(accessorReads).toBe(0);
+    expect(
+      () =>
+        new RemoteRendezvousParticipant({
+          ...cleanOptions,
+          rendererEvidenceScope: { ...RENDERER_EVIDENCE_SCOPE, extra: true } as never,
+        }),
+    ).toThrow(/rendererEvidenceScope/);
     expect(
       () => new RemoteRendezvousParticipant({ ...cleanOptions, extra: true } as never),
     ).toThrow(/exact own data/);

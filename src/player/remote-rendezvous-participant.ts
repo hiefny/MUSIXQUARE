@@ -1,5 +1,9 @@
 import type { QueueItemId } from '../types/index.ts';
 import type { FilePlaybackCancelIntent } from './file-playback-source.ts';
+import {
+  createFilePlaybackWireMessage,
+  type RendererHealthWireMessage,
+} from './file-playback-wire.ts';
 import { readPlaybackAttemptIdentity, type PlaybackAttemptIdentity } from './playback-identity.ts';
 import {
   readRendezvousArmIntent,
@@ -22,12 +26,20 @@ const FALLBACK_RUN_ID = 'invalid-run';
 const FALLBACK_RENDEZVOUS_ID = 'invalid-rendezvous';
 const OPTIONS_KEYS = Object.freeze([
   'participantId',
+  'rendererEvidenceScope',
   'rttP95Ms',
   'armP95Ms',
   'nowRoomTimeMs',
   'dispatchArm',
   'dispatchFinalize',
   'dispatchCancel',
+]);
+const RENDERER_EVIDENCE_SCOPE_KEYS = Object.freeze([
+  'sessionId',
+  'connectionId',
+  'recipientParticipantId',
+  'sourceIdentity',
+  'transferSessionId',
 ]);
 const CANCEL_INTENT_KEYS = Object.freeze([
   'kind',
@@ -40,8 +52,21 @@ const CANCEL_INTENT_KEYS = Object.freeze([
 
 export type RemoteRendezvousMetric = number | (() => number);
 
+export interface RemoteRendererEvidenceScope {
+  readonly sessionId: string;
+  readonly connectionId: string;
+  readonly recipientParticipantId: string;
+  readonly sourceIdentity: string;
+  readonly transferSessionId: string | null;
+}
+
 export interface RemoteRendezvousParticipantOptions {
   readonly participantId: string;
+  /**
+   * Trusted media/connection scope owned by the channel constructing this
+   * adapter. Recreate the adapter whenever any fixed scope field changes.
+   */
+  readonly rendererEvidenceScope: RemoteRendererEvidenceScope;
   readonly rttP95Ms: RemoteRendezvousMetric;
   readonly armP95Ms: RemoteRendezvousMetric;
   readonly nowRoomTimeMs: () => number;
@@ -66,6 +91,7 @@ interface ActiveCorrelation {
   readonly deferred: DeferredReceipt<RendezvousArmReceipt>;
   armAccepted: boolean;
   finalizeAccepted: boolean;
+  rendererStartEvidence: RendererHealthWireMessage | null;
   committed: boolean;
   finalize: FinalizeOperation | null;
   retired: boolean;
@@ -86,6 +112,15 @@ type RoomTimeRead =
 
 function isBoundedIdentifier(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_IDENTIFIER_LENGTH;
+}
+
+function isWireIdentifier(value: unknown): value is string {
+  if (!isBoundedIdentifier(value) || value !== value.trim()) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return false;
+  }
+  return true;
 }
 
 function metricReader(metric: unknown, label: string): () => number {
@@ -173,6 +208,36 @@ function snapshotCancelIntent(value: unknown): FilePlaybackCancelIntent | null {
   });
 }
 
+function readRendererHealthEvidence(value: unknown): RendererHealthWireMessage | null {
+  try {
+    const canonical = createFilePlaybackWireMessage(value as RendererHealthWireMessage);
+    return canonical.kind === 'renderer-health' ? canonical : null;
+  } catch {
+    return null;
+  }
+}
+
+function snapshotRendererEvidenceScope(value: unknown): RemoteRendererEvidenceScope | null {
+  const snapshot = snapshotExactDataRecord(value, RENDERER_EVIDENCE_SCOPE_KEYS);
+  if (
+    snapshot === null ||
+    !isWireIdentifier(snapshot.sessionId) ||
+    !isWireIdentifier(snapshot.connectionId) ||
+    !isWireIdentifier(snapshot.recipientParticipantId) ||
+    !isWireIdentifier(snapshot.sourceIdentity) ||
+    (snapshot.transferSessionId !== null && !isWireIdentifier(snapshot.transferSessionId))
+  ) {
+    return null;
+  }
+  return freezeCanonical({
+    sessionId: snapshot.sessionId,
+    connectionId: snapshot.connectionId,
+    recipientParticipantId: snapshot.recipientParticipantId,
+    sourceIdentity: snapshot.sourceIdentity,
+    transferSessionId: snapshot.transferSessionId,
+  });
+}
+
 function sameRevisionedRun(left: RevisionedPlaybackRun, right: RevisionedPlaybackRun): boolean {
   return (
     left.queueItemId === right.queueItemId &&
@@ -245,6 +310,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
   readonly participantId: string;
   readonly #readRttP95Ms: () => number;
   readonly #readArmP95Ms: () => number;
+  readonly #rendererEvidenceScope: RemoteRendererEvidenceScope;
   readonly #nowRoomTimeMs: () => number;
   readonly #dispatchArm: (intent: RendezvousArmIntent) => unknown;
   readonly #dispatchFinalize: (intent: RendezvousFinalizeIntent) => unknown;
@@ -255,6 +321,8 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
   readonly #seenRendezvousIds = new Set<string>();
   #lastRoomTimeMs: number | null = null;
   #readingRoomTime = false;
+  #roomTimeReadReentered = false;
+  #lastRendererEvidenceControlSequence: number | null = null;
 
   constructor(options: RemoteRendezvousParticipantOptions) {
     const canonical = snapshotExactDataRecord(options, OPTIONS_KEYS);
@@ -263,6 +331,10 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
     }
     if (!isBoundedIdentifier(canonical.participantId)) {
       throw new TypeError('participantId must be a non-empty bounded identifier');
+    }
+    const rendererEvidenceScope = snapshotRendererEvidenceScope(canonical.rendererEvidenceScope);
+    if (rendererEvidenceScope === null) {
+      throw new TypeError('rendererEvidenceScope must be exact trusted wire scope data');
     }
     if (typeof canonical.nowRoomTimeMs !== 'function') {
       throw new TypeError('nowRoomTimeMs must be a function');
@@ -277,6 +349,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       throw new TypeError('dispatchCancel must be a function');
     }
     this.participantId = canonical.participantId;
+    this.#rendererEvidenceScope = rendererEvidenceScope;
     this.#readRttP95Ms = metricReader(canonical.rttP95Ms, 'rttP95Ms');
     this.#readArmP95Ms = metricReader(canonical.armP95Ms, 'armP95Ms');
     this.#nowRoomTimeMs = canonical.nowRoomTimeMs as () => number;
@@ -345,6 +418,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       deferred: deferredReceipt<RendezvousArmReceipt>(),
       armAccepted: false,
       finalizeAccepted: false,
+      rendererStartEvidence: null,
       committed: false,
       finalize: null,
       retired: false,
@@ -487,6 +561,49 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
     return settled;
   }
 
+  /**
+   * Admits the remote renderer's strongest available start attestation. This
+   * is still a report from another device, not proof from its Web Audio
+   * renderer internals, so the host binds it to one live finalized attempt and
+   * a short room-clock lease before treating that participant as committed.
+   */
+  acceptRendererStartEvidence(evidence: unknown): boolean {
+    const canonical = readRendererHealthEvidence(evidence);
+    const active = this.#active;
+    if (canonical === null || active === null || !this.#isLiveRendererEvidence(active, canonical)) {
+      return false;
+    }
+
+    // A newer exact unhealthy report revokes an uncommitted lease even when
+    // it arrives reentrantly from the host clock callback. Burn its sequence
+    // before any clock read so the older healthy report cannot be resurrected.
+    if (canonical.value === 'unhealthy') {
+      this.#lastRendererEvidenceControlSequence = canonical.controlSequence;
+      if (!active.committed) active.rendererStartEvidence = null;
+      return false;
+    }
+
+    const roomTime = this.#readRoomTimeMs();
+    // Application clock code may synchronously cancel, supersede, or re-enter
+    // this participant. Revalidate the exact authority after it returns.
+    if (!this.#isLiveRendererEvidence(active, canonical) || !roomTime.ok) return false;
+    if (
+      canonical.observedAtRoomTimeMs < active.intent.startAtRoomTimeMs ||
+      canonical.observedAtRoomTimeMs > roomTime.value
+    ) {
+      return false;
+    }
+
+    this.#lastRendererEvidenceControlSequence = canonical.controlSequence;
+    if (canonical.leaseUntilRoomTimeMs <= roomTime.value) {
+      if (!active.committed) active.rendererStartEvidence = null;
+      return false;
+    }
+
+    active.rendererStartEvidence = canonical;
+    return true;
+  }
+
   cancel(intent: FilePlaybackCancelIntent): Promise<void> {
     const canonical = snapshotCancelIntent(intent);
     const active = this.#active;
@@ -518,13 +635,27 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       identity === null ||
       active === null ||
       active.retired ||
-      !active.finalizeAccepted ||
       !sameRevisionedRun(active.intent, identity) ||
       active.intent.rendezvousId !== identity.rendezvousId
     ) {
       return false;
     }
     if (active.committed) return true;
+
+    const evidence = active.rendererStartEvidence;
+    if (!active.finalizeAccepted || evidence === null) return false;
+    const roomTime = this.#readRoomTimeMs();
+    if (
+      !roomTime.ok ||
+      this.#active !== active ||
+      active.retired ||
+      active.committed ||
+      !active.finalizeAccepted ||
+      active.rendererStartEvidence !== evidence ||
+      evidence.leaseUntilRoomTimeMs <= roomTime.value
+    ) {
+      return active.committed;
+    }
     active.committed = true;
     return true;
   }
@@ -532,6 +663,7 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
   #retire(operation: ActiveCorrelation, reasonCode: string): void {
     if (operation.retired) return;
     operation.retired = true;
+    operation.rendererStartEvidence = null;
     if (!operation.deferred.settled) {
       this.#settleArm(operation, this.#rejectedArm(operation.intent, reasonCode));
     }
@@ -587,6 +719,25 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
     );
   }
 
+  #isLiveRendererEvidence(active: ActiveCorrelation, evidence: RendererHealthWireMessage): boolean {
+    const scope = this.#rendererEvidenceScope;
+    const lastSequence = this.#lastRendererEvidenceControlSequence;
+    return (
+      this.#active === active &&
+      !active.retired &&
+      active.finalizeAccepted &&
+      (lastSequence === null || evidence.controlSequence > lastSequence) &&
+      evidence.sessionId === scope.sessionId &&
+      evidence.connectionId === scope.connectionId &&
+      evidence.senderParticipantId === this.participantId &&
+      evidence.recipientParticipantId === scope.recipientParticipantId &&
+      evidence.sourceIdentity === scope.sourceIdentity &&
+      evidence.transferSessionId === scope.transferSessionId &&
+      sameRevisionedRun(active.intent, evidence) &&
+      active.intent.rendezvousId === evidence.rendezvousId
+    );
+  }
+
   #canRememberRendezvous(intent: RendezvousArmIntent): boolean {
     if (this.#seenRun === null || !sameRevisionedRun(this.#seenRun, intent)) return true;
     return (
@@ -609,9 +760,11 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
 
   #readRoomTimeMs(): RoomTimeRead {
     if (this.#readingRoomTime) {
+      this.#roomTimeReadReentered = true;
       return { ok: false, reasonCode: 'remote-room-clock-invalid' };
     }
     this.#readingRoomTime = true;
+    this.#roomTimeReadReentered = false;
     let current: number;
     try {
       current = this.#nowRoomTimeMs();
@@ -619,6 +772,10 @@ export class RemoteRendezvousParticipant implements HostRendezvousParticipant {
       return { ok: false, reasonCode: 'remote-room-clock-invalid' };
     } finally {
       this.#readingRoomTime = false;
+    }
+    if (this.#roomTimeReadReentered) {
+      this.#roomTimeReadReentered = false;
+      return { ok: false, reasonCode: 'remote-room-clock-invalid' };
     }
     if (
       !Number.isFinite(current) ||

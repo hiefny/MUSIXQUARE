@@ -89,6 +89,17 @@ describe('PeerRangeEncodedAudioSource', () => {
     );
   });
 
+  it('allocates a fresh request ID for every read on one handle', async () => {
+    const read = vi.fn(async () => new Uint8Array([1]));
+    const encoded = source({ read });
+
+    await encoded.readAt(0, 1, new AbortController().signal);
+    await encoded.readAt(1, 1, new AbortController().signal);
+
+    expect(read.mock.calls[0]?.[0].handleId).toBe(read.mock.calls[1]?.[0].handleId);
+    expect(read.mock.calls[0]?.[0].requestId).not.toBe(read.mock.calls[1]?.[0].requestId);
+  });
+
   it('suppresses a late response after the caller aborts', async () => {
     const pending = deferred<Uint8Array>();
     const started = deferred<void>();
@@ -185,6 +196,14 @@ describe('PeerRangeEncodedAudioSource', () => {
     const transport = { read, closeHandle };
     const first = source(transport);
     const second = source(transport);
+    const unicodeIdentity = new PeerRangeEncodedAudioSource({
+      size: 1,
+      identity: 'peer:호스트 / source:α',
+      metadata: { name: 'x.flac', mime: 'audio/flac' },
+      transport,
+    });
+
+    expect(unicodeIdentity.identity).toBe('peer:호스트 / source:α');
 
     expect(
       () =>
@@ -208,5 +227,6 @@ describe('PeerRangeEncodedAudioSource', () => {
     await expect(second.readAt(0, 1, new AbortController().signal)).resolves.toEqual(
       new Uint8Array([9]),
     );
+    await unicodeIdentity.close();
   });
 });

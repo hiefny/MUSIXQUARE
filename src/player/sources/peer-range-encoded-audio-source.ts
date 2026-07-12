@@ -8,6 +8,7 @@ import {
   validateExactRead,
 } from './encoded-audio-source.ts';
 import {
+  PEER_RANGE_MAX_HANDLE_ID_LENGTH,
   PEER_RANGE_MAX_READ_BYTES,
   PEER_RANGE_MAX_SOURCE_IDENTITY_LENGTH,
   validatePeerRangeOpaqueId,
@@ -46,6 +47,8 @@ export interface PeerRangeEncodedAudioSourceOptions {
   readonly metadata: EncodedAudioSourceMetadata;
   readonly transport: PeerRangeTransport;
   readonly maxReadBytes?: number;
+  /** Exact offer/asset handle. Direct callers may omit it to allocate one. */
+  readonly handleId?: string;
 }
 
 function containsControlCharacter(value: string): boolean {
@@ -140,7 +143,7 @@ export class PeerRangeEncodedAudioSource implements EncodedAudioSource {
 
   readonly #transport: PeerRangeTransport;
   readonly #maxReadBytes: number;
-  readonly #handleId = runtimeId('peer-range-handle');
+  readonly #handleId: string;
   readonly #activeReads = new Map<string, AbortController>();
   #closed = false;
   #closePromise: Promise<void> | null = null;
@@ -161,6 +164,11 @@ export class PeerRangeEncodedAudioSource implements EncodedAudioSource {
       name: boundedMetadata(options.metadata.name, 'metadata.name'),
       mime: boundedMetadata(options.metadata.mime, 'metadata.mime'),
     });
+    this.#handleId = validatePeerRangeOpaqueId(
+      options.handleId ?? runtimeId('peer-range-handle'),
+      'handleId',
+      PEER_RANGE_MAX_HANDLE_ID_LENGTH,
+    );
     this.#transport = options.transport;
     this.#maxReadBytes = positiveReadLimit(options.maxReadBytes ?? PEER_RANGE_MAX_READ_BYTES);
   }

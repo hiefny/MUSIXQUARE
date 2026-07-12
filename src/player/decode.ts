@@ -70,8 +70,6 @@ import {
   isTrackFailed,
   clearFailedTracks,
   getTrackKeyFromItem,
-  liveAudioBufferPcmBytes,
-  trackDecodedAudioBufferForAdmission,
 } from './_state.ts';
 
 import { isFilePipelineBusyForPlay, play, stopAllMedia, stopPlayerNode } from './transport.ts';
@@ -80,14 +78,11 @@ import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
 import {
-  assertBlobCanDecodeToAudioBuffer,
-  assertDecodedAudioBufferWithinBudget,
   encodedReceiveReservationIdForBlob,
   isAudioDecodeAdmissionError,
-  reserveDecodeMemoryWithinBudget,
-  resolveDecodeMemoryBudget,
   waitForInFlightMemoryReservationChange,
 } from './decode-admission.ts';
+import { decodeOrdinaryAudioWithAdmission } from './ordinary-audio-decoder.ts';
 import {
   publishAudioBufferShadow,
   retireActiveManagedSourceBeforeDecode,
@@ -164,85 +159,13 @@ async function decodeBlobToAudioBuffer(
   fileName: string,
   isCurrent: () => boolean,
 ): Promise<DecodeAdmissionLease> {
-  if (!isCurrent()) throw new DecodeSupersededError(label);
-
-  const budget = resolveDecodeMemoryBudget();
-  const sourceEncodedReceiveReservationId = encodedReceiveReservationIdForBlob(blob);
-  // Only the iOS tier counts WeakRef survivors. Other tiers still release the
-  // app-owned current buffer before entry, while avoiding nondeterministic GC
-  // accounting on browsers that do not exhibit the long-session WebKit issue.
-  let retainedPcmBytes = budget.tier === 'ios' ? liveAudioBufferPcmBytes() : 0;
-  let admission: Awaited<ReturnType<typeof assertBlobCanDecodeToAudioBuffer>>;
-  let reservation: ReturnType<typeof reserveDecodeMemoryWithinBudget>;
-  for (;;) {
-    try {
-      if (budget.tier === 'ios') retainedPcmBytes = liveAudioBufferPcmBytes();
-      admission = await assertBlobCanDecodeToAudioBuffer(blob, {
-        budget,
-        fileName,
-        retainedPcmBytes,
-        outputSampleRate: getAudioContext().sampleRate,
-      });
-
+  return decodeOrdinaryAudioWithAdmission(blob, getAudioContext(), fileName, {
+    assertCurrent() {
       if (!isCurrent()) throw new DecodeSupersededError(label);
-      // The probes above are asynchronous. Re-check and reserve synchronously so
-      // two probe continuations queued in the same microtask checkpoint cannot
-      // both observe the old in-flight total and over-admit.
-      reservation = reserveDecodeMemoryWithinBudget(admission.ownDecodeFootprintBytes, {
-        budget: admission.budget,
-        fileName,
-        retainedPcmBytes: budget.tier === 'ios' ? liveAudioBufferPcmBytes() : retainedPcmBytes,
-        excludeEncodedReceiveReservationId: admission.sourceEncodedReceiveReservationId,
-      });
-      break;
-    } catch (error) {
-      if (isAudioDecodeAdmissionError(error) && error.reason === 'working-set') {
-        if (!isCurrent()) throw new DecodeSupersededError(label);
-        const changed = await waitForMemoryReservationChangeWhileCurrent(
-          isCurrent,
-          sourceEncodedReceiveReservationId,
-        );
-        if (changed) {
-          // The file fits by itself but an older uncancellable decode or remote
-          // transport still owns RAM. Retry only after the live ledger changes.
-          continue;
-        }
-        if (!isCurrent()) throw new DecodeSupersededError(label);
-      }
-      throw error;
-    }
-  }
-  try {
-    const arrayBuffer = await blob.arrayBuffer();
-    if (!isCurrent()) throw new DecodeSupersededError(label);
-
-    // Intentionally no timeout: the browser cannot cancel decodeAudioData, so
-    // a timeout would create an invisible native decode that can overlap
-    // retries. The reservation remains until this native Promise settles even
-    // when a newer load supersedes the caller.
-    const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
-    // WebKit may retain native PCM even when ownership changed or the measured
-    // footprint is rejected. Track it before either check; publication later
-    // deduplicates the same object.
-    trackDecodedAudioBufferForAdmission(audioBuffer);
-    if (!isCurrent()) throw new DecodeSupersededError(label);
-
-    const actualFootprint = assertDecodedAudioBufferWithinBudget(audioBuffer, blob.size, {
-      budget: admission.budget,
-      fileName,
-      retainedPcmBytes:
-        budget.tier === 'ios' ? liveAudioBufferPcmBytes(audioBuffer) : retainedPcmBytes,
-      // Replace this lease's estimate with the browser-reported footprint;
-      // every other live decode lease is read from the global ledger once.
-      excludeDecodeReservationId: reservation.id,
-      excludeEncodedReceiveReservationId: admission.sourceEncodedReceiveReservationId,
-    });
-    reservation.update(actualFootprint);
-    return { audioBuffer, release: reservation.release };
-  } catch (error) {
-    reservation.release();
-    throw error;
-  }
+    },
+    waitForMemoryReservationChange: (excludeEncodedReceiveReservationId) =>
+      waitForMemoryReservationChangeWhileCurrent(isCurrent, excludeEncodedReceiveReservationId),
+  });
 }
 
 // Preload-activation owner handle (M4 in the playback concurrency design).

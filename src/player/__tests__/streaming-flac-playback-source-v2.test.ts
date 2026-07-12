@@ -27,8 +27,10 @@ class FakeAudioContext {
   roomNowMs = 1_000;
   state: AudioContextState = 'running';
   readonly sampleRate = OUTPUT_RATE;
+  onCurrentTimeRead: (() => void) | null = null;
 
   get currentTime(): number {
+    this.onCurrentTimeRead?.();
     return this.#currentTime;
   }
 
@@ -730,6 +732,241 @@ describe('StreamingFlacPlaybackSource v2', () => {
     await h.source.destroy();
   });
 
+  it('single-flights an exact cutover target and resolves evidence only from the exact started event', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    try {
+      await prepare(h.source, h.worker, h.node);
+      await h.source.connect(h.destination as unknown as AudioNode);
+
+      const firstPromise = h.source.armForCutover(armIntent());
+      const retryPromise = h.source.armForCutover(armIntent());
+      expect(retryPromise).toBe(firstPromise);
+      await Promise.resolve();
+      const armCommand = controlMessages(h.node).findLast((message) => message.type === 'arm');
+      if (!armCommand || armCommand.type !== 'arm') throw new Error('Missing arm command');
+      h.node.port.emit({
+        protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+        type: 'armed',
+        generation: armCommand.generation,
+        revision: armCommand.revision,
+        runId: armCommand.runId,
+        rendezvousId: armCommand.rendezvousId,
+        targetFrame: armCommand.targetFrame,
+      });
+      const first = await firstPromise;
+      expect(first.status).toBe('armed');
+      if (first.status !== 'armed') throw new Error('Expected armed cutover');
+      expect(first.target).toMatchObject({
+        audioContext: h.context,
+        contextTimeSeconds: 2,
+        targetFrame: 96_000,
+      });
+      const activeRetry = await h.source.armForCutover(armIntent());
+      expect(activeRetry).toBe(first);
+      if (activeRetry.status !== 'armed') throw new Error('Expected armed retry');
+      expect(activeRetry.target).toBe(first.target);
+      expect(activeRetry.started).toBe(first.started);
+
+      h.context.currentTime = 1.7;
+      const finalizing = h.source.finalize(finalizeIntent());
+      await Promise.resolve();
+      const finalizeCommand = controlMessages(h.node).findLast(
+        (message) => message.type === 'finalize',
+      );
+      if (!finalizeCommand || finalizeCommand.type !== 'finalize') {
+        throw new Error('Missing finalize command');
+      }
+      h.node.port.emit({
+        protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+        type: 'finalized',
+        generation: finalizeCommand.generation,
+        revision: finalizeCommand.revision,
+        runId: finalizeCommand.runId,
+        rendezvousId: finalizeCommand.rendezvousId,
+        targetFrame: 96_000,
+      });
+      await finalizing;
+
+      let evidenceState = 'pending';
+      void first.started.then(
+        () => {
+          evidenceState = 'resolved';
+        },
+        () => {
+          evidenceState = 'rejected';
+        },
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      expect(evidenceState).toBe('pending');
+      h.node.port.emit({
+        protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+        type: 'started',
+        generation: armCommand.generation,
+        revision: armCommand.revision,
+        runId: armCommand.runId,
+        rendezvousId: armCommand.rendezvousId,
+        targetFrame: armCommand.targetFrame,
+        actualStartFrame: armCommand.targetFrame,
+        mediaFrame: 0,
+      });
+      await expect(first.started).resolves.toEqual({
+        kind: 'worklet-observed',
+        targetFrame: 96_000,
+        actualStartFrame: 96_000,
+      });
+      expect(evidenceState).toBe('resolved');
+    } finally {
+      await h.source.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects cutover evidence on an exact-identity Worklet start mismatch', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    const arming = h.source.armForCutover(armIntent());
+    await Promise.resolve();
+    const armCommand = controlMessages(h.node).findLast((message) => message.type === 'arm');
+    if (!armCommand || armCommand.type !== 'arm') throw new Error('Missing arm command');
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'armed',
+      generation: armCommand.generation,
+      revision: armCommand.revision,
+      runId: armCommand.runId,
+      rendezvousId: armCommand.rendezvousId,
+      targetFrame: armCommand.targetFrame,
+    });
+    const armed = await arming;
+    if (armed.status !== 'armed') throw new Error('Expected armed cutover');
+
+    h.context.currentTime = 1.7;
+    const finalizing = h.source.finalize(finalizeIntent());
+    await Promise.resolve();
+    const finalizeCommand = controlMessages(h.node).findLast(
+      (message) => message.type === 'finalize',
+    );
+    if (!finalizeCommand || finalizeCommand.type !== 'finalize') {
+      throw new Error('Missing finalize command');
+    }
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'finalized',
+      generation: finalizeCommand.generation,
+      revision: finalizeCommand.revision,
+      runId: finalizeCommand.runId,
+      rendezvousId: finalizeCommand.rendezvousId,
+      targetFrame: 96_000,
+    });
+    await finalizing;
+    h.node.port.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'started',
+      generation: armCommand.generation,
+      revision: armCommand.revision,
+      runId: armCommand.runId,
+      rendezvousId: armCommand.rendezvousId,
+      targetFrame: armCommand.targetFrame,
+      actualStartFrame: armCommand.targetFrame + 1,
+      mediaFrame: 0,
+    });
+
+    await expect(armed.started).rejects.toMatchObject({
+      name: 'FilePlaybackStartEvidenceError',
+      code: 'worklet-start-target-mismatch',
+    });
+    expect(h.source.getSnapshot()).toMatchObject({
+      phase: 'failed',
+      errorCode: 'worklet-start-target-mismatch',
+    });
+    await h.source.destroy();
+  });
+
+  it('returns null cutover data on rejection and settles evidence on cancel and destroy', async () => {
+    const cancelled = harness();
+    await prepare(cancelled.source, cancelled.worker, cancelled.node);
+    await cancelled.source.connect(cancelled.destination as unknown as AudioNode);
+    cancelled.context.state = 'suspended';
+    await expect(cancelled.source.armForCutover(armIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      target: null,
+      started: null,
+      receipt: { status: 'rejected', reasonCode: 'audio-context-not-running' },
+    });
+    cancelled.context.state = 'running';
+    const cancelledArm = await arm(cancelled.source, cancelled.node);
+    const cancelledCutover = await cancelled.source.armForCutover(armIntent());
+    expect(cancelledCutover.status).toBe('armed');
+    expect(cancelledArm.status).toBe('armed');
+    if (cancelledCutover.status !== 'armed') throw new Error('Expected armed cutover');
+    await cancelled.source.cancel({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-stream-1',
+      revision: 1,
+      reasonCode: 'test-cancel',
+    });
+    await expect(cancelledCutover.started).rejects.toMatchObject({
+      name: 'FilePlaybackStartEvidenceError',
+    });
+    await cancelled.source.destroy();
+
+    const destroyed = harness();
+    await prepare(destroyed.source, destroyed.worker, destroyed.node);
+    await destroyed.source.connect(destroyed.destination as unknown as AudioNode);
+    await arm(destroyed.source, destroyed.node);
+    const destroyedCutover = await destroyed.source.armForCutover(armIntent());
+    if (destroyedCutover.status !== 'armed') throw new Error('Expected armed cutover');
+    await destroyed.source.destroy();
+    await expect(destroyedCutover.started).rejects.toMatchObject({
+      name: 'FilePlaybackStartEvidenceError',
+      code: 'source-destroyed',
+    });
+  });
+
+  it('bounds missing Worklet start evidence by the authoritative room clock', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    try {
+      await prepare(h.source, h.worker, h.node);
+      await h.source.connect(h.destination as unknown as AudioNode);
+      await arm(h.source, h.node);
+      const armed = await h.source.armForCutover(armIntent());
+      if (armed.status !== 'armed') throw new Error('Expected armed cutover');
+      h.context.currentTime = 1.7;
+      const finalizing = h.source.finalize(finalizeIntent());
+      await Promise.resolve();
+      const finalizeCommand = controlMessages(h.node).findLast(
+        (message) => message.type === 'finalize',
+      );
+      if (!finalizeCommand || finalizeCommand.type !== 'finalize') {
+        throw new Error('Missing finalize command');
+      }
+      h.node.port.emit({
+        protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+        type: 'finalized',
+        generation: finalizeCommand.generation,
+        revision: finalizeCommand.revision,
+        runId: finalizeCommand.runId,
+        rendezvousId: finalizeCommand.rendezvousId,
+        targetFrame: 96_000,
+      });
+      await finalizing;
+      h.context.state = 'suspended';
+      h.context.roomNowMs = 4_501;
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(armed.started).rejects.toMatchObject({
+        name: 'FilePlaybackStartEvidenceError',
+        code: 'start-evidence-timeout',
+      });
+    } finally {
+      await h.source.destroy();
+      vi.useRealTimers();
+    }
+  });
+
   it('single-flights exact concurrent finalization and rejects a mismatched caller without mutation', async () => {
     const h = harness();
     await prepare(h.source, h.worker, h.node);
@@ -916,6 +1153,46 @@ describe('StreamingFlacPlaybackSource v2', () => {
       reasonCode: 'audio-context-not-running',
     });
     expect(controlMessages(h.node).some((message) => message.type === 'finalize')).toBe(false);
+    await h.source.destroy();
+  });
+
+  it('does not treat a pending but not yet issued finalize as Worklet start authority', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    await arm(h.source, h.node);
+    const armed = await h.source.armForCutover(armIntent());
+    if (armed.status !== 'armed') throw new Error('Expected armed cutover');
+    h.context.currentTime = 1.7;
+
+    h.context.onCurrentTimeRead = () => {
+      h.context.onCurrentTimeRead = null;
+      h.node.port.emit({
+        protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+        type: 'started',
+        generation: 1,
+        revision: 1,
+        runId: 'run-stream-1',
+        rendezvousId: 'rv-stream-1',
+        targetFrame: 96_000,
+        actualStartFrame: 96_000,
+        mediaFrame: 0,
+      });
+    };
+
+    await expect(h.source.finalize(finalizeIntent())).resolves.toMatchObject({
+      status: 'rejected',
+      reasonCode: 'worklet-start-without-finalize',
+    });
+    await expect(armed.started).rejects.toMatchObject({
+      name: 'FilePlaybackStartEvidenceError',
+      code: 'worklet-start-without-finalize',
+    });
+    expect(controlMessages(h.node).some((message) => message.type === 'finalize')).toBe(false);
+    expect(h.source.getSnapshot()).toMatchObject({
+      phase: 'failed',
+      errorCode: 'worklet-start-without-finalize',
+    });
     await h.source.destroy();
   });
 
@@ -1420,6 +1697,8 @@ describe('StreamingFlacPlaybackSource v2', () => {
     await prepare(h.source, h.worker, h.node);
     await h.source.connect(h.destination as unknown as AudioNode);
     await arm(h.source, h.node);
+    const previousCutover = await h.source.armForCutover(armIntent());
+    if (previousCutover.status !== 'armed') throw new Error('Expected previous armed cutover');
 
     const nextIntent = armIntent({
       runId: 'run-stream-2',
@@ -1430,6 +1709,10 @@ describe('StreamingFlacPlaybackSource v2', () => {
     });
     const nextArm = h.source.arm(nextIntent);
     await Promise.resolve();
+    await expect(previousCutover.started).rejects.toMatchObject({
+      name: 'FilePlaybackStartEvidenceError',
+      code: 'operation-superseded',
+    });
     const init = lastWorkerInit(h.worker);
     expect(init.decoderGeneration).toBe(2);
     emitDecoderReady(h.worker);

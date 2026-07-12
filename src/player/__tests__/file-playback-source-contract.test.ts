@@ -2,11 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import {
+  createAudioBufferPlaybackStartEvidence,
+  createFilePlaybackCutoverTarget,
   createFilePlaybackSourceSnapshot,
+  createStreamingFlacPlaybackStartEvidence,
   isFilePlaybackSourceSnapshot,
+  readFilePlaybackCutoverTarget,
   readFilePlaybackCancelIntent,
   readFilePlaybackPauseIntent,
   readFilePlaybackSeekIntent,
+  readFilePlaybackStartEvidence,
   sourceOwnsRevisionedRun,
   type FilePlaybackSource,
   type FilePlaybackSourceSnapshot,
@@ -198,5 +203,53 @@ describe('file playback source contract', () => {
 
     expect(sourceOwnsRevisionedRun(source, RUN)).toBe(true);
     expect(sourceOwnsRevisionedRun(source, { ...RUN, queueItemId: OTHER_QID })).toBe(false);
+  });
+
+  it('canonicalizes exact local cutover targets and rejects inconsistent clocks', () => {
+    const context = { sampleRate: 48_000 } as AudioContext;
+    const target = createFilePlaybackCutoverTarget(context, 2, 96_000);
+
+    expect(target).toMatchObject({
+      audioContext: context,
+      contextTimeSeconds: 2,
+      targetFrame: 96_000,
+    });
+    expect(Object.getPrototypeOf(target)).toBeNull();
+    expect(Object.isFrozen(target)).toBe(true);
+    expect(readFilePlaybackCutoverTarget(target, context)).toEqual(target);
+    expect(
+      readFilePlaybackCutoverTarget(target, { sampleRate: 48_000 } as AudioContext),
+    ).toBeNull();
+    expect(() => createFilePlaybackCutoverTarget(context, 2, 95_999)).toThrow(TypeError);
+    expect(() => createFilePlaybackCutoverTarget({ sampleRate: 0 } as AudioContext, 2, 0)).toThrow(
+      TypeError,
+    );
+
+    let getterCalls = 0;
+    const accessor = {
+      audioContext: context,
+      contextTimeSeconds: 2,
+      get targetFrame() {
+        getterCalls += 1;
+        return 96_000;
+      },
+    };
+    expect(readFilePlaybackCutoverTarget(accessor, context)).toBeNull();
+    expect(getterCalls).toBe(0);
+  });
+
+  it('keeps AudioBuffer and streaming start evidence exact and distinguishable', () => {
+    const audioBuffer = createAudioBufferPlaybackStartEvidence(96_000);
+    const streaming = createStreamingFlacPlaybackStartEvidence(96_000, 96_000);
+
+    expect(readFilePlaybackStartEvidence(audioBuffer, 96_000)).toEqual(audioBuffer);
+    expect(readFilePlaybackStartEvidence(streaming, 96_000)).toEqual(streaming);
+    expect(readFilePlaybackStartEvidence(audioBuffer, 96_001)).toBeNull();
+    expect(readFilePlaybackStartEvidence({ ...streaming, extra: true }, 96_000)).toBeNull();
+    expect(() => createStreamingFlacPlaybackStartEvidence(96_000, 96_001)).toThrow(TypeError);
+    expect(Object.getPrototypeOf(audioBuffer)).toBeNull();
+    expect(Object.getPrototypeOf(streaming)).toBeNull();
+    expect(Object.isFrozen(audioBuffer)).toBe(true);
+    expect(Object.isFrozen(streaming)).toBe(true);
   });
 });

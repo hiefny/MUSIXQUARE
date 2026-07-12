@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import { AudioBufferPlaybackSource } from '../backends/audio-buffer-playback-source.ts';
@@ -383,6 +383,137 @@ describe('AudioBufferPlaybackSource v2', () => {
       positionSeconds: 4.5,
       bufferedAheadSeconds: 15.5,
     });
+  });
+
+  it('returns one exact cutover target and evidence promise for idempotent retries', async () => {
+    vi.useFakeTimers();
+    const { context, destination, source } = harness();
+    try {
+      await prepareAndConnect(source, destination);
+      const first = await source.armForCutover(armIntent());
+      expect(first.status).toBe('armed');
+      if (first.status !== 'armed') throw new Error('Expected an armed cutover result');
+      expect(first.target).toMatchObject({
+        audioContext: context,
+        contextTimeSeconds: 2,
+        targetFrame: 96_000,
+      });
+      expect(Object.getPrototypeOf(first.target)).toBeNull();
+      expect(Object.isFrozen(first.target)).toBe(true);
+
+      const retry = await source.armForCutover(armIntent());
+      expect(retry).toBe(first);
+      if (retry.status !== 'armed') throw new Error('Expected an armed retry');
+      expect(retry.target).toBe(first.target);
+      expect(retry.started).toBe(first.started);
+
+      let evidenceState = 'pending';
+      void first.started.then(
+        () => {
+          evidenceState = 'resolved';
+        },
+        () => {
+          evidenceState = 'rejected';
+        },
+      );
+      context.currentTime = 1.7;
+      await source.finalize(finalizeIntent());
+      await vi.advanceTimersByTimeAsync(100);
+      expect(evidenceState).toBe('pending');
+
+      context.currentTime = 2;
+      context.state = 'suspended';
+      await vi.advanceTimersByTimeAsync(100);
+      expect(evidenceState).toBe('pending');
+
+      context.state = 'running';
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(first.started).resolves.toEqual({
+        kind: 'webaudio-schedule-passed',
+        targetFrame: 96_000,
+      });
+      expect(evidenceState).toBe('resolved');
+    } finally {
+      await source.destroy();
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns null cutover data for rejected arms and rejects every retired attempt', async () => {
+    const { destination, source } = harness();
+    await prepareAndConnect(source, destination);
+
+    const rejected = await source.armForCutover(armIntent({ positionSeconds: 20 }));
+    expect(rejected).toMatchObject({
+      status: 'rejected',
+      target: null,
+      started: null,
+      receipt: { status: 'rejected', reasonCode: 'offset-out-of-range' },
+    });
+
+    const first = await source.armForCutover(armIntent());
+    if (first.status !== 'armed') throw new Error('Expected first arm');
+    const second = await source.armForCutover(
+      armIntent({
+        revision: 4,
+        runId: 'run-4',
+        rendezvousId: 'rv-4',
+        startAtRoomTimeMs: 3_000,
+        finalizeByRoomTimeMs: 2_800,
+      }),
+    );
+    await expect(first.started).rejects.toMatchObject({
+      name: 'FilePlaybackStartEvidenceError',
+    });
+    if (second.status !== 'armed') throw new Error('Expected second arm');
+
+    await source.cancel({
+      kind: 'file-playback-cancel',
+      queueItemId: QID,
+      runId: 'run-4',
+      revision: 4,
+      reasonCode: 'test-cancel',
+    });
+    await expect(second.started).rejects.toMatchObject({
+      name: 'FilePlaybackStartEvidenceError',
+    });
+
+    const third = await source.armForCutover(
+      armIntent({
+        revision: 5,
+        runId: 'run-5',
+        rendezvousId: 'rv-5',
+        startAtRoomTimeMs: 4_000,
+        finalizeByRoomTimeMs: 3_800,
+      }),
+    );
+    if (third.status !== 'armed') throw new Error('Expected third arm');
+    await source.destroy();
+    await expect(third.started).rejects.toMatchObject({
+      name: 'FilePlaybackStartEvidenceError',
+    });
+  });
+
+  it('bounds a suspended AudioContext start-evidence wait by the room clock', async () => {
+    vi.useFakeTimers();
+    const { context, destination, source } = harness();
+    try {
+      await prepareAndConnect(source, destination);
+      const armed = await source.armForCutover(armIntent());
+      if (armed.status !== 'armed') throw new Error('Expected armed cutover');
+      context.currentTime = 1.7;
+      await source.finalize(finalizeIntent());
+      context.state = 'suspended';
+      context.roomNowMs = 4_501;
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(armed.started).rejects.toMatchObject({
+        name: 'FilePlaybackStartEvidenceError',
+        code: 'start-evidence-timeout',
+      });
+    } finally {
+      await source.destroy();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps a scheduled source muted when finalization never arrives', async () => {

@@ -74,6 +74,48 @@ export interface FilePlaybackCancelIntent extends RevisionedPlaybackRun {
 }
 
 /**
+ * Exact, process-local Web Audio target selected by a playback backend.
+ *
+ * This value is deliberately not JSON-safe and must never cross a wire or be
+ * persisted. The AudioContext identity lets the active-source manager prove
+ * that a silent candidate and its outer gate use the same native clock.
+ */
+export interface FilePlaybackCutoverTarget {
+  readonly audioContext: AudioContext;
+  readonly contextTimeSeconds: number;
+  readonly targetFrame: number;
+}
+
+export interface AudioBufferPlaybackStartEvidence {
+  readonly kind: 'webaudio-schedule-passed';
+  readonly targetFrame: number;
+}
+
+export interface StreamingFlacPlaybackStartEvidence {
+  readonly kind: 'worklet-observed';
+  readonly targetFrame: number;
+  readonly actualStartFrame: number;
+}
+
+export type FilePlaybackStartEvidence =
+  | AudioBufferPlaybackStartEvidence
+  | StreamingFlacPlaybackStartEvidence;
+
+export type FilePlaybackCutoverArmResult =
+  | Readonly<{
+      readonly status: 'armed';
+      readonly receipt: RendezvousArmReceipt;
+      readonly target: FilePlaybackCutoverTarget;
+      readonly started: Promise<FilePlaybackStartEvidence>;
+    }>
+  | Readonly<{
+      readonly status: 'rejected';
+      readonly receipt: RendezvousArmReceipt;
+      readonly target: null;
+      readonly started: null;
+    }>;
+
+/**
  * Common runtime contract for decoded AudioBuffer and bounded streaming-FLAC
  * backends. Implementations own their native objects and must never place them
  * in getSnapshot()/position() results or application global state.
@@ -95,6 +137,15 @@ export interface FilePlaybackSource {
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition;
   getSnapshot(): FilePlaybackSourceSnapshot;
   destroy(): Promise<void>;
+}
+
+/**
+ * Local-only extension used by the atomic active-source cutover coordinator.
+ * Keeping it as a subtype leaves existing FilePlaybackSource fakes and asset-
+ * only preload implementations source-compatible.
+ */
+export interface FilePlaybackCutoverSource extends FilePlaybackSource {
+  armForCutover(intent: RendezvousArmIntent): Promise<FilePlaybackCutoverArmResult>;
 }
 
 const SNAPSHOT_KEYS = Object.freeze([
@@ -131,6 +182,24 @@ const CANCEL_INTENT_KEYS = Object.freeze([
   'reasonCode',
 ] as const);
 const CANCEL_INTENT_KEY_SET: ReadonlySet<string> = new Set(CANCEL_INTENT_KEYS);
+const CUTOVER_TARGET_KEYS = Object.freeze([
+  'audioContext',
+  'contextTimeSeconds',
+  'targetFrame',
+] as const);
+const CUTOVER_TARGET_KEY_SET: ReadonlySet<string> = new Set(CUTOVER_TARGET_KEYS);
+const AUDIO_BUFFER_START_EVIDENCE_KEYS = Object.freeze(['kind', 'targetFrame'] as const);
+const AUDIO_BUFFER_START_EVIDENCE_KEY_SET: ReadonlySet<string> = new Set(
+  AUDIO_BUFFER_START_EVIDENCE_KEYS,
+);
+const STREAMING_START_EVIDENCE_KEYS = Object.freeze([
+  'kind',
+  'targetFrame',
+  'actualStartFrame',
+] as const);
+const STREAMING_START_EVIDENCE_KEY_SET: ReadonlySet<string> = new Set(
+  STREAMING_START_EVIDENCE_KEYS,
+);
 const VALID_PHASES: ReadonlySet<FilePlaybackSourcePhase> = new Set([
   'new',
   'preparing',
@@ -202,6 +271,130 @@ function snapshotExactDataRecord(
 
 function freezeControlIntent<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function readContextSampleRate(audioContext: AudioContext): number | null {
+  try {
+    const sampleRate = audioContext.sampleRate;
+    return Number.isFinite(sampleRate) && sampleRate > 0 && sampleRate <= 1_000_000
+      ? sampleRate
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Creates a canonical local target after proving its time/frame relationship. */
+export function createFilePlaybackCutoverTarget(
+  audioContext: AudioContext,
+  contextTimeSeconds: number,
+  targetFrame: number,
+): FilePlaybackCutoverTarget {
+  const sampleRate = readContextSampleRate(audioContext);
+  if (
+    sampleRate === null ||
+    !isFiniteNonNegative(contextTimeSeconds) ||
+    !isSafeNonNegativeInteger(targetFrame) ||
+    Math.round(contextTimeSeconds * sampleRate) !== targetFrame
+  ) {
+    throw new TypeError('File playback cutover target is invalid');
+  }
+  return freezeControlIntent({ audioContext, contextTimeSeconds, targetFrame });
+}
+
+/**
+ * Descriptor-safe target reader for the manager boundary. The expected native
+ * context is mandatory so an arbitrary lookalike cannot introduce a clock.
+ */
+export function readFilePlaybackCutoverTarget(
+  value: unknown,
+  expectedAudioContext: AudioContext,
+): FilePlaybackCutoverTarget | null {
+  const candidate = snapshotExactDataRecord(value, CUTOVER_TARGET_KEYS, CUTOVER_TARGET_KEY_SET);
+  if (!candidate || candidate.audioContext !== expectedAudioContext) return null;
+  try {
+    return createFilePlaybackCutoverTarget(
+      expectedAudioContext,
+      candidate.contextTimeSeconds as number,
+      candidate.targetFrame as number,
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function createAudioBufferPlaybackStartEvidence(
+  targetFrame: number,
+): AudioBufferPlaybackStartEvidence {
+  if (!isSafeNonNegativeInteger(targetFrame)) {
+    throw new TypeError('AudioBuffer playback start evidence is invalid');
+  }
+  return freezeControlIntent({ kind: 'webaudio-schedule-passed' as const, targetFrame });
+}
+
+export function createStreamingFlacPlaybackStartEvidence(
+  targetFrame: number,
+  actualStartFrame: number,
+): StreamingFlacPlaybackStartEvidence {
+  if (
+    !isSafeNonNegativeInteger(targetFrame) ||
+    !isSafeNonNegativeInteger(actualStartFrame) ||
+    actualStartFrame !== targetFrame
+  ) {
+    throw new TypeError('Streaming FLAC playback start evidence is invalid');
+  }
+  return freezeControlIntent({ kind: 'worklet-observed' as const, targetFrame, actualStartFrame });
+}
+
+/** Canonicalizes exact backend evidence without invoking application accessors. */
+export function readFilePlaybackStartEvidence(
+  value: unknown,
+  expectedTargetFrame: number,
+): FilePlaybackStartEvidence | null {
+  if (!isSafeNonNegativeInteger(expectedTargetFrame)) return null;
+  const kindDescriptor = (() => {
+    try {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+      return Object.getOwnPropertyDescriptor(value, 'kind');
+    } catch {
+      return null;
+    }
+  })();
+  if (!kindDescriptor || !Object.hasOwn(kindDescriptor, 'value')) return null;
+  if (kindDescriptor.value === 'webaudio-schedule-passed') {
+    const candidate = snapshotExactDataRecord(
+      value,
+      AUDIO_BUFFER_START_EVIDENCE_KEYS,
+      AUDIO_BUFFER_START_EVIDENCE_KEY_SET,
+    );
+    if (!candidate || candidate.targetFrame !== expectedTargetFrame) return null;
+    try {
+      return createAudioBufferPlaybackStartEvidence(candidate.targetFrame as number);
+    } catch {
+      return null;
+    }
+  }
+  if (kindDescriptor.value === 'worklet-observed') {
+    const candidate = snapshotExactDataRecord(
+      value,
+      STREAMING_START_EVIDENCE_KEYS,
+      STREAMING_START_EVIDENCE_KEY_SET,
+    );
+    if (!candidate || candidate.targetFrame !== expectedTargetFrame) return null;
+    try {
+      return createStreamingFlacPlaybackStartEvidence(
+        candidate.targetFrame as number,
+        candidate.actualStartFrame as number,
+      );
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export function readFilePlaybackPauseIntent(

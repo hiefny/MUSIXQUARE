@@ -1,16 +1,21 @@
 import type { QueueItemId } from '../../types/index.ts';
 import {
+  createAudioBufferPlaybackStartEvidence,
+  createFilePlaybackCutoverTarget,
   createFilePlaybackSourceSnapshot,
   readFilePlaybackCancelIntent,
   readFilePlaybackPauseIntent,
   readFilePlaybackSeekIntent,
   type FilePlaybackCancelIntent,
+  type FilePlaybackCutoverArmResult,
+  type FilePlaybackCutoverSource,
+  type FilePlaybackCutoverTarget,
   type FilePlaybackPauseIntent,
   type FilePlaybackPosition,
   type FilePlaybackSeekIntent,
-  type FilePlaybackSource,
   type FilePlaybackSourcePhase,
   type FilePlaybackSourceSnapshot,
+  type AudioBufferPlaybackStartEvidence,
 } from '../file-playback-source.ts';
 import {
   readRendezvousArmIntent,
@@ -48,11 +53,22 @@ interface ActiveExecution {
   readonly naturalEndContextTime: number;
   readonly offsetSeconds: number;
   readonly playbackRate: number;
+  readonly cutoverTarget: FilePlaybackCutoverTarget;
+  readonly startEvidence: StartEvidenceDeferred;
+  readonly cutoverResult: Extract<FilePlaybackCutoverArmResult, { readonly status: 'armed' }>;
   finalized: boolean;
   finalizeIntent: RendezvousFinalizeIntent | null;
   finalizeReceipt: RendezvousFinalizeReceipt | null;
   retired: boolean;
   transition: ScheduledTransition | null;
+  startEvidenceTimerHandle: ReturnType<typeof globalThis.setTimeout> | null;
+}
+
+interface StartEvidenceDeferred {
+  readonly promise: Promise<AudioBufferPlaybackStartEvidence>;
+  readonly resolve: (evidence: AudioBufferPlaybackStartEvidence) => void;
+  readonly reject: (error: Error) => void;
+  settled: boolean;
 }
 
 interface PlaybackView {
@@ -61,6 +77,58 @@ interface PlaybackView {
 }
 
 const MAX_IDENTIFIER_LENGTH = 256;
+const START_EVIDENCE_GRACE_MS = 2_500;
+
+function freezeLocalRecord<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function startEvidenceError(code: string): Error {
+  const error = new Error(`AudioBuffer playback start evidence unavailable: ${code}`);
+  error.name = 'FilePlaybackStartEvidenceError';
+  Object.defineProperty(error, 'code', { value: code, enumerable: true });
+  return error;
+}
+
+function createStartEvidenceDeferred(): StartEvidenceDeferred {
+  let resolvePromise!: (evidence: AudioBufferPlaybackStartEvidence) => void;
+  let rejectPromise!: (error: Error) => void;
+  const deferred: StartEvidenceDeferred = {
+    promise: new Promise<AudioBufferPlaybackStartEvidence>((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    }),
+    resolve: (evidence) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      resolvePromise(evidence);
+    },
+    reject: (error) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      rejectPromise(error);
+    },
+    settled: false,
+  };
+  // Lifecycle retirement is allowed to reject before a manager subscribes.
+  // Mark the original promise handled without changing what await observes.
+  void deferred.promise.catch(() => undefined);
+  return deferred;
+}
+
+function rejectedCutoverResult(
+  receipt: RendezvousArmReceipt,
+): Extract<FilePlaybackCutoverArmResult, { readonly status: 'rejected' }> {
+  return freezeLocalRecord({ status: 'rejected' as const, receipt, target: null, started: null });
+}
+
+function armedCutoverResult(
+  receipt: RendezvousArmReceipt,
+  target: FilePlaybackCutoverTarget,
+  started: Promise<AudioBufferPlaybackStartEvidence>,
+): Extract<FilePlaybackCutoverArmResult, { readonly status: 'armed' }> {
+  return freezeLocalRecord({ status: 'armed' as const, receipt, target, started });
+}
 
 function isBoundedIdentifier(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_IDENTIFIER_LENGTH;
@@ -129,7 +197,7 @@ function safeDisconnect(node: AudioNode): void {
  * source is therefore not an audible commit: only an exact, on-time finalize
  * opens that run's gate at the agreed AudioContext frame.
  */
-export class AudioBufferPlaybackSource implements FilePlaybackSource {
+export class AudioBufferPlaybackSource implements FilePlaybackCutoverSource {
   readonly queueItemId: QueueItemId;
   readonly backend = 'audio-buffer' as const;
 
@@ -206,74 +274,107 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     return this.getSnapshot();
   }
 
-  async arm(value: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+  arm(value: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+    return this.armForCutover(value).then((result) => result.receipt);
+  }
+
+  async armForCutover(value: RendezvousArmIntent): Promise<FilePlaybackCutoverArmResult> {
     const ingressEpoch = this.#advanceIngressEpoch();
     this.#settleCurrentExecution();
     const observedAtRoomTimeMs = this.#observedRoomTimeForArm();
     const intent = readRendezvousArmIntent(value);
 
     if (ingressEpoch !== this.#ingressEpoch) {
-      return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs),
+      );
     }
     if (!intent) {
-      return this.#armReceipt(null, 'rejected', 'invalid-contract', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(null, 'rejected', 'invalid-contract', observedAtRoomTimeMs),
+      );
     }
     if (this.#phase === 'destroyed') {
-      return this.#armReceipt(intent, 'rejected', 'source-destroyed', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'source-destroyed', observedAtRoomTimeMs),
+      );
+    }
+    if (this.#active !== null && sameArmIntent(this.#active.armIntent, intent)) {
+      return this.#active.cutoverResult;
     }
     if (!this.#isContextRunning()) {
-      return this.#armReceipt(
-        intent,
-        'rejected',
-        'audio-context-not-running',
-        observedAtRoomTimeMs,
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'audio-context-not-running', observedAtRoomTimeMs),
       );
     }
     const roomNow = this.#roomNow();
     if (ingressEpoch !== this.#ingressEpoch) {
-      return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs),
+      );
     }
     if (roomNow === null) {
-      return this.#armReceipt(intent, 'rejected', 'clock-unavailable', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'clock-unavailable', observedAtRoomTimeMs),
+      );
     }
     if (this.#destination === null) {
-      return this.#armReceipt(intent, 'rejected', 'source-not-connected', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'source-not-connected', observedAtRoomTimeMs),
+      );
     }
     if (intent.queueItemId !== this.queueItemId) {
-      return this.#armReceipt(intent, 'rejected', 'queue-item-mismatch', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'queue-item-mismatch', observedAtRoomTimeMs),
+      );
     }
     if (intent.revision < this.#revision) {
-      return this.#armReceipt(intent, 'rejected', 'stale-revision', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'stale-revision', observedAtRoomTimeMs),
+      );
     }
     if (
       intent.revision === this.#revision &&
       this.#run !== null &&
       (this.#run.queueItemId !== intent.queueItemId || this.#run.runId !== intent.runId)
     ) {
-      return this.#armReceipt(intent, 'rejected', 'run-mismatch', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'run-mismatch', observedAtRoomTimeMs),
+      );
     }
     if (this.#active !== null) {
-      if (sameArmIntent(this.#active.armIntent, intent)) return this.#active.armReceipt;
       if (intent.revision === this.#revision) {
-        return this.#armReceipt(intent, 'rejected', 'run-already-active', observedAtRoomTimeMs);
+        return rejectedCutoverResult(
+          this.#armReceipt(intent, 'rejected', 'run-already-active', observedAtRoomTimeMs),
+        );
       }
     }
     if (this.#idleTransition !== null && intent.revision === this.#revision) {
-      return this.#armReceipt(intent, 'rejected', 'transition-pending', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'transition-pending', observedAtRoomTimeMs),
+      );
     }
     if (intent.positionSeconds >= this.#audioBuffer.duration) {
-      return this.#armReceipt(intent, 'rejected', 'offset-out-of-range', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'offset-out-of-range', observedAtRoomTimeMs),
+      );
     }
 
     const startContextTime = this.#mapRoomTime(intent.startAtRoomTimeMs);
     if (ingressEpoch !== this.#ingressEpoch) {
-      return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs),
+      );
     }
     if (startContextTime === null || startContextTime <= this.#audioContext.currentTime) {
-      return this.#armReceipt(intent, 'rejected', 'start-not-in-future', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'start-not-in-future', observedAtRoomTimeMs),
+      );
     }
     if (observedAtRoomTimeMs > intent.finalizeByRoomTimeMs) {
-      return this.#armReceipt(intent, 'rejected', 'arm-after-deadline', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'arm-after-deadline', observedAtRoomTimeMs),
+      );
     }
 
     const claimsRunWatermark = intent.revision > this.#revision || this.#run === null;
@@ -293,9 +394,27 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       source = this.#audioContext.createBufferSource();
       gate = this.#audioContext.createGain();
     } catch {
-      return this.#armReceipt(intent, 'rejected', 'schedule-failed', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'schedule-failed', observedAtRoomTimeMs),
+      );
+    }
+    let cutoverTarget: FilePlaybackCutoverTarget;
+    try {
+      cutoverTarget = createFilePlaybackCutoverTarget(
+        this.#audioContext,
+        startContextTime,
+        Math.round(startContextTime * this.#audioContext.sampleRate),
+      );
+    } catch {
+      safeDisconnect(source);
+      safeDisconnect(gate);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'schedule-failed', observedAtRoomTimeMs),
+      );
     }
     const receipt = this.#armReceipt(intent, 'armed', null, observedAtRoomTimeMs);
+    const startEvidence = createStartEvidenceDeferred();
+    const cutoverResult = armedCutoverResult(receipt, cutoverTarget, startEvidence.promise);
     const execution: ActiveExecution = {
       armIntent: intent,
       armReceipt: receipt,
@@ -307,11 +426,15 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
         (this.#audioBuffer.duration - intent.positionSeconds) / intent.playbackRate,
       offsetSeconds: intent.positionSeconds,
       playbackRate: intent.playbackRate,
+      cutoverTarget,
+      startEvidence,
+      cutoverResult,
       finalized: false,
       finalizeIntent: null,
       finalizeReceipt: null,
       retired: false,
       transition: null,
+      startEvidenceTimerHandle: null,
     };
 
     try {
@@ -324,10 +447,13 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       source.start(startContextTime, intent.positionSeconds);
     } catch {
       execution.retired = true;
+      this.#rejectStartEvidence(execution, 'schedule-failed');
       source.onended = null;
       safeDisconnect(source);
       safeDisconnect(gate);
-      return this.#armReceipt(intent, 'rejected', 'schedule-failed', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'schedule-failed', observedAtRoomTimeMs),
+      );
     }
 
     this.#retireActiveExecution();
@@ -337,7 +463,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     this.#revision = intent.revision;
     this.#run = immutableRun(intent);
     this.#positionSeconds = intent.positionSeconds;
-    return receipt;
+    return cutoverResult;
   }
 
   async finalize(value: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
@@ -420,7 +546,8 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
       if (missed) this.#retireMissedFinalization(active);
       return receipt;
     }
-    if (active.startContextTime <= this.#audioContext.currentTime) {
+    const finalizeContextTime = this.#audioContext.currentTime;
+    if (active.startContextTime <= finalizeContextTime) {
       const receipt = this.#finalizeReceipt(
         intent,
         'missed-deadline',
@@ -435,6 +562,19 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     active.finalized = true;
     active.finalizeIntent = intent;
     active.finalizeReceipt = this.#finalizeReceipt(intent, 'accepted', null, observedAtRoomTimeMs);
+    this.#scheduleStartEvidenceTimer(
+      active,
+      Math.min(
+        50,
+        Math.max(
+          4,
+          Math.min(
+            (active.cutoverTarget.contextTimeSeconds - finalizeContextTime) * 1_000,
+            active.armIntent.startAtRoomTimeMs + START_EVIDENCE_GRACE_MS - observedAtRoomTimeMs,
+          ),
+        ),
+      ),
+    );
     return active.finalizeReceipt;
   }
 
@@ -628,6 +768,90 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     };
   }
 
+  #watchForStartEvidence(execution: ActiveExecution): void {
+    if (execution.startEvidence.settled) {
+      this.#clearStartEvidenceTimer(execution);
+      return;
+    }
+    if (
+      this.#active !== execution ||
+      execution.retired ||
+      !execution.finalized ||
+      this.#phase === 'destroyed'
+    ) {
+      this.#rejectStartEvidence(execution, 'execution-retired');
+      return;
+    }
+
+    const contextRunning = this.#isContextRunning();
+    const currentContextTime = this.#audioContext.currentTime;
+    // Native state/time access is an authority boundary too: a test double or
+    // platform callback must not let an older execution settle after reentry.
+    if (this.#active !== execution || execution.retired || !execution.finalized) {
+      this.#rejectStartEvidence(execution, 'operation-superseded');
+      return;
+    }
+    if (
+      contextRunning &&
+      Number.isFinite(currentContextTime) &&
+      currentContextTime >= execution.cutoverTarget.contextTimeSeconds
+    ) {
+      this.#clearStartEvidenceTimer(execution);
+      execution.startEvidence.resolve(
+        createAudioBufferPlaybackStartEvidence(execution.cutoverTarget.targetFrame),
+      );
+      return;
+    }
+
+    const roomNow = this.#roomNow();
+    if (this.#active !== execution || execution.retired || !execution.finalized) {
+      this.#rejectStartEvidence(execution, 'operation-superseded');
+      return;
+    }
+    if (roomNow === null) {
+      this.#rejectStartEvidence(execution, 'clock-unavailable');
+      return;
+    }
+    const evidenceDeadlineRoomTimeMs =
+      execution.armIntent.startAtRoomTimeMs + START_EVIDENCE_GRACE_MS;
+    if (roomNow > evidenceDeadlineRoomTimeMs) {
+      this.#rejectStartEvidence(execution, 'start-evidence-timeout');
+      return;
+    }
+
+    const remainingMs = Number.isFinite(currentContextTime)
+      ? Math.max(0, (execution.cutoverTarget.contextTimeSeconds - currentContextTime) * 1_000)
+      : 50;
+    const remainingEvidenceMs = Math.max(0, evidenceDeadlineRoomTimeMs - roomNow);
+    const delayMs = Math.min(
+      50,
+      Math.max(
+        4,
+        contextRunning ? Math.min(remainingMs, remainingEvidenceMs) : remainingEvidenceMs,
+      ),
+    );
+    this.#scheduleStartEvidenceTimer(execution, delayMs);
+  }
+
+  #scheduleStartEvidenceTimer(execution: ActiveExecution, delayMs: number): void {
+    this.#clearStartEvidenceTimer(execution);
+    execution.startEvidenceTimerHandle = globalThis.setTimeout(() => {
+      execution.startEvidenceTimerHandle = null;
+      this.#watchForStartEvidence(execution);
+    }, delayMs);
+  }
+
+  #rejectStartEvidence(execution: ActiveExecution, code: string): void {
+    this.#clearStartEvidenceTimer(execution);
+    execution.startEvidence.reject(startEvidenceError(code));
+  }
+
+  #clearStartEvidenceTimer(execution: ActiveExecution): void {
+    if (execution.startEvidenceTimerHandle === null) return;
+    globalThis.clearTimeout(execution.startEvidenceTimerHandle);
+    execution.startEvidenceTimerHandle = null;
+  }
+
   #settleCurrentExecution(expireUnfinalized = true): void {
     const active = this.#active;
     if (active === null || active.retired) {
@@ -643,6 +867,10 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     }
     const roomNow = this.#roomNow();
     if (this.#active !== active || active.retired) return;
+    if (active.finalized) {
+      this.#watchForStartEvidence(active);
+      if (this.#active !== active || active.retired) return;
+    }
     if (
       expireUnfinalized &&
       !active.finalized &&
@@ -665,6 +893,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
 
     this.#phase = view.phase;
     this.#positionSeconds = view.positionSeconds;
+    this.#rejectStartEvidence(active, 'execution-ended');
     active.retired = true;
     active.source.onended = null;
     safeDisconnect(active.source);
@@ -677,6 +906,11 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
     safeDisconnect(execution.gate);
     if (execution.retired || this.#active !== execution) return;
 
+    if (execution.finalized) {
+      this.#watchForStartEvidence(execution);
+      if (this.#active !== execution || execution.retired) return;
+    }
+    this.#rejectStartEvidence(execution, 'execution-ended');
     execution.retired = true;
     this.#active = null;
     if (execution.transition !== null) {
@@ -706,6 +940,7 @@ export class AudioBufferPlaybackSource implements FilePlaybackSource {
   #retireActiveExecution(): void {
     const active = this.#active;
     if (active === null) return;
+    this.#rejectStartEvidence(active, 'execution-retired');
     active.retired = true;
     active.source.onended = null;
     try {

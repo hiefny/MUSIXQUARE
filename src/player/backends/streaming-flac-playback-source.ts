@@ -2,17 +2,22 @@ import { loadPcmRingWorklet } from '../../audio/worklet-loader.ts';
 import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
+  createFilePlaybackCutoverTarget,
   createFilePlaybackSourceSnapshot,
+  createStreamingFlacPlaybackStartEvidence,
   readFilePlaybackCancelIntent,
   readFilePlaybackPauseIntent,
   readFilePlaybackSeekIntent,
   type FilePlaybackCancelIntent,
+  type FilePlaybackCutoverArmResult,
+  type FilePlaybackCutoverSource,
+  type FilePlaybackCutoverTarget,
   type FilePlaybackPauseIntent,
   type FilePlaybackPosition,
   type FilePlaybackSeekIntent,
-  type FilePlaybackSource,
   type FilePlaybackSourcePhase,
   type FilePlaybackSourceSnapshot,
+  type StreamingFlacPlaybackStartEvidence,
 } from '../file-playback-source.ts';
 import type { FlacMetadata } from '../flac/metadata.ts';
 import { expectedOutputFrames } from '../flac/decoder-helpers.ts';
@@ -47,6 +52,7 @@ import {
 const PROCESSOR_NAME = 'musixquare-pcm-ring-v2';
 const DEFAULT_PREPARE_TIMEOUT_MS = 60_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 4_000;
+const START_EVIDENCE_GRACE_MS = 2_500;
 const RING_CAPACITY_SECONDS = 12;
 const RING_PRIME_SECONDS = 4;
 const MAX_IDENTIFIER_LENGTH = 256;
@@ -132,7 +138,7 @@ interface ControlOperation {
 interface PendingArmOperation {
   readonly intent: RendezvousArmIntent;
   readonly operation: ControlOperation;
-  readonly promise: Promise<RendezvousArmReceipt>;
+  readonly promise: Promise<FilePlaybackCutoverArmResult>;
 }
 
 type ArmPreflightResult =
@@ -142,12 +148,24 @@ type ArmPreflightResult =
       readonly targetFrame: number;
       readonly requestedMediaFrame: number;
     }
-  | { readonly ok: false; readonly receipt: RendezvousArmReceipt };
+  | { readonly ok: false; readonly result: FilePlaybackCutoverArmResult };
+
+interface StartEvidenceDeferred {
+  readonly promise: Promise<StreamingFlacPlaybackStartEvidence>;
+  readonly resolve: (evidence: StreamingFlacPlaybackStartEvidence) => void;
+  readonly reject: (error: Error) => void;
+  settled: boolean;
+}
 
 interface ActiveArm {
   readonly intent: RendezvousArmIntent;
   readonly receipt: RendezvousArmReceipt;
   readonly targetFrame: number;
+  readonly cutoverTarget: FilePlaybackCutoverTarget;
+  readonly startEvidence: StartEvidenceDeferred;
+  readonly cutoverResult: Extract<FilePlaybackCutoverArmResult, { readonly status: 'armed' }>;
+  startEvidenceTimerHandle: ReturnType<typeof globalThis.setTimeout> | null;
+  finalizeIssuedIntent: RendezvousFinalizeIntent | null;
   finalized: boolean;
   finalizeIntent: RendezvousFinalizeIntent | null;
   finalizeReceipt: RendezvousFinalizeReceipt | null;
@@ -488,6 +506,55 @@ class SupersededPlaybackOperationError extends Error {
   }
 }
 
+function freezeLocalRecord<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function startEvidenceError(code: string): Error {
+  const error = new Error(`Streaming FLAC start evidence unavailable: ${code}`);
+  error.name = 'FilePlaybackStartEvidenceError';
+  Object.defineProperty(error, 'code', { value: code, enumerable: true });
+  return error;
+}
+
+function createStartEvidenceDeferred(): StartEvidenceDeferred {
+  let resolvePromise!: (evidence: StreamingFlacPlaybackStartEvidence) => void;
+  let rejectPromise!: (error: Error) => void;
+  const deferred: StartEvidenceDeferred = {
+    promise: new Promise<StreamingFlacPlaybackStartEvidence>((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    }),
+    resolve: (evidence) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      resolvePromise(evidence);
+    },
+    reject: (error) => {
+      if (deferred.settled) return;
+      deferred.settled = true;
+      rejectPromise(error);
+    },
+    settled: false,
+  };
+  void deferred.promise.catch(() => undefined);
+  return deferred;
+}
+
+function rejectedCutoverResult(
+  receipt: RendezvousArmReceipt,
+): Extract<FilePlaybackCutoverArmResult, { readonly status: 'rejected' }> {
+  return freezeLocalRecord({ status: 'rejected' as const, receipt, target: null, started: null });
+}
+
+function armedCutoverResult(
+  receipt: RendezvousArmReceipt,
+  target: FilePlaybackCutoverTarget,
+  started: Promise<StreamingFlacPlaybackStartEvidence>,
+): Extract<FilePlaybackCutoverArmResult, { readonly status: 'armed' }> {
+  return freezeLocalRecord({ status: 'armed' as const, receipt, target, started });
+}
+
 /**
  * Bounded, RAM-only FLAC playback source.
  *
@@ -496,7 +563,7 @@ class SupersededPlaybackOperationError extends Error {
  * connected to the product graph until prepare() has completed and connect()
  * is explicitly called by the active-source coordinator.
  */
-export class StreamingFlacPlaybackSource implements FilePlaybackSource {
+export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   readonly queueItemId: QueueItemId;
   readonly backend = 'streaming-flac' as const;
 
@@ -688,33 +755,49 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     return this.getSnapshot();
   }
 
-  async arm(value: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+  arm(value: RendezvousArmIntent): Promise<RendezvousArmReceipt> {
+    return this.armForCutover(value).then((result) => result.receipt);
+  }
+
+  armForCutover(value: RendezvousArmIntent): Promise<FilePlaybackCutoverArmResult> {
     const ingressEpoch = this.#advanceIngressEpoch();
     this.#expireUnfinalizedArm();
     const intent = readRendezvousArmIntent(value);
     if (!intent) {
-      return this.#armReceipt(null, 'rejected', 'invalid-contract', this.#roomNow() ?? 0);
+      return Promise.resolve(
+        rejectedCutoverResult(
+          this.#armReceipt(null, 'rejected', 'invalid-contract', this.#roomNow() ?? 0),
+        ),
+      );
     }
     const preflight = this.#preflightArm(intent);
     if (ingressEpoch !== this.#ingressEpoch) {
-      return this.#armReceipt(
-        intent,
-        'rejected',
-        'operation-superseded',
-        preflight.ok ? preflight.observedAtRoomTimeMs : (this.#roomNow() ?? 0),
+      return Promise.resolve(
+        rejectedCutoverResult(
+          this.#armReceipt(
+            intent,
+            'rejected',
+            'operation-superseded',
+            preflight.ok ? preflight.observedAtRoomTimeMs : (this.#roomNow() ?? 0),
+          ),
+        ),
       );
     }
-    if (!preflight.ok) return preflight.receipt;
+    if (!preflight.ok) return Promise.resolve(preflight.result);
 
     const pending = this.#pendingArmOperation;
     if (pending) {
       if (sameArmIntent(pending.intent, intent)) return pending.promise;
       if (intent.revision <= pending.intent.revision) {
-        return this.#armReceipt(
-          intent,
-          'rejected',
-          intent.revision < pending.intent.revision ? 'stale-revision' : 'run-already-active',
-          preflight.observedAtRoomTimeMs,
+        return Promise.resolve(
+          rejectedCutoverResult(
+            this.#armReceipt(
+              intent,
+              'rejected',
+              intent.revision < pending.intent.revision ? 'stale-revision' : 'run-already-active',
+              preflight.observedAtRoomTimeMs,
+            ),
+          ),
         );
       }
     }
@@ -743,14 +826,13 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     const observedAtRoomTimeMs = roomNow ?? 0;
     const reject = (reasonCode: string): ArmPreflightResult => ({
       ok: false,
-      receipt: this.#armReceipt(intent, 'rejected', reasonCode, observedAtRoomTimeMs),
+      result: rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', reasonCode, observedAtRoomTimeMs),
+      ),
     });
 
     if (this.#phase === 'destroyed') return reject('source-destroyed');
     if (this.#phase === 'failed') return reject(this.#errorCode ?? 'source-failed');
-    if (!this.#isContextRunning()) return reject('audio-context-not-running');
-    if (roomNow === null) return reject('clock-unavailable');
-    if (!this.#destination || !this.#node || !this.#worker) return reject('source-not-connected');
     if (intent.queueItemId !== this.queueItemId) return reject('queue-item-mismatch');
     if (intent.playbackRate !== 1) return reject('unsupported-playback-rate');
     if (intent.positionSeconds >= this.#durationSeconds) return reject('offset-out-of-range');
@@ -762,6 +844,12 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     ) {
       return reject('run-mismatch');
     }
+    if (this.#activeArm && sameArmIntent(this.#activeArm.intent, intent)) {
+      return { ok: false, result: this.#activeArm.cutoverResult };
+    }
+    if (!this.#isContextRunning()) return reject('audio-context-not-running');
+    if (roomNow === null) return reject('clock-unavailable');
+    if (!this.#destination || !this.#node || !this.#worker) return reject('source-not-connected');
 
     const targetFrame = this.#roomTimeToRenderFrame(intent.startAtRoomTimeMs);
     if (targetFrame === null || targetFrame <= this.#currentRenderFrame) {
@@ -771,9 +859,6 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       return reject('arm-after-deadline');
     }
     if (this.#activeArm) {
-      if (sameArmIntent(this.#activeArm.intent, intent)) {
-        return { ok: false, receipt: this.#activeArm.receipt };
-      }
       if (intent.revision <= this.#activeArm.intent.revision) {
         return reject(
           intent.revision < this.#activeArm.intent.revision
@@ -797,7 +882,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     preflight: Extract<ArmPreflightResult, { readonly ok: true }>,
     claimsRunWatermark: boolean,
     supersededPendingIntent: RendezvousArmIntent | null,
-  ): Promise<RendezvousArmReceipt> {
+  ): Promise<FilePlaybackCutoverArmResult> {
     let observedAtRoomTimeMs = preflight.observedAtRoomTimeMs;
     const targetFrame = preflight.targetFrame;
     const requestedMediaFrame = preflight.requestedMediaFrame;
@@ -813,17 +898,19 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       if (previousActive) {
         this.#cancelRequested = true;
         this.#postCancel(runIdentity(previousActive.intent));
-        this.#activeArm = null;
+        this.#retireActiveArm('operation-superseded', previousActive);
         this.#pendingPause = null;
         forceReset = true;
       }
     }
     if (this.#phase === 'failed' || this.#phase === 'destroyed') {
-      return this.#armReceipt(
-        intent,
-        'rejected',
-        this.#phase === 'failed' ? (this.#errorCode ?? 'source-failed') : 'source-destroyed',
-        observedAtRoomTimeMs,
+      return rejectedCutoverResult(
+        this.#armReceipt(
+          intent,
+          'rejected',
+          this.#phase === 'failed' ? (this.#errorCode ?? 'source-failed') : 'source-destroyed',
+          observedAtRoomTimeMs,
+        ),
       );
     }
     if (
@@ -837,48 +924,59 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         await this.#resetGeneration(intent.positionSeconds, operation, 'connected');
       } catch (error) {
         if (!this.#isCurrentOperation(operation)) {
-          return this.#armReceipt(intent, 'rejected', 'operation-superseded', this.#roomNow() ?? 0);
+          return rejectedCutoverResult(
+            this.#armReceipt(intent, 'rejected', 'operation-superseded', this.#roomNow() ?? 0),
+          );
         }
-        return this.#armReceipt(
-          intent,
-          'rejected',
-          this.#errorCode ??
-            (error instanceof Error && error.name === 'AbortError'
-              ? 'seek-prepare-aborted'
-              : 'seek-prepare-failed'),
-          observedAtRoomTimeMs,
+        return rejectedCutoverResult(
+          this.#armReceipt(
+            intent,
+            'rejected',
+            this.#errorCode ??
+              (error instanceof Error && error.name === 'AbortError'
+                ? 'seek-prepare-aborted'
+                : 'seek-prepare-failed'),
+            observedAtRoomTimeMs,
+          ),
         );
       }
       if (!this.#isCurrentOperation(operation)) {
-        return this.#armReceipt(intent, 'rejected', 'operation-superseded', this.#roomNow() ?? 0);
+        return rejectedCutoverResult(
+          this.#armReceipt(intent, 'rejected', 'operation-superseded', this.#roomNow() ?? 0),
+        );
       }
       observedAtRoomTimeMs = this.#roomNow() ?? 0;
       if (!this.#isCurrentOperation(operation)) {
-        return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+        return rejectedCutoverResult(
+          this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs),
+        );
       }
     }
     if (!this.#isContextRunning()) {
-      return this.#armReceipt(
-        intent,
-        'rejected',
-        'audio-context-not-running',
-        observedAtRoomTimeMs,
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'audio-context-not-running', observedAtRoomTimeMs),
       );
     }
     const currentRoomTimeMs = this.#roomNow();
     if (!this.#isCurrentOperation(operation)) {
-      return this.#armReceipt(
-        intent,
-        'rejected',
-        'operation-superseded',
-        currentRoomTimeMs ?? observedAtRoomTimeMs,
+      return rejectedCutoverResult(
+        this.#armReceipt(
+          intent,
+          'rejected',
+          'operation-superseded',
+          currentRoomTimeMs ?? observedAtRoomTimeMs,
+        ),
       );
     }
     if (currentRoomTimeMs === null) {
-      return this.#armReceipt(intent, 'rejected', 'clock-unavailable', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'clock-unavailable', observedAtRoomTimeMs),
+      );
     }
     if (observedAtRoomTimeMs > intent.finalizeByRoomTimeMs) {
-      return this.#armReceipt(intent, 'rejected', 'arm-after-deadline', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'arm-after-deadline', observedAtRoomTimeMs),
+      );
     }
 
     const identity = runIdentity(intent);
@@ -902,23 +1000,52 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     });
     const event = await ack.promise;
     if (!this.#isCurrentOperation(operation)) {
-      return this.#armReceipt(intent, 'rejected', 'operation-superseded', this.#roomNow() ?? 0);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'operation-superseded', this.#roomNow() ?? 0),
+      );
     }
     if (event.type !== 'armed') {
       const code = event.type === 'rejected' ? event.code : 'worklet-arm-rejected';
       this.#postCancel(identity);
-      return this.#armReceipt(intent, 'rejected', code, this.#observedRoomTimeForArm(intent));
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', code, this.#observedRoomTimeForArm(intent)),
+      );
     }
 
     observedAtRoomTimeMs = this.#observedRoomTimeForArm(intent);
     if (!this.#isCurrentOperation(operation)) {
-      return this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs),
+      );
     }
     if (observedAtRoomTimeMs > intent.finalizeByRoomTimeMs) {
       this.#postCancel(identity);
-      return this.#armReceipt(intent, 'rejected', 'arm-after-deadline', observedAtRoomTimeMs);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'arm-after-deadline', observedAtRoomTimeMs),
+      );
     }
     const receipt = this.#armReceipt(intent, 'armed', null, observedAtRoomTimeMs);
+    let cutoverTarget: FilePlaybackCutoverTarget;
+    try {
+      cutoverTarget = createFilePlaybackCutoverTarget(
+        this.#audioContext,
+        targetFrame / this.#audioContext.sampleRate,
+        targetFrame,
+      );
+    } catch {
+      this.#postCancel(identity);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'invalid-render-target', observedAtRoomTimeMs),
+      );
+    }
+    if (!this.#isCurrentOperation(operation)) {
+      this.#postCancel(identity);
+      return rejectedCutoverResult(
+        this.#armReceipt(intent, 'rejected', 'operation-superseded', observedAtRoomTimeMs),
+      );
+    }
+    const startEvidence = createStartEvidenceDeferred();
+    const cutoverResult = armedCutoverResult(receipt, cutoverTarget, startEvidence.promise);
     this.#revision = intent.revision;
     this.#run = immutableRun(intent);
     this.#phase = 'armed';
@@ -926,11 +1053,16 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       intent,
       receipt,
       targetFrame,
+      cutoverTarget,
+      startEvidence,
+      cutoverResult,
+      startEvidenceTimerHandle: null,
+      finalizeIssuedIntent: null,
       finalized: false,
       finalizeIntent: null,
       finalizeReceipt: null,
     };
-    return receipt;
+    return cutoverResult;
   }
 
   finalize(value: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt> {
@@ -1035,9 +1167,18 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         this.#roomNow() ?? observedAtRoomTimeMs,
       );
     }
-    if (!this.#isContextRunning()) {
+    const contextRunning = this.#isContextRunning();
+    if (this.#activeArm !== active || this.#isTerminalPhase()) {
+      return this.#finalizeReceipt(
+        intent,
+        'rejected',
+        this.#phase === 'failed' ? (this.#errorCode ?? 'source-failed') : 'operation-superseded',
+        this.#roomNow() ?? observedAtRoomTimeMs,
+      );
+    }
+    if (!contextRunning) {
       this.#postCancel(runIdentity(active.intent));
-      this.#activeArm = null;
+      this.#retireActiveArm('audio-context-not-running', active);
       if (this.#phase !== 'failed' && this.#phase !== 'destroyed') this.#phase = 'paused';
       return this.#finalizeReceipt(
         intent,
@@ -1048,7 +1189,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     }
     if (roomNow === null) {
       this.#postCancel(runIdentity(active.intent));
-      this.#activeArm = null;
+      this.#retireActiveArm('clock-unavailable', active);
       if (this.#phase !== 'failed' && this.#phase !== 'destroyed') this.#phase = 'paused';
       return this.#finalizeReceipt(intent, 'rejected', 'clock-unavailable', observedAtRoomTimeMs);
     }
@@ -1063,7 +1204,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       const missed = validation.code === 'finalization-after-deadline';
       if (missed) {
         this.#postCancel(runIdentity(active.intent));
-        this.#activeArm = null;
+        this.#retireActiveArm(validation.code, active);
         if (this.#phase !== 'failed' && this.#phase !== 'destroyed') this.#phase = 'paused';
       }
       return this.#finalizeReceipt(
@@ -1073,9 +1214,18 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         observedAtRoomTimeMs,
       );
     }
-    if (active.targetFrame <= this.#currentRenderFrame) {
+    const currentRenderFrame = this.#currentRenderFrame;
+    if (this.#activeArm !== active || this.#isTerminalPhase()) {
+      return this.#finalizeReceipt(
+        intent,
+        'rejected',
+        this.#phase === 'failed' ? (this.#errorCode ?? 'source-failed') : 'operation-superseded',
+        this.#roomNow() ?? observedAtRoomTimeMs,
+      );
+    }
+    if (active.targetFrame <= currentRenderFrame) {
       this.#postCancel(runIdentity(active.intent));
-      this.#activeArm = null;
+      this.#retireActiveArm('start-already-passed', active);
       if (this.#phase !== 'failed' && this.#phase !== 'destroyed') this.#phase = 'paused';
       return this.#finalizeReceipt(
         intent,
@@ -1096,6 +1246,11 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         Math.max(0, intent.startAtRoomTimeMs - observedAtRoomTimeMs - renderGuardMs),
       ),
     );
+    // This local-only authority is established at the last possible moment:
+    // after exact validation and immediately before the command crosses into
+    // the Worklet. A merely pending finalize call must never authorize a
+    // `started` event.
+    active.finalizeIssuedIntent = intent;
     this.#postWorklet({
       protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
       type: 'finalize',
@@ -1138,7 +1293,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
 
       if (beforeTarget) this.#postCancel(identity);
       if (this.#activeArm === active && (beforeTarget || code !== 'worklet-command-timeout')) {
-        this.#activeArm = null;
+        this.#retireActiveArm(code, active);
         if (
           this.#phase !== 'failed' &&
           this.#phase !== 'destroyed' &&
@@ -1157,7 +1312,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
 
     if (!this.#isContextRunning()) {
       this.#postCancel(identity);
-      if (this.#activeArm === active) this.#activeArm = null;
+      this.#retireActiveArm('audio-context-not-running', active);
       if (this.#phase !== 'failed' && this.#phase !== 'destroyed') this.#phase = 'paused';
       return this.#finalizeReceipt(
         intent,
@@ -1198,6 +1353,15 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       null,
       Math.min(acceptedAtRoomTimeMs, intent.startAtRoomTimeMs),
     );
+    this.#scheduleStartEvidenceDeadline(active, acceptedAtRoomTimeMs);
+    if (this.#activeArm !== active) {
+      return this.#finalizeReceipt(
+        intent,
+        'rejected',
+        'operation-superseded',
+        acceptedAtRoomTimeMs,
+      );
+    }
     return active.finalizeReceipt;
   }
 
@@ -1220,7 +1384,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         : undefined;
     this.#postCancel(identity);
     this.#supersedeControlOperations('cancelled');
-    this.#activeArm = null;
+    this.#retireActiveArm('cancelled');
     this.#pendingPause = null;
     if (this.#phase !== 'failed' && this.#phase !== 'destroyed') this.#phase = 'cancelled';
     return this.getSnapshot();
@@ -1262,8 +1426,9 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     try {
       const positionSeconds = Math.min(this.#durationSeconds, canonicalIntent.positionSeconds);
       if (this.#phase === 'armed' && this.#activeArm) {
-        this.#postCancel(runIdentity(this.#activeArm.intent));
-        this.#activeArm = null;
+        const active = this.#activeArm;
+        this.#postCancel(runIdentity(active.intent));
+        this.#retireActiveArm('seek-superseded-arm', active);
         if (this.#errorCode === null) this.#phase = 'paused';
       }
       if (this.#phase === 'playing' && this.#activeArm) {
@@ -1346,7 +1511,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     const teardown = this.#teardownRuntime();
     this.#destination = null;
     this.#run = null;
-    this.#activeArm = null;
+    this.#retireActiveArm('source-destroyed');
     this.#pendingPause = null;
     this.#phase = 'destroyed';
     this.#errorCode = null;
@@ -1441,7 +1606,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     const operation = this.#operationSignal(control.controller.signal);
     const oldGeneration = this.#generation;
     this.#phase = 'preparing';
-    this.#activeArm = null;
+    this.#retireActiveArm('generation-reset');
     this.#pendingPause = null;
     this.#clearAcks('generation-reset');
     this.#postWorker({
@@ -1797,6 +1962,13 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         {
           const active = this.#activeArm;
           if (!sameStreamIdentity(value, runIdentity(active.intent))) return;
+          const finalizeAuthority =
+            active.finalizeIssuedIntent ??
+            (active.finalizeReceipt?.status === 'accepted' ? active.finalizeIntent : null);
+          if (finalizeAuthority === null) {
+            this.#fail('worklet-start-without-finalize');
+            return;
+          }
           if (
             value.targetFrame !== active.targetFrame ||
             value.actualStartFrame !== active.targetFrame
@@ -1805,15 +1977,16 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
             return;
           }
           let observedAtRoomTimeMs: number | null = null;
-          if (active.finalizeIntent && !active.finalizeReceipt) {
+          if (!active.finalizeReceipt) {
             observedAtRoomTimeMs = this.#roomNow();
             if (this.#activeArm !== active) return;
           }
           this.#phase = 'playing';
           active.finalized = true;
-          if (active.finalizeIntent && !active.finalizeReceipt) {
+          active.finalizeIntent ??= finalizeAuthority;
+          if (!active.finalizeReceipt) {
             active.finalizeReceipt = this.#finalizeReceipt(
-              active.finalizeIntent,
+              finalizeAuthority,
               'accepted',
               null,
               Math.min(
@@ -1828,6 +2001,10 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
           this.#mediaFrame = value.mediaFrame;
           this.#statusRenderFrame = value.actualStartFrame;
           this.#pendingPause = null;
+          this.#resolveStartEvidence(
+            active,
+            createStreamingFlacPlaybackStartEvidence(active.targetFrame, value.actualStartFrame),
+          );
         }
         break;
       case 'paused': {
@@ -1844,7 +2021,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         this.#mediaFrame = value.mediaFrame;
         this.#statusRenderFrame = value.actualPauseFrame;
         this.#pendingPause = null;
-        this.#activeArm = null;
+        this.#retireActiveArm('playback-paused');
         const pauseWait = this.#pendingPauseWait;
         if (pauseWait?.targetFrame === value.targetFrame) {
           if (this.#pendingPauseWait === pauseWait) this.#pendingPauseWait = null;
@@ -1857,7 +2034,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         this.#mediaFrame = value.mediaFrame;
         this.#bufferedFrames = 0;
         this.#pendingPause = null;
-        this.#activeArm = null;
+        this.#retireActiveArm('playback-finished');
         break;
       case 'status':
         this.#mediaFrame = value.mediaFrame;
@@ -1867,10 +2044,10 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
         if (value.state === 'playing') this.#phase = 'playing';
         else if (value.state === 'paused') {
           this.#phase = 'paused';
-          this.#activeArm = null;
+          this.#retireActiveArm('worklet-status-paused');
         } else if (value.state === 'finished') {
           this.#phase = 'ended';
-          this.#activeArm = null;
+          this.#retireActiveArm('worklet-status-finished');
         } else if (value.state === 'interrupted') this.#fail('worklet:interrupted');
         break;
       case 'interrupted':
@@ -1907,7 +2084,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
             this.#resolvePendingCommit(active, receipt);
           }
           if (this.#activeArm !== active) break;
-          this.#activeArm = null;
+          this.#retireActiveArm(value.code, active);
           if (this.#phase !== 'cancelled') {
             this.#phase = 'paused';
           }
@@ -2195,8 +2372,64 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
       return;
     }
     this.#postCancel(runIdentity(active.intent));
-    this.#activeArm = null;
+    this.#retireActiveArm('arm-expired', active);
     if (this.#phase !== 'failed' && this.#phase !== 'destroyed') this.#phase = 'paused';
+  }
+
+  #retireActiveArm(code: string, expected?: ActiveArm): ActiveArm | null {
+    const active = this.#activeArm;
+    if (!active || (expected !== undefined && active !== expected)) return null;
+    this.#activeArm = null;
+    active.finalizeIssuedIntent = null;
+    this.#rejectStartEvidence(active, code);
+    return active;
+  }
+
+  #scheduleStartEvidenceDeadline(active: ActiveArm, observedRoomTimeMs?: number): void {
+    if (active.startEvidence.settled) {
+      this.#clearStartEvidenceTimer(active);
+      return;
+    }
+    if (this.#activeArm !== active) {
+      this.#rejectStartEvidence(active, 'operation-superseded');
+      return;
+    }
+    const roomNow = observedRoomTimeMs ?? this.#roomNow();
+    if (this.#activeArm !== active) {
+      this.#rejectStartEvidence(active, 'operation-superseded');
+      return;
+    }
+    if (roomNow === null) {
+      this.#rejectStartEvidence(active, 'clock-unavailable');
+      return;
+    }
+    const deadlineRoomTimeMs = active.intent.startAtRoomTimeMs + START_EVIDENCE_GRACE_MS;
+    if (roomNow > deadlineRoomTimeMs) {
+      this.#rejectStartEvidence(active, 'start-evidence-timeout');
+      return;
+    }
+    this.#clearStartEvidenceTimer(active);
+    const delayMs = Math.min(250, Math.max(4, deadlineRoomTimeMs - roomNow));
+    active.startEvidenceTimerHandle = globalThis.setTimeout(() => {
+      active.startEvidenceTimerHandle = null;
+      this.#scheduleStartEvidenceDeadline(active);
+    }, delayMs);
+  }
+
+  #resolveStartEvidence(active: ActiveArm, evidence: StreamingFlacPlaybackStartEvidence): void {
+    this.#clearStartEvidenceTimer(active);
+    active.startEvidence.resolve(evidence);
+  }
+
+  #rejectStartEvidence(active: ActiveArm, code: string): void {
+    this.#clearStartEvidenceTimer(active);
+    active.startEvidence.reject(startEvidenceError(code));
+  }
+
+  #clearStartEvidenceTimer(active: ActiveArm): void {
+    if (active.startEvidenceTimerHandle === null) return;
+    globalThis.clearTimeout(active.startEvidenceTimerHandle);
+    active.startEvidenceTimerHandle = null;
   }
 
   #postCancel(identity?: FlacStreamRunIdentity): void {
@@ -2427,6 +2660,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackSource {
     if (this.#phase === 'destroyed' || this.#phase === 'failed') return;
     this.#errorCode = safeErrorCode(code, 'streaming-flac-failed');
     this.#phase = 'failed';
+    this.#retireActiveArm(this.#errorCode);
     this.#supersedeControlOperations(this.#errorCode);
     const error = cause instanceof Error ? cause : new Error(this.#errorCode);
     this.#sourceOpenReadiness?.reject(error);

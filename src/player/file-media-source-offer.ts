@@ -1,5 +1,6 @@
 import { MAX_FILE_PLAYBACK_ROOM_TIME_MS } from '../network/file-playback-clock-exchange.ts';
 import { FILE_MEDIA_SOURCE_OFFER_V2_TYPE } from '../network/file-playback-transport-contract.ts';
+import { REMOTE_SHARE_AES_GCM_TAG_BYTES, REMOTE_SHARE_MAX_BYTES } from '../core/constants.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { isQueueItemId } from './queue-model.ts';
 import {
@@ -13,6 +14,7 @@ export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES = 4 * 1024;
 export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_IDENTIFIER_LENGTH = 256;
 export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_NAME_LENGTH = 512;
 export const FILE_MEDIA_SOURCE_OFFER_V2_MAX_MIME_LENGTH = 128;
+export const FILE_MEDIA_SOURCE_OFFER_V2_R2_WHOLE_BLOB_ENCRYPTION = 'aes-256-gcm-whole-v1' as const;
 
 const DEFAULT_MAX_LIVE_QUEUE_ITEMS = 128;
 const MAX_LIVE_QUEUE_ITEMS = 1_024;
@@ -21,8 +23,15 @@ const MAX_ACTIVE_OFFERS = 256;
 const DEFAULT_MAX_RETIRED_TOMBSTONES = 16_384;
 const MAX_RETIRED_TOMBSTONES = 1_000_000;
 const MIME_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
+const R2_STORAGE_ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/u;
+const R2_OBJECT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const AES_256_KEY_BYTES = 32;
+const AES_GCM_IV_BYTES = 12;
+const AES_256_KEY_BASE64_LENGTH = 44;
+const AES_GCM_IV_BASE64_LENGTH = 16;
 
-const OFFER_KEYS = Object.freeze([
+const PEER_RANGE_OFFER_KEYS = Object.freeze([
   'connectionId',
   'encodedSize',
   'expiresAtRoomTimeMs',
@@ -40,9 +49,45 @@ const OFFER_KEYS = Object.freeze([
   'type',
 ] as const);
 
-type OfferKey = (typeof OFFER_KEYS)[number];
+const R2_WHOLE_BLOB_OFFER_KEYS = Object.freeze([
+  'connectionId',
+  'encodedSize',
+  'encryptedSize',
+  'encryption',
+  'expiresAtRoomTimeMs',
+  'ivB64',
+  'keyB64',
+  'mime',
+  'name',
+  'objectId',
+  'prepareId',
+  'prepareRevision',
+  'protocolVersion',
+  'queueItemId',
+  'sessionId',
+  'sourceIdentity',
+  'storageRoomId',
+  'transferSessionId',
+  'transport',
+  'type',
+] as const);
+
 type Primitive = string | number;
 type Snapshot = Readonly<Record<string, Primitive>>;
+type CommonSnapshot = Snapshot &
+  Readonly<{
+    sessionId: string;
+    connectionId: string;
+    prepareId: string;
+    prepareRevision: number;
+    queueItemId: QueueItemId;
+    sourceIdentity: string;
+    transferSessionId: string;
+    encodedSize: number;
+    name: string;
+    mime: string;
+    expiresAtRoomTimeMs: number;
+  }>;
 declare const currentOfferLeaseBrand: unique symbol;
 
 /**
@@ -59,15 +104,15 @@ interface CurrentOfferLeaseRecord {
 }
 
 /**
- * Host -> guest preparation authority for one peer-ranged encoded source.
+ * Host -> guest preparation authority for one exact encoded source.
  *
  * This is deliberately not a playback run or rendezvous. A queue occurrence
  * may be prepared and superseded before any run exists. Codec/container
  * metadata is also deliberately absent: the guest must re-read and validate
  * it through EncodedAudioSource.
  *
- * Future transports extend a discriminated union at `transport`; an R2
- * records descriptor is intentionally not part of this peer-range contract.
+ * The transport discriminant keeps peer-range handles disjoint from temporary
+ * whole-Blob R2 descriptors. Record-encrypted R2 remains a future variant.
  */
 export interface PeerRangeFileMediaSourceOfferV2 {
   readonly protocolVersion: typeof FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION;
@@ -87,11 +132,45 @@ export interface PeerRangeFileMediaSourceOfferV2 {
   readonly expiresAtRoomTimeMs: number;
 }
 
-export type FileMediaSourceOfferV2 = PeerRangeFileMediaSourceOfferV2;
+/**
+ * Temporary whole-Blob object-storage transport for ordinary browser codecs.
+ * The cleanup capability and endpoint URL are deliberately not wire fields.
+ */
+export interface R2WholeBlobFileMediaSourceOfferV2 {
+  readonly protocolVersion: typeof FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION;
+  readonly type: typeof FILE_MEDIA_SOURCE_OFFER_V2_TYPE;
+  readonly transport: 'r2-whole-blob';
+  readonly encryption: typeof FILE_MEDIA_SOURCE_OFFER_V2_R2_WHOLE_BLOB_ENCRYPTION;
+  readonly sessionId: string;
+  readonly connectionId: string;
+  readonly prepareId: string;
+  readonly prepareRevision: number;
+  readonly queueItemId: QueueItemId;
+  readonly sourceIdentity: string;
+  readonly transferSessionId: string;
+  readonly storageRoomId: string;
+  readonly objectId: string;
+  readonly encodedSize: number;
+  readonly encryptedSize: number;
+  readonly keyB64: string;
+  readonly ivB64: string;
+  readonly name: string;
+  readonly mime: string;
+  readonly expiresAtRoomTimeMs: number;
+}
+
+export type FileMediaSourceOfferV2 =
+  | PeerRangeFileMediaSourceOfferV2
+  | R2WholeBlobFileMediaSourceOfferV2;
 
 export type PeerRangeFileMediaSourceOfferV2Input = Omit<
   PeerRangeFileMediaSourceOfferV2,
   'protocolVersion' | 'transport' | 'type'
+>;
+
+export type R2WholeBlobFileMediaSourceOfferV2Input = Omit<
+  R2WholeBlobFileMediaSourceOfferV2,
+  'encryption' | 'protocolVersion' | 'transport' | 'type'
 >;
 
 function containsControlCharacter(value: string): boolean {
@@ -145,6 +224,20 @@ function isRoomTime(value: unknown): value is number {
   );
 }
 
+function isCanonicalBase64(
+  value: unknown,
+  encodedLength: number,
+  byteLength: number,
+): value is string {
+  if (typeof value !== 'string' || value.length !== encodedLength) return false;
+  try {
+    const decoded = atob(value);
+    return decoded.length === byteLength && btoa(decoded) === value;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Creates an adapter-owned preparation occurrence ID using only a platform
  * CSPRNG. There is deliberately no timestamp or Math.random fallback.
@@ -183,21 +276,39 @@ function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
 }
 
+function offerKeysForTransport(
+  transport: unknown,
+): typeof PEER_RANGE_OFFER_KEYS | typeof R2_WHOLE_BLOB_OFFER_KEYS | null {
+  if (transport === 'peer-range') return PEER_RANGE_OFFER_KEYS;
+  if (transport === 'r2-whole-blob') return R2_WHOLE_BLOB_OFFER_KEYS;
+  return null;
+}
+
 function snapshotExactOffer(value: unknown): Snapshot | null {
   try {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
     const prototype = Reflect.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return null;
+    const transportDescriptor = Reflect.getOwnPropertyDescriptor(value, 'transport');
+    if (
+      !transportDescriptor ||
+      transportDescriptor.enumerable !== true ||
+      !Object.prototype.hasOwnProperty.call(transportDescriptor, 'value')
+    ) {
+      return null;
+    }
+    const offerKeys = offerKeysForTransport(transportDescriptor.value);
+    if (!offerKeys) return null;
     const ownKeys = Reflect.ownKeys(value);
     if (
-      ownKeys.length !== OFFER_KEYS.length ||
-      ownKeys.some((key) => typeof key !== 'string' || !OFFER_KEYS.includes(key as OfferKey))
+      ownKeys.length !== offerKeys.length ||
+      ownKeys.some((key) => typeof key !== 'string' || !offerKeys.includes(key as never))
     ) {
       return null;
     }
 
     const snapshot = Object.create(null) as Record<string, Primitive>;
-    for (const key of OFFER_KEYS) {
+    for (const key of offerKeys) {
       const descriptor = Reflect.getOwnPropertyDescriptor(value, key);
       if (
         !descriptor ||
@@ -219,27 +330,25 @@ function serializedByteLength(value: FileMediaSourceOfferV2): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
-function canonicalize(snapshot: Snapshot): Readonly<FileMediaSourceOfferV2> | null {
-  if (
-    snapshot.protocolVersion !== FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION ||
-    snapshot.type !== FILE_MEDIA_SOURCE_OFFER_V2_TYPE ||
-    snapshot.transport !== 'peer-range' ||
-    !isIdentifier(snapshot.sessionId) ||
-    !isIdentifier(snapshot.connectionId, PEER_RANGE_MAX_CONNECTION_ID_LENGTH) ||
-    !isQueueItemId(snapshot.prepareId) ||
-    !isPositiveSafeInteger(snapshot.prepareRevision) ||
-    !isQueueItemId(snapshot.queueItemId) ||
-    !isIdentifier(snapshot.sourceIdentity) ||
-    !isIdentifier(snapshot.transferSessionId) ||
-    !isIdentifier(snapshot.handleId, PEER_RANGE_MAX_HANDLE_ID_LENGTH) ||
-    !isPositiveSafeInteger(snapshot.encodedSize) ||
-    !isName(snapshot.name) ||
-    !isMime(snapshot.mime) ||
-    !isRoomTime(snapshot.expiresAtRoomTimeMs)
-  ) {
-    return null;
-  }
+function hasValidCommonFields(snapshot: Snapshot): snapshot is CommonSnapshot {
+  return (
+    snapshot.protocolVersion === FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION &&
+    snapshot.type === FILE_MEDIA_SOURCE_OFFER_V2_TYPE &&
+    isIdentifier(snapshot.sessionId) &&
+    isIdentifier(snapshot.connectionId, PEER_RANGE_MAX_CONNECTION_ID_LENGTH) &&
+    isQueueItemId(snapshot.prepareId) &&
+    isPositiveSafeInteger(snapshot.prepareRevision) &&
+    isQueueItemId(snapshot.queueItemId) &&
+    isIdentifier(snapshot.sourceIdentity) &&
+    isIdentifier(snapshot.transferSessionId) &&
+    isPositiveSafeInteger(snapshot.encodedSize) &&
+    isName(snapshot.name) &&
+    isMime(snapshot.mime) &&
+    isRoomTime(snapshot.expiresAtRoomTimeMs)
+  );
+}
 
+function hasDistinctCommonIdentities(snapshot: Snapshot, transportIdentity: string): boolean {
   const identities = [
     snapshot.sessionId,
     snapshot.connectionId,
@@ -247,9 +356,22 @@ function canonicalize(snapshot: Snapshot): Readonly<FileMediaSourceOfferV2> | nu
     snapshot.queueItemId,
     snapshot.sourceIdentity,
     snapshot.transferSessionId,
-    snapshot.handleId,
+    transportIdentity,
   ];
-  if (new Set(identities).size !== identities.length) return null;
+  return new Set(identities).size === identities.length;
+}
+
+function canonicalizePeerRange(
+  snapshot: Snapshot,
+): Readonly<PeerRangeFileMediaSourceOfferV2> | null {
+  if (
+    snapshot.transport !== 'peer-range' ||
+    !hasValidCommonFields(snapshot) ||
+    !isIdentifier(snapshot.handleId, PEER_RANGE_MAX_HANDLE_ID_LENGTH) ||
+    !hasDistinctCommonIdentities(snapshot, snapshot.handleId)
+  ) {
+    return null;
+  }
 
   const offer = freezeCanonical({
     protocolVersion: FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION,
@@ -271,6 +393,58 @@ function canonicalize(snapshot: Snapshot): Readonly<FileMediaSourceOfferV2> | nu
   return serializedByteLength(offer) <= FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES ? offer : null;
 }
 
+function canonicalizeR2WholeBlob(
+  snapshot: Snapshot,
+): Readonly<R2WholeBlobFileMediaSourceOfferV2> | null {
+  if (
+    snapshot.transport !== 'r2-whole-blob' ||
+    snapshot.encryption !== FILE_MEDIA_SOURCE_OFFER_V2_R2_WHOLE_BLOB_ENCRYPTION ||
+    !hasValidCommonFields(snapshot) ||
+    snapshot.encodedSize > REMOTE_SHARE_MAX_BYTES ||
+    !isPositiveSafeInteger(snapshot.encryptedSize) ||
+    snapshot.encryptedSize !== snapshot.encodedSize + REMOTE_SHARE_AES_GCM_TAG_BYTES ||
+    typeof snapshot.storageRoomId !== 'string' ||
+    !R2_STORAGE_ROOM_PATTERN.test(snapshot.storageRoomId) ||
+    typeof snapshot.objectId !== 'string' ||
+    !R2_OBJECT_ID_PATTERN.test(snapshot.objectId) ||
+    !hasDistinctCommonIdentities(snapshot, snapshot.objectId) ||
+    !isCanonicalBase64(snapshot.keyB64, AES_256_KEY_BASE64_LENGTH, AES_256_KEY_BYTES) ||
+    !isCanonicalBase64(snapshot.ivB64, AES_GCM_IV_BASE64_LENGTH, AES_GCM_IV_BYTES)
+  ) {
+    return null;
+  }
+
+  const offer = freezeCanonical({
+    protocolVersion: FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION,
+    type: FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+    transport: 'r2-whole-blob' as const,
+    encryption: FILE_MEDIA_SOURCE_OFFER_V2_R2_WHOLE_BLOB_ENCRYPTION,
+    sessionId: snapshot.sessionId,
+    connectionId: snapshot.connectionId,
+    prepareId: snapshot.prepareId,
+    prepareRevision: snapshot.prepareRevision,
+    queueItemId: snapshot.queueItemId as QueueItemId,
+    sourceIdentity: snapshot.sourceIdentity,
+    transferSessionId: snapshot.transferSessionId,
+    storageRoomId: snapshot.storageRoomId,
+    objectId: snapshot.objectId,
+    encodedSize: snapshot.encodedSize,
+    encryptedSize: snapshot.encryptedSize,
+    keyB64: snapshot.keyB64,
+    ivB64: snapshot.ivB64,
+    name: snapshot.name,
+    mime: snapshot.mime,
+    expiresAtRoomTimeMs: snapshot.expiresAtRoomTimeMs,
+  });
+  return serializedByteLength(offer) <= FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES ? offer : null;
+}
+
+function canonicalize(snapshot: Snapshot): Readonly<FileMediaSourceOfferV2> | null {
+  if (snapshot.transport === 'peer-range') return canonicalizePeerRange(snapshot);
+  if (snapshot.transport === 'r2-whole-blob') return canonicalizeR2WholeBlob(snapshot);
+  return null;
+}
+
 export function createPeerRangeFileMediaSourceOfferV2(
   input: PeerRangeFileMediaSourceOfferV2Input,
 ): Readonly<PeerRangeFileMediaSourceOfferV2> {
@@ -281,7 +455,26 @@ export function createPeerRangeFileMediaSourceOfferV2(
     ...input,
   };
   const parsed = parseFileMediaSourceOfferV2(candidate);
-  if (!parsed) throw new TypeError('File media source offer is invalid');
+  if (!parsed || parsed.transport !== 'peer-range') {
+    throw new TypeError('File media source offer is invalid');
+  }
+  return parsed;
+}
+
+export function createR2WholeBlobFileMediaSourceOfferV2(
+  input: R2WholeBlobFileMediaSourceOfferV2Input,
+): Readonly<R2WholeBlobFileMediaSourceOfferV2> {
+  const candidate = {
+    protocolVersion: FILE_MEDIA_SOURCE_OFFER_V2_PROTOCOL_VERSION,
+    type: FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
+    transport: 'r2-whole-blob',
+    encryption: FILE_MEDIA_SOURCE_OFFER_V2_R2_WHOLE_BLOB_ENCRYPTION,
+    ...input,
+  };
+  const parsed = parseFileMediaSourceOfferV2(candidate);
+  if (!parsed || parsed.transport !== 'r2-whole-blob') {
+    throw new TypeError('File media source offer is invalid');
+  }
   return parsed;
 }
 
@@ -308,7 +501,12 @@ function sameOffer(
   left: Readonly<FileMediaSourceOfferV2>,
   right: Readonly<FileMediaSourceOfferV2>,
 ): boolean {
-  return OFFER_KEYS.every((key) => left[key] === right[key]);
+  if (left.transport !== right.transport) return false;
+  const keys = offerKeysForTransport(left.transport);
+  if (!keys) return false;
+  const leftRecord = left as unknown as Readonly<Record<string, Primitive>>;
+  const rightRecord = right as unknown as Readonly<Record<string, Primitive>>;
+  return keys.every((key) => leftRecord[key] === rightRecord[key]);
 }
 
 export class FileMediaOfferRegistryFatalError extends Error {
@@ -322,7 +520,7 @@ export interface FileMediaOfferRegistryOptions {
   readonly liveConnectionToken: object;
   readonly sessionId: string;
   readonly connectionId: string;
-  /** Product-owned admission policy; the wire contract has no product size ceiling. */
+  /** Additional product ceiling applied after transport-specific wire validation. */
   readonly maxEncodedSize: number;
   readonly nowRoomTimeMs: () => number;
   readonly onFatalConnection: (token: object, error: FileMediaOfferRegistryFatalError) => void;

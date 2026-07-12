@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { REMOTE_SHARE_AES_GCM_TAG_BYTES, REMOTE_SHARE_MAX_BYTES } from '../../core/constants.ts';
 import { MAX_FILE_PLAYBACK_ROOM_TIME_MS } from '../../network/file-playback-clock-exchange.ts';
 import { FILE_MEDIA_SOURCE_OFFER_V2_MAX_RAW_FRAME_BYTES } from '../../network/file-playback-transport-contract.ts';
 import type { QueueItemId } from '../../types/index.ts';
@@ -9,10 +10,13 @@ import {
   FileMediaOfferRegistry,
   createFileMediaPrepareId,
   createPeerRangeFileMediaSourceOfferV2,
+  createR2WholeBlobFileMediaSourceOfferV2,
   parseFileMediaSourceOfferV2,
   serializeFileMediaSourceOfferV2,
   type PeerRangeFileMediaSourceOfferV2,
   type PeerRangeFileMediaSourceOfferV2Input,
+  type R2WholeBlobFileMediaSourceOfferV2,
+  type R2WholeBlobFileMediaSourceOfferV2Input,
 } from '../file-media-source-offer.ts';
 import { isQueueItemId } from '../queue-model.ts';
 import {
@@ -26,6 +30,9 @@ const CONNECTION_ID = 'connection:one';
 const QUEUE_ONE = '00000000-0000-4000-8000-000000000001' as QueueItemId;
 const QUEUE_TWO = '00000000-0000-4000-8000-000000000002' as QueueItemId;
 const PREPARE_ONE = '10000000-0000-4000-8000-000000000001';
+const R2_OBJECT_ONE = '20000000-0000-4000-8000-000000000001';
+const R2_KEY_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+const R2_IV_B64 = 'AAAAAAAAAAAAAAAA';
 
 function uuidSuffix(value: number): string {
   return value.toString(16).padStart(12, '0');
@@ -63,6 +70,36 @@ function offer(
   overrides: Partial<PeerRangeFileMediaSourceOfferV2Input> = {},
 ): Readonly<PeerRangeFileMediaSourceOfferV2> {
   return createPeerRangeFileMediaSourceOfferV2(input(overrides));
+}
+
+function r2Input(
+  overrides: Partial<R2WholeBlobFileMediaSourceOfferV2Input> = {},
+): R2WholeBlobFileMediaSourceOfferV2Input {
+  return {
+    sessionId: SESSION_ID,
+    connectionId: CONNECTION_ID,
+    prepareId: PREPARE_ONE,
+    prepareRevision: 1,
+    queueItemId: QUEUE_ONE,
+    sourceIdentity: 'source:one',
+    transferSessionId: 'transfer:one',
+    storageRoomId: 'r2-room_one',
+    objectId: R2_OBJECT_ONE,
+    encodedSize: 1024,
+    encryptedSize: 1024 + REMOTE_SHARE_AES_GCM_TAG_BYTES,
+    keyB64: R2_KEY_B64,
+    ivB64: R2_IV_B64,
+    name: 'orchestra.wav',
+    mime: 'audio/wav',
+    expiresAtRoomTimeMs: 2_000,
+    ...overrides,
+  };
+}
+
+function r2Offer(
+  overrides: Partial<R2WholeBlobFileMediaSourceOfferV2Input> = {},
+): Readonly<R2WholeBlobFileMediaSourceOfferV2> {
+  return createR2WholeBlobFileMediaSourceOfferV2(r2Input(overrides));
 }
 
 function registry(
@@ -110,6 +147,79 @@ describe('file media source offer V2', () => {
       FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES,
     );
     expect(parseFileMediaSourceOfferV2(JSON.parse(serialized))).toEqual(value);
+  });
+
+  it('creates one canonical R2 whole-Blob contract without endpoint or cleanup authority', () => {
+    const value = r2Offer();
+    const serialized = serializeFileMediaSourceOfferV2(value);
+
+    expect(value).toEqual({
+      protocolVersion: 2,
+      type: 'FILE_MEDIA_SOURCE_OFFER_V2',
+      transport: 'r2-whole-blob',
+      encryption: 'aes-256-gcm-whole-v1',
+      ...r2Input(),
+    });
+    expect(Object.getPrototypeOf(value)).toBeNull();
+    expect(Object.isFrozen(value)).toBe(true);
+    expect(serialized).not.toMatch(/downloadUrl|cleanupToken|https?:/u);
+    expect(new TextEncoder().encode(serialized).byteLength).toBeLessThanOrEqual(
+      FILE_MEDIA_SOURCE_OFFER_V2_MAX_FRAME_BYTES,
+    );
+    expect(parseFileMediaSourceOfferV2(JSON.parse(serialized))).toEqual(value);
+  });
+
+  it('uses exact disjoint key sets for peer-range and R2 whole-Blob variants', () => {
+    expect(
+      parseFileMediaSourceOfferV2({
+        ...offer(),
+        storageRoomId: 'r2-room_one',
+      }),
+    ).toBeNull();
+    expect(parseFileMediaSourceOfferV2({ ...r2Offer(), handleId: 'handle:confused' })).toBeNull();
+
+    const missingEncryption = { ...r2Offer() } as Record<string, unknown>;
+    delete missingEncryption.encryption;
+    expect(parseFileMediaSourceOfferV2(missingEncryption)).toBeNull();
+
+    const missingObject = { ...r2Offer() } as Record<string, unknown>;
+    delete missingObject.objectId;
+    expect(parseFileMediaSourceOfferV2(missingObject)).toBeNull();
+  });
+
+  it('requires a canonical 32-byte key and canonical 12-byte IV', () => {
+    const nonCanonicalKey = `${R2_KEY_B64.slice(0, -2)}B=`;
+    expect(atob(nonCanonicalKey)).toBe(atob(R2_KEY_B64));
+    expect(btoa(atob(nonCanonicalKey))).toBe(R2_KEY_B64);
+
+    expect(() => r2Offer({ keyB64: nonCanonicalKey })).toThrow();
+    expect(() => r2Offer({ keyB64: btoa('\0'.repeat(31)) })).toThrow();
+    expect(() => r2Offer({ keyB64: `${R2_KEY_B64.slice(0, -1)}!` })).toThrow();
+    expect(() => r2Offer({ ivB64: btoa('\0'.repeat(11)) })).toThrow();
+    expect(() => r2Offer({ ivB64: `${R2_IV_B64.slice(0, -1)}!` })).toThrow();
+  });
+
+  it('bounds R2 room/object identities and the exact whole-file size relation', () => {
+    expect(() => r2Offer({ storageRoomId: 'room-A_123' })).not.toThrow();
+    expect(() => r2Offer({ storageRoomId: '' })).toThrow();
+    expect(() => r2Offer({ storageRoomId: 'r'.repeat(65) })).toThrow();
+    expect(() => r2Offer({ storageRoomId: 'room/escape' })).toThrow();
+    expect(() => r2Offer({ objectId: 'not-an-object-uuid' })).toThrow();
+    expect(() => r2Offer({ objectId: '20000000-0000-9000-8000-000000000001' })).toThrow();
+    expect(() => r2Offer({ encryptedSize: 1024 + REMOTE_SHARE_AES_GCM_TAG_BYTES - 1 })).toThrow();
+
+    expect(() =>
+      r2Offer({
+        encodedSize: REMOTE_SHARE_MAX_BYTES,
+        encryptedSize: REMOTE_SHARE_MAX_BYTES + REMOTE_SHARE_AES_GCM_TAG_BYTES,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      r2Offer({
+        encodedSize: REMOTE_SHARE_MAX_BYTES + 1,
+        encryptedSize: REMOTE_SHARE_MAX_BYTES + 1 + REMOTE_SHARE_AES_GCM_TAG_BYTES,
+      }),
+    ).toThrow();
   });
 
   it('separates the canonical cap from the adapter raw pre-materialization cap', () => {
@@ -238,6 +348,30 @@ describe('file media source offer V2', () => {
 });
 
 describe('FileMediaOfferRegistry', () => {
+  it('accepts and replays the R2 variant under the unchanged common authority', () => {
+    const setup = registry();
+    setup.instance.admitQueueItem(TOKEN, QUEUE_ONE);
+    const first = r2Offer();
+
+    expect(setup.instance.accept(TOKEN, first)).toMatchObject({
+      accepted: true,
+      status: 'accepted',
+      offer: first,
+    });
+    expect(setup.instance.accept(TOKEN, { ...first })).toMatchObject({
+      accepted: true,
+      status: 'replayed',
+      offer: first,
+    });
+    expect(
+      setup.instance.accept(TOKEN, {
+        ...first,
+        objectId: '20000000-0000-4000-8000-000000000002',
+      }),
+    ).toEqual({ accepted: false, reason: 'conflict' });
+    expect(setup.instance.isClosed()).toBe(true);
+  });
+
   it('binds inspection to the exact live token and exact session scope', () => {
     const setup = registry();
     let traps = 0;

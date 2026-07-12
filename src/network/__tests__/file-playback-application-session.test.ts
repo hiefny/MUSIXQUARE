@@ -147,7 +147,7 @@ function fixture(
       issuer(`${prefix}-guest`),
       options.guestManagerOptions,
     );
-  host.beginHostRoom('host-participant');
+  const hostAuthority = host.beginHostRoom('host-participant');
   expect(host.beginHostConnection(hostConn, 'guest-participant')).toBe(true);
 
   bus.on('network:peer-bootstrap', (_conn, send, acknowledge) => {
@@ -210,6 +210,7 @@ function fixture(
     guest,
     guestConn,
     host,
+    hostAuthority,
     hostConn,
     pump,
     queue,
@@ -278,6 +279,64 @@ afterEach(() => {
 });
 
 describe('FilePlaybackApplicationSessionManager', () => {
+  it('returns only the frozen identity of the exact session used by host handshakes', () => {
+    const setup = fixture();
+
+    expect(setup.hostAuthority).toEqual({
+      applicationSessionId: `application-${fixtureSequence}-host-session-1`,
+      hostParticipantId: 'host-participant',
+    });
+    expect(Object.isFrozen(setup.hostAuthority)).toBe(true);
+    expect(Reflect.ownKeys(setup.hostAuthority)).toEqual([
+      'applicationSessionId',
+      'hostParticipantId',
+    ]);
+    expect(setup.hostAuthority).not.toHaveProperty('clockLease');
+    expect(setup.hostAuthority).not.toHaveProperty('sessionId');
+
+    expect(setup.startGuest()).toBe(true);
+    setup.pump();
+    const welcome = setup.hostConn.sent.find(
+      (value) => (value as { type?: string }).type === FILE_PLAYBACK_SESSION_WELCOME_TYPE,
+    ) as { sessionId?: unknown } | undefined;
+    expect(welcome?.sessionId).toBe(setup.hostAuthority.applicationSessionId);
+  });
+
+  it('validates host identity before replacement and issues a fresh authority after teardown', () => {
+    let sessionSequence = 0;
+    const manager = new FilePlaybackApplicationSessionManager(
+      new FilePlaybackHandshakeIdIssuer({
+        createSessionId: () => `host-authority-session-${++sessionSequence}`,
+        createConnectionId: () => 'host-authority-connection-1',
+        createHelloId: () => 'host-authority-hello-1',
+      }),
+    );
+    const first = manager.beginHostRoom('host-authority-a');
+    const live = {
+      peer: 'authority-guest',
+      open: true,
+      send: vi.fn(),
+      close: vi.fn(function (this: { open: boolean }) {
+        this.open = false;
+      }),
+    } as unknown as DataConnection;
+    expect(manager.beginHostConnection(live, 'authority-guest')).toBe(true);
+
+    expect(() => manager.beginHostRoom('bad host identity')).toThrow(
+      'host participant ID is invalid',
+    );
+    expect(sessionSequence).toBe(1);
+    expect(manager.phase(live)).toBe('handshaking');
+    expect(live.open).toBe(true);
+
+    const second = manager.beginHostRoom('host-authority-b');
+    expect(second.applicationSessionId).not.toBe(first.applicationSessionId);
+    expect(second.hostParticipantId).toBe('host-authority-b');
+    expect(sessionSequence).toBe(2);
+    expect(manager.phase(live)).toBe('none');
+    expect(live.close).toHaveBeenCalledOnce();
+  });
+
   it('installs descriptor-safe hooks atomically once before session authority starts', () => {
     const manager = new FilePlaybackApplicationSessionManager(issuer('hook-installer'));
     const invalid = applicationHooks() as FilePlaybackApplicationSessionHooks &

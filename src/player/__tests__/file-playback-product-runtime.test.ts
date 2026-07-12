@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { FilePlaybackApplicationSessionHooks } from '../../network/file-playback-application-session.ts';
+import type {
+  FilePlaybackApplicationSessionHooks,
+  FilePlaybackHostApplicationSessionAuthority,
+} from '../../network/file-playback-application-session.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
@@ -41,14 +44,20 @@ function harness(
   let roomTime = options.roomNow ?? 7_000;
   let monotonicTime = options.monotonicNow ?? 3_000;
   let currentController: FilePlaybackApplicationController | null = null;
+  let hostRoomSequence = 0;
   harnessSequence += 1;
 
   const installHooks = vi.fn((_hooks: Readonly<FilePlaybackApplicationSessionHooks>) => {
     events.push('sessions:install-hooks');
     if (options.installFailure) throw options.installFailure;
   });
-  const beginHostRoom = vi.fn((_participantId: string) => {
+  const beginHostRoom = vi.fn((participantId: string) => {
     events.push('sessions:begin-host');
+    hostRoomSequence += 1;
+    return Object.freeze({
+      applicationSessionId: `product-runtime-session-${harnessSequence}-${hostRoomSequence}`,
+      hostParticipantId: participantId,
+    }) satisfies Readonly<FilePlaybackHostApplicationSessionAuthority>;
   });
   const endRoom = vi.fn(() => {
     events.push('sessions:end-room');
@@ -150,6 +159,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.runtime.initializeBeforeProtocol()).toBe(false);
     expect(setup.runtime.initializeBeforeProtocol()).toBe(false);
     expect(setup.runtime.controller()).toBeNull();
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
     expect(setup.runtime.beginHostRoom('host-off')).toBe(false);
     expect(setup.runtime.beginGuestRoom()).toBe(false);
     expect(setup.runtime.handleWake(connection())).toBe(false);
@@ -197,6 +207,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(() => setup.runtime.controller()).toThrow(failure);
     expect(() => setup.runtime.beginHostRoom('host-after-failure')).toThrow(failure);
     expect(setup.runtime.enabled()).toBe(true);
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
     expect(setup.runtime.handleWake()).toBe(false);
     expect(setup.createController).toHaveBeenCalledOnce();
     expect(setup.installHooks).toHaveBeenCalledOnce();
@@ -236,6 +247,20 @@ describe('FilePlaybackProductRuntime', () => {
       anchorMonotonicMs: 8_765,
     });
     expect(setup.controller().snapshot().roomRole).toBe('host');
+    const hostRoom = setup.runtime.hostRoomSnapshot();
+    expect(hostRoom).toEqual({
+      schemaVersion: 1,
+      roomGeneration: setup.controller().snapshot().roomGeneration,
+      applicationSessionId: `product-runtime-session-${harnessSequence}-1`,
+      hostParticipantId: 'host-1',
+    });
+    expect(Object.isFrozen(hostRoom)).toBe(true);
+    expect(Reflect.ownKeys(hostRoom ?? {})).toEqual([
+      'schemaVersion',
+      'roomGeneration',
+      'applicationSessionId',
+      'hostParticipantId',
+    ]);
     expect(() => setup.runtime.beginHostRoom('reconnect-must-not-begin-a-room')).toThrow(
       /already owns an active room/u,
     );
@@ -257,6 +282,7 @@ describe('FilePlaybackProductRuntime', () => {
     });
     expect(setup.beginHostRoom).not.toHaveBeenCalled();
     expect(setup.controller().snapshot().roomRole).toBe('guest');
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
   });
 
   it('ends the manager before advancing a stopped revision-zero continuation fence', () => {
@@ -345,6 +371,7 @@ describe('FilePlaybackProductRuntime', () => {
       },
     });
     expect(setup.runtime.enabled()).toBe(true);
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
 
     setup.setRoomNow(5_000);
     setup.events.length = 0;
@@ -388,6 +415,78 @@ describe('FilePlaybackProductRuntime', () => {
       },
     });
     expect(setup.runtime.enabled()).toBe(true);
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+  });
+
+  it('rejects non-canonical adapter authority without invoking getters or retaining identity', () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    let getterReads = 0;
+    const malformed = {
+      applicationSessionId: 'adapter-session',
+      hostParticipantId: 'malformed-host',
+    } as Record<string, unknown>;
+    Object.defineProperty(malformed, 'hostParticipantId', {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return 'malformed-host';
+      },
+    });
+    setup.beginHostRoom.mockImplementationOnce(() => {
+      setup.events.push('sessions:begin-host');
+      return malformed as unknown as Readonly<FilePlaybackHostApplicationSessionAuthority>;
+    });
+    setup.events.length = 0;
+
+    expect(() => setup.runtime.beginHostRoom('malformed-host')).toThrow(
+      'Host application-session authority is invalid',
+    );
+    expect(getterReads).toBe(0);
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+    expect(setup.events).toEqual([
+      'sessions:begin-host',
+      'sessions:end-room',
+      'controller:begin-room',
+    ]);
+
+    setup.beginHostRoom.mockImplementationOnce(() => {
+      setup.events.push('sessions:begin-host');
+      return Object.freeze({
+        applicationSessionId: 'adapter-session-2',
+        hostParticipantId: 'different-host',
+      });
+    });
+    setup.events.length = 0;
+    expect(() => setup.runtime.beginHostRoom('expected-host')).toThrow(
+      'Host application-session authority is invalid',
+    );
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+  });
+
+  it('clears host identity before teardown callbacks and never leaks it across ABA rooms', () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('host-a');
+    const first = setup.runtime.hostRoomSnapshot();
+    let observedDuringEnd: unknown = 'not-called';
+    setup.endRoom.mockImplementationOnce(() => {
+      setup.events.push('sessions:end-room');
+      observedDuringEnd = setup.runtime.hostRoomSnapshot();
+    });
+
+    setup.runtime.endRoom();
+
+    expect(observedDuringEnd).toBeNull();
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+    expect(first).not.toBeNull();
+
+    setup.runtime.beginHostRoom('host-b');
+    const second = setup.runtime.hostRoomSnapshot();
+    expect(second).not.toBe(first);
+    expect(second?.applicationSessionId).not.toBe(first?.applicationSessionId);
+    expect(second?.hostParticipantId).toBe('host-b');
+    expect(second?.roomGeneration).toBeGreaterThan(first?.roomGeneration ?? 0);
   });
 
   it('does not advance the room generation for wake or host transport reconnect work', () => {

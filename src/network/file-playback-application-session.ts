@@ -34,6 +34,7 @@ import {
   FilePlaybackGuestSessionHandshake,
   FilePlaybackHandshakeIdIssuer,
   FilePlaybackHostSessionHandshake,
+  isFilePlaybackSessionId,
   parseFilePlaybackSessionMessageV2,
   type FilePlaybackHandshakeIdToken,
 } from './file-playback-session-handshake.ts';
@@ -91,6 +92,10 @@ const APPLICATION_HOOK_KEYS = Object.freeze([
   'adoptPeerRangeMessage',
   'onLifecycleEvent',
 ] as const);
+const HOST_APPLICATION_SESSION_AUTHORITY_KEYS = Object.freeze([
+  'applicationSessionId',
+  'hostParticipantId',
+] as const);
 
 const SESSION_TYPES = new Set<string>([
   FILE_PLAYBACK_SESSION_HELLO_TYPE,
@@ -109,6 +114,12 @@ const AUXILIARY_RAW_FRAME_BUDGETS: ReadonlyMap<string, number> = new Map([
 export type FilePlaybackApplicationSessionRole = 'host' | 'guest';
 export type FilePlaybackApplicationSessionPhase = 'none' | 'handshaking' | 'established';
 export type FilePlaybackClockCalibrationState = 'none' | 'calibrating' | 'ready' | 'degraded';
+
+/** Body-free identity of the exact host application-session authority. */
+export interface FilePlaybackHostApplicationSessionAuthority {
+  readonly applicationSessionId: string;
+  readonly hostParticipantId: string;
+}
 
 type ApplicationSessionTimerHandle = unknown;
 
@@ -244,9 +255,49 @@ interface GuestConnectionRecord extends BaseConnectionRecord {
 type ConnectionRecord = HostConnectionRecord | GuestConnectionRecord;
 
 interface HostRoomAuthority {
-  readonly participantId: string;
+  readonly descriptor: Readonly<FilePlaybackHostApplicationSessionAuthority>;
   readonly sessionId: FilePlaybackHandshakeIdToken<'session'>;
   readonly clockLease: ReturnType<ReturnType<typeof getFilePlaybackRoomClock>['beginHostSession']>;
+}
+
+/**
+ * Detaches the two public identity fields from an untrusted adapter result.
+ * Accessors, extra fields, arrays, and exotic prototypes are rejected.
+ */
+export function snapshotFilePlaybackHostApplicationSessionAuthority(
+  value: unknown,
+): Readonly<FilePlaybackHostApplicationSessionAuthority> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const expected = new Set<string>(HOST_APPLICATION_SESSION_AUTHORITY_KEYS);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      return null;
+    }
+    for (const key of HOST_APPLICATION_SESSION_AUTHORITY_KEYS) {
+      const descriptor = descriptors[key];
+      if (
+        !descriptor ||
+        descriptor.enumerable !== true ||
+        !Object.hasOwn(descriptor, 'value') ||
+        !isFilePlaybackSessionId(descriptor.value)
+      ) {
+        return null;
+      }
+    }
+    return Object.freeze({
+      applicationSessionId: descriptors.applicationSessionId?.value as string,
+      hostParticipantId: descriptors.hostParticipantId?.value as string,
+    });
+  } catch {
+    return null;
+  }
 }
 
 function result(
@@ -608,15 +659,27 @@ export class FilePlaybackApplicationSessionManager {
     this.#hooksInstalled = true;
   }
 
-  beginHostRoom(hostParticipantId: string): void {
+  beginHostRoom(hostParticipantId: string): Readonly<FilePlaybackHostApplicationSessionAuthority> {
+    if (!isFilePlaybackSessionId(hostParticipantId)) {
+      throw new TypeError('File playback host participant ID is invalid');
+    }
     this.#hookInstallationClosed = true;
     this.endRoom();
+    const sessionId = this.#issuer.issueSessionId();
+    const descriptor = snapshotFilePlaybackHostApplicationSessionAuthority({
+      applicationSessionId: this.#issuer.resolveSessionId(sessionId),
+      hostParticipantId,
+    });
+    if (!descriptor) {
+      throw new Error('File playback host application-session authority is invalid');
+    }
     const roomClock = getFilePlaybackRoomClock();
     this.#hostRoom = Object.freeze({
-      participantId: hostParticipantId,
-      sessionId: this.#issuer.issueSessionId(),
+      descriptor,
+      sessionId,
       clockLease: roomClock.beginHostSession(),
     });
+    return descriptor;
   }
 
   beginHostConnection(conn: DataConnection, guestParticipantId: string): boolean {
@@ -630,7 +693,7 @@ export class FilePlaybackApplicationSessionManager {
         idIssuer: this.#issuer,
         sessionId: room.sessionId,
         connectionId: this.#issuer.issueConnectionId(),
-        hostParticipantId: room.participantId,
+        hostParticipantId: room.descriptor.hostParticipantId,
         guestParticipantId,
       });
       this.#records.set(conn, {

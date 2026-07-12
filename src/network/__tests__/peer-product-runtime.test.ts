@@ -48,7 +48,14 @@ interface SessionSpies {
 }
 
 function sessions(): SessionSpies {
-  const beginHostRoom = vi.fn();
+  let roomSequence = 0;
+  const beginHostRoom = vi.fn((hostParticipantId: string) => {
+    roomSequence += 1;
+    return Object.freeze({
+      applicationSessionId: `peer-product-session-${roomSequence}`,
+      hostParticipantId,
+    });
+  });
   const endRoom = vi.fn();
   const handleWake = vi.fn(() => true);
   return {

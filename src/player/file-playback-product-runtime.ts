@@ -1,8 +1,11 @@
 import {
   getFilePlaybackApplicationSessionManager,
   installFilePlaybackApplicationSessionHooks,
+  snapshotFilePlaybackHostApplicationSessionAuthority,
   type FilePlaybackApplicationSessionHooks,
+  type FilePlaybackHostApplicationSessionAuthority,
 } from '../network/file-playback-application-session.ts';
+import { isFilePlaybackSessionId } from '../network/file-playback-session-handshake.ts';
 import type { DataConnection } from '../types/index.ts';
 import { FilePlaybackApplicationController } from './file-playback-application-controller.ts';
 import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
@@ -19,12 +22,20 @@ type RuntimeState = 'idle' | 'initializing' | 'ready' | 'failed';
 
 export interface FilePlaybackProductRuntimeSessionAdapter {
   installHooks(hooks: Readonly<FilePlaybackApplicationSessionHooks>): void;
-  beginHostRoom(hostParticipantId: string): void;
+  beginHostRoom(hostParticipantId: string): Readonly<FilePlaybackHostApplicationSessionAuthority>;
   endRoom(): void;
   handleWake(connection?: DataConnection): boolean;
   nowRoomTimeMs(): number;
   sendRequired(connection: DataConnection, frame: unknown): boolean;
   closeConnection(connection: DataConnection): void;
+}
+
+/** Body-free identity and ABA fence for the exact active product host room. */
+export interface FilePlaybackProductHostRoomSnapshot {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly applicationSessionId: string;
+  readonly hostParticipantId: string;
 }
 
 export interface FilePlaybackProductRuntimeControllerFactoryInput {
@@ -125,6 +136,7 @@ export class FilePlaybackProductRuntime {
   #state: RuntimeState = 'idle';
   #failure: Error | null = null;
   #roomActive = false;
+  #hostRoomSnapshot: Readonly<FilePlaybackProductHostRoomSnapshot> | null = null;
 
   constructor(options: FilePlaybackProductRuntimeOptions = {}) {
     if (
@@ -185,6 +197,7 @@ export class FilePlaybackProductRuntime {
       this.#sessions = null;
       this.#controller = null;
       this.#roomActive = false;
+      this.#hostRoomSnapshot = null;
       this.#state = 'failed';
       this.#failure = error;
       throw error;
@@ -197,22 +210,46 @@ export class FilePlaybackProductRuntime {
     return this.#requireReady().controller;
   }
 
+  /** Gate-off, guest, ended, and failed room generations return null. */
+  hostRoomSnapshot(): Readonly<FilePlaybackProductHostRoomSnapshot> | null {
+    return this.#enabled ? this.#hostRoomSnapshot : null;
+  }
+
   beginHostRoom(hostParticipantId: string): boolean {
     if (!this.#enabled) return false;
     const { controller, sessions } = this.#requireReady();
     this.#assertCanBeginRoom();
-    if (typeof hostParticipantId !== 'string' || hostParticipantId.length === 0) {
+    if (!isFilePlaybackSessionId(hostParticipantId)) {
       throw new TypeError('Host participant ID is invalid');
     }
 
     try {
-      sessions.beginHostRoom(hostParticipantId);
+      const authority = snapshotFilePlaybackHostApplicationSessionAuthority(
+        sessions.beginHostRoom(hostParticipantId),
+      );
+      if (!authority || authority.hostParticipantId !== hostParticipantId) {
+        throw new TypeError('Host application-session authority is invalid');
+      }
       const anchor = requireAnchor(sessions.nowRoomTimeMs(), 'Host room playback anchor');
       controller.beginRoom(createStoppedPlaybackTimeline(anchor, 0));
-      controller.claimRoomRole('host');
+      const claimed = controller.claimRoomRole('host');
+      if (
+        claimed.roomRole !== 'host' ||
+        !Number.isSafeInteger(claimed.roomGeneration) ||
+        claimed.roomGeneration <= 0
+      ) {
+        throw new Error('Host controller room authority is invalid');
+      }
+      this.#hostRoomSnapshot = Object.freeze({
+        schemaVersion: 1 as const,
+        roomGeneration: claimed.roomGeneration,
+        applicationSessionId: authority.applicationSessionId,
+        hostParticipantId: authority.hostParticipantId,
+      });
       this.#roomActive = true;
       return true;
     } catch (cause) {
+      this.#hostRoomSnapshot = null;
       try {
         sessions.endRoom();
       } catch {
@@ -233,6 +270,7 @@ export class FilePlaybackProductRuntime {
     if (!this.#enabled) return false;
     const { controller } = this.#requireReady();
     this.#assertCanBeginRoom();
+    this.#hostRoomSnapshot = null;
     // Before the guest application handshake there is no shared room clock.
     // Zero is the only safe stopped baseline anchor: an arbitrary local
     // performance timestamp could survive an equal-revision replay and then
@@ -246,7 +284,14 @@ export class FilePlaybackProductRuntime {
   endRoom(): void {
     if (!this.#enabled) return;
     const { controller, sessions } = this.#requireReady();
-    if (!this.#roomActive) return;
+    if (!this.#roomActive) {
+      this.#hostRoomSnapshot = null;
+      return;
+    }
+
+    // Clear public host identity before any synchronous teardown callback can
+    // observe a room whose manager authority is already being revoked.
+    this.#hostRoomSnapshot = null;
 
     let failure: unknown;
     let failed = false;
@@ -266,6 +311,7 @@ export class FilePlaybackProductRuntime {
       }
     } finally {
       this.#roomActive = false;
+      this.#hostRoomSnapshot = null;
     }
     if (failed) throw failure;
   }

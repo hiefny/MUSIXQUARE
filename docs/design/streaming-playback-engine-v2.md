@@ -283,6 +283,41 @@ The host emits the joined-room system message only after `SESSION_APPLIED`, not
 merely after a socket or data channel opens. There is no legacy positional
 queue-ID fallback.
 
+### Application-controller room boundary
+
+The file-playback application controller is installed exactly once before
+`initProtocol()` or any host/guest connection can begin. A `DataConnection`
+object is a one-shot authority: after revocation or a requested close, that
+same object can never establish another application epoch. Reconnection uses a
+new transport object and a new connection ID.
+
+One browser document has one room role per controller generation. The first
+established connection binds that generation to `host` or `guest`; mixed-role
+connections fail closed without changing the existing room timeline. Only an
+explicit `controller.beginRoom()` clears that role and permits a lower revision
+from a different room.
+
+Room startup ordering is binding:
+
+1. Application hooks are already installed during bootstrap.
+2. A host first calls `ApplicationSessionManager.beginHostRoom()`, which
+   revokes the old session and creates the new host room clock, then calls
+   `controller.beginRoom()` synchronously before accepting a guest connection.
+   The initial host timeline is anchored in that new room-clock domain.
+3. A guest calls `controller.beginRoom(stopped revision 0)` before
+   `ApplicationSessionManager.beginGuestConnection()`, because HELLO delivery
+   may complete synchronously in a test or loopback transport.
+4. Leaving ends application sessions first so revocation reaches the
+   controller while each channel lease is still inspectable; the subsequent
+   controller room reset fences every late continuation.
+
+Controller mutation, transport notification, and user callbacks are separate
+boundaries. Internal records and epochs commit first. Abort and close callbacks
+run only after that mutation finishes. A guest product baseline commits its
+timeline durably, invokes the synchronous application-session ACK exactly once,
+and only then publishes user-facing callbacks. Callback failure can retire the
+exact connection but cannot roll back an acknowledged timeline.
+
 ### Participant health and recovery
 
 Transport, clock, media readiness, and renderer health are tracked separately.

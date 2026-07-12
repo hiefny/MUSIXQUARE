@@ -22,8 +22,9 @@ import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import {
   FilePlaybackApplicationController,
   type FilePlaybackApplicationControllerOptions,
-  type FilePlaybackHostStartedPlaybackCommitInput,
+  type FilePlaybackHostAcceptedRendezvousCommitInput,
   type FilePlaybackHostEndedCommitInput,
+  type FilePlaybackHostStartedPlaybackCommitInput,
   type FilePlaybackHostTransitionCommitInput,
 } from '../file-playback-application-controller.ts';
 import { createFilePlaybackEndedTransitionEvidence } from '../file-playback-ended-transition.ts';
@@ -265,6 +266,20 @@ function hostStartedCommit(
       startAtRoomTimeMs,
     }),
     startEvidence: createAudioBufferPlaybackStartEvidence(96_000),
+    ...overrides,
+  };
+}
+
+function hostAcceptedRendezvousCommit(
+  room: FilePlaybackApplicationController,
+  overrides: Partial<FilePlaybackHostAcceptedRendezvousCommitInput> = {},
+): FilePlaybackHostAcceptedRendezvousCommitInput {
+  const started = hostStartedCommit(room);
+  return {
+    roomGeneration: started.roomGeneration,
+    expectedPreviousRevision: started.expectedPreviousRevision,
+    attempt: started.attempt,
+    schedule: started.schedule,
     ...overrides,
   };
 }
@@ -930,7 +945,37 @@ describe('FilePlaybackApplicationController', () => {
     expect(() => room.claimRoomRole('invalid' as 'host')).toThrow(/role is invalid/u);
   });
 
-  it('commits stopped revision zero only after physical start and anchors at the scheduled target', () => {
+  it('commits room truth from an accepted rendezvous without local-renderer evidence', () => {
+    const room = controller();
+    room.claimRoomRole('host');
+    const input = hostAcceptedRendezvousCommit(room);
+    const previous = room.timelineSnapshot();
+
+    const result = room.commitHostAcceptedRendezvous(input);
+    expect(result.previous).toBe(previous);
+    expect(result.timeline).toMatchObject({
+      revision: 1,
+      phase: 'playing',
+      run: { queueItemId: QUEUE_ID, runId: RUN_ID },
+      positionSeconds: input.schedule.positionSeconds,
+      anchorMonotonicMs: input.schedule.startAtRoomTimeMs,
+      rate: input.schedule.playbackRate,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/evidence|rendezvousId/u);
+
+    const exactRoom = controller();
+    exactRoom.claimRoomRole('host');
+    const exactInput = hostAcceptedRendezvousCommit(exactRoom);
+    expect(() =>
+      exactRoom.commitHostAcceptedRendezvous({
+        ...exactInput,
+        startEvidence: createAudioBufferPlaybackStartEvidence(96_000),
+      } as never),
+    ).toThrow(/commit is invalid/u);
+    expect(exactRoom.timelineSnapshot().revision).toBe(0);
+  });
+
+  it('keeps the physical-start commit as an exact compatibility boundary', () => {
     const sendRequired = vi.fn(() => true);
     const hostReady = vi.fn();
     const room = controller({ sendRequired, onHostReady: hostReady });

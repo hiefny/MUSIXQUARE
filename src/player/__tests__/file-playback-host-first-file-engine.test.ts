@@ -201,6 +201,7 @@ interface FakeSourceHarness {
   readonly destroy: ReturnType<typeof vi.fn>;
   readonly startAtContextTime: () => number | null;
   resolveStart(): void;
+  rejectStart(error?: Error): void;
   resolvePause(): void;
   resolveSeek(): void;
   hasPendingPause(): boolean;
@@ -378,6 +379,9 @@ function makeSource(
       } else {
         started.resolve(createStreamingFlacPlaybackStartEvidence(targetFrame, targetFrame));
       }
+    },
+    rejectStart(error = new Error('fixture local renderer start failed')) {
+      started.reject(error);
     },
     resolvePause() {
       if (!pendingPause) throw new Error('No pause transition is scheduled');
@@ -756,10 +760,24 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(() => makeHarness([], { roomClock })).toThrow(/exact room clock/u);
   });
 
-  it('rejects non-host and non-stopped controller authority', () => {
+  it('rejects non-host and non-stopped controller authority', async () => {
     expect(() => makeHarness([], { controllerRole: 'guest' })).toThrow(/stopped host/u);
     expect(() => makeHarness([], { controllerRole: null })).toThrow(/stopped host/u);
-    expect(() => makeHarness([], { establishActiveGuest: true })).toThrow(/stopped host/u);
+    const connectedHost = makeHarness([{ backend: 'audio-buffer' }], {
+      establishActiveGuest: true,
+    });
+    expect(connectedHost.controller.snapshot()).toMatchObject({
+      roomRole: 'host',
+      activeConnectionCount: 1,
+    });
+    const connectedCommit = await resolveLatestStart(
+      connectedHost,
+      connectedHost.start(new Blob([new Uint8Array([48])], { type: 'audio/mpeg' }), {
+        name: 'connected-host.mp3',
+      }),
+    );
+    expect(connectedCommit.timeline).toMatchObject({ revision: 1, phase: 'playing' });
+    await connectedHost.engine.close();
     const playingTimeline: PlaybackTimelineSnapshot = Object.freeze({
       schemaVersion: 1,
       revision: 1,
@@ -781,8 +799,12 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const pending = harness.start(blob, { name: backend === 'audio-buffer' ? 'a.mp3' : 'a.flac' });
 
     await drainMicrotasks();
-    expect(harness.controller.timelineSnapshot().revision).toBe(0);
-    expect(harness.controller.timelineSnapshot().phase).toBe('stopped');
+    expect(harness.controller.timelineSnapshot()).toMatchObject({
+      revision: 1,
+      phase: 'playing',
+      run: { queueItemId: Q1, runId: RUN_1 },
+    });
+    expect(harness.manager.currentCutoverPort()).toBeNull();
 
     const result = await resolveLatestStart(harness, pending);
     expect(result.backend).toBe(backend);
@@ -824,6 +846,46 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(harness.engine.positionAt(1_500)).toBeNull();
   });
 
+  it('keeps canonical accepted timeline truth when only the local renderer later fails', async () => {
+    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+    const pending = harness.start(new Blob([new Uint8Array([49])], { type: 'audio/flac' }), {
+      name: 'local-renderer-failure.flac',
+    });
+    await drainMicrotasks();
+
+    expect(harness.sources[0]?.finalize).toHaveBeenCalledTimes(1);
+    const committedTimeline = harness.controller.timelineSnapshot();
+    expect(committedTimeline).toMatchObject({
+      revision: 1,
+      phase: 'playing',
+      run: { queueItemId: Q1, runId: RUN_1 },
+    });
+    harness.sources[0]?.rejectStart();
+
+    await expect(pending).rejects.toThrow('fixture local renderer start failed');
+    await drainMicrotasks();
+    expect(harness.controller.timelineSnapshot()).toBe(committedTimeline);
+    expect(harness.manager.currentCutoverPort()).toBeNull();
+    expect(harness.engine.currentRendererSnapshot()).toBeNull();
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+    expect(harness.fatal).not.toHaveBeenCalled();
+    await expect(
+      harness.engine.pauseCurrent({ signal: new AbortController().signal }),
+    ).rejects.toThrow(/renderer|current/u);
+    await expect(
+      harness.engine.seekPlaying({
+        positionSeconds: 12,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/renderer|current/u);
+    await expect(
+      harness.engine.stopCurrent({ signal: new AbortController().signal }),
+    ).rejects.toThrow(/renderer|current/u);
+    expect(harness.controller.timelineSnapshot()).toBe(committedTimeline);
+    await harness.engine.close();
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['AudioBuffer to FLAC', 'audio-buffer', 'streaming-flac'],
     ['FLAC to AudioBuffer', 'streaming-flac', 'audio-buffer'],
@@ -835,7 +897,6 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         type: firstBackend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
       });
       await resolveLatestStart(harness, harness.start(firstBlob, { name: 'first-track' }));
-      const previousTimeline = harness.controller.timelineSnapshot();
       const previousPort = harness.manager.currentCutoverPort();
       harness.setRoomTime(2_000);
 
@@ -846,7 +907,12 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         localTrackOptions(harness, Q2, replacementBlob, 12),
       );
       await drainMicrotasks();
-      expect(harness.controller.timelineSnapshot()).toBe(previousTimeline);
+      expect(harness.controller.timelineSnapshot()).toMatchObject({
+        revision: 2,
+        phase: 'playing',
+        run: { queueItemId: Q2, runId: RUN_2 },
+        positionSeconds: 12,
+      });
       expect(harness.manager.currentCutoverPort()).toBe(previousPort);
       expect(harness.sources[0]?.destroy).not.toHaveBeenCalled();
 
@@ -1048,7 +1114,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     },
   );
 
-  it('lets a physical-start commit dominate a reentrant successor intent', async () => {
+  it('lets an accepted-rendezvous commit dominate a reentrant successor intent', async () => {
     let harness!: EngineHarness;
     let reentrant: ReturnType<FilePlaybackHostFirstFileEngine['replayCurrent']> | null = null;
     harness = makeHarness([{ backend: 'audio-buffer' }], {
@@ -1457,8 +1523,9 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await harness.engine.close();
   });
 
-  it('aborts an in-flight renderer without advancing timeline truth', async () => {
-    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+  it('aborts a staged renderer before rendezvous acceptance without advancing timeline truth', async () => {
+    const hold = deferred<void>();
+    const harness = makeHarness([{ backend: 'streaming-flac', holdAfterStage: hold }]);
     const abort = new AbortController();
     const blob = new Blob([new Uint8Array([13, 14])], { type: 'audio/flac' });
     const pending = harness.start(blob, { name: 'abort.flac', signal: abort.signal });
@@ -1466,6 +1533,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     abort.abort(new Error('user cancelled'));
 
     await expect(pending).rejects.toThrow('user cancelled');
+    hold.resolve();
     await drainMicrotasks();
     expect(harness.manager.currentCutoverPort()).toBeNull();
     expect(harness.controller.timelineSnapshot().revision).toBe(0);
@@ -1602,7 +1670,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
   });
 
-  it('lets close win the same-microtask race with physical-start evidence', async () => {
+  it('keeps accepted timeline truth when close wins the local-evidence race', async () => {
     const coordinatorClosed = vi.fn();
     const harness = makeHarness([{ backend: 'streaming-flac' }], {
       onCoordinatorClosed: coordinatorClosed,
@@ -1617,7 +1685,11 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await expect(pending).rejects.toThrow(/closed|retired|superseded/u);
     await close;
     expect(coordinatorClosed).toHaveBeenCalledTimes(1);
-    expect(harness.controller.timelineSnapshot().revision).toBe(0);
+    expect(harness.controller.timelineSnapshot()).toMatchObject({
+      revision: 1,
+      phase: 'playing',
+      run: { queueItemId: Q1, runId: RUN_1 },
+    });
     expect(harness.manager.currentCutoverPort()).toBeNull();
     expect(harness.sources[0]?.destroy).toHaveBeenCalledTimes(1);
   });

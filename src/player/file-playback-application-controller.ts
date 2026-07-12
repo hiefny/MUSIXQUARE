@@ -103,6 +103,12 @@ const HOST_STARTED_COMMIT_KEYS = Object.freeze([
   'schedule',
   'startEvidence',
 ] as const);
+const HOST_ACCEPTED_RENDEZVOUS_COMMIT_KEYS = Object.freeze([
+  'attempt',
+  'expectedPreviousRevision',
+  'roomGeneration',
+  'schedule',
+] as const);
 const HOST_TRANSITION_COMMIT_KEYS = Object.freeze([
   'evidence',
   'expectedPrevious',
@@ -193,13 +199,23 @@ export interface FilePlaybackHostStartedPlaybackCommitInput {
   readonly startEvidence: Readonly<FilePlaybackStartEvidence>;
 }
 
-/** Body-free result of advancing the authoritative host timeline after physical start. */
-export interface FilePlaybackHostStartedPlaybackCommit {
+/** Canonical room transition after at least one exact FINALIZE acceptance. */
+export interface FilePlaybackHostAcceptedRendezvousCommitInput {
+  readonly roomGeneration: number;
+  readonly expectedPreviousRevision: number;
+  readonly attempt: Readonly<PlaybackAttemptIdentity>;
+  readonly schedule: Readonly<LocalFilePlaybackSchedule>;
+}
+
+export interface FilePlaybackHostAcceptedRendezvousCommit {
   readonly schemaVersion: 1;
   readonly roomGeneration: number;
   readonly previous: PlaybackTimelineSnapshot;
   readonly timeline: PlaybackTimelineSnapshot;
 }
+
+/** Compatibility result name for the canonical accepted-rendezvous timeline commit. */
+export type FilePlaybackHostStartedPlaybackCommit = FilePlaybackHostAcceptedRendezvousCommit;
 
 interface FilePlaybackHostTransitionCommitBase {
   readonly roomGeneration: number;
@@ -485,6 +501,30 @@ function canonicalHostStartedCommitInput(
     attempt,
     schedule,
     startEvidence,
+  });
+}
+
+function canonicalHostAcceptedRendezvousCommitInput(
+  value: unknown,
+): Readonly<FilePlaybackHostAcceptedRendezvousCommitInput> | null {
+  const snapshot = snapshotExactRecord(value, HOST_ACCEPTED_RENDEZVOUS_COMMIT_KEYS);
+  const attempt = snapshot ? canonicalAttempt(snapshot.attempt) : null;
+  const schedule = snapshot ? canonicalLocalSchedule(snapshot.schedule) : null;
+  if (
+    !snapshot ||
+    !Number.isSafeInteger(snapshot.roomGeneration) ||
+    (snapshot.roomGeneration as number) <= 0 ||
+    !isPlaybackRevisionWatermark(snapshot.expectedPreviousRevision) ||
+    !attempt ||
+    !schedule
+  ) {
+    return null;
+  }
+  return freezeCanonical({
+    roomGeneration: snapshot.roomGeneration as number,
+    expectedPreviousRevision: snapshot.expectedPreviousRevision,
+    attempt,
+    schedule,
   });
 }
 
@@ -810,11 +850,23 @@ export class FilePlaybackApplicationController {
     }
   }
 
-  /**
-   * Advances host room truth only after a renderer has produced canonical
-   * physical-start evidence. This method is deliberately synchronous and
-   * neither publishes frames nor invokes application callbacks.
-   */
+  /** Advances host room truth from one exact room-rendezvous acceptance. */
+  commitHostAcceptedRendezvous(
+    value: FilePlaybackHostAcceptedRendezvousCommitInput,
+  ): Readonly<FilePlaybackHostAcceptedRendezvousCommit> {
+    try {
+      return this.#mutate((authority) => {
+        const input = canonicalHostAcceptedRendezvousCommitInput(value);
+        this.#assertMutation(authority);
+        if (!input) throw new TypeError('Host accepted rendezvous commit is invalid');
+        return this.#commitHostAcceptedRendezvous(authority, input);
+      });
+    } finally {
+      this.#flushDeferredEffects();
+    }
+  }
+
+  /** @deprecated Compatibility boundary for callers that still carry local evidence. */
   commitHostStartedPlayback(
     value: FilePlaybackHostStartedPlaybackCommitInput,
   ): Readonly<FilePlaybackHostStartedPlaybackCommit> {
@@ -823,58 +875,65 @@ export class FilePlaybackApplicationController {
         const input = canonicalHostStartedCommitInput(value);
         this.#assertMutation(authority);
         if (!input) throw new TypeError('Host started playback commit is invalid');
-        if (this.#roomRole !== 'host') {
-          throw new Error('Host started playback commit requires the exact host room role');
-        }
-        if (input.roomGeneration !== this.#roomGeneration) {
-          throw new Error('Host started playback commit belongs to a stale room generation');
-        }
-
-        const previous = this.#timeline;
-        if (input.expectedPreviousRevision !== previous.revision) {
-          throw new Error('Host started playback commit previous revision does not match');
-        }
-        if (previous.revision === Number.MAX_SAFE_INTEGER) {
-          throw new RangeError('Host playback timeline revision was exhausted');
-        }
-        if (input.attempt.revision !== previous.revision + 1) {
-          throw new Error('Host started playback commit must use the exact next revision');
-        }
-        if (input.schedule.startAtRoomTimeMs < previous.anchorMonotonicMs) {
-          throw new Error('Host playback start precedes the current timeline anchor');
-        }
-
-        const applied = applyPlaybackTimelineIntent(
-          previous,
-          freezeCanonical({
-            type: 'play' as const,
-            revision: input.attempt.revision,
-            run: createPlaybackRunIdentity({
-              queueItemId: input.attempt.queueItemId,
-              runId: input.attempt.runId,
-            }),
-            positionSeconds: input.schedule.positionSeconds,
-            rate: input.schedule.playbackRate,
-          }),
-          input.schedule.startAtRoomTimeMs,
-        );
-        if (!applied.applied) {
-          throw new Error(`Host playback timeline commit was rejected: ${applied.reason}`);
-        }
-        this.#assertMutation(authority);
-        this.#timeline = applied.snapshot;
-        const result = freezeCanonical({
-          schemaVersion: 1 as const,
-          roomGeneration: this.#roomGeneration,
-          previous,
-          timeline: this.#timeline,
-        });
-        this.#assertMutation(authority);
-        return result;
+        return this.#commitHostAcceptedRendezvous(authority, input);
       });
     } finally {
       this.#flushDeferredEffects();
     }
+  }
+
+  #commitHostAcceptedRendezvous(
+    authority: MutationAuthority,
+    input: Readonly<FilePlaybackHostAcceptedRendezvousCommitInput>,
+  ): Readonly<FilePlaybackHostAcceptedRendezvousCommit> {
+    if (this.#roomRole !== 'host') {
+      throw new Error('Host accepted rendezvous commit requires the exact host room role');
+    }
+    if (input.roomGeneration !== this.#roomGeneration) {
+      throw new Error('Host accepted rendezvous commit belongs to a stale room generation');
+    }
+
+    const previous = this.#timeline;
+    if (input.expectedPreviousRevision !== previous.revision) {
+      throw new Error('Host accepted rendezvous commit previous revision does not match');
+    }
+    if (previous.revision === Number.MAX_SAFE_INTEGER) {
+      throw new RangeError('Host playback timeline revision was exhausted');
+    }
+    if (input.attempt.revision !== previous.revision + 1) {
+      throw new Error('Host accepted rendezvous commit must use the exact next revision');
+    }
+    if (input.schedule.startAtRoomTimeMs < previous.anchorMonotonicMs) {
+      throw new Error('Host playback start precedes the current timeline anchor');
+    }
+
+    const applied = applyPlaybackTimelineIntent(
+      previous,
+      freezeCanonical({
+        type: 'play' as const,
+        revision: input.attempt.revision,
+        run: createPlaybackRunIdentity({
+          queueItemId: input.attempt.queueItemId,
+          runId: input.attempt.runId,
+        }),
+        positionSeconds: input.schedule.positionSeconds,
+        rate: input.schedule.playbackRate,
+      }),
+      input.schedule.startAtRoomTimeMs,
+    );
+    if (!applied.applied) {
+      throw new Error(`Host playback timeline commit was rejected: ${applied.reason}`);
+    }
+    this.#assertMutation(authority);
+    this.#timeline = applied.snapshot;
+    const result = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: this.#roomGeneration,
+      previous,
+      timeline: this.#timeline,
+    });
+    this.#assertMutation(authority);
+    return result;
   }
 
   /**

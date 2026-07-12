@@ -17,6 +17,9 @@ export type FilePlaybackPublication =
       readonly snapshot: FilePlaybackSourceSnapshot;
     };
 
+/** A synchronous authority fence owned by the caller that created a source. */
+export type FilePlaybackActivationAuthority = () => boolean;
+
 interface ManagedSource {
   readonly source: FilePlaybackSource;
   preparePromise: Promise<FilePlaybackSourceSnapshot> | null;
@@ -37,8 +40,14 @@ interface PendingStandbyOperation extends PendingOperation {
 
 interface PendingActiveOperation extends PendingOperation {
   readonly destination: AudioNode;
+  readonly authority: FilePlaybackActivationAuthority | null;
+  authorityError: AuthorityError;
   promise: Promise<FilePlaybackPublication>;
 }
+
+type AuthorityError =
+  | { readonly present: false }
+  | { readonly present: true; readonly error: unknown };
 
 type PendingOutcome<T> =
   | { readonly kind: 'value'; readonly value: T }
@@ -148,7 +157,18 @@ export class FilePlaybackManager {
     return operation.promise;
   }
 
-  activate(source: FilePlaybackSource, destination: AudioNode): Promise<FilePlaybackPublication> {
+  activate(
+    source: FilePlaybackSource,
+    destination: AudioNode,
+    authority?: FilePlaybackActivationAuthority,
+  ): Promise<FilePlaybackPublication> {
+    // The authority check deliberately precedes every playback-slot mutation.
+    // A stale replacement may be destroyed, but cannot cancel a current load,
+    // claim standby, or disturb the previously published active source.
+    if (authority && !authority()) {
+      return this.rejectAndDestroy(this.stateFor(source), 'superseded');
+    }
+
     const state = this.stateFor(source);
     if (this.discardedQueueItems.has(source.queueItemId) || state.destroyed) {
       return this.rejectAndDestroy(state, 'superseded');
@@ -173,6 +193,8 @@ export class FilePlaybackManager {
     const operation = createPendingOperation<PendingActiveOperation>({
       state,
       destination,
+      authority: authority ?? null,
+      authorityError: { present: false },
       promise: null as unknown as Promise<FilePlaybackPublication>,
     });
     this.pendingActive = operation;
@@ -394,8 +416,7 @@ export class FilePlaybackManager {
     if (connectedFailure) return connectedFailure;
 
     if (!this.canPublishActive(operation)) {
-      await this.destroyIfUnowned(state);
-      return this.unpublished(state, 'superseded');
+      return this.supersedeActive(operation);
     }
 
     const previousActive = this.active;
@@ -406,6 +427,11 @@ export class FilePlaybackManager {
         ? this.pendingStandby
         : null;
 
+    // Re-check at the literal commit boundary. In particular, no previous
+    // active source has been detached or destroyed before this guard passes.
+    if (!this.canPublishActive(operation)) {
+      return this.supersedeActive(operation);
+    }
     this.active = state.source;
     if (duplicateStandby) this.standby = null;
     if (duplicatePendingStandby) {
@@ -425,7 +451,15 @@ export class FilePlaybackManager {
     }
     await Promise.all([...cleanupStates].map((candidate) => this.destroyIfUnowned(candidate)));
 
-    if (!this.canPublishActive(operation) || this.active !== state.source) {
+    // Authority was committed at the swap above. If it changes while old
+    // native objects finish retiring, the caller performs exact-source stale
+    // cleanup after this published result; do not leave this slot pending.
+    if (
+      this.pendingActive !== operation ||
+      this.active !== state.source ||
+      state.destroyed ||
+      this.discardedQueueItems.has(state.source.queueItemId)
+    ) {
       await this.destroyIfUnowned(state);
       return this.unpublished(state, 'superseded');
     }
@@ -448,16 +482,43 @@ export class FilePlaybackManager {
       await this.destroyState(operation.state);
       throw outcome.error;
     }
-    await this.destroyIfUnowned(operation.state);
-    return this.unpublished(operation.state, 'superseded');
+    return this.supersedeActive(operation);
   }
 
   private canPublishActive(operation: PendingActiveOperation): boolean {
-    return (
+    const ownsPendingSlot = (): boolean =>
       this.pendingActive === operation &&
       !operation.state.destroyed &&
-      !this.discardedQueueItems.has(operation.state.source.queueItemId)
-    );
+      !this.discardedQueueItems.has(operation.state.source.queueItemId);
+
+    if (!ownsPendingSlot()) return false;
+    if (operation.authorityError.present) return false;
+    if (operation.authority !== null) {
+      try {
+        if (!operation.authority()) return false;
+      } catch (error) {
+        // Preserve even `throw undefined` without allowing the asynchronous
+        // activation operation to remain installed in pendingActive.
+        operation.authorityError = { present: true, error };
+        return false;
+      }
+    }
+    // Authority callbacks are caller code and may be re-entrant. Re-check
+    // manager ownership after invoking one before authorizing the swap.
+    return ownsPendingSlot();
+  }
+
+  private async supersedeActive(
+    operation: PendingActiveOperation,
+  ): Promise<FilePlaybackPublication> {
+    const authorityError = operation.authorityError;
+    if (this.pendingActive === operation) {
+      this.pendingActive = null;
+      operation.cancel();
+    }
+    await this.destroyIfUnowned(operation.state);
+    if (authorityError.present) throw authorityError.error;
+    return this.unpublished(operation.state, 'superseded');
   }
 
   private stateFor(source: FilePlaybackSource): ManagedSource {

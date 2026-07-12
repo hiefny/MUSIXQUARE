@@ -247,6 +247,81 @@ describe('FilePlaybackManager', () => {
     expect(current.source.destroy).toHaveBeenCalledOnce();
   });
 
+  it('keeps the prior active source when replacement authority expires during connect', async () => {
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, 'ready');
+    const replacement = makeSource(Q2, 'ready');
+    replacement.gateConnect();
+    await manager.activate(current.source, destination);
+    let authoritative = true;
+
+    const activation = manager.activate(replacement.source, destination, () => authoritative);
+    await vi.waitFor(() => expect(replacement.source.connect).toHaveBeenCalledOnce());
+    authoritative = false;
+    replacement.resolveConnect();
+
+    await expect(activation).resolves.toMatchObject({
+      published: false,
+      reason: 'superseded',
+    });
+    expect(manager.activeSource()).toBe(current.source);
+    expect(current.source.destroy).not.toHaveBeenCalled();
+    expect(replacement.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('cleans an async authority exception, preserves its identity, and admits a retry', async () => {
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, 'ready');
+    const replacement = makeSource(Q2, 'ready');
+    replacement.gateConnect();
+    await manager.activate(current.source, destination);
+    const authorityError = { code: 'authority-failed' };
+    let authorityChecks = 0;
+
+    const activation = manager.activate(replacement.source, destination, () => {
+      authorityChecks += 1;
+      if (authorityChecks === 3) throw authorityError;
+      return true;
+    });
+    await vi.waitFor(() => expect(replacement.source.connect).toHaveBeenCalledOnce());
+    replacement.resolveConnect();
+
+    await expect(activation).rejects.toBe(authorityError);
+    expect(manager.activeSource()).toBe(current.source);
+    expect(current.source.destroy).not.toHaveBeenCalled();
+    expect(replacement.source.destroy).toHaveBeenCalledOnce();
+
+    const retry = makeSource(Q2, 'ready');
+    await expect(manager.activate(retry.source, destination)).resolves.toMatchObject({
+      published: true,
+    });
+    expect(manager.activeSource()).toBe(retry.source);
+    expect(retry.source.destroy).not.toHaveBeenCalled();
+    expect(replacement.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('preserves literal undefined thrown by an async authority fence', async () => {
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, 'ready');
+    const replacement = makeSource(Q2, 'ready');
+    replacement.gateConnect();
+    await manager.activate(current.source, destination);
+    let authorityChecks = 0;
+
+    const activation = manager.activate(replacement.source, destination, () => {
+      authorityChecks += 1;
+      if (authorityChecks === 3) throw undefined;
+      return true;
+    });
+    await vi.waitFor(() => expect(replacement.source.connect).toHaveBeenCalledOnce());
+    replacement.resolveConnect();
+
+    await expect(activation).rejects.toBeUndefined();
+    expect(manager.activeSource()).toBe(current.source);
+    expect(current.source.destroy).not.toHaveBeenCalled();
+    expect(replacement.source.destroy).toHaveBeenCalledOnce();
+  });
+
   it('deduplicates concurrent activation of the same source', async () => {
     const manager = new FilePlaybackManager();
     const next = makeSource(Q2, 'ready');
@@ -374,6 +449,19 @@ describe('FilePlaybackManager', () => {
     });
     expect(replay.source.connect).toHaveBeenCalledOnce();
     expect(manager.activeSource()).toBe(replay.source);
+  });
+
+  it('detaches exact active ownership before a never-settling destroy', async () => {
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, 'ready');
+    await manager.activate(current.source, destination);
+    vi.mocked(current.source.destroy).mockImplementation(() => new Promise<void>(() => undefined));
+
+    const retirement = manager.retire(current.source);
+
+    expect(manager.activeSource()).toBeNull();
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+    void retirement;
   });
 
   it('retires a pending activation and prevents its late completion from publishing', async () => {

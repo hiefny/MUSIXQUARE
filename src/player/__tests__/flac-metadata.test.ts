@@ -64,7 +64,7 @@ function seekPoint(sample: bigint, offset: bigint, frameSamples = 4096): Uint8Ar
 
 function flac(...blocks: Uint8Array[]): BlobEncodedAudioSource {
   return new BlobEncodedAudioSource(
-    new Blob([new Uint8Array([0x66, 0x4c, 0x61, 0x43]), ...blocks, new Uint8Array([0xff, 0xf8])]),
+    new Blob([new Uint8Array([0x66, 0x4c, 0x61, 0x43]), ...blocks, new Uint8Array(128).fill(0xff)]),
   );
 }
 
@@ -91,8 +91,9 @@ describe('readFlacMetadata', () => {
   it('parses ordered seek points and ignores placeholders', async () => {
     const table = new Uint8Array([
       ...seekPoint(0n, 0n),
-      ...seekPoint(1_000_000n, 2_000_000n),
-      ...seekPoint(0xffff_ffff_ffff_ffffn, 0n),
+      ...seekPoint(1_000_000n, 64n),
+      // Placeholder offset and frame size are undefined and must be ignored.
+      ...seekPoint(0xffff_ffff_ffff_ffffn, 0xffff_ffff_ffff_ffffn, 0),
     ]);
     const metadata = await readFlacMetadata(
       flac(block(0, streamInfo()), block(3, table, true)),
@@ -101,8 +102,86 @@ describe('readFlacMetadata', () => {
 
     expect(metadata.seekPoints).toEqual([
       { sample: 0, streamOffset: 0, frameSamples: 4096 },
-      { sample: 1_000_000, streamOffset: 2_000_000, frameSamples: 4096 },
+      { sample: 1_000_000, streamOffset: 64, frameSamples: 4096 },
     ]);
+  });
+
+  it('accepts one empty or placeholder-only SEEKTABLE but rejects every duplicate', async () => {
+    const signal = new AbortController().signal;
+    const empty = await readFlacMetadata(
+      flac(block(0, streamInfo()), block(3, new Uint8Array(0), true)),
+      signal,
+    );
+    expect(empty.seekPoints).toEqual([]);
+
+    const placeholders = new Uint8Array([
+      ...seekPoint(0xffff_ffff_ffff_ffffn, 123n, 0),
+      ...seekPoint(0xffff_ffff_ffff_ffffn, 456n, 65_535),
+    ]);
+    const reserved = await readFlacMetadata(
+      flac(block(0, streamInfo()), block(3, placeholders, true)),
+      signal,
+    );
+    expect(reserved.seekPoints).toEqual([]);
+
+    await expect(
+      readFlacMetadata(
+        flac(
+          block(0, streamInfo()),
+          block(3, new Uint8Array(0)),
+          block(3, new Uint8Array(0), true),
+        ),
+        signal,
+      ),
+    ).rejects.toThrow('duplicate SEEKTABLE');
+  });
+
+  it('rejects non-placeholder points after placeholders and contradictory offsets', async () => {
+    const signal = new AbortController().signal;
+    const pointAfterPlaceholder = new Uint8Array([
+      ...seekPoint(0xffff_ffff_ffff_ffffn, 0n, 0),
+      ...seekPoint(4096n, 64n),
+    ]);
+    await expect(
+      readFlacMetadata(flac(block(0, streamInfo()), block(3, pointAfterPlaceholder, true)), signal),
+    ).rejects.toThrow('placeholders must occur last');
+
+    const repeatedOffset = new Uint8Array([...seekPoint(0n, 0n), ...seekPoint(4096n, 0n)]);
+    await expect(
+      readFlacMetadata(flac(block(0, streamInfo()), block(3, repeatedOffset, true)), signal),
+    ).rejects.toThrow('not strictly ordered');
+  });
+
+  it('rejects seek samples, offsets, and target-frame sizes outside this source', async () => {
+    const signal = new AbortController().signal;
+    const parse = (point: Uint8Array) =>
+      readFlacMetadata(flac(block(0, streamInfo()), block(3, point, true)), signal);
+
+    await expect(parse(seekPoint(195_000_000n, 64n))).rejects.toThrow(
+      'sample is outside the stream',
+    );
+    await expect(parse(seekPoint(4096n, 120n))).rejects.toThrow(
+      'offset is outside the audio stream',
+    );
+    await expect(parse(seekPoint(4096n, 64n, 4097))).rejects.toThrow(
+      'contradicts STREAMINFO bounds',
+    );
+    await expect(parse(seekPoint(194_999_000n, 64n, 4096))).rejects.toThrow(
+      'contradicts STREAMINFO bounds',
+    );
+    await expect(parse(seekPoint(4096n, 0n))).rejects.toThrow('offset is outside the audio stream');
+  });
+
+  it('allows the final target frame to be smaller than STREAMINFO minimum block size', async () => {
+    const metadata = await readFlacMetadata(
+      flac(
+        block(0, streamInfo({ totalSamples: 10_000 })),
+        block(3, seekPoint(9992n, 64n, 8), true),
+      ),
+      new AbortController().signal,
+    );
+
+    expect(metadata.seekPoints).toEqual([{ sample: 9992, streamOffset: 64, frameSamples: 8 }]);
   });
 
   it('skips a large picture block without treating it as audio metadata', async () => {

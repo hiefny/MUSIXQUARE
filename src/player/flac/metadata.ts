@@ -123,13 +123,23 @@ function parseSeekTable(bytes: Uint8Array): readonly FlacSeekPoint[] {
   const points: FlacSeekPoint[] = [];
   let previousSample = -1;
   let previousOffset = -1;
+  let sawPlaceholder = false;
   for (let offset = 0; offset < bytes.byteLength; offset += SEEKPOINT_BYTES) {
     const rawSample = readUint64(bytes, offset);
-    if (rawSample === PLACEHOLDER_SAMPLE) continue;
+    if (rawSample === PLACEHOLDER_SAMPLE) {
+      // The offset and frame-size fields of placeholders are deliberately
+      // undefined by FLAC. Only their position at the end of the table is
+      // structural, so do not interpret the remaining 10 bytes.
+      sawPlaceholder = true;
+      continue;
+    }
+    if (sawPlaceholder) {
+      throw new EncodedSourceIntegrityError('FLAC SEEKTABLE placeholders must occur last');
+    }
     const sample = toSafeNumber(rawSample, 'FLAC seek sample');
     const streamOffset = toSafeNumber(readUint64(bytes, offset + 8), 'FLAC seek offset');
     const frameSamples = ((bytes[offset + 16] ?? 0) << 8) | (bytes[offset + 17] ?? 0);
-    if (sample <= previousSample || streamOffset < previousOffset || frameSamples <= 0) {
+    if (sample <= previousSample || streamOffset <= previousOffset || frameSamples <= 0) {
       throw new EncodedSourceIntegrityError('FLAC SEEKTABLE entries are not strictly ordered');
     }
     points.push(Object.freeze({ sample, streamOffset, frameSamples }));
@@ -137,6 +147,42 @@ function parseSeekTable(bytes: Uint8Array): readonly FlacSeekPoint[] {
     previousOffset = streamOffset;
   }
   return Object.freeze(points);
+}
+
+function validateSeekPointBounds(
+  points: readonly FlacSeekPoint[],
+  streamInfo: FlacStreamInfo,
+  firstAudioFrameOffset: number,
+  sourceSize: number,
+): void {
+  const audioSpan = sourceSize - firstAudioFrameOffset;
+  const minimumTargetFrameBytes = Math.max(2, streamInfo.minFrameSize);
+
+  for (const point of points) {
+    if (point.sample >= streamInfo.totalSamples) {
+      throw new EncodedSourceIntegrityError('FLAC SEEKTABLE sample is outside the stream');
+    }
+
+    const frameEndSample = point.sample + point.frameSamples;
+    const isLastFrame = frameEndSample === streamInfo.totalSamples;
+    if (
+      !Number.isSafeInteger(frameEndSample) ||
+      frameEndSample > streamInfo.totalSamples ||
+      point.frameSamples > streamInfo.maxBlockSize ||
+      (point.frameSamples < streamInfo.minBlockSize && !isLastFrame)
+    ) {
+      throw new EncodedSourceIntegrityError(
+        'FLAC SEEKTABLE target frame contradicts STREAMINFO bounds',
+      );
+    }
+
+    if (
+      point.streamOffset > audioSpan - minimumTargetFrameBytes ||
+      (point.sample === 0) !== (point.streamOffset === 0)
+    ) {
+      throw new EncodedSourceIntegrityError('FLAC SEEKTABLE offset is outside the audio stream');
+    }
+  }
 }
 
 async function readExact(
@@ -177,6 +223,7 @@ export async function readFlacMetadata(
   let blockCount = 0;
   let streamInfo: FlacStreamInfo | null = null;
   let seekPoints: readonly FlacSeekPoint[] = Object.freeze([]);
+  let sawSeekTable = false;
   let last = false;
 
   while (!last) {
@@ -201,8 +248,8 @@ export async function readFlacMetadata(
       if (streamInfo) throw new EncodedSourceIntegrityError('FLAC contains duplicate STREAMINFO');
       streamInfo = parseStreamInfo(await readExact(source, cursor, length, signal));
     } else if (type === SEEKTABLE_TYPE) {
-      if (seekPoints.length > 0)
-        throw new EncodedSourceIntegrityError('FLAC contains duplicate SEEKTABLE');
+      if (sawSeekTable) throw new EncodedSourceIntegrityError('FLAC contains duplicate SEEKTABLE');
+      sawSeekTable = true;
       if (length > MAX_SEEKTABLE_BYTES) {
         throw new EncodedSourceIntegrityError('FLAC SEEKTABLE is unreasonably large');
       }
@@ -213,6 +260,7 @@ export async function readFlacMetadata(
 
   if (!streamInfo) throw new EncodedSourceIntegrityError('FLAC STREAMINFO is missing');
   if (cursor >= source.size) throw new EncodedSourceIntegrityError('FLAC has no audio frames');
+  validateSeekPointBounds(seekPoints, streamInfo, cursor, source.size);
 
   return Object.freeze({
     streamInfo,

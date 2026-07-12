@@ -1,4 +1,4 @@
-import type { FlacMetadata } from './metadata.ts';
+import type { FlacMetadata, FlacSeekPoint } from './metadata.ts';
 
 export interface FlacFrameIndexPoint {
   /** Absolute source-rate PCM sample at this frame boundary. */
@@ -28,6 +28,43 @@ function validSafeInteger(value: number): boolean {
 
 function immutablePoint(sourceSample: number, byteOffset: number): FlacFrameIndexPoint {
   return Object.freeze({ sourceSample, byteOffset });
+}
+
+function seekPointCanDescribeSource(
+  point: FlacSeekPoint,
+  metadata: FlacMetadata,
+  sourceSize: number,
+): boolean {
+  const info = metadata.streamInfo;
+  if (
+    !validSafeInteger(point.sample) ||
+    !validSafeInteger(point.streamOffset) ||
+    !Number.isSafeInteger(point.frameSamples) ||
+    point.frameSamples <= 0 ||
+    point.sample >= info.totalSamples
+  ) {
+    return false;
+  }
+
+  const frameEndSample = point.sample + point.frameSamples;
+  const isLastFrame = frameEndSample === info.totalSamples;
+  if (
+    !Number.isSafeInteger(frameEndSample) ||
+    frameEndSample > info.totalSamples ||
+    point.frameSamples > info.maxBlockSize ||
+    (point.frameSamples < info.minBlockSize && !isLastFrame)
+  ) {
+    return false;
+  }
+
+  const byteOffset = metadata.firstAudioFrameOffset + point.streamOffset;
+  const minimumTargetFrameBytes = Math.max(2, info.minFrameSize);
+  return (
+    Number.isSafeInteger(byteOffset) &&
+    byteOffset >= metadata.firstAudioFrameOffset &&
+    byteOffset <= sourceSize - minimumTargetFrameBytes &&
+    (point.sample === 0) === (point.streamOffset === 0)
+  );
 }
 
 /**
@@ -70,6 +107,10 @@ export class FlacSeekIndex {
     this.points = [immutablePoint(0, metadata.firstAudioFrameOffset)];
 
     for (const point of metadata.seekPoints) {
+      // SEEKTABLE entries are hints, not CRC-verified frame boundaries. Keep
+      // only candidates that can describe this exact source; the frame scanner
+      // must still verify an anchor before decoding from it.
+      if (!seekPointCanDescribeSource(point, metadata, sourceSize)) continue;
       this.insertVerified(point.sample, metadata.firstAudioFrameOffset + point.streamOffset, true);
     }
   }

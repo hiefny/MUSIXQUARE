@@ -41,6 +41,29 @@ describe('FlacSeekIndex', () => {
     expect(index.nearestBefore(49_999)).toEqual({ sourceSample: 20_000, byteOffset: 201_000 });
   });
 
+  it('ignores SEEKTABLE candidates that cannot describe this exact source', () => {
+    const index = new FlacSeekIndex(
+      metadata([
+        { sample: 20_000, streamOffset: 200_000, frameSamples: 4096 },
+        { sample: 100_000, streamOffset: 600_000, frameSamples: 4096 },
+        { sample: 30_000, streamOffset: 1_000_000, frameSamples: 4096 },
+        { sample: 40_000, streamOffset: 400_000, frameSamples: 0 },
+        { sample: 50_000, streamOffset: 500_000, frameSamples: 4097 },
+        { sample: 99_000, streamOffset: 800_000, frameSamples: 4096 },
+        { sample: 60_000, streamOffset: 600_000, frameSamples: 8 },
+        { sample: 70_000, streamOffset: 0, frameSamples: 4096 },
+        { sample: 99_998, streamOffset: 900_000, frameSamples: 2 },
+      ]),
+      1_001_000,
+    );
+
+    expect(index.snapshot()).toEqual([
+      { sourceSample: 0, byteOffset: 1_000 },
+      { sourceSample: 20_000, byteOffset: 201_000 },
+      { sourceSample: 99_998, byteOffset: 901_000 },
+    ]);
+  });
+
   it('adds verified progressive frame points without filename or time identity', () => {
     const index = new FlacSeekIndex(metadata(), 1_001_000);
     expect(index.addVerifiedFrame(10_000, 101_000)).toBe(true);

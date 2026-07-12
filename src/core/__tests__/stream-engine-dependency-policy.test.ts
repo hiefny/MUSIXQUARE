@@ -15,8 +15,9 @@ const packageLock = JSON.parse(
 const notices = readFileSync(new URL('../../../THIRD-PARTY-NOTICES.md', import.meta.url), 'utf8');
 
 describe('streaming engine dependency policy', () => {
-  it('pins the two intentional runtime dependencies exactly', () => {
+  it('pins the intentional streaming runtime dependencies exactly', () => {
     expect(packageJson.dependencies['@wasm-audio-decoders/flac']).toBe('0.2.10');
+    expect(packageJson.dependencies['codec-parser']).toBe('2.5.0');
     expect(packageJson.dependencies['lanczos-resampler']).toBe('0.4.1');
   });
 

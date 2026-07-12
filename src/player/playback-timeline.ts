@@ -57,7 +57,7 @@ export type PlaybackTimelineApplyResult =
     }
   | {
       readonly applied: false;
-      readonly reason: 'stale-revision' | 'run-mismatch';
+      readonly reason: 'stale-revision' | 'revision-gap' | 'run-mismatch';
       readonly snapshot: PlaybackTimelineSnapshot;
     };
 
@@ -303,7 +303,7 @@ export function derivePlaybackPosition(
 
 function ignored(
   snapshot: PlaybackTimelineSnapshot,
-  reason: 'stale-revision' | 'run-mismatch',
+  reason: 'stale-revision' | 'revision-gap' | 'run-mismatch',
 ): PlaybackTimelineApplyResult {
   return freezeCanonical({ applied: false as const, reason, snapshot });
 }
@@ -321,6 +321,9 @@ export function applyPlaybackTimelineIntent(
   const safeIntent = requireIntent(intent);
   if (safeIntent.revision <= safeSnapshot.revision) {
     return ignored(safeSnapshot, 'stale-revision');
+  }
+  if (safeIntent.revision !== safeSnapshot.revision + 1) {
+    return ignored(safeSnapshot, 'revision-gap');
   }
   if (safeIntent.type !== 'play' && !sameRun(safeSnapshot.run, safeIntent.run)) {
     return ignored(safeSnapshot, 'run-mismatch');

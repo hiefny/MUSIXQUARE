@@ -132,6 +132,23 @@ describe('playback timeline v2', () => {
     expect(stale.snapshot).toEqual(playing);
   });
 
+  it('rejects a revision gap without mutating the canonical timeline', () => {
+    const playing = applyPlaybackTimelineIntent(
+      createStoppedPlaybackTimeline(),
+      { type: 'play', revision: 1, run: RUN_A, positionSeconds: 4, rate: 1 },
+      0,
+    ).snapshot;
+
+    const jumped = applyPlaybackTimelineIntent(
+      playing,
+      { type: 'seek', revision: 3, run: RUN_A, positionSeconds: 99 },
+      100,
+    );
+
+    expect(jumped).toEqual({ applied: false, reason: 'revision-gap', snapshot: playing });
+    expect(Object.isFrozen(jumped.snapshot)).toBe(true);
+  });
+
   it('ignores a newer command for a superseded run', () => {
     const playing = applyPlaybackTimelineIntent(
       createStoppedPlaybackTimeline(),

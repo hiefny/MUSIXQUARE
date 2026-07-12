@@ -101,6 +101,12 @@ export interface FilePlaybackClockExchangeOptions {
   readonly pingTimeoutMs?: number;
 }
 
+export interface FilePlaybackClockExchangeBinding {
+  readonly role: FilePlaybackClockRole;
+  readonly sessionId: string;
+  readonly connectionId: string;
+}
+
 interface PendingPing {
   readonly pingId: number;
   readonly sequence: number;
@@ -305,6 +311,16 @@ export class FilePlaybackClockExchange {
 
   role(): FilePlaybackClockRole {
     return this.#role;
+  }
+
+  /** Exact active epoch identity for a channel adopting this calibrated clock. */
+  activeBinding(): Readonly<FilePlaybackClockExchangeBinding> | null {
+    if (!this.#sessionId || !this.#connectionId) return null;
+    return Object.freeze({
+      role: this.#role,
+      sessionId: this.#sessionId,
+      connectionId: this.#connectionId,
+    });
   }
 
   quality(): Readonly<ClockQuality> {

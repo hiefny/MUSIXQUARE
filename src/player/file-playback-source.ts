@@ -13,8 +13,9 @@ export type FilePlaybackBackend = 'audio-buffer' | 'streaming-flac';
 
 export type FilePlaybackSourcePhase =
   | 'new'
-  | 'connecting'
+  | 'preparing'
   | 'ready'
+  | 'connected'
   | 'armed'
   | 'playing'
   | 'paused'
@@ -78,6 +79,9 @@ export interface FilePlaybackSource {
   readonly queueItemId: QueueItemId;
   readonly backend: FilePlaybackBackend;
 
+  /** Prime/decode without connecting to the audible product graph. */
+  prepare(): Promise<FilePlaybackSourceSnapshot>;
+  /** Attach an already prepared source to the active product graph. */
   connect(destination: AudioNode): Promise<FilePlaybackSourceSnapshot>;
   arm(intent: RendezvousArmIntent): Promise<RendezvousArmReceipt>;
   finalize(intent: RendezvousFinalizeIntent): Promise<RendezvousFinalizeReceipt>;
@@ -107,8 +111,9 @@ const SNAPSHOT_KEYS = new Set([
 const RUN_KEYS = new Set(['queueItemId', 'runId', 'revision']);
 const VALID_PHASES: ReadonlySet<FilePlaybackSourcePhase> = new Set([
   'new',
-  'connecting',
+  'preparing',
   'ready',
+  'connected',
   'armed',
   'playing',
   'paused',

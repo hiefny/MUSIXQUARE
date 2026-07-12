@@ -99,6 +99,34 @@ describe('FilePlaybackClockExchange', () => {
     if (result.accepted) expect(Object.isFrozen(result.quality)).toBe(true);
   });
 
+  it('binds AudioContext mappings to the same calibrated connection clock', () => {
+    const guestNow = fakeNow();
+    const hostNow = fakeNow();
+    const guest = new FilePlaybackClockExchange({
+      role: 'guest',
+      sessionId: 'room-audio',
+      connectionId: 'connection-audio',
+      now: guestNow.now,
+    });
+    const host = new FilePlaybackClockExchange({
+      role: 'host',
+      sessionId: 'room-audio',
+      connectionId: 'connection-audio',
+      now: hostNow.now,
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      exchangeSample(guest, host, guestNow, hostNow, 1_000 + index * 100, 100, 20);
+    }
+
+    const context = { currentTime: 5 } as AudioContext;
+    const bindings = guest.bindAudioContext(context);
+    expect(bindings.nowRoomTimeMs()).toBe(1_520);
+    // Room 1,720ms is local 1,620ms, 200ms after the current local clock.
+    expect(bindings.roomTimeMsToContextTime(1_720)).toBeCloseTo(5.2, 10);
+    expect(bindings.localPerformanceMsToContextTime(1_620)).toBeCloseTo(5.2, 10);
+  });
+
   it('requires five stable samples before reporting calibrated guest quality', () => {
     const guestNow = fakeNow();
     const hostNow = fakeNow();

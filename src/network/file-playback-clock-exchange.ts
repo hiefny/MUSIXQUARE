@@ -4,6 +4,7 @@ import {
   type MonotonicNow,
   monotonicNow,
 } from './clock-estimator.ts';
+import type { FilePlaybackClockBindings } from '../player/file-playback-clock.ts';
 import { FilePlaybackClock } from '../player/file-playback-clock.ts';
 
 export const FILE_PLAYBACK_CLOCK_PROTOCOL_VERSION = 2 as const;
@@ -323,6 +324,17 @@ export class FilePlaybackClockExchange {
       throw new RangeError('host room time is outside the supported clock range');
     }
     return roomTimeMs;
+  }
+
+  /**
+   * Bind render-frame mappings to the exact calibrated clock owned by this
+   * connection exchange. Product adapters must use this instead of creating a
+   * second FilePlaybackClock, otherwise control deadlines and AudioContext
+   * scheduling could silently drift into different clock domains.
+   */
+  bindAudioContext(context: AudioContext): FilePlaybackClockBindings {
+    if (!context) throw new TypeError('AudioContext is required');
+    return this.#getClock().bindAudioContext(context);
   }
 
   pendingPingCount(): number {

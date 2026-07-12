@@ -343,6 +343,25 @@ describe('musixquare-pcm-ring-v2', () => {
     );
   });
 
+  it('ignores a duplicate reset for the current generation', () => {
+    const harness = createHarness(1);
+    const pcmPort = harness.bind();
+    supply(pcmPort, 1, [[1, 2, 3, 4]]);
+    const before = {
+      state: harness.processor.state,
+      bufferedFrames: harness.processor.bufferedFrames,
+      mediaFrame: harness.processor.mediaFrame,
+    };
+
+    harness.control.dispatch(command('reset', 1, { mediaFrame: 99_000 }));
+
+    expect({
+      state: harness.processor.state,
+      bufferedFrames: harness.processor.bufferedFrames,
+      mediaFrame: harness.processor.mediaFrame,
+    }).toEqual(before);
+  });
+
   it('pauses at an exact frame and resumes from the next unread sample', () => {
     const harness = createHarness(1);
     const pcmPort = harness.bind();

@@ -185,7 +185,9 @@ class MusixquarePcmRingV2Processor extends AudioWorkletProcessor {
   }
 
   reset(message) {
-    if (!isGeneration(message.generation) || message.generation < this.generation) return;
+    // A generation is a one-shot ownership transfer. Replaying the same reset
+    // must not erase an already primed/armed ring after an ACK retry.
+    if (!isGeneration(message.generation) || message.generation <= this.generation) return;
     if (message.protocolVersion !== PCM_RING_PROTOCOL_VERSION) {
       if (message.generation === this.generation) this.reject('protocol-version');
       return;

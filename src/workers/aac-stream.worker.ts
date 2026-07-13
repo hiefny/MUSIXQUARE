@@ -541,6 +541,7 @@ async function initializeSession(session: DecoderSession): Promise<void> {
         {
           coreConfiguration: session.descriptor.coreConfiguration,
           firstAccessUnitOrdinal: session.descriptor.startPlan.decodeStartAccessUnitOrdinal,
+          framing: { kind: 'adts' },
         },
         session.abortController.signal,
       ),

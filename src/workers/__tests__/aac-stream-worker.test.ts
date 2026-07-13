@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   backends: [] as AacDecoderBackend[],
   backendCloseCounts: [] as number[],
   factoryCalls: 0,
+  factoryOptions: [] as unknown[],
   factoryImpl: null as ((...args: unknown[]) => Promise<AacDecoderBackend>) | null,
   decodeImpl: null as
     | ((
@@ -69,6 +70,7 @@ vi.mock('../../player/aac/webcodecs-canary.ts', () => ({
 vi.mock('../../player/aac/decoder-backend-factory.ts', () => ({
   createAacDecoderBackend: (...args: unknown[]) => {
     mocks.factoryCalls += 1;
+    mocks.factoryOptions.push(args[1]);
     if (!mocks.factoryImpl) throw new Error('AAC test factory was not configured');
     return mocks.factoryImpl(...args);
   },
@@ -233,6 +235,7 @@ function createBackend(firstAccessUnitOrdinal: number): AacDecoderBackend {
     coreSampleRateHz: 44_100,
     channels: 2,
     firstAccessUnitOrdinal,
+    framing: Object.freeze({ kind: 'adts' }),
     async decodeBatch(accessUnits, signal) {
       const rawBatch = makeRawBatch(accessUnits);
       mocks.decodeCalls.push({
@@ -370,6 +373,7 @@ describe.sequential('bounded AAC stream worker', () => {
     mocks.backends.length = 0;
     mocks.backendCloseCounts.length = 0;
     mocks.factoryCalls = 0;
+    mocks.factoryOptions.length = 0;
     mocks.decodeImpl = null;
     mocks.factoryImpl = async (_id, options) => {
       const firstAccessUnitOrdinal = (options as { readonly firstAccessUnitOrdinal: number })
@@ -401,6 +405,7 @@ describe.sequential('bounded AAC stream worker', () => {
     const pcmPort = openDecoder(scope, source, media.descriptor);
 
     await waitReady(scope);
+    expect(mocks.factoryOptions[0]).toMatchObject({ framing: { kind: 'adts' } });
     expect(mocks.factoryCalls).toBe(1);
     expect(mocks.decodeCalls).toHaveLength(0);
     expect(mocks.canaryCopies).toEqual([media.frames[3]]);

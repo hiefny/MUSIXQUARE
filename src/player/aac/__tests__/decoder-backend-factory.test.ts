@@ -28,15 +28,20 @@ function generationOptions(firstAccessUnitOrdinal = 0): AacDecoderBackendGenerat
       rawDataBlocks: 1,
     },
     firstAccessUnitOrdinal,
+    framing: { kind: 'adts' },
   };
 }
 
-function fakeBackend(close = vi.fn()): AacDecoderBackend {
+function fakeBackend(
+  close = vi.fn(),
+  framing: AacDecoderBackendGenerationOptions['framing'] = Object.freeze({ kind: 'adts' }),
+): AacDecoderBackend {
   return {
     id: 'webcodecs',
     coreSampleRateHz: 44_100,
     channels: 2,
     firstAccessUnitOrdinal: 0,
+    framing,
     async decodeBatch() {
       throw new Error('not used by factory tests');
     },
@@ -86,12 +91,70 @@ describe('AAC decoder backend factory', () => {
     expect(receivedOptions).toEqual(input);
     expect(Object.isFrozen(receivedOptions)).toBe(true);
     expect(Object.isFrozen(receivedOptions!.coreConfiguration)).toBe(true);
+    expect(Object.isFrozen(receivedOptions!.framing)).toBe(true);
 
     (input as { firstAccessUnitOrdinal: number }).firstAccessUnitOrdinal = 0;
     (input.coreConfiguration as { sampleRateIndex: number }).sampleRateIndex = 3;
     expect(receivedOptions!.firstAccessUnitOrdinal).toBe(Number.MAX_SAFE_INTEGER - 7);
     expect(receivedOptions!.coreConfiguration.sampleRateIndex).toBe(4);
     expect(backend.close).not.toHaveBeenCalled();
+  });
+
+  it('passes a detached canonical raw framing snapshot and verifies the backend postcondition', async () => {
+    const description: [number, number, number, number, number] = [0x12, 0x10, 0x56, 0xe5, 0x00];
+    const input = {
+      ...generationOptions(9),
+      framing: { kind: 'raw' as const, description },
+    };
+    const backend = {
+      ...fakeBackend(vi.fn(), {
+        kind: 'raw',
+        description: Object.freeze([0x12, 0x10, 0x56, 0xe5, 0x00] as const),
+      }),
+      firstAccessUnitOrdinal: 9,
+    };
+    let received: Readonly<AacDecoderBackendGenerationOptions> | null = null;
+    createWebCodecs.mockImplementationOnce(async (options) => {
+      received = options;
+      return backend;
+    });
+
+    await expect(
+      createAacDecoderBackend('webcodecs', input, new AbortController().signal),
+    ).resolves.toBe(backend);
+    description.fill(0);
+
+    expect(received!.framing).toEqual({
+      kind: 'raw',
+      description: [0x12, 0x10, 0x56, 0xe5, 0x00],
+    });
+    expect((received!.framing as { readonly description: readonly number[] }).description).not.toBe(
+      description,
+    );
+  });
+
+  it('rejects a same-core raw backend that reports a different exact ASC form', async () => {
+    const close = vi.fn();
+    const input = {
+      ...generationOptions(),
+      framing: {
+        kind: 'raw' as const,
+        description: [0x12, 0x10, 0x56, 0xe5, 0x00] as const,
+      },
+    };
+    const backend = fakeBackend(
+      close,
+      Object.freeze({
+        kind: 'raw' as const,
+        description: Object.freeze([0x12, 0x10] as const),
+      }),
+    );
+    createWebCodecs.mockResolvedValueOnce(backend);
+
+    await expect(
+      createAacDecoderBackend('webcodecs', input, new AbortController().signal),
+    ).rejects.toBeInstanceOf(AacDecoderBackendIntegrityError);
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it('rejects the unadmitted Symphonia branch without touching WebCodecs', async () => {
@@ -136,6 +199,7 @@ describe('AAC decoder backend factory', () => {
     ['sample rate', { coreSampleRateHz: 48_000 }],
     ['channels', { channels: 1 }],
     ['generation origin', { firstAccessUnitOrdinal: 1 }],
+    ['framing', { framing: { kind: 'raw', description: [0x12, 0x10] } }],
     ['decode method', { decodeBatch: null }],
   ])(
     'rejects a mismatched %s postcondition, closes once, and never falls back',

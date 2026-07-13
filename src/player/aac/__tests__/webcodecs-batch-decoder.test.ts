@@ -7,6 +7,7 @@ import {
   AacDecoderBackendUnavailableError,
   type AacDecoderAccessUnit,
   type AacDecoderBackend,
+  type AacDecoderBackendGenerationOptions,
 } from '../decoder-backend.ts';
 import {
   AAC_WEB_CODECS_MAX_OUTPUT_CALLBACKS_PER_BATCH,
@@ -82,6 +83,10 @@ const STEREO_44K = Object.freeze({
   channelConfiguration: 2 as const,
   protectionAbsent: true as const,
   rawDataBlocks: 1 as const,
+});
+const RAW_STEREO_44K = Object.freeze({
+  kind: 'raw' as const,
+  description: Object.freeze([0x12, 0x10] as const),
 });
 
 function deferred<T>(): {
@@ -230,6 +235,7 @@ async function createBackend(
   options: {
     readonly firstAccessUnitOrdinal?: number;
     readonly coreConfiguration?: typeof STEREO_44K;
+    readonly framing?: AacDecoderBackendGenerationOptions['framing'];
     readonly signal?: AbortSignal;
   } = {},
 ): Promise<AacDecoderBackend> {
@@ -237,6 +243,7 @@ async function createBackend(
     {
       coreConfiguration: options.coreConfiguration ?? STEREO_44K,
       firstAccessUnitOrdinal: options.firstAccessUnitOrdinal ?? 0,
+      framing: options.framing ?? { kind: 'adts' },
     },
     options.signal ?? new AbortController().signal,
     harness.bindings,
@@ -261,9 +268,130 @@ describe('WebCodecs AAC batch decoder', () => {
     expect(Reflect.ownKeys(supportConfig)).toEqual(['codec', 'sampleRate', 'numberOfChannels']);
     expect(Object.hasOwn(supportConfig, 'description')).toBe(false);
     expect(Object.isFrozen(supportConfig)).toBe(true);
-    expect(configureConfig).toBe(supportConfig);
+    expect(configureConfig).not.toBe(supportConfig);
+    expect(configureConfig).toEqual(supportConfig);
+    expect(Object.hasOwn(configureConfig, 'description')).toBe(false);
+    expect(Object.isFrozen(configureConfig)).toBe(true);
     backend.close();
   });
+
+  it.each([
+    [Object.freeze([0x12, 0x10] as const)],
+    [Object.freeze([0x12, 0x10, 0x56, 0xe5, 0x00] as const)],
+  ])('configures raw AAC with independent canonical ASC bytes %#', async (canonical) => {
+    const harness = createHarness();
+    const backend = await createBackend(harness, {
+      framing: { kind: 'raw', description: canonical },
+    });
+    const supportConfig = harness.isConfigSupported.mock.calls[0]?.[0];
+    const configureConfig = harness.decoder.configure.mock.calls[0]?.[0];
+
+    expect(backend.framing).toEqual({ kind: 'raw', description: canonical });
+    expect(supportConfig).not.toBe(configureConfig);
+    expect(supportConfig).toMatchObject({
+      codec: 'mp4a.40.2',
+      sampleRate: 44_100,
+      numberOfChannels: 2,
+    });
+    expect(Array.from(supportConfig?.description ?? [])).toEqual(canonical);
+    expect(Array.from(configureConfig?.description ?? [])).toEqual(canonical);
+    expect(supportConfig?.description).not.toBe(configureConfig?.description);
+    expect(Object.isFrozen(supportConfig)).toBe(true);
+    expect(Object.isFrozen(configureConfig)).toBe(true);
+    backend.close();
+  });
+
+  it.each([1, AAC_DECODER_BACKEND_MAX_ACCESS_UNIT_BYTES])(
+    'passes an opaque %i-byte raw AU unchanged without attempting ADTS parsing',
+    async (byteLength) => {
+      const harness = createHarness();
+      harness.decoder.decode.mockImplementationOnce(() => harness.emit(fakeAudioData().data));
+      const backend = await createBackend(harness, { framing: RAW_STEREO_44K });
+      const source = Uint8Array.from({ length: byteLength }, (_unused, index) =>
+        index === 0 ? 0xff : index & 0xff,
+      );
+      const original = Array.from(source);
+
+      const result = await backend.decodeBatch(
+        [accessUnit(0, source)],
+        new AbortController().signal,
+      );
+
+      expect(result.frameCount).toBe(1_024);
+      expect(harness.chunks[0]?.copiedBytes).toEqual(original);
+      expect(source).toEqual(Uint8Array.from(original));
+    },
+  );
+
+  it('isolates configure from support-probe mutation of raw description bytes', async () => {
+    const harness = createHarness();
+    harness.isConfigSupported.mockImplementationOnce((config) => {
+      config.description?.fill(0);
+      return Promise.resolve(Object.freeze({ supported: true }));
+    });
+
+    const backend = await createBackend(harness, { framing: RAW_STEREO_44K });
+    const supportConfig = harness.isConfigSupported.mock.calls[0]?.[0];
+    const configureConfig = harness.decoder.configure.mock.calls[0]?.[0];
+
+    expect(Array.from(supportConfig?.description ?? [])).toEqual([0, 0]);
+    expect(Array.from(configureConfig?.description ?? [])).toEqual([0x12, 0x10]);
+    expect(backend.framing).toEqual(RAW_STEREO_44K);
+    backend.close();
+  });
+
+  it('keeps an ADTS generation on ADTS after public framing replacement attempts', async () => {
+    const harness = createHarness();
+    const backend = await createBackend(harness);
+    const replacement = Object.freeze({
+      kind: 'raw' as const,
+      description: Object.freeze([0x12, 0x10] as const),
+    });
+
+    expect(Reflect.set(backend, 'framing', replacement)).toBe(false);
+    expect(Reflect.defineProperty(backend, 'framing', { value: replacement })).toBe(false);
+    expect(backend.framing).toEqual({ kind: 'adts' });
+    await expect(
+      backend.decodeBatch([accessUnit(0, new Uint8Array([0xff]))], new AbortController().signal),
+    ).rejects.toBeInstanceOf(AacDecoderBackendIntegrityError);
+    expect(harness.decoder.decode).not.toHaveBeenCalled();
+  });
+
+  it('keeps a raw generation on raw after public framing replacement attempts', async () => {
+    const harness = createHarness();
+    harness.decoder.decode.mockImplementationOnce(() => harness.emit(fakeAudioData().data));
+    const backend = await createBackend(harness, { framing: RAW_STEREO_44K });
+    const replacement = Object.freeze({ kind: 'adts' as const });
+
+    expect(Reflect.set(backend, 'framing', replacement)).toBe(false);
+    expect(Reflect.defineProperty(backend, 'framing', { value: replacement })).toBe(false);
+    expect(backend.framing).toEqual(RAW_STEREO_44K);
+    await expect(
+      backend.decodeBatch([accessUnit(0, new Uint8Array([0xff]))], new AbortController().signal),
+    ).resolves.toMatchObject({ frameCount: 1_024 });
+    expect(harness.decoder.decode).toHaveBeenCalledOnce();
+    backend.close();
+  });
+
+  it.each([0, AAC_DECODER_BACKEND_MAX_ACCESS_UNIT_BYTES + 1])(
+    'rejects and poisons raw AU byte length %i before native decoding',
+    async (byteLength) => {
+      const harness = createHarness();
+      const backend = await createBackend(harness, { framing: RAW_STEREO_44K });
+
+      await expect(
+        backend.decodeBatch(
+          [accessUnit(0, new Uint8Array(byteLength))],
+          new AbortController().signal,
+        ),
+      ).rejects.toBeInstanceOf(AacDecoderBackendIntegrityError);
+      expect(harness.decoder.decode).not.toHaveBeenCalled();
+      expect(harness.decoder.close).toHaveBeenCalledOnce();
+      await expect(
+        backend.decodeBatch([accessUnit(0, new Uint8Array([1]))], new AbortController().signal),
+      ).rejects.toBeInstanceOf(AacDecoderBackendIntegrityError);
+    },
+  );
 
   it('decodes one AU into independent canonical planar Float32 storage', async () => {
     const harness = createHarness();
@@ -634,7 +762,7 @@ describe('WebCodecs AAC batch decoder', () => {
   });
 
   it('prioritizes aborts triggered by options, bindings, and support-result reflection', async () => {
-    const stages = ['options', 'bindings', 'support-result'] as const;
+    const stages = ['options', 'framing', 'bindings', 'support-result'] as const;
     for (const stage of stages) {
       const harness = createHarness();
       const controller = new AbortController();
@@ -642,6 +770,7 @@ describe('WebCodecs AAC batch decoder', () => {
       const baseOptions = {
         coreConfiguration: STEREO_44K,
         firstAccessUnitOrdinal: 0,
+        framing: { kind: 'adts' as const },
       };
       let options: typeof baseOptions = baseOptions;
       let bindings: AacWebCodecsBatchBindings = harness.bindings;
@@ -653,6 +782,16 @@ describe('WebCodecs AAC batch decoder', () => {
             return Reflect.ownKeys(target);
           },
         });
+      } else if (stage === 'framing') {
+        options = {
+          ...baseOptions,
+          framing: new Proxy(baseOptions.framing, {
+            getOwnPropertyDescriptor(target, key) {
+              controller.abort(reason);
+              return Reflect.getOwnPropertyDescriptor(target, key);
+            },
+          }),
+        };
       } else if (stage === 'bindings') {
         bindings = Object.defineProperties(
           {},

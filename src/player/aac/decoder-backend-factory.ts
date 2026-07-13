@@ -2,8 +2,10 @@ import {
   AacDecoderBackendIntegrityError,
   AacDecoderBackendUnavailableError,
   aacCoreSampleRateHz,
+  snapshotAacDecoderBackendFraming,
   snapshotAacDecoderBackendGenerationOptions,
   type AacDecoderBackend,
+  type AacDecoderBackendFraming,
   type AacDecoderBackendGenerationOptions,
   type AacDecoderBackendId,
 } from './decoder-backend.ts';
@@ -102,6 +104,19 @@ function closeBackendBestEffort(context: BackendCleanupContext): void {
   }
 }
 
+function framingMatches(
+  left: Readonly<AacDecoderBackendFraming>,
+  right: Readonly<AacDecoderBackendFraming>,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === 'adts') return true;
+  if (right.kind !== 'raw' || left.description.length !== right.description.length) return false;
+  for (let index = 0; index < left.description.length; index += 1) {
+    if (left.description[index] !== right.description[index]) return false;
+  }
+  return true;
+}
+
 function validateBackendPostcondition(
   backend: unknown,
   backendId: AacDecoderBackendId,
@@ -118,6 +133,7 @@ function validateBackendPostcondition(
   let coreSampleRateHz: unknown;
   let channels: unknown;
   let firstAccessUnitOrdinal: unknown;
+  let framing: ReturnType<typeof snapshotAacDecoderBackendFraming>;
   try {
     close = readBackendClose(cleanup);
     decodeBatch = Reflect.get(backend, 'decodeBatch');
@@ -125,6 +141,10 @@ function validateBackendPostcondition(
     coreSampleRateHz = Reflect.get(backend, 'coreSampleRateHz');
     channels = Reflect.get(backend, 'channels');
     firstAccessUnitOrdinal = Reflect.get(backend, 'firstAccessUnitOrdinal');
+    framing = snapshotAacDecoderBackendFraming(
+      Reflect.get(backend, 'framing'),
+      options.coreConfiguration,
+    );
   } catch (cause) {
     throw new AacDecoderBackendIntegrityError(
       'AAC backend result could not be inspected safely',
@@ -138,7 +158,8 @@ function validateBackendPostcondition(
     id !== backendId ||
     !Object.is(coreSampleRateHz, aacCoreSampleRateHz(options.coreConfiguration)) ||
     !Object.is(channels, options.coreConfiguration.channelConfiguration) ||
-    !Object.is(firstAccessUnitOrdinal, options.firstAccessUnitOrdinal)
+    !Object.is(firstAccessUnitOrdinal, options.firstAccessUnitOrdinal) ||
+    !framingMatches(framing, options.framing)
   ) {
     throw new AacDecoderBackendIntegrityError(
       'AAC backend result contradicts its selected generation contract',

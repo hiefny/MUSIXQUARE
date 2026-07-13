@@ -5,6 +5,7 @@ import {
   AAC_DECODER_BACKEND_MAX_ACCESS_UNIT_BYTES,
   AAC_DECODER_BACKEND_MAX_BATCH_ACCESS_UNITS,
   AAC_DECODER_BACKEND_MAX_BATCH_ENCODED_BYTES,
+  AAC_DECODER_BACKEND_MIN_RAW_ACCESS_UNIT_BYTES,
   AacDecoderBackendIntegrityError,
   aacCoreSampleRateHz,
   aacGenerationTimestampMicroseconds,
@@ -30,6 +31,7 @@ const MONO_48K = Object.freeze({
   sampleRateIndex: 3 as const,
   channelConfiguration: 1 as const,
 });
+const ADTS_FRAMING = Object.freeze({ kind: 'adts' as const });
 
 function pcmExpectation(
   options: {
@@ -72,6 +74,7 @@ describe('AAC decoder backend contract', () => {
   it('keeps the batch and core-frame bounds arithmetically exact', () => {
     expect(AAC_DECODER_BACKEND_ACCESS_UNIT_CORE_FRAMES).toBe(1_024);
     expect(AAC_DECODER_BACKEND_MAX_BATCH_ACCESS_UNITS).toBe(8);
+    expect(AAC_DECODER_BACKEND_MIN_RAW_ACCESS_UNIT_BYTES).toBe(1);
     expect(AAC_DECODER_BACKEND_MAX_BATCH_ENCODED_BYTES).toBe(
       8 * AAC_DECODER_BACKEND_MAX_ACCESS_UNIT_BYTES,
     );
@@ -81,6 +84,7 @@ describe('AAC decoder backend contract', () => {
     const input = {
       coreConfiguration: { ...STEREO_44K },
       firstAccessUnitOrdinal: Number.MAX_SAFE_INTEGER - 7,
+      framing: { kind: 'adts' as const },
     };
     const snapshot = snapshotAacDecoderBackendGenerationOptions(input);
     input.firstAccessUnitOrdinal = 0;
@@ -89,6 +93,7 @@ describe('AAC decoder backend contract', () => {
     expect(snapshot).toEqual({
       coreConfiguration: STEREO_44K,
       firstAccessUnitOrdinal: Number.MAX_SAFE_INTEGER - 7,
+      framing: ADTS_FRAMING,
     });
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(Object.isFrozen(snapshot.coreConfiguration)).toBe(true);
@@ -108,6 +113,7 @@ describe('AAC decoder backend contract', () => {
       snapshotAacDecoderBackendGenerationOptions({
         coreConfiguration,
         firstAccessUnitOrdinal: 0,
+        framing: ADTS_FRAMING,
       }),
     ).toThrow();
   });
@@ -119,13 +125,21 @@ describe('AAC decoder backend contract', () => {
           return STEREO_44K;
         },
         firstAccessUnitOrdinal: 0,
+        framing: ADTS_FRAMING,
       }),
     ).toThrow(/data fields/i);
     expect(() =>
       snapshotAacDecoderBackendGenerationOptions({
         coreConfiguration: STEREO_44K,
         firstAccessUnitOrdinal: 0,
+        framing: ADTS_FRAMING,
         extra: true,
+      }),
+    ).toThrow(/unexpected|missing/i);
+    expect(() =>
+      snapshotAacDecoderBackendGenerationOptions({
+        coreConfiguration: STEREO_44K,
+        firstAccessUnitOrdinal: 0,
       }),
     ).toThrow(/unexpected|missing/i);
     for (const ordinal of [-0, -1, 0.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN]) {
@@ -133,8 +147,71 @@ describe('AAC decoder backend contract', () => {
         snapshotAacDecoderBackendGenerationOptions({
           coreConfiguration: STEREO_44K,
           firstAccessUnitOrdinal: ordinal,
+          framing: ADTS_FRAMING,
         }),
       ).toThrow(/ordinal/i);
+    }
+  });
+
+  it.each([
+    [Object.freeze([0x12, 0x10] as const)],
+    [Object.freeze([0x12, 0x10, 0x56, 0xe5, 0x00] as const)],
+  ])('snapshots canonical raw framing without retaining caller storage %#', (canonical) => {
+    const description = Array.from(canonical);
+    const input = {
+      coreConfiguration: { ...STEREO_44K },
+      firstAccessUnitOrdinal: 17,
+      framing: { kind: 'raw', description },
+    };
+
+    const snapshot = snapshotAacDecoderBackendGenerationOptions(input);
+    description.fill(0);
+    input.framing.kind = 'adts';
+
+    expect(snapshot.framing).toEqual({ kind: 'raw', description: canonical });
+    expect(Object.isFrozen(snapshot.framing)).toBe(true);
+    if (snapshot.framing.kind !== 'raw') throw new Error('expected raw framing');
+    expect(Object.isFrozen(snapshot.framing.description)).toBe(true);
+    expect(snapshot.framing.description).not.toBe(description);
+  });
+
+  it.each([
+    ['sample rate', [0x11, 0x90]],
+    ['channel geometry', [0x12, 0x08]],
+  ])('rejects raw ASC with cross-configuration %s disagreement', (_label, description) => {
+    expect(() =>
+      snapshotAacDecoderBackendGenerationOptions({
+        coreConfiguration: STEREO_44K,
+        firstAccessUnitOrdinal: 0,
+        framing: { kind: 'raw', description },
+      }),
+    ).toThrow(/does not match/i);
+  });
+
+  it('rejects malformed, accessor-backed, and revoked framing shapes', () => {
+    const accessor = ['unused', 0x10] as unknown[];
+    Object.defineProperty(accessor, '0', { enumerable: true, get: () => 0x12 });
+    const revoked = Proxy.revocable({ kind: 'raw', description: [0x12, 0x10] }, {});
+    revoked.revoke();
+    const candidates: unknown[] = [
+      { kind: 'adts', description: [0x12, 0x10] },
+      { kind: 'raw' },
+      { kind: 'raw', description: new Uint8Array([0x12, 0x10]) },
+      { kind: 'raw', description: [0x12] },
+      { kind: 'raw', description: [0x12, 0x10, 0] },
+      { kind: 'raw', description: [0x12, 0x10, 0x56, 0xe5, 0x01] },
+      { kind: 'raw', description: accessor },
+      revoked.proxy,
+    ];
+
+    for (const framing of candidates) {
+      expect(() =>
+        snapshotAacDecoderBackendGenerationOptions({
+          coreConfiguration: STEREO_44K,
+          firstAccessUnitOrdinal: 0,
+          framing,
+        }),
+      ).toThrow();
     }
   });
 

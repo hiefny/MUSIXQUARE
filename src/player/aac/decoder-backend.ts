@@ -1,4 +1,6 @@
 import { adtsCoreSampleRateHzForIndex } from './adts-header.ts';
+import { parseCanonicalAacLcAudioSpecificConfig } from './audio-specific-config.ts';
+import type { AacLcAudioSpecificConfigDescription } from './audio-specific-config.ts';
 import type { AdtsCoreConfiguration } from './incremental-frame-reader.ts';
 import type { AacDecoderBackendId } from './decoder-protocol.ts';
 
@@ -6,6 +8,7 @@ export type { AacDecoderBackendId } from './decoder-protocol.ts';
 
 export const AAC_DECODER_BACKEND_ACCESS_UNIT_CORE_FRAMES = 1_024;
 export const AAC_DECODER_BACKEND_MIN_ACCESS_UNIT_BYTES = 8;
+export const AAC_DECODER_BACKEND_MIN_RAW_ACCESS_UNIT_BYTES = 1;
 export const AAC_DECODER_BACKEND_MAX_ACCESS_UNIT_BYTES = 8_191;
 export const AAC_DECODER_BACKEND_MAX_BATCH_ACCESS_UNITS = 8;
 export const AAC_DECODER_BACKEND_MAX_BATCH_ENCODED_BYTES =
@@ -14,7 +17,10 @@ export const AAC_DECODER_BACKEND_MAX_BATCH_ENCODED_BYTES =
 const GENERATION_OPTION_KEYS = Object.freeze([
   'coreConfiguration',
   'firstAccessUnitOrdinal',
+  'framing',
 ] as const);
+const ADTS_FRAMING_KEYS = Object.freeze(['kind'] as const);
+const RAW_FRAMING_KEYS = Object.freeze(['kind', 'description'] as const);
 const PCM_BATCH_EXPECTATION_KEYS = Object.freeze([
   'firstAccessUnitOrdinal',
   'accessUnitCount',
@@ -43,7 +49,16 @@ export interface AacDecoderBackendGenerationOptions {
   readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
   /** Absolute ordinal represented by generation-local timestamp zero. */
   readonly firstAccessUnitOrdinal: number;
+  /** Exact encoded access-unit framing used for the entire generation. */
+  readonly framing: Readonly<AacDecoderBackendFraming>;
 }
+
+export type AacDecoderBackendFraming =
+  | Readonly<{ readonly kind: 'adts' }>
+  | Readonly<{
+      readonly kind: 'raw';
+      readonly description: AacLcAudioSpecificConfigDescription;
+    }>;
 
 export interface AacDecoderAccessUnit {
   readonly accessUnitOrdinal: number;
@@ -84,6 +99,7 @@ export interface AacDecoderBackend {
   readonly coreSampleRateHz: number;
   readonly channels: 1 | 2;
   readonly firstAccessUnitOrdinal: number;
+  readonly framing: Readonly<AacDecoderBackendFraming>;
   /**
    * Every batch is internally contiguous and must begin exactly after the
    * preceding successful batch (or at firstAccessUnitOrdinal for batch one).
@@ -132,6 +148,7 @@ export class AacDecoderBackendClosedError extends AacDecoderBackendError {
   }
 }
 
+const Uint8ArrayIntrinsic = Uint8Array;
 const Float32ArrayIntrinsic = Float32Array;
 const arrayBufferIsView = ArrayBuffer.isView;
 const typedArrayPrototype = Reflect.getPrototypeOf(Float32ArrayIntrinsic.prototype) as
@@ -179,8 +196,8 @@ function snapshotExactDataRecord(
   let descriptors: PropertyDescriptorMap;
   let prototype: object | null;
   try {
-    descriptors = Object.getOwnPropertyDescriptors(value);
-    prototype = Reflect.getPrototypeOf(value);
+    descriptors = Object.getOwnPropertyDescriptors(value as object);
+    prototype = Reflect.getPrototypeOf(value as object);
   } catch (cause) {
     throw new TypeError(`${label} could not be inspected safely`, { cause });
   }
@@ -228,7 +245,9 @@ function snapshotCoreConfiguration(value: unknown): Readonly<AdtsCoreConfigurati
     record.protectionAbsent !== true ||
     record.rawDataBlocks !== 1
   ) {
-    throw new RangeError('AAC backend requires raw MPEG-4 ADTS AAC-LC without CRC and one RDB');
+    throw new RangeError(
+      'AAC backend requires canonical MPEG-4 AAC-LC core geometry without CRC and one RDB',
+    );
   }
   try {
     adtsCoreSampleRateHzForIndex(record.sampleRateIndex);
@@ -241,6 +260,103 @@ function snapshotCoreConfiguration(value: unknown): Readonly<AdtsCoreConfigurati
   return Object.freeze({ ...record }) as unknown as Readonly<AdtsCoreConfiguration>;
 }
 
+function snapshotDescriptionTuple(value: unknown): Uint8Array {
+  let isArray: boolean;
+  let descriptors: PropertyDescriptorMap;
+  let prototype: object | null;
+  try {
+    isArray = Array.isArray(value);
+    if (!isArray) throw new TypeError('description is not an Array');
+    descriptors = Object.getOwnPropertyDescriptors(value as object);
+    prototype = Reflect.getPrototypeOf(value as object);
+  } catch (cause) {
+    throw new TypeError('AAC raw framing description could not be inspected safely', { cause });
+  }
+  if (prototype !== Array.prototype) {
+    throw new TypeError('AAC raw framing description must be an exact Array tuple');
+  }
+  const actualKeys = Reflect.ownKeys(descriptors);
+  const length = descriptors.length;
+  const tupleLength = length && Object.hasOwn(length, 'value') ? length.value : undefined;
+  if (
+    (tupleLength !== 2 && tupleLength !== 5) ||
+    actualKeys.length !== tupleLength + 1 ||
+    !actualKeys.includes('length') ||
+    Array.from({ length: tupleLength }, (_unused, index) => String(index)).some(
+      (key) => !actualKeys.includes(key),
+    )
+  ) {
+    throw new TypeError(
+      'AAC raw framing description must contain an exact canonical 2- or 5-byte tuple',
+    );
+  }
+
+  const bytes = new Uint8ArrayIntrinsic(tupleLength);
+  for (let index = 0; index < tupleLength; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError('AAC raw framing description must use enumerable data elements');
+    }
+    const element = descriptor.value;
+    if (
+      typeof element !== 'number' ||
+      !Number.isSafeInteger(element) ||
+      Object.is(element, -0) ||
+      element < 0 ||
+      element > 0xff
+    ) {
+      throw new RangeError('AAC raw framing description elements must be bytes');
+    }
+    bytes[index] = element;
+  }
+  return bytes;
+}
+
+export function snapshotAacDecoderBackendFraming(
+  value: unknown,
+  coreConfigurationValue: unknown,
+): Readonly<AacDecoderBackendFraming> {
+  const coreConfiguration = snapshotCoreConfiguration(coreConfigurationValue);
+  let kind: unknown;
+  try {
+    const descriptor =
+      value !== null && (typeof value === 'object' || typeof value === 'function')
+        ? Reflect.getOwnPropertyDescriptor(value, 'kind')
+        : undefined;
+    kind =
+      descriptor && descriptor.enumerable === true && Object.hasOwn(descriptor, 'value')
+        ? descriptor.value
+        : undefined;
+  } catch (cause) {
+    throw new TypeError('AAC decoder framing could not be inspected safely', { cause });
+  }
+  if (kind === 'adts') {
+    snapshotExactDataRecord(value, ADTS_FRAMING_KEYS, 'AAC ADTS framing');
+    return Object.freeze({ kind: 'adts' });
+  }
+  if (kind !== 'raw') {
+    throw new TypeError('AAC decoder framing kind must be exact ADTS or raw');
+  }
+
+  const record = snapshotExactDataRecord(value, RAW_FRAMING_KEYS, 'AAC raw framing');
+  const parsed = parseCanonicalAacLcAudioSpecificConfig(
+    snapshotDescriptionTuple(record.description),
+  );
+  if (
+    parsed.audioObjectType !== coreConfiguration.coreAudioObjectType ||
+    parsed.sampleRateIndex !== coreConfiguration.sampleRateIndex ||
+    parsed.channelConfiguration !== coreConfiguration.channelConfiguration
+  ) {
+    throw new RangeError(
+      'AAC raw framing description does not match its generation core configuration',
+    );
+  }
+  return Object.freeze({
+    kind: 'raw',
+    description: parsed.description,
+  });
+}
+
 /** Snapshot a fresh-generation contract before any native decoder allocation. */
 export function snapshotAacDecoderBackendGenerationOptions(
   value: unknown,
@@ -250,12 +366,14 @@ export function snapshotAacDecoderBackendGenerationOptions(
     GENERATION_OPTION_KEYS,
     'AAC decoder generation options',
   );
+  const coreConfiguration = snapshotCoreConfiguration(record.coreConfiguration);
   return Object.freeze({
-    coreConfiguration: snapshotCoreConfiguration(record.coreConfiguration),
+    coreConfiguration,
     firstAccessUnitOrdinal: requireSafeOrdinal(
       record.firstAccessUnitOrdinal,
       'AAC first access-unit ordinal',
     ),
+    framing: snapshotAacDecoderBackendFraming(record.framing, coreConfiguration),
   });
 }
 

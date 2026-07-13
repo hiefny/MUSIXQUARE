@@ -5,6 +5,7 @@ import {
   AAC_DECODER_BACKEND_MAX_BATCH_ACCESS_UNITS,
   AAC_DECODER_BACKEND_MAX_BATCH_ENCODED_BYTES,
   AAC_DECODER_BACKEND_MIN_ACCESS_UNIT_BYTES,
+  AAC_DECODER_BACKEND_MIN_RAW_ACCESS_UNIT_BYTES,
   AacDecoderBackendClosedError,
   AacDecoderBackendIntegrityError,
   AacDecoderBackendUnavailableError,
@@ -13,6 +14,7 @@ import {
   snapshotAacDecoderBackendGenerationOptions,
   type AacDecoderAccessUnit,
   type AacDecoderBackend,
+  type AacDecoderBackendFraming,
   type AacDecoderBackendGenerationOptions,
   type AacDecoderPcmBatch,
   type AacDecoderPcmPlanes,
@@ -28,6 +30,7 @@ export interface AacWebCodecsBatchDecoderConfig {
   readonly codec: typeof AAC_LC_CODEC;
   readonly sampleRate: number;
   readonly numberOfChannels: 1 | 2;
+  readonly description?: Uint8Array;
 }
 
 export interface AacWebCodecsBatchAudioDataCopyOptions {
@@ -90,7 +93,6 @@ interface NativeDecoderSnapshot {
 interface VerifiedAccessUnit {
   readonly accessUnitOrdinal: number;
   readonly bytes: Uint8Array;
-  readonly header: Readonly<AdtsHeader>;
 }
 
 interface ActiveBatch {
@@ -288,7 +290,7 @@ function snapshotNativeDecoder(value: unknown): NativeDecoderSnapshot {
   return Object.freeze({ authority, configure, decode, flush, close });
 }
 
-function snapshotBytes(value: unknown): Uint8Array {
+function snapshotBytes(value: unknown, minimumBytes: number, framingLabel: string): Uint8Array {
   if (
     !typedArrayByteLengthGetter ||
     !typedArrayBufferGetter ||
@@ -312,11 +314,10 @@ function snapshotBytes(value: unknown): Uint8Array {
       cause,
     );
   }
-  if (
-    byteLength < AAC_DECODER_BACKEND_MIN_ACCESS_UNIT_BYTES ||
-    byteLength > AAC_DECODER_BACKEND_MAX_ACCESS_UNIT_BYTES
-  ) {
-    throw new AacDecoderBackendIntegrityError('AAC access-unit byte length is outside ADTS bounds');
+  if (byteLength < minimumBytes || byteLength > AAC_DECODER_BACKEND_MAX_ACCESS_UNIT_BYTES) {
+    throw new AacDecoderBackendIntegrityError(
+      `AAC access-unit byte length is outside ${framingLabel} bounds`,
+    );
   }
 
   const owned = new Uint8ArrayIntrinsic(byteLength);
@@ -441,6 +442,7 @@ function snapshotBatch(
   value: unknown,
   expectedFirstOrdinal: number | null,
   expectedConfig: Readonly<AdtsCoreConfiguration>,
+  framing: Readonly<AacDecoderBackendFraming>,
 ): readonly VerifiedAccessUnit[] {
   let isArray: boolean;
   try {
@@ -518,7 +520,13 @@ function snapshotBatch(
           'AAC decoder batch ordinals must be exact and contiguous across the generation',
         );
       }
-      const bytes = snapshotBytes(record.bytes);
+      const bytes = snapshotBytes(
+        record.bytes,
+        framing.kind === 'adts'
+          ? AAC_DECODER_BACKEND_MIN_ACCESS_UNIT_BYTES
+          : AAC_DECODER_BACKEND_MIN_RAW_ACCESS_UNIT_BYTES,
+        framing.kind === 'adts' ? 'ADTS' : 'raw AAC',
+      );
       totalBytes += bytes.byteLength;
       if (totalBytes > AAC_DECODER_BACKEND_MAX_BATCH_ENCODED_BYTES) {
         Reflect.apply(uint8ArrayFill, bytes, [0]);
@@ -527,8 +535,8 @@ function snapshotBatch(
         );
       }
       try {
-        const header = verifyHeader(bytes, expectedConfig);
-        verified.push(Object.freeze({ accessUnitOrdinal: ordinal, bytes, header }));
+        if (framing.kind === 'adts') verifyHeader(bytes, expectedConfig);
+        verified.push(Object.freeze({ accessUnitOrdinal: ordinal, bytes }));
       } catch (cause) {
         Reflect.apply(uint8ArrayFill, bytes, [0]);
         throw cause;
@@ -618,9 +626,10 @@ class WebCodecsAacBatchDecoder implements AacDecoderBackend {
   readonly channels: 1 | 2;
   readonly firstAccessUnitOrdinal: number;
 
+  readonly #framing: Readonly<AacDecoderBackendFraming>;
+
   private readonly configuration: Readonly<AdtsCoreConfiguration>;
   private readonly bindings: BindingSnapshot;
-  private readonly config: Readonly<AacWebCodecsBatchDecoderConfig>;
   private readonly closedOutputs = new WeakSet<object>();
   private nativeDecoder: NativeDecoderSnapshot | null = null;
   private nativeCloseAttempted = false;
@@ -633,19 +642,35 @@ class WebCodecsAacBatchDecoder implements AacDecoderBackend {
   constructor(options: Readonly<AacDecoderBackendGenerationOptions>, bindings: BindingSnapshot) {
     this.configuration = options.coreConfiguration;
     this.firstAccessUnitOrdinal = options.firstAccessUnitOrdinal;
+    this.#framing = options.framing;
+    Object.defineProperty(this, 'framing', {
+      configurable: false,
+      enumerable: true,
+      value: this.#framing,
+      writable: false,
+    });
     this.nextAccessUnitOrdinal = options.firstAccessUnitOrdinal;
     this.channels = options.coreConfiguration.channelConfiguration;
     this.coreSampleRateHz = aacCoreSampleRateHz(options.coreConfiguration);
     this.bindings = bindings;
-    this.config = Object.freeze({
+  }
+
+  get framing(): Readonly<AacDecoderBackendFraming> {
+    return this.#framing;
+  }
+
+  createNativeConfig(): Readonly<AacWebCodecsBatchDecoderConfig> {
+    const base = {
       codec: AAC_LC_CODEC,
       sampleRate: this.coreSampleRateHz,
       numberOfChannels: this.channels,
-    });
-  }
-
-  get nativeConfig(): Readonly<AacWebCodecsBatchDecoderConfig> {
-    return this.config;
+    } as const;
+    if (this.#framing.kind === 'adts') return Object.freeze(base);
+    const description = new Uint8ArrayIntrinsic(this.#framing.description.length);
+    for (let index = 0; index < description.length; index += 1) {
+      description[index] = this.#framing.description[index] ?? 0;
+    }
+    return Object.freeze({ ...base, description });
   }
 
   initialize(): void {
@@ -670,7 +695,9 @@ class WebCodecsAacBatchDecoder implements AacDecoderBackend {
         this.closeNativeOnce();
         throw this.terminalFailure;
       }
-      Reflect.apply(this.nativeDecoder.configure, this.nativeDecoder.authority, [this.config]);
+      Reflect.apply(this.nativeDecoder.configure, this.nativeDecoder.authority, [
+        this.createNativeConfig(),
+      ]);
       if (this.terminalFailure !== NO_FAILURE) throw this.terminalFailure;
     } catch (cause) {
       const failure =
@@ -702,7 +729,12 @@ class WebCodecsAacBatchDecoder implements AacDecoderBackend {
     let active: ActiveBatch | null = null;
     try {
       throwIfAborted(signal);
-      verified = snapshotBatch(accessUnits, this.nextAccessUnitOrdinal, this.configuration);
+      verified = snapshotBatch(
+        accessUnits,
+        this.nextAccessUnitOrdinal,
+        this.configuration,
+        this.#framing,
+      );
       this.throwCurrentFailureOrAbort(signal);
 
       const expectedFrames = verified.length * AAC_DECODER_BACKEND_ACCESS_UNIT_CORE_FRAMES;
@@ -1118,7 +1150,7 @@ export async function createAacWebCodecsBatchDecoder(
   let support: unknown;
   try {
     const task = Reflect.apply(bindings.isConfigSupported, bindings.authority, [
-      generation.nativeConfig,
+      generation.createNativeConfig(),
     ]);
     support = await raceAbort(task, signal);
   } catch (cause) {
@@ -1140,7 +1172,9 @@ export async function createAacWebCodecsBatchDecoder(
   }
   throwIfAborted(signal);
   if (supported !== true) {
-    throw new AacDecoderBackendUnavailableError('WebCodecs does not support raw ADTS AAC-LC');
+    throw new AacDecoderBackendUnavailableError(
+      `WebCodecs does not support ${options.framing.kind} AAC-LC access units`,
+    );
   }
 
   try {

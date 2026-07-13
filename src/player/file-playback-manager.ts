@@ -1168,7 +1168,7 @@ export class FilePlaybackManager {
   ): Promise<FilePlaybackCutoverCandidatePort> {
     const { source, destination } = options;
     const authority = options.authority ?? null;
-    const state = this.stateFor(source);
+    const state = await this.adoptCutoverSource(source);
     let initialSnapshot: FilePlaybackSourceSnapshot;
     try {
       initialSnapshot = createFilePlaybackSourceSnapshot(source.getSnapshot());
@@ -2619,9 +2619,27 @@ export class FilePlaybackManager {
   private async rejectCutoverStageDuringLegacy(
     source: FilePlaybackCutoverSource,
   ): Promise<FilePlaybackCutoverCandidatePort> {
-    const state = this.stateFor(source);
+    const state = await this.adoptCutoverSource(source);
     await this.destroyIfUnowned(state);
     throw cutoverError('legacy playback slots must be retired before staging a cutover renderer');
+  }
+
+  /**
+   * A native staging Promise is the public ownership-transfer boundary. If the
+   * first source snapshot cannot even create manager state, settle destruction
+   * before rejecting so callers must never guess whether ownership transferred.
+   */
+  private async adoptCutoverSource(source: FilePlaybackCutoverSource): Promise<ManagedSource> {
+    try {
+      return this.stateFor(source);
+    } catch (error) {
+      try {
+        await Promise.resolve(source.destroy());
+      } catch {
+        // The original adoption failure remains authoritative.
+      }
+      throw error;
+    }
   }
 
   private authorityAllows(record: CutoverRecord): boolean {

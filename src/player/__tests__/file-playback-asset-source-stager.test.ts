@@ -11,8 +11,13 @@ import {
   type FilePlaybackAssetLease,
 } from '../file-playback-asset-registry.ts';
 import {
+  handoffFilePlaybackAssetSourceWarm,
+  prepareFilePlaybackAssetSourceWarm,
+  readFilePlaybackAssetSourceWarmReadiness,
+  retireFilePlaybackAssetSourceWarm,
   stageFilePlaybackAssetSource,
   type FilePlaybackAssetSourceStagerRuntimeForTests,
+  type PrepareFilePlaybackAssetSourceWarmOptions,
   type StageFilePlaybackAssetSourceOptions,
 } from '../file-playback-asset-source-stager.ts';
 import { FilePlaybackManager } from '../file-playback-manager.ts';
@@ -55,15 +60,68 @@ function fakeAudioBuffer(): AudioBuffer {
   } as AudioBuffer;
 }
 
+function managerAudioGraph(): {
+  readonly context: AudioContext;
+  readonly destination: AudioNode;
+} {
+  const createGain = vi.fn();
+  const context = {
+    currentTime: 0,
+    sampleRate: 48_000,
+    createGain,
+  } as unknown as AudioContext;
+  const gate = {
+    context,
+    gain: {
+      cancelScheduledValues: vi.fn(),
+      setValueAtTime: vi.fn(),
+    },
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  } as unknown as GainNode;
+  createGain.mockReturnValue(gate);
+  return { context, destination: { context } as AudioNode };
+}
+
 function fakeCutoverSource(
   backend: 'audio-buffer' | 'bounded-stream' = 'audio-buffer',
   destroy = vi.fn(async () => undefined),
+  connectedBufferedAheadSeconds = backend === 'bounded-stream' ? 4 : 12,
 ): FilePlaybackCutoverSource & { readonly backend: typeof backend } {
+  let phase: 'new' | 'ready' | 'connected' = 'new';
+  const getSnapshot = vi.fn(() => ({
+    schemaVersion: 1 as const,
+    queueItemId: QID,
+    backend,
+    phase,
+    revision: 0,
+    run: null,
+    durationSeconds: phase === 'new' ? null : 12,
+    positionSeconds: 0,
+    bufferedAheadSeconds:
+      phase === 'new'
+        ? 0
+        : phase === 'connected'
+          ? connectedBufferedAheadSeconds
+          : backend === 'bounded-stream'
+            ? 4
+            : 12,
+    outputSampleRateHz: phase === 'new' ? null : 48_000,
+    channelCount: phase === 'new' ? null : 2,
+    underrunCount: 0,
+    errorCode: null,
+  }));
   return {
     queueItemId: QID,
     backend,
-    prepare: vi.fn(async () => ({}) as never),
-    connect: vi.fn(async () => ({}) as never),
+    prepare: vi.fn(async () => {
+      phase = 'ready';
+      return getSnapshot();
+    }),
+    connect: vi.fn(async () => {
+      phase = 'connected';
+      return getSnapshot();
+    }),
     arm: vi.fn(async () => ({}) as never),
     armForCutover: vi.fn(async () => ({}) as never),
     finalize: vi.fn(async () => ({}) as never),
@@ -73,21 +131,7 @@ function fakeCutoverSource(
     seek: vi.fn(async () => ({}) as never),
     seekRevisioned: vi.fn(async () => ({}) as never),
     positionAt: vi.fn(() => ({}) as never),
-    getSnapshot: vi.fn(() => ({
-      schemaVersion: 1,
-      queueItemId: QID,
-      backend,
-      phase: 'connected',
-      revision: 0,
-      run: null,
-      durationSeconds: 12,
-      positionSeconds: 0,
-      bufferedAheadSeconds: backend === 'bounded-stream' ? 4 : 12,
-      outputSampleRateHz: 48_000,
-      channelCount: 2,
-      underrunCount: 0,
-      errorCode: null,
-    })),
+    getSnapshot,
     destroy,
   };
 }
@@ -186,13 +230,38 @@ function baseOptions(
   };
 }
 
+function warmOptions(
+  registry: FilePlaybackAssetRegistry,
+  lease: FilePlaybackAssetLease,
+  runtime: FilePlaybackAssetSourceStagerRuntimeForTests,
+  overrides: Partial<PrepareFilePlaybackAssetSourceWarmOptions> = {},
+): PrepareFilePlaybackAssetSourceWarmOptions {
+  const staged = baseOptions(registry, lease, runtime);
+  return {
+    registry: staged.registry,
+    roomToken: staged.roomToken,
+    assetLease: staged.assetLease,
+    expectedBinding: staged.expectedBinding,
+    audioContext: staged.audioContext,
+    clockBindings: staged.clockBindings,
+    signal: staged.signal,
+    isCurrent: staged.isCurrent,
+    decodeOrdinaryAudio: staged.decodeOrdinaryAudio,
+    runtime,
+    ...overrides,
+  };
+}
+
 function successfulRuntime(
   result: BlobFilePlaybackSourceResult,
   overrides: Partial<FilePlaybackAssetSourceStagerRuntimeForTests> = {},
 ) {
   const createBlobSource = vi.fn(async () => result);
   const createEncodedSource = vi.fn(async () => result);
-  const stageCandidate = vi.fn(async () => PORT as never);
+  const stageCandidate = vi.fn(async (_manager, options) => {
+    await options.source.connect(options.destination);
+    return PORT as never;
+  });
   const retireCandidate = vi.fn(async () => true);
   return {
     runtime: {
@@ -330,6 +399,344 @@ function nativeCafBlob(): Blob {
   );
 }
 
+describe('revision-free file playback warm source', () => {
+  it('prepares one disconnected body-free source without occupying a manager slot', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource('bounded-stream');
+    const release = vi.fn();
+    const h = successfulRuntime(factoryResult(source, release));
+    const signal = new AbortController().signal;
+
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, h.runtime, { signal }),
+    );
+
+    expect(source.prepare).toHaveBeenCalledOnce();
+    expect(source.prepare).toHaveBeenCalledWith(signal);
+    expect(source.connect).not.toHaveBeenCalled();
+    expect(h.stageCandidate).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    expect(readFilePlaybackAssetSourceWarmReadiness(warm)).toEqual({
+      durationSeconds: 12,
+      bufferedAheadSeconds: 4,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+    });
+    expect(Object.getPrototypeOf(warm)).toBeNull();
+    expect(Object.isFrozen(warm)).toBe(true);
+    expect(Object.isFrozen(warm.asset)).toBe(true);
+    expect(Object.isFrozen(warm.metadata)).toBe(true);
+    expect(Object.isFrozen(warm.readiness)).toBe(true);
+    expect(JSON.stringify(warm)).not.toMatch(/"blob":|audioBuffer|"source":|arrayBuffer/u);
+
+    await expect(retireFilePlaybackAssetSourceWarm(warm)).resolves.toBe(true);
+    expect(source.destroy).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('rejects manager, destination, run, and revision fields at the warm boundary', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource();
+    const h = successfulRuntime(factoryResult(source));
+    const invalid = {
+      ...warmOptions(setup.registry, setup.lease, h.runtime),
+      manager: new FilePlaybackManager(),
+      destination: {} as AudioNode,
+      run: Object.freeze({}),
+      revision: 1,
+    } as unknown as PrepareFilePlaybackAssetSourceWarmOptions;
+
+    await expect(prepareFilePlaybackAssetSourceWarm(invalid)).rejects.toThrow(/options/u);
+    expect(h.createBlobSource).not.toHaveBeenCalled();
+    expect(source.prepare).not.toHaveBeenCalled();
+  });
+
+  it('hands off exactly once and transfers cleanup ownership to the manager', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource();
+    const release = vi.fn();
+    const h = successfulRuntime(factoryResult(source, release));
+    const signal = new AbortController().signal;
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, h.runtime, { signal }),
+    );
+    const handoffOptions = {
+      authority: warm,
+      manager: new FilePlaybackManager(),
+      destination: {} as AudioNode,
+      signal,
+      isCurrent: () => true,
+    } as const;
+
+    const first = handoffFilePlaybackAssetSourceWarm(handoffOptions);
+    const duplicate = handoffFilePlaybackAssetSourceWarm(handoffOptions);
+    await expect(duplicate).rejects.toThrow(/stale/u);
+    const staged = await first;
+
+    expect(staged.cutoverPort).toBe(PORT);
+    expect(source.prepare).toHaveBeenCalledOnce();
+    expect(source.connect).toHaveBeenCalledOnce();
+    expect(h.stageCandidate).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(source.destroy).not.toHaveBeenCalled();
+    await expect(retireFilePlaybackAssetSourceWarm(warm)).resolves.toBe(false);
+    expect(() => readFilePlaybackAssetSourceWarmReadiness(warm)).toThrow(/stale/u);
+  });
+
+  it('coalesces repeated retirement and releases only after destroying the source', async () => {
+    const order: string[] = [];
+    const setup = blobRegistry();
+    const destroy = vi.fn(async () => {
+      order.push('destroy');
+    });
+    const release = vi.fn(() => order.push('release'));
+    const source = fakeCutoverSource('audio-buffer', destroy);
+    const h = successfulRuntime(factoryResult(source, release));
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, h.runtime),
+    );
+
+    const first = retireFilePlaybackAssetSourceWarm(warm);
+    const duplicate = retireFilePlaybackAssetSourceWarm(warm);
+    expect(duplicate).toBe(first);
+    await expect(first).resolves.toBe(true);
+
+    expect(order).toEqual(['destroy', 'release']);
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    await expect(
+      handoffFilePlaybackAssetSourceWarm({
+        authority: warm,
+        manager: new FilePlaybackManager(),
+        destination: {} as AudioNode,
+        signal: new AbortController().signal,
+        isCurrent: () => true,
+      }),
+    ).rejects.toThrow(/stale/u);
+  });
+
+  it('retires a prepared warm source when its original signal aborts', async () => {
+    const setup = blobRegistry();
+    const destroy = vi.fn(async () => undefined);
+    const release = vi.fn();
+    const source = fakeCutoverSource('bounded-stream', destroy);
+    const h = successfulRuntime(factoryResult(source, release));
+    const abort = new AbortController();
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, h.runtime, { signal: abort.signal }),
+    );
+
+    abort.abort(new Error('room closed'));
+    await vi.waitFor(() => {
+      expect(destroy).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
+    });
+    expect(() => readFilePlaybackAssetSourceWarmReadiness(warm)).toThrow(/stale/u);
+  });
+
+  it('joins retirement to an in-flight manager handoff and retires only its resolved port', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource();
+    const release = vi.fn();
+    const pendingStage = deferred<never>();
+    const retireCandidate = vi.fn(async () => true);
+    const stageCandidate = vi.fn(() => pendingStage.promise);
+    const runtime = {
+      createBlobSource: async () => factoryResult(source, release),
+      stageCandidate,
+      retireCandidate,
+    };
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, runtime),
+    );
+    const handoff = handoffFilePlaybackAssetSourceWarm({
+      authority: warm,
+      manager: new FilePlaybackManager(),
+      destination: {} as AudioNode,
+      signal: new AbortController().signal,
+      isCurrent: () => true,
+    });
+    await vi.waitFor(() => expect(stageCandidate).toHaveBeenCalledOnce());
+
+    const retirement = retireFilePlaybackAssetSourceWarm(warm);
+    pendingStage.resolve(PORT as never);
+
+    await expect(handoff).rejects.toThrow(/retired/u);
+    await expect(retirement).resolves.toBe(false);
+    expect(retireCandidate).toHaveBeenCalledOnce();
+    expect(retireCandidate.mock.calls[0]?.[1]).toBe(PORT);
+    expect(source.destroy).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('allows bounded buffering to grow between warm prepare and connected handoff', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource(
+      'bounded-stream',
+      vi.fn(async () => undefined),
+      6,
+    );
+    const h = successfulRuntime(factoryResult(source));
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, h.runtime),
+    );
+
+    expect(warm.readiness.bufferedAheadSeconds).toBe(4);
+    const staged = await handoffFilePlaybackAssetSourceWarm({
+      authority: warm,
+      manager: new FilePlaybackManager(),
+      destination: {} as AudioNode,
+      signal: new AbortController().signal,
+      isCurrent: () => true,
+    });
+
+    expect(staged.readiness.bufferedAheadSeconds).toBe(6);
+  });
+
+  it('hands an already-ready source to the actual manager without preparing it twice', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource('bounded-stream');
+    const release = vi.fn();
+    const graph = managerAudioGraph();
+    const manager = new FilePlaybackManager();
+    const runtime = { createBlobSource: async () => factoryResult(source, release) };
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, runtime, { audioContext: graph.context }),
+    );
+
+    const staged = await handoffFilePlaybackAssetSourceWarm({
+      authority: warm,
+      manager,
+      destination: graph.destination,
+      signal: new AbortController().signal,
+      isCurrent: () => true,
+    });
+
+    expect(source.prepare).toHaveBeenCalledOnce();
+    expect(source.connect).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    await expect(manager.retireCutoverCandidate(staged.cutoverPort)).resolves.toBe(true);
+    expect(source.destroy).toHaveBeenCalledOnce();
+    await expect(retireFilePlaybackAssetSourceWarm(warm)).resolves.toBe(false);
+  });
+
+  it('has the actual manager destroy a source when its first adoption snapshot fails', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource();
+    const release = vi.fn();
+    const graph = managerAudioGraph();
+    const getSnapshot = vi.mocked(source.getSnapshot);
+    const originalSnapshot = getSnapshot.getMockImplementation();
+    if (!originalSnapshot) throw new Error('fake source snapshot implementation is missing');
+    let snapshotCalls = 0;
+    getSnapshot.mockImplementation(() => {
+      snapshotCalls += 1;
+      if (snapshotCalls === 3) throw new Error('manager adoption snapshot failed');
+      return originalSnapshot();
+    });
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(
+        setup.registry,
+        setup.lease,
+        { createBlobSource: async () => factoryResult(source, release) },
+        { audioContext: graph.context },
+      ),
+    );
+
+    await expect(
+      handoffFilePlaybackAssetSourceWarm({
+        authority: warm,
+        manager: new FilePlaybackManager(),
+        destination: graph.destination,
+        signal: new AbortController().signal,
+        isCurrent: () => true,
+      }),
+    ).rejects.toThrow('manager adoption snapshot failed');
+
+    expect(source.destroy).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('does not bind a consumed renderer to the completed warm preparation signal', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource();
+    const graph = managerAudioGraph();
+    const manager = new FilePlaybackManager();
+    const preparation = new AbortController();
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(
+        setup.registry,
+        setup.lease,
+        { createBlobSource: async () => factoryResult(source) },
+        { audioContext: graph.context, signal: preparation.signal },
+      ),
+    );
+    const staged = await handoffFilePlaybackAssetSourceWarm({
+      authority: warm,
+      manager,
+      destination: graph.destination,
+      signal: new AbortController().signal,
+      isCurrent: () => true,
+    });
+    preparation.abort(new Error('warm slot consumed'));
+
+    await expect(
+      manager.armCutoverCandidate(staged.cutoverPort, {
+        protocolVersion: 2,
+        kind: 'rendezvous-arm',
+        queueItemId: QID,
+        runId: `run-${QID}`,
+        revision: 1,
+        rendezvousId: 'warm-signal-lifetime',
+        recipientId: 'local-peer',
+        positionSeconds: 0,
+        playbackRate: 1,
+        startAtRoomTimeMs: 5_000,
+        finalizeByRoomTimeMs: 4_000,
+      }),
+    ).rejects.toThrow(/arm result/u);
+    expect(source.armForCutover).toHaveBeenCalledOnce();
+  });
+
+  it('destroys a late prepared source when preparation authority is superseded', async () => {
+    const setup = blobRegistry();
+    const source = fakeCutoverSource();
+    const release = vi.fn();
+    const pendingPrepare = deferred<ReturnType<FilePlaybackCutoverSource['getSnapshot']>>();
+    vi.mocked(source.prepare).mockImplementation(() => pendingPrepare.promise);
+    let current = true;
+    const promise = prepareFilePlaybackAssetSourceWarm(
+      warmOptions(
+        setup.registry,
+        setup.lease,
+        { createBlobSource: async () => factoryResult(source, release) },
+        { isCurrent: () => current },
+      ),
+    );
+    await vi.waitFor(() => expect(source.prepare).toHaveBeenCalledOnce());
+    current = false;
+    pendingPrepare.resolve({
+      schemaVersion: 1,
+      queueItemId: QID,
+      backend: 'audio-buffer',
+      phase: 'ready',
+      revision: 0,
+      run: null,
+      durationSeconds: 12,
+      positionSeconds: 0,
+      bufferedAheadSeconds: 12,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+      underrunCount: 0,
+      errorCode: null,
+    });
+
+    await expect(promise).rejects.toThrow(/superseded/u);
+    expect(source.destroy).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+});
+
 describe('stageFilePlaybackAssetSource', () => {
   it('forwards the exact Blob, distributed identity, and canonical metadata once', async () => {
     const setup = blobRegistry();
@@ -441,7 +848,10 @@ describe('stageFilePlaybackAssetSource', () => {
             },
           },
         });
-      const stageCandidate = vi.fn(async () => PORT as never);
+      const stageCandidate = vi.fn(async (_manager, options) => {
+        await options.source.connect(options.destination);
+        return PORT as never;
+      });
 
       const staged = await stageFilePlaybackAssetSource(
         baseOptions(setup.registry, setup.lease, { createEncodedSource, stageCandidate }),
@@ -494,7 +904,10 @@ describe('stageFilePlaybackAssetSource', () => {
             createStreamingLinearPcmSource: () => createdSource as never,
           },
         });
-      const stageCandidate = vi.fn(async () => PORT as never);
+      const stageCandidate = vi.fn(async (_manager, options) => {
+        await options.source.connect(options.destination);
+        return PORT as never;
+      });
 
       const staged = await stageFilePlaybackAssetSource(
         baseOptions(registry, lease, { createBlobSource, stageCandidate }, { decodeOrdinaryAudio }),
@@ -616,7 +1029,7 @@ describe('stageFilePlaybackAssetSource', () => {
   it('retires the exact staged candidate instead of publishing invalid readiness', async () => {
     const setup = blobRegistry();
     const source = fakeCutoverSource();
-    vi.mocked(source.getSnapshot).mockReturnValue({
+    const invalidSnapshot = {
       schemaVersion: 1,
       queueItemId: QID,
       backend: 'audio-buffer',
@@ -630,32 +1043,52 @@ describe('stageFilePlaybackAssetSource', () => {
       channelCount: null,
       underrunCount: 0,
       errorCode: null,
+    } as const;
+    const retireCandidate = vi.fn(async () => true);
+    const stageCandidate = vi.fn(async (_manager, options) => {
+      await options.source.connect(options.destination);
+      vi.mocked(source.getSnapshot).mockReturnValue(invalidSnapshot);
+      return PORT as never;
     });
-    const h = successfulRuntime(factoryResult(source));
 
     await expect(
-      stageFilePlaybackAssetSource(baseOptions(setup.registry, setup.lease, h.runtime)),
+      stageFilePlaybackAssetSource(
+        baseOptions(setup.registry, setup.lease, {
+          createBlobSource: async () => factoryResult(source),
+          stageCandidate,
+          retireCandidate,
+        }),
+      ),
     ).rejects.toThrow(/readiness/u);
-    expect(h.retireCandidate).toHaveBeenCalledOnce();
+    expect(retireCandidate).toHaveBeenCalledOnce();
   });
 
   it('does not publish readiness when authority changes during its exact snapshot', async () => {
     const setup = blobRegistry();
     const source = fakeCutoverSource();
-    const exactSnapshot = source.getSnapshot();
     let current = true;
-    vi.mocked(source.getSnapshot).mockImplementation(() => {
+    const retireCandidate = vi.fn(async () => true);
+    const stageCandidate = vi.fn(async (_manager, options) => {
+      await options.source.connect(options.destination);
       current = false;
-      return exactSnapshot;
+      return PORT as never;
     });
-    const h = successfulRuntime(factoryResult(source));
 
     await expect(
       stageFilePlaybackAssetSource(
-        baseOptions(setup.registry, setup.lease, h.runtime, { isCurrent: () => current }),
+        baseOptions(
+          setup.registry,
+          setup.lease,
+          {
+            createBlobSource: async () => factoryResult(source),
+            stageCandidate,
+            retireCandidate,
+          },
+          { isCurrent: () => current },
+        ),
       ),
     ).rejects.toThrow(/superseded/u);
-    expect(h.retireCandidate).toHaveBeenCalledOnce();
+    expect(retireCandidate).toHaveBeenCalledOnce();
   });
 
   it('lets manager rejection own source destruction without a second destroy', async () => {

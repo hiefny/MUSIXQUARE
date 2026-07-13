@@ -41,12 +41,22 @@ function makeHeader(options: HeaderOptions = {}): Uint8Array {
   );
 }
 
-function makeFrame(options: HeaderOptions = {}, fill = 0x5a): Uint8Array {
+function makeFrame(options: HeaderOptions = {}, fill = 0x5a, mainDataBegin?: number): Uint8Array {
   const headerBytes = makeHeader(options);
   const header = parseMpegLayer3FrameHeader(headerBytes);
   const frame = new Uint8Array(header.frameLengthBytes);
   frame.fill(fill);
   frame.set(headerBytes);
+  if (mainDataBegin !== undefined) {
+    const sideInfoOffset = 4 + (header.hasCrc ? 2 : 0);
+    if (header.version === '1') {
+      frame[sideInfoOffset] = mainDataBegin >>> 1;
+      frame[sideInfoOffset + 1] =
+        ((mainDataBegin & 1) << 7) | ((frame[sideInfoOffset + 1] ?? 0) & 0x7f);
+    } else {
+      frame[sideInfoOffset] = mainDataBegin;
+    }
+  }
   return frame;
 }
 
@@ -90,6 +100,7 @@ class MemorySource implements EncodedAudioSource {
   shortRead = false;
   abortDuringRead: AbortController | null = null;
   abortReason: unknown = undefined;
+  abortOnReadNumber = 1;
 
   constructor(readonly bytes: Uint8Array) {}
 
@@ -105,7 +116,8 @@ class MemorySource implements EncodedAudioSource {
     this.maxConcurrentReads = Math.max(this.maxConcurrentReads, this.activeReads);
     try {
       await Promise.resolve();
-      if (this.abortDuringRead) this.abortDuringRead.abort(this.abortReason);
+      if (this.abortDuringRead && this.reads.length === this.abortOnReadNumber)
+        this.abortDuringRead.abort(this.abortReason);
       const returnedEnd = this.shortRead && length > 0 ? end - 1 : end;
       return this.bytes.subarray(offset, returnedEnd);
     } finally {
@@ -193,7 +205,12 @@ describe('scanMpegLayer3Frames', () => {
   });
 
   it('stops at a bounded prefix and reports exact continuation coordinates and callbacks', async () => {
-    const frames = [makeFrame(), makeFrame({ paddingBit: 1 }), makeFrame(), makeFrame()];
+    const frames = [
+      makeFrame({}, 0x5a, 511),
+      makeFrame({ paddingBit: 1 }, 0x5a, 0),
+      makeFrame({}, 0x5a, 257),
+      makeFrame({}, 0x5a, 42),
+    ];
     const bytes = concatenate(...frames);
     const verified: MpegLayer3VerifiedFrame[] = [];
     const result = await scanMpegLayer3Frames(
@@ -216,23 +233,58 @@ describe('scanMpegLayer3Frames', () => {
       byteOffset: expectedOffset,
     });
     expect(
-      verified.map(({ frameOrdinal, rawSample, byteOffset }) => ({
+      verified.map(({ frameOrdinal, rawSample, byteOffset, mainDataBeginBytes }) => ({
         frameOrdinal,
         rawSample,
         byteOffset,
+        mainDataBeginBytes,
       })),
     ).toEqual([
-      { frameOrdinal: 0, rawSample: 0, byteOffset: 0 },
-      { frameOrdinal: 1, rawSample: 1_152, byteOffset: frames[0]?.length },
+      { frameOrdinal: 0, rawSample: 0, byteOffset: 0, mainDataBeginBytes: 511 },
+      {
+        frameOrdinal: 1,
+        rawSample: 1_152,
+        byteOffset: frames[0]?.length,
+        mainDataBeginBytes: 0,
+      },
       {
         frameOrdinal: 2,
         rawSample: 2_304,
         byteOffset: (frames[0]?.length ?? 0) + (frames[1]?.length ?? 0),
+        mainDataBeginBytes: 257,
       },
     ]);
     expect(verified.every((frame) => Object.isFrozen(frame) && Object.isFrozen(frame.header))).toBe(
       true,
     );
+  });
+
+  it('reports both reservoir boundaries for every MPEG version and CRC layout', async () => {
+    for (const versionBits of [3, 2, 0] as const) {
+      for (const protectionBit of [0, 1] as const) {
+        for (const channelModeBits of [0, 1, 2, 3] as const) {
+          const maximum = versionBits === 3 ? 511 : 255;
+          for (const mainDataBegin of [0, maximum]) {
+            const frame = makeFrame(
+              { versionBits, protectionBit, channelModeBits },
+              0x5a,
+              mainDataBegin,
+            );
+            const verified: MpegLayer3VerifiedFrame[] = [];
+
+            await scanMpegLayer3Frames(
+              new MemorySource(frame),
+              boundariesFor(frame.length),
+              signal(),
+              { onVerifiedFrame: (value) => verified.push(value) },
+            );
+
+            expect(verified).toHaveLength(1);
+            expect(verified[0]?.mainDataBeginBytes).toBe(mainDataBegin);
+          }
+        }
+      }
+    }
   });
 
   it('allows bitrate, padding, CRC, and two-channel mode changes while detecting VBR', async () => {
@@ -313,6 +365,26 @@ describe('scanMpegLayer3Frames', () => {
     ).rejects.toBe(afterReason);
   });
 
+  it('honors abort while fetching the minimum side-info prefix', async () => {
+    const frame = makeFrame({}, 0x5a, 511);
+    const controller = new AbortController();
+    const reason = new Error('side-info prefix');
+    const source = new MemorySource(frame);
+    source.abortDuringRead = controller;
+    source.abortReason = reason;
+    source.abortOnReadNumber = 2;
+
+    await expect(
+      scanMpegLayer3Frames(source, boundariesFor(frame.length), controller.signal, {
+        pageBytes: 4,
+      }),
+    ).rejects.toBe(reason);
+    expect(source.reads).toEqual([
+      { offset: 0, length: 4 },
+      { offset: 4, length: 4 },
+    ]);
+  });
+
   it('uses sequential non-concurrent pages no larger than 64 KiB', async () => {
     const frame = makeFrame();
     const bytes = concatenate(...Array.from({ length: 200 }, () => frame));
@@ -326,6 +398,29 @@ describe('scanMpegLayer3Frames', () => {
     );
     expect(source.reads.every((read) => read.length <= MP3_FRAME_SCAN_MAX_PAGE_BYTES)).toBe(true);
     expect(source.maxConcurrentReads).toBe(1);
+  });
+
+  it('does not fetch a non-first frame body after its minimum prefix', async () => {
+    const options = {
+      versionBits: 0,
+      bitrateIndex: 14,
+      sampleRateIndex: 2,
+    } as const;
+    const first = makeFrame(options, 0x11, 0);
+    const second = makeFrame(options, 0x22, 255);
+    expect(first.length).toBe(1_440);
+    const source = new MemorySource(concatenate(first, second));
+    const verified: MpegLayer3VerifiedFrame[] = [];
+
+    const result = await scanMpegLayer3Frames(source, boundariesFor(source.size), signal(), {
+      pageBytes: 8,
+      onVerifiedFrame: (frame) => verified.push(frame),
+    });
+
+    expect(result.complete).toBe(true);
+    expect(verified.map((frame) => frame.mainDataBeginBytes)).toEqual([0, 255]);
+    expect(source.reads.at(-1)).toEqual({ offset: first.length, length: 8 });
+    expect(source.reads.reduce((total, read) => total + read.length, 0)).toBe(first.length + 8);
   });
 
   it('scans a prefix beyond 4 GiB without allocating the sparse source span', async () => {

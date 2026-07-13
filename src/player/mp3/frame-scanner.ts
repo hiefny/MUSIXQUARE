@@ -11,6 +11,7 @@ import {
   type MpegLayer3Version,
 } from './frame-header.ts';
 import type { Mp3Id3Boundaries } from './id3.ts';
+import { Mp3SideInfoError, parseMpegLayer3MainDataBegin } from './side-info.ts';
 
 export const MP3_FRAME_SCAN_MAX_PAGE_BYTES = 64 * 1_024;
 
@@ -26,6 +27,8 @@ export interface MpegLayer3FrameCoordinate {
 
 export interface MpegLayer3VerifiedFrame extends MpegLayer3FrameCoordinate {
   readonly header: MpegLayer3FrameHeader;
+  /** Exact Layer III bit-reservoir back-pointer declared by this frame. */
+  readonly mainDataBeginBytes: number;
 }
 
 export interface MpegLayer3FrameScanOptions {
@@ -190,6 +193,23 @@ function parseHeader(bytes: Uint8Array, byteOffset: number): MpegLayer3FrameHead
   }
 }
 
+function parseMainDataBegin(
+  framePrefix: Uint8Array,
+  header: MpegLayer3FrameHeader,
+  byteOffset: number,
+): number {
+  try {
+    return parseMpegLayer3MainDataBegin(framePrefix, header);
+  } catch (error) {
+    if (error instanceof Mp3SideInfoError || error instanceof MpegLayer3FrameHeaderError) {
+      throw new MpegLayer3FrameScanError(
+        `Invalid MPEG Layer III side-info at byte ${byteOffset}: ${error.message}`,
+      );
+    }
+    throw error;
+  }
+}
+
 function assertCompatibleHeader(
   first: MpegLayer3FrameHeader,
   current: MpegLayer3FrameHeader,
@@ -279,7 +299,8 @@ export async function scanMpegLayer3Frames(
       );
     }
 
-    const header = parseHeader(await reader.copyExact(byteOffset, FRAME_HEADER_BYTES), byteOffset);
+    const headerBytes = await reader.copyExact(byteOffset, FRAME_HEADER_BYTES);
+    const header = parseHeader(headerBytes, byteOffset);
     if (firstHeader === null) {
       firstHeader = header;
       if (header.frameLengthBytes > MAX_FIRST_FRAME_BYTES) {
@@ -296,6 +317,16 @@ export async function scanMpegLayer3Frames(
         `MPEG frame at byte ${byteOffset} is truncated at the declared audio end`,
       );
     }
+
+    const sideInfoPrefixBytes = (header.hasCrc ? 2 : 0) + (header.version === '1' ? 2 : 1);
+    const framePrefix = new Uint8Array(FRAME_HEADER_BYTES + sideInfoPrefixBytes);
+    framePrefix.set(headerBytes);
+    framePrefix.set(
+      await reader.copyExact(byteOffset + FRAME_HEADER_BYTES, sideInfoPrefixBytes),
+      FRAME_HEADER_BYTES,
+    );
+    const mainDataBeginBytes = parseMainDataBegin(framePrefix, header, byteOffset);
+
     if (firstFrame === null)
       firstFrame = await reader.copyExact(byteOffset, header.frameLengthBytes);
 
@@ -304,6 +335,7 @@ export async function scanMpegLayer3Frames(
       rawSample,
       byteOffset,
       header,
+      mainDataBeginBytes,
     });
     notifyVerifiedFrame(options.onVerifiedFrame, verified);
     throwIfAborted(signal);

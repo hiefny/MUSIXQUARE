@@ -583,6 +583,7 @@ interface PreparedTrackAuthority {
   readonly playbackState: Readonly<PlaybackStateIdentity>;
   readonly staged: Readonly<StagedLocalFilePlaybackParticipant>;
   readonly sourceLease: HostLocalTrackSourceLease | null;
+  sourcePhase: 'prepared' | 'starting' | 'current' | 'retired';
   started: boolean;
 }
 
@@ -605,6 +606,7 @@ interface WarmSourceLeaseAuthority {
   readonly operation: WarmTrackOperation;
   readonly asset: Readonly<FilePlaybackAssetSnapshot>;
   preparedAuthority: PreparedTrackAuthority | null;
+  retired: boolean;
 }
 
 interface WarmTrackHandoffBarrier {
@@ -1068,6 +1070,8 @@ export class FilePlaybackHostFirstFileEngine {
   >();
   #peerPublicationAuthority: PeerPublicationAuthority | null = null;
   #preparedTrackAuthority: PreparedTrackAuthority | null = null;
+  #preparedSourceAuthority: PreparedTrackAuthority | null = null;
+  #currentSourceAuthority: PreparedTrackAuthority | null = null;
   #warmTrackOperation: WarmTrackOperation | null = null;
   #warmEpoch = 0;
   #audioContext: AudioContext | null = null;
@@ -1304,6 +1308,7 @@ export class FilePlaybackHostFirstFileEngine {
         throw new Error('Host prepared local track has already started');
       }
       authority.started = true;
+      if (this.#preparedSourceAuthority === authority) authority.sourcePhase = 'starting';
       const task = this.#executePreparedCandidateStart(authority, remoteParticipants);
       authority.operation.task = task;
       return task;
@@ -1451,6 +1456,7 @@ export class FilePlaybackHostFirstFileEngine {
     const warm = this.#warmTrackOperation;
     this.#closed = true;
     this.#peerPublicationAuthority = null;
+    this.#retireAllSourceAuthorities();
     this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-room-closed');
     if (!active?.commitDominant) this.#operationEpoch += 1;
@@ -1628,13 +1634,13 @@ export class FilePlaybackHostFirstFileEngine {
       throw new TypeError('Host prepared peer-range source resolution options are invalid');
     }
     const signal = input.signal;
-    const authority = this.#requirePreparedTrackAuthority(input.prepared);
+    const authority = this.#requirePreparedSourceAuthority(input.prepared);
     const asset = authority.staged.asset;
     if (input.sourceIdentity !== asset.sourceIdentity) {
       throw new Error('Host prepared peer-range source identity is not the exact candidate');
     }
     throwIfAborted(signal);
-    this.#assertPreparedTrackAuthority(authority);
+    this.#assertPreparedSourceAuthority(authority);
 
     const blobResolution = this.#registry.resolveBlobAsset(
       this.#roomToken,
@@ -1653,7 +1659,7 @@ export class FilePlaybackHostFirstFileEngine {
       }
       await Promise.resolve();
       throwIfAborted(signal);
-      this.#assertPreparedTrackAuthority(authority);
+      this.#assertPreparedSourceAuthority(authority);
       return blobResolution.blob;
     }
 
@@ -1671,7 +1677,7 @@ export class FilePlaybackHostFirstFileEngine {
       }
       await Promise.resolve();
       throwIfAborted(signal);
-      this.#assertPreparedTrackAuthority(authority);
+      this.#assertPreparedSourceAuthority(authority);
       const resolved = source;
       source = null;
       return resolved;
@@ -2350,6 +2356,7 @@ export class FilePlaybackHostFirstFileEngine {
     ]) as Readonly<FilePlaybackHostTransitionCommit>;
     this.#assertTransitionControllerCommit(operation, intent, committed, 'stopped', null);
     this.#committedPort = null;
+    this.#retireCurrentSourceAuthority();
     this.#notifyTimelineCommitted('stop', operation.previousTimeline, committed.timeline);
     return this.#transitionResult('stop', evidence, committed.timeline);
   }
@@ -2392,6 +2399,7 @@ export class FilePlaybackHostFirstFileEngine {
       throw new Error('Host ended timeline commit did not match manager evidence');
     }
     this.#committedPort = null;
+    this.#retireCurrentSourceAuthority();
     this.#notifyTimelineCommitted('ended', operation.previousTimeline, committed.timeline);
     return this.#transitionResult('ended', evidence, committed.timeline);
   }
@@ -2632,6 +2640,7 @@ export class FilePlaybackHostFirstFileEngine {
         operation,
         asset,
         preparedAuthority: null,
+        retired: false,
       });
     }
     return freezeCanonical({
@@ -2710,6 +2719,7 @@ export class FilePlaybackHostFirstFileEngine {
   }
 
   #retireWarmTrackOperation(operation: WarmTrackOperation, reason: Error): Promise<void> {
+    if (!operation.claimed) this.#retireWarmSourceLeaseAuthority(operation);
     if (operation.retirementPromise) return operation.retirementPromise;
     const retirement = this.#executeWarmTrackRetirement(operation, reason);
     operation.retirementPromise = retirement;
@@ -2811,6 +2821,7 @@ export class FilePlaybackHostFirstFileEngine {
     if (!this.#fatalError) this.#fatalError = error;
     this.#closed = true;
     this.#peerPublicationAuthority = null;
+    this.#retireAllSourceAuthorities();
     this.#preparedTrackAuthority = null;
     const active = this.#activeOperation;
     const warm = this.#warmTrackOperation;
@@ -3200,9 +3211,16 @@ export class FilePlaybackHostFirstFileEngine {
       throw new Error('Host renderer physical commit cannot be superseded');
     }
     throwIfAborted(input.signal);
+    this.#retireCandidateSourceAuthority();
     this.#operationEpoch += 1;
     const operationController = new AbortController();
-    const forwardExternalAbort = () => operationController.abort(input.signal.reason);
+    const forwardExternalAbort = () => {
+      operationController.abort(input.signal.reason);
+      const sourceAuthority = this.#preparedSourceAuthority;
+      if (sourceAuthority?.operation === operation) {
+        this.#retirePreparedSourceAuthority(sourceAuthority);
+      }
+    };
     input.signal.addEventListener('abort', forwardExternalAbort, { once: true });
     const operation: ActiveStartOperation = {
       kind: 'candidate',
@@ -3329,6 +3347,8 @@ export class FilePlaybackHostFirstFileEngine {
         playbackState: staged.playbackState,
         staged,
         sourceLease: claimedSourceLease,
+        sourcePhase:
+          operation.action === 'first' || operation.action === 'track' ? 'prepared' : 'retired',
         started: false,
       };
       if (claimedSourceLease) {
@@ -3343,6 +3363,7 @@ export class FilePlaybackHostFirstFileEngine {
         leaseAuthority.preparedAuthority = authority;
       }
       this.#preparedTrackAuthority = authority;
+      if (authority.sourcePhase === 'prepared') this.#preparedSourceAuthority = authority;
       this.#assertPreparedTrackAuthority(authority);
       return prepared;
     } catch (error) {
@@ -3366,6 +3387,10 @@ export class FilePlaybackHostFirstFileEngine {
           this.#recordWarmCleanupFailure(failure);
           throw failure;
         }
+      }
+      const sourceAuthority = this.#preparedSourceAuthority;
+      if (sourceAuthority?.operation === operation) {
+        this.#retirePreparedSourceAuthority(sourceAuthority);
       }
       operation.removeExternalAbort();
       if (this.#activeOperation === operation) this.#activeOperation = null;
@@ -3487,6 +3512,7 @@ export class FilePlaybackHostFirstFileEngine {
         throw new Error('Host local file timeline commit did not match rendezvous acceptance');
       }
       operation.published = true;
+      if (this.#preparedSourceAuthority === authority) this.#retireCurrentSourceAuthority();
       if (
         this.#pendingNewRun?.queueItemId === input.asset.queueItemId &&
         this.#pendingNewRun.runId === input.runId &&
@@ -3504,6 +3530,12 @@ export class FilePlaybackHostFirstFileEngine {
         throw new Error('Host local renderer result did not match the accepted rendezvous');
       }
       this.#committedPort = started.port;
+      if (this.#preparedSourceAuthority === authority) {
+        authority.sourcePhase = 'current';
+        this.#preparedSourceAuthority = null;
+        this.#currentSourceAuthority = authority;
+        this.#assertPreparedSourceAuthority(authority);
+      }
 
       return freezeCanonical({
         schemaVersion: 1 as const,
@@ -3540,6 +3572,12 @@ export class FilePlaybackHostFirstFileEngine {
       }
       if (operation.commitDominant && !operation.published) {
         this.#quarantineAfterPhysicalFailure(error);
+      }
+      if (
+        this.#preparedSourceAuthority === authority ||
+        this.#currentSourceAuthority === authority
+      ) {
+        this.#retirePreparedSourceAuthority(authority);
       }
       throw error;
     } finally {
@@ -3588,6 +3626,42 @@ export class FilePlaybackHostFirstFileEngine {
     );
   }
 
+  #retireWarmSourceLeaseAuthority(operation: WarmTrackOperation): void {
+    const sourceLease = operation.sourceLease;
+    if (!sourceLease) return;
+    const authority = this.#warmSourceLeaseAuthorities.get(sourceLease);
+    if (authority?.operation === operation && authority.lease === sourceLease) {
+      authority.retired = true;
+    }
+  }
+
+  #retirePreparedSourceAuthority(authority: PreparedTrackAuthority): void {
+    authority.sourcePhase = 'retired';
+    if (this.#preparedSourceAuthority === authority) this.#preparedSourceAuthority = null;
+    if (this.#currentSourceAuthority === authority) this.#currentSourceAuthority = null;
+    const sourceLease = authority.sourceLease;
+    if (!sourceLease) return;
+    const leaseAuthority = this.#warmSourceLeaseAuthorities.get(sourceLease);
+    if (leaseAuthority?.lease === sourceLease && leaseAuthority.preparedAuthority === authority) {
+      leaseAuthority.retired = true;
+    }
+  }
+
+  #retireCandidateSourceAuthority(): void {
+    const authority = this.#preparedSourceAuthority;
+    if (authority) this.#retirePreparedSourceAuthority(authority);
+  }
+
+  #retireCurrentSourceAuthority(): void {
+    const authority = this.#currentSourceAuthority;
+    if (authority) this.#retirePreparedSourceAuthority(authority);
+  }
+
+  #retireAllSourceAuthorities(): void {
+    this.#retireCandidateSourceAuthority();
+    this.#retireCurrentSourceAuthority();
+  }
+
   #requireWarmSourceLeaseAuthority(value: unknown): WarmSourceLeaseAuthority {
     const authority =
       value !== null && typeof value === 'object'
@@ -3601,6 +3675,9 @@ export class FilePlaybackHostFirstFileEngine {
 
   #assertWarmSourceLeaseAuthority(authority: WarmSourceLeaseAuthority): void {
     const { lease, operation, asset } = authority;
+    if (authority.retired) {
+      throw new Error('Host warm source lease authority was retired');
+    }
     if (
       operation.sourceLease !== lease ||
       operation.asset.binding.queueItemId !== asset.queueItemId ||
@@ -3619,7 +3696,7 @@ export class FilePlaybackHostFirstFileEngine {
       ) {
         throw new Error('Host warm source lease handoff changed');
       }
-      this.#assertPreparedTrackAuthority(authority.preparedAuthority);
+      this.#assertPreparedSourceAuthority(authority.preparedAuthority);
     } else if (operation.claimed) {
       if (!operation.claimedBy) {
         throw new Error('Host warm source lease lost its handoff authority');
@@ -3637,6 +3714,102 @@ export class FilePlaybackHostFirstFileEngine {
     const currentAsset = this.#registry.snapshotForLease(this.#roomToken, operation.asset.lease);
     if (!currentAsset || !this.#samePeerAsset(currentAsset, asset)) {
       throw new Error('Host warm source lease asset authority changed');
+    }
+  }
+
+  #requirePreparedSourceAuthority(value: unknown): PreparedTrackAuthority {
+    const candidate = this.#preparedSourceAuthority;
+    const current = this.#currentSourceAuthority;
+    const authority =
+      value === candidate?.prepared ? candidate : value === current?.prepared ? current : null;
+    if (!authority) {
+      throw new Error('Host prepared peer source is not the exact current authority');
+    }
+    this.#assertPreparedSourceAuthority(authority);
+    return authority;
+  }
+
+  #assertPreparedSourceAuthority(authority: PreparedTrackAuthority): void {
+    const { prepared, operation, input, playbackState, staged, sourceLease, sourcePhase } =
+      authority;
+    const sourceLeaseAuthority = sourceLease
+      ? this.#warmSourceLeaseAuthorities.get(sourceLease)
+      : null;
+    const ownsExactPhase =
+      sourcePhase === 'current'
+        ? this.#currentSourceAuthority === authority
+        : (sourcePhase === 'prepared' || sourcePhase === 'starting') &&
+          this.#preparedSourceAuthority === authority;
+    if (
+      !ownsExactPhase ||
+      sourcePhase === 'retired' ||
+      this.#closed ||
+      this.#coordinatorClosed ||
+      this.#fatalError ||
+      (operation.action !== 'first' && operation.action !== 'track') ||
+      prepared.roomGeneration !== this.#roomGeneration ||
+      prepared.backend !== staged.backend ||
+      prepared.state !== playbackState ||
+      prepared.positionSeconds !== input.positionSeconds ||
+      prepared.playbackRate !== input.playbackRate ||
+      prepared.sourceLease !== sourceLease ||
+      (sourceLease !== null &&
+        (sourceLeaseAuthority?.preparedAuthority !== authority || sourceLeaseAuthority.retired)) ||
+      staged.playbackState !== playbackState ||
+      staged.asset.queueItemId !== playbackState.queueItemId ||
+      prepared.asset.binding.queueItemId !== staged.asset.queueItemId ||
+      prepared.asset.binding.sourceIdentity !== staged.asset.sourceIdentity ||
+      prepared.asset.binding.transferSessionId !== staged.asset.transferSessionId ||
+      prepared.asset.kind !== staged.asset.kind ||
+      prepared.asset.encodedSize !== staged.asset.size ||
+      prepared.asset.metadata.name !== staged.asset.name ||
+      prepared.asset.metadata.mime !== staged.asset.mime ||
+      this.#assets.get(staged.asset.queueItemId)?.lease !== input.asset.lease
+    ) {
+      throw this.#fatalError ?? new Error('Host prepared peer source authority is stale');
+    }
+    const currentAsset = this.#registry.snapshotForLease(this.#roomToken, input.asset.lease);
+    if (!currentAsset || !this.#samePeerAsset(currentAsset, staged.asset)) {
+      throw new Error('Host prepared peer source asset authority changed');
+    }
+    if (sourcePhase === 'prepared') {
+      this.#assertPreparedTrackAuthority(authority);
+      return;
+    }
+    this.#assertRoomClockAuthority();
+    const controller = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    if (
+      controller.roomGeneration !== this.#roomGeneration ||
+      controller.roomRole !== 'host' ||
+      controller.timeline !== timeline
+    ) {
+      throw new Error('Host prepared peer source room authority changed');
+    }
+    if (sourcePhase === 'starting') {
+      if (
+        !authority.started ||
+        this.#preparedTrackAuthority !== authority ||
+        this.#activeOperation !== operation ||
+        this.#operationEpoch !== operation.epoch ||
+        (!operation.published && timeline !== operation.previousTimeline)
+      ) {
+        throw new Error('Host prepared peer source start authority is stale');
+      }
+      if (!operation.commitDominant) throwIfAborted(operation.controller.signal);
+      if (
+        operation.published &&
+        (timeline.phase === 'stopped' ||
+          timeline.revision !== playbackState.revision ||
+          timeline.run?.queueItemId !== playbackState.queueItemId ||
+          timeline.run.runId !== playbackState.runId)
+      ) {
+        throw new Error('Host prepared peer source published timeline changed');
+      }
+      return;
+    }
+    if (timeline.phase === 'stopped' || timeline.run?.queueItemId !== staged.asset.queueItemId) {
+      throw new Error('Host prepared peer source is no longer the current track');
     }
   }
 
@@ -3680,7 +3853,8 @@ export class FilePlaybackHostFirstFileEngine {
       prepared.positionSeconds !== input.positionSeconds ||
       prepared.playbackRate !== input.playbackRate ||
       prepared.sourceLease !== sourceLease ||
-      (sourceLease !== null && sourceLeaseAuthority?.preparedAuthority !== authority) ||
+      (sourceLease !== null &&
+        (sourceLeaseAuthority?.preparedAuthority !== authority || sourceLeaseAuthority.retired)) ||
       staged.playbackState !== playbackState ||
       staged.asset.queueItemId !== playbackState.queueItemId ||
       prepared.asset.binding.queueItemId !== staged.asset.queueItemId ||
@@ -4181,6 +4355,7 @@ export class FilePlaybackHostFirstFileEngine {
     if (!this.#fatalError) this.#fatalError = error;
     this.#closed = true;
     this.#peerPublicationAuthority = null;
+    this.#retireAllSourceAuthorities();
     this.#preparedTrackAuthority = null;
     const warm = this.#warmTrackOperation;
     this.#cancelAllRemoteRecoveries('remote-recovery-room-quarantined');
@@ -4203,6 +4378,7 @@ export class FilePlaybackHostFirstFileEngine {
     if (!this.#fatalError) this.#fatalError = error;
     this.#closed = true;
     this.#peerPublicationAuthority = null;
+    this.#retireAllSourceAuthorities();
     this.#preparedTrackAuthority = null;
     const warm = this.#warmTrackOperation;
     this.#cancelAllRemoteRecoveries('remote-recovery-registry-fatal');
@@ -4270,6 +4446,7 @@ export class FilePlaybackHostFirstFileEngine {
       );
     }
     this.#peerPublicationAuthority = null;
+    this.#retireAllSourceAuthorities();
     this.#preparedTrackAuthority = null;
     if (this.#warmTrackOperation !== null) {
       throw new HostFirstFileCleanupError(

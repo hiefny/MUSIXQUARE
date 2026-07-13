@@ -1175,14 +1175,379 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     ).resolves.toBe(blob);
 
     const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await drainMicrotasks();
+    expect(harness.controller.timelineSnapshot()).toMatchObject({
+      phase: 'playing',
+      run: { queueItemId: Q1 },
+    });
     await expect(
       harness.engine.resolveWarmPeerRangeSource({
         sourceLease,
         sourceIdentity: warm.asset.binding.sourceIdentity,
         signal: new AbortController().signal,
       }),
-    ).rejects.toThrow(/already started/u);
+    ).resolves.toBe(blob);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
     await resolveLatestStart(harness, pending);
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+    await harness.engine.close();
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+  });
+
+  it('retires both source resolvers when a prepared candidate aborts before start', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([37, 38])], { type: 'audio/flac' });
+    const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const sourceLease = warm.sourceLease;
+    if (!sourceLease) throw new Error('Fixture expected a bounded warm source lease');
+    const candidateAbort = new AbortController();
+    const prepared = await harness.engine.prepareLocalTrack({
+      ...localTrackOptions(harness, Q1, blob, 0),
+      signal: candidateAbort.signal,
+    });
+
+    candidateAbort.abort(new Error('fixture prepared candidate aborted'));
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+    await harness.engine.close();
+  });
+
+  it('retires a failed candidate pair while preserving both exact current resolvers', async () => {
+    const harness = makeHarness([
+      { backend: 'bounded-stream' },
+      { backend: 'bounded-stream', rejectArm: true },
+    ]);
+    const currentBlob = new Blob([new Uint8Array([39, 40])], { type: 'audio/flac' });
+    const currentWarm = await harness.engine.warmLocalTrack(
+      warmTrackOptions(harness, Q1, currentBlob),
+    );
+    const currentLease = currentWarm.sourceLease;
+    if (!currentLease) throw new Error('Fixture expected a bounded current source lease');
+    const currentPrepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, currentBlob, 0),
+    );
+    await resolveLatestStart(
+      harness,
+      harness.engine.startPreparedLocalTrack({
+        prepared: currentPrepared,
+        remoteParticipants: [],
+      }),
+    );
+
+    const failedBlob = new Blob([new Uint8Array([47, 48])], { type: 'audio/flac' });
+    const failedWarm = await harness.engine.warmLocalTrack(
+      warmTrackOptions(harness, Q2, failedBlob),
+    );
+    const failedLease = failedWarm.sourceLease;
+    if (!failedLease) throw new Error('Fixture expected a bounded failed source lease');
+    const failedPrepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q2, failedBlob, 0),
+    );
+    const pending = harness.engine.startPreparedLocalTrack({
+      prepared: failedPrepared,
+      remoteParticipants: [],
+    });
+
+    await expect(pending).rejects.toThrow(/cutover-manager-arm-failed|fixture arm rejection/u);
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease: failedLease,
+        sourceIdentity: failedWarm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared: failedPrepared,
+        sourceIdentity: failedPrepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease: currentLease,
+        sourceIdentity: currentWarm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(currentBlob);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared: currentPrepared,
+        sourceIdentity: currentPrepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(currentBlob);
+    await harness.engine.close();
+  });
+
+  it('keeps both current resolvers through next-track preparation and retires them at commit', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([41, 42])], { type: 'audio/flac' });
+    const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const sourceLease = warm.sourceLease;
+    if (!sourceLease) throw new Error('Fixture expected a bounded warm source lease');
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    await resolveLatestStart(
+      harness,
+      harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+    );
+    harness.setRoomTime(2_000);
+
+    const nextBlob = new Blob([new Uint8Array([43, 44])], { type: 'audio/flac' });
+    const nextPreparation = harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q2, nextBlob, 0),
+    );
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+    const nextPrepared = await nextPreparation;
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared: nextPrepared,
+        sourceIdentity: nextPrepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(nextBlob);
+
+    const nextStart = harness.engine.startPreparedLocalTrack({
+      prepared: nextPrepared,
+      remoteParticipants: [],
+    });
+    await drainMicrotasks();
+    expect(harness.controller.timelineSnapshot()).toMatchObject({
+      phase: 'playing',
+      run: { queueItemId: Q2 },
+    });
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared: nextPrepared,
+        sourceIdentity: nextPrepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(nextBlob);
+    await resolveLatestStart(harness, nextStart);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared: nextPrepared,
+        sourceIdentity: nextPrepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(nextBlob);
+    await harness.engine.close();
+  });
+
+  it('keeps both current resolvers through a future stop and retires them after commit', async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = makeHarness([{ backend: 'bounded-stream' }]);
+      const blob = new Blob([new Uint8Array([45, 46])], { type: 'audio/flac' });
+      const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+      const sourceLease = warm.sourceLease;
+      if (!sourceLease) throw new Error('Fixture expected a bounded warm source lease');
+      const prepared = await harness.engine.prepareLocalTrack(
+        localTrackOptions(harness, Q1, blob, 0),
+      );
+      await resolveLatestStart(
+        harness,
+        harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+      );
+      harness.setRoomTime(2_000);
+
+      const stopping = harness.engine.stopCurrent({ signal: new AbortController().signal });
+      await drainMicrotasks();
+      await expect(
+        harness.engine.resolveWarmPeerRangeSource({
+          sourceLease,
+          sourceIdentity: warm.asset.binding.sourceIdentity,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toBe(blob);
+      await expect(
+        harness.engine.resolvePreparedPeerRangeSource({
+          prepared,
+          sourceIdentity: prepared.asset.binding.sourceIdentity,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toBe(blob);
+
+      harness.context.currentTime = 10;
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(stopping).resolves.toMatchObject({
+        kind: 'stop',
+        timeline: { phase: 'stopped', run: null },
+      });
+      await expect(
+        harness.engine.resolveWarmPeerRangeSource({
+          sourceLease,
+          sourceIdentity: warm.asset.binding.sourceIdentity,
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow(/authority|retired|stale/u);
+      await expect(
+        harness.engine.resolvePreparedPeerRangeSource({
+          prepared,
+          sourceIdentity: prepared.asset.binding.sourceIdentity,
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow(/authority|retired|stale/u);
+      await harness.engine.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['stop', 'ended'] as const)(
+    'preserves both current resolvers when %s fails before its manager commit',
+    async (action) => {
+      const harness = makeHarness([{ backend: 'bounded-stream' }], {
+        beforeManagerTransition: () => {
+          throw new Error('fixture transition failed before manager commit');
+        },
+      });
+      const blob = new Blob([new Uint8Array([49, 50])], { type: 'audio/flac' });
+      const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+      const sourceLease = warm.sourceLease;
+      if (!sourceLease) throw new Error('Fixture expected a bounded warm source lease');
+      const prepared = await harness.engine.prepareLocalTrack(
+        localTrackOptions(harness, Q1, blob, 0),
+      );
+      await resolveLatestStart(
+        harness,
+        harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+      );
+      if (action === 'ended') harness.sources[0]?.markEnded();
+      harness.setRoomTime(2_000);
+
+      const transition =
+        action === 'stop'
+          ? harness.engine.stopCurrent({ signal: new AbortController().signal })
+          : harness.engine.settleEndedCurrent({ signal: new AbortController().signal });
+      await expect(transition).rejects.toThrow(/fixture transition failed before manager commit/u);
+      await expect(
+        harness.engine.resolveWarmPeerRangeSource({
+          sourceLease,
+          sourceIdentity: warm.asset.binding.sourceIdentity,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toBe(blob);
+      await expect(
+        harness.engine.resolvePreparedPeerRangeSource({
+          prepared,
+          sourceIdentity: prepared.asset.binding.sourceIdentity,
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toBe(blob);
+      await harness.engine.close();
+    },
+  );
+
+  it('retires both current resolvers after a successful ended commit', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([51, 52])], { type: 'audio/flac' });
+    const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const sourceLease = warm.sourceLease;
+    if (!sourceLease) throw new Error('Fixture expected a bounded warm source lease');
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    await resolveLatestStart(
+      harness,
+      harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+    );
+    harness.sources[0]?.markEnded();
+    harness.setRoomTime(2_000);
+
+    await expect(
+      harness.engine.settleEndedCurrent({ signal: new AbortController().signal }),
+    ).resolves.toMatchObject({
+      kind: 'ended',
+      timeline: { phase: 'stopped', run: null },
+    });
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/authority|retired|stale/u);
     await harness.engine.close();
   });
 
@@ -1716,13 +2081,20 @@ describe('FilePlaybackHostFirstFileEngine', () => {
         sourceIdentity: prepared.asset.binding.sourceIdentity,
         signal: new AbortController().signal,
       }),
-    ).rejects.toThrow(/already started/u);
+    ).resolves.toBe(blob);
     const committed = await resolveLatestStart(harness, pending);
     expect(committed.timeline).toMatchObject({
       phase: 'playing',
       revision: 1,
       run: { queueItemId: Q1, runId: RUN_1 },
     });
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
     await harness.engine.close();
   });
 

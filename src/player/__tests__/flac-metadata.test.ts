@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { readFlacMetadata } from '../flac/metadata.ts';
 import { BlobEncodedAudioSource } from '../sources/blob-encoded-audio-source.ts';
+import type {
+  EncodedAudioSource,
+  EncodedAudioSourceMetadata,
+} from '../sources/encoded-audio-source.ts';
+
+const MAX_SOURCE_READ_BYTES = 64 * 1024;
+const SEEKPOINT_BYTES = 18;
+const SEEKTABLE_PAGE_POINTS = Math.floor(MAX_SOURCE_READ_BYTES / SEEKPOINT_BYTES);
 
 function uint64(value: bigint): Uint8Array {
   const bytes = new Uint8Array(8);
@@ -62,10 +70,56 @@ function seekPoint(sample: bigint, offset: bigint, frameSamples = 4096): Uint8Ar
   ]);
 }
 
-function flac(...blocks: Uint8Array[]): BlobEncodedAudioSource {
+function seekTable(
+  count: number,
+  createPoint: (index: number) => Uint8Array = (index) =>
+    seekPoint(BigInt(index) * 4096n, BigInt(index)),
+): Uint8Array {
+  const bytes = new Uint8Array(count * SEEKPOINT_BYTES);
+  for (let index = 0; index < count; index += 1) {
+    bytes.set(createPoint(index), index * SEEKPOINT_BYTES);
+  }
+  return bytes;
+}
+
+function flacWithAudio(audioBytes: number, ...blocks: Uint8Array[]): BlobEncodedAudioSource {
   return new BlobEncodedAudioSource(
-    new Blob([new Uint8Array([0x66, 0x4c, 0x61, 0x43]), ...blocks, new Uint8Array(128).fill(0xff)]),
+    new Blob([
+      new Uint8Array([0x66, 0x4c, 0x61, 0x43]),
+      ...blocks,
+      new Uint8Array(audioBytes).fill(0xff),
+    ]),
   );
+}
+
+function flac(...blocks: Uint8Array[]): BlobEncodedAudioSource {
+  return flacWithAudio(128, ...blocks);
+}
+
+class ReadCappedEncodedAudioSource implements EncodedAudioSource {
+  readonly kind = 'blob' as const;
+  readonly size: number;
+  readonly identity: string;
+  readonly metadata: EncodedAudioSourceMetadata;
+  readonly readLengths: number[] = [];
+
+  constructor(private readonly source: BlobEncodedAudioSource) {
+    this.size = source.size;
+    this.identity = source.identity;
+    this.metadata = source.metadata;
+  }
+
+  async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
+    this.readLengths.push(length);
+    if (length > MAX_SOURCE_READ_BYTES) {
+      throw new Error(`fixture rejected ${length}-byte read`);
+    }
+    return this.source.readAt(offset, length, signal);
+  }
+
+  close(): Promise<void> {
+    return this.source.close();
+  }
 }
 
 describe('readFlacMetadata', () => {
@@ -104,6 +158,87 @@ describe('readFlacMetadata', () => {
       { sample: 0, streamOffset: 0, frameSamples: 4096 },
       { sample: 1_000_000, streamOffset: 64, frameSamples: 4096 },
     ]);
+  });
+
+  it('pages a large SEEKTABLE below the source ceiling and retains bounded endpoint anchors', async () => {
+    const pointCount = 9_000;
+    const table = seekTable(pointCount + 1, (index) =>
+      index === pointCount
+        ? seekPoint(0xffff_ffff_ffff_ffffn, 0xffff_ffff_ffff_ffffn, 0)
+        : seekPoint(BigInt(index) * 4096n, BigInt(index)),
+    );
+    const source = new ReadCappedEncodedAudioSource(
+      flacWithAudio(pointCount + 32, block(0, streamInfo()), block(3, table, true)),
+    );
+    const metadata = await readFlacMetadata(source, new AbortController().signal);
+    const repeated = await readFlacMetadata(source, new AbortController().signal);
+
+    expect(Math.max(...source.readLengths)).toBe(SEEKTABLE_PAGE_POINTS * SEEKPOINT_BYTES);
+    expect(metadata.seekPoints.length).toBeLessThanOrEqual(8_192);
+    expect(metadata.seekPoints[0]).toEqual({ sample: 0, streamOffset: 0, frameSamples: 4096 });
+    expect(metadata.seekPoints.at(-1)).toEqual({
+      sample: (pointCount - 1) * 4096,
+      streamOffset: pointCount - 1,
+      frameSamples: 4096,
+    });
+    expect(
+      metadata.seekPoints.every(
+        (point, index) => index === 0 || point.sample > metadata.seekPoints[index - 1]!.sample,
+      ),
+    ).toBe(true);
+    expect(repeated.seekPoints).toEqual(metadata.seekPoints);
+  });
+
+  it('keeps order, placeholder, and offset validation across SEEKTABLE page boundaries', async () => {
+    const signal = new AbortController().signal;
+    const pointCount = SEEKTABLE_PAGE_POINTS + 1;
+    const parse = (table: Uint8Array) =>
+      readFlacMetadata(
+        flacWithAudio(pointCount + 32, block(0, streamInfo()), block(3, table, true)),
+        signal,
+      );
+
+    const unorderedSample = seekTable(pointCount, (index) =>
+      seekPoint(BigInt(index === SEEKTABLE_PAGE_POINTS ? index - 1 : index) * 4096n, BigInt(index)),
+    );
+    await expect(parse(unorderedSample)).rejects.toThrow('not strictly ordered');
+
+    const unorderedOffset = seekTable(pointCount, (index) =>
+      seekPoint(BigInt(index) * 4096n, BigInt(index === SEEKTABLE_PAGE_POINTS ? index - 1 : index)),
+    );
+    await expect(parse(unorderedOffset)).rejects.toThrow('not strictly ordered');
+
+    const pointAfterPlaceholder = seekTable(pointCount, (index) =>
+      index === SEEKTABLE_PAGE_POINTS - 1
+        ? seekPoint(0xffff_ffff_ffff_ffffn, 123n, 0)
+        : seekPoint(BigInt(index) * 4096n, BigInt(index)),
+    );
+    await expect(parse(pointAfterPlaceholder)).rejects.toThrow('placeholders must occur last');
+  });
+
+  it('validates compacted-away entries and the aggregate maximum stream offset', async () => {
+    const signal = new AbortController().signal;
+    const pointCount = 9_000;
+    const invalidDiscardedFrame = seekTable(pointCount, (index) =>
+      seekPoint(BigInt(index) * 4096n, BigInt(index), index === 4097 ? 4097 : 4096),
+    );
+    await expect(
+      readFlacMetadata(
+        flacWithAudio(
+          pointCount + 32,
+          block(0, streamInfo()),
+          block(3, invalidDiscardedFrame, true),
+        ),
+        signal,
+      ),
+    ).rejects.toThrow('contradicts STREAMINFO bounds');
+
+    await expect(
+      readFlacMetadata(
+        flacWithAudio(128, block(0, streamInfo()), block(3, seekTable(pointCount), true)),
+        signal,
+      ),
+    ).rejects.toThrow('offset is outside the audio stream');
   });
 
   it('accepts one empty or placeholder-only SEEKTABLE but rejects every duplicate', async () => {

@@ -9,6 +9,8 @@ const SEEKPOINT_BYTES = 18;
 const MAX_METADATA_BLOCKS = 128;
 const MAX_METADATA_SPAN_BYTES = 64 * 1024 * 1024;
 const MAX_SEEKTABLE_BYTES = 4 * 1024 * 1024;
+const MAX_SEEK_POINTS = 8_192;
+const MAX_SEEKTABLE_PAGE_BYTES = Math.floor((64 * 1024) / SEEKPOINT_BYTES) * SEEKPOINT_BYTES;
 const PLACEHOLDER_SAMPLE = 0xffff_ffff_ffff_ffffn;
 
 export interface FlacSeekPoint {
@@ -115,73 +117,117 @@ function parseStreamInfo(bytes: Uint8Array): FlacStreamInfo {
   });
 }
 
-function parseSeekTable(bytes: Uint8Array): readonly FlacSeekPoint[] {
-  if (bytes.byteLength % SEEKPOINT_BYTES !== 0) {
+interface ParsedSeekTable {
+  readonly points: readonly FlacSeekPoint[];
+  /** Maximum offset across every useful entry, including compacted-away entries. */
+  readonly maximumStreamOffset: number;
+}
+
+function compactSeekPoints(points: readonly FlacSeekPoint[]): FlacSeekPoint[] {
+  const lastIndex = points.length - 1;
+  return points.filter((_point, index) => index === 0 || index === lastIndex || index % 2 === 0);
+}
+
+function validateSeekPointFrameBounds(point: FlacSeekPoint, streamInfo: FlacStreamInfo): void {
+  if (point.sample >= streamInfo.totalSamples) {
+    throw new EncodedSourceIntegrityError('FLAC SEEKTABLE sample is outside the stream');
+  }
+
+  const frameEndSample = point.sample + point.frameSamples;
+  const isLastFrame = frameEndSample === streamInfo.totalSamples;
+  if (
+    !Number.isSafeInteger(frameEndSample) ||
+    frameEndSample > streamInfo.totalSamples ||
+    point.frameSamples > streamInfo.maxBlockSize ||
+    (point.frameSamples < streamInfo.minBlockSize && !isLastFrame)
+  ) {
+    throw new EncodedSourceIntegrityError(
+      'FLAC SEEKTABLE target frame contradicts STREAMINFO bounds',
+    );
+  }
+
+  if ((point.sample === 0) !== (point.streamOffset === 0)) {
+    throw new EncodedSourceIntegrityError('FLAC SEEKTABLE offset is outside the audio stream');
+  }
+}
+
+async function parseSeekTable(
+  source: EncodedAudioSource,
+  bodyOffset: number,
+  length: number,
+  streamInfo: FlacStreamInfo,
+  signal: AbortSignal,
+): Promise<ParsedSeekTable> {
+  if (length % SEEKPOINT_BYTES !== 0) {
     throw new EncodedSourceIntegrityError('FLAC SEEKTABLE length is not a multiple of 18 bytes');
   }
 
-  const points: FlacSeekPoint[] = [];
+  let points: FlacSeekPoint[] = [];
   let previousSample = -1;
   let previousOffset = -1;
+  let maximumStreamOffset = -1;
   let sawPlaceholder = false;
-  for (let offset = 0; offset < bytes.byteLength; offset += SEEKPOINT_BYTES) {
-    const rawSample = readUint64(bytes, offset);
-    if (rawSample === PLACEHOLDER_SAMPLE) {
-      // The offset and frame-size fields of placeholders are deliberately
-      // undefined by FLAC. Only their position at the end of the table is
-      // structural, so do not interpret the remaining 10 bytes.
-      sawPlaceholder = true;
-      continue;
+  let pageOffset = 0;
+
+  while (pageOffset < length) {
+    const pageLength = Math.min(MAX_SEEKTABLE_PAGE_BYTES, length - pageOffset);
+    const bytes = await readExact(source, bodyOffset + pageOffset, pageLength, signal);
+
+    for (let offset = 0; offset < bytes.byteLength; offset += SEEKPOINT_BYTES) {
+      const rawSample = readUint64(bytes, offset);
+      if (rawSample === PLACEHOLDER_SAMPLE) {
+        // The offset and frame-size fields of placeholders are deliberately
+        // undefined by FLAC. Only their position at the end of the table is
+        // structural, so do not interpret the remaining 10 bytes.
+        sawPlaceholder = true;
+        continue;
+      }
+      if (sawPlaceholder) {
+        throw new EncodedSourceIntegrityError('FLAC SEEKTABLE placeholders must occur last');
+      }
+      const sample = toSafeNumber(rawSample, 'FLAC seek sample');
+      const streamOffset = toSafeNumber(readUint64(bytes, offset + 8), 'FLAC seek offset');
+      const frameSamples = ((bytes[offset + 16] ?? 0) << 8) | (bytes[offset + 17] ?? 0);
+      if (sample <= previousSample || streamOffset <= previousOffset || frameSamples <= 0) {
+        throw new EncodedSourceIntegrityError('FLAC SEEKTABLE entries are not strictly ordered');
+      }
+
+      const point = Object.freeze({ sample, streamOffset, frameSamples });
+      validateSeekPointFrameBounds(point, streamInfo);
+      if (points.length === MAX_SEEK_POINTS) {
+        // Repeated dyadic compaction is deterministic and keeps both the first
+        // useful anchor and the newest (therefore last) useful anchor. Global
+        // validation uses the aggregate state below, never this retained set.
+        points = compactSeekPoints(points);
+      }
+      points.push(point);
+      previousSample = sample;
+      previousOffset = streamOffset;
+      maximumStreamOffset = Math.max(maximumStreamOffset, streamOffset);
     }
-    if (sawPlaceholder) {
-      throw new EncodedSourceIntegrityError('FLAC SEEKTABLE placeholders must occur last');
-    }
-    const sample = toSafeNumber(rawSample, 'FLAC seek sample');
-    const streamOffset = toSafeNumber(readUint64(bytes, offset + 8), 'FLAC seek offset');
-    const frameSamples = ((bytes[offset + 16] ?? 0) << 8) | (bytes[offset + 17] ?? 0);
-    if (sample <= previousSample || streamOffset <= previousOffset || frameSamples <= 0) {
-      throw new EncodedSourceIntegrityError('FLAC SEEKTABLE entries are not strictly ordered');
-    }
-    points.push(Object.freeze({ sample, streamOffset, frameSamples }));
-    previousSample = sample;
-    previousOffset = streamOffset;
+
+    pageOffset += pageLength;
   }
-  return Object.freeze(points);
+
+  return Object.freeze({
+    points: Object.freeze(points),
+    maximumStreamOffset,
+  });
 }
 
-function validateSeekPointBounds(
-  points: readonly FlacSeekPoint[],
+function validateSeekTableAudioBounds(
+  maximumStreamOffset: number,
   streamInfo: FlacStreamInfo,
   firstAudioFrameOffset: number,
   sourceSize: number,
 ): void {
+  if (maximumStreamOffset < 0) return;
   const audioSpan = sourceSize - firstAudioFrameOffset;
   const minimumTargetFrameBytes = Math.max(2, streamInfo.minFrameSize);
-
-  for (const point of points) {
-    if (point.sample >= streamInfo.totalSamples) {
-      throw new EncodedSourceIntegrityError('FLAC SEEKTABLE sample is outside the stream');
-    }
-
-    const frameEndSample = point.sample + point.frameSamples;
-    const isLastFrame = frameEndSample === streamInfo.totalSamples;
-    if (
-      !Number.isSafeInteger(frameEndSample) ||
-      frameEndSample > streamInfo.totalSamples ||
-      point.frameSamples > streamInfo.maxBlockSize ||
-      (point.frameSamples < streamInfo.minBlockSize && !isLastFrame)
-    ) {
-      throw new EncodedSourceIntegrityError(
-        'FLAC SEEKTABLE target frame contradicts STREAMINFO bounds',
-      );
-    }
-
-    if (
-      point.streamOffset > audioSpan - minimumTargetFrameBytes ||
-      (point.sample === 0) !== (point.streamOffset === 0)
-    ) {
-      throw new EncodedSourceIntegrityError('FLAC SEEKTABLE offset is outside the audio stream');
-    }
+  // Every useful offset was checked for strict monotonicity while streaming,
+  // so bounding the aggregate maximum also bounds compacted-away entries.
+  if (maximumStreamOffset > audioSpan - minimumTargetFrameBytes) {
+    throw new EncodedSourceIntegrityError('FLAC SEEKTABLE offset is outside the audio stream');
   }
 }
 
@@ -223,6 +269,7 @@ export async function readFlacMetadata(
   let blockCount = 0;
   let streamInfo: FlacStreamInfo | null = null;
   let seekPoints: readonly FlacSeekPoint[] = Object.freeze([]);
+  let maximumSeekStreamOffset = -1;
   let sawSeekTable = false;
   let last = false;
 
@@ -253,14 +300,19 @@ export async function readFlacMetadata(
       if (length > MAX_SEEKTABLE_BYTES) {
         throw new EncodedSourceIntegrityError('FLAC SEEKTABLE is unreasonably large');
       }
-      seekPoints = parseSeekTable(await readExact(source, cursor, length, signal));
+      if (!streamInfo) {
+        throw new EncodedSourceIntegrityError('FLAC STREAMINFO must precede SEEKTABLE');
+      }
+      const parsed = await parseSeekTable(source, cursor, length, streamInfo, signal);
+      seekPoints = parsed.points;
+      maximumSeekStreamOffset = parsed.maximumStreamOffset;
     }
     cursor = end;
   }
 
   if (!streamInfo) throw new EncodedSourceIntegrityError('FLAC STREAMINFO is missing');
   if (cursor >= source.size) throw new EncodedSourceIntegrityError('FLAC has no audio frames');
-  validateSeekPointBounds(seekPoints, streamInfo, cursor, source.size);
+  validateSeekTableAudioBounds(maximumSeekStreamOffset, streamInfo, cursor, source.size);
 
   return Object.freeze({
     streamInfo,

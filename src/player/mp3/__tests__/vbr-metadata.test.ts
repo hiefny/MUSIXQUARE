@@ -343,6 +343,42 @@ describe('parseMp3FirstFrameVbrMetadata Xing and Info', () => {
     });
   });
 
+  it('validates a real low-rate mono FFmpeg fixed-190 Info Tag CRC', () => {
+    // First complete 32-kbit MPEG-2.5 Layer III frame emitted by FFmpeg 8.0.1
+    // (`libmp3lame`, mono 11.025 kHz). The extension CRC lives at byte 167,
+    // while FFmpeg calculated its stored 0x5816 over the fixed 190-byte span.
+    const firstFrame = Uint8Array.from(
+      atob(
+        '/+NAwAAAAAAAAAAAAEluZm8AAAAPAAAAAwAAA0IAf39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/v7+/v7+/v7+/' +
+          'v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/////////////////////////////////////////////AAAAAExhdmM2Mi4x' +
+          'MQAAAAAAAAAAAAAAACQEHAAAAAAAAANC6qFYFgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==',
+      ),
+      (character) => character.charCodeAt(0),
+    );
+    const header = parseMpegLayer3FrameHeader(firstFrame.subarray(0, 4));
+
+    expect(header).toMatchObject({
+      version: '2.5',
+      bitrateKbps: 32,
+      sampleRateHz: 11_025,
+      channelCount: 1,
+      samplesPerFrame: 576,
+      frameLengthBytes: 208,
+    });
+    expect(parseMp3FirstFrameVbrMetadata(firstFrame, header)).toMatchObject({
+      identifier: 'Info',
+      headerOffset: 13,
+      frameCount: 3,
+      streamBytes: 834,
+      gapless: {
+        encoderFamily: 'Lavc',
+        encoderTag: 'Lavc62.11',
+        encoderDelaySamples: 576,
+        endPaddingSamples: 1_052,
+      },
+    });
+  });
+
   it('accepts FFmpeg fixed-190 CRCs across shorter side-info layouts', () => {
     const cases: readonly HeaderOptions[] = [
       { channelModeBits: 3 },

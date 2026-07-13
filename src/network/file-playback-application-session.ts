@@ -1817,7 +1817,3 @@ export function installFilePlaybackApplicationSessionHooks(
 export function getFilePlaybackApplicationSessionManager(): FilePlaybackApplicationSessionManager {
   return filePlaybackApplicationSessions;
 }
-
-export function handleFilePlaybackApplicationWake(conn?: DataConnection): boolean {
-  return filePlaybackApplicationSessions.handleWake(conn);
-}

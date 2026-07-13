@@ -25,10 +25,7 @@ export type Mpg123FrameDecoderRuntimeFactory = (options: {
   readonly enableGapless: false;
 }) => Mpg123FrameDecoderRuntime;
 
-export type Mpg123VerifiedFrameKind = 'audio' | 'metadata';
-
-export interface Mpg123DecodedFrame {
-  readonly kind: Mpg123VerifiedFrameKind;
+export interface Mpg123DecodedAudioFrame {
   readonly channelData: readonly Float32Array[];
   readonly samplesDecoded: number;
   readonly sampleRateHz: number;
@@ -163,7 +160,13 @@ export class Mpg123FrameDecoder {
     );
   }
 
-  decodeVerifiedFrame(frame: Uint8Array, kind: Mpg123VerifiedFrameKind): Mpg123DecodedFrame {
+  /**
+   * Decode one scanner-verified audio frame.
+   *
+   * A leading Xing/Info/VBRI structural frame is outside this boundary and
+   * must never be fed here. The owning worker starts at `firstAudioFrameOffset`.
+   */
+  decodeVerifiedAudioFrame(frame: Uint8Array): Mpg123DecodedAudioFrame {
     if (this.#terminalError) throw this.#terminalError;
     if (!this.#isReady) {
       throw runtimeError('MP3 decoder runtime is not ready');
@@ -172,9 +175,6 @@ export class Mpg123FrameDecoder {
     try {
       if (!(frame instanceof Uint8Array)) {
         throw new TypeError('MP3 verified frame must be a Uint8Array');
-      }
-      if (kind !== 'audio' && kind !== 'metadata') {
-        throw new TypeError('MP3 verified frame kind must be audio or metadata');
       }
       if (frame.byteLength < 4) {
         throw runtimeError('MP3 verified frame is shorter than its header');
@@ -214,27 +214,19 @@ export class Mpg123FrameDecoder {
         throw runtimeError('MP3 decoder returned an invalid sample rate');
       }
 
-      const expectedFrames = kind === 'audio' ? this.#config.samplesPerFrame : 0;
+      const expectedFrames = this.#config.samplesPerFrame;
       const samplesDecoded = decoded.samplesDecoded as number;
       const sampleRateHz = decoded.sampleRate as number;
       if (samplesDecoded !== expectedFrames) {
-        throw runtimeError(
-          kind === 'audio'
-            ? 'MP3 audio frame did not decode to exactly one frame of PCM'
-            : 'MP3 metadata frame unexpectedly produced PCM',
-        );
+        throw runtimeError('MP3 audio frame did not decode to exactly one frame of PCM');
       }
-      if (
-        (kind === 'audio' && sampleRateHz !== this.#config.sampleRateHz) ||
-        (kind === 'metadata' && sampleRateHz !== 0 && sampleRateHz !== this.#config.sampleRateHz)
-      ) {
+      if (sampleRateHz !== this.#config.sampleRateHz) {
         throw runtimeError('MP3 decoder sample rate does not match the decoder generation');
       }
 
       const forcedStereo = validateForcedStereoChannels(decoded.channelData, expectedFrames);
       const channelData = normalizeChannels(forcedStereo, this.#config.encodedChannels);
       return Object.freeze({
-        kind,
         channelData,
         samplesDecoded,
         sampleRateHz,

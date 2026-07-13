@@ -127,7 +127,7 @@ class FixtureSource implements EncodedAudioSource {
   async close(): Promise<void> {}
 }
 
-async function verifiedFixtureFrames(name: 'demo_track.mp3' | 'dummy_audio.mp3') {
+async function verifiedFixtureAudioFrame(name: 'demo_track.mp3' | 'dummy_audio.mp3') {
   const file = await readFile(resolve(process.cwd(), 'public', name));
   const bytes = new Uint8Array(file.buffer, file.byteOffset, file.byteLength);
   const metadata = await readMp3Metadata(
@@ -137,15 +137,11 @@ async function verifiedFixtureFrames(name: 'demo_track.mp3' | 'dummy_audio.mp3')
   if (!metadata.hasTagFrame || metadata.tagFrameOffset === null || metadata.tagFrameBytes <= 0) {
     throw new Error(`${name} must retain its scanner-verified Xing/Info metadata frame`);
   }
-  const tag = bytes.slice(
-    metadata.tagFrameOffset,
-    metadata.tagFrameOffset + metadata.tagFrameBytes,
-  );
   const audio = bytes.slice(
     metadata.firstAudioFrameOffset,
     metadata.firstAudioFrameOffset + metadata.firstAudioFrameHeader.frameLengthBytes,
   );
-  return { bytes, metadata, tag, audio };
+  return { metadata, audio };
 }
 
 describe('Mpg123FrameDecoder', () => {
@@ -153,10 +149,10 @@ describe('Mpg123FrameDecoder', () => {
     const harness = mockDecoder();
     expect(harness.factory).toHaveBeenCalledTimes(1);
     expect(harness.factory).toHaveBeenCalledWith({ enableGapless: false });
-    expect(() => harness.decoder.decodeVerifiedFrame(makeFrame(), 'audio')).toThrow(/not ready/i);
+    expect(() => harness.decoder.decodeVerifiedAudioFrame(makeFrame())).toThrow(/not ready/i);
 
     await harness.decoder.ready;
-    const decoded = harness.decoder.decodeVerifiedFrame(makeFrame(), 'audio');
+    const decoded = harness.decoder.decodeVerifiedAudioFrame(makeFrame());
 
     expect(harness.decodeFrame).toHaveBeenCalledTimes(1);
     expect(harness.decode).not.toHaveBeenCalled();
@@ -170,7 +166,6 @@ describe('Mpg123FrameDecoder', () => {
     expect(Object.isFrozen(decoded.channelData)).toBe(true);
     expect(Object.isFrozen(decoded.channelData[0])).toBe(false);
     expect(decoded).toMatchObject({
-      kind: 'audio',
       samplesDecoded: 1_152,
       sampleRateHz: 44_100,
     });
@@ -190,7 +185,7 @@ describe('Mpg123FrameDecoder', () => {
     for (const testCase of cases) {
       const harness = mockDecoder();
       await harness.decoder.ready;
-      expect(() => harness.decoder.decodeVerifiedFrame(testCase.frame, 'audio')).toThrow(
+      expect(() => harness.decoder.decodeVerifiedAudioFrame(testCase.frame)).toThrow(
         testCase.message,
       );
       expect(harness.decodeFrame).not.toHaveBeenCalled();
@@ -220,7 +215,7 @@ describe('Mpg123FrameDecoder', () => {
     for (const result of malformed) {
       const harness = mockDecoder(result);
       await harness.decoder.ready;
-      expect(() => harness.decoder.decodeVerifiedFrame(makeFrame(), 'audio')).toThrow(
+      expect(() => harness.decoder.decodeVerifiedAudioFrame(makeFrame())).toThrow(
         Mpg123FrameDecoderError,
       );
     }
@@ -232,12 +227,12 @@ describe('Mpg123FrameDecoder', () => {
 
     let firstError: unknown;
     try {
-      harness.decoder.decodeVerifiedFrame(makeFrame(), 'audio');
+      harness.decoder.decodeVerifiedAudioFrame(makeFrame());
     } catch (error) {
       firstError = error;
     }
     expect(firstError).toBeInstanceOf(Mpg123FrameDecoderError);
-    expect(() => harness.decoder.decodeVerifiedFrame(makeFrame(), 'audio')).toThrow(firstError);
+    expect(() => harness.decoder.decodeVerifiedAudioFrame(makeFrame())).toThrow(firstError);
     expect(harness.decodeFrame).toHaveBeenCalledTimes(1);
   });
 
@@ -250,51 +245,17 @@ describe('Mpg123FrameDecoder', () => {
     const frame = makeFrame({ channelModeBits: 3 });
     const valid = mockDecoder(validAudioResult(), config);
     await valid.decoder.ready;
-    expect(valid.decoder.decodeVerifiedFrame(frame, 'audio').channelData).toHaveLength(1);
+    expect(valid.decoder.decodeVerifiedAudioFrame(frame).channelData).toHaveLength(1);
 
     const unequal = pcm(1_152);
     unequal[1][577] += 0.25;
     const invalid = mockDecoder({ ...validAudioResult(), channelData: unequal }, config);
     await invalid.decoder.ready;
-    expect(() => invalid.decoder.decodeVerifiedFrame(frame, 'audio')).toThrow(/not identical/i);
+    expect(() => invalid.decoder.decodeVerifiedAudioFrame(frame)).toThrow(/not identical/i);
   });
 
-  it('allows a metadata frame to produce no PCM at either zero or the expected rate', async () => {
-    for (const sampleRate of [0, 44_100]) {
-      const harness = mockDecoder({
-        channelData: pcm(0),
-        samplesDecoded: 0,
-        sampleRate,
-        errors: [],
-      });
-      await harness.decoder.ready;
-      const decoded = harness.decoder.decodeVerifiedFrame(makeFrame(), 'metadata');
-      expect(decoded.samplesDecoded).toBe(0);
-      expect(decoded.sampleRateHz).toBe(sampleRate);
-      expect(decoded.channelData).toHaveLength(2);
-      expect(decoded.channelData.every((channel) => channel.length === 0)).toBe(true);
-    }
-
-    const withPcm = mockDecoder(validAudioResult());
-    await withPcm.decoder.ready;
-    expect(() => withPcm.decoder.decodeVerifiedFrame(makeFrame(), 'metadata')).toThrow(
-      /metadata.*PCM/i,
-    );
-
-    const wrongRate = mockDecoder({
-      channelData: pcm(0),
-      samplesDecoded: 0,
-      sampleRate: 48_000,
-      errors: [],
-    });
-    await wrongRate.decoder.ready;
-    expect(() => wrongRate.decoder.decodeVerifiedFrame(makeFrame(), 'metadata')).toThrow(
-      /sample rate/i,
-    );
-  });
-
-  it('decodes the real stereo tag and first audio frame with tag-independent PCM parity', async () => {
-    const fixture = await verifiedFixtureFrames('demo_track.mp3');
+  it('decodes the real stereo first audio frame without feeding its structural tag', async () => {
+    const fixture = await verifiedFixtureAudioFrame('demo_track.mp3');
     expect(fixture.metadata.channels).toBe(2);
     const config: Mpg123FrameDecoderConfig = Object.freeze({
       encodedChannels: fixture.metadata.channels,
@@ -302,21 +263,17 @@ describe('Mpg123FrameDecoder', () => {
       samplesPerFrame: fixture.metadata.samplesPerFrame,
     });
 
-    const withTag = new Mpg123FrameDecoder(config);
-    await withTag.ready;
-    const metadata = withTag.decodeVerifiedFrame(fixture.tag, 'metadata');
-    const afterTag = withTag.decodeVerifiedFrame(fixture.audio, 'audio');
-    expect(metadata).toMatchObject({ samplesDecoded: 0, sampleRateHz: 0 });
-
-    const withoutTag = new Mpg123FrameDecoder(config);
-    await withoutTag.ready;
-    const direct = withoutTag.decodeVerifiedFrame(fixture.audio, 'audio');
-    expect(afterTag.channelData[0]).toEqual(direct.channelData[0]);
-    expect(afterTag.channelData[1]).toEqual(direct.channelData[1]);
+    const decoder = new Mpg123FrameDecoder(config);
+    await decoder.ready;
+    const audio = decoder.decodeVerifiedAudioFrame(fixture.audio);
+    expect(audio.channelData).toHaveLength(2);
+    expect(audio.channelData[0]).toHaveLength(fixture.metadata.samplesPerFrame);
+    expect(audio.channelData[1]).toHaveLength(fixture.metadata.samplesPerFrame);
+    expect('decodeVerifiedFrame' in decoder).toBe(false);
   });
 
-  it('decodes the real mono tag and returns one proven-identical PCM channel', async () => {
-    const fixture = await verifiedFixtureFrames('dummy_audio.mp3');
+  it('decodes the real mono first audio frame as one proven-identical PCM channel', async () => {
+    const fixture = await verifiedFixtureAudioFrame('dummy_audio.mp3');
     expect(fixture.metadata.channels).toBe(1);
     const decoder = new Mpg123FrameDecoder({
       encodedChannels: fixture.metadata.channels,
@@ -325,11 +282,7 @@ describe('Mpg123FrameDecoder', () => {
     });
     await decoder.ready;
 
-    expect(decoder.decodeVerifiedFrame(fixture.tag, 'metadata')).toMatchObject({
-      samplesDecoded: 0,
-      sampleRateHz: 0,
-    });
-    const audio = decoder.decodeVerifiedFrame(fixture.audio, 'audio');
+    const audio = decoder.decodeVerifiedAudioFrame(fixture.audio);
     expect(audio.channelData).toHaveLength(1);
     expect(audio.channelData[0]).toHaveLength(fixture.metadata.samplesPerFrame);
     expect(audio.channelData[0]?.every(Number.isFinite)).toBe(true);

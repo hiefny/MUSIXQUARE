@@ -28,13 +28,17 @@ export interface StreamingAacPlaybackSourceOptions {
   readonly runtime?: Partial<BoundedStreamingCodecRuntime>;
 }
 
+/** Shared factory for both one-shot admission probes and playback generations. */
+export function createDefaultAacStreamingWorker(): Worker {
+  return new Worker(new URL('../../workers/aac-stream.worker.ts', import.meta.url), {
+    type: 'module',
+    name: 'musixquare-aac-stream-v1',
+  });
+}
+
 const defaultRuntime: BoundedStreamingCodecRuntime = {
   loadWorklet: loadPcmRingWorklet,
-  createWorker: () =>
-    new Worker(new URL('../../workers/aac-stream.worker.ts', import.meta.url), {
-      type: 'module',
-      name: 'musixquare-aac-stream-v1',
-    }),
+  createWorker: createDefaultAacStreamingWorker,
   createWorkletNode: (context, name, options) => new AudioWorkletNode(context, name, options),
   createMessageChannel: () => new MessageChannel(),
 };

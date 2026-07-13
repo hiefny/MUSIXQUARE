@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
 import type { StreamingAacPlaybackSourceOptions } from '../backends/streaming-aac-playback-source.ts';
@@ -17,6 +17,8 @@ import {
   type OrdinaryAudioDecodeResult,
 } from '../file-playback-source-factory.ts';
 import { buildM4aAacFixture } from '../m4a/__tests__/m4a-aac-fixture.ts';
+import { AAC_CAPABILITY_PROBE_TIMEOUT_MS } from '../aac/capability-probe-protocol.ts';
+import { AacWebCodecsUnavailableError } from '../aac/webcodecs-canary.ts';
 import { parseMpegLayer3FrameHeader } from '../mp3/frame-header.ts';
 import {
   EncodedSourceClosedError,
@@ -26,6 +28,10 @@ import {
 import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-0000000000a1' as QueueItemId;
+type AacFilePlaybackCapabilityProbe = NonNullable<
+  CreateEncodedFilePlaybackSourceOptions['aacCapabilityProbe']
+>;
+const acceptAacCapability: AacFilePlaybackCapabilityProbe = async () => undefined;
 
 function fakeAudioBuffer(): AudioBuffer {
   return {
@@ -145,6 +151,7 @@ function blobOptions(
     roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1_000,
     localPerformanceMsToContextTime: (localTimeMs) => localTimeMs / 1_000,
     signal: new AbortController().signal,
+    aacCapabilityProbe: acceptAacCapability,
     decodeOrdinaryAudio: vi.fn(async () => decodedOrdinaryAudio()),
     ...overrides,
   };
@@ -162,6 +169,7 @@ function encodedOptions(
     roomTimeMsToContextTime: (roomTimeMs) => roomTimeMs / 1_000,
     localPerformanceMsToContextTime: (localTimeMs) => localTimeMs / 1_000,
     signal: new AbortController().signal,
+    aacCapabilityProbe: acceptAacCapability,
     ...overrides,
   };
 }
@@ -209,16 +217,24 @@ function memorySource(
 }
 
 describe('default-off universal bounded audio routes', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it.each([
     ['MP3', () => mp3File()],
     ['raw ADTS AAC', () => aacFile()],
     ['M4A', () => m4aFile()],
   ])('keeps valid %s on the ordinary Blob route when policy is omitted', async (_label, file) => {
     const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
-    const result = await createBlobFilePlaybackSource(blobOptions(file(), { decodeOrdinaryAudio }));
+    const aacCapabilityProbe = vi.fn(acceptAacCapability);
+    const result = await createBlobFilePlaybackSource(
+      blobOptions(file(), { decodeOrdinaryAudio, aacCapabilityProbe }),
+    );
 
     expect(result.backend).toBe('audio-buffer');
     expect(decodeOrdinaryAudio).toHaveBeenCalledOnce();
+    expect(aacCapabilityProbe).not.toHaveBeenCalled();
   });
 
   it('routes a verified MP3 Blob only under universal-v1 and forwards its exact runtime', async () => {
@@ -307,7 +323,11 @@ describe('default-off universal bounded audio routes', () => {
     const received = createStreamingAacSource.mock.calls[0]![0];
     expect(received.queueItemId).toBe(QUEUE_ITEM_ID);
     expect(received.backendId).toBe('webcodecs');
-    expect(received.runtime).toBe(aacRuntime);
+    expect(received.runtime).not.toBe(aacRuntime);
+    expect(received.runtime).toEqual(
+      expect.objectContaining({ createWorker: expect.any(Function) }),
+    );
+    expect(Object.isFrozen(received.runtime)).toBe(true);
     expect(received.scan).toEqual(expectedAdtsScan(received.encodedSource.identity));
   });
 
@@ -463,7 +483,7 @@ describe('default-off universal bounded audio routes', () => {
     expect(memory.close).toHaveBeenCalledOnce();
   });
 
-  it('routes a generic raw ADTS AAC source with its exact scan, backend, runtime, and lease', async () => {
+  it('routes a generic raw ADTS AAC source with its exact scan, backend, captured runtime, and lease', async () => {
     const bytes = aacBytes();
     const memory = memorySource(bytes, {
       name: 'remote.aac',
@@ -491,11 +511,262 @@ describe('default-off universal bounded audio routes', () => {
     const received = createStreamingAacSource.mock.calls[0]![0];
     expect(received.queueItemId).toBe(QUEUE_ITEM_ID);
     expect(received.backendId).toBe('webcodecs');
-    expect(received.runtime).toBe(aacRuntime);
+    expect(received.runtime).not.toBe(aacRuntime);
+    expect(received.runtime).toEqual(
+      expect.objectContaining({ createWorker: expect.any(Function) }),
+    );
+    expect(Object.isFrozen(received.runtime)).toBe(true);
     expect(received.scan).toEqual(expectedAdtsScan(memory.source.identity));
     expect(memory.close).not.toHaveBeenCalled();
     await result.source.destroy();
     await result.source.destroy();
+    expect(memory.close).toHaveBeenCalledOnce();
+  });
+
+  it('probes one exact first ADTS frame before beginning the full scan', async () => {
+    const bytes = aacBytes();
+    const memory = memorySource(bytes, {
+      name: 'remote.aac',
+      mime: 'audio/aac',
+      identity: 'peer-range:aac-probe-order',
+    });
+    let probedFrame: Uint8Array | null = null;
+    const aacCapabilityProbe = vi.fn<AacFilePlaybackCapabilityProbe>(async (frame) => {
+      expect(memory.reads).toHaveBeenCalledTimes(2);
+      expect(memory.reads.mock.calls).toEqual([
+        [0, 12, expect.any(AbortSignal)],
+        [0, bytes.byteLength, expect.any(AbortSignal)],
+      ]);
+      expect(frame).toEqual(makeAdtsFrame(19, 0x11));
+      probedFrame = frame;
+    });
+    const createStreamingAacSource = vi.fn((options: StreamingAacPlaybackSourceOptions) =>
+      boundedSource(options.queueItemId),
+    );
+
+    const result = await createEncodedFilePlaybackSource(
+      encodedOptions(memory.source, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        aacCapabilityProbe,
+        backendFactories: { createStreamingAacSource },
+      }),
+    );
+
+    expect(result.backend).toBe('bounded-stream');
+    expect(aacCapabilityProbe).toHaveBeenCalledOnce();
+    expect(memory.reads).toHaveBeenCalledTimes(3);
+    expect(Array.from(probedFrame ?? [])).toEqual(Array(19).fill(0));
+    await result.source.destroy();
+  });
+
+  it('pins one Worker factory cohort across admission and later playback generations', async () => {
+    const bytes = aacBytes();
+    const memory = memorySource(bytes, {
+      name: 'remote.aac',
+      mime: 'audio/aac',
+      identity: 'peer-range:aac-worker-cohort',
+    });
+    const admittedWorker = Object.freeze({ cohort: 'admitted' }) as unknown as Worker;
+    const substitutedWorker = Object.freeze({ cohort: 'substituted' }) as unknown as Worker;
+    const admittedFactory = vi.fn(() => admittedWorker);
+    const substitutedFactory = vi.fn(() => substitutedWorker);
+    let getterReads = 0;
+    const aacRuntime: Partial<BoundedStreamingCodecRuntime> = {};
+    Object.defineProperty(aacRuntime, 'createWorker', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return getterReads === 1 ? admittedFactory : substitutedFactory;
+      },
+    });
+    let admissionWorker: Worker | null = null;
+    const aacCapabilityProbe = vi.fn<AacFilePlaybackCapabilityProbe>(
+      async (_frame, _signal, runtime) => {
+        admissionWorker = runtime.createWorker();
+        Object.defineProperty(aacRuntime, 'createWorker', {
+          configurable: true,
+          enumerable: true,
+          value: substitutedFactory,
+        });
+      },
+    );
+    let playbackRuntime: Partial<BoundedStreamingCodecRuntime> | undefined;
+    const createStreamingAacSource = vi.fn((options: StreamingAacPlaybackSourceOptions) => {
+      playbackRuntime = options.runtime;
+      return boundedSource(options.queueItemId);
+    });
+
+    const result = await createEncodedFilePlaybackSource(
+      encodedOptions(memory.source, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        aacRuntime,
+        aacCapabilityProbe,
+        backendFactories: { createStreamingAacSource },
+      }),
+    );
+
+    expect(admissionWorker).toBe(admittedWorker);
+    expect(playbackRuntime?.createWorker?.()).toBe(admittedWorker);
+    expect(getterReads).toBe(1);
+    expect(admittedFactory).toHaveBeenCalledTimes(2);
+    expect(substitutedFactory).not.toHaveBeenCalled();
+    await result.source.destroy();
+  });
+
+  it('fails closed when the first ADTS configuration changes after capability admission', async () => {
+    const admitted = aacBytes();
+    const changed = admitted.slice();
+    for (const frameOffset of [0, 19, 60]) {
+      changed[frameOffset + 2] = (changed[frameOffset + 2]! & 0b1100_0011) | (3 << 2);
+    }
+    let readCount = 0;
+    const readAt = vi.fn(async (offset: number, length: number, signal: AbortSignal) => {
+      signal.throwIfAborted();
+      const authority = ++readCount >= 3 ? changed : admitted;
+      const end = validateExactRead(authority.byteLength, offset, length);
+      return authority.slice(offset, end);
+    });
+    const close = vi.fn(async () => undefined);
+    const source: EncodedAudioSource = {
+      kind: 'peer-range',
+      size: admitted.byteLength,
+      identity: 'peer-range:aac-equivocating-configuration',
+      metadata: { name: 'changed.aac', mime: 'audio/aac' },
+      readAt,
+      close,
+    };
+    const createStreamingAacSource = vi.fn();
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(source, {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          backendFactories: {
+            createStreamingAacSource:
+              createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+          },
+        }),
+      ),
+    ).rejects.toThrow(/configuration changed/i);
+
+    expect(readAt).toHaveBeenCalledTimes(3);
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('bounds a silent production AAC admission Worker before the full scan', async () => {
+    vi.useFakeTimers();
+    const bytes = aacBytes();
+    const memory = memorySource(bytes, {
+      name: 'remote.aac',
+      mime: 'audio/aac',
+      identity: 'peer-range:aac-silent-worker',
+    });
+    let posted!: () => void;
+    const didPost = new Promise<void>((resolve) => {
+      posted = resolve;
+    });
+    const worker = {
+      onmessage: null,
+      onerror: null,
+      onmessageerror: null,
+      postMessage: vi.fn(() => posted()),
+      terminate: vi.fn(),
+    } as unknown as Worker;
+    const createStreamingAacSource = vi.fn();
+    const operation = createEncodedFilePlaybackSource(
+      encodedOptions(memory.source, {
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        aacCapabilityProbe: undefined,
+        aacRuntime: { createWorker: () => worker },
+        backendFactories: {
+          createStreamingAacSource:
+            createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+        },
+      }),
+    );
+    const rejected = expect(operation).rejects.toBeInstanceOf(AacWebCodecsUnavailableError);
+
+    await didPost;
+    await vi.advanceTimersByTimeAsync(AAC_CAPABILITY_PROBE_TIMEOUT_MS);
+    await rejected;
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(memory.reads).toHaveBeenCalledTimes(2);
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+    expect(memory.close).toHaveBeenCalledOnce();
+  });
+
+  it('fails before a full scan and closes once when the AAC Worker cohort is unavailable', async () => {
+    const bytes = aacBytes();
+    const memory = memorySource(bytes, {
+      name: 'remote.aac',
+      mime: 'audio/aac',
+      identity: 'peer-range:aac-probe-unavailable',
+    });
+    const unavailable = new AacWebCodecsUnavailableError('fixture cohort unavailable');
+    const aacCapabilityProbe = vi.fn<AacFilePlaybackCapabilityProbe>(async () => {
+      throw unavailable;
+    });
+    const createStreamingAacSource = vi.fn();
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(memory.source, {
+          boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+          aacCapabilityProbe,
+          backendFactories: {
+            createStreamingAacSource:
+              createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+          },
+        }),
+      ),
+    ).rejects.toBe(unavailable);
+
+    expect(aacCapabilityProbe).toHaveBeenCalledOnce();
+    expect(memory.reads).toHaveBeenCalledTimes(2);
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+    expect(memory.close).toHaveBeenCalledOnce();
+  });
+
+  it('preserves an abort during AAC capability probing and closes the source once', async () => {
+    const bytes = aacBytes();
+    const memory = memorySource(bytes, {
+      name: 'remote.aac',
+      mime: 'audio/aac',
+      identity: 'peer-range:aac-probe-abort',
+    });
+    const controller = new AbortController();
+    const reason = Object.freeze({ phase: 'aac-capability-probe' });
+    let entered!: () => void;
+    const probeEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const aacCapabilityProbe = vi.fn<AacFilePlaybackCapabilityProbe>(
+      async (_frame, signal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          entered();
+        }),
+    );
+    const createStreamingAacSource = vi.fn();
+    const operation = createEncodedFilePlaybackSource(
+      encodedOptions(memory.source, {
+        signal: controller.signal,
+        boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+        aacCapabilityProbe,
+        backendFactories: {
+          createStreamingAacSource:
+            createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+        },
+      }),
+    );
+
+    await probeEntered;
+    controller.abort(reason);
+    await expect(operation).rejects.toBe(reason);
+    expect(memory.reads).toHaveBeenCalledTimes(2);
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
     expect(memory.close).toHaveBeenCalledOnce();
   });
 
@@ -578,7 +849,7 @@ describe('default-off universal bounded audio routes', () => {
       signal.throwIfAborted();
       const end = validateExactRead(bytes.byteLength, offset, length);
       readCount += 1;
-      if (readCount === 2) controller.abort(reason);
+      if (readCount === 3) controller.abort(reason);
       return bytes.slice(offset, end);
     });
     const close = vi.fn(async () => undefined);
@@ -605,7 +876,7 @@ describe('default-off universal bounded audio routes', () => {
       ),
     ).rejects.toBe(reason);
 
-    expect(readAt).toHaveBeenCalledTimes(2);
+    expect(readAt).toHaveBeenCalledTimes(3);
     expect(createStreamingAacSource).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledOnce();
   });

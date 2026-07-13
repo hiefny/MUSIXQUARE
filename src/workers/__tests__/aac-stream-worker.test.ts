@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AAC_CAPABILITY_PROBE_GENERATION,
+  AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+} from '../../player/aac/capability-probe-protocol.ts';
+import {
   AAC_DECODER_BACKEND_ACCESS_UNIT_CORE_FRAMES,
   type AacDecoderAccessUnit,
   type AacDecoderBackend,
@@ -34,6 +38,7 @@ interface DecodeObservation {
 const mocks = vi.hoisted(() => ({
   canaryCopies: [] as Uint8Array[],
   canaryViews: [] as Uint8Array[],
+  canaryImpl: null as ((bytes: Uint8Array, signal: AbortSignal) => Promise<unknown>) | null,
   decodeCalls: [] as DecodeObservation[],
   backends: [] as AacDecoderBackend[],
   backendCloseCounts: [] as number[],
@@ -52,9 +57,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../player/aac/webcodecs-canary.ts', () => ({
   AacWebCodecsIntegrityError: class AacWebCodecsIntegrityError extends Error {},
   AacWebCodecsUnavailableError: class AacWebCodecsUnavailableError extends Error {},
-  probeAacWebCodecsAdtsFrame: (bytes: Uint8Array) => {
+  probeAacWebCodecsAdtsFrame: (bytes: Uint8Array, signal: AbortSignal) => {
     mocks.canaryViews.push(bytes);
     mocks.canaryCopies.push(bytes.slice());
+    if (mocks.canaryImpl) return mocks.canaryImpl(bytes, signal);
     return Promise.resolve({
       codec: 'mp4a.40.2',
       framing: 'adts',
@@ -369,6 +375,7 @@ describe.sequential('bounded AAC stream worker', () => {
   beforeEach(() => {
     mocks.canaryCopies.length = 0;
     mocks.canaryViews.length = 0;
+    mocks.canaryImpl = null;
     mocks.decodeCalls.length = 0;
     mocks.backends.length = 0;
     mocks.backendCloseCounts.length = 0;
@@ -391,6 +398,159 @@ describe.sequential('bounded AAC stream worker', () => {
     openPorts.length = 0;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('runs the admission canary in a one-shot realm and clears its cloned frame', async () => {
+    const scope = await loadWorker();
+    const input = makeAdtsFrame(0);
+    const expected = input.slice();
+    const received = structuredClone({
+      protocolVersion: AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+      type: 'probe-adts-webcodecs',
+      probeGeneration: AAC_CAPABILITY_PROBE_GENERATION,
+      frame: input,
+    });
+    dispatch(scope, received);
+
+    await vi.waitFor(() => {
+      expect(controlMessages(scope, 'probe-ready')).toEqual([
+        {
+          protocolVersion: AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+          type: 'probe-ready',
+          probeGeneration: AAC_CAPABILITY_PROBE_GENERATION,
+        },
+      ]);
+    });
+    expect(input).toEqual(expected);
+    expect(allZero(received.frame)).toBe(true);
+    expect(mocks.canaryCopies).toEqual([expected]);
+    expect(mocks.canaryViews).toHaveLength(1);
+    expect(allZero(mocks.canaryViews[0] ?? [])).toBe(true);
+    expect(mocks.factoryCalls).toBe(0);
+  });
+
+  it('maps an unavailable admission canary without opening a decoder generation', async () => {
+    const scope = await loadWorker();
+    const { AacWebCodecsUnavailableError } = await import('../../player/aac/webcodecs-canary.ts');
+    mocks.canaryImpl = async () => {
+      throw new AacWebCodecsUnavailableError('fixture unavailable');
+    };
+    dispatch(scope, {
+      protocolVersion: AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+      type: 'probe-adts-webcodecs',
+      probeGeneration: AAC_CAPABILITY_PROBE_GENERATION,
+      frame: makeAdtsFrame(0),
+    });
+
+    await vi.waitFor(() => {
+      expect(controlMessages(scope, 'probe-error')).toEqual([
+        expect.objectContaining({
+          code: 'unavailable',
+          message: 'fixture unavailable',
+        }),
+      ]);
+    });
+    expect(mocks.canaryViews).toHaveLength(1);
+    expect(allZero(mocks.canaryViews[0] ?? [])).toBe(true);
+    expect(mocks.factoryCalls).toBe(0);
+    expect(controlMessages(scope, 'decoder-ready')).toHaveLength(0);
+  });
+
+  it('maps integrity and ordinary admission failures to bounded probe errors', async () => {
+    const { AacWebCodecsIntegrityError } = await import('../../player/aac/webcodecs-canary.ts');
+    const cases = [
+      {
+        error: new AacWebCodecsIntegrityError('fixture integrity'),
+        code: 'integrity',
+        message: 'fixture integrity',
+      },
+      {
+        error: new Error('fixture internal'),
+        code: 'internal',
+        message: 'fixture internal',
+      },
+    ] as const;
+
+    for (const fixtureCase of cases) {
+      const scope = await loadWorker();
+      mocks.canaryImpl = async () => {
+        throw fixtureCase.error;
+      };
+      dispatch(scope, {
+        protocolVersion: AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+        type: 'probe-adts-webcodecs',
+        probeGeneration: AAC_CAPABILITY_PROBE_GENERATION,
+        frame: makeAdtsFrame(0),
+      });
+
+      await vi.waitFor(() => {
+        expect(controlMessages(scope, 'probe-error')).toEqual([
+          expect.objectContaining({
+            code: fixtureCase.code,
+            message: fixtureCase.message,
+          }),
+        ]);
+      });
+      expect(mocks.factoryCalls).toBe(0);
+    }
+  });
+
+  it('reports a bounded internal error when the thrown value resists inspection', async () => {
+    const scope = await loadWorker();
+    const hostile = new Proxy(Object.create(null) as object, {
+      getPrototypeOf() {
+        throw new Error('prototype inspection denied');
+      },
+      get() {
+        throw new Error('string conversion denied');
+      },
+    });
+    mocks.canaryImpl = async () => Promise.reject(hostile);
+    dispatch(scope, {
+      protocolVersion: AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+      type: 'probe-adts-webcodecs',
+      probeGeneration: AAC_CAPABILITY_PROBE_GENERATION,
+      frame: makeAdtsFrame(0),
+    });
+
+    await vi.waitFor(() => {
+      expect(controlMessages(scope, 'probe-error')).toEqual([
+        expect.objectContaining({
+          code: 'internal',
+          message: 'AAC WebCodecs capability probe failed',
+        }),
+      ]);
+    });
+    expect(mocks.canaryViews).toHaveLength(1);
+    expect(allZero(mocks.canaryViews[0] ?? [])).toBe(true);
+    expect(mocks.factoryCalls).toBe(0);
+  });
+
+  it('rejects a second probe command while the one-shot admission probe is pending', async () => {
+    const scope = await loadWorker();
+    const pending = deferred<unknown>();
+    mocks.canaryImpl = async () => pending.promise;
+    const command = () => ({
+      protocolVersion: AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+      type: 'probe-adts-webcodecs' as const,
+      probeGeneration: AAC_CAPABILITY_PROBE_GENERATION,
+      frame: makeAdtsFrame(0),
+    });
+    const firstCommand = command();
+    const rejectedCommand = command();
+    dispatch(scope, firstCommand);
+
+    expect(() => dispatch(scope, rejectedCommand)).toThrow(
+      'AAC worker command failed strict validation',
+    );
+    expect(allZero(firstCommand.frame)).toBe(true);
+    expect(allZero(rejectedCommand.frame)).toBe(true);
+    expect(mocks.canaryCopies).toHaveLength(1);
+    pending.resolve({});
+
+    await vi.waitFor(() => {
+      expect(controlMessages(scope, 'probe-ready')).toHaveLength(1);
+    });
   });
 
   it('scans a sparse anchor, canaries, rereads the decode start, and publishes exact EOF', async () => {

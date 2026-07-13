@@ -4,6 +4,7 @@ import {
   type AudioBufferPlaybackSourceOptions,
 } from './backends/audio-buffer-playback-source.ts';
 import {
+  createDefaultAacStreamingWorker,
   StreamingAacPlaybackSource,
   type StreamingAacPlaybackSourceOptions,
 } from './backends/streaming-aac-playback-source.ts';
@@ -30,6 +31,15 @@ import {
 } from './file-playback-bounded-route-policy.ts';
 import { AdtsHeaderError, parseAdtsHeader } from './aac/adts-header.ts';
 import { scanAdtsFrames } from './aac/frame-scanner.ts';
+import {
+  ADTS_MAX_FRAME_BYTES,
+  AdtsIncrementalFrameReader,
+  type AdtsCoreConfiguration,
+} from './aac/incremental-frame-reader.ts';
+import {
+  probeAacWebCodecsAdtsFrameInWorker,
+  type AacWorkerCapabilityProbeRuntime,
+} from './aac/worker-capability-probe.ts';
 import { readAiffPcmMetadata } from './aiff/metadata.ts';
 import { readCafLinearPcmMetadata } from './caf/metadata.ts';
 import { readFlacMetadata } from './flac/metadata.ts';
@@ -130,6 +140,12 @@ export interface BlobFilePlaybackBackendFactories {
   ) => BoundedStreamSource;
 }
 
+type AacFilePlaybackCapabilityProbe = (
+  frame: Uint8Array,
+  signal: AbortSignal,
+  runtime: AacWorkerCapabilityProbeRuntime,
+) => Promise<void>;
+
 interface FilePlaybackSourceFactoryCommonOptions {
   readonly queueItemId: QueueItemId;
   readonly audioContext: AudioContext;
@@ -137,11 +153,13 @@ interface FilePlaybackSourceFactoryCommonOptions {
   readonly roomTimeMsToContextTime: (roomTimeMs: number) => number;
   readonly localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
   readonly signal: AbortSignal;
-  /** Decoder-specific Worker seams; no runtime is started here. */
+  /** Decoder-specific Worker seams. Raw AAC may start one admission-only Worker here. */
   readonly flacRuntime?: Partial<BoundedStreamingCodecRuntime>;
   readonly linearPcmRuntime?: Partial<BoundedStreamingCodecRuntime>;
   readonly mp3Runtime?: Partial<BoundedStreamingCodecRuntime>;
   readonly aacRuntime?: Partial<BoundedStreamingCodecRuntime>;
+  /** Test seam; production defaults to the same fresh Worker module used by playback. */
+  readonly aacCapabilityProbe?: AacFilePlaybackCapabilityProbe;
   readonly m4aRuntime?: Partial<BoundedStreamingCodecRuntime>;
   /** MP3/raw AAC/M4A remain ordinary AudioBuffer routes unless explicitly opted in. */
   readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
@@ -510,6 +528,122 @@ function assertBlobFactoryInput(
   }
 }
 
+function snapshotAacCapabilityProbe(value: unknown): AacFilePlaybackCapabilityProbe {
+  if (value === undefined) return probeAacWebCodecsAdtsFrameInWorker;
+  if (typeof value !== 'function') {
+    throw new TypeError('AAC capability probe must be a function');
+  }
+  return value as AacFilePlaybackCapabilityProbe;
+}
+
+interface AacRouteRuntimeSnapshot {
+  readonly capabilityRuntime: Readonly<AacWorkerCapabilityProbeRuntime>;
+  readonly playbackRuntime: Readonly<Partial<BoundedStreamingCodecRuntime>>;
+}
+
+function snapshotOptionalAacRuntimeMethod<K extends keyof BoundedStreamingCodecRuntime>(
+  runtime: Partial<BoundedStreamingCodecRuntime> | undefined,
+  key: K,
+): BoundedStreamingCodecRuntime[K] | undefined {
+  let method: unknown;
+  try {
+    method = runtime?.[key];
+  } catch (cause) {
+    throw new TypeError(`AAC ${String(key)} runtime could not be inspected`, { cause });
+  }
+  if (method === undefined) return undefined;
+  if (typeof method !== 'function') {
+    throw new TypeError(`AAC ${String(key)} runtime is invalid`);
+  }
+  const authority = runtime;
+  return ((...args: unknown[]) =>
+    Reflect.apply(method, authority, args)) as BoundedStreamingCodecRuntime[K];
+}
+
+/**
+ * Capture every optional AAC browser seam once. In particular, the one-shot
+ * canary and all later decoder generations receive the exact same bound
+ * createWorker authority even when a caller supplied a getter or mutates the
+ * original runtime after admission begins.
+ */
+function snapshotAacRouteRuntime(
+  runtime: Partial<BoundedStreamingCodecRuntime> | undefined,
+): Readonly<AacRouteRuntimeSnapshot> {
+  const createWorker =
+    snapshotOptionalAacRuntimeMethod(runtime, 'createWorker') ?? createDefaultAacStreamingWorker;
+  const loadWorklet = snapshotOptionalAacRuntimeMethod(runtime, 'loadWorklet');
+  const createWorkletNode = snapshotOptionalAacRuntimeMethod(runtime, 'createWorkletNode');
+  const createMessageChannel = snapshotOptionalAacRuntimeMethod(runtime, 'createMessageChannel');
+  const playbackRuntime = Object.freeze({
+    createWorker,
+    ...(loadWorklet ? { loadWorklet } : {}),
+    ...(createWorkletNode ? { createWorkletNode } : {}),
+    ...(createMessageChannel ? { createMessageChannel } : {}),
+  });
+  return Object.freeze({
+    capabilityRuntime: playbackRuntime,
+    playbackRuntime,
+  });
+}
+
+interface RawAacCapabilityEvidence {
+  readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
+}
+
+async function preflightRawAacCapability(
+  source: EncodedAudioSource,
+  signal: AbortSignal,
+  probe: AacFilePlaybackCapabilityProbe,
+  runtime: Readonly<AacWorkerCapabilityProbeRuntime>,
+): Promise<Readonly<RawAacCapabilityEvidence>> {
+  const reader = new AdtsIncrementalFrameReader({
+    source,
+    pageBytes: ADTS_MAX_FRAME_BYTES,
+  });
+  const frame = await reader.readNext(signal);
+  if (!frame) {
+    throw new EncodedSourceIntegrityError(
+      'Raw AAC source does not contain a complete first ADTS frame',
+    );
+  }
+  const header = frame.descriptor.header;
+  const coreConfiguration: Readonly<AdtsCoreConfiguration> = Object.freeze({
+    mpegId: 0,
+    profile: 1,
+    coreAudioObjectType: 2,
+    sampleRateIndex: header.sampleRateIndex,
+    channelConfiguration: header.channelConfiguration as 1 | 2,
+    protectionAbsent: true,
+    rawDataBlocks: 1,
+  });
+  try {
+    await probe(frame.bytes, signal, runtime);
+    throwIfAborted(signal);
+    return Object.freeze({ coreConfiguration });
+  } finally {
+    try {
+      frame.bytes.fill(0);
+    } catch {
+      // The reader-issued frame is bounded and becomes unreachable here.
+    }
+  }
+}
+
+function sameAacCoreConfiguration(
+  left: Readonly<AdtsCoreConfiguration>,
+  right: Readonly<AdtsCoreConfiguration>,
+): boolean {
+  return (
+    left.mpegId === right.mpegId &&
+    left.profile === right.profile &&
+    left.coreAudioObjectType === right.coreAudioObjectType &&
+    left.sampleRateIndex === right.sampleRateIndex &&
+    left.channelConfiguration === right.channelConfiguration &&
+    left.protectionAbsent === right.protectionAbsent &&
+    left.rawDataBlocks === right.rawDataBlocks
+  );
+}
+
 /**
  * Snapshot one public EncodedAudioSource boundary into a stable delegating
  * lease. The original object remains the exact byte/resource owner, while
@@ -845,8 +979,22 @@ async function createOwnedEncodedFilePlaybackSource(
           aacClaim &&
           !hasMarker(marker, ID3_MARKER)))
     ) {
+      const aacCapabilityProbe = snapshotAacCapabilityProbe(options.aacCapabilityProbe);
+      const aacRouteRuntime = snapshotAacRouteRuntime(options.aacRuntime);
+      const capabilityEvidence = await preflightRawAacCapability(
+        encodedSource,
+        options.signal,
+        aacCapabilityProbe,
+        aacRouteRuntime.capabilityRuntime,
+      );
+      throwIfAborted(options.signal);
       const scan = await scanAdtsFrames(encodedSource, options.signal);
       throwIfAborted(options.signal);
+      if (!sameAacCoreConfiguration(capabilityEvidence.coreConfiguration, scan.coreConfiguration)) {
+        throw new EncodedSourceIntegrityError(
+          'Raw AAC source configuration changed after capability admission',
+        );
+      }
       const returnedSource = factories.createStreamingAacSource({
         queueItemId: options.queueItemId,
         encodedSource,
@@ -856,7 +1004,7 @@ async function createOwnedEncodedFilePlaybackSource(
         nowRoomTimeMs: options.nowRoomTimeMs,
         roomTimeMsToContextTime: options.roomTimeMsToContextTime,
         localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
-        runtime: options.aacRuntime,
+        runtime: aacRouteRuntime.playbackRuntime,
       });
       const inspected = inspectCreatedSource(returnedSource);
       destroyCreatedSource = inspected.destroy;
@@ -1061,6 +1209,7 @@ export async function createBlobFilePlaybackSource(
       linearPcmRuntime: options.linearPcmRuntime,
       mp3Runtime: options.mp3Runtime,
       aacRuntime: options.aacRuntime,
+      aacCapabilityProbe: options.aacCapabilityProbe,
       m4aRuntime: options.m4aRuntime,
       boundedRoutePolicy: options.boundedRoutePolicy,
       backendFactories: options.backendFactories,

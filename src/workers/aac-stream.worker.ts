@@ -10,6 +10,15 @@ import {
   type AacDecoderBackend,
   type AacDecoderPcmBatch,
 } from '../player/aac/decoder-backend.js';
+import {
+  AAC_CAPABILITY_PROBE_GENERATION,
+  AAC_CAPABILITY_PROBE_MAX_ERROR_MESSAGE_LENGTH,
+  AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+  parseAacCapabilityProbeCommand,
+  type AacCapabilityProbeCommand,
+  type AacCapabilityProbeErrorCode,
+  type AacCapabilityProbeEvent,
+} from '../player/aac/capability-probe-protocol.js';
 import { createAacDecoderBackend } from '../player/aac/decoder-backend-factory.js';
 import { expectedAacOutputFrames } from '../player/aac/decoder-helpers.js';
 import {
@@ -167,6 +176,10 @@ function isSessionCancelled(error: unknown): boolean {
 }
 
 function postControl(message: AacDecoderEvent): void {
+  scope.postMessage(message);
+}
+
+function postCapability(message: AacCapabilityProbeEvent): void {
   scope.postMessage(message);
 }
 
@@ -961,6 +974,69 @@ function closeTransferredPorts(value: unknown): void {
   }
 }
 
+function clearCapabilityInputFrame(value: unknown): void {
+  if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return;
+  try {
+    const descriptor = Reflect.getOwnPropertyDescriptor(value, 'frame');
+    if (
+      descriptor &&
+      Object.hasOwn(descriptor, 'value') &&
+      descriptor.value instanceof Uint8Array
+    ) {
+      clearBytes(descriptor.value);
+    }
+  } catch {
+    // The strict parser has already retained its independent bounded copy.
+  }
+}
+
+function capabilityErrorCode(error: unknown): AacCapabilityProbeErrorCode {
+  if (error instanceof AacWebCodecsUnavailableError) return 'unavailable';
+  if (error instanceof AacWebCodecsIntegrityError) return 'integrity';
+  return 'internal';
+}
+
+function safeCapabilityErrorCode(error: unknown): AacCapabilityProbeErrorCode {
+  try {
+    return capabilityErrorCode(error);
+  } catch {
+    return 'internal';
+  }
+}
+
+function safeCapabilityErrorMessage(error: unknown): string {
+  try {
+    return boundedText(
+      errorMessage(error),
+      AAC_CAPABILITY_PROBE_MAX_ERROR_MESSAGE_LENGTH,
+      'AAC WebCodecs capability probe failed',
+    );
+  } catch {
+    return 'AAC WebCodecs capability probe failed';
+  }
+}
+
+async function handleCapabilityProbe(command: Readonly<AacCapabilityProbeCommand>): Promise<void> {
+  try {
+    await probeAacWebCodecsAdtsFrame(command.frame, new AbortController().signal);
+    postCapability({
+      protocolVersion: AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+      type: 'probe-ready',
+      probeGeneration: AAC_CAPABILITY_PROBE_GENERATION,
+    });
+  } catch (error) {
+    postCapability({
+      protocolVersion: AAC_CAPABILITY_PROBE_PROTOCOL_VERSION,
+      type: 'probe-error',
+      probeGeneration: AAC_CAPABILITY_PROBE_GENERATION,
+      code: safeCapabilityErrorCode(error),
+      message: safeCapabilityErrorMessage(error),
+    });
+  } finally {
+    clearBytes(command.frame);
+  }
+}
+
 function failWorkerProtocol(value: unknown): never | void {
   closeTransferredPorts(value);
   const session = activeSession;
@@ -976,6 +1052,19 @@ function failWorkerProtocol(value: unknown): never | void {
 }
 
 function handleCommand(value: unknown): void {
+  const capabilityCommand = parseAacCapabilityProbeCommand(value);
+  if (capabilityCommand) {
+    clearCapabilityInputFrame(value);
+    if (realmOpened || activeSession) {
+      clearBytes(capabilityCommand.frame);
+      failWorkerProtocol(value);
+      return;
+    }
+    realmOpened = true;
+    void handleCapabilityProbe(capabilityCommand);
+    return;
+  }
+
   const command = parseAacDecoderCommand(value);
   if (!command) {
     failWorkerProtocol(value);

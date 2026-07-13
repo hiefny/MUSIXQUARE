@@ -15,6 +15,19 @@ const GENERATION_OPTION_KEYS = Object.freeze([
   'coreConfiguration',
   'firstAccessUnitOrdinal',
 ] as const);
+const PCM_BATCH_EXPECTATION_KEYS = Object.freeze([
+  'firstAccessUnitOrdinal',
+  'accessUnitCount',
+  'coreConfiguration',
+] as const);
+const PCM_BATCH_RESULT_KEYS = Object.freeze([
+  'firstAccessUnitOrdinal',
+  'accessUnitCount',
+  'frameCount',
+  'sampleRateHz',
+  'channels',
+  'planes',
+] as const satisfies readonly (keyof AacDecoderPcmBatch)[]);
 const CORE_CONFIGURATION_KEYS = Object.freeze([
   'mpegId',
   'profile',
@@ -56,6 +69,13 @@ export interface AacDecoderPcmBatch {
    * transfer. The backend neither retains nor chooses that consumption path.
    */
   readonly planes: AacDecoderPcmPlanes;
+}
+
+/** Authoritative geometry used to validate one untrusted backend result. */
+export interface AacDecoderPcmBatchExpectation {
+  readonly firstAccessUnitOrdinal: number;
+  readonly accessUnitCount: number;
+  readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
 }
 
 /** One stateful decoder incarnation. Callers create a fresh one for every seek generation. */
@@ -111,6 +131,33 @@ export class AacDecoderBackendClosedError extends AacDecoderBackendError {
     this.name = 'AacDecoderBackendClosedError';
   }
 }
+
+const Float32ArrayIntrinsic = Float32Array;
+const arrayBufferIsView = ArrayBuffer.isView;
+const typedArrayPrototype = Reflect.getPrototypeOf(Float32ArrayIntrinsic.prototype) as
+  | object
+  | null;
+const typedArrayLengthGetter = typedArrayPrototype
+  ? Object.getOwnPropertyDescriptor(typedArrayPrototype, 'length')?.get
+  : undefined;
+const typedArrayByteLengthGetter = typedArrayPrototype
+  ? Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')?.get
+  : undefined;
+const typedArrayBufferGetter = typedArrayPrototype
+  ? Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')?.get
+  : undefined;
+const typedArrayTagGetter = typedArrayPrototype
+  ? Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get
+  : undefined;
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  'byteLength',
+)?.get;
+const float32ArraySet = Float32ArrayIntrinsic.prototype.set;
+const float32ArrayFill = Float32ArrayIntrinsic.prototype.fill;
+const trustedAbortThrowIfAborted = AbortSignal.prototype.throwIfAborted;
+const trustedAbortAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')?.get;
+const trustedAbortReason = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason')?.get;
 
 type DataRecord = Readonly<Record<string, unknown>>;
 
@@ -250,4 +297,308 @@ export function aacGenerationTimestampMicroseconds(
     throw new RangeError('AAC generation-local timestamp exceeds the safe-integer range');
   }
   return Number(timestamp);
+}
+
+interface VerifiedPcmBatchExpectation {
+  readonly firstAccessUnitOrdinal: number;
+  readonly accessUnitCount: number;
+  readonly frameCount: number;
+  readonly coreConfiguration: Readonly<AdtsCoreConfiguration>;
+  readonly sampleRateHz: number;
+  readonly channels: 1 | 2;
+}
+
+function requireAbortSignal(value: unknown): AbortSignal {
+  if (
+    (typeof value !== 'object' && typeof value !== 'function') ||
+    value === null ||
+    typeof trustedAbortAborted !== 'function'
+  ) {
+    throw new TypeError('AAC decoder PCM snapshot requires an exact AbortSignal');
+  }
+  try {
+    Reflect.apply(trustedAbortAborted, value, []);
+  } catch (cause) {
+    throw new TypeError('AAC decoder PCM snapshot requires an exact AbortSignal', { cause });
+  }
+  return value as AbortSignal;
+}
+
+function exactAbortState(signal: AbortSignal): {
+  readonly aborted: boolean;
+  readonly reason: unknown;
+} {
+  let aborted: unknown;
+  try {
+    aborted = Reflect.apply(trustedAbortAborted!, signal, []);
+  } catch (cause) {
+    return Object.freeze({ aborted: true, reason: cause });
+  }
+  if (aborted !== true) return Object.freeze({ aborted: false, reason: undefined });
+
+  let reason: unknown;
+  try {
+    reason =
+      typeof trustedAbortReason === 'function'
+        ? Reflect.apply(trustedAbortReason, signal, [])
+        : undefined;
+  } catch (cause) {
+    reason = cause;
+  }
+  return Object.freeze({
+    aborted: true,
+    reason:
+      reason === undefined
+        ? new DOMException('The AAC decoder PCM snapshot was aborted', 'AbortError')
+        : reason,
+  });
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (typeof trustedAbortThrowIfAborted === 'function') {
+    Reflect.apply(trustedAbortThrowIfAborted, signal, []);
+    return;
+  }
+  const state = exactAbortState(signal);
+  if (state.aborted) throw state.reason;
+}
+
+function snapshotPcmBatchExpectation(value: unknown): VerifiedPcmBatchExpectation {
+  const record = snapshotExactDataRecord(
+    value,
+    PCM_BATCH_EXPECTATION_KEYS,
+    'AAC decoder PCM batch expectation',
+  );
+  const firstAccessUnitOrdinal = requireSafeOrdinal(
+    record.firstAccessUnitOrdinal,
+    'AAC PCM batch first access-unit ordinal',
+  );
+  if (
+    typeof record.accessUnitCount !== 'number' ||
+    !Number.isSafeInteger(record.accessUnitCount) ||
+    Object.is(record.accessUnitCount, -0) ||
+    record.accessUnitCount < 1 ||
+    record.accessUnitCount > AAC_DECODER_BACKEND_MAX_BATCH_ACCESS_UNITS
+  ) {
+    throw new RangeError(
+      `AAC PCM batch expectation must contain 1 through ${AAC_DECODER_BACKEND_MAX_BATCH_ACCESS_UNITS} access units`,
+    );
+  }
+  if (firstAccessUnitOrdinal > Number.MAX_SAFE_INTEGER - (record.accessUnitCount - 1)) {
+    throw new RangeError('AAC PCM batch expectation exceeds the safe access-unit ordinal range');
+  }
+  const coreConfiguration = snapshotCoreConfiguration(record.coreConfiguration);
+  return Object.freeze({
+    firstAccessUnitOrdinal,
+    accessUnitCount: record.accessUnitCount,
+    frameCount: record.accessUnitCount * AAC_DECODER_BACKEND_ACCESS_UNIT_CORE_FRAMES,
+    coreConfiguration,
+    sampleRateHz: adtsCoreSampleRateHzForIndex(coreConfiguration.sampleRateIndex),
+    channels: coreConfiguration.channelConfiguration,
+  });
+}
+
+function snapshotPcmBatchResultRecord(value: unknown): DataRecord {
+  try {
+    return snapshotExactDataRecord(value, PCM_BATCH_RESULT_KEYS, 'AAC decoder PCM batch result');
+  } catch (cause) {
+    throw new AacDecoderBackendIntegrityError(
+      'AAC decoder returned a non-canonical PCM batch record',
+      cause,
+    );
+  }
+}
+
+function snapshotPlaneValues(value: unknown, channels: 1 | 2): readonly unknown[] {
+  let isArray: boolean;
+  let descriptors: PropertyDescriptorMap;
+  let prototype: object | null;
+  try {
+    isArray = Array.isArray(value);
+    if (!isArray) {
+      throw new TypeError('PCM planes are not an Array');
+    }
+    const planes = value as unknown[];
+    descriptors = Object.getOwnPropertyDescriptors(planes) as unknown as PropertyDescriptorMap;
+    prototype = Reflect.getPrototypeOf(planes);
+  } catch (cause) {
+    throw new AacDecoderBackendIntegrityError(
+      'AAC decoder PCM planes could not be inspected safely',
+      cause,
+    );
+  }
+  if (prototype !== Array.prototype) {
+    throw new AacDecoderBackendIntegrityError('AAC decoder PCM planes must be an exact Array');
+  }
+
+  const expectedKeys = Array.from({ length: channels }, (_unused, index) => String(index));
+  expectedKeys.push('length');
+  const actualKeys = Reflect.ownKeys(descriptors);
+  if (
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key) => typeof key !== 'string' || !expectedKeys.includes(key))
+  ) {
+    throw new AacDecoderBackendIntegrityError(
+      'AAC decoder PCM planes must be exact, dense, and free of extra fields',
+    );
+  }
+  const lengthDescriptor = descriptors.length;
+  if (
+    !lengthDescriptor ||
+    !Object.hasOwn(lengthDescriptor, 'value') ||
+    lengthDescriptor.value !== channels
+  ) {
+    throw new AacDecoderBackendIntegrityError(
+      'AAC decoder PCM plane count does not match its core channels',
+    );
+  }
+
+  const values: unknown[] = [];
+  for (let index = 0; index < channels; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) {
+      throw new AacDecoderBackendIntegrityError(
+        'AAC decoder PCM planes must use dense enumerable data elements',
+      );
+    }
+    values.push(descriptor.value);
+  }
+  return Object.freeze(values);
+}
+
+function clearOwnedPlanes(planes: readonly Float32Array[]): void {
+  for (const plane of planes) {
+    try {
+      Reflect.apply(float32ArrayFill, plane, [0]);
+    } catch {
+      // Cleanup is best-effort and must not replace integrity or abort failure.
+    }
+  }
+}
+
+function copyFiniteFloat32Plane(value: unknown, frames: number, label: string): Float32Array {
+  if (
+    typeof typedArrayLengthGetter !== 'function' ||
+    typeof typedArrayByteLengthGetter !== 'function' ||
+    typeof typedArrayBufferGetter !== 'function' ||
+    typeof typedArrayTagGetter !== 'function' ||
+    typeof arrayBufferByteLengthGetter !== 'function'
+  ) {
+    throw new AacDecoderBackendIntegrityError('Float32 PCM runtime intrinsics are unavailable');
+  }
+
+  let isView: boolean;
+  let length: number;
+  let byteLength: number;
+  try {
+    isView = arrayBufferIsView(value);
+    if (!isView || Reflect.apply(typedArrayTagGetter, value, []) !== 'Float32Array') {
+      throw new TypeError(`${label} is not Float32Array storage`);
+    }
+    length = Reflect.apply(typedArrayLengthGetter, value, []) as number;
+    byteLength = Reflect.apply(typedArrayByteLengthGetter, value, []) as number;
+    const buffer = Reflect.apply(typedArrayBufferGetter, value, []);
+    // The ArrayBuffer intrinsic rejects SharedArrayBuffer. Detached views have
+    // zero internal length and fail the exact geometry check below.
+    Reflect.apply(arrayBufferByteLengthGetter, buffer, []);
+  } catch (cause) {
+    throw new AacDecoderBackendIntegrityError(
+      `${label} must use readable, non-shared Float32Array storage`,
+      cause,
+    );
+  }
+  if (length !== frames || byteLength !== frames * Float32ArrayIntrinsic.BYTES_PER_ELEMENT) {
+    throw new AacDecoderBackendIntegrityError(
+      `${label} must contain exactly ${frames} Float32 frames`,
+    );
+  }
+
+  let owned: Float32Array;
+  try {
+    owned = new Float32ArrayIntrinsic(frames);
+  } catch (cause) {
+    throw new AacDecoderBackendIntegrityError(
+      `${label} could not allocate its bounded canonical copy`,
+      cause,
+    );
+  }
+  try {
+    Reflect.apply(float32ArraySet, owned, [value, 0]);
+    for (let index = 0; index < frames; index += 1) {
+      if (!Number.isFinite(owned[index])) {
+        throw new AacDecoderBackendIntegrityError(
+          `${label} contains non-finite PCM at frame ${index}`,
+        );
+      }
+    }
+    return owned;
+  } catch (cause) {
+    clearOwnedPlanes([owned]);
+    if (cause instanceof AacDecoderBackendIntegrityError) throw cause;
+    throw new AacDecoderBackendIntegrityError(`${label} could not be copied safely`, cause);
+  }
+}
+
+/**
+ * Validate and deeply detach one backend batch before it reaches PCM output.
+ *
+ * The copy is bounded to eight AAC-LC access units (64 KiB at stereo) and the
+ * returned Float32Array buffers are owned solely by this snapshot. The outer
+ * record and plane tuple are frozen; plane storage remains transferable.
+ */
+export function snapshotAacDecoderPcmBatch(
+  value: unknown,
+  expectationValue: unknown,
+  signalValue: AbortSignal,
+): Readonly<AacDecoderPcmBatch> {
+  const signal = requireAbortSignal(signalValue);
+  const ownedPlanes: Float32Array[] = [];
+  try {
+    throwIfAborted(signal);
+    const expectation = snapshotPcmBatchExpectation(expectationValue);
+    throwIfAborted(signal);
+    const record = snapshotPcmBatchResultRecord(value);
+    throwIfAborted(signal);
+    if (
+      !Object.is(record.firstAccessUnitOrdinal, expectation.firstAccessUnitOrdinal) ||
+      !Object.is(record.accessUnitCount, expectation.accessUnitCount) ||
+      !Object.is(record.frameCount, expectation.frameCount) ||
+      !Object.is(record.sampleRateHz, expectation.sampleRateHz) ||
+      !Object.is(record.channels, expectation.channels)
+    ) {
+      throw new AacDecoderBackendIntegrityError(
+        'AAC decoder PCM batch geometry contradicts its requested access units',
+      );
+    }
+
+    const planeValues = snapshotPlaneValues(record.planes, expectation.channels);
+    throwIfAborted(signal);
+    for (let index = 0; index < expectation.channels; index += 1) {
+      ownedPlanes.push(
+        copyFiniteFloat32Plane(
+          planeValues[index],
+          expectation.frameCount,
+          `AAC decoder PCM plane ${index}`,
+        ),
+      );
+      throwIfAborted(signal);
+    }
+
+    const planes = Object.freeze([...ownedPlanes]) as unknown as AacDecoderPcmPlanes;
+    const result: Readonly<AacDecoderPcmBatch> = Object.freeze({
+      firstAccessUnitOrdinal: expectation.firstAccessUnitOrdinal,
+      accessUnitCount: expectation.accessUnitCount,
+      frameCount: expectation.frameCount,
+      sampleRateHz: expectation.sampleRateHz,
+      channels: expectation.channels,
+      planes,
+    });
+    throwIfAborted(signal);
+    return result;
+  } catch (cause) {
+    clearOwnedPlanes(ownedPlanes);
+    const abort = exactAbortState(signal);
+    if (abort.aborted) throw abort.reason;
+    throw cause;
+  }
 }

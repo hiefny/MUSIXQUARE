@@ -104,20 +104,46 @@ This table records implementation progress, not production availability. The
 V2 product gate remains off for every row until the release gate below is
 satisfied.
 
-| Capability                                                              | Status                                                    | Product route |
-| ----------------------------------------------------------------------- | --------------------------------------------------------- | ------------- |
-| Codec-neutral bounded source, decoder adapter, PCM ring, and room clock | implemented and regression-tested                         | gated off     |
-| Native FLAC                                                             | implemented on the common renderer                        | gated off     |
-| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker               | gated off     |
-| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker               | gated off     |
-| CAF LPCM                                                                | implemented on the shared linear-PCM worker               | gated off     |
-| MP3                                                                     | strict ID3/frame/VBR/gapless/index foundation in progress | unavailable   |
-| ADTS AAC                                                                | design in progress                                        | unavailable   |
-| M4A/MP4 AAC                                                             | design in progress                                        | unavailable   |
+| Capability                                                              | Status                                                                             | Product route |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------- |
+| Codec-neutral bounded source, decoder adapter, PCM ring, and room clock | implemented and regression-tested                                                  | gated off     |
+| Native FLAC                                                             | implemented on the common renderer                                                 | gated off     |
+| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker                                        | gated off     |
+| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                        | gated off     |
+| CAF LPCM                                                                | implemented on the shared linear-PCM worker                                        | gated off     |
+| MP3                                                                     | strict parser/index/timeline and frame decoder implemented; worker/adapter pending | unavailable   |
+| ADTS AAC                                                                | design in progress                                                                 | unavailable   |
+| M4A/MP4 AAC                                                             | design in progress                                                                 | unavailable   |
 
 WAVE, AIFF/AIFC, and CAF do not own container-specific renderers. Their
 metadata readers normalize verified byte geometry into one linear-PCM decoder,
 one Worker protocol, and the same bounded renderer used by the room timeline.
+
+### MP3 decoder checkpoint
+
+The MP3 path currently proves ID3 boundaries, complete Layer III frame
+geometry, Xing/Info/VBRI declarations, bit-reservoir pointers, exact seek
+seeds, and encoder-tag CRCs before decoding. Free-format Layer III remains an
+explicitly unsupported capability; it is not guessed from adjacent sync words.
+
+`mpg123-decoder@1.0.3` is pinned as the audited PCM runtime. It runs with
+upstream gapless trimming disabled, accepts only scanner-verified audio frames,
+and never receives the leading Xing/Info/VBRI structural frame. Media
+coordinates are mapped explicitly with the verified Layer III decoder delay:
+
+```text
+decoderDelay = 529
+headTrim = encoderDelay + decoderDelay
+tailTrim = max(endPadding - decoderDelay, 0)
+```
+
+If the gapless extension is absent or fails validation, neither the encoder
+values nor the decoder delay are guessed; the full raw frame timeline remains
+audible. Every seek starts a fresh decoder Worker realm, supplies bounded
+reservoir and synthesis history, discards to the exact global raw coordinate,
+and terminates the realm instead of invoking the upstream `reset()` or
+`free()` cleanup paths. Product routing remains unavailable until that Worker
+and adapter lifecycle is implemented and soaked.
 
 ## Memory model
 
@@ -176,6 +202,11 @@ The existing V2 product gate stays off until all of the following pass:
 - start/drift p95, underrun, and start-evidence measurements;
 - capability mismatch isolates only the unsupported participant;
 - no legacy file side effect can race the V2 owner.
+
+Any release bundle containing the embedded mpg123 runtime must also ship the
+required LGPL-2.1-only notices, corresponding source, and relink materials at
+the documented distribution location. A passing browser build alone does not
+satisfy this release gate.
 
 Production enablement and rollback are separate commits. Until then the current
 live product and its rollback checkpoint remain unchanged.

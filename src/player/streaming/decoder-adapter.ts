@@ -47,7 +47,10 @@ export interface StreamingDecoderAdapter {
   readonly info: Readonly<StreamingDecoderMediaInfo>;
   readonly opened: boolean;
 
-  /** Opens the one encoded-source bridge and resolves after its exact acknowledgement. */
+  /**
+   * Activates the adapter. A codec may open one lifetime bridge here or defer
+   * a generation-scoped bridge until startGeneration().
+   */
   open(options: StreamingDecoderOpenOptions): Promise<void>;
   /** Resolves only after the exact decoder generation reports readiness. */
   startGeneration(request: StreamingDecoderGenerationRequest): Promise<void>;

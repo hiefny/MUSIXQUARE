@@ -292,10 +292,24 @@ function defaultGuestMediaOwnerFactory(
   return createFilePlaybackProductGuestMediaOwner(options);
 }
 
-function defaultHealthSystemMessage(
-  _message: Readonly<FilePlaybackProductHostHealthSystemMessage>,
-) {
-  // Product chat presentation is deliberately injected by app bootstrap.
+function defaultHealthSystemMessage(message: Readonly<FilePlaybackProductHostHealthSystemMessage>) {
+  // Keep chat/state out of the gate-off runtime's eager module graph. Health
+  // presentation is needed only after a live V2 host owner reports sustained
+  // degradation, at which point the ordinary chat bootstrap is already live.
+  void Promise.all([import('../core/state.ts'), import('../chat/protocol.ts')])
+    .then(([state, chat]) => {
+      const peerLabel = state.getState('network.peerLabels')?.[message.participantId];
+      const connectedLabel = state
+        .getState('network.connectedPeers')
+        .find((peer) => peer.id === message.participantId)?.label;
+      chat.broadcastSystemMessage('chat.participant_connection_unstable_recovering', {
+        name: peerLabel || connectedLabel || 'Peer',
+      });
+    })
+    .catch(() => {
+      // Health reporting must never destabilize playback or replace the exact
+      // connection recovery which is already in progress.
+    });
 }
 
 function assertSessionAdapter(value: FilePlaybackProductRuntimeSessionAdapter): void {

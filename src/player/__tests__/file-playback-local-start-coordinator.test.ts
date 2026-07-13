@@ -8,6 +8,10 @@ import {
 } from '../file-playback-asset-registry.ts';
 import { stageFilePlaybackAssetSource } from '../file-playback-asset-source-stager.ts';
 import {
+  FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+  type FilePlaybackBoundedRoutePolicy,
+} from '../file-playback-bounded-route-policy.ts';
+import {
   completeLocalFilePlaybackParticipant,
   retireLocalFilePlaybackParticipant,
   stageLocalFilePlaybackParticipant,
@@ -509,6 +513,57 @@ async function resolveStarted(
 }
 
 describe('split local rendezvous participant lifecycle', () => {
+  it('keeps the bounded route policy property absent when the caller omits it', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'policy-omitted', 'audio-buffer');
+    const stageAssetSourceForTests = vi.fn(
+      fixture.options.runtimeForTests!.stageAssetSourceForTests,
+    );
+    const staged = await stageLocalFilePlaybackParticipant({
+      ...splitStageOptions(fixture.options),
+      runtimeForTests: { stageAssetSourceForTests },
+    });
+
+    expect(stageAssetSourceForTests.mock.calls[0]?.[0]).not.toHaveProperty(
+      'boundedRoutePolicy',
+    );
+    await retireLocalFilePlaybackParticipant(staged, 'policy-omitted-cleanup');
+  });
+
+  it('rejects invalid or accessor-backed route policy options before staging', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'policy-invalid', 'audio-buffer');
+    const stageAssetSourceForTests = vi.fn(
+      fixture.options.runtimeForTests!.stageAssetSourceForTests,
+    );
+    await expect(
+      stageLocalFilePlaybackParticipant({
+        ...splitStageOptions(fixture.options),
+        boundedRoutePolicy: Object.freeze({
+          mode: 'universal-v1',
+          m4aBackendId: 'automatic',
+        }) as unknown as Readonly<FilePlaybackBoundedRoutePolicy>,
+        runtimeForTests: { stageAssetSourceForTests },
+      }),
+    ).rejects.toThrow(/M4A backend must be exactly webcodecs/u);
+
+    const getter = vi.fn(() => FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY);
+    const accessorOptions = {
+      ...splitStageOptions(fixture.options),
+      runtimeForTests: { stageAssetSourceForTests },
+    } as StageLocalFilePlaybackParticipantOptions;
+    Object.defineProperty(accessorOptions, 'boundedRoutePolicy', {
+      enumerable: true,
+      configurable: true,
+      get: getter,
+    });
+    await expect(stageLocalFilePlaybackParticipant(accessorOptions)).rejects.toThrow(
+      /options are invalid/u,
+    );
+    expect(getter).not.toHaveBeenCalled();
+    expect(stageAssetSourceForTests).not.toHaveBeenCalled();
+  });
+
   it('returns a frozen silent construction and retires it exactly once', async () => {
     const room = roomHarness();
     const fixture = room.admit(Q1, 'split-silent', 'audio-buffer');
@@ -838,6 +893,31 @@ describe('split local rendezvous participant lifecycle', () => {
 });
 
 describe('startLocalFilePlayback', () => {
+  it('canonicalizes and forwards one fixed universal-v1 policy through compatibility staging', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'policy-opted-in', 'bounded-stream');
+    const stageAssetSourceForTests = vi.fn(
+      fixture.options.runtimeForTests!.stageAssetSourceForTests,
+    );
+    const requested = Object.freeze({
+      mode: 'universal-v1' as const,
+      m4aBackendId: 'webcodecs' as const,
+    });
+    const pending = startLocalFilePlayback({
+      ...fixture.options,
+      boundedRoutePolicy: requested,
+      runtimeForTests: { stageAssetSourceForTests },
+    });
+    await resolveStarted(pending, room, fixture.source);
+    const result = await pending;
+
+    expect(stageAssetSourceForTests.mock.calls[0]?.[0].boundedRoutePolicy).toBe(
+      FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    );
+    expect(stageAssetSourceForTests.mock.calls[0]?.[0].boundedRoutePolicy).not.toBe(requested);
+    await room.manager.retireCurrentCutover(result.port);
+  });
+
   it.each([
     ['ordinary AudioBuffer', 'audio-buffer'],
     ['bounded FLAC', 'bounded-stream'],

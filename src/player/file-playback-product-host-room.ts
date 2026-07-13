@@ -4,6 +4,10 @@ import { isFilePlaybackSessionId } from '../network/file-playback-session-handsh
 import type { QueueItemId } from '../types/index.ts';
 import { FilePlaybackApplicationController } from './file-playback-application-controller.ts';
 import {
+  snapshotFilePlaybackBoundedRoutePolicy,
+  type FilePlaybackBoundedRoutePolicy,
+} from './file-playback-bounded-route-policy.ts';
+import {
   FilePlaybackHostFirstFileEngine,
   type FilePlaybackHostFirstFileEngineOptions,
   type HostCurrentPlaybackOperationOptions,
@@ -34,6 +38,7 @@ import { isQueueItemId } from './queue-model.ts';
 const OPTION_KEYS = Object.freeze([
   'controller',
   'hostRoomSnapshot',
+  'boundedRoutePolicy',
   'onFatalRoom',
   'onTimelineCommitted',
   'onTransitionScheduled',
@@ -42,6 +47,7 @@ const OPTION_KEYS = Object.freeze([
 ] as const);
 const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
   (key) =>
+    key !== 'boundedRoutePolicy' &&
     key !== 'onTimelineCommitted' &&
     key !== 'onTransitionScheduled' &&
     key !== 'roomClock' &&
@@ -163,6 +169,8 @@ export interface FilePlaybackProductHostRoomRuntimeForTests {
 export interface FilePlaybackProductHostRoomOptions {
   readonly controller: FilePlaybackApplicationController;
   readonly hostRoomSnapshot: Readonly<FilePlaybackProductHostRoomAuthority>;
+  /** Fixed for this room; omission preserves the current bounded routing contract. */
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   /** Product code omits this and consumes the one process room clock. */
   readonly roomClock?: FilePlaybackRoomClock;
   readonly onFatalRoom: (error: Error) => void;
@@ -677,6 +685,7 @@ function readFileIntent(
 export class FilePlaybackProductHostRoom {
   readonly #controller: FilePlaybackApplicationController;
   readonly #hostRoom: Readonly<FilePlaybackProductHostRoomAuthority>;
+  readonly #boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy> | null;
   readonly #roomClock: FilePlaybackRoomClock;
   readonly #roomToken: object;
   readonly #onFatalRoom: (error: Error) => void;
@@ -707,6 +716,10 @@ export class FilePlaybackProductHostRoom {
     if (!input || !hostRoom || !runtime) {
       throw new TypeError('File playback product host room options are invalid');
     }
+    const boundedRoutePolicy =
+      input.boundedRoutePolicy === undefined
+        ? null
+        : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
     if (!isExactController(input.controller)) {
       throw new TypeError('File playback product host room requires the exact controller');
     }
@@ -730,6 +743,7 @@ export class FilePlaybackProductHostRoom {
 
     this.#controller = input.controller;
     this.#hostRoom = hostRoom;
+    this.#boundedRoutePolicy = boundedRoutePolicy;
     this.#roomClock = roomClock;
     this.#roomToken = roomToken;
     this.#onFatalRoom = input.onFatalRoom as (error: Error) => void;
@@ -1382,6 +1396,7 @@ export class FilePlaybackProductHostRoom {
       roomToken: this.#roomToken,
       roomClock: this.#roomClock,
       hostParticipantId: this.#hostRoom.hostParticipantId,
+      ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
       onFatalRoom: (error) => {
         if (this.#engineRecord?.token === token) this.#handleEngineFatal(token, error);
         else pendingFatal = asError(error, 'File playback product host engine failed');

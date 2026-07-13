@@ -8,6 +8,10 @@ import {
 } from '../../network/file-playback-session-handshake.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
+import {
+  FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+  type FilePlaybackBoundedRoutePolicy,
+} from '../file-playback-bounded-route-policy.ts';
 import { FilePlaybackClock } from '../file-playback-clock.ts';
 import {
   FilePlaybackHostFirstFileEngine,
@@ -486,6 +490,7 @@ interface EngineHarness {
   readonly roomClock: FilePlaybackRoomClock;
   readonly engine: FilePlaybackHostFirstFileEngine;
   readonly sources: FakeSourceHarness[];
+  readonly stageRequests: Array<Parameters<typeof stageFilePlaybackAssetSource>[0]>;
   readonly createRunId: ReturnType<typeof vi.fn>;
   readonly sendRequired: ReturnType<typeof vi.fn>;
   readonly closeConnection: ReturnType<typeof vi.fn>;
@@ -536,6 +541,7 @@ function makeHarness(
     readonly initialTimeline?: PlaybackTimelineSnapshot;
     readonly onCoordinatorClosed?: () => void;
     readonly establishActiveGuest?: boolean;
+    readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
     readonly admitAsset?: NonNullable<
       FilePlaybackHostFirstFileEngineRuntimeForTests['admitAssetForTests']
     >;
@@ -579,10 +585,12 @@ function makeHarness(
   if (!options.roomClock && options.activateRoomClock !== false) roomClock.beginHostSession();
   let rendezvousSequence = 0;
   const sources: FakeSourceHarness[] = [];
+  const stageRequests: Array<Parameters<typeof stageFilePlaybackAssetSource>[0]> = [];
   const pendingPlans = [...plans];
   const stageAssetSourceForTests: NonNullable<
     FilePlaybackHostFirstFileEngineRuntimeForTests['localStartRuntimeForTests']
   >['stageAssetSourceForTests'] = async (stageOptions) => {
+    stageRequests.push(stageOptions);
     const plan = pendingPlans.shift();
     if (!plan) throw new Error('No source stage plan remains');
     if (plan.neverStage) return new Promise(() => undefined);
@@ -644,6 +652,7 @@ function makeHarness(
     roomToken: ROOM_TOKEN,
     roomClock,
     hostParticipantId: 'host-first-participant',
+    ...(options.boundedRoutePolicy ? { boundedRoutePolicy: options.boundedRoutePolicy } : {}),
     onFatalRoom: fatal,
     ...(options.onTransitionScheduled
       ? { onTransitionScheduled: options.onTransitionScheduled }
@@ -659,6 +668,7 @@ function makeHarness(
     roomClock,
     engine,
     sources,
+    stageRequests,
     createRunId,
     sendRequired,
     closeConnection,
@@ -894,6 +904,47 @@ function remoteRecoveryHarness(
 }
 
 describe('FilePlaybackHostFirstFileEngine', () => {
+  it('preserves policy omission and forwards its canonical fixed policy to local staging', async () => {
+    const omitted = makeHarness([{ backend: 'audio-buffer' }]);
+    await resolveLatestStart(
+      omitted,
+      omitted.start(new Blob([new Uint8Array([1, 2])], { type: 'audio/mpeg' })),
+    );
+    expect(omitted.stageRequests[0]).not.toHaveProperty('boundedRoutePolicy');
+    await omitted.engine.close();
+
+    const requested = Object.freeze({
+      mode: 'universal-v1' as const,
+      m4aBackendId: 'webcodecs' as const,
+    });
+    const optedIn = makeHarness([{ backend: 'bounded-stream' }], {
+      boundedRoutePolicy: requested,
+    });
+    await resolveLatestStart(
+      optedIn,
+      optedIn.start(new Blob([new Uint8Array([3, 4])], { type: 'audio/mp4' })),
+    );
+    expect(optedIn.stageRequests[0]?.boundedRoutePolicy).toBe(
+      FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    );
+    expect(optedIn.stageRequests[0]?.boundedRoutePolicy).not.toBe(requested);
+    await optedIn.engine.close();
+  });
+
+  it('rejects an invalid fixed route policy before constructing engine-owned collaborators', () => {
+    const managerFactory = vi.fn((manager: FilePlaybackManager) => manager);
+    expect(() =>
+      makeHarness([], {
+        boundedRoutePolicy: Object.freeze({
+          mode: 'universal-v1',
+          m4aBackendId: 'automatic',
+        }) as unknown as Readonly<FilePlaybackBoundedRoutePolicy>,
+        managerFactory,
+      }),
+    ).toThrow(/M4A backend must be exactly webcodecs/u);
+    expect(managerFactory).not.toHaveBeenCalled();
+  });
+
   it('publishes transition schedule before evidence and canonical truth after commit', async () => {
     const order: string[] = [];
     const scheduledEvents: Readonly<HostCurrentPlaybackTransitionScheduledEvent>[] = [];

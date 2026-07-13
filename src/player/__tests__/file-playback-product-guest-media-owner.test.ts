@@ -14,6 +14,10 @@ import type {
 } from '../../network/file-playback-application-session.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackAssetRegistry } from '../file-playback-asset-registry.ts';
+import {
+  FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+  type FilePlaybackBoundedRoutePolicy,
+} from '../file-playback-bounded-route-policy.ts';
 import type { StagedFilePlaybackAssetSource } from '../file-playback-asset-source-stager.ts';
 import {
   FilePlaybackManager,
@@ -643,7 +647,10 @@ function runtimeHarness(
 }
 
 function setup(
-  overrides: Pick<Partial<FilePlaybackProductGuestMediaOwnerOptions>, 'getAudioGraph'> = {},
+  overrides: Pick<
+    Partial<FilePlaybackProductGuestMediaOwnerOptions>,
+    'getAudioGraph' | 'boundedRoutePolicy'
+  > = {},
 ) {
   const pair = channelPair();
   const registry = new FilePlaybackAssetRegistry({
@@ -667,6 +674,7 @@ function setup(
       audioBuffer: {} as AudioBuffer,
       release: vi.fn(),
     })),
+    ...(overrides.boundedRoutePolicy ? { boundedRoutePolicy: overrides.boundedRoutePolicy } : {}),
     sendRequired: runtime.sendRequired,
     canSendPeerControl: vi.fn(() => true),
     onTimelineRendered: rendered,
@@ -802,6 +810,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await prepare(h);
     expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce();
     const stageOptions = h.runtime.stageAssetSource.mock.calls[0]![0];
+    expect(stageOptions).not.toHaveProperty('boundedRoutePolicy');
     expect(h.registry.snapshotForLease(ROOM_TOKEN, stageOptions.assetLease)).toMatchObject({
       kind: 'peer-range',
       sourceIdentity: SOURCE_ID,
@@ -893,6 +902,55 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
     expect(h.runtime.peerClose).toHaveBeenCalledOnce();
     expect(h.runtime.retireCurrent).toHaveBeenCalledOnce();
+  });
+
+  it('rejects invalid and hostile route policies before constructing media transports', () => {
+    const h = setup();
+    const createPeerTransport = vi.fn(h.runtime.runtime.createPeerTransport!);
+    const createR2Acquirer = vi.fn(h.runtime.runtime.createR2Acquirer!);
+    const stageAssetSource = vi.fn(h.runtime.runtime.stageAssetSource!);
+    const runtimeForTests: FilePlaybackProductGuestMediaOwnerRuntimeForTests = {
+      ...h.runtime.runtime,
+      createPeerTransport,
+      createR2Acquirer,
+      stageAssetSource,
+    };
+    let getterReads = 0;
+    const accessorPolicy = Object.create(null) as Record<string, unknown>;
+    Object.defineProperty(accessorPolicy, 'mode', {
+      enumerable: true,
+      get: () => {
+        getterReads += 1;
+        return 'current';
+      },
+    });
+    const throwingPolicy = new Proxy(Object.create(null) as Record<string, unknown>, {
+      ownKeys: () => {
+        throw new Error('hostile policy inspection');
+      },
+    });
+    const invalidPolicies: readonly unknown[] = [
+      { mode: 'universal-v1', m4aBackendId: 'symphonia-wasm' },
+      accessorPolicy,
+      throwingPolicy,
+    ];
+
+    for (const boundedRoutePolicy of invalidPolicies) {
+      expect(() =>
+        createFilePlaybackProductGuestMediaOwner({
+          ...h.options,
+          boundedRoutePolicy: boundedRoutePolicy as FilePlaybackBoundedRoutePolicy,
+          runtimeForTests,
+        }),
+      ).toThrow(TypeError);
+    }
+
+    expect(getterReads).toBe(0);
+    expect(createPeerTransport).not.toHaveBeenCalled();
+    expect(createR2Acquirer).not.toHaveBeenCalled();
+    expect(stageAssetSource).not.toHaveBeenCalled();
+    expect(h.runtime.r2Acquire).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
   });
 
   it('routes r2-whole-blob through the acquirer and stages it as an ordinary Blob source', async () => {
@@ -1058,8 +1116,13 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     h.owner.revoke(h.context);
   });
 
-  it('restages the registry asset for a same-state recovery without reacquisition', async () => {
-    const h = setup();
+  it('pins one opt-in route policy across initial and same-state recovery staging', async () => {
+    const requestedPolicy = {
+      mode: 'universal-v1' as const,
+      m4aBackendId: 'webcodecs' as const,
+    };
+    const h = setup({ boundedRoutePolicy: requestedPolicy });
+    Reflect.set(requestedPolicy, 'mode', 'current');
     const offer = r2Offer(h.context);
     await prepare(h, offer);
     const initial = await runHostAttempt(
@@ -1095,6 +1158,10 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await vi.waitFor(() => expect(h.runtime.commitAttempt).toHaveBeenCalledTimes(2));
     expect(h.runtime.r2Acquire).toHaveBeenCalledOnce();
     expect(h.runtime.stageAssetSource).toHaveBeenCalledTimes(2);
+    for (const [stageOptions] of h.runtime.stageAssetSource.mock.calls) {
+      expect(stageOptions.boundedRoutePolicy).toBe(FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY);
+      expect(Object.isFrozen(stageOptions.boundedRoutePolicy)).toBe(true);
+    }
     expect(h.rendered).not.toHaveBeenCalled();
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);

@@ -67,6 +67,10 @@ import {
   type HostRendezvousParticipant,
 } from './rendezvous-coordinator.ts';
 import type { EncodedAudioSource } from './sources/encoded-audio-source.ts';
+import {
+  snapshotFilePlaybackBoundedRoutePolicy,
+  type FilePlaybackBoundedRoutePolicy,
+} from './file-playback-bounded-route-policy.ts';
 
 const DEFAULT_MIME = 'application/octet-stream';
 const MAX_APPLICATION_SCOPE_ID_LENGTH = 128;
@@ -78,6 +82,7 @@ const OPTION_KEYS = Object.freeze([
   'roomToken',
   'roomClock',
   'hostParticipantId',
+  'boundedRoutePolicy',
   'onFatalRoom',
   'onTransitionScheduled',
   'onTimelineCommitted',
@@ -85,7 +90,10 @@ const OPTION_KEYS = Object.freeze([
 ] as const);
 const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
   (key) =>
-    key !== 'onTransitionScheduled' && key !== 'onTimelineCommitted' && key !== 'runtimeForTests',
+    key !== 'boundedRoutePolicy' &&
+    key !== 'onTransitionScheduled' &&
+    key !== 'onTimelineCommitted' &&
+    key !== 'runtimeForTests',
 );
 const START_KEYS = Object.freeze([
   'queueItemId',
@@ -174,6 +182,8 @@ export interface FilePlaybackHostFirstFileEngineOptions {
   /** Exact active host clock authority for this room. */
   readonly roomClock: FilePlaybackRoomClock;
   readonly hostParticipantId: string;
+  /** Fixed for this engine lifetime; omission preserves the current bounded route. */
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly onFatalRoom: (error: Error) => void;
   readonly onTransitionScheduled?: (
     event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
@@ -895,6 +905,7 @@ export class FilePlaybackHostFirstFileEngine {
   /** Kept explicit for the forthcoming coordinator close/revocation integration. */
   readonly #rendezvousCoordinator: HostRendezvousCoordinator;
   readonly #hostParticipantId: string;
+  readonly #boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy> | null;
   readonly #onFatalRoom: (error: Error) => void;
   readonly #onTransitionScheduled:
     | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
@@ -934,6 +945,10 @@ export class FilePlaybackHostFirstFileEngine {
     if (!input || !runtime) {
       throw new TypeError('Host first-file engine options are invalid');
     }
+    const boundedRoutePolicy =
+      input.boundedRoutePolicy === undefined
+        ? null
+        : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
     if (!isExactController(input.controller)) {
       throw new TypeError('Host first-file engine requires an exact application controller');
     }
@@ -1010,6 +1025,7 @@ export class FilePlaybackHostFirstFileEngine {
       createRendezvousId: runtime.createRendezvousId,
     });
     this.#hostParticipantId = input.hostParticipantId as string;
+    this.#boundedRoutePolicy = boundedRoutePolicy;
     this.#onFatalRoom = input.onFatalRoom as (error: Error) => void;
     this.#onTransitionScheduled =
       (input.onTransitionScheduled as
@@ -2462,6 +2478,7 @@ export class FilePlaybackHostFirstFileEngine {
         participantId: this.#hostParticipantId,
         rttP95Ms: 0,
         armP95Ms: 0,
+        ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
         ...(this.#runtime.localStartRuntime
           ? { runtimeForTests: this.#runtime.localStartRuntime }
           : {}),

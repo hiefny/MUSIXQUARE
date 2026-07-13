@@ -8,6 +8,10 @@ import {
 } from '../../network/file-playback-session-handshake.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
+import {
+  FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+  type FilePlaybackBoundedRoutePolicy,
+} from '../file-playback-bounded-route-policy.ts';
 import { FilePlaybackClock } from '../file-playback-clock.ts';
 import type {
   FilePlaybackHostFirstFileEngineOptions,
@@ -615,6 +619,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
 
 interface HarnessOptions {
   readonly enginePlan?: EnginePlan;
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly initGate?: ReturnType<typeof deferred<void>>;
   readonly ensureGate?: ReturnType<typeof deferred<void>>;
   readonly destination?: AudioNode | null;
@@ -707,6 +712,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
       hostParticipantId: `product-host-room-host-${harnessSequence}`,
     }),
     roomClock,
+    ...(options.boundedRoutePolicy ? { boundedRoutePolicy: options.boundedRoutePolicy } : {}),
     onFatalRoom: fatal,
     ...(options.onTransitionScheduled
       ? { onTransitionScheduled: options.onTransitionScheduled }
@@ -804,6 +810,41 @@ function containsBody(value: unknown, seen = new Set<object>()): boolean {
 }
 
 describe('FilePlaybackProductHostRoom stable facade', () => {
+  it('preserves policy omission and forwards one canonical universal-v1 policy to its engine', async () => {
+    const omitted = makeHarness();
+    await track(omitted.room, Q1, file('policy-omitted.mp3'));
+    expect(omitted.engines[0]?.options).not.toHaveProperty('boundedRoutePolicy');
+
+    const requested = Object.freeze({
+      mode: 'universal-v1' as const,
+      m4aBackendId: 'webcodecs' as const,
+    });
+    const optedIn = makeHarness({ boundedRoutePolicy: requested });
+    await track(optedIn.room, Q1, file('policy-opted-in.m4a', 'audio/mp4'));
+
+    expect(optedIn.engines[0]?.options.boundedRoutePolicy).toBe(
+      FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    );
+    expect(optedIn.engines[0]?.options.boundedRoutePolicy).not.toBe(requested);
+  });
+
+  it('rejects an invalid route policy before creating an engine or touching the audio graph', () => {
+    const onCreateEngine = vi.fn();
+    const onGetAudioContext = vi.fn();
+    expect(() =>
+      makeHarness({
+        boundedRoutePolicy: Object.freeze({
+          mode: 'universal-v1',
+          m4aBackendId: 'automatic',
+        }) as unknown as Readonly<FilePlaybackBoundedRoutePolicy>,
+        onCreateEngine,
+        onGetAudioContext,
+      }),
+    ).toThrow(/M4A backend must be exactly webcodecs/u);
+    expect(onCreateEngine).not.toHaveBeenCalled();
+    expect(onGetAudioContext).not.toHaveBeenCalled();
+  });
+
   it('forwards exact transition observers to its single engine lifetime', async () => {
     const onTransitionScheduled = vi.fn();
     const onTimelineCommitted = vi.fn();

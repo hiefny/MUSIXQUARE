@@ -25,6 +25,10 @@ import {
   type FilePlaybackStartEvidence,
 } from './file-playback-source.ts';
 import type { OrdinaryAudioDecoder } from './file-playback-source-factory.ts';
+import {
+  snapshotFilePlaybackBoundedRoutePolicy,
+  type FilePlaybackBoundedRoutePolicy,
+} from './file-playback-bounded-route-policy.ts';
 import { ManagerCutoverRendezvousParticipant } from './manager-cutover-rendezvous-participant.ts';
 import {
   readPlaybackAttemptIdentity,
@@ -55,9 +59,12 @@ const STAGE_OPTION_KEYS = Object.freeze([
   'participantId',
   'rttP95Ms',
   'armP95Ms',
+  'boundedRoutePolicy',
   'runtimeForTests',
 ] as const);
-const REQUIRED_STAGE_OPTION_KEYS = STAGE_OPTION_KEYS.filter((key) => key !== 'runtimeForTests');
+const REQUIRED_STAGE_OPTION_KEYS = STAGE_OPTION_KEYS.filter(
+  (key) => key !== 'boundedRoutePolicy' && key !== 'runtimeForTests',
+);
 const START_OPTION_KEYS = Object.freeze([
   ...STAGE_OPTION_KEYS.filter((key) => key !== 'runtimeForTests'),
   'positionSeconds',
@@ -65,7 +72,9 @@ const START_OPTION_KEYS = Object.freeze([
   'rendezvousCoordinator',
   'runtimeForTests',
 ] as const);
-const REQUIRED_START_OPTION_KEYS = START_OPTION_KEYS.filter((key) => key !== 'runtimeForTests');
+const REQUIRED_START_OPTION_KEYS = START_OPTION_KEYS.filter(
+  (key) => key !== 'boundedRoutePolicy' && key !== 'runtimeForTests',
+);
 const COMPLETE_OPTION_KEYS = Object.freeze(['staged', 'attempt'] as const);
 const CLOCK_KEYS = Object.freeze([
   'nowRoomTimeMs',
@@ -131,6 +140,8 @@ export interface StageLocalFilePlaybackParticipantOptions {
   readonly participantId: string;
   readonly rttP95Ms: number;
   readonly armP95Ms: number;
+  /** Fixed for this staging boundary; omission preserves the current bounded route. */
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly runtimeForTests?: FilePlaybackLocalStartCoordinatorRuntimeForTests;
 }
 
@@ -273,7 +284,7 @@ function snapshotOptions(
     const snapshot = Object.create(null) as Record<string, unknown>;
     for (const key of optionKeys) {
       const descriptor = descriptors[key];
-      if (key === 'runtimeForTests' && !descriptor) {
+      if ((key === 'boundedRoutePolicy' || key === 'runtimeForTests') && !descriptor) {
         snapshot[key] = undefined;
         continue;
       }
@@ -831,6 +842,10 @@ export async function stageLocalFilePlaybackParticipant(
 ): Promise<Readonly<StagedLocalFilePlaybackParticipant>> {
   const input = snapshotOptions(options, STAGE_OPTION_KEYS, REQUIRED_STAGE_OPTION_KEYS);
   if (!input) throw new TypeError('Local file playback stage options are invalid');
+  const boundedRoutePolicy =
+    input.boundedRoutePolicy === undefined
+      ? null
+      : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
 
   const registry = input.registry;
   const roomToken = input.roomToken;
@@ -931,6 +946,7 @@ export async function stageLocalFilePlaybackParticipant(
         signal,
         isCurrent: wrappedIsCurrent,
         decodeOrdinaryAudio: decodeOrdinaryAudio as OrdinaryAudioDecoder,
+        ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
       },
     ]);
     assertNativePromise<Readonly<StagedFilePlaybackAssetSource>>(
@@ -1163,6 +1179,10 @@ export async function startLocalFilePlayback(
 ): Promise<Readonly<StartedLocalFilePlayback>> {
   const input = snapshotOptions(options, START_OPTION_KEYS, REQUIRED_START_OPTION_KEYS);
   if (!input) throw new TypeError('Local file playback start options are invalid');
+  const boundedRoutePolicy =
+    input.boundedRoutePolicy === undefined
+      ? null
+      : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
   const positionSeconds = input.positionSeconds;
   const playbackRate = input.playbackRate;
   const rendezvousCoordinator = input.rendezvousCoordinator;
@@ -1195,6 +1215,7 @@ export async function startLocalFilePlayback(
       participantId: input.participantId as string,
       rttP95Ms: input.rttP95Ms as number,
       armP95Ms: input.armP95Ms as number,
+      ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
       runtimeForTests: input.runtimeForTests as
         | FilePlaybackLocalStartCoordinatorRuntimeForTests
         | undefined,

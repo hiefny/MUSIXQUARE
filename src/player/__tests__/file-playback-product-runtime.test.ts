@@ -9,6 +9,10 @@ import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
 import { FilePlaybackAssetRegistry } from '../file-playback-asset-registry.ts';
 import {
+  FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+  type FilePlaybackBoundedRoutePolicy,
+} from '../file-playback-bounded-route-policy.ts';
+import {
   createPeerRangeFileMediaSourceOfferV2,
   FileMediaOfferRegistry,
 } from '../file-media-source-offer.ts';
@@ -100,6 +104,7 @@ interface HostRoomClosePlan {
 
 interface RuntimeHarnessOptions {
   readonly enabled?: boolean;
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly installFailure?: Error;
   readonly endFailure?: Error;
   readonly roomNow?: number;
@@ -356,6 +361,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
   });
   const runtime = new FilePlaybackProductRuntime({
     enabled: options.enabled ?? true,
+    ...(options.boundedRoutePolicy ? { boundedRoutePolicy: options.boundedRoutePolicy } : {}),
     sessions,
     createController,
     nowMonotonicMs: monotonicNow,
@@ -942,6 +948,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(guestOwnerOptions?.registry).toBe(registry);
     expect(guestOwnerOptions?.manager).toBe(manager);
     expect(guestOwnerOptions?.roomToken).toBe(registryRoomToken);
+    expect(guestOwnerOptions).not.toHaveProperty('boundedRoutePolicy');
     expect(wrappedOwner).not.toBe(guestOwner);
     const timelineUpdated = freezeCanonical({
       schemaVersion: 1 as const,
@@ -1099,10 +1106,82 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.createHostRoom).toHaveBeenCalledOnce();
     expect(setup.hostRooms[0]?.options.controller).toBe(setup.controller());
     expect(setup.hostRooms[0]?.options.hostRoomSnapshot).toBe(hostRoom);
+    expect(setup.hostRooms[0]?.options).not.toHaveProperty('boundedRoutePolicy');
     expect(() => setup.runtime.beginHostRoom('reconnect-must-not-begin-a-room')).toThrow(
       /already owns an active room/u,
     );
     expect(setup.beginHostRoom).toHaveBeenCalledOnce();
+  });
+
+  it('pins one opt-in bounded route policy across host and guest room owners', () => {
+    const routers: ProductRouterHarness[] = [];
+    let guestOwnerOptions: Readonly<FilePlaybackProductGuestMediaOwnerOptions> | null = null;
+    const guestOwner = Object.freeze({
+      onTimelineAdopted: vi.fn(),
+      onTimelineUpdated: vi.fn(),
+      adoptAuxiliaryMessage: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeBulk: vi.fn(),
+      revoke: vi.fn(),
+    });
+    const setup = harness({
+      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createGuestMediaOwner: (options) => {
+          guestOwnerOptions = options;
+          return guestOwner;
+        },
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+
+    setup.runtime.beginHostRoom('bounded-policy-host');
+    expect(setup.hostRooms[0]?.options.boundedRoutePolicy).toBe(
+      FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    );
+    setup.runtime.endRoom();
+
+    setup.runtime.beginGuestRoom();
+    const context = routerContext('guest', {
+      connection: connection(),
+      suffix: 'bounded-policy-guest',
+    });
+    routers[0]!.options.createGuestMediaOwner(context);
+    expect(guestOwnerOptions?.boundedRoutePolicy).toBe(
+      FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    );
+    setup.runtime.endRoom();
+  });
+
+  it('never invokes a route-policy accessor and rejects an invalid cohort', () => {
+    let reads = 0;
+    expect(
+      () =>
+        new FilePlaybackProductRuntime({
+          enabled: false,
+          get boundedRoutePolicy() {
+            reads += 1;
+            return FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY;
+          },
+        }),
+    ).toThrow(/own enumerable data/i);
+    expect(reads).toBe(0);
+
+    expect(
+      () =>
+        new FilePlaybackProductRuntime({
+          enabled: false,
+          boundedRoutePolicy: {
+            mode: 'universal-v1',
+            m4aBackendId: 'symphonia-wasm',
+          } as unknown as FilePlaybackBoundedRoutePolicy,
+        }),
+    ).toThrow(/webcodecs/i);
   });
 
   it.each([

@@ -21,6 +21,10 @@ import {
   type FilePlaybackAssetSnapshot,
 } from './file-playback-asset-registry.ts';
 import {
+  snapshotFilePlaybackBoundedRoutePolicy,
+  type FilePlaybackBoundedRoutePolicy,
+} from './file-playback-bounded-route-policy.ts';
+import {
   stageFilePlaybackAssetSource,
   type StageFilePlaybackAssetSourceOptions,
   type StagedFilePlaybackAssetSource,
@@ -105,6 +109,7 @@ const OPTION_KEYS = Object.freeze([
   'getAudioGraph',
   'maxEncodedSize',
   'decodeOrdinaryAudio',
+  'boundedRoutePolicy',
   'sendRequired',
   'canSendPeerControl',
   'onTimelineRendered',
@@ -119,6 +124,7 @@ const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
     key !== 'armP95Ms' &&
     key !== 'readyLeaseMs' &&
     key !== 'rendererHealthLeaseMs' &&
+    key !== 'boundedRoutePolicy' &&
     key !== 'runtimeForTests',
 );
 const RUNTIME_KEYS = Object.freeze([
@@ -279,6 +285,7 @@ export interface FilePlaybackProductGuestMediaOwnerOptions {
   readonly getAudioGraph: () => Promise<Readonly<FilePlaybackProductGuestAudioGraph>>;
   readonly maxEncodedSize: number;
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly sendRequired: (
     context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
     frame: unknown,
@@ -795,6 +802,7 @@ class GuestMediaOwner {
   readonly #manager: FilePlaybackManager;
   readonly #getAudioGraph: FilePlaybackProductGuestMediaOwnerOptions['getAudioGraph'];
   readonly #decodeOrdinaryAudio: OrdinaryAudioDecoder;
+  readonly #boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy> | undefined;
   readonly #sendRequiredCallback: FilePlaybackProductGuestMediaOwnerOptions['sendRequired'];
   readonly #canSendPeerControl: FilePlaybackProductGuestMediaOwnerOptions['canSendPeerControl'];
   readonly #onFatalConnection: FilePlaybackProductGuestMediaOwnerOptions['onFatalConnection'];
@@ -820,6 +828,10 @@ class GuestMediaOwner {
 
   constructor(options: FilePlaybackProductGuestMediaOwnerOptions) {
     const input = snapshotAllowedOptions(options);
+    const boundedRoutePolicy =
+      input?.boundedRoutePolicy === undefined
+        ? undefined
+        : snapshotFilePlaybackBoundedRoutePolicy(input.boundedRoutePolicy);
     const context = exactContext(input?.context);
     const runtime = runtimeSnapshot(input?.runtimeForTests);
     if (!input || !context || !runtime) {
@@ -856,6 +868,7 @@ class GuestMediaOwner {
     this.#getAudioGraph =
       input.getAudioGraph as FilePlaybackProductGuestMediaOwnerOptions['getAudioGraph'];
     this.#decodeOrdinaryAudio = input.decodeOrdinaryAudio as OrdinaryAudioDecoder;
+    this.#boundedRoutePolicy = boundedRoutePolicy;
     this.#sendRequiredCallback =
       input.sendRequired as FilePlaybackProductGuestMediaOwnerOptions['sendRequired'];
     this.#canSendPeerControl =
@@ -1276,6 +1289,7 @@ class GuestMediaOwner {
         signal: operation.fence.signal,
         isCurrent: () => this.#preparedCurrent(room, prepared),
         decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
+        ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
       });
       this.#assertPrepared(room, prepared);
       if (
@@ -1356,6 +1370,7 @@ class GuestMediaOwner {
       signal: prepared.operation.fence.signal,
       isCurrent: () => this.#preparedCurrent(room, prepared),
       decodeOrdinaryAudio: this.#decodeOrdinaryAudio,
+      ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
     });
     this.#assertPrepared(room, prepared);
     if (

@@ -17,6 +17,10 @@ import {
   type FilePlaybackApplicationTimelineUpdatedEvent,
 } from './file-playback-application-controller.ts';
 import { FilePlaybackAssetRegistry } from './file-playback-asset-registry.ts';
+import {
+  snapshotFilePlaybackBoundedRoutePolicy,
+  type FilePlaybackBoundedRoutePolicy,
+} from './file-playback-bounded-route-policy.ts';
 import { FilePlaybackManager } from './file-playback-manager.ts';
 import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
 import type {
@@ -211,6 +215,8 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
 export interface FilePlaybackProductRuntimeOptions {
   /** Fixed for this facade's entire lifetime. It is never re-read at runtime. */
   readonly enabled?: boolean;
+  /** Fixed codec route for every host and guest room owned by this facade. */
+  readonly boundedRoutePolicy?: Readonly<FilePlaybackBoundedRoutePolicy>;
   readonly sessions?: FilePlaybackProductRuntimeSessionAdapter;
   readonly createController?: (
     input: Readonly<FilePlaybackProductRuntimeControllerFactoryInput>,
@@ -465,6 +471,26 @@ function asError(value: unknown): Error {
     : new Error('File playback product runtime failed', { cause: value });
 }
 
+function snapshotProductBoundedRoutePolicy(
+  options: FilePlaybackProductRuntimeOptions,
+): Readonly<FilePlaybackBoundedRoutePolicy> | null {
+  try {
+    const descriptor = Reflect.getOwnPropertyDescriptor(options, 'boundedRoutePolicy');
+    if (!descriptor) return null;
+    if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError('File playback product route policy must be own enumerable data');
+    }
+    return descriptor.value === undefined
+      ? null
+      : snapshotFilePlaybackBoundedRoutePolicy(descriptor.value);
+  } catch (error) {
+    if (error instanceof TypeError) throw error;
+    throw new TypeError('File playback product route policy could not be inspected', {
+      cause: error,
+    });
+  }
+}
+
 /**
  * Gate-aware owner of the product controller and application-session hooks.
  *
@@ -479,6 +505,7 @@ function asError(value: unknown): Error {
  */
 export class FilePlaybackProductRuntime {
   readonly #enabled: boolean;
+  readonly #boundedRoutePolicy: Readonly<FilePlaybackBoundedRoutePolicy> | null;
   readonly #providedSessions: FilePlaybackProductRuntimeSessionAdapter | null;
   readonly #createController: (
     input: Readonly<FilePlaybackProductRuntimeControllerFactoryInput>,
@@ -551,7 +578,9 @@ export class FilePlaybackProductRuntime {
       throw new TypeError('File playback product runtime media factories are invalid');
     }
     if (options.sessions !== undefined) assertSessionAdapter(options.sessions);
+    const boundedRoutePolicy = snapshotProductBoundedRoutePolicy(options);
     this.#enabled = options.enabled ?? DEFAULT_ENABLED;
+    this.#boundedRoutePolicy = boundedRoutePolicy;
     this.#providedSessions = options.sessions ?? null;
     this.#createController = options.createController ?? defaultControllerFactory;
     this.#nowMonotonicMs = options.nowMonotonicMs ?? defaultMonotonicNow;
@@ -798,6 +827,7 @@ export class FilePlaybackProductRuntime {
         Object.freeze({
           controller,
           hostRoomSnapshot,
+          ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
           onFatalRoom: (value: Error) => {
             const error = asError(value);
             if (this.#activeHostRoom?.token === token) {
@@ -1100,6 +1130,7 @@ export class FilePlaybackProductRuntime {
         getAudioGraph: getPrimedFilePlaybackProductAudio,
         maxEncodedSize: FILE_PLAYBACK_PRODUCT_MAX_PEER_ENCODED_BYTES,
         decodeOrdinaryAudio,
+        ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
         sendRequired: (
           ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
           frame: unknown,

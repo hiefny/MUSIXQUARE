@@ -780,8 +780,9 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     const pending = owner.publishPrepared(prepared);
     await drain();
     owner.port().revoke(pair.context);
+    await expect(pending).rejects.toThrow(/stale|closed|revoked/u);
     resolveSource(encodedPreparedSource(prepared, closeSource));
-    await expect(pending).rejects.toThrow(/stale|closed/u);
+    await drain();
     expect(closeSource).toHaveBeenCalledOnce();
     expect(sendRequired).not.toHaveBeenCalled();
   });
@@ -927,7 +928,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(owner.retirePrepared(first, new Error('retry reason is ignored'))).toBe(retirement);
     await expect(owner.publishPrepared(second)).rejects.toThrow(/retirement is settling/u);
     resolveFirst(encodedPreparedSource(first, closeFirst));
-    await expect(pending).rejects.toThrow(/retired|stale/u);
+    await expect(pending).rejects.toThrow(/retired|stale|superseded/u);
     await expect(retirement).resolves.toBeUndefined();
     expect(owner.retirePrepared(first, new Error('settled retry'))).toBe(retirement);
     expect(closeFirst).toHaveBeenCalledOnce();
@@ -1115,7 +1116,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     );
   });
 
-  it('waits for an uncancellable R2 publish to settle and safely reuses its room object', async () => {
+  it('detaches retirement from an uncancellable shared R2 publish and safely reuses it', async () => {
     const pair = connectionPair(() => 1_000);
     const first = preparedTrack('audio-buffer', 3);
     const second = preparedTrack('audio-buffer', 3);
@@ -1179,17 +1180,20 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(upload).toHaveBeenCalledOnce();
     const retirement = owner.retirePrepared(first, new Error('cancel R2 candidate'));
     await expect(owner.publishPrepared(second)).rejects.toThrow(/retirement is settling/u);
+    await expect(pending).rejects.toThrow(/cancel R2 candidate|aborted|stale/u);
+    await expect(retirement).resolves.toBeUndefined();
+    expect(closeConnection).not.toHaveBeenCalled();
+    expect(sendRequired).not.toHaveBeenCalled();
+
+    const replacement = owner.publishPrepared(second);
+    await drain(16);
+    expect(upload).toHaveBeenCalledOnce();
     resolveUpload({
       objectId: '98000000-0000-4000-8000-000000000099',
       expiresAt: 61_000,
       cleanupToken: 'cleanup-token',
     });
-    await expect(pending).rejects.toThrow(/stale/u);
-    await expect(retirement).resolves.toBeUndefined();
-    expect(closeConnection).not.toHaveBeenCalled();
-    expect(sendRequired).not.toHaveBeenCalled();
-
-    await expect(owner.publishPrepared(second)).resolves.toMatchObject({ prepared: second });
+    await expect(replacement).resolves.toMatchObject({ prepared: second });
     expect(upload).toHaveBeenCalledOnce();
     expect(sendRequired).toHaveBeenCalledOnce();
     owner.port().revoke(pair.context);
@@ -1681,8 +1685,9 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     const pending = owner.publishCurrent();
     await drain();
     owner.port().revoke(pair.context);
+    await expect(pending).rejects.toThrow(/stale|closed|aborted|revoked/u);
     resolveSource(blob);
-    await expect(pending).rejects.toThrow(/stale|closed|aborted/u);
+    await drain();
     expect(sendRequired).not.toHaveBeenCalled();
     await expect(r2.close()).resolves.toBeUndefined();
   });

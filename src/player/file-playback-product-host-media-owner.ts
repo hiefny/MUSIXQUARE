@@ -127,7 +127,7 @@ const READY_KEYS = Object.freeze([
 ] as const);
 const ACTIVATE_PREPARED_KEYS = Object.freeze(['prepared', 'timeline'] as const);
 const PEER_RANGE_BUFFERED_AMOUNT_LIMIT = 256 * 1024;
-const PUBLICATION_LIFETIME_MS = 15 * 60 * 1_000;
+export const FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS = 15 * 60 * 1_000;
 const HEALTH_LEASE_MS = 2_000;
 const HEALTH_TICK_MS = 250;
 
@@ -418,6 +418,56 @@ function asError(value: unknown, message: string): Error {
 
 function observe(task: Promise<unknown>): void {
   void task.catch(() => undefined);
+}
+
+function signalError(signal: AbortSignal, fallback: string): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error(fallback);
+}
+
+/**
+ * Stops this exact owner from awaiting shared work as soon as its authority is
+ * aborted. The underlying resolver/upload remains untouched for other owners;
+ * a late encoded lease is closed because nobody can safely adopt it afterward.
+ */
+function awaitWhileOwned<T>(
+  task: Promise<T>,
+  signal: AbortSignal,
+  onDetachedValue?: (value: T) => void | Promise<void>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let detached = false;
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      detached = true;
+      cleanup();
+      reject(signalError(signal, 'Host media publication was aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    task.then(
+      (value) => {
+        if (detached) {
+          if (onDetachedValue) {
+            void Promise.resolve(onDetachedValue(value)).catch(() => undefined);
+          }
+          return;
+        }
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
 }
 
 function deferredEvidence(): Readonly<{
@@ -993,27 +1043,39 @@ export class FilePlaybackProductHostMediaOwner {
       offer = createPeerRangeFileMediaSourceOfferV2({
         ...base,
         handleId,
-        expiresAtRoomTimeMs: nowRoomTimeMs + PUBLICATION_LIFETIME_MS,
+        expiresAtRoomTimeMs: nowRoomTimeMs + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
       });
     } else {
-      const source = await this.#hostRoom.resolveCurrentPeerRangeSource({
-        publication,
-        sourceIdentity: publication.asset.binding.sourceIdentity,
-        signal: this.#publicationSignal(epoch),
-      });
+      const signal = this.#publicationSignal(epoch);
+      const source = await awaitWhileOwned(
+        Promise.resolve().then(() =>
+          this.#hostRoom.resolveCurrentPeerRangeSource({
+            publication,
+            sourceIdentity: publication.asset.binding.sourceIdentity,
+            signal,
+          }),
+        ),
+        signal,
+        async (lateSource) => {
+          if (isEncodedSource(lateSource)) await lateSource.close();
+        },
+      );
       if (!(source instanceof Blob)) {
         await source.close().catch(() => undefined);
         throw new Error('Ordinary host publication requires its exact Blob source');
       }
       this.#assertPublicationAuthority(publication, epoch);
-      const published = await this.#publisher.publish({
-        queueItemId: publication.state.queueItemId,
-        sourceIdentity: publication.asset.binding.sourceIdentity,
-        transferSessionId: publication.asset.binding.transferSessionId,
-        blob: source,
-        name: publication.asset.metadata.name,
-        mime: publication.asset.metadata.mime,
-      });
+      const published = await awaitWhileOwned(
+        this.#publisher.publish({
+          queueItemId: publication.state.queueItemId,
+          sourceIdentity: publication.asset.binding.sourceIdentity,
+          transferSessionId: publication.asset.binding.transferSessionId,
+          blob: source,
+          name: publication.asset.metadata.name,
+          mime: publication.asset.metadata.mime,
+        }),
+        signal,
+      );
       this.#assertPublicationAuthority(publication, epoch);
       const epochNow = this.#runtime.nowEpochMs();
       if (!Number.isFinite(epochNow) || epochNow < 0) {
@@ -1100,11 +1162,20 @@ export class FilePlaybackProductHostMediaOwner {
       name: prepared.asset.metadata.name,
       mime: prepared.asset.metadata.mime,
     } as const;
-    const exactSource = await resolve({
-      prepared,
-      sourceIdentity: prepared.asset.binding.sourceIdentity,
-      signal: this.#candidateSignal(epoch),
-    });
+    const signal = this.#candidateSignal(epoch);
+    const exactSource = await awaitWhileOwned(
+      Promise.resolve().then(() =>
+        resolve({
+          prepared,
+          sourceIdentity: prepared.asset.binding.sourceIdentity,
+          signal,
+        }),
+      ),
+      signal,
+      async (lateSource) => {
+        if (isEncodedSource(lateSource)) await lateSource.close();
+      },
+    );
     try {
       this.#assertPreparedCandidateAuthority(prepared, epoch);
     } catch (error) {
@@ -1138,7 +1209,7 @@ export class FilePlaybackProductHostMediaOwner {
       offer = createPeerRangeFileMediaSourceOfferV2({
         ...base,
         handleId,
-        expiresAtRoomTimeMs: this.#nowRoomTimeMs() + PUBLICATION_LIFETIME_MS,
+        expiresAtRoomTimeMs: this.#nowRoomTimeMs() + FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
       });
     } else {
       if (!(exactSource instanceof Blob)) {
@@ -1146,14 +1217,17 @@ export class FilePlaybackProductHostMediaOwner {
         throw new Error('Ordinary prepared publication requires its exact Blob source');
       }
       this.#assertPreparedCandidateAuthority(prepared, epoch);
-      const published = await this.#publisher.publish({
-        queueItemId: prepared.state.queueItemId,
-        sourceIdentity: prepared.asset.binding.sourceIdentity,
-        transferSessionId: prepared.asset.binding.transferSessionId,
-        blob: exactSource,
-        name: prepared.asset.metadata.name,
-        mime: prepared.asset.metadata.mime,
-      });
+      const published = await awaitWhileOwned(
+        this.#publisher.publish({
+          queueItemId: prepared.state.queueItemId,
+          sourceIdentity: prepared.asset.binding.sourceIdentity,
+          transferSessionId: prepared.asset.binding.transferSessionId,
+          blob: exactSource,
+          name: prepared.asset.metadata.name,
+          mime: prepared.asset.metadata.mime,
+        }),
+        signal,
+      );
       this.#assertPreparedCandidateAuthority(prepared, epoch);
       const epochNow = this.#runtime.nowEpochMs();
       if (!Number.isFinite(epochNow) || epochNow < 0) {

@@ -20,10 +20,14 @@ import { FilePlaybackManager } from '../file-playback-manager.ts';
 import type {
   HostPreparedLocalTrack,
   HostPreparedRemoteParticipant,
+  HostPeerRangeSource,
 } from '../file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
 import type { FilePlaybackProductGuestMediaOwnerOptions } from '../file-playback-product-guest-media-owner.ts';
-import type { FilePlaybackProductHostMediaOwnerOptions } from '../file-playback-product-host-media-owner.ts';
+import {
+  FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
+  type FilePlaybackProductHostMediaOwnerOptions,
+} from '../file-playback-product-host-media-owner.ts';
 import type {
   ClearFilePlaybackProductHostLocalTrackWarmOptions,
   FilePlaybackProductHostCurrentOptions,
@@ -1071,11 +1075,14 @@ describe('FilePlaybackProductRuntime', () => {
     expect(bindPrepared.mock.invocationCallOrder[0]).toBeLessThan(
       whenPreparedRemoteReady.mock.invocationCallOrder[0]!,
     );
-    expect(resolveSource).toHaveBeenCalledWith(prepared.asset.binding.sourceIdentity);
+    expect(resolveSource).toHaveBeenCalledWith(
+      prepared.asset.binding.sourceIdentity,
+      expect.any(AbortSignal),
+    );
     expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
   });
 
-  it('settles every source offer before sending any prepared RUN binding', async () => {
+  it('binds each fast owner after its own OFFER without waiting for a slow owner', async () => {
     const routers: ProductRouterHarness[] = [];
     const firstOfferGate = deferred<void>();
     const capabilities = [0, 1].map(
@@ -1180,31 +1187,29 @@ describe('FilePlaybackProductRuntime', () => {
     await vi.waitFor(() => {
       expect(owners[0]?.publishPrepared).toHaveBeenCalledOnce();
       expect(owners[1]?.publishPrepared).toHaveBeenCalledOnce();
+      expect(owners[1]?.bindPrepared).toHaveBeenCalledWith(prepared);
+      expect(owners[1]?.whenPreparedRemoteReady).toHaveBeenCalledWith(prepared);
     });
     expect(owners[0]?.bindPrepared).not.toHaveBeenCalled();
-    expect(owners[1]?.bindPrepared).not.toHaveBeenCalled();
 
     firstOfferGate.resolve();
     await committed;
 
-    const lastOfferOrder = Math.max(
-      owners[0]!.publishPrepared.mock.invocationCallOrder[0]!,
-      owners[1]!.publishPrepared.mock.invocationCallOrder[0]!,
-    );
-    const firstBindOrder = Math.min(
+    expect(owners[0]?.bindPrepared).toHaveBeenCalledWith(prepared);
+    expect(owners[1]!.bindPrepared.mock.invocationCallOrder[0]).toBeLessThan(
       owners[0]!.bindPrepared.mock.invocationCallOrder[0]!,
-      owners[1]!.bindPrepared.mock.invocationCallOrder[0]!,
     );
-    expect(lastOfferOrder).toBeLessThan(firstBindOrder);
   });
 
-  it('finishes authorized late offers after commit and isolates one late peer failure', async () => {
+  it('activates late success independently and expires only a never-settling peer', async () => {
     vi.useFakeTimers();
     try {
       const routers: ProductRouterHarness[] = [];
-      const lateSuccessGate = deferred<void>();
-      const lateFailureGate = deferred<void>();
+      const lateSourceGate = deferred<HostPeerRangeSource>();
+      const neverSettlingGate = deferred<void>();
+      const lateOwnerSourceAuthority = new AbortController();
       const events: string[] = [];
+      const ownerOptions: Readonly<FilePlaybackProductHostMediaOwnerOptions>[] = [];
       const capabilities = [0, 1, 2].map(
         (index) =>
           freezeCanonical({
@@ -1220,10 +1225,18 @@ describe('FilePlaybackProductRuntime', () => {
           revoke: vi.fn(),
           publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
           publishPrepared: vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
-            if (index === 1) await lateSuccessGate.promise;
-            if (index === 2) await lateFailureGate.promise;
-            events.push(index === 2 ? 'offer-failed-2' : `offer-complete-${index}`);
-            if (index === 2) throw new Error('fixture late offer failed');
+            if (index === 1) {
+              const resolver = ownerOptions[index]?.resolvePreparedPeerRangeSource;
+              if (!resolver) throw new Error('fixture prepared resolver is unavailable');
+              const source = await resolver({
+                prepared,
+                sourceIdentity: prepared.asset.binding.sourceIdentity,
+                signal: lateOwnerSourceAuthority.signal,
+              });
+              expect(source).toBe(file);
+            }
+            if (index === 2) await neverSettlingGate.promise;
+            events.push(`offer-complete-${index}`);
             return freezeCanonical({ schemaVersion: 1, prepared }) as never;
           }),
           bindPrepared: vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
@@ -1246,7 +1259,10 @@ describe('FilePlaybackProductRuntime', () => {
             routers.push(candidate);
             return candidate.port;
           },
-          createHostMediaOwner: () => owners[ownerIndex++]!,
+          createHostMediaOwner: (options) => {
+            ownerOptions.push(options);
+            return owners[ownerIndex++]!;
+          },
         },
       });
       setup.runtime.initializeBeforeProtocol();
@@ -1293,10 +1309,13 @@ describe('FilePlaybackProductRuntime', () => {
           freezeCanonical({
             prepared,
             signal: input.signal,
-            resolveSource: vi.fn(async () => file),
+            resolveSource: vi.fn((_sourceIdentity: string, signal: AbortSignal) => {
+              expect(signal).toBe(lateOwnerSourceAuthority.signal);
+              return lateSourceGate.promise;
+            }),
           }),
         );
-        expect(remotes).toEqual([]);
+        expect(remotes).toEqual([capabilities[0]]);
         return freezeCanonical({
           ...candidateResult(
             prepared.roomGeneration,
@@ -1315,39 +1334,37 @@ describe('FilePlaybackProductRuntime', () => {
       });
       for (let index = 0; index < 8; index += 1) await Promise.resolve();
       expect(owners.every((owner) => owner.publishPrepared.mock.calls.length === 1)).toBe(true);
-      expect(owners.every((owner) => owner.bindPrepared.mock.calls.length === 0)).toBe(true);
+      expect(owners[0]?.bindPrepared).toHaveBeenCalledWith(prepared);
+      expect(owners[1]?.bindPrepared).not.toHaveBeenCalled();
+      expect(owners[2]?.bindPrepared).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(2_500);
       await expect(committedTask).resolves.toMatchObject({ timeline });
-      expect(owners.every((owner) => owner.bindPrepared.mock.calls.length === 0)).toBe(true);
+      expect(owners[0]?.activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
+      expect(owners[1]?.activatePrepared).not.toHaveBeenCalled();
+      expect(owners[2]?.activatePrepared).not.toHaveBeenCalled();
       expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
 
-      lateSuccessGate.resolve();
-      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+      lateSourceGate.resolve(file);
+      for (let index = 0; index < 16; index += 1) await Promise.resolve();
       expect(events).toContain('offer-complete-1');
-      expect(owners.every((owner) => owner.bindPrepared.mock.calls.length === 0)).toBe(true);
-
-      lateFailureGate.resolve();
-      for (let index = 0; index < 32; index += 1) await Promise.resolve();
-
       expect(owners[0]?.bindPrepared).toHaveBeenCalledWith(prepared);
       expect(owners[1]?.bindPrepared).toHaveBeenCalledWith(prepared);
       expect(owners[2]?.bindPrepared).not.toHaveBeenCalled();
       expect(owners[0]?.activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
       expect(owners[1]?.activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
       expect(owners[2]?.activatePrepared).not.toHaveBeenCalled();
+      expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS - 2_500);
+      for (let index = 0; index < 32; index += 1) await Promise.resolve();
+
       expect(setup.sessions.closeConnection).toHaveBeenCalledOnce();
       expect(setup.sessions.closeConnection).toHaveBeenCalledWith(contexts[2]?.connection);
       expect(owners[0]?.revoke).not.toHaveBeenCalled();
       expect(owners[1]?.revoke).not.toHaveBeenCalled();
-
-      const lastOfferSettlement = Math.max(
-        events.indexOf('offer-complete-0'),
-        events.indexOf('offer-complete-1'),
-        events.indexOf('offer-failed-2'),
-      );
-      const firstBind = Math.min(events.indexOf('bind-0'), events.indexOf('bind-1'));
-      expect(lastOfferSettlement).toBeLessThan(firstBind);
+      expect(events.indexOf('offer-complete-1')).toBeLessThan(events.indexOf('bind-1'));
+      expect(vi.getTimerCount()).toBe(0);
       setup.runtime.endRoom();
     } finally {
       vi.useRealTimers();

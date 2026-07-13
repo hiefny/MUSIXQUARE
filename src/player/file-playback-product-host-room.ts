@@ -222,8 +222,11 @@ export interface FilePlaybackProductHostPreparedCohortContext {
   readonly prepared: Readonly<HostPreparedLocalTrack>;
   /** The room-owned signal for the complete prepare/publish/start operation. */
   readonly signal: AbortSignal;
-  /** Resolves only the encoded source bound to `prepared`, under the same room fence. */
-  readonly resolveSource: (sourceIdentity: string) => Promise<HostPeerRangeSource>;
+  /** Resolves only the encoded source bound to `prepared`, under one exact peer-owner signal. */
+  readonly resolveSource: (
+    sourceIdentity: string,
+    signal: AbortSignal,
+  ) => Promise<HostPeerRangeSource>;
 }
 
 export type PrepareFilePlaybackProductHostRemoteParticipants = (
@@ -1340,25 +1343,28 @@ export class FilePlaybackProductHostRoom {
     this.#assertOperationReady(operation);
     assertBodyFree(prepared);
     try {
-      const resolveSource = async (sourceIdentity: string): Promise<HostPeerRangeSource> => {
-        this.#assertOperationReady(operation);
-        if (typeof sourceIdentity !== 'string') {
+      const resolveSource = async (
+        sourceIdentity: string,
+        signal: AbortSignal,
+      ): Promise<HostPeerRangeSource> => {
+        if (typeof sourceIdentity !== 'string' || !(signal instanceof AbortSignal)) {
           throw new TypeError('Product prepared peer-range source identity is invalid');
         }
+        this.#assertPreparedSourceRoomReady(record, signal);
         const source = await record.engine.resolvePreparedPeerRangeSource({
           prepared,
           sourceIdentity,
-          signal: operation.controller.signal,
+          signal,
         });
         try {
-          this.#assertOperationReady(operation);
+          this.#assertPreparedSourceRoomReady(record, signal);
           return source;
         } catch (error) {
           if (!(source instanceof Blob)) {
             try {
               await source.close();
             } catch {
-              // The stale room operation remains the primary rejection.
+              // The stale room/peer authority remains the primary rejection.
             }
           }
           throw error;
@@ -1666,6 +1672,18 @@ export class FilePlaybackProductHostRoom {
     this.#assertRoomAuthority();
     throwIfAborted(operation.externalSignal);
     throwIfAborted(operation.controller.signal);
+  }
+
+  #assertPreparedSourceRoomReady(record: EngineRecord, signal: AbortSignal): void {
+    throwIfAborted(signal);
+    if (this.#closed || this.#engineRecord !== record) {
+      throw this.#fatalError ?? new Error('File playback product prepared source room is stale');
+    }
+    this.#assertRoomAuthority();
+    throwIfAborted(signal);
+    if (this.#closed || this.#engineRecord !== record) {
+      throw this.#fatalError ?? new Error('File playback product prepared source room changed');
+    }
   }
 
   #assertRoomAuthority(allowClosed = false): void {

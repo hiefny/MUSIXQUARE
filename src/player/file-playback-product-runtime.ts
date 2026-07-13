@@ -39,6 +39,7 @@ import {
   type FilePlaybackProductGuestMediaOwnerOptions,
 } from './file-playback-product-guest-media-owner.ts';
 import {
+  FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
   FilePlaybackProductHostMediaOwner,
   type ActivateFilePlaybackProductHostPreparedOptions,
   type FilePlaybackProductHostHealthSystemMessage,
@@ -261,6 +262,7 @@ interface HostPreparedCohortEntry {
   readonly context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
   readonly owner: FilePlaybackProductRuntimeHostMediaOwnerPort;
   readonly publicationTask: Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>>;
+  readonly cancelPublicationTask: (reason: Error) => void;
   readinessTask: Promise<void>;
   publication: Readonly<FilePlaybackProductHostPreparedPublicationCommit> | null;
   capability: Readonly<HostPreparedRemoteParticipant> | null;
@@ -272,7 +274,10 @@ interface HostPreparedCohortCycle {
   readonly active: ActiveProductHostRoom;
   readonly prepared: Readonly<HostPreparedLocalTrack>;
   readonly signal: AbortSignal;
-  readonly resolveSource: (sourceIdentity: string) => Promise<HostPeerRangeSource>;
+  readonly resolveSource: (
+    sourceIdentity: string,
+    signal: AbortSignal,
+  ) => Promise<HostPeerRangeSource>;
   readonly contexts: ReadonlySet<Readonly<FilePlaybackProductSessionRouterConnectionContext>>;
   readonly entries: HostPreparedCohortEntry[];
   status: 'preparing' | 'committed' | 'failed';
@@ -498,6 +503,67 @@ function asError(value: unknown): Error {
   return value instanceof Error
     ? value
     : new Error('File playback product runtime failed', { cause: value });
+}
+
+function createBoundedHostPublicationTask<T>(
+  sourceTask: Promise<T>,
+  signal: AbortSignal,
+  onDeadline: (error: Error) => void,
+  releaseAuthority: () => void,
+): Readonly<{ promise: Promise<T>; cancel: (reason: Error) => void }> {
+  let resolveTask!: (value: T) => void;
+  let rejectTask!: (reason: Error) => void;
+  let settled = false;
+  let released = false;
+  let timer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  const cleanup = () => {
+    if (timer !== null) {
+      globalThis.clearTimeout(timer);
+      timer = null;
+    }
+    signal.removeEventListener('abort', onAbort);
+    if (!released) {
+      released = true;
+      releaseAuthority();
+    }
+  };
+  const rejectOnce = (reason: Error): boolean => {
+    if (settled) return false;
+    settled = true;
+    cleanup();
+    rejectTask(reason);
+    return true;
+  };
+  const onAbort = () => {
+    rejectOnce(
+      signal.reason instanceof Error
+        ? signal.reason
+        : new Error('File playback product prepared publication was aborted'),
+    );
+  };
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveTask = resolve;
+    rejectTask = reject;
+  });
+  signal.addEventListener('abort', onAbort, { once: true });
+  if (signal.aborted) {
+    onAbort();
+  } else {
+    timer = globalThis.setTimeout(() => {
+      const error = new Error('File playback product prepared publication exceeded offer lifetime');
+      if (rejectOnce(error)) onDeadline(error);
+    }, FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS);
+  }
+  sourceTask.then(
+    (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolveTask(value);
+    },
+    (cause: unknown) => rejectOnce(asError(cause)),
+  );
+  return Object.freeze({ promise, cancel: rejectOnce });
 }
 
 function snapshotProductBoundedRoutePolicy(
@@ -1137,6 +1203,7 @@ export class FilePlaybackProductRuntime {
     if (!this.#enabled) return;
     const { controller, sessions } = this.#requireReady();
     this.#abandonNextLocalTrackWarm('File playback product room ended');
+    this.#cancelAllPreparedCohorts(new Error('File playback product room ended'));
     if (!this.#roomActive) {
       const orphan = this.#activeHostRoom;
       this.#activeHostRoom = null;
@@ -1257,6 +1324,7 @@ export class FilePlaybackProductRuntime {
     }
     this.#connectionContexts.add(context);
     try {
+      let exactOwner: FilePlaybackProductRuntimeHostMediaOwnerPort | null = null;
       const ownerOptions: Readonly<FilePlaybackProductHostMediaOwnerOptions> = Object.freeze({
         context,
         hostRoom: active.port,
@@ -1271,11 +1339,18 @@ export class FilePlaybackProductRuntime {
         closeConnection: (connection: DataConnection) => sessions.closeConnection(connection),
         onHealthSystemMessage: (message: Readonly<FilePlaybackProductHostHealthSystemMessage>) =>
           this.#onHealthSystemMessage(message),
-        resolvePreparedPeerRangeSource: (input: ResolvePreparedHostPeerRangeSourceOptions) =>
-          this.#resolvePreparedHostPeerSource(active, context, input),
+        resolvePreparedPeerRangeSource: (input: ResolvePreparedHostPeerRangeSourceOptions) => {
+          if (!exactOwner) {
+            return Promise.reject(
+              new Error('File playback product prepared source owner is unavailable'),
+            );
+          }
+          return this.#resolvePreparedHostPeerSource(active, context, exactOwner, input);
+        },
       });
       const owner = this.#createHostMediaOwner(ownerOptions);
       assertHostMediaOwnerPort(owner);
+      exactOwner = owner;
       this.#hostMediaOwners.set(context, owner);
       return Object.freeze({
         ...(owner.onHostReady
@@ -1293,6 +1368,11 @@ export class FilePlaybackProductRuntime {
           try {
             owner.revoke(revokeContext);
           } finally {
+            this.#cancelPreparedCohortOwner(
+              context,
+              owner,
+              new Error('File playback product host media owner was revoked'),
+            );
             if (this.#hostMediaOwners.get(context) === owner) {
               this.#hostMediaOwners.delete(context);
             }
@@ -1521,29 +1601,55 @@ export class FilePlaybackProductRuntime {
               owner,
               task: Promise.resolve().then(() => owner.publishPrepared(context.prepared)),
             }));
-            const allOffersSettled = Promise.allSettled(offers.map((offer) => offer.task));
             for (const { ownerContext, owner, task: offerTask } of offers) {
-              const publicationTask = offerTask.then(async (publication) => {
-                await allOffersSettled;
-                // Admission may time out after every offer task was authorized but before the
-                // slowest offer settles. Those exact entries may bind late to committed truth.
+              // Connections are independent publication authorities. Each peer
+              // needs only its own OFFER before its own RUN; a never-settling
+              // peer must not hold every other owner behind a room-wide barrier.
+              let bindAuthority: Readonly<{
+                active: ActiveProductHostRoom;
+                cycle: HostPreparedCohortCycle;
+                owner: FilePlaybackProductRuntimeHostMediaOwnerPort;
+                ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
+                prepared: Readonly<HostPreparedLocalTrack>;
+                signal: AbortSignal;
+              }> | null = Object.freeze({
+                active,
+                cycle: created,
+                owner,
+                ownerContext,
+                prepared: context.prepared,
+                signal: context.signal,
+              });
+              const ownerTask = offerTask.then((publication) => {
+                const authority = bindAuthority;
                 if (
-                  (created.status !== 'preparing' && created.status !== 'committed') ||
-                  this.#hostPreparedCohorts.get(created.prepared) !== created ||
-                  this.#hostMediaOwners.get(ownerContext) !== owner ||
-                  !this.#connectionContexts.has(ownerContext) ||
-                  context.signal.aborted ||
-                  !this.#ownsExactHostRoom(active)
+                  !authority ||
+                  (authority.cycle.status !== 'preparing' &&
+                    authority.cycle.status !== 'committed') ||
+                  this.#hostPreparedCohorts.get(authority.prepared) !== authority.cycle ||
+                  this.#hostMediaOwners.get(authority.ownerContext) !== authority.owner ||
+                  !this.#connectionContexts.has(authority.ownerContext) ||
+                  authority.signal.aborted ||
+                  !this.#ownsExactHostRoom(authority.active)
                 ) {
                   throw new Error('File playback product prepared offer became stale before bind');
                 }
-                await owner.bindPrepared(context.prepared);
-                return publication;
+                return authority.owner.bindPrepared(authority.prepared).then(() => publication);
               });
+              const bounded = createBoundedHostPublicationTask(
+                ownerTask,
+                context.signal,
+                (error) => this.#closeExactHostMediaOwner(ownerContext, owner, error),
+                () => {
+                  bindAuthority = null;
+                },
+              );
+              const publicationTask = bounded.promise;
               const entry: HostPreparedCohortEntry = {
                 context: ownerContext,
                 owner,
                 publicationTask,
+                cancelPublicationTask: bounded.cancel,
                 readinessTask: Promise.resolve(),
                 publication: null,
                 capability: null,
@@ -1681,6 +1787,7 @@ export class FilePlaybackProductRuntime {
     if (this.#hostPreparedCohorts.get(cycle.prepared) === cycle) {
       this.#hostPreparedCohorts.delete(cycle.prepared);
     }
+    for (const entry of cycle.entries) entry.cancelPublicationTask(reason);
     await Promise.allSettled(
       cycle.entries.map((entry) => entry.owner.retirePrepared(cycle.prepared, reason)),
     );
@@ -1689,16 +1796,17 @@ export class FilePlaybackProductRuntime {
   async #resolvePreparedHostPeerSource(
     active: ActiveProductHostRoom,
     context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
     options: ResolvePreparedHostPeerRangeSourceOptions,
   ): Promise<HostPeerRangeSource> {
     const cycle = this.#hostPreparedCohorts.get(options.prepared);
     if (
       !cycle ||
       cycle.active !== active ||
-      cycle.status !== 'preparing' ||
+      (cycle.status !== 'preparing' && cycle.status !== 'committed') ||
       !cycle.contexts.has(context) ||
       !this.#connectionContexts.has(context) ||
-      !this.#hostMediaOwners.has(context) ||
+      this.#hostMediaOwners.get(context) !== owner ||
       options.signal.aborted ||
       cycle.signal.aborted ||
       options.sourceIdentity !== options.prepared.asset.binding.sourceIdentity ||
@@ -1706,12 +1814,16 @@ export class FilePlaybackProductRuntime {
     ) {
       throw new Error('File playback product prepared source authority is stale');
     }
-    const source = await cycle.resolveSource(options.sourceIdentity);
+    const source = await cycle.resolveSource(options.sourceIdentity, options.signal);
     if (
       this.#hostPreparedCohorts.get(options.prepared) !== cycle ||
-      cycle.status !== 'preparing' ||
+      (cycle.status !== 'preparing' && cycle.status !== 'committed') ||
+      !cycle.contexts.has(context) ||
+      !this.#connectionContexts.has(context) ||
+      this.#hostMediaOwners.get(context) !== owner ||
       options.signal.aborted ||
       cycle.signal.aborted ||
+      options.sourceIdentity !== options.prepared.asset.binding.sourceIdentity ||
       !this.#ownsExactHostRoom(active)
     ) {
       if (!(source instanceof Blob)) await source.close().catch(() => undefined);
@@ -1723,9 +1835,10 @@ export class FilePlaybackProductRuntime {
   #closeExactHostMediaOwner(
     context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
     owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
-    _reason: Error,
+    reason: Error,
   ): void {
     if (this.#hostMediaOwners.get(context) !== owner) return;
+    this.#cancelPreparedCohortOwner(context, owner, reason);
     this.#hostMediaOwners.delete(context);
     this.#connectionContexts.delete(context);
     try {
@@ -1733,6 +1846,28 @@ export class FilePlaybackProductRuntime {
     } catch {
       // The exact failed connection is already terminal.
     }
+  }
+
+  #cancelPreparedCohortOwner(
+    context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
+    reason: Error,
+  ): void {
+    for (const cycle of this.#hostPreparedCohorts.values()) {
+      for (const entry of cycle.entries) {
+        if (entry.context === context && entry.owner === owner) {
+          entry.cancelPublicationTask(reason);
+        }
+      }
+    }
+  }
+
+  #cancelAllPreparedCohorts(reason: Error): void {
+    for (const cycle of this.#hostPreparedCohorts.values()) {
+      cycle.status = 'failed';
+      for (const entry of cycle.entries) entry.cancelPublicationTask(reason);
+    }
+    this.#hostPreparedCohorts.clear();
   }
 
   /**

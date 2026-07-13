@@ -1179,6 +1179,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     const setup = makeHarness();
     const media = file('cohort.flac', 'audio/flac');
     const engine = setup.engines[0];
+    const peerSource = new AbortController();
     const prepareRemoteParticipants = vi.fn(
       async (context: Readonly<FilePlaybackProductHostPreparedCohortContext>) => {
         expect(Object.isFrozen(context)).toBe(true);
@@ -1193,7 +1194,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         const createdEngine = setup.engines[0]!;
         createdEngine.resolvePreparedPeerRangeSource.mockResolvedValueOnce(media);
         await expect(
-          context.resolveSource(context.prepared.asset.binding.sourceIdentity),
+          context.resolveSource(context.prepared.asset.binding.sourceIdentity, peerSource.signal),
         ).resolves.toBe(media);
         const participant = new RemoteRendezvousParticipant({
           participantId: 'product-cohort-peer',
@@ -1226,7 +1227,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     expect(createdEngine.resolvePreparedPeerRangeSource).toHaveBeenCalledWith({
       prepared: await prepared,
       sourceIdentity: context?.prepared.asset.binding.sourceIdentity,
-      signal: context?.signal,
+      signal: peerSource.signal,
     });
     expect(createdEngine.startPreparedLocalTrack).toHaveBeenCalledOnce();
     expect(createdEngine.startPreparedLocalTrack.mock.calls[0]?.[0].prepared).toBe(
@@ -1242,6 +1243,46 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       schedule: { positionSeconds: 7.25 },
     });
     expect(containsBody(result)).toBe(false);
+  });
+
+  it('lets an exact peer source begun before commit finish after the room operation settles', async () => {
+    const setup = makeHarness();
+    const media = file('late-cohort-source.flac', 'audio/flac');
+    const startAuthority = new AbortController();
+    const peerAuthority = new AbortController();
+    const sourceGate = deferred<HostPeerRangeSource>();
+    let sourceResolution: Promise<HostPeerRangeSource> | null = null;
+
+    const committed = await trackWithCohort(
+      setup.room,
+      Q1,
+      media,
+      async (context) => {
+        setup.engines[0]?.resolvePreparedPeerRangeSource.mockImplementationOnce(
+          async () => sourceGate.promise,
+        );
+        sourceResolution = context.resolveSource(
+          context.prepared.asset.binding.sourceIdentity,
+          peerAuthority.signal,
+        );
+        void sourceResolution.catch(() => undefined);
+        return [];
+      },
+      0,
+      startAuthority.signal,
+    );
+
+    expect(committed).toMatchObject({ status: 'committed', attempt: { queueItemId: Q1 } });
+    expect(sourceResolution).not.toBeNull();
+    startAuthority.abort(new Error('completed start caller released'));
+    sourceGate.resolve(media);
+
+    await expect(sourceResolution).resolves.toBe(media);
+    expect(setup.engines[0]?.resolvePreparedPeerRangeSource).toHaveBeenCalledWith({
+      prepared: setup.engines[0]?.startPreparedLocalTrack.mock.calls[0]?.[0].prepared,
+      sourceIdentity: expect.any(String),
+      signal: peerAuthority.signal,
+    });
   });
 
   it('aborts a slow remote cohort callback without starting a dangling candidate', async () => {
@@ -1275,6 +1316,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
   it('closes a prepared source which resolves after its cohort operation became stale', async () => {
     const setup = makeHarness();
     const external = new AbortController();
+    const peerSource = new AbortController();
     const sourceGate = deferred<HostPeerRangeSource>();
     const closeSource = vi.fn(async () => undefined);
     const pending = trackWithCohort(
@@ -1285,7 +1327,10 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         setup.engines[0]?.resolvePreparedPeerRangeSource.mockImplementationOnce(
           async () => sourceGate.promise,
         );
-        await context.resolveSource(context.prepared.asset.binding.sourceIdentity);
+        await context.resolveSource(
+          context.prepared.asset.binding.sourceIdentity,
+          peerSource.signal,
+        );
         return [];
       },
       0,
@@ -1293,6 +1338,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     );
     await drainMicrotasks();
     external.abort(new Error('source operation superseded'));
+    peerSource.abort(new Error('peer source owner retired'));
 
     await expect(pending).rejects.toThrow('source operation superseded');
     sourceGate.resolve({ close: closeSource } as unknown as HostPeerRangeSource);

@@ -217,11 +217,14 @@ and greater-than-4-GiB `mdat` layouts are handled with safe-integer coordinates;
 box headers and table pages remain bounded to at most 64 KiB per physical read.
 
 The codec boundary is native AAC, not synthesized ADTS. An `mp4a` sample entry
-must supply an exact two-byte AAC-LC AudioSpecificConfig. WebCodecs receives the
-raw `raw_data_block()` access unit together with that configuration as
-`AudioDecoderConfig.description`; ADTS continues to use description-absent ADTS
-chunks. One decoder generation pins one framing contract and may not switch
-between them after its canary or first decode.
+must supply either the exact two-byte AAC-LC AudioSpecificConfig or FFmpeg's
+canonical five-byte no-SBR form. The latter is admitted only when its sync
+extension explicitly declares SBR absent and all remaining padding bits are
+zero; SBR, PS, SAC, and arbitrary suffixes remain rejected. WebCodecs receives
+the raw `raw_data_block()` access unit together with the complete validated
+configuration as `AudioDecoderConfig.description`; ADTS continues to use
+description-absent ADTS chunks. One decoder generation pins one framing
+contract and may not switch between them after its canary or first decode.
 
 The admitted M4A timing model is proven from sample tables instead of inferred
 from file duration:

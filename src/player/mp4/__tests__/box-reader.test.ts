@@ -480,4 +480,47 @@ describe('ISO BMFF source-bound box reader', () => {
       /inverted boundary/,
     );
   });
+
+  it('binds child cursors to exact box references issued by the same reader', async () => {
+    const bytes = container('moov', standardHeader('free', 8));
+    const source = sourceFrom(bytes);
+    const reader = new IsoBmffBoxReader(source);
+    const parent = await reader.createCursor().next(signal());
+    expect(parent).not.toBeNull();
+
+    await expect(reader.createChildCursor(parent!).next(signal())).resolves.toMatchObject({
+      type: 'free',
+    });
+
+    const otherReader = new IsoBmffBoxReader(source);
+    expect(() => otherReader.createChildCursor(parent!)).toThrow(/not issued by this reader/);
+    expect(() => reader.createChildCursor({ ...parent! })).toThrow(/not issued by this reader/);
+    expect(() => reader.createChildCursor(structuredClone(parent!))).toThrow(
+      /not issued by this reader/,
+    );
+
+    const hostile = new Proxy(Object.create(null) as Readonly<typeof parent>, {
+      get(): never {
+        throw new Error('untrusted parent fields were inspected');
+      },
+    });
+    expect(() => reader.createChildCursor(hostile as Readonly<NonNullable<typeof parent>>)).toThrow(
+      /not issued by this reader/,
+    );
+  });
+
+  it('accepts a parent reference issued by public readBoxAt', async () => {
+    const bytes = container('moov', standardHeader('free', 8));
+    const reader = new IsoBmffBoxReader(sourceFrom(bytes));
+    const parent = await reader.readBoxAt(
+      { parentStart: 0, parentEnd: bytes.byteLength, start: 0 },
+      signal(),
+    );
+
+    await expect(reader.createChildCursor(parent).next(signal())).resolves.toMatchObject({
+      type: 'free',
+      start: 8,
+      end: 16,
+    });
+  });
 });

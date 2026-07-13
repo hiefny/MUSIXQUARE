@@ -234,6 +234,7 @@ class SharedBoxBudget {
 export class IsoBmffBoxReader {
   readonly #source: SourceSnapshot;
   readonly #budget: SharedBoxBudget;
+  readonly #issuedRefs = new WeakSet<object>();
 
   constructor(source: EncodedRandomAccessSource, options: IsoBmffBoxReaderOptions = {}) {
     this.#source = snapshotSource(source);
@@ -281,6 +282,13 @@ export class IsoBmffBoxReader {
     parent: Readonly<IsoBmffBoxRef>,
     options: IsoBmffChildCursorOptions = {},
   ): IsoBmffBoxCursor {
+    if (
+      parent === null ||
+      (typeof parent !== 'object' && typeof parent !== 'function') ||
+      !this.#issuedRefs.has(parent)
+    ) {
+      throw new IsoBmffBoxError('ISO BMFF child cursor parent was not issued by this reader');
+    }
     const box = snapshotBoxRef(parent, this.#source.size);
     if (!options || typeof options !== 'object') {
       throw new TypeError('ISO BMFF child cursor options must be an object');
@@ -368,6 +376,7 @@ export class IsoBmffBoxReader {
       });
       throwIfAborted(signal);
       this.#assertSourceStable();
+      this.#issuedRefs.add(box);
       reservation.commit();
       return box;
     } catch (error) {

@@ -275,6 +275,153 @@ describe('MP3 decoder helpers', () => {
     ).toThrow(/exact-key/i);
   });
 
+  it('returns canonical nested metadata snapshots that cannot change after validation', () => {
+    const gapless: Mp3GaplessMetadata = {
+      encoderFamily: 'LAME',
+      encoderTag: 'LAME3.100',
+      encoderDelaySamples: 576,
+      endPaddingSamples: 1_000,
+    };
+    const metadata = metadataFixture({ audioFrameCount: 100, gapless });
+    const id3 = {
+      ...metadata.id3,
+      leadingTags: [...metadata.id3.leadingTags],
+      trailingTags: [...metadata.id3.trailingTags],
+    };
+    const header = { ...metadata.firstAudioFrameHeader };
+    const seekPoints = metadata.seekPoints.map((point) => ({ ...point }));
+    const mutableGapless = { ...metadata.gapless! };
+    const mutableVbrGapless = { ...metadata.gapless! };
+    const vbr = { ...metadata.vbr!, gapless: mutableVbrGapless };
+    const mutable = {
+      ...metadata,
+      id3,
+      firstAudioFrameHeader: header,
+      seekPoints,
+      gapless: mutableGapless,
+      vbr,
+    } as Mp3Metadata;
+    const planning = rebuildMp3DecoderPlanningState({
+      metadata: mutable,
+      sourceSize: sourceSize(metadata),
+    });
+    const originalAudioEnd = metadata.id3.audioEnd;
+    const originalFrameLength = metadata.firstAudioFrameHeader.frameLengthBytes;
+    const originalSeekOffset = metadata.seekPoints[0]!.byteOffset;
+    const originalDelay = metadata.gapless!.encoderDelaySamples;
+    const originalFrameCount = metadata.vbr!.frameCount;
+
+    id3.audioEnd = 1;
+    header.frameLengthBytes = 1;
+    seekPoints[0]!.byteOffset += 1;
+    mutableGapless.encoderDelaySamples = 1;
+    vbr.frameCount = 1;
+
+    expect(planning.metadata.id3.audioEnd).toBe(originalAudioEnd);
+    expect(planning.metadata.firstAudioFrameHeader.frameLengthBytes).toBe(originalFrameLength);
+    expect(planning.metadata.seekPoints[0]!.byteOffset).toBe(originalSeekOffset);
+    expect(planning.metadata.gapless!.encoderDelaySamples).toBe(originalDelay);
+    expect(planning.metadata.vbr!.frameCount).toBe(originalFrameCount);
+    expect(Object.isFrozen(planning.metadata.id3)).toBe(true);
+    expect(Object.isFrozen(planning.metadata.id3.leadingTags)).toBe(true);
+    expect(Object.isFrozen(planning.metadata.firstAudioFrameHeader)).toBe(true);
+    expect(Object.isFrozen(planning.metadata.seekPoints)).toBe(true);
+    expect(Object.isFrozen(planning.metadata.gapless)).toBe(true);
+    expect(Object.isFrozen(planning.metadata.vbr)).toBe(true);
+  });
+
+  it('snapshots seek-point arrays without re-reading a hostile Proxy length', () => {
+    const metadata = metadataFixture();
+    let lengthReads = 0;
+    const proxy = new Proxy([...metadata.seekPoints], {
+      get(target, property, receiver) {
+        if (property === 'length') {
+          lengthReads += 1;
+          if (lengthReads >= 3) throw new Error('length re-read escaped the point bound');
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    const planning = rebuildMp3DecoderPlanningState({
+      metadata,
+      sourceSize: sourceSize(metadata),
+      seekPoints: proxy,
+    });
+    expect(planning.seekPoints).toEqual(metadata.seekPoints);
+    expect(lengthReads).toBe(0);
+  });
+
+  it('binds declared frame evidence and counts to the actual VBR metadata', () => {
+    const tagFree = metadataFixture({ audioFrameCount: 10 });
+    expect(() =>
+      rebuildMp3DecoderPlanningState({
+        metadata: patchMetadata(tagFree, {
+          frameCountEvidence: 'xing',
+          fullyVerifiedFrameSpan: false,
+          verifiedAudioFrameCount: 1,
+          verifiedAudioBytes: tagFree.firstAudioFrameHeader.frameLengthBytes,
+        }),
+        sourceSize: sourceSize(tagFree),
+      }),
+    ).toThrow(/declaration|evidence/i);
+
+    const gapless: Mp3GaplessMetadata = {
+      encoderFamily: 'LAME',
+      encoderTag: 'LAME3.100',
+      encoderDelaySamples: 576,
+      endPaddingSamples: 1_000,
+    };
+    const declared = metadataFixture({ audioFrameCount: 100, gapless });
+    expect(() =>
+      rebuildMp3DecoderPlanningState({
+        metadata: patchMetadata(declared, {
+          vbr: { ...declared.vbr!, frameCount: declared.audioFrameCount + 1 },
+        }),
+        sourceSize: sourceSize(declared),
+      }),
+    ).toThrow(/frame count/i);
+    expect(() =>
+      rebuildMp3DecoderPlanningState({
+        metadata: patchMetadata(declared, {
+          vbr: { ...declared.vbr!, streamBytes: declared.id3FreeMpegBytes - 1 },
+        }),
+        sourceSize: sourceSize(declared),
+      }),
+    ).toThrow(/stream bytes/i);
+    expect(() =>
+      rebuildMp3DecoderPlanningState({
+        metadata: patchMetadata(declared, { frameCountEvidence: 'info' }),
+        sourceSize: sourceSize(declared),
+      }),
+    ).toThrow(/evidence|declaration/i);
+  });
+
+  it('rejects metadata anchors and byte geometry outside the verified prefix', () => {
+    const gapless: Mp3GaplessMetadata = {
+      encoderFamily: 'LAME',
+      encoderTag: 'LAME3.100',
+      encoderDelaySamples: 576,
+      endPaddingSamples: 1_000,
+    };
+    const metadata = metadataFixture({
+      audioFrameCount: 10,
+      gapless,
+      seekOrdinals: [0, 5],
+    });
+    expect(() =>
+      rebuildMp3DecoderPlanningState({ metadata, sourceSize: sourceSize(metadata) }),
+    ).toThrow(/verified prefix/i);
+    expect(() =>
+      rebuildMp3DecoderPlanningState({
+        metadata: patchMetadata(metadataFixture({ audioFrameCount: 10, gapless }), {
+          verifiedAudioBytes: 1,
+        }),
+        sourceSize: sourceSize(metadata),
+      }),
+    ).toThrow(/verified prefix/i);
+  });
+
   it('creates an origin descriptor with default native output and clamped warmup', () => {
     const metadata = metadataFixture();
     const result = createMp3DecoderDescriptor({
@@ -431,6 +578,36 @@ describe('MP3 decoder helpers', () => {
       discardSamples: 2 * metadata.samplesPerFrame + 23,
       rereadFrameCount: 3,
     });
+  });
+
+  it('snapshots a prelude point window exactly once before applying its bound', () => {
+    const metadata = metadataFixture({ audioFrameCount: 10 });
+    const points = pointsThrough(metadata, 2);
+    const descriptor = createMp3DecoderDescriptor({
+      metadata,
+      sourceSize: sourceSize(metadata),
+      sourceIdentity: SOURCE_IDENTITY,
+      seekPoints: points,
+      mediaFrame: 2 * metadata.samplesPerFrame + 23,
+    });
+    const hostile = [...points] as typeof points & { map?: unknown };
+    Object.defineProperty(hostile, 'map', {
+      value: () => {
+        throw new Error('late point-window replacement escaped its bound');
+      },
+    });
+    let reads = 0;
+    const options = {
+      descriptor,
+      get points() {
+        reads += 1;
+        return reads < 4 ? points : hostile;
+      },
+    };
+
+    const resolved = resolveMp3DecoderPrelude(options);
+    expect(resolved.target.frameOrdinal).toBe(2);
+    expect(reads).toBe(1);
   });
 
   it('uses exact preceding capacities to resolve a reservoir-complete reread start', () => {

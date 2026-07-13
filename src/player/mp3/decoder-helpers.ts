@@ -23,6 +23,7 @@ import {
 export const MP3_DECODER_DEFAULT_WARMUP_FRAMES = 16;
 
 const MAX_LAYER_3_FRAME_BYTES = 1_441;
+const MP3_METADATA_CANONICAL_MAX_ENTRIES = 16_384;
 
 const METADATA_KEYS = [
   'format',
@@ -182,6 +183,108 @@ function requireExactRecord(value: unknown, keys: readonly string[], label: stri
   ) {
     throw new TypeError(`${label} must be a canonical exact-key record`);
   }
+  return record;
+}
+
+function snapshotBoundedArray(
+  value: unknown,
+  label: string,
+  maximumLength: number,
+  allowEmpty = false,
+): readonly unknown[] {
+  if (!Array.isArray(value)) throw new TypeError(`${label} must be an array`);
+  let lengthDescriptor: PropertyDescriptor | undefined;
+  try {
+    lengthDescriptor = Reflect.getOwnPropertyDescriptor(value, 'length');
+  } catch {
+    throw new TypeError(`${label} length cannot be inspected safely`);
+  }
+  const length = lengthDescriptor?.value;
+  if (
+    !lengthDescriptor ||
+    !Object.hasOwn(lengthDescriptor, 'value') ||
+    !Number.isSafeInteger(length) ||
+    length < (allowEmpty ? 0 : 1) ||
+    length > maximumLength
+  ) {
+    throw new RangeError(
+      `${label} must be a bounded array containing from ${allowEmpty ? 0 : 1} through ${maximumLength} entries`,
+    );
+  }
+
+  const snapshot: unknown[] = [];
+  for (let index = 0; index < length; index += 1) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Reflect.getOwnPropertyDescriptor(value, String(index));
+    } catch {
+      throw new TypeError(`${label} ${index} cannot be inspected safely`);
+    }
+    if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError(`${label} must be a dense data-property array`);
+    }
+    snapshot.push(descriptor.value);
+  }
+  return Object.freeze(snapshot);
+}
+
+function snapshotCanonicalMetadataValue(
+  value: unknown,
+  label: string,
+  budget: { remaining: number },
+  stack: WeakSet<object>,
+): unknown {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isSafeInteger(value))
+  ) {
+    return value;
+  }
+  if (typeof value !== 'object') {
+    throw new TypeError(`${label} contains unsupported metadata`);
+  }
+  if (stack.has(value)) throw new TypeError(`${label} must not contain cycles`);
+  stack.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const entries = snapshotBoundedArray(value, label, MP3_SEEK_INDEX_MAX_POINTS, true);
+      budget.remaining -= entries.length;
+      if (budget.remaining < 0) throw new RangeError(`${label} exceeds its metadata entry bound`);
+      const snapshot: unknown[] = [];
+      for (let index = 0; index < entries.length; index += 1) {
+        snapshot.push(
+          snapshotCanonicalMetadataValue(entries[index], `${label} ${index}`, budget, stack),
+        );
+      }
+      return Object.freeze(snapshot);
+    }
+
+    const record = snapshotRecord(value);
+    if (!record) throw new TypeError(`${label} must contain canonical data records`);
+    const keys = Object.keys(record);
+    budget.remaining -= keys.length;
+    if (budget.remaining < 0) throw new RangeError(`${label} exceeds its metadata entry bound`);
+    const snapshot: Record<string, unknown> = {};
+    for (const key of keys) {
+      snapshot[key] = snapshotCanonicalMetadataValue(record[key], `${label}.${key}`, budget, stack);
+    }
+    return Object.freeze(snapshot);
+  } finally {
+    stack.delete(value);
+  }
+}
+
+function snapshotCanonicalMetadataRecord(value: unknown, label: string): StrictRecord {
+  const snapshot = snapshotCanonicalMetadataValue(
+    value,
+    label,
+    { remaining: MP3_METADATA_CANONICAL_MAX_ENTRIES },
+    new WeakSet<object>(),
+  );
+  const record = snapshotRecord(snapshot);
+  if (!record) throw new TypeError(`${label} must be a metadata record`);
   return record;
 }
 
@@ -347,12 +450,11 @@ function snapshotSeekPoints(
   geometry: Mp3Geometry,
   label: string,
 ): readonly Readonly<MpegLayer3SeekIndexPoint>[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > MP3_SEEK_INDEX_MAX_POINTS) {
-    throw new RangeError(
-      `${label} must contain from 1 through ${MP3_SEEK_INDEX_MAX_POINTS} points`,
-    );
+  const values = snapshotBoundedArray(value, label, MP3_SEEK_INDEX_MAX_POINTS);
+  const points: Readonly<MpegLayer3SeekIndexPoint>[] = [];
+  for (let index = 0; index < values.length; index += 1) {
+    points.push(snapshotPoint(values[index], geometry, `${label} ${index}`));
   }
-  const points = value.map((point, index) => snapshotPoint(point, geometry, `${label} ${index}`));
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
@@ -456,8 +558,7 @@ function validateMetadata(metadataValue: unknown, sourceSizeValue: unknown): Val
     throw new RangeError('MP3 duration must be finite');
   }
 
-  const id3 = snapshotRecord(record.id3);
-  if (!id3) throw new TypeError('MP3 ID3 boundary metadata is invalid');
+  const id3 = snapshotCanonicalMetadataRecord(record.id3, 'MP3 ID3 boundary metadata');
   requireSafeInteger(id3.sourceBytes, 'MP3 ID3 sourceBytes', 1);
   requireSafeInteger(id3.dataStart, 'MP3 ID3 dataStart', 0, id3.sourceBytes);
   requireSafeInteger(id3.audioEnd, 'MP3 ID3 audioEnd', 1, id3.sourceBytes);
@@ -493,10 +594,46 @@ function validateMetadata(metadataValue: unknown, sourceSizeValue: unknown): Val
     throw new Mp3DecoderHelperError('MP3 tag-free geometry is inconsistent');
   }
 
-  const vbr = record.vbr === null ? null : snapshotRecord(record.vbr);
-  if (record.vbr !== null && !vbr) throw new TypeError('MP3 VBR metadata is invalid');
-  const gapless = record.gapless === null ? null : snapshotRecord(record.gapless);
-  if (record.gapless !== null && !gapless) throw new TypeError('MP3 gapless metadata is invalid');
+  const vbr =
+    record.vbr === null ? null : snapshotCanonicalMetadataRecord(record.vbr, 'MP3 VBR metadata');
+  const gapless =
+    record.gapless === null
+      ? null
+      : snapshotCanonicalMetadataRecord(record.gapless, 'MP3 gapless metadata');
+  if (vbr) {
+    if (vbr.kind !== 'xing' && vbr.kind !== 'vbri') {
+      throw new TypeError('MP3 VBR metadata kind is invalid');
+    }
+    if (
+      (vbr.kind === 'xing' && vbr.identifier !== 'Xing' && vbr.identifier !== 'Info') ||
+      (vbr.kind === 'vbri' && vbr.identifier !== 'VBRI')
+    ) {
+      throw new Mp3DecoderHelperError('MP3 VBR metadata identifier contradicts its kind');
+    }
+    if (vbr.frameCount !== null) {
+      requireSafeInteger(vbr.frameCount, 'MP3 VBR frame count', 1);
+      if (vbr.frameCount !== record.audioFrameCount) {
+        throw new Mp3DecoderHelperError('MP3 VBR frame count contradicts normalized metadata');
+      }
+    } else if (vbr.kind === 'vbri') {
+      throw new Mp3DecoderHelperError('MP3 VBRI metadata is missing its frame count');
+    }
+    if (vbr.streamBytes !== null) {
+      requireSafeInteger(vbr.streamBytes, 'MP3 VBR stream byte count', 1);
+      if (vbr.streamBytes !== record.id3FreeMpegBytes) {
+        throw new Mp3DecoderHelperError('MP3 VBR stream bytes contradict normalized metadata');
+      }
+    } else if (vbr.kind === 'vbri') {
+      throw new Mp3DecoderHelperError('MP3 VBRI metadata is missing its stream byte count');
+    }
+  }
+  if (record.frameCountEvidence !== 'verified-scan') {
+    const expectedEvidence =
+      vbr?.kind === 'vbri' ? 'vbri' : vbr?.identifier === 'Info' ? 'info' : 'xing';
+    if (!vbr || vbr.frameCount === null || record.frameCountEvidence !== expectedEvidence) {
+      throw new Mp3DecoderHelperError('MP3 frame-count evidence lacks its matching declaration');
+    }
+  }
   if (gapless) {
     requireSafeInteger(gapless.encoderDelaySamples, 'MP3 encoder delay', 0);
     requireSafeInteger(gapless.endPaddingSamples, 'MP3 end padding', 0);
@@ -565,6 +702,30 @@ function validateMetadata(metadataValue: unknown, sourceSizeValue: unknown): Val
     geometry,
     'MP3 metadata seek point',
   );
+  const verifiedAudioFrameCount = record.verifiedAudioFrameCount as number;
+  const verifiedAudioBytes = record.verifiedAudioBytes as number;
+  const verifiedAudioEnd = safeAdd(
+    geometry.firstAudioFrameOffset,
+    verifiedAudioBytes,
+    'MP3 verified audio end',
+  );
+  const remainingVerifiedFrames = geometry.audioFrameCount - verifiedAudioFrameCount;
+  const remainingVerifiedBytes = record.audioBytes - verifiedAudioBytes;
+  if (
+    verifiedAudioEnd > geometry.audioEndByteOffset ||
+    !spanCanContainFrames(verifiedAudioBytes, verifiedAudioFrameCount, minimumBytes) ||
+    !spanCanContainFrames(remainingVerifiedBytes, remainingVerifiedFrames, minimumBytes)
+  ) {
+    throw new Mp3DecoderHelperError('MP3 verified prefix contradicts the audio geometry');
+  }
+  if (
+    metadataSeekPoints.some(
+      (point) =>
+        point.frameOrdinal >= verifiedAudioFrameCount || point.byteOffset >= verifiedAudioEnd,
+    )
+  ) {
+    throw new Mp3DecoderHelperError('MP3 metadata seek point exceeds its verified prefix');
+  }
   const origin = metadataSeekPoints[0];
   if (
     !origin ||
@@ -578,7 +739,14 @@ function validateMetadata(metadataValue: unknown, sourceSizeValue: unknown): Val
   }
 
   return Object.freeze({
-    metadata: Object.freeze({ ...record }) as unknown as Readonly<Mp3Metadata>,
+    metadata: Object.freeze({
+      ...record,
+      id3,
+      vbr,
+      gapless,
+      firstAudioFrameHeader: header,
+      seekPoints: metadataSeekPoints,
+    }) as unknown as Readonly<Mp3Metadata>,
     timeline,
     geometry,
     metadataSeekPoints,
@@ -739,13 +907,12 @@ export function resolveMp3DecoderPrelude(
     throw new TypeError('MP3 decoder prelude options are missing');
   }
   const descriptor = requireDescriptor(options.descriptor);
-  if (!Array.isArray(options.points) || options.points.length === 0) {
-    throw new RangeError('MP3 decoder prelude requires a non-empty point window');
-  }
   const { startPlan } = descriptor;
-  if (options.points.length > startPlan.historyFrameLimit + 1) {
-    throw new RangeError('MP3 decoder point window exceeds its declared history bound');
-  }
+  const pointValues = snapshotBoundedArray(
+    options.points,
+    'MP3 decoder prelude point window',
+    startPlan.historyFrameLimit + 1,
+  );
   const geometry: Mp3Geometry = Object.freeze({
     sourceSize: descriptor.sourceSize,
     firstAudioFrameOffset: descriptor.firstAudioFrameOffset,
@@ -753,9 +920,10 @@ export function resolveMp3DecoderPrelude(
     audioFrameCount: descriptor.audioFrameCount,
     samplesPerFrame: descriptor.samplesPerFrame,
   });
-  const points = options.points.map((point, index) =>
-    snapshotPoint(point, geometry, `MP3 decoder rolling point ${index}`),
-  );
+  const points: Readonly<MpegLayer3SeekIndexPoint>[] = [];
+  for (let index = 0; index < pointValues.length; index += 1) {
+    points.push(snapshotPoint(pointValues[index], geometry, `MP3 decoder rolling point ${index}`));
+  }
   const expectedFirstOrdinal = Math.max(
     startPlan.scanAnchorFrameOrdinal,
     startPlan.audioFrameOrdinal - startPlan.historyFrameLimit,

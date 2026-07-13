@@ -177,6 +177,23 @@ describe('source-bound M4A AAC runtime opening', () => {
     expect(inspected).toBe(false);
     expect(fixture.source.reads).toHaveLength(0);
   });
+
+  it('preserves an abort that reenters during hostile synchronous manifest inspection', async () => {
+    const fixture = buildM4aAacFixture();
+    const controller = new AbortController();
+    const reason = Object.freeze({ phase: 'runtime-open-during-manifest-inspection' });
+    const hostile = new Proxy(Object.create(null), {
+      ownKeys(): never {
+        controller.abort(reason);
+        throw new Error('manifest inspection error must not replace abort');
+      },
+    });
+
+    await expect(
+      openM4aAacRuntime(new IsoBmffBoxReader(fixture.source), hostile, controller.signal),
+    ).rejects.toBe(reason);
+    expect(fixture.source.reads).toHaveLength(0);
+  });
 });
 
 describe('M4A AAC generation start authority', () => {
@@ -284,7 +301,7 @@ describe('M4A AAC generation start authority', () => {
     expect(getterRan).toBe(false);
   });
 
-  it('closes idempotently, revokes plans, and never closes the borrowed source', async () => {
+  it('drops live authority idempotently while preserving public info and borrowed ownership', async () => {
     const fixture = buildM4aAacFixture();
     const runtime = await openM4aAacRuntime(
       new IsoBmffBoxReader(fixture.source),
@@ -296,6 +313,7 @@ describe('M4A AAC generation start authority', () => {
     runtime.close();
     runtime.close();
     closeM4aAacRuntime(runtime);
+    expect(runtime.info.sourceIdentity).toBe(fixture.source.identity);
     expect(fixture.source.closeCalls).toBe(0);
     expect(() => runtime.createGenerationStartPlan(0)).toThrow(/runtime is closed/i);
     expect(() => runtime.requireGenerationStartPlan(plan)).toThrow(/runtime is closed/i);

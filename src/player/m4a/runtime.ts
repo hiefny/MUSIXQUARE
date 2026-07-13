@@ -54,9 +54,7 @@ interface RuntimeAuthority {
   readonly reader: IsoBmffBoxReader;
   readonly sampleSizes: Readonly<M4aSampleSizeIndex>;
   readonly chunks: Readonly<M4aChunkIndex>;
-  readonly manifest: Readonly<M4aAacLcManifest>;
   readonly info: Readonly<M4aAacRuntimeInfo>;
-  closed: boolean;
 }
 
 interface StartPlanAuthority {
@@ -65,6 +63,7 @@ interface StartPlanAuthority {
 }
 
 const runtimeAuthorities = new WeakMap<object, RuntimeAuthority>();
+const closedRuntimes = new WeakSet<object>();
 const startPlanAuthorities = new WeakMap<object, StartPlanAuthority>();
 
 export class M4aAacRuntimeError extends EncodedSourceIntegrityError {
@@ -88,15 +87,13 @@ function runtimeError(message: string, cause?: unknown): M4aAacRuntimeError {
   return new M4aAacRuntimeError(message, cause);
 }
 
-function requireRuntimeAuthority(value: unknown, allowClosed = false): RuntimeAuthority {
-  const authority =
-    value !== null && (typeof value === 'object' || typeof value === 'function')
-      ? runtimeAuthorities.get(value)
-      : undefined;
+function requireRuntimeAuthority(value: unknown): RuntimeAuthority {
+  const isObject = value !== null && (typeof value === 'object' || typeof value === 'function');
+  const authority = isObject ? runtimeAuthorities.get(value) : undefined;
   if (authority === undefined) {
+    if (isObject && closedRuntimes.has(value)) throw new M4aAacRuntimeClosedError();
     throw new TypeError('M4A AAC runtime lacks module provenance');
   }
-  if (authority.closed && !allowClosed) throw new M4aAacRuntimeClosedError();
   return authority;
 }
 
@@ -165,11 +162,12 @@ function assertFinalRuntimeGeometry(
  *
  * The reader and its encoded source remain caller-owned. Runtime authority is
  * issued only after both table indexes and their source evidence have reopened.
- * This is deliberately a same-app manifest boundary: codec, timeline,
- * container diagnostics, and declared `mdat` ranges are strictly canonicalized
- * but are not reparsed here. `stsz`, `stsc`, and chunk-table evidence are rebound
- * to the source now; their remaining authenticated pages are consumed lazily by
- * the future cursor. An external/untrusted manifest needs separate authentication.
+ * This is deliberately an origin-trusted same-app manifest boundary: incoming
+ * data is structurally untrusted and strictly canonicalized, but its app origin
+ * is assumed. Codec, timeline, container diagnostics, and declared `mdat` ranges
+ * are not reparsed here. `stsz`, `stsc`, and chunk-table evidence are rebound to
+ * the source now; their remaining authenticated pages are consumed lazily by the
+ * future cursor. An external/untrusted manifest needs separate authentication.
  */
 export async function openM4aAacRuntime(
   reader: IsoBmffBoxReader,
@@ -184,7 +182,16 @@ export async function openM4aAacRuntime(
     throw new TypeError('M4A AAC runtime requires an IsoBmffBoxReader');
   }
 
-  const manifest = validateM4aAacLcManifest(manifestValue);
+  let manifest: Readonly<M4aAacLcManifest>;
+  try {
+    manifest = validateM4aAacLcManifest(manifestValue);
+  } catch (error) {
+    // A hostile synchronous inspection can reenter and abort. Preserve the
+    // operation's exact cancellation authority instead of its secondary error.
+    throwIfAborted(signal);
+    throw error;
+  }
+  throwIfAborted(signal);
   const expectedSource: Readonly<M4aIndexSourceBinding> = Object.freeze({
     sourceSize: manifest.sourceSize,
     sourceIdentity: manifest.sourceIdentity,
@@ -230,9 +237,7 @@ export async function openM4aAacRuntime(
     reader,
     sampleSizes,
     chunks,
-    manifest,
     info,
-    closed: false,
   });
   return runtime;
 }
@@ -308,7 +313,11 @@ export function requireM4aAacGenerationStartPlan(
 
 /** Idempotently revoke one issued runtime without touching its borrowed source. */
 export function closeM4aAacRuntime(runtimeValue: unknown): void {
-  const authority = requireRuntimeAuthority(runtimeValue, true);
-  if (authority.closed) return;
-  authority.closed = true;
+  const isObject =
+    runtimeValue !== null &&
+    (typeof runtimeValue === 'object' || typeof runtimeValue === 'function');
+  if (isObject && closedRuntimes.has(runtimeValue)) return;
+  requireRuntimeAuthority(runtimeValue);
+  runtimeAuthorities.delete(runtimeValue as object);
+  closedRuntimes.add(runtimeValue as object);
 }

@@ -48,8 +48,10 @@ import {
 } from './file-playback-product-host-media-owner.ts';
 import {
   FilePlaybackProductHostRoom,
+  type ClearFilePlaybackProductHostLocalTrackWarmOptions,
   type FilePlaybackProductHostCurrentOptions,
   type FilePlaybackProductHostFirstLocalFileCommit,
+  type FilePlaybackProductHostLocalTrackWarmResult,
   type FilePlaybackProductHostLocalTrackCommit,
   type FilePlaybackProductHostRoomOptions,
   type FilePlaybackProductHostSeekOptions,
@@ -58,6 +60,7 @@ import {
   type StartFilePlaybackProductHostFirstLocalFileOptions,
   type StartFilePlaybackProductHostLocalTrackWithCohortOptions,
   type StartFilePlaybackProductHostLocalTrackOptions,
+  type WarmFilePlaybackProductHostLocalTrackOptions,
 } from './file-playback-product-host-room.ts';
 import { getFilePlaybackRoomClock } from './file-playback-room-clock.ts';
 import { FilePlaybackR2WholeBlobPublisher } from './file-playback-r2-whole-blob-publisher.ts';
@@ -172,6 +175,10 @@ interface FilePlaybackProductRuntimeMediaFactoriesForTests {
 
 /** Narrow room capability retained by the product runtime. */
 export interface FilePlaybackProductRuntimeHostRoomPort {
+  warmLocalTrack(
+    options: WarmFilePlaybackProductHostLocalTrackOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackWarmResult>>;
+  clearWarmLocalTrack(options: ClearFilePlaybackProductHostLocalTrackWarmOptions): Promise<boolean>;
   startFirstLocalFile(
     options: StartFilePlaybackProductHostFirstLocalFileOptions,
   ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>>;
@@ -404,6 +411,8 @@ function assertHostRoomPort(
   if (
     !value ||
     typeof value !== 'object' ||
+    typeof value.warmLocalTrack !== 'function' ||
+    typeof value.clearWarmLocalTrack !== 'function' ||
     typeof value.startFirstLocalFile !== 'function' ||
     typeof value.startLocalTrack !== 'function' ||
     typeof value.startLocalTrackWithCohort !== 'function' ||
@@ -684,6 +693,32 @@ export class FilePlaybackProductRuntime {
       ...options,
       positionSeconds: 0,
     });
+  }
+
+  /**
+   * Speculatively warms one local source without creating run or timeline
+   * authority. A permanently gate-off runtime and a non-host room are exact
+   * no-ops so the legacy product path allocates no audio resources.
+   */
+  warmLocalTrack(
+    options: WarmFilePlaybackProductHostLocalTrackOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackWarmResult> | null> {
+    if (!this.#enabled) return Promise.resolve(null);
+    const active = this.#activeHostRoom;
+    if (!active || !this.#ownsExactHostRoom(active)) return Promise.resolve(null);
+    return this.#dispatchExactHostRoom('local track warm', (port) => port.warmLocalTrack(options));
+  }
+
+  /** Retires only the matching speculative source; gate-off/non-host is a no-op. */
+  clearWarmLocalTrack(
+    options: ClearFilePlaybackProductHostLocalTrackWarmOptions,
+  ): Promise<boolean> {
+    if (!this.#enabled) return Promise.resolve(false);
+    const active = this.#activeHostRoom;
+    if (!active || !this.#ownsExactHostRoom(active)) return Promise.resolve(false);
+    return this.#dispatchExactHostRoom('local track warm clear', (port) =>
+      port.clearWarmLocalTrack(options),
+    );
   }
 
   startLocalTrack(

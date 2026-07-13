@@ -25,8 +25,10 @@ import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-ba
 import type { FilePlaybackProductGuestMediaOwnerOptions } from '../file-playback-product-guest-media-owner.ts';
 import type { FilePlaybackProductHostMediaOwnerOptions } from '../file-playback-product-host-media-owner.ts';
 import type {
+  ClearFilePlaybackProductHostLocalTrackWarmOptions,
   FilePlaybackProductHostCurrentOptions,
   FilePlaybackProductHostFirstLocalFileCommit,
+  FilePlaybackProductHostLocalTrackWarmResult,
   FilePlaybackProductHostLocalTrackCommit,
   FilePlaybackProductHostRoomOptions,
   FilePlaybackProductHostSeekOptions,
@@ -35,6 +37,7 @@ import type {
   StartFilePlaybackProductHostFirstLocalFileOptions,
   StartFilePlaybackProductHostLocalTrackWithCohortOptions,
   StartFilePlaybackProductHostLocalTrackOptions,
+  WarmFilePlaybackProductHostLocalTrackOptions,
 } from '../file-playback-product-host-room.ts';
 import {
   FilePlaybackProductRuntime,
@@ -81,6 +84,8 @@ interface RuntimeHarness {
 interface ProductHostRoomHarness {
   readonly port: FilePlaybackProductRuntimeHostRoomPort;
   readonly options: Readonly<FilePlaybackProductHostRoomOptions>;
+  readonly warmLocalTrack: ReturnType<typeof vi.fn>;
+  readonly clearWarmLocalTrack: ReturnType<typeof vi.fn>;
   readonly startFirstLocalFile: ReturnType<typeof vi.fn>;
   readonly startLocalTrack: ReturnType<typeof vi.fn>;
   readonly startLocalTrackWithCohort: ReturnType<typeof vi.fn>;
@@ -247,6 +252,41 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
         roomOptions.hostRoomSnapshot.applicationSessionId,
         operation,
       );
+    const warmLocalTrack = vi.fn(
+      async (
+        input: WarmFilePlaybackProductHostLocalTrackOptions,
+      ): Promise<Readonly<FilePlaybackProductHostLocalTrackWarmResult>> =>
+        freezeCanonical({
+          schemaVersion: 1 as const,
+          roomGeneration: roomOptions.hostRoomSnapshot.roomGeneration,
+          applicationSessionId: roomOptions.hostRoomSnapshot.applicationSessionId,
+          hostParticipantId: roomOptions.hostRoomSnapshot.hostParticipantId,
+          status: 'warmed' as const,
+          backend: 'bounded-stream' as const,
+          asset: freezeCanonical({
+            kind: 'blob' as const,
+            binding: freezeCanonical({
+              queueItemId: input.queueItemId,
+              sourceIdentity: `fixture-warm-source-${index}`,
+              transferSessionId: `fixture-warm-transfer-${index}`,
+            }),
+            metadata: freezeCanonical({
+              name: input.file.name,
+              mime: input.file.type || 'application/octet-stream',
+            }),
+            encodedSize: input.file.size,
+          }),
+          readiness: freezeCanonical({
+            durationSeconds: 120,
+            bufferedAheadSeconds: 8,
+            outputSampleRateHz: 48_000,
+            channelCount: 2,
+          }),
+        }),
+    );
+    const clearWarmLocalTrack = vi.fn(
+      async (_input: ClearFilePlaybackProductHostLocalTrackWarmOptions) => true,
+    );
     const startFirstLocalFile = vi.fn(
       async (
         _input: StartFilePlaybackProductHostFirstLocalFileOptions,
@@ -314,6 +354,8 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       return closePromise;
     });
     const port: FilePlaybackProductRuntimeHostRoomPort = {
+      warmLocalTrack,
+      clearWarmLocalTrack,
       startFirstLocalFile,
       startLocalTrack,
       startLocalTrackWithCohort,
@@ -341,6 +383,8 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
     const room: ProductHostRoomHarness = {
       port,
       options: roomOptions,
+      warmLocalTrack,
+      clearWarmLocalTrack,
       startFirstLocalFile,
       startLocalTrack,
       startLocalTrackWithCohort,
@@ -566,6 +610,18 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.runtime.currentHostRendererSnapshot()).toBeNull();
     expect(setup.runtime.currentHostTerminalRendererObservation()).toBeNull();
     expect(setup.runtime.hostPositionAt(1_000)).toBeNull();
+    const speculative = {
+      queueItemId: Q1,
+      file: localFile('gate-off-warm.flac'),
+      signal: new AbortController().signal,
+    };
+    await expect(setup.runtime.warmLocalTrack(speculative)).resolves.toBeNull();
+    await expect(
+      setup.runtime.clearWarmLocalTrack({
+        queueItemId: Q1,
+        signal: speculative.signal,
+      }),
+    ).resolves.toBe(false);
     await expect(
       setup.runtime.startHostFirstLocalFile({
         queueItemId: Q1,
@@ -1342,21 +1398,23 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.createHostRoom).not.toHaveBeenCalled();
   });
 
-  it.each(['seekPlaying', 'currentTerminalRendererObservation'] as const)(
-    'fails host entry when the expanded structural room port omits %s',
-    (method) => {
-      const setup = harness({ omitHostRoomMethod: method });
-      setup.runtime.initializeBeforeProtocol();
+  it.each([
+    'warmLocalTrack',
+    'clearWarmLocalTrack',
+    'seekPlaying',
+    'currentTerminalRendererObservation',
+  ] as const)('fails host entry when the expanded structural room port omits %s', (method) => {
+    const setup = harness({ omitHostRoomMethod: method });
+    setup.runtime.initializeBeforeProtocol();
 
-      expect(() => setup.runtime.beginHostRoom('incomplete-port-host')).toThrow(
-        /host room factory is invalid/u,
-      );
+    expect(() => setup.runtime.beginHostRoom('incomplete-port-host')).toThrow(
+      /host room factory is invalid/u,
+    );
 
-      expect(setup.hostRooms[0]?.close).toHaveBeenCalledOnce();
-      expect(setup.runtime.hostRoomSnapshot()).toBeNull();
-      expect(setup.controller().snapshot().roomRole).toBeNull();
-    },
-  );
+    expect(setup.hostRooms[0]?.close).toHaveBeenCalledOnce();
+    expect(setup.runtime.hostRoomSnapshot()).toBeNull();
+    expect(setup.controller().snapshot().roomRole).toBeNull();
+  });
 
   it('routes the complete transport surface through one exact stable host-room port', async () => {
     const setup = harness();
@@ -1372,8 +1430,12 @@ describe('FilePlaybackProductRuntime', () => {
     };
     const current = { signal };
     const seek = { positionSeconds: 24, signal };
+    const warmIntent = { queueItemId: Q2, file: localFile('next-warm.aiff'), signal };
+    const warmClear = { queueItemId: Q2, signal };
 
     const results = [
+      await setup.runtime.warmLocalTrack(warmIntent),
+      await setup.runtime.clearWarmLocalTrack(warmClear),
       await setup.runtime.startHostFirstLocalFile(first),
       await setup.runtime.startLocalTrack(replacement),
       await setup.runtime.pauseCurrent(current),
@@ -1387,6 +1449,8 @@ describe('FilePlaybackProductRuntime', () => {
 
     const room = setup.hostRooms[0];
     expect(setup.createHostRoom).toHaveBeenCalledOnce();
+    expect(room?.warmLocalTrack).toHaveBeenCalledWith(warmIntent);
+    expect(room?.clearWarmLocalTrack).toHaveBeenCalledWith(warmClear);
     expect(room?.startFirstLocalFile).not.toHaveBeenCalled();
     expect(room?.startLocalTrack).not.toHaveBeenCalled();
     expect(room?.startLocalTrackWithCohort).toHaveBeenNthCalledWith(

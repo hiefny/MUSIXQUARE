@@ -32,7 +32,7 @@ const messages: readonly FilePlaybackWireMessage[] = Object.freeze([
     kind: 'source-ready',
     observedAtRoomTimeMs: 10_000,
     readyLeaseUntilRoomTimeMs: 40_000,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     durationSeconds: 555.7,
     bufferedAheadSeconds: 9.6,
     outputSampleRateHz: 48_000,

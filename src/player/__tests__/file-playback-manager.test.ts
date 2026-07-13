@@ -28,7 +28,7 @@ function makeSource(queueItemId: QueueItemId, phase: FilePlaybackSourcePhase = '
   const snapshot = (): FilePlaybackSourceSnapshot => ({
     schemaVersion: 1,
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     phase: currentPhase,
     revision: 0,
     run: null,
@@ -42,7 +42,7 @@ function makeSource(queueItemId: QueueItemId, phase: FilePlaybackSourcePhase = '
   });
   const source = {
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     prepare: vi.fn(async () => {
       calls.push(`prepare:${queueItemId}`);
       if (prepareGated) return prepareGate.promise;

@@ -151,9 +151,9 @@ describe('createBlobFilePlaybackSource', () => {
         baseOptions(nativeFlac(channels), { decodeOrdinaryAudio }),
       );
 
-      expect(result.backend).toBe('streaming-flac');
-      if (result.backend !== 'streaming-flac') throw new Error('unexpected backend');
-      expect(result.source.backend).toBe('streaming-flac');
+      expect(result.backend).toBe('bounded-stream');
+      if (result.backend !== 'bounded-stream') throw new Error('unexpected backend');
+      expect(result.source.backend).toBe('bounded-stream');
       expect(result.source.getSnapshot().phase).toBe('new');
       expect(result.flacMetadata.streamInfo.channels).toBe(channels);
       expect(result.flacMetadata.streamInfo.sampleRate).toBe(48_000);
@@ -606,7 +606,7 @@ describe('createEncodedFilePlaybackSource', () => {
 
     const result = await createEncodedFilePlaybackSource(options);
 
-    expect(result.backend).toBe('streaming-flac');
+    expect(result.backend).toBe('bounded-stream');
     expect(getterCalls).toBe(1);
     expect(receivedSource).toBe(first.source);
     expect(result.sourceIdentity).toBe(first.source.identity);
@@ -636,7 +636,7 @@ describe('createEncodedFilePlaybackSource', () => {
       }),
     );
 
-    expect(result.backend).toBe('streaming-flac');
+    expect(result.backend).toBe('bounded-stream');
     expect(receivedSource).toBe(fixture.source);
     expect(result.sourceIdentity).toBe(fixture.source.identity);
     expect(fixture.close).not.toHaveBeenCalled();

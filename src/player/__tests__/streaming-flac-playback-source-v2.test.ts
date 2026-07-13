@@ -889,7 +889,7 @@ describe('StreamingFlacPlaybackSource v2', () => {
     expect(h.node.connections).toHaveLength(0);
     expect(h.source.getSnapshot()).toMatchObject({
       phase: 'preparing',
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
       durationSeconds: 10,
       channelCount: 2,
       outputSampleRateHz: OUTPUT_RATE,

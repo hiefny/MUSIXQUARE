@@ -1453,7 +1453,7 @@ export class FilePlaybackManager {
         const evidence = readFilePlaybackStartEvidence(value, target.targetFrame);
         const evidenceMatchesBackend =
           (record.backend === 'audio-buffer' && evidence?.kind === 'webaudio-schedule-passed') ||
-          (record.backend === 'streaming-flac' && evidence?.kind === 'worklet-observed');
+          (record.backend === 'bounded-stream' && evidence?.kind === 'worklet-observed');
         if (!this.ownsLiveCandidate(record) || record.phase !== 'scheduled') {
           deferred.reject(cutoverError('start evidence completed after candidate revocation'));
           return;

@@ -14,7 +14,7 @@ import {
   type RevisionedPlaybackRun,
 } from './rendezvous-contract.ts';
 
-export type FilePlaybackBackend = 'audio-buffer' | 'streaming-flac';
+export type FilePlaybackBackend = 'audio-buffer' | 'bounded-stream';
 
 export type FilePlaybackSourcePhase =
   | 'new'
@@ -192,9 +192,6 @@ export interface StreamingPlaybackStartEvidence {
   readonly actualStartFrame: number;
 }
 
-/** @deprecated Use StreamingPlaybackStartEvidence. */
-export type StreamingFlacPlaybackStartEvidence = StreamingPlaybackStartEvidence;
-
 export type FilePlaybackStartEvidence =
   | AudioBufferPlaybackStartEvidence
   | StreamingPlaybackStartEvidence;
@@ -214,7 +211,7 @@ export type FilePlaybackCutoverArmResult =
     }>;
 
 /**
- * Common runtime contract for decoded AudioBuffer and bounded streaming-FLAC
+ * Common runtime contract for decoded AudioBuffer and bounded streaming
  * backends. Implementations own their native objects and must never place them
  * in getSnapshot()/position() results or application global state.
  */
@@ -504,9 +501,6 @@ export function createStreamingPlaybackStartEvidence(
   }
   return freezeControlIntent({ kind: 'worklet-observed' as const, targetFrame, actualStartFrame });
 }
-
-/** @deprecated Use createStreamingPlaybackStartEvidence. */
-export const createStreamingFlacPlaybackStartEvidence = createStreamingPlaybackStartEvidence;
 
 /** Canonicalizes exact backend evidence without invoking application accessors. */
 export function readFilePlaybackStartEvidence(
@@ -863,7 +857,7 @@ function canonicalSourceSnapshot(value: unknown): FilePlaybackSourceSnapshot | n
   ) {
     return null;
   }
-  if (candidate.backend !== 'audio-buffer' && candidate.backend !== 'streaming-flac') {
+  if (candidate.backend !== 'audio-buffer' && candidate.backend !== 'bounded-stream') {
     return null;
   }
   if (!VALID_PHASES.has(candidate.phase as FilePlaybackSourcePhase)) return null;

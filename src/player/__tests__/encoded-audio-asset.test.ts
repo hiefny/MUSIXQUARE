@@ -264,8 +264,8 @@ describe('BlobEncodedAudioAsset', () => {
     const first = await createEncodedFilePlaybackSource(sourceOptions(asset.acquire()));
     const second = await createEncodedFilePlaybackSource(sourceOptions(asset.acquire()));
 
-    expect(first.backend).toBe('streaming-flac');
-    expect(second.backend).toBe('streaming-flac');
+    expect(first.backend).toBe('bounded-stream');
+    expect(second.backend).toBe('bounded-stream');
     expect(first.source).not.toBe(second.source);
     expect(first.sourceIdentity).toBe('blob:shared-streaming-asset');
     expect(second.sourceIdentity).toBe(first.sourceIdentity);

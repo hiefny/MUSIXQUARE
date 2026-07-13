@@ -25,7 +25,7 @@ const OGG_MARKER = new Uint8Array([0x4f, 0x67, 0x67, 0x53]);
 const MAX_IDENTIFIER_LENGTH = 256;
 
 type AudioBufferSource = FilePlaybackSource & { readonly backend: 'audio-buffer' };
-type StreamingFlacSource = FilePlaybackSource & { readonly backend: 'streaming-flac' };
+type StreamingFlacSource = FilePlaybackSource & { readonly backend: 'bounded-stream' };
 
 export interface OrdinaryAudioDecodeRequest {
   /** The exact immutable Blob selected for this queue occurrence. */
@@ -187,7 +187,7 @@ export interface AudioBufferFilePlaybackSourceResult extends FilePlaybackSourceR
 }
 
 export interface StreamingFlacFilePlaybackSourceResult extends FilePlaybackSourceResultBase {
-  readonly backend: 'streaming-flac';
+  readonly backend: 'bounded-stream';
   readonly source: StreamingFlacSource;
   /** Metadata verified from the native FLAC byte stream with bounded exact reads. */
   readonly flacMetadata: FlacMetadata;
@@ -419,11 +419,11 @@ async function createOwnedEncodedFilePlaybackSource(
       // ownership immediately. Every later assertion/abort failure tears down
       // that returned source; the factory must not close the source again.
       streamingOwnsEncodedSource = true;
-      assertCreatedSource(source, 'streaming-flac', options.queueItemId);
+      assertCreatedSource(source, 'bounded-stream', options.queueItemId);
       throwIfAborted(options.signal);
       completed = true;
       return Object.freeze({
-        backend: 'streaming-flac',
+        backend: 'bounded-stream',
         source,
         sourceIdentity: encodedSource.identity,
         releaseConstructionLease: releaseNoConstructionLease,

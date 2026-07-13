@@ -59,7 +59,7 @@ describe('BoundedStreamingPlaybackSource ownership', () => {
     const createDecoder = vi.fn(() => h.adapter);
     const source = new BoundedStreamingPlaybackSource(options(createDecoder));
 
-    expect(source.backend).toBe('streaming-flac');
+    expect(source.backend).toBe('bounded-stream');
     expect(createDecoder).toHaveBeenCalledTimes(1);
     expect(h.open).not.toHaveBeenCalled();
     expect(h.startGeneration).not.toHaveBeenCalled();

@@ -15,7 +15,7 @@ export async function publishManagedFilePlaybackSource(
   const snapshot = (): FilePlaybackSourceSnapshot => ({
     schemaVersion: 1,
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     phase,
     revision: 0,
     run: null,
@@ -29,7 +29,7 @@ export async function publishManagedFilePlaybackSource(
   });
   const source = {
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     async prepare() {
       phase = 'ready';
       return snapshot();

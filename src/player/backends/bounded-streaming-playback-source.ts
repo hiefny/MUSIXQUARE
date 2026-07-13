@@ -609,7 +609,7 @@ function armedCutoverResult(
  */
 export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource {
   readonly queueItemId: QueueItemId;
-  readonly backend = 'streaming-flac' as const;
+  readonly backend = 'bounded-stream' as const;
 
   readonly #decoder: StreamingDecoderAdapter;
   readonly #audioContext: AudioContext;
@@ -2920,7 +2920,7 @@ export class BoundedStreamingPlaybackSource implements FilePlaybackCutoverSource
   #fail(code: string, cause?: unknown): void {
     if (this.#phase === 'destroyed' || this.#phase === 'failed') return;
     this.#rejectRevisionTransition(code);
-    this.#errorCode = safeErrorCode(code, 'streaming-flac-failed');
+    this.#errorCode = safeErrorCode(code, 'bounded-stream-failed');
     this.#phase = 'failed';
     this.#currentRendezvousId = null;
     this.#retireActiveArm(this.#errorCode);

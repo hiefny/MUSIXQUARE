@@ -139,7 +139,7 @@ function connectionPair(now: () => number): ConnectionPair {
 }
 
 function publication(
-  backend: 'audio-buffer' | 'streaming-flac',
+  backend: 'audio-buffer' | 'bounded-stream',
   blob: Blob,
   phase: 'paused' | 'playing' = 'playing',
 ): Readonly<HostPeerPlaybackPublication> {
@@ -166,8 +166,8 @@ function publication(
         transferSessionId: 'host-owner-transfer',
       }),
       metadata: freezeCanonical({
-        name: backend === 'streaming-flac' ? 'owner.flac' : 'owner.mp3',
-        mime: backend === 'streaming-flac' ? 'audio/flac' : 'audio/mpeg',
+        name: backend === 'bounded-stream' ? 'owner.flac' : 'owner.mp3',
+        mime: backend === 'bounded-stream' ? 'audio/flac' : 'audio/mpeg',
       }),
       encodedSize: blob.size,
     }),
@@ -175,7 +175,7 @@ function publication(
 }
 
 function preparedTrack(
-  backend: 'audio-buffer' | 'streaming-flac',
+  backend: 'audio-buffer' | 'bounded-stream',
   encodedSize: number,
   state = freezeCanonical({ queueItemId: QID, runId: RUN_ID, revision: 1 }),
 ): Readonly<HostPreparedLocalTrack> {
@@ -194,8 +194,8 @@ function preparedTrack(
         transferSessionId: 'host-owner-transfer',
       }),
       metadata: freezeCanonical({
-        name: backend === 'streaming-flac' ? 'owner.flac' : 'owner.mp3',
-        mime: backend === 'streaming-flac' ? 'audio/flac' : 'audio/mpeg',
+        name: backend === 'bounded-stream' ? 'owner.flac' : 'owner.mp3',
+        mime: backend === 'bounded-stream' ? 'audio/flac' : 'audio/mpeg',
       }),
       encodedSize,
     }),
@@ -383,7 +383,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
   it('publishes an exact prepared candidate and exposes one shared-cohort capability', async () => {
     let now = 1_000;
     const pair = connectionPair(() => now);
-    const prepared = preparedTrack('streaming-flac', 4);
+    const prepared = preparedTrack('bounded-stream', 4);
     const required: unknown[] = [];
     const wire: FilePlaybackWireMessage[] = [];
     const closeConnection = vi.fn();
@@ -619,7 +619,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
 
   it('commits a prepared state without waiting for a slow remote SOURCE_READY', async () => {
     const pair = connectionPair(() => 1_000);
-    const prepared = preparedTrack('streaming-flac', 3);
+    const prepared = preparedTrack('bounded-stream', 3);
     const required: unknown[] = [];
     let current: Readonly<HostPeerPlaybackPublication> | null = null;
     const owner = new FilePlaybackProductHostMediaOwner({
@@ -661,7 +661,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
 
   it('revokes a delayed exact prepared source without publishing or leaking it', async () => {
     const pair = connectionPair(() => 1_000);
-    const prepared = preparedTrack('streaming-flac', 3);
+    const prepared = preparedTrack('bounded-stream', 3);
     let resolveSource!: (source: HostPeerRangeSource) => void;
     const source = new Promise<HostPeerRangeSource>((resolve) => {
       resolveSource = resolve;
@@ -698,7 +698,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
 
   it('fail-closes only the exact connection when a prepared OFFER cannot be sent', async () => {
     const pair = connectionPair(() => 1_000);
-    const prepared = preparedTrack('streaming-flac', 3);
+    const prepared = preparedTrack('bounded-stream', 3);
     const closeConnection = vi.fn();
     const owner = new FilePlaybackProductHostMediaOwner({
       context: pair.context,
@@ -727,8 +727,8 @@ describe('FilePlaybackProductHostMediaOwner', () => {
 
   it('retires an unstaged pending candidate idempotently before allowing the next lane turn', async () => {
     const pair = connectionPair(() => 1_000);
-    const first = preparedTrack('streaming-flac', 3);
-    const second = preparedTrack('streaming-flac', 3);
+    const first = preparedTrack('bounded-stream', 3);
+    const second = preparedTrack('bounded-stream', 3);
     let resolveFirst!: (source: HostPeerRangeSource) => void;
     const pendingSource = new Promise<HostPeerRangeSource>((resolve) => {
       resolveFirst = resolve;
@@ -775,7 +775,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
 
   it('renews the exact connection after retiring a staged revision tombstone', async () => {
     const pair = connectionPair(() => 1_000);
-    const prepared = preparedTrack('streaming-flac', 3);
+    const prepared = preparedTrack('bounded-stream', 3);
     const closeConnection = vi.fn();
     const owner = new FilePlaybackProductHostMediaOwner({
       context: pair.context,
@@ -803,7 +803,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(owner.retirePrepared(prepared, new Error('settled retry'))).toBe(retirement);
     expect(closeConnection).toHaveBeenCalledOnce();
     expect(closeConnection).toHaveBeenCalledWith(pair.connection);
-    await expect(owner.publishPrepared(preparedTrack('streaming-flac', 3))).rejects.toThrow(
+    await expect(owner.publishPrepared(preparedTrack('bounded-stream', 3))).rejects.toThrow(
       /closed/u,
     );
   });
@@ -892,7 +892,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
 
   it('switches activated peer reads from the operation resolver to canonical room authority', async () => {
     const pair = connectionPair(() => 1_000);
-    const prepared = preparedTrack('streaming-flac', 4);
+    const prepared = preparedTrack('bounded-stream', 4);
     let current: Readonly<HostPeerPlaybackPublication> | null = null;
     const resolveCurrent = vi.fn(async () => encodedPreparedSource(prepared));
     const room: FilePlaybackProductHostMediaRoomPort = {
@@ -960,9 +960,9 @@ describe('FilePlaybackProductHostMediaOwner', () => {
   it('serializes baseline publication before a prepared successor publication', async () => {
     const pair = connectionPair(() => 1_000);
     const blob = new Blob([new Uint8Array([1])], { type: 'audio/flac' });
-    const current = publication('streaming-flac', blob);
+    const current = publication('bounded-stream', blob);
     const prepared = preparedTrack(
-      'streaming-flac',
+      'bounded-stream',
       3,
       freezeCanonical({ queueItemId: QID_2, runId: RUN_ID_2, revision: 2 }),
     );
@@ -1003,7 +1003,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
   it('defers READY publication so no upload or send re-enters the READY hook', async () => {
     const pair = connectionPair(() => 1_000);
     const blob = new Blob([new Uint8Array([1])], { type: 'audio/flac' });
-    const current = publication('streaming-flac', blob);
+    const current = publication('bounded-stream', blob);
     const sendRequired = vi.fn(() => true);
     const owner = new FilePlaybackProductHostMediaOwner({
       context: pair.context,
@@ -1048,7 +1048,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     let now = 1_000;
     const pair = connectionPair(() => now);
     const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/flac' });
-    const current = publication('streaming-flac', blob);
+    const current = publication('bounded-stream', blob);
     const recoveries: RecoverHostRemoteParticipantOptions[] = [];
     const room = roomPort(
       () => current,
@@ -1241,7 +1241,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
   it('keeps a paused late join prepared without starting a recovery rendezvous', async () => {
     const pair = connectionPair(() => 1_000);
     const blob = new Blob([new Uint8Array([1])], { type: 'audio/flac' });
-    const current = publication('streaming-flac', blob, 'paused');
+    const current = publication('bounded-stream', blob, 'paused');
     const recoveries: RecoverHostRemoteParticipantOptions[] = [];
     const owner = new FilePlaybackProductHostMediaOwner({
       context: pair.context,
@@ -1292,7 +1292,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     let now = 1_000;
     const pair = connectionPair(() => now);
     const blob = new Blob([new Uint8Array([1])], { type: 'audio/flac' });
-    const current = publication('streaming-flac', blob);
+    const current = publication('bounded-stream', blob);
     const messages = vi.fn();
     let tick = (): void => undefined;
     const owner = new FilePlaybackProductHostMediaOwner({
@@ -1382,7 +1382,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
   it('closes an encoded peer lease when publication authority changes during resolution', async () => {
     const pair = connectionPair(() => 1_000);
     const blob = new Blob([new Uint8Array([3])], { type: 'audio/flac' });
-    let current: Readonly<HostPeerPlaybackPublication> | null = publication('streaming-flac', blob);
+    let current: Readonly<HostPeerPlaybackPublication> | null = publication('bounded-stream', blob);
     let resolveSource!: (source: EncodedAudioSource) => void;
     const pendingSource = new Promise<EncodedAudioSource>((resolve) => {
       resolveSource = resolve;

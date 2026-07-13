@@ -192,7 +192,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
       input.signal.throwIfAborted();
       const backend: FilePlaybackBackend =
         input.mime === 'audio/flac' || input.name.toLowerCase().endsWith('.flac')
-          ? 'streaming-flac'
+          ? 'bounded-stream'
           : 'audio-buffer';
       const sourceSequence = ++this.sequence;
       const previous = this.options.controller.timelineSnapshot();
@@ -365,7 +365,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
     const backend: FilePlaybackBackend =
       input.mime === 'audio/flac' || input.name.toLowerCase().endsWith('.flac')
-        ? 'streaming-flac'
+        ? 'bounded-stream'
         : 'audio-buffer';
     const asset = freezeCanonical({
       queueItemId: input.queueItemId,
@@ -914,7 +914,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
   });
 
   it.each([
-    ['ordinary to FLAC', file('one.mp3'), file('two.flac', 'audio/flac'), 'streaming-flac'],
+    ['ordinary to FLAC', file('one.mp3'), file('two.flac', 'audio/flac'), 'bounded-stream'],
     [
       'FLAC to ordinary',
       file('one.flac', 'audio/flac'),
@@ -959,7 +959,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         expect(Object.isFrozen(context.prepared)).toBe(true);
         expect(containsBody(context.prepared)).toBe(false);
         expect(context.prepared).toMatchObject({
-          backend: 'streaming-flac',
+          backend: 'bounded-stream',
           state: { queueItemId: Q1 },
           positionSeconds: 7.25,
           asset: { encodedSize: media.size },
@@ -1011,7 +1011,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     );
     expect(result).toMatchObject({
       status: 'committed',
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
       attempt: { queueItemId: Q1 },
       schedule: { positionSeconds: 7.25 },
     });
@@ -1155,7 +1155,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     await expect(q1).rejects.toBeTruthy();
     await expect(q2).resolves.toMatchObject({
       status: 'committed',
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
       attempt: { queueItemId: Q2 },
     });
     expect(setup.engines).toHaveLength(1);
@@ -1229,7 +1229,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
 
   it.each([
     ['ordinary', file('terminal.mp3'), 'audio-buffer'],
-    ['streaming FLAC', file('terminal.flac', 'audio/flac'), 'streaming-flac'],
+    ['streaming FLAC', file('terminal.flac', 'audio/flac'), 'bounded-stream'],
   ] as const)(
     'exposes an exact %s natural end only through the terminal observation boundary',
     async (_label, media, backend) => {
@@ -1341,7 +1341,7 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     const next = await track(setup.room, Q2, file('two.flac', 'audio/flac'));
     expect(next).toMatchObject({
       status: 'committed',
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
       attempt: { queueItemId: Q2 },
     });
     expect(setup.engines).toHaveLength(1);

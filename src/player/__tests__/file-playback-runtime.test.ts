@@ -26,7 +26,7 @@ function source(queueItemId: QueueItemId, durationSeconds = 12): FilePlaybackSou
   const snapshot = (): FilePlaybackSourceSnapshot => ({
     schemaVersion: 1,
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     phase,
     revision: 0,
     run: null,
@@ -40,7 +40,7 @@ function source(queueItemId: QueueItemId, durationSeconds = 12): FilePlaybackSou
   });
   return {
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     prepare: vi.fn(async () => {
       phase = 'ready';
       return snapshot();
@@ -82,7 +82,7 @@ function productSnapshot(
   return Object.freeze({
     schemaVersion: 1,
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     phase: 'playing',
     revision: 1,
     run: Object.freeze({ queueItemId, runId: 'product-run-1', revision: 1 }),
@@ -148,7 +148,7 @@ describe('FilePlaybackRuntime', () => {
 
     expect(runtime.availability(Q1)).toEqual({
       available: true,
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
       queueItemId: Q1,
       durationSeconds: 20,
     });

@@ -4,7 +4,7 @@ import type { QueueItemId } from '../../types/index.ts';
 import {
   createFilePlaybackCutoverTarget,
   createFilePlaybackRejectedTransitionResult,
-  createStreamingFlacPlaybackStartEvidence,
+  createStreamingPlaybackStartEvidence,
   type FilePlaybackCancelIntent,
   type FilePlaybackCutoverArmResult,
   type FilePlaybackCutoverSource,
@@ -211,7 +211,7 @@ function makeSource(
   const snapshot = (): FilePlaybackSourceSnapshot => ({
     schemaVersion: 1,
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     phase,
     revision,
     run,
@@ -234,7 +234,7 @@ function makeSource(
 
   const source: FilePlaybackCutoverSource = {
     queueItemId,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     async prepare() {
       phase = 'preparing';
       phase = 'ready';
@@ -315,7 +315,7 @@ function makeSource(
     stats,
     resolveStarted() {
       phase = 'playing';
-      started.resolve(createStreamingFlacPlaybackStartEvidence(targetFrame, targetFrame));
+      started.resolve(createStreamingPlaybackStartEvidence(targetFrame, targetFrame));
     },
     resolveInvalidStarted() {
       phase = 'playing';
@@ -898,7 +898,7 @@ describe('ManagerCutoverRendezvousParticipant', () => {
     const port = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
     const context = new FakeAudioContext();
     const target = createFilePlaybackCutoverTarget(context as unknown as AudioContext, 1, 48_000);
-    const evidence = Promise.resolve(createStreamingFlacPlaybackStartEvidence(48_000, 48_000));
+    const evidence = Promise.resolve(createStreamingPlaybackStartEvidence(48_000, 48_000));
     const calls = { arm: 0, finalize: 0, current: 0, retireCandidate: 0, retireCurrent: 0 };
     Object.defineProperties(manager, {
       armCutoverCandidate: {

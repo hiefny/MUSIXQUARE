@@ -51,7 +51,7 @@ function fakeAudioBuffer(): AudioBuffer {
 }
 
 function fakeCutoverSource(
-  backend: 'audio-buffer' | 'streaming-flac' = 'audio-buffer',
+  backend: 'audio-buffer' | 'bounded-stream' = 'audio-buffer',
   destroy = vi.fn(async () => undefined),
 ): FilePlaybackCutoverSource & { readonly backend: typeof backend } {
   return {
@@ -77,7 +77,7 @@ function fakeCutoverSource(
       run: null,
       durationSeconds: 12,
       positionSeconds: 0,
-      bufferedAheadSeconds: backend === 'streaming-flac' ? 4 : 12,
+      bufferedAheadSeconds: backend === 'bounded-stream' ? 4 : 12,
       outputSampleRateHz: 48_000,
       channelCount: 2,
       underrunCount: 0,
@@ -102,7 +102,7 @@ function factoryResult(
     });
   }
   return Object.freeze({
-    backend: 'streaming-flac' as const,
+    backend: 'bounded-stream' as const,
     source: source as never,
     sourceIdentity: BINDING.sourceIdentity,
     releaseConstructionLease,
@@ -255,7 +255,7 @@ describe('stageFilePlaybackAssetSource', () => {
 
   it('acquires one generic source lease and transfers it only to the encoded factory', async () => {
     const setup = genericRegistry();
-    const source = fakeCutoverSource('streaming-flac');
+    const source = fakeCutoverSource('bounded-stream');
     const h = successfulRuntime(factoryResult(source));
 
     await stageFilePlaybackAssetSource(baseOptions(setup.registry, setup.lease, h.runtime));
@@ -271,12 +271,12 @@ describe('stageFilePlaybackAssetSource', () => {
 
   it.each([
     ['ordinary', new Blob([new Uint8Array([0x49, 0x44, 0x33, 0x04])]), 'audio-buffer'],
-    ['native FLAC', nativeFlacBlob(), 'streaming-flac'],
+    ['native FLAC', nativeFlacBlob(), 'bounded-stream'],
   ] as const)(
     'keeps committed factory routing for %s Blob assets',
     async (_label, blob, backend) => {
       const metadata =
-        backend === 'streaming-flac' ? { name: 'orchestra.flac', mime: 'audio/flac' } : METADATA;
+        backend === 'bounded-stream' ? { name: 'orchestra.flac', mime: 'audio/flac' } : METADATA;
       const registry = new FilePlaybackAssetRegistry({
         liveRoomToken: TOKEN,
         onFatalRoom: vi.fn(),

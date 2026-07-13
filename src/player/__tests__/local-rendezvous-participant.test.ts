@@ -312,7 +312,7 @@ describe('LocalRendezvousParticipant', () => {
     expect(finalizeSource.cancel).toHaveBeenCalledOnce();
   });
 
-  it.each<FilePlaybackBackend>(['audio-buffer', 'streaming-flac'])(
+  it.each<FilePlaybackBackend>(['audio-buffer', 'bounded-stream'])(
     'delegates the same contract without depending on the %s backend',
     async (backend) => {
       const active = source(QID, backend);

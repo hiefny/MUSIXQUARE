@@ -8,7 +8,7 @@ import {
   createFilePlaybackRejectedTransitionResult,
   createFilePlaybackScheduledTransitionResult,
   createFilePlaybackTransitionEvidence,
-  createStreamingFlacPlaybackStartEvidence,
+  createStreamingPlaybackStartEvidence,
   type FilePlaybackBackend,
   type FilePlaybackCutoverArmResult,
   type FilePlaybackCutoverSource,
@@ -237,7 +237,7 @@ function makeSource(
   queueItemId: QueueItemId,
   context: FakeAudioContext,
   targetTime: number,
-  backend: FilePlaybackBackend = 'streaming-flac',
+  backend: FilePlaybackBackend = 'bounded-stream',
 ): FakeCutoverSource {
   let phase: FilePlaybackSourcePhase = 'new';
   let prepareGated = false;
@@ -394,7 +394,7 @@ function makeSource(
       started.resolve(
         backend === 'audio-buffer'
           ? createAudioBufferPlaybackStartEvidence(frame)
-          : createStreamingFlacPlaybackStartEvidence(frame, frame),
+          : createStreamingPlaybackStartEvidence(frame, frame),
       );
     },
     applyTransition(appliedFrame) {
@@ -957,7 +957,7 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     const source = makeSource(Q1, context, 1, 'audio-buffer');
     const { finalization } = await stageArmFinalize(manager, source, destination);
     context.currentTime = 1;
-    source.started.resolve(createStreamingFlacPlaybackStartEvidence(48_000, 48_000));
+    source.started.resolve(createStreamingPlaybackStartEvidence(48_000, 48_000));
 
     await expect(finalization.started).rejects.toThrow('evidence');
     expect(manager.currentCutoverPort()).toBeNull();

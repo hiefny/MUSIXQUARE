@@ -7,7 +7,6 @@ import {
   createFilePlaybackScheduledTransitionResult,
   createFilePlaybackSourceSnapshot,
   createFilePlaybackTransitionEvidence,
-  createStreamingFlacPlaybackStartEvidence,
   createStreamingPlaybackStartEvidence,
   isFilePlaybackSourceSnapshot,
   readFilePlaybackCutoverTarget,
@@ -33,7 +32,7 @@ function snapshot(overrides: Partial<FilePlaybackSourceSnapshot> = {}): FilePlay
   return {
     schemaVersion: 1,
     queueItemId: QID,
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     phase: 'playing',
     revision: 3,
     run: RUN,
@@ -49,7 +48,7 @@ function snapshot(overrides: Partial<FilePlaybackSourceSnapshot> = {}): FilePlay
 }
 
 describe('file playback source contract', () => {
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'accepts a JSON-safe %s backend snapshot',
     (backend) => {
       const value = snapshot({ backend });
@@ -303,7 +302,7 @@ describe('file playback source contract', () => {
   it('checks a runtime source against the run queue identity', () => {
     const source = {
       queueItemId: QID,
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
     } as Pick<FilePlaybackSource, 'queueItemId' | 'backend'>;
 
     expect(sourceOwnsRevisionedRun(source, RUN)).toBe(true);
@@ -351,8 +350,7 @@ describe('file playback source contract', () => {
     expect(readFilePlaybackStartEvidence(streaming, 96_000)).toEqual(streaming);
     expect(readFilePlaybackStartEvidence(audioBuffer, 96_001)).toBeNull();
     expect(readFilePlaybackStartEvidence({ ...streaming, extra: true }, 96_000)).toBeNull();
-    expect(() => createStreamingFlacPlaybackStartEvidence(96_000, 96_001)).toThrow(TypeError);
-    expect(createStreamingFlacPlaybackStartEvidence).toBe(createStreamingPlaybackStartEvidence);
+    expect(() => createStreamingPlaybackStartEvidence(96_000, 96_001)).toThrow(TypeError);
     expect(Object.getPrototypeOf(audioBuffer)).toBeNull();
     expect(Object.getPrototypeOf(streaming)).toBeNull();
     expect(Object.isFrozen(audioBuffer)).toBe(true);

@@ -416,8 +416,8 @@ function runtimeHarness(
   let currentState = state;
   let currentPhase: 'playing' | 'paused' = 'playing';
   let hasCurrentPort = true;
-  let candidateBackend: 'audio-buffer' | 'streaming-flac' = 'streaming-flac';
-  let currentBackend: 'audio-buffer' | 'streaming-flac' = 'streaming-flac';
+  let candidateBackend: 'audio-buffer' | 'bounded-stream' = 'bounded-stream';
+  let currentBackend: 'audio-buffer' | 'bounded-stream' = 'bounded-stream';
   const sent: unknown[] = [];
   const peerAcceptBulk = vi.fn(() => 'accepted' as never);
   const peerClose = vi.fn();
@@ -450,7 +450,7 @@ function runtimeHarness(
   const stageAssetSource = vi.fn(async (options: StageFilePlaybackAssetSourceOptions) => {
     const asset = registry.snapshotForLease(ROOM_TOKEN, options.assetLease);
     if (!asset) throw new Error('missing staged asset');
-    candidateBackend = asset.kind === 'blob' ? 'audio-buffer' : 'streaming-flac';
+    candidateBackend = asset.kind === 'blob' ? 'audio-buffer' : 'bounded-stream';
     return freezeCanonical({
       cutoverPort: CUTOVER_PORT,
       backend: candidateBackend,
@@ -809,7 +809,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(
       h.runtime.sent.find((frame) => (frame as { kind?: string }).kind === 'source-ready'),
     ).toMatchObject({
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
       durationSeconds: 120,
       outputSampleRateHz: 48_000,
       channelCount: 2,

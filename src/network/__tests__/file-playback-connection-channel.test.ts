@@ -349,7 +349,7 @@ describe('FilePlaybackConnectionChannel', () => {
       kind: 'source-ready',
       observedAtRoomTimeMs: 2_100,
       readyLeaseUntilRoomTimeMs: 12_100,
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
       durationSeconds: 600,
       bufferedAheadSeconds: 12,
       outputSampleRateHz: 48_000,

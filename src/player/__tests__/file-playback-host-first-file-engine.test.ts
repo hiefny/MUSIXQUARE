@@ -32,7 +32,7 @@ import {
   createFilePlaybackRejectedTransitionResult,
   createFilePlaybackScheduledTransitionResult,
   createFilePlaybackTransitionEvidence,
-  createStreamingFlacPlaybackStartEvidence,
+  createStreamingPlaybackStartEvidence,
   type FilePlaybackBackend,
   type FilePlaybackCutoverArmResult,
   type FilePlaybackCutoverSource,
@@ -391,7 +391,7 @@ function makeSource(
       if (backend === 'audio-buffer') {
         started.resolve(createAudioBufferPlaybackStartEvidence(targetFrame));
       } else {
-        started.resolve(createStreamingFlacPlaybackStartEvidence(targetFrame, targetFrame));
+        started.resolve(createStreamingPlaybackStartEvidence(targetFrame, targetFrame));
       }
     },
     rejectStart(error = new Error('fixture local renderer start failed')) {
@@ -464,7 +464,7 @@ function factoryResult(
     });
   }
   return Object.freeze({
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     source: harness.source as never,
     sourceIdentity,
     releaseConstructionLease: vi.fn(),
@@ -1108,7 +1108,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const sourceClosed = vi.fn();
     const staleResolution = new AbortController();
     let acquireCount = 0;
-    const harness = makeHarness([{ backend: 'streaming-flac' }], {
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
       admitAsset: (registry, roomToken, binding, blob, metadata) =>
         registry.admitEncodedAsset(
           roomToken,
@@ -1200,7 +1200,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   });
 
   it('fences same-participant ABA and cancels only stale recovery on revision or close', async () => {
-    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
     await resolveLatestStart(
       harness,
       harness.start(new Blob([new Uint8Array([10])], { type: 'audio/flac' })),
@@ -1317,7 +1317,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
 
   it.each([
     ['ordinary AudioBuffer', 'audio-buffer', 'audio/mpeg'],
-    ['bounded FLAC', 'streaming-flac', 'audio/flac'],
+    ['bounded FLAC', 'bounded-stream', 'audio/flac'],
   ] as const)('atomically composes the %s first-file path', async (_label, backend, mime) => {
     const harness = makeHarness([{ backend }]);
     const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: mime });
@@ -1420,7 +1420,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   });
 
   it('keeps canonical accepted timeline truth when only the local renderer later fails', async () => {
-    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
     const pending = harness.start(new Blob([new Uint8Array([49])], { type: 'audio/flac' }), {
       name: 'local-renderer-failure.flac',
     });
@@ -1460,8 +1460,8 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   });
 
   it.each([
-    ['AudioBuffer to FLAC', 'audio-buffer', 'streaming-flac'],
-    ['FLAC to AudioBuffer', 'streaming-flac', 'audio-buffer'],
+    ['AudioBuffer to FLAC', 'audio-buffer', 'bounded-stream'],
+    ['FLAC to AudioBuffer', 'bounded-stream', 'audio-buffer'],
   ] as const)(
     'replaces %s on the same room manager with a new run and exact next revision',
     async (_label, firstBackend, replacementBackend) => {
@@ -1510,7 +1510,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     },
   );
 
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'preserves the audible %s current renderer when a replacement candidate fails',
     async (backend) => {
       const harness = makeHarness([{ backend }, { backend, rejectArm: true }]);
@@ -1571,7 +1571,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await harness.engine.close();
   });
 
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'seeks a playing %s renderer through a same-run rendezvous candidate',
     async (backend) => {
       const harness = makeHarness([{ backend }, { backend }]);
@@ -1611,7 +1611,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     },
   );
 
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'resumes a paused %s renderer with the same run at its canonical paused position',
     async (backend) => {
       const harness = makeHarness([{ backend }, { backend }]);
@@ -1649,7 +1649,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     },
   );
 
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'replays an ended %s renderer as a fresh run without rebuilding room authority',
     async (backend) => {
       const harness = makeHarness([{ backend }, { backend }]);
@@ -1708,7 +1708,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await harness.engine.close();
   });
 
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'pauses and resumes a %s renderer through exact manager evidence',
     async (backend) => {
       const harness = makeHarness([{ backend }, { backend }]);
@@ -1771,7 +1771,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     },
   );
 
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'seeks a paused %s renderer only after native evidence',
     async (backend) => {
       const harness = makeHarness([{ backend }]);
@@ -1841,7 +1841,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   });
 
   it('lets scheduled evidence dominate a later abort and close', async () => {
-    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
     await resolveLatestStart(
       harness,
       harness.start(new Blob([new Uint8Array([64])], { type: 'audio/flac' }), {
@@ -1867,7 +1867,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(harness.fatal).not.toHaveBeenCalled();
   });
 
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'stops a %s renderer at one mapped frame and can start the next track',
     async (backend) => {
       vi.useFakeTimers();
@@ -1913,7 +1913,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     },
   );
 
-  it.each(['audio-buffer', 'streaming-flac'] as const)(
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'settles natural end for a %s renderer without synthesizing a scheduled stop',
     async (backend) => {
       const harness = makeHarness([{ backend }]);
@@ -2066,7 +2066,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       }),
     ).toThrow(/ROOM_CLOCK_UNAVAILABLE|host room clock authority/u);
 
-    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
     const pending = harness.start(new Blob([new Uint8Array([33])], { type: 'audio/flac' }), {
       name: 'clock.flac',
     });
@@ -2098,7 +2098,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
 
   it('aborts a staged renderer before rendezvous acceptance without advancing timeline truth', async () => {
     const hold = deferred<void>();
-    const harness = makeHarness([{ backend: 'streaming-flac', holdAfterStage: hold }]);
+    const harness = makeHarness([{ backend: 'bounded-stream', holdAfterStage: hold }]);
     const abort = new AbortController();
     const blob = new Blob([new Uint8Array([13, 14])], { type: 'audio/flac' });
     const pending = harness.start(blob, { name: 'abort.flac', signal: abort.signal });
@@ -2162,7 +2162,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   });
 
   it('fences a generation change across the physical-start await', async () => {
-    const harness = makeHarness([{ backend: 'streaming-flac' }]);
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
     const pending = harness.start(new Blob([new Uint8Array([17, 18])], { type: 'audio/flac' }), {
       name: 'stale.flac',
     });
@@ -2245,7 +2245,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
 
   it('keeps accepted timeline truth when close wins the local-evidence race', async () => {
     const coordinatorClosed = vi.fn();
-    const harness = makeHarness([{ backend: 'streaming-flac' }], {
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
       onCoordinatorClosed: coordinatorClosed,
     });
     const pending = harness.start(new Blob([new Uint8Array([42])], { type: 'audio/flac' }), {

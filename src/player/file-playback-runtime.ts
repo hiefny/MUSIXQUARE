@@ -29,7 +29,7 @@ export interface FilePlaybackRuntimeOptions {
 
 export interface FilePlaybackAvailability {
   readonly available: boolean;
-  readonly backend: 'audio-buffer' | 'streaming-flac' | 'legacy-audio-buffer' | null;
+  readonly backend: 'audio-buffer' | 'bounded-stream' | 'legacy-audio-buffer' | null;
   readonly queueItemId: QueueItemId | null;
   readonly durationSeconds: number | null;
 }

@@ -902,7 +902,7 @@ export class FilePlaybackProductHostMediaOwner {
 
     let handleId: string | null = null;
     let offer: Readonly<FileMediaSourceOfferV2>;
-    if (publication.backend === 'streaming-flac') {
+    if (publication.backend === 'bounded-stream') {
       handleId = this.#freshMediaId([
         prepareId,
         publication.state.queueItemId,
@@ -1042,7 +1042,7 @@ export class FilePlaybackProductHostMediaOwner {
     }
     let handleId: string | null = null;
     let offer: Readonly<FileMediaSourceOfferV2>;
-    if (prepared.backend === 'streaming-flac') {
+    if (prepared.backend === 'bounded-stream') {
       if (!isEncodedSource(exactSource)) {
         throw new Error('Streaming prepared publication requires its exact encoded source');
       }
@@ -1963,7 +1963,7 @@ export class FilePlaybackProductHostMediaOwner {
       prepared.schemaVersion !== 1 ||
       !Number.isSafeInteger(prepared.roomGeneration) ||
       prepared.roomGeneration <= 0 ||
-      (prepared.backend !== 'audio-buffer' && prepared.backend !== 'streaming-flac')
+      (prepared.backend !== 'audio-buffer' && prepared.backend !== 'bounded-stream')
     ) {
       throw new Error('Host prepared publication authority is stale');
     }

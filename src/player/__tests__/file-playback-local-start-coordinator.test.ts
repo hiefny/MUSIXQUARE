@@ -23,7 +23,7 @@ import {
   createAudioBufferPlaybackStartEvidence,
   createFilePlaybackCutoverTarget,
   createFilePlaybackRejectedTransitionResult,
-  createStreamingFlacPlaybackStartEvidence,
+  createStreamingPlaybackStartEvidence,
   type FilePlaybackBackend,
   type FilePlaybackCutoverArmResult,
   type FilePlaybackCutoverSource,
@@ -318,7 +318,7 @@ function makeSource(
         );
       } else {
         const evidenceFrame = options.invalidEvidence ? targetFrame + 1 : targetFrame;
-        started.resolve(createStreamingFlacPlaybackStartEvidence(evidenceFrame, evidenceFrame));
+        started.resolve(createStreamingPlaybackStartEvidence(evidenceFrame, evidenceFrame));
       }
     },
     releaseArm() {
@@ -356,7 +356,7 @@ function factoryResult(
     });
   }
   return Object.freeze({
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     source: harness.source as never,
     sourceIdentity,
     releaseConstructionLease: vi.fn(),
@@ -553,7 +553,7 @@ describe('split local rendezvous participant lifecycle', () => {
     expect(forgedFixture.source.stats.destroy).toHaveBeenCalledTimes(1);
 
     const omittedRoom = roomHarness();
-    const omittedFixture = omittedRoom.admit(Q1, 'split-omitted', 'streaming-flac');
+    const omittedFixture = omittedRoom.admit(Q1, 'split-omitted', 'bounded-stream');
     const omitted = await stageLocalFilePlaybackParticipant(
       splitStageOptions(omittedFixture.options),
     );
@@ -573,7 +573,7 @@ describe('split local rendezvous participant lifecycle', () => {
 
   it('commits the local participant while an unrelated remote arm stays pending', async () => {
     const room = roomHarness();
-    const fixture = room.admit(Q1, 'split-remote-pending', 'streaming-flac');
+    const fixture = room.admit(Q1, 'split-remote-pending', 'bounded-stream');
     const staged = await stageLocalFilePlaybackParticipant(splitStageOptions(fixture.options));
     const remoteCancel = vi.fn();
     const remote: HostRendezvousParticipant = {
@@ -652,7 +652,7 @@ describe('split local rendezvous participant lifecycle', () => {
 
   it('aborts and retires only local work while a finalized remote stays live', async () => {
     const room = roomHarness();
-    const fixture = room.admit(Q1, 'split-local-abort', 'streaming-flac');
+    const fixture = room.admit(Q1, 'split-local-abort', 'bounded-stream');
     const controller = new AbortController();
     const staged = await stageLocalFilePlaybackParticipant({
       ...splitStageOptions(fixture.options),
@@ -738,7 +738,7 @@ describe('split local rendezvous participant lifecycle', () => {
 
   it('fails closed when retirement re-enters immediately before participant commit', async () => {
     const room = roomHarness();
-    const fixture = room.admit(Q1, 'split-retire-reentry', 'streaming-flac');
+    const fixture = room.admit(Q1, 'split-retire-reentry', 'bounded-stream');
     let staged: Awaited<ReturnType<typeof stageLocalFilePlaybackParticipant>> | null = null;
     let retirement: Promise<void> | null = null;
     staged = await stageLocalFilePlaybackParticipant({
@@ -842,7 +842,7 @@ describe('split local rendezvous participant lifecycle', () => {
 describe('startLocalFilePlayback', () => {
   it.each([
     ['ordinary AudioBuffer', 'audio-buffer'],
-    ['bounded FLAC', 'streaming-flac'],
+    ['bounded FLAC', 'bounded-stream'],
   ] as const)(
     'routes %s and commits exact ARM -> FINALIZE -> start evidence',
     async (_, backend) => {
@@ -951,7 +951,7 @@ describe('startLocalFilePlayback', () => {
 
   it('aborts after staging promptly while exact destruction is still pending', async () => {
     const room = roomHarness();
-    const fixture = room.admit(Q1, 'abort-after', 'streaming-flac', {
+    const fixture = room.admit(Q1, 'abort-after', 'bounded-stream', {
       holdArm: true,
       holdDestroy: true,
     });
@@ -987,7 +987,7 @@ describe('startLocalFilePlayback', () => {
 
   it('fails a raced logical commit and retires only its exact promoted port', async () => {
     const room = roomHarness();
-    const fixture = room.admit(Q1, 'commit-race', 'streaming-flac');
+    const fixture = room.admit(Q1, 'commit-race', 'bounded-stream');
     let retirement: Promise<boolean> | null = null;
     const pending = startLocalFilePlayback({
       ...fixture.options,
@@ -1013,7 +1013,7 @@ describe('startLocalFilePlayback', () => {
     await resolveStarted(firstPending, room, first.source);
     const current = await firstPending;
 
-    const replacement = room.admit(Q2, 'failed-replacement', 'streaming-flac', {
+    const replacement = room.admit(Q2, 'failed-replacement', 'bounded-stream', {
       rejectArm: true,
     });
     await expect(
@@ -1030,7 +1030,7 @@ describe('startLocalFilePlayback', () => {
 
   it('rejects invalid native evidence and retires the exact candidate', async () => {
     const room = roomHarness();
-    const fixture = room.admit(Q1, 'invalid-evidence', 'streaming-flac', {
+    const fixture = room.admit(Q1, 'invalid-evidence', 'bounded-stream', {
       invalidEvidence: true,
     });
     const pending = startLocalFilePlayback(fixture.options);
@@ -1050,7 +1050,7 @@ describe('startLocalFilePlayback', () => {
     const firstResult = await firstPending;
     room.nowRoomTimeMs.value = 2_000;
 
-    const second = room.admit(Q2, 'shared-second', 'streaming-flac');
+    const second = room.admit(Q2, 'shared-second', 'bounded-stream');
     const secondPending = startLocalFilePlayback({
       ...second.options,
       playbackState: { ...second.options.playbackState, revision: 2 },
@@ -1072,7 +1072,7 @@ describe('startLocalFilePlayback', () => {
     await resolveStarted(firstPending, room, first.source);
     const current = await firstPending;
 
-    const replacement = room.admit(Q2, 'equal-revision', 'streaming-flac');
+    const replacement = room.admit(Q2, 'equal-revision', 'bounded-stream');
     const replacementStage = vi.fn(replacement.options.runtimeForTests!.stageAssetSourceForTests);
     const sameStateOptions: StartLocalFilePlaybackOptions = {
       ...replacement.options,
@@ -1091,7 +1091,7 @@ describe('startLocalFilePlayback', () => {
     await resolveStarted(firstPending, room, first.source);
     const current = await firstPending;
 
-    const replacement = room.admit(Q2, 'gap-replacement', 'streaming-flac');
+    const replacement = room.admit(Q2, 'gap-replacement', 'bounded-stream');
     const replacementStage = vi.fn(replacement.options.runtimeForTests!.stageAssetSourceForTests);
     await expect(
       startLocalFilePlayback({

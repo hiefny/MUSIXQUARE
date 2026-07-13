@@ -550,7 +550,7 @@ function canonicalStagedResult(
     !asset ||
     !metadata ||
     !readiness ||
-    (snapshot.backend !== 'audio-buffer' && snapshot.backend !== 'streaming-flac') ||
+    (snapshot.backend !== 'audio-buffer' && snapshot.backend !== 'bounded-stream') ||
     snapshot.sourceIdentity !== asset.sourceIdentity ||
     asset.queueItemId !== expectedBinding.queueItemId ||
     asset.sourceIdentity !== expectedBinding.sourceIdentity ||

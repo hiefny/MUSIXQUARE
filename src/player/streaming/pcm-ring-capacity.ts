@@ -23,14 +23,6 @@ const OPTION_KEYS = Object.freeze([
 ] as const);
 const REQUIRED_OPTION_KEYS = Object.freeze(['channels', 'sampleRate'] as const);
 
-export interface PcmRingCapacityOptions {
-  readonly channels: number;
-  readonly sampleRate: number;
-  readonly capacitySeconds?: number;
-  readonly primeSeconds?: number;
-  readonly maxRingBytes?: number;
-}
-
 export interface PcmRingCapacityPlan {
   readonly capacityFrames: number;
   readonly primeFrames: number;

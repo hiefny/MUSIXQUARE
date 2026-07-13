@@ -31,7 +31,7 @@ const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
 const destination = {} as AudioNode;
 
 function snapshot(
-  backend: 'audio-buffer' | 'streaming-flac',
+  backend: 'audio-buffer' | 'bounded-stream',
   queueItemId = QUEUE_ITEM_ID,
 ): FilePlaybackSourceSnapshot {
   return {
@@ -52,7 +52,7 @@ function snapshot(
 }
 
 function source(
-  backend: 'audio-buffer' | 'streaming-flac',
+  backend: 'audio-buffer' | 'bounded-stream',
   queueItemId = QUEUE_ITEM_ID,
 ): FilePlaybackSource {
   return {
@@ -90,10 +90,10 @@ function streamingResult(
   overrides: Partial<StreamingFlacFilePlaybackSourceResult> = {},
 ): StreamingFlacFilePlaybackSourceResult {
   const playbackSource = source(
-    'streaming-flac',
+    'bounded-stream',
   ) as StreamingFlacFilePlaybackSourceResult['source'];
   return {
-    backend: 'streaming-flac',
+    backend: 'bounded-stream',
     source: playbackSource,
     sourceIdentity: 'blob:flac:1',
     releaseConstructionLease: vi.fn(),
@@ -186,7 +186,7 @@ describe('publishManagedFilePlaybackSource', () => {
       publishManagedFilePlaybackSource(
         options(result, playbackManager, { publishResident, clearResidentIfOwned }),
       ),
-    ).resolves.toMatchObject({ published: true, backend: 'streaming-flac' });
+    ).resolves.toMatchObject({ published: true, backend: 'bounded-stream' });
 
     expect(publishResident).not.toHaveBeenCalled();
     expect(clearResidentIfOwned).not.toHaveBeenCalled();
@@ -419,14 +419,14 @@ describe('publishManagedFilePlaybackSource', () => {
     const playbackManager = manager(async () => ({
       published: false,
       reason: 'duplicates-active',
-      snapshot: snapshot('streaming-flac'),
+      snapshot: snapshot('bounded-stream'),
     }));
 
     await expect(
       publishManagedFilePlaybackSource(options(result, playbackManager)),
     ).resolves.toEqual({
       published: false,
-      backend: 'streaming-flac',
+      backend: 'bounded-stream',
       sourceIdentity: result.sourceIdentity,
       reason: 'duplicates-active',
     });

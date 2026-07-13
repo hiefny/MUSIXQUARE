@@ -834,7 +834,7 @@ describe('FilePlaybackProductRuntime', () => {
     const prepared = freezeCanonical({
       schemaVersion: 1 as const,
       roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
-      backend: 'streaming-flac' as const,
+      backend: 'bounded-stream' as const,
       state: freezeCanonical({
         queueItemId: Q1,
         runId: 'runtime-cohort-run',
@@ -1107,7 +1107,7 @@ describe('FilePlaybackProductRuntime', () => {
 
   it.each([
     ['ordinary', 'audio-buffer'],
-    ['streaming FLAC', 'streaming-flac'],
+    ['streaming FLAC', 'bounded-stream'],
   ] as const)(
     'returns the exact active %s terminal observation without weakening normal projection',
     (_label, backend) => {

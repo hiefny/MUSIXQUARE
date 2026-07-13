@@ -1,10 +1,8 @@
 import {
   PCM_STREAM_MAX_CHANNELS,
-  PCM_STREAM_MAX_MESSAGE_FRAMES,
   PCM_STREAM_PROTOCOL_VERSION,
   isPcmStreamGeneration,
   type PcmStreamGeneration,
-  type PcmStreamRunIdentity,
 } from '../streaming/pcm-stream-protocol.ts';
 
 export {
@@ -24,7 +22,6 @@ export const FLAC_STREAM_PROTOCOL_VERSION = PCM_STREAM_PROTOCOL_VERSION;
 export const FLAC_STREAM_MAX_CHANNELS = PCM_STREAM_MAX_CHANNELS;
 export const FLAC_STREAM_MAX_SOURCE_IDENTITY_LENGTH = 512;
 export const FLAC_STREAM_INPUT_CHUNK_BYTES = 64 * 1024;
-export const FLAC_STREAM_MAX_PCM_MESSAGE_FRAMES = PCM_STREAM_MAX_MESSAGE_FRAMES;
 
 /** One immutable encoded-source bridge for the whole playback-source lifetime. */
 export type FlacSourceLifetimeGeneration = number;
@@ -32,8 +29,6 @@ export type FlacSourceLifetimeGeneration = number;
 export type FlacDecoderGeneration = PcmStreamGeneration;
 /** AudioWorklet-facing alias; every ring generation is one decoder generation. */
 export type FlacStreamGeneration = FlacDecoderGeneration;
-
-export type FlacStreamRunIdentity = PcmStreamRunIdentity;
 
 export interface FlacStreamDescriptor {
   readonly sourceSampleRate: number;

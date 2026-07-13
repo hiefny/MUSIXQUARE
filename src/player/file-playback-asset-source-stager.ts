@@ -472,7 +472,7 @@ function inspectFactoryResult(
   const keys =
     backend === 'audio-buffer'
       ? AUDIO_BUFFER_FACTORY_RESULT_KEYS
-      : backend === 'streaming-flac'
+      : backend === 'bounded-stream'
         ? STREAMING_FACTORY_RESULT_KEYS
         : null;
   const result = keys ? snapshotExactRecord(value, keys) : null;
@@ -490,7 +490,7 @@ function inspectFactoryResult(
   if (!destroySource || !getSnapshot) return null;
   if (
     (backend === 'audio-buffer' && result.flacMetadata !== null) ||
-    (backend === 'streaming-flac' &&
+    (backend === 'bounded-stream' &&
       (result.flacMetadata === null || typeof result.flacMetadata !== 'object'))
   ) {
     return null;

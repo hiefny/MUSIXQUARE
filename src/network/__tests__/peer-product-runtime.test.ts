@@ -85,6 +85,7 @@ function inertHostRoom(): FilePlaybackProductRuntimeHostRoomPort {
   return {
     startFirstLocalFile: unsupported,
     startLocalTrack: unsupported,
+    startLocalTrackWithCohort: unsupported,
     pauseCurrent: unsupported,
     seekPlaying: unsupported,
     seekPaused: unsupported,

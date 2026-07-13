@@ -10,21 +10,27 @@ import {
   type PlaybackRunIdentity,
 } from './playback-identity.ts';
 import type { PlaybackTimelineSnapshot } from './playback-timeline.ts';
+import type { QueueItemId } from '../types/index.ts';
 
 export const FILE_PLAYBACK_TIMELINE_UPDATE_V2_PROTOCOL_VERSION = 2 as const;
-/** Maximum detached canonical JSON size after exact object validation. */
 export const FILE_PLAYBACK_TIMELINE_UPDATE_V2_MAX_FRAME_BYTES =
   FILE_PLAYBACK_TIMELINE_UPDATE_V2_MAX_RAW_FRAME_BYTES;
 
 const UPDATE_KEYS = Object.freeze([
+  'anchorRoomTimeMs',
   'connectionId',
-  'roomGeneration',
+  'phase',
+  'positionSeconds',
   'protocolVersion',
+  'queueItemId',
+  'rate',
+  'revision',
+  'roomGeneration',
+  'runId',
   'sessionId',
-  'timeline',
   'type',
 ] as const);
-const UPDATE_INPUT_KEYS = Object.freeze([
+const INPUT_KEYS = Object.freeze([
   'connectionId',
   'roomGeneration',
   'sessionId',
@@ -42,24 +48,28 @@ const TIMELINE_KEYS = Object.freeze([
 
 type ExactSnapshot = Readonly<Record<string, unknown>>;
 
-/**
- * Body-free authoritative timeline projection for one exact APPLIED product
- * connection. The host's room generation and the connection session lease are
- * correlation only; this record does not itself authorize a transition.
- */
+/** Primitive-only auxiliary frame accepted by the application-session lane. */
 export interface FilePlaybackTimelineUpdateV2 {
   readonly type: typeof FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE;
   readonly protocolVersion: typeof FILE_PLAYBACK_TIMELINE_UPDATE_V2_PROTOCOL_VERSION;
   readonly sessionId: string;
   readonly connectionId: string;
   readonly roomGeneration: number;
-  readonly timeline: Readonly<PlaybackTimelineSnapshot>;
+  readonly revision: number;
+  readonly phase: 'stopped' | 'paused' | 'playing';
+  readonly queueItemId: QueueItemId | null;
+  readonly runId: string | null;
+  readonly positionSeconds: number;
+  readonly anchorRoomTimeMs: number;
+  readonly rate: number;
 }
 
-export type FilePlaybackTimelineUpdateV2Input = Omit<
-  FilePlaybackTimelineUpdateV2,
-  'protocolVersion' | 'type'
->;
+export interface FilePlaybackTimelineUpdateV2Input {
+  readonly sessionId: string;
+  readonly connectionId: string;
+  readonly roomGeneration: number;
+  readonly timeline: Readonly<PlaybackTimelineSnapshot>;
+}
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
@@ -82,11 +92,10 @@ function snapshotExactDataRecord(
     ) {
       return null;
     }
-
     const snapshot = Object.create(null) as Record<string, unknown>;
     for (const key of expectedKeys) {
       const descriptor = descriptors[key];
-      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
       snapshot[key] = descriptor.value;
     }
     return Object.freeze(snapshot);
@@ -128,7 +137,6 @@ function canonicalTimeline(value: unknown): Readonly<PlaybackTimelineSnapshot> |
   ) {
     return null;
   }
-
   if (snapshot.phase === 'stopped') {
     if (snapshot.run !== null || snapshot.positionSeconds !== 0 || snapshot.rate !== 1) return null;
     return freezeCanonical({
@@ -141,13 +149,12 @@ function canonicalTimeline(value: unknown): Readonly<PlaybackTimelineSnapshot> |
       rate: 1,
     });
   }
-
   const run = canonicalRun(snapshot.run);
   if (!isPlaybackRevision(snapshot.revision) || !run) return null;
   return freezeCanonical({
     schemaVersion: 1 as const,
     revision: snapshot.revision,
-    phase: snapshot.phase,
+    phase: snapshot.phase as FilePlaybackTimelineUpdateV2['phase'],
     run,
     positionSeconds: snapshot.positionSeconds,
     anchorMonotonicMs: snapshot.anchorMonotonicMs,
@@ -160,7 +167,6 @@ function serializedByteLength(value: object): number {
 }
 
 function canonicalUpdate(snapshot: ExactSnapshot): Readonly<FilePlaybackTimelineUpdateV2> | null {
-  const timeline = canonicalTimeline(snapshot.timeline);
   if (
     snapshot.type !== FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE ||
     snapshot.protocolVersion !== FILE_PLAYBACK_TIMELINE_UPDATE_V2_PROTOCOL_VERSION ||
@@ -168,9 +174,31 @@ function canonicalUpdate(snapshot: ExactSnapshot): Readonly<FilePlaybackTimeline
     !isFilePlaybackSessionId(snapshot.connectionId) ||
     snapshot.sessionId === snapshot.connectionId ||
     !isPositiveSafeInteger(snapshot.roomGeneration) ||
-    !timeline
+    !isPlaybackRevisionWatermark(snapshot.revision) ||
+    (snapshot.phase !== 'stopped' && snapshot.phase !== 'paused' && snapshot.phase !== 'playing') ||
+    !isFiniteNonNegative(snapshot.positionSeconds) ||
+    !isFiniteNonNegative(snapshot.anchorRoomTimeMs) ||
+    !isPlaybackRate(snapshot.rate)
   ) {
     return null;
+  }
+
+  let queueItemId: QueueItemId | null = null;
+  let runId: string | null = null;
+  if (snapshot.phase === 'stopped') {
+    if (
+      snapshot.queueItemId !== null ||
+      snapshot.runId !== null ||
+      snapshot.positionSeconds !== 0 ||
+      snapshot.rate !== 1
+    ) {
+      return null;
+    }
+  } else {
+    const run = canonicalRun({ queueItemId: snapshot.queueItemId, runId: snapshot.runId });
+    if (!isPlaybackRevision(snapshot.revision) || !run) return null;
+    queueItemId = run.queueItemId;
+    runId = run.runId;
   }
 
   const update = freezeCanonical({
@@ -179,7 +207,13 @@ function canonicalUpdate(snapshot: ExactSnapshot): Readonly<FilePlaybackTimeline
     sessionId: snapshot.sessionId,
     connectionId: snapshot.connectionId,
     roomGeneration: snapshot.roomGeneration,
-    timeline,
+    revision: snapshot.revision,
+    phase: snapshot.phase as FilePlaybackTimelineUpdateV2['phase'],
+    queueItemId,
+    runId,
+    positionSeconds: snapshot.positionSeconds,
+    anchorRoomTimeMs: snapshot.anchorRoomTimeMs,
+    rate: snapshot.rate,
   });
   return serializedByteLength(update) <= FILE_PLAYBACK_TIMELINE_UPDATE_V2_MAX_FRAME_BYTES
     ? update
@@ -196,52 +230,57 @@ export function parseFilePlaybackTimelineUpdateV2(
 export function createFilePlaybackTimelineUpdateV2(
   input: FilePlaybackTimelineUpdateV2Input,
 ): Readonly<FilePlaybackTimelineUpdateV2> {
-  const snapshot = snapshotExactDataRecord(input, UPDATE_INPUT_KEYS);
-  if (!snapshot) throw new TypeError('File playback timeline update input is invalid');
+  const snapshot = snapshotExactDataRecord(input, INPUT_KEYS);
+  const timeline = snapshot ? canonicalTimeline(snapshot.timeline) : null;
+  if (!snapshot || !timeline) throw new TypeError('File playback timeline update input is invalid');
   const update = canonicalUpdate(
     freezeCanonical({
       type: FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE,
       protocolVersion: FILE_PLAYBACK_TIMELINE_UPDATE_V2_PROTOCOL_VERSION,
-      ...snapshot,
+      sessionId: snapshot.sessionId,
+      connectionId: snapshot.connectionId,
+      roomGeneration: snapshot.roomGeneration,
+      revision: timeline.revision,
+      phase: timeline.phase,
+      queueItemId: timeline.run?.queueItemId ?? null,
+      runId: timeline.run?.runId ?? null,
+      positionSeconds: timeline.positionSeconds,
+      anchorRoomTimeMs: timeline.anchorMonotonicMs,
+      rate: timeline.rate,
     }),
   );
   if (!update) throw new TypeError('File playback timeline update is invalid');
   return update;
 }
 
+export function timelineFromFilePlaybackTimelineUpdateV2(
+  value: unknown,
+): Readonly<PlaybackTimelineSnapshot> | null {
+  const update = parseFilePlaybackTimelineUpdateV2(value);
+  if (!update) return null;
+  return canonicalTimeline({
+    schemaVersion: 1,
+    revision: update.revision,
+    phase: update.phase,
+    run:
+      update.queueItemId === null || update.runId === null
+        ? null
+        : { queueItemId: update.queueItemId, runId: update.runId },
+    positionSeconds: update.positionSeconds,
+    anchorMonotonicMs: update.anchorRoomTimeMs,
+    rate: update.rate,
+  });
+}
+
 export function serializeFilePlaybackTimelineUpdateV2(value: unknown): string {
   const update = parseFilePlaybackTimelineUpdateV2(value);
   if (!update) throw new TypeError('File playback timeline update is invalid');
-  const serialized = JSON.stringify(update);
-  if (
-    new TextEncoder().encode(serialized).byteLength >
-    FILE_PLAYBACK_TIMELINE_UPDATE_V2_MAX_FRAME_BYTES
-  ) {
-    throw new TypeError('File playback timeline update exceeds its byte budget');
-  }
-  return serialized;
+  return JSON.stringify(update);
 }
 
-/** Exact equality for idempotent delivery on one ordered auxiliary lane. */
 export function isFilePlaybackTimelineUpdateV2Replay(left: unknown, right: unknown): boolean {
   const safeLeft = parseFilePlaybackTimelineUpdateV2(left);
   const safeRight = parseFilePlaybackTimelineUpdateV2(right);
   if (!safeLeft || !safeRight) return false;
-  const leftRun = safeLeft.timeline.run;
-  const rightRun = safeRight.timeline.run;
-  return (
-    safeLeft.sessionId === safeRight.sessionId &&
-    safeLeft.connectionId === safeRight.connectionId &&
-    safeLeft.roomGeneration === safeRight.roomGeneration &&
-    safeLeft.timeline.revision === safeRight.timeline.revision &&
-    safeLeft.timeline.phase === safeRight.timeline.phase &&
-    ((leftRun === null && rightRun === null) ||
-      (leftRun !== null &&
-        rightRun !== null &&
-        leftRun.queueItemId === rightRun.queueItemId &&
-        leftRun.runId === rightRun.runId)) &&
-    safeLeft.timeline.positionSeconds === safeRight.timeline.positionSeconds &&
-    safeLeft.timeline.anchorMonotonicMs === safeRight.timeline.anchorMonotonicMs &&
-    safeLeft.timeline.rate === safeRight.timeline.rate
-  );
+  return UPDATE_KEYS.every((key) => safeLeft[key] === safeRight[key]);
 }

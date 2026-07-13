@@ -6,14 +6,15 @@ import {
 } from './bounded-streaming-playback-source.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
-import type { WavePcmMetadata } from '../wave/metadata.ts';
 import { LinearPcmDecoderAdapter } from '../linear-pcm/decoder-adapter.ts';
+import type { LinearPcmMetadata } from '../linear-pcm/sample-format.ts';
 
-export interface StreamingWavePlaybackSourceOptions {
+export interface StreamingLinearPcmPlaybackSourceOptions {
   readonly queueItemId: QueueItemId;
   /** Exact encoded source; ownership transfers to this playback source. */
   readonly encodedSource: EncodedAudioSource;
-  readonly metadata: Readonly<WavePcmMetadata>;
+  /** Container-verified byte geometry for the shared bounded linear-PCM decoder. */
+  readonly metadata: Readonly<LinearPcmMetadata>;
   readonly audioContext: AudioContext;
   /** Authoritative monotonic room clock. It must not derive from AudioContext.currentTime. */
   readonly nowRoomTimeMs: () => number;
@@ -36,9 +37,9 @@ const defaultRuntime: BoundedStreamingCodecRuntime = {
   createMessageChannel: () => new MessageChannel(),
 };
 
-/** Public PCM/IEEE-float WAVE wrapper over the codec-neutral bounded streaming backend. */
-export class StreamingWavePlaybackSource extends BoundedStreamingPlaybackSource {
-  constructor(options: StreamingWavePlaybackSourceOptions) {
+/** Container-neutral PCM/IEEE-float wrapper over the bounded streaming backend. */
+export class StreamingLinearPcmPlaybackSource extends BoundedStreamingPlaybackSource {
+  constructor(options: StreamingLinearPcmPlaybackSourceOptions) {
     const createMessageChannel =
       options.runtime?.createMessageChannel ?? defaultRuntime.createMessageChannel;
     const createWorker = options.runtime?.createWorker ?? defaultRuntime.createWorker;

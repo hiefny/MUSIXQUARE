@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { QueueItemId } from '../../types/index.ts';
 import { AudioBufferPlaybackSource } from '../backends/audio-buffer-playback-source.ts';
 import { StreamingFlacPlaybackSource } from '../backends/streaming-flac-playback-source.ts';
-import { StreamingWavePlaybackSource } from '../backends/streaming-wave-playback-source.ts';
+import { StreamingLinearPcmPlaybackSource } from '../backends/streaming-linear-pcm-playback-source.ts';
 import {
   createBlobFilePlaybackSource,
   createEncodedFilePlaybackSource,
@@ -21,6 +21,7 @@ import {
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
 import { BlobEncodedAudioSource } from '../sources/blob-encoded-audio-source.ts';
+import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
 
 const QID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
 
@@ -72,6 +73,123 @@ function writeAscii(bytes: Uint8Array, offset: number, value: string): void {
 function writeUint64Le(view: DataView, offset: number, value: number): void {
   view.setUint32(offset, value >>> 0, true);
   view.setUint32(offset + 4, Math.floor(value / 0x1_0000_0000), true);
+}
+
+function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
+  const bytes = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0));
+  let cursor = 0;
+  for (const part of parts) {
+    bytes.set(part, cursor);
+    cursor += part.byteLength;
+  }
+  return bytes;
+}
+
+function asciiBytes(value: string): Uint8Array {
+  return Uint8Array.from(value, (character) => character.charCodeAt(0));
+}
+
+function uint16Be(value: number): Uint8Array {
+  const bytes = new Uint8Array(2);
+  new DataView(bytes.buffer).setUint16(0, value, false);
+  return bytes;
+}
+
+function uint32Be(value: number): Uint8Array {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, value, false);
+  return bytes;
+}
+
+function extendedInteger(value: number): Uint8Array {
+  const highestBit = Math.floor(Math.log2(value));
+  const bytes = new Uint8Array(10);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(0, 16_383 + highestBit, false);
+  view.setBigUint64(2, BigInt(value) << BigInt(63 - highestBit), false);
+  return bytes;
+}
+
+function iffChunk(id: string, body: Uint8Array): Uint8Array {
+  return concatBytes(
+    asciiBytes(id),
+    uint32Be(body.byteLength),
+    body,
+    body.byteLength % 2 === 0 ? new Uint8Array() : Uint8Array.of(0),
+  );
+}
+
+function aiffFile(
+  options: {
+    readonly container?: 'AIFF' | 'AIFC';
+    readonly compressionType?: string;
+    readonly name?: string;
+    readonly mime?: string;
+  } = {},
+): File {
+  const container = options.container ?? 'AIFF';
+  const channels = 2;
+  const frames = 4;
+  const sampleBits = 16;
+  const commonPrefix = concatBytes(
+    uint16Be(channels),
+    uint32Be(frames),
+    uint16Be(sampleBits),
+    extendedInteger(48_000),
+  );
+  const common =
+    container === 'AIFF'
+      ? commonPrefix
+      : concatBytes(
+          commonPrefix,
+          asciiBytes(options.compressionType ?? 'NONE'),
+          Uint8Array.of(3),
+          asciiBytes('PCM'),
+        );
+  const sound = concatBytes(new Uint8Array(8), new Uint8Array(frames * channels * 2));
+  const chunks = [
+    ...(container === 'AIFC' ? [iffChunk('FVER', uint32Be(0xa280_5140))] : []),
+    iffChunk('COMM', common),
+    iffChunk('SSND', sound),
+  ];
+  const body = concatBytes(asciiBytes(container), ...chunks);
+  const bytes = concatBytes(asciiBytes('FORM'), uint32Be(body.byteLength), body);
+  return new File([bytes], options.name ?? 'recording.bin', {
+    type: options.mime ?? 'application/octet-stream',
+  });
+}
+
+function cafFile(
+  options: {
+    readonly formatId?: string;
+    readonly name?: string;
+    readonly mime?: string;
+  } = {},
+): File {
+  const header = new Uint8Array(8);
+  writeAscii(header, 0, 'caff');
+  new DataView(header.buffer).setUint16(4, 1, false);
+  const description = new Uint8Array(32);
+  const descriptionView = new DataView(description.buffer);
+  descriptionView.setFloat64(0, 48_000, false);
+  writeAscii(description, 8, options.formatId ?? 'lpcm');
+  descriptionView.setUint32(16, 4, false);
+  descriptionView.setUint32(20, 1, false);
+  descriptionView.setUint32(24, 2, false);
+  descriptionView.setUint32(28, 16, false);
+  const audio = new Uint8Array(16);
+  const data = concatBytes(new Uint8Array(4), audio);
+  const cafChunk = (id: string, body: Uint8Array): Uint8Array => {
+    const chunkHeader = new Uint8Array(12);
+    writeAscii(chunkHeader, 0, id);
+    new DataView(chunkHeader.buffer).setBigInt64(4, BigInt(body.byteLength), false);
+    return concatBytes(chunkHeader, body);
+  };
+  return new File(
+    [concatBytes(header, cafChunk('desc', description), cafChunk('data', data))],
+    options.name ?? 'recording.bin',
+    { type: options.mime ?? 'application/octet-stream' },
+  );
 }
 
 function waveFile(
@@ -139,6 +257,21 @@ function decodedOrdinaryAudio(
   release: () => void = vi.fn(),
 ): OrdinaryAudioDecodeResult {
   return { audioBuffer, release };
+}
+
+function completeSourceMethodSurface(destroy: () => Promise<void>) {
+  return {
+    prepare: vi.fn(),
+    connect: vi.fn(),
+    arm: vi.fn(),
+    finalize: vi.fn(),
+    cancel: vi.fn(),
+    pause: vi.fn(),
+    seek: vi.fn(),
+    positionAt: vi.fn(),
+    getSnapshot: vi.fn(),
+    destroy,
+  };
 }
 
 function baseOptions(
@@ -239,7 +372,7 @@ describe('createBlobFilePlaybackSource', () => {
       );
 
       expect(result.backend).toBe('bounded-stream');
-      expect(result.source).toBeInstanceOf(StreamingWavePlaybackSource);
+      expect(result.source).toBeInstanceOf(StreamingLinearPcmPlaybackSource);
       expect(result.source.getSnapshot()).toMatchObject({
         backend: 'bounded-stream',
         phase: 'new',
@@ -262,8 +395,176 @@ describe('createBlobFilePlaybackSource', () => {
     );
 
     expect(result.backend).toBe('bounded-stream');
-    expect(result.source).toBeInstanceOf(StreamingWavePlaybackSource);
+    expect(result.source).toBeInstanceOf(StreamingLinearPcmPlaybackSource);
     expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    await result.source.destroy();
+  });
+
+  it.each([
+    ['AIFF', () => aiffFile(), 'pcm-s16be'],
+    ['AIFC', () => aiffFile({ container: 'AIFC' }), 'pcm-s16be'],
+    ['CAF', () => cafFile(), 'pcm-s16be'],
+  ] as const)(
+    'routes content-verified %s bytes through the shared bounded linear-PCM source',
+    async (_label, createFile, expectedEncoding) => {
+      const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+      let receivedEncoding: string | null = null;
+      const result = await createBlobFilePlaybackSource(
+        baseOptions(createFile(), {
+          decodeOrdinaryAudio,
+          backendFactories: {
+            createStreamingLinearPcmSource: (options) => {
+              receivedEncoding = options.metadata.encoding;
+              return new StreamingLinearPcmPlaybackSource(options);
+            },
+          },
+        }),
+      );
+
+      expect(result.backend).toBe('bounded-stream');
+      expect(result.source).toBeInstanceOf(StreamingLinearPcmPlaybackSource);
+      expect(result.source.getSnapshot()).toMatchObject({
+        phase: 'new',
+        durationSeconds: 4 / 48_000,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      });
+      expect(receivedEncoding).toBe(expectedEncoding);
+      expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+      await result.source.destroy();
+    },
+  );
+
+  it.each([
+    [
+      'AIFF extension',
+      new File([Uint8Array.of(0x49, 0x44, 0x33, 0x04)], 'fake.aiff', {
+        type: 'application/octet-stream',
+      }),
+      /claims to be AIFF\/AIFC/i,
+    ],
+    [
+      'AIFC MIME',
+      new File([Uint8Array.of(0x49, 0x44, 0x33, 0x04)], 'fake.bin', {
+        type: 'audio/aifc',
+      }),
+      /claims to be AIFF\/AIFC/i,
+    ],
+    [
+      'CAF extension',
+      new File([Uint8Array.of(0x49, 0x44, 0x33, 0x04)], 'fake.caf', {
+        type: 'application/octet-stream',
+      }),
+      /claims to be CAF/i,
+    ],
+    [
+      'CAF MIME',
+      new File([Uint8Array.of(0x49, 0x44, 0x33, 0x04)], 'fake.bin', {
+        type: 'audio/x-caf',
+      }),
+      /claims to be CAF/i,
+    ],
+  ] as const)(
+    'never ordinary-decodes invalid bytes with a claimed %s',
+    async (_label, file, expectedError) => {
+      const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+      await expect(
+        createBlobFilePlaybackSource(baseOptions(file, { decodeOrdinaryAudio })),
+      ).rejects.toThrow(expectedError);
+      expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['FLAC', 'audio/flac; profile=lossless', /claims to be FLAC/i],
+    ['WAVE', 'audio/wav; codecs=pcm', /claims to be WAVE/i],
+    ['AIFF', 'audio/aiff; codecs=none', /claims to be AIFF\/AIFC/i],
+    ['CAF', 'audio/x-caf; charset=binary', /claims to be CAF/i],
+  ] as const)(
+    'treats a parameterized %s MIME essence as a no-fallback container claim',
+    async (_label, mime, expectedError) => {
+      const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+      const file = new File([Uint8Array.of(0x49, 0x44, 0x33, 0x04)], 'payload.bin', {
+        type: mime,
+      });
+
+      await expect(
+        createBlobFilePlaybackSource(baseOptions(file, { decodeOrdinaryAudio })),
+      ).rejects.toThrow(expectedError);
+      expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      'truncated AIFF',
+      new File([concatBytes(asciiBytes('FORM'), uint32Be(4), asciiBytes('AIFF'))], 'payload.bin', {
+        type: 'application/octet-stream',
+      }),
+      /COMM|SSND/i,
+    ],
+    [
+      'unsupported AIFC codec',
+      aiffFile({
+        container: 'AIFC',
+        compressionType: 'ulaw',
+        name: 'payload.bin',
+        mime: 'application/octet-stream',
+      }),
+      /compression/i,
+    ],
+    [
+      'truncated CAF',
+      new File(
+        [concatBytes(asciiBytes('caff'), Uint8Array.of(0, 1, 0, 0), new Uint8Array(4))],
+        'payload.bin',
+        { type: 'application/octet-stream' },
+      ),
+      /read|desc|chunk|bounds/i,
+    ],
+    [
+      'unsupported CAF codec',
+      cafFile({
+        formatId: 'aac ',
+        name: 'payload.bin',
+        mime: 'application/octet-stream',
+      }),
+      /LPCM|format/i,
+    ],
+  ] as const)(
+    'never ordinary-decodes magic-present %s bytes',
+    async (_label, file, expectedError) => {
+      const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+      await expect(
+        createBlobFilePlaybackSource(baseOptions(file, { decodeOrdinaryAudio })),
+      ).rejects.toThrow(expectedError);
+      expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['WAVE', () => waveFile()],
+    ['AIFF', () => aiffFile()],
+    ['AIFC', () => aiffFile({ container: 'AIFC' })],
+    ['CAF', () => cafFile()],
+  ] as const)('forwards one shared linear-PCM runtime through %s routing', async (_label, file) => {
+    const linearPcmRuntime: Partial<BoundedStreamingCodecRuntime> = {
+      createWorker: vi.fn(),
+    };
+    let receivedRuntime: Partial<BoundedStreamingCodecRuntime> | undefined;
+    const result = await createBlobFilePlaybackSource(
+      baseOptions(file(), {
+        linearPcmRuntime,
+        backendFactories: {
+          createStreamingLinearPcmSource: (options) => {
+            receivedRuntime = options.runtime;
+            return new StreamingLinearPcmPlaybackSource(options);
+          },
+        },
+      }),
+    );
+
+    expect(receivedRuntime).toBe(linearPcmRuntime);
     await result.source.destroy();
   });
 
@@ -395,7 +696,7 @@ describe('createBlobFilePlaybackSource', () => {
     const mismatchedSource = {
       backend: 'audio-buffer',
       queueItemId: 'wrong-queue-item',
-      destroy,
+      ...completeSourceMethodSurface(destroy),
     };
 
     await expect(
@@ -669,7 +970,7 @@ describe('createBlobFilePlaybackSource', () => {
     const mismatchedSource = {
       backend: 'audio-buffer',
       queueItemId: 'wrong-queue-item',
-      destroy,
+      ...completeSourceMethodSurface(destroy),
     };
 
     try {
@@ -744,7 +1045,8 @@ describe('createEncodedFilePlaybackSource', () => {
 
     expect(result.backend).toBe('bounded-stream');
     expect(getterCalls).toBe(1);
-    expect(receivedSource).toBe(first.source);
+    expect(receivedSource).not.toBe(first.source);
+    expect(receivedSource?.identity).toBe(first.source.identity);
     expect(result.sourceIdentity).toBe(first.source.identity);
     expect(first.close).not.toHaveBeenCalled();
     expect(second.close).not.toHaveBeenCalled();
@@ -753,7 +1055,79 @@ describe('createEncodedFilePlaybackSource', () => {
     expect(second.close).not.toHaveBeenCalled();
   });
 
-  it('transfers the exact generic FLAC source to streaming ownership until destroy', async () => {
+  it('snapshots changing nested source fields once for parsing, decoding, and the result', async () => {
+    const file = aiffFile();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const fixture = memoryEncodedSource(bytes, {
+      name: file.name,
+      mime: file.type,
+      identity: 'peer-range:nested-stable',
+    });
+    let sizeReads = 0;
+    let identityReads = 0;
+    let metadataReads = 0;
+    const stableIdentity = 'peer-range:nested-stable';
+    const hostileSource = Object.defineProperties(Object.create(null), {
+      kind: { enumerable: true, value: 'peer-range' },
+      size: {
+        enumerable: true,
+        get: () => {
+          sizeReads += 1;
+          if (sizeReads !== 1) throw new Error('nested size getter was read twice');
+          return bytes.byteLength;
+        },
+      },
+      identity: {
+        enumerable: true,
+        get: () => {
+          identityReads += 1;
+          return identityReads === 1 ? stableIdentity : 'peer-range:nested-changed';
+        },
+      },
+      metadata: {
+        enumerable: true,
+        get: () => {
+          metadataReads += 1;
+          if (metadataReads !== 1) throw new Error('nested metadata getter was read twice');
+          return { name: file.name, mime: file.type };
+        },
+      },
+      readAt: { enumerable: true, value: fixture.source.readAt },
+      close: { enumerable: true, value: fixture.source.close },
+    }) as EncodedAudioSource;
+    let receivedSource: EncodedAudioSource | null = null;
+
+    const result = await createEncodedFilePlaybackSource(
+      encodedOptions(hostileSource, {
+        backendFactories: {
+          createStreamingLinearPcmSource: (options) => {
+            receivedSource = options.encodedSource;
+            return new StreamingLinearPcmPlaybackSource(options);
+          },
+        },
+      }),
+    );
+
+    expect(result.sourceIdentity).toBe(stableIdentity);
+    expect(Object.is(receivedSource, hostileSource)).toBe(false);
+    expect(receivedSource?.identity).toBe(stableIdentity);
+    expect(receivedSource?.size).toBe(bytes.byteLength);
+    expect(receivedSource?.metadata).toEqual({ name: file.name, mime: file.type });
+    expect({ sizeReads, identityReads, metadataReads }).toEqual({
+      sizeReads: 1,
+      identityReads: 1,
+      metadataReads: 1,
+    });
+    await result.source.destroy();
+    expect(fixture.close).toHaveBeenCalledOnce();
+    expect({ sizeReads, identityReads, metadataReads }).toEqual({
+      sizeReads: 1,
+      identityReads: 1,
+      metadataReads: 1,
+    });
+  });
+
+  it('transfers a canonical view of the exact generic FLAC lease until destroy', async () => {
     const file = nativeFlac(2);
     const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
       name: file.name,
@@ -773,7 +1147,8 @@ describe('createEncodedFilePlaybackSource', () => {
     );
 
     expect(result.backend).toBe('bounded-stream');
-    expect(receivedSource).toBe(fixture.source);
+    expect(receivedSource).not.toBe(fixture.source);
+    expect(receivedSource?.identity).toBe(fixture.source.identity);
     expect(result.sourceIdentity).toBe(fixture.source.identity);
     expect(fixture.close).not.toHaveBeenCalled();
     await result.source.destroy();
@@ -781,39 +1156,128 @@ describe('createEncodedFilePlaybackSource', () => {
     expect(fixture.close).toHaveBeenCalledTimes(1);
   });
 
-  it('transfers an exact generic WAVE source to bounded ownership until destroy', async () => {
-    const file = waveFile({ container: 'BW64' });
-    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
-      name: 'remote.payload',
-      mime: 'application/octet-stream',
-      identity: 'peer-range:exact-wave-source',
+  it.each([
+    ['WAVE', () => waveFile({ container: 'BW64' })],
+    ['AIFF', () => aiffFile()],
+    ['AIFC', () => aiffFile({ container: 'AIFC' })],
+    ['CAF', () => cafFile()],
+  ] as const)(
+    'transfers a canonical view of the exact generic %s lease until destroy',
+    async (label, createFile) => {
+      const file = createFile();
+      const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+        name: 'remote.payload',
+        mime: 'application/octet-stream',
+        identity: `peer-range:exact-${label.toLowerCase()}-source`,
+      });
+      let receivedSource: EncodedAudioSource | null = null;
+      const result = await createEncodedFilePlaybackSource(
+        encodedOptions(fixture.source, {
+          backendFactories: {
+            createStreamingLinearPcmSource: (options) => {
+              receivedSource = options.encodedSource;
+              return new StreamingLinearPcmPlaybackSource(options);
+            },
+          },
+        }),
+      );
+
+      expect(result.backend).toBe('bounded-stream');
+      expect(result.source).toBeInstanceOf(StreamingLinearPcmPlaybackSource);
+      expect(receivedSource).not.toBe(fixture.source);
+      expect(receivedSource?.identity).toBe(fixture.source.identity);
+      expect(result.sourceIdentity).toBe(fixture.source.identity);
+      expect(fixture.close).not.toHaveBeenCalled();
+      await result.source.destroy();
+      await result.source.destroy();
+      expect(fixture.close).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    [
+      'unsupported AIFC',
+      () =>
+        aiffFile({
+          container: 'AIFC',
+          compressionType: 'ulaw',
+          name: 'remote.payload',
+          mime: 'application/octet-stream',
+        }),
+      /compression/i,
+    ],
+    [
+      'unsupported CAF',
+      () =>
+        cafFile({
+          formatId: 'aac ',
+          name: 'remote.payload',
+          mime: 'application/octet-stream',
+        }),
+      /LPCM|format/i,
+    ],
+  ] as const)(
+    'propagates %s parser failures and closes the generic lease',
+    async (_label, createFile, expectedError) => {
+      const file = createFile();
+      const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+        name: file.name,
+        mime: file.type,
+      });
+
+      await expect(createEncodedFilePlaybackSource(encodedOptions(fixture.source))).rejects.toThrow(
+        expectedError,
+      );
+      expect(fixture.close).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('rejects a falsely claimed generic AIFF source without constructing a backend', async () => {
+    const fixture = memoryEncodedSource(Uint8Array.of(0x49, 0x44, 0x33, 0x04), {
+      name: 'remote.aiff',
+      mime: 'audio/aiff',
     });
-    let receivedSource: EncodedAudioSource | null = null;
+    const createStreamingLinearPcmSource = vi.fn();
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(fixture.source, {
+          backendFactories: { createStreamingLinearPcmSource },
+        }),
+      ),
+    ).rejects.toThrow(/claims to be AIFF\/AIFC/i);
+    expect(createStreamingLinearPcmSource).not.toHaveBeenCalled();
+    expect(fixture.close).toHaveBeenCalledOnce();
+  });
+
+  it('forwards the exact shared runtime through generic CAF routing', async () => {
+    const file = cafFile();
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()));
+    const linearPcmRuntime: Partial<BoundedStreamingCodecRuntime> = {
+      createWorker: vi.fn(),
+    };
+    let receivedRuntime: Partial<BoundedStreamingCodecRuntime> | undefined;
     const result = await createEncodedFilePlaybackSource(
       encodedOptions(fixture.source, {
+        linearPcmRuntime,
         backendFactories: {
-          createStreamingWaveSource: (options) => {
-            receivedSource = options.encodedSource;
-            return new StreamingWavePlaybackSource(options);
+          createStreamingLinearPcmSource: (options) => {
+            receivedRuntime = options.runtime;
+            return new StreamingLinearPcmPlaybackSource(options);
           },
         },
       }),
     );
 
-    expect(result.backend).toBe('bounded-stream');
-    expect(result.source).toBeInstanceOf(StreamingWavePlaybackSource);
-    expect(receivedSource).toBe(fixture.source);
-    expect(result.sourceIdentity).toBe(fixture.source.identity);
-    expect(fixture.close).not.toHaveBeenCalled();
+    expect(receivedRuntime).toBe(linearPcmRuntime);
     await result.source.destroy();
-    await result.source.destroy();
-    expect(fixture.close).toHaveBeenCalledTimes(1);
+    expect(fixture.close).toHaveBeenCalledOnce();
   });
 
-  it('destroys returned WAVE ownership when its backend identity is mismatched', async () => {
-    const file = waveFile();
+  it('destroys returned linear-PCM ownership when its backend identity is mismatched', async () => {
+    const file = aiffFile();
     const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
-      identity: 'peer-range:mismatched-wave-source',
+      identity: 'peer-range:mismatched-linear-pcm-source',
     });
     let destroy: ReturnType<typeof vi.spyOn> | null = null;
 
@@ -821,8 +1285,8 @@ describe('createEncodedFilePlaybackSource', () => {
       createEncodedFilePlaybackSource(
         encodedOptions(fixture.source, {
           backendFactories: {
-            createStreamingWaveSource: (options) => {
-              const source = new StreamingWavePlaybackSource({
+            createStreamingLinearPcmSource: (options) => {
+              const source = new StreamingLinearPcmPlaybackSource({
                 ...options,
                 queueItemId: 'wrong-queue-item',
               });
@@ -839,16 +1303,16 @@ describe('createEncodedFilePlaybackSource', () => {
     expect(fixture.close).toHaveBeenCalledOnce();
   });
 
-  it('closes WAVE bytes when the bounded source constructor fails before transfer', async () => {
-    const file = waveFile();
+  it('closes linear-PCM bytes when the bounded source constructor fails before transfer', async () => {
+    const file = cafFile();
     const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()));
-    const primaryError = new Error('wave source constructor failed');
+    const primaryError = new Error('linear PCM source constructor failed');
 
     await expect(
       createEncodedFilePlaybackSource(
         encodedOptions(fixture.source, {
           backendFactories: {
-            createStreamingWaveSource: () => {
+            createStreamingLinearPcmSource: () => {
               throw primaryError;
             },
           },
@@ -857,6 +1321,39 @@ describe('createEncodedFilePlaybackSource', () => {
     ).rejects.toBe(primaryError);
     expect(fixture.close).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['null', () => null],
+    ['primitive', () => 7],
+    [
+      'forged incomplete object',
+      () => ({
+        backend: 'bounded-stream',
+        queueItemId: QID,
+        getSnapshot: vi.fn(),
+        destroy: vi.fn(async () => undefined),
+      }),
+    ],
+  ] as const)(
+    'closes exact linear-PCM bytes when a factory returns a %s source',
+    async (_label, createInvalidSource) => {
+      const file = cafFile();
+      const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+        identity: `peer-range:invalid-return-${_label.replaceAll(' ', '-')}`,
+      });
+
+      await expect(
+        createEncodedFilePlaybackSource(
+          encodedOptions(fixture.source, {
+            backendFactories: {
+              createStreamingLinearPcmSource: (() => createInvalidSource()) as never,
+            },
+          }),
+        ),
+      ).rejects.toThrow(/invalid source/i);
+      expect(fixture.close).toHaveBeenCalledOnce();
+    },
+  );
 
   it('rejects ordinary generic sources even when callers inject an unrelated Blob seam', async () => {
     const fixture = memoryEncodedSource(Uint8Array.of(0x49, 0x44, 0x33, 0x04), {
@@ -958,5 +1455,34 @@ describe('createEncodedFilePlaybackSource', () => {
       ),
     ).rejects.toThrow('streaming-source-superseded');
     expect(fixture.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroys transferred linear-PCM ownership when abort wins after construction', async () => {
+    const file = aiffFile({ container: 'AIFC' });
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+      name: 'remote.payload',
+      mime: 'application/octet-stream',
+    });
+    const controller = new AbortController();
+    let destroy: ReturnType<typeof vi.spyOn> | null = null;
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(fixture.source, {
+          signal: controller.signal,
+          backendFactories: {
+            createStreamingLinearPcmSource: (options) => {
+              const source = new StreamingLinearPcmPlaybackSource(options);
+              destroy = vi.spyOn(source, 'destroy');
+              controller.abort(new Error('linear-pcm-source-superseded'));
+              return source;
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('linear-pcm-source-superseded');
+    expect(destroy).not.toBeNull();
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(fixture.close).toHaveBeenCalledOnce();
   });
 });

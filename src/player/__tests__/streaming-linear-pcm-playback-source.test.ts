@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
-import { StreamingWavePlaybackSource } from '../backends/streaming-wave-playback-source.ts';
+import { StreamingLinearPcmPlaybackSource } from '../backends/streaming-linear-pcm-playback-source.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
 import { PCM_STREAM_PROTOCOL_VERSION } from '../streaming/pcm-stream-protocol.ts';
-import type { WavePcmMetadata } from '../wave/metadata.ts';
+import type { LinearPcmMetadata } from '../linear-pcm/sample-format.ts';
 import {
   LINEAR_PCM_DECODER_PROTOCOL_VERSION,
   type LinearPcmDecoderCommand,
@@ -114,25 +114,19 @@ class FakeAudioWorkletNode {
   }
 }
 
-function metadata(): Readonly<WavePcmMetadata> {
+function metadata(): Readonly<LinearPcmMetadata> {
   return Object.freeze({
-    format: 'wave',
-    container: 'riff',
-    encoding: 'pcm-s16le',
-    formatTag: 0x0001,
+    encoding: 'pcm-s16be',
     sourceSampleRate: SOURCE_RATE,
     channels: 2,
     containerBitsPerSample: 16,
     validBitsPerSample: 16,
     blockAlign: 4,
-    byteRate: 384_000,
-    channelMask: 3,
     dataOffset: 44,
     dataBytes: 960_000,
     totalSourceFrames: 240_000,
     durationSeconds: 2.5,
     logicalFileBytes: 960_044,
-    rf64SampleCount: null,
   });
 }
 
@@ -151,8 +145,8 @@ function harness(options: HarnessOptions = {}) {
   const encodedSource: EncodedAudioSource = {
     kind: 'blob',
     size: 960_044,
-    identity: 'source:test-streaming-wave',
-    metadata: { name: 'fixture.wav', mime: 'audio/wav' },
+    identity: 'source:test-streaming-linear-pcm',
+    metadata: { name: 'fixture.pcm-container', mime: 'application/octet-stream' },
     readAt: async (offset, length) =>
       Uint8Array.from({ length }, (_value, index) => offset + index),
     close: closeEncodedSource,
@@ -190,7 +184,7 @@ function harness(options: HarnessOptions = {}) {
     createMessageChannel,
     ...(options.useDefaultWorker ? {} : { createWorker }),
   } satisfies Partial<BoundedStreamingCodecRuntime>;
-  const source = new StreamingWavePlaybackSource({
+  const source = new StreamingLinearPcmPlaybackSource({
     queueItemId: QID,
     encodedSource,
     metadata: metadata(),
@@ -231,8 +225,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('StreamingWavePlaybackSource', () => {
-  it('exposes bounded WAVE media info while keeping construction inert', async () => {
+describe('StreamingLinearPcmPlaybackSource', () => {
+  it('exposes bounded linear-PCM media info while keeping construction inert', async () => {
     const h = harness();
 
     expect(h.source.backend).toBe('bounded-stream');
@@ -257,7 +251,7 @@ describe('StreamingWavePlaybackSource', () => {
     expect(h.worker.terminateCount).toBe(0);
   });
 
-  it('opens the default WAVE worker and shares one channel factory across both runtime layers', async () => {
+  it('opens the shared default worker and shares one channel factory across both runtime layers', async () => {
     const h = harness({ useDefaultWorker: true });
     const preparing = h.source.prepare();
 
@@ -266,6 +260,15 @@ describe('StreamingWavePlaybackSource', () => {
     );
     const opened = openCommand(h.worker);
     const init = initCommand(h.worker);
+    expect(init.descriptor).toMatchObject({
+      format: 'linear-pcm',
+      encoding: 'pcm-s16be',
+      dataOffset: 44,
+      dataBytes: 960_000,
+      sourceSampleRate: SOURCE_RATE,
+      outputSampleRate: OUTPUT_RATE,
+      channels: 2,
+    });
     h.worker.emit({
       protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-ready',

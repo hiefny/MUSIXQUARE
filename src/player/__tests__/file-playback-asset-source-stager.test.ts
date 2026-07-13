@@ -15,6 +15,7 @@ import { FilePlaybackManager } from '../file-playback-manager.ts';
 import type { FilePlaybackCutoverSource } from '../file-playback-source.ts';
 import {
   createBlobFilePlaybackSource,
+  createEncodedFilePlaybackSource,
   type BlobFilePlaybackSourceResult,
   type CreateBlobFilePlaybackSourceOptions,
 } from '../file-playback-source-factory.ts';
@@ -119,22 +120,28 @@ function blobRegistry(
   return { registry, lease, blob, fatal };
 }
 
-function genericRegistry() {
+function genericRegistry(
+  bytes: Uint8Array = new Uint8Array(16),
+  metadata: Readonly<{ readonly name: string; readonly mime: string }> = METADATA,
+) {
   const closeSource = vi.fn(async () => undefined);
   const closeAsset = vi.fn(async () => undefined);
   const source: EncodedAudioSource = {
     kind: 'peer-range',
-    size: 16,
+    size: bytes.byteLength,
     identity: BINDING.sourceIdentity,
-    metadata: METADATA,
-    readAt: vi.fn(async (_offset, length) => new Uint8Array(length)),
+    metadata,
+    readAt: vi.fn(async (offset, length, signal) => {
+      signal.throwIfAborted();
+      return bytes.slice(offset, offset + length);
+    }),
     close: closeSource,
   };
   const asset: EncodedAudioAsset = {
     kind: 'peer-range',
-    size: 16,
+    size: bytes.byteLength,
     identity: BINDING.sourceIdentity,
-    metadata: METADATA,
+    metadata,
     activeLeaseCount: 0,
     acquire: vi.fn(() => source),
     close: closeAsset,
@@ -250,6 +257,75 @@ function nativeWaveBlob(): Blob {
   return new Blob([bytes], { type: 'audio/wav' });
 }
 
+function concatFixtureBytes(...parts: readonly Uint8Array[]): Uint8Array {
+  const bytes = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0));
+  let cursor = 0;
+  for (const part of parts) {
+    bytes.set(part, cursor);
+    cursor += part.byteLength;
+  }
+  return bytes;
+}
+
+function asciiFixture(value: string): Uint8Array {
+  return Uint8Array.from(value, (character) => character.charCodeAt(0));
+}
+
+function fixtureUint32Be(value: number): Uint8Array {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, value, false);
+  return bytes;
+}
+
+function nativeAiffBlob(): Blob {
+  const channels = new Uint8Array(2);
+  new DataView(channels.buffer).setUint16(0, 2, false);
+  const rate = new Uint8Array(10);
+  const rateView = new DataView(rate.buffer);
+  rateView.setUint16(0, 16_398, false);
+  rateView.setBigUint64(2, 48_000n << 48n, false);
+  const common = concatFixtureBytes(channels, fixtureUint32Be(4), Uint8Array.of(0, 16), rate);
+  const chunk = (id: string, body: Uint8Array) =>
+    concatFixtureBytes(asciiFixture(id), fixtureUint32Be(body.byteLength), body);
+  const sound = concatFixtureBytes(new Uint8Array(8), new Uint8Array(16));
+  const body = concatFixtureBytes(
+    asciiFixture('AIFF'),
+    chunk('COMM', common),
+    chunk('SSND', sound),
+  );
+  return new Blob(
+    [concatFixtureBytes(asciiFixture('FORM'), fixtureUint32Be(body.byteLength), body)],
+    { type: 'audio/aiff' },
+  );
+}
+
+function nativeCafBlob(): Blob {
+  const header = concatFixtureBytes(asciiFixture('caff'), Uint8Array.of(0, 1, 0, 0));
+  const description = new Uint8Array(32);
+  const descriptionView = new DataView(description.buffer);
+  descriptionView.setFloat64(0, 48_000, false);
+  description.set(asciiFixture('lpcm'), 8);
+  descriptionView.setUint32(16, 4, false);
+  descriptionView.setUint32(20, 1, false);
+  descriptionView.setUint32(24, 2, false);
+  descriptionView.setUint32(28, 16, false);
+  const chunk = (id: string, body: Uint8Array) => {
+    const size = new Uint8Array(8);
+    new DataView(size.buffer).setBigInt64(0, BigInt(body.byteLength), false);
+    return concatFixtureBytes(asciiFixture(id), size, body);
+  };
+  return new Blob(
+    [
+      concatFixtureBytes(
+        header,
+        chunk('desc', description),
+        chunk('data', concatFixtureBytes(new Uint8Array(4), new Uint8Array(16))),
+      ),
+    ],
+    { type: 'audio/x-caf' },
+  );
+}
+
 describe('stageFilePlaybackAssetSource', () => {
   it('forwards the exact Blob, distributed identity, and canonical metadata once', async () => {
     const setup = blobRegistry();
@@ -292,6 +368,45 @@ describe('stageFilePlaybackAssetSource', () => {
   });
 
   it.each([
+    ['AIFF', nativeAiffBlob, { name: 'remote.aiff', mime: 'audio/aiff' }],
+    ['CAF', nativeCafBlob, { name: 'remote.caf', mime: 'audio/x-caf' }],
+  ] as const)(
+    'keeps committed bounded routing for a generic %s asset lease',
+    async (_label, createBlob, metadata) => {
+      const bytes = new Uint8Array(await createBlob().arrayBuffer());
+      const setup = genericRegistry(bytes, metadata);
+      let createdSource: FilePlaybackCutoverSource | null = null;
+      const createEncodedSource = (
+        options: Parameters<typeof createEncodedFilePlaybackSource>[0],
+      ) =>
+        createEncodedFilePlaybackSource({
+          ...options,
+          backendFactories: {
+            createStreamingLinearPcmSource: (sourceOptions) => {
+              const source = fakeCutoverSource(
+                'bounded-stream',
+                vi.fn(async () => sourceOptions.encodedSource.close()),
+              );
+              createdSource = source;
+              return source as never;
+            },
+          },
+        });
+      const stageCandidate = vi.fn(async () => PORT as never);
+
+      const staged = await stageFilePlaybackAssetSource(
+        baseOptions(setup.registry, setup.lease, { createEncodedSource, stageCandidate }),
+      );
+
+      expect(staged.backend).toBe('bounded-stream');
+      expect(createdSource).not.toBeNull();
+      expect(setup.closeSource).not.toHaveBeenCalled();
+      await (createdSource as unknown as FilePlaybackCutoverSource).destroy();
+      expect(setup.closeSource).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
     ['ordinary', new Blob([new Uint8Array([0x49, 0x44, 0x33, 0x04])]), 'audio-buffer', METADATA],
     [
       'native FLAC',
@@ -300,6 +415,13 @@ describe('stageFilePlaybackAssetSource', () => {
       { name: 'orchestra.flac', mime: 'audio/flac' },
     ],
     ['WAVE PCM', nativeWaveBlob(), 'bounded-stream', { name: 'orchestra.wav', mime: 'audio/wav' }],
+    [
+      'AIFF PCM',
+      nativeAiffBlob(),
+      'bounded-stream',
+      { name: 'orchestra.aiff', mime: 'audio/aiff' },
+    ],
+    ['CAF LPCM', nativeCafBlob(), 'bounded-stream', { name: 'orchestra.caf', mime: 'audio/x-caf' }],
   ] as const)(
     'keeps committed factory routing for %s Blob assets',
     async (_label, blob, backend, metadata) => {
@@ -320,7 +442,7 @@ describe('stageFilePlaybackAssetSource', () => {
           backendFactories: {
             createAudioBufferSource: () => createdSource as never,
             createStreamingFlacSource: () => createdSource as never,
-            createStreamingWaveSource: () => createdSource as never,
+            createStreamingLinearPcmSource: () => createdSource as never,
           },
         });
       const stageCandidate = vi.fn(async () => PORT as never);

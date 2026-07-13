@@ -19,6 +19,10 @@ function description(
   ]);
 }
 
+function noSbrSyncExtension(base: Uint8Array): Uint8Array {
+  return new Uint8Array([base[0]!, base[1]!, 0x56, 0xe5, 0x00]);
+}
+
 describe('canonical AAC-LC AudioSpecificConfig', () => {
   it('parses the canonical 44.1 kHz stereo 0x12 0x10 description', () => {
     const parsed = parseCanonicalAacLcAudioSpecificConfig(new Uint8Array([0x12, 0x10]));
@@ -60,6 +64,23 @@ describe('canonical AAC-LC AudioSpecificConfig', () => {
       expect(parsed.channelConfiguration).toBe(channelConfiguration);
       expect(parsed.channelCount).toBe(channelConfiguration);
       expect(parsed.coreFramesPerAccessUnit).toBe(1_024);
+    },
+  );
+
+  it.each([
+    [4, 1, [0x12, 0x08, 0x56, 0xe5, 0x00]],
+    [3, 2, [0x11, 0x90, 0x56, 0xe5, 0x00]],
+  ] as const)(
+    'admits the common FFmpeg no-SBR sync extension at rate index %i and channels %i',
+    (sampleRateIndex, channelConfiguration, expected) => {
+      const parsed = parseCanonicalAacLcAudioSpecificConfig(
+        noSbrSyncExtension(description(sampleRateIndex, channelConfiguration)),
+      );
+
+      expect(parsed.sampleRateIndex).toBe(sampleRateIndex);
+      expect(parsed.channelConfiguration).toBe(channelConfiguration);
+      expect(parsed.description).toEqual(expected);
+      expect(Object.isFrozen(parsed.description)).toBe(true);
     },
   );
 
@@ -116,12 +137,24 @@ describe('canonical AAC-LC AudioSpecificConfig', () => {
     expect(() => parseCanonicalAacLcAudioSpecificConfig(description(4, 2, flags))).toThrow(message);
   });
 
-  it.each([new Uint8Array(), new Uint8Array([0x12]), new Uint8Array([0x12, 0x10, 0x56])])(
-    'rejects truncated or extended description bytes %#',
-    (bytes) => {
-      expect(() => parseCanonicalAacLcAudioSpecificConfig(bytes)).toThrow(/exactly two bytes/i);
-    },
-  );
+  it.each([
+    new Uint8Array(),
+    new Uint8Array([0x12]),
+    new Uint8Array([0x12, 0x10, 0x56]),
+    new Uint8Array([0x12, 0x10, 0x56, 0xe5]),
+    new Uint8Array([0x12, 0x10, 0x56, 0xe5, 0x00, 0x00]),
+  ])('rejects truncated or extended description bytes %#', (bytes) => {
+    expect(() => parseCanonicalAacLcAudioSpecificConfig(bytes)).toThrow(/two or five bytes/i);
+  });
+
+  it.each([
+    ['sync type', new Uint8Array([0x12, 0x10, 0x57, 0xe5, 0x00])],
+    ['extension object type', new Uint8Array([0x12, 0x10, 0x56, 0xe4, 0x00])],
+    ['SBR-present signal', new Uint8Array([0x12, 0x10, 0x56, 0xe5, 0x80])],
+    ['nonzero padding', new Uint8Array([0x12, 0x10, 0x56, 0xe5, 0x01])],
+  ] as const)('rejects a noncanonical five-byte %s ASC', (_label, bytes) => {
+    expect(() => parseCanonicalAacLcAudioSpecificConfig(bytes)).toThrow(/sync extension|no-SBR/i);
+  });
 
   it.each([
     null,
@@ -152,7 +185,7 @@ describe('canonical AAC-LC AudioSpecificConfig', () => {
     const input = new Uint8Array([0x12, 0x10]);
     structuredClone(input.buffer, { transfer: [input.buffer] });
     expect(() => parseCanonicalAacLcAudioSpecificConfig(input)).toThrow(
-      /exactly two bytes|readable/i,
+      /two or five bytes|readable/i,
     );
   });
 });
@@ -170,6 +203,20 @@ describe('AAC-LC AudioSpecificConfig description ownership', () => {
     first.fill(0);
     expect(second).toEqual(new Uint8Array([0x12, 0x10]));
     expect(parsed.description).toEqual([0x12, 0x10]);
+  });
+
+  it('preserves all five canonical no-SBR bytes in fresh owned descriptions', () => {
+    const expected = new Uint8Array([0x11, 0x90, 0x56, 0xe5, 0x00]);
+    const parsed = parseCanonicalAacLcAudioSpecificConfig(expected);
+    const first = createAacLcAudioSpecificConfigDescription(parsed);
+    const second = createAacLcAudioSpecificConfigDescription(parsed);
+
+    expect(first).toEqual(expected);
+    expect(second).toEqual(expected);
+    expect(first).not.toBe(second);
+    first.fill(0);
+    expect(second).toEqual(expected);
+    expect(parsed.description).toEqual([...expected]);
   });
 
   it('accepts a structurally exact clone and snapshots its numeric tuple', () => {

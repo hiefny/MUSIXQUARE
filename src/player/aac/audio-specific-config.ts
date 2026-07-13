@@ -3,7 +3,16 @@ import { adtsCoreSampleRateHzForIndex, type AdtsSampleRateIndex } from './adts-h
 export const AAC_LC_ASC_CORE_FRAMES_PER_ACCESS_UNIT = 1_024;
 
 export type AacLcAscChannelConfiguration = 1 | 2;
-export type AacLcAudioSpecificConfigDescription = readonly [number, number];
+export type AacLcAudioSpecificConfigDescription =
+  | readonly [number, number]
+  | readonly [number, number, number, number, number];
+
+/**
+ * Common FFmpeg/iTunes AAC-LC files append this exact sync extension. It says
+ * extension AOT 5 is understood but SBR is absent; the final seven bits are
+ * byte-alignment padding. This is not an HE-AAC signal.
+ */
+const AAC_LC_NO_SBR_SYNC_EXTENSION = Object.freeze([0x56, 0xe5, 0x00] as const);
 
 /**
  * The initial M4A admission contract: direct MPEG-4 AAC-LC, indexed rate,
@@ -56,7 +65,7 @@ const uint8ArraySet = Uint8ArrayIntrinsic.prototype.set;
 
 type DataRecord = Readonly<Record<string, unknown>>;
 
-/** Snapshot exactly two bytes without consulting caller-controlled properties or iterators. */
+/** Snapshot one admitted ASC without consulting caller-controlled properties or iterators. */
 function snapshotDescriptionBytes(value: unknown): Uint8Array {
   if (
     !typedArrayByteLengthGetter ||
@@ -81,11 +90,13 @@ function snapshotDescriptionBytes(value: unknown): Uint8Array {
       cause,
     });
   }
-  if (byteLength !== 2) {
-    throw new RangeError('Canonical AAC AudioSpecificConfig must contain exactly two bytes');
+  if (byteLength !== 2 && byteLength !== 5) {
+    throw new RangeError(
+      'Canonical AAC AudioSpecificConfig must contain exactly two or five bytes',
+    );
   }
 
-  const owned = new Uint8ArrayIntrinsic(2);
+  const owned = new Uint8ArrayIntrinsic(byteLength);
   try {
     uint8ArraySet.call(owned, value as Uint8Array, 0);
   } catch (cause) {
@@ -152,57 +163,49 @@ function snapshotDescriptionTuple(value: unknown): Uint8Array {
     throw new TypeError('AAC canonical description could not be inspected safely', { cause });
   }
   if (!isArray || prototype !== Array.prototype) {
-    throw new TypeError('AAC canonical description must be an exact two-number tuple');
+    throw new TypeError('AAC canonical description must be an exact numeric tuple');
   }
 
+  const lengthDescriptor = descriptors.length;
+  const length = lengthDescriptor?.value;
+  if (
+    !lengthDescriptor ||
+    !Object.hasOwn(lengthDescriptor, 'value') ||
+    (length !== 2 && length !== 5)
+  ) {
+    throw new TypeError('AAC canonical description must contain exactly two or five elements');
+  }
+  const expectedKeys = Array.from({ length }, (_unused, index) => String(index));
+  expectedKeys.push('length');
   const actualKeys = Reflect.ownKeys(descriptors);
   if (
-    actualKeys.length !== 3 ||
-    !actualKeys.includes('0') ||
-    !actualKeys.includes('1') ||
-    !actualKeys.includes('length')
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key) => typeof key !== 'string' || !expectedKeys.includes(key))
   ) {
-    throw new TypeError('AAC canonical description must be an exact two-number tuple');
-  }
-  const firstDescriptor = descriptors[0];
-  const secondDescriptor = descriptors[1];
-  const lengthDescriptor = descriptors.length;
-  if (
-    !firstDescriptor ||
-    !secondDescriptor ||
-    !lengthDescriptor ||
-    firstDescriptor.enumerable !== true ||
-    secondDescriptor.enumerable !== true ||
-    !Object.hasOwn(firstDescriptor, 'value') ||
-    !Object.hasOwn(secondDescriptor, 'value') ||
-    !Object.hasOwn(lengthDescriptor, 'value') ||
-    lengthDescriptor.value !== 2
-  ) {
-    throw new TypeError('AAC canonical description must use two numeric data elements');
+    throw new TypeError('AAC canonical description must be an exact dense tuple');
   }
 
-  const first = firstDescriptor.value;
-  const second = secondDescriptor.value;
-  if (
-    typeof first !== 'number' ||
-    !Number.isSafeInteger(first) ||
-    first < 0 ||
-    first > 0xff ||
-    typeof second !== 'number' ||
-    !Number.isSafeInteger(second) ||
-    second < 0 ||
-    second > 0xff
-  ) {
-    throw new RangeError('AAC canonical description elements must be bytes');
+  const bytes = new Uint8ArrayIntrinsic(length);
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    const element = descriptor?.value;
+    if (
+      !descriptor ||
+      descriptor.enumerable !== true ||
+      !Object.hasOwn(descriptor, 'value') ||
+      typeof element !== 'number' ||
+      !Number.isSafeInteger(element) ||
+      element < 0 ||
+      element > 0xff
+    ) {
+      throw new RangeError('AAC canonical description elements must be byte data values');
+    }
+    bytes[index] = element;
   }
-
-  const bytes = new Uint8ArrayIntrinsic(2);
-  bytes[0] = first;
-  bytes[1] = second;
   return bytes;
 }
 
-/** Parse the exact two-byte AAC-LC AudioSpecificConfig admitted by the M4A engine. */
+/** Parse an exact canonical AAC-LC AudioSpecificConfig admitted by the M4A engine. */
 export function parseCanonicalAacLcAudioSpecificConfig(
   input: unknown,
 ): Readonly<CanonicalAacLcAudioSpecificConfig> {
@@ -250,7 +253,17 @@ export function parseCanonicalAacLcAudioSpecificConfig(
     throw new RangeError('AAC GASpecificConfig extensions are not supported');
   }
 
-  const description = Object.freeze([first, second]) as AacLcAudioSpecificConfigDescription;
+  if (bytes.byteLength === 5) {
+    for (let index = 0; index < AAC_LC_NO_SBR_SYNC_EXTENSION.length; index += 1) {
+      if (bytes[index + 2] !== AAC_LC_NO_SBR_SYNC_EXTENSION[index]) {
+        throw new RangeError(
+          'AAC sync extension must be the canonical no-SBR Audio Object Type 5 signal',
+        );
+      }
+    }
+  }
+
+  const description = Object.freeze(Array.from(bytes)) as AacLcAudioSpecificConfigDescription;
   return Object.freeze({
     audioObjectType: 2,
     sampleRateIndex: sampleRateIndex as AdtsSampleRateIndex,

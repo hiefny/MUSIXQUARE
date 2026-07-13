@@ -1525,8 +1525,10 @@ export class FilePlaybackProductRuntime {
             for (const { ownerContext, owner, task: offerTask } of offers) {
               const publicationTask = offerTask.then(async (publication) => {
                 await allOffersSettled;
+                // Admission may time out after every offer task was authorized but before the
+                // slowest offer settles. Those exact entries may bind late to committed truth.
                 if (
-                  created.status !== 'preparing' ||
+                  (created.status !== 'preparing' && created.status !== 'committed') ||
                   this.#hostPreparedCohorts.get(created.prepared) !== created ||
                   this.#hostMediaOwners.get(ownerContext) !== owner ||
                   !this.#connectionContexts.has(ownerContext) ||

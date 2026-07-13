@@ -1198,6 +1198,162 @@ describe('FilePlaybackProductRuntime', () => {
     expect(lastOfferOrder).toBeLessThan(firstBindOrder);
   });
 
+  it('finishes authorized late offers after commit and isolates one late peer failure', async () => {
+    vi.useFakeTimers();
+    try {
+      const routers: ProductRouterHarness[] = [];
+      const lateSuccessGate = deferred<void>();
+      const lateFailureGate = deferred<void>();
+      const events: string[] = [];
+      const capabilities = [0, 1, 2].map(
+        (index) =>
+          freezeCanonical({
+            participant: freezeCanonical({ participantId: `late-cohort-guest-${index}` }),
+            bindAttempt: vi.fn(async () => undefined),
+          }) as unknown as Readonly<HostPreparedRemoteParticipant>,
+      );
+      const owners = capabilities.map((capability, index) =>
+        Object.freeze({
+          onHostReady: vi.fn(),
+          adoptWireMessage: vi.fn(),
+          adoptPeerRangeControl: vi.fn(),
+          revoke: vi.fn(),
+          publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+          publishPrepared: vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
+            if (index === 1) await lateSuccessGate.promise;
+            if (index === 2) await lateFailureGate.promise;
+            events.push(index === 2 ? 'offer-failed-2' : `offer-complete-${index}`);
+            if (index === 2) throw new Error('fixture late offer failed');
+            return freezeCanonical({ schemaVersion: 1, prepared }) as never;
+          }),
+          bindPrepared: vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
+            events.push(`bind-${index}`);
+            return freezeCanonical({ schemaVersion: 1, prepared }) as never;
+          }),
+          whenPreparedRemoteReady: vi.fn(async () => capability),
+          activatePrepared: vi.fn(() => {
+            events.push(`activate-${index}`);
+            return freezeCanonical({ schemaVersion: 1 }) as never;
+          }),
+          retirePrepared: vi.fn(async () => undefined),
+        }),
+      );
+      let ownerIndex = 0;
+      const setup = harness({
+        mediaFactoriesForTests: {
+          createSessionRouter: (options) => {
+            const candidate = productRouterHarness(options);
+            routers.push(candidate);
+            return candidate.port;
+          },
+          createHostMediaOwner: () => owners[ownerIndex++]!,
+        },
+      });
+      setup.runtime.initializeBeforeProtocol();
+      setup.runtime.beginHostRoom('late-cohort-host');
+      const contexts = [0, 1, 2].map((index) =>
+        routerContext('host', { suffix: `late-cohort-${index}` }),
+      );
+      for (const context of contexts) routers[0]!.options.createHostMediaOwner(context);
+
+      const room = setup.hostRooms[0]!;
+      const file = localFile('late-cohort.wav');
+      const prepared = freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+        backend: 'bounded-stream' as const,
+        state: freezeCanonical({
+          queueItemId: Q1,
+          runId: 'late-cohort-run',
+          revision: 1,
+        }),
+        positionSeconds: 0,
+        playbackRate: 1,
+        asset: freezeCanonical({
+          kind: 'encoded' as const,
+          binding: freezeCanonical({
+            queueItemId: Q1,
+            sourceIdentity: 'late-cohort-source',
+            transferSessionId: 'late-cohort-transfer',
+          }),
+          metadata: freezeCanonical({ name: file.name, mime: file.type }),
+          encodedSize: file.size,
+        }),
+      }) as unknown as Readonly<HostPreparedLocalTrack>;
+      const timeline = freezeCanonical({
+        revision: 1,
+        phase: 'playing' as const,
+        run: freezeCanonical({ queueItemId: Q1, runId: prepared.state.runId }),
+        positionSeconds: 0,
+        rate: 1,
+        anchorMonotonicMs: 9_500,
+      }) as Readonly<PlaybackTimelineSnapshot>;
+      room.startLocalTrackWithCohort.mockImplementationOnce(async (input) => {
+        const remotes = await input.prepareRemoteParticipants(
+          freezeCanonical({
+            prepared,
+            signal: input.signal,
+            resolveSource: vi.fn(async () => file),
+          }),
+        );
+        expect(remotes).toEqual([]);
+        return freezeCanonical({
+          ...candidateResult(
+            prepared.roomGeneration,
+            room.options.hostRoomSnapshot.applicationSessionId,
+            'late-cohort',
+          ),
+          timeline,
+        }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+      });
+
+      const committedTask = setup.runtime.startLocalTrack({
+        queueItemId: Q1,
+        file,
+        positionSeconds: 0,
+        signal: new AbortController().signal,
+      });
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+      expect(owners.every((owner) => owner.publishPrepared.mock.calls.length === 1)).toBe(true);
+      expect(owners.every((owner) => owner.bindPrepared.mock.calls.length === 0)).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(2_500);
+      await expect(committedTask).resolves.toMatchObject({ timeline });
+      expect(owners.every((owner) => owner.bindPrepared.mock.calls.length === 0)).toBe(true);
+      expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
+
+      lateSuccessGate.resolve();
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+      expect(events).toContain('offer-complete-1');
+      expect(owners.every((owner) => owner.bindPrepared.mock.calls.length === 0)).toBe(true);
+
+      lateFailureGate.resolve();
+      for (let index = 0; index < 32; index += 1) await Promise.resolve();
+
+      expect(owners[0]?.bindPrepared).toHaveBeenCalledWith(prepared);
+      expect(owners[1]?.bindPrepared).toHaveBeenCalledWith(prepared);
+      expect(owners[2]?.bindPrepared).not.toHaveBeenCalled();
+      expect(owners[0]?.activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
+      expect(owners[1]?.activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
+      expect(owners[2]?.activatePrepared).not.toHaveBeenCalled();
+      expect(setup.sessions.closeConnection).toHaveBeenCalledOnce();
+      expect(setup.sessions.closeConnection).toHaveBeenCalledWith(contexts[2]?.connection);
+      expect(owners[0]?.revoke).not.toHaveBeenCalled();
+      expect(owners[1]?.revoke).not.toHaveBeenCalled();
+
+      const lastOfferSettlement = Math.max(
+        events.indexOf('offer-complete-0'),
+        events.indexOf('offer-complete-1'),
+        events.indexOf('offer-failed-2'),
+      );
+      const firstBind = Math.min(events.indexOf('bind-0'), events.indexOf('bind-1'));
+      expect(lastOfferSettlement).toBeLessThan(firstBind);
+      setup.runtime.endRoom();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('wires one guest room registry/manager and fail-closes exact room resources', async () => {
     const routers: ProductRouterHarness[] = [];
     let guestOwnerOptions: Readonly<FilePlaybackProductGuestMediaOwnerOptions> | null = null;

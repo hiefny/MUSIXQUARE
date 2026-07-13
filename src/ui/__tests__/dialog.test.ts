@@ -55,6 +55,22 @@ afterEach(() => {
 
 describe('Dialog System', () => {
   describe('showDialog()', () => {
+    it('runs the primary activation hook synchronously before resolving', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const order: string[] = [];
+      const promise = showDialog({
+        title: 'Activation',
+        onPrimaryActivation: () => order.push('activation'),
+      }).then((result) => {
+        order.push(`resolved:${result.action}`);
+      });
+
+      document.getElementById('btn-dialog-ok')!.click();
+      expect(order).toEqual(['activation']);
+      await promise;
+      expect(order).toEqual(['activation', 'resolved:ok']);
+    });
+
     it('returns a Promise<DialogResult>', async () => {
       const { showDialog } = await import('../dialog.ts');
       const promise = showDialog({ title: 'Test', message: 'Hello' });

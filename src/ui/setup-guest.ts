@@ -40,7 +40,7 @@ import { animateTransition } from './dom.ts';
 import { markIntentionalNav } from '../core/page-lifecycle.ts';
 import { showDialog } from './dialog.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
-import { prepareSetupStartFromGesture } from './setup-start.ts';
+import { prepareSetupStartFromGesture, refreshSetupAudioFromGesture } from './setup-start.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -378,6 +378,10 @@ export async function promptForRoomPassword(
     buttonText: t('common.ok'),
     secondaryText: t('common.cancel'),
     defaultFocus: 'primary',
+    // A password prompt may remain open across an iOS interruption. Re-prime
+    // from the actual OK click/Enter gesture instead of relying on the promise
+    // continuation after showDialog() resolves.
+    onPrimaryActivation: refreshSetupAudioFromGesture,
   });
 
   _roomPasswordPromptOpen = false;

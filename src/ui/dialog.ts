@@ -20,6 +20,8 @@ interface DialogOptions {
   cancelText?: string;
   dismissible?: boolean;
   defaultFocus?: 'primary' | 'secondary';
+  /** Runs synchronously inside the validated primary click/Enter gesture. */
+  onPrimaryActivation?: () => void;
   inputField?: {
     placeholder?: string;
     defaultValue?: string;
@@ -348,6 +350,13 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         );
         return;
       }
+    }
+    try {
+      o.onPrimaryActivation?.();
+    } catch (error) {
+      // Activation hooks prime optional browser capabilities. A browser API
+      // failure must not trap the user in an otherwise valid dialog.
+      log.debug('[Dialog] Primary activation hook failed:', error);
     }
     closeDialog('ok');
   };

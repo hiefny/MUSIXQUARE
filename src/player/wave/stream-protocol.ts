@@ -16,7 +16,6 @@ export const WAVE_STREAM_PROTOCOL_VERSION = 1 as const;
 export const WAVE_STREAM_MAX_READ_BYTES = LINEAR_PCM_STREAM_MAX_READ_BYTES;
 export const WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES = LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES;
 export const WAVE_STREAM_MAX_CHANNELS = LINEAR_PCM_STREAM_MAX_CHANNELS;
-export const WAVE_STREAM_MAX_SOURCE_IDENTITY_LENGTH = 512;
 
 export type WaveSourceLifetimeGeneration = number;
 export type WaveDecoderGeneration = PcmStreamGeneration;
@@ -133,12 +132,4 @@ export const isWaveSourceLifetimeGeneration = isWaveDecoderGeneration;
 
 export function isWaveSourceSize(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
-export function isWaveSourceIdentity(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= WAVE_STREAM_MAX_SOURCE_IDENTITY_LENGTH
-  );
 }

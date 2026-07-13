@@ -8,6 +8,7 @@ import type {
 } from '../streaming/decoder-adapter.ts';
 import {
   type EncodedAudioSource,
+  isEncodedAudioSourceIdentity,
   throwIfAborted,
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
@@ -17,7 +18,6 @@ import { WAVE_MAX_SAMPLE_RATE_HZ, type WavePcmMetadata } from './metadata.ts';
 import {
   WAVE_STREAM_PROTOCOL_VERSION,
   isWaveDecoderGeneration,
-  isWaveSourceIdentity,
   isWaveSourceLifetimeGeneration,
   isWaveSourceSize,
   type WaveDecoderCommand,
@@ -238,7 +238,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
       typeof options.encodedSource.readAt !== 'function' ||
       typeof options.encodedSource.close !== 'function' ||
       !isWaveSourceSize(options.encodedSource.size) ||
-      !isWaveSourceIdentity(options.encodedSource.identity)
+      !isEncodedAudioSourceIdentity(options.encodedSource.identity)
     ) {
       throw new TypeError('Streaming WAVE requires a valid non-empty encoded source');
     }

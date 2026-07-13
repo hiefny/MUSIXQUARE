@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
-import {
-  StreamingFlacPlaybackSource,
-  type StreamingFlacPlaybackRuntime,
-} from '../backends/streaming-flac-playback-source.ts';
+import { StreamingFlacPlaybackSource } from '../backends/streaming-flac-playback-source.ts';
 import type { FlacMetadata } from '../flac/metadata.ts';
 import {
   FLAC_STREAM_PROTOCOL_VERSION,
@@ -12,6 +9,7 @@ import {
   type FlacDecoderEvent,
 } from '../flac/stream-protocol.ts';
 import type { PcmRingCommand, PcmRingEvent } from '../streaming/pcm-stream-protocol.ts';
+import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
 import type { RendezvousArmIntent, RendezvousFinalizeIntent } from '../rendezvous-contract.ts';
 import type {
   FilePlaybackPauseTransitionIntent,
@@ -252,7 +250,7 @@ function harness(
   let workletLoadCount = 0;
   let nodeOptions: AudioWorkletNodeOptions | null = null;
 
-  const runtime: StreamingFlacPlaybackRuntime = {
+  const runtime: BoundedStreamingCodecRuntime = {
     loadWorklet: async () => {
       workletLoadCount += 1;
       await loadWorklet();

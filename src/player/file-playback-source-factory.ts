@@ -7,25 +7,38 @@ import {
   StreamingFlacPlaybackSource,
   type StreamingFlacPlaybackSourceOptions,
 } from './backends/streaming-flac-playback-source.ts';
+import {
+  StreamingWavePlaybackSource,
+  type StreamingWavePlaybackSourceOptions,
+} from './backends/streaming-wave-playback-source.ts';
 import type { FilePlaybackSource } from './file-playback-source.ts';
-import { readFlacMetadata, type FlacMetadata } from './flac/metadata.ts';
-import { isFlacSourceIdentity } from './flac/stream-protocol.ts';
+import { readFlacMetadata } from './flac/metadata.ts';
 import { BlobEncodedAudioSource } from './sources/blob-encoded-audio-source.ts';
 import {
   type EncodedAudioSource,
   type EncodedAudioSourceMetadata,
   EncodedSourceIntegrityError,
+  isEncodedAudioSourceIdentity,
   throwIfAborted,
   validateExactRead,
 } from './sources/encoded-audio-source.ts';
 import type { BoundedStreamingCodecRuntime } from './streaming/bounded-codec-runtime.ts';
+import { readWavePcmMetadata } from './wave/metadata.ts';
 
 const NATIVE_FLAC_MARKER = new Uint8Array([0x66, 0x4c, 0x61, 0x43]);
 const OGG_MARKER = new Uint8Array([0x4f, 0x67, 0x67, 0x53]);
+const WAVE_MARKER = new Uint8Array([0x57, 0x41, 0x56, 0x45]);
+const WAVE_FAMILY_MARKERS = Object.freeze([
+  new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+  new Uint8Array([0x52, 0x46, 0x36, 0x34]),
+  new Uint8Array([0x42, 0x57, 0x36, 0x34]),
+  new Uint8Array([0x52, 0x49, 0x46, 0x58]),
+] as const);
+const CONTAINER_PROBE_BYTES = 12;
 const MAX_IDENTIFIER_LENGTH = 256;
 
 type AudioBufferSource = FilePlaybackSource & { readonly backend: 'audio-buffer' };
-type StreamingFlacSource = FilePlaybackSource & { readonly backend: 'bounded-stream' };
+type BoundedStreamSource = FilePlaybackSource & { readonly backend: 'bounded-stream' };
 
 export interface OrdinaryAudioDecodeRequest {
   /** The exact immutable Blob selected for this queue occurrence. */
@@ -58,7 +71,10 @@ export interface BlobFilePlaybackBackendFactories {
   ) => AudioBufferSource;
   readonly createStreamingFlacSource: (
     options: StreamingFlacPlaybackSourceOptions,
-  ) => StreamingFlacSource;
+  ) => BoundedStreamSource;
+  readonly createStreamingWaveSource: (
+    options: StreamingWavePlaybackSourceOptions,
+  ) => BoundedStreamSource;
 }
 
 interface FilePlaybackSourceFactoryCommonOptions {
@@ -68,8 +84,9 @@ interface FilePlaybackSourceFactoryCommonOptions {
   readonly roomTimeMsToContextTime: (roomTimeMs: number) => number;
   readonly localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
   readonly signal: AbortSignal;
-  /** Runtime seam is forwarded only to the streaming backend; it is not started here. */
-  readonly streamingRuntime?: Partial<BoundedStreamingCodecRuntime>;
+  /** Codec-specific Worker seams; neither runtime is started here. */
+  readonly flacRuntime?: Partial<BoundedStreamingCodecRuntime>;
+  readonly waveRuntime?: Partial<BoundedStreamingCodecRuntime>;
 }
 
 export interface CreateBlobFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
@@ -90,14 +107,17 @@ export interface CreateBlobFilePlaybackSourceOptions extends FilePlaybackSourceF
 /**
  * Generic random-access routing used by LAN peer-range and R2 sources.
  *
- * This public path deliberately supports native FLAC streaming only. Ordinary
+ * This public path accepts every content-verified bounded container. Ordinary
  * browser decoding remains exclusive to createBlobFilePlaybackSource(), which
  * constructs the BlobEncodedAudioSource from the exact Blob it decodes.
  */
 export interface CreateEncodedFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {
   readonly encodedSource: EncodedAudioSource;
   readonly backendFactories?: Partial<
-    Pick<BlobFilePlaybackBackendFactories, 'createStreamingFlacSource'>
+    Pick<
+      BlobFilePlaybackBackendFactories,
+      'createStreamingFlacSource' | 'createStreamingWaveSource'
+    >
   >;
 }
 
@@ -183,19 +203,16 @@ export interface AudioBufferFilePlaybackSourceResult extends FilePlaybackSourceR
   readonly source: AudioBufferSource;
   /** The exact object supplied to the AudioBuffer backend. */
   readonly audioBuffer: AudioBuffer;
-  readonly flacMetadata: null;
 }
 
-export interface StreamingFlacFilePlaybackSourceResult extends FilePlaybackSourceResultBase {
+export interface BoundedStreamFilePlaybackSourceResult extends FilePlaybackSourceResultBase {
   readonly backend: 'bounded-stream';
-  readonly source: StreamingFlacSource;
-  /** Metadata verified from the native FLAC byte stream with bounded exact reads. */
-  readonly flacMetadata: FlacMetadata;
+  readonly source: BoundedStreamSource;
 }
 
 export type BlobFilePlaybackSourceResult =
   | AudioBufferFilePlaybackSourceResult
-  | StreamingFlacFilePlaybackSourceResult;
+  | BoundedStreamFilePlaybackSourceResult;
 
 /** A claimed FLAC whose bytes use a container the streaming engine cannot decode. */
 export class UnsupportedFlacContainerError extends EncodedSourceIntegrityError {
@@ -207,7 +224,7 @@ export class UnsupportedFlacContainerError extends EncodedSourceIntegrityError {
 
 export class UnsupportedOrdinaryEncodedSourceError extends EncodedSourceIntegrityError {
   constructor() {
-    super('Ordinary audio codecs require a local Blob; this encoded source can stream native FLAC');
+    super('This encoded source does not contain a supported bounded-stream container');
     this.name = 'UnsupportedOrdinaryEncodedSourceError';
   }
 }
@@ -215,6 +232,7 @@ export class UnsupportedOrdinaryEncodedSourceError extends EncodedSourceIntegrit
 const defaultBackendFactories: BlobFilePlaybackBackendFactories = {
   createAudioBufferSource: (options) => new AudioBufferPlaybackSource(options),
   createStreamingFlacSource: (options) => new StreamingFlacPlaybackSource(options),
+  createStreamingWaveSource: (options) => new StreamingWavePlaybackSource(options),
 };
 
 function hasMarker(bytes: Uint8Array, marker: Uint8Array): boolean {
@@ -225,6 +243,27 @@ function claimsFlac(name: string, mime: string): boolean {
   const normalizedName = name.trim().toLowerCase();
   const normalizedMime = mime.trim().toLowerCase();
   return normalizedName.endsWith('.flac') || normalizedMime.includes('flac');
+}
+
+function claimsWave(name: string, mime: string): boolean {
+  const normalizedName = name.trim().toLowerCase();
+  const normalizedMime = mime.trim().toLowerCase();
+  return (
+    normalizedName.endsWith('.wav') ||
+    normalizedName.endsWith('.wave') ||
+    normalizedMime === 'audio/wav' ||
+    normalizedMime === 'audio/wave' ||
+    normalizedMime === 'audio/x-wav' ||
+    normalizedMime === 'audio/vnd.wave'
+  );
+}
+
+function isWaveFamily(bytes: Uint8Array): boolean {
+  return (
+    bytes.byteLength >= CONTAINER_PROBE_BYTES &&
+    WAVE_FAMILY_MARKERS.some((marker) => hasMarker(bytes, marker)) &&
+    WAVE_MARKER.every((byte, index) => bytes[index + 8] === byte)
+  );
 }
 
 function assertFactoryInput(options: FilePlaybackSourceFactoryCommonOptions): void {
@@ -259,7 +298,7 @@ function assertBlobFactoryInput(
   if (!(blob instanceof Blob)) throw new TypeError('Playback source requires a Blob');
   if (
     sourceIdentity !== undefined &&
-    (!isFlacSourceIdentity(sourceIdentity) || sourceIdentity.trim() !== sourceIdentity)
+    (!isEncodedAudioSourceIdentity(sourceIdentity) || sourceIdentity.trim() !== sourceIdentity)
   ) {
     throw new TypeError('Playback source identity is invalid');
   }
@@ -276,7 +315,7 @@ function assertEncodedSource(source: EncodedAudioSource): void {
     !source ||
     typeof source.readAt !== 'function' ||
     typeof source.close !== 'function' ||
-    !isFlacSourceIdentity(source.identity)
+    !isEncodedAudioSourceIdentity(source.identity)
   ) {
     throw new TypeError('Playback encoded source is invalid');
   }
@@ -361,10 +400,10 @@ function closeEncodedSourceOnce(source: EncodedAudioSource): () => Promise<void>
 /**
  * Select an encoded playback backend without preparing or connecting it.
  *
- * Routing is content-first: every viable input is inspected through one exact
- * four-byte read. A verified native `fLaC` stream always uses bounded
- * streaming playback. A file that claims FLAC but fails that byte signature
- * is rejected instead of being silently handed to the AudioBuffer decoder.
+ * Routing is content-first: every viable input is inspected through one
+ * bounded header read. Verified native `fLaC` and RIFF/RF64/BW64 WAVE streams
+ * always use bounded playback. Claimed formats that fail content verification
+ * are never handed to the AudioBuffer decoder.
  */
 async function createOwnedEncodedFilePlaybackSource(
   options: CreateOwnedEncodedFilePlaybackSourceOptions,
@@ -391,6 +430,9 @@ async function createOwnedEncodedFilePlaybackSource(
       createStreamingFlacSource:
         options.backendFactories?.createStreamingFlacSource ??
         defaultBackendFactories.createStreamingFlacSource,
+      createStreamingWaveSource:
+        options.backendFactories?.createStreamingWaveSource ??
+        defaultBackendFactories.createStreamingWaveSource,
     };
     if (encodedSource.size < NATIVE_FLAC_MARKER.byteLength) {
       throw new EncodedSourceIntegrityError(
@@ -398,7 +440,11 @@ async function createOwnedEncodedFilePlaybackSource(
       );
     }
 
-    const marker = await encodedSource.readAt(0, NATIVE_FLAC_MARKER.byteLength, options.signal);
+    const probeBytes = Math.min(encodedSource.size, CONTAINER_PROBE_BYTES);
+    const marker = await encodedSource.readAt(0, probeBytes, options.signal);
+    if (!(marker instanceof Uint8Array) || marker.byteLength !== probeBytes) {
+      throw new EncodedSourceIntegrityError('Audio source returned an inexact container probe');
+    }
     throwIfAborted(options.signal);
 
     if (hasMarker(marker, NATIVE_FLAC_MARKER)) {
@@ -412,7 +458,7 @@ async function createOwnedEncodedFilePlaybackSource(
         nowRoomTimeMs: options.nowRoomTimeMs,
         roomTimeMsToContextTime: options.roomTimeMsToContextTime,
         localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
-        runtime: options.streamingRuntime,
+        runtime: options.flacRuntime,
       });
       createdSource = source;
       // A successful constructor return transfers exact encoded-source
@@ -427,7 +473,32 @@ async function createOwnedEncodedFilePlaybackSource(
         source,
         sourceIdentity: encodedSource.identity,
         releaseConstructionLease: releaseNoConstructionLease,
-        flacMetadata: metadata,
+      });
+    }
+
+    if (isWaveFamily(marker)) {
+      const metadata = await readWavePcmMetadata(encodedSource, options.signal);
+      throwIfAborted(options.signal);
+      const source = factories.createStreamingWaveSource({
+        queueItemId: options.queueItemId,
+        encodedSource,
+        metadata,
+        audioContext: options.audioContext,
+        nowRoomTimeMs: options.nowRoomTimeMs,
+        roomTimeMsToContextTime: options.roomTimeMsToContextTime,
+        localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
+        runtime: options.waveRuntime,
+      });
+      createdSource = source;
+      streamingOwnsEncodedSource = true;
+      assertCreatedSource(source, 'bounded-stream', options.queueItemId);
+      throwIfAborted(options.signal);
+      completed = true;
+      return Object.freeze({
+        backend: 'bounded-stream',
+        source,
+        sourceIdentity: encodedSource.identity,
+        releaseConstructionLease: releaseNoConstructionLease,
       });
     }
 
@@ -439,6 +510,12 @@ async function createOwnedEncodedFilePlaybackSource(
       }
       throw new EncodedSourceIntegrityError(
         'File claims to be FLAC but does not contain the native fLaC marker',
+      );
+    }
+
+    if (claimsWave(encodedSource.metadata.name, encodedSource.metadata.mime)) {
+      throw new EncodedSourceIntegrityError(
+        'File claims to be WAVE but does not contain a supported RIFF/RF64/BW64 WAVE header',
       );
     }
 
@@ -481,7 +558,6 @@ async function createOwnedEncodedFilePlaybackSource(
       sourceIdentity: encodedSource.identity,
       audioBuffer,
       releaseConstructionLease,
-      flacMetadata: null,
     });
   } finally {
     if (!completed) {
@@ -533,7 +609,8 @@ export async function createBlobFilePlaybackSource(
       roomTimeMsToContextTime: options.roomTimeMsToContextTime,
       localPerformanceMsToContextTime: options.localPerformanceMsToContextTime,
       signal: options.signal,
-      streamingRuntime: options.streamingRuntime,
+      flacRuntime: options.flacRuntime,
+      waveRuntime: options.waveRuntime,
       backendFactories: options.backendFactories,
     },
     {

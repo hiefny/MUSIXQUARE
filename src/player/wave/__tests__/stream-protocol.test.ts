@@ -10,10 +10,8 @@ import {
   WAVE_STREAM_MAX_CHANNELS,
   WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES,
   WAVE_STREAM_MAX_READ_BYTES,
-  WAVE_STREAM_MAX_SOURCE_IDENTITY_LENGTH,
   WAVE_STREAM_PROTOCOL_VERSION,
   isWaveDecoderGeneration,
-  isWaveSourceIdentity,
   isWaveSourceLifetimeGeneration,
   isWaveSourceSize,
 } from '../stream-protocol.ts';
@@ -48,15 +46,5 @@ describe('WAVE stream protocol leaf contract', () => {
     [Number.MAX_SAFE_INTEGER + 1, false],
   ])('validates encoded source size %p', (value, expected) => {
     expect(isWaveSourceSize(value)).toBe(expected);
-  });
-
-  it('bounds opaque source identities without trimming or coercion', () => {
-    expect(isWaveSourceIdentity('wave:fixture')).toBe(true);
-    expect(isWaveSourceIdentity('x'.repeat(WAVE_STREAM_MAX_SOURCE_IDENTITY_LENGTH))).toBe(true);
-    expect(isWaveSourceIdentity('')).toBe(false);
-    expect(isWaveSourceIdentity('x'.repeat(WAVE_STREAM_MAX_SOURCE_IDENTITY_LENGTH + 1))).toBe(
-      false,
-    );
-    expect(isWaveSourceIdentity(1)).toBe(false);
   });
 });

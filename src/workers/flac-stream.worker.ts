@@ -22,7 +22,6 @@ import {
   FLAC_STREAM_INPUT_CHUNK_BYTES,
   FLAC_STREAM_PROTOCOL_VERSION,
   isFlacDecoderGeneration,
-  isFlacSourceIdentity,
   isFlacSourceLifetimeGeneration,
   isFlacSourceSize,
   type FlacDecoderCommand,
@@ -32,6 +31,7 @@ import {
   type FlacSourceOpenMessage,
   type FlacStreamDescriptor,
 } from '../player/flac/stream-protocol.js';
+import { isEncodedAudioSourceIdentity } from '../player/sources/encoded-audio-source.js';
 import {
   PCM_STREAM_MAX_CHANNELS,
   PCM_STREAM_MAX_MESSAGE_FRAMES,
@@ -1115,7 +1115,7 @@ function parseWorkerCommand(value: unknown): FlacDecoderCommand | null {
       ]) ||
       !isFlacSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
       !isFlacSourceSize(record.sourceSize) ||
-      !isFlacSourceIdentity(record.sourceIdentity) ||
+      !isEncodedAudioSourceIdentity(record.sourceIdentity) ||
       !(record.sourcePort instanceof MessagePort)
     ) {
       return null;

@@ -73,14 +73,12 @@ const AUDIO_BUFFER_FACTORY_RESULT_KEYS = Object.freeze([
   'sourceIdentity',
   'audioBuffer',
   'releaseConstructionLease',
-  'flacMetadata',
 ] as const);
 const STREAMING_FACTORY_RESULT_KEYS = Object.freeze([
   'backend',
   'source',
   'sourceIdentity',
   'releaseConstructionLease',
-  'flacMetadata',
 ] as const);
 const CUTOVER_SOURCE_METHODS = Object.freeze([
   'prepare',
@@ -488,13 +486,6 @@ function inspectFactoryResult(
   const destroySource = cutoverSourceDestroyer(result.source);
   const getSnapshot = findDataMethod(result.source as object, 'getSnapshot');
   if (!destroySource || !getSnapshot) return null;
-  if (
-    (backend === 'audio-buffer' && result.flacMetadata !== null) ||
-    (backend === 'bounded-stream' &&
-      (result.flacMetadata === null || typeof result.flacMetadata !== 'object'))
-  ) {
-    return null;
-  }
   return Object.freeze({
     backend: backend as BlobFilePlaybackSourceResult['backend'],
     source: result.source as FilePlaybackCutoverSource,
@@ -757,11 +748,11 @@ export async function stageFilePlaybackAssetSource(
           signal,
         },
       ]);
-      factoryOwnsGenericLease = true;
     }
     if (!(factoryTask instanceof Promise)) {
       throw new TypeError('File playback source factory must return a native Promise');
     }
+    if (acquiredGenericSource !== null) factoryOwnsGenericLease = true;
     rawFactoryResult = await factoryTask;
     assertAuthority();
     factoryResult = inspectFactoryResult(rawFactoryResult, canonicalAsset.sourceIdentity);

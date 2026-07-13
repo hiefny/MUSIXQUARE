@@ -20,7 +20,6 @@ export {
 
 export const FLAC_STREAM_PROTOCOL_VERSION = PCM_STREAM_PROTOCOL_VERSION;
 export const FLAC_STREAM_MAX_CHANNELS = PCM_STREAM_MAX_CHANNELS;
-export const FLAC_STREAM_MAX_SOURCE_IDENTITY_LENGTH = 512;
 export const FLAC_STREAM_INPUT_CHUNK_BYTES = 64 * 1024;
 
 /** One immutable encoded-source bridge for the whole playback-source lifetime. */
@@ -181,12 +180,4 @@ export function isFlacSourceLifetimeGeneration(
 
 export function isFlacSourceSize(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
-export function isFlacSourceIdentity(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= FLAC_STREAM_MAX_SOURCE_IDENTITY_LENGTH
-  );
 }

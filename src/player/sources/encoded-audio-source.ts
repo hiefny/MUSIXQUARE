@@ -6,6 +6,7 @@
  */
 
 export type EncodedAudioSourceKind = 'blob' | 'peer-range' | 'r2-records';
+export const ENCODED_AUDIO_SOURCE_MAX_IDENTITY_LENGTH = 512;
 
 export interface EncodedAudioSourceMetadata {
   readonly name: string;
@@ -27,6 +28,14 @@ export interface EncodedAudioSource {
    */
   readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array>;
   close(): Promise<void>;
+}
+
+export function isEncodedAudioSourceIdentity(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= ENCODED_AUDIO_SOURCE_MAX_IDENTITY_LENGTH
+  );
 }
 
 export class EncodedSourceClosedError extends Error {

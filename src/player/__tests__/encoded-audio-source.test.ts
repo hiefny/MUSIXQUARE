@@ -5,8 +5,10 @@ import {
   getBlobObjectIdentity,
 } from '../sources/blob-encoded-audio-source.ts';
 import {
+  ENCODED_AUDIO_SOURCE_MAX_IDENTITY_LENGTH,
   EncodedSourceClosedError,
   EncodedSourceRangeError,
+  isEncodedAudioSourceIdentity,
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
 
@@ -24,6 +26,20 @@ describe('validateExactRead', () => {
     [10, Number.MAX_SAFE_INTEGER, 1],
   ])('rejects an invalid read (%s, %s, %s)', (size, offset, length) => {
     expect(() => validateExactRead(size, offset, length)).toThrow(EncodedSourceRangeError);
+  });
+});
+
+describe('encoded source identity', () => {
+  it('bounds opaque identities without trimming or coercion', () => {
+    expect(isEncodedAudioSourceIdentity('source:fixture')).toBe(true);
+    expect(isEncodedAudioSourceIdentity('x'.repeat(ENCODED_AUDIO_SOURCE_MAX_IDENTITY_LENGTH))).toBe(
+      true,
+    );
+    expect(isEncodedAudioSourceIdentity('')).toBe(false);
+    expect(
+      isEncodedAudioSourceIdentity('x'.repeat(ENCODED_AUDIO_SOURCE_MAX_IDENTITY_LENGTH + 1)),
+    ).toBe(false);
+    expect(isEncodedAudioSourceIdentity(1)).toBe(false);
   });
 });
 

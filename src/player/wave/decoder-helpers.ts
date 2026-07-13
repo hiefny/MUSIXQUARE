@@ -12,7 +12,6 @@ import {
 import {
   LinearPcmDecodeError,
   type DecodedLinearPcm,
-  type LinearPcmDecodeErrorCode,
   type LinearPcmSampleLayout,
 } from '../linear-pcm/sample-format.js';
 import type { LinearPcmInputReadPlan } from '../linear-pcm/stream-protocol.js';
@@ -25,8 +24,6 @@ export type WavePcmSampleLayout = LinearPcmSampleLayout;
 export type DecodedWavePcm = DecodedLinearPcm;
 /** WAVE-facing bounded read plan over the shared linear-PCM core. */
 export type WavePcmInputReadPlan = LinearPcmInputReadPlan;
-/** WAVE-facing decode code over the shared linear-PCM core. */
-export type WavePcmDecodeErrorCode = LinearPcmDecodeErrorCode;
 /** Error constructor used by the WAVE worker facade. */
 export { LinearPcmDecodeError as WavePcmDecodeError };
 

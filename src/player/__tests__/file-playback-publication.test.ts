@@ -12,10 +12,9 @@ import {
 } from '../file-playback-publication.ts';
 import type {
   AudioBufferFilePlaybackSourceResult,
-  StreamingFlacFilePlaybackSourceResult,
+  BoundedStreamFilePlaybackSourceResult,
 } from '../file-playback-source-factory.ts';
 import type { FilePlaybackSource, FilePlaybackSourceSnapshot } from '../file-playback-source.ts';
-import type { FlacMetadata } from '../flac/metadata.ts';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -81,23 +80,21 @@ function audioBufferResult(
     sourceIdentity: 'blob:ordinary:1',
     audioBuffer: { duration: 10 } as AudioBuffer,
     releaseConstructionLease: vi.fn(),
-    flacMetadata: null,
     ...overrides,
   };
 }
 
 function streamingResult(
-  overrides: Partial<StreamingFlacFilePlaybackSourceResult> = {},
-): StreamingFlacFilePlaybackSourceResult {
+  overrides: Partial<BoundedStreamFilePlaybackSourceResult> = {},
+): BoundedStreamFilePlaybackSourceResult {
   const playbackSource = source(
     'bounded-stream',
-  ) as StreamingFlacFilePlaybackSourceResult['source'];
+  ) as BoundedStreamFilePlaybackSourceResult['source'];
   return {
     backend: 'bounded-stream',
     source: playbackSource,
     sourceIdentity: 'blob:flac:1',
     releaseConstructionLease: vi.fn(),
-    flacMetadata: {} as FlacMetadata,
     ...overrides,
   };
 }
@@ -117,7 +114,7 @@ function manager(
 }
 
 function options(
-  result: AudioBufferFilePlaybackSourceResult | StreamingFlacFilePlaybackSourceResult,
+  result: AudioBufferFilePlaybackSourceResult | BoundedStreamFilePlaybackSourceResult,
   playbackManager: FilePlaybackManager,
   overrides: Partial<ManagedFilePlaybackPublicationOptions> = {},
 ): ManagedFilePlaybackPublicationOptions {
@@ -133,7 +130,7 @@ function options(
 }
 
 function published(
-  result: AudioBufferFilePlaybackSourceResult | StreamingFlacFilePlaybackSourceResult,
+  result: AudioBufferFilePlaybackSourceResult | BoundedStreamFilePlaybackSourceResult,
 ) {
   return {
     published: true,

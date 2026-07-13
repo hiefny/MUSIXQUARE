@@ -18,7 +18,6 @@ import {
   WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES,
   WAVE_STREAM_PROTOCOL_VERSION,
   isWaveDecoderGeneration,
-  isWaveSourceIdentity,
   isWaveSourceLifetimeGeneration,
   isWaveSourceSize,
   type WaveDecoderCommand,
@@ -28,6 +27,7 @@ import {
   type WaveSourceOpenMessage,
   type WaveStreamDescriptor,
 } from '../player/wave/stream-protocol.js';
+import { isEncodedAudioSourceIdentity } from '../player/sources/encoded-audio-source.js';
 import {
   PCM_STREAM_MAX_MESSAGE_FRAMES,
   PCM_STREAM_PROTOCOL_VERSION,
@@ -862,7 +862,7 @@ function parseWorkerCommand(value: unknown): WaveDecoderCommand | null {
       ]) ||
       !isWaveSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
       !isWaveSourceSize(record.sourceSize) ||
-      !isWaveSourceIdentity(record.sourceIdentity) ||
+      !isEncodedAudioSourceIdentity(record.sourceIdentity) ||
       !(record.sourcePort instanceof MessagePort)
     ) {
       return null;

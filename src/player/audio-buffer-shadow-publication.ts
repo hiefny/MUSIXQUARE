@@ -239,7 +239,6 @@ export async function publishAudioBufferShadow(
       // wrapper has either published the exact resident buffer or definitively
       // chosen an unpublished outcome.
       releaseConstructionLease: () => undefined,
-      flacMetadata: null,
     });
     const publication = await runtime.publishSource({
       result,

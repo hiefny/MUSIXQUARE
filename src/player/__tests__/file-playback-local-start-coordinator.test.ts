@@ -352,7 +352,6 @@ function factoryResult(
       sourceIdentity,
       audioBuffer: fakeAudioBuffer(),
       releaseConstructionLease: vi.fn(),
-      flacMetadata: null,
     });
   }
   return Object.freeze({
@@ -360,7 +359,6 @@ function factoryResult(
     source: harness.source as never,
     sourceIdentity,
     releaseConstructionLease: vi.fn(),
-    flacMetadata: Object.freeze({ fixture: true }) as never,
   });
 }
 

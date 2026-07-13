@@ -98,7 +98,6 @@ function factoryResult(
       sourceIdentity: BINDING.sourceIdentity,
       audioBuffer: fakeAudioBuffer(),
       releaseConstructionLease,
-      flacMetadata: null,
     });
   }
   return Object.freeze({
@@ -106,7 +105,6 @@ function factoryResult(
     source: source as never,
     sourceIdentity: BINDING.sourceIdentity,
     releaseConstructionLease,
-    flacMetadata: Object.freeze({ fixture: true }) as never,
   });
 }
 
@@ -228,6 +226,30 @@ function nativeFlacBlob(): Blob {
   );
 }
 
+function nativeWaveBlob(): Blob {
+  const bytes = new Uint8Array(60);
+  const view = new DataView(bytes.buffer);
+  const ascii = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      bytes[offset + index] = value.charCodeAt(index);
+    }
+  };
+  ascii(0, 'RIFF');
+  view.setUint32(4, bytes.byteLength - 8, true);
+  ascii(8, 'WAVE');
+  ascii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 2, true);
+  view.setUint32(24, 48_000, true);
+  view.setUint32(28, 192_000, true);
+  view.setUint16(32, 4, true);
+  view.setUint16(34, 16, true);
+  ascii(36, 'data');
+  view.setUint32(40, 16, true);
+  return new Blob([bytes], { type: 'audio/wav' });
+}
+
 describe('stageFilePlaybackAssetSource', () => {
   it('forwards the exact Blob, distributed identity, and canonical metadata once', async () => {
     const setup = blobRegistry();
@@ -270,13 +292,17 @@ describe('stageFilePlaybackAssetSource', () => {
   });
 
   it.each([
-    ['ordinary', new Blob([new Uint8Array([0x49, 0x44, 0x33, 0x04])]), 'audio-buffer'],
-    ['native FLAC', nativeFlacBlob(), 'bounded-stream'],
+    ['ordinary', new Blob([new Uint8Array([0x49, 0x44, 0x33, 0x04])]), 'audio-buffer', METADATA],
+    [
+      'native FLAC',
+      nativeFlacBlob(),
+      'bounded-stream',
+      { name: 'orchestra.flac', mime: 'audio/flac' },
+    ],
+    ['WAVE PCM', nativeWaveBlob(), 'bounded-stream', { name: 'orchestra.wav', mime: 'audio/wav' }],
   ] as const)(
     'keeps committed factory routing for %s Blob assets',
-    async (_label, blob, backend) => {
-      const metadata =
-        backend === 'bounded-stream' ? { name: 'orchestra.flac', mime: 'audio/flac' } : METADATA;
+    async (_label, blob, backend, metadata) => {
       const registry = new FilePlaybackAssetRegistry({
         liveRoomToken: TOKEN,
         onFatalRoom: vi.fn(),
@@ -294,6 +320,7 @@ describe('stageFilePlaybackAssetSource', () => {
           backendFactories: {
             createAudioBufferSource: () => createdSource as never,
             createStreamingFlacSource: () => createdSource as never,
+            createStreamingWaveSource: () => createdSource as never,
           },
         });
       const stageCandidate = vi.fn(async () => PORT as never);
@@ -533,6 +560,19 @@ describe('stageFilePlaybackAssetSource', () => {
         }),
       ),
     ).rejects.toBe(factoryError);
+    expect(setup.closeSource).toHaveBeenCalledOnce();
+  });
+
+  it('closes a generic source lease when a forged factory returns a non-Promise', async () => {
+    const setup = genericRegistry();
+
+    await expect(
+      stageFilePlaybackAssetSource(
+        baseOptions(setup.registry, setup.lease, {
+          createEncodedSource: (() => Object.freeze({})) as never,
+        }),
+      ),
+    ).rejects.toThrow(/native Promise/u);
     expect(setup.closeSource).toHaveBeenCalledOnce();
   });
 

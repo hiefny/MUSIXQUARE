@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { QueueItemId } from '../../types/index.ts';
 import { AudioBufferPlaybackSource } from '../backends/audio-buffer-playback-source.ts';
 import { StreamingFlacPlaybackSource } from '../backends/streaming-flac-playback-source.ts';
+import { StreamingWavePlaybackSource } from '../backends/streaming-wave-playback-source.ts';
 import {
   createBlobFilePlaybackSource,
   createEncodedFilePlaybackSource,
@@ -58,6 +59,70 @@ function nativeFlac(channels: number, name = 'recording.bin'): File {
     name,
     { type: 'application/octet-stream' },
   );
+}
+
+type WaveFixtureContainer = 'RIFF' | 'RF64' | 'BW64';
+
+function writeAscii(bytes: Uint8Array, offset: number, value: string): void {
+  for (let index = 0; index < value.length; index += 1) {
+    bytes[offset + index] = value.charCodeAt(index);
+  }
+}
+
+function writeUint64Le(view: DataView, offset: number, value: number): void {
+  view.setUint32(offset, value >>> 0, true);
+  view.setUint32(offset + 4, Math.floor(value / 0x1_0000_0000), true);
+}
+
+function waveFile(
+  options: {
+    readonly container?: WaveFixtureContainer;
+    readonly formatTag?: number;
+    readonly bitsPerSample?: 16 | 32;
+    readonly channels?: number;
+    readonly name?: string;
+    readonly mime?: string;
+  } = {},
+): File {
+  const container = options.container ?? 'RIFF';
+  const formatTag = options.formatTag ?? 0x0001;
+  const bitsPerSample = options.bitsPerSample ?? 16;
+  const channels = options.channels ?? 2;
+  const sampleRate = 48_000;
+  const sampleBytes = bitsPerSample / 8;
+  const blockAlign = channels * sampleBytes;
+  const dataBytes = blockAlign * 4;
+  const ds64Bytes = container === 'RIFF' ? 0 : 36;
+  const totalBytes = 12 + ds64Bytes + 24 + 8 + dataBytes;
+  const bytes = new Uint8Array(totalBytes);
+  const view = new DataView(bytes.buffer);
+  writeAscii(bytes, 0, container);
+  view.setUint32(4, container === 'RIFF' ? totalBytes - 8 : 0xffff_ffff, true);
+  writeAscii(bytes, 8, 'WAVE');
+  let cursor = 12;
+  if (container !== 'RIFF') {
+    writeAscii(bytes, cursor, 'ds64');
+    view.setUint32(cursor + 4, 28, true);
+    writeUint64Le(view, cursor + 8, totalBytes - 8);
+    writeUint64Le(view, cursor + 16, dataBytes);
+    writeUint64Le(view, cursor + 24, 4);
+    view.setUint32(cursor + 32, 0, true);
+    cursor += 36;
+  }
+  writeAscii(bytes, cursor, 'fmt ');
+  view.setUint32(cursor + 4, 16, true);
+  view.setUint16(cursor + 8, formatTag, true);
+  view.setUint16(cursor + 10, channels, true);
+  view.setUint32(cursor + 12, sampleRate, true);
+  view.setUint32(cursor + 16, sampleRate * blockAlign, true);
+  view.setUint16(cursor + 20, blockAlign, true);
+  view.setUint16(cursor + 22, bitsPerSample, true);
+  cursor += 24;
+  writeAscii(bytes, cursor, 'data');
+  view.setUint32(cursor + 4, container === 'RIFF' ? dataBytes : 0xffff_ffff, true);
+  return new File([bytes], options.name ?? 'recording.bin', {
+    type: options.mime ?? 'application/octet-stream',
+  });
 }
 
 function fakeAudioBuffer(): AudioBuffer {
@@ -154,14 +219,72 @@ describe('createBlobFilePlaybackSource', () => {
       expect(result.backend).toBe('bounded-stream');
       if (result.backend !== 'bounded-stream') throw new Error('unexpected backend');
       expect(result.source.backend).toBe('bounded-stream');
-      expect(result.source.getSnapshot().phase).toBe('new');
-      expect(result.flacMetadata.streamInfo.channels).toBe(channels);
-      expect(result.flacMetadata.streamInfo.sampleRate).toBe(48_000);
+      expect(result.source.getSnapshot()).toMatchObject({
+        phase: 'new',
+        channelCount: channels,
+        outputSampleRateHz: 48_000,
+      });
       expect(() => result.releaseConstructionLease()).not.toThrow();
       expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
       await result.source.destroy();
     },
   );
+
+  it.each(['RIFF', 'RF64', 'BW64'] as const)(
+    'routes content-verified %s WAVE through the bounded source',
+    async (container) => {
+      const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+      const result = await createBlobFilePlaybackSource(
+        baseOptions(waveFile({ container }), { decodeOrdinaryAudio }),
+      );
+
+      expect(result.backend).toBe('bounded-stream');
+      expect(result.source).toBeInstanceOf(StreamingWavePlaybackSource);
+      expect(result.source.getSnapshot()).toMatchObject({
+        backend: 'bounded-stream',
+        phase: 'new',
+        durationSeconds: 4 / 48_000,
+        outputSampleRateHz: 48_000,
+        channelCount: 2,
+      });
+      expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+      await result.source.destroy();
+    },
+  );
+
+  it('routes IEEE-float WAVE by bytes despite an unrelated name and MIME type', async () => {
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const result = await createBlobFilePlaybackSource(
+      baseOptions(
+        waveFile({ formatTag: 0x0003, bitsPerSample: 32, name: 'take.bin', mime: 'text/plain' }),
+        { decodeOrdinaryAudio },
+      ),
+    );
+
+    expect(result.backend).toBe('bounded-stream');
+    expect(result.source).toBeInstanceOf(StreamingWavePlaybackSource);
+    expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+    await result.source.destroy();
+  });
+
+  it('never falls back when WAVE is claimed or contains an unsupported codec', async () => {
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const fakeWave = new File([Uint8Array.of(0x49, 0x44, 0x33, 0x04)], 'fake.wav', {
+      type: 'audio/wav',
+    });
+
+    await expect(
+      createBlobFilePlaybackSource(baseOptions(fakeWave, { decodeOrdinaryAudio })),
+    ).rejects.toThrow(/claims to be WAVE/i);
+    await expect(
+      createBlobFilePlaybackSource(
+        baseOptions(waveFile({ formatTag: 0x0055, name: 'compressed.wav', mime: 'audio/wav' }), {
+          decodeOrdinaryAudio,
+        }),
+      ),
+    ).rejects.toThrow(/codec format tag/i);
+    expect(decodeOrdinaryAudio).not.toHaveBeenCalled();
+  });
 
   it('routes ordinary codecs through the injected abort-aware AudioBuffer decoder', async () => {
     const blob = new File([new Uint8Array([0x49, 0x44, 0x33, 0x04])], 'song.mp3', {
@@ -185,7 +308,7 @@ describe('createBlobFilePlaybackSource', () => {
       }),
     );
 
-    expect(result).toMatchObject({ backend: 'audio-buffer', flacMetadata: null });
+    expect(result).toMatchObject({ backend: 'audio-buffer' });
     if (result.backend !== 'audio-buffer') throw new Error('unexpected backend');
     expect(result.audioBuffer).toBe(audioBuffer);
     expect(backendAudioBuffer).toBe(audioBuffer);
@@ -573,6 +696,19 @@ describe('createBlobFilePlaybackSource', () => {
 });
 
 describe('createEncodedFilePlaybackSource', () => {
+  it('rejects an inexact container probe and closes the generic lease once', async () => {
+    const fixture = memoryEncodedSource(new Uint8Array(16));
+    const source: EncodedAudioSource = {
+      ...fixture.source,
+      readAt: vi.fn(async (_offset, length) => new Uint8Array(Math.max(0, length - 1))),
+    };
+
+    await expect(createEncodedFilePlaybackSource(encodedOptions(source))).rejects.toThrow(
+      /inexact container probe/i,
+    );
+    expect(fixture.close).toHaveBeenCalledOnce();
+  });
+
   it('snapshots a hostile encodedSource getter once before validation and ownership', async () => {
     const file = nativeFlac(2);
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -643,6 +779,83 @@ describe('createEncodedFilePlaybackSource', () => {
     await result.source.destroy();
     await result.source.destroy();
     expect(fixture.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('transfers an exact generic WAVE source to bounded ownership until destroy', async () => {
+    const file = waveFile({ container: 'BW64' });
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+      name: 'remote.payload',
+      mime: 'application/octet-stream',
+      identity: 'peer-range:exact-wave-source',
+    });
+    let receivedSource: EncodedAudioSource | null = null;
+    const result = await createEncodedFilePlaybackSource(
+      encodedOptions(fixture.source, {
+        backendFactories: {
+          createStreamingWaveSource: (options) => {
+            receivedSource = options.encodedSource;
+            return new StreamingWavePlaybackSource(options);
+          },
+        },
+      }),
+    );
+
+    expect(result.backend).toBe('bounded-stream');
+    expect(result.source).toBeInstanceOf(StreamingWavePlaybackSource);
+    expect(receivedSource).toBe(fixture.source);
+    expect(result.sourceIdentity).toBe(fixture.source.identity);
+    expect(fixture.close).not.toHaveBeenCalled();
+    await result.source.destroy();
+    await result.source.destroy();
+    expect(fixture.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroys returned WAVE ownership when its backend identity is mismatched', async () => {
+    const file = waveFile();
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()), {
+      identity: 'peer-range:mismatched-wave-source',
+    });
+    let destroy: ReturnType<typeof vi.spyOn> | null = null;
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(fixture.source, {
+          backendFactories: {
+            createStreamingWaveSource: (options) => {
+              const source = new StreamingWavePlaybackSource({
+                ...options,
+                queueItemId: 'wrong-queue-item',
+              });
+              destroy = vi.spyOn(source, 'destroy');
+              return source;
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('mismatched source');
+
+    expect(destroy).not.toBeNull();
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(fixture.close).toHaveBeenCalledOnce();
+  });
+
+  it('closes WAVE bytes when the bounded source constructor fails before transfer', async () => {
+    const file = waveFile();
+    const fixture = memoryEncodedSource(new Uint8Array(await file.arrayBuffer()));
+    const primaryError = new Error('wave source constructor failed');
+
+    await expect(
+      createEncodedFilePlaybackSource(
+        encodedOptions(fixture.source, {
+          backendFactories: {
+            createStreamingWaveSource: () => {
+              throw primaryError;
+            },
+          },
+        }),
+      ),
+    ).rejects.toBe(primaryError);
+    expect(fixture.close).toHaveBeenCalledOnce();
   });
 
   it('rejects ordinary generic sources even when callers inject an unrelated Blob seam', async () => {

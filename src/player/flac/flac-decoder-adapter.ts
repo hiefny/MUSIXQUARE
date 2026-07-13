@@ -9,6 +9,7 @@ import type {
 import { PCM_STREAM_MAX_CHANNELS } from '../streaming/pcm-stream-protocol.ts';
 import {
   type EncodedAudioSource,
+  isEncodedAudioSourceIdentity,
   throwIfAborted,
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
@@ -18,7 +19,6 @@ import { FlacSeekIndex } from './seek-index.ts';
 import {
   FLAC_STREAM_PROTOCOL_VERSION,
   isFlacDecoderGeneration,
-  isFlacSourceIdentity,
   isFlacSourceLifetimeGeneration,
   isFlacSourceSize,
   type FlacDecoderCommand,
@@ -215,7 +215,7 @@ export class FlacDecoderAdapter implements StreamingDecoderAdapter {
       typeof options.encodedSource.readAt !== 'function' ||
       typeof options.encodedSource.close !== 'function' ||
       !isFlacSourceSize(options.encodedSource.size) ||
-      !isFlacSourceIdentity(options.encodedSource.identity)
+      !isEncodedAudioSourceIdentity(options.encodedSource.identity)
     ) {
       throw new TypeError('Streaming FLAC requires a valid non-empty encoded source');
     }

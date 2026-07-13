@@ -215,7 +215,6 @@ interface PublicationRecord {
   readonly commit: Readonly<FilePlaybackProductHostPublicationCommit>;
   participant: RemoteRendezvousParticipant | null;
   status: 'publishing' | 'published';
-  readonly preparedSource: CandidateSourceRecord | null;
 }
 
 interface CandidateSourceRecord {
@@ -240,6 +239,11 @@ interface PreparedPublicationRecord {
   participant: RemoteRendezvousParticipant | null;
   capability: Readonly<HostPreparedRemoteParticipant> | null;
   status: 'publishing' | 'published' | 'activated' | 'retired';
+}
+
+interface PreparedRetirementRecord {
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly promise: Promise<void>;
 }
 
 interface AttemptRecord {
@@ -486,6 +490,9 @@ export class FilePlaybackProductHostMediaOwner {
   #candidate: PreparedPublicationRecord | null = null;
   #candidateTask: Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> | null = null;
   #candidateTaskIdentity: Readonly<HostPreparedLocalTrack> | null = null;
+  #candidateRetirement: PreparedRetirementRecord | null = null;
+  readonly #preparedRetirements = new WeakMap<object, Promise<void>>();
+  #mediaLane: Promise<void> = Promise.resolve();
   #attempt: AttemptRecord | null = null;
   readonly #attemptsById = new Map<string, AttemptRecord>();
   #closed = false;
@@ -604,6 +611,9 @@ export class FilePlaybackProductHostMediaOwner {
 
   publishCurrent(): Promise<Readonly<FilePlaybackProductHostPublicationCommit>> {
     if (this.#closed) return Promise.reject(new Error('Host media owner is closed'));
+    if (this.#candidateRetirement) {
+      return Promise.reject(new Error('Host prepared publication retirement is settling'));
+    }
     const publication = this.#hostRoom.currentPeerPublication();
     if (!publication) {
       return Promise.reject(new Error('Host media owner has no current peer publication'));
@@ -614,14 +624,30 @@ export class FilePlaybackProductHostMediaOwner {
     if (this.#publicationTask && this.#publicationTaskIdentity === publication) {
       return this.#publicationTask;
     }
-    this.#publicationEpoch += 1;
-    const epoch = this.#publicationEpoch;
-    this.#publicationController.abort(new Error('Host media publication was superseded'));
-    this.#publicationController = new AbortController();
-    this.#retireAttempt(new Error('Host media publication was superseded'));
-    this.#revokePublishedHandle(new Error('Host media publication was superseded'));
-    this.#publication = null;
-    const task = this.#publish(publication, epoch).finally(() => {
+    if (this.#publicationTask) {
+      return Promise.reject(new Error('Host current publication already has exact authority'));
+    }
+    const task = this.#enqueueMediaLane(async () => {
+      if (this.#closed) throw new Error('Host media owner is closed');
+      if (this.#candidateRetirement) {
+        throw new Error('Host prepared publication retirement is settling');
+      }
+      if (this.#candidate) {
+        throw new Error('Host prepared publication already has exact authority');
+      }
+      if (this.#publication?.publication === publication) return this.#publication.commit;
+      if (this.#hostRoom.currentPeerPublication() !== publication) {
+        throw new Error('Host current publication authority is stale');
+      }
+      this.#publicationEpoch += 1;
+      const epoch = this.#publicationEpoch;
+      this.#publicationController.abort(new Error('Host media publication was superseded'));
+      this.#publicationController = new AbortController();
+      this.#retireAttempt(new Error('Host media publication was superseded'));
+      this.#revokePublishedHandle(new Error('Host media publication was superseded'));
+      this.#publication = null;
+      return this.#publish(publication, epoch);
+    }).finally(() => {
       if (this.#publicationTask === task) {
         this.#publicationTask = null;
         this.#publicationTaskIdentity = null;
@@ -640,6 +666,15 @@ export class FilePlaybackProductHostMediaOwner {
     if (!this.#resolvePreparedPeerRangeSource) {
       return Promise.reject(new Error('Host prepared source resolver is unavailable'));
     }
+    if (prepared === null || typeof prepared !== 'object') {
+      return Promise.reject(new TypeError('Host prepared publication authority is invalid'));
+    }
+    if (this.#preparedRetirements.has(prepared as object)) {
+      return Promise.reject(new Error('Host prepared publication authority was retired'));
+    }
+    if (this.#candidateRetirement) {
+      return Promise.reject(new Error('Host prepared publication retirement is settling'));
+    }
     if (this.#candidate?.prepared === prepared && this.#candidate.status !== 'retired') {
       return Promise.resolve(this.#candidate.commit);
     }
@@ -649,11 +684,23 @@ export class FilePlaybackProductHostMediaOwner {
     if (this.#candidate || this.#candidateTask) {
       return Promise.reject(new Error('Host prepared publication already has exact authority'));
     }
-    this.#candidateEpoch += 1;
-    const epoch = this.#candidateEpoch;
-    this.#candidateController.abort(new Error('Host prepared publication was superseded'));
-    this.#candidateController = new AbortController();
-    const task = this.#publishPrepared(prepared, epoch).finally(() => {
+    const task = this.#enqueueMediaLane(async () => {
+      if (this.#closed) throw new Error('Host media owner is closed');
+      if (
+        this.#candidateRetirement?.prepared === prepared ||
+        this.#preparedRetirements.has(prepared as object)
+      ) {
+        throw new Error('Host prepared publication authority was retired');
+      }
+      if (this.#candidate) {
+        throw new Error('Host prepared publication already has exact authority');
+      }
+      this.#candidateEpoch += 1;
+      const epoch = this.#candidateEpoch;
+      this.#candidateController.abort(new Error('Host prepared publication was superseded'));
+      this.#candidateController = new AbortController();
+      return this.#publishPrepared(prepared, epoch);
+    }).finally(() => {
       if (this.#candidateTask === task) {
         this.#candidateTask = null;
         this.#candidateTaskIdentity = null;
@@ -662,6 +709,49 @@ export class FilePlaybackProductHostMediaOwner {
     this.#candidateTask = task;
     this.#candidateTaskIdentity = prepared;
     return task;
+  }
+
+  /**
+   * Retires one exact uncommitted candidate. Once a wire state was staged the
+   * connection is renewed because the revision tombstone cannot be rolled back.
+   */
+  retirePrepared(prepared: Readonly<HostPreparedLocalTrack>, reason: Error): Promise<void> {
+    if (prepared === null || typeof prepared !== 'object' || !(reason instanceof Error)) {
+      return Promise.reject(new TypeError('Host prepared retirement authority is invalid'));
+    }
+    const replay = this.#preparedRetirements.get(prepared as object);
+    if (replay) return replay;
+    if (this.#candidate?.prepared !== prepared && this.#candidateTaskIdentity !== prepared) {
+      return Promise.reject(new Error('Host prepared retirement authority is stale'));
+    }
+    this.#candidateEpoch += 1;
+    this.#candidateController.abort(reason);
+    const pending = this.#candidateTaskIdentity === prepared ? this.#candidateTask : null;
+    let staged = this.#retirePreparedCandidate(reason);
+    const promise = Promise.resolve()
+      .then(async () => {
+        if (pending) await pending.catch(() => undefined);
+        if (this.#candidate?.prepared === prepared) {
+          staged = this.#retirePreparedCandidate(reason) || staged;
+        }
+        if (staged && !this.#closed) {
+          this.#close(
+            true,
+            new Error('Host prepared retirement requires connection renewal', {
+              cause: reason,
+            }),
+          );
+        }
+      })
+      .finally(() => {
+        if (this.#candidateRetirement?.promise === promise) {
+          this.#candidateRetirement = null;
+        }
+      });
+    const retirement: PreparedRetirementRecord = { prepared, promise };
+    this.#candidateRetirement = retirement;
+    this.#preparedRetirements.set(prepared as object, promise);
+    return promise;
   }
 
   /** Stable per-candidate readiness capability; a slow peer remains locally pending. */
@@ -745,7 +835,6 @@ export class FilePlaybackProductHostMediaOwner {
       commit,
       participant: record.participant,
       status: 'published',
-      preparedSource: record.source,
     };
     if (!record.capability) {
       record.rejectReady(new Error('Host committed before this remote candidate became ready'));
@@ -890,7 +979,6 @@ export class FilePlaybackProductHostMediaOwner {
       commit,
       participant: null,
       status: 'publishing',
-      preparedSource: null,
     };
     this.#publication = record;
     await Promise.resolve();
@@ -1613,22 +1701,16 @@ export class FilePlaybackProductHostMediaOwner {
     ) {
       return null;
     }
-    const source = record.preparedSource
-      ? await record.preparedSource.resolve({
-          prepared: record.preparedSource.prepared,
-          sourceIdentity,
-          signal,
-        })
-      : await this.#hostRoom.resolveCurrentPeerRangeSource({
-          publication: record.publication,
-          sourceIdentity,
-          signal,
-        });
+    const source = await this.#hostRoom.resolveCurrentPeerRangeSource({
+      publication: record.publication,
+      sourceIdentity,
+      signal,
+    });
     if (this.#closed || this.#publication !== record) {
       if (isEncodedSource(source)) await source.close().catch(() => undefined);
       return null;
     }
-    if (!record.preparedSource && this.#hostRoom.currentPeerPublication() !== record.publication) {
+    if (this.#hostRoom.currentPeerPublication() !== record.publication) {
       if (isEncodedSource(source)) await source.close().catch(() => undefined);
       return null;
     }
@@ -1821,9 +1903,9 @@ export class FilePlaybackProductHostMediaOwner {
     }
   }
 
-  #retirePreparedCandidate(reason: Error): void {
+  #retirePreparedCandidate(reason: Error): boolean {
     const record = this.#candidate;
-    if (!record) return;
+    if (!record) return false;
     record.rejectReady(reason);
     if (this.#attempt?.preparedRecord === record) this.#retireAttempt(reason);
     if (record.handleId) {
@@ -1847,6 +1929,17 @@ export class FilePlaybackProductHostMediaOwner {
     }
     record.status = 'retired';
     this.#candidate = null;
+    return true;
+  }
+
+  #enqueueMediaLane<T>(operation: () => Promise<T>): Promise<T> {
+    const predecessor = this.#mediaLane.catch(() => undefined);
+    const task = predecessor.then(operation);
+    this.#mediaLane = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
   }
 
   #candidateSignal(epoch: number): AbortSignal {

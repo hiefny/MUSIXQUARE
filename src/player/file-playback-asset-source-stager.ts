@@ -274,6 +274,8 @@ interface WarmSourceRecord {
 }
 
 const WARM_SOURCE_RECORDS = new WeakMap<object, WarmSourceRecord>();
+/** Lets an owner join mandatory cleanup even after an abort listener removed the live record. */
+const WARM_SOURCE_RETIREMENTS = new WeakMap<object, Promise<boolean>>();
 
 const registrySnapshotForLease = FilePlaybackAssetRegistry.prototype.snapshotForLease;
 const registryResolveBlobAsset = FilePlaybackAssetRegistry.prototype.resolveBlobAsset;
@@ -799,6 +801,7 @@ function retireWarmRecord(record: WarmSourceRecord): Promise<boolean> {
     if (failure !== null) throw failure;
     return true;
   })();
+  WARM_SOURCE_RETIREMENTS.set(record.authority as object, record.retirementPromise);
   return record.retirementPromise;
 }
 
@@ -1125,7 +1128,11 @@ export function retireFilePlaybackAssetSourceWarm(
     authority !== null && typeof authority === 'object'
       ? WARM_SOURCE_RECORDS.get(authority as object)
       : undefined;
-  if (!record || record.authority !== authority) return Promise.resolve(false);
+  if (!record || record.authority !== authority) {
+    return authority !== null && typeof authority === 'object'
+      ? (WARM_SOURCE_RETIREMENTS.get(authority as object) ?? Promise.resolve(false))
+      : Promise.resolve(false);
+  }
   return retireWarmRecord(record);
 }
 

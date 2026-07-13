@@ -534,6 +534,31 @@ describe('revision-free file playback warm source', () => {
     expect(() => readFilePlaybackAssetSourceWarmReadiness(warm)).toThrow(/stale/u);
   });
 
+  it('preserves automatic abort cleanup failure for a later exact owner join', async () => {
+    const setup = blobRegistry();
+    const cleanupError = new Error('fixture automatic warm destroy failed');
+    const destroy = vi.fn(async () => {
+      throw cleanupError;
+    });
+    const release = vi.fn();
+    const source = fakeCutoverSource('bounded-stream', destroy);
+    const h = successfulRuntime(factoryResult(source, release));
+    const abort = new AbortController();
+    const warm = await prepareFilePlaybackAssetSourceWarm(
+      warmOptions(setup.registry, setup.lease, h.runtime, { signal: abort.signal }),
+    );
+
+    abort.abort(new Error('room closed'));
+    await vi.waitFor(() => {
+      expect(destroy).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
+    });
+
+    await expect(retireFilePlaybackAssetSourceWarm(warm)).rejects.toBe(cleanupError);
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
   it('joins retirement to an in-flight manager handoff and retires only its resolved port', async () => {
     const setup = blobRegistry();
     const source = fakeCutoverSource();

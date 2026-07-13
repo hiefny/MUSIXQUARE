@@ -22,10 +22,18 @@ import {
   completeLocalFilePlaybackParticipant,
   retireLocalFilePlaybackParticipant,
   stageLocalFilePlaybackParticipant,
+  stageWarmLocalFilePlaybackParticipant,
   type FilePlaybackLocalStartCoordinatorRuntimeForTests,
   type LocalFilePlaybackSchedule,
   type StagedLocalFilePlaybackParticipant,
 } from './file-playback-local-start-coordinator.ts';
+import {
+  prepareFilePlaybackAssetSourceWarm,
+  retireFilePlaybackAssetSourceWarm,
+  type FilePlaybackAssetSourceStagerRuntimeForTests,
+  type FilePlaybackPreparedSourceReadiness,
+  type FilePlaybackWarmSourceAuthority,
+} from './file-playback-asset-source-stager.ts';
 import {
   FilePlaybackManager,
   isExactFilePlaybackManager,
@@ -106,6 +114,16 @@ const START_KEYS = Object.freeze([
   'signal',
 ] as const);
 const START_LOCAL_TRACK_KEYS = Object.freeze([...START_KEYS, 'positionSeconds'] as const);
+const WARM_LOCAL_TRACK_KEYS = Object.freeze([
+  'queueItemId',
+  'blob',
+  'name',
+  'mime',
+  'audioContext',
+  'decodeOrdinaryAudio',
+  'signal',
+] as const);
+const CLEAR_WARM_LOCAL_TRACK_KEYS = Object.freeze(['queueItemId'] as const);
 const START_PREPARED_TRACK_KEYS = Object.freeze(['prepared', 'remoteParticipants'] as const);
 const PREPARED_REMOTE_PARTICIPANT_KEYS = Object.freeze(['bindAttempt', 'participant'] as const);
 const CURRENT_OPERATION_KEYS = Object.freeze(['signal'] as const);
@@ -130,6 +148,7 @@ const RECOVER_REMOTE_KEYS = Object.freeze([
 const RUNTIME_KEYS = Object.freeze([
   'createRunIdForTests',
   'localStartRuntimeForTests',
+  'warmSourceRuntimeForTests',
   'beforeControllerCommitForTests',
   'onTerminalReferencesReleasedForTests',
   'createManagerForTests',
@@ -147,6 +166,7 @@ export interface FilePlaybackHostFirstFileEngineRuntimeForTests {
   /** Deterministic boundary seam. Product code always uses createFilePlaybackRunId(). */
   readonly createRunIdForTests?: () => string;
   readonly localStartRuntimeForTests?: FilePlaybackLocalStartCoordinatorRuntimeForTests;
+  readonly warmSourceRuntimeForTests?: FilePlaybackAssetSourceStagerRuntimeForTests;
   readonly beforeControllerCommitForTests?: () => void;
   readonly beforeManagerTransitionForTests?: () => void;
   readonly beforeTransitionControllerCommitForTests?: () => void;
@@ -209,6 +229,21 @@ export interface StartHostFirstLocalFileOptions {
 /** Starts a new logical run, replacing the current renderer at rendezvous. */
 export interface StartHostLocalTrackOptions extends StartHostFirstLocalFileOptions {
   readonly positionSeconds: number;
+}
+
+/** Revision-free bounded source construction; destination and timeline are intentionally absent. */
+export interface WarmHostLocalTrackOptions {
+  readonly queueItemId: QueueItemId;
+  readonly blob: Blob;
+  readonly name: string;
+  readonly mime: string;
+  readonly audioContext: AudioContext;
+  readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+  readonly signal: AbortSignal;
+}
+
+export interface ClearHostLocalTrackWarmOptions {
+  readonly queueItemId: QueueItemId;
 }
 
 export interface HostCurrentPlaybackOperationOptions {
@@ -292,6 +327,16 @@ export interface HostPreparedLocalTrack {
   readonly asset: Readonly<HostPeerPlaybackAssetPublication>;
 }
 
+/** Body-free observation only; the engine retains all authority over the warm source. */
+export interface HostLocalTrackWarmResult {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly status: 'warmed' | 'skipped-non-bounded';
+  readonly backend: FilePlaybackBackend;
+  readonly asset: Readonly<HostPeerPlaybackAssetPublication>;
+  readonly readiness: Readonly<FilePlaybackPreparedSourceReadiness>;
+}
+
 /** One already-source-ready remote participant admitted to the initial cohort. */
 export interface HostPreparedRemoteParticipant {
   readonly participant: RemoteRendezvousParticipant;
@@ -353,6 +398,7 @@ export interface HostRemoteRecoveryCommit {
 interface RuntimeSnapshot {
   readonly createRunId: () => string;
   readonly localStartRuntime: FilePlaybackLocalStartCoordinatorRuntimeForTests | undefined;
+  readonly warmSourceRuntime: FilePlaybackAssetSourceStagerRuntimeForTests | undefined;
   readonly beforeControllerCommit: (() => void) | null;
   readonly beforeManagerTransition: (() => void) | null;
   readonly beforeTransitionControllerCommit: (() => void) | null;
@@ -411,9 +457,25 @@ interface CanonicalFileCandidateInput {
   readonly positionSeconds: number;
 }
 
+interface CanonicalFileWarmInput {
+  readonly queueItemId: QueueItemId;
+  readonly blob: Blob;
+  readonly name: string;
+  readonly mime: string;
+  readonly audioContext: AudioContext;
+  readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+  readonly signal: AbortSignal;
+}
+
 interface CandidateAudioRuntime {
   readonly audioContext: AudioContext;
   readonly destination: AudioNode;
+  readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
+  readonly clockBindings: FilePlaybackClockBindings;
+}
+
+interface WarmAudioRuntime {
+  readonly audioContext: AudioContext;
   readonly decodeOrdinaryAudio: OrdinaryAudioDecoder;
   readonly clockBindings: FilePlaybackClockBindings;
 }
@@ -482,6 +544,30 @@ interface PreparedTrackAuthority {
   readonly playbackState: Readonly<PlaybackStateIdentity>;
   readonly staged: Readonly<StagedLocalFilePlaybackParticipant>;
   started: boolean;
+}
+
+interface WarmTrackOperation {
+  readonly epoch: number;
+  readonly asset: AdmittedLocalFile;
+  readonly controller: AbortController;
+  readonly removeExternalAbort: () => void;
+  task: Promise<Readonly<HostLocalTrackWarmResult>> | null;
+  authority: Readonly<FilePlaybackWarmSourceAuthority> | null;
+  claimed: boolean;
+  claimedBy: ActiveStartOperation | null;
+  handoffBarrier: WarmTrackHandoffBarrier | null;
+  retirementPromise: Promise<void> | null;
+}
+
+interface WarmTrackHandoffBarrier {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+  settled: boolean;
+}
+
+interface ClaimedWarmTrackSource {
+  readonly authority: Readonly<FilePlaybackWarmSourceAuthority>;
+  readonly operation: WarmTrackOperation;
 }
 
 interface ActiveRemoteRecovery {
@@ -600,6 +686,7 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     return freezeCanonical({
       createRunId: () => createFilePlaybackRunId(),
       localStartRuntime: undefined,
+      warmSourceRuntime: undefined,
       beforeControllerCommit: null,
       beforeManagerTransition: null,
       beforeTransitionControllerCommit: null,
@@ -630,6 +717,7 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
     const beforeTransitionControllerCommit =
       descriptors.beforeTransitionControllerCommitForTests?.value;
     const localStartRuntime = descriptors.localStartRuntimeForTests?.value;
+    const warmSourceRuntime = descriptors.warmSourceRuntimeForTests?.value;
     const onTerminalReferencesReleased = descriptors.onTerminalReferencesReleasedForTests?.value;
     const createManager = descriptors.createManagerForTests?.value;
     const createRendezvousId = descriptors.createRendezvousIdForTests?.value;
@@ -650,7 +738,9 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
       (onCoordinatorClosed !== undefined && typeof onCoordinatorClosed !== 'function') ||
       (admitAsset !== undefined && typeof admitAsset !== 'function') ||
       (localStartRuntime !== undefined &&
-        (localStartRuntime === null || typeof localStartRuntime !== 'object'))
+        (localStartRuntime === null || typeof localStartRuntime !== 'object')) ||
+      (warmSourceRuntime !== undefined &&
+        (warmSourceRuntime === null || typeof warmSourceRuntime !== 'object'))
     ) {
       return null;
     }
@@ -658,6 +748,9 @@ function runtimeSnapshot(value: unknown): RuntimeSnapshot | null {
       createRunId: (createRunId as (() => string) | undefined) ?? (() => createFilePlaybackRunId()),
       localStartRuntime: localStartRuntime as
         | FilePlaybackLocalStartCoordinatorRuntimeForTests
+        | undefined,
+      warmSourceRuntime: warmSourceRuntime as
+        | FilePlaybackAssetSourceStagerRuntimeForTests
         | undefined,
       beforeControllerCommit: (beforeControllerCommit as (() => void) | undefined) ?? null,
       beforeManagerTransition: (beforeManagerTransition as (() => void) | undefined) ?? null,
@@ -920,8 +1013,11 @@ export class FilePlaybackHostFirstFileEngine {
   readonly #ownedPorts = new Set<FilePlaybackCutoverCandidatePort>();
   readonly #portRetirements = new Map<FilePlaybackCutoverCandidatePort, Promise<void>>();
   readonly #remoteRecoveries = new Map<string, ActiveRemoteRecovery>();
+  readonly #detachedWarmRetirements = new Set<Promise<void>>();
   #peerPublicationAuthority: PeerPublicationAuthority | null = null;
   #preparedTrackAuthority: PreparedTrackAuthority | null = null;
+  #warmTrackOperation: WarmTrackOperation | null = null;
+  #warmEpoch = 0;
   #audioContext: AudioContext | null = null;
   #destination: AudioNode | null = null;
   #clockBindings: FilePlaybackClockBindings | null = null;
@@ -934,6 +1030,7 @@ export class FilePlaybackHostFirstFileEngine {
   #startingSynchronously = false;
   #closed = false;
   #fatalError: Error | null = null;
+  #warmCleanupFailure: unknown = null;
   #fatalNotified = false;
   #terminalReferencesReleased = false;
   #coordinatorClosed = false;
@@ -1078,6 +1175,43 @@ export class FilePlaybackHostFirstFileEngine {
       const previousTimeline = this.#captureTimeline('track');
       return this.#startFileCandidate('track', input, previousTimeline);
     });
+  }
+
+  /**
+   * Warms exactly one bounded local source without claiming a manager slot or
+   * binding it to a run/revision. A later matching track preparation consumes
+   * the source once; a non-bounded result is destroyed immediately.
+   */
+  warmLocalTrack(options: WarmHostLocalTrackOptions): Promise<Readonly<HostLocalTrackWarmResult>> {
+    return this.#runSynchronousWarm(() => {
+      const input = this.#readWarmFileInput(options);
+      const timeline = this.#captureWarmRoomTimeline();
+      const runtime = this.#bindWarmAudioRuntime(input, timeline);
+      const asset = this.#admitAsset(input, timeline);
+      this.#assertTimelineAuthority(timeline, false);
+      return this.#beginWarmTrack(input, asset, runtime);
+    });
+  }
+
+  /** Retires the exact queued warm source without touching the admitted asset lease. */
+  clearWarmLocalTrack(options: ClearHostLocalTrackWarmOptions): Promise<boolean> {
+    try {
+      const input = snapshotExactRecord(options, CLEAR_WARM_LOCAL_TRACK_KEYS);
+      if (!input || !isQueueItemId(input.queueItemId)) {
+        throw new TypeError('Host local file warm clear options are invalid');
+      }
+      const operation = this.#warmTrackOperation;
+      if (!operation || operation.claimed || operation.asset.queueItemId !== input.queueItemId) {
+        return Promise.resolve(false);
+      }
+      this.#warmEpoch += 1;
+      return this.#retireWarmTrackOperation(
+        operation,
+        new Error('Host local file warm source was explicitly cleared'),
+      ).then(() => true);
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   /**
@@ -1251,17 +1385,24 @@ export class FilePlaybackHostFirstFileEngine {
   close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
     const active = this.#activeOperation;
+    const warm = this.#warmTrackOperation;
     this.#closed = true;
     this.#peerPublicationAuthority = null;
     this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-room-closed');
     if (!active?.commitDominant) this.#operationEpoch += 1;
+    this.#warmEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
     if (this.#closePromise) return this.#closePromise;
     if (active && !active.commitDominant) {
       active.controller.abort(new Error('Host first-file room closed'));
     }
-    this.#closePromise = this.#closeOwnedRoom(active?.task ?? null, coordinatorFailure);
+    const warmCleanup = this.#collectWarmCleanup(warm, new Error('Host first-file room closed'));
+    this.#closePromise = this.#closeOwnedRoom(
+      active?.task ?? null,
+      coordinatorFailure,
+      warmCleanup,
+    );
     return this.#closePromise;
   }
 
@@ -1584,6 +1725,56 @@ export class FilePlaybackHostFirstFileEngine {
     } finally {
       this.#startingSynchronously = false;
     }
+  }
+
+  #runSynchronousWarm(
+    start: () => Promise<Readonly<HostLocalTrackWarmResult>>,
+  ): Promise<Readonly<HostLocalTrackWarmResult>> {
+    if (this.#startingSynchronously) {
+      return Promise.reject(new Error('Host file warm admission re-entered synchronously'));
+    }
+    this.#startingSynchronously = true;
+    try {
+      return start();
+    } catch (error) {
+      return Promise.reject(error);
+    } finally {
+      this.#startingSynchronously = false;
+    }
+  }
+
+  #readWarmFileInput(options: unknown): Readonly<CanonicalFileWarmInput> {
+    const input = snapshotExactRecord(options, WARM_LOCAL_TRACK_KEYS);
+    if (!input) throw new TypeError('Host local file warm options are invalid');
+    if (!isQueueItemId(input.queueItemId)) {
+      throw new TypeError('Host local file warm queue item ID is invalid');
+    }
+    if (!(input.blob instanceof Blob)) {
+      throw new TypeError('Host local file warm body must be a Blob or File');
+    }
+    if (typeof input.name !== 'string' || typeof input.mime !== 'string') {
+      throw new TypeError('Host local file warm metadata is invalid');
+    }
+    if (
+      input.audioContext === null ||
+      typeof input.audioContext !== 'object' ||
+      typeof input.decodeOrdinaryAudio !== 'function'
+    ) {
+      throw new TypeError('Host local file warm audio runtime is invalid');
+    }
+    if (!(input.signal instanceof AbortSignal)) {
+      throw new TypeError('Host local file warm requires an exact AbortSignal');
+    }
+    throwIfAborted(input.signal);
+    return freezeCanonical({
+      queueItemId: input.queueItemId,
+      blob: input.blob,
+      name: input.name,
+      mime: normalizeMime(input.mime),
+      audioContext: input.audioContext as AudioContext,
+      decodeOrdinaryAudio: input.decodeOrdinaryAudio as OrdinaryAudioDecoder,
+      signal: input.signal,
+    });
   }
 
   #readFileCandidateInput(
@@ -2128,6 +2319,452 @@ export class FilePlaybackHostFirstFileEngine {
     }
   }
 
+  #captureWarmRoomTimeline(): PlaybackTimelineSnapshot {
+    this.#assertRoomClockAuthority();
+    const warmCleanupError = this.#warmCleanupAuthorityError();
+    const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    if (
+      this.#closed ||
+      this.#coordinatorClosed ||
+      this.#fatalError ||
+      warmCleanupError ||
+      snapshot.roomGeneration !== this.#roomGeneration ||
+      snapshot.roomRole !== 'host' ||
+      snapshot.timeline !== timeline
+    ) {
+      throw (
+        this.#fatalError ??
+        warmCleanupError ??
+        new Error('Host local file warm room authority is stale')
+      );
+    }
+    this.#assertRoomClockAuthority();
+    return timeline;
+  }
+
+  #bindWarmAudioRuntime(
+    input: Readonly<CanonicalFileWarmInput>,
+    timeline: PlaybackTimelineSnapshot,
+  ): Readonly<WarmAudioRuntime> {
+    if (this.#audioContext && this.#audioContext !== input.audioContext) {
+      throw new Error('Host file playback room AudioContext cannot change');
+    }
+    const clockBindings =
+      this.#clockBindings ??
+      Reflect.apply(trustedRoomClockBind, this.#roomClock, [input.audioContext]);
+    if (clockBindings === null || typeof clockBindings !== 'object') {
+      throw new TypeError('Host file playback room clock returned invalid bindings');
+    }
+    this.#assertTimelineAuthority(timeline, false);
+    this.#audioContext ??= input.audioContext;
+    this.#clockBindings ??= clockBindings;
+    this.#decodeOrdinaryAudio = input.decodeOrdinaryAudio;
+    return freezeCanonical({
+      audioContext: input.audioContext,
+      decodeOrdinaryAudio: input.decodeOrdinaryAudio,
+      clockBindings,
+    });
+  }
+
+  #beginWarmTrack(
+    input: Readonly<CanonicalFileWarmInput>,
+    asset: AdmittedLocalFile,
+    runtime: Readonly<WarmAudioRuntime>,
+  ): Promise<Readonly<HostLocalTrackWarmResult>> {
+    throwIfAborted(input.signal);
+    const previous = this.#warmTrackOperation;
+    this.#warmEpoch += 1;
+    const epoch = this.#warmEpoch;
+    const controller = new AbortController();
+    let operation: WarmTrackOperation | null = null;
+    const forwardExternalAbort = () => {
+      controller.abort(input.signal.reason);
+      const current = operation;
+      if (current && !current.claimed) {
+        this.#observeDetachedWarmRetirement(
+          this.#retireWarmTrackOperation(
+            current,
+            asError(input.signal.reason, 'Host local file warm source was aborted'),
+          ),
+        );
+      }
+    };
+    let listening = true;
+    input.signal.addEventListener('abort', forwardExternalAbort, { once: true });
+    const removeExternalAbort = () => {
+      if (!listening) return;
+      listening = false;
+      input.signal.removeEventListener('abort', forwardExternalAbort);
+    };
+    operation = {
+      epoch,
+      asset,
+      controller,
+      removeExternalAbort,
+      task: null,
+      authority: null,
+      claimed: false,
+      claimedBy: null,
+      handoffBarrier: null,
+      retirementPromise: null,
+    };
+    this.#warmTrackOperation = operation;
+    if (previous && !previous.claimed) {
+      previous.controller.abort(new Error('Host local file warm source was superseded'));
+    }
+    if (input.signal.aborted) forwardExternalAbort();
+    const task = this.#executeWarmTrack(operation, previous, runtime);
+    operation.task = task;
+    return task;
+  }
+
+  async #executeWarmTrack(
+    operation: WarmTrackOperation,
+    previous: WarmTrackOperation | null,
+    runtime: Readonly<WarmAudioRuntime>,
+  ): Promise<Readonly<HostLocalTrackWarmResult>> {
+    try {
+      if (previous) {
+        await this.#retireWarmTrackOperation(
+          previous,
+          new Error('Host local file warm source was replaced'),
+        );
+      }
+      this.#assertWarmTrackAuthority(operation);
+      const authority = await prepareFilePlaybackAssetSourceWarm({
+        registry: this.#registry,
+        roomToken: this.#roomToken,
+        assetLease: operation.asset.lease,
+        expectedBinding: operation.asset.binding,
+        audioContext: runtime.audioContext,
+        clockBindings: runtime.clockBindings,
+        signal: operation.controller.signal,
+        isCurrent: () => this.#warmTrackAuthorityAllows(operation),
+        decodeOrdinaryAudio: runtime.decodeOrdinaryAudio,
+        ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
+        ...(this.#runtime.warmSourceRuntime ? { runtime: this.#runtime.warmSourceRuntime } : {}),
+      });
+      operation.authority = authority;
+      this.#assertWarmTrackAuthority(operation);
+      const result = this.#warmTrackResult(
+        authority,
+        authority.backend === 'bounded-stream' ? 'warmed' : 'skipped-non-bounded',
+      );
+      if (authority.backend !== 'bounded-stream') {
+        try {
+          await retireFilePlaybackAssetSourceWarm(authority);
+        } catch (cleanupError) {
+          operation.authority = null;
+          const failure = new HostFirstFileCleanupError(
+            'Host non-bounded warm source cleanup failed',
+            cleanupError,
+          );
+          this.#recordWarmCleanupFailure(failure);
+          throw failure;
+        }
+        operation.authority = null;
+        if (this.#warmTrackOperation === operation) this.#warmTrackOperation = null;
+        operation.removeExternalAbort();
+      }
+      return result;
+    } catch (error) {
+      const authority = operation.authority;
+      operation.authority = null;
+      if (authority) {
+        try {
+          await retireFilePlaybackAssetSourceWarm(authority);
+        } catch (cleanupError) {
+          const failure = new HostFirstFileCleanupError(
+            'Host local file warm source cleanup failed',
+            new AggregateError([error, cleanupError]),
+          );
+          this.#recordWarmCleanupFailure(failure);
+          throw failure;
+        }
+      }
+      operation.removeExternalAbort();
+      if (this.#warmTrackOperation === operation) this.#warmTrackOperation = null;
+      throw error;
+    }
+  }
+
+  #warmTrackResult(
+    authority: Readonly<FilePlaybackWarmSourceAuthority>,
+    status: HostLocalTrackWarmResult['status'],
+  ): Readonly<HostLocalTrackWarmResult> {
+    const asset = authority.asset;
+    return freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: this.#roomGeneration,
+      status,
+      backend: authority.backend,
+      asset: freezeCanonical({
+        kind: asset.kind,
+        binding: freezeCanonical({
+          queueItemId: asset.queueItemId,
+          sourceIdentity: asset.sourceIdentity,
+          transferSessionId: asset.transferSessionId,
+        }),
+        metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
+        encodedSize: asset.size,
+      }),
+      readiness: authority.readiness,
+    });
+  }
+
+  #assertWarmTrackAuthority(operation: WarmTrackOperation): void {
+    throwIfAborted(operation.controller.signal);
+    const warmCleanupError = this.#warmCleanupAuthorityError();
+    if (
+      this.#warmTrackOperation !== operation ||
+      this.#warmEpoch !== operation.epoch ||
+      operation.claimed ||
+      this.#closed ||
+      this.#coordinatorClosed ||
+      this.#fatalError ||
+      warmCleanupError
+    ) {
+      throw (
+        this.#fatalError ??
+        warmCleanupError ??
+        new Error('Host local file warm source was superseded')
+      );
+    }
+    this.#assertRoomClockAuthority();
+    const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    const asset = this.#registry.snapshotForLease(this.#roomToken, operation.asset.lease);
+    if (
+      snapshot.roomGeneration !== this.#roomGeneration ||
+      snapshot.roomRole !== 'host' ||
+      snapshot.timeline !== timeline ||
+      !asset ||
+      asset.queueItemId !== operation.asset.binding.queueItemId ||
+      asset.sourceIdentity !== operation.asset.binding.sourceIdentity ||
+      asset.transferSessionId !== operation.asset.binding.transferSessionId ||
+      asset.kind !== 'blob' ||
+      asset.size !== operation.asset.blob.size ||
+      asset.name !== operation.asset.name ||
+      asset.mime !== operation.asset.mime
+    ) {
+      throw new Error('Host local file warm source authority changed');
+    }
+    throwIfAborted(operation.controller.signal);
+  }
+
+  #warmTrackAuthorityAllows(operation: WarmTrackOperation): boolean {
+    try {
+      if (operation.claimed) {
+        const candidate = operation.claimedBy;
+        if (!candidate) return false;
+        this.#assertOperationFence(candidate);
+        return true;
+      }
+      this.#assertWarmTrackAuthority(operation);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  #retireWarmTrackOperation(operation: WarmTrackOperation, reason: Error): Promise<void> {
+    if (operation.retirementPromise) return operation.retirementPromise;
+    const retirement = this.#executeWarmTrackRetirement(operation, reason);
+    operation.retirementPromise = retirement;
+    return retirement;
+  }
+
+  async #executeWarmTrackRetirement(operation: WarmTrackOperation, reason: Error): Promise<void> {
+    const authorityAtStart = !operation.claimed ? operation.authority : null;
+    const earlyAuthorityRetirement = authorityAtStart
+      ? retireFilePlaybackAssetSourceWarm(authorityAtStart)
+      : null;
+    if (!operation.claimed) operation.controller.abort(reason);
+    let failure: unknown = null;
+    const task = operation.task;
+    if (task) {
+      try {
+        await task;
+      } catch (error) {
+        if (containsCleanupFailure(error)) failure = error;
+      }
+    }
+    if (operation.claimed && operation.handoffBarrier) {
+      await operation.handoffBarrier.promise;
+    }
+    const authority = operation.authority;
+    operation.authority = null;
+    if (earlyAuthorityRetirement) {
+      try {
+        await earlyAuthorityRetirement;
+      } catch (error) {
+        failure = mergeCleanupFailure(failure, error);
+      }
+    }
+    if (authority && authority !== authorityAtStart && !operation.claimed) {
+      try {
+        await retireFilePlaybackAssetSourceWarm(authority);
+      } catch (error) {
+        failure = mergeCleanupFailure(failure, error);
+      }
+    }
+    operation.removeExternalAbort();
+    if (this.#warmTrackOperation === operation) this.#warmTrackOperation = null;
+    if (failure) {
+      const cleanupError = new HostFirstFileCleanupError(
+        'Host local file warm retirement failed',
+        failure,
+      );
+      this.#recordWarmCleanupFailure(cleanupError);
+      throw cleanupError;
+    }
+  }
+
+  #observeDetachedWarmRetirement(retirement: Promise<void>): void {
+    this.#detachedWarmRetirements.add(retirement);
+    void retirement.then(
+      () => {
+        this.#detachedWarmRetirements.delete(retirement);
+      },
+      (error: unknown) => {
+        this.#detachedWarmRetirements.delete(retirement);
+        const cleanupError = asError(error, 'Host detached warm source cleanup failed');
+        this.#recordWarmCleanupFailure(cleanupError);
+        this.#handleDetachedWarmCleanupFailure(cleanupError);
+      },
+    );
+  }
+
+  #recordWarmCleanupFailure(error: unknown): void {
+    if (this.#warmCleanupFailure === error) return;
+    this.#warmCleanupFailure = mergeCleanupFailure(this.#warmCleanupFailure, error);
+  }
+
+  #warmCleanupAuthorityError(): Error | null {
+    return this.#warmCleanupFailure === null
+      ? null
+      : asError(this.#warmCleanupFailure, 'Host warm cleanup authority is unsafe');
+  }
+
+  async #collectWarmCleanup(operation: WarmTrackOperation | null, reason: Error): Promise<void> {
+    const tasks = new Set<Promise<void>>(this.#detachedWarmRetirements);
+    if (operation) tasks.add(this.#retireWarmTrackOperation(operation, reason));
+    let failure = this.#warmCleanupFailure;
+    for (const task of tasks) {
+      try {
+        await task;
+      } catch (error) {
+        if (failure !== error) failure = mergeCleanupFailure(failure, error);
+      }
+    }
+    if (this.#warmCleanupFailure !== null && failure !== this.#warmCleanupFailure) {
+      failure = mergeCleanupFailure(failure, this.#warmCleanupFailure);
+    }
+    if (failure !== null) {
+      throw new HostFirstFileCleanupError('Host warm cleanup did not complete safely', failure);
+    }
+  }
+
+  #handleDetachedWarmCleanupFailure(error: Error): void {
+    if (!this.#fatalError) this.#fatalError = error;
+    this.#closed = true;
+    this.#peerPublicationAuthority = null;
+    this.#preparedTrackAuthority = null;
+    const active = this.#activeOperation;
+    const warm = this.#warmTrackOperation;
+    this.#cancelAllRemoteRecoveries('remote-recovery-warm-cleanup-fatal');
+    this.#operationEpoch += 1;
+    this.#warmEpoch += 1;
+    const coordinatorFailure = mergeCleanupFailure(this.#closeCoordinatorOnce(), error);
+    active?.controller.abort(error);
+    const warmCleanup = this.#collectWarmCleanup(warm, error);
+    if (!this.#closePromise) {
+      this.#closePromise = this.#closeOwnedRoom(
+        active?.task ?? null,
+        coordinatorFailure,
+        warmCleanup,
+      );
+      observe(this.#closePromise);
+    }
+    this.#notifyFatalAfterTerminalCleanup(this.#fatalError);
+  }
+
+  #claimMatchingWarmSource(
+    asset: AdmittedLocalFile,
+    operation: ActiveStartOperation,
+  ): Readonly<ClaimedWarmTrackSource> | null | Promise<Readonly<ClaimedWarmTrackSource> | null> {
+    this.#assertOperationFence(operation);
+    if (!this.#warmTrackOperation) return null;
+    return this.#claimMatchingWarmSourceAsync(asset, operation);
+  }
+
+  async #claimMatchingWarmSourceAsync(
+    asset: AdmittedLocalFile,
+    operation: ActiveStartOperation,
+  ): Promise<Readonly<ClaimedWarmTrackSource> | null> {
+    for (;;) {
+      this.#assertOperationFence(operation);
+      const warm = this.#warmTrackOperation;
+      if (!warm) return null;
+      if (warm.asset !== asset) {
+        await this.#retireWarmTrackOperation(
+          warm,
+          new Error('Host local file candidate replaced a different warm source'),
+        );
+        continue;
+      }
+      try {
+        if (warm.task) await warm.task;
+      } catch (error) {
+        if (containsCleanupFailure(error)) throw error;
+      }
+      this.#assertOperationFence(operation);
+      if (this.#warmTrackOperation !== warm) continue;
+      const authority = warm.authority;
+      if (!authority || authority.backend !== 'bounded-stream' || warm.claimed) {
+        await this.#retireWarmTrackOperation(
+          warm,
+          new Error('Host local file warm source was unavailable for handoff'),
+        );
+        continue;
+      }
+      try {
+        this.#assertWarmTrackAuthority(warm);
+      } catch {
+        await this.#retireWarmTrackOperation(
+          warm,
+          new Error('Host local file warm source became stale before handoff'),
+        );
+        continue;
+      }
+      let resolveHandoff!: () => void;
+      const handoffPromise = new Promise<void>((resolve) => {
+        resolveHandoff = resolve;
+      });
+      warm.claimed = true;
+      warm.claimedBy = operation;
+      warm.handoffBarrier = {
+        promise: handoffPromise,
+        resolve: resolveHandoff,
+        settled: false,
+      };
+      warm.removeExternalAbort();
+      return freezeCanonical({ authority, operation: warm });
+    }
+  }
+
+  #settleClaimedWarmTrack(claimed: Readonly<ClaimedWarmTrackSource>): void {
+    const operation = claimed.operation;
+    const barrier = operation.handoffBarrier;
+    if (!operation.claimed || !barrier || barrier.settled) return;
+    barrier.settled = true;
+    operation.authority = null;
+    operation.claimedBy = null;
+    if (this.#warmTrackOperation === operation) this.#warmTrackOperation = null;
+    barrier.resolve();
+  }
+
   #assertTransitionControllerCommit(
     operation: ActiveTransitionOperation,
     intent:
@@ -2176,17 +2813,21 @@ export class FilePlaybackHostFirstFileEngine {
       throw new Error(`Host ${action} cannot supersede a physical renderer commit`);
     }
     this.#assertRoomClockAuthority();
+    const warmCleanupError = this.#warmCleanupAuthorityError();
     const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
     const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
     if (
       this.#closed ||
       this.#fatalError ||
+      warmCleanupError ||
       snapshot.roomGeneration !== this.#roomGeneration ||
       snapshot.roomRole !== 'host' ||
       snapshot.timeline !== timeline ||
       timeline.revision === Number.MAX_SAFE_INTEGER
     ) {
-      throw this.#fatalError ?? new Error(`Host ${action} room authority is stale`);
+      throw (
+        this.#fatalError ?? warmCleanupError ?? new Error(`Host ${action} room authority is stale`)
+      );
     }
     this.#assertRoomClockAuthority();
     return timeline;
@@ -2280,7 +2921,7 @@ export class FilePlaybackHostFirstFileEngine {
   }
 
   #admitAsset(
-    input: Readonly<CanonicalFileCandidateInput>,
+    input: Readonly<CanonicalFileWarmInput>,
     previousTimeline: PlaybackTimelineSnapshot,
   ): AdmittedLocalFile {
     const existing = this.#assets.get(input.queueItemId);
@@ -2452,6 +3093,7 @@ export class FilePlaybackHostFirstFileEngine {
     input: Readonly<BeginCandidateOperationInput>,
   ): Promise<Readonly<HostPreparedLocalTrack>> {
     let staged: Readonly<StagedLocalFilePlaybackParticipant> | null = null;
+    let claimedWarm: Readonly<ClaimedWarmTrackSource> | null = null;
     try {
       this.#assertOperationFence(operation);
       if (currentPort(this.#manager) !== operation.expectedCurrentPort) {
@@ -2462,27 +3104,44 @@ export class FilePlaybackHostFirstFileEngine {
         runId: input.runId,
         revision: operation.previousTimeline.revision + 1,
       });
-      staged = await stageLocalFilePlaybackParticipant({
-        registry: this.#registry,
-        roomToken: this.#roomToken,
-        assetLease: input.asset.lease,
-        expectedBinding: input.asset.binding,
+      const warmClaim =
+        operation.action === 'first' || operation.action === 'track'
+          ? this.#claimMatchingWarmSource(input.asset, operation)
+          : null;
+      claimedWarm = warmClaim instanceof Promise ? await warmClaim : warmClaim;
+      const participantOptions = {
         manager: this.#manager,
-        audioContext: input.audioContext,
         destination: input.destination,
-        clockBindings: input.clockBindings,
         signal: operation.controller.signal,
         isCurrent: () => this.#candidateAuthorityAllows(operation, playbackState),
-        decodeOrdinaryAudio: input.decodeOrdinaryAudio,
         playbackState,
         participantId: this.#hostParticipantId,
         rttP95Ms: 0,
         armP95Ms: 0,
-        ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
         ...(this.#runtime.localStartRuntime
           ? { runtimeForTests: this.#runtime.localStartRuntime }
           : {}),
-      });
+      };
+      staged = claimedWarm
+        ? await stageWarmLocalFilePlaybackParticipant({
+            warmSource: claimedWarm.authority,
+            ...participantOptions,
+          })
+        : await stageLocalFilePlaybackParticipant({
+            registry: this.#registry,
+            roomToken: this.#roomToken,
+            assetLease: input.asset.lease,
+            expectedBinding: input.asset.binding,
+            audioContext: input.audioContext,
+            clockBindings: input.clockBindings,
+            decodeOrdinaryAudio: input.decodeOrdinaryAudio,
+            ...(this.#boundedRoutePolicy ? { boundedRoutePolicy: this.#boundedRoutePolicy } : {}),
+            ...participantOptions,
+          });
+      if (claimedWarm) {
+        this.#settleClaimedWarmTrack(claimedWarm);
+        claimedWarm = null;
+      }
       this.#ownedPorts.add(staged.port);
       this.#assertOperationFence(operation);
       if (currentPort(this.#manager) !== operation.expectedCurrentPort) {
@@ -2529,10 +3188,23 @@ export class FilePlaybackHostFirstFileEngine {
               : 'host-candidate-failed',
           ),
         );
+      } else if (claimedWarm) {
+        try {
+          await retireFilePlaybackAssetSourceWarm(claimedWarm.authority);
+        } catch (cleanupError) {
+          const failure = new HostFirstFileCleanupError(
+            'Host claimed warm source cleanup failed',
+            new AggregateError([error, cleanupError]),
+          );
+          this.#recordWarmCleanupFailure(failure);
+          throw failure;
+        }
       }
       operation.removeExternalAbort();
       if (this.#activeOperation === operation) this.#activeOperation = null;
       throw error;
+    } finally {
+      if (claimedWarm) this.#settleClaimedWarmTrack(claimedWarm);
     }
   }
 
@@ -2715,17 +3387,21 @@ export class FilePlaybackHostFirstFileEngine {
     allowClosingCommit: boolean,
   ): void {
     this.#assertRoomClockAuthority();
+    const warmCleanupError = this.#warmCleanupAuthorityError();
     const snapshot = Reflect.apply(trustedControllerSnapshot, this.#controller, []);
     const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
     if (
       (!allowClosingCommit && (this.#closed || this.#coordinatorClosed)) ||
       this.#fatalError ||
+      warmCleanupError ||
       snapshot.roomGeneration !== this.#roomGeneration ||
       snapshot.roomRole !== 'host' ||
       snapshot.timeline !== timeline ||
       timeline !== expectedTimeline
     ) {
-      throw this.#fatalError ?? new Error('Host local-file room authority is stale');
+      throw (
+        this.#fatalError ?? warmCleanupError ?? new Error('Host local-file room authority is stale')
+      );
     }
     this.#assertRoomClockAuthority();
   }
@@ -3220,6 +3896,7 @@ export class FilePlaybackHostFirstFileEngine {
   async #closeOwnedRoom(
     activeTask: Promise<unknown> | null,
     coordinatorFailure: unknown,
+    warmCleanup: Promise<void>,
   ): Promise<void> {
     // Always leave the registry mutation that may have reported a fatal error
     // before asking that registry for its idempotent terminal promise.
@@ -3235,6 +3912,11 @@ export class FilePlaybackHostFirstFileEngine {
           cleanupFailure = mergeCleanupFailure(cleanupFailure, error);
         }
       }
+    }
+    try {
+      await warmCleanup;
+    } catch (error) {
+      cleanupFailure = mergeCleanupFailure(cleanupFailure, error);
     }
     try {
       const ports = [...this.#ownedPorts];
@@ -3276,15 +3958,18 @@ export class FilePlaybackHostFirstFileEngine {
     this.#closed = true;
     this.#peerPublicationAuthority = null;
     this.#preparedTrackAuthority = null;
+    const warm = this.#warmTrackOperation;
     this.#cancelAllRemoteRecoveries('remote-recovery-room-quarantined');
     this.#operationEpoch += 1;
+    this.#warmEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
     this.#activeOperation?.controller.abort(error);
+    const warmCleanup = this.#collectWarmCleanup(warm, error);
     if (!this.#closePromise) {
       // Never make terminal cleanup await the task that is currently invoking
       // this quarantine path. The promoted renderer is already manager truth;
       // closeOwnedRoom owns its exact retirement through #ownedPorts.
-      this.#closePromise = this.#closeOwnedRoom(null, coordinatorFailure);
+      this.#closePromise = this.#closeOwnedRoom(null, coordinatorFailure, warmCleanup);
       observe(this.#closePromise);
     }
     this.#notifyFatalAfterTerminalCleanup(this.#fatalError);
@@ -3295,14 +3980,18 @@ export class FilePlaybackHostFirstFileEngine {
     this.#closed = true;
     this.#peerPublicationAuthority = null;
     this.#preparedTrackAuthority = null;
+    const warm = this.#warmTrackOperation;
     this.#cancelAllRemoteRecoveries('remote-recovery-registry-fatal');
     this.#operationEpoch += 1;
+    this.#warmEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
     this.#activeOperation?.controller.abort(error);
+    const warmCleanup = this.#collectWarmCleanup(warm, error);
     if (!this.#closePromise) {
       this.#closePromise = this.#closeOwnedRoom(
         this.#activeOperation?.task ?? null,
         coordinatorFailure,
+        warmCleanup,
       );
       observe(this.#closePromise);
     }
@@ -3358,6 +4047,12 @@ export class FilePlaybackHostFirstFileEngine {
     }
     this.#peerPublicationAuthority = null;
     this.#preparedTrackAuthority = null;
+    if (this.#warmTrackOperation !== null) {
+      throw new HostFirstFileCleanupError(
+        'Host first-file terminal cleanup retained a warm source operation',
+        null,
+      );
+    }
     this.#cancelAllRemoteRecoveries('remote-recovery-terminal-cleanup');
     this.#assets.clear();
     this.#legacyFirstQueueItemId = null;

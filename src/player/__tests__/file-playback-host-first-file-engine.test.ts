@@ -22,6 +22,7 @@ import {
   type HostPreparedLocalTrack,
   type StartHostFirstLocalFileOptions,
   type StartHostLocalTrackOptions,
+  type WarmHostLocalTrackOptions,
 } from '../file-playback-host-first-file-engine.ts';
 import { FilePlaybackManager } from '../file-playback-manager.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
@@ -209,13 +210,18 @@ function acceptedReceipt(intent: RendezvousFinalizeIntent): RendezvousFinalizeRe
 interface FakeSourceOptions {
   readonly rejectArm?: boolean;
   readonly finalizeGate?: ReturnType<typeof deferred<void>>;
+  readonly prepareGate?: ReturnType<typeof deferred<void>>;
+  readonly destroyGate?: ReturnType<typeof deferred<void>>;
+  readonly destroyError?: Error;
 }
 
 interface FakeSourceHarness {
   readonly source: FilePlaybackCutoverSource;
+  readonly prepare: ReturnType<typeof vi.fn>;
   readonly arm: ReturnType<typeof vi.fn>;
   readonly finalize: ReturnType<typeof vi.fn>;
   readonly destroy: ReturnType<typeof vi.fn>;
+  readonly releaseConstructionLease: ReturnType<typeof vi.fn>;
   readonly startAtContextTime: () => number | null;
   resolveStart(): void;
   rejectStart(error?: Error): void;
@@ -255,9 +261,11 @@ function makeSource(
     applied: ReturnType<typeof deferred<ReturnType<typeof createFilePlaybackTransitionEvidence>>>;
   }> | null = null;
   const started = deferred<FilePlaybackStartEvidence>();
+  const prepare = vi.fn();
   const arm = vi.fn();
   const finalize = vi.fn();
   const destroy = vi.fn();
+  const releaseConstructionLease = vi.fn();
   void started.promise.catch(() => undefined);
 
   const snapshot = (): FilePlaybackSourceSnapshot => ({
@@ -282,7 +290,9 @@ function makeSource(
     queueItemId,
     backend,
     async prepare() {
+      prepare();
       phase = 'preparing';
+      if (options.prepareGate) await options.prepareGate.promise;
       phase = 'ready';
       return snapshot();
     },
@@ -379,15 +389,19 @@ function makeSource(
     getSnapshot: snapshot,
     async destroy() {
       destroy();
+      if (options.destroyGate) await options.destroyGate.promise;
+      if (options.destroyError) throw options.destroyError;
       phase = 'destroyed';
     },
   };
 
   return {
     source,
+    prepare,
     arm,
     finalize,
     destroy,
+    releaseConstructionLease,
     startAtContextTime: () => targetTime,
     resolveStart() {
       if (targetFrame === null) throw new Error('No start target is armed');
@@ -463,14 +477,14 @@ function factoryResult(
       source: harness.source as never,
       sourceIdentity,
       audioBuffer: fakeAudioBuffer(),
-      releaseConstructionLease: vi.fn(),
+      releaseConstructionLease: harness.releaseConstructionLease,
     });
   }
   return Object.freeze({
     backend: 'bounded-stream',
     source: harness.source as never,
     sourceIdentity,
-    releaseConstructionLease: vi.fn(),
+    releaseConstructionLease: harness.releaseConstructionLease,
   });
 }
 
@@ -480,6 +494,9 @@ interface StagePlan {
   readonly finalizeGate?: ReturnType<typeof deferred<void>>;
   readonly neverStage?: boolean;
   readonly holdAfterStage?: ReturnType<typeof deferred<void>>;
+  readonly prepareGate?: ReturnType<typeof deferred<void>>;
+  readonly destroyGate?: ReturnType<typeof deferred<void>>;
+  readonly destroyError?: Error;
 }
 
 interface EngineHarness {
@@ -587,6 +604,7 @@ function makeHarness(
   const sources: FakeSourceHarness[] = [];
   const stageRequests: Array<Parameters<typeof stageFilePlaybackAssetSource>[0]> = [];
   const pendingPlans = [...plans];
+  const warmStageGates = new Map<QueueItemId, ReturnType<typeof deferred<void>>>();
   const stageAssetSourceForTests: NonNullable<
     FilePlaybackHostFirstFileEngineRuntimeForTests['localStartRuntimeForTests']
   >['stageAssetSourceForTests'] = async (stageOptions) => {
@@ -597,6 +615,9 @@ function makeHarness(
     const source = makeSource(stageOptions.expectedBinding.queueItemId, plan.backend, context, {
       rejectArm: plan.rejectArm,
       finalizeGate: plan.finalizeGate,
+      prepareGate: plan.prepareGate,
+      destroyGate: plan.destroyGate,
+      destroyError: plan.destroyError,
     });
     sources.push(source);
     const staged = await stageFilePlaybackAssetSource({
@@ -622,6 +643,52 @@ function makeHarness(
     createRendezvousIdForTests: () => `host-first-rendezvous-${++rendezvousSequence}`,
     createManagerForTests: () => options.managerFactory?.(manager) ?? manager,
     localStartRuntimeForTests: { stageAssetSourceForTests },
+    warmSourceRuntimeForTests: {
+      createBlobSource: async (sourceOptions) => {
+        const plan = pendingPlans.shift();
+        if (!plan) throw new Error('No warm source plan remains');
+        if (plan.neverStage) return new Promise(() => undefined);
+        const source = makeSource(sourceOptions.queueItemId, plan.backend, context, {
+          rejectArm: plan.rejectArm,
+          finalizeGate: plan.finalizeGate,
+          prepareGate: plan.prepareGate,
+          destroyGate: plan.destroyGate,
+          destroyError: plan.destroyError,
+        });
+        sources.push(source);
+        if (plan.holdAfterStage) {
+          warmStageGates.set(sourceOptions.queueItemId, plan.holdAfterStage);
+        }
+        return factoryResult(source, sourceOptions.sourceIdentity);
+      },
+      createEncodedSource: async (sourceOptions) => {
+        const plan = pendingPlans.shift();
+        if (!plan) throw new Error('No warm source plan remains');
+        if (plan.neverStage) return new Promise(() => undefined);
+        const source = makeSource(sourceOptions.queueItemId, plan.backend, context, {
+          rejectArm: plan.rejectArm,
+          finalizeGate: plan.finalizeGate,
+          prepareGate: plan.prepareGate,
+          destroyGate: plan.destroyGate,
+          destroyError: plan.destroyError,
+        });
+        sources.push(source);
+        if (plan.holdAfterStage) {
+          warmStageGates.set(sourceOptions.queueItemId, plan.holdAfterStage);
+        }
+        return factoryResult(source, sourceOptions.encodedSource.identity);
+      },
+      stageCandidate: async (manager, candidateOptions) => {
+        const port = await manager.stageCutoverCandidate(candidateOptions);
+        const queueItemId = candidateOptions.source.queueItemId;
+        const gate = warmStageGates.get(queueItemId);
+        if (gate) {
+          warmStageGates.delete(queueItemId);
+          await gate.promise;
+        }
+        return port;
+      },
+    },
     ...(options.beforeControllerCommit
       ? { beforeControllerCommitForTests: options.beforeControllerCommit }
       : {}),
@@ -727,6 +794,26 @@ function localTrackOptions(
     })),
     signal: new AbortController().signal,
     positionSeconds,
+  };
+}
+
+function warmTrackOptions(
+  harness: EngineHarness,
+  queueItemId: QueueItemId,
+  blob: Blob,
+  signal = new AbortController().signal,
+): WarmHostLocalTrackOptions {
+  return {
+    queueItemId,
+    blob,
+    name: queueItemId === Q1 ? 'first.flac' : 'replacement.flac',
+    mime: blob.type,
+    audioContext: harness.context as unknown as AudioContext,
+    decodeOrdinaryAudio: vi.fn(async () => ({
+      audioBuffer: fakeAudioBuffer(),
+      release: vi.fn(),
+    })),
+    signal,
   };
 }
 
@@ -946,6 +1033,446 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     ).toThrow(/M4A backend must be exactly webcodecs/u);
     expect(managerFactory).not.toHaveBeenCalled();
   });
+
+  it('warms one bounded source without allocating a run or manager slot, then binds revision at handoff', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }], {
+      initialTimeline: createStoppedPlaybackTimeline(1_000, 6),
+    });
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/flac' });
+    const before = harness.controller.timelineSnapshot();
+
+    const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+
+    expect(warm).toMatchObject({
+      schemaVersion: 1,
+      roomGeneration: 1,
+      status: 'warmed',
+      backend: 'bounded-stream',
+      asset: { binding: { queueItemId: Q1 }, encodedSize: 3 },
+      readiness: { durationSeconds: 180, outputSampleRateHz: 48_000, channelCount: 2 },
+    });
+    expectBodyFree(warm);
+    expect(harness.controller.timelineSnapshot()).toBe(before);
+    expect(harness.createRunId).not.toHaveBeenCalled();
+    expect(harness.manager.currentCutoverPort()).toBeNull();
+    expect(harness.manager.snapshot()).toEqual({ active: null, standby: null });
+    expect(harness.sources).toHaveLength(1);
+    expect(harness.sources[0]?.prepare).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.source.getSnapshot().phase).toBe('ready');
+    expect(harness.sources[0]?.releaseConstructionLease).not.toHaveBeenCalled();
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 4),
+    );
+    expect(prepared).toMatchObject({
+      backend: 'bounded-stream',
+      state: { queueItemId: Q1, runId: RUN_1, revision: 7 },
+      positionSeconds: 4,
+    });
+    expect(harness.createRunId).toHaveBeenCalledOnce();
+    expect(harness.sources).toHaveLength(1);
+    expect(harness.sources[0]?.prepare).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+    expect(harness.stageRequests).toHaveLength(0);
+
+    const pending = harness.engine.startPreparedLocalTrack({
+      prepared,
+      remoteParticipants: [],
+    });
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it('does not retain an AudioBuffer warm result and falls back to the ordinary cold path', async () => {
+    const harness = makeHarness([{ backend: 'audio-buffer' }, { backend: 'audio-buffer' }]);
+    const blob = new Blob([new Uint8Array([4, 5, 6])], { type: 'audio/mpeg' });
+
+    const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    expect(warm).toMatchObject({ status: 'skipped-non-bounded', backend: 'audio-buffer' });
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+    expect(harness.manager.currentCutoverPort()).toBeNull();
+    expect(harness.createRunId).not.toHaveBeenCalled();
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    expect(prepared.backend).toBe('audio-buffer');
+    expect(harness.sources).toHaveLength(2);
+    expect(harness.stageRequests).toHaveLength(1);
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it('explicitly clears only the matching warm renderer while preserving its room asset', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([6, 7])], { type: 'audio/flac' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+
+    await expect(harness.engine.clearWarmLocalTrack({ queueItemId: Q2 })).resolves.toBe(false);
+    expect(harness.sources[0]?.destroy).not.toHaveBeenCalled();
+    await expect(harness.engine.clearWarmLocalTrack({ queueItemId: Q1 })).resolves.toBe(true);
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+    await expect(harness.engine.clearWarmLocalTrack({ queueItemId: Q1 })).resolves.toBe(false);
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    expect(prepared.backend).toBe('bounded-stream');
+    expect(harness.sources).toHaveLength(2);
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it('keeps the caller AbortSignal authoritative until a ready warm source is consumed', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }]);
+    const controller = new AbortController();
+    const blob = new Blob([new Uint8Array([16, 17])], { type: 'audio/flac' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob, controller.signal));
+
+    controller.abort(new Error('fixture ready warm cancelled'));
+    await drainMicrotasks(128);
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+    await expect(harness.engine.clearWarmLocalTrack({ queueItemId: Q1 })).resolves.toBe(false);
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    expect(prepared.backend).toBe('bounded-stream');
+    expect(harness.sources).toHaveLength(2);
+    expect(harness.stageRequests).toHaveLength(1);
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it('quarantines the room when detached ready-abort cleanup cannot prove destruction', async () => {
+    const cleanupError = new Error('fixture detached warm destroy failed');
+    const harness = makeHarness([{ backend: 'bounded-stream', destroyError: cleanupError }]);
+    const controller = new AbortController();
+    const blob = new Blob([new Uint8Array([25])], { type: 'audio/flac' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob, controller.signal));
+
+    controller.abort(new Error('fixture detached cancellation'));
+    await drainMicrotasks(256);
+
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+    await expect(harness.engine.close()).rejects.toThrow(/warm|cleanup/u);
+    await drainMicrotasks();
+    expect(harness.fatal).toHaveBeenCalledOnce();
+  });
+
+  it('lets an exact clear win before claim and cold-falls back instead of using stale warm authority', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([18])], { type: 'audio/flac' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+
+    const preparing = harness.engine.prepareLocalTrack(localTrackOptions(harness, Q1, blob, 0));
+    const clearing = harness.engine.clearWarmLocalTrack({ queueItemId: Q1 });
+    await expect(clearing).resolves.toBe(true);
+    const prepared = await preparing;
+
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources).toHaveLength(2);
+    expect(harness.stageRequests).toHaveLength(1);
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it('serializes a new warm source behind an exact claimed-source manager handoff', async () => {
+    const handoffGate = deferred<void>();
+    const harness = makeHarness([
+      { backend: 'bounded-stream', holdAfterStage: handoffGate },
+      { backend: 'bounded-stream' },
+    ]);
+    const firstBlob = new Blob([new Uint8Array([19])], { type: 'audio/flac' });
+    const secondBlob = new Blob([new Uint8Array([20])], { type: 'audio/flac' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, firstBlob));
+
+    const preparing = harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, firstBlob, 0),
+    );
+    await drainMicrotasks(128);
+    expect(harness.sources[0]?.source.getSnapshot().phase).toBe('connected');
+
+    const nextWarm = harness.engine.warmLocalTrack(warmTrackOptions(harness, Q2, secondBlob));
+    await drainMicrotasks(128);
+    expect(harness.sources).toHaveLength(1);
+
+    handoffGate.resolve();
+    await expect(preparing).resolves.toMatchObject({ backend: 'bounded-stream' });
+    await expect(nextWarm).resolves.toMatchObject({
+      status: 'warmed',
+      asset: { binding: { queueItemId: Q2 } },
+    });
+    expect(harness.sources).toHaveLength(2);
+    await harness.engine.close();
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[1]?.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('shares one exact warm cleanup failure between concurrent clear and close', async () => {
+    const destroyGate = deferred<void>();
+    const cleanupError = new Error('fixture warm destroy failed');
+    const harness = makeHarness([
+      { backend: 'bounded-stream', destroyGate, destroyError: cleanupError },
+    ]);
+    const blob = new Blob([new Uint8Array([21])], { type: 'audio/flac' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+
+    const clearing = harness.engine.clearWarmLocalTrack({ queueItemId: Q1 });
+    await drainMicrotasks();
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    const closing = harness.engine.close();
+    destroyGate.resolve();
+
+    await expect(clearing).rejects.toThrow(/warm retirement failed/u);
+    await expect(closing).rejects.toThrow(/warm cleanup did not complete safely/u);
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+  });
+
+  it('hard-blocks future renderer admission and later close after an observed clear failure', async () => {
+    const cleanupError = new Error('fixture observed clear destroy failed');
+    const harness = makeHarness([{ backend: 'bounded-stream', destroyError: cleanupError }]);
+    const blob = new Blob([new Uint8Array([26])], { type: 'audio/flac' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+
+    await expect(harness.engine.clearWarmLocalTrack({ queueItemId: Q1 })).rejects.toThrow(
+      /warm retirement failed/u,
+    );
+    await expect(
+      harness.engine.prepareLocalTrack(localTrackOptions(harness, Q1, blob, 0)),
+    ).rejects.toThrow(/warm retirement failed/u);
+    expect(harness.sources).toHaveLength(1);
+    expect(harness.stageRequests).toHaveLength(0);
+    await expect(harness.engine.close()).rejects.toThrow(/warm cleanup did not complete safely/u);
+  });
+
+  it('classifies non-bounded destroy failure as mandatory cleanup for a racing close', async () => {
+    const destroyGate = deferred<void>();
+    const cleanupError = new Error('fixture non-bounded destroy failed');
+    const harness = makeHarness([
+      { backend: 'audio-buffer', destroyGate, destroyError: cleanupError },
+    ]);
+    const blob = new Blob([new Uint8Array([22])], { type: 'audio/mpeg' });
+
+    const warming = harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    await drainMicrotasks(128);
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    const closing = harness.engine.close();
+    destroyGate.resolve();
+
+    await expect(warming).rejects.toThrow(/non-bounded warm source cleanup failed/u);
+    await expect(closing).rejects.toThrow(/warm cleanup did not complete safely/u);
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+  });
+
+  it('retains a settled non-bounded cleanup failure for later admission and close', async () => {
+    const cleanupError = new Error('fixture settled non-bounded destroy failed');
+    const harness = makeHarness([{ backend: 'audio-buffer', destroyError: cleanupError }]);
+    const blob = new Blob([new Uint8Array([27])], { type: 'audio/mpeg' });
+
+    await expect(
+      harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob)),
+    ).rejects.toThrow(/non-bounded warm source cleanup failed/u);
+    await expect(
+      harness.engine.prepareLocalTrack(localTrackOptions(harness, Q1, blob, 0)),
+    ).rejects.toThrow(/non-bounded warm source cleanup failed/u);
+    expect(harness.sources).toHaveLength(1);
+    expect(harness.stageRequests).toHaveLength(0);
+    await expect(harness.engine.close()).rejects.toThrow(/warm cleanup did not complete safely/u);
+  });
+
+  it('waits for an abort-resistant mismatched warm cleanup before cold construction', async () => {
+    const prepareGate = deferred<void>();
+    const harness = makeHarness([
+      { backend: 'bounded-stream', prepareGate },
+      { backend: 'audio-buffer' },
+    ]);
+    const warmBlob = new Blob([new Uint8Array([23])], { type: 'audio/flac' });
+    const requestedBlob = new Blob([new Uint8Array([24])], { type: 'audio/mpeg' });
+    const warming = harness.engine.warmLocalTrack(warmTrackOptions(harness, Q2, warmBlob));
+    await drainMicrotasks();
+
+    const preparing = harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, requestedBlob, 0),
+    );
+    await drainMicrotasks(128);
+    expect(harness.sources).toHaveLength(1);
+    expect(harness.stageRequests).toHaveLength(0);
+
+    prepareGate.resolve();
+    await expect(warming).rejects.toThrow(/replaced|superseded/u);
+    const prepared = await preparing;
+    expect(prepared.backend).toBe('audio-buffer');
+    expect(harness.sources).toHaveLength(2);
+    expect(harness.stageRequests).toHaveLength(1);
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it('fully retires a late superseded warm source before constructing its replacement', async () => {
+    const firstPrepare = deferred<void>();
+    const harness = makeHarness([
+      { backend: 'bounded-stream', prepareGate: firstPrepare },
+      { backend: 'bounded-stream' },
+    ]);
+    const firstBlob = new Blob([new Uint8Array([7])], { type: 'audio/flac' });
+    const secondBlob = new Blob([new Uint8Array([8])], { type: 'audio/flac' });
+
+    const first = harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, firstBlob));
+    await drainMicrotasks();
+    expect(harness.sources).toHaveLength(1);
+    expect(harness.sources[0]?.source.getSnapshot().phase).toBe('preparing');
+
+    const second = harness.engine.warmLocalTrack(warmTrackOptions(harness, Q2, secondBlob));
+    await drainMicrotasks();
+    expect(harness.sources).toHaveLength(1);
+
+    firstPrepare.resolve();
+    await expect(first).rejects.toThrow(/superseded/u);
+    await expect(second).resolves.toMatchObject({
+      status: 'warmed',
+      asset: { binding: { queueItemId: Q2 } },
+    });
+    expect(harness.sources).toHaveLength(2);
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+    expect(harness.sources[1]?.source.getSnapshot().phase).toBe('ready');
+    await harness.engine.close();
+    expect(harness.sources[1]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[1]?.releaseConstructionLease).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a next-track warm source across current pause and binds the latest exact revision', async () => {
+    const harness = makeHarness([{ backend: 'audio-buffer' }, { backend: 'bounded-stream' }]);
+    const currentBlob = new Blob([new Uint8Array([9])], { type: 'audio/mpeg' });
+    const nextBlob = new Blob([new Uint8Array([10])], { type: 'audio/flac' });
+    await resolveLatestStart(harness, harness.start(currentBlob, { name: 'current.mp3' }));
+
+    await expect(
+      harness.engine.warmLocalTrack(warmTrackOptions(harness, Q2, nextBlob)),
+    ).resolves.toMatchObject({ status: 'warmed' });
+    const paused = await pauseCurrent(harness);
+    expect(paused).toMatchObject({ phase: 'paused', revision: 2 });
+    harness.setRoomTime(paused.anchorMonotonicMs);
+    expect(harness.sources[1]?.source.getSnapshot().phase).toBe('ready');
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q2, nextBlob, 0),
+    );
+    expect(prepared).toMatchObject({
+      backend: 'bounded-stream',
+      state: { queueItemId: Q2, runId: RUN_2, revision: 3 },
+    });
+    expect(harness.sources).toHaveLength(2);
+    expect(harness.sources[1]?.prepare).toHaveBeenCalledOnce();
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it('does not consume or retire a next-track warm source while resuming the current run', async () => {
+    const harness = makeHarness([
+      { backend: 'audio-buffer' },
+      { backend: 'bounded-stream' },
+      { backend: 'audio-buffer' },
+    ]);
+    const currentBlob = new Blob([new Uint8Array([14])], { type: 'audio/mpeg' });
+    const nextBlob = new Blob([new Uint8Array([15])], { type: 'audio/flac' });
+    await resolveLatestStart(harness, harness.start(currentBlob, { name: 'current.mp3' }));
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q2, nextBlob));
+    const warmSource = harness.sources[1]!;
+
+    harness.setRoomTime(2_000);
+    const pausing = harness.engine.pauseCurrent({ signal: new AbortController().signal });
+    await drainMicrotasks();
+    harness.sources[0]?.resolvePause();
+    const paused = await pausing;
+    harness.setRoomTime(paused.timeline.anchorMonotonicMs);
+
+    const resumed = await resolveLatestStart(
+      harness,
+      harness.engine.resumeCurrent({ signal: new AbortController().signal }),
+    );
+    expect(resumed.timeline).toMatchObject({ phase: 'playing', revision: 3 });
+    expect(warmSource.destroy).not.toHaveBeenCalled();
+    expect(warmSource.source.getSnapshot().phase).toBe('ready');
+    harness.setRoomTime(resumed.timeline.anchorMonotonicMs);
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q2, nextBlob, 0),
+    );
+    expect(prepared).toMatchObject({
+      state: { queueItemId: Q2, runId: RUN_2, revision: 4 },
+      backend: 'bounded-stream',
+    });
+    expect(harness.sources).toHaveLength(3);
+    expect(warmSource.prepare).toHaveBeenCalledOnce();
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await drainMicrotasks();
+    expect(warmSource.arm).toHaveBeenCalledOnce();
+    expect(warmSource.finalize).toHaveBeenCalledOnce();
+    harness.context.currentTime = warmSource.startAtContextTime()!;
+    warmSource.resolveStart();
+    await expect(pending).resolves.toMatchObject({ timeline: { revision: 4 } });
+    await harness.engine.close();
+  });
+
+  it('retires a different ready warm source before cold-staging the requested track', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }, { backend: 'audio-buffer' }]);
+    const warmBlob = new Blob([new Uint8Array([11])], { type: 'audio/flac' });
+    const requestedBlob = new Blob([new Uint8Array([12])], { type: 'audio/mpeg' });
+    await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q2, warmBlob));
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, requestedBlob, 0),
+    );
+    expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+    expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+    expect(prepared.backend).toBe('audio-buffer');
+    expect(harness.sources).toHaveLength(2);
+    expect(harness.stageRequests).toHaveLength(1);
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it.each(['preparing', 'ready'] as const)(
+    'joins and retires a %s warm source before terminal registry cleanup',
+    async (phase) => {
+      const prepareGate = phase === 'preparing' ? deferred<void>() : undefined;
+      const harness = makeHarness([
+        { backend: 'bounded-stream', ...(prepareGate ? { prepareGate } : {}) },
+      ]);
+      const blob = new Blob([new Uint8Array([13])], { type: 'audio/flac' });
+      const warm = harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+      if (phase === 'ready') {
+        await warm;
+      } else {
+        await drainMicrotasks();
+        expect(harness.sources[0]?.source.getSnapshot().phase).toBe('preparing');
+      }
+
+      const firstClose = harness.engine.close();
+      expect(harness.engine.close()).toBe(firstClose);
+      prepareGate?.resolve();
+      if (phase === 'preparing') await expect(warm).rejects.toThrow(/closed|superseded/u);
+      await expect(firstClose).resolves.toBeUndefined();
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+      expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
+      expect(harness.manager.currentCutoverPort()).toBeNull();
+    },
+  );
 
   it('publishes transition schedule before evidence and canonical truth after commit', async () => {
     const order: string[] = [];

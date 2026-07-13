@@ -67,13 +67,15 @@ export interface MpegLayer3SeekIndexOptions {
   readonly maxPoints?: number;
 }
 
-const DEFAULT_MAX_POINTS = 8_192;
+export const MP3_SEEK_INDEX_MAX_POINTS = 8_192;
+export const MP3_SEEK_MAX_RESERVOIR_HISTORY_FRAMES = 511;
+export const MP3_SEEK_MAX_SYNTHESIS_WARMUP_FRAMES = 511;
+export const MP3_SEEK_MAX_PROTECTED_PRELUDE_FRAMES =
+  MP3_SEEK_MAX_RESERVOIR_HISTORY_FRAMES + MP3_SEEK_MAX_SYNTHESIS_WARMUP_FRAMES;
+
+const DEFAULT_MAX_POINTS = MP3_SEEK_INDEX_MAX_POINTS;
 const MINIMUM_MAX_POINTS = 1_024;
-const MAXIMUM_MAX_POINTS = 8_192;
 const DEFAULT_SYNTHESIS_WARMUP_FRAMES = 16;
-const MAX_RESERVOIR_HISTORY_FRAMES = 511;
-const MAX_SYNTHESIS_WARMUP_FRAMES = 511;
-const MAX_PROTECTED_PRELUDE_FRAMES = MAX_RESERVOIR_HISTORY_FRAMES + MAX_SYNTHESIS_WARMUP_FRAMES;
 const MAX_LAYER_3_FRAME_BYTES = 1_441;
 
 function isNonNegativeSafeInteger(value: number): boolean {
@@ -207,10 +209,10 @@ export class MpegLayer3SeekIndex {
     if (
       !Number.isSafeInteger(maxPoints) ||
       maxPoints < MINIMUM_MAX_POINTS ||
-      maxPoints > MAXIMUM_MAX_POINTS
+      maxPoints > MP3_SEEK_INDEX_MAX_POINTS
     ) {
       throw new RangeError(
-        `MP3 seek index maxPoints must be between ${MINIMUM_MAX_POINTS} and ${MAXIMUM_MAX_POINTS}`,
+        `MP3 seek index maxPoints must be between ${MINIMUM_MAX_POINTS} and ${MP3_SEEK_INDEX_MAX_POINTS}`,
       );
     }
 
@@ -345,10 +347,10 @@ export class MpegLayer3SeekIndex {
     if (
       !Number.isSafeInteger(minimumWarmupFrames) ||
       minimumWarmupFrames < 0 ||
-      minimumWarmupFrames > MAX_SYNTHESIS_WARMUP_FRAMES
+      minimumWarmupFrames > MP3_SEEK_MAX_SYNTHESIS_WARMUP_FRAMES
     ) {
       throw new RangeError(
-        `MP3 synthesis warmup must be between 0 and ${MAX_SYNTHESIS_WARMUP_FRAMES} frames`,
+        `MP3 synthesis warmup must be between 0 and ${MP3_SEEK_MAX_SYNTHESIS_WARMUP_FRAMES} frames`,
       );
     }
     if (targetRawSample % this.samplesPerFrame !== 0) {
@@ -501,7 +503,10 @@ export class MpegLayer3SeekIndex {
       const terminalIndex = this.points.length - 1;
       let protectedTailStart = terminalIndex;
       let protectedPredecessors = 0;
-      while (protectedTailStart > 0 && protectedPredecessors < MAX_PROTECTED_PRELUDE_FRAMES) {
+      while (
+        protectedTailStart > 0 &&
+        protectedPredecessors < MP3_SEEK_MAX_PROTECTED_PRELUDE_FRAMES
+      ) {
         const current = this.points[protectedTailStart];
         const previous = this.points[protectedTailStart - 1];
         if (!current || !previous || previous.frameOrdinal + 1 !== current.frameOrdinal) break;

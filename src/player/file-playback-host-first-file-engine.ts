@@ -123,7 +123,8 @@ const WARM_LOCAL_TRACK_KEYS = Object.freeze([
   'decodeOrdinaryAudio',
   'signal',
 ] as const);
-const CLEAR_WARM_LOCAL_TRACK_KEYS = Object.freeze(['queueItemId'] as const);
+const CLEAR_WARM_LOCAL_TRACK_BY_QUEUE_KEYS = Object.freeze(['queueItemId'] as const);
+const CLEAR_WARM_LOCAL_TRACK_BY_LEASE_KEYS = Object.freeze(['sourceLease'] as const);
 const START_PREPARED_TRACK_KEYS = Object.freeze(['prepared', 'remoteParticipants'] as const);
 const PREPARED_REMOTE_PARTICIPANT_KEYS = Object.freeze(['bindAttempt', 'participant'] as const);
 const CURRENT_OPERATION_KEYS = Object.freeze(['signal'] as const);
@@ -138,6 +139,11 @@ const RESOLVE_PREPARED_PEER_SOURCE_KEYS = Object.freeze([
   'prepared',
   'signal',
   'sourceIdentity',
+] as const);
+const RESOLVE_WARM_PEER_SOURCE_KEYS = Object.freeze([
+  'signal',
+  'sourceIdentity',
+  'sourceLease',
 ] as const);
 const RECOVER_REMOTE_KEYS = Object.freeze([
   'bindAttempt',
@@ -242,9 +248,28 @@ export interface WarmHostLocalTrackOptions {
   readonly signal: AbortSignal;
 }
 
-export interface ClearHostLocalTrackWarmOptions {
+declare const hostLocalTrackSourceLeaseBrand: unique symbol;
+
+/**
+ * Opaque authority for one exact engine-owned bounded warm source. Runtime
+ * authenticity is retained only by the issuing engine and cannot be copied.
+ */
+export interface HostLocalTrackSourceLease {
+  readonly [hostLocalTrackSourceLeaseBrand]: never;
+}
+
+export interface ClearHostLocalTrackWarmByLeaseOptions {
+  readonly sourceLease: HostLocalTrackSourceLease;
+}
+
+/** Compatibility surface for the product facade's serialized, ABA-safe lane. */
+export interface ClearHostLocalTrackWarmByQueueOptions {
   readonly queueItemId: QueueItemId;
 }
+
+export type ClearHostLocalTrackWarmOptions =
+  | ClearHostLocalTrackWarmByLeaseOptions
+  | ClearHostLocalTrackWarmByQueueOptions;
 
 export interface HostCurrentPlaybackOperationOptions {
   readonly signal: AbortSignal;
@@ -325,6 +350,8 @@ export interface HostPreparedLocalTrack {
   readonly positionSeconds: number;
   readonly playbackRate: number;
   readonly asset: Readonly<HostPeerPlaybackAssetPublication>;
+  /** Preserved only when this candidate consumed the exact bounded warm source. */
+  readonly sourceLease: HostLocalTrackSourceLease | null;
 }
 
 /** Body-free observation only; the engine retains all authority over the warm source. */
@@ -335,6 +362,12 @@ export interface HostLocalTrackWarmResult {
   readonly backend: FilePlaybackBackend;
   readonly asset: Readonly<HostPeerPlaybackAssetPublication>;
   readonly readiness: Readonly<FilePlaybackPreparedSourceReadiness>;
+  /**
+   * Exact source authority for engine-issued `warmed` results; engine-issued
+   * `skipped-non-bounded` results set null. Optional only for compatibility
+   * with the still-unmigrated product projection.
+   */
+  readonly sourceLease?: HostLocalTrackSourceLease | null;
 }
 
 /** One already-source-ready remote participant admitted to the initial cohort. */
@@ -369,6 +402,12 @@ export interface ResolveHostPeerRangeSourceOptions {
 
 export interface ResolvePreparedHostPeerRangeSourceOptions {
   readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly sourceIdentity: string;
+  readonly signal: AbortSignal;
+}
+
+export interface ResolveWarmHostPeerRangeSourceOptions {
+  readonly sourceLease: HostLocalTrackSourceLease;
   readonly sourceIdentity: string;
   readonly signal: AbortSignal;
 }
@@ -543,6 +582,7 @@ interface PreparedTrackAuthority {
   readonly input: Readonly<BeginCandidateOperationInput>;
   readonly playbackState: Readonly<PlaybackStateIdentity>;
   readonly staged: Readonly<StagedLocalFilePlaybackParticipant>;
+  readonly sourceLease: HostLocalTrackSourceLease | null;
   started: boolean;
 }
 
@@ -553,10 +593,18 @@ interface WarmTrackOperation {
   readonly removeExternalAbort: () => void;
   task: Promise<Readonly<HostLocalTrackWarmResult>> | null;
   authority: Readonly<FilePlaybackWarmSourceAuthority> | null;
+  sourceLease: HostLocalTrackSourceLease | null;
   claimed: boolean;
   claimedBy: ActiveStartOperation | null;
   handoffBarrier: WarmTrackHandoffBarrier | null;
   retirementPromise: Promise<void> | null;
+}
+
+interface WarmSourceLeaseAuthority {
+  readonly lease: HostLocalTrackSourceLease;
+  readonly operation: WarmTrackOperation;
+  readonly asset: Readonly<FilePlaybackAssetSnapshot>;
+  preparedAuthority: PreparedTrackAuthority | null;
 }
 
 interface WarmTrackHandoffBarrier {
@@ -1014,6 +1062,10 @@ export class FilePlaybackHostFirstFileEngine {
   readonly #portRetirements = new Map<FilePlaybackCutoverCandidatePort, Promise<void>>();
   readonly #remoteRecoveries = new Map<string, ActiveRemoteRecovery>();
   readonly #detachedWarmRetirements = new Set<Promise<void>>();
+  readonly #warmSourceLeaseAuthorities = new WeakMap<
+    HostLocalTrackSourceLease,
+    WarmSourceLeaseAuthority
+  >();
   #peerPublicationAuthority: PeerPublicationAuthority | null = null;
   #preparedTrackAuthority: PreparedTrackAuthority | null = null;
   #warmTrackOperation: WarmTrackOperation | null = null;
@@ -1196,12 +1248,23 @@ export class FilePlaybackHostFirstFileEngine {
   /** Retires the exact queued warm source without touching the admitted asset lease. */
   clearWarmLocalTrack(options: ClearHostLocalTrackWarmOptions): Promise<boolean> {
     try {
-      const input = snapshotExactRecord(options, CLEAR_WARM_LOCAL_TRACK_KEYS);
-      if (!input || !isQueueItemId(input.queueItemId)) {
+      const byLease = snapshotExactRecord(options, CLEAR_WARM_LOCAL_TRACK_BY_LEASE_KEYS);
+      const byQueue = byLease
+        ? null
+        : snapshotExactRecord(options, CLEAR_WARM_LOCAL_TRACK_BY_QUEUE_KEYS);
+      if (!byLease && (!byQueue || !isQueueItemId(byQueue.queueItemId))) {
         throw new TypeError('Host local file warm clear options are invalid');
       }
       const operation = this.#warmTrackOperation;
-      if (!operation || operation.claimed || operation.asset.queueItemId !== input.queueItemId) {
+      const leaseAuthority = byLease
+        ? this.#warmSourceLeaseAuthorities.get(byLease.sourceLease as HostLocalTrackSourceLease)
+        : null;
+      const matches = byLease
+        ? leaseAuthority?.operation === operation &&
+          leaseAuthority.lease === byLease.sourceLease &&
+          operation?.sourceLease === byLease.sourceLease
+        : operation?.asset.queueItemId === byQueue?.queueItemId;
+      if (!operation || operation.claimed || !matches) {
         return Promise.resolve(false);
       }
       this.#warmEpoch += 1;
@@ -1609,6 +1672,69 @@ export class FilePlaybackHostFirstFileEngine {
       await Promise.resolve();
       throwIfAborted(signal);
       this.#assertPreparedTrackAuthority(authority);
+      const resolved = source;
+      source = null;
+      return resolved;
+    } catch (error) {
+      if (source) await closeEncodedSourceWithoutMasking(source);
+      throw error;
+    }
+  }
+
+  async resolveWarmPeerRangeSource(
+    options: ResolveWarmHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource> {
+    const input = snapshotExactRecord(options, RESOLVE_WARM_PEER_SOURCE_KEYS);
+    if (
+      !input ||
+      !(input.signal instanceof AbortSignal) ||
+      !isBoundedIdentifier(input.sourceIdentity, MAX_APPLICATION_SCOPE_ID_LENGTH * 2)
+    ) {
+      throw new TypeError('Host warm peer-range source resolution options are invalid');
+    }
+    const signal = input.signal;
+    const authority = this.#requireWarmSourceLeaseAuthority(input.sourceLease);
+    this.#assertWarmSourceLeaseAuthority(authority);
+    const admitted = authority.operation.asset;
+    const asset = authority.asset;
+    if (input.sourceIdentity !== asset.sourceIdentity) {
+      throw new Error('Host warm peer-range source identity is not the exact lease');
+    }
+    throwIfAborted(signal);
+
+    const blobResolution = this.#registry.resolveBlobAsset(this.#roomToken, admitted.lease);
+    if (blobResolution) {
+      if (
+        blobResolution.binding.queueItemId !== asset.queueItemId ||
+        blobResolution.binding.sourceIdentity !== asset.sourceIdentity ||
+        blobResolution.binding.transferSessionId !== asset.transferSessionId ||
+        blobResolution.metadata.name !== asset.name ||
+        blobResolution.metadata.mime !== asset.mime ||
+        blobResolution.blob.size !== asset.size
+      ) {
+        throw new Error('Host warm peer-range Blob changed its exact binding');
+      }
+      await Promise.resolve();
+      throwIfAborted(signal);
+      this.#assertWarmSourceLeaseAuthority(authority);
+      return blobResolution.blob;
+    }
+
+    let source: EncodedAudioSource | null = null;
+    try {
+      source = this.#registry.acquireSource(this.#roomToken, admitted.lease);
+      if (
+        source.kind !== asset.kind ||
+        source.identity !== asset.sourceIdentity ||
+        source.size !== asset.size ||
+        source.metadata.name !== asset.name ||
+        source.metadata.mime !== asset.mime
+      ) {
+        throw new Error('Host warm peer-range encoded source changed its exact binding');
+      }
+      await Promise.resolve();
+      throwIfAborted(signal);
+      this.#assertWarmSourceLeaseAuthority(authority);
       const resolved = source;
       source = null;
       return resolved;
@@ -2404,6 +2530,7 @@ export class FilePlaybackHostFirstFileEngine {
       removeExternalAbort,
       task: null,
       authority: null,
+      sourceLease: null,
       claimed: false,
       claimedBy: null,
       handoffBarrier: null,
@@ -2448,6 +2575,7 @@ export class FilePlaybackHostFirstFileEngine {
       operation.authority = authority;
       this.#assertWarmTrackAuthority(operation);
       const result = this.#warmTrackResult(
+        operation,
         authority,
         authority.backend === 'bounded-stream' ? 'warmed' : 'skipped-non-bounded',
       );
@@ -2490,10 +2618,22 @@ export class FilePlaybackHostFirstFileEngine {
   }
 
   #warmTrackResult(
+    operation: WarmTrackOperation,
     authority: Readonly<FilePlaybackWarmSourceAuthority>,
     status: HostLocalTrackWarmResult['status'],
   ): Readonly<HostLocalTrackWarmResult> {
     const asset = authority.asset;
+    let sourceLease: HostLocalTrackSourceLease | null = null;
+    if (status === 'warmed') {
+      sourceLease = freezeCanonical({}) as HostLocalTrackSourceLease;
+      operation.sourceLease = sourceLease;
+      this.#warmSourceLeaseAuthorities.set(sourceLease, {
+        lease: sourceLease,
+        operation,
+        asset,
+        preparedAuthority: null,
+      });
+    }
     return freezeCanonical({
       schemaVersion: 1 as const,
       roomGeneration: this.#roomGeneration,
@@ -2510,6 +2650,7 @@ export class FilePlaybackHostFirstFileEngine {
         encodedSize: asset.size,
       }),
       readiness: authority.readiness,
+      sourceLease,
     });
   }
 
@@ -2760,7 +2901,6 @@ export class FilePlaybackHostFirstFileEngine {
     if (!operation.claimed || !barrier || barrier.settled) return;
     barrier.settled = true;
     operation.authority = null;
-    operation.claimedBy = null;
     if (this.#warmTrackOperation === operation) this.#warmTrackOperation = null;
     barrier.resolve();
   }
@@ -3094,6 +3234,7 @@ export class FilePlaybackHostFirstFileEngine {
   ): Promise<Readonly<HostPreparedLocalTrack>> {
     let staged: Readonly<StagedLocalFilePlaybackParticipant> | null = null;
     let claimedWarm: Readonly<ClaimedWarmTrackSource> | null = null;
+    let claimedSourceLease: HostLocalTrackSourceLease | null = null;
     try {
       this.#assertOperationFence(operation);
       if (currentPort(this.#manager) !== operation.expectedCurrentPort) {
@@ -3139,6 +3280,19 @@ export class FilePlaybackHostFirstFileEngine {
             ...participantOptions,
           });
       if (claimedWarm) {
+        claimedSourceLease = claimedWarm.operation.sourceLease;
+        const leaseAuthority = claimedSourceLease
+          ? this.#warmSourceLeaseAuthorities.get(claimedSourceLease)
+          : null;
+        if (
+          !claimedSourceLease ||
+          !leaseAuthority ||
+          leaseAuthority.operation !== claimedWarm.operation ||
+          leaseAuthority.lease !== claimedSourceLease ||
+          leaseAuthority.preparedAuthority !== null
+        ) {
+          throw new Error('Host claimed warm source lease authority changed during handoff');
+        }
         this.#settleClaimedWarmTrack(claimedWarm);
         claimedWarm = null;
       }
@@ -3166,6 +3320,7 @@ export class FilePlaybackHostFirstFileEngine {
           metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
           encodedSize: asset.size,
         }),
+        sourceLease: claimedSourceLease,
       });
       const authority: PreparedTrackAuthority = {
         prepared,
@@ -3173,8 +3328,20 @@ export class FilePlaybackHostFirstFileEngine {
         input,
         playbackState: staged.playbackState,
         staged,
+        sourceLease: claimedSourceLease,
         started: false,
       };
+      if (claimedSourceLease) {
+        const leaseAuthority = this.#warmSourceLeaseAuthorities.get(claimedSourceLease);
+        if (
+          !leaseAuthority ||
+          leaseAuthority.operation.claimedBy !== operation ||
+          leaseAuthority.preparedAuthority !== null
+        ) {
+          throw new Error('Host claimed warm source lease was stale before candidate publication');
+        }
+        leaseAuthority.preparedAuthority = authority;
+      }
       this.#preparedTrackAuthority = authority;
       this.#assertPreparedTrackAuthority(authority);
       return prepared;
@@ -3421,6 +3588,58 @@ export class FilePlaybackHostFirstFileEngine {
     );
   }
 
+  #requireWarmSourceLeaseAuthority(value: unknown): WarmSourceLeaseAuthority {
+    const authority =
+      value !== null && typeof value === 'object'
+        ? this.#warmSourceLeaseAuthorities.get(value as HostLocalTrackSourceLease)
+        : undefined;
+    if (!authority || authority.lease !== value) {
+      throw new Error('Host warm source lease is not the exact issued authority');
+    }
+    return authority;
+  }
+
+  #assertWarmSourceLeaseAuthority(authority: WarmSourceLeaseAuthority): void {
+    const { lease, operation, asset } = authority;
+    if (
+      operation.sourceLease !== lease ||
+      operation.asset.binding.queueItemId !== asset.queueItemId ||
+      operation.asset.binding.sourceIdentity !== asset.sourceIdentity ||
+      operation.asset.binding.transferSessionId !== asset.transferSessionId ||
+      operation.asset.blob.size !== asset.size ||
+      operation.asset.name !== asset.name ||
+      operation.asset.mime !== asset.mime
+    ) {
+      throw new Error('Host warm source lease binding changed');
+    }
+    if (authority.preparedAuthority) {
+      if (
+        authority.preparedAuthority.sourceLease !== lease ||
+        authority.preparedAuthority.prepared.sourceLease !== lease
+      ) {
+        throw new Error('Host warm source lease handoff changed');
+      }
+      this.#assertPreparedTrackAuthority(authority.preparedAuthority);
+    } else if (operation.claimed) {
+      if (!operation.claimedBy) {
+        throw new Error('Host warm source lease lost its handoff authority');
+      }
+      this.#assertOperationFence(operation.claimedBy);
+    } else {
+      this.#assertWarmTrackAuthority(operation);
+      if (
+        operation.authority?.backend !== 'bounded-stream' ||
+        operation.authority.asset !== asset
+      ) {
+        throw new Error('Host warm source lease is not backed by the exact bounded source');
+      }
+    }
+    const currentAsset = this.#registry.snapshotForLease(this.#roomToken, operation.asset.lease);
+    if (!currentAsset || !this.#samePeerAsset(currentAsset, asset)) {
+      throw new Error('Host warm source lease asset authority changed');
+    }
+  }
+
   #requirePreparedTrackAuthority(value: unknown): PreparedTrackAuthority {
     const authority = this.#preparedTrackAuthority;
     if (!authority || value !== authority.prepared) {
@@ -3445,7 +3664,10 @@ export class FilePlaybackHostFirstFileEngine {
   }
 
   #assertPreparedTrackCommonAuthority(authority: PreparedTrackAuthority): void {
-    const { prepared, operation, input, playbackState, staged } = authority;
+    const { prepared, operation, input, playbackState, staged, sourceLease } = authority;
+    const sourceLeaseAuthority = sourceLease
+      ? this.#warmSourceLeaseAuthorities.get(sourceLease)
+      : null;
     if (
       this.#preparedTrackAuthority !== authority ||
       this.#activeOperation !== operation ||
@@ -3457,6 +3679,8 @@ export class FilePlaybackHostFirstFileEngine {
       prepared.state !== playbackState ||
       prepared.positionSeconds !== input.positionSeconds ||
       prepared.playbackRate !== input.playbackRate ||
+      prepared.sourceLease !== sourceLease ||
+      (sourceLease !== null && sourceLeaseAuthority?.preparedAuthority !== authority) ||
       staged.playbackState !== playbackState ||
       staged.asset.queueItemId !== playbackState.queueItemId ||
       prepared.asset.binding.queueItemId !== staged.asset.queueItemId ||

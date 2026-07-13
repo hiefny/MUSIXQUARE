@@ -1060,6 +1060,8 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(harness.sources[0]?.prepare).toHaveBeenCalledOnce();
     expect(harness.sources[0]?.source.getSnapshot().phase).toBe('ready');
     expect(harness.sources[0]?.releaseConstructionLease).not.toHaveBeenCalled();
+    expect(warm.sourceLease).toBeTruthy();
+    expect(Object.isFrozen(warm.sourceLease)).toBe(true);
 
     const prepared = await harness.engine.prepareLocalTrack(
       localTrackOptions(harness, Q1, blob, 4),
@@ -1069,6 +1071,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       state: { queueItemId: Q1, runId: RUN_1, revision: 7 },
       positionSeconds: 4,
     });
+    expect(prepared.sourceLease).toBe(warm.sourceLease);
     expect(harness.createRunId).toHaveBeenCalledOnce();
     expect(harness.sources).toHaveLength(1);
     expect(harness.sources[0]?.prepare).toHaveBeenCalledOnce();
@@ -1089,6 +1092,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
 
     const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
     expect(warm).toMatchObject({ status: 'skipped-non-bounded', backend: 'audio-buffer' });
+    expect(warm.sourceLease).toBeNull();
     expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
     expect(harness.sources[0]?.releaseConstructionLease).toHaveBeenCalledOnce();
     expect(harness.manager.currentCutoverPort()).toBeNull();
@@ -1098,6 +1102,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       localTrackOptions(harness, Q1, blob, 0),
     );
     expect(prepared.backend).toBe('audio-buffer');
+    expect(prepared.sourceLease).toBeNull();
     expect(harness.sources).toHaveLength(2);
     expect(harness.stageRequests).toHaveLength(1);
     const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
@@ -1125,6 +1130,136 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
     await resolveLatestStart(harness, pending);
     await harness.engine.close();
+  });
+
+  it('resolves only the exact live warm lease and preserves it across prepared handoff', async () => {
+    const harness = makeHarness([{ backend: 'bounded-stream' }]);
+    const blob = new Blob([new Uint8Array([31, 32, 33])], { type: 'audio/flac' });
+    const warm = await harness.engine.warmLocalTrack(warmTrackOptions(harness, Q1, blob));
+    const sourceLease = warm.sourceLease;
+    if (!sourceLease) throw new Error('Fixture expected a bounded warm source lease');
+
+    const aborted = new AbortController();
+    const abortedResolution = harness.engine.resolveWarmPeerRangeSource({
+      sourceLease,
+      sourceIdentity: warm.asset.binding.sourceIdentity,
+      signal: aborted.signal,
+    });
+    aborted.abort(new Error('fixture warm resolution abort'));
+    await expect(abortedResolution).rejects.toThrow(/fixture warm resolution abort/u);
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: `${warm.asset.binding.sourceIdentity}:wrong`,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/not the exact lease/u);
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    expect(prepared.sourceLease).toBe(sourceLease);
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await expect(
+      harness.engine.resolveWarmPeerRangeSource({
+        sourceLease,
+        sourceIdentity: warm.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/already started/u);
+    await resolveLatestStart(harness, pending);
+    await harness.engine.close();
+  });
+
+  it('rejects copied, cross-engine, and stale warm leases without queue-ID ABA', async () => {
+    const firstHarness = makeHarness([
+      { backend: 'bounded-stream' },
+      { backend: 'bounded-stream' },
+    ]);
+    const secondHarness = makeHarness([{ backend: 'bounded-stream' }]);
+    const firstBlob = new Blob([new Uint8Array([34])], { type: 'audio/flac' });
+    const otherBlob = new Blob([new Uint8Array([36])], { type: 'audio/flac' });
+    const first = await firstHarness.engine.warmLocalTrack(
+      warmTrackOptions(firstHarness, Q1, firstBlob),
+    );
+    const other = await secondHarness.engine.warmLocalTrack(
+      warmTrackOptions(secondHarness, Q1, otherBlob),
+    );
+    const firstLease = first.sourceLease;
+    const otherLease = other.sourceLease;
+    if (!firstLease || !otherLease) throw new Error('Fixture expected bounded warm leases');
+    const copiedLease = Object.freeze({ ...firstLease }) as unknown as typeof firstLease;
+
+    await expect(
+      firstHarness.engine.resolveWarmPeerRangeSource({
+        sourceLease: copiedLease,
+        sourceIdentity: first.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/exact issued authority/u);
+    await expect(
+      secondHarness.engine.resolveWarmPeerRangeSource({
+        sourceLease: firstLease,
+        sourceIdentity: first.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/exact issued authority/u);
+
+    const replacement = await firstHarness.engine.warmLocalTrack(
+      warmTrackOptions(firstHarness, Q1, firstBlob),
+    );
+    const replacementLease = replacement.sourceLease;
+    if (!replacementLease) throw new Error('Fixture expected a replacement warm lease');
+    await expect(
+      firstHarness.engine.clearWarmLocalTrack({ sourceLease: firstLease }),
+    ).resolves.toBe(false);
+    await expect(
+      firstHarness.engine.resolveWarmPeerRangeSource({
+        sourceLease: firstLease,
+        sourceIdentity: first.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/superseded|authority|cleared/u);
+    await expect(
+      firstHarness.engine.resolveWarmPeerRangeSource({
+        sourceLease: replacementLease,
+        sourceIdentity: replacement.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(firstBlob);
+    await expect(
+      firstHarness.engine.clearWarmLocalTrack({
+        sourceLease: Object.freeze({ ...replacementLease }) as unknown as typeof replacementLease,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      firstHarness.engine.clearWarmLocalTrack({ sourceLease: replacementLease }),
+    ).resolves.toBe(true);
+    await expect(
+      firstHarness.engine.resolveWarmPeerRangeSource({
+        sourceLease: replacementLease,
+        sourceIdentity: replacement.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/superseded|authority|cleared/u);
+
+    await firstHarness.engine.close();
+    await secondHarness.engine.close();
   });
 
   it('keeps the caller AbortSignal authoritative until a ready warm source is consumed', async () => {
@@ -1548,6 +1683,7 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       },
     });
     expectBodyFree(prepared);
+    expect(prepared.sourceLease).toBeNull();
     expect(harness.controller.timelineSnapshot()).toMatchObject({ phase: 'stopped', revision: 0 });
     expect(harness.sources[0]?.arm).not.toHaveBeenCalled();
     expect(harness.sources[0]?.finalize).not.toHaveBeenCalled();

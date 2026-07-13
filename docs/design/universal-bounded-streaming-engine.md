@@ -104,16 +104,16 @@ This table records implementation progress, not production availability. The
 V2 product gate remains off for every row until the release gate below is
 satisfied.
 
-| Capability                                                              | Status                                                                             | Product route |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------- |
-| Codec-neutral bounded source, decoder adapter, PCM ring, and room clock | implemented and regression-tested                                                  | gated off     |
-| Native FLAC                                                             | implemented on the common renderer                                                 | gated off     |
-| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker                                        | gated off     |
-| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                        | gated off     |
-| CAF LPCM                                                                | implemented on the shared linear-PCM worker                                        | gated off     |
-| MP3                                                                     | strict parser/index/timeline and frame decoder implemented; worker/adapter pending | unavailable   |
-| ADTS AAC                                                                | design in progress                                                                 | unavailable   |
-| M4A/MP4 AAC                                                             | design in progress                                                                 | unavailable   |
+| Capability                                                              | Status                                                                                   | Product route |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------- |
+| Codec-neutral bounded source, decoder adapter, PCM ring, and room clock | implemented and regression-tested                                                        | gated off     |
+| Native FLAC                                                             | implemented on the common renderer                                                       | gated off     |
+| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker                                              | gated off     |
+| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                              | gated off     |
+| CAF LPCM                                                                | implemented on the shared linear-PCM worker                                              | gated off     |
+| MP3                                                                     | parser/index/timeline, decoder, Worker, adapter, wrapper, and lifecycle soak implemented | unavailable   |
+| ADTS AAC                                                                | strict header implemented; scanner/index/timeline and decoder runtime pending            | unavailable   |
+| M4A/MP4 AAC                                                             | design in progress                                                                       | unavailable   |
 
 WAVE, AIFF/AIFC, and CAF do not own container-specific renderers. Their
 metadata readers normalize verified byte geometry into one linear-PCM decoder,
@@ -142,8 +142,36 @@ values nor the decoder delay are guessed; the full raw frame timeline remains
 audible. Every seek starts a fresh decoder Worker realm, supplies bounded
 reservoir and synthesis history, discards to the exact global raw coordinate,
 and terminates the realm instead of invoking the upstream `reset()` or
-`free()` cleanup paths. Product routing remains unavailable until that Worker
-and adapter lifecycle is implemented and soaked.
+`free()` cleanup paths.
+
+The Worker, decoder adapter, and thin common-renderer wrapper are now
+implemented. A repeated-lifecycle soak covers 128 fresh decoder generations,
+256 retired leases whose physical reads ignore cancellation, and 3,300 serial
+bounded PCM demands over a real `MessageChannel`. The adapter remains absent
+from the format factory and product route; this checkpoint proves the isolated
+codec lifecycle, not production availability.
+
+### ADTS AAC decoder checkpoint
+
+The first ADTS capability is intentionally narrower than the syntax that the
+header parser can describe. Initial playback admission is raw contiguous
+MPEG-4 AAC-LC with one raw data block per frame, no CRC, a constant sample
+rate/configuration, and mono or stereo channel configuration. MPEG-2, AAC
+Main/SSR/LTP/HE, CRC-protected frames, multiple raw data blocks, and in-band
+Program Config Elements fail explicitly until their own fixtures and decoder
+evidence exist.
+
+ADTS has no general byte-offset table or trustworthy gapless metadata. The
+adapter must therefore verify the complete frame span with bounded reads,
+build a bounded sparse access-unit index, expose an untrimmed `1024 * N` media
+timeline, and use a fresh decoder generation plus measured bounded preroll for
+seek. No callback-to-access-unit one-to-one relationship may be assumed.
+
+WebCodecs AAC is an optimization, not the portability contract. It requires
+both `AudioDecoder.isConfigSupported()` and a real canary decode for the exact
+configuration. A repository-owned bounded fallback must be selected and pass
+the dependency and redistribution review before ADTS can claim support on iOS
+versions without a usable `AudioDecoder`.
 
 ## Memory model
 

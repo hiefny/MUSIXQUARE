@@ -7,6 +7,9 @@ or a substitute for the current source and tests.
 
 ## Current References
 
+- [Universal bounded streaming engine](design/universal-bounded-streaming-engine.md) —
+  accepted multi-format pivot that keeps one bounded PCM renderer and clock.
+
 - [Browser media storage policy](design/browser-media-storage-policy.md) —
   accepted RAM-only media-storage ADR and the gate for reconsidering OPFS.
 - [Playback state consumption contract](state-patterns.md) — current rules for

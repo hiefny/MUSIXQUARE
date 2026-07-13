@@ -123,6 +123,15 @@ export interface HostRendezvousFirstAcceptedSettlement {
   readonly schedule: Readonly<HostRendezvousAcceptedSchedule>;
 }
 
+/** Body-free immutable settlement for one exact participant's FINALIZE acceptance. */
+export interface HostRendezvousParticipantAcceptedSettlement {
+  readonly protocolVersion: 2;
+  readonly kind: 'host-rendezvous-participant-accepted';
+  readonly acceptedParticipantId: string;
+  readonly attempt: Readonly<PlaybackAttemptIdentity>;
+  readonly schedule: Readonly<HostRendezvousAcceptedSchedule>;
+}
+
 /**
  * An attempt is intentionally not PromiseLike. A permanently pending peer must
  * never prevent the host timeline or any healthy peer from progressing.
@@ -134,6 +143,10 @@ export interface HostRendezvousAttempt {
   getSnapshot(): HostRendezvousAttemptSnapshot;
   /** Stable Promise that settles once for the first accepted participant. */
   whenFirstParticipantAccepted(): Promise<Readonly<HostRendezvousFirstAcceptedSettlement>>;
+  /** Stable Promise that settles once for this attempt's exact participant. */
+  whenParticipantAccepted(
+    participantId: string,
+  ): Promise<Readonly<HostRendezvousParticipantAcceptedSettlement>>;
   /** Closes unresolved work after advancing the injected room clock. */
   expire(): HostRendezvousAttemptSnapshot;
   /** Commits one exact accepted participant after start evidence is established. */
@@ -161,6 +174,11 @@ interface MutableParticipantOutcome {
   committed: boolean;
   committing: boolean;
   cancellationDispatched: boolean;
+  readonly acceptedPromise: Promise<Readonly<HostRendezvousParticipantAcceptedSettlement>>;
+  resolveAccepted:
+    | ((settlement: Readonly<HostRendezvousParticipantAcceptedSettlement>) => void)
+    | null;
+  rejectAccepted: ((error: Error) => void) | null;
 }
 
 interface ImmutableAttemptSchedule {
@@ -381,37 +399,56 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       () => undefined,
       () => undefined,
     );
-    this.#outcomes = participants.map((participant, index) => ({
-      participantId: participant.participantId,
-      participant,
-      intent: Object.freeze({
-        protocolVersion: 2,
-        kind: 'rendezvous-arm',
-        ...schedule.run,
-        rendezvousId: schedule.rendezvousId,
-        recipientId: participant.participantId,
-        positionSeconds: schedule.positionSeconds,
-        playbackRate: schedule.playbackRate,
-        startAtRoomTimeMs: schedule.startAtRoomTimeMs,
-        finalizeByRoomTimeMs: schedule.finalizeByRoomTimeMs,
-      }),
-      estimatedLeadMs: participantLeadTimesMs[index]!,
-      armDispatchedAtRoomTimeMs: schedule.createdAtRoomTimeMs,
-      armDispatched: false,
-      bufferedAheadSeconds: null,
-      armStatus: 'pending',
-      armLatencyMs: null,
-      armValidationCode: null,
-      armReasonCode: null,
-      finalizeStatus: 'not-requested',
-      finalizeDispatchedAtRoomTimeMs: null,
-      finalizeLatencyMs: null,
-      finalizeValidationCode: null,
-      finalizeReasonCode: null,
-      committed: false,
-      committing: false,
-      cancellationDispatched: false,
-    }));
+    this.#outcomes = participants.map((participant, index) => {
+      let resolveAccepted!: (
+        settlement: Readonly<HostRendezvousParticipantAcceptedSettlement>,
+      ) => void;
+      let rejectAccepted!: (error: Error) => void;
+      const acceptedPromise = new Promise<Readonly<HostRendezvousParticipantAcceptedSettlement>>(
+        (resolve, reject) => {
+          resolveAccepted = resolve;
+          rejectAccepted = reject;
+        },
+      );
+      void acceptedPromise.then(
+        () => undefined,
+        () => undefined,
+      );
+      return {
+        participantId: participant.participantId,
+        participant,
+        intent: Object.freeze({
+          protocolVersion: 2,
+          kind: 'rendezvous-arm',
+          ...schedule.run,
+          rendezvousId: schedule.rendezvousId,
+          recipientId: participant.participantId,
+          positionSeconds: schedule.positionSeconds,
+          playbackRate: schedule.playbackRate,
+          startAtRoomTimeMs: schedule.startAtRoomTimeMs,
+          finalizeByRoomTimeMs: schedule.finalizeByRoomTimeMs,
+        }),
+        estimatedLeadMs: participantLeadTimesMs[index]!,
+        armDispatchedAtRoomTimeMs: schedule.createdAtRoomTimeMs,
+        armDispatched: false,
+        bufferedAheadSeconds: null,
+        armStatus: 'pending',
+        armLatencyMs: null,
+        armValidationCode: null,
+        armReasonCode: null,
+        finalizeStatus: 'not-requested',
+        finalizeDispatchedAtRoomTimeMs: null,
+        finalizeLatencyMs: null,
+        finalizeValidationCode: null,
+        finalizeReasonCode: null,
+        committed: false,
+        committing: false,
+        cancellationDispatched: false,
+        acceptedPromise,
+        resolveAccepted,
+        rejectAccepted,
+      };
+    });
   }
 
   get rendezvousId(): string {
@@ -482,18 +519,30 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     return this.#firstAcceptedPromise;
   }
 
-  #settleFirstAccepted(participantId: string): void {
-    const resolve = this.#resolveFirstAccepted;
-    if (!resolve) return;
-    this.#resolveFirstAccepted = null;
-    this.#rejectFirstAccepted = null;
-    const attempt = freezeCanonical({
+  whenParticipantAccepted(
+    participantId: string,
+  ): Promise<Readonly<HostRendezvousParticipantAcceptedSettlement>> {
+    if (!isBoundedIdentifier(participantId)) {
+      throw new TypeError('Rendezvous participant ID is invalid');
+    }
+    const outcome = this.#outcomes.find((candidate) => candidate.participantId === participantId);
+    if (!outcome) {
+      throw new RangeError('Rendezvous participant does not belong to this attempt');
+    }
+    return outcome.acceptedPromise;
+  }
+
+  #createAcceptedAttempt(): Readonly<PlaybackAttemptIdentity> {
+    return freezeCanonical({
       queueItemId: this.#schedule.run.queueItemId,
       runId: this.#schedule.run.runId,
       revision: this.#schedule.run.revision,
       rendezvousId: this.#schedule.rendezvousId,
     });
-    const schedule = freezeCanonical({
+  }
+
+  #createAcceptedSchedule(): Readonly<HostRendezvousAcceptedSchedule> {
+    return freezeCanonical({
       positionSeconds: this.#schedule.positionSeconds,
       playbackRate: this.#schedule.playbackRate,
       createdAtRoomTimeMs: this.#schedule.createdAtRoomTimeMs,
@@ -501,6 +550,15 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
       finalizeByRoomTimeMs: this.#schedule.finalizeByRoomTimeMs,
       startAtRoomTimeMs: this.#schedule.startAtRoomTimeMs,
     });
+  }
+
+  #settleFirstAccepted(participantId: string): void {
+    const resolve = this.#resolveFirstAccepted;
+    if (!resolve) return;
+    this.#resolveFirstAccepted = null;
+    this.#rejectFirstAccepted = null;
+    const attempt = this.#createAcceptedAttempt();
+    const schedule = this.#createAcceptedSchedule();
     resolve(
       freezeCanonical({
         protocolVersion: 2 as const,
@@ -509,6 +567,46 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
         attempt,
         schedule,
       }),
+    );
+  }
+
+  #settleParticipantAccepted(outcome: MutableParticipantOutcome): void {
+    const resolve = outcome.resolveAccepted;
+    if (!resolve) return;
+    outcome.resolveAccepted = null;
+    outcome.rejectAccepted = null;
+    resolve(
+      freezeCanonical({
+        protocolVersion: 2 as const,
+        kind: 'host-rendezvous-participant-accepted' as const,
+        acceptedParticipantId: outcome.participantId,
+        attempt: this.#createAcceptedAttempt(),
+        schedule: this.#createAcceptedSchedule(),
+      }),
+    );
+  }
+
+  #rejectParticipantAcceptance(outcome: MutableParticipantOutcome): void {
+    const reject = outcome.rejectAccepted;
+    if (!reject) return;
+    if (outcome.finalizeStatus === 'accepted') {
+      this.#settleParticipantAccepted(outcome);
+      return;
+    }
+    const terminalStatus =
+      outcome.finalizeStatus === 'not-requested' ? outcome.armStatus : outcome.finalizeStatus;
+    if (terminalStatus === 'pending' || terminalStatus === 'armed') return;
+    outcome.resolveAccepted = null;
+    outcome.rejectAccepted = null;
+    const reasonCode =
+      outcome.finalizeReasonCode ??
+      outcome.armReasonCode ??
+      this.#reasonCode ??
+      'rendezvous-participant-terminal';
+    reject(
+      new Error(
+        `Host rendezvous participant acceptance ${terminalStatus}: ${outcome.participantId}: ${reasonCode}`,
+      ),
     );
   }
 
@@ -731,6 +829,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     if (participant === null) {
       outcome.finalizeStatus = 'stale';
       outcome.finalizeReasonCode = 'rendezvous-not-active';
+      this.#refreshCompletion();
       return;
     }
     let pending: Promise<RendezvousFinalizeReceipt>;
@@ -791,6 +890,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
     } else {
       outcome.finalizeStatus = 'accepted';
       outcome.finalizeReasonCode = null;
+      this.#settleParticipantAccepted(outcome);
       this.#settleFirstAccepted(outcome.participantId);
     }
     this.#refreshCompletion();
@@ -844,6 +944,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
         outcome.finalizeStatus = 'stale';
         outcome.finalizeReasonCode = reasonCode;
       }
+      this.#rejectParticipantAcceptance(outcome);
     }
   }
 
@@ -864,6 +965,7 @@ class ActiveHostRendezvousAttempt implements HostRendezvousAttempt {
           outcome.finalizeReasonCode ?? outcome.armReasonCode ?? 'rendezvous-participant-terminal',
         );
       }
+      this.#rejectParticipantAcceptance(outcome);
     }
     if (this.#status !== 'open' || !this.#owner.isActive(this)) return;
     const settled = this.#outcomes.every(

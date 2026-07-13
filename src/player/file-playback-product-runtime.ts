@@ -9,7 +9,7 @@ import { getPrimedFilePlaybackProductAudio } from '../audio/file-playback-audio-
 import { bus } from '../core/events.ts';
 import { delay } from '../core/timers.ts';
 import { isFilePlaybackSessionId } from '../network/file-playback-session-handshake.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, QueueItemId } from '../types/index.ts';
 import {
   FilePlaybackApplicationController,
   type FilePlaybackApplicationControllerConnectionSnapshot,
@@ -73,6 +73,7 @@ import {
   type FilePlaybackProductSessionRouterSnapshot,
 } from './file-playback-product-session-router.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
+import { isQueueItemId } from './queue-model.ts';
 import { decodeOrdinaryAudio } from './ordinary-audio-decoder.ts';
 import type { FilePlaybackWireLease } from './file-playback-wire-binding.ts';
 import type {
@@ -275,6 +276,20 @@ interface HostPreparedCohortCycle {
   readonly contexts: ReadonlySet<Readonly<FilePlaybackProductSessionRouterConnectionContext>>;
   readonly entries: HostPreparedCohortEntry[];
   status: 'preparing' | 'committed' | 'failed';
+}
+
+interface NextLocalTrackWarmIntent {
+  readonly epoch: number;
+  readonly active: ActiveProductHostRoom;
+  readonly queueItemId: QueueItemId;
+  readonly file: File;
+  readonly controller: AbortController;
+  task: Promise<boolean>;
+}
+
+export interface FilePlaybackProductNextLocalTrackWarmOptions {
+  readonly queueItemId: QueueItemId;
+  readonly file: File;
 }
 
 function productionSessionAdapter(): FilePlaybackProductRuntimeSessionAdapter {
@@ -505,6 +520,40 @@ function snapshotProductBoundedRoutePolicy(
   }
 }
 
+function snapshotNextLocalTrackWarmOptions(
+  value: unknown,
+): Readonly<FilePlaybackProductNextLocalTrackWarmOptions> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (
+      Reflect.ownKeys(descriptors).length !== 2 ||
+      !Object.hasOwn(descriptors, 'queueItemId') ||
+      !Object.hasOwn(descriptors, 'file')
+    ) {
+      return null;
+    }
+    const queueItemId = descriptors.queueItemId;
+    const file = descriptors.file;
+    if (
+      !queueItemId?.enumerable ||
+      !file?.enumerable ||
+      !Object.hasOwn(queueItemId, 'value') ||
+      !Object.hasOwn(file, 'value') ||
+      !isQueueItemId(queueItemId.value) ||
+      typeof File === 'undefined' ||
+      !(file.value instanceof File)
+    ) {
+      return null;
+    }
+    return Object.freeze({ queueItemId: queueItemId.value, file: file.value });
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Gate-aware owner of the product controller and application-session hooks.
  *
@@ -567,6 +616,9 @@ export class FilePlaybackProductRuntime {
     HostPreparedCohortCycle
   >();
   #hostRoomRetirement: Promise<void> = Promise.resolve();
+  #nextLocalTrackWarmEpoch = 0;
+  #nextLocalTrackWarmIntent: NextLocalTrackWarmIntent | null = null;
+  #nextLocalTrackWarmLane: Promise<void> = Promise.resolve();
 
   constructor(options: FilePlaybackProductRuntimeOptions = {}) {
     if (
@@ -719,6 +771,108 @@ export class FilePlaybackProductRuntime {
     return this.#dispatchExactHostRoom('local track warm clear', (port) =>
       port.clearWarmLocalTrack(options),
     );
+  }
+
+  /**
+   * Owns the one speculative next-track warm for this exact host room. Calls
+   * for the same queue occurrence and File identity coalesce; a replacement
+   * aborts prior construction before entering the serialized warm lane.
+   */
+  warmNextLocalTrack(options: FilePlaybackProductNextLocalTrackWarmOptions): Promise<boolean> {
+    if (!this.#enabled) return Promise.resolve(false);
+    const input = snapshotNextLocalTrackWarmOptions(options);
+    if (!input) {
+      return Promise.reject(new TypeError('File playback next local warm options are invalid'));
+    }
+    const active = this.#activeHostRoom;
+    if (!active || !this.#ownsExactHostRoom(active)) return Promise.resolve(false);
+
+    const current = this.#nextLocalTrackWarmIntent;
+    if (
+      current &&
+      current.active === active &&
+      current.queueItemId === input.queueItemId &&
+      current.file === input.file
+    ) {
+      return current.task;
+    }
+
+    this.#nextLocalTrackWarmEpoch += 1;
+    const epoch = this.#nextLocalTrackWarmEpoch;
+    current?.controller.abort(new Error('File playback next local warm was superseded'));
+    const controller = new AbortController();
+    const intent: NextLocalTrackWarmIntent = {
+      epoch,
+      active,
+      queueItemId: input.queueItemId,
+      file: input.file,
+      controller,
+      task: Promise.resolve(false),
+    };
+    this.#nextLocalTrackWarmIntent = intent;
+    const predecessor = this.#nextLocalTrackWarmLane;
+    const task = (async () => {
+      await predecessor;
+      if (
+        this.#nextLocalTrackWarmIntent !== intent ||
+        this.#nextLocalTrackWarmEpoch !== epoch ||
+        controller.signal.aborted ||
+        !this.#ownsExactHostRoom(active)
+      ) {
+        return false;
+      }
+      try {
+        const result = await this.warmLocalTrack({
+          queueItemId: input.queueItemId,
+          file: input.file,
+          signal: controller.signal,
+        });
+        const warmed = result?.status === 'warmed' && result.backend === 'bounded-stream';
+        if (
+          this.#nextLocalTrackWarmIntent === intent &&
+          this.#nextLocalTrackWarmEpoch === epoch &&
+          !controller.signal.aborted
+        ) {
+          if (!warmed) this.#nextLocalTrackWarmIntent = null;
+          return warmed;
+        }
+        return false;
+      } catch (cause) {
+        if (this.#nextLocalTrackWarmIntent === intent) this.#nextLocalTrackWarmIntent = null;
+        if (controller.signal.aborted) return false;
+        throw cause;
+      }
+    })();
+    intent.task = task;
+    this.#nextLocalTrackWarmLane = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
+  }
+
+  /** Clears the current speculative target in lane order, preventing queue-ID ABA. */
+  clearNextLocalTrackWarm(): Promise<boolean> {
+    if (!this.#enabled) return Promise.resolve(false);
+    const intent = this.#nextLocalTrackWarmIntent;
+    if (!intent) return Promise.resolve(false);
+    this.#nextLocalTrackWarmEpoch += 1;
+    this.#nextLocalTrackWarmIntent = null;
+    intent.controller.abort(new Error('File playback next local warm was cleared'));
+    const predecessor = this.#nextLocalTrackWarmLane;
+    const task = (async () => {
+      await predecessor;
+      if (!this.#ownsExactHostRoom(intent.active)) return false;
+      return this.clearWarmLocalTrack({
+        queueItemId: intent.queueItemId,
+        signal: new AbortController().signal,
+      });
+    })();
+    this.#nextLocalTrackWarmLane = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
   }
 
   startLocalTrack(
@@ -982,6 +1136,7 @@ export class FilePlaybackProductRuntime {
   endRoom(): void {
     if (!this.#enabled) return;
     const { controller, sessions } = this.#requireReady();
+    this.#abandonNextLocalTrackWarm('File playback product room ended');
     if (!this.#roomActive) {
       const orphan = this.#activeHostRoom;
       this.#activeHostRoom = null;
@@ -1592,6 +1747,16 @@ export class FilePlaybackProductRuntime {
       throw new Error(`File playback product host room changed before ${label}`);
     }
     return dispatch(active.port);
+  }
+
+  #abandonNextLocalTrackWarm(reason: string): void {
+    this.#nextLocalTrackWarmEpoch += 1;
+    const intent = this.#nextLocalTrackWarmIntent;
+    this.#nextLocalTrackWarmIntent = null;
+    // A retired room cannot serialize work for its successor. Exact room
+    // identity fences any late settlement from the detached predecessor.
+    this.#nextLocalTrackWarmLane = Promise.resolve();
+    intent?.controller.abort(new Error(reason));
   }
 
   #ownsExactHostRoom(active: ActiveProductHostRoom): boolean {

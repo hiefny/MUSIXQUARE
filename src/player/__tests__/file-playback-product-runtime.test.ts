@@ -617,6 +617,13 @@ describe('FilePlaybackProductRuntime', () => {
     };
     await expect(setup.runtime.warmLocalTrack(speculative)).resolves.toBeNull();
     await expect(
+      setup.runtime.warmNextLocalTrack({
+        queueItemId: speculative.queueItemId,
+        file: speculative.file,
+      }),
+    ).resolves.toBe(false);
+    await expect(setup.runtime.clearNextLocalTrackWarm()).resolves.toBe(false);
+    await expect(
       setup.runtime.clearWarmLocalTrack({
         queueItemId: Q1,
         signal: speculative.signal,
@@ -686,6 +693,99 @@ describe('FilePlaybackProductRuntime', () => {
       'controller:create',
       'sessions:install-hooks',
     ]);
+  });
+
+  it('coalesces one exact next-file warm and aborts it before warming a replacement', async () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('next-warm-host');
+    const room = setup.hostRooms[0]!;
+    const firstGate = deferred<Readonly<FilePlaybackProductHostLocalTrackWarmResult>>();
+    let firstSignal: AbortSignal | null = null;
+    room.warmLocalTrack.mockImplementationOnce(
+      (input: WarmFilePlaybackProductHostLocalTrackOptions) => {
+        firstSignal = input.signal;
+        return firstGate.promise;
+      },
+    );
+    const firstFile = localFile('first-next.wav');
+    const secondFile = localFile('replacement-next.caf');
+
+    const first = setup.runtime.warmNextLocalTrack({ queueItemId: Q1, file: firstFile });
+    const duplicate = setup.runtime.warmNextLocalTrack({ queueItemId: Q1, file: firstFile });
+    expect(duplicate).toBe(first);
+    await vi.waitFor(() => expect(room.warmLocalTrack).toHaveBeenCalledOnce());
+
+    const replacement = setup.runtime.warmNextLocalTrack({
+      queueItemId: Q2,
+      file: secondFile,
+    });
+    expect(firstSignal?.aborted).toBe(true);
+    firstGate.reject(firstSignal?.reason);
+
+    await expect(first).resolves.toBe(false);
+    await expect(replacement).resolves.toBe(true);
+    expect(room.warmLocalTrack).toHaveBeenCalledTimes(2);
+    expect(room.warmLocalTrack.mock.calls[1]?.[0]).toMatchObject({
+      queueItemId: Q2,
+      file: secondFile,
+    });
+  });
+
+  it('serializes exact clear before the same queue occurrence can warm again', async () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('next-warm-clear-host');
+    const room = setup.hostRooms[0]!;
+    const file = localFile('same-occurrence.aiff');
+
+    await expect(setup.runtime.warmNextLocalTrack({ queueItemId: Q1, file })).resolves.toBe(true);
+    const clearing = setup.runtime.clearNextLocalTrackWarm();
+    const rewarming = setup.runtime.warmNextLocalTrack({ queueItemId: Q1, file });
+
+    await expect(clearing).resolves.toBe(true);
+    await expect(rewarming).resolves.toBe(true);
+    expect(room.warmLocalTrack).toHaveBeenCalledTimes(2);
+    expect(room.clearWarmLocalTrack).toHaveBeenCalledOnce();
+    expect(room.clearWarmLocalTrack.mock.invocationCallOrder[0]).toBeLessThan(
+      room.warmLocalTrack.mock.invocationCallOrder[1]!,
+    );
+  });
+
+  it('detaches an abort-ignoring warm lane when its room ends', async () => {
+    const setup = harness();
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('stale-warm-room');
+    const staleRoom = setup.hostRooms[0]!;
+    const staleGate = deferred<Readonly<FilePlaybackProductHostLocalTrackWarmResult>>();
+    let staleSignal: AbortSignal | null = null;
+    staleRoom.warmLocalTrack.mockImplementationOnce(
+      (input: WarmFilePlaybackProductHostLocalTrackOptions) => {
+        staleSignal = input.signal;
+        return staleGate.promise;
+      },
+    );
+    const stale = setup.runtime.warmNextLocalTrack({
+      queueItemId: Q1,
+      file: localFile('stale-long.wav'),
+    });
+    await vi.waitFor(() => expect(staleRoom.warmLocalTrack).toHaveBeenCalledOnce());
+
+    setup.runtime.endRoom();
+    expect(staleSignal?.aborted).toBe(true);
+    setup.runtime.beginHostRoom('fresh-warm-room');
+    const freshRoom = setup.hostRooms[1]!;
+
+    await expect(
+      setup.runtime.warmNextLocalTrack({
+        queueItemId: Q2,
+        file: localFile('fresh-long.m4a'),
+      }),
+    ).resolves.toBe(true);
+    expect(freshRoom.warmLocalTrack).toHaveBeenCalledOnce();
+
+    staleGate.reject(staleSignal?.reason);
+    await expect(stale).resolves.toBe(false);
   });
 
   it('defers controller media notifications out of router mutation and targets one exact router', async () => {

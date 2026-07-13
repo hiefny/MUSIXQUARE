@@ -129,13 +129,36 @@ interface Harness {
   now: number;
 }
 
-function harness(): Harness {
+function harness(calibrated = false): Harness {
   const handshakes = establishedHandshakes();
   const token = Object.freeze({ connection: pairSequence });
+  let guestNow = 100;
   const channel = new FilePlaybackConnectionChannel(handshakes.guest, token, {
-    now: () => 100,
+    now: () => guestNow,
     guestAppliedSendConfirmed: true,
   });
+  if (calibrated) {
+    let hostNow = 100;
+    const hostToken = Object.freeze({ hostConnection: pairSequence });
+    const hostChannel = new FilePlaybackConnectionChannel(handshakes.host, hostToken, {
+      now: () => hostNow,
+    });
+    for (let index = 0; index < 5; index += 1) {
+      const startedAt = 1_000 + index * 100;
+      guestNow = startedAt;
+      const ping = channel.createClockPing();
+      hostNow = startedAt + 10;
+      const hostResult = hostChannel.receive(ping, hostToken);
+      if (!hostResult.accepted || hostResult.frame !== 'clock-ping') {
+        throw new Error('Host did not accept media-session calibration ping');
+      }
+      guestNow = startedAt + 20;
+      const guestResult = channel.receive(hostResult.pong, token);
+      if (!guestResult.accepted || guestResult.frame !== 'clock-pong') {
+        throw new Error('Guest did not accept media-session calibration pong');
+      }
+    }
+  }
   const binding = channel.establishedBinding();
   if (!binding) throw new Error('Missing established test binding');
   const state = { now: 100 } as Harness;
@@ -788,6 +811,44 @@ describe('FilePlaybackConnectionMediaSession', () => {
       ),
     ).toThrow(/active baseline/u);
     expect(stopped.session.snapshot().status).toBe('candidate');
+  });
+
+  it('creates SOURCE_READY only from the exact committed prepared operation', () => {
+    const h = harness(true);
+    const { operation, binding } = stageBaseline(h, 40);
+    const payload = {
+      kind: 'source-ready' as const,
+      observedAtRoomTimeMs: 1_000,
+      readyLeaseUntilRoomTimeMs: 11_000,
+      backend: 'streaming-flac' as const,
+      durationSeconds: 120,
+      bufferedAheadSeconds: 8,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+    };
+
+    expect(() => h.session.createPreparedSourceReadyWire(operation, payload)).toThrow(
+      /exact prepared|current/u,
+    );
+    h.session.commitPreparedPausedBaseline(operation, expectedFor(binding), () => true);
+    const message = h.session.createPreparedSourceReadyWire(operation, payload);
+    expect(message).toMatchObject({
+      kind: 'source-ready',
+      queueItemId: binding.queueItemId,
+      runId: binding.runId,
+      revision: binding.playbackRevision,
+      backend: 'streaming-flac',
+      durationSeconds: 120,
+      bufferedAheadSeconds: 8,
+    });
+    expect(Object.isFrozen(message)).toBe(true);
+
+    const forged = Object.freeze({ ...operation }) as FilePlaybackConnectionMediaOperation;
+    expect(() => h.session.createPreparedSourceReadyWire(forged, payload)).toThrow(/forged/u);
+    h.session.retire(operation);
+    expect(() => h.session.createPreparedSourceReadyWire(operation, payload)).toThrow(
+      /forged|retired/u,
+    );
   });
 
   it('revalidates paused-baseline authority twice and preserves its exact watermark', () => {

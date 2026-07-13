@@ -18,6 +18,10 @@ import type {
   FilePlaybackWireAttemptLease,
   FilePlaybackWireStateLease,
 } from './file-playback-wire-binding.ts';
+import type {
+  FilePlaybackWireMessageForKind,
+  FileSourceReadyWirePayload,
+} from './file-playback-wire-sender.ts';
 import {
   isPlaybackRevisionWatermark,
   readPlaybackStateIdentity,
@@ -194,6 +198,7 @@ const channelCommitMedia = FilePlaybackConnectionChannel.prototype.commitMedia;
 const channelRetireMedia = FilePlaybackConnectionChannel.prototype.retireMedia;
 const channelStageAttempt = FilePlaybackConnectionChannel.prototype.stageAttempt;
 const channelCommitAttempt = FilePlaybackConnectionChannel.prototype.commitAttempt;
+const channelCreateWire = FilePlaybackConnectionChannel.prototype.createWire;
 const offerRegistryActiveOffer = FileMediaOfferRegistry.prototype.activeOffer;
 const abortControllerAbort = AbortController.prototype.abort;
 const MAX_EXPIRY_TIMER_DELAY_MS = 2_147_483_647;
@@ -700,6 +705,23 @@ export class FilePlaybackConnectionMediaSession {
         throw new Error('Only an active baseline can commit as prepared and paused');
       }
       return this.#commitPreparedUnchecked(operation, expectedNow, isStillCurrent, 'paused');
+    });
+  }
+
+  /**
+   * Creates SOURCE_READY from the exact committed prepared-run lease without
+   * exposing the shared channel's mutable binding registry to its owner.
+   */
+  createPreparedSourceReadyWire(
+    operation: FilePlaybackConnectionMediaOperation,
+    payload: FileSourceReadyWirePayload,
+  ): FilePlaybackWireMessageForKind<'source-ready'> {
+    return this.#mutate(() => {
+      const record = this.#requireCurrent(operation);
+      return Reflect.apply(channelCreateWire, this.#channel, [
+        record.channelStateLease,
+        payload,
+      ]) as FilePlaybackWireMessageForKind<'source-ready'>;
     });
   }
 

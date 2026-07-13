@@ -113,7 +113,7 @@ satisfied.
 | CAF LPCM                                                                | implemented on the shared linear-PCM worker                                              | gated off     |
 | MP3                                                                     | parser/index/timeline, decoder, Worker, adapter, wrapper, and lifecycle soak implemented | unavailable   |
 | ADTS AAC                                                                | scanner, WebCodecs backend, Worker generation, and decoder adapter implemented            | unavailable   |
-| M4A/MP4 AAC                                                             | bounded ISO-BMFF, AAC config, container, timing, and sample-table foundations implemented | unavailable   |
+| M4A/MP4 AAC                                                             | authenticated metadata manifest and bounded ISO-BMFF/AAC sample tables implemented         | unavailable   |
 
 WAVE, AIFF/AIFC, and CAF do not own container-specific renderers. Their
 metadata readers normalize verified byte geometry into one linear-PCM decoder,
@@ -242,6 +242,15 @@ unit may be shorter. `mdhd`, edit-list, and iTunSMPB evidence must agree. No AAC
 priming or end padding is guessed when metadata is absent. Large `stts`, `stsz`,
 and chunk-offset tables are validated in pages and represented by bounded sparse
 checkpoints rather than arrays proportional to track duration.
+
+The metadata checkpoint now emits one exact, structured-clone-safe manifest for
+the admitted AAC-LC track. It binds the source size and immutable identity, AAC
+configuration, normalized audible timeline, `stsz` pages, complete bounded
+`stsc` body, chunk-offset pages, and `mdat` ranges. A Worker must reauthenticate
+the transferred table headers and source-derived `stsc` runs before it may issue
+a decoder runtime; transferred normalized runs are never runtime authority on
+their own. This checkpoint is still isolated from the format factory and product
+route.
 
 ## Memory model
 

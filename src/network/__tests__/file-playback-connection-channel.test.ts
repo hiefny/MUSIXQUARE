@@ -489,7 +489,9 @@ describe('FilePlaybackConnectionChannel', () => {
     const preCalibrationPause = setup.host.createWire(hostSuccessor, {
       kind: 'file-playback-pause',
       ...expectedCurrent,
-      atRoomTimeMs: 1_100,
+      // The frame remains within the receiver's bounded past window when the
+      // calibration sample set completes at roughly room time 1,720 ms.
+      atRoomTimeMs: 1_700,
     });
     expect(preCalibrationPause.controlSequence).toBe(1);
     expect(setup.guest.receive(preCalibrationPause, setup.guestToken)).toEqual({
@@ -518,7 +520,8 @@ describe('FilePlaybackConnectionChannel', () => {
       kind: 'file-playback-seek',
       ...expectedCurrent,
       positionSeconds: 4,
-      atRoomTimeMs: 2_100,
+      // Recalibration completes at roughly room time 3,520 ms.
+      atRoomTimeMs: 3_500,
     });
     expect(postWakeSeek.controlSequence).toBe(2);
     expect(setup.guest.receive(postWakeSeek, setup.guestToken)).toEqual({

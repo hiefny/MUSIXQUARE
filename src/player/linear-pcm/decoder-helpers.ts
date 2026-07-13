@@ -24,11 +24,17 @@ interface EncodingLayout {
 
 const ENCODING_LAYOUTS: Readonly<Record<LinearPcmEncoding, EncodingLayout>> = Object.freeze({
   'pcm-u8': Object.freeze({ bits: 8, bytes: 1, float: false }),
+  'pcm-s8': Object.freeze({ bits: 8, bytes: 1, float: false }),
   'pcm-s16le': Object.freeze({ bits: 16, bytes: 2, float: false }),
+  'pcm-s16be': Object.freeze({ bits: 16, bytes: 2, float: false }),
   'pcm-s24le': Object.freeze({ bits: 24, bytes: 3, float: false }),
+  'pcm-s24be': Object.freeze({ bits: 24, bytes: 3, float: false }),
   'pcm-s32le': Object.freeze({ bits: 32, bytes: 4, float: false }),
+  'pcm-s32be': Object.freeze({ bits: 32, bytes: 4, float: false }),
   float32le: Object.freeze({ bits: 32, bytes: 4, float: true }),
+  float32be: Object.freeze({ bits: 32, bytes: 4, float: true }),
   float64le: Object.freeze({ bits: 64, bytes: 8, float: true }),
+  float64be: Object.freeze({ bits: 64, bytes: 8, float: true }),
 });
 
 const ENCODINGS = new Set<LinearPcmEncoding>(Object.keys(ENCODING_LAYOUTS) as LinearPcmEncoding[]);
@@ -260,10 +266,20 @@ function decodeScalarUnchecked(
       requireZeroUnusedBits(unsigned, 8, validBitsPerSample);
       return (unsigned - 128) / 128;
     }
+    case 'pcm-s8': {
+      const unsigned = view.getUint8(byteOffset);
+      requireZeroUnusedBits(unsigned, 8, validBitsPerSample);
+      return view.getInt8(byteOffset) / 128;
+    }
     case 'pcm-s16le': {
       const unsigned = view.getUint16(byteOffset, true);
       requireZeroUnusedBits(unsigned, 16, validBitsPerSample);
       return view.getInt16(byteOffset, true) / 32_768;
+    }
+    case 'pcm-s16be': {
+      const unsigned = view.getUint16(byteOffset, false);
+      requireZeroUnusedBits(unsigned, 16, validBitsPerSample);
+      return view.getInt16(byteOffset, false) / 32_768;
     }
     case 'pcm-s24le': {
       const unsigned =
@@ -274,17 +290,39 @@ function decodeScalarUnchecked(
       const signed = (unsigned & 0x80_0000) === 0 ? unsigned : unsigned - 0x1_000000;
       return signed / 8_388_608;
     }
+    case 'pcm-s24be': {
+      const unsigned =
+        (view.getUint8(byteOffset) << 16) |
+        (view.getUint8(byteOffset + 1) << 8) |
+        view.getUint8(byteOffset + 2);
+      requireZeroUnusedBits(unsigned, 24, validBitsPerSample);
+      const signed = (unsigned & 0x80_0000) === 0 ? unsigned : unsigned - 0x1_000000;
+      return signed / 8_388_608;
+    }
     case 'pcm-s32le': {
       const unsigned = view.getUint32(byteOffset, true);
       requireZeroUnusedBits(unsigned, 32, validBitsPerSample);
       return view.getInt32(byteOffset, true) / 2_147_483_648;
     }
+    case 'pcm-s32be': {
+      const unsigned = view.getUint32(byteOffset, false);
+      requireZeroUnusedBits(unsigned, 32, validBitsPerSample);
+      return view.getInt32(byteOffset, false) / 2_147_483_648;
+    }
     case 'float32le': {
       const value = view.getFloat32(byteOffset, true);
       return Number.isFinite(value) ? value : 0;
     }
+    case 'float32be': {
+      const value = view.getFloat32(byteOffset, false);
+      return Number.isFinite(value) ? value : 0;
+    }
     case 'float64le': {
       const value = view.getFloat64(byteOffset, true);
+      return Number.isFinite(value) ? value : 0;
+    }
+    case 'float64be': {
+      const value = view.getFloat64(byteOffset, false);
       return Number.isFinite(value) ? value : 0;
     }
   }

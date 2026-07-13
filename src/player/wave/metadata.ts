@@ -35,8 +35,11 @@ const SUBFORMAT_GUID_SUFFIX = new Uint8Array([
 
 export type WaveContainer = 'riff' | 'rf64' | 'bw64';
 
-/** WAVE-facing name for the shared linear-PCM encoding set. */
-export type WavePcmEncoding = LinearPcmEncoding;
+/** Encodings admitted by the little-endian RIFF/RF64/BW64 parser. */
+export type WavePcmEncoding = Extract<
+  LinearPcmEncoding,
+  'pcm-u8' | 'pcm-s16le' | 'pcm-s24le' | 'pcm-s32le' | 'float32le' | 'float64le'
+>;
 
 export interface WavePcmMetadata {
   readonly format: 'wave';

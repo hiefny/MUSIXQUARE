@@ -1,11 +1,17 @@
 /** Linear PCM encodings currently supported by the bounded decoder. */
 export type LinearPcmEncoding =
   | 'pcm-u8'
+  | 'pcm-s8'
   | 'pcm-s16le'
+  | 'pcm-s16be'
   | 'pcm-s24le'
+  | 'pcm-s24be'
   | 'pcm-s32le'
+  | 'pcm-s32be'
   | 'float32le'
-  | 'float64le';
+  | 'float32be'
+  | 'float64le'
+  | 'float64be';
 
 export interface LinearPcmSampleLayout {
   readonly channels: number;

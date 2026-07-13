@@ -112,7 +112,7 @@ satisfied.
 | AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                              | gated off     |
 | CAF LPCM                                                                | implemented on the shared linear-PCM worker                                              | gated off     |
 | MP3                                                                     | parser/index/timeline, decoder, Worker, adapter, wrapper, and lifecycle soak implemented | unavailable   |
-| ADTS AAC                                                                | strict header implemented; scanner/index/timeline and decoder runtime pending            | unavailable   |
+| ADTS AAC                                                                | strict reader/index/scanner/timeline, WebCodecs canary, and Worker protocol implemented  | unavailable   |
 | M4A/MP4 AAC                                                             | design in progress                                                                       | unavailable   |
 
 WAVE, AIFF/AIFC, and CAF do not own container-specific renderers. Their
@@ -173,6 +173,41 @@ configuration. A repository-owned bounded fallback must be selected and pass
 the dependency and redistribution review before ADTS can claim support on iOS
 versions without a usable `AudioDecoder`.
 
+The canary proves that the selected browser decoder emits bounded AAC-LC core
+geometry for a real frame. It does not parse `raw_data_block()` and therefore
+cannot prove that an input lacks in-band SBR or PS when a browser silently
+ignores those extensions. Strict input admission remains the responsibility of
+payload validation or the repository-owned decoder. Expanded rate, channel, or
+frame output still fails closed before PCM enters the renderer.
+
+Backend selection is generation-explicit. An open command names exactly one
+backend and the ready event echoes it. A Worker must fail if that backend is
+unavailable; it must not silently switch from WebCodecs to WASM inside the same
+generation. A retry selects a new backend in a fresh generation so room
+coordination can observe the change.
+
+AAC has two distinct consistency contracts:
+
+- Timeline exactness is mandatory for every admitted backend: 1024 core frames
+  per access unit, no dropped or duplicated frame, the same target coordinate,
+  and the same rendezvous time.
+- Sample-value equivalence is claimed only for the same pinned decoder artifact
+  and the same fresh-generation anchor/preroll plan. It is not claimed between
+  browser WebCodecs implementations or between WebCodecs and WASM.
+
+Perceptual Noise Substitution state can continue across access units and need
+not converge after a short seek preroll. If sample coherence across room
+channels is required, all peers use the same pinned fallback artifact and move
+together to a candidate generation opened from one common anchor. The current
+one-AU transform preroll is bounded startup policy, not a PNS bitwise guarantee.
+
+Symphonia `v0.6.0` is the current fallback candidate, not yet an admitted
+dependency. Admission requires a repository-owned raw-AU ABI, fail-closed
+SBR/PS/SAC patch, fixed WASM memory, reproducible artifact manifest and digest,
+malformed-input/lifecycle soak, and MPL-2.0 corresponding-source notices. The
+artifact digest and ABI become the room-visible backend profile before any AAC
+product route is enabled.
+
 ## Memory model
 
 - Encoded reads remain bounded by the encoded-source port limit.
@@ -194,7 +229,8 @@ The renderer does not depend on one decoding API. Modern platforms may use a
 WebCodecs adapter after `AudioDecoder.isConfigSupported` proves the exact codec
 configuration. Platforms without the required decoder use a pinned,
 format-specific WASM implementation. Both routes emit the same canonical PCM
-messages and are tested against the same timeline fixtures.
+message shape and are tested against the same exact timeline fixtures; this
+does not assert bitwise sample equality across different decoder backends.
 
 A compressed-audio dependency is not admitted merely because it decodes a
 whole file. Before adoption it must pass full-versus-sliced PCM equivalence,
@@ -229,12 +265,23 @@ The existing V2 product gate stays off until all of the following pass:
 - iOS host to Windows guest and Windows host to iOS guest;
 - start/drift p95, underrun, and start-evidence measurements;
 - capability mismatch isolates only the unsupported participant;
+- valid AAC-LC native canary decode on every claimed WebCodecs browser, plus
+  explicit SBR, PS, and SAC fail-closed fixtures;
+- room-visible AAC backend profile selection, exact ready echo, and no silent
+  fallback inside a decoder generation;
+- same-artifact/same-anchor AAC PCM equivalence and cross-backend timeline/frame
+  count equivalence;
 - no legacy file side effect can race the V2 owner.
 
 Any release bundle containing the embedded mpg123 runtime must also ship the
 required LGPL-2.1-only notices, corresponding source, and relink materials at
 the documented distribution location. A passing browser build alone does not
 satisfy this release gate.
+
+Any release bundle containing the proposed Symphonia AAC WASM must likewise
+ship the exact MPL-2.0 covered source and local patch corresponding to the
+published artifact, the MPL license text, artifact/build manifest, and a stable
+source location tied to the release revision.
 
 Production enablement and rollback are separate commits. Until then the current
 live product and its rollback checkpoint remain unchanged.

@@ -2,7 +2,6 @@ import { IsoBmffBoxReader, ISO_BMFF_MAX_BOUNDED_READ_BYTES } from '../mp4/box-re
 import {
   EncodedSourceBusyError,
   EncodedSourceIntegrityError,
-  throwIfAborted,
 } from '../sources/encoded-audio-source.ts';
 import {
   assertM4aChunkIndexSampleSizePair,
@@ -19,6 +18,37 @@ import {
 } from './sample-size-index.ts';
 
 export const M4A_RAW_AAC_MEDIA_CACHE_MAX_BYTES = ISO_BMFF_MAX_BOUNDED_READ_BYTES;
+const trustedAbortThrowIfAborted = AbortSignal.prototype.throwIfAborted;
+const trustedAbortAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')?.get;
+const trustedAbortReason = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason')?.get;
+const trustedEventTargetAdd = EventTarget.prototype.addEventListener;
+const trustedEventTargetRemove = EventTarget.prototype.removeEventListener;
+
+function readAbortReason(signal: AbortSignal): unknown {
+  try {
+    return trustedAbortReason ? Reflect.apply(trustedAbortReason, signal, []) : signal.reason;
+  } catch (error) {
+    return error;
+  }
+}
+
+function isAborted(signal: AbortSignal): boolean {
+  return trustedAbortAborted
+    ? Reflect.apply(trustedAbortAborted, signal, []) === true
+    : signal.aborted;
+}
+
+function throwIfReaderAborted(signal: AbortSignal): void {
+  if (typeof trustedAbortThrowIfAborted === 'function') {
+    Reflect.apply(trustedAbortThrowIfAborted, signal, []);
+    return;
+  }
+  if (!isAborted(signal)) return;
+  const reason = readAbortReason(signal);
+  throw reason === undefined
+    ? new DOMException('The M4A raw AAC access-unit read was aborted', 'AbortError')
+    : reason;
+}
 
 export interface M4aRawAacAccessUnitDescriptor {
   readonly ordinal: number;
@@ -62,6 +92,26 @@ export class M4aRawAacAccessUnitReaderClosedError extends Error {
   }
 }
 
+const rawAccessUnitReaderClosers = new WeakMap<object, () => void>();
+const closedRawAccessUnitReaders = new WeakSet<object>();
+
+/**
+ * Revoke an exact module-issued cursor without trusting its mutable public
+ * `close` property or prototype. Runtime ownership must use this boundary.
+ */
+export function closeM4aRawAacAccessUnitReader(readerValue: unknown): void {
+  const isObject =
+    readerValue !== null && (typeof readerValue === 'object' || typeof readerValue === 'function');
+  if (isObject && closedRawAccessUnitReaders.has(readerValue)) return;
+  const close = isObject ? rawAccessUnitReaderClosers.get(readerValue) : undefined;
+  if (close === undefined) {
+    throw new TypeError('M4A raw AAC access-unit reader lacks module provenance');
+  }
+  close();
+  rawAccessUnitReaderClosers.delete(readerValue as object);
+  closedRawAccessUnitReaders.add(readerValue as object);
+}
+
 interface CursorPosition {
   readonly ordinal: number;
   readonly consumedEncodedBytes: number;
@@ -77,6 +127,12 @@ interface MediaReadCandidate {
   readonly bytes: Uint8Array;
   /** A newly read page that may become the sole cache only after cursor commit. */
   readonly pendingCache: Readonly<{ readonly offset: number; readonly bytes: Uint8Array }> | null;
+}
+
+interface ActiveReadOperation {
+  readonly controller: AbortController;
+  readonly signal: AbortSignal;
+  readonly detachCallerAbort: () => void;
 }
 
 function readerError(message: string, cause?: unknown): M4aRawAacAccessUnitReaderError {
@@ -168,6 +224,7 @@ class SourceBoundM4aRawAacAccessUnitReader implements M4aRawAacAccessUnitReader 
   #chunkOffsetSequence: M4aChunkOffsetSequence | null;
   #needsReseed = false;
   #reading = false;
+  #activeRead: ActiveReadOperation | null = null;
   #closed = false;
   readonly #closedError = new M4aRawAacAccessUnitReaderClosedError();
   #fatalError: unknown = null;
@@ -189,6 +246,7 @@ class SourceBoundM4aRawAacAccessUnitReader implements M4aRawAacAccessUnitReader 
     this.#position = position;
     this.#sampleSizeSequence = sampleSizeSequence;
     this.#chunkOffsetSequence = chunkOffsetSequence;
+    rawAccessUnitReaderClosers.set(this, () => this.#closeIssuedReader());
   }
 
   get nextAccessUnitOrdinal(): number {
@@ -206,7 +264,7 @@ class SourceBoundM4aRawAacAccessUnitReader implements M4aRawAacAccessUnitReader 
     if (this.#closed) return Promise.reject(this.#closedError);
     if (this.#hasFatalError) return Promise.reject(this.#fatalError);
     try {
-      throwIfAborted(signal);
+      throwIfReaderAborted(signal);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -216,17 +274,53 @@ class SourceBoundM4aRawAacAccessUnitReader implements M4aRawAacAccessUnitReader 
       );
     }
 
+    const controller = new AbortController();
+    const operationSignal = controller.signal;
+    if (!Reflect.preventExtensions(operationSignal)) {
+      return Promise.reject(
+        readerError('M4A raw AAC read cancellation signal could not be sealed'),
+      );
+    }
+    const forwardCallerAbort = (): void => {
+      controller.abort(readAbortReason(signal));
+    };
+    let listenerInstalled = false;
+    const detachCallerAbort = (): void => {
+      if (!listenerInstalled) return;
+      listenerInstalled = false;
+      try {
+        Reflect.apply(trustedEventTargetRemove, signal, ['abort', forwardCallerAbort]);
+      } catch {
+        // Native detachment is noexcept for the validated AbortSignal. A
+        // secondary environment failure cannot break read cleanup.
+      }
+    };
+    try {
+      Reflect.apply(trustedEventTargetAdd, signal, ['abort', forwardCallerAbort, { once: true }]);
+      listenerInstalled = true;
+      if (isAborted(signal)) forwardCallerAbort();
+      throwIfReaderAborted(operationSignal);
+    } catch (error) {
+      detachCallerAbort();
+      return Promise.reject(error);
+    }
+    const operation: ActiveReadOperation = Object.freeze({
+      controller,
+      signal: operationSignal,
+      detachCallerAbort,
+    });
     this.#reading = true;
-    return this.#readNext(signal)
+    this.#activeRead = operation;
+    return this.#readNext(operationSignal)
       .catch((error: unknown) => {
-        if (this.#closed) throw this.#closedError;
-        if (signal.aborted) {
-          this.#needsReseed = true;
+        if (isAborted(operationSignal)) {
+          if (!this.#closed) this.#needsReseed = true;
           // Source stability checks may reentrantly abort while returning a
           // secondary integrity error. Cancellation keeps exact precedence.
-          throwIfAborted(signal);
+          throwIfReaderAborted(operationSignal);
           throw error;
         }
+        if (this.#closed) throw this.#closedError;
         if (error instanceof EncodedSourceBusyError) {
           this.#needsReseed = true;
           throw error;
@@ -237,13 +331,24 @@ class SourceBoundM4aRawAacAccessUnitReader implements M4aRawAacAccessUnitReader 
         throw error;
       })
       .finally(() => {
+        detachCallerAbort();
+        if (this.#activeRead === operation) this.#activeRead = null;
         this.#reading = false;
       });
   }
 
   close(): void {
+    closeM4aRawAacAccessUnitReader(this);
+  }
+
+  #closeIssuedReader(): void {
     if (this.#closed) return;
     this.#closed = true;
+    if (this.#activeRead !== null) {
+      this.#activeRead.controller.abort(this.#closedError);
+      this.#activeRead.detachCallerAbort();
+      this.#activeRead = null;
+    }
     this.#needsReseed = false;
     this.#hasFatalError = false;
     this.#fatalError = null;
@@ -319,7 +424,7 @@ class SourceBoundM4aRawAacAccessUnitReader implements M4aRawAacAccessUnitReader 
       reader.assertReadable(signal);
       // `assertReadable()` revalidates caller-owned getters, which may abort
       // reentrantly while still returning stable values.
-      throwIfAborted(signal);
+      throwIfReaderAborted(signal);
 
       const descriptor = Object.freeze({
         ordinal: position.ordinal,
@@ -480,7 +585,7 @@ export async function openSourceBoundM4aRawAacAccessUnitReader(
   if (!(signal instanceof AbortSignal)) {
     throw new TypeError('M4A raw AAC access-unit reader requires an AbortSignal');
   }
-  throwIfAborted(signal);
+  throwIfReaderAborted(signal);
   if (!(reader instanceof IsoBmffBoxReader)) {
     throw new TypeError('M4A raw AAC access-unit reader requires an IsoBmffBoxReader');
   }

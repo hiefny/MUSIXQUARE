@@ -11,6 +11,8 @@ import {
 import { rehydrateM4aChunkIndex } from '../chunk-index.ts';
 import { readM4aAacLcMetadata } from '../metadata.ts';
 import {
+  M4aRawAacAccessUnitReaderClosedError,
+  closeM4aRawAacAccessUnitReader,
   openSourceBoundM4aRawAacAccessUnitReader,
   type M4aRawAacAccessUnitReader,
 } from '../raw-aac-access-unit-reader.ts';
@@ -31,7 +33,9 @@ class ControlledM4aSource implements EncodedRandomAccessSource {
   readonly reads: M4aAacFixtureReadRecord[] = [];
   readonly failures: Array<Readonly<{ predicate: ReadPredicate; error: unknown }>> = [];
   closeCalls = 0;
-  onRead: ((read: Readonly<M4aAacFixtureReadRecord>) => void | Promise<void>) | null = null;
+  onRead:
+    | ((read: Readonly<M4aAacFixtureReadRecord>, signal: AbortSignal) => void | Promise<void>)
+    | null = null;
   shortNext: ReadPredicate | null = null;
   #identity: string;
 
@@ -61,7 +65,7 @@ class ControlledM4aSource implements EncodedRandomAccessSource {
     this.reads.push(read);
     const failureIndex = this.failures.findIndex((candidate) => candidate.predicate(read));
     if (failureIndex >= 0) throw this.failures.splice(failureIndex, 1)[0]!.error;
-    await this.onRead?.(read);
+    await this.onRead?.(read, abortSignal);
     throwIfAborted(abortSignal);
     if (this.shortNext?.(read)) {
       this.shortNext = null;
@@ -221,6 +225,32 @@ describe('source-bound M4A raw AAC access-unit reader', () => {
     cursor.close();
     cursor.close();
     await expect(cursor.readNext(signal())).rejects.toThrow(/closed/i);
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('revokes an issued cursor without trusting a shadowed public close method', async () => {
+    const fixture = await openFixture();
+    const cursor = await openSourceBoundM4aRawAacAccessUnitReader(
+      fixture.reader,
+      fixture.sampleSizes,
+      fixture.chunks,
+      0,
+      signal(),
+    );
+    let shadowCalls = 0;
+    Object.defineProperty(cursor, 'close', {
+      configurable: true,
+      value: () => {
+        shadowCalls += 1;
+      },
+    });
+
+    closeM4aRawAacAccessUnitReader(cursor);
+    closeM4aRawAacAccessUnitReader(cursor);
+
+    expect(shadowCalls).toBe(0);
+    await expect(cursor.readNext(signal())).rejects.toThrow(/closed/i);
+    expect(() => closeM4aRawAacAccessUnitReader({ close: () => undefined })).toThrow(/provenance/i);
     expect(fixture.source.closeCalls).toBe(0);
   });
 
@@ -507,6 +537,43 @@ describe('source-bound M4A raw AAC access-unit reader', () => {
     expect(fixture.source.reads).toHaveLength(readsAtClose);
     expect(fixture.source.reads.some(isMediaRead(fixture.expected))).toBe(false);
     await expect(cursor.readNext(signal())).rejects.toBe(closedError);
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('actively aborts cooperative source I/O when the cursor closes', async () => {
+    const fixture = await openFixture();
+    const cursor = await openSourceBoundM4aRawAacAccessUnitReader(
+      fixture.reader,
+      fixture.sampleSizes,
+      fixture.chunks,
+      0,
+      signal(),
+    );
+    fixture.source.reads.length = 0;
+    let enteredResolve: (() => void) | null = null;
+    let observedSignal: AbortSignal | null = null;
+    const entered = new Promise<void>((resolve) => {
+      enteredResolve = resolve;
+    });
+    fixture.source.onRead = (_read, activeSignal) => {
+      fixture.source.onRead = null;
+      observedSignal = activeSignal;
+      enteredResolve?.();
+      return new Promise<void>((_resolve, reject) => {
+        activeSignal.addEventListener('abort', () => reject(activeSignal.reason), { once: true });
+      });
+    };
+
+    const active = cursor.readNext(signal());
+    await entered;
+    const readsAtClose = fixture.source.reads.length;
+    closeM4aRawAacAccessUnitReader(cursor);
+
+    await expect(active).rejects.toBeInstanceOf(M4aRawAacAccessUnitReaderClosedError);
+    expect(observedSignal?.aborted).toBe(true);
+    expect(fixture.source.reads).toHaveLength(readsAtClose);
+    expect(cursor.nextAccessUnitOrdinal).toBe(0);
+    expect(cursor.consumedEncodedBytes).toBe(0);
     expect(fixture.source.closeCalls).toBe(0);
   });
 

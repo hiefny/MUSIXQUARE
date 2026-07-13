@@ -1,4 +1,4 @@
-import { liveAudioBufferPcmBytes, trackDecodedAudioBufferForAdmission } from './_state.ts';
+import * as playerState from './_state.ts';
 import {
   assertBlobCanDecodeToAudioBuffer,
   assertDecodedAudioBufferWithinBudget,
@@ -251,13 +251,13 @@ export async function decodeOrdinaryAudioWithAdmission(
   const sourceEncodedReceiveReservationId = encodedReceiveReservationIdForBlob(blob);
   // Only iOS counts WeakRef survivors. Other tiers avoid nondeterministic GC
   // accounting while app-owned current buffers are released before entry.
-  let retainedPcmBytes = budget.tier === 'ios' ? liveAudioBufferPcmBytes() : 0;
+  let retainedPcmBytes = budget.tier === 'ios' ? playerState.liveAudioBufferPcmBytes() : 0;
   let admission: Awaited<ReturnType<typeof assertBlobCanDecodeToAudioBuffer>>;
   let reservation: ReturnType<typeof reserveDecodeMemoryWithinBudget>;
 
   for (;;) {
     try {
-      if (budget.tier === 'ios') retainedPcmBytes = liveAudioBufferPcmBytes();
+      if (budget.tier === 'ios') retainedPcmBytes = playerState.liveAudioBufferPcmBytes();
       admission = await assertBlobCanDecodeToAudioBuffer(blob, {
         budget,
         fileName,
@@ -272,7 +272,8 @@ export async function decodeOrdinaryAudioWithAdmission(
       reservation = reserveDecodeMemoryWithinBudget(admission.ownDecodeFootprintBytes, {
         budget: admission.budget,
         fileName,
-        retainedPcmBytes: budget.tier === 'ios' ? liveAudioBufferPcmBytes() : retainedPcmBytes,
+        retainedPcmBytes:
+          budget.tier === 'ios' ? playerState.liveAudioBufferPcmBytes() : retainedPcmBytes,
         excludeEncodedReceiveReservationId: admission.sourceEncodedReceiveReservationId,
       });
       break;
@@ -300,14 +301,14 @@ export async function decodeOrdinaryAudioWithAdmission(
     const audioBuffer = await context.decodeAudioData.call(context.audioContext, arrayBuffer);
     // WebKit may retain native PCM even when ownership changed or the measured
     // footprint is rejected. Track before either post-decode check.
-    trackDecodedAudioBufferForAdmission(audioBuffer);
+    playerState.trackDecodedAudioBufferForAdmission(audioBuffer);
     assertCurrent(capturedOwnership);
 
     const actualFootprint = assertDecodedAudioBufferWithinBudget(audioBuffer, blob.size, {
       budget: admission.budget,
       fileName,
       retainedPcmBytes:
-        budget.tier === 'ios' ? liveAudioBufferPcmBytes(audioBuffer) : retainedPcmBytes,
+        budget.tier === 'ios' ? playerState.liveAudioBufferPcmBytes(audioBuffer) : retainedPcmBytes,
       excludeDecodeReservationId: reservation.id,
       excludeEncodedReceiveReservationId: admission.sourceEncodedReceiveReservationId,
     });

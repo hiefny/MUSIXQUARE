@@ -1,4 +1,4 @@
-import { liveAudioBufferPcmBytes } from './_state.ts';
+import * as playerState from './_state.ts';
 import {
   FilePlaybackAssetRegistry,
   type FilePlaybackAssetBinding,
@@ -94,7 +94,7 @@ const defaultRuntime: Readonly<FilePlaybackR2WholeBlobAcquirerRuntime> = Object.
   decrypt: decryptR2WholeBlobV2,
   reserveTransport: reserveRemoteTransportMemoryWithinBudget,
   resolveMemoryBudget: resolveDecodeMemoryBudget,
-  livePcmBytes: liveAudioBufferPcmBytes,
+  livePcmBytes: () => playerState.liveAudioBufferPcmBytes(),
   waitForMemoryReservationChange: (signal: AbortSignal) =>
     waitForInFlightMemoryReservationChange(signal),
 });

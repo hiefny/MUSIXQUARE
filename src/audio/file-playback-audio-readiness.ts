@@ -1,5 +1,6 @@
 import { delay } from '../core/timers.ts';
-import { getAudioContext, getFilePlaybackDestination, initAudio } from './engine.ts';
+import { getAudioContext } from './context.ts';
+import * as audioEngine from './engine.ts';
 
 const DEFAULT_RESUME_SETTLE_MS = 1_000;
 
@@ -22,8 +23,11 @@ export interface FilePlaybackProductAudioReadinessOptions {
 function productionRuntime(): FilePlaybackProductAudioReadinessRuntime {
   return Object.freeze({
     getAudioContext,
-    initAudio,
-    getDestination: getFilePlaybackDestination,
+    // Keep engine member access lazy. Gate-off tests and non-file modes often
+    // install intentionally narrow engine mocks; merely importing the V2
+    // runtime must not require those unused members.
+    initAudio: () => audioEngine.initAudio(),
+    getDestination: () => audioEngine.getFilePlaybackDestination(),
     waitForResumeSettlement: (resume: Promise<void>) =>
       Promise.race([resume, delay(DEFAULT_RESUME_SETTLE_MS)]),
   });

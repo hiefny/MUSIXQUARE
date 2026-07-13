@@ -154,6 +154,7 @@ interface OperationPlan {
 interface EnginePlan {
   readonly candidates?: OperationPlan[];
   readonly transitions?: OperationPlan[];
+  readonly warmBackend?: FilePlaybackBackend;
   readonly closeGate?: ReturnType<typeof deferred<void>>;
   readonly closeFailure?: Error;
   readonly onClose?: () => void;
@@ -189,10 +190,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   readonly warmLocalTrack = vi.fn(
     async (input: WarmHostLocalTrackOptions): Promise<Readonly<HostLocalTrackWarmResult>> => {
       input.signal.throwIfAborted();
-      const backend: FilePlaybackBackend =
-        input.mime === 'audio/flac' || input.name.toLowerCase().endsWith('.flac')
-          ? 'bounded-stream'
-          : 'audio-buffer';
+      const backend = this.plan.warmBackend ?? 'audio-buffer';
       const sourceSequence = ++this.sequence;
       const mime = input.mime.trim().length === 0 ? 'application/octet-stream' : input.mime;
       this.warmQueueItemId = backend === 'bounded-stream' ? input.queueItemId : null;
@@ -874,8 +872,8 @@ function containsBody(value: unknown, seen = new Set<object>()): boolean {
 
 describe('FilePlaybackProductHostRoom stable facade', () => {
   it('warms and clears one exact bounded source without allocating timeline authority', async () => {
-    const setup = makeHarness();
-    const media = file('warm.flac', 'audio/flac');
+    const setup = makeHarness({ enginePlan: { warmBackend: 'bounded-stream' } });
+    const media = file('warm.bin', 'application/octet-stream');
     const external = new AbortController();
     const before = setup.controller.timelineSnapshot();
 
@@ -924,6 +922,41 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     expect(setup.controller.timelineSnapshot()).toBe(before);
     await setup.room.close();
   });
+
+  it.each([
+    ['WAV', 'long-session.wav', 'audio/wav'],
+    ['AIFF', 'long-session.aiff', 'audio/aiff'],
+    ['CAF', 'long-session.caf', 'audio/x-caf'],
+    ['MP3', 'long-session.mp3', 'audio/mpeg'],
+    ['AAC', 'long-session.aac', 'audio/aac'],
+    ['M4A', 'long-session.m4a', 'audio/mp4'],
+  ] as const)(
+    'forwards %s through the same format-neutral bounded warm capability',
+    async (_label, name, mime) => {
+      const setup = makeHarness({ enginePlan: { warmBackend: 'bounded-stream' } });
+      const media = file(name, mime);
+
+      const result = await warm(setup.room, Q1, media);
+      const engine = setup.engines[0]!;
+
+      expect(result).toMatchObject({
+        status: 'warmed',
+        backend: 'bounded-stream',
+        asset: {
+          binding: { queueItemId: Q1 },
+          metadata: { name, mime },
+          encodedSize: media.size,
+        },
+      });
+      expect(containsBody(result)).toBe(false);
+      expect(engine.warmLocalTrack).toHaveBeenCalledOnce();
+      expect(engine.warmLocalTrack).toHaveBeenCalledWith(
+        expect.objectContaining({ queueItemId: Q1, blob: media, name, mime }),
+      );
+
+      await setup.room.close();
+    },
+  );
 
   it('clears an absent warm slot without initializing the graph or engine', async () => {
     const setup = makeHarness();

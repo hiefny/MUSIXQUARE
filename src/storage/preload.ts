@@ -48,6 +48,7 @@ import {
 } from '../player/_state.ts';
 import { isSystemAudioOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
 import { resolveDecodeMemoryBudget } from '../player/decode-admission.ts';
+import { selectNextPreloadableLocalFile } from '../player/next-preloadable-local-file.ts';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -379,11 +380,8 @@ async function preloadNextTrack(): Promise<void> {
   const repeatMode = getState('playlist.repeatMode');
   const isShuffle = getState('playlist.isShuffle');
 
-  // Determine next index
-  let nextIdx: number;
-  if (repeatMode === 2) {
-    nextIdx = currentTrackIndex; // Repeat One
-  } else if (isShuffle && playlist.length > 1) {
+  let shuffleNextQueueItemId: string | null = null;
+  if (repeatMode !== 2 && isShuffle) {
     // Ask playlist.ts for the next slot in its Fisher-Yates permutation so
     // the preload matches exactly what playNextTrack will pick.
     //
@@ -391,86 +389,27 @@ async function preloadNextTrack(): Promise<void> {
     // legitimate preload target.
     try {
       const mod = await import('../player/playlist.ts');
-      const hintedQueueItemId = mod.getShuffleNextQueueItemId();
-      const hinted = playlist.findIndex((item) => item.queueItemId === hintedQueueItemId);
-      if (hinted >= 0 && hinted !== currentTrackIndex) {
-        nextIdx = hinted;
-      } else {
-        nextIdx = -1;
-      }
+      shuffleNextQueueItemId = mod.getShuffleNextQueueItemId();
     } catch {
-      nextIdx = -1;
-    }
-  } else {
-    nextIdx = currentTrackIndex + 1;
-    if (nextIdx >= playlist.length) {
-      if (repeatMode === 1) nextIdx = 0;
-      else nextIdx = -1;
+      shuffleNextQueueItemId = null;
     }
   }
 
-  // Invalid-target early exit: clear stale preload state and bail out
-  // (this runs BEFORE the serialization await so there's no window
-  // where inconsistent state could be observed by the host fast path).
-  if (nextIdx < 0 || nextIdx >= playlist.length) {
+  const selection = selectNextPreloadableLocalFile({
+    items: playlist,
+    currentQueueItemId,
+    repeatMode,
+    isShuffle,
+    shuffleNextQueueItemId,
+  });
+  // Clear stale preload state before the serialization await when there is no
+  // legitimate next local occurrence.
+  if (!selection) {
     clearPreloadCacheState();
     return;
   }
 
-  // Scan-forward through consecutive YouTube entries to find the next
-  // preloadable local file. Without this, hybrid playlists like
-  // local→YT→local→YT got zero preload benefit: every nextIdx that landed
-  // on a YouTube track aborted, even though a local file was just one
-  // slot further. The scan respects the same wrap/end semantics as the
-  // initial nextIdx pick — repeatMode=1 wraps to 0, repeatMode=0 stops
-  // at the playlist end. The currentTrackIndex check prevents an infinite
-  // wrap on an all-YouTube playlist (or a repeat-all list with only one
-  // local track that we'd otherwise re-pick as our own preload target).
-  // Shuffle and repeat-one keep the prior behavior — shuffle has its own
-  // permutation that we don't second-guess, and repeat-one preloading
-  // self is the entire point.
-  if (!isShuffle && repeatMode !== 2) {
-    let scanCount = 0;
-    while (
-      scanCount < playlist.length &&
-      playlist[nextIdx] &&
-      playlist[nextIdx].type === 'youtube'
-    ) {
-      nextIdx = nextIdx + 1;
-      if (nextIdx >= playlist.length) {
-        if (repeatMode === 1) {
-          nextIdx = 0;
-        } else {
-          nextIdx = -1;
-          break;
-        }
-      }
-      if (nextIdx === currentTrackIndex) {
-        // Wrapped a full lap without finding a local file.
-        nextIdx = -1;
-        break;
-      }
-      scanCount++;
-    }
-
-    if (nextIdx < 0 || nextIdx >= playlist.length) {
-      clearPreloadCacheState();
-      return;
-    }
-  }
-
-  const item = playlist[nextIdx];
-  if (!item) return;
-
-  // Still possible to land on a YouTube item: shuffle's getShuffleNextIndex
-  // can return one, and repeat-one of a YouTube track maps to itself.
-  // Either way, clear stale preload state so the host's fast path in
-  // playTrack doesn't match a no-longer-valid cached file.
-  if (item.type === 'youtube') {
-    clearPreloadCacheState();
-    return;
-  }
-
+  const { item } = selection;
   const file = item.file as File;
   if (!file) return;
   const queueItemId = item.queueItemId;

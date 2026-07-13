@@ -112,8 +112,8 @@ satisfied.
 | AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                              | gated off     |
 | CAF LPCM                                                                | implemented on the shared linear-PCM worker                                              | gated off     |
 | MP3                                                                     | parser/index/timeline, decoder, Worker, adapter, wrapper, and lifecycle soak implemented | unavailable   |
-| ADTS AAC                                                                | strict reader/index/scanner/timeline, WebCodecs canary, and Worker protocol implemented  | unavailable   |
-| M4A/MP4 AAC                                                             | design in progress                                                                       | unavailable   |
+| ADTS AAC                                                                | scanner, WebCodecs backend, Worker generation, and decoder adapter implemented            | unavailable   |
+| M4A/MP4 AAC                                                             | bounded ISO-BMFF, AAC config, container, timing, and sample-table foundations implemented | unavailable   |
 
 WAVE, AIFF/AIFC, and CAF do not own container-specific renderers. Their
 metadata readers normalize verified byte geometry into one linear-PCM decoder,
@@ -207,6 +207,38 @@ SBR/PS/SAC patch, fixed WASM memory, reproducible artifact manifest and digest,
 malformed-input/lifecycle soak, and MPL-2.0 corresponding-source notices. The
 artifact digest and ABI become the room-visible backend profile before any AAC
 product route is enabled.
+
+### M4A AAC container checkpoint
+
+M4A does not introduce a second audio clock or a whole-file container decode.
+The initial subset walks exact ISO-BMFF box boundaries, skips `mdat` bodies,
+and accepts non-fragmented, self-contained `mp4a.40.2` tracks only. Tail-`moov`
+and greater-than-4-GiB `mdat` layouts are handled with safe-integer coordinates;
+box headers and table pages remain bounded to at most 64 KiB per physical read.
+
+The codec boundary is native AAC, not synthesized ADTS. An `mp4a` sample entry
+must supply an exact two-byte AAC-LC AudioSpecificConfig. WebCodecs receives the
+raw `raw_data_block()` access unit together with that configuration as
+`AudioDecoderConfig.description`; ADTS continues to use description-absent ADTS
+chunks. One decoder generation pins one framing contract and may not switch
+between them after its canary or first decode.
+
+The admitted M4A timing model is proven from sample tables instead of inferred
+from file duration:
+
+```text
+rawCoreFrames       = accessUnitCount * 1024
+presentationEnd     = sum(stts)
+headTrim            = exact elst media_time or validated iTunSMPB priming
+tailTrim            = rawCoreFrames - presentationEnd
+totalMediaFrames    = presentationEnd - headTrim
+```
+
+Every non-terminal AAC access unit has an `stts` delta of 1,024; only the final
+unit may be shorter. `mdhd`, edit-list, and iTunSMPB evidence must agree. No AAC
+priming or end padding is guessed when metadata is absent. Large `stts`, `stsz`,
+and chunk-offset tables are validated in pages and represented by bounded sparse
+checkpoints rather than arrays proportional to track duration.
 
 ## Memory model
 

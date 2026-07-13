@@ -12,6 +12,7 @@ import {
   FilePlaybackApplicationController,
   type FilePlaybackApplicationControllerConnectionSnapshot,
   type FilePlaybackApplicationTimelineAdoptedEvent,
+  type FilePlaybackApplicationTimelineUpdatedEvent,
 } from './file-playback-application-controller.ts';
 import { FilePlaybackAssetRegistry } from './file-playback-asset-registry.ts';
 import { FilePlaybackManager } from './file-playback-manager.ts';
@@ -106,12 +107,16 @@ export interface FilePlaybackProductRuntimeControllerFactoryInput {
   readonly onTimelineAdopted: (
     event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>,
   ) => void;
+  readonly onTimelineUpdated: (
+    event: Readonly<FilePlaybackApplicationTimelineUpdatedEvent>,
+  ) => void;
 }
 
 interface FilePlaybackProductRuntimeSessionRouterPort {
   applicationSessionHooks(): Readonly<FilePlaybackApplicationSessionHooks>;
   notifyHostReady(snapshot: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>): boolean;
   notifyTimelineAdopted(event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>): boolean;
+  notifyTimelineUpdated(event: Readonly<FilePlaybackApplicationTimelineUpdatedEvent>): boolean;
   snapshot(): Readonly<FilePlaybackProductSessionRouterSnapshot>;
   close(): void;
 }
@@ -240,6 +245,7 @@ function defaultControllerFactory(
     closeConnection: (connection) => input.sessions.closeConnection(connection),
     onHostReady: input.onHostReady,
     onTimelineAdopted: input.onTimelineAdopted,
+    onTimelineUpdated: input.onTimelineUpdated,
   });
 }
 
@@ -344,6 +350,7 @@ function assertSessionRouterPort(
     typeof value.applicationSessionHooks !== 'function' ||
     typeof value.notifyHostReady !== 'function' ||
     typeof value.notifyTimelineAdopted !== 'function' ||
+    typeof value.notifyTimelineUpdated !== 'function' ||
     typeof value.snapshot !== 'function' ||
     typeof value.close !== 'function'
   ) {
@@ -487,6 +494,8 @@ export class FilePlaybackProductRuntime {
             this.#queueHostReadyNotification(snapshot),
           onTimelineAdopted: (event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>) =>
             this.#queueTimelineAdoptedNotification(event),
+          onTimelineUpdated: (event: Readonly<FilePlaybackApplicationTimelineUpdatedEvent>) =>
+            this.#queueTimelineUpdatedNotification(event),
         }),
       );
       if (!(controller instanceof FilePlaybackApplicationController)) {
@@ -1011,6 +1020,12 @@ export class FilePlaybackProductRuntime {
                 owner.onTimelineAdopted?.(event),
             }
           : {}),
+        ...(owner.onTimelineUpdated
+          ? {
+              onTimelineUpdated: (event: Readonly<FilePlaybackApplicationTimelineUpdatedEvent>) =>
+                owner.onTimelineUpdated?.(event),
+            }
+          : {}),
         adoptAuxiliaryMessage: (...args: Parameters<typeof owner.adoptAuxiliaryMessage>) =>
           owner.adoptAuxiliaryMessage(...args),
         adoptWireMessage: (...args: Parameters<typeof owner.adoptWireMessage>) =>
@@ -1067,6 +1082,31 @@ export class FilePlaybackProductRuntime {
       const connection = this.#notificationConnection(event.sessionId, event.connectionId);
       try {
         router.notifyTimelineAdopted(event);
+      } catch {
+        this.#closeNotificationConnection(connection);
+      }
+    });
+  }
+
+  #queueTimelineUpdatedNotification(
+    event: Readonly<FilePlaybackApplicationTimelineUpdatedEvent>,
+  ): void {
+    const router = this.#router;
+    const localRoomGeneration = this.#controller?.snapshot().roomGeneration;
+    if (!router || localRoomGeneration === undefined) return;
+    // The controller callback runs inside its adoption mutation. Defer router
+    // delivery so an exact guest owner can start its own physical transition
+    // without re-entering controller or router authority.
+    queueMicrotask(() => {
+      if (
+        this.#router !== router ||
+        this.#controller?.snapshot().roomGeneration !== localRoomGeneration
+      ) {
+        return;
+      }
+      const connection = this.#notificationConnection(event.sessionId, event.connectionId);
+      try {
+        router.notifyTimelineUpdated(event);
       } catch {
         this.#closeNotificationConnection(connection);
       }

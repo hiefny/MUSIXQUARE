@@ -391,6 +391,7 @@ describe('FilePlaybackProductSessionRouter', () => {
     const pair = channelPair();
     const hostReady = vi.fn();
     const timelineAdopted = vi.fn();
+    const timelineUpdated = vi.fn();
     const harness = makeHarness({
       createHostMediaOwner: () =>
         Object.freeze({
@@ -402,6 +403,7 @@ describe('FilePlaybackProductSessionRouter', () => {
       createGuestMediaOwner: () =>
         Object.freeze({
           onTimelineAdopted: timelineAdopted,
+          onTimelineUpdated: timelineUpdated,
           adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
           adoptWireMessage: (_event, acknowledge) => acknowledge(),
           adoptPeerRangeBulk: (_event, acknowledge) => acknowledge(),
@@ -434,17 +436,34 @@ describe('FilePlaybackProductSessionRouter', () => {
       status: 'adopted' as const,
       timeline,
     });
+    const updated = Object.freeze({
+      schemaVersion: 1 as const,
+      // This is the remote host generation and is intentionally independent
+      // from the local controller generation used for baseline adoption.
+      roomGeneration: 41,
+      sessionId: guestBinding.sessionId,
+      connectionId: guestBinding.connectionId,
+      timeline,
+    });
 
     expect(harness.router.notifyHostReady(ready)).toBe(true);
     expect(harness.router.notifyTimelineAdopted(adopted)).toBe(true);
+    expect(harness.router.notifyTimelineUpdated(updated)).toBe(true);
     expect(hostReady).toHaveBeenCalledWith(ready);
     expect(timelineAdopted).toHaveBeenCalledWith(adopted);
+    expect(timelineUpdated).toHaveBeenCalledWith(updated);
     expect(
       harness.router.notifyTimelineAdopted(
         Object.freeze({ ...adopted, connectionId: 'connection:retired' }),
       ),
     ).toBe(false);
+    expect(
+      harness.router.notifyTimelineUpdated(
+        Object.freeze({ ...updated, connectionId: 'connection:retired' }),
+      ),
+    ).toBe(false);
     expect(timelineAdopted).toHaveBeenCalledOnce();
+    expect(timelineUpdated).toHaveBeenCalledOnce();
   });
 
   it('retires the exact owner when a deferred notification re-enters the router', () => {

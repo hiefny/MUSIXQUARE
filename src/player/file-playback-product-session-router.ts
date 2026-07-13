@@ -1,6 +1,7 @@
 import type {
   FilePlaybackApplicationControllerConnectionSnapshot,
   FilePlaybackApplicationTimelineAdoptedEvent,
+  FilePlaybackApplicationTimelineUpdatedEvent,
 } from './file-playback-application-controller.ts';
 import type {
   FilePlaybackApplicationLifecycleEvent,
@@ -39,7 +40,10 @@ const GUEST_OWNER_KEYS = Object.freeze([
   'adoptWireMessage',
   'revoke',
 ] as const);
-const GUEST_OWNER_OPTIONAL_KEYS = Object.freeze(['onTimelineAdopted'] as const);
+const GUEST_OWNER_OPTIONAL_KEYS = Object.freeze([
+  'onTimelineAdopted',
+  'onTimelineUpdated',
+] as const);
 const HOST_READY_KEYS = Object.freeze([
   'baselineId',
   'baselineStatus',
@@ -59,6 +63,13 @@ const TIMELINE_ADOPTED_KEYS = Object.freeze([
   'schemaVersion',
   'sessionId',
   'status',
+  'timeline',
+] as const);
+const TIMELINE_UPDATED_KEYS = Object.freeze([
+  'connectionId',
+  'roomGeneration',
+  'schemaVersion',
+  'sessionId',
   'timeline',
 ] as const);
 const LIFECYCLE_KEYS = Object.freeze(['channel', 'connection', 'kind', 'role'] as const);
@@ -129,6 +140,9 @@ export interface FilePlaybackProductSessionRouterGuestMediaOwnerPort {
   readonly onTimelineAdopted?: (
     event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>,
   ) => void;
+  readonly onTimelineUpdated?: (
+    event: Readonly<FilePlaybackApplicationTimelineUpdatedEvent>,
+  ) => void;
   readonly adoptAuxiliaryMessage: (
     event: Readonly<FilePlaybackAuxiliaryAdoptionEvent>,
     acknowledge: Acknowledge,
@@ -183,6 +197,9 @@ interface GuestOwnerSnapshot {
   readonly role: 'guest';
   readonly onTimelineAdopted: NonNullable<
     FilePlaybackProductSessionRouterGuestMediaOwnerPort['onTimelineAdopted']
+  > | null;
+  readonly onTimelineUpdated: NonNullable<
+    FilePlaybackProductSessionRouterGuestMediaOwnerPort['onTimelineUpdated']
   > | null;
   readonly adoptAuxiliaryMessage: FilePlaybackProductSessionRouterGuestMediaOwnerPort['adoptAuxiliaryMessage'];
   readonly adoptWireMessage: FilePlaybackProductSessionRouterGuestMediaOwnerPort['adoptWireMessage'];
@@ -333,6 +350,7 @@ function snapshotGuestOwner(value: unknown): Readonly<GuestOwnerSnapshot> | null
     ? freezeCanonical({
         role: 'guest' as const,
         onTimelineAdopted: port.onTimelineAdopted as GuestOwnerSnapshot['onTimelineAdopted'],
+        onTimelineUpdated: port.onTimelineUpdated as GuestOwnerSnapshot['onTimelineUpdated'],
         adoptAuxiliaryMessage:
           port.adoptAuxiliaryMessage as FilePlaybackProductSessionRouterGuestMediaOwnerPort['adoptAuxiliaryMessage'],
         adoptWireMessage:
@@ -488,6 +506,28 @@ export class FilePlaybackProductSessionRouter {
     return this.#notifyOwner('guest', event.sessionId, event.connectionId, (owner) => {
       if (owner.role !== 'guest' || !owner.onTimelineAdopted) return false;
       owner.onTimelineAdopted(value);
+      return true;
+    });
+  }
+
+  /** Delivers a durably adopted host-authoritative successor to its exact guest owner. */
+  notifyTimelineUpdated(value: Readonly<FilePlaybackApplicationTimelineUpdatedEvent>): boolean {
+    const event = snapshotExactRecord(value, TIMELINE_UPDATED_KEYS);
+    if (
+      !event ||
+      event.schemaVersion !== 1 ||
+      typeof event.sessionId !== 'string' ||
+      typeof event.connectionId !== 'string' ||
+      !Number.isSafeInteger(event.roomGeneration) ||
+      (event.roomGeneration as number) <= 0 ||
+      event.timeline === null ||
+      typeof event.timeline !== 'object'
+    ) {
+      throw new TypeError('File playback router timeline update notification is invalid');
+    }
+    return this.#notifyOwner('guest', event.sessionId, event.connectionId, (owner) => {
+      if (owner.role !== 'guest' || !owner.onTimelineUpdated) return false;
+      owner.onTimelineUpdated(value);
       return true;
     });
   }

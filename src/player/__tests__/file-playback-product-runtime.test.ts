@@ -202,6 +202,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
         closeConnection: (connection) => input.sessions.closeConnection(connection),
         onHostReady: input.onHostReady,
         onTimelineAdopted: input.onTimelineAdopted,
+        onTimelineUpdated: input.onTimelineUpdated,
       });
       const beginRoom = controller.beginRoom.bind(controller);
       const claimRoomRole = controller.claimRoomRole.bind(controller);
@@ -392,6 +393,7 @@ interface ProductRouterHarness {
   readonly options: Readonly<FilePlaybackProductSessionRouterOptions>;
   readonly notifyHostReady: ReturnType<typeof vi.fn>;
   readonly notifyTimelineAdopted: ReturnType<typeof vi.fn>;
+  readonly notifyTimelineUpdated: ReturnType<typeof vi.fn>;
   readonly close: ReturnType<typeof vi.fn>;
 }
 
@@ -407,6 +409,7 @@ function productRouterHarness(
   });
   const notifyHostReady = vi.fn(() => true);
   const notifyTimelineAdopted = vi.fn(() => true);
+  const notifyTimelineUpdated = vi.fn(() => true);
   const close = vi.fn(() => {
     closed = true;
   });
@@ -414,6 +417,7 @@ function productRouterHarness(
     applicationSessionHooks: () => hooks,
     notifyHostReady,
     notifyTimelineAdopted,
+    notifyTimelineUpdated,
     snapshot: () =>
       Object.freeze({
         schemaVersion: 1,
@@ -423,7 +427,14 @@ function productRouterHarness(
       }) satisfies Readonly<FilePlaybackProductSessionRouterSnapshot>,
     close,
   };
-  return { port, options, notifyHostReady, notifyTimelineAdopted, close };
+  return {
+    port,
+    options,
+    notifyHostReady,
+    notifyTimelineAdopted,
+    notifyTimelineUpdated,
+    close,
+  };
 }
 
 function routerContext(
@@ -636,23 +647,37 @@ describe('FilePlaybackProductRuntime', () => {
       status: 'adopted' as const,
       timeline: setup.controller().timelineSnapshot(),
     });
+    const timelineUpdated = freezeCanonical({
+      schemaVersion: 1 as const,
+      // Remote host generation: it must not be compared with this guest's
+      // local controller room generation.
+      roomGeneration: 73,
+      sessionId: 'deferred-guest-session',
+      connectionId: 'deferred-guest-connection',
+      timeline: setup.controller().timelineSnapshot(),
+    });
 
     controllerInput.onHostReady(hostReady);
     controllerInput.onTimelineAdopted(timelineAdopted);
+    controllerInput.onTimelineUpdated(timelineUpdated);
     expect(routers[0]?.notifyHostReady).not.toHaveBeenCalled();
     expect(routers[0]?.notifyTimelineAdopted).not.toHaveBeenCalled();
+    expect(routers[0]?.notifyTimelineUpdated).not.toHaveBeenCalled();
 
     await Promise.resolve();
 
     expect(routers[0]?.notifyHostReady).toHaveBeenCalledWith(hostReady);
     expect(routers[0]?.notifyTimelineAdopted).toHaveBeenCalledWith(timelineAdopted);
+    expect(routers[0]?.notifyTimelineUpdated).toHaveBeenCalledWith(timelineUpdated);
 
     controllerInput.onHostReady(hostReady);
     controllerInput.onTimelineAdopted(timelineAdopted);
+    controllerInput.onTimelineUpdated(timelineUpdated);
     setup.runtime.beginGuestRoom();
     await Promise.resolve();
     expect(routers[0]?.notifyHostReady).toHaveBeenCalledTimes(1);
     expect(routers[0]?.notifyTimelineAdopted).toHaveBeenCalledTimes(1);
+    expect(routers[0]?.notifyTimelineUpdated).toHaveBeenCalledTimes(1);
     setup.runtime.endRoom();
   });
 
@@ -747,6 +772,7 @@ describe('FilePlaybackProductRuntime', () => {
     vi.spyOn(manager, 'clear');
     const guestOwner = Object.freeze({
       onTimelineAdopted: vi.fn(),
+      onTimelineUpdated: vi.fn(),
       adoptAuxiliaryMessage: vi.fn(),
       adoptWireMessage: vi.fn(),
       adoptPeerRangeBulk: vi.fn(),
@@ -784,6 +810,15 @@ describe('FilePlaybackProductRuntime', () => {
     expect(guestOwnerOptions?.manager).toBe(manager);
     expect(guestOwnerOptions?.roomToken).toBe(registryRoomToken);
     expect(wrappedOwner).not.toBe(guestOwner);
+    const timelineUpdated = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: 19,
+      sessionId: context.sessionId,
+      connectionId: context.connectionId,
+      timeline: setup.controller().timelineSnapshot(),
+    });
+    wrappedOwner.onTimelineUpdated?.(timelineUpdated);
+    expect(guestOwner.onTimelineUpdated).toHaveBeenCalledWith(timelineUpdated);
     expect(guestOwnerOptions!.maxEncodedSize).toBe(5 * 1024 * 1024 * 1024);
     expect(guestOwnerOptions!.maxEncodedSize).toBeGreaterThan(REMOTE_SHARE_MAX_BYTES);
     const offerToken = Object.freeze({});

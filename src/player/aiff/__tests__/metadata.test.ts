@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AIFF_MAX_CHUNKS,
+  AIFF_MAX_METADATA_READ_BYTES,
   UnsupportedAiffCodecError,
   UnsupportedAiffContainerError,
   readAiffPcmMetadata,
@@ -140,7 +141,7 @@ function fixture(options: FixtureOptions = {}): Uint8Array {
   const channels = options.channels ?? 2;
   const frames = options.frames ?? 4;
   const sampleSize = options.sampleSize ?? 16;
-  const dataBytes = options.dataBytes ?? frames * channels * (sampleSize / 8);
+  const dataBytes = options.dataBytes ?? frames * channels * Math.ceil(sampleSize / 8);
   const commonOptions = {
     channels,
     frames,
@@ -195,64 +196,77 @@ function replaceChunkBody(container: 'AIFF' | 'AIFC', chunks: readonly Uint8Arra
 
 describe('readAiffPcmMetadata', () => {
   it.each([
-    [8, 'pcm-s8'],
-    [16, 'pcm-s16be'],
-    [24, 'pcm-s24be'],
-    [32, 'pcm-s32be'],
-  ] as const)('parses signed %i-bit AIFF PCM as %s', async (sampleSize, encoding) => {
-    const metadata = await parse(
-      fixture({ sampleSize, sampleRate: 96_000, channels: 2, frames: 12 }),
-    );
+    [1, 'pcm-s8', 8],
+    [8, 'pcm-s8', 8],
+    [9, 'pcm-s16be', 16],
+    [12, 'pcm-s16be', 16],
+    [16, 'pcm-s16be', 16],
+    [17, 'pcm-s24be', 24],
+    [20, 'pcm-s24be', 24],
+    [24, 'pcm-s24be', 24],
+    [25, 'pcm-s32be', 32],
+    [32, 'pcm-s32be', 32],
+  ] as const)(
+    'parses signed %i-bit AIFF PCM as high-aligned %s',
+    async (sampleSize, encoding, containerBitsPerSample) => {
+      const metadata = await parse(
+        fixture({ sampleSize, sampleRate: 96_000, channels: 2, frames: 12 }),
+      );
 
-    expect(metadata).toMatchObject({
-      format: 'aiff',
-      container: 'aiff',
-      encoding,
-      compressionType: 'NONE',
-      compressionName: null,
-      sourceSampleRate: 96_000,
-      channels: 2,
-      containerBitsPerSample: sampleSize,
-      validBitsPerSample: sampleSize,
-      blockAlign: 2 * (sampleSize / 8),
-      totalSourceFrames: 12,
-      durationSeconds: 12 / 96_000,
-    });
-    expect(metadata.dataBytes).toBe(12 * 2 * (sampleSize / 8));
-    expect(metadata.logicalFileBytes).toBeGreaterThan(metadata.dataOffset);
-  });
+      expect(metadata).toMatchObject({
+        format: 'aiff',
+        container: 'aiff',
+        encoding,
+        compressionType: 'NONE',
+        compressionName: null,
+        sourceSampleRate: 96_000,
+        channels: 2,
+        containerBitsPerSample,
+        validBitsPerSample: sampleSize,
+        blockAlign: 2 * (containerBitsPerSample / 8),
+        totalSourceFrames: 12,
+        durationSeconds: 12 / 96_000,
+      });
+      expect(metadata.dataBytes).toBe(12 * 2 * (containerBitsPerSample / 8));
+      expect(metadata.logicalFileBytes).toBeGreaterThan(metadata.dataOffset);
+    },
+  );
 
   it.each([
-    ['NONE', 16, 'pcm-s16be'],
-    ['twos', 24, 'pcm-s24be'],
-    ['sowt', 8, 'pcm-s8'],
-    ['sowt', 16, 'pcm-s16le'],
-    ['sowt', 24, 'pcm-s24le'],
-    ['sowt', 32, 'pcm-s32le'],
-    ['fl32', 32, 'float32be'],
-    ['fl64', 64, 'float64be'],
-  ] as const)('parses AIFC %s/%i as %s', async (compressionType, sampleSize, encoding) => {
-    const metadata = await parse(
-      fixture({
-        container: 'AIFC',
+    ['NONE', 12, 'pcm-s16be', 16],
+    ['twos', 20, 'pcm-s24be', 24],
+    ['sowt', 8, 'pcm-s8', 8],
+    ['sowt', 12, 'pcm-s16le', 16],
+    ['sowt', 20, 'pcm-s24le', 24],
+    ['sowt', 32, 'pcm-s32le', 32],
+    ['fl32', 32, 'float32be', 32],
+    ['fl64', 64, 'float64be', 64],
+  ] as const)(
+    'parses AIFC %s/%i as %s',
+    async (compressionType, sampleSize, encoding, containerBitsPerSample) => {
+      const metadata = await parse(
+        fixture({
+          container: 'AIFC',
+          compressionType,
+          compressionName: `name-${compressionType}`,
+          sampleSize,
+        }),
+      );
+
+      expect(metadata).toMatchObject({
+        container: 'aifc',
         compressionType,
         compressionName: `name-${compressionType}`,
-        sampleSize,
-      }),
-    );
-
-    expect(metadata).toMatchObject({
-      container: 'aifc',
-      compressionType,
-      compressionName: `name-${compressionType}`,
-      encoding,
-      containerBitsPerSample: sampleSize,
-    });
-  });
+        encoding,
+        containerBitsPerSample,
+        validBitsPerSample: sampleSize,
+      });
+    },
+  );
 
   it('skips an odd padded unknown chunk and computes SSND offset without reading it', async () => {
     const bytes = fixture({
-      before: [iffChunk('ANNO', Uint8Array.of(1), 0x7f)],
+      before: [iffChunk('ANNO', Uint8Array.of(1))],
       channels: 2,
       frames: 4,
       sampleSize: 16,
@@ -268,7 +282,9 @@ describe('readAiffPcmMetadata', () => {
       ssndBlockSize: 16,
       dataBytes: 16,
     });
-    expect(readAt.mock.calls.every(([, length]) => length <= 23)).toBe(true);
+    expect(readAt.mock.calls.every(([, length]) => length <= AIFF_MAX_METADATA_READ_BYTES)).toBe(
+      true,
+    );
     expect(
       readAt.mock.calls.every(([offset, length]) => offset + length <= metadata.dataOffset),
     ).toBe(true);
@@ -358,7 +374,9 @@ describe('readAiffPcmMetadata', () => {
     await expect(readAiffPcmMetadata(source, new AbortController().signal)).resolves.toMatchObject({
       compressionName: maximumName,
     });
-    expect(Math.max(...readAt.mock.calls.map(([, length]) => length))).toBe(278);
+    expect(Math.max(...readAt.mock.calls.map(([, length]) => length))).toBe(
+      AIFF_MAX_METADATA_READ_BYTES,
+    );
   });
 
   it.each([
@@ -381,7 +399,10 @@ describe('readAiffPcmMetadata', () => {
   });
 
   it('rejects unsupported or contradictory sample encodings', async () => {
-    await expect(parse(fixture({ sampleSize: 20, dataBytes: 20 }))).rejects.toBeInstanceOf(
+    await expect(parse(fixture({ sampleSize: 0, dataBytes: 0 }))).rejects.toBeInstanceOf(
+      UnsupportedAiffCodecError,
+    );
+    await expect(parse(fixture({ sampleSize: 33 }))).rejects.toBeInstanceOf(
       UnsupportedAiffCodecError,
     );
     await expect(
@@ -395,7 +416,7 @@ describe('readAiffPcmMetadata', () => {
     ).rejects.toThrow(/fl64 must use a 64-bit/i);
   });
 
-  it('strictly validates SSND offset, blockSize, and exact frame bytes', async () => {
+  it('validates SSND offset and requires at least the COMM frame bytes', async () => {
     await expect(
       parse(
         form('AIFF', [iffChunk('COMM', aiffCommon()), iffChunk('SSND', concat(be32(17), be32(0)))]),
@@ -404,11 +425,28 @@ describe('readAiffPcmMetadata', () => {
     await expect(parse(fixture({ ssndOffset: 4, ssndBlockSize: 4 }))).rejects.toThrow(
       /smaller than blockSize/i,
     );
-    await expect(parse(fixture({ ssndBlockSize: 6 }))).rejects.toThrow(
-      /whole number of sample frames/i,
-    );
-    await expect(parse(fixture({ dataBytes: 15 }))).rejects.toThrow(/do not exactly match/i);
-    await expect(parse(fixture({ dataBytes: 17 }))).rejects.toThrow(/do not exactly match/i);
+    await expect(parse(fixture({ dataBytes: 15 }))).rejects.toThrow(/all sample frames/i);
+
+    await expect(parse(fixture({ ssndBlockSize: 6 }))).resolves.toMatchObject({
+      blockAlign: 4,
+      ssndBlockSize: 6,
+    });
+    await expect(
+      parse(
+        fixture({
+          channels: 2,
+          frames: 1,
+          sampleSize: 24,
+          dataBytes: 512,
+          ssndBlockSize: 512,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      blockAlign: 6,
+      dataBytes: 6,
+      totalSourceFrames: 1,
+      ssndBlockSize: 512,
+    });
 
     const tooShort = form('AIFF', [
       iffChunk('COMM', aiffCommon()),
@@ -429,10 +467,30 @@ describe('readAiffPcmMetadata', () => {
       ),
     ).rejects.toBeInstanceOf(EncodedSourceIntegrityError);
 
+    await expect(
+      parse(
+        fixture({
+          before: [iffChunk('ANNO', Uint8Array.of(1), 0x7f)],
+        }),
+      ),
+    ).rejects.toThrow(/nonzero padding byte/i);
+
     const excessive = Array.from({ length: AIFF_MAX_CHUNKS + 1 }, () =>
       iffChunk('JUNK', new Uint8Array()),
     );
     await expect(parse(form('AIFF', excessive))).rejects.toThrow(/too many chunks/i);
+  });
+
+  it('requires canonical printable local chunk IDs with trailing spaces only', async () => {
+    await expect(
+      parse(fixture({ before: [iffChunk('\u001fBAD', new Uint8Array())] })),
+    ).rejects.toThrow(/printable ASCII/i);
+    await expect(parse(fixture({ before: [iffChunk(' JNK', new Uint8Array())] }))).rejects.toThrow(
+      /trailing characters/i,
+    );
+    await expect(
+      parse(fixture({ before: [iffChunk('JNK ', new Uint8Array())] })),
+    ).resolves.toMatchObject({ format: 'aiff' });
   });
 
   it('rejects zero frames and malformed exact reads', async () => {

@@ -9,7 +9,10 @@ import {
 export const AIFF_MAX_CHANNELS = 8;
 export const AIFF_MAX_SAMPLE_RATE_HZ = 1_000_000;
 export const AIFF_MAX_CHUNKS = 1_024;
-/** 22 fixed AIFC COMM bytes plus its bounded, even-padded Pascal string. */
+/**
+ * Maximum bytes returned by any single metadata read. Odd chunk padding is
+ * verified independently with an exact one-byte read.
+ */
 export const AIFF_MAX_METADATA_READ_BYTES = 278;
 
 const FORM_CHUNK = 'FORM';
@@ -107,6 +110,24 @@ function fourCc(bytes: Uint8Array, offset = 0): string {
     bytes[offset + 2] ?? 0,
     bytes[offset + 3] ?? 0,
   );
+}
+
+function readChunkId(bytes: Uint8Array): string {
+  let trailingSpaceStarted = false;
+  for (let index = 0; index < 4; index += 1) {
+    const value = bytes[index] ?? 0;
+    if (value < 0x20 || value > 0x7e) {
+      throw new EncodedSourceIntegrityError('AIFF chunk ID must contain printable ASCII');
+    }
+    if (value === 0x20) {
+      trailingSpaceStarted = true;
+    } else if (trailingSpaceStarted) {
+      throw new EncodedSourceIntegrityError(
+        'AIFF chunk ID spaces may only appear as trailing characters',
+      );
+    }
+  }
+  return fourCc(bytes);
 }
 
 function safeAdd(left: number, right: number, label: string): number {
@@ -269,28 +290,30 @@ function pcmEncoding(
   sampleSize: number,
   endian: 'big' | 'little',
 ): Pick<SampleLayout, 'encoding' | 'containerBitsPerSample'> {
-  if (sampleSize === 8) return { encoding: 'pcm-s8', containerBitsPerSample: 8 };
-  if (sampleSize === 16) {
+  if (sampleSize < 1 || sampleSize > 32) {
+    throw new UnsupportedAiffCodecError(
+      `AIFF integer PCM uses an unsupported ${sampleSize}-bit sample container`,
+    );
+  }
+  if (sampleSize <= 8) {
+    return { encoding: 'pcm-s8', containerBitsPerSample: 8 };
+  }
+  if (sampleSize <= 16) {
     return {
       encoding: endian === 'big' ? 'pcm-s16be' : 'pcm-s16le',
       containerBitsPerSample: 16,
     };
   }
-  if (sampleSize === 24) {
+  if (sampleSize <= 24) {
     return {
       encoding: endian === 'big' ? 'pcm-s24be' : 'pcm-s24le',
       containerBitsPerSample: 24,
     };
   }
-  if (sampleSize === 32) {
-    return {
-      encoding: endian === 'big' ? 'pcm-s32be' : 'pcm-s32le',
-      containerBitsPerSample: 32,
-    };
-  }
-  throw new UnsupportedAiffCodecError(
-    `AIFF integer PCM uses an unsupported ${sampleSize}-bit sample container`,
-  );
+  return {
+    encoding: endian === 'big' ? 'pcm-s32be' : 'pcm-s32le',
+    containerBitsPerSample: 32,
+  };
 }
 
 function sampleLayout(common: CommonFields): SampleLayout {
@@ -373,7 +396,7 @@ export async function readAiffPcmMetadata(
       throw new EncodedSourceIntegrityError('AIFF ends inside a chunk header');
     }
     const header = await readExact(source, cursor, 8, signal);
-    const chunkId = fourCc(header);
+    const chunkId = readChunkId(header);
     const chunkBytes = new DataView(header.buffer, header.byteOffset, header.byteLength).getUint32(
       4,
       false,
@@ -384,6 +407,14 @@ export async function readAiffPcmMetadata(
       throw new EncodedSourceIntegrityError(
         `AIFF chunk ${JSON.stringify(chunkId)} exceeds the FORM boundary`,
       );
+    }
+    if (chunkBytes % 2 !== 0) {
+      const padding = await readExact(source, nextCursor - 1, 1, signal);
+      if (padding[0] !== 0) {
+        throw new EncodedSourceIntegrityError(
+          `AIFF chunk ${JSON.stringify(chunkId)} has a nonzero padding byte`,
+        );
+      }
     }
 
     if (chunkId === COMM_CHUNK) {
@@ -445,16 +476,11 @@ export async function readAiffPcmMetadata(
     if (soundData.offset >= soundData.blockSize) {
       throw new EncodedSourceIntegrityError('AIFF SSND offset must be smaller than blockSize');
     }
-    if (soundData.blockSize % blockAlign !== 0) {
-      throw new EncodedSourceIntegrityError(
-        'AIFF SSND blockSize must contain a whole number of sample frames',
-      );
-    }
   }
   const availableFrameBytes = ssndPayloadBytes - soundData.offset;
-  if (availableFrameBytes !== expectedFrameBytes) {
+  if (availableFrameBytes < expectedFrameBytes) {
     throw new EncodedSourceIntegrityError(
-      'AIFF SSND sample bytes do not exactly match COMM sample frames',
+      'AIFF SSND does not contain all sample frames declared by COMM',
     );
   }
   const dataOffset = safeAdd(

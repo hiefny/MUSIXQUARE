@@ -246,8 +246,9 @@ checkpoints rather than arrays proportional to track duration.
 The metadata checkpoint now emits one exact, structured-clone-safe manifest for
 the admitted AAC-LC track. It captures the source size and immutable identity,
 AAC configuration, normalized audible timeline, `stsz` pages, complete bounded
-`stsc` body, chunk-offset pages, and `mdat` ranges. At the current same-app
-boundary, a Worker rebinds the source identity and reauthenticates the table
+`stsc` body, chunk-offset pages, and `mdat` ranges. At the current
+origin-trusted, structurally-untrusted same-app boundary, a Worker rebinds the
+source identity and reauthenticates the table
 headers and source-derived `stsc` runs before it may issue a decoder runtime;
 remaining table pages are authenticated lazily. Codec, timeline, container
 diagnostics, and declared `mdat` ranges are canonicalized but are not reparsed

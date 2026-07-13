@@ -713,6 +713,7 @@ describe('FilePlaybackProductRuntime', () => {
       revoke: vi.fn(),
       publishCurrent: vi.fn(),
       publishPrepared: vi.fn(),
+      bindPrepared: vi.fn(),
       whenPreparedRemoteReady: vi.fn(),
       activatePrepared: vi.fn(),
       retirePrepared: vi.fn(),
@@ -795,6 +796,7 @@ describe('FilePlaybackProductRuntime', () => {
       participant: freezeCanonical({ participantId: 'runtime-ready-guest' }),
       bindAttempt: vi.fn(async () => undefined),
     }) as unknown as Readonly<HostPreparedRemoteParticipant>;
+    const bindGate = deferred<void>();
     const publishPrepared = vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
       const resolver = ownerOptions?.resolvePreparedPeerRangeSource;
       if (!resolver) throw new Error('prepared resolver unavailable');
@@ -806,6 +808,10 @@ describe('FilePlaybackProductRuntime', () => {
       expect(source).toBe(blob);
       return freezeCanonical({ schemaVersion: 1, prepared }) as never;
     });
+    const bindPrepared = vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
+      await bindGate.promise;
+      return freezeCanonical({ schemaVersion: 1, prepared }) as never;
+    });
     const whenPreparedRemoteReady = vi.fn(async () => capability);
     const activatePrepared = vi.fn(() => freezeCanonical({ schemaVersion: 1 }) as never);
     const hostOwner = Object.freeze({
@@ -815,6 +821,7 @@ describe('FilePlaybackProductRuntime', () => {
       revoke: vi.fn(),
       publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
       publishPrepared,
+      bindPrepared,
       whenPreparedRemoteReady,
       activatePrepared,
       retirePrepared: vi.fn(async () => undefined),
@@ -887,16 +894,27 @@ describe('FilePlaybackProductRuntime', () => {
       }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
     });
 
-    const committed = await setup.runtime.startLocalTrack({
+    const commitTask = setup.runtime.startLocalTrack({
       queueItemId: Q1,
       file: blob,
       positionSeconds: 0,
       signal: new AbortController().signal,
     });
+    await vi.waitFor(() => expect(bindPrepared).toHaveBeenCalledWith(prepared));
+    expect(whenPreparedRemoteReady).not.toHaveBeenCalled();
+    bindGate.resolve();
+    const committed = await commitTask;
 
     expect(committed.timeline).toBe(timeline);
     expect(publishPrepared).toHaveBeenCalledWith(prepared);
+    expect(bindPrepared).toHaveBeenCalledWith(prepared);
     expect(whenPreparedRemoteReady).toHaveBeenCalledWith(prepared);
+    expect(publishPrepared.mock.invocationCallOrder[0]).toBeLessThan(
+      bindPrepared.mock.invocationCallOrder[0]!,
+    );
+    expect(bindPrepared.mock.invocationCallOrder[0]).toBeLessThan(
+      whenPreparedRemoteReady.mock.invocationCallOrder[0]!,
+    );
     expect(resolveSource).toHaveBeenCalledWith(prepared.asset.binding.sourceIdentity);
     expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
   });

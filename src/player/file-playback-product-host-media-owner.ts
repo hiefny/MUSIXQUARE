@@ -229,7 +229,7 @@ interface PreparedPublicationRecord {
   readonly prepared: Readonly<HostPreparedLocalTrack>;
   readonly offer: Readonly<FileMediaSourceOfferV2>;
   readonly binding: Readonly<FilePlaybackRunBindingV2>;
-  readonly stateLease: FilePlaybackWireStateLease;
+  stateLease: FilePlaybackWireStateLease | null;
   readonly handleId: string | null;
   readonly source: CandidateSourceRecord;
   readonly commit: Readonly<FilePlaybackProductHostPreparedPublicationCommit>;
@@ -238,7 +238,7 @@ interface PreparedPublicationRecord {
   readonly rejectReady: (error: Error) => void;
   participant: RemoteRendezvousParticipant | null;
   capability: Readonly<HostPreparedRemoteParticipant> | null;
-  status: 'publishing' | 'published' | 'activated' | 'retired';
+  status: 'offering' | 'offered' | 'binding' | 'published' | 'activated' | 'retired';
 }
 
 interface PreparedRetirementRecord {
@@ -263,6 +263,15 @@ interface AttemptRecord {
   outcome: 'pending' | 'succeeded' | 'failed';
   stateCommitted: boolean;
   status: 'candidate' | 'current' | 'retired';
+}
+
+function hasPreparedSourceAuthority(record: PreparedPublicationRecord): boolean {
+  return (
+    record.status === 'offering' ||
+    record.status === 'offered' ||
+    record.status === 'binding' ||
+    record.status === 'published'
+  );
 }
 
 class HostMediaOwnerConnectionError extends Error {
@@ -490,6 +499,10 @@ export class FilePlaybackProductHostMediaOwner {
   #candidate: PreparedPublicationRecord | null = null;
   #candidateTask: Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> | null = null;
   #candidateTaskIdentity: Readonly<HostPreparedLocalTrack> | null = null;
+  #candidateBindingTask: Promise<
+    Readonly<FilePlaybackProductHostPreparedPublicationCommit>
+  > | null = null;
+  #candidateBindingTaskIdentity: Readonly<HostPreparedLocalTrack> | null = null;
   #candidateRetirement: PreparedRetirementRecord | null = null;
   readonly #preparedRetirements = new WeakMap<object, Promise<void>>();
   #mediaLane: Promise<void> = Promise.resolve();
@@ -681,7 +694,7 @@ export class FilePlaybackProductHostMediaOwner {
     if (this.#candidateTask && this.#candidateTaskIdentity === prepared) {
       return this.#candidateTask;
     }
-    if (this.#candidate || this.#candidateTask) {
+    if (this.#candidate || this.#candidateTask || this.#candidateBindingTask) {
       return Promise.reject(new Error('Host prepared publication already has exact authority'));
     }
     const task = this.#enqueueMediaLane(async () => {
@@ -711,6 +724,59 @@ export class FilePlaybackProductHostMediaOwner {
     return task;
   }
 
+  /** Claims wire state and sends RUN for one exact source offer. */
+  bindPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>> {
+    if (this.#closed) return Promise.reject(new Error('Host media owner is closed'));
+    if (prepared === null || typeof prepared !== 'object') {
+      return Promise.reject(new TypeError('Host prepared binding authority is invalid'));
+    }
+    if (this.#preparedRetirements.has(prepared as object)) {
+      return Promise.reject(new Error('Host prepared publication authority was retired'));
+    }
+    if (this.#candidateRetirement) {
+      return Promise.reject(new Error('Host prepared publication retirement is settling'));
+    }
+    if (this.#candidateBindingTask && this.#candidateBindingTaskIdentity === prepared) {
+      return this.#candidateBindingTask;
+    }
+    const record = this.#candidate;
+    if (!record || record.prepared !== prepared || record.status === 'retired') {
+      return Promise.reject(new Error('Host prepared binding authority is stale'));
+    }
+    if (record.status === 'published') return Promise.resolve(record.commit);
+    if (record.status !== 'offered' || this.#candidateBindingTask) {
+      return Promise.reject(new Error('Host prepared publication is not bindable'));
+    }
+    const task = this.#enqueueMediaLane(async () => {
+      if (this.#closed) throw new Error('Host media owner is closed');
+      if (
+        this.#candidateRetirement?.prepared === prepared ||
+        this.#preparedRetirements.has(prepared as object)
+      ) {
+        throw new Error('Host prepared publication authority was retired');
+      }
+      const exact = this.#candidate;
+      if (!exact || exact !== record || exact.prepared !== prepared) {
+        throw new Error('Host prepared binding authority is stale');
+      }
+      if (exact.status === 'published') return exact.commit;
+      if (exact.status !== 'offered') {
+        throw new Error('Host prepared publication is not bindable');
+      }
+      return this.#bindPreparedRun(exact);
+    }).finally(() => {
+      if (this.#candidateBindingTask === task) {
+        this.#candidateBindingTask = null;
+        this.#candidateBindingTaskIdentity = null;
+      }
+    });
+    this.#candidateBindingTask = task;
+    this.#candidateBindingTaskIdentity = prepared;
+    return task;
+  }
+
   /**
    * Retires one exact uncommitted candidate. Once a wire state was staged the
    * connection is renewed because the revision tombstone cannot be rolled back.
@@ -721,16 +787,26 @@ export class FilePlaybackProductHostMediaOwner {
     }
     const replay = this.#preparedRetirements.get(prepared as object);
     if (replay) return replay;
-    if (this.#candidate?.prepared !== prepared && this.#candidateTaskIdentity !== prepared) {
+    if (
+      this.#candidate?.prepared !== prepared &&
+      this.#candidateTaskIdentity !== prepared &&
+      this.#candidateBindingTaskIdentity !== prepared
+    ) {
       return Promise.reject(new Error('Host prepared retirement authority is stale'));
     }
     this.#candidateEpoch += 1;
     this.#candidateController.abort(reason);
-    const pending = this.#candidateTaskIdentity === prepared ? this.#candidateTask : null;
+    const pendingPublication =
+      this.#candidateTaskIdentity === prepared ? this.#candidateTask : null;
+    const pendingBinding =
+      this.#candidateBindingTaskIdentity === prepared ? this.#candidateBindingTask : null;
     let staged = this.#retirePreparedCandidate(reason);
     const promise = Promise.resolve()
       .then(async () => {
-        if (pending) await pending.catch(() => undefined);
+        await Promise.all([
+          pendingPublication?.catch(() => undefined),
+          pendingBinding?.catch(() => undefined),
+        ]);
         if (this.#candidate?.prepared === prepared) {
           staged = this.#retirePreparedCandidate(reason) || staged;
         }
@@ -759,7 +835,7 @@ export class FilePlaybackProductHostMediaOwner {
     prepared: Readonly<HostPreparedLocalTrack>,
   ): Promise<Readonly<HostPreparedRemoteParticipant>> {
     const record = this.#candidate;
-    if (!record || record.prepared !== prepared || record.status === 'retired') {
+    if (!record || record.prepared !== prepared || record.status !== 'published') {
       return Promise.reject(new Error('Host prepared publication authority is stale'));
     }
     return record.ready;
@@ -778,7 +854,8 @@ export class FilePlaybackProductHostMediaOwner {
       throw new Error('Host prepared activation authority is stale');
     }
     this.#assertCandidateRecord(record);
-    if (record.status !== 'published') {
+    const stateLease = record.stateLease;
+    if (record.status !== 'published' || !stateLease) {
       throw new Error('Host prepared publication is not activatable');
     }
     const publication = this.#hostRoom.currentPeerPublication();
@@ -811,7 +888,7 @@ export class FilePlaybackProductHostMediaOwner {
     const timeline = timelineFromFilePlaybackTimelineUpdateV2(update);
     if (!timeline) throw new Error('Host prepared committed timeline is invalid');
 
-    Reflect.apply(trustedChannelCommitMedia, this.#context.channel, [record.stateLease]);
+    Reflect.apply(trustedChannelCommitMedia, this.#context.channel, [stateLease]);
     this.#revokePublishedHandle(new Error('Host current publication was superseded'));
     this.#publicationEpoch += 1;
     this.#publicationController.abort(new Error('Host current publication was superseded'));
@@ -830,7 +907,7 @@ export class FilePlaybackProductHostMediaOwner {
       publication,
       offer: record.offer,
       binding: record.binding,
-      stateLease: record.stateLease,
+      stateLease,
       handleId: record.handleId,
       commit,
       participant: record.participant,
@@ -1101,8 +1178,6 @@ export class FilePlaybackProductHostMediaOwner {
       runId: prepared.state.runId,
       playbackRevision: prepared.state.revision,
     });
-    this.#retireAttempt(new Error('Host prepared candidate superseded current recovery'));
-    const stateLease = this.#installCandidateState(prepared);
     const ready = deferredReadyCapability();
     const commit = freezeCanonical({
       schemaVersion: 1 as const,
@@ -1115,7 +1190,7 @@ export class FilePlaybackProductHostMediaOwner {
       prepared,
       offer,
       binding,
-      stateLease,
+      stateLease: null,
       handleId,
       source: freezeCanonical({ prepared, resolve }),
       commit,
@@ -1124,18 +1199,44 @@ export class FilePlaybackProductHostMediaOwner {
       rejectReady: ready.reject,
       participant: null,
       capability: null,
-      status: 'publishing',
+      status: 'offering',
     };
     this.#candidate = record;
     await Promise.resolve();
     this.#assertCandidateRecord(record);
     this.#sendRequiredFrame(offer);
-    await Promise.resolve();
     this.#assertCandidateRecord(record);
-    this.#sendRequiredFrame(binding);
+    record.status = 'offered';
+    return commit;
+  }
+
+  #bindPreparedRun(
+    record: PreparedPublicationRecord,
+  ): Readonly<FilePlaybackProductHostPreparedPublicationCommit> {
+    this.#assertCandidateRecord(record);
+    if (record.status !== 'offered' || record.stateLease !== null) {
+      throw new Error('Host prepared publication is not bindable');
+    }
+    if (record.offer.expiresAtRoomTimeMs <= this.#nowRoomTimeMs()) {
+      const error = new Error('Host prepared source offer expired before binding');
+      this.#candidateEpoch += 1;
+      this.#candidateController.abort(error);
+      this.#retirePreparedCandidate(error);
+      throw error;
+    }
+    record.status = 'binding';
+    this.#retireAttempt(new Error('Host prepared candidate superseded current recovery'));
+    let stateLease: FilePlaybackWireStateLease;
+    try {
+      stateLease = this.#installCandidateState(record.prepared);
+    } catch (error) {
+      throw this.#failConnection(error);
+    }
+    record.stateLease = stateLease;
+    this.#sendRequiredFrame(record.binding);
     this.#assertCandidateRecord(record);
     record.status = 'published';
-    return commit;
+    return record.commit;
   }
 
   #installCurrentState(
@@ -1182,7 +1283,7 @@ export class FilePlaybackProductHostMediaOwner {
     const record = this.#publication;
 
     if (message.kind === 'source-ready' || message.kind === 'source-not-ready') {
-      if (candidate && event.stateLease === candidate.stateLease) {
+      if (candidate && candidate.stateLease !== null && event.stateLease === candidate.stateLease) {
         if (event.attemptLease !== null || candidate.status !== 'published') {
           acknowledge();
           return;
@@ -1351,7 +1452,8 @@ export class FilePlaybackProductHostMediaOwner {
     const candidate = this.#candidate;
     const current = this.#publication;
     const authority =
-      candidate?.status === 'published' &&
+      candidate !== null &&
+      hasPreparedSourceAuthority(candidate) &&
       candidate.handleId === frame.handleId &&
       candidate.offer.transport === 'peer-range'
         ? {
@@ -1448,10 +1550,12 @@ export class FilePlaybackProductHostMediaOwner {
     record: PreparedPublicationRecord,
     attempt: HostRendezvousAttempt,
   ): Promise<void> {
+    const stateLease = record.stateLease;
     if (
       this.#closed ||
       this.#candidate !== record ||
       record.status !== 'published' ||
+      !stateLease ||
       !record.participant ||
       typeof attempt?.rendezvousId !== 'string' ||
       typeof attempt.whenParticipantAccepted !== 'function'
@@ -1466,7 +1570,7 @@ export class FilePlaybackProductHostMediaOwner {
     let lease: FilePlaybackWireAttemptLease;
     try {
       lease = Reflect.apply(trustedChannelStageAttempt, this.#context.channel, [
-        record.stateLease,
+        stateLease,
         attempt.rendezvousId,
       ]);
     } catch (error) {
@@ -1481,7 +1585,7 @@ export class FilePlaybackProductHostMediaOwner {
       participant: record.participant,
       attempt,
       lease,
-      stateLease: record.stateLease,
+      stateLease,
       state: record.prepared.state,
       sourceIdentity: record.prepared.asset.binding.sourceIdentity,
       transferSessionId: record.prepared.asset.binding.transferSessionId,
@@ -1678,7 +1782,8 @@ export class FilePlaybackProductHostMediaOwner {
   ): Promise<HostPeerRangeSource | null> {
     const candidate = this.#candidate;
     if (
-      candidate?.status === 'published' &&
+      candidate !== null &&
+      hasPreparedSourceAuthority(candidate) &&
       candidate.offer.transport === 'peer-range' &&
       sourceIdentity === candidate.prepared.asset.binding.sourceIdentity
     ) {
@@ -1687,7 +1792,7 @@ export class FilePlaybackProductHostMediaOwner {
         sourceIdentity,
         signal,
       });
-      if (this.#closed || this.#candidate !== candidate || candidate.status !== 'published') {
+      if (this.#closed || this.#candidate !== candidate || !hasPreparedSourceAuthority(candidate)) {
         if (isEncodedSource(source)) await source.close().catch(() => undefined);
         return null;
       }
@@ -1858,6 +1963,8 @@ export class FilePlaybackProductHostMediaOwner {
     this.#publicationTaskIdentity = null;
     this.#candidateTask = null;
     this.#candidateTaskIdentity = null;
+    this.#candidateBindingTask = null;
+    this.#candidateBindingTaskIdentity = null;
     this.#attemptsById.clear();
     if (closeConnection) {
       try {
@@ -1920,16 +2027,17 @@ export class FilePlaybackProductHostMediaOwner {
         // Responder close remains the terminal ownership fence.
       }
     }
-    if (record.status === 'publishing' || record.status === 'published') {
+    const stateLease = record.stateLease;
+    if (stateLease) {
       try {
-        Reflect.apply(trustedChannelRetireMedia, this.#context.channel, [record.stateLease]);
+        Reflect.apply(trustedChannelRetireMedia, this.#context.channel, [stateLease]);
       } catch {
         // A closing channel has already revoked this exact lease.
       }
     }
     record.status = 'retired';
     this.#candidate = null;
-    return true;
+    return stateLease !== null;
   }
 
   #enqueueMediaLane<T>(operation: () => Promise<T>): Promise<T> {

@@ -140,6 +140,9 @@ interface FilePlaybackProductRuntimeHostMediaOwnerPort extends FilePlaybackProdu
   publishPrepared(
     prepared: Readonly<HostPreparedLocalTrack>,
   ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>>;
+  bindPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>>;
   whenPreparedRemoteReady(
     prepared: Readonly<HostPreparedLocalTrack>,
   ): Promise<Readonly<HostPreparedRemoteParticipant>>;
@@ -343,6 +346,7 @@ function defaultHostMediaOwnerFactory(
     publishCurrent: () => owner.publishCurrent(),
     publishPrepared: (prepared: Readonly<HostPreparedLocalTrack>) =>
       owner.publishPrepared(prepared),
+    bindPrepared: (prepared: Readonly<HostPreparedLocalTrack>) => owner.bindPrepared(prepared),
     whenPreparedRemoteReady: (prepared: Readonly<HostPreparedLocalTrack>) =>
       owner.whenPreparedRemoteReady(prepared),
     activatePrepared: (input: ActivateFilePlaybackProductHostPreparedOptions) =>
@@ -433,6 +437,7 @@ function assertHostMediaOwnerPort(
     typeof value.revoke !== 'function' ||
     typeof value.publishCurrent !== 'function' ||
     typeof value.publishPrepared !== 'function' ||
+    typeof value.bindPrepared !== 'function' ||
     typeof value.whenPreparedRemoteReady !== 'function' ||
     typeof value.activatePrepared !== 'function' ||
     typeof value.retirePrepared !== 'function'
@@ -1322,7 +1327,12 @@ export class FilePlaybackProductRuntime {
             cycle = created;
             this.#hostPreparedCohorts.set(context.prepared, created);
             for (const [ownerContext, owner] of owners) {
-              const publicationTask = owner.publishPrepared(context.prepared);
+              const publicationTask = owner
+                .publishPrepared(context.prepared)
+                .then(async (publication) => {
+                  await owner.bindPrepared(context.prepared);
+                  return publication;
+                });
               const entry: HostPreparedCohortEntry = {
                 context: ownerContext,
                 owner,

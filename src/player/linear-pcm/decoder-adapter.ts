@@ -13,44 +13,30 @@ import {
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
 import { EncodedSourcePortBroker } from '../sources/encoded-source-port.ts';
-import { createWaveStreamDescriptor } from './decoder-helpers.ts';
-import { WAVE_MAX_SAMPLE_RATE_HZ, type WavePcmMetadata } from './metadata.ts';
+import { createLinearPcmDecoderDescriptor } from './decoder-helpers.js';
 import {
-  WAVE_STREAM_PROTOCOL_VERSION,
-  isWaveDecoderGeneration,
-  isWaveSourceLifetimeGeneration,
-  isWaveSourceSize,
-  type WaveDecoderCommand,
-  type WaveStreamDescriptor,
-} from './stream-protocol.ts';
+  LINEAR_PCM_DECODER_DESCRIPTOR_KEYS,
+  LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+  isLinearPcmDecoderGeneration,
+  isLinearPcmSourceLifetimeGeneration,
+  isLinearPcmSourceSize,
+  type LinearPcmDecoderCommand,
+  type LinearPcmDecoderDescriptor,
+} from './decoder-protocol.js';
+import type { LinearPcmMetadata } from './sample-format.js';
+import { LINEAR_PCM_STREAM_MAX_SAMPLE_RATE_HZ } from './stream-protocol.js';
 
 const MAX_IDENTIFIER_LENGTH = 256;
-const DESCRIPTOR_KEYS = [
-  'format',
-  'sourceSampleRate',
-  'outputSampleRate',
-  'channels',
-  'encoding',
-  'containerBitsPerSample',
-  'validBitsPerSample',
-  'blockAlign',
-  'dataOffset',
-  'dataBytes',
-  'logicalFileBytes',
-  'totalSourceFrames',
-  'targetSourceFrame',
-] as const satisfies readonly (keyof WaveStreamDescriptor)[];
-
-export interface WaveDecoderAdapterRuntime {
+export interface LinearPcmDecoderAdapterRuntime {
   readonly createWorker: () => Worker;
   readonly createMessageChannel: () => MessageChannel;
 }
 
-export interface WaveDecoderAdapterOptions {
+export interface LinearPcmDecoderAdapterOptions {
   /** Ownership transfers only after the containing playback-source constructor succeeds. */
   readonly encodedSource: EncodedAudioSource;
-  readonly metadata: Readonly<WavePcmMetadata>;
-  readonly runtime: WaveDecoderAdapterRuntime;
+  readonly metadata: Readonly<LinearPcmMetadata>;
+  readonly runtime: LinearPcmDecoderAdapterRuntime;
 }
 
 interface Deferred {
@@ -62,7 +48,7 @@ interface Deferred {
 
 interface PendingGeneration {
   readonly generation: number;
-  readonly descriptor: Readonly<WaveStreamDescriptor>;
+  readonly descriptor: Readonly<LinearPcmDecoderDescriptor>;
   readonly readiness: Deferred;
 }
 
@@ -118,9 +104,9 @@ function hasExactKeys(record: Readonly<Record<string, unknown>>, keys: readonly 
 
 function sameDescriptor(
   actual: Readonly<Record<string, unknown>>,
-  expected: Readonly<WaveStreamDescriptor>,
+  expected: Readonly<LinearPcmDecoderDescriptor>,
 ): boolean {
-  return DESCRIPTOR_KEYS.every((key) => actual[key] === expected[key]);
+  return LINEAR_PCM_DECODER_DESCRIPTOR_KEYS.every((key) => actual[key] === expected[key]);
 }
 
 function safeErrorCode(value: unknown, fallback: string): string {
@@ -163,11 +149,11 @@ function createDeferred(): Deferred {
 
 function abortError(signal: AbortSignal): unknown {
   if (signal.reason !== undefined) return signal.reason;
-  return new DOMException('WAVE decoder operation was aborted', 'AbortError');
+  return new DOMException('Linear PCM decoder operation was aborted', 'AbortError');
 }
 
 function stoppedBeforeReadyError(): Error {
-  return new Error('WAVE decoder stopped before priming');
+  return new Error('Linear PCM decoder stopped before priming');
 }
 
 async function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -189,34 +175,33 @@ async function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
 }
 
 function validateMetadata(
-  metadata: Readonly<WavePcmMetadata>,
+  metadata: Readonly<LinearPcmMetadata>,
   sourceSize: number,
-): Readonly<WaveStreamDescriptor> {
-  let descriptor: Readonly<WaveStreamDescriptor>;
+): Readonly<LinearPcmDecoderDescriptor> {
+  let descriptor: Readonly<LinearPcmDecoderDescriptor>;
   try {
-    descriptor = createWaveStreamDescriptor(metadata, 0, metadata?.sourceSampleRate);
+    descriptor = createLinearPcmDecoderDescriptor(metadata, 0, metadata?.sourceSampleRate);
   } catch (error) {
-    throw new TypeError('Streaming WAVE metadata is invalid', { cause: error });
+    throw new TypeError('Streaming linear PCM metadata is invalid', { cause: error });
   }
   if (
     metadata.logicalFileBytes !== sourceSize ||
-    metadata.byteRate !== metadata.sourceSampleRate * metadata.blockAlign ||
     !Number.isFinite(metadata.durationSeconds) ||
     metadata.durationSeconds <= 0 ||
     metadata.durationSeconds !== metadata.totalSourceFrames / metadata.sourceSampleRate
   ) {
-    throw new TypeError('Streaming WAVE metadata is invalid');
+    throw new TypeError('Streaming linear PCM metadata is invalid');
   }
   return descriptor;
 }
 
-/** PCM/IEEE-float WAVE worker owner below the codec-neutral PCM renderer. */
-export class WaveDecoderAdapter implements StreamingDecoderAdapter {
+/** Shared fixed-frame linear-PCM worker owner below the bounded PCM renderer. */
+export class LinearPcmDecoderAdapter implements StreamingDecoderAdapter {
   readonly info: Readonly<StreamingDecoderMediaInfo>;
 
   readonly #encodedSource: EncodedAudioSource;
-  readonly #metadata: Readonly<WavePcmMetadata>;
-  readonly #runtime: WaveDecoderAdapterRuntime;
+  readonly #metadata: Readonly<LinearPcmMetadata>;
+  readonly #runtime: LinearPcmDecoderAdapterRuntime;
   readonly #sourceLifetimeGeneration: number;
 
   #worker: Worker | null = null;
@@ -226,21 +211,21 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
   #fatalHandler: StreamingDecoderFatalHandler | null = null;
   #generationStoppedHandler: StreamingDecoderGenerationStoppedHandler | null = null;
   #currentGeneration = 0;
-  #currentDescriptor: Readonly<WaveStreamDescriptor> | null = null;
+  #currentDescriptor: Readonly<LinearPcmDecoderDescriptor> | null = null;
   #pendingGeneration: PendingGeneration | null = null;
   #opened = false;
   #closed = false;
   #closePromise: Promise<void> | null = null;
 
-  constructor(options: WaveDecoderAdapterOptions) {
+  constructor(options: LinearPcmDecoderAdapterOptions) {
     if (
       !options.encodedSource ||
       typeof options.encodedSource.readAt !== 'function' ||
       typeof options.encodedSource.close !== 'function' ||
-      !isWaveSourceSize(options.encodedSource.size) ||
+      !isLinearPcmSourceSize(options.encodedSource.size) ||
       !isEncodedAudioSourceIdentity(options.encodedSource.identity)
     ) {
-      throw new TypeError('Streaming WAVE requires a valid non-empty encoded source');
+      throw new TypeError('Streaming linear PCM requires a valid non-empty encoded source');
     }
     validateExactRead(options.encodedSource.size, 0, 0);
     const descriptor = validateMetadata(options.metadata, options.encodedSource.size);
@@ -249,12 +234,12 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
       typeof options.runtime.createWorker !== 'function' ||
       typeof options.runtime.createMessageChannel !== 'function'
     ) {
-      throw new TypeError('Streaming WAVE decoder runtime is invalid');
+      throw new TypeError('Streaming linear PCM decoder runtime is invalid');
     }
 
     adapterInstanceCounter += 1;
-    if (!isWaveSourceLifetimeGeneration(adapterInstanceCounter)) {
-      throw new RangeError('Streaming WAVE source lifetime generation is exhausted');
+    if (!isLinearPcmSourceLifetimeGeneration(adapterInstanceCounter)) {
+      throw new RangeError('Streaming linear PCM source lifetime generation is exhausted');
     }
     this.#sourceLifetimeGeneration = adapterInstanceCounter;
     this.#encodedSource = options.encodedSource;
@@ -273,7 +258,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
 
   open(options: StreamingDecoderOpenOptions): Promise<void> {
     if (this.#openPromise) return this.#openPromise;
-    if (this.#closed) return Promise.reject(new Error('WAVE decoder adapter is closed'));
+    if (this.#closed) return Promise.reject(new Error('Linear PCM decoder adapter is closed'));
     if (
       !options ||
       !(options.signal instanceof AbortSignal) ||
@@ -281,7 +266,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
       typeof options.onFatal !== 'function' ||
       typeof options.onGenerationStopped !== 'function'
     ) {
-      return Promise.reject(new TypeError('WAVE decoder open options are invalid'));
+      return Promise.reject(new TypeError('Linear PCM decoder open options are invalid'));
     }
     this.#fatalHandler = options.onFatal;
     this.#generationStoppedHandler = options.onGenerationStopped;
@@ -291,22 +276,22 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
 
   startGeneration(request: StreamingDecoderGenerationRequest): Promise<void> {
     if (!this.opened || !this.#worker) {
-      return Promise.reject(new Error('WAVE streaming runtime is not initialized'));
+      return Promise.reject(new Error('Linear PCM streaming runtime is not initialized'));
     }
     if (
       !request ||
-      !isWaveDecoderGeneration(request.generation) ||
+      !isLinearPcmDecoderGeneration(request.generation) ||
       !Number.isSafeInteger(request.targetMediaFrame) ||
       request.targetMediaFrame < 0 ||
       request.targetMediaFrame > this.info.totalMediaFrames ||
       !Number.isSafeInteger(request.outputSampleRateHz) ||
       request.outputSampleRateHz <= 0 ||
-      request.outputSampleRateHz > WAVE_MAX_SAMPLE_RATE_HZ ||
+      request.outputSampleRateHz > LINEAR_PCM_STREAM_MAX_SAMPLE_RATE_HZ ||
       !request.pcmPort ||
       typeof request.pcmPort.postMessage !== 'function' ||
       !(request.signal instanceof AbortSignal)
     ) {
-      return Promise.reject(new TypeError('WAVE decoder generation request is invalid'));
+      return Promise.reject(new TypeError('Linear PCM decoder generation request is invalid'));
     }
     try {
       throwIfAborted(request.signal);
@@ -314,7 +299,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
       return Promise.reject(error);
     }
 
-    const descriptor = createWaveStreamDescriptor(
+    const descriptor = createLinearPcmDecoderDescriptor(
       this.#metadata,
       request.targetMediaFrame,
       request.outputSampleRateHz,
@@ -331,13 +316,13 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
     try {
       this.#worker.postMessage(
         {
-          protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
           type: 'init-decoder',
           sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
           decoderGeneration: request.generation,
           descriptor,
           pcmPort: request.pcmPort,
-        } satisfies WaveDecoderCommand,
+        } satisfies LinearPcmDecoderCommand,
         [request.pcmPort],
       );
     } catch (error) {
@@ -355,7 +340,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
   }
 
   stopGeneration(generation: number): void {
-    if (!isWaveDecoderGeneration(generation)) return;
+    if (!isLinearPcmDecoderGeneration(generation)) return;
     const pending = this.#pendingGeneration;
     const ownsGeneration =
       this.#currentGeneration === generation || pending?.generation === generation;
@@ -371,11 +356,11 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
     if (!this.#worker || this.#closed) return;
     try {
       this.#worker.postMessage({
-        protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+        protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
         type: 'stop-decoder',
         sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
         decoderGeneration: generation,
-      } satisfies WaveDecoderCommand);
+      } satisfies LinearPcmDecoderCommand);
     } catch (error) {
       this.#fatal('decoder-command-failed', error);
     }
@@ -385,7 +370,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
     if (this.#closePromise) return this.#closePromise;
     this.#closed = true;
     this.#opened = false;
-    const closedError = new DOMException('WAVE decoder adapter was closed', 'AbortError');
+    const closedError = new DOMException('Linear PCM decoder adapter was closed', 'AbortError');
     this.#sourceOpenReadiness?.reject(closedError);
     this.#sourceOpenReadiness = null;
     this.#pendingGeneration?.readiness.reject(closedError);
@@ -401,10 +386,10 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
     if (worker) {
       try {
         worker.postMessage({
-          protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
           type: 'close-source',
           sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
-        } satisfies WaveDecoderCommand);
+        } satisfies LinearPcmDecoderCommand);
       } catch {
         // Worker may already have crossed its terminal boundary.
       }
@@ -432,7 +417,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
 
   async #open(options: StreamingDecoderOpenOptions): Promise<void> {
     throwIfAborted(options.signal);
-    if (this.#closed) throw new Error('WAVE decoder adapter is closed');
+    if (this.#closed) throw new Error('Linear PCM decoder adapter is closed');
     const worker = this.#runtime.createWorker();
     this.#worker = worker;
     worker.onmessage = (event: MessageEvent<unknown>) => this.#handleWorkerEvent(event.data);
@@ -451,18 +436,18 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
       });
       worker.postMessage(
         {
-          protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
           type: 'open-source',
           sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
           sourceSize: this.#encodedSource.size,
           sourceIdentity: this.#encodedSource.identity,
           sourcePort: sourceChannel.port2,
-        } satisfies WaveDecoderCommand,
+        } satisfies LinearPcmDecoderCommand,
         [sourceChannel.port2],
       );
       await raceAbort(readiness.promise, options.signal);
       throwIfAborted(options.signal);
-      if (this.#closed) throw new Error('WAVE decoder adapter is closed');
+      if (this.#closed) throw new Error('Linear PCM decoder adapter is closed');
       this.#opened = true;
     } catch (error) {
       safeClosePort(sourceChannel.port1);
@@ -476,7 +461,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
   #handleWorkerEvent(value: unknown): void {
     if (this.#closed) return;
     const event = snapshotExactRecord(value);
-    if (!event || event.protocolVersion !== WAVE_STREAM_PROTOCOL_VERSION) {
+    if (!event || event.protocolVersion !== LINEAR_PCM_DECODER_PROTOCOL_VERSION) {
       this.#fatal('decoder-invalid-event');
       return;
     }
@@ -494,7 +479,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
         event.sourceIdentity === this.#encodedSource.identity;
       const readiness = this.#sourceOpenReadiness;
       if (!valid || !readiness) {
-        const error = new Error('WAVE source-open acknowledgement mismatch');
+        const error = new Error('Linear PCM source-open acknowledgement mismatch');
         readiness?.reject(error);
         this.#fatal('decoder-source-open-mismatch', error);
         return;
@@ -512,7 +497,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
         return;
       }
       const code = safeErrorCode(event.code, 'unknown');
-      const error = new Error(`WAVE encoded source failed: ${code}`);
+      const error = new Error(`Linear PCM encoded source failed: ${code}`);
       this.#sourceOpenReadiness?.reject(error);
       this.#pendingGeneration?.readiness.reject(error);
       this.#fatal(`decoder-source:${code}`, error);
@@ -530,8 +515,8 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
       return;
     }
     if (
-      !isWaveSourceLifetimeGeneration(event.sourceLifetimeGeneration) ||
-      !isWaveDecoderGeneration(event.decoderGeneration)
+      !isLinearPcmSourceLifetimeGeneration(event.sourceLifetimeGeneration) ||
+      !isLinearPcmDecoderGeneration(event.decoderGeneration)
     ) {
       this.#fatal('decoder-invalid-event');
       return;
@@ -558,7 +543,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
         return;
       }
       if (!sameCurrentGeneration) return;
-      const error = new Error(event.message || 'WAVE decoder failed');
+      const error = new Error(event.message || 'Linear PCM decoder failed');
       this.#pendingGeneration?.readiness.reject(error);
       this.#fatal(`decoder:${safeErrorCode(event.code, 'unknown')}`, error);
       return;
@@ -624,15 +609,15 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
     }
     if (!sameCurrentGeneration) return;
     const descriptor = snapshotExactRecord(event.descriptor);
-    if (!descriptor || !hasExactKeys(descriptor, DESCRIPTOR_KEYS)) {
-      const error = new Error('WAVE decoder descriptor is missing');
+    if (!descriptor || !hasExactKeys(descriptor, LINEAR_PCM_DECODER_DESCRIPTOR_KEYS)) {
+      const error = new Error('Linear PCM decoder descriptor is missing');
       this.#pendingGeneration?.readiness.reject(error);
       this.#fatal('decoder-invalid-event', error);
       return;
     }
     const expected = this.#currentDescriptor;
     if (!expected || !sameDescriptor(descriptor, expected)) {
-      const error = new Error('WAVE decoder descriptor mismatch');
+      const error = new Error('Linear PCM decoder descriptor mismatch');
       this.#pendingGeneration?.readiness.reject(error);
       this.#fatal('decoder-descriptor-mismatch', error);
       return;
@@ -640,7 +625,7 @@ export class WaveDecoderAdapter implements StreamingDecoderAdapter {
     const pending = this.#pendingGeneration;
     if (!pending) return;
     if (pending.generation !== event.decoderGeneration || pending.descriptor !== expected) {
-      const error = new Error('WAVE decoder descriptor mismatch');
+      const error = new Error('Linear PCM decoder descriptor mismatch');
       pending.readiness.reject(error);
       this.#fatal('decoder-descriptor-mismatch', error);
       return;

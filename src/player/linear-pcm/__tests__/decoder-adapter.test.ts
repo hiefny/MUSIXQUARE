@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { EncodedAudioSource } from '../../sources/encoded-audio-source.ts';
 import type { StreamingDecoderOpenOptions } from '../../streaming/decoder-adapter.ts';
-import { createWaveStreamDescriptor } from '../decoder-helpers.ts';
-import type { WavePcmMetadata } from '../metadata.ts';
+import { createLinearPcmDecoderDescriptor } from '../decoder-helpers.ts';
 import {
-  WAVE_STREAM_PROTOCOL_VERSION,
-  type WaveDecoderCommand,
-  type WaveDecoderEvent,
-} from '../stream-protocol.ts';
-import { WaveDecoderAdapter } from '../wave-decoder-adapter.ts';
+  LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+  type LinearPcmDecoderCommand,
+  type LinearPcmDecoderEvent,
+} from '../decoder-protocol.ts';
+import { LinearPcmDecoderAdapter } from '../decoder-adapter.ts';
+import type { LinearPcmMetadata } from '../sample-format.ts';
 
 class FakeMessagePort {
   onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
@@ -48,21 +48,24 @@ class FakeMessageChannel {
 }
 
 class FakeWorker {
-  onmessage: ((event: MessageEvent<WaveDecoderEvent>) => void) | null = null;
+  onmessage: ((event: MessageEvent<LinearPcmDecoderEvent>) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
-  readonly messages: Array<{ message: WaveDecoderCommand; transfer: readonly Transferable[] }> = [];
+  readonly messages: Array<{
+    message: LinearPcmDecoderCommand;
+    transfer: readonly Transferable[];
+  }> = [];
   autoOpenSource = true;
-  throwOnType: WaveDecoderCommand['type'] | null = null;
+  throwOnType: LinearPcmDecoderCommand['type'] | null = null;
   terminateCount = 0;
 
-  postMessage(message: WaveDecoderCommand, transfer: readonly Transferable[] = []): void {
+  postMessage(message: LinearPcmDecoderCommand, transfer: readonly Transferable[] = []): void {
     if (message.type === this.throwOnType) throw new Error(`failed ${message.type}`);
     this.messages.push({ message, transfer });
     if (message.type === 'open-source' && this.autoOpenSource) {
       queueMicrotask(() => {
         this.emit({
-          protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
           type: 'source-opened',
           sourceLifetimeGeneration: message.sourceLifetimeGeneration,
           sourceSize: message.sourceSize,
@@ -76,34 +79,28 @@ class FakeWorker {
     this.terminateCount += 1;
   }
 
-  emit(message: WaveDecoderEvent): void {
+  emit(message: LinearPcmDecoderEvent): void {
     this.emitUnknown(message);
   }
 
   emitUnknown(message: unknown): void {
-    this.onmessage?.({ data: message } as MessageEvent<WaveDecoderEvent>);
+    this.onmessage?.({ data: message } as MessageEvent<LinearPcmDecoderEvent>);
   }
 }
 
-function metadata(): Readonly<WavePcmMetadata> {
+function metadata(): Readonly<LinearPcmMetadata> {
   return Object.freeze({
-    format: 'wave',
-    container: 'riff',
     encoding: 'pcm-s16le',
-    formatTag: 0x0001,
     sourceSampleRate: 96_000,
     channels: 2,
     containerBitsPerSample: 16,
     validBitsPerSample: 16,
     blockAlign: 4,
-    byteRate: 384_000,
-    channelMask: 3,
     dataOffset: 44,
     dataBytes: 960_000,
     totalSourceFrames: 240_000,
     durationSeconds: 2.5,
     logicalFileBytes: 960_044,
-    rf64SampleCount: null,
   });
 }
 
@@ -117,7 +114,7 @@ function harness() {
   const encodedSource: EncodedAudioSource = {
     kind: 'blob',
     size: 960_044,
-    identity: 'source:wave-adapter-test',
+    identity: 'source:linear-pcm-adapter-test',
     metadata: { name: 'fixture.wav', mime: 'audio/wav' },
     readAt,
     close: closeSource,
@@ -128,7 +125,7 @@ function harness() {
     channels.push(channel);
     return channel as unknown as MessageChannel;
   });
-  const adapter = new WaveDecoderAdapter({
+  const adapter = new LinearPcmDecoderAdapter({
     encodedSource,
     metadata: metadata(),
     runtime: { createWorker, createMessageChannel },
@@ -176,9 +173,9 @@ function openOptions(
   };
 }
 
-function readyEvent(command: ReturnType<typeof initCommand>): WaveDecoderEvent {
+function readyEvent(command: ReturnType<typeof initCommand>): LinearPcmDecoderEvent {
   return {
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'decoder-ready',
     sourceLifetimeGeneration: command.sourceLifetimeGeneration,
     decoderGeneration: command.decoderGeneration,
@@ -186,7 +183,7 @@ function readyEvent(command: ReturnType<typeof initCommand>): WaveDecoderEvent {
   };
 }
 
-describe('WaveDecoderAdapter', () => {
+describe('LinearPcmDecoderAdapter', () => {
   it('exposes verified media info while keeping construction inert and close exact-once', async () => {
     const h = harness();
 
@@ -230,12 +227,12 @@ describe('WaveDecoderAdapter', () => {
       signal: controller.signal,
     });
     const init = initCommand(h.worker);
-    expect(init.descriptor).toEqual(createWaveStreamDescriptor(metadata(), 120_000, 48_000));
+    expect(init.descriptor).toEqual(createLinearPcmDecoderDescriptor(metadata(), 120_000, 48_000));
     expect(init.pcmPort).toBe(pcmPort);
     expect(h.worker.messages.at(-1)?.transfer).toEqual([pcmPort]);
 
     h.worker.emit({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-error',
       sourceLifetimeGeneration: init.sourceLifetimeGeneration,
       decoderGeneration: 2,
@@ -252,7 +249,7 @@ describe('WaveDecoderAdapter', () => {
 
     h.adapter.stopGeneration(1);
     h.worker.emit({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-error',
       sourceLifetimeGeneration: init.sourceLifetimeGeneration,
       decoderGeneration: 1,
@@ -298,13 +295,13 @@ describe('WaveDecoderAdapter', () => {
     await expect(firstOutcome).resolves.toMatchObject({ message: /stopped before priming/i });
     h.worker.emit(readyEvent(first));
     h.worker.emit({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-stopped',
       sourceLifetimeGeneration: first.sourceLifetimeGeneration,
       decoderGeneration: first.decoderGeneration,
     });
     h.worker.emit({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-error',
       sourceLifetimeGeneration: first.sourceLifetimeGeneration,
       decoderGeneration: first.decoderGeneration,
@@ -336,7 +333,7 @@ describe('WaveDecoderAdapter', () => {
     const init = initCommand(h.worker);
 
     h.worker.emit({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-stopped',
       sourceLifetimeGeneration: init.sourceLifetimeGeneration,
       decoderGeneration: init.decoderGeneration,
@@ -388,7 +385,7 @@ describe('WaveDecoderAdapter', () => {
     const opened = openCommand(h.worker);
 
     h.worker.emit({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'source-opened',
       sourceLifetimeGeneration: opened.sourceLifetimeGeneration,
       sourceSize: opened.sourceSize + 1,
@@ -448,7 +445,7 @@ describe('WaveDecoderAdapter', () => {
     await h.adapter.open(openOptions({ onFatal: fatal }));
 
     h.worker.emitUnknown({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-ready',
       sourceLifetimeGeneration: openCommand(h.worker).sourceLifetimeGeneration,
       decoderGeneration: 1,

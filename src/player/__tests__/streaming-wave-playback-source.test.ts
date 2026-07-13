@@ -7,10 +7,10 @@ import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-ru
 import { PCM_STREAM_PROTOCOL_VERSION } from '../streaming/pcm-stream-protocol.ts';
 import type { WavePcmMetadata } from '../wave/metadata.ts';
 import {
-  WAVE_STREAM_PROTOCOL_VERSION,
-  type WaveDecoderCommand,
-  type WaveDecoderEvent,
-} from '../wave/stream-protocol.ts';
+  LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+  type LinearPcmDecoderCommand,
+  type LinearPcmDecoderEvent,
+} from '../linear-pcm/decoder-protocol.ts';
 
 const QID = '00000000-0000-4000-8000-000000000301' as QueueItemId;
 const SOURCE_RATE = 96_000;
@@ -64,19 +64,22 @@ class FakeMessageChannel {
 }
 
 class FakeWorker {
-  onmessage: ((event: MessageEvent<WaveDecoderEvent>) => void) | null = null;
+  onmessage: ((event: MessageEvent<LinearPcmDecoderEvent>) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
-  readonly messages: Array<{ message: WaveDecoderCommand; transfer: readonly Transferable[] }> = [];
+  readonly messages: Array<{
+    message: LinearPcmDecoderCommand;
+    transfer: readonly Transferable[];
+  }> = [];
   autoOpenSource = true;
   terminateCount = 0;
 
-  postMessage(message: WaveDecoderCommand, transfer: readonly Transferable[] = []): void {
+  postMessage(message: LinearPcmDecoderCommand, transfer: readonly Transferable[] = []): void {
     this.messages.push({ message, transfer });
     if (message.type === 'open-source' && this.autoOpenSource) {
       queueMicrotask(() => {
         this.emit({
-          protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+          protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
           type: 'source-opened',
           sourceLifetimeGeneration: message.sourceLifetimeGeneration,
           sourceSize: message.sourceSize,
@@ -90,8 +93,8 @@ class FakeWorker {
     this.terminateCount += 1;
   }
 
-  emit(message: WaveDecoderEvent): void {
-    this.onmessage?.({ data: message } as MessageEvent<WaveDecoderEvent>);
+  emit(message: LinearPcmDecoderEvent): void {
+    this.onmessage?.({ data: message } as MessageEvent<LinearPcmDecoderEvent>);
   }
 }
 
@@ -264,7 +267,7 @@ describe('StreamingWavePlaybackSource', () => {
     const opened = openCommand(h.worker);
     const init = initCommand(h.worker);
     h.worker.emit({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-ready',
       sourceLifetimeGeneration: init.sourceLifetimeGeneration,
       decoderGeneration: init.decoderGeneration,
@@ -282,11 +285,11 @@ describe('StreamingWavePlaybackSource', () => {
     await expect(preparing).resolves.toMatchObject({ phase: 'ready' });
     expect(h.defaultWorkerCalls).toHaveLength(1);
     expect(String(h.defaultWorkerCalls[0]?.url).replaceAll('\\', '/')).toMatch(
-      /\/src\/workers\/wave-stream\.worker\.ts$/,
+      /\/src\/workers\/linear-pcm-stream\.worker\.ts$/,
     );
     expect(h.defaultWorkerCalls[0]?.options).toEqual({
       type: 'module',
-      name: 'musixquare-wave-stream-v2',
+      name: 'musixquare-linear-pcm-stream-v1',
     });
     expect(h.channels).toHaveLength(2);
     expect(opened.sourcePort).toBe(h.channels[0]?.port2);
@@ -317,7 +320,7 @@ describe('StreamingWavePlaybackSource', () => {
     );
     const opened = openCommand(h.worker);
     h.worker.emit({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'source-opened',
       sourceLifetimeGeneration: opened.sourceLifetimeGeneration,
       sourceSize: opened.sourceSize + 1,

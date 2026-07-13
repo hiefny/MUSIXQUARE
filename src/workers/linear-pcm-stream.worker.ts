@@ -8,25 +8,26 @@ import {
   planShortLanczosInput,
 } from '../player/streaming/resampler-plan.js';
 import {
-  decodeWaveInterleavedPcm,
-  expectedWaveOutputFrames,
-  planWavePcmInputRead,
-  validateWaveStreamDescriptor,
-  WavePcmDecodeError,
-} from '../player/wave/decoder-helpers.js';
+  decodeInterleavedLinearPcm,
+  expectedLinearPcmOutputFrames,
+  planLinearPcmInputRead,
+  validateLinearPcmDecoderDescriptor,
+} from '../player/linear-pcm/decoder-helpers.js';
 import {
-  WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES,
-  WAVE_STREAM_PROTOCOL_VERSION,
-  isWaveDecoderGeneration,
-  isWaveSourceLifetimeGeneration,
-  isWaveSourceSize,
-  type WaveDecoderCommand,
-  type WaveDecoderEvent,
-  type WaveDecoderInitMessage,
-  type WaveSourceCloseMessage,
-  type WaveSourceOpenMessage,
-  type WaveStreamDescriptor,
-} from '../player/wave/stream-protocol.js';
+  LINEAR_PCM_DECODER_DESCRIPTOR_KEYS,
+  LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+  isLinearPcmDecoderGeneration,
+  isLinearPcmSourceLifetimeGeneration,
+  isLinearPcmSourceSize,
+  type LinearPcmDecoderCommand,
+  type LinearPcmDecoderDescriptor,
+  type LinearPcmDecoderEvent,
+  type LinearPcmDecoderInitMessage,
+  type LinearPcmSourceCloseMessage,
+  type LinearPcmSourceOpenMessage,
+} from '../player/linear-pcm/decoder-protocol.js';
+import { LinearPcmDecodeError } from '../player/linear-pcm/sample-format.js';
+import { LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES } from '../player/linear-pcm/stream-protocol.js';
 import { isEncodedAudioSourceIdentity } from '../player/sources/encoded-audio-source.js';
 import {
   PCM_STREAM_MAX_MESSAGE_FRAMES,
@@ -45,19 +46,19 @@ const PROGRESS_INTERVAL_BYTES = 1024 * 1024;
 // maxNumOutputFrames allocation at extreme ratios. These frames stay private.
 const RESAMPLER_SCRATCH_GUARD_FRAMES = 64;
 
-class WaveWorkerError extends Error {
+class LinearPcmWorkerError extends Error {
   constructor(
     readonly code: string,
     message: string,
   ) {
     super(message);
-    this.name = 'WaveWorkerError';
+    this.name = 'LinearPcmWorkerError';
   }
 }
 
 class SessionCancelledError extends Error {
   constructor() {
-    super('WAVE decoder session was cancelled');
+    super('Linear PCM decoder session was cancelled');
     this.name = 'SessionCancelledError';
   }
 }
@@ -85,7 +86,7 @@ interface PcmSegment {
 interface DecoderSession {
   readonly sourceLifetimeGeneration: number;
   readonly decoderGeneration: number;
-  readonly descriptor: WaveStreamDescriptor;
+  readonly descriptor: LinearPcmDecoderDescriptor;
   readonly source: SourceLifetime;
   readonly port: MessagePort;
   readonly portListener: (event: MessageEvent<unknown>) => void;
@@ -132,13 +133,13 @@ function errorMessage(error: unknown): string {
 }
 
 function errorCode(error: unknown): string {
-  if (error instanceof WaveWorkerError) return error.code;
-  if (error instanceof WavePcmDecodeError) return `invalid-wave-pcm-${error.code}`;
+  if (error instanceof LinearPcmWorkerError) return error.code;
+  if (error instanceof LinearPcmDecodeError) return `invalid-linear-pcm-${error.code}`;
   if (error instanceof EncodedSourcePortError) return `source-${error.code}`;
   return 'decode-failed';
 }
 
-function postControl(message: WaveDecoderEvent): void {
+function postControl(message: LinearPcmDecoderEvent): void {
   scope.postMessage(message);
 }
 
@@ -155,7 +156,7 @@ function postProgress(session: DecoderSession, force = false): void {
   }
   session.lastProgressBytes = session.decodedInputBytes;
   postControl({
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'decode-progress',
     sourceLifetimeGeneration: session.sourceLifetimeGeneration,
     decoderGeneration: session.decoderGeneration,
@@ -168,7 +169,7 @@ function postProgress(session: DecoderSession, force = false): void {
 function releaseSessionResources(session: DecoderSession): void {
   if (session.released) return;
   session.released = true;
-  session.abortController.abort(new DOMException('WAVE decoder stopped', 'AbortError'));
+  session.abortController.abort(new DOMException('Linear PCM decoder stopped', 'AbortError'));
   session.port.removeEventListener('message', session.portListener);
   session.port.onmessage = null;
   try {
@@ -201,7 +202,7 @@ function stopSession(session: DecoderSession): void {
   if (session.terminal) return;
   session.stopped = true;
   session.terminal = true;
-  session.abortController.abort(new DOMException('WAVE decoder stopped', 'AbortError'));
+  session.abortController.abort(new DOMException('Linear PCM decoder stopped', 'AbortError'));
   session.port.removeEventListener('message', session.portListener);
   try {
     session.port.close();
@@ -210,7 +211,7 @@ function stopSession(session: DecoderSession): void {
   }
   detachActiveSession(session);
   postControl({
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'decoder-stopped',
     sourceLifetimeGeneration: session.sourceLifetimeGeneration,
     decoderGeneration: session.decoderGeneration,
@@ -236,7 +237,7 @@ function failSession(session: DecoderSession, error: unknown): void {
     // The control-channel error remains authoritative if the PCM port is gone.
   }
   postControl({
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'decoder-error',
     sourceLifetimeGeneration: session.sourceLifetimeGeneration,
     decoderGeneration: session.decoderGeneration,
@@ -260,15 +261,15 @@ function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
     session.decodedSourceFrames !==
     session.descriptor.totalSourceFrames - session.descriptor.targetSourceFrame
   ) {
-    throw new WaveWorkerError(
+    throw new LinearPcmWorkerError(
       'source-frame-mismatch',
-      `WAVE input decoded ${session.decodedSourceFrames} frames; expected ${session.descriptor.totalSourceFrames - session.descriptor.targetSourceFrame}`,
+      `Linear PCM input decoded ${session.decodedSourceFrames} frames; expected ${session.descriptor.totalSourceFrames - session.descriptor.targetSourceFrame}`,
     );
   }
   if (session.producedOutputFrames !== session.expectedFrames) {
-    throw new WaveWorkerError(
+    throw new LinearPcmWorkerError(
       'output-frame-mismatch',
-      `WAVE output produced ${session.producedOutputFrames} frames; expected ${session.expectedFrames}`,
+      `Linear PCM output produced ${session.producedOutputFrames} frames; expected ${session.expectedFrames}`,
     );
   }
   if (!sentFinalPcm) {
@@ -281,7 +282,7 @@ function finishSession(session: DecoderSession, sentFinalPcm: boolean): void {
   }
   postProgress(session, true);
   postControl({
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'decoder-eof',
     sourceLifetimeGeneration: session.sourceLifetimeGeneration,
     decoderGeneration: session.decoderGeneration,
@@ -316,15 +317,20 @@ function appendSourceCarry(
   }
   const maximumCarryFrames = descriptorMinimumResamplerInput(session) - 1;
   if (carry.frames > maximumCarryFrames) {
-    throw new WaveWorkerError('pcm-carry-overrun', 'WAVE PCM carry was not drained before read');
+    throw new LinearPcmWorkerError(
+      'pcm-carry-overrun',
+      'Linear PCM carry was not drained before read',
+    );
   }
   const combinedFrames = carry.frames + frames;
-  if (combinedFrames > WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES + maximumCarryFrames) {
-    throw new WaveWorkerError('pcm-carry-overrun', 'WAVE PCM carry exceeds its fixed bound');
+  if (combinedFrames > LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES + maximumCarryFrames) {
+    throw new LinearPcmWorkerError('pcm-carry-overrun', 'Linear PCM carry exceeds its fixed bound');
   }
   const combined = carry.channels.map((previous, channel) => {
     const next = channels[channel];
-    if (!next) throw new WaveWorkerError('invalid-pcm', 'Decoded WAVE channel is missing');
+    if (!next) {
+      throw new LinearPcmWorkerError('invalid-pcm', 'Decoded linear PCM channel is missing');
+    }
     const output = new Float32Array(combinedFrames);
     output.set(previous, 0);
     output.set(next, carry.frames);
@@ -336,7 +342,7 @@ function appendSourceCarry(
 function consumeSourceCarry(session: DecoderSession, frames: number): readonly Float32Array[] {
   const carry = session.sourceCarry;
   if (!carry || frames <= 0 || frames > carry.frames) {
-    throw new WaveWorkerError('invalid-pcm-carry', 'WAVE PCM carry consumption is invalid');
+    throw new LinearPcmWorkerError('invalid-pcm-carry', 'Linear PCM carry consumption is invalid');
   }
   const consumed = carry.channels.map((channel) => channel.subarray(0, frames));
   if (frames === carry.frames) session.sourceCarry = null;
@@ -351,7 +357,7 @@ function consumeSourceCarry(session: DecoderSession, frames: number): readonly F
 
 async function decodeNextChunk(session: DecoderSession): Promise<boolean> {
   assertCurrent(session);
-  const plan = planWavePcmInputRead(session.descriptor, session.nextSourceFrame);
+  const plan = planLinearPcmInputRead(session.descriptor, session.nextSourceFrame);
   if (!plan) {
     session.inputEof = true;
     postProgress(session, true);
@@ -364,11 +370,14 @@ async function decodeNextChunk(session: DecoderSession): Promise<boolean> {
   );
   assertCurrent(session);
   if (bytes.byteLength !== plan.bytes) {
-    throw new WaveWorkerError('source-integrity', 'WAVE source returned a short PCM read');
+    throw new LinearPcmWorkerError(
+      'source-integrity',
+      'Encoded source returned a short linear PCM read',
+    );
   }
-  const decoded = decodeWaveInterleavedPcm(bytes, session.descriptor);
+  const decoded = decodeInterleavedLinearPcm(bytes, session.descriptor);
   if (decoded.frames !== plan.frames || decoded.channels.length !== session.descriptor.channels) {
-    throw new WaveWorkerError('invalid-pcm', 'WAVE PCM read decoded to an unexpected shape');
+    throw new LinearPcmWorkerError('invalid-pcm', 'Linear PCM read decoded to an unexpected shape');
   }
   appendSourceCarry(session, decoded.channels, decoded.frames);
   session.nextSourceFrame += decoded.frames;
@@ -378,7 +387,10 @@ async function decodeNextChunk(session: DecoderSession): Promise<boolean> {
     !Number.isSafeInteger(session.decodedInputBytes) ||
     !Number.isSafeInteger(session.decodedSourceFrames)
   ) {
-    throw new WaveWorkerError('counter-overflow', 'WAVE decode counters exceed safe integers');
+    throw new LinearPcmWorkerError(
+      'counter-overflow',
+      'Linear PCM decode counters exceed safe integers',
+    );
   }
   session.inputEof = plan.final;
   postProgress(session, plan.final);
@@ -399,7 +411,7 @@ function createResamplers(session: DecoderSession): void {
     }
   } catch (error) {
     for (const resampler of created) resampler.free();
-    throw new WaveWorkerError('resampler-init-failed', errorMessage(error));
+    throw new LinearPcmWorkerError('resampler-init-failed', errorMessage(error));
   }
   session.resamplers = created;
 }
@@ -430,16 +442,22 @@ function runResamplers(
     const resampler = session.resamplers[channel];
     const input = inputs[channel];
     if (!resampler || !input) {
-      throw new WaveWorkerError('resampler-channel-missing', 'WAVE resampler channel is missing');
+      throw new LinearPcmWorkerError(
+        'resampler-channel-missing',
+        'Linear PCM resampler channel is missing',
+      );
     }
     if (resampler.maxNumOutputFrames(inputFrames) !== maximumOutputFrames) {
-      throw new WaveWorkerError('resampler-contract-mismatch', 'Pinned Lanczos bound changed');
+      throw new LinearPcmWorkerError('resampler-contract-mismatch', 'Pinned Lanczos bound changed');
     }
     const output = new Float32Array(maximumOutputFrames + RESAMPLER_SCRATCH_GUARD_FRAMES);
     const outcome = resampler.resample(input, output);
     try {
       if (outcome.numRead !== inputFrames) {
-        throw new WaveWorkerError('resampler-stalled', 'WAVE resampler did not consume its input');
+        throw new LinearPcmWorkerError(
+          'resampler-stalled',
+          'Linear PCM resampler did not consume its input',
+        );
       }
       if (
         !Number.isSafeInteger(outcome.numWritten) ||
@@ -447,7 +465,10 @@ function runResamplers(
         outcome.numWritten > maximumOutputFrames ||
         (requireExactWritten && outcome.numWritten !== keepOutputFrames)
       ) {
-        throw new WaveWorkerError('resampler-contract-mismatch', 'Pinned Lanczos output changed');
+        throw new LinearPcmWorkerError(
+          'resampler-contract-mismatch',
+          'Pinned Lanczos output changed',
+        );
       }
       outputs.push(output.subarray(0, keepOutputFrames));
     } finally {
@@ -463,7 +484,10 @@ function accountProducedFrames(session: DecoderSession, frames: number): void {
     !Number.isSafeInteger(session.producedOutputFrames) ||
     session.producedOutputFrames > session.expectedFrames
   ) {
-    throw new WaveWorkerError('output-frame-overrun', 'WAVE output exceeds its exact timeline');
+    throw new LinearPcmWorkerError(
+      'output-frame-overrun',
+      'Linear PCM output exceeds its exact timeline',
+    );
   }
 }
 
@@ -495,7 +519,10 @@ function createNormalResampledSegment(session: DecoderSession): PcmSegment | nul
   const expectedAfter = expectedResamplerFramesAfter(session, consumedAfter);
   const outputFrames = expectedAfter - session.producedOutputFrames;
   if (outputFrames <= 0 || outputFrames > plan.maximumOutputFrames) {
-    throw new WaveWorkerError('resampler-contract-mismatch', 'Lanczos output delta is invalid');
+    throw new LinearPcmWorkerError(
+      'resampler-contract-mismatch',
+      'Lanczos output delta is invalid',
+    );
   }
   const outputs = runResamplers(
     session,
@@ -522,7 +549,10 @@ function createEofResampledSegment(session: DecoderSession): PcmSegment | null {
     endOfStream: true,
   });
   if (plan.kind !== 'pad-and-trim') {
-    throw new WaveWorkerError('resampler-contract-mismatch', 'EOF Lanczos plan did not finalize');
+    throw new LinearPcmWorkerError(
+      'resampler-contract-mismatch',
+      'EOF Lanczos plan did not finalize',
+    );
   }
   const realInputs = consumeSourceCarry(session, plan.realInputFrames);
   const paddedInputs = realInputs.map((input) => {
@@ -584,7 +614,7 @@ function validateDemand(session: DecoderSession, value: unknown): number | null 
     !Number.isSafeInteger(maxFrames) ||
     maxFrames <= 0
   ) {
-    throw new WaveWorkerError('invalid-demand', 'PCM demand has an invalid frame count');
+    throw new LinearPcmWorkerError('invalid-demand', 'PCM demand has an invalid frame count');
   }
   return Math.min(maxFrames, PCM_STREAM_MAX_MESSAGE_FRAMES);
 }
@@ -603,13 +633,15 @@ async function handleDemand(session: DecoderSession, maxFrames: number): Promise
     const segment = session.outputSegment;
     if (!segment) break;
     const frames = Math.min(maxFrames - collectedFrames, segment.frames - segment.offset);
-    if (frames <= 0) throw new WaveWorkerError('invalid-segment', 'WAVE PCM segment is empty');
+    if (frames <= 0) {
+      throw new LinearPcmWorkerError('invalid-segment', 'Linear PCM segment is empty');
+    }
     const end = segment.offset + frames;
     for (let channel = 0; channel < collected.length; channel += 1) {
       const target = collected[channel];
       const source = segment.channels[channel];
       if (!target || !source) {
-        throw new WaveWorkerError('invalid-segment', 'WAVE PCM segment channel is missing');
+        throw new LinearPcmWorkerError('invalid-segment', 'Linear PCM segment channel is missing');
       }
       target.set(source.subarray(segment.offset, end), collectedFrames);
     }
@@ -620,7 +652,10 @@ async function handleDemand(session: DecoderSession, maxFrames: number): Promise
 
   if (collectedFrames === 0) {
     if (!session.inputEof || session.sourceCarry || session.outputSegment) {
-      throw new WaveWorkerError('decoder-stalled', 'WAVE decoder produced neither PCM nor EOF');
+      throw new LinearPcmWorkerError(
+        'decoder-stalled',
+        'Linear PCM decoder produced neither PCM nor EOF',
+      );
     }
     finishSession(session, false);
     return;
@@ -667,7 +702,10 @@ function queueDemand(session: DecoderSession, event: MessageEvent<unknown>): voi
     });
 }
 
-function createSession(message: WaveDecoderInitMessage, source: SourceLifetime): DecoderSession {
+function createSession(
+  message: LinearPcmDecoderInitMessage,
+  source: SourceLifetime,
+): DecoderSession {
   const descriptor = message.descriptor;
   const session: DecoderSession = {
     sourceLifetimeGeneration: source.generation,
@@ -677,7 +715,7 @@ function createSession(message: WaveDecoderInitMessage, source: SourceLifetime):
     port: message.pcmPort,
     portListener: (event: MessageEvent<unknown>) => queueDemand(session, event),
     abortController: new AbortController(),
-    expectedFrames: expectedWaveOutputFrames(descriptor),
+    expectedFrames: expectedLinearPcmOutputFrames(descriptor),
     resamplers: [],
     sourceCarry: null,
     outputSegment: null,
@@ -697,20 +735,20 @@ function createSession(message: WaveDecoderInitMessage, source: SourceLifetime):
   return session;
 }
 
-function validateSourceBounds(message: WaveDecoderInitMessage, source: SourceLifetime): void {
+function validateSourceBounds(message: LinearPcmDecoderInitMessage, source: SourceLifetime): void {
   if (message.descriptor.logicalFileBytes !== source.size) {
-    throw new WaveWorkerError(
+    throw new LinearPcmWorkerError(
       'invalid-source',
-      'WAVE descriptor logical size differs from the encoded source',
+      'Linear PCM descriptor logical size differs from the encoded source',
     );
   }
   const dataEnd = BigInt(message.descriptor.dataOffset) + BigInt(message.descriptor.dataBytes);
   if (dataEnd > BigInt(source.size)) {
-    throw new WaveWorkerError('invalid-source', 'WAVE PCM data exceeds the encoded source');
+    throw new LinearPcmWorkerError('invalid-source', 'Linear PCM data exceeds the encoded source');
   }
 }
 
-async function initialize(message: WaveDecoderInitMessage): Promise<void> {
+async function initialize(message: LinearPcmDecoderInitMessage): Promise<void> {
   try {
     const source = activeSource;
     if (
@@ -719,13 +757,13 @@ async function initialize(message: WaveDecoderInitMessage): Promise<void> {
       source.client.closed ||
       source.generation !== message.sourceLifetimeGeneration
     ) {
-      throw new WaveWorkerError('source-not-open', 'WAVE encoded source is not open');
+      throw new LinearPcmWorkerError('source-not-open', 'Linear PCM encoded source is not open');
     }
     if (message.decoderGeneration <= latestDecoderGeneration) {
       message.pcmPort.close();
       return;
     }
-    validateWaveStreamDescriptor(message.descriptor);
+    validateLinearPcmDecoderDescriptor(message.descriptor);
     validateSourceBounds(message, source);
 
     if (activeSession) stopSession(activeSession);
@@ -742,7 +780,7 @@ async function initialize(message: WaveDecoderInitMessage): Promise<void> {
     }
     assertCurrent(session);
     postControl({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'decoder-ready',
       sourceLifetimeGeneration: session.sourceLifetimeGeneration,
       decoderGeneration: session.decoderGeneration,
@@ -760,7 +798,7 @@ async function initialize(message: WaveDecoderInitMessage): Promise<void> {
         // Invalid initialization may not contain a live MessagePort.
       }
       postControl({
-        protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+        protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
         type: 'decoder-error',
         sourceLifetimeGeneration: message.sourceLifetimeGeneration,
         decoderGeneration: message.decoderGeneration,
@@ -772,22 +810,6 @@ async function initialize(message: WaveDecoderInitMessage): Promise<void> {
 }
 
 type WorkerRecord = Readonly<Record<string, unknown>>;
-
-const DESCRIPTOR_KEYS = [
-  'format',
-  'sourceSampleRate',
-  'outputSampleRate',
-  'channels',
-  'encoding',
-  'containerBitsPerSample',
-  'validBitsPerSample',
-  'blockAlign',
-  'dataOffset',
-  'dataBytes',
-  'logicalFileBytes',
-  'totalSourceFrames',
-  'targetSourceFrame',
-] as const satisfies readonly (keyof WaveStreamDescriptor)[];
 
 function snapshotWorkerRecord(value: unknown): WorkerRecord | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -829,23 +851,23 @@ function hasExactKeys(record: WorkerRecord, keys: readonly string[]): boolean {
   );
 }
 
-function snapshotDescriptor(value: unknown): WaveStreamDescriptor | null {
+function snapshotDescriptor(value: unknown): LinearPcmDecoderDescriptor | null {
   const record = snapshotWorkerRecord(value);
-  if (!record || !hasExactKeys(record, DESCRIPTOR_KEYS)) return null;
-  const descriptor = Object.freeze({ ...record }) as unknown as WaveStreamDescriptor;
+  if (!record || !hasExactKeys(record, LINEAR_PCM_DECODER_DESCRIPTOR_KEYS)) return null;
+  const descriptor = Object.freeze({ ...record }) as unknown as LinearPcmDecoderDescriptor;
   try {
-    validateWaveStreamDescriptor(descriptor);
+    validateLinearPcmDecoderDescriptor(descriptor);
     return descriptor;
   } catch {
     return null;
   }
 }
 
-function parseWorkerCommand(value: unknown): WaveDecoderCommand | null {
+function parseWorkerCommand(value: unknown): LinearPcmDecoderCommand | null {
   const record = snapshotWorkerRecord(value);
   if (
     !record ||
-    record.protocolVersion !== WAVE_STREAM_PROTOCOL_VERSION ||
+    record.protocolVersion !== LINEAR_PCM_DECODER_PROTOCOL_VERSION ||
     typeof record.type !== 'string'
   ) {
     return null;
@@ -860,14 +882,14 @@ function parseWorkerCommand(value: unknown): WaveDecoderCommand | null {
         'sourceIdentity',
         'sourcePort',
       ]) ||
-      !isWaveSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
-      !isWaveSourceSize(record.sourceSize) ||
+      !isLinearPcmSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
+      !isLinearPcmSourceSize(record.sourceSize) ||
       !isEncodedAudioSourceIdentity(record.sourceIdentity) ||
       !(record.sourcePort instanceof MessagePort)
     ) {
       return null;
     }
-    return record as unknown as WaveSourceOpenMessage;
+    return record as unknown as LinearPcmSourceOpenMessage;
   }
   if (record.type === 'init-decoder') {
     if (
@@ -879,15 +901,15 @@ function parseWorkerCommand(value: unknown): WaveDecoderCommand | null {
         'descriptor',
         'pcmPort',
       ]) ||
-      !isWaveSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
-      !isWaveDecoderGeneration(record.decoderGeneration) ||
+      !isLinearPcmSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
+      !isLinearPcmDecoderGeneration(record.decoderGeneration) ||
       !(record.pcmPort instanceof MessagePort)
     ) {
       return null;
     }
     const descriptor = snapshotDescriptor(record.descriptor);
     if (!descriptor) return null;
-    return Object.freeze({ ...record, descriptor }) as unknown as WaveDecoderInitMessage;
+    return Object.freeze({ ...record, descriptor }) as unknown as LinearPcmDecoderInitMessage;
   }
   if (record.type === 'stop-decoder') {
     if (
@@ -897,35 +919,35 @@ function parseWorkerCommand(value: unknown): WaveDecoderCommand | null {
         'sourceLifetimeGeneration',
         'decoderGeneration',
       ]) ||
-      !isWaveSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
-      !isWaveDecoderGeneration(record.decoderGeneration)
+      !isLinearPcmSourceLifetimeGeneration(record.sourceLifetimeGeneration) ||
+      !isLinearPcmDecoderGeneration(record.decoderGeneration)
     ) {
       return null;
     }
-    return record as unknown as WaveDecoderCommand;
+    return record as unknown as LinearPcmDecoderCommand;
   }
   if (record.type === 'close-source') {
     if (
       !hasExactKeys(record, ['protocolVersion', 'type', 'sourceLifetimeGeneration']) ||
-      !isWaveSourceLifetimeGeneration(record.sourceLifetimeGeneration)
+      !isLinearPcmSourceLifetimeGeneration(record.sourceLifetimeGeneration)
     ) {
       return null;
     }
-    return record as unknown as WaveSourceCloseMessage;
+    return record as unknown as LinearPcmSourceCloseMessage;
   }
   return null;
 }
 
 function postSourceError(sourceLifetimeGeneration: number, code: string): void {
   postControl({
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'source-error',
     sourceLifetimeGeneration,
     code,
   });
 }
 
-function openSource(message: WaveSourceOpenMessage): void {
+function openSource(message: LinearPcmSourceOpenMessage): void {
   if (activeSource) {
     message.sourcePort.close();
     postSourceError(message.sourceLifetimeGeneration, 'source-already-open');
@@ -948,7 +970,7 @@ function openSource(message: WaveSourceOpenMessage): void {
     };
     latestDecoderGeneration = 0;
     postControl({
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'source-opened',
       sourceLifetimeGeneration: message.sourceLifetimeGeneration,
       sourceSize: message.sourceSize,
@@ -967,7 +989,7 @@ async function closeSource(source: SourceLifetime): Promise<void> {
   if (activeSource === source) activeSource = null;
   await source.client.close();
   postControl({
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'source-closed',
     sourceLifetimeGeneration: source.generation,
   });
@@ -998,7 +1020,10 @@ function protocolFailure(value?: unknown): void {
   if (session) {
     failSession(
       session,
-      new WaveWorkerError('invalid-command', 'WAVE worker command failed strict validation'),
+      new LinearPcmWorkerError(
+        'invalid-command',
+        'Linear PCM worker command failed strict validation',
+      ),
     );
   }
   const source = activeSource;
@@ -1035,14 +1060,14 @@ function handleCommand(value: unknown): void {
   void initialize(command);
 }
 
-scope.onmessage = (event: MessageEvent<WaveDecoderCommand>) => handleCommand(event.data);
+scope.onmessage = (event: MessageEvent<LinearPcmDecoderCommand>) => handleCommand(event.data);
 
 scope.addEventListener('messageerror', () => {
   const session = activeSession;
   if (session) {
     failSession(
       session,
-      new WaveWorkerError('message-deserialization', 'Worker message failed to deserialize'),
+      new LinearPcmWorkerError('message-deserialization', 'Worker message failed to deserialize'),
     );
   }
   const source = activeSource;

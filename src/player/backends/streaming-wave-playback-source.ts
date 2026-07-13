@@ -7,7 +7,7 @@ import {
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
 import type { WavePcmMetadata } from '../wave/metadata.ts';
-import { WaveDecoderAdapter } from '../wave/wave-decoder-adapter.ts';
+import { LinearPcmDecoderAdapter } from '../linear-pcm/decoder-adapter.ts';
 
 export interface StreamingWavePlaybackSourceOptions {
   readonly queueItemId: QueueItemId;
@@ -28,9 +28,9 @@ export interface StreamingWavePlaybackSourceOptions {
 const defaultRuntime: BoundedStreamingCodecRuntime = {
   loadWorklet: loadPcmRingWorklet,
   createWorker: () =>
-    new Worker(new URL('../../workers/wave-stream.worker.ts', import.meta.url), {
+    new Worker(new URL('../../workers/linear-pcm-stream.worker.ts', import.meta.url), {
       type: 'module',
-      name: 'musixquare-wave-stream-v2',
+      name: 'musixquare-linear-pcm-stream-v1',
     }),
   createWorkletNode: (context, name, options) => new AudioWorkletNode(context, name, options),
   createMessageChannel: () => new MessageChannel(),
@@ -50,7 +50,7 @@ export class StreamingWavePlaybackSource extends BoundedStreamingPlaybackSource 
     super({
       queueItemId: options.queueItemId,
       createDecoder: () =>
-        new WaveDecoderAdapter({
+        new LinearPcmDecoderAdapter({
           encodedSource: options.encodedSource,
           metadata: options.metadata,
           runtime: { createWorker, createMessageChannel },

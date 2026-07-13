@@ -3,8 +3,10 @@ import {
   LinearPcmDecodeError,
   type DecodedLinearPcm,
   type LinearPcmEncoding,
+  type LinearPcmMetadata,
   type LinearPcmSampleLayout,
 } from './sample-format.js';
+import type { LinearPcmDecoderDescriptor } from './decoder-protocol.js';
 import {
   LINEAR_PCM_STREAM_MAX_CHANNELS,
   LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES,
@@ -161,6 +163,52 @@ export function validateLinearPcmStreamDescriptor(descriptor: LinearPcmStreamDes
   }
   sourceFrameByteOffsetUnchecked(descriptor, descriptor.targetSourceFrame);
   expectedOutputFramesUnchecked(descriptor);
+}
+
+/** Validate the exact descriptor accepted by the shared decoder worker. */
+export function validateLinearPcmDecoderDescriptor(descriptor: LinearPcmDecoderDescriptor): void {
+  if (!descriptor || typeof descriptor !== 'object') {
+    throw new TypeError('linear PCM decoder descriptor is missing');
+  }
+  if (descriptor.format !== 'linear-pcm') {
+    throw new TypeError('linear PCM decoder descriptor format is invalid');
+  }
+  validateLinearPcmStreamDescriptor(descriptor);
+}
+
+/** Build one immutable worker descriptor from verified container metadata. */
+export function createLinearPcmDecoderDescriptor(
+  metadata: Readonly<LinearPcmMetadata>,
+  targetSourceFrame: number,
+  outputSampleRate: number,
+): Readonly<LinearPcmDecoderDescriptor> {
+  if (!metadata || typeof metadata !== 'object') {
+    throw new TypeError('Verified linear PCM metadata is required');
+  }
+  if (
+    !Number.isFinite(metadata.durationSeconds) ||
+    metadata.durationSeconds <= 0 ||
+    metadata.durationSeconds !== metadata.totalSourceFrames / metadata.sourceSampleRate
+  ) {
+    throw new RangeError('linear PCM duration contradicts its frame geometry');
+  }
+  const descriptor: LinearPcmDecoderDescriptor = Object.freeze({
+    format: 'linear-pcm',
+    sourceSampleRate: metadata.sourceSampleRate,
+    outputSampleRate,
+    channels: metadata.channels,
+    encoding: metadata.encoding,
+    containerBitsPerSample: metadata.containerBitsPerSample,
+    validBitsPerSample: metadata.validBitsPerSample,
+    blockAlign: metadata.blockAlign,
+    dataOffset: metadata.dataOffset,
+    dataBytes: metadata.dataBytes,
+    logicalFileBytes: metadata.logicalFileBytes,
+    totalSourceFrames: metadata.totalSourceFrames,
+    targetSourceFrame,
+  });
+  validateLinearPcmDecoderDescriptor(descriptor);
+  return descriptor;
 }
 
 /** O(1) frame-to-byte mapping. The end frame is valid. */

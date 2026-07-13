@@ -4,9 +4,9 @@ import { throwIfAborted, validateExactRead } from '../../player/sources/encoded-
 import { EncodedSourcePortBroker } from '../../player/sources/encoded-source-port.ts';
 import { PCM_STREAM_PROTOCOL_VERSION } from '../../player/streaming/pcm-stream-protocol.ts';
 import {
-  WAVE_STREAM_PROTOCOL_VERSION,
-  type WaveStreamDescriptor,
-} from '../../player/wave/stream-protocol.ts';
+  LINEAR_PCM_DECODER_PROTOCOL_VERSION,
+  type LinearPcmDecoderDescriptor,
+} from '../../player/linear-pcm/decoder-protocol.ts';
 
 const mocks = vi.hoisted(() => ({
   lanczosInitializations: 0,
@@ -67,7 +67,7 @@ class MemoryEncodedAudioSource implements EncodedAudioSource {
 
   constructor(
     readonly bytes: Uint8Array,
-    identity = 'wave-worker-test-source',
+    identity = 'linear-pcm-worker-test-source',
   ) {
     this.size = bytes.byteLength;
     this.identity = identity;
@@ -124,7 +124,7 @@ async function loadWorker(): Promise<FakeWorkerScope> {
   };
   vi.stubGlobal('self', scope);
   vi.resetModules();
-  await import('../wave-stream.worker.ts');
+  await import('../linear-pcm-stream.worker.ts');
   return scope;
 }
 
@@ -135,12 +135,12 @@ function descriptor(options: {
   readonly sourceSampleRate?: number;
   readonly outputSampleRate?: number;
   readonly targetSourceFrame?: number;
-}): WaveStreamDescriptor {
+}): LinearPcmDecoderDescriptor {
   const channels = options.channels ?? 2;
   const dataOffset = options.dataOffset ?? 8;
   const sourceSampleRate = options.sourceSampleRate ?? 48_000;
   return {
-    format: 'wave-pcm',
+    format: 'linear-pcm',
     sourceSampleRate,
     outputSampleRate: options.outputSampleRate ?? sourceSampleRate,
     channels,
@@ -157,7 +157,7 @@ function descriptor(options: {
 }
 
 function sourceBytes(
-  descriptorValue: WaveStreamDescriptor,
+  descriptorValue: LinearPcmDecoderDescriptor,
   sample: (frame: number, channel: number) => number = (frame, channel) =>
     128 + ((frame + channel * 17) % 96),
 ): Uint8Array {
@@ -186,7 +186,7 @@ function openSource(
   });
   sourceBrokers.push(broker);
   dispatch(scope, {
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'open-source',
     sourceLifetimeGeneration: 1,
     sourceSize: source.size,
@@ -199,12 +199,12 @@ function openSource(
 function initialize(
   scope: FakeWorkerScope,
   generation: number,
-  descriptorValue: WaveStreamDescriptor,
+  descriptorValue: LinearPcmDecoderDescriptor,
 ): MessagePort {
   const channel = new MessageChannel();
   openPorts.push(channel.port1, channel.port2);
   dispatch(scope, {
-    protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+    protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
     type: 'init-decoder',
     sourceLifetimeGeneration: 1,
     decoderGeneration: generation,
@@ -238,7 +238,7 @@ async function waitReady(scope: FakeWorkerScope, generation: number): Promise<vo
   });
 }
 
-describe.sequential('bounded WAVE PCM stream worker', () => {
+describe.sequential('bounded linear PCM stream worker', () => {
   beforeEach(() => {
     mocks.lanczosInitializations = 0;
     mocks.resamplerInstances = 0;
@@ -290,6 +290,46 @@ describe.sequential('bounded WAVE PCM stream worker', () => {
         }),
       );
     });
+  });
+
+  it('decodes container-neutral big-endian PCM through the shared worker lane', async () => {
+    const layout: LinearPcmDecoderDescriptor = {
+      format: 'linear-pcm',
+      sourceSampleRate: 48_000,
+      outputSampleRate: 48_000,
+      channels: 2,
+      encoding: 'pcm-s16be',
+      containerBitsPerSample: 16,
+      validBitsPerSample: 16,
+      blockAlign: 4,
+      dataOffset: 8,
+      dataBytes: 8,
+      logicalFileBytes: 16,
+      totalSourceFrames: 2,
+      targetSourceFrame: 0,
+    };
+    const bytes = new Uint8Array(layout.logicalFileBytes);
+    const view = new DataView(bytes.buffer);
+    view.setInt16(8, -32_768, false);
+    view.setInt16(10, 32_767, false);
+    view.setInt16(12, 16_384, false);
+    view.setInt16(14, -16_384, false);
+    const source = new MemoryEncodedAudioSource(bytes);
+    const scope = await loadWorker();
+    openSource(scope, source);
+    const pcmPort = initialize(scope, 10, layout);
+    await waitReady(scope, 10);
+
+    const received = nextPortMessage(pcmPort);
+    pcmPort.postMessage(demand(10));
+    const pcm = await received;
+
+    expect(pcm).toMatchObject({ type: 'pcm', generation: 10, frames: 2, final: true });
+    const channels = pcm.channels as ArrayBuffer[];
+    expect(Array.from(new Float32Array(channels[0]))).toEqual([-1, 0.5]);
+    expect(Array.from(new Float32Array(channels[1]))).toEqual([32_767 / 32_768, -0.5]);
+    expect(source.reads).toEqual([{ offset: 8, length: 8 }]);
+    expect(mocks.lanczosInitializations).toBe(0);
   });
 
   it('seeks to a PCM frame with one O(1) byte-offset read', async () => {
@@ -391,7 +431,7 @@ describe.sequential('bounded WAVE PCM stream worker', () => {
     openPorts.push(staleChannel.port1, staleChannel.port2);
     const closeSpy = vi.spyOn(staleChannel.port1, 'close');
     dispatch(scope, {
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'init-decoder',
       sourceLifetimeGeneration: 1,
       decoderGeneration: 4,
@@ -418,7 +458,7 @@ describe.sequential('bounded WAVE PCM stream worker', () => {
     await vi.waitFor(() => expect(source.reads).toHaveLength(1));
 
     dispatch(scope, {
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'stop-decoder',
       sourceLifetimeGeneration: 1,
       decoderGeneration: 6,
@@ -473,7 +513,7 @@ describe.sequential('bounded WAVE PCM stream worker', () => {
     await waitReady(scope, 9);
 
     dispatch(scope, {
-      protocolVersion: WAVE_STREAM_PROTOCOL_VERSION,
+      protocolVersion: LINEAR_PCM_DECODER_PROTOCOL_VERSION,
       type: 'close-source',
       sourceLifetimeGeneration: 1,
     });

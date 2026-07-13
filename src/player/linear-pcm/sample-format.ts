@@ -21,6 +21,16 @@ export interface LinearPcmSampleLayout {
   readonly blockAlign: number;
 }
 
+/** Container parser output needed by the shared linear-PCM decode lane. */
+export interface LinearPcmMetadata extends LinearPcmSampleLayout {
+  readonly sourceSampleRate: number;
+  readonly dataOffset: number;
+  readonly dataBytes: number;
+  readonly logicalFileBytes: number;
+  readonly totalSourceFrames: number;
+  readonly durationSeconds: number;
+}
+
 export interface DecodedLinearPcm {
   readonly channels: readonly Float32Array[];
   readonly frames: number;

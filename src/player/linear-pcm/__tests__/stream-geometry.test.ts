@@ -1,41 +1,50 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  WavePcmDecodeError,
-  createWaveStreamDescriptor,
-  decodeWaveInterleavedPcm,
-  decodeWavePcmScalar,
-  expectedWaveOutputFrames,
-  maximumWaveInputFramesPerRead,
-  planWavePcmInputRead,
-  remainingWaveSourceFrames,
-  validateWaveStreamDescriptor,
-  waveOutputFrameAtTarget,
-  waveSourceFrameByteOffset,
-  type WavePcmSampleLayout,
+  createLinearPcmDecoderDescriptor,
+  decodeInterleavedLinearPcm,
+  decodeLinearPcmScalar,
+  expectedLinearPcmOutputFrames,
+  linearPcmOutputFrameAtTarget,
+  linearPcmSourceFrameByteOffset,
+  maximumLinearPcmInputFramesPerRead,
+  planLinearPcmInputRead,
+  remainingLinearPcmSourceFrames,
+  validateLinearPcmDecoderDescriptor,
 } from '../decoder-helpers.ts';
-import type { WavePcmEncoding, WavePcmMetadata } from '../metadata.ts';
+import type { LinearPcmDecoderDescriptor } from '../decoder-protocol.ts';
 import {
-  WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES,
-  WAVE_STREAM_MAX_READ_BYTES,
-  type WaveStreamDescriptor,
+  LinearPcmDecodeError,
+  type LinearPcmEncoding,
+  type LinearPcmMetadata,
+  type LinearPcmSampleLayout,
+} from '../sample-format.ts';
+import {
+  LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES,
+  LINEAR_PCM_STREAM_MAX_READ_BYTES,
 } from '../stream-protocol.ts';
 
 const GIB = 1_024 * 1_024 * 1_024;
 
-const ENCODING_BITS: Readonly<Record<WavePcmEncoding, 8 | 16 | 24 | 32 | 64>> = {
+const ENCODING_BITS: Readonly<Record<LinearPcmEncoding, 8 | 16 | 24 | 32 | 64>> = {
   'pcm-u8': 8,
+  'pcm-s8': 8,
   'pcm-s16le': 16,
+  'pcm-s16be': 16,
   'pcm-s24le': 24,
+  'pcm-s24be': 24,
   'pcm-s32le': 32,
+  'pcm-s32be': 32,
   float32le: 32,
+  float32be: 32,
   float64le: 64,
+  float64be: 64,
 };
 
 function sampleLayout(
-  encoding: WavePcmEncoding,
+  encoding: LinearPcmEncoding,
   options: { readonly channels?: number; readonly validBits?: number } = {},
-): WavePcmSampleLayout {
+): LinearPcmSampleLayout {
   const bits = ENCODING_BITS[encoding];
   const channels = options.channels ?? 1;
   return {
@@ -47,7 +56,7 @@ function sampleLayout(
   };
 }
 
-function metadata(patch: Partial<WavePcmMetadata> = {}): WavePcmMetadata {
+function metadata(patch: Partial<LinearPcmMetadata> = {}): LinearPcmMetadata {
   const channels = patch.channels ?? 2;
   const encoding = patch.encoding ?? 'pcm-s16le';
   const bits = patch.containerBitsPerSample ?? ENCODING_BITS[encoding];
@@ -57,36 +66,30 @@ function metadata(patch: Partial<WavePcmMetadata> = {}): WavePcmMetadata {
   const totalSourceFrames = patch.totalSourceFrames ?? dataBytes / blockAlign;
   const sourceSampleRate = patch.sourceSampleRate ?? 48_000;
   return {
-    format: 'wave',
-    container: 'riff',
     encoding,
-    formatTag: 0x0001,
     sourceSampleRate,
     channels,
     containerBitsPerSample: bits,
     validBitsPerSample: patch.validBitsPerSample ?? bits,
     blockAlign,
-    byteRate: patch.byteRate ?? sourceSampleRate * blockAlign,
-    channelMask: patch.channelMask ?? 0,
     dataOffset,
     dataBytes,
     totalSourceFrames,
     durationSeconds: patch.durationSeconds ?? totalSourceFrames / sourceSampleRate,
     logicalFileBytes: patch.logicalFileBytes ?? dataOffset + dataBytes,
-    rf64SampleCount: patch.rf64SampleCount ?? null,
     ...patch,
   };
 }
 
-function descriptor(patch: Partial<WaveStreamDescriptor> = {}): WaveStreamDescriptor {
+function descriptor(patch: Partial<LinearPcmDecoderDescriptor> = {}): LinearPcmDecoderDescriptor {
   return {
-    ...createWaveStreamDescriptor(metadata(), 0, 48_000),
+    ...createLinearPcmDecoderDescriptor(metadata(), 0, 48_000),
     ...patch,
   };
 }
 
-function scalar(bytes: Uint8Array, layout: WavePcmSampleLayout): number {
-  return decodeWavePcmScalar(
+function scalar(bytes: Uint8Array, layout: LinearPcmSampleLayout): number {
+  return decodeLinearPcmScalar(
     new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
     0,
     layout,
@@ -98,13 +101,13 @@ function int24(value: number): Uint8Array {
   return Uint8Array.of(unsigned & 0xff, (unsigned >>> 8) & 0xff, (unsigned >>> 16) & 0xff);
 }
 
-describe('WAVE stream descriptor helpers', () => {
+describe('linear PCM stream descriptor helpers', () => {
   it('creates one frozen descriptor from verified metadata', () => {
-    const value = createWaveStreamDescriptor(metadata(), 3, 96_000);
+    const value = createLinearPcmDecoderDescriptor(metadata(), 3, 96_000);
 
     expect(Object.isFrozen(value)).toBe(true);
     expect(value).toEqual({
-      format: 'wave-pcm',
+      format: 'linear-pcm',
       sourceSampleRate: 48_000,
       outputSampleRate: 96_000,
       channels: 2,
@@ -123,7 +126,7 @@ describe('WAVE stream descriptor helpers', () => {
   it('maps every source frame, including a sparse 5 GiB end frame, to an exact byte offset', () => {
     const dataOffset = 80;
     const dataBytes = 5 * GIB - dataOffset;
-    const value = createWaveStreamDescriptor(
+    const value = createLinearPcmDecoderDescriptor(
       metadata({
         container: 'rf64',
         dataOffset,
@@ -135,16 +138,16 @@ describe('WAVE stream descriptor helpers', () => {
       48_000,
     );
 
-    expect(waveSourceFrameByteOffset(value, 0)).toBe(dataOffset);
-    expect(waveSourceFrameByteOffset(value, value.totalSourceFrames - 1)).toBe(5 * GIB - 4);
-    expect(waveSourceFrameByteOffset(value, value.totalSourceFrames)).toBe(5 * GIB);
+    expect(linearPcmSourceFrameByteOffset(value, 0)).toBe(dataOffset);
+    expect(linearPcmSourceFrameByteOffset(value, value.totalSourceFrames - 1)).toBe(5 * GIB - 4);
+    expect(linearPcmSourceFrameByteOffset(value, value.totalSourceFrames)).toBe(5 * GIB);
   });
 
   it('keeps remaining, resampled output, and output-timeline position mathematically consistent', () => {
     const direct = descriptor({ targetSourceFrame: 3 });
-    expect(remainingWaveSourceFrames(direct)).toBe(7);
-    expect(expectedWaveOutputFrames(direct)).toBe(7);
-    expect(waveOutputFrameAtTarget(direct)).toBe(3);
+    expect(remainingLinearPcmSourceFrames(direct)).toBe(7);
+    expect(expectedLinearPcmOutputFrames(direct)).toBe(7);
+    expect(linearPcmOutputFrameAtTarget(direct)).toBe(3);
 
     const resampled = descriptor({
       sourceSampleRate: 96_000,
@@ -154,9 +157,9 @@ describe('WAVE stream descriptor helpers', () => {
       logicalFileBytes: 480,
       targetSourceFrame: 20,
     });
-    expect(remainingWaveSourceFrames(resampled)).toBe(80);
-    expect(expectedWaveOutputFrames(resampled)).toBe(40);
-    expect(waveOutputFrameAtTarget(resampled)).toBe(10);
+    expect(remainingLinearPcmSourceFrames(resampled)).toBe(80);
+    expect(expectedLinearPcmOutputFrames(resampled)).toBe(40);
+    expect(linearPcmOutputFrameAtTarget(resampled)).toBe(10);
   });
 
   it('plans reads under both the 64 KiB encoded ceiling and 32,768-frame PCM ceiling', () => {
@@ -170,12 +173,12 @@ describe('WAVE stream descriptor helpers', () => {
       totalSourceFrames: 100_000,
       logicalFileBytes: 100_080,
     });
-    expect(maximumWaveInputFramesPerRead(mono)).toBe(WAVE_STREAM_MAX_READ_BYTES);
-    expect(planWavePcmInputRead(mono, 0)).toEqual({
+    expect(maximumLinearPcmInputFramesPerRead(mono)).toBe(LINEAR_PCM_STREAM_MAX_READ_BYTES);
+    expect(planLinearPcmInputRead(mono, 0)).toEqual({
       sourceFrame: 0,
       byteOffset: 80,
-      frames: WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES,
-      bytes: WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES,
+      frames: LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES,
+      bytes: LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES,
       final: false,
     });
 
@@ -189,27 +192,27 @@ describe('WAVE stream descriptor helpers', () => {
       totalSourceFrames: 2_000,
       logicalFileBytes: 128_080,
     });
-    expect(maximumWaveInputFramesPerRead(wide)).toBe(1_024);
-    expect(planWavePcmInputRead(wide, 0)).toMatchObject({
+    expect(maximumLinearPcmInputFramesPerRead(wide)).toBe(1_024);
+    expect(planLinearPcmInputRead(wide, 0)).toMatchObject({
       frames: 1_024,
-      bytes: WAVE_STREAM_MAX_READ_BYTES,
+      bytes: LINEAR_PCM_STREAM_MAX_READ_BYTES,
       final: false,
     });
-    expect(planWavePcmInputRead(wide, 1_999)).toEqual({
+    expect(planLinearPcmInputRead(wide, 1_999)).toEqual({
       sourceFrame: 1_999,
       byteOffset: 80 + 1_999 * 64,
       frames: 1,
       bytes: 64,
       final: true,
     });
-    expect(planWavePcmInputRead(wide, 2_000)).toBeNull();
-    expect(() => planWavePcmInputRead(wide, 0, WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES + 1)).toThrow(
+    expect(planLinearPcmInputRead(wide, 2_000)).toBeNull();
+    expect(() => planLinearPcmInputRead(wide, 0, LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES + 1)).toThrow(
       'maximumFrames',
     );
   });
 
-  it.each<readonly [string, Partial<WaveStreamDescriptor>, string]>([
-    ['wrong format', { format: 'nope' as 'wave-pcm' }, 'format is invalid'],
+  it.each<readonly [string, Partial<LinearPcmDecoderDescriptor>, string]>([
+    ['wrong format', { format: 'nope' as 'linear-pcm' }, 'format is invalid'],
     ['zero source rate', { sourceSampleRate: 0 }, 'sourceSampleRate'],
     ['zero output rate', { outputSampleRate: 0 }, 'outputSampleRate'],
     ['too many channels', { channels: 9 }, 'channels'],
@@ -231,8 +234,8 @@ describe('WAVE stream descriptor helpers', () => {
     ['target after end', { targetSourceFrame: 11 }, 'targetSourceFrame'],
     ['data after logical end', { logicalFileBytes: 119 }, 'data exceeds'],
   ])('rejects descriptor invariant: %s', (_label, patch, message) => {
-    const value = { ...descriptor(), ...patch } as WaveStreamDescriptor;
-    expect(() => validateWaveStreamDescriptor(value)).toThrow(message);
+    const value = { ...descriptor(), ...patch } as LinearPcmDecoderDescriptor;
+    expect(() => validateLinearPcmDecoderDescriptor(value)).toThrow(message);
   });
 
   it('rejects byte-offset arithmetic outside the browser safe-integer range', () => {
@@ -243,13 +246,13 @@ describe('WAVE stream descriptor helpers', () => {
       logicalFileBytes: Number.MAX_SAFE_INTEGER,
       totalSourceFrames: 2,
       targetSourceFrame: 0,
-    } satisfies WaveStreamDescriptor;
+    } satisfies LinearPcmDecoderDescriptor;
 
-    expect(() => validateWaveStreamDescriptor(value)).toThrow('safe-integer range');
+    expect(() => validateLinearPcmDecoderDescriptor(value)).toThrow('safe-integer range');
   });
 });
 
-describe('WAVE PCM scalar conversion', () => {
+describe('linear PCM scalar conversion', () => {
   it('normalizes unsigned 8-bit PCM around its 128 midpoint', () => {
     const layout = sampleLayout('pcm-u8');
     expect(scalar(Uint8Array.of(0), layout)).toBe(-1);
@@ -276,7 +279,7 @@ describe('WAVE PCM scalar conversion', () => {
     expect(scalar(int32, sampleLayout('pcm-s32le'))).toBe(0x7fff_ffff / 0x8000_0000);
   });
 
-  it.each<readonly [WavePcmEncoding, number, Uint8Array, Uint8Array]>([
+  it.each<readonly [LinearPcmEncoding, number, Uint8Array, Uint8Array]>([
     ['pcm-u8', 4, Uint8Array.of(0xf0), Uint8Array.of(0xf1)],
     ['pcm-s16le', 12, Uint8Array.of(0xf0, 0x7f), Uint8Array.of(0xf1, 0x7f)],
     ['pcm-s24le', 20, Uint8Array.of(0xf0, 0xff, 0x7f), Uint8Array.of(0xf1, 0xff, 0x7f)],
@@ -291,8 +294,8 @@ describe('WAVE PCM scalar conversion', () => {
       } catch (caught) {
         error = caught;
       }
-      expect(error).toBeInstanceOf(WavePcmDecodeError);
-      expect((error as WavePcmDecodeError).code).toBe('nonzero-unused-bits');
+      expect(error).toBeInstanceOf(LinearPcmDecodeError);
+      expect((error as LinearPcmDecodeError).code).toBe('nonzero-unused-bits');
     },
   );
 
@@ -304,7 +307,7 @@ describe('WAVE PCM scalar conversion', () => {
     view.setFloat32(8, Number.NEGATIVE_INFINITY, true);
     view.setFloat32(12, 2.5, true);
 
-    const decoded = decodeWaveInterleavedPcm(float32, sampleLayout('float32le'));
+    const decoded = decodeInterleavedLinearPcm(float32, sampleLayout('float32le'));
 
     expect(Array.from(decoded.channels[0]!)).toEqual([0, 0, 0, 2.5]);
 
@@ -313,20 +316,20 @@ describe('WAVE PCM scalar conversion', () => {
     float64View.setFloat64(0, Number.NaN, true);
     float64View.setFloat64(8, -1.25, true);
     expect(
-      Array.from(decodeWaveInterleavedPcm(float64, sampleLayout('float64le')).channels[0]!),
+      Array.from(decodeInterleavedLinearPcm(float64, sampleLayout('float64le')).channels[0]!),
     ).toEqual([0, -1.25]);
   });
 
   it('rejects a scalar outside its DataView', () => {
     const bytes = new Uint8Array(2);
     const view = new DataView(bytes.buffer);
-    expect(() => decodeWavePcmScalar(view, 1, sampleLayout('pcm-s16le'))).toThrow(
+    expect(() => decodeLinearPcmScalar(view, 1, sampleLayout('pcm-s16le'))).toThrow(
       'exceeds the supplied byte view',
     );
   });
 });
 
-describe('WAVE interleaved-to-planar conversion', () => {
+describe('linear PCM interleaved-to-planar conversion', () => {
   it('preserves stereo frame and channel order from a nonzero Uint8Array offset', () => {
     const backing = new Uint8Array(12);
     const view = new DataView(backing.buffer);
@@ -336,7 +339,7 @@ describe('WAVE interleaved-to-planar conversion', () => {
     view.setInt16(8, 32_767, true);
     const bytes = backing.subarray(2, 10);
 
-    const decoded = decodeWaveInterleavedPcm(bytes, sampleLayout('pcm-s16le', { channels: 2 }));
+    const decoded = decodeInterleavedLinearPcm(bytes, sampleLayout('pcm-s16le', { channels: 2 }));
 
     expect(decoded.frames).toBe(2);
     expect(Array.from(decoded.channels[0]!)).toEqual([-1, 0]);
@@ -346,7 +349,7 @@ describe('WAVE interleaved-to-planar conversion', () => {
   it('keeps all eight discrete channels in source order', () => {
     const bytes = Uint8Array.from({ length: 8 }, (_, index) => 128 + index * 8);
 
-    const decoded = decodeWaveInterleavedPcm(bytes, sampleLayout('pcm-u8', { channels: 8 }));
+    const decoded = decodeInterleavedLinearPcm(bytes, sampleLayout('pcm-u8', { channels: 8 }));
 
     expect(decoded.frames).toBe(1);
     expect(decoded.channels.map((channel) => channel[0])).toEqual([
@@ -355,22 +358,22 @@ describe('WAVE interleaved-to-planar conversion', () => {
   });
 
   it('accepts one exact 64 KiB input but rejects larger, empty, or partial-frame input', () => {
-    const maximum = decodeWaveInterleavedPcm(
-      new Uint8Array(WAVE_STREAM_MAX_READ_BYTES),
+    const maximum = decodeInterleavedLinearPcm(
+      new Uint8Array(LINEAR_PCM_STREAM_MAX_READ_BYTES),
       sampleLayout('pcm-u8'),
     );
-    expect(maximum.frames).toBe(WAVE_STREAM_MAX_READ_BYTES);
+    expect(maximum.frames).toBe(LINEAR_PCM_STREAM_MAX_READ_BYTES);
 
     expect(() =>
-      decodeWaveInterleavedPcm(
-        new Uint8Array(WAVE_STREAM_MAX_READ_BYTES + 1),
+      decodeInterleavedLinearPcm(
+        new Uint8Array(LINEAR_PCM_STREAM_MAX_READ_BYTES + 1),
         sampleLayout('pcm-u8'),
       ),
     ).toThrow('1 through');
-    expect(() => decodeWaveInterleavedPcm(new Uint8Array(0), sampleLayout('pcm-u8'))).toThrow(
+    expect(() => decodeInterleavedLinearPcm(new Uint8Array(0), sampleLayout('pcm-u8'))).toThrow(
       '1 through',
     );
-    expect(() => decodeWaveInterleavedPcm(new Uint8Array(3), sampleLayout('pcm-s16le'))).toThrow(
+    expect(() => decodeInterleavedLinearPcm(new Uint8Array(3), sampleLayout('pcm-s16le'))).toThrow(
       'whole number',
     );
   });

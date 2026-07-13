@@ -5,23 +5,9 @@ import {
   type BoundedStreamingPlaybackRuntime,
 } from './bounded-streaming-playback-source.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
+import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
 import type { WavePcmMetadata } from '../wave/metadata.ts';
 import { WaveDecoderAdapter } from '../wave/wave-decoder-adapter.ts';
-
-type WorkerFactory = () => Worker;
-type WorkletNodeFactory = (
-  context: AudioContext,
-  name: string,
-  options: AudioWorkletNodeOptions,
-) => AudioWorkletNode;
-type MessageChannelFactory = () => MessageChannel;
-
-export interface StreamingWavePlaybackRuntime {
-  readonly loadWorklet: (context: AudioContext) => Promise<void>;
-  readonly createWorker: WorkerFactory;
-  readonly createWorkletNode: WorkletNodeFactory;
-  readonly createMessageChannel: MessageChannelFactory;
-}
 
 export interface StreamingWavePlaybackSourceOptions {
   readonly queueItemId: QueueItemId;
@@ -36,10 +22,10 @@ export interface StreamingWavePlaybackSourceOptions {
   readonly prepareTimeoutMs?: number;
   readonly commandTimeoutMs?: number;
   /** Explicit runtime seam for deterministic browser-boundary tests. */
-  readonly runtime?: Partial<StreamingWavePlaybackRuntime>;
+  readonly runtime?: Partial<BoundedStreamingCodecRuntime>;
 }
 
-const defaultRuntime: StreamingWavePlaybackRuntime = {
+const defaultRuntime: BoundedStreamingCodecRuntime = {
   loadWorklet: loadPcmRingWorklet,
   createWorker: () =>
     new Worker(new URL('../../workers/wave-stream.worker.ts', import.meta.url), {

@@ -7,21 +7,7 @@ import {
 import { FlacDecoderAdapter } from '../flac/flac-decoder-adapter.ts';
 import type { FlacMetadata } from '../flac/metadata.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
-
-type WorkerFactory = () => Worker;
-type WorkletNodeFactory = (
-  context: AudioContext,
-  name: string,
-  options: AudioWorkletNodeOptions,
-) => AudioWorkletNode;
-type MessageChannelFactory = () => MessageChannel;
-
-export interface StreamingFlacPlaybackRuntime {
-  readonly loadWorklet: (context: AudioContext) => Promise<void>;
-  readonly createWorker: WorkerFactory;
-  readonly createWorkletNode: WorkletNodeFactory;
-  readonly createMessageChannel: MessageChannelFactory;
-}
+import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
 
 export interface StreamingFlacPlaybackSourceOptions {
   readonly queueItemId: QueueItemId;
@@ -36,10 +22,10 @@ export interface StreamingFlacPlaybackSourceOptions {
   readonly prepareTimeoutMs?: number;
   readonly commandTimeoutMs?: number;
   /** Explicit runtime seam for deterministic browser-boundary tests. */
-  readonly runtime?: Partial<StreamingFlacPlaybackRuntime>;
+  readonly runtime?: Partial<BoundedStreamingCodecRuntime>;
 }
 
-const defaultRuntime: StreamingFlacPlaybackRuntime = {
+const defaultRuntime: BoundedStreamingCodecRuntime = {
   loadWorklet: loadPcmRingWorklet,
   createWorker: () =>
     new Worker(new URL('../../workers/flac-stream.worker.ts', import.meta.url), {

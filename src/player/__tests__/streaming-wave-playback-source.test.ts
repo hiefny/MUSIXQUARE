@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { QueueItemId } from '../../types/index.ts';
-import {
-  StreamingWavePlaybackSource,
-  type StreamingWavePlaybackRuntime,
-} from '../backends/streaming-wave-playback-source.ts';
+import { StreamingWavePlaybackSource } from '../backends/streaming-wave-playback-source.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
+import type { BoundedStreamingCodecRuntime } from '../streaming/bounded-codec-runtime.ts';
 import { PCM_STREAM_PROTOCOL_VERSION } from '../streaming/pcm-stream-protocol.ts';
 import type { WavePcmMetadata } from '../wave/metadata.ts';
 import {
@@ -188,7 +186,7 @@ function harness(options: HarnessOptions = {}) {
     createWorkletNode,
     createMessageChannel,
     ...(options.useDefaultWorker ? {} : { createWorker }),
-  } satisfies Partial<StreamingWavePlaybackRuntime>;
+  } satisfies Partial<BoundedStreamingCodecRuntime>;
   const source = new StreamingWavePlaybackSource({
     queueItemId: QID,
     encodedSource,

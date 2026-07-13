@@ -7,7 +7,10 @@ import {
   type FilePlaybackAssetSnapshot,
 } from './file-playback-asset-registry.ts';
 import {
+  handoffFilePlaybackAssetSourceWarm,
+  readFilePlaybackAssetSourceWarmReadiness,
   stageFilePlaybackAssetSource,
+  type FilePlaybackWarmSourceAuthority,
   type StageFilePlaybackAssetSourceOptions,
   type StagedFilePlaybackAssetSource,
 } from './file-playback-asset-source-stager.ts';
@@ -64,6 +67,21 @@ const STAGE_OPTION_KEYS = Object.freeze([
 ] as const);
 const REQUIRED_STAGE_OPTION_KEYS = STAGE_OPTION_KEYS.filter(
   (key) => key !== 'boundedRoutePolicy' && key !== 'runtimeForTests',
+);
+const WARM_STAGE_OPTION_KEYS = Object.freeze([
+  'warmSource',
+  'manager',
+  'destination',
+  'signal',
+  'isCurrent',
+  'playbackState',
+  'participantId',
+  'rttP95Ms',
+  'armP95Ms',
+  'runtimeForTests',
+] as const);
+const REQUIRED_WARM_STAGE_OPTION_KEYS = WARM_STAGE_OPTION_KEYS.filter(
+  (key) => key !== 'runtimeForTests',
 );
 const START_OPTION_KEYS = Object.freeze([
   ...STAGE_OPTION_KEYS.filter((key) => key !== 'runtimeForTests'),
@@ -152,6 +170,20 @@ export interface StartLocalFilePlaybackOptions extends StageLocalFilePlaybackPar
   readonly rendezvousCoordinator: HostRendezvousCoordinator;
 }
 
+/** Binds one already-prepared source to the latest exact run only at handoff. */
+export interface StageWarmLocalFilePlaybackParticipantOptions {
+  readonly warmSource: FilePlaybackWarmSourceAuthority;
+  readonly manager: FilePlaybackManager;
+  readonly destination: AudioNode;
+  readonly signal: AbortSignal;
+  readonly isCurrent: () => boolean;
+  readonly playbackState: PlaybackStateIdentity;
+  readonly participantId: string;
+  readonly rttP95Ms: number;
+  readonly armP95Ms: number;
+  readonly runtimeForTests?: FilePlaybackLocalStartCoordinatorRuntimeForTests;
+}
+
 export interface LocalFilePlaybackSourceDescriptor {
   readonly identity: string;
   readonly metadata: Readonly<FilePlaybackAssetMetadata>;
@@ -219,6 +251,19 @@ interface StagedParticipantAuthority {
   completionPromise: Promise<Readonly<StartedLocalFilePlayback>> | null;
   retirementPromise: Promise<void> | null;
   committed: boolean;
+}
+
+interface PublishLocalParticipantOptions {
+  readonly expectedBinding: Readonly<FilePlaybackAssetBinding>;
+  readonly manager: FilePlaybackManager;
+  readonly signal: AbortSignal;
+  readonly assertAuthority: () => void;
+  readonly playbackState: Readonly<PlaybackStateIdentity>;
+  readonly participantId: string;
+  readonly rttP95Ms: number;
+  readonly armP95Ms: number;
+  readonly runtime: RuntimeSnapshot;
+  readonly stageTask: Promise<Readonly<StagedFilePlaybackAssetSource>>;
 }
 
 const STAGED_PARTICIPANT_AUTHORITIES = new WeakMap<
@@ -833,6 +878,108 @@ function initialAttemptIdentity(
   return canonicalAttempt(state, snapshot.rendezvousId);
 }
 
+async function publishLocalParticipant(
+  options: PublishLocalParticipantOptions,
+): Promise<Readonly<StagedLocalFilePlaybackParticipant>> {
+  const {
+    expectedBinding,
+    manager,
+    signal,
+    assertAuthority,
+    playbackState,
+    participantId,
+    rttP95Ms,
+    armP95Ms,
+    runtime,
+    stageTask,
+  } = options;
+  let rawStaged: Readonly<StagedFilePlaybackAssetSource> | null = null;
+  let staged: Readonly<StagedFilePlaybackAssetSource> | null = null;
+  let authority: StagedParticipantAuthority | null = null;
+
+  const retireLateStage = (value: Readonly<StagedFilePlaybackAssetSource>): void => {
+    const late = canonicalStagedResult(value, expectedBinding);
+    if (late) scheduleExactRetirement(manager, late.cutoverPort);
+  };
+
+  try {
+    rawStaged = await abortable(stageTask, signal, () => undefined, retireLateStage);
+    staged = canonicalStagedResult(rawStaged, expectedBinding);
+    if (!staged) {
+      throw new TypeError('Local file playback stager returned an invalid result');
+    }
+    assertAuthority();
+    if (staged.asset.queueItemId !== playbackState.queueItemId) {
+      throw new Error('Staged asset does not identify the requested playback state');
+    }
+    assertNewerThanCurrent(manager, playbackState);
+
+    const canonicalState = freezeCanonical({
+      queueItemId: playbackState.queueItemId,
+      runId: playbackState.runId,
+      revision: playbackState.revision,
+    });
+    const source = freezeCanonical({
+      identity: staged.sourceIdentity,
+      metadata: staged.metadata,
+    });
+    const participant = new ManagerCutoverRendezvousParticipant({
+      participantId,
+      rttP95Ms,
+      armP95Ms,
+      manager,
+      candidatePort: staged.cutoverPort,
+    });
+    const construction = freezeCanonical({
+      port: staged.cutoverPort,
+      backend: staged.backend,
+      source,
+      asset: staged.asset,
+      playbackState: canonicalState,
+      participant,
+    });
+    authority = {
+      manager,
+      signal,
+      assertAuthority,
+      runtime,
+      participant,
+      port: staged.cutoverPort,
+      backend: staged.backend,
+      source,
+      asset: staged.asset,
+      playbackState: canonicalState,
+      participantId,
+      abortListener: null,
+      attempt: null,
+      attemptIdentity: null,
+      completionPromise: null,
+      retirementPromise: null,
+      committed: false,
+    };
+    STAGED_PARTICIPANT_AUTHORITIES.set(construction, authority);
+    const abortListener = () => {
+      if (authority) void beginStagedRetirement(authority, 'local-start-aborted');
+    };
+    authority.abortListener = abortListener;
+    signal.addEventListener('abort', abortListener, { once: true });
+    assertAuthority();
+    return construction;
+  } catch (error) {
+    if (authority) {
+      void beginStagedRetirement(
+        authority,
+        signal.aborted ? 'local-start-aborted' : 'local-stage-failed',
+      );
+    } else if (staged) {
+      scheduleExactRetirement(manager, staged.cutoverPort);
+    } else if (rawStaged) {
+      retireLateStage(rawStaged);
+    }
+    throw error;
+  }
+}
+
 /**
  * Stages one manager-owned silent candidate and returns its exact participant.
  * This function never starts a rendezvous and cannot make the candidate audible.
@@ -921,115 +1068,144 @@ export async function stageLocalFilePlaybackParticipant(
     assertAuthority();
     return true;
   };
-  let rawStaged: Readonly<StagedFilePlaybackAssetSource> | null = null;
-  let staged: Readonly<StagedFilePlaybackAssetSource> | null = null;
-  let authority: StagedParticipantAuthority | null = null;
+  assertAuthority();
+  assertNewerThanCurrent(manager, playbackState);
+  const stageTask = Reflect.apply(runtime.stageAssetSource, undefined, [
+    {
+      registry,
+      roomToken,
+      assetLease,
+      expectedBinding,
+      manager,
+      audioContext: audioContext as AudioContext,
+      destination: destination as AudioNode,
+      clockBindings: clock,
+      signal,
+      isCurrent: wrappedIsCurrent,
+      decodeOrdinaryAudio: decodeOrdinaryAudio as OrdinaryAudioDecoder,
+      ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
+    },
+  ]);
+  assertNativePromise<Readonly<StagedFilePlaybackAssetSource>>(
+    stageTask,
+    'Local file playback stager',
+  );
+  return publishLocalParticipant({
+    expectedBinding,
+    manager,
+    signal,
+    assertAuthority,
+    playbackState,
+    participantId: participantId as string,
+    rttP95Ms: rttP95Ms as number,
+    armP95Ms: armP95Ms as number,
+    runtime,
+    stageTask,
+  });
+}
 
-  const retireLateStage = (value: Readonly<StagedFilePlaybackAssetSource>): void => {
-    const late = canonicalStagedResult(value, expectedBinding);
-    if (late) scheduleExactRetirement(manager, late.cutoverPort);
+/**
+ * Consumes one revision-free warm source and binds it to the latest exact
+ * playback state only while entering the manager candidate slot.
+ */
+export async function stageWarmLocalFilePlaybackParticipant(
+  options: StageWarmLocalFilePlaybackParticipantOptions,
+): Promise<Readonly<StagedLocalFilePlaybackParticipant>> {
+  const input = snapshotOptions(options, WARM_STAGE_OPTION_KEYS, REQUIRED_WARM_STAGE_OPTION_KEYS);
+  if (!input) throw new TypeError('Local warm file playback stage options are invalid');
+
+  const warmSource = input.warmSource as FilePlaybackWarmSourceAuthority;
+  readFilePlaybackAssetSourceWarmReadiness(warmSource);
+  const asset = canonicalAsset(warmSource.asset);
+  const expectedBinding = asset
+    ? parseFilePlaybackAssetBinding({
+        queueItemId: asset.queueItemId,
+        sourceIdentity: asset.sourceIdentity,
+        transferSessionId: asset.transferSessionId,
+      })
+    : null;
+  const manager = input.manager;
+  const destination = input.destination;
+  const signal = input.signal;
+  const isCurrent = input.isCurrent;
+  const playbackState = readPlaybackStateIdentity(input.playbackState);
+  const participantId = input.participantId;
+  const rttP95Ms = input.rttP95Ms;
+  const armP95Ms = input.armP95Ms;
+  const runtime = runtimeSnapshot(input.runtimeForTests);
+
+  if (!asset || !expectedBinding) {
+    throw new TypeError('Local warm file playback asset is invalid');
+  }
+  if (!isExactFilePlaybackManager(manager)) {
+    throw new TypeError('An exact file playback manager is required');
+  }
+  if (destination === null || typeof destination !== 'object') {
+    throw new TypeError('A local file playback destination is required');
+  }
+  if (!(signal instanceof AbortSignal)) {
+    throw new TypeError('An exact local file playback AbortSignal is required');
+  }
+  if (typeof isCurrent !== 'function') {
+    throw new TypeError('Local warm playback authority callback is invalid');
+  }
+  if (!runtime || !playbackState) {
+    throw new TypeError('Local warm playback runtime or state identity is invalid');
+  }
+  if (playbackState.queueItemId !== asset.queueItemId) {
+    throw new TypeError('Playback state and warm asset queue identities differ');
+  }
+  if (!isBoundedIdentifier(participantId)) {
+    throw new TypeError('Local playback participant ID is invalid');
+  }
+  if (!isFiniteNonNegative(rttP95Ms) || !isFiniteNonNegative(armP95Ms)) {
+    throw new RangeError('Local playback rendezvous metrics must be finite and non-negative');
+  }
+
+  let checkingAuthority = false;
+  const assertAuthority = (): void => {
+    throwIfAborted(signal);
+    if (checkingAuthority) throw new Error('Local playback authority was re-entered');
+    checkingAuthority = true;
+    let accepted: unknown;
+    try {
+      accepted = Reflect.apply(isCurrent as () => boolean, undefined, []);
+    } finally {
+      checkingAuthority = false;
+    }
+    if (accepted !== true) throw new Error('Local playback start was superseded');
+    throwIfAborted(signal);
+  };
+  const wrappedIsCurrent = (): boolean => {
+    assertAuthority();
+    return true;
   };
 
-  try {
-    assertAuthority();
-    assertNewerThanCurrent(manager, playbackState);
-    const stageTask = Reflect.apply(runtime.stageAssetSource, undefined, [
-      {
-        registry,
-        roomToken,
-        assetLease,
-        expectedBinding,
-        manager,
-        audioContext: audioContext as AudioContext,
-        destination: destination as AudioNode,
-        clockBindings: clock,
-        signal,
-        isCurrent: wrappedIsCurrent,
-        decodeOrdinaryAudio: decodeOrdinaryAudio as OrdinaryAudioDecoder,
-        ...(boundedRoutePolicy ? { boundedRoutePolicy } : {}),
-      },
-    ]);
-    assertNativePromise<Readonly<StagedFilePlaybackAssetSource>>(
-      stageTask,
-      'Local file playback stager',
-    );
-    rawStaged = await abortable(stageTask, signal, () => undefined, retireLateStage);
-    staged = canonicalStagedResult(rawStaged, expectedBinding);
-    if (!staged) {
-      throw new TypeError('Local file playback stager returned an invalid result');
-    }
-    assertAuthority();
-    if (staged.asset.queueItemId !== playbackState.queueItemId) {
-      throw new Error('Staged asset does not identify the requested playback state');
-    }
-    assertNewerThanCurrent(manager, playbackState);
-
-    const canonicalState = freezeCanonical({
-      queueItemId: playbackState.queueItemId,
-      runId: playbackState.runId,
-      revision: playbackState.revision,
-    });
-    const source = freezeCanonical({
-      identity: staged.sourceIdentity,
-      metadata: staged.metadata,
-    });
-    const participant = new ManagerCutoverRendezvousParticipant({
-      participantId: participantId as string,
-      rttP95Ms: rttP95Ms as number,
-      armP95Ms: armP95Ms as number,
-      manager,
-      candidatePort: staged.cutoverPort,
-    });
-    const construction = freezeCanonical({
-      port: staged.cutoverPort,
-      backend: staged.backend,
-      source,
-      asset: staged.asset,
-      playbackState: canonicalState,
-      participant,
-    });
-    authority = {
-      manager,
-      signal,
-      assertAuthority,
-      runtime,
-      participant,
-      port: staged.cutoverPort,
-      backend: staged.backend,
-      source,
-      asset: staged.asset,
-      playbackState: canonicalState,
-      participantId: participantId as string,
-      abortListener: null,
-      attempt: null,
-      attemptIdentity: null,
-      completionPromise: null,
-      retirementPromise: null,
-      committed: false,
-    };
-    STAGED_PARTICIPANT_AUTHORITIES.set(construction, authority);
-    const abortListener = () => {
-      if (authority) void beginStagedRetirement(authority, 'local-start-aborted');
-    };
-    authority.abortListener = abortListener;
-    signal.addEventListener('abort', abortListener, { once: true });
-    assertAuthority();
-    return construction;
-  } catch (error) {
-    if (authority) {
-      void beginStagedRetirement(
-        authority,
-        signal instanceof AbortSignal && signal.aborted
-          ? 'local-start-aborted'
-          : 'local-stage-failed',
-      );
-    } else if (staged) {
-      scheduleExactRetirement(manager, staged.cutoverPort);
-    } else if (rawStaged) {
-      retireLateStage(rawStaged);
-    }
-    throw error;
-  }
+  assertAuthority();
+  assertNewerThanCurrent(manager, playbackState);
+  const stageTask = handoffFilePlaybackAssetSourceWarm({
+    authority: warmSource,
+    manager: manager as FilePlaybackManager,
+    destination: destination as AudioNode,
+    signal,
+    isCurrent: wrappedIsCurrent,
+  });
+  assertNativePromise<Readonly<StagedFilePlaybackAssetSource>>(
+    stageTask,
+    'Local warm file playback handoff',
+  );
+  return publishLocalParticipant({
+    expectedBinding,
+    manager: manager as FilePlaybackManager,
+    signal,
+    assertAuthority,
+    playbackState,
+    participantId: participantId as string,
+    rttP95Ms: rttP95Ms as number,
+    armP95Ms: armP95Ms as number,
+    runtime,
+    stageTask,
+  });
 }
 
 /** Retires one exact uncommitted local construction without cancelling its room attempt. */

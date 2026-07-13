@@ -6,7 +6,11 @@ import {
   type FilePlaybackAssetBinding,
   type FilePlaybackAssetLease,
 } from '../file-playback-asset-registry.ts';
-import { stageFilePlaybackAssetSource } from '../file-playback-asset-source-stager.ts';
+import {
+  prepareFilePlaybackAssetSourceWarm,
+  retireFilePlaybackAssetSourceWarm,
+  stageFilePlaybackAssetSource,
+} from '../file-playback-asset-source-stager.ts';
 import {
   FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
   type FilePlaybackBoundedRoutePolicy,
@@ -15,6 +19,7 @@ import {
   completeLocalFilePlaybackParticipant,
   retireLocalFilePlaybackParticipant,
   stageLocalFilePlaybackParticipant,
+  stageWarmLocalFilePlaybackParticipant,
   startLocalFilePlayback,
   type StageLocalFilePlaybackParticipantOptions,
   type StartLocalFilePlaybackOptions,
@@ -511,6 +516,124 @@ async function resolveStarted(
   source.resolveStart();
   void pending.catch(() => undefined);
 }
+
+describe('revision-free warm local participant staging', () => {
+  it('binds the latest playback state only at handoff without preparing twice', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'warm-latest-state', 'bounded-stream');
+    const result = factoryResult(fixture.source, fixture.binding.sourceIdentity);
+    const warm = await prepareFilePlaybackAssetSourceWarm({
+      registry: room.registry,
+      roomToken: TOKEN,
+      assetLease: fixture.lease,
+      expectedBinding: fixture.binding,
+      audioContext: room.context as unknown as AudioContext,
+      clockBindings: fixture.options.clockBindings,
+      signal: fixture.options.signal,
+      isCurrent: fixture.options.isCurrent,
+      decodeOrdinaryAudio: fixture.options.decodeOrdinaryAudio,
+      runtime: { createBlobSource: vi.fn(async () => result) },
+    });
+
+    expect(fixture.source.events).toEqual(['prepare']);
+    expect(room.manager.currentCutoverPort()).toBeNull();
+
+    const latestState = { queueItemId: Q1, runId: 'run:warm-latest', revision: 7 };
+    const staged = await stageWarmLocalFilePlaybackParticipant({
+      warmSource: warm,
+      manager: room.manager,
+      destination: room.destination,
+      signal: fixture.options.signal,
+      isCurrent: fixture.options.isCurrent,
+      playbackState: latestState,
+      participantId: PARTICIPANT_ID,
+      rttP95Ms: 25,
+      armP95Ms: 75,
+    });
+
+    expect(staged.playbackState).toEqual(latestState);
+    expect(staged.backend).toBe('bounded-stream');
+    expect(fixture.source.events).toEqual(['prepare', 'connect']);
+    expect(result.releaseConstructionLease).toHaveBeenCalledOnce();
+    await retireLocalFilePlaybackParticipant(staged, 'warm-test-cleanup');
+    expect(fixture.source.stats.destroy).toHaveBeenCalledOnce();
+    await expect(retireFilePlaybackAssetSourceWarm(warm)).resolves.toBe(false);
+  });
+
+  it('rejects a mismatched playback state before consuming the warm source', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'warm-mismatch', 'bounded-stream');
+    const result = factoryResult(fixture.source, fixture.binding.sourceIdentity);
+    const warm = await prepareFilePlaybackAssetSourceWarm({
+      registry: room.registry,
+      roomToken: TOKEN,
+      assetLease: fixture.lease,
+      expectedBinding: fixture.binding,
+      audioContext: room.context as unknown as AudioContext,
+      clockBindings: fixture.options.clockBindings,
+      signal: fixture.options.signal,
+      isCurrent: fixture.options.isCurrent,
+      decodeOrdinaryAudio: fixture.options.decodeOrdinaryAudio,
+      runtime: { createBlobSource: vi.fn(async () => result) },
+    });
+
+    await expect(
+      stageWarmLocalFilePlaybackParticipant({
+        warmSource: warm,
+        manager: room.manager,
+        destination: room.destination,
+        signal: fixture.options.signal,
+        isCurrent: fixture.options.isCurrent,
+        playbackState: { queueItemId: Q2, runId: 'run:wrong-item', revision: 1 },
+        participantId: PARTICIPANT_ID,
+        rttP95Ms: 25,
+        armP95Ms: 75,
+      }),
+    ).rejects.toThrow(/queue identities/u);
+
+    expect(fixture.source.events).toEqual(['prepare']);
+    expect(room.manager.currentCutoverPort()).toBeNull();
+    await expect(retireFilePlaybackAssetSourceWarm(warm)).resolves.toBe(true);
+    expect(result.releaseConstructionLease).toHaveBeenCalledOnce();
+  });
+
+  it('leaves an unconsumed warm source retireable when latest authority fails preflight', async () => {
+    const room = roomHarness();
+    const fixture = room.admit(Q1, 'warm-preflight', 'bounded-stream');
+    const result = factoryResult(fixture.source, fixture.binding.sourceIdentity);
+    const warm = await prepareFilePlaybackAssetSourceWarm({
+      registry: room.registry,
+      roomToken: TOKEN,
+      assetLease: fixture.lease,
+      expectedBinding: fixture.binding,
+      audioContext: room.context as unknown as AudioContext,
+      clockBindings: fixture.options.clockBindings,
+      signal: fixture.options.signal,
+      isCurrent: fixture.options.isCurrent,
+      decodeOrdinaryAudio: fixture.options.decodeOrdinaryAudio,
+      runtime: { createBlobSource: vi.fn(async () => result) },
+    });
+    room.current.value = false;
+
+    await expect(
+      stageWarmLocalFilePlaybackParticipant({
+        warmSource: warm,
+        manager: room.manager,
+        destination: room.destination,
+        signal: fixture.options.signal,
+        isCurrent: fixture.options.isCurrent,
+        playbackState: fixture.options.playbackState,
+        participantId: PARTICIPANT_ID,
+        rttP95Ms: 25,
+        armP95Ms: 75,
+      }),
+    ).rejects.toThrow(/superseded/u);
+
+    expect(fixture.source.events).toEqual(['prepare']);
+    await expect(retireFilePlaybackAssetSourceWarm(warm)).resolves.toBe(true);
+    expect(fixture.source.stats.destroy).toHaveBeenCalledOnce();
+  });
+});
 
 describe('split local rendezvous participant lifecycle', () => {
   it('keeps the bounded route policy property absent when the caller omits it', async () => {

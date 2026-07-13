@@ -442,14 +442,6 @@ async function readAudioTrack(
     await readFixedPayload(reader, mediaHeaderBox, MDHD_PAYLOAD_BYTES, 'M4A mdhd', signal),
   );
   const edit = await readEdit(reader, trackChildren.edits, signal);
-  if (
-    edit !== null &&
-    trackHeader.durationMovieTicks !== 0 &&
-    edit.segmentDurationMovieTicks !== 0 &&
-    trackHeader.durationMovieTicks !== edit.segmentDurationMovieTicks
-  ) {
-    throw new M4aMovieLayoutError('M4A tkhd duration must equal the nonzero edit duration');
-  }
   const stbl = await readMediaInformation(reader, mediaInformation, signal);
 
   return Object.freeze({ trackHeader, mediaHeader, edit, stbl });

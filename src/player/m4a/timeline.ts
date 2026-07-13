@@ -35,6 +35,8 @@ export interface M4aAacTimelineNormalizationInput {
   readonly mdhdTimescale: number;
   readonly mdhdDurationCoreFrames: number;
   readonly movieTimescale: number;
+  /** Zero means the container left the track duration unspecified. */
+  readonly trackDurationMovieTicks: number;
   readonly edit: Readonly<M4aAacEditEvidence> | null;
   readonly iTun: Readonly<M4aAacITunEvidence> | null;
 }
@@ -65,6 +67,7 @@ const NORMALIZATION_KEYS = Object.freeze([
   'mdhdTimescale',
   'mdhdDurationCoreFrames',
   'movieTimescale',
+  'trackDurationMovieTicks',
   'edit',
   'iTun',
 ] as const satisfies readonly (keyof M4aAacTimelineNormalizationInput)[]);
@@ -345,11 +348,13 @@ export function normalizeM4aAacTimeline(input: unknown): Readonly<M4aAacTimeline
   const mdhdTimescale = record.mdhdTimescale;
   const mdhdDurationCoreFrames = record.mdhdDurationCoreFrames;
   const movieTimescale = record.movieTimescale;
+  const trackDurationMovieTicks = record.trackDurationMovieTicks;
 
   requirePositiveSafeInteger(sampleRateHz, 'AAC sampleRateHz');
   requirePositiveSafeInteger(mdhdTimescale, 'mdhd timescale');
   requirePositiveSafeInteger(mdhdDurationCoreFrames, 'mdhd duration');
   requirePositiveSafeInteger(movieTimescale, 'movie timescale');
+  requireNonNegativeSafeInteger(trackDurationMovieTicks, 'tkhd track duration');
   if (!isIndexedAacSampleRateHz(sampleRateHz)) {
     throw new RangeError('M4A AAC sampleRateHz must be one of the 13 indexed AAC core rates');
   }
@@ -405,19 +410,24 @@ export function normalizeM4aAacTimeline(input: unknown): Readonly<M4aAacTimeline
     }
   }
 
-  if (edit !== null) {
+  const requireMovieDurationWithinOneTick = (durationMovieTicks: number, label: string): void => {
+    if (durationMovieTicks === 0) return;
     // Compare exact rational movie time with BigInt cross-products. Accepted
     // rounding is strictly less than one movie tick, never equal to one.
-    const representedCoreTicks = BigInt(edit.segmentDurationMovieTicks) * BigInt(sampleRateHz);
+    const representedCoreTicks = BigInt(durationMovieTicks) * BigInt(sampleRateHz);
     const exactCoreTicks = BigInt(totalMediaFrames) * BigInt(movieTimescale);
     const difference =
       representedCoreTicks >= exactCoreTicks
         ? representedCoreTicks - exactCoreTicks
         : exactCoreTicks - representedCoreTicks;
     if (difference >= BigInt(sampleRateHz)) {
-      throw new RangeError('M4A AAC edit duration differs from media duration by one tick or more');
+      throw new RangeError(`${label} differs from media duration by one movie tick or more`);
     }
+  };
+  if (edit !== null) {
+    requireMovieDurationWithinOneTick(edit.segmentDurationMovieTicks, 'M4A AAC edit duration');
   }
+  requireMovieDurationWithinOneTick(trackDurationMovieTicks, 'M4A AAC tkhd duration');
 
   return Object.freeze({
     accessUnitCount: stts.accessUnitCount,

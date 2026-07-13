@@ -30,6 +30,7 @@ function input(
     mdhdTimescale: 44_100,
     mdhdDurationCoreFrames: stts.presentationEndCoreFrames,
     movieTimescale: 1_000,
+    trackDurationMovieTicks: 0,
     edit: null,
     iTun: null,
     ...overrides,
@@ -276,7 +277,46 @@ describe('normalizeM4aAacTimeline', () => {
           edit: { ...baseEdit, segmentDurationMovieTicks: 999 },
         }),
       ),
-    ).toThrow(/one tick or more/i);
+    ).toThrow(/one (?:movie )?tick or more/i);
+  });
+
+  it('accepts independent FFmpeg tkhd and elst rounding when both are within one tick', () => {
+    const stts = accumulate([58, 1_024], [1, 594]);
+    expect(stts.presentationEndCoreFrames).toBe(59_986);
+
+    expect(() =>
+      normalizeM4aAacTimeline(
+        input(stts, {
+          sampleRateHz: 44_100,
+          mdhdTimescale: 44_100,
+          movieTimescale: 1_000,
+          trackDurationMovieTicks: 1_338,
+          edit: {
+            mediaTimeCoreFrames: 1_024,
+            mediaRateInteger: 1,
+            mediaRateFraction: 0,
+            segmentDurationMovieTicks: 1_337,
+          },
+        }),
+      ),
+    ).not.toThrow();
+
+    expect(() =>
+      normalizeM4aAacTimeline(
+        input(stts, {
+          sampleRateHz: 44_100,
+          mdhdTimescale: 44_100,
+          movieTimescale: 1_000,
+          trackDurationMovieTicks: 1_339,
+          edit: {
+            mediaTimeCoreFrames: 1_024,
+            mediaRateInteger: 1,
+            mediaRateFraction: 0,
+            segmentDurationMovieTicks: 1_337,
+          },
+        }),
+      ),
+    ).toThrow(/tkhd duration.*one movie tick/i);
   });
 
   it('rejects edit-duration error exactly equal to one movie tick', () => {
@@ -297,7 +337,7 @@ describe('normalizeM4aAacTimeline', () => {
           },
         }),
       ),
-    ).toThrow(/one tick or more/i);
+    ).toThrow(/one (?:movie )?tick or more/i);
   });
 
   it.each([
@@ -440,7 +480,9 @@ describe('normalizeM4aAacTimeline', () => {
     { mdhdTimescale: -0 },
     { mdhdDurationCoreFrames: -0 },
     { movieTimescale: 1.5 },
-  ])('rejects fractional or negative-zero container evidence %#', (overrides) => {
+    { trackDurationMovieTicks: -0 },
+    { trackDurationMovieTicks: -1 },
+  ])('rejects noncanonical container evidence %#', (overrides) => {
     expect(() => normalizeM4aAacTimeline(input(ffmpegStts, overrides))).toThrow(/safe integer/i);
   });
 });

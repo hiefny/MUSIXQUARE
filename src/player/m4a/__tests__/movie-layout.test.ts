@@ -676,16 +676,15 @@ describe('M4A movie/audio-track structural layout', () => {
     );
   });
 
-  it('rejects duplicate edits, disabled tracks, and mismatched nonzero durations', async () => {
+  it('rejects duplicate edits and disabled tracks', async () => {
     const cases = [
       audioTrack({
         edit: box('elst', editList(0)),
         trackExtra: [box('edts', box('elst', editList(0)))],
       }),
       audioTrack({ flags: 2 }),
-      audioTrack({ duration: 5_999, edit: box('elst', editList(0, 6_000)) }),
     ];
-    const expected = [/edts.*exactly once/, /enabled and present/, /duration must equal/];
+    const expected = [/edts.*exactly once/, /enabled and present/];
     for (let index = 0; index < cases.length; index += 1) {
       const bytes = movie(box('mvhd', movieHeader(0)), cases[index]!);
       const source = new MemorySource(bytes);
@@ -694,6 +693,17 @@ describe('M4A movie/audio-track structural layout', () => {
         expected[index],
       );
     }
+  });
+
+  it('defers independent tkhd and elst rounding checks to timeline normalization', async () => {
+    const bytes = movie(
+      box('mvhd', movieHeader(0)),
+      audioTrack({ duration: 1_338, edit: box('elst', editList(0, 1_337)) }),
+    );
+    const { layout } = await parseFixture(bytes);
+
+    expect(layout.audioTrack.trackHeader.durationMovieTicks).toBe(1_338);
+    expect(layout.audioTrack.edit?.segmentDurationMovieTicks).toBe(1_337);
   });
 
   it('rejects malformed or unsupported handlers', async () => {

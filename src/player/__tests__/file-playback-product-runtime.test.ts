@@ -13,6 +13,10 @@ import {
   FileMediaOfferRegistry,
 } from '../file-media-source-offer.ts';
 import { FilePlaybackManager } from '../file-playback-manager.ts';
+import type {
+  HostPreparedLocalTrack,
+  HostPreparedRemoteParticipant,
+} from '../file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
 import type { FilePlaybackProductGuestMediaOwnerOptions } from '../file-playback-product-guest-media-owner.ts';
 import type { FilePlaybackProductHostMediaOwnerOptions } from '../file-playback-product-host-media-owner.ts';
@@ -25,6 +29,7 @@ import type {
   FilePlaybackProductHostTerminalObservation,
   FilePlaybackProductHostTransitionCommit,
   StartFilePlaybackProductHostFirstLocalFileOptions,
+  StartFilePlaybackProductHostLocalTrackWithCohortOptions,
   StartFilePlaybackProductHostLocalTrackOptions,
 } from '../file-playback-product-host-room.ts';
 import {
@@ -74,6 +79,7 @@ interface ProductHostRoomHarness {
   readonly options: Readonly<FilePlaybackProductHostRoomOptions>;
   readonly startFirstLocalFile: ReturnType<typeof vi.fn>;
   readonly startLocalTrack: ReturnType<typeof vi.fn>;
+  readonly startLocalTrackWithCohort: ReturnType<typeof vi.fn>;
   readonly pauseCurrent: ReturnType<typeof vi.fn>;
   readonly seekPlaying: ReturnType<typeof vi.fn>;
   readonly seekPaused: ReturnType<typeof vi.fn>;
@@ -248,6 +254,12 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       events.push(`host-room:${index}:track`);
       return candidate('track');
     });
+    const startLocalTrackWithCohort = vi.fn(
+      async (_input: StartFilePlaybackProductHostLocalTrackWithCohortOptions) => {
+        events.push(`host-room:${index}:track-cohort`);
+        return candidate('track-cohort');
+      },
+    );
     const pauseCurrent = vi.fn(async (_input: FilePlaybackProductHostCurrentOptions) => {
       events.push(`host-room:${index}:pause`);
       return transition('pause');
@@ -299,6 +311,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
     const port: FilePlaybackProductRuntimeHostRoomPort = {
       startFirstLocalFile,
       startLocalTrack,
+      startLocalTrackWithCohort,
       pauseCurrent,
       seekPlaying,
       seekPaused,
@@ -325,6 +338,7 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
       options: roomOptions,
       startFirstLocalFile,
       startLocalTrack,
+      startLocalTrackWithCohort,
       pauseCurrent,
       seekPlaying,
       seekPaused,
@@ -691,6 +705,11 @@ describe('FilePlaybackProductRuntime', () => {
       adoptWireMessage: vi.fn(),
       adoptPeerRangeControl: vi.fn(),
       revoke: vi.fn(),
+      publishCurrent: vi.fn(),
+      publishPrepared: vi.fn(),
+      whenPreparedRemoteReady: vi.fn(),
+      activatePrepared: vi.fn(),
+      retirePrepared: vi.fn(),
     });
     const setup = harness({
       onHealthSystemMessage,
@@ -760,6 +779,120 @@ describe('FilePlaybackProductRuntime', () => {
     setup.runtime.endRoom();
     expect(routers[0]?.close).not.toHaveBeenCalled();
     expect(publisher?.close).toHaveBeenCalledOnce();
+  });
+
+  it('publishes ready host owners into one prepared cohort and activates canonical truth', async () => {
+    const routers: ProductRouterHarness[] = [];
+    let ownerOptions: Readonly<FilePlaybackProductHostMediaOwnerOptions> | null = null;
+    const blob = localFile('cohort.flac');
+    const capability = freezeCanonical({
+      participant: freezeCanonical({ participantId: 'runtime-ready-guest' }),
+      bindAttempt: vi.fn(async () => undefined),
+    }) as unknown as Readonly<HostPreparedRemoteParticipant>;
+    const publishPrepared = vi.fn(async (prepared: Readonly<HostPreparedLocalTrack>) => {
+      const resolver = ownerOptions?.resolvePreparedPeerRangeSource;
+      if (!resolver) throw new Error('prepared resolver unavailable');
+      const source = await resolver({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      });
+      expect(source).toBe(blob);
+      return freezeCanonical({ schemaVersion: 1, prepared }) as never;
+    });
+    const whenPreparedRemoteReady = vi.fn(async () => capability);
+    const activatePrepared = vi.fn(() => freezeCanonical({ schemaVersion: 1 }) as never);
+    const hostOwner = Object.freeze({
+      onHostReady: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeControl: vi.fn(),
+      revoke: vi.fn(),
+      publishCurrent: vi.fn(async () => freezeCanonical({ schemaVersion: 1 }) as never),
+      publishPrepared,
+      whenPreparedRemoteReady,
+      activatePrepared,
+      retirePrepared: vi.fn(async () => undefined),
+    });
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostMediaOwner: (options) => {
+          ownerOptions = options;
+          return hostOwner;
+        },
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('cohort-runtime-host');
+    const context = routerContext('host', { suffix: 'cohort-runtime' });
+    routers[0]!.options.createHostMediaOwner(context);
+    const room = setup.hostRooms[0]!;
+    const prepared = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: room.options.hostRoomSnapshot.roomGeneration,
+      backend: 'streaming-flac' as const,
+      state: freezeCanonical({
+        queueItemId: Q1,
+        runId: 'runtime-cohort-run',
+        revision: 1,
+      }),
+      positionSeconds: 0,
+      playbackRate: 1,
+      asset: freezeCanonical({
+        kind: 'encoded' as const,
+        binding: freezeCanonical({
+          queueItemId: Q1,
+          sourceIdentity: 'runtime-cohort-source',
+          transferSessionId: 'runtime-cohort-transfer',
+        }),
+        metadata: freezeCanonical({ name: blob.name, mime: blob.type }),
+        encodedSize: blob.size,
+      }),
+    }) as unknown as Readonly<HostPreparedLocalTrack>;
+    const timeline = freezeCanonical({
+      revision: 1,
+      phase: 'playing' as const,
+      run: freezeCanonical({ queueItemId: Q1, runId: prepared.state.runId }),
+      positionSeconds: 0,
+      rate: 1,
+      anchorMonotonicMs: 8_000,
+    }) as Readonly<PlaybackTimelineSnapshot>;
+    const resolveSource = vi.fn(async () => blob);
+    room.startLocalTrackWithCohort.mockImplementationOnce(async (input) => {
+      const remotes = await input.prepareRemoteParticipants(
+        freezeCanonical({
+          prepared,
+          signal: input.signal,
+          resolveSource,
+        }),
+      );
+      expect(remotes).toEqual([capability]);
+      return freezeCanonical({
+        ...candidateResult(
+          prepared.roomGeneration,
+          room.options.hostRoomSnapshot.applicationSessionId,
+          'cohort',
+        ),
+        timeline,
+      }) as Readonly<FilePlaybackProductHostLocalTrackCommit>;
+    });
+
+    const committed = await setup.runtime.startLocalTrack({
+      queueItemId: Q1,
+      file: blob,
+      positionSeconds: 0,
+      signal: new AbortController().signal,
+    });
+
+    expect(committed.timeline).toBe(timeline);
+    expect(publishPrepared).toHaveBeenCalledWith(prepared);
+    expect(whenPreparedRemoteReady).toHaveBeenCalledWith(prepared);
+    expect(resolveSource).toHaveBeenCalledWith(prepared.asset.binding.sourceIdentity);
+    expect(activatePrepared).toHaveBeenCalledWith({ prepared, timeline });
   });
 
   it('wires one guest room registry/manager and fail-closes exact room resources', async () => {
@@ -1155,8 +1288,16 @@ describe('FilePlaybackProductRuntime', () => {
 
     const room = setup.hostRooms[0];
     expect(setup.createHostRoom).toHaveBeenCalledOnce();
-    expect(room?.startFirstLocalFile).toHaveBeenCalledWith(first);
-    expect(room?.startLocalTrack).toHaveBeenCalledWith(replacement);
+    expect(room?.startFirstLocalFile).not.toHaveBeenCalled();
+    expect(room?.startLocalTrack).not.toHaveBeenCalled();
+    expect(room?.startLocalTrackWithCohort).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ ...first, positionSeconds: 0 }),
+    );
+    expect(room?.startLocalTrackWithCohort).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining(replacement),
+    );
     expect(room?.pauseCurrent).toHaveBeenCalledWith(current);
     expect(room?.seekPaused).toHaveBeenCalledWith(seek);
     expect(room?.resumeCurrent).toHaveBeenCalledWith(current);
@@ -1200,7 +1341,7 @@ describe('FilePlaybackProductRuntime', () => {
     const settlements = await Promise.allSettled(pending);
     expect(settlements.every((settlement) => settlement.status === 'rejected')).toBe(true);
     expect(room?.startFirstLocalFile).not.toHaveBeenCalled();
-    expect(room?.startLocalTrack).not.toHaveBeenCalled();
+    expect(room?.startLocalTrackWithCohort).not.toHaveBeenCalled();
     expect(room?.pauseCurrent).not.toHaveBeenCalled();
     expect(room?.seekPlaying).not.toHaveBeenCalled();
     expect(room?.seekPaused).not.toHaveBeenCalled();
@@ -1216,7 +1357,7 @@ describe('FilePlaybackProductRuntime', () => {
     setup.runtime.initializeBeforeProtocol();
     setup.runtime.beginHostRoom('commit-dominant-host');
     const room = setup.hostRooms[0];
-    room?.startLocalTrack.mockImplementationOnce(async () => gate.promise);
+    room?.startLocalTrackWithCohort.mockImplementationOnce(async () => gate.promise);
     const task = setup.runtime.startLocalTrack({
       queueItemId: Q1,
       file: localFile(),
@@ -1227,7 +1368,7 @@ describe('FilePlaybackProductRuntime', () => {
 
     setup.runtime.endRoom();
 
-    expect(room?.startLocalTrack).toHaveBeenCalledOnce();
+    expect(room?.startLocalTrackWithCohort).toHaveBeenCalledOnce();
     expect(room?.close).toHaveBeenCalledOnce();
     const committed = candidateResult(
       room?.options.hostRoomSnapshot.roomGeneration ?? 1,
@@ -1289,10 +1430,10 @@ describe('FilePlaybackProductRuntime', () => {
     });
     await Promise.resolve();
 
-    expect(setup.hostRooms[1]?.startFirstLocalFile).not.toHaveBeenCalled();
+    expect(setup.hostRooms[1]?.startLocalTrackWithCohort).not.toHaveBeenCalled();
     cleanupGate.resolve();
     await expect(startPromise).resolves.toMatchObject({ status: 'committed' });
-    expect(setup.hostRooms[1]?.startFirstLocalFile).toHaveBeenCalledOnce();
+    expect(setup.hostRooms[1]?.startLocalTrackWithCohort).toHaveBeenCalledOnce();
   });
 
   it('fail-closes the new room when an older native renderer cleanup failed', async () => {
@@ -1311,7 +1452,7 @@ describe('FilePlaybackProductRuntime', () => {
       }),
     ).rejects.toBe(cleanupFailure);
 
-    expect(setup.hostRooms[1]?.startFirstLocalFile).not.toHaveBeenCalled();
+    expect(setup.hostRooms[1]?.startLocalTrackWithCohort).not.toHaveBeenCalled();
     expect(setup.hostRooms[1]?.close).toHaveBeenCalledOnce();
     expect(setup.runtime.hostRoomSnapshot()).toBeNull();
     expect(setup.controller().snapshot().roomRole).toBeNull();

@@ -6,6 +6,8 @@ import {
   type FilePlaybackHostApplicationSessionAuthority,
 } from '../network/file-playback-application-session.ts';
 import { getPrimedFilePlaybackProductAudio } from '../audio/file-playback-audio-readiness.ts';
+import { bus } from '../core/events.ts';
+import { delay } from '../core/timers.ts';
 import { isFilePlaybackSessionId } from '../network/file-playback-session-handshake.ts';
 import type { DataConnection } from '../types/index.ts';
 import {
@@ -18,10 +20,13 @@ import { FilePlaybackAssetRegistry } from './file-playback-asset-registry.ts';
 import { FilePlaybackManager } from './file-playback-manager.ts';
 import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
 import type {
+  HostPreparedLocalTrack,
+  HostPreparedRemoteParticipant,
   HostPeerPlaybackPublication,
   HostPeerRangeSource,
   HostRemoteRecoveryCommit,
   RecoverHostRemoteParticipantOptions,
+  ResolvePreparedHostPeerRangeSourceOptions,
   ResolveHostPeerRangeSourceOptions,
 } from './file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from './file-playback-product-baseline-session.ts';
@@ -31,8 +36,11 @@ import {
 } from './file-playback-product-guest-media-owner.ts';
 import {
   FilePlaybackProductHostMediaOwner,
+  type ActivateFilePlaybackProductHostPreparedOptions,
   type FilePlaybackProductHostHealthSystemMessage,
   type FilePlaybackProductHostMediaOwnerOptions,
+  type FilePlaybackProductHostPreparedPublicationCommit,
+  type FilePlaybackProductHostPublicationCommit,
 } from './file-playback-product-host-media-owner.ts';
 import {
   FilePlaybackProductHostRoom,
@@ -44,6 +52,7 @@ import {
   type FilePlaybackProductHostTransitionCommit,
   type FilePlaybackProductHostTerminalObservation,
   type StartFilePlaybackProductHostFirstLocalFileOptions,
+  type StartFilePlaybackProductHostLocalTrackWithCohortOptions,
   type StartFilePlaybackProductHostLocalTrackOptions,
 } from './file-playback-product-host-room.ts';
 import { getFilePlaybackRoomClock } from './file-playback-room-clock.ts';
@@ -72,6 +81,7 @@ const DEFAULT_ENABLED = isFilePlaybackEngineV2Enabled();
 // Peer-range streaming never materializes the full encoded FLAC in RAM. Keep
 // its offer policy independent from the temporary 200 MiB whole-Blob R2 cap.
 const FILE_PLAYBACK_PRODUCT_MAX_PEER_ENCODED_BYTES = 5 * 1024 * 1024 * 1024;
+const FILE_PLAYBACK_PRODUCT_COHORT_ADMISSION_MS = 2_500;
 
 type RuntimeState = 'idle' | 'initializing' | 'ready' | 'failed';
 
@@ -121,6 +131,20 @@ interface FilePlaybackProductRuntimeSessionRouterPort {
   close(): void;
 }
 
+interface FilePlaybackProductRuntimeHostMediaOwnerPort extends FilePlaybackProductSessionRouterHostMediaOwnerPort {
+  publishCurrent(): Promise<Readonly<FilePlaybackProductHostPublicationCommit>>;
+  publishPrepared(
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>>;
+  whenPreparedRemoteReady(
+    prepared: Readonly<HostPreparedLocalTrack>,
+  ): Promise<Readonly<HostPreparedRemoteParticipant>>;
+  activatePrepared(
+    options: ActivateFilePlaybackProductHostPreparedOptions,
+  ): Readonly<FilePlaybackProductHostPublicationCommit>;
+  retirePrepared(prepared: Readonly<HostPreparedLocalTrack>, reason: Error): Promise<void>;
+}
+
 interface FilePlaybackProductRuntimeMediaFactoriesForTests {
   readonly createSessionRouter?: (
     options: Readonly<FilePlaybackProductSessionRouterOptions>,
@@ -133,7 +157,7 @@ interface FilePlaybackProductRuntimeMediaFactoriesForTests {
   readonly createGuestManager?: () => FilePlaybackManager;
   readonly createHostMediaOwner?: (
     options: Readonly<FilePlaybackProductHostMediaOwnerOptions>,
-  ) => FilePlaybackProductSessionRouterHostMediaOwnerPort;
+  ) => FilePlaybackProductRuntimeHostMediaOwnerPort;
   readonly createGuestMediaOwner?: (
     options: Readonly<FilePlaybackProductGuestMediaOwnerOptions>,
   ) => FilePlaybackProductSessionRouterGuestMediaOwnerPort;
@@ -146,6 +170,9 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
   ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>>;
   startLocalTrack(
     options: StartFilePlaybackProductHostLocalTrackOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
+  startLocalTrackWithCohort(
+    options: StartFilePlaybackProductHostLocalTrackWithCohortOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
   pauseCurrent(
     options: FilePlaybackProductHostCurrentOptions,
@@ -211,6 +238,27 @@ interface ActiveProductGuestRoom {
   readonly roomToken: object;
   readonly registry: FilePlaybackAssetRegistry;
   readonly manager: FilePlaybackManager;
+}
+
+interface HostPreparedCohortEntry {
+  readonly context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
+  readonly owner: FilePlaybackProductRuntimeHostMediaOwnerPort;
+  readonly publicationTask: Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>>;
+  readinessTask: Promise<void>;
+  publication: Readonly<FilePlaybackProductHostPreparedPublicationCommit> | null;
+  capability: Readonly<HostPreparedRemoteParticipant> | null;
+  publicationFailure: Error | null;
+  activated: boolean;
+}
+
+interface HostPreparedCohortCycle {
+  readonly active: ActiveProductHostRoom;
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly signal: AbortSignal;
+  readonly resolveSource: (sourceIdentity: string) => Promise<HostPeerRangeSource>;
+  readonly contexts: ReadonlySet<Readonly<FilePlaybackProductSessionRouterConnectionContext>>;
+  readonly entries: HostPreparedCohortEntry[];
+  status: 'preparing' | 'committed' | 'failed';
 }
 
 function productionSessionAdapter(): FilePlaybackProductRuntimeSessionAdapter {
@@ -282,8 +330,20 @@ function defaultGuestManagerFactory(): FilePlaybackManager {
 
 function defaultHostMediaOwnerFactory(
   options: Readonly<FilePlaybackProductHostMediaOwnerOptions>,
-): FilePlaybackProductSessionRouterHostMediaOwnerPort {
-  return new FilePlaybackProductHostMediaOwner(options).port();
+): FilePlaybackProductRuntimeHostMediaOwnerPort {
+  const owner = new FilePlaybackProductHostMediaOwner(options);
+  return Object.freeze({
+    ...owner.port(),
+    publishCurrent: () => owner.publishCurrent(),
+    publishPrepared: (prepared: Readonly<HostPreparedLocalTrack>) =>
+      owner.publishPrepared(prepared),
+    whenPreparedRemoteReady: (prepared: Readonly<HostPreparedLocalTrack>) =>
+      owner.whenPreparedRemoteReady(prepared),
+    activatePrepared: (input: ActivateFilePlaybackProductHostPreparedOptions) =>
+      owner.activatePrepared(input),
+    retirePrepared: (prepared: Readonly<HostPreparedLocalTrack>, reason: Error) =>
+      owner.retirePrepared(prepared, reason),
+  });
 }
 
 function defaultGuestMediaOwnerFactory(
@@ -336,6 +396,7 @@ function assertHostRoomPort(
     typeof value !== 'object' ||
     typeof value.startFirstLocalFile !== 'function' ||
     typeof value.startLocalTrack !== 'function' ||
+    typeof value.startLocalTrackWithCohort !== 'function' ||
     typeof value.pauseCurrent !== 'function' ||
     typeof value.seekPlaying !== 'function' ||
     typeof value.seekPaused !== 'function' ||
@@ -352,6 +413,25 @@ function assertHostRoomPort(
     typeof value.positionAt !== 'function'
   ) {
     throw new TypeError('File playback product host room factory is invalid');
+  }
+}
+
+function assertHostMediaOwnerPort(
+  value: FilePlaybackProductRuntimeHostMediaOwnerPort,
+): asserts value is FilePlaybackProductRuntimeHostMediaOwnerPort {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof value.adoptWireMessage !== 'function' ||
+    typeof value.adoptPeerRangeControl !== 'function' ||
+    typeof value.revoke !== 'function' ||
+    typeof value.publishCurrent !== 'function' ||
+    typeof value.publishPrepared !== 'function' ||
+    typeof value.whenPreparedRemoteReady !== 'function' ||
+    typeof value.activatePrepared !== 'function' ||
+    typeof value.retirePrepared !== 'function'
+  ) {
+    throw new TypeError('File playback product host media owner factory is invalid');
   }
 }
 
@@ -418,7 +498,7 @@ export class FilePlaybackProductRuntime {
   readonly #createGuestManager: () => FilePlaybackManager;
   readonly #createHostMediaOwner: (
     options: Readonly<FilePlaybackProductHostMediaOwnerOptions>,
-  ) => FilePlaybackProductSessionRouterHostMediaOwnerPort;
+  ) => FilePlaybackProductRuntimeHostMediaOwnerPort;
   readonly #createGuestMediaOwner: (
     options: Readonly<FilePlaybackProductGuestMediaOwnerOptions>,
   ) => FilePlaybackProductSessionRouterGuestMediaOwnerPort;
@@ -436,6 +516,14 @@ export class FilePlaybackProductRuntime {
   #activeGuestRoom: ActiveProductGuestRoom | null = null;
   readonly #connectionContexts = new Set<
     Readonly<FilePlaybackProductSessionRouterConnectionContext>
+  >();
+  readonly #hostMediaOwners = new Map<
+    Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+    FilePlaybackProductRuntimeHostMediaOwnerPort
+  >();
+  readonly #hostPreparedCohorts = new Map<
+    Readonly<HostPreparedLocalTrack>,
+    HostPreparedCohortCycle
   >();
   #hostRoomRetirement: Promise<void> = Promise.resolve();
 
@@ -535,6 +623,8 @@ export class FilePlaybackProductRuntime {
       this.#activeHostRoom = null;
       this.#activeGuestRoom = null;
       this.#connectionContexts.clear();
+      this.#hostMediaOwners.clear();
+      this.#hostPreparedCohorts.clear();
       this.#state = 'failed';
       this.#failure = error;
       throw error;
@@ -556,17 +646,16 @@ export class FilePlaybackProductRuntime {
   async startHostFirstLocalFile(
     options: StartFilePlaybackProductHostFirstLocalFileOptions,
   ): Promise<Readonly<FilePlaybackProductHostFirstLocalFileCommit>> {
-    return this.#dispatchExactHostRoom('first local file start', (port) =>
-      port.startFirstLocalFile(options),
-    );
+    return this.#startLocalTrackWithCohort('first local file start', {
+      ...options,
+      positionSeconds: 0,
+    });
   }
 
   startLocalTrack(
     options: StartFilePlaybackProductHostLocalTrackOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
-    return this.#dispatchExactHostRoom('local track start', (port) =>
-      port.startLocalTrack(options),
-    );
+    return this.#startLocalTrackWithCohort('local track start', options);
   }
 
   pauseCurrent(
@@ -861,6 +950,8 @@ export class FilePlaybackProductRuntime {
     // installation. Its synchronous revoke callbacks empty this router's room
     // records; the router itself must survive for the next room generation.
     this.#connectionContexts.clear();
+    this.#hostMediaOwners.clear();
+    this.#hostPreparedCohorts.clear();
     if (activeHostRoom) void activeHostRoom.publisher.close().catch(() => undefined);
     if (activeGuestRoom) this.#retireGuestRoom(activeGuestRoom);
     try {
@@ -955,8 +1046,12 @@ export class FilePlaybackProductRuntime {
         closeConnection: (connection: DataConnection) => sessions.closeConnection(connection),
         onHealthSystemMessage: (message: Readonly<FilePlaybackProductHostHealthSystemMessage>) =>
           this.#onHealthSystemMessage(message),
+        resolvePreparedPeerRangeSource: (input: ResolvePreparedHostPeerRangeSourceOptions) =>
+          this.#resolvePreparedHostPeerSource(active, context, input),
       });
       const owner = this.#createHostMediaOwner(ownerOptions);
+      assertHostMediaOwnerPort(owner);
+      this.#hostMediaOwners.set(context, owner);
       return Object.freeze({
         ...(owner.onHostReady
           ? {
@@ -973,11 +1068,15 @@ export class FilePlaybackProductRuntime {
           try {
             owner.revoke(revokeContext);
           } finally {
+            if (this.#hostMediaOwners.get(context) === owner) {
+              this.#hostMediaOwners.delete(context);
+            }
             this.#connectionContexts.delete(context);
           }
         },
       });
     } catch (cause) {
+      this.#hostMediaOwners.delete(context);
       this.#connectionContexts.delete(context);
       throw cause;
     }
@@ -1024,6 +1123,21 @@ export class FilePlaybackProductRuntime {
           } catch {
             // The exact connection is already terminal.
           }
+        },
+        onTimelineRendered: (timeline: Readonly<PlaybackTimelineSnapshot>) => {
+          if (
+            !this.#connectionContexts.has(context) ||
+            this.#activeGuestRoom !== active ||
+            !this.#ownsExactGuestRoom(active)
+          ) {
+            return;
+          }
+          bus.emit(
+            'player:v2-guest-timeline-rendered',
+            timeline.run?.queueItemId ?? null,
+            timeline.phase,
+            timeline.positionSeconds,
+          );
         },
       });
       const owner = this.#createGuestMediaOwner(ownerOptions);
@@ -1139,6 +1253,235 @@ export class FilePlaybackProductRuntime {
     if (!sessions || !connection) return;
     try {
       sessions.closeConnection(connection);
+    } catch {
+      // The exact failed connection is already terminal.
+    }
+  }
+
+  async #startLocalTrackWithCohort(
+    label: string,
+    options: StartFilePlaybackProductHostLocalTrackOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    let cycle: HostPreparedCohortCycle | null = null;
+    try {
+      const commit = await this.#dispatchExactHostRoom(label, async (port) => {
+        const active = this.#activeHostRoom;
+        if (!active || active.port !== port || !this.#ownsExactHostRoom(active)) {
+          throw new Error(`File playback product host room changed before ${label}`);
+        }
+        return port.startLocalTrackWithCohort({
+          ...options,
+          prepareRemoteParticipants: async (context) => {
+            if (cycle) throw new Error('File playback product host cohort was prepared twice');
+            const owners = [...this.#hostMediaOwners.entries()].filter(
+              ([ownerContext, owner]) =>
+                this.#connectionContexts.has(ownerContext) &&
+                this.#hostMediaOwners.get(ownerContext) === owner,
+            );
+            const contexts = new Set(owners.map(([ownerContext]) => ownerContext));
+            const created: HostPreparedCohortCycle = {
+              active,
+              prepared: context.prepared,
+              signal: context.signal,
+              resolveSource: context.resolveSource,
+              contexts,
+              entries: [],
+              status: 'preparing',
+            };
+            cycle = created;
+            this.#hostPreparedCohorts.set(context.prepared, created);
+            for (const [ownerContext, owner] of owners) {
+              const publicationTask = owner.publishPrepared(context.prepared);
+              const entry: HostPreparedCohortEntry = {
+                context: ownerContext,
+                owner,
+                publicationTask,
+                readinessTask: Promise.resolve(),
+                publication: null,
+                capability: null,
+                publicationFailure: null,
+                activated: false,
+              };
+              entry.readinessTask = publicationTask.then(
+                async (publication) => {
+                  entry.publication = publication;
+                  try {
+                    entry.capability = await owner.whenPreparedRemoteReady(context.prepared);
+                  } catch {
+                    // A published but slow/not-ready peer becomes a late-recovery peer
+                    // after canonical host activation; it never blocks the room.
+                  }
+                },
+                (cause) => {
+                  entry.publicationFailure = asError(cause);
+                },
+              );
+              created.entries.push(entry);
+            }
+            await this.#awaitPreparedCohortAdmission(created);
+            if (
+              created.status !== 'preparing' ||
+              this.#hostPreparedCohorts.get(created.prepared) !== created ||
+              !this.#ownsExactHostRoom(active)
+            ) {
+              throw new Error('File playback product host cohort authority is stale');
+            }
+            return Object.freeze(
+              created.entries.flatMap((entry) => (entry.capability ? [entry.capability] : [])),
+            );
+          },
+        });
+      });
+      if (cycle) this.#commitPreparedCohort(cycle, commit.timeline);
+      return commit;
+    } catch (cause) {
+      if (cycle) await this.#failPreparedCohort(cycle, asError(cause));
+      throw cause;
+    }
+  }
+
+  async #awaitPreparedCohortAdmission(cycle: HostPreparedCohortCycle): Promise<void> {
+    if (cycle.entries.length === 0) return;
+    let rejectAbort!: (reason: Error) => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectAbort = reject;
+    });
+    const onAbort = () =>
+      rejectAbort(
+        cycle.signal.reason instanceof Error
+          ? cycle.signal.reason
+          : new Error('File playback product host cohort was aborted'),
+      );
+    cycle.signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      if (cycle.signal.aborted) onAbort();
+      await Promise.race([
+        Promise.allSettled(cycle.entries.map((entry) => entry.readinessTask)),
+        delay(FILE_PLAYBACK_PRODUCT_COHORT_ADMISSION_MS),
+        aborted,
+      ]);
+    } finally {
+      cycle.signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  #commitPreparedCohort(
+    cycle: HostPreparedCohortCycle,
+    timeline: Readonly<PlaybackTimelineSnapshot>,
+  ): void {
+    if (cycle.status !== 'preparing' || this.#hostPreparedCohorts.get(cycle.prepared) !== cycle) {
+      throw new Error('File playback product host cohort commit authority is stale');
+    }
+    cycle.status = 'committed';
+    const activate = (entry: HostPreparedCohortEntry) => {
+      if (
+        !this.#ownsExactHostRoom(cycle.active) ||
+        this.#hostMediaOwners.get(entry.context) !== entry.owner
+      ) {
+        return;
+      }
+      try {
+        entry.owner.activatePrepared({ prepared: cycle.prepared, timeline });
+        entry.activated = true;
+      } catch (cause) {
+        this.#closeExactHostMediaOwner(entry.context, entry.owner, asError(cause));
+      }
+    };
+    const pending: Promise<void>[] = [];
+    for (const entry of cycle.entries) {
+      if (entry.publication) {
+        activate(entry);
+        continue;
+      }
+      if (entry.publicationFailure) {
+        this.#closeExactHostMediaOwner(entry.context, entry.owner, entry.publicationFailure);
+        continue;
+      }
+      pending.push(
+        entry.publicationTask.then(
+          () => {
+            if (
+              cycle.status === 'committed' &&
+              this.#hostPreparedCohorts.get(cycle.prepared) === cycle
+            ) {
+              activate(entry);
+            }
+          },
+          (cause) => this.#closeExactHostMediaOwner(entry.context, entry.owner, asError(cause)),
+        ),
+      );
+    }
+    for (const [context, owner] of this.#hostMediaOwners) {
+      if (cycle.contexts.has(context) || !this.#connectionContexts.has(context)) continue;
+      pending.push(
+        owner.publishCurrent().then(
+          () => undefined,
+          (cause) => this.#closeExactHostMediaOwner(context, owner, asError(cause)),
+        ),
+      );
+    }
+    void Promise.allSettled(pending).then(() => {
+      if (this.#hostPreparedCohorts.get(cycle.prepared) === cycle) {
+        this.#hostPreparedCohorts.delete(cycle.prepared);
+      }
+    });
+  }
+
+  async #failPreparedCohort(cycle: HostPreparedCohortCycle, reason: Error): Promise<void> {
+    if (cycle.status === 'failed') return;
+    cycle.status = 'failed';
+    if (this.#hostPreparedCohorts.get(cycle.prepared) === cycle) {
+      this.#hostPreparedCohorts.delete(cycle.prepared);
+    }
+    await Promise.allSettled(
+      cycle.entries.map((entry) => entry.owner.retirePrepared(cycle.prepared, reason)),
+    );
+  }
+
+  async #resolvePreparedHostPeerSource(
+    active: ActiveProductHostRoom,
+    context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+    options: ResolvePreparedHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource> {
+    const cycle = this.#hostPreparedCohorts.get(options.prepared);
+    if (
+      !cycle ||
+      cycle.active !== active ||
+      cycle.status !== 'preparing' ||
+      !cycle.contexts.has(context) ||
+      !this.#connectionContexts.has(context) ||
+      !this.#hostMediaOwners.has(context) ||
+      options.signal.aborted ||
+      cycle.signal.aborted ||
+      options.sourceIdentity !== options.prepared.asset.binding.sourceIdentity ||
+      !this.#ownsExactHostRoom(active)
+    ) {
+      throw new Error('File playback product prepared source authority is stale');
+    }
+    const source = await cycle.resolveSource(options.sourceIdentity);
+    if (
+      this.#hostPreparedCohorts.get(options.prepared) !== cycle ||
+      cycle.status !== 'preparing' ||
+      options.signal.aborted ||
+      cycle.signal.aborted ||
+      !this.#ownsExactHostRoom(active)
+    ) {
+      if (!(source instanceof Blob)) await source.close().catch(() => undefined);
+      throw new Error('File playback product prepared source changed during resolution');
+    }
+    return source;
+  }
+
+  #closeExactHostMediaOwner(
+    context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
+    _reason: Error,
+  ): void {
+    if (this.#hostMediaOwners.get(context) !== owner) return;
+    this.#hostMediaOwners.delete(context);
+    this.#connectionContexts.delete(context);
+    try {
+      this.#sessions?.closeConnection(context.connection);
     } catch {
       // The exact failed connection is already terminal.
     }

@@ -27,6 +27,7 @@ import {
   playTrack,
 } from '../playlist.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
+import { resetPreloadReceiveAuthority, schedulePreload } from '../../storage/preload.ts';
 import { getCurrentAudioBuffer, getCurrentLoadEpoch, setCurrentAudioBuffer } from '../_state.ts';
 import { initDecodeHandlers } from '../decode.ts';
 import type {
@@ -815,6 +816,147 @@ describe('remove-track playlist-empty teardown supersedes in-flight loads', () =
     expect(getState('playlist.items')).toHaveLength(1);
     expect(getState('playlist.currentQueueItemId')).toBe(a.queueItemId);
     expect(getCurrentLoadEpoch()).toBe(before);
+  });
+});
+
+describe('V2 next-local warm removal lifecycle', () => {
+  it('replaces a pending warm timer when its target is deleted before warm starts', async () => {
+    vi.useFakeTimers();
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    productRuntimeMocks.warmNextLocalTrack.mockResolvedValue(true);
+
+    const currentFile = new File(['current'], 'current.wav', { type: 'audio/wav' });
+    const removedFile = new File(['removed'], 'removed.flac', { type: 'audio/flac' });
+    const successorFile = new File(['successor'], 'successor.aiff', { type: 'audio/aiff' });
+    const current = fileItem('current.wav', currentFile);
+    const removed = fileItem('removed.flac', removedFile);
+    const successor = fileItem('successor.aiff', successorFile);
+
+    setState('playlist.items', [current, removed, successor]);
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    initPlaylist();
+    schedulePreload(100);
+    await vi.advanceTimersByTimeAsync(50);
+
+    bus.emit('playlist:remove-tracks', [removed.queueItemId]);
+
+    expect(productRuntimeMocks.clearNextLocalTrackWarm).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(productRuntimeMocks.warmNextLocalTrack).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(450);
+    expect(productRuntimeMocks.warmNextLocalTrack).toHaveBeenCalledOnce();
+    expect(productRuntimeMocks.warmNextLocalTrack).toHaveBeenCalledWith({
+      queueItemId: successor.queueItemId,
+      file: successorFile,
+    });
+  });
+
+  it('clears a tracked V2 owner if receive authority is reset directly', async () => {
+    vi.useFakeTimers();
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    productRuntimeMocks.warmNextLocalTrack.mockResolvedValue(true);
+
+    const currentFile = new File(['current'], 'current.wav', { type: 'audio/wav' });
+    const nextFile = new File(['next'], 'next.flac', { type: 'audio/flac' });
+    const current = fileItem('current.wav', currentFile);
+    const next = fileItem('next.flac', nextFile);
+    setState('playlist.items', [current, next]);
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    resetPreloadReceiveAuthority();
+
+    expect(productRuntimeMocks.clearNextLocalTrackWarm).toHaveBeenCalledOnce();
+  });
+
+  it('clears the deleted warm and schedules its exact successor without mutating legacy readiness', async () => {
+    vi.useFakeTimers();
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    productRuntimeMocks.warmNextLocalTrack.mockResolvedValue(true);
+
+    const currentFile = new File(['current'], 'current.wav', { type: 'audio/wav' });
+    const removedFile = new File(['removed'], 'removed.flac', { type: 'audio/flac' });
+    const successorFile = new File(['successor'], 'successor.aiff', { type: 'audio/aiff' });
+    const legacyFile = new File(['legacy'], 'legacy.mp3', { type: 'audio/mpeg' });
+    const current = fileItem('current.wav', currentFile);
+    const removed = fileItem('removed.flac', removedFile);
+    const successor = fileItem('successor.aiff', successorFile);
+    const legacy = fileItem('legacy.mp3', legacyFile);
+    const legacyReady = residentFor(legacy, legacyFile, 91);
+
+    setState('playlist.items', [current, removed, successor, legacy]);
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    initPlaylist();
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(productRuntimeMocks.warmNextLocalTrack).toHaveBeenCalledWith({
+      queueItemId: removed.queueItemId,
+      file: removedFile,
+    });
+
+    setState('preload.nextQueueItemId', legacy.queueItemId);
+    setState('preload.ready', legacyReady);
+    setState('preload.activeTarget', legacyReady);
+
+    bus.emit('playlist:remove-tracks', [removed.queueItemId]);
+
+    expect(productRuntimeMocks.clearNextLocalTrackWarm).toHaveBeenCalledOnce();
+    expect(getState('preload.nextQueueItemId')).toBe(legacy.queueItemId);
+    expect(getState('preload.ready')).toBe(legacyReady);
+    expect(getState('preload.activeTarget')).toBe(legacyReady);
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(productRuntimeMocks.warmNextLocalTrack).toHaveBeenCalledTimes(2);
+    expect(productRuntimeMocks.warmNextLocalTrack).toHaveBeenLastCalledWith({
+      queueItemId: successor.queueItemId,
+      file: successorFile,
+    });
+    expect(productRuntimeMocks.clearNextLocalTrackWarm.mock.invocationCallOrder[0]).toBeLessThan(
+      productRuntimeMocks.warmNextLocalTrack.mock.invocationCallOrder[1]!,
+    );
+    expect(getState('preload.ready')).toBe(legacyReady);
+  });
+
+  it('does not let a stale deleted warm completion erase the replacement owner', async () => {
+    vi.useFakeTimers();
+    productRuntimeMocks.enabled.mockReturnValue(true);
+    const staleWarm = deferred<boolean>();
+    productRuntimeMocks.warmNextLocalTrack
+      .mockImplementationOnce(() => staleWarm.promise)
+      .mockResolvedValue(true);
+
+    const currentFile = new File(['current'], 'current.wav', { type: 'audio/wav' });
+    const firstFile = new File(['first'], 'first.flac', { type: 'audio/flac' });
+    const secondFile = new File(['second'], 'second.aiff', { type: 'audio/aiff' });
+    const thirdFile = new File(['third'], 'third.mp3', { type: 'audio/mpeg' });
+    const current = fileItem('current.wav', currentFile);
+    const first = fileItem('first.flac', firstFile);
+    const second = fileItem('second.aiff', secondFile);
+    const third = fileItem('third.mp3', thirdFile);
+
+    setState('playlist.items', [current, first, second, third]);
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    initPlaylist();
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    bus.emit('playlist:remove-tracks', [first.queueItemId]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(productRuntimeMocks.warmNextLocalTrack).toHaveBeenLastCalledWith({
+      queueItemId: second.queueItemId,
+      file: secondFile,
+    });
+
+    staleWarm.resolve(true);
+    await staleWarm.promise;
+    await Promise.resolve();
+    bus.emit('playlist:remove-tracks', [second.queueItemId]);
+
+    expect(productRuntimeMocks.clearNextLocalTrackWarm).toHaveBeenCalledTimes(2);
   });
 });
 

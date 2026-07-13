@@ -30,6 +30,7 @@ import { transition } from './lifecycle.ts';
 import {
   schedulePreload,
   cancelPreloadTransfer,
+  cancelV2NextLocalTrackWarmForRemovedQueueItems,
   resetPreloadReceiveAuthority,
 } from '../storage/preload.ts';
 import {
@@ -1629,6 +1630,11 @@ async function removeQueueItems(queueItemIds: readonly QueueItemId[]): Promise<v
     removedQueueItemIds.has(getState('preload.nextQueueItemId') ?? '') ||
     removedQueueItemIds.has(getState('preload.ready')?.queueItemId ?? '') ||
     removedQueueItemIds.has(getState('preload.activeTarget')?.queueItemId ?? '');
+  const v2WarmOwnsRemovedItem = cancelV2NextLocalTrackWarmForRemovedQueueItems(removedQueueItemIds);
+  // Product V2 intentionally publishes no legacy preload.* target. Re-evaluate
+  // every non-current deletion so a selection that was still pending (or a
+  // shuffle successor changed by this removal) cannot silently lose its warm.
+  const v2WarmNeedsReevaluation = !wasCurrent && filePlaybackProductRuntime.enabled();
   if (preloadOwnsRemovedItem) clearPreloadState();
 
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
@@ -1674,7 +1680,10 @@ async function removeQueueItems(queueItemIds: readonly QueueItemId[]): Promise<v
     setCurrentAudioBuffer(null);
     setState('files.current', null);
     void playTrack(successorQueueItemId);
-  } else if (preloadOwnsRemovedItem && nextItems.length > 0) {
+  } else if (
+    (preloadOwnsRemovedItem || v2WarmOwnsRemovedItem || v2WarmNeedsReevaluation) &&
+    nextItems.length > 0
+  ) {
     schedulePreload();
   }
 }

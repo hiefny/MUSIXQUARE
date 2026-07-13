@@ -37,7 +37,7 @@ import {
   isBulkTransferWritablePeer,
   isPeerConnectionCurrent,
 } from './chunk-pump.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, QueueItemId } from '../types/index.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { transition } from '../player/lifecycle.ts';
@@ -172,6 +172,28 @@ function reconcileAwaitedPreloadOnStart(identity: PreloadIdentity): void {
 // Let the current background transfer finish before starting its successor so
 // guests can consume a partially completed preload without restarting it.
 let _inFlightBackgroundTransfer: Promise<void> | null = null;
+interface V2NextLocalTrackWarmOwner {
+  readonly generation: number;
+  readonly queueItemId: QueueItemId;
+  readonly file: File;
+}
+
+/**
+ * Product-V2 speculative ownership is deliberately separate from preload.*.
+ * The legacy fields describe a transferable resident and must stay null for a
+ * bounded-stream warm, while this exact queue occurrence + File tuple lets a
+ * playlist mutation retire or preserve the V2 source independently.
+ */
+let _v2NextLocalTrackWarmOwner: V2NextLocalTrackWarmOwner | null = null;
+
+function isExactV2NextLocalTrackWarmOwner(owner: V2NextLocalTrackWarmOwner): boolean {
+  const current = _v2NextLocalTrackWarmOwner;
+  return (
+    current?.generation === owner.generation &&
+    current.queueItemId === owner.queueItemId &&
+    current.file === owner.file
+  );
+}
 /**
  * Monotonic counter incremented on every schedulePreload/cancelPreloadTransfer
  * call. Each preloadNextTrack snapshot its myGeneration; after the serialization
@@ -259,6 +281,7 @@ export function cancelPreloadTransfer(): void {
   // serialized transfer — it will notice the generation mismatch after its
   // await and exit instead of starting a new (unwanted) transfer.
   _preloadGeneration++;
+  _v2NextLocalTrackWarmOwner = null;
   if (filePlaybackProductRuntime.enabled()) {
     void filePlaybackProductRuntime.clearNextLocalTrackWarm().catch((error) => {
       log.warn('[Preload] V2 next-track warm clear failed:', error);
@@ -308,6 +331,14 @@ export function cancelPreloadTransfer(): void {
  */
 export function resetPreloadReceiveAuthority(): void {
   _preloadGeneration++;
+  clearManagedTimer('preloadScheduleTimer');
+  const ownedV2Warm = _v2NextLocalTrackWarmOwner !== null;
+  _v2NextLocalTrackWarmOwner = null;
+  if (ownedV2Warm) {
+    void filePlaybackProductRuntime.clearNextLocalTrackWarm().catch((error) => {
+      log.warn('[Preload] V2 warm clear during receive-authority reset failed:', error);
+    });
+  }
   _awaitedPreloadIdentity = null;
   _activePlayPreloadedQueueItemId = undefined;
   latestPreloadSessionId = 0;
@@ -369,8 +400,29 @@ function clearPreloadCacheState(): void {
   setState('preload.activeTarget', null);
 }
 
+/**
+ * Retire a deleted Product-V2 next-track owner without touching legacy
+ * preload readiness. Runtime lane ordering guarantees that a subsequently
+ * scheduled warm cannot be cleared by this older queue-ID operation (ABA).
+ */
+export function cancelV2NextLocalTrackWarmForRemovedQueueItems(
+  removedQueueItemIds: ReadonlySet<QueueItemId>,
+): boolean {
+  const owner = _v2NextLocalTrackWarmOwner;
+  if (!owner || !removedQueueItemIds.has(owner.queueItemId)) return false;
+
+  _preloadGeneration++;
+  _v2NextLocalTrackWarmOwner = null;
+  clearManagedTimer('preloadScheduleTimer');
+  void filePlaybackProductRuntime.clearNextLocalTrackWarm().catch((error) => {
+    log.warn('[Preload] Removed V2 next-track warm clear failed:', error);
+  });
+  return true;
+}
+
 async function clearV2NextLocalTrackWarm(expectedGeneration: number): Promise<void> {
   if (_preloadGeneration !== expectedGeneration) return;
+  _v2NextLocalTrackWarmOwner = null;
   try {
     await filePlaybackProductRuntime.clearNextLocalTrackWarm();
   } catch (error) {
@@ -450,9 +502,21 @@ async function preloadNextTrack(): Promise<void> {
       (candidate) => candidate.queueItemId === queueItemId && candidate.file === file,
     );
     if (!stillExact) return;
+    const owner: V2NextLocalTrackWarmOwner = {
+      generation: myGeneration,
+      queueItemId,
+      file,
+    };
+    _v2NextLocalTrackWarmOwner = owner;
     try {
-      await filePlaybackProductRuntime.warmNextLocalTrack({ queueItemId, file });
+      const warmed = await filePlaybackProductRuntime.warmNextLocalTrack({ queueItemId, file });
+      if (isExactV2NextLocalTrackWarmOwner(owner) && !warmed) {
+        _v2NextLocalTrackWarmOwner = null;
+      }
     } catch (error) {
+      if (isExactV2NextLocalTrackWarmOwner(owner)) {
+        _v2NextLocalTrackWarmOwner = null;
+      }
       if (_preloadGeneration === myGeneration) {
         log.warn('[Preload] V2 next-track warm failed:', error);
       }

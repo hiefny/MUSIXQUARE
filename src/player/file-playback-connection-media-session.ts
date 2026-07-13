@@ -21,6 +21,9 @@ import type {
 import type {
   FilePlaybackWireMessageForKind,
   FileSourceReadyWirePayload,
+  RendererHealthWirePayload,
+  RendezvousArmedWirePayload,
+  RendezvousFinalizedWirePayload,
 } from './file-playback-wire-sender.ts';
 import {
   isPlaybackRevisionWatermark,
@@ -136,6 +139,11 @@ export interface FilePlaybackConnectionMediaStateOperationSnapshot {
   readonly state: Readonly<PlaybackStateIdentity>;
   readonly rendezvousId: string;
 }
+
+type FilePlaybackConnectionMediaStateAttemptWirePayload =
+  | RendezvousArmedWirePayload
+  | RendezvousFinalizedWirePayload
+  | RendererHealthWirePayload;
 
 export interface FilePlaybackConnectionMediaSessionSnapshot {
   readonly schemaVersion: 1;
@@ -293,6 +301,36 @@ function isBoundedRendezvousId(value: unknown): value is string {
     value === value.trim() &&
     !containsControlCharacter(value)
   );
+}
+
+function snapshotStateAttemptPayloadIdentity(value: unknown): Readonly<{
+  kind: FilePlaybackConnectionMediaStateAttemptWirePayload['kind'];
+  rendezvousId: string;
+}> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const kindDescriptor = descriptors.kind;
+    const rendezvousDescriptor = descriptors.rendezvousId;
+    if (
+      !kindDescriptor?.enumerable ||
+      !Object.hasOwn(kindDescriptor, 'value') ||
+      !rendezvousDescriptor?.enumerable ||
+      !Object.hasOwn(rendezvousDescriptor, 'value') ||
+      (kindDescriptor.value !== 'rendezvous-armed' &&
+        kindDescriptor.value !== 'rendezvous-finalized' &&
+        kindDescriptor.value !== 'renderer-health') ||
+      !isBoundedRendezvousId(rendezvousDescriptor.value)
+    ) {
+      return null;
+    }
+    return freezeCanonical({
+      kind: kindDescriptor.value as FilePlaybackConnectionMediaStateAttemptWirePayload['kind'],
+      rendezvousId: rendezvousDescriptor.value,
+    });
+  } catch {
+    return null;
+  }
 }
 
 function sameBinding(
@@ -816,37 +854,131 @@ export class FilePlaybackConnectionMediaSession {
         throw this.#fatal('The shared channel could not atomically stage a state rendezvous');
       }
 
-      const epoch = Object.freeze(
-        Object.create(null),
-      ) as FilePlaybackConnectionMediaStateOperationEpoch;
-      const abortController = new AbortController();
-      const fence = freezeCanonical({
-        epoch,
-        signal: abortController.signal,
-        isCurrent: () => this.#isStateOperationEpochCurrent(epoch),
-      });
-      const operation = freezeCanonical({
-        previous: expected,
-        state: next,
-        rendezvousId,
-        fence,
-      }) as Readonly<FilePlaybackConnectionMediaStateOperation>;
-      const record: StateOperationRecord = {
-        operation,
+      return this.#createStateOperation(
         prepared,
+        expected,
+        next,
+        rendezvousId,
         stateLease,
         attemptLease,
-        previous: expected,
-        state: next,
+      );
+    });
+  }
+
+  /**
+   * Adopts the exact state/attempt lease pair already admitted by an inbound
+   * rendezvous ARM. The shared channel has consumed the successor revision, so
+   * this boundary must never stage either authority a second time.
+   *
+   * The returned operation remains body-free and keeps both opaque leases in
+   * this session's private WeakMaps. A different lease pair cannot replay an
+   * equal-looking descriptor; forged or foreign authority fails closed at the
+   * channel commit boundary.
+   */
+  adoptAdmittedSameRunStateSuccessor(
+    preparedOperation: FilePlaybackConnectionMediaOperation,
+    expectedCurrent: PlaybackStateIdentity,
+    successor: PlaybackStateIdentity,
+    rendezvousId: string,
+    stateLease: FilePlaybackWireStateLease,
+    attemptLease: FilePlaybackWireAttemptLease,
+  ): Readonly<FilePlaybackConnectionMediaStateOperation> {
+    return this.#mutate(() => {
+      const prepared = this.#requireCurrent(preparedOperation);
+      const expected = readPlaybackStateIdentity(expectedCurrent);
+      const next = readPlaybackStateIdentity(successor);
+      if (
+        !expected ||
+        !next ||
+        !isBoundedRendezvousId(rendezvousId) ||
+        stateLease === null ||
+        typeof stateLease !== 'object' ||
+        attemptLease === null ||
+        typeof attemptLease !== 'object'
+      ) {
+        throw new TypeError('File playback admitted rendezvous successor authority is invalid');
+      }
+
+      const existing = this.#candidateState;
+      if (existing) {
+        if (
+          existing.prepared === prepared &&
+          sameStateIdentity(existing.previous, expected) &&
+          sameStateIdentity(existing.state, next) &&
+          existing.rendezvousId === rendezvousId &&
+          existing.stateLease === stateLease &&
+          existing.attemptLease === attemptLease
+        ) {
+          return existing.operation;
+        }
+        throw this.#fatal(
+          'Inbound rendezvous replay disagreed with the exact admitted state authority',
+        );
+      }
+      if (
+        !this.#currentState ||
+        !sameStateIdentity(this.#currentState, expected) ||
+        next.queueItemId !== expected.queueItemId ||
+        next.runId !== expected.runId ||
+        next.revision !== this.#admittedRevisionWatermark + 1 ||
+        expected.queueItemId !== prepared.binding.queueItemId ||
+        expected.runId !== prepared.binding.runId
+      ) {
+        throw this.#fatal('Inbound rendezvous is not the exact current same-run state successor');
+      }
+
+      // The receiver has already consumed this exact revision in the shared
+      // channel registry. Mirror that admission without calling stageMedia()
+      // or stageAttempt() again.
+      this.#admittedRevisionWatermark = next.revision;
+      return this.#createStateOperation(
+        prepared,
+        expected,
+        next,
         rendezvousId,
-        epoch,
-        abortController,
-        status: 'candidate',
-      };
-      this.#stateOperations.set(operation, record);
-      this.#stateOperationEpochs.set(epoch, record);
-      this.#candidateState = record;
-      return operation;
+        stateLease,
+        attemptLease,
+      );
+    });
+  }
+
+  /**
+   * Serializes a guest response from the attempt lease privately owned by an
+   * exact state operation. ARMED is candidate-only, health is current-only,
+   * and FINALIZED may be retried on either side of the local commit boundary.
+   */
+  createStateAttemptWire<const Payload extends FilePlaybackConnectionMediaStateAttemptWirePayload>(
+    operation: FilePlaybackConnectionMediaStateOperation,
+    payload: Payload,
+  ): FilePlaybackWireMessageForKind<Payload['kind']> {
+    return this.#mutate(() => {
+      const record = this.#requireStateOperation(operation);
+      const identity = snapshotStateAttemptPayloadIdentity(payload);
+      this.#assertStateOperationLive(record);
+      if (!identity) {
+        throw new TypeError('File playback state attempt wire payload is invalid');
+      }
+      if (identity.rendezvousId !== record.rendezvousId) {
+        throw new TypeError('File playback state attempt wire claimed a different rendezvous');
+      }
+      if (
+        (identity.kind === 'rendezvous-armed' && record.status !== 'candidate') ||
+        (identity.kind === 'renderer-health' && record.status !== 'current')
+      ) {
+        throw new Error('File playback state attempt wire is invalid for its operation status');
+      }
+
+      let wire: FilePlaybackWireMessageForKind<Payload['kind']>;
+      try {
+        wire = Reflect.apply(channelCreateWire, this.#channel, [
+          record.attemptLease,
+          payload,
+        ]) as FilePlaybackWireMessageForKind<Payload['kind']>;
+      } catch {
+        throw this.#fatal('The shared channel rejected the exact state attempt authority');
+      }
+      this.#assertStateOperationLive(record);
+      return wire;
     });
   }
 
@@ -1279,6 +1411,47 @@ export class FilePlaybackConnectionMediaSession {
     return accepted;
   }
 
+  #createStateOperation(
+    prepared: OperationRecord,
+    previous: Readonly<PlaybackStateIdentity>,
+    state: Readonly<PlaybackStateIdentity>,
+    rendezvousId: string,
+    stateLease: FilePlaybackWireStateLease,
+    attemptLease: FilePlaybackWireAttemptLease,
+  ): Readonly<FilePlaybackConnectionMediaStateOperation> {
+    const epoch = Object.freeze(
+      Object.create(null),
+    ) as FilePlaybackConnectionMediaStateOperationEpoch;
+    const abortController = new AbortController();
+    const fence = freezeCanonical({
+      epoch,
+      signal: abortController.signal,
+      isCurrent: () => this.#isStateOperationEpochCurrent(epoch),
+    });
+    const operation = freezeCanonical({
+      previous,
+      state,
+      rendezvousId,
+      fence,
+    }) as Readonly<FilePlaybackConnectionMediaStateOperation>;
+    const record: StateOperationRecord = {
+      operation,
+      prepared,
+      stateLease,
+      attemptLease,
+      previous,
+      state,
+      rendezvousId,
+      epoch,
+      abortController,
+      status: 'candidate',
+    };
+    this.#stateOperations.set(operation, record);
+    this.#stateOperationEpochs.set(epoch, record);
+    this.#candidateState = record;
+    return operation;
+  }
+
   #readPreparedCommitAuthority(record: OperationRecord, isStillCurrent: () => boolean): boolean {
     this.#assertPreparedCurrent(record);
     let accepted: boolean;
@@ -1367,9 +1540,20 @@ export class FilePlaybackConnectionMediaSession {
   }
 
   #assertStateOperationCurrent(record: StateOperationRecord): void {
-    this.#assertPreparedCurrent(record.prepared);
+    this.#assertStateOperationLive(record);
     if (record !== this.#candidateState || record.status !== 'candidate') {
       throw new Error('File playback state operation is no longer the exact candidate');
+    }
+  }
+
+  #assertStateOperationLive(record: StateOperationRecord): void {
+    this.#assertPreparedCurrent(record.prepared);
+    if (
+      record.status === 'retired' ||
+      (record.status === 'candidate' && record !== this.#candidateState) ||
+      (record.status === 'current' && record !== this.#currentStateOperation)
+    ) {
+      throw new Error('File playback state operation is no longer exact live authority');
     }
   }
 

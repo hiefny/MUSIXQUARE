@@ -114,11 +114,12 @@ class FakeWorker {
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
   readonly messages: Array<{ message: FlacDecoderCommand; transfer: readonly Transferable[] }> = [];
+  autoOpenSource = true;
   terminateCount = 0;
 
   postMessage(message: FlacDecoderCommand, transfer: readonly Transferable[] = []): void {
     this.messages.push({ message, transfer });
-    if (message.type === 'open-source') {
+    if (message.type === 'open-source' && this.autoOpenSource) {
       queueMicrotask(() => {
         this.emit({
           protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
@@ -429,6 +430,125 @@ async function applyRevisionedPause(h: ReturnType<typeof harness>) {
 }
 
 describe('StreamingFlacPlaybackSource v2', () => {
+  it('keeps construction side-effect free and closes an unprepared encoded source once', async () => {
+    const h = harness();
+
+    expect(h.workletLoadCount).toBe(0);
+    expect(h.worker.messages).toHaveLength(0);
+    expect(h.channels).toHaveLength(0);
+    expect(h.nodeOptions).toBeNull();
+    expect(h.closeEncodedSource).not.toHaveBeenCalled();
+
+    await h.source.destroy();
+    await h.source.destroy();
+    expect(h.closeEncodedSource).toHaveBeenCalledTimes(1);
+    expect(h.worker.terminateCount).toBe(0);
+    expect(h.channels).toHaveLength(0);
+  });
+
+  it('fails an inexact source-open echo and cleans the partial worker bridge exactly once', async () => {
+    const h = harness();
+    h.worker.autoOpenSource = false;
+    const preparing = h.source.prepare();
+    const rejected = expect(preparing).rejects.toThrow(/source-open acknowledgement mismatch/i);
+
+    await vi.waitFor(() =>
+      expect(h.worker.messages.some(({ message }) => message.type === 'open-source')).toBe(true),
+    );
+    const opened = h.worker.messages.find(({ message }) => message.type === 'open-source')?.message;
+    if (!opened || opened.type !== 'open-source') throw new Error('Expected source-open command');
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'source-opened',
+      sourceLifetimeGeneration: opened.sourceLifetimeGeneration,
+      sourceSize: opened.sourceSize + 1,
+      sourceIdentity: `${opened.sourceIdentity}:mismatch`,
+    });
+
+    await rejected;
+    expect(h.source.getSnapshot()).toMatchObject({
+      phase: 'failed',
+      errorCode: 'decoder-source-open-mismatch',
+    });
+    expect(h.worker.terminateCount).toBe(1);
+    expect(h.nodeOptions).toBeNull();
+    expect(h.channels).toHaveLength(1);
+    await vi.waitFor(() => expect(h.closeEncodedSource).toHaveBeenCalledTimes(1));
+    expect(h.channels[0]?.port1.closeCount).toBeGreaterThan(0);
+    expect(h.channels[0]?.port2.closeCount).toBeGreaterThan(0);
+
+    await h.source.destroy();
+    expect(h.closeEncodedSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects preparation when the current decoder stops before it can prime', async () => {
+    const h = harness();
+    const { preparing } = await beginPrepare(h.source, h.worker);
+    const rejected = expect(preparing).rejects.toThrow(/stopped before priming/i);
+    const init = lastWorkerInit(h.worker);
+
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-stopped',
+      sourceLifetimeGeneration: init.sourceLifetimeGeneration,
+      decoderGeneration: init.decoderGeneration,
+    });
+
+    await rejected;
+    expect(h.source.getSnapshot()).toMatchObject({
+      phase: 'failed',
+      errorCode: 'prepare-failed',
+    });
+    expect(h.worker.terminateCount).toBe(1);
+    await vi.waitFor(() => expect(h.closeEncodedSource).toHaveBeenCalledTimes(1));
+    await h.source.destroy();
+  });
+
+  it('keeps stale decoder events inert while the current generation awaits decoder readiness', async () => {
+    const h = harness();
+    await prepare(h.source, h.worker, h.node);
+    await h.source.connect(h.destination as unknown as AudioNode);
+    await arm(h.source, h.node);
+    const stale = lastWorkerInit(h.worker);
+
+    const seeking = h.source.seek({
+      kind: 'file-playback-seek',
+      queueItemId: QID,
+      runId: 'run-stream-1',
+      revision: 1,
+      positionSeconds: 1,
+      atRoomTimeMs: 1_000,
+    });
+    await vi.waitFor(() => expect(lastWorkerInit(h.worker).decoderGeneration).toBe(2));
+    const current = lastWorkerInit(h.worker);
+    const settled = vi.fn();
+    void seeking.then(settled, settled);
+
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-error',
+      sourceLifetimeGeneration: stale.sourceLifetimeGeneration,
+      decoderGeneration: stale.decoderGeneration,
+      code: 'stale-decoder-error',
+      message: 'stale decoder failed',
+    });
+    h.worker.emit({
+      protocolVersion: FLAC_STREAM_PROTOCOL_VERSION,
+      type: 'decoder-ready',
+      sourceLifetimeGeneration: stale.sourceLifetimeGeneration,
+      decoderGeneration: stale.decoderGeneration,
+      descriptor: stale.descriptor,
+    });
+    emitPrimed(h.node, current.decoderGeneration);
+    await Promise.resolve();
+
+    expect(settled).not.toHaveBeenCalled();
+    expect(h.source.getSnapshot()).toMatchObject({ phase: 'preparing', errorCode: null });
+    emitDecoderReady(h.worker);
+    await expect(seeking).resolves.toMatchObject({ phase: 'paused', errorCode: null });
+    await h.source.destroy();
+  });
+
   it('canonicalizes a hostile arm Proxy before queuing the control operation', async () => {
     const h = harness();
     await prepare(h.source, h.worker, h.node);

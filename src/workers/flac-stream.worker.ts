@@ -12,7 +12,7 @@ import {
   minimumLanczosInputFrames,
   planBoundedLanczosChunk,
   planShortLanczosInput,
-} from '../player/flac/resampler-plan.js';
+} from '../player/streaming/resampler-plan.js';
 import {
   discardDecodedSourcePrefix,
   expectedOutputFrames,

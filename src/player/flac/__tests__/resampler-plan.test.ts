@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ChunkedResampler, initWithBase64 } from 'lanczos-resampler/loader.js';
+import { expectedLanczosOutputFrames as expectedLanczosOutputFramesFromFlacCompat } from '../resampler-plan.ts';
 import {
   expectedLanczosOutputFrames,
   maximumLanczosOutputFrames,
@@ -7,7 +8,7 @@ import {
   planBoundedLanczosChunk,
   planShortLanczosInput,
   type LanczosRates,
-} from '../resampler-plan.ts';
+} from '../../streaming/resampler-plan.ts';
 
 const PCM_MESSAGE_LIMIT = 32_768;
 
@@ -75,6 +76,10 @@ function runPlannedStream(
 }
 
 describe('pinned Lanczos planning arithmetic', () => {
+  it('keeps the legacy FLAC import as the exact codec-neutral implementation', () => {
+    expect(expectedLanczosOutputFramesFromFlacCompat).toBe(expectedLanczosOutputFrames);
+  });
+
   it('uses exact floor arithmetic from a seek target and documents the one-output drop', () => {
     expect(
       expectedLanczosOutputFrames({

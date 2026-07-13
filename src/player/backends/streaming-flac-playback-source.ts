@@ -33,7 +33,6 @@ import {
   type StreamingPlaybackStartEvidence,
 } from '../file-playback-source.ts';
 import type { FlacMetadata } from '../flac/metadata.ts';
-import { expectedOutputFrames } from '../flac/decoder-helpers.ts';
 import {
   FLAC_STREAM_PROTOCOL_VERSION,
   isFlacDecoderGeneration,
@@ -50,6 +49,13 @@ import {
   type PcmRingEvent,
   type PcmStreamRunIdentity,
 } from '../streaming/pcm-stream-protocol.ts';
+import {
+  createStreamingMediaTimeline,
+  mediaFrameAtPosition,
+  outputFrameAtMediaFrame,
+  outputFrameAtPosition,
+  type StreamingMediaTimeline,
+} from '../streaming/media-timeline.ts';
 import { FlacSeekIndex } from '../flac/seek-index.ts';
 import { type EncodedAudioSource, validateExactRead } from '../sources/encoded-audio-source.ts';
 import { EncodedSourcePortBroker } from '../sources/encoded-source-port.ts';
@@ -662,7 +668,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   readonly #commandTimeoutMs: number;
   readonly #runtime: StreamingFlacPlaybackRuntime;
   readonly #seekIndex: FlacSeekIndex;
-  readonly #totalOutputFrames: number;
+  readonly #timeline: StreamingMediaTimeline;
   readonly #lifetimeAbort = new AbortController();
   readonly #timerPrefix: string;
 
@@ -764,10 +770,11 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     this.#seekIndex = new FlacSeekIndex(options.metadata, options.encodedSource.size);
     this.#audioContext = options.audioContext;
     this.#nowRoomTimeMs = options.nowRoomTimeMs;
-    this.#totalOutputFrames = expectedOutputFrames(this.#descriptorForSourceSample(0));
-    if (this.#totalOutputFrames <= 0) {
-      throw new TypeError('Streaming FLAC has no renderable output frames');
-    }
+    this.#timeline = createStreamingMediaTimeline({
+      mediaSampleRateHz: info.sampleRate,
+      outputSampleRateHz: options.audioContext.sampleRate,
+      totalMediaFrames: info.totalSamples,
+    });
     this.#roomTimeMsToContextTime = options.roomTimeMsToContextTime;
     this.#localPerformanceMsToContextTime = options.localPerformanceMsToContextTime;
     this.#prepareTimeoutMs = boundedTimeout(
@@ -1885,7 +1892,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
   }
 
   get #durationSeconds(): number {
-    return this.#metadata.streamInfo.totalSamples / this.#metadata.streamInfo.sampleRate;
+    return this.#timeline.durationSeconds;
   }
 
   get #currentRenderFrame(): number {
@@ -1981,8 +1988,8 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       sourceLifetimeGeneration: this.#sourceLifetimeGeneration,
       decoderGeneration: oldGeneration,
     });
-    const sourceSample = this.#positionToSourceSample(positionSeconds);
-    const mediaFrame = this.#sourceSampleToOutputFrame(sourceSample);
+    const sourceSample = this.#positionToMediaFrame(positionSeconds);
+    const mediaFrame = outputFrameAtMediaFrame(this.#timeline, sourceSample);
     this.#generation += 1;
     const generation = this.#generation;
     this.#postWorklet({
@@ -2910,7 +2917,7 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
       phase = 'paused';
       mediaFrame = this.#pendingPause.mediaFrame;
     }
-    const totalFrames = this.#totalOutputFrames;
+    const totalFrames = this.#timeline.totalOutputFrames;
     mediaFrame = Math.min(totalFrames, Math.max(0, Math.round(mediaFrame)));
     bufferedFrames = Math.max(0, Math.round(bufferedFrames));
     if (mediaFrame >= totalFrames && phase === 'playing') phase = 'ended';
@@ -3042,20 +3049,12 @@ export class StreamingFlacPlaybackSource implements FilePlaybackCutoverSource {
     return frame;
   }
 
-  #positionToSourceSample(positionSeconds: number): number {
-    const sample = Math.round(positionSeconds * this.#metadata.streamInfo.sampleRate);
-    return Math.min(this.#metadata.streamInfo.totalSamples, Math.max(0, sample));
+  #positionToMediaFrame(positionSeconds: number): number {
+    return mediaFrameAtPosition(this.#timeline, positionSeconds);
   }
 
   #positionToOutputFrame(positionSeconds: number): number {
-    return this.#sourceSampleToOutputFrame(this.#positionToSourceSample(positionSeconds));
-  }
-
-  #sourceSampleToOutputFrame(sourceSample: number): number {
-    const remainingOutputFrames = expectedOutputFrames(
-      this.#descriptorForSourceSample(sourceSample),
-    );
-    return this.#totalOutputFrames - remainingOutputFrames;
+    return outputFrameAtPosition(this.#timeline, positionSeconds);
   }
 
   #observedRoomTimeForArm(_intent: RendezvousArmIntent): number {

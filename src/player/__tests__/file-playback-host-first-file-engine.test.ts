@@ -13,6 +13,7 @@ import {
   FilePlaybackHostFirstFileEngine,
   type FilePlaybackHostFirstFileEngineRuntimeForTests,
   type HostPeerPlaybackPublication,
+  type HostPreparedLocalTrack,
   type StartHostFirstLocalFileOptions,
   type StartHostLocalTrackOptions,
 } from '../file-playback-host-first-file-engine.ts';
@@ -814,7 +815,9 @@ interface RemoteRecoveryHarness {
 
 function remoteRecoveryHarness(
   participantId: string,
-  publication: Readonly<HostPeerPlaybackPublication>,
+  publication: Readonly<
+    Pick<HostPeerPlaybackPublication, 'asset' | 'state'> | HostPreparedLocalTrack
+  >,
 ): RemoteRecoveryHarness {
   const arms: RendezvousArmIntent[] = [];
   const finalizes: RendezvousFinalizeIntent[] = [];
@@ -881,6 +884,122 @@ function remoteRecoveryHarness(
 }
 
 describe('FilePlaybackHostFirstFileEngine', () => {
+  it('prepares an exact body-free silent candidate and resolves only its private source lease', async () => {
+    const harness = makeHarness([{ backend: 'audio-buffer' }]);
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' });
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 7),
+    );
+
+    expect(prepared).toMatchObject({
+      schemaVersion: 1,
+      roomGeneration: 1,
+      backend: 'audio-buffer',
+      state: { queueItemId: Q1, runId: RUN_1, revision: 1 },
+      positionSeconds: 7,
+      playbackRate: 1,
+      asset: {
+        metadata: { name: 'first.flac', mime: 'audio/mpeg' },
+        encodedSize: 3,
+      },
+    });
+    expectBodyFree(prepared);
+    expect(harness.controller.timelineSnapshot()).toMatchObject({ phase: 'stopped', revision: 0 });
+    expect(harness.sources[0]?.arm).not.toHaveBeenCalled();
+    expect(harness.sources[0]?.finalize).not.toHaveBeenCalled();
+
+    const aborted = new AbortController();
+    const abortedResolution = harness.engine.resolvePreparedPeerRangeSource({
+      prepared,
+      sourceIdentity: prepared.asset.binding.sourceIdentity,
+      signal: aborted.signal,
+    });
+    aborted.abort(new Error('fixture prepared resolution abort'));
+    await expect(abortedResolution).rejects.toThrow(/fixture prepared resolution abort/u);
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(blob);
+
+    const copied = Object.freeze({ ...prepared });
+    await expect(
+      harness.engine.startPreparedLocalTrack({ prepared: copied, remoteParticipants: [] }),
+    ).rejects.toThrow(/exact current candidate/u);
+
+    const pending = harness.engine.startPreparedLocalTrack({ prepared, remoteParticipants: [] });
+    await expect(
+      harness.engine.resolvePreparedPeerRangeSource({
+        prepared,
+        sourceIdentity: prepared.asset.binding.sourceIdentity,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/already started/u);
+    const committed = await resolveLatestStart(harness, pending);
+    expect(committed.timeline).toMatchObject({
+      phase: 'playing',
+      revision: 1,
+      run: { queueItemId: Q1, runId: RUN_1 },
+    });
+    await harness.engine.close();
+  });
+
+  it('starts one local-plus-remote cohort but commits only named local FINALIZE acceptance', async () => {
+    const localFinalize = deferred<void>();
+    const harness = makeHarness([{ backend: 'audio-buffer', finalizeGate: localFinalize }]);
+    const blob = new Blob([new Uint8Array([4, 5, 6])], { type: 'audio/mpeg' });
+    const prepared = await harness.engine.prepareLocalTrack(
+      localTrackOptions(harness, Q1, blob, 0),
+    );
+    const remote = remoteRecoveryHarness('initial-cohort-peer', prepared);
+    const evidence = deferred<void>();
+    let attempt: HostRendezvousAttempt | null = null;
+    const bindAttempt = vi.fn((candidate: HostRendezvousAttempt) => {
+      expect(remote.arms).toHaveLength(0);
+      attempt = candidate;
+      return evidence.promise;
+    });
+
+    const pending = harness.engine.startPreparedLocalTrack({
+      prepared,
+      remoteParticipants: [{ participant: remote.participant, bindAttempt }],
+    });
+    await drainMicrotasks(128);
+    expect(bindAttempt).toHaveBeenCalledOnce();
+    expect(remote.arms).toHaveLength(1);
+    expect(harness.sources[0]?.finalize).toHaveBeenCalledOnce();
+
+    await remote.accept(attempt!);
+    evidence.resolve();
+    await drainMicrotasks(128);
+    expect(attempt?.getSnapshot().participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          participantId: 'initial-cohort-peer',
+          finalizeStatus: 'accepted',
+        }),
+      ]),
+    );
+    expect(harness.controller.timelineSnapshot()).toMatchObject({ phase: 'stopped', revision: 0 });
+
+    localFinalize.resolve();
+    await drainMicrotasks(128);
+    expect(harness.controller.timelineSnapshot()).toMatchObject({
+      phase: 'playing',
+      revision: 1,
+      run: { queueItemId: Q1, runId: RUN_1 },
+    });
+    const source = harness.sources[0]!;
+    harness.context.currentTime = source.startAtContextTime()!;
+    source.resolveStart();
+    await expect(pending).resolves.toMatchObject({
+      attempt: { queueItemId: Q1, runId: RUN_1, revision: 1 },
+    });
+    await harness.engine.close();
+  });
+
   it('publishes body-free exact current metadata and resolves the original Blob by reference', async () => {
     const harness = makeHarness([{ backend: 'audio-buffer' }]);
     const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/mpeg' });

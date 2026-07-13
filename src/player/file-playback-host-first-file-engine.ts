@@ -93,11 +93,18 @@ const START_KEYS = Object.freeze([
   'signal',
 ] as const);
 const START_LOCAL_TRACK_KEYS = Object.freeze([...START_KEYS, 'positionSeconds'] as const);
+const START_PREPARED_TRACK_KEYS = Object.freeze(['prepared', 'remoteParticipants'] as const);
+const PREPARED_REMOTE_PARTICIPANT_KEYS = Object.freeze(['bindAttempt', 'participant'] as const);
 const CURRENT_OPERATION_KEYS = Object.freeze(['signal'] as const);
 const SEEK_PLAYING_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
 const SEEK_PAUSED_KEYS = SEEK_PLAYING_KEYS;
 const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
   'publication',
+  'signal',
+  'sourceIdentity',
+] as const);
+const RESOLVE_PREPARED_PEER_SOURCE_KEYS = Object.freeze([
+  'prepared',
   'signal',
   'sourceIdentity',
 ] as const);
@@ -229,6 +236,33 @@ export interface HostPeerPlaybackAssetPublication {
   readonly encodedSize: number;
 }
 
+/**
+ * Exact body-free capability for one silent local candidate. The engine accepts
+ * only the object identity it issued; copying these fields never grants source
+ * or start authority.
+ */
+export interface HostPreparedLocalTrack {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly backend: FilePlaybackBackend;
+  readonly state: Readonly<PlaybackStateIdentity>;
+  readonly positionSeconds: number;
+  readonly playbackRate: number;
+  readonly asset: Readonly<HostPeerPlaybackAssetPublication>;
+}
+
+/** One already-source-ready remote participant admitted to the initial cohort. */
+export interface HostPreparedRemoteParticipant {
+  readonly participant: RemoteRendezvousParticipant;
+  /** Resolves only after exact renderer start evidence has been admitted. */
+  readonly bindAttempt: (attempt: HostRendezvousAttempt) => Promise<void>;
+}
+
+export interface StartPreparedHostLocalTrackOptions {
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly remoteParticipants: readonly Readonly<HostPreparedRemoteParticipant>[];
+}
+
 /** Exact, immutable, body-free description of the host's current peer-readable run. */
 export interface HostPeerPlaybackPublication {
   readonly schemaVersion: 1;
@@ -243,6 +277,12 @@ export type HostPeerRangeSource = Blob | EncodedAudioSource;
 
 export interface ResolveHostPeerRangeSourceOptions {
   readonly publication: Readonly<HostPeerPlaybackPublication>;
+  readonly sourceIdentity: string;
+  readonly signal: AbortSignal;
+}
+
+export interface ResolvePreparedHostPeerRangeSourceOptions {
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
   readonly sourceIdentity: string;
   readonly signal: AbortSignal;
 }
@@ -359,7 +399,7 @@ interface ActiveStartOperation {
   readonly removeExternalAbort: () => void;
   commitDominant: boolean;
   published: boolean;
-  task: Promise<Readonly<HostFirstLocalFilePlaybackCommit>> | null;
+  task: Promise<unknown> | null;
 }
 
 type TransitionAction = 'pause' | 'seek' | 'stop' | 'ended';
@@ -392,6 +432,15 @@ interface PeerPublicationAuthority {
   readonly state: Readonly<PlaybackStateIdentity>;
   readonly asset: Readonly<FilePlaybackAssetSnapshot>;
   readonly lease: FilePlaybackAssetLease;
+}
+
+interface PreparedTrackAuthority {
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  readonly operation: ActiveStartOperation;
+  readonly input: Readonly<BeginCandidateOperationInput>;
+  readonly playbackState: Readonly<PlaybackStateIdentity>;
+  readonly staged: Readonly<StagedLocalFilePlaybackParticipant>;
+  started: boolean;
 }
 
 interface ActiveRemoteRecovery {
@@ -824,6 +873,7 @@ export class FilePlaybackHostFirstFileEngine {
   readonly #portRetirements = new Map<FilePlaybackCutoverCandidatePort, Promise<void>>();
   readonly #remoteRecoveries = new Map<string, ActiveRemoteRecovery>();
   #peerPublicationAuthority: PeerPublicationAuthority | null = null;
+  #preparedTrackAuthority: PreparedTrackAuthority | null = null;
   #audioContext: AudioContext | null = null;
   #destination: AudioNode | null = null;
   #clockBindings: FilePlaybackClockBindings | null = null;
@@ -964,6 +1014,41 @@ export class FilePlaybackHostFirstFileEngine {
     });
   }
 
+  /**
+   * Decodes/opens and primes one silent local candidate without creating a
+   * rendezvous or changing canonical timeline truth.
+   */
+  prepareLocalTrack(
+    options: StartHostLocalTrackOptions,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
+    return this.#runSynchronousCandidatePreparation(() => {
+      const input = this.#readFileCandidateInput(options, START_LOCAL_TRACK_KEYS, undefined);
+      const previousTimeline = this.#captureTimeline('track');
+      return this.#prepareFileCandidate('track', input, previousTimeline);
+    });
+  }
+
+  /** Starts one shared rendezvous for the exact prepared local host and remotes. */
+  startPreparedLocalTrack(
+    options: StartPreparedHostLocalTrackOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    try {
+      const input = snapshotExactRecord(options, START_PREPARED_TRACK_KEYS);
+      if (!input) throw new TypeError('Host prepared local track start options are invalid');
+      const authority = this.#requirePreparedTrackAuthority(input.prepared);
+      const remoteParticipants = this.#readPreparedRemoteParticipants(input.remoteParticipants);
+      if (authority.started) {
+        throw new Error('Host prepared local track has already started');
+      }
+      authority.started = true;
+      const task = this.#executePreparedCandidateStart(authority, remoteParticipants);
+      authority.operation.task = task;
+      return task;
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
   resumeCurrent(
     options: HostCurrentPlaybackOperationOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
@@ -1102,6 +1187,7 @@ export class FilePlaybackHostFirstFileEngine {
     const active = this.#activeOperation;
     this.#closed = true;
     this.#peerPublicationAuthority = null;
+    this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-room-closed');
     if (!active?.commitDominant) this.#operationEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
@@ -1260,6 +1346,71 @@ export class FilePlaybackHostFirstFileEngine {
     }
   }
 
+  async resolvePreparedPeerRangeSource(
+    options: ResolvePreparedHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource> {
+    const input = snapshotExactRecord(options, RESOLVE_PREPARED_PEER_SOURCE_KEYS);
+    if (
+      !input ||
+      !(input.signal instanceof AbortSignal) ||
+      !isBoundedIdentifier(input.sourceIdentity, MAX_APPLICATION_SCOPE_ID_LENGTH * 2)
+    ) {
+      throw new TypeError('Host prepared peer-range source resolution options are invalid');
+    }
+    const signal = input.signal;
+    const authority = this.#requirePreparedTrackAuthority(input.prepared);
+    const asset = authority.staged.asset;
+    if (input.sourceIdentity !== asset.sourceIdentity) {
+      throw new Error('Host prepared peer-range source identity is not the exact candidate');
+    }
+    throwIfAborted(signal);
+    this.#assertPreparedTrackAuthority(authority);
+
+    const blobResolution = this.#registry.resolveBlobAsset(
+      this.#roomToken,
+      authority.input.asset.lease,
+    );
+    if (blobResolution) {
+      if (
+        blobResolution.binding.queueItemId !== asset.queueItemId ||
+        blobResolution.binding.sourceIdentity !== asset.sourceIdentity ||
+        blobResolution.binding.transferSessionId !== asset.transferSessionId ||
+        blobResolution.metadata.name !== asset.name ||
+        blobResolution.metadata.mime !== asset.mime ||
+        blobResolution.blob.size !== asset.size
+      ) {
+        throw new Error('Host prepared peer-range Blob changed its exact binding');
+      }
+      await Promise.resolve();
+      throwIfAborted(signal);
+      this.#assertPreparedTrackAuthority(authority);
+      return blobResolution.blob;
+    }
+
+    let source: EncodedAudioSource | null = null;
+    try {
+      source = this.#registry.acquireSource(this.#roomToken, authority.input.asset.lease);
+      if (
+        source.kind !== asset.kind ||
+        source.identity !== asset.sourceIdentity ||
+        source.size !== asset.size ||
+        source.metadata.name !== asset.name ||
+        source.metadata.mime !== asset.mime
+      ) {
+        throw new Error('Host prepared peer-range encoded source changed its exact binding');
+      }
+      await Promise.resolve();
+      throwIfAborted(signal);
+      this.#assertPreparedTrackAuthority(authority);
+      const resolved = source;
+      source = null;
+      return resolved;
+    } catch (error) {
+      if (source) await closeEncodedSourceWithoutMasking(source);
+      throw error;
+    }
+  }
+
   recoverRemoteParticipant(
     options: RecoverHostRemoteParticipantOptions,
   ): Promise<Readonly<HostRemoteRecoveryCommit>> {
@@ -1353,6 +1504,22 @@ export class FilePlaybackHostFirstFileEngine {
     }
   }
 
+  #runSynchronousCandidatePreparation(
+    start: () => Promise<Readonly<HostPreparedLocalTrack>>,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
+    if (this.#startingSynchronously) {
+      return Promise.reject(new Error('Host file candidate re-entered synchronous admission'));
+    }
+    this.#startingSynchronously = true;
+    try {
+      return start();
+    } catch (error) {
+      return Promise.reject(error);
+    } finally {
+      this.#startingSynchronously = false;
+    }
+  }
+
   #readFileCandidateInput(
     options: unknown,
     keys: readonly string[],
@@ -1401,6 +1568,38 @@ export class FilePlaybackHostFirstFileEngine {
       signal: input.signal,
       positionSeconds,
     });
+  }
+
+  #readPreparedRemoteParticipants(
+    value: unknown,
+  ): readonly Readonly<HostPreparedRemoteParticipant>[] {
+    if (!Array.isArray(value)) {
+      throw new TypeError('Host prepared remote participants must be an array');
+    }
+    const participantIds = new Set<string>([this.#hostParticipantId]);
+    const participants: Readonly<HostPreparedRemoteParticipant>[] = [];
+    for (const candidate of value) {
+      const input = snapshotExactRecord(candidate, PREPARED_REMOTE_PARTICIPANT_KEYS);
+      if (
+        !input ||
+        !isExactRemoteParticipant(input.participant) ||
+        typeof input.bindAttempt !== 'function'
+      ) {
+        throw new TypeError('Host prepared remote participant is invalid');
+      }
+      const participant = input.participant;
+      if (participantIds.has(participant.participantId)) {
+        throw new Error('Host prepared cohort participant IDs must be unique');
+      }
+      participantIds.add(participant.participantId);
+      participants.push(
+        freezeCanonical({
+          participant,
+          bindAttempt: input.bindAttempt as HostPreparedRemoteParticipant['bindAttempt'],
+        }),
+      );
+    }
+    return Object.freeze(participants.slice());
   }
 
   #readCurrentOperationInput(
@@ -1876,6 +2075,16 @@ export class FilePlaybackHostFirstFileEngine {
     input: Readonly<CanonicalFileCandidateInput>,
     previousTimeline: PlaybackTimelineSnapshot,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    return this.#prepareFileCandidate(action, input, previousTimeline).then((prepared) =>
+      this.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+    );
+  }
+
+  #prepareFileCandidate(
+    action: 'first' | 'track',
+    input: Readonly<CanonicalFileCandidateInput>,
+    previousTimeline: PlaybackTimelineSnapshot,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
     const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, action);
     const runtime = this.#bindAudioRuntime(input, previousTimeline);
     const asset = this.#admitAsset(input, previousTimeline);
@@ -1889,7 +2098,7 @@ export class FilePlaybackHostFirstFileEngine {
       input.positionSeconds,
       previousTimeline,
     );
-    return this.#beginCandidateOperation({
+    return this.#beginCandidatePreparation({
       action,
       previousTimeline,
       expectedCurrentPort,
@@ -2072,6 +2281,14 @@ export class FilePlaybackHostFirstFileEngine {
   #beginCandidateOperation(
     input: Readonly<BeginCandidateOperationInput>,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    return this.#beginCandidatePreparation(input).then((prepared) =>
+      this.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+    );
+  }
+
+  #beginCandidatePreparation(
+    input: Readonly<BeginCandidateOperationInput>,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
     const previousOperation = this.#activeOperation;
     if (previousOperation?.kind === 'transition') {
       throw new Error('Host local file candidate conflicts with a renderer transition');
@@ -2099,20 +2316,20 @@ export class FilePlaybackHostFirstFileEngine {
     };
     this.#activeOperation = operation;
     this.#peerPublicationAuthority = null;
+    this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-renderer-candidate');
     previousOperation?.controller.abort(new Error('Host local file candidate was superseded'));
     if (input.signal.aborted) forwardExternalAbort();
-    const task = this.#executeCandidateStart(operation, input);
+    const task = this.#executeCandidatePreparation(operation, input);
     operation.task = task;
     return task;
   }
 
-  async #executeCandidateStart(
+  async #executeCandidatePreparation(
     operation: ActiveStartOperation,
     input: Readonly<BeginCandidateOperationInput>,
-  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
     let staged: Readonly<StagedLocalFilePlaybackParticipant> | null = null;
-    let attempt: HostRendezvousAttempt | null = null;
     try {
       this.#assertOperationFence(operation);
       if (currentPort(this.#manager) !== operation.expectedCurrentPort) {
@@ -2148,21 +2365,114 @@ export class FilePlaybackHostFirstFileEngine {
       if (currentPort(this.#manager) !== operation.expectedCurrentPort) {
         throw new Error('Host local file current renderer changed during candidate staging');
       }
+      this.#assertOperationFence(operation);
+      const asset = staged.asset;
+      const prepared = freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: this.#roomGeneration,
+        backend: staged.backend,
+        state: staged.playbackState,
+        positionSeconds: input.positionSeconds,
+        playbackRate: input.playbackRate,
+        asset: freezeCanonical({
+          kind: asset.kind,
+          binding: freezeCanonical({
+            queueItemId: asset.queueItemId,
+            sourceIdentity: asset.sourceIdentity,
+            transferSessionId: asset.transferSessionId,
+          }),
+          metadata: freezeCanonical({ name: asset.name, mime: asset.mime }),
+          encodedSize: asset.size,
+        }),
+      });
+      const authority: PreparedTrackAuthority = {
+        prepared,
+        operation,
+        input,
+        playbackState: staged.playbackState,
+        staged,
+        started: false,
+      };
+      this.#preparedTrackAuthority = authority;
+      this.#assertPreparedTrackAuthority(authority);
+      return prepared;
+    } catch (error) {
+      if (staged) {
+        observe(
+          retireLocalFilePlaybackParticipant(
+            staged,
+            operation.controller.signal.aborted
+              ? 'host-candidate-aborted'
+              : 'host-candidate-failed',
+          ),
+        );
+      }
+      operation.removeExternalAbort();
+      if (this.#activeOperation === operation) this.#activeOperation = null;
+      throw error;
+    }
+  }
+
+  async #executePreparedCandidateStart(
+    authority: PreparedTrackAuthority,
+    remoteParticipants: readonly Readonly<HostPreparedRemoteParticipant>[],
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
+    const { operation, input, playbackState, staged } = authority;
+    const deferredRemotes = remoteParticipants.map((remote) => ({
+      remote,
+      deferred: deferredRemoteParticipant(remote.participant),
+    }));
+    let attempt: HostRendezvousAttempt | null = null;
+    try {
+      this.#assertPreparedTrackStartAuthority(authority);
       attempt = Reflect.apply(trustedRendezvousCoordinatorStart, this.#rendezvousCoordinator, [
         {
           run: playbackState,
           positionSeconds: input.positionSeconds,
           playbackRate: input.playbackRate,
-          participants: [staged.participant],
+          participants: [
+            staged.participant,
+            ...deferredRemotes.map(({ deferred }) => deferred.participant),
+          ],
         },
       ]);
-      this.#assertOperationFence(operation);
+      this.#assertPreparedTrackStartAuthority(authority);
       const localCompletion = completeLocalFilePlaybackParticipant({ staged, attempt });
       observe(localCompletion);
-      const accepted = await attempt.whenFirstParticipantAccepted();
-      this.#assertOperationFence(operation);
+      const localAcceptedTask = attempt.whenParticipantAccepted(this.#hostParticipantId);
+      observe(localAcceptedTask);
+
+      for (const { remote, deferred } of deferredRemotes) {
+        try {
+          this.#assertPreparedTrackStartAuthority(authority);
+          const evidence = Reflect.apply(remote.bindAttempt, undefined, [attempt]) as unknown;
+          if (!(evidence instanceof Promise)) {
+            throw new TypeError(
+              'Host prepared remote attempt binding must return a native Promise',
+            );
+          }
+          observe(evidence);
+          this.#assertPreparedTrackStartAuthority(authority);
+          const committed = Promise.all([
+            attempt.whenParticipantAccepted(remote.participant.participantId),
+            evidence,
+          ]).then(() => {
+            if (!attempt?.commitParticipant(remote.participant.participantId)) {
+              throw new Error('Host prepared remote renderer evidence was not committed');
+            }
+          });
+          observe(committed);
+          deferred.release();
+        } catch (error) {
+          deferred.reject(asError(error, 'Host prepared remote participant binding failed'));
+        }
+      }
+
+      const accepted = await localAcceptedTask;
+      this.#assertPreparedTrackStartAuthority(authority);
       const acceptedSnapshot = attempt.getSnapshot();
       if (
+        accepted.acceptedParticipantId !== this.#hostParticipantId ||
         (acceptedSnapshot.status !== 'open' && acceptedSnapshot.status !== 'complete') ||
         acceptedSnapshot.reasonCode !== null ||
         acceptedSnapshot.rendezvousId !== accepted.attempt.rendezvousId ||
@@ -2171,7 +2481,7 @@ export class FilePlaybackHostFirstFileEngine {
         acceptedSnapshot.run.revision !== playbackState.revision ||
         !acceptedSnapshot.participants.some(
           (participant) =>
-            participant.participantId === accepted.acceptedParticipantId &&
+            participant.participantId === this.#hostParticipantId &&
             participant.finalizeStatus === 'accepted',
         ) ||
         accepted.attempt.queueItemId !== playbackState.queueItemId ||
@@ -2187,9 +2497,9 @@ export class FilePlaybackHostFirstFileEngine {
         accepted.schedule.startAtRoomTimeMs !== attempt.startAtRoomTimeMs ||
         accepted.schedule.finalizeByRoomTimeMs !== attempt.finalizeByRoomTimeMs
       ) {
-        throw new Error('Host rendezvous acceptance changed the requested schedule');
+        throw new Error('Host rendezvous local acceptance changed the requested schedule');
       }
-      this.#assertOperationFence(operation);
+      this.#assertPreparedTrackStartAuthority(authority);
       operation.commitDominant = true;
       this.#assertTimelineCommitFence(operation);
 
@@ -2244,6 +2554,9 @@ export class FilePlaybackHostFirstFileEngine {
         timeline: committed.timeline,
       });
     } catch (error) {
+      for (const { deferred } of deferredRemotes) {
+        deferred.reject(asError(error, 'Host prepared cohort failed'));
+      }
       if (!operation.published) {
         try {
           attempt?.cancel(
@@ -2254,16 +2567,14 @@ export class FilePlaybackHostFirstFileEngine {
         } catch {
           // Exact local-port retirement remains the cleanup fence.
         }
-        if (staged) {
-          observe(
-            retireLocalFilePlaybackParticipant(
-              staged,
-              operation.controller.signal.aborted
-                ? 'host-candidate-aborted'
-                : 'host-candidate-failed',
-            ),
-          );
-        }
+        observe(
+          retireLocalFilePlaybackParticipant(
+            staged,
+            operation.controller.signal.aborted
+              ? 'host-candidate-aborted'
+              : 'host-candidate-failed',
+          ),
+        );
       }
       if (operation.commitDominant && !operation.published) {
         this.#quarantineAfterPhysicalFailure(error);
@@ -2271,6 +2582,7 @@ export class FilePlaybackHostFirstFileEngine {
       throw error;
     } finally {
       operation.removeExternalAbort();
+      if (this.#preparedTrackAuthority === authority) this.#preparedTrackAuthority = null;
       if (this.#activeOperation === operation) this.#activeOperation = null;
     }
   }
@@ -2308,6 +2620,62 @@ export class FilePlaybackHostFirstFileEngine {
       left.name === right.name &&
       left.mime === right.mime
     );
+  }
+
+  #requirePreparedTrackAuthority(value: unknown): PreparedTrackAuthority {
+    const authority = this.#preparedTrackAuthority;
+    if (!authority || value !== authority.prepared) {
+      throw new Error('Host prepared local track is not the exact current candidate');
+    }
+    this.#assertPreparedTrackAuthority(authority);
+    return authority;
+  }
+
+  #assertPreparedTrackAuthority(authority: PreparedTrackAuthority): void {
+    if (authority.started) {
+      throw new Error('Host prepared local track has already started');
+    }
+    this.#assertPreparedTrackCommonAuthority(authority);
+  }
+
+  #assertPreparedTrackStartAuthority(authority: PreparedTrackAuthority): void {
+    if (!authority.started) {
+      throw new Error('Host prepared local track has not claimed start authority');
+    }
+    this.#assertPreparedTrackCommonAuthority(authority);
+  }
+
+  #assertPreparedTrackCommonAuthority(authority: PreparedTrackAuthority): void {
+    const { prepared, operation, input, playbackState, staged } = authority;
+    if (
+      this.#preparedTrackAuthority !== authority ||
+      this.#activeOperation !== operation ||
+      this.#operationEpoch !== operation.epoch ||
+      operation.commitDominant ||
+      operation.published ||
+      prepared.roomGeneration !== this.#roomGeneration ||
+      prepared.backend !== staged.backend ||
+      prepared.state !== playbackState ||
+      prepared.positionSeconds !== input.positionSeconds ||
+      prepared.playbackRate !== input.playbackRate ||
+      staged.playbackState !== playbackState ||
+      staged.asset.queueItemId !== playbackState.queueItemId ||
+      prepared.asset.binding.queueItemId !== staged.asset.queueItemId ||
+      prepared.asset.binding.sourceIdentity !== staged.asset.sourceIdentity ||
+      prepared.asset.binding.transferSessionId !== staged.asset.transferSessionId ||
+      prepared.asset.kind !== staged.asset.kind ||
+      prepared.asset.encodedSize !== staged.asset.size ||
+      prepared.asset.metadata.name !== staged.asset.name ||
+      prepared.asset.metadata.mime !== staged.asset.mime ||
+      currentPort(this.#manager) !== operation.expectedCurrentPort
+    ) {
+      throw new Error('Host prepared local track authority changed');
+    }
+    this.#assertOperationFence(operation);
+    const currentAsset = this.#registry.snapshotForLease(this.#roomToken, input.asset.lease);
+    if (!currentAsset || !this.#samePeerAsset(currentAsset, staged.asset)) {
+      throw new Error('Host prepared local track asset authority changed');
+    }
   }
 
   #requirePeerPublication(value: unknown): PeerPublicationAuthority {
@@ -2784,6 +3152,7 @@ export class FilePlaybackHostFirstFileEngine {
     if (!this.#fatalError) this.#fatalError = error;
     this.#closed = true;
     this.#peerPublicationAuthority = null;
+    this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-room-quarantined');
     this.#operationEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
@@ -2802,6 +3171,7 @@ export class FilePlaybackHostFirstFileEngine {
     if (!this.#fatalError) this.#fatalError = error;
     this.#closed = true;
     this.#peerPublicationAuthority = null;
+    this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-registry-fatal');
     this.#operationEpoch += 1;
     const coordinatorFailure = this.#closeCoordinatorOnce();
@@ -2864,6 +3234,7 @@ export class FilePlaybackHostFirstFileEngine {
       );
     }
     this.#peerPublicationAuthority = null;
+    this.#preparedTrackAuthority = null;
     this.#cancelAllRemoteRecoveries('remote-recovery-terminal-cleanup');
     this.#assets.clear();
     this.#legacyFirstQueueItemId = null;

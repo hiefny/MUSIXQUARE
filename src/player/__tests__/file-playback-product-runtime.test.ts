@@ -1,12 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { REMOTE_SHARE_MAX_BYTES } from '../../core/constants.ts';
 import type {
   FilePlaybackApplicationSessionHooks,
   FilePlaybackHostApplicationSessionAuthority,
 } from '../../network/file-playback-application-session.ts';
 import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
+import { FilePlaybackAssetRegistry } from '../file-playback-asset-registry.ts';
+import {
+  createPeerRangeFileMediaSourceOfferV2,
+  FileMediaOfferRegistry,
+} from '../file-media-source-offer.ts';
+import { FilePlaybackManager } from '../file-playback-manager.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
+import type { FilePlaybackProductGuestMediaOwnerOptions } from '../file-playback-product-guest-media-owner.ts';
+import type { FilePlaybackProductHostMediaOwnerOptions } from '../file-playback-product-host-media-owner.ts';
 import type {
   FilePlaybackProductHostCurrentOptions,
   FilePlaybackProductHostFirstLocalFileCommit,
@@ -22,9 +31,23 @@ import {
   FilePlaybackProductRuntime,
   type FilePlaybackProductRuntimeControllerFactoryInput,
   type FilePlaybackProductRuntimeHostRoomPort,
+  type FilePlaybackProductRuntimeOptions,
   type FilePlaybackProductRuntimeSessionAdapter,
 } from '../file-playback-product-runtime.ts';
+import { FilePlaybackR2WholeBlobPublisher } from '../file-playback-r2-whole-blob-publisher.ts';
+import type {
+  FilePlaybackProductSessionRouterConnectionContext,
+  FilePlaybackProductSessionRouterOptions,
+  FilePlaybackProductSessionRouterSnapshot,
+} from '../file-playback-product-session-router.ts';
 import type { PlaybackTimelineSnapshot } from '../playback-timeline.ts';
+
+type FilePlaybackProductRuntimeMediaFactoriesForTests = NonNullable<
+  FilePlaybackProductRuntimeOptions['mediaFactoriesForTests']
+>;
+type FilePlaybackProductRuntimeSessionRouterPort = ReturnType<
+  NonNullable<FilePlaybackProductRuntimeMediaFactoriesForTests['createSessionRouter']>
+>;
 
 const Q1 = '98000000-0000-4000-8000-000000000001' as QueueItemId;
 const Q2 = '98000000-0000-4000-8000-000000000002' as QueueItemId;
@@ -77,6 +100,8 @@ interface RuntimeHarnessOptions {
   readonly monotonicNow?: number;
   readonly hostRoomClosePlans?: readonly HostRoomClosePlan[];
   readonly omitHostRoomMethod?: keyof FilePlaybackProductRuntimeHostRoomPort;
+  readonly mediaFactoriesForTests?: Readonly<FilePlaybackProductRuntimeMediaFactoriesForTests>;
+  readonly onHealthSystemMessage?: FilePlaybackProductRuntimeOptions['onHealthSystemMessage'];
 }
 
 let harnessSequence = 0;
@@ -175,6 +200,8 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
         }),
         sendRequired: (connection, frame) => input.sessions.sendRequired(connection, frame),
         closeConnection: (connection) => input.sessions.closeConnection(connection),
+        onHostReady: input.onHostReady,
+        onTimelineAdopted: input.onTimelineAdopted,
       });
       const beginRoom = controller.beginRoom.bind(controller);
       const claimRoomRole = controller.claimRoomRole.bind(controller);
@@ -318,6 +345,8 @@ function harness(options: RuntimeHarnessOptions = {}): RuntimeHarness {
     createController,
     nowMonotonicMs: monotonicNow,
     createHostRoom,
+    mediaFactoriesForTests: options.mediaFactoriesForTests,
+    onHealthSystemMessage: options.onHealthSystemMessage,
   });
 
   return {
@@ -356,6 +385,65 @@ function localFile(name = 'product-runtime.mp3'): File {
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+interface ProductRouterHarness {
+  readonly port: FilePlaybackProductRuntimeSessionRouterPort;
+  readonly options: Readonly<FilePlaybackProductSessionRouterOptions>;
+  readonly notifyHostReady: ReturnType<typeof vi.fn>;
+  readonly notifyTimelineAdopted: ReturnType<typeof vi.fn>;
+  readonly close: ReturnType<typeof vi.fn>;
+}
+
+function productRouterHarness(
+  options: Readonly<FilePlaybackProductSessionRouterOptions>,
+): ProductRouterHarness {
+  let closed = false;
+  const hooks: Readonly<FilePlaybackApplicationSessionHooks> = Object.freeze({
+    onLifecycleEvent: vi.fn(),
+    adoptAuxiliaryMessage: vi.fn(),
+    adoptWireMessage: vi.fn(),
+    adoptPeerRangeMessage: vi.fn(),
+  });
+  const notifyHostReady = vi.fn(() => true);
+  const notifyTimelineAdopted = vi.fn(() => true);
+  const close = vi.fn(() => {
+    closed = true;
+  });
+  const port: FilePlaybackProductRuntimeSessionRouterPort = {
+    applicationSessionHooks: () => hooks,
+    notifyHostReady,
+    notifyTimelineAdopted,
+    snapshot: () =>
+      Object.freeze({
+        schemaVersion: 1,
+        closed,
+        activeConnectionCount: 0,
+        connections: Object.freeze([]),
+      }) satisfies Readonly<FilePlaybackProductSessionRouterSnapshot>,
+    close,
+  };
+  return { port, options, notifyHostReady, notifyTimelineAdopted, close };
+}
+
+function routerContext(
+  role: 'host' | 'guest',
+  input: Readonly<{ connection?: DataConnection; suffix?: string }> = {},
+): Readonly<FilePlaybackProductSessionRouterConnectionContext> {
+  const suffix = input.suffix ?? role;
+  const peer = input.connection ?? connection();
+  return freezeCanonical({
+    schemaVersion: 1 as const,
+    role,
+    connection: peer,
+    channel: Object.freeze({}) as never,
+    connectionToken: peer as unknown as object,
+    routerToken: Object.freeze(Object.create(null) as object),
+    sessionId: `product-router-session-${suffix}`,
+    connectionId: `product-router-connection-${suffix}`,
+    hostParticipantId: `product-router-host-${suffix}`,
+    guestParticipantId: `product-router-guest-${suffix}`,
+  });
 }
 
 function commitHostPlayingForTerminalObservation(
@@ -484,7 +572,7 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.events).toEqual([]);
   });
 
-  it('creates the controller and installs its hooks exactly once before protocol', () => {
+  it('creates the controller and installs router-owned hooks exactly once before protocol', () => {
     const setup = harness({ monotonicNow: 4_321 });
 
     expect(setup.runtime.initializeBeforeProtocol()).toBe(true);
@@ -494,7 +582,13 @@ describe('FilePlaybackProductRuntime', () => {
     expect(controller).toBe(setup.controller());
     expect(setup.createController).toHaveBeenCalledOnce();
     expect(setup.installHooks).toHaveBeenCalledOnce();
-    expect(setup.installHooks).toHaveBeenCalledWith(controller?.applicationSessionHooks());
+    expect(setup.installHooks.mock.calls[0]?.[0]).not.toBe(controller?.applicationSessionHooks());
+    expect(setup.installHooks.mock.calls[0]?.[0]).toMatchObject({
+      onLifecycleEvent: expect.any(Function),
+      adoptAuxiliaryMessage: expect.any(Function),
+      adoptWireMessage: expect.any(Function),
+      adoptPeerRangeMessage: expect.any(Function),
+    });
     expect(setup.createController.mock.calls[0]?.[0].initialTimeline).toMatchObject({
       revision: 0,
       phase: 'stopped',
@@ -505,6 +599,269 @@ describe('FilePlaybackProductRuntime', () => {
       'controller:create',
       'sessions:install-hooks',
     ]);
+  });
+
+  it('defers controller media notifications out of router mutation and targets one exact router', async () => {
+    const routers: ProductRouterHarness[] = [];
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    const controllerInput = setup.createController.mock
+      .calls[0]?.[0] as Readonly<FilePlaybackProductRuntimeControllerFactoryInput>;
+    const hostReady = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: setup.controller().snapshot().roomGeneration,
+      epoch: 1,
+      role: 'host' as const,
+      sessionId: 'deferred-host-session',
+      connectionId: 'deferred-host-connection',
+      baselineStatus: 'ready' as const,
+      baselineId: 'deferred-host-baseline',
+      playbackRevision: 0,
+      clockReady: true,
+      ready: true,
+    });
+    const timelineAdopted = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: setup.controller().snapshot().roomGeneration,
+      sessionId: 'deferred-guest-session',
+      connectionId: 'deferred-guest-connection',
+      status: 'adopted' as const,
+      timeline: setup.controller().timelineSnapshot(),
+    });
+
+    controllerInput.onHostReady(hostReady);
+    controllerInput.onTimelineAdopted(timelineAdopted);
+    expect(routers[0]?.notifyHostReady).not.toHaveBeenCalled();
+    expect(routers[0]?.notifyTimelineAdopted).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+
+    expect(routers[0]?.notifyHostReady).toHaveBeenCalledWith(hostReady);
+    expect(routers[0]?.notifyTimelineAdopted).toHaveBeenCalledWith(timelineAdopted);
+
+    controllerInput.onHostReady(hostReady);
+    controllerInput.onTimelineAdopted(timelineAdopted);
+    setup.runtime.beginGuestRoom();
+    await Promise.resolve();
+    expect(routers[0]?.notifyHostReady).toHaveBeenCalledTimes(1);
+    expect(routers[0]?.notifyTimelineAdopted).toHaveBeenCalledTimes(1);
+    setup.runtime.endRoom();
+  });
+
+  it('wires the exact active host room, shared publisher, health callback, and failed-notification close', async () => {
+    const routers: ProductRouterHarness[] = [];
+    let publisher: FilePlaybackR2WholeBlobPublisher | null = null;
+    let hostOwnerOptions: Readonly<FilePlaybackProductHostMediaOwnerOptions> | null = null;
+    const onHealthSystemMessage = vi.fn();
+    const hostOwner = Object.freeze({
+      onHostReady: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeControl: vi.fn(),
+      revoke: vi.fn(),
+    });
+    const setup = harness({
+      onHealthSystemMessage,
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createHostPublisher: (roomToken) => {
+          publisher = new FilePlaybackR2WholeBlobPublisher({ roomToken });
+          vi.spyOn(publisher, 'close');
+          return publisher;
+        },
+        createHostMediaOwner: (options) => {
+          hostOwnerOptions = options;
+          return hostOwner;
+        },
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('product-media-host');
+    const peer = connection();
+    const context = routerContext('host', { connection: peer, suffix: 'host-wiring' });
+
+    const wrappedOwner = routers[0]!.options.createHostMediaOwner(context);
+    expect(hostOwnerOptions?.context).toBe(context);
+    expect(hostOwnerOptions?.hostRoom).toBe(setup.hostRooms[0]?.port);
+    expect(hostOwnerOptions?.publisher).toBe(publisher);
+    expect(wrappedOwner).not.toBe(hostOwner);
+    expect(hostOwnerOptions?.sendRequired(peer, freezeCanonical({ type: 'fixture' }))).toBe(true);
+    expect(setup.sessions.sendRequired).toHaveBeenCalledWith(peer, { type: 'fixture' });
+
+    const healthMessage = freezeCanonical({
+      schemaVersion: 1 as const,
+      participantId: context.guestParticipantId,
+      messageKey: 'participant-connection-unstable-recovering' as const,
+    });
+    hostOwnerOptions?.onHealthSystemMessage(healthMessage);
+    expect(onHealthSystemMessage).toHaveBeenCalledWith(healthMessage);
+
+    routers[0]!.notifyHostReady.mockImplementationOnce(() => {
+      wrappedOwner.revoke(context);
+      throw new Error('deferred host notification failed');
+    });
+    const controllerInput = setup.createController.mock
+      .calls[0]?.[0] as Readonly<FilePlaybackProductRuntimeControllerFactoryInput>;
+    controllerInput.onHostReady(
+      freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: setup.controller().snapshot().roomGeneration,
+        epoch: 1,
+        role: 'host' as const,
+        sessionId: context.sessionId,
+        connectionId: context.connectionId,
+        baselineStatus: 'ready' as const,
+        baselineId: 'failed-host-notification',
+        playbackRevision: 0,
+        clockReady: true,
+        ready: true,
+      }),
+    );
+    expect(setup.sessions.closeConnection).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(setup.sessions.closeConnection).toHaveBeenCalledWith(peer);
+
+    setup.runtime.endRoom();
+    expect(routers[0]?.close).not.toHaveBeenCalled();
+    expect(publisher?.close).toHaveBeenCalledOnce();
+  });
+
+  it('wires one guest room registry/manager and fail-closes exact room resources', async () => {
+    const routers: ProductRouterHarness[] = [];
+    let guestOwnerOptions: Readonly<FilePlaybackProductGuestMediaOwnerOptions> | null = null;
+    let registry: FilePlaybackAssetRegistry | null = null;
+    let registryRoomToken: object | null = null;
+    let registryFatal: ((token: object, error: Error) => void) | null = null;
+    const manager = new FilePlaybackManager();
+    vi.spyOn(manager, 'clear');
+    const guestOwner = Object.freeze({
+      onTimelineAdopted: vi.fn(),
+      adoptAuxiliaryMessage: vi.fn(),
+      adoptWireMessage: vi.fn(),
+      adoptPeerRangeBulk: vi.fn(),
+      revoke: vi.fn(),
+    });
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+        createGuestRegistry: (roomToken, onFatalRoom) => {
+          registryRoomToken = roomToken;
+          registryFatal = onFatalRoom;
+          registry = new FilePlaybackAssetRegistry({ liveRoomToken: roomToken, onFatalRoom });
+          vi.spyOn(registry, 'close');
+          return registry;
+        },
+        createGuestManager: () => manager,
+        createGuestMediaOwner: (options) => {
+          guestOwnerOptions = options;
+          return guestOwner;
+        },
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginGuestRoom();
+    const peer = connection();
+    const context = routerContext('guest', { connection: peer, suffix: 'guest-wiring' });
+
+    const wrappedOwner = routers[0]!.options.createGuestMediaOwner(context);
+    expect(guestOwnerOptions?.context).toBe(context);
+    expect(guestOwnerOptions?.registry).toBe(registry);
+    expect(guestOwnerOptions?.manager).toBe(manager);
+    expect(guestOwnerOptions?.roomToken).toBe(registryRoomToken);
+    expect(wrappedOwner).not.toBe(guestOwner);
+    expect(guestOwnerOptions!.maxEncodedSize).toBe(5 * 1024 * 1024 * 1024);
+    expect(guestOwnerOptions!.maxEncodedSize).toBeGreaterThan(REMOTE_SHARE_MAX_BYTES);
+    const offerToken = Object.freeze({});
+    const offers = new FileMediaOfferRegistry({
+      liveConnectionToken: offerToken,
+      sessionId: context.sessionId,
+      connectionId: context.connectionId,
+      maxEncodedSize: guestOwnerOptions!.maxEncodedSize,
+      nowRoomTimeMs: () => 1_000,
+      onFatalConnection: vi.fn(),
+    });
+    expect(offers.admitQueueItem(offerToken, Q1)).toBe(true);
+    expect(
+      offers.accept(
+        offerToken,
+        createPeerRangeFileMediaSourceOfferV2({
+          sessionId: context.sessionId,
+          connectionId: context.connectionId,
+          prepareId: Q2,
+          prepareRevision: 1,
+          queueItemId: Q1,
+          sourceIdentity: 'runtime-large-flac-source',
+          transferSessionId: 'runtime-large-flac-transfer',
+          handleId: 'runtime-large-flac-handle',
+          encodedSize: REMOTE_SHARE_MAX_BYTES + 1,
+          name: 'large-orchestra.flac',
+          mime: 'audio/flac',
+          expiresAtRoomTimeMs: 2_000,
+        }),
+      ),
+    ).toMatchObject({ accepted: true, status: 'accepted' });
+    expect(guestOwnerOptions?.sendRequired(context, freezeCanonical({ type: 'guest-frame' }))).toBe(
+      true,
+    );
+    expect(setup.sessions.sendRequired).toHaveBeenCalledWith(peer, { type: 'guest-frame' });
+    expect(
+      guestOwnerOptions?.sendRequired(
+        routerContext('guest', { suffix: 'foreign' }),
+        freezeCanonical({ type: 'foreign-frame' }),
+      ),
+    ).toBe(false);
+
+    guestOwnerOptions?.onFatalConnection(
+      context,
+      new Error('guest media fatal') as Parameters<
+        FilePlaybackProductGuestMediaOwnerOptions['onFatalConnection']
+      >[1],
+    );
+    expect(setup.sessions.closeConnection).toHaveBeenCalledWith(peer);
+
+    Reflect.apply(registryFatal!, undefined, [registryRoomToken!, new Error('registry fatal')]);
+    await Promise.resolve();
+
+    expect(setup.endRoom).toHaveBeenCalledOnce();
+    expect(routers[0]?.close).not.toHaveBeenCalled();
+    expect(manager.clear).toHaveBeenCalledOnce();
+    expect(registry?.close).toHaveBeenCalledWith(registryRoomToken);
+  });
+
+  it('reuses its one-shot document router across consecutive room generations', () => {
+    const routers: ProductRouterHarness[] = [];
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const candidate = productRouterHarness(options);
+          routers.push(candidate);
+          return candidate.port;
+        },
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginHostRoom('router-generation-host');
+    setup.runtime.endRoom();
+    setup.runtime.beginGuestRoom();
+
+    expect(routers).toHaveLength(1);
+    expect(routers[0]?.close).not.toHaveBeenCalled();
+    expect(setup.installHooks).toHaveBeenCalledOnce();
   });
 
   it('makes an initialization failure permanent and never falls back at runtime', () => {

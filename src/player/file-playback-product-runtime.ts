@@ -5,9 +5,16 @@ import {
   type FilePlaybackApplicationSessionHooks,
   type FilePlaybackHostApplicationSessionAuthority,
 } from '../network/file-playback-application-session.ts';
+import { getPrimedFilePlaybackProductAudio } from '../audio/file-playback-audio-readiness.ts';
 import { isFilePlaybackSessionId } from '../network/file-playback-session-handshake.ts';
 import type { DataConnection } from '../types/index.ts';
-import { FilePlaybackApplicationController } from './file-playback-application-controller.ts';
+import {
+  FilePlaybackApplicationController,
+  type FilePlaybackApplicationControllerConnectionSnapshot,
+  type FilePlaybackApplicationTimelineAdoptedEvent,
+} from './file-playback-application-controller.ts';
+import { FilePlaybackAssetRegistry } from './file-playback-asset-registry.ts';
+import { FilePlaybackManager } from './file-playback-manager.ts';
 import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
 import type {
   HostPeerPlaybackPublication,
@@ -17,6 +24,15 @@ import type {
   ResolveHostPeerRangeSourceOptions,
 } from './file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from './file-playback-product-baseline-session.ts';
+import {
+  createFilePlaybackProductGuestMediaOwner,
+  type FilePlaybackProductGuestMediaOwnerOptions,
+} from './file-playback-product-guest-media-owner.ts';
+import {
+  FilePlaybackProductHostMediaOwner,
+  type FilePlaybackProductHostHealthSystemMessage,
+  type FilePlaybackProductHostMediaOwnerOptions,
+} from './file-playback-product-host-media-owner.ts';
 import {
   FilePlaybackProductHostRoom,
   type FilePlaybackProductHostCurrentOptions,
@@ -30,7 +46,17 @@ import {
   type StartFilePlaybackProductHostLocalTrackOptions,
 } from './file-playback-product-host-room.ts';
 import { getFilePlaybackRoomClock } from './file-playback-room-clock.ts';
+import { FilePlaybackR2WholeBlobPublisher } from './file-playback-r2-whole-blob-publisher.ts';
+import {
+  FilePlaybackProductSessionRouter,
+  type FilePlaybackProductSessionRouterConnectionContext,
+  type FilePlaybackProductSessionRouterGuestMediaOwnerPort,
+  type FilePlaybackProductSessionRouterHostMediaOwnerPort,
+  type FilePlaybackProductSessionRouterOptions,
+  type FilePlaybackProductSessionRouterSnapshot,
+} from './file-playback-product-session-router.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
+import { decodeOrdinaryAudio } from './ordinary-audio-decoder.ts';
 import type { FilePlaybackWireLease } from './file-playback-wire-binding.ts';
 import type {
   FilePlaybackWireMessageForKind,
@@ -42,6 +68,9 @@ import {
 } from './playback-timeline.ts';
 
 const DEFAULT_ENABLED = isFilePlaybackEngineV2Enabled();
+// Peer-range streaming never materializes the full encoded FLAC in RAM. Keep
+// its offer policy independent from the temporary 200 MiB whole-Blob R2 cap.
+const FILE_PLAYBACK_PRODUCT_MAX_PEER_ENCODED_BYTES = 5 * 1024 * 1024 * 1024;
 
 type RuntimeState = 'idle' | 'initializing' | 'ready' | 'failed';
 
@@ -71,6 +100,38 @@ export interface FilePlaybackProductHostRoomSnapshot {
 export interface FilePlaybackProductRuntimeControllerFactoryInput {
   readonly initialTimeline: PlaybackTimelineSnapshot;
   readonly sessions: FilePlaybackProductRuntimeSessionAdapter;
+  readonly onHostReady: (
+    snapshot: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>,
+  ) => void;
+  readonly onTimelineAdopted: (
+    event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>,
+  ) => void;
+}
+
+interface FilePlaybackProductRuntimeSessionRouterPort {
+  applicationSessionHooks(): Readonly<FilePlaybackApplicationSessionHooks>;
+  notifyHostReady(snapshot: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>): boolean;
+  notifyTimelineAdopted(event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>): boolean;
+  snapshot(): Readonly<FilePlaybackProductSessionRouterSnapshot>;
+  close(): void;
+}
+
+interface FilePlaybackProductRuntimeMediaFactoriesForTests {
+  readonly createSessionRouter?: (
+    options: Readonly<FilePlaybackProductSessionRouterOptions>,
+  ) => FilePlaybackProductRuntimeSessionRouterPort;
+  readonly createHostPublisher?: (roomToken: object) => FilePlaybackR2WholeBlobPublisher;
+  readonly createGuestRegistry?: (
+    roomToken: object,
+    onFatalRoom: (token: object, error: Error) => void,
+  ) => FilePlaybackAssetRegistry;
+  readonly createGuestManager?: () => FilePlaybackManager;
+  readonly createHostMediaOwner?: (
+    options: Readonly<FilePlaybackProductHostMediaOwnerOptions>,
+  ) => FilePlaybackProductSessionRouterHostMediaOwnerPort;
+  readonly createGuestMediaOwner?: (
+    options: Readonly<FilePlaybackProductGuestMediaOwnerOptions>,
+  ) => FilePlaybackProductSessionRouterGuestMediaOwnerPort;
 }
 
 /** Narrow room capability retained by the product runtime. */
@@ -126,12 +187,25 @@ export interface FilePlaybackProductRuntimeOptions {
   readonly createHostRoom?: (
     options: Readonly<FilePlaybackProductHostRoomOptions>,
   ) => FilePlaybackProductRuntimeHostRoomPort;
+  readonly onHealthSystemMessage?: (
+    message: Readonly<FilePlaybackProductHostHealthSystemMessage>,
+  ) => void;
+  readonly mediaFactoriesForTests?: Readonly<FilePlaybackProductRuntimeMediaFactoriesForTests>;
 }
 
 interface ActiveProductHostRoom {
   readonly token: object;
   readonly roomGeneration: number;
   readonly port: FilePlaybackProductRuntimeHostRoomPort;
+  readonly publisher: FilePlaybackR2WholeBlobPublisher;
+}
+
+interface ActiveProductGuestRoom {
+  readonly token: object;
+  readonly roomGeneration: number;
+  readonly roomToken: object;
+  readonly registry: FilePlaybackAssetRegistry;
+  readonly manager: FilePlaybackManager;
 }
 
 function productionSessionAdapter(): FilePlaybackProductRuntimeSessionAdapter {
@@ -164,6 +238,8 @@ function defaultControllerFactory(
     idIssuer: new FilePlaybackProductBaselineIdIssuer(),
     sendRequired: (connection, frame) => input.sessions.sendRequired(connection, frame),
     closeConnection: (connection) => input.sessions.closeConnection(connection),
+    onHostReady: input.onHostReady,
+    onTimelineAdopted: input.onTimelineAdopted,
   });
 }
 
@@ -175,6 +251,45 @@ function defaultHostRoomFactory(
   options: Readonly<FilePlaybackProductHostRoomOptions>,
 ): FilePlaybackProductRuntimeHostRoomPort {
   return new FilePlaybackProductHostRoom(options);
+}
+
+function defaultSessionRouterFactory(
+  options: Readonly<FilePlaybackProductSessionRouterOptions>,
+): FilePlaybackProductRuntimeSessionRouterPort {
+  return new FilePlaybackProductSessionRouter(options);
+}
+
+function defaultHostPublisherFactory(roomToken: object): FilePlaybackR2WholeBlobPublisher {
+  return new FilePlaybackR2WholeBlobPublisher({ roomToken });
+}
+
+function defaultGuestRegistryFactory(
+  roomToken: object,
+  onFatalRoom: (token: object, error: Error) => void,
+): FilePlaybackAssetRegistry {
+  return new FilePlaybackAssetRegistry({ liveRoomToken: roomToken, onFatalRoom });
+}
+
+function defaultGuestManagerFactory(): FilePlaybackManager {
+  return new FilePlaybackManager();
+}
+
+function defaultHostMediaOwnerFactory(
+  options: Readonly<FilePlaybackProductHostMediaOwnerOptions>,
+): FilePlaybackProductSessionRouterHostMediaOwnerPort {
+  return new FilePlaybackProductHostMediaOwner(options).port();
+}
+
+function defaultGuestMediaOwnerFactory(
+  options: Readonly<FilePlaybackProductGuestMediaOwnerOptions>,
+): FilePlaybackProductSessionRouterGuestMediaOwnerPort {
+  return createFilePlaybackProductGuestMediaOwner(options);
+}
+
+function defaultHealthSystemMessage(
+  _message: Readonly<FilePlaybackProductHostHealthSystemMessage>,
+) {
+  // Product chat presentation is deliberately injected by app bootstrap.
 }
 
 function assertSessionAdapter(value: FilePlaybackProductRuntimeSessionAdapter): void {
@@ -220,6 +335,22 @@ function assertHostRoomPort(
   }
 }
 
+function assertSessionRouterPort(
+  value: FilePlaybackProductRuntimeSessionRouterPort,
+): asserts value is FilePlaybackProductRuntimeSessionRouterPort {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof value.applicationSessionHooks !== 'function' ||
+    typeof value.notifyHostReady !== 'function' ||
+    typeof value.notifyTimelineAdopted !== 'function' ||
+    typeof value.snapshot !== 'function' ||
+    typeof value.close !== 'function'
+  ) {
+    throw new TypeError('File playback product session router factory is invalid');
+  }
+}
+
 function requireAnchor(value: number, label: string): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new RangeError(`${label} must be a finite non-negative monotonic time`);
@@ -255,13 +386,36 @@ export class FilePlaybackProductRuntime {
   readonly #createHostRoom: (
     options: Readonly<FilePlaybackProductHostRoomOptions>,
   ) => FilePlaybackProductRuntimeHostRoomPort;
+  readonly #createSessionRouter: (
+    options: Readonly<FilePlaybackProductSessionRouterOptions>,
+  ) => FilePlaybackProductRuntimeSessionRouterPort;
+  readonly #createHostPublisher: (roomToken: object) => FilePlaybackR2WholeBlobPublisher;
+  readonly #createGuestRegistry: (
+    roomToken: object,
+    onFatalRoom: (token: object, error: Error) => void,
+  ) => FilePlaybackAssetRegistry;
+  readonly #createGuestManager: () => FilePlaybackManager;
+  readonly #createHostMediaOwner: (
+    options: Readonly<FilePlaybackProductHostMediaOwnerOptions>,
+  ) => FilePlaybackProductSessionRouterHostMediaOwnerPort;
+  readonly #createGuestMediaOwner: (
+    options: Readonly<FilePlaybackProductGuestMediaOwnerOptions>,
+  ) => FilePlaybackProductSessionRouterGuestMediaOwnerPort;
+  readonly #onHealthSystemMessage: (
+    message: Readonly<FilePlaybackProductHostHealthSystemMessage>,
+  ) => void;
   #sessions: FilePlaybackProductRuntimeSessionAdapter | null = null;
   #controller: FilePlaybackApplicationController | null = null;
+  #router: FilePlaybackProductRuntimeSessionRouterPort | null = null;
   #state: RuntimeState = 'idle';
   #failure: Error | null = null;
   #roomActive = false;
   #hostRoomSnapshot: Readonly<FilePlaybackProductHostRoomSnapshot> | null = null;
   #activeHostRoom: ActiveProductHostRoom | null = null;
+  #activeGuestRoom: ActiveProductGuestRoom | null = null;
+  readonly #connectionContexts = new Set<
+    Readonly<FilePlaybackProductSessionRouterConnectionContext>
+  >();
   #hostRoomRetirement: Promise<void> = Promise.resolve();
 
   constructor(options: FilePlaybackProductRuntimeOptions = {}) {
@@ -271,9 +425,21 @@ export class FilePlaybackProductRuntime {
       (options.enabled !== undefined && typeof options.enabled !== 'boolean') ||
       (options.createController !== undefined && typeof options.createController !== 'function') ||
       (options.nowMonotonicMs !== undefined && typeof options.nowMonotonicMs !== 'function') ||
-      (options.createHostRoom !== undefined && typeof options.createHostRoom !== 'function')
+      (options.createHostRoom !== undefined && typeof options.createHostRoom !== 'function') ||
+      (options.onHealthSystemMessage !== undefined &&
+        typeof options.onHealthSystemMessage !== 'function') ||
+      (options.mediaFactoriesForTests !== undefined &&
+        (options.mediaFactoriesForTests === null ||
+          typeof options.mediaFactoriesForTests !== 'object' ||
+          Array.isArray(options.mediaFactoriesForTests)))
     ) {
       throw new TypeError('File playback product runtime options are invalid');
+    }
+    const media = options.mediaFactoriesForTests ?? {};
+    if (
+      Object.values(media).some((factory) => factory !== undefined && typeof factory !== 'function')
+    ) {
+      throw new TypeError('File playback product runtime media factories are invalid');
     }
     if (options.sessions !== undefined) assertSessionAdapter(options.sessions);
     this.#enabled = options.enabled ?? DEFAULT_ENABLED;
@@ -281,6 +447,13 @@ export class FilePlaybackProductRuntime {
     this.#createController = options.createController ?? defaultControllerFactory;
     this.#nowMonotonicMs = options.nowMonotonicMs ?? defaultMonotonicNow;
     this.#createHostRoom = options.createHostRoom ?? defaultHostRoomFactory;
+    this.#createSessionRouter = media.createSessionRouter ?? defaultSessionRouterFactory;
+    this.#createHostPublisher = media.createHostPublisher ?? defaultHostPublisherFactory;
+    this.#createGuestRegistry = media.createGuestRegistry ?? defaultGuestRegistryFactory;
+    this.#createGuestManager = media.createGuestManager ?? defaultGuestManagerFactory;
+    this.#createHostMediaOwner = media.createHostMediaOwner ?? defaultHostMediaOwnerFactory;
+    this.#createGuestMediaOwner = media.createGuestMediaOwner ?? defaultGuestMediaOwnerFactory;
+    this.#onHealthSystemMessage = options.onHealthSystemMessage ?? defaultHealthSystemMessage;
   }
 
   enabled(): boolean {
@@ -310,23 +483,35 @@ export class FilePlaybackProductRuntime {
             0,
           ),
           sessions,
+          onHostReady: (snapshot: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>) =>
+            this.#queueHostReadyNotification(snapshot),
+          onTimelineAdopted: (event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>) =>
+            this.#queueTimelineAdoptedNotification(event),
         }),
       );
       if (!(controller instanceof FilePlaybackApplicationController)) {
         throw new TypeError('File playback product runtime controller factory is invalid');
       }
-      sessions.installHooks(controller.applicationSessionHooks());
       this.#sessions = sessions;
       this.#controller = controller;
+      this.#installFreshRouter(controller, sessions);
       this.#state = 'ready';
       return true;
     } catch (cause) {
       const error = asError(cause);
+      try {
+        this.#router?.close();
+      } catch {
+        // Initialization failure remains primary.
+      }
+      this.#router = null;
       this.#sessions = null;
       this.#controller = null;
       this.#roomActive = false;
       this.#hostRoomSnapshot = null;
       this.#activeHostRoom = null;
+      this.#activeGuestRoom = null;
+      this.#connectionContexts.clear();
       this.#state = 'failed';
       this.#failure = error;
       throw error;
@@ -464,11 +649,13 @@ export class FilePlaybackProductRuntime {
     if (!this.#enabled) return false;
     const { controller, sessions } = this.#requireReady();
     this.#assertCanBeginRoom();
+    this.#ensureRouter(controller, sessions);
     if (!isFilePlaybackSessionId(hostParticipantId)) {
       throw new TypeError('Host participant ID is invalid');
     }
 
     let candidate: FilePlaybackProductRuntimeHostRoomPort | null = null;
+    let publisher: FilePlaybackR2WholeBlobPublisher | null = null;
     try {
       const authority = snapshotFilePlaybackHostApplicationSessionAuthority(
         sessions.beginHostRoom(hostParticipantId),
@@ -511,18 +698,29 @@ export class FilePlaybackProductRuntime {
       );
       assertHostRoomPort(candidate);
       if (pendingFatal) throw pendingFatal;
+      publisher = this.#createHostPublisher(token);
+      if (
+        !(publisher instanceof FilePlaybackR2WholeBlobPublisher) ||
+        typeof publisher.close !== 'function'
+      ) {
+        throw new TypeError('File playback product host publisher factory is invalid');
+      }
       this.#hostRoomSnapshot = hostRoomSnapshot;
       this.#activeHostRoom = Object.freeze({
         token,
         roomGeneration: claimed.roomGeneration,
         port: candidate,
+        publisher,
       });
+      this.#activeGuestRoom = null;
       published = true;
       this.#roomActive = true;
       return true;
     } catch (cause) {
+      if (publisher) void publisher.close().catch(() => undefined);
       if (candidate) this.#retireHostRoomPort(candidate);
       this.#activeHostRoom = null;
+      this.#activeGuestRoom = null;
       this.#hostRoomSnapshot = null;
       try {
         sessions.endRoom();
@@ -542,18 +740,61 @@ export class FilePlaybackProductRuntime {
 
   beginGuestRoom(): boolean {
     if (!this.#enabled) return false;
-    const { controller } = this.#requireReady();
+    const { controller, sessions } = this.#requireReady();
     this.#assertCanBeginRoom();
+    this.#ensureRouter(controller, sessions);
     this.#hostRoomSnapshot = null;
     this.#activeHostRoom = null;
-    // Before the guest application handshake there is no shared room clock.
-    // Zero is the only safe stopped baseline anchor: an arbitrary local
-    // performance timestamp could survive an equal-revision replay and then
-    // reject the host's lower room-clock anchors.
-    controller.beginRoom(createStoppedPlaybackTimeline(0, 0));
-    controller.claimRoomRole('guest');
-    this.#roomActive = true;
-    return true;
+    let registry: FilePlaybackAssetRegistry | null = null;
+    let manager: FilePlaybackManager | null = null;
+    const token = Object.freeze(Object.create(null) as object);
+    const roomToken = Object.freeze(Object.create(null) as object);
+    try {
+      // Before the guest application handshake there is no shared room clock.
+      // Zero is the only safe stopped baseline anchor: an arbitrary local
+      // performance timestamp could survive an equal-revision replay and then
+      // reject the host's lower room-clock anchors.
+      controller.beginRoom(createStoppedPlaybackTimeline(0, 0));
+      const claimed = controller.claimRoomRole('guest');
+      if (
+        claimed.roomRole !== 'guest' ||
+        !Number.isSafeInteger(claimed.roomGeneration) ||
+        claimed.roomGeneration <= 0
+      ) {
+        throw new Error('Guest controller room authority is invalid');
+      }
+      registry = this.#createGuestRegistry(roomToken, (fatalToken, error) => {
+        if (fatalToken !== roomToken) return;
+        queueMicrotask(() => this.#handleExactGuestRoomFatal(token, asError(error)));
+      });
+      manager = this.#createGuestManager();
+      if (
+        !(registry instanceof FilePlaybackAssetRegistry) ||
+        !(manager instanceof FilePlaybackManager)
+      ) {
+        throw new TypeError('File playback product guest room factory is invalid');
+      }
+      this.#activeGuestRoom = Object.freeze({
+        token,
+        roomGeneration: claimed.roomGeneration,
+        roomToken,
+        registry,
+        manager,
+      });
+      this.#roomActive = true;
+      return true;
+    } catch (cause) {
+      if (manager) void manager.clear().catch(() => undefined);
+      if (registry) void registry.close(roomToken).catch(() => undefined);
+      this.#activeGuestRoom = null;
+      try {
+        controller.beginRoom(createStoppedPlaybackTimeline(0, 0));
+      } catch {
+        // Preserve the initiating guest-room failure.
+      }
+      this.#roomActive = false;
+      throw cause;
+    }
   }
 
   endRoom(): void {
@@ -562,14 +803,24 @@ export class FilePlaybackProductRuntime {
     if (!this.#roomActive) {
       const orphan = this.#activeHostRoom;
       this.#activeHostRoom = null;
-      if (orphan) this.#retireHostRoomPort(orphan.port);
+      if (orphan) {
+        this.#retireHostRoomPort(orphan.port);
+        void orphan.publisher.close().catch(() => undefined);
+      }
+      const guestOrphan = this.#activeGuestRoom;
+      this.#activeGuestRoom = null;
+      if (guestOrphan) this.#retireGuestRoom(guestOrphan);
       this.#hostRoomSnapshot = null;
       return;
     }
 
     const activeHostRoom = this.#activeHostRoom;
     this.#activeHostRoom = null;
-    if (activeHostRoom) this.#retireHostRoomPort(activeHostRoom.port);
+    if (activeHostRoom) {
+      this.#retireHostRoomPort(activeHostRoom.port);
+    }
+    const activeGuestRoom = this.#activeGuestRoom;
+    this.#activeGuestRoom = null;
     // Clear public host identity before any synchronous teardown callback can
     // observe a room whose manager authority is already being revoked.
     this.#hostRoomSnapshot = null;
@@ -583,6 +834,12 @@ export class FilePlaybackProductRuntime {
       failure = cause;
       failed = true;
     }
+    // The application-session manager owns a document-lifetime, one-shot hook
+    // installation. Its synchronous revoke callbacks empty this router's room
+    // records; the router itself must survive for the next room generation.
+    this.#connectionContexts.clear();
+    if (activeHostRoom) void activeHostRoom.publisher.close().catch(() => undefined);
+    if (activeGuestRoom) this.#retireGuestRoom(activeGuestRoom);
     try {
       controller.beginRoom(createStoppedPlaybackTimeline(0, 0));
     } catch (cause) {
@@ -594,6 +851,7 @@ export class FilePlaybackProductRuntime {
       this.#roomActive = false;
       this.#hostRoomSnapshot = null;
       this.#activeHostRoom = null;
+      this.#activeGuestRoom = null;
     }
     if (failed) throw failure;
   }
@@ -601,6 +859,235 @@ export class FilePlaybackProductRuntime {
   handleWake(connection?: DataConnection): boolean {
     if (!this.#enabled || this.#state !== 'ready' || !this.#sessions) return false;
     return this.#sessions.handleWake(connection);
+  }
+
+  #installFreshRouter(
+    controller: FilePlaybackApplicationController,
+    sessions: FilePlaybackProductRuntimeSessionAdapter,
+  ): void {
+    if (this.#router) throw new Error('File playback product session router already exists');
+    const hooks = controller.applicationSessionHooks();
+    const controllerPort = Object.freeze({
+      onLifecycleEvent: (event: Parameters<NonNullable<typeof hooks.onLifecycleEvent>>[0]) =>
+        hooks.onLifecycleEvent?.(event),
+      adoptAuxiliaryMessage: (
+        event: Parameters<NonNullable<typeof hooks.adoptAuxiliaryMessage>>[0],
+        acknowledge: () => void,
+      ) => hooks.adoptAuxiliaryMessage?.(event, acknowledge),
+    });
+    const routerOptions: Readonly<FilePlaybackProductSessionRouterOptions> = Object.freeze({
+      controller: controllerPort,
+      createHostMediaOwner: (
+        context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+      ) => this.#createExactHostMediaOwner(context),
+      createGuestMediaOwner: (
+        context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+      ) => this.#createExactGuestMediaOwner(context),
+    });
+    const router = this.#createSessionRouter(routerOptions);
+    assertSessionRouterPort(router);
+    this.#router = router;
+    try {
+      sessions.installHooks(router.applicationSessionHooks());
+    } catch (cause) {
+      this.#router = null;
+      try {
+        router.close();
+      } catch {
+        // Hook installation failure remains primary.
+      }
+      throw cause;
+    }
+  }
+
+  #ensureRouter(
+    controller: FilePlaybackApplicationController,
+    sessions: FilePlaybackProductRuntimeSessionAdapter,
+  ): void {
+    if (this.#router) return;
+    this.#installFreshRouter(controller, sessions);
+  }
+
+  #createExactHostMediaOwner(
+    context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+  ): FilePlaybackProductSessionRouterHostMediaOwnerPort {
+    const active = this.#activeHostRoom;
+    const sessions = this.#sessions;
+    if (!active || !sessions || !this.#ownsExactHostRoom(active)) {
+      throw new Error('File playback product host media room is unavailable');
+    }
+    this.#connectionContexts.add(context);
+    try {
+      const ownerOptions: Readonly<FilePlaybackProductHostMediaOwnerOptions> = Object.freeze({
+        context,
+        hostRoom: active.port,
+        publisher: active.publisher,
+        sendRequired: (connection: DataConnection, frame: unknown) =>
+          sessions.sendRequired(connection, frame),
+        sendWire: <Kind extends keyof FilePlaybackWirePayloadByKind>(
+          connection: DataConnection,
+          lease: FilePlaybackWireLease,
+          payload: FilePlaybackWirePayloadByKind[Kind],
+        ) => sessions.sendWire(connection, lease, payload),
+        closeConnection: (connection: DataConnection) => sessions.closeConnection(connection),
+        onHealthSystemMessage: (message: Readonly<FilePlaybackProductHostHealthSystemMessage>) =>
+          this.#onHealthSystemMessage(message),
+      });
+      const owner = this.#createHostMediaOwner(ownerOptions);
+      return Object.freeze({
+        ...(owner.onHostReady
+          ? {
+              onHostReady: (
+                snapshot: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>,
+              ) => owner.onHostReady?.(snapshot),
+            }
+          : {}),
+        adoptWireMessage: (...args: Parameters<typeof owner.adoptWireMessage>) =>
+          owner.adoptWireMessage(...args),
+        adoptPeerRangeControl: (...args: Parameters<typeof owner.adoptPeerRangeControl>) =>
+          owner.adoptPeerRangeControl(...args),
+        revoke: (revokeContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>) => {
+          try {
+            owner.revoke(revokeContext);
+          } finally {
+            this.#connectionContexts.delete(context);
+          }
+        },
+      });
+    } catch (cause) {
+      this.#connectionContexts.delete(context);
+      throw cause;
+    }
+  }
+
+  #createExactGuestMediaOwner(
+    context: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+  ): FilePlaybackProductSessionRouterGuestMediaOwnerPort {
+    const active = this.#activeGuestRoom;
+    const sessions = this.#sessions;
+    if (!active || !sessions || !this.#ownsExactGuestRoom(active)) {
+      throw new Error('File playback product guest media room is unavailable');
+    }
+    this.#connectionContexts.add(context);
+    try {
+      const ownerOptions: Readonly<FilePlaybackProductGuestMediaOwnerOptions> = Object.freeze({
+        context,
+        roomToken: active.roomToken,
+        registry: active.registry,
+        manager: active.manager,
+        getAudioGraph: getPrimedFilePlaybackProductAudio,
+        maxEncodedSize: FILE_PLAYBACK_PRODUCT_MAX_PEER_ENCODED_BYTES,
+        decodeOrdinaryAudio,
+        sendRequired: (
+          ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+          frame: unknown,
+        ) =>
+          this.#connectionContexts.has(ownerContext) &&
+          ownerContext === context &&
+          sessions.sendRequired(context.connection, frame),
+        canSendPeerControl: (
+          ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+          frame: Parameters<FilePlaybackProductGuestMediaOwnerOptions['canSendPeerControl']>[1],
+        ) =>
+          this.#connectionContexts.has(ownerContext) &&
+          ownerContext === context &&
+          sessions.sendRequired(context.connection, frame),
+        onFatalConnection: (
+          ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
+        ) => {
+          if (!this.#connectionContexts.has(ownerContext) || ownerContext !== context) return;
+          try {
+            sessions.closeConnection(context.connection);
+          } catch {
+            // The exact connection is already terminal.
+          }
+        },
+      });
+      const owner = this.#createGuestMediaOwner(ownerOptions);
+      return Object.freeze({
+        ...(owner.onTimelineAdopted
+          ? {
+              onTimelineAdopted: (event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>) =>
+                owner.onTimelineAdopted?.(event),
+            }
+          : {}),
+        adoptAuxiliaryMessage: (...args: Parameters<typeof owner.adoptAuxiliaryMessage>) =>
+          owner.adoptAuxiliaryMessage(...args),
+        adoptWireMessage: (...args: Parameters<typeof owner.adoptWireMessage>) =>
+          owner.adoptWireMessage(...args),
+        adoptPeerRangeBulk: (...args: Parameters<typeof owner.adoptPeerRangeBulk>) =>
+          owner.adoptPeerRangeBulk(...args),
+        revoke: (revokeContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>) => {
+          try {
+            owner.revoke(revokeContext);
+          } finally {
+            this.#connectionContexts.delete(context);
+          }
+        },
+      });
+    } catch (cause) {
+      this.#connectionContexts.delete(context);
+      throw cause;
+    }
+  }
+
+  #queueHostReadyNotification(
+    snapshot: Readonly<FilePlaybackApplicationControllerConnectionSnapshot>,
+  ): void {
+    const router = this.#router;
+    if (!router) return;
+    queueMicrotask(() => {
+      if (
+        this.#router !== router ||
+        this.#controller?.snapshot().roomGeneration !== snapshot.roomGeneration
+      ) {
+        return;
+      }
+      const connection = this.#notificationConnection(snapshot.sessionId, snapshot.connectionId);
+      try {
+        router.notifyHostReady(snapshot);
+      } catch {
+        this.#closeNotificationConnection(connection);
+      }
+    });
+  }
+
+  #queueTimelineAdoptedNotification(
+    event: Readonly<FilePlaybackApplicationTimelineAdoptedEvent>,
+  ): void {
+    const router = this.#router;
+    if (!router) return;
+    queueMicrotask(() => {
+      if (
+        this.#router !== router ||
+        this.#controller?.snapshot().roomGeneration !== event.roomGeneration
+      ) {
+        return;
+      }
+      const connection = this.#notificationConnection(event.sessionId, event.connectionId);
+      try {
+        router.notifyTimelineAdopted(event);
+      } catch {
+        this.#closeNotificationConnection(connection);
+      }
+    });
+  }
+
+  #notificationConnection(sessionId: string, connectionId: string): DataConnection | null {
+    const matches = [...this.#connectionContexts].filter(
+      (context) => context.sessionId === sessionId && context.connectionId === connectionId,
+    );
+    return matches.length === 1 ? matches[0]!.connection : null;
+  }
+
+  #closeNotificationConnection(connection: DataConnection | null): void {
+    const sessions = this.#sessions;
+    if (!sessions || !connection) return;
+    try {
+      sessions.closeConnection(connection);
+    } catch {
+      // The exact failed connection is already terminal.
+    }
   }
 
   /**
@@ -658,6 +1145,17 @@ export class FilePlaybackProductRuntime {
     }
   }
 
+  #ownsExactGuestRoom(active: ActiveProductGuestRoom): boolean {
+    try {
+      const controller = this.#controller;
+      if (!this.#roomActive || this.#activeGuestRoom !== active || !controller) return false;
+      const snapshot = controller.snapshot();
+      return snapshot.roomGeneration === active.roomGeneration && snapshot.roomRole === 'guest';
+    } catch {
+      return false;
+    }
+  }
+
   #matchesCurrentHostTerminalObservation(
     observation: FilePlaybackProductHostTerminalObservation,
   ): boolean {
@@ -688,6 +1186,23 @@ export class FilePlaybackProductRuntime {
     } catch {
       // The room and controller are fenced even when teardown reports an error.
     }
+  }
+
+  #handleExactGuestRoomFatal(token: object, _error: Error): void {
+    if (this.#activeGuestRoom?.token !== token) return;
+    try {
+      this.endRoom();
+    } catch {
+      // The room, router, registry, and controller are fenced on every path.
+    }
+  }
+
+  #retireGuestRoom(room: ActiveProductGuestRoom): void {
+    const cleanup = Promise.allSettled([
+      room.manager.clear(),
+      room.registry.close(room.roomToken),
+    ]).then(() => undefined);
+    void cleanup.catch(() => undefined);
   }
 
   #retireHostRoomPort(port: FilePlaybackProductRuntimeHostRoomPort): void {

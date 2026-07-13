@@ -61,9 +61,17 @@ export interface M4aChunkIndex {
 export interface M4aAacAccessUnitLocation {
   readonly ordinal: number;
   readonly chunkOrdinal: number;
+  readonly chunkFirstAccessUnitOrdinal: number;
+  readonly chunkEndAccessUnitOrdinalExclusive: number;
   readonly chunkOffset: number;
+  readonly offsetWithinChunk: number;
+  readonly chunkByteLength: number;
   readonly offset: number;
   readonly byteLength: number;
+  /** Logical `stsz` byte prefix before this access unit. */
+  readonly encodedBytePrefix: number;
+  /** Exclusive end of the canonical `mdat` payload containing this chunk. */
+  readonly mediaDataEnd: number;
 }
 
 export interface M4aChunkOffsetPageEvidence {
@@ -609,6 +617,25 @@ function requireChunkIndexAuthority(
     throw new M4aChunkIndexError('M4A chunk index belongs to a different source reader');
   }
   return authority;
+}
+
+/**
+ * Require the exact same-reader `stsz` authority used to construct this chunk index.
+ * Caller-controlled sample-size fields are never inspected before the identity check.
+ */
+export function assertM4aChunkIndexSampleSizePair(
+  reader: IsoBmffBoxReader,
+  index: Readonly<M4aChunkIndex>,
+  sampleSizes: Readonly<M4aSampleSizeIndex>,
+  signal: AbortSignal,
+): void {
+  requireReaderAndSignal(reader, signal, 'M4A chunk/sample-size authority pair');
+  const authority = requireChunkIndexAuthority(reader, index, signal);
+  if (authority.sampleSizes !== sampleSizes) {
+    throw new M4aChunkIndexError(
+      'M4A chunk index was constructed with a different sample-size authority',
+    );
+  }
 }
 
 /** Copy one issued index into bounded structured-clone data for a decoder Worker. */
@@ -1174,6 +1201,14 @@ export async function locateM4aAacAccessUnit(
     chunkByteLength,
     `M4A current chunk ${chunkOrdinal}`,
   );
+  const containingMediaDataRange = findContainingMediaDataRange(
+    authority.mediaDataRanges,
+    chunkOffset,
+    safeAdd(chunkOffset, chunkByteLength, `M4A current chunk ${chunkOrdinal} end`),
+  );
+  if (containingMediaDataRange === null) {
+    throw new M4aChunkIndexError('M4A current chunk lost its canonical mdat containment');
+  }
   const offset = safeAdd(chunkOffset, offsetWithinChunk, 'M4A AAC access-unit offset');
   requireMediaDataSpan(
     authority.mediaDataRanges,
@@ -1182,5 +1217,17 @@ export async function locateM4aAacAccessUnit(
     `M4A AAC access unit ${ordinal}`,
   );
   reader.assertReadable(signal);
-  return Object.freeze({ ordinal, chunkOrdinal, chunkOffset, offset, byteLength });
+  return Object.freeze({
+    ordinal,
+    chunkOrdinal,
+    chunkFirstAccessUnitOrdinal: chunkFirstSampleOrdinal,
+    chunkEndAccessUnitOrdinalExclusive: chunkEndSampleOrdinal,
+    chunkOffset,
+    offsetWithinChunk,
+    chunkByteLength,
+    offset,
+    byteLength,
+    encodedBytePrefix: samplePrefix,
+    mediaDataEnd: containingMediaDataRange.end,
+  });
 }

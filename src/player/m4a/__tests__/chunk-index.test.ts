@@ -327,9 +327,15 @@ describe('bounded M4A chunk geometry', () => {
     await expect(locateM4aAacAccessUnit(fixture.reader, index, 3, signal())).resolves.toEqual({
       ordinal: 3,
       chunkOrdinal: 1,
+      chunkFirstAccessUnitOrdinal: 2,
+      chunkEndAccessUnitOrdinalExclusive: 4,
       chunkOffset: fixture.mediaDataRanges[1]!.start + 20,
+      offsetWithinChunk: 7,
+      chunkByteLength: 18,
       offset: fixture.mediaDataRanges[1]!.start + 27,
       byteLength: 11,
+      encodedBytePrefix: 15,
+      mediaDataEnd: fixture.mediaDataRanges[1]!.end,
     });
     expect(Object.isFrozen(await locateM4aAacAccessUnit(fixture.reader, index, 0, signal()))).toBe(
       true,
@@ -997,9 +1003,15 @@ describe('large sparse M4A chunk offsets', () => {
     await expect(locateM4aAacAccessUnit(reader, index, 0, signal())).resolves.toEqual({
       ordinal: 0,
       chunkOrdinal: 0,
+      chunkFirstAccessUnitOrdinal: 0,
+      chunkEndAccessUnitOrdinalExclusive: 1,
       chunkOffset: hugeOffset,
+      offsetWithinChunk: 0,
+      chunkByteLength: 7,
       offset: hugeOffset,
       byteLength: 7,
+      encodedBytePrefix: 0,
+      mediaDataEnd: hugeOffset + 64,
     });
     expect(source.reads.every((read) => read.offset < prefix.byteLength)).toBe(true);
     expect(source.reads.every((read) => read.length <= 64 * 1_024)).toBe(true);

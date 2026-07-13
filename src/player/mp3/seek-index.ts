@@ -5,6 +5,10 @@ export interface MpegLayer3SeekIndexPoint {
   readonly byteOffset: number;
   /** Zero-based ordinal of this MPEG frame in the audio span. */
   readonly frameOrdinal: number;
+  /** Exact main-data capacity reported by this verified frame header. */
+  readonly mainDataCapacityBytes: number;
+  /** Exact Layer III `main_data_begin` value reported by this frame. */
+  readonly mainDataBeginBytes: number;
 }
 
 export interface MpegLayer3SeekBracket {
@@ -16,8 +20,16 @@ export interface MpegLayer3SeekBracket {
 export interface MpegLayer3VerifiedReservoirPrelude {
   readonly kind: 'verified-history';
   readonly target: MpegLayer3SeekIndexPoint;
-  /** Chronological offsets, oldest first; the target offset is not included. */
-  readonly previousFrameOffsets: readonly number[];
+  readonly minimumWarmupFrames: number;
+  /** First decoded frame in the warmup span (or target when warmup is zero). */
+  readonly warmupStart: MpegLayer3SeekIndexPoint;
+  readonly warmupStartMainDataBeginBytes: number;
+  /** Chronological verified descriptors, oldest first; target is excluded. */
+  readonly previousFrames: readonly MpegLayer3SeekIndexPoint[];
+  /** Capacity accumulated only from frames preceding `warmupStart`. */
+  readonly reservoirCapacityBeforeWarmupBytes: number;
+  /** True when the returned history reaches frame zero. */
+  readonly reachedAudioOrigin: boolean;
 }
 
 export interface MpegLayer3ReservoirScanPrelude {
@@ -26,7 +38,11 @@ export interface MpegLayer3ReservoirScanPrelude {
   readonly targetFrameOrdinal: number;
   /** Exact frame boundary from which a scanner can walk to the target. */
   readonly anchor: MpegLayer3SeekIndexPoint;
-  readonly requiredPreviousFrames: number;
+  readonly minimumWarmupFrames: number;
+  readonly warmupFrameLimit: number;
+  readonly reservoirFrameLimit: number;
+  /** Conservative bounded history window a sequential scanner must retain. */
+  readonly historyFrameLimit: number;
 }
 
 export type MpegLayer3ReservoirPrelude =
@@ -44,12 +60,20 @@ export interface MpegLayer3SeekIndexOptions {
   readonly totalRawSamples: number;
   /** Fixed by the MPEG version: 1,152 for MPEG-1 or 576 for MPEG-2/2.5. */
   readonly samplesPerFrame: 576 | 1_152;
+  /** Exact capacity from the already verified frame-zero header. */
+  readonly firstFrameMainDataCapacityBytes: number;
+  /** Must be zero for a valid Layer III audio origin. */
+  readonly firstFrameMainDataBeginBytes: number;
   readonly maxPoints?: number;
 }
 
 const DEFAULT_MAX_POINTS = 8_192;
-const MINIMUM_MAX_POINTS = 32;
-const MAX_RESERVOIR_PREVIOUS_FRAMES = 16;
+const MINIMUM_MAX_POINTS = 1_024;
+const MAXIMUM_MAX_POINTS = 8_192;
+const DEFAULT_SYNTHESIS_WARMUP_FRAMES = 16;
+const MAX_RESERVOIR_HISTORY_FRAMES = 511;
+const MAX_SYNTHESIS_WARMUP_FRAMES = 511;
+const MAX_PROTECTED_PRELUDE_FRAMES = MAX_RESERVOIR_HISTORY_FRAMES + MAX_SYNTHESIS_WARMUP_FRAMES;
 const MAX_LAYER_3_FRAME_BYTES = 1_441;
 
 function isNonNegativeSafeInteger(value: number): boolean {
@@ -60,8 +84,37 @@ function immutablePoint(
   rawSample: number,
   byteOffset: number,
   frameOrdinal: number,
+  mainDataCapacityBytes: number,
+  mainDataBeginBytes: number,
 ): MpegLayer3SeekIndexPoint {
-  return Object.freeze({ rawSample, byteOffset, frameOrdinal });
+  return Object.freeze({
+    rawSample,
+    byteOffset,
+    frameOrdinal,
+    mainDataCapacityBytes,
+    mainDataBeginBytes,
+  });
+}
+
+function maximumMainDataBeginBytes(samplesPerFrame: 576 | 1_152): number {
+  return samplesPerFrame === 1_152 ? 511 : 255;
+}
+
+function mainDataCapacityCanFitFrame(
+  samplesPerFrame: 576 | 1_152,
+  frameBytes: number,
+  mainDataCapacityBytes: number,
+): boolean {
+  const structuralBytes = frameBytes - mainDataCapacityBytes;
+  return samplesPerFrame === 1_152
+    ? structuralBytes === 21 ||
+        structuralBytes === 23 ||
+        structuralBytes === 36 ||
+        structuralBytes === 38
+    : structuralBytes === 13 ||
+        structuralBytes === 15 ||
+        structuralBytes === 21 ||
+        structuralBytes === 23;
 }
 
 function minimumFrameBytes(samplesPerFrame: 576 | 1_152): number {
@@ -115,6 +168,8 @@ export class MpegLayer3SeekIndex {
       audioEndByteOffset,
       totalRawSamples,
       samplesPerFrame,
+      firstFrameMainDataCapacityBytes,
+      firstFrameMainDataBeginBytes,
       maxPoints = DEFAULT_MAX_POINTS,
     } = options;
 
@@ -139,8 +194,24 @@ export class MpegLayer3SeekIndex {
     ) {
       throw new RangeError('MP3 raw sample count must contain complete MPEG frames');
     }
-    if (!Number.isSafeInteger(maxPoints) || maxPoints < MINIMUM_MAX_POINTS) {
-      throw new RangeError(`MP3 seek index maxPoints must be at least ${MINIMUM_MAX_POINTS}`);
+    if (
+      !Number.isSafeInteger(firstFrameMainDataCapacityBytes) ||
+      firstFrameMainDataCapacityBytes <= 0 ||
+      firstFrameMainDataCapacityBytes >= MAX_LAYER_3_FRAME_BYTES
+    ) {
+      throw new RangeError('MP3 first-frame main-data capacity must be a positive bounded integer');
+    }
+    if (firstFrameMainDataBeginBytes !== 0) {
+      throw new RangeError('MP3 first-frame main_data_begin must be zero');
+    }
+    if (
+      !Number.isSafeInteger(maxPoints) ||
+      maxPoints < MINIMUM_MAX_POINTS ||
+      maxPoints > MAXIMUM_MAX_POINTS
+    ) {
+      throw new RangeError(
+        `MP3 seek index maxPoints must be between ${MINIMUM_MAX_POINTS} and ${MAXIMUM_MAX_POINTS}`,
+      );
     }
 
     const totalFrames = totalRawSamples / samplesPerFrame;
@@ -148,6 +219,12 @@ export class MpegLayer3SeekIndex {
     const minimumBytes = minimumFrameBytes(samplesPerFrame);
     if (!spanCanContainFrames(audioSpan, totalFrames, minimumBytes)) {
       throw new RangeError('MP3 audio span is inconsistent with its raw frame count');
+    }
+    if (
+      totalFrames === 1 &&
+      !mainDataCapacityCanFitFrame(samplesPerFrame, audioSpan, firstFrameMainDataCapacityBytes)
+    ) {
+      throw new RangeError('MP3 first-frame main-data capacity does not match its frame span');
     }
 
     this.firstAudioFrameOffset = firstAudioFrameOffset;
@@ -157,14 +234,26 @@ export class MpegLayer3SeekIndex {
     this.samplesPerFrame = samplesPerFrame;
     this.minimumBytesPerFrame = minimumBytes;
     this.maxPoints = maxPoints;
-    this.origin = immutablePoint(0, firstAudioFrameOffset, 0);
+    this.origin = immutablePoint(
+      0,
+      firstAudioFrameOffset,
+      0,
+      firstFrameMainDataCapacityBytes,
+      firstFrameMainDataBeginBytes,
+    );
     this.points = [this.origin];
   }
 
   snapshot(): readonly MpegLayer3SeekIndexPoint[] {
     return Object.freeze(
       this.points.map((point) =>
-        immutablePoint(point.rawSample, point.byteOffset, point.frameOrdinal),
+        immutablePoint(
+          point.rawSample,
+          point.byteOffset,
+          point.frameOrdinal,
+          point.mainDataCapacityBytes,
+          point.mainDataBeginBytes,
+        ),
       ),
     );
   }
@@ -175,18 +264,50 @@ export class MpegLayer3SeekIndex {
    * False means that the candidate is invalid, conflicts with an existing
    * point, or cannot fit the fixed frame/sample/byte geometry.
    */
-  addVerifiedFrame(rawSample: number, byteOffset: number, frameOrdinal: number): boolean {
-    if (!this.candidateCanDescribeSource(rawSample, byteOffset, frameOrdinal)) return false;
+  addVerifiedFrame(
+    rawSample: number,
+    byteOffset: number,
+    frameOrdinal: number,
+    mainDataCapacityBytes: number,
+    mainDataBeginBytes: number,
+  ): boolean {
+    if (
+      !this.candidateCanDescribeSource(
+        rawSample,
+        byteOffset,
+        frameOrdinal,
+        mainDataCapacityBytes,
+        mainDataBeginBytes,
+      )
+    ) {
+      return false;
+    }
 
     const insertion = this.lowerBoundFrameOrdinal(frameOrdinal);
     const exact = this.points[insertion];
     if (exact?.frameOrdinal === frameOrdinal) return false;
 
-    const point = immutablePoint(rawSample, byteOffset, frameOrdinal);
+    const point = immutablePoint(
+      rawSample,
+      byteOffset,
+      frameOrdinal,
+      mainDataCapacityBytes,
+      mainDataBeginBytes,
+    );
     const previous = this.points[insertion - 1];
     const next = this.points[insertion];
     if (previous && !this.intervalIsPossible(previous, point)) return false;
     if (next && !this.intervalIsPossible(point, next)) return false;
+    if (
+      frameOrdinal === this.totalFrames - 1 &&
+      !mainDataCapacityCanFitFrame(
+        this.samplesPerFrame,
+        this.audioEndByteOffset - byteOffset,
+        mainDataCapacityBytes,
+      )
+    ) {
+      return false;
+    }
 
     this.points.splice(insertion, 0, point);
     this.compactIfNeeded();
@@ -210,24 +331,24 @@ export class MpegLayer3SeekIndex {
   }
 
   /**
-   * Plan the verified history needed to warm the Layer III bit reservoir.
+   * Plan exact verified history for the target frame's Layer III reservoir.
    *
-   * When every requested predecessor and the target are indexed contiguously,
-   * their exact offsets are returned. Otherwise the result names an earlier
-   * exact anchor and explicitly requires a sequential scanner walk.
+   * The synthesis warmup span is selected first. Only then is history extended
+   * to satisfy the warmup-start frame's exact `main_data_begin`, so the first
+   * synthesis-warmup frame sent to the decoder is reservoir-complete.
    */
   reservoirPrelude(
     targetRawSample: number,
-    previousFrameCount = MAX_RESERVOIR_PREVIOUS_FRAMES,
+    minimumWarmupFrames = DEFAULT_SYNTHESIS_WARMUP_FRAMES,
   ): MpegLayer3ReservoirPrelude {
     this.assertTarget(targetRawSample, false);
     if (
-      !Number.isSafeInteger(previousFrameCount) ||
-      previousFrameCount < 0 ||
-      previousFrameCount > MAX_RESERVOIR_PREVIOUS_FRAMES
+      !Number.isSafeInteger(minimumWarmupFrames) ||
+      minimumWarmupFrames < 0 ||
+      minimumWarmupFrames > MAX_SYNTHESIS_WARMUP_FRAMES
     ) {
       throw new RangeError(
-        `MP3 reservoir history must request between 0 and ${MAX_RESERVOIR_PREVIOUS_FRAMES} frames`,
+        `MP3 synthesis warmup must be between 0 and ${MAX_SYNTHESIS_WARMUP_FRAMES} frames`,
       );
     }
     if (targetRawSample % this.samplesPerFrame !== 0) {
@@ -235,32 +356,77 @@ export class MpegLayer3SeekIndex {
     }
 
     const targetFrameOrdinal = targetRawSample / this.samplesPerFrame;
-    const requiredPreviousFrames = Math.min(previousFrameCount, targetFrameOrdinal);
     const targetIndex = this.lowerBoundFrameOrdinal(targetFrameOrdinal);
     const target = this.points[targetIndex];
 
     if (target?.frameOrdinal === targetFrameOrdinal) {
-      const previousOffsets: number[] = [];
+      const previousFrames: MpegLayer3SeekIndexPoint[] = [];
+      const warmupFrameCount = Math.min(minimumWarmupFrames, targetFrameOrdinal);
+      let reachedAudioOrigin = targetFrameOrdinal === 0;
       let expectedOrdinal = targetFrameOrdinal - 1;
       let pointIndex = targetIndex - 1;
-      while (previousOffsets.length < requiredPreviousFrames) {
+
+      while (!reachedAudioOrigin && previousFrames.length < warmupFrameCount) {
         const point = this.points[pointIndex];
         if (!point || point.frameOrdinal !== expectedOrdinal) break;
-        previousOffsets.push(point.byteOffset);
+        previousFrames.push(point);
+        reachedAudioOrigin = point.frameOrdinal === 0;
         pointIndex -= 1;
         expectedOrdinal -= 1;
       }
-      if (previousOffsets.length === requiredPreviousFrames) {
-        previousOffsets.reverse();
-        return Object.freeze({
-          kind: 'verified-history',
-          target,
-          previousFrameOffsets: Object.freeze(previousOffsets),
-        });
+
+      if (reachedAudioOrigin || previousFrames.length === warmupFrameCount) {
+        const warmupStart = previousFrames.at(-1) ?? target;
+        const warmupStartMainDataBeginBytes = warmupStart.mainDataBeginBytes;
+        let reservoirCapacityBeforeWarmupBytes = 0;
+
+        while (
+          !reachedAudioOrigin &&
+          reservoirCapacityBeforeWarmupBytes < warmupStartMainDataBeginBytes
+        ) {
+          const point = this.points[pointIndex];
+          if (!point || point.frameOrdinal !== expectedOrdinal) break;
+          previousFrames.push(point);
+          reservoirCapacityBeforeWarmupBytes += point.mainDataCapacityBytes;
+          if (!Number.isSafeInteger(reservoirCapacityBeforeWarmupBytes)) {
+            throw new Error('MP3 reservoir capacity exceeded the safe-integer range');
+          }
+          reachedAudioOrigin = point.frameOrdinal === 0;
+          pointIndex -= 1;
+          expectedOrdinal -= 1;
+        }
+
+        if (reservoirCapacityBeforeWarmupBytes >= warmupStartMainDataBeginBytes) {
+          previousFrames.reverse();
+          return Object.freeze({
+            kind: 'verified-history',
+            target,
+            minimumWarmupFrames,
+            warmupStart,
+            warmupStartMainDataBeginBytes,
+            previousFrames: Object.freeze(previousFrames),
+            reservoirCapacityBeforeWarmupBytes,
+            reachedAudioOrigin,
+          });
+        }
+        if (reachedAudioOrigin) {
+          throw new RangeError(
+            'MP3 warmup-start main_data_begin exceeds all available preceding main-data capacity',
+          );
+        }
       }
     }
 
-    const desiredStartOrdinal = targetFrameOrdinal - requiredPreviousFrames;
+    // A missing warmup-start descriptor may use the generation's maximum
+    // reservoir. Keep its one-byte-per-frame worst case separate from the
+    // synthesis warmup itself, then clamp both at the audio origin.
+    const warmupFrameLimit = Math.min(targetFrameOrdinal, minimumWarmupFrames);
+    const reservoirFrameLimit = Math.min(
+      targetFrameOrdinal - warmupFrameLimit,
+      maximumMainDataBeginBytes(this.samplesPerFrame),
+    );
+    const historyFrameLimit = warmupFrameLimit + reservoirFrameLimit;
+    const desiredStartOrdinal = targetFrameOrdinal - historyFrameLimit;
     const desiredStartRawSample = desiredStartOrdinal * this.samplesPerFrame;
     const anchor = this.nearestBefore(desiredStartRawSample);
     return Object.freeze({
@@ -268,7 +434,10 @@ export class MpegLayer3SeekIndex {
       targetRawSample,
       targetFrameOrdinal,
       anchor,
-      requiredPreviousFrames,
+      minimumWarmupFrames,
+      warmupFrameLimit,
+      reservoirFrameLimit,
+      historyFrameLimit,
     });
   }
 
@@ -276,11 +445,19 @@ export class MpegLayer3SeekIndex {
     rawSample: number,
     byteOffset: number,
     frameOrdinal: number,
+    mainDataCapacityBytes: number,
+    mainDataBeginBytes: number,
   ): boolean {
     if (
       !isNonNegativeSafeInteger(rawSample) ||
       !isNonNegativeSafeInteger(byteOffset) ||
       !isNonNegativeSafeInteger(frameOrdinal) ||
+      !Number.isSafeInteger(mainDataCapacityBytes) ||
+      mainDataCapacityBytes <= 0 ||
+      mainDataCapacityBytes >= MAX_LAYER_3_FRAME_BYTES ||
+      !Number.isSafeInteger(mainDataBeginBytes) ||
+      mainDataBeginBytes < 0 ||
+      mainDataBeginBytes > maximumMainDataBeginBytes(this.samplesPerFrame) ||
       frameOrdinal >= this.totalFrames ||
       rawSample >= this.totalRawSamples ||
       rawSample !== frameOrdinal * this.samplesPerFrame ||
@@ -304,10 +481,18 @@ export class MpegLayer3SeekIndex {
   ): boolean {
     const frameDelta = later.frameOrdinal - earlier.frameOrdinal;
     const byteDelta = later.byteOffset - earlier.byteOffset;
+    if (
+      !(
+        frameDelta > 0 &&
+        later.rawSample - earlier.rawSample === frameDelta * this.samplesPerFrame &&
+        spanCanContainFrames(byteDelta, frameDelta, this.minimumBytesPerFrame)
+      )
+    ) {
+      return false;
+    }
     return (
-      frameDelta > 0 &&
-      later.rawSample - earlier.rawSample === frameDelta * this.samplesPerFrame &&
-      spanCanContainFrames(byteDelta, frameDelta, this.minimumBytesPerFrame)
+      frameDelta !== 1 ||
+      mainDataCapacityCanFitFrame(this.samplesPerFrame, byteDelta, earlier.mainDataCapacityBytes)
     );
   }
 
@@ -316,7 +501,7 @@ export class MpegLayer3SeekIndex {
       const terminalIndex = this.points.length - 1;
       let protectedTailStart = terminalIndex;
       let protectedPredecessors = 0;
-      while (protectedTailStart > 0 && protectedPredecessors < MAX_RESERVOIR_PREVIOUS_FRAMES) {
+      while (protectedTailStart > 0 && protectedPredecessors < MAX_PROTECTED_PRELUDE_FRAMES) {
         const current = this.points[protectedTailStart];
         const previous = this.points[protectedTailStart - 1];
         if (!current || !previous || previous.frameOrdinal + 1 !== current.frameOrdinal) break;
@@ -325,7 +510,7 @@ export class MpegLayer3SeekIndex {
       }
 
       const compacted: MpegLayer3SeekIndexPoint[] = [this.origin];
-      for (let index = 1; index < protectedTailStart; index += 2) {
+      for (let index = 2; index < protectedTailStart; index += 2) {
         const point = this.points[index];
         if (point) compacted.push(point);
       }

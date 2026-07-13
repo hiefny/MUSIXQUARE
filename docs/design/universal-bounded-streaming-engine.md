@@ -244,13 +244,17 @@ and chunk-offset tables are validated in pages and represented by bounded sparse
 checkpoints rather than arrays proportional to track duration.
 
 The metadata checkpoint now emits one exact, structured-clone-safe manifest for
-the admitted AAC-LC track. It binds the source size and immutable identity, AAC
-configuration, normalized audible timeline, `stsz` pages, complete bounded
-`stsc` body, chunk-offset pages, and `mdat` ranges. A Worker must reauthenticate
-the transferred table headers and source-derived `stsc` runs before it may issue
-a decoder runtime; transferred normalized runs are never runtime authority on
-their own. This checkpoint is still isolated from the format factory and product
-route.
+the admitted AAC-LC track. It captures the source size and immutable identity,
+AAC configuration, normalized audible timeline, `stsz` pages, complete bounded
+`stsc` body, chunk-offset pages, and `mdat` ranges. At the current same-app
+boundary, a Worker rebinds the source identity and reauthenticates the table
+headers and source-derived `stsc` runs before it may issue a decoder runtime;
+remaining table pages are authenticated lazily. Codec, timeline, container
+diagnostics, and declared `mdat` ranges are canonicalized but are not reparsed
+during that reopen, so an external or otherwise untrusted manifest requires
+separate authentication before this boundary can accept it. Transferred
+normalized runs are never runtime authority on their own. This checkpoint is
+still isolated from the format factory and product route.
 
 ## Memory model
 

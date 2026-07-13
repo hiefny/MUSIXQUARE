@@ -17,6 +17,7 @@ import {
   MpegLayer3SeekIndex,
   type MpegLayer3SeekIndexPoint,
 } from './seek-index.ts';
+import { createMp3SampleTimeline } from './timeline.ts';
 import {
   Mp3VbrMetadataError,
   parseMp3FirstFrameVbrMetadata,
@@ -521,11 +522,18 @@ export async function readMp3Metadata(
   });
 
   const gapless = vbr?.kind === 'xing' ? vbr.gapless : null;
-  const encoderDelaySamples = gapless?.encoderDelaySamples ?? 0;
-  const endPaddingSamples = gapless?.endPaddingSamples ?? 0;
-  const totalMediaFrames = totalRawSamples - encoderDelaySamples - endPaddingSamples;
-  if (!Number.isSafeInteger(totalMediaFrames) || totalMediaFrames <= 0) {
-    throw new Mp3MetadataError('MP3 gapless trim leaves no audible media frames');
+  let totalMediaFrames: number;
+  try {
+    totalMediaFrames = createMp3SampleTimeline({
+      totalRawSamples,
+      samplesPerFrame: prefix.samplesPerFrame,
+      gapless,
+    }).totalMediaFrames;
+  } catch (error) {
+    if (error instanceof RangeError || error instanceof TypeError) {
+      throw new Mp3MetadataError(`MP3 sample timeline is invalid: ${error.message}`, error);
+    }
+    throw error;
   }
 
   const verifiedAudioFrameCount = selected.scan.frameCount - physicalOrdinalBase;

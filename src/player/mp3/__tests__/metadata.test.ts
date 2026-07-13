@@ -15,6 +15,7 @@ import {
   readMp3Metadata,
 } from '../metadata.ts';
 import { MP3_SEEK_INDEX_MAX_POINTS, MP3_SEEK_MAX_PROTECTED_PRELUDE_FRAMES } from '../seek-index.ts';
+import { MPG123_DECODER_DELAY_SAMPLES } from '../timeline.ts';
 
 interface HeaderOptions {
   readonly versionBits?: 0 | 2 | 3;
@@ -264,7 +265,7 @@ describe('readMp3Metadata tag-frame normalization', () => {
       physicalFrameCount: audioFrameCount + 1,
       audioFrameCount,
       totalRawSamples: audioFrameCount * 1_152,
-      totalMediaFrames: audioFrameCount * 1_152 - 576 - 500,
+      totalMediaFrames: audioFrameCount * 1_152 - 576 - MPG123_DECODER_DELAY_SAMPLES,
       frameCountEvidence: 'info',
       fullyVerifiedFrameSpan: false,
       verifiedAudioFrameCount: MP3_METADATA_PREFIX_PHYSICAL_FRAMES - 1,
@@ -568,14 +569,20 @@ describe('readMp3Metadata lifecycle and repository fixtures', () => {
       });
       expect(metadata.gapless === null).toBe(!hasProvenGapless);
       expect(metadata.totalMediaFrames).toBe(
-        metadata.totalRawSamples -
-          (metadata.gapless?.encoderDelaySamples ?? 0) -
-          (metadata.gapless?.endPaddingSamples ?? 0),
+        metadata.gapless === null
+          ? metadata.totalRawSamples
+          : metadata.totalRawSamples -
+              metadata.gapless.encoderDelaySamples -
+              MPG123_DECODER_DELAY_SAMPLES -
+              Math.max(metadata.gapless.endPaddingSamples - MPG123_DECODER_DELAY_SAMPLES, 0),
       );
       expect(metadata.totalMediaFrames).not.toBe(
         (audioFrameCount + 1) * 1_152 -
-          (metadata.gapless?.encoderDelaySamples ?? 0) -
-          (metadata.gapless?.endPaddingSamples ?? 0),
+          (metadata.gapless === null
+            ? 0
+            : metadata.gapless.encoderDelaySamples +
+              MPG123_DECODER_DELAY_SAMPLES +
+              Math.max(metadata.gapless.endPaddingSamples - MPG123_DECODER_DELAY_SAMPLES, 0)),
       );
     },
   );

@@ -192,7 +192,13 @@ function audioTrack(
   );
 }
 
-function videoTrack(markers = { tkhd: 0xa1, mdhd: 0xa2, minf: 0xa3 }): Uint8Array {
+function videoTrack(
+  markers = { tkhd: 0xa1, mdhd: 0xa2, minf: 0xa3 },
+  options: {
+    readonly trackExtra?: readonly Uint8Array[];
+    readonly mediaExtra?: readonly Uint8Array[];
+  } = {},
+): Uint8Array {
   return box(
     'trak',
     concatenate(
@@ -203,8 +209,10 @@ function videoTrack(markers = { tkhd: 0xa1, mdhd: 0xa2, minf: 0xa3 }): Uint8Arra
           box('mdhd', Uint8Array.of(markers.mdhd)),
           box('hdlr', handlerBody('vide')),
           box('minf', Uint8Array.of(markers.minf)),
+          ...(options.mediaExtra ?? []),
         ),
       ),
+      ...(options.trackExtra ?? []),
     ),
   );
 }
@@ -263,6 +271,21 @@ async function parseFixture(bytes: Uint8Array) {
 
 function readTouches(read: ReadRecord, offset: number): boolean {
   return read.offset <= offset && offset < read.offset + read.length;
+}
+
+function markerBody(value: number): Uint8Array {
+  return new Uint8Array(8).fill(value);
+}
+
+function findMarkerBody(bytes: Uint8Array, value: number): number {
+  const markerLength = 8;
+  outer: for (let offset = 0; offset <= bytes.byteLength - markerLength; offset += 1) {
+    for (let index = 0; index < markerLength; index += 1) {
+      if (bytes[offset + index] !== value) continue outer;
+    }
+    return offset;
+  }
+  return -1;
 }
 
 describe('M4A movie/audio-track structural layout', () => {
@@ -336,6 +359,77 @@ describe('M4A movie/audio-track structural layout', () => {
     }
   });
 
+  it('bounded-skips unrecognized non-audio track boxes without reading their bodies', async () => {
+    const markers = [0xd1, 0xd2, 0xd3, 0xd4] as const;
+    const bytes = movie(
+      box('mvhd', movieHeader(0)),
+      videoTrack(undefined, {
+        trackExtra: [box('load', markerBody(markers[0])), box('zzzz', markerBody(markers[1]))],
+        mediaExtra: [box('elng', markerBody(markers[2])), box('yyyy', markerBody(markers[3]))],
+      }),
+      audioTrack(),
+    );
+    const { source, layout } = await parseFixture(bytes);
+
+    expect(layout.audioTrack.trackHeader.trackId).toBe(2);
+    for (const marker of markers) {
+      const markerOffset = findMarkerBody(bytes, marker);
+      expect(markerOffset).toBeGreaterThan(0);
+      expect(source.reads.some((read) => readTouches(read, markerOffset))).toBe(false);
+    }
+  });
+
+  it('admits selected-audio metadata and presentation extensions as body skips', async () => {
+    const trackMarker = 0xe1;
+    const mediaMarker = 0xe2;
+    const bytes = movie(
+      box('mvhd', movieHeader(0)),
+      audioTrack({
+        trackExtra: [
+          box('meta', markerBody(trackMarker)),
+          box('udta'),
+          box('elng'),
+          box('tref'),
+          box('free'),
+          box('skip'),
+        ],
+        mediaExtra: [
+          box('meta', markerBody(mediaMarker)),
+          box('udta'),
+          box('elng'),
+          box('tref'),
+          box('free'),
+          box('skip'),
+        ],
+      }),
+    );
+    const { source, layout } = await parseFixture(bytes);
+
+    expect(layout.audioTrack.trackHeader.trackId).toBe(2);
+    for (const marker of [trackMarker, mediaMarker]) {
+      const markerOffset = findMarkerBody(bytes, marker);
+      expect(markerOffset).toBeGreaterThan(0);
+      expect(source.reads.some((read) => readTouches(read, markerOffset))).toBe(false);
+    }
+  });
+
+  it('admits direct moov metadata without exposing it as iTunSMPB evidence', async () => {
+    const marker = 0xe3;
+    const bytes = movie(
+      box('mvhd', movieHeader(0)),
+      box('meta', markerBody(marker)),
+      box('elng'),
+      box('tref'),
+      audioTrack(),
+    );
+    const { source, layout } = await parseFixture(bytes);
+    const markerOffset = findMarkerBody(bytes, marker);
+
+    expect(layout.metadataRoot).toBeNull();
+    expect(markerOffset).toBeGreaterThan(0);
+    expect(source.reads.some((read) => readTouches(read, markerOffset))).toBe(false);
+  });
+
   it('reads only the fixed hdlr prefix and skips an optional name body', async () => {
     const nameMarker = 0xe7;
     const bytes = movie(
@@ -388,7 +482,7 @@ describe('M4A movie/audio-track structural layout', () => {
     ],
     [
       'unknown moov child',
-      movie(box('mvhd', movieHeader(0)), audioTrack(), box('meta')),
+      movie(box('mvhd', movieHeader(0)), audioTrack(), box('load')),
       /Unknown M4A moov box/,
     ],
   ])('rejects %s', async (_label, bytes, expected) => {
@@ -438,6 +532,52 @@ describe('M4A movie/audio-track structural layout', () => {
     );
   });
 
+  it.each([
+    [
+      'unknown selected trak extension',
+      movie(box('mvhd', movieHeader(0)), audioTrack({ trackExtra: [box('load')] })),
+      /Unknown M4A trak box/,
+    ],
+    [
+      'unknown selected mdia extension',
+      movie(box('mvhd', movieHeader(0)), audioTrack({ mediaExtra: [box('load')] })),
+      /Unknown M4A mdia box/,
+    ],
+    [
+      'duplicate direct moov metadata',
+      movie(box('mvhd', movieHeader(0)), box('meta'), audioTrack(), box('meta')),
+      /moov\/meta.*exactly once/,
+    ],
+    [
+      'duplicate selected trak metadata',
+      movie(box('mvhd', movieHeader(0)), audioTrack({ trackExtra: [box('meta'), box('meta')] })),
+      /trak\/meta.*at most once/,
+    ],
+    [
+      'duplicate selected mdia language extension',
+      movie(box('mvhd', movieHeader(0)), audioTrack({ mediaExtra: [box('elng'), box('elng')] })),
+      /mdia\/elng.*at most once/,
+    ],
+  ])('rejects %s', async (_label, bytes, expected) => {
+    const source = new MemorySource(bytes);
+    const reader = new IsoBmffBoxReader(source);
+    await expect(readM4aMovieLayout(reader, await findMoov(reader), signal())).rejects.toThrow(
+      expected,
+    );
+  });
+
+  it.each([
+    ['fragmented non-audio trak', videoTrack(undefined, { trackExtra: [box('moof')] })],
+    ['fragmented non-audio mdia', videoTrack(undefined, { mediaExtra: [box('traf')] })],
+  ])('still rejects a %s box during bounded discovery', async (_label, track) => {
+    const bytes = movie(box('mvhd', movieHeader(0)), track, audioTrack());
+    const source = new MemorySource(bytes);
+    const reader = new IsoBmffBoxReader(source);
+    await expect(readM4aMovieLayout(reader, await findMoov(reader), signal())).rejects.toThrow(
+      /Fragmented M4A/,
+    );
+  });
+
   it('rejects fragmented movie structure immediately without reading later fixed bodies', async () => {
     const marker = 0xd4;
     const bytes = movie(box('mvex'), box('mvhd', Uint8Array.of(marker)), audioTrack());
@@ -451,6 +591,7 @@ describe('M4A movie/audio-track structural layout', () => {
   });
 
   it.each([
+    ['missing smhd', mediaInformation({ smhd: null }), /minf\/smhd.*exactly once/],
     ['missing dinf', mediaInformation({ dinf: null }), /minf\/dinf.*exactly once/],
     ['missing stbl', mediaInformation({ stbl: null }), /minf\/stbl.*exactly once/],
     [

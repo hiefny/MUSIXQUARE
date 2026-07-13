@@ -27,6 +27,8 @@ const TRACK_ENABLED_FLAG = 0x0000_0001;
 const TRACK_IN_MOVIE_FLAG = 0x0000_0002;
 
 const MOOV_PADDING_TYPES = new Set(['free', 'skip', 'iods']);
+const TRACK_PADDING_TYPES = new Set(['free', 'skip']);
+const AUDIO_EXTENSION_TYPES = new Set(['meta', 'udta', 'elng', 'tref']);
 const FRAGMENTED_BOX_TYPES = new Set(['mvex', 'moof', 'mfra', 'traf']);
 
 export interface M4aAudioTrackLayout {
@@ -61,12 +63,14 @@ interface TrackChildren {
   readonly trackHeaders: readonly Readonly<IsoBmffBoxRef>[];
   readonly media: Readonly<IsoBmffBoxRef>;
   readonly edits: readonly Readonly<IsoBmffBoxRef>[];
+  readonly extensions: readonly Readonly<IsoBmffBoxRef>[];
 }
 
 interface MediaChildren {
   readonly mediaHeaders: readonly Readonly<IsoBmffBoxRef>[];
   readonly handler: Readonly<IsoBmffBoxRef>;
   readonly mediaInformation: readonly Readonly<IsoBmffBoxRef>[];
+  readonly extensions: readonly Readonly<IsoBmffBoxRef>[];
 }
 
 function bodyLength(box: Readonly<IsoBmffBoxRef>): number {
@@ -108,6 +112,25 @@ function requireExactlyOne(
   return boxes[0]!;
 }
 
+function validateSelectedAudioExtensions(
+  boxes: readonly Readonly<IsoBmffBoxRef>[],
+  scope: string,
+): void {
+  const seen = new Set<string>();
+  for (const box of boxes) {
+    if (TRACK_PADDING_TYPES.has(box.type)) continue;
+    if (!AUDIO_EXTENSION_TYPES.has(box.type)) {
+      throw new M4aMovieLayoutError(
+        `Unknown M4A ${scope} box ${JSON.stringify(box.type)} is not admitted`,
+      );
+    }
+    if (seen.has(box.type)) {
+      throw new M4aMovieLayoutError(`M4A ${scope}/${box.type} box must appear at most once`);
+    }
+    seen.add(box.type);
+  }
+}
+
 async function readFixedPayload(
   reader: IsoBmffBoxReader,
   box: Readonly<IsoBmffBoxRef>,
@@ -127,6 +150,7 @@ async function collectTrackChildren(
   const cursor = reader.createChildCursor(track);
   const trackHeaders: Readonly<IsoBmffBoxRef>[] = [];
   const edits: Readonly<IsoBmffBoxRef>[] = [];
+  const extensions: Readonly<IsoBmffBoxRef>[] = [];
   let media: Readonly<IsoBmffBoxRef> | null = null;
 
   for (;;) {
@@ -147,13 +171,13 @@ async function collectTrackChildren(
       case 'edts':
         edits.push(child);
         break;
-      case 'free':
-      case 'skip':
-        break;
       default:
-        throw new M4aMovieLayoutError(
-          `Unknown M4A trak box ${JSON.stringify(child.type)} is not admitted`,
-        );
+        // Discovery cannot interpret an unrelated track. Retain only the
+        // bounded box reference so the selected audio track can validate its
+        // own extensions after hdlr identification; non-audio bodies remain
+        // completely untouched.
+        extensions.push(child);
+        break;
     }
   }
 
@@ -164,6 +188,7 @@ async function collectTrackChildren(
     trackHeaders: Object.freeze(trackHeaders),
     media,
     edits: Object.freeze(edits),
+    extensions: Object.freeze(extensions),
   });
 }
 
@@ -175,6 +200,7 @@ async function collectMediaChildren(
   const cursor = reader.createChildCursor(media);
   const mediaHeaders: Readonly<IsoBmffBoxRef>[] = [];
   const mediaInformation: Readonly<IsoBmffBoxRef>[] = [];
+  const extensions: Readonly<IsoBmffBoxRef>[] = [];
   let handler: Readonly<IsoBmffBoxRef> | null = null;
 
   for (;;) {
@@ -195,13 +221,9 @@ async function collectMediaChildren(
       case 'minf':
         mediaInformation.push(child);
         break;
-      case 'free':
-      case 'skip':
-        break;
       default:
-        throw new M4aMovieLayoutError(
-          `Unknown M4A mdia box ${JSON.stringify(child.type)} is not admitted`,
-        );
+        extensions.push(child);
+        break;
     }
   }
 
@@ -212,6 +234,7 @@ async function collectMediaChildren(
     mediaHeaders: Object.freeze(mediaHeaders),
     handler,
     mediaInformation: Object.freeze(mediaInformation),
+    extensions: Object.freeze(extensions),
   });
 }
 
@@ -379,7 +402,10 @@ async function readMediaInformation(
   if (sampleTable === null) {
     throw new M4aMovieLayoutError('M4A minf/stbl box must appear exactly once');
   }
-  if (soundHeader !== null) await validateSoundMediaHeader(reader, soundHeader, signal);
+  if (soundHeader === null) {
+    throw new M4aMovieLayoutError('M4A minf/smhd box must appear exactly once');
+  }
+  await validateSoundMediaHeader(reader, soundHeader, signal);
   await validateDataInformation(reader, dataInformation, signal);
   return sampleTable;
 }
@@ -395,6 +421,9 @@ async function readAudioTrack(
   const mediaChildren = await collectMediaChildren(reader, trackChildren.media, signal);
   const handlerType = await readHandlerType(reader, mediaChildren.handler, signal);
   if (handlerType !== 'soun') return null;
+
+  validateSelectedAudioExtensions(trackChildren.extensions, 'trak');
+  validateSelectedAudioExtensions(mediaChildren.extensions, 'mdia');
 
   const trackHeaderBox = requireExactlyOne(trackChildren.trackHeaders, 'audio trak/tkhd box');
   const mediaHeaderBox = requireExactlyOne(mediaChildren.mediaHeaders, 'audio mdia/mdhd box');
@@ -452,6 +481,8 @@ export async function readM4aMovieLayout(
 
   let movieHeaderBox: Readonly<IsoBmffBoxRef> | null = null;
   let metadataRoot: Readonly<IsoBmffBoxRef> | null = null;
+  let directMetadata: Readonly<IsoBmffBoxRef> | null = null;
+  const moovExtensions = new Set<string>();
   const tracks: Readonly<IsoBmffBoxRef>[] = [];
 
   for (;;) {
@@ -477,6 +508,20 @@ export async function readM4aMovieLayout(
         break;
       case 'udta':
         metadataRoot = assignUnique(metadataRoot, child, 'moov/udta box');
+        break;
+      case 'meta':
+        // Direct moov metadata is a standard harmless extension, but the
+        // initial iTunSMPB reader deliberately authenticates only
+        // moov/udta/meta. Retain uniqueness without presenting this ref as
+        // iTun gapless evidence.
+        directMetadata = assignUnique(directMetadata, child, 'moov/meta box');
+        break;
+      case 'elng':
+      case 'tref':
+        if (moovExtensions.has(child.type)) {
+          throw new M4aMovieLayoutError(`M4A moov/${child.type} box must appear at most once`);
+        }
+        moovExtensions.add(child.type);
         break;
       default:
         throw new M4aMovieLayoutError(

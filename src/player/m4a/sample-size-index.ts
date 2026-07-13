@@ -1,6 +1,9 @@
 import type { IsoBmffBoxRef } from '../mp4/box.ts';
 import { ISO_BMFF_MAX_BOUNDED_READ_BYTES, IsoBmffBoxReader } from '../mp4/box-reader.ts';
-import { EncodedSourceIntegrityError } from '../sources/encoded-audio-source.ts';
+import {
+  EncodedSourceIntegrityError,
+  isEncodedAudioSourceIdentity,
+} from '../sources/encoded-audio-source.ts';
 import { digestM4aMetadataPage } from './page-auth.ts';
 import { M4A_AAC_MAX_ACCESS_UNITS } from './timeline.ts';
 
@@ -32,6 +35,30 @@ export interface M4aSamplePrefixCheckpoint {
   readonly prefixBytes: number;
 }
 
+export interface M4aSampleSizePageEvidence {
+  readonly firstSampleOrdinal: number;
+  readonly sampleCount: number;
+  readonly sha256: string;
+}
+
+/** Shared source binding owned by the enclosing transferable M4A manifest. */
+export interface M4aIndexSourceBinding {
+  readonly sourceSize: number;
+  readonly sourceIdentity: string;
+}
+
+/** Deeply data-only evidence needed to reopen one authenticated `stsz` index. */
+export interface M4aSampleSizeIndexSnapshot {
+  readonly sampleCount: number;
+  readonly fixedSampleSizeBytes: number;
+  readonly entryTableStart: number;
+  readonly totalEncodedBytes: number;
+  readonly checkpointStride: number;
+  readonly checkpoints: readonly Readonly<M4aSamplePrefixCheckpoint>[];
+  readonly headerSha256: string;
+  readonly pages: readonly Readonly<M4aSampleSizePageEvidence>[];
+}
+
 export interface M4aSampleSizeIndex {
   readonly sampleCount: number;
   /** Zero means that the box carries one uint32 size per sample. */
@@ -56,13 +83,8 @@ interface SampleSizeAuthority {
   readonly totalEncodedBytes: number;
   readonly checkpointStride: number;
   readonly checkpoints: readonly Readonly<M4aSamplePrefixCheckpoint>[];
-  readonly pages: readonly Readonly<SampleSizePageEvidence>[];
-}
-
-interface SampleSizePageEvidence {
-  readonly firstSampleOrdinal: number;
-  readonly sampleCount: number;
-  readonly sha256: string;
+  readonly headerSha256: string;
+  readonly pages: readonly Readonly<M4aSampleSizePageEvidence>[];
 }
 
 const sampleToChunkAuthorities = new WeakMap<object, IsoBmffBoxReader>();
@@ -156,6 +178,317 @@ function requireSampleSize(value: number, ordinal: number): number {
 
 function checkpoint(ordinal: number, prefixBytes: number): Readonly<M4aSamplePrefixCheckpoint> {
   return Object.freeze({ ordinal, prefixBytes });
+}
+
+const SNAPSHOT_KEYS = Object.freeze([
+  'sampleCount',
+  'fixedSampleSizeBytes',
+  'entryTableStart',
+  'totalEncodedBytes',
+  'checkpointStride',
+  'checkpoints',
+  'headerSha256',
+  'pages',
+] as const);
+const CHECKPOINT_KEYS = Object.freeze(['ordinal', 'prefixBytes'] as const);
+const PAGE_EVIDENCE_KEYS = Object.freeze(['firstSampleOrdinal', 'sampleCount', 'sha256'] as const);
+const SOURCE_BINDING_KEYS = Object.freeze(['sourceSize', 'sourceIdentity'] as const);
+const SHA256_LOWER_HEX = /^[0-9a-f]{64}$/;
+
+function requireExactDataRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+  label: string,
+): Readonly<Record<string, unknown>> {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw createSampleSizeError(`${label} must be a plain data object`);
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw createSampleSizeError(`${label} must not be a class instance`);
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (
+      ownKeys.length !== expectedKeys.length ||
+      ownKeys.some((key) => typeof key !== 'string' || !expectedKeys.includes(key))
+    ) {
+      throw createSampleSizeError(`${label} must contain exactly its canonical keys`);
+    }
+    const result: Record<string, unknown> = {};
+    for (const key of expectedKeys) {
+      const descriptor = descriptors[key];
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+        throw createSampleSizeError(`${label}.${key} must be own enumerable data`);
+      }
+      result[key] = descriptor.value;
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof M4aSampleSizeError) throw error;
+    throw createSampleSizeError(`${label} could not be inspected as data`, error);
+  }
+}
+
+function requireDenseDataArray(
+  value: unknown,
+  maximumLength: number,
+  label: string,
+): readonly unknown[] {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) {
+      throw createSampleSizeError(`${label} must be a plain array`);
+    }
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+    const lengthValue: unknown = lengthDescriptor?.value;
+    if (
+      lengthDescriptor === undefined ||
+      !('value' in lengthDescriptor) ||
+      typeof lengthValue !== 'number' ||
+      !Number.isSafeInteger(lengthValue) ||
+      lengthValue < 0 ||
+      lengthValue > maximumLength
+    ) {
+      throw createSampleSizeError(`${label} length exceeds its proven bound`);
+    }
+    const length = lengthValue;
+    const ownKeys = Reflect.ownKeys(value);
+    if (
+      ownKeys.length !== length + 1 ||
+      ownKeys.some(
+        (key) =>
+          typeof key !== 'string' ||
+          (key !== 'length' &&
+            (!/^(0|[1-9]\d*)$/.test(key) || Number(key) < 0 || Number(key) >= length)),
+      )
+    ) {
+      throw createSampleSizeError(`${label} must be dense and contain no extra properties`);
+    }
+    const result: unknown[] = [];
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+        throw createSampleSizeError(`${label}[${index}] must be own enumerable data`);
+      }
+      result.push(descriptor.value);
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof M4aSampleSizeError) throw error;
+    throw createSampleSizeError(`${label} could not be inspected as data`, error);
+  }
+}
+
+function requireSnapshotInteger(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+  label: string,
+): number {
+  try {
+    return requireInteger(value, minimum, maximum, label);
+  } catch (error) {
+    throw createSampleSizeError(`${label} is outside its canonical integer range`, error);
+  }
+}
+
+function requireSha256(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !SHA256_LOWER_HEX.test(value)) {
+    throw createSampleSizeError(`${label} must be a lowercase 64-character SHA-256 digest`);
+  }
+  return value;
+}
+
+/** Validate and canonically copy the source binding owned by a top-level manifest. */
+export function validateM4aIndexSourceBinding(value: unknown): Readonly<M4aIndexSourceBinding> {
+  const record = requireExactDataRecord(value, SOURCE_BINDING_KEYS, 'M4A index source binding');
+  const sourceSize = requireSnapshotInteger(
+    record.sourceSize,
+    0,
+    Number.MAX_SAFE_INTEGER,
+    'M4A index source size',
+  );
+  if (!isEncodedAudioSourceIdentity(record.sourceIdentity)) {
+    throw createSampleSizeError('M4A index source identity is invalid');
+  }
+  return Object.freeze({ sourceSize, sourceIdentity: record.sourceIdentity });
+}
+
+/** Strictly validate and deeply canonicalize an untrusted transferable snapshot. */
+export function validateM4aSampleSizeIndexSnapshot(
+  value: unknown,
+): Readonly<M4aSampleSizeIndexSnapshot> {
+  const record = requireExactDataRecord(value, SNAPSHOT_KEYS, 'M4A stsz snapshot');
+  const sampleCount = requireSnapshotInteger(
+    record.sampleCount,
+    1,
+    M4A_AAC_MAX_ACCESS_UNITS,
+    'M4A stsz snapshot sample count',
+  );
+  const fixedSampleSizeBytes = requireSnapshotInteger(
+    record.fixedSampleSizeBytes,
+    0,
+    M4A_AAC_MAX_RAW_ACCESS_UNIT_BYTES,
+    'M4A stsz snapshot fixed sample size',
+  );
+  const entryTableStart = requireSnapshotInteger(
+    record.entryTableStart,
+    STSZ_FULL_BOX_HEADER_BYTES,
+    Number.MAX_SAFE_INTEGER,
+    'M4A stsz snapshot entry-table start',
+  );
+  const maximumTotalEncodedBytes = safeMultiply(
+    sampleCount,
+    M4A_AAC_MAX_RAW_ACCESS_UNIT_BYTES,
+    'M4A stsz snapshot maximum sample-byte total',
+  );
+  const totalEncodedBytes = requireSnapshotInteger(
+    record.totalEncodedBytes,
+    sampleCount,
+    maximumTotalEncodedBytes,
+    'M4A stsz snapshot sample-byte total',
+  );
+  const checkpointStride = requireSnapshotInteger(
+    record.checkpointStride,
+    0,
+    sampleCount,
+    'M4A stsz snapshot checkpoint stride',
+  );
+  const headerSha256 = requireSha256(record.headerSha256, 'M4A stsz snapshot header digest');
+
+  const checkpointValues = requireDenseDataArray(
+    record.checkpoints,
+    M4A_SAMPLE_SIZE_MAX_CHECKPOINTS,
+    'M4A stsz snapshot checkpoints',
+  );
+  const checkpoints = checkpointValues.map((candidate, index) => {
+    const item = requireExactDataRecord(
+      candidate,
+      CHECKPOINT_KEYS,
+      `M4A stsz snapshot checkpoint ${index}`,
+    );
+    return checkpoint(
+      requireSnapshotInteger(
+        item.ordinal,
+        0,
+        sampleCount,
+        `M4A stsz snapshot checkpoint ${index} ordinal`,
+      ),
+      requireSnapshotInteger(
+        item.prefixBytes,
+        0,
+        totalEncodedBytes,
+        `M4A stsz snapshot checkpoint ${index} prefix`,
+      ),
+    );
+  });
+  const pageValues = requireDenseDataArray(
+    record.pages,
+    M4A_SAMPLE_SIZE_MAX_PAGES,
+    'M4A stsz snapshot pages',
+  );
+  const pages = pageValues.map((candidate, index) => {
+    const item = requireExactDataRecord(
+      candidate,
+      PAGE_EVIDENCE_KEYS,
+      `M4A stsz snapshot page ${index}`,
+    );
+    return Object.freeze({
+      firstSampleOrdinal: requireSnapshotInteger(
+        item.firstSampleOrdinal,
+        0,
+        sampleCount - 1,
+        `M4A stsz snapshot page ${index} first ordinal`,
+      ),
+      sampleCount: requireSnapshotInteger(
+        item.sampleCount,
+        1,
+        SAMPLE_SIZE_ENTRIES_PER_PAGE,
+        `M4A stsz snapshot page ${index} sample count`,
+      ),
+      sha256: requireSha256(item.sha256, `M4A stsz snapshot page ${index} digest`),
+    });
+  });
+
+  if (fixedSampleSizeBytes !== 0) {
+    const expectedTotal = safeMultiply(
+      fixedSampleSizeBytes,
+      sampleCount,
+      'M4A fixed snapshot sample-byte total',
+    );
+    if (
+      checkpointStride !== 0 ||
+      totalEncodedBytes !== expectedTotal ||
+      checkpoints.length !== 2 ||
+      checkpoints[0]!.ordinal !== 0 ||
+      checkpoints[0]!.prefixBytes !== 0 ||
+      checkpoints[1]!.ordinal !== sampleCount ||
+      checkpoints[1]!.prefixBytes !== totalEncodedBytes ||
+      pages.length !== 0
+    ) {
+      throw createSampleSizeError('M4A fixed stsz snapshot geometry is inconsistent');
+    }
+  } else {
+    const expectedStride = Math.ceil(sampleCount / (M4A_SAMPLE_SIZE_MAX_CHECKPOINTS - 1));
+    const expectedCheckpointCount = Math.floor((sampleCount - 1) / expectedStride) + 2;
+    if (
+      checkpointStride !== expectedStride ||
+      checkpoints.length !== expectedCheckpointCount ||
+      checkpoints[0]!.ordinal !== 0 ||
+      checkpoints[0]!.prefixBytes !== 0 ||
+      checkpoints.at(-1)!.ordinal !== sampleCount ||
+      checkpoints.at(-1)!.prefixBytes !== totalEncodedBytes
+    ) {
+      throw createSampleSizeError('M4A variable stsz checkpoint coverage is inconsistent');
+    }
+    for (let index = 1; index < checkpoints.length; index += 1) {
+      const previous = checkpoints[index - 1]!;
+      const current = checkpoints[index]!;
+      const expectedOrdinal =
+        index === checkpoints.length - 1 ? sampleCount : index * checkpointStride;
+      const ordinalDelta = current.ordinal - previous.ordinal;
+      const prefixDelta = current.prefixBytes - previous.prefixBytes;
+      if (
+        current.ordinal !== expectedOrdinal ||
+        ordinalDelta < 1 ||
+        prefixDelta < ordinalDelta ||
+        prefixDelta > ordinalDelta * M4A_AAC_MAX_RAW_ACCESS_UNIT_BYTES
+      ) {
+        throw createSampleSizeError('M4A variable stsz checkpoint evidence is inconsistent');
+      }
+    }
+
+    const expectedPageCount = Math.ceil(sampleCount / SAMPLE_SIZE_ENTRIES_PER_PAGE);
+    if (pages.length !== expectedPageCount) {
+      throw createSampleSizeError('M4A variable stsz page coverage is inconsistent');
+    }
+    for (let index = 0; index < pages.length; index += 1) {
+      const page = pages[index]!;
+      const expectedFirstSampleOrdinal = index * SAMPLE_SIZE_ENTRIES_PER_PAGE;
+      const expectedSampleCount = Math.min(
+        SAMPLE_SIZE_ENTRIES_PER_PAGE,
+        sampleCount - expectedFirstSampleOrdinal,
+      );
+      if (
+        page.firstSampleOrdinal !== expectedFirstSampleOrdinal ||
+        page.sampleCount !== expectedSampleCount
+      ) {
+        throw createSampleSizeError('M4A variable stsz page evidence is inconsistent');
+      }
+    }
+  }
+
+  return Object.freeze({
+    sampleCount,
+    fixedSampleSizeBytes,
+    entryTableStart,
+    totalEncodedBytes,
+    checkpointStride,
+    checkpoints: Object.freeze(checkpoints),
+    headerSha256,
+    pages: Object.freeze(pages),
+  });
 }
 
 /** Read and retain the small, strict `stsc` run table. */
@@ -280,6 +613,13 @@ export async function readM4aSampleSizeIndex(
       `M4A fixed AAC sample size must be at most ${M4A_AAC_MAX_RAW_ACCESS_UNIT_BYTES}`,
     );
   }
+  const headerSha256 = await digestM4aMetadataPage(
+    reader,
+    header,
+    signal,
+    'M4A stsz header',
+    createSampleSizeError,
+  );
 
   const entryTableStart = body.start + STSZ_FULL_BOX_HEADER_BYTES;
   if (fixedSampleSizeBytes !== 0) {
@@ -316,6 +656,7 @@ export async function readM4aSampleSizeIndex(
         totalEncodedBytes,
         checkpointStride: 0,
         checkpoints,
+        headerSha256,
         pages: Object.freeze([]),
       }),
     );
@@ -332,7 +673,7 @@ export async function readM4aSampleSizeIndex(
 
   const checkpointStride = Math.ceil(sampleCount / (M4A_SAMPLE_SIZE_MAX_CHECKPOINTS - 1));
   const checkpoints: Readonly<M4aSamplePrefixCheckpoint>[] = [checkpoint(0, 0)];
-  const pages: Readonly<SampleSizePageEvidence>[] = [];
+  const pages: Readonly<M4aSampleSizePageEvidence>[] = [];
   let totalEncodedBytes = 0;
   let parsedSamples = 0;
   while (parsedSamples < sampleCount) {
@@ -396,6 +737,7 @@ export async function readM4aSampleSizeIndex(
       totalEncodedBytes,
       checkpointStride,
       checkpoints: frozenCheckpoints,
+      headerSha256,
       pages: frozenPages,
     }),
   );
@@ -443,6 +785,114 @@ function requireSampleSizeAuthority(
     throw new M4aSampleSizeError('M4A sample-size index belongs to a different source reader');
   }
   return authority;
+}
+
+/** Export a deeply data-only snapshot from an authentic same-reader index. */
+export function snapshotM4aSampleSizeIndex(
+  reader: IsoBmffBoxReader,
+  index: Readonly<M4aSampleSizeIndex>,
+  signal: AbortSignal,
+): Readonly<M4aSampleSizeIndexSnapshot> {
+  requireReaderAndSignal(reader, signal, 'M4A stsz snapshot export');
+  const authority = requireSampleSizeAuthority(reader, index, signal);
+  return Object.freeze({
+    sampleCount: authority.sampleCount,
+    fixedSampleSizeBytes: authority.fixedSampleSizeBytes,
+    entryTableStart: authority.entryTableStart,
+    totalEncodedBytes: authority.totalEncodedBytes,
+    checkpointStride: authority.checkpointStride,
+    checkpoints: Object.freeze(
+      authority.checkpoints.map((item) => checkpoint(item.ordinal, item.prefixBytes)),
+    ),
+    headerSha256: authority.headerSha256,
+    pages: Object.freeze(
+      authority.pages.map((page) =>
+        Object.freeze({
+          firstSampleOrdinal: page.firstSampleOrdinal,
+          sampleCount: page.sampleCount,
+          sha256: page.sha256,
+        }),
+      ),
+    ),
+  });
+}
+
+/**
+ * Reopen an untrusted transferable snapshot against one explicitly bound source.
+ * Only the 12-byte `stsz` header is reread here; variable table pages remain lazy.
+ */
+export async function rehydrateM4aSampleSizeIndex(
+  reader: IsoBmffBoxReader,
+  snapshotValue: unknown,
+  expectedSourceValue: unknown,
+  signal: AbortSignal,
+): Promise<Readonly<M4aSampleSizeIndex>> {
+  requireReaderAndSignal(reader, signal, 'M4A stsz snapshot rehydration');
+  reader.assertReadable(signal);
+  const expectedSource = validateM4aIndexSourceBinding(expectedSourceValue);
+  if (
+    reader.sourceSize !== expectedSource.sourceSize ||
+    reader.sourceIdentity !== expectedSource.sourceIdentity
+  ) {
+    throw createSampleSizeError('M4A stsz snapshot source binding does not match its reader');
+  }
+  const snapshot = validateM4aSampleSizeIndexSnapshot(snapshotValue);
+  const tableBytes =
+    snapshot.fixedSampleSizeBytes === 0
+      ? safeMultiply(snapshot.sampleCount, STSZ_ENTRY_BYTES, 'M4A rehydrated stsz table size')
+      : 0;
+  const tableEnd = safeAdd(snapshot.entryTableStart, tableBytes, 'M4A rehydrated stsz table end');
+  if (tableEnd > expectedSource.sourceSize) {
+    throw createSampleSizeError('M4A stsz snapshot table exceeds its bound source');
+  }
+
+  const header = await reader.readBytes(
+    snapshot.entryTableStart - STSZ_FULL_BOX_HEADER_BYTES,
+    STSZ_FULL_BOX_HEADER_BYTES,
+    signal,
+  );
+  const headerSha256 = await digestM4aMetadataPage(
+    reader,
+    header,
+    signal,
+    'M4A stsz header',
+    createSampleSizeError,
+  );
+  if (headerSha256 !== snapshot.headerSha256) {
+    throw createSampleSizeError('M4A stsz header changed after the snapshot was built');
+  }
+  requireZeroFullBox(header, 'M4A stsz');
+  if (
+    readUint32(header, 4) !== snapshot.fixedSampleSizeBytes ||
+    readUint32(header, 8) !== snapshot.sampleCount
+  ) {
+    throw createSampleSizeError('M4A stsz header does not match its snapshot geometry');
+  }
+
+  reader.assertReadable(signal);
+  const index = Object.freeze({
+    sampleCount: snapshot.sampleCount,
+    fixedSampleSizeBytes: snapshot.fixedSampleSizeBytes,
+    entryTableStart: snapshot.entryTableStart,
+    totalEncodedBytes: snapshot.totalEncodedBytes,
+    checkpointStride: snapshot.checkpointStride,
+    checkpoints: snapshot.checkpoints,
+  });
+  sampleSizeAuthorities.set(
+    index,
+    Object.freeze({
+      reader,
+      sampleCount: snapshot.sampleCount,
+      fixedSampleSizeBytes: snapshot.fixedSampleSizeBytes,
+      entryTableStart: snapshot.entryTableStart,
+      totalEncodedBytes: snapshot.totalEncodedBytes,
+      checkpointStride: snapshot.checkpointStride,
+      checkpoints: snapshot.checkpoints,
+      headerSha256: snapshot.headerSha256,
+      pages: snapshot.pages,
+    }),
+  );
+  return index;
 }
 
 function floorCheckpointIndex(

@@ -14,6 +14,10 @@ import {
   readM4aSampleSizeAt,
   readM4aSampleSizeIndex,
   readM4aSampleToChunkRuns,
+  rehydrateM4aSampleSizeIndex,
+  snapshotM4aSampleSizeIndex,
+  validateM4aIndexSourceBinding,
+  validateM4aSampleSizeIndexSnapshot,
 } from '../sample-size-index.ts';
 
 interface ReadRecord {
@@ -354,8 +358,10 @@ describe('bounded M4A stsz indexes', () => {
 
   it('fails closed when page hashing fails and preserves abort during WebCrypto', async () => {
     const cryptoFailure = Object.freeze(new Error('fixture digest failure'));
+    const originalDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
     const failureSpy = vi
       .spyOn(globalThis.crypto.subtle, 'digest')
+      .mockImplementationOnce(originalDigest)
       .mockRejectedValueOnce(cryptoFailure);
     try {
       const source = new MemorySource(box('stsz', stszBody(0, [3, 5])));
@@ -370,7 +376,6 @@ describe('bounded M4A stsz indexes', () => {
       failureSpy.mockRestore();
     }
 
-    const originalDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
     let releaseDigest!: () => void;
     const digestGate = new Promise<void>((resolve) => {
       releaseDigest = resolve;
@@ -403,6 +408,225 @@ describe('bounded M4A stsz indexes', () => {
     source.mutateIdentityAfterRead = true;
     await expect(readM4aSampleSizeAt(reader, index, 0, signal())).rejects.toThrow(/source changed/);
     expect(source.closeCalls).toBe(0);
+  });
+});
+
+describe('transferable M4A stsz snapshots', () => {
+  it('exports deeply frozen header and page evidence for fixed and variable tables', async () => {
+    const fixedSource = new MemorySource(box('stsz', stszBody(17, Array(4).fill(17))));
+    const fixedReader = new IsoBmffBoxReader(fixedSource);
+    const fixedIndex = await readM4aSampleSizeIndex(
+      fixedReader,
+      await rootRef(fixedReader),
+      4,
+      signal(),
+    );
+    const fixed = snapshotM4aSampleSizeIndex(fixedReader, fixedIndex, signal());
+    expect(fixed).toMatchObject({
+      sampleCount: 4,
+      fixedSampleSizeBytes: 17,
+      totalEncodedBytes: 68,
+      checkpointStride: 0,
+      pages: [],
+    });
+    expect(fixed.headerSha256).toMatch(/^[0-9a-f]{64}$/);
+    fixedSource.reads.length = 0;
+    const fixedReopenedReader = new IsoBmffBoxReader(fixedSource);
+    const fixedReopened = await rehydrateM4aSampleSizeIndex(
+      fixedReopenedReader,
+      structuredClone(fixed),
+      { sourceSize: fixedSource.size, sourceIdentity: fixedSource.identity },
+      signal(),
+    );
+    expect(fixedSource.reads).toEqual([{ offset: 8, length: 12 }]);
+    expect(await readM4aSampleSizeAt(fixedReopenedReader, fixedReopened, 3, signal())).toBe(17);
+    expect(fixedSource.reads).toEqual([{ offset: 8, length: 12 }]);
+
+    const variableFixture = await indexedVariable([3, 5, 7]);
+    const variable = snapshotM4aSampleSizeIndex(
+      variableFixture.reader,
+      variableFixture.index,
+      signal(),
+    );
+    expect(variable).toMatchObject({
+      sampleCount: 3,
+      fixedSampleSizeBytes: 0,
+      totalEncodedBytes: 15,
+      checkpointStride: 1,
+      pages: [
+        {
+          firstSampleOrdinal: 0,
+          sampleCount: 3,
+          sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        },
+      ],
+    });
+    expect(variable.headerSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(Object.isFrozen(variable)).toBe(true);
+    expect(Object.isFrozen(variable.checkpoints)).toBe(true);
+    expect(Object.isFrozen(variable.pages)).toBe(true);
+    expect(variable.checkpoints.every(Object.isFrozen)).toBe(true);
+    expect(variable.pages.every(Object.isFrozen)).toBe(true);
+
+    const canonical = validateM4aSampleSizeIndexSnapshot(structuredClone(variable));
+    expect(canonical).toEqual(variable);
+    expect(Object.isFrozen(canonical)).toBe(true);
+    expect(Object.isFrozen(canonical.checkpoints)).toBe(true);
+    expect(Object.isFrozen(canonical.pages)).toBe(true);
+  });
+
+  it('rehydrates on a new bound reader by rereading only the 12-byte header', async () => {
+    const { source, reader, index } = await indexedVariable([3, 5, 7, 11]);
+    const snapshot = structuredClone(snapshotM4aSampleSizeIndex(reader, index, signal()));
+    const expectedSource = {
+      sourceSize: source.size,
+      sourceIdentity: source.identity,
+    };
+    source.reads.length = 0;
+    const reopenedReader = new IsoBmffBoxReader(source);
+    const reopened = await rehydrateM4aSampleSizeIndex(
+      reopenedReader,
+      snapshot,
+      expectedSource,
+      signal(),
+    );
+
+    expect(source.reads).toEqual([{ offset: 8, length: 12 }]);
+    expect(await readM4aSampleSizeAt(reopenedReader, reopened, 2, signal())).toBe(7);
+    expect(source.reads).toEqual([
+      { offset: 8, length: 12 },
+      { offset: 20, length: 16 },
+    ]);
+    expect(snapshotM4aSampleSizeIndex(reopenedReader, reopened, signal())).toEqual(snapshot);
+    await expect(readM4aSampleSizeAt(reader, reopened, 0, signal())).rejects.toThrow(
+      /different source reader/,
+    );
+    source.bytes[23] = 4;
+    await expect(readM4aSampleSizeAt(reopenedReader, reopened, 0, signal())).rejects.toThrow(
+      /changed after the index/,
+    );
+    source.bytes[23] = 3;
+  });
+
+  it('rejects source-binding mismatch, header mutation, and identity mutation during reopen', async () => {
+    const { source, reader, index } = await indexedVariable([3, 5]);
+    const snapshot = snapshotM4aSampleSizeIndex(reader, index, signal());
+    const binding = { sourceSize: source.size, sourceIdentity: source.identity };
+
+    await expect(
+      rehydrateM4aSampleSizeIndex(
+        new IsoBmffBoxReader(source),
+        snapshot,
+        { ...binding, sourceSize: binding.sourceSize + 1 },
+        signal(),
+      ),
+    ).rejects.toThrow(/source binding/);
+    await expect(
+      rehydrateM4aSampleSizeIndex(
+        new IsoBmffBoxReader(source),
+        snapshot,
+        { ...binding, sourceIdentity: 'other-source' },
+        signal(),
+      ),
+    ).rejects.toThrow(/source binding/);
+
+    source.bytes[8] = 1;
+    source.reads.length = 0;
+    await expect(
+      rehydrateM4aSampleSizeIndex(new IsoBmffBoxReader(source), snapshot, binding, signal()),
+    ).rejects.toThrow(/header changed/);
+    expect(source.reads).toEqual([{ offset: 8, length: 12 }]);
+    source.bytes[8] = 0;
+
+    source.bytes[15] = 1;
+    const forgedDigestBytes = new Uint8Array(
+      await globalThis.crypto.subtle.digest('SHA-256', source.bytes.slice(8, 20)),
+    );
+    const forgedDigest = Array.from(forgedDigestBytes, (value) =>
+      value.toString(16).padStart(2, '0'),
+    ).join('');
+    await expect(
+      rehydrateM4aSampleSizeIndex(
+        new IsoBmffBoxReader(source),
+        { ...snapshot, headerSha256: forgedDigest },
+        binding,
+        signal(),
+      ),
+    ).rejects.toThrow(/header does not match/);
+    source.bytes[15] = 0;
+
+    const identityReader = new IsoBmffBoxReader(source);
+    source.mutateIdentityAfterRead = true;
+    await expect(
+      rehydrateM4aSampleSizeIndex(identityReader, snapshot, binding, signal()),
+    ).rejects.toThrow(/source changed/);
+    expect(source.closeCalls).toBe(0);
+  });
+
+  it('strictly rejects active, noncanonical, sparse, and inconsistent snapshot data', async () => {
+    const { reader, index } = await indexedVariable([3, 5, 7]);
+    const snapshot = structuredClone(snapshotM4aSampleSizeIndex(reader, index, signal()));
+    const invalid: unknown[] = [];
+
+    invalid.push({ ...snapshot, extra: true });
+    invalid.push({ ...snapshot, [Symbol('extra')]: true });
+    invalid.push(Object.assign(new (class Snapshot {})(), snapshot));
+    const inherited = Object.create(snapshot);
+    invalid.push(inherited);
+    const accessor = { ...snapshot };
+    Object.defineProperty(accessor, 'sampleCount', {
+      enumerable: true,
+      get: () => 3,
+    });
+    invalid.push(accessor);
+    const nonEnumerable = { ...snapshot };
+    Object.defineProperty(nonEnumerable, 'sampleCount', { enumerable: false, value: 3 });
+    invalid.push(nonEnumerable);
+
+    const sparseCheckpoints = { ...snapshot, checkpoints: Array(snapshot.checkpoints.length) };
+    invalid.push(sparseCheckpoints);
+    invalid.push({
+      ...snapshot,
+      checkpoints: snapshot.checkpoints.map((item, index) =>
+        index === 0 ? { ...item, extra: true } : item,
+      ),
+    });
+    invalid.push({
+      ...snapshot,
+      checkpoints: snapshot.checkpoints.map((item, index) =>
+        index === 1 ? { ...item, prefixBytes: 0 } : item,
+      ),
+    });
+    invalid.push({ ...snapshot, pages: snapshot.pages.slice(1) });
+    invalid.push({ ...snapshot, headerSha256: snapshot.headerSha256.toUpperCase() });
+
+    class FancyPages extends Array<unknown> {}
+    invalid.push({ ...snapshot, pages: FancyPages.from(snapshot.pages) });
+
+    for (const candidate of invalid) {
+      expect(() => validateM4aSampleSizeIndexSnapshot(candidate)).toThrow();
+    }
+  });
+
+  it('strictly canonicalizes the shared source binding', () => {
+    const canonical = validateM4aIndexSourceBinding({
+      sourceSize: 123,
+      sourceIdentity: 'bound-source',
+    });
+    expect(canonical).toEqual({ sourceSize: 123, sourceIdentity: 'bound-source' });
+    expect(Object.isFrozen(canonical)).toBe(true);
+    expect(() => validateM4aIndexSourceBinding({ ...canonical, extra: true })).toThrow(
+      /canonical keys/,
+    );
+    expect(() =>
+      validateM4aIndexSourceBinding(Object.assign(new (class Binding {})(), canonical)),
+    ).toThrow(/class instance/);
+    const accessor = { sourceSize: 123 } as Record<string, unknown>;
+    Object.defineProperty(accessor, 'sourceIdentity', {
+      enumerable: true,
+      get: () => 'bound-source',
+    });
+    expect(() => validateM4aIndexSourceBinding(accessor)).toThrow(/own enumerable data/);
   });
 });
 

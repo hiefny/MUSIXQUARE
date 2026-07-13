@@ -1,37 +1,30 @@
 import {
-  PCM_STREAM_MAX_CHANNELS,
-  PCM_STREAM_MAX_MESSAGE_FRAMES,
   type PcmStreamGeneration,
   type PcmSupplyMessage,
 } from '../streaming/pcm-stream-protocol.ts';
+import {
+  LINEAR_PCM_STREAM_MAX_CHANNELS,
+  LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES,
+  LINEAR_PCM_STREAM_MAX_READ_BYTES,
+  type LinearPcmStreamDescriptor,
+} from '../linear-pcm/stream-protocol.js';
 import type { WavePcmEncoding } from './metadata.ts';
 
 /** Control-channel protocol for the WAVE decoder worker. */
 export const WAVE_STREAM_PROTOCOL_VERSION = 1 as const;
 /** EncodedSourcePortBroker's exact physical read ceiling. */
-export const WAVE_STREAM_MAX_READ_BYTES = 64 * 1_024;
-export const WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES = PCM_STREAM_MAX_MESSAGE_FRAMES;
-export const WAVE_STREAM_MAX_CHANNELS = PCM_STREAM_MAX_CHANNELS;
+export const WAVE_STREAM_MAX_READ_BYTES = LINEAR_PCM_STREAM_MAX_READ_BYTES;
+export const WAVE_STREAM_MAX_PCM_MESSAGE_FRAMES = LINEAR_PCM_STREAM_MAX_MESSAGE_FRAMES;
+export const WAVE_STREAM_MAX_CHANNELS = LINEAR_PCM_STREAM_MAX_CHANNELS;
 export const WAVE_STREAM_MAX_SOURCE_IDENTITY_LENGTH = 512;
 
 export type WaveSourceLifetimeGeneration = number;
 export type WaveDecoderGeneration = PcmStreamGeneration;
 
 /** Immutable, plain-data contract independently validated inside the worker. */
-export interface WaveStreamDescriptor {
+export interface WaveStreamDescriptor extends LinearPcmStreamDescriptor {
   readonly format: 'wave-pcm';
-  readonly sourceSampleRate: number;
-  readonly outputSampleRate: number;
-  readonly channels: number;
   readonly encoding: WavePcmEncoding;
-  readonly containerBitsPerSample: 8 | 16 | 24 | 32 | 64;
-  readonly validBitsPerSample: number;
-  readonly blockAlign: number;
-  readonly dataOffset: number;
-  readonly dataBytes: number;
-  readonly logicalFileBytes: number;
-  readonly totalSourceFrames: number;
-  readonly targetSourceFrame: number;
 }
 
 export interface WaveSourceOpenMessage {

@@ -4,6 +4,7 @@ import {
   throwIfAborted,
   validateExactRead,
 } from '../sources/encoded-audio-source.ts';
+import type { LinearPcmEncoding } from '../linear-pcm/sample-format.js';
 
 export const WAVE_MAX_CHANNELS = 8;
 export const WAVE_MAX_SAMPLE_RATE_HZ = 1_000_000;
@@ -34,13 +35,8 @@ const SUBFORMAT_GUID_SUFFIX = new Uint8Array([
 
 export type WaveContainer = 'riff' | 'rf64' | 'bw64';
 
-export type WavePcmEncoding =
-  | 'pcm-u8'
-  | 'pcm-s16le'
-  | 'pcm-s24le'
-  | 'pcm-s32le'
-  | 'float32le'
-  | 'float64le';
+/** WAVE-facing name for the shared linear-PCM encoding set. */
+export type WavePcmEncoding = LinearPcmEncoding;
 
 export interface WavePcmMetadata {
   readonly format: 'wave';

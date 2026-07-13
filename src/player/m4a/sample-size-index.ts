@@ -1,6 +1,7 @@
 import type { IsoBmffBoxRef } from '../mp4/box.ts';
 import { ISO_BMFF_MAX_BOUNDED_READ_BYTES, IsoBmffBoxReader } from '../mp4/box-reader.ts';
 import { EncodedSourceIntegrityError } from '../sources/encoded-audio-source.ts';
+import { digestM4aMetadataPage } from './page-auth.ts';
 import { M4A_AAC_MAX_ACCESS_UNITS } from './timeline.ts';
 
 const STSC_FULL_BOX_HEADER_BYTES = 8;
@@ -11,6 +12,9 @@ const STSZ_ENTRY_BYTES = 4;
 const M4A_AAC_MAX_RAW_ACCESS_UNIT_BYTES = 8_191;
 const M4A_SAMPLE_SIZE_MAX_CHECKPOINTS = 8_192;
 const SAMPLE_SIZE_ENTRIES_PER_PAGE = Math.floor(ISO_BMFF_MAX_BOUNDED_READ_BYTES / STSZ_ENTRY_BYTES);
+export const M4A_SAMPLE_SIZE_MAX_PAGES = Math.ceil(
+  M4A_AAC_MAX_ACCESS_UNITS / SAMPLE_SIZE_ENTRIES_PER_PAGE,
+);
 
 export interface M4aSampleToChunkRun {
   readonly firstChunk: number;
@@ -52,6 +56,13 @@ interface SampleSizeAuthority {
   readonly totalEncodedBytes: number;
   readonly checkpointStride: number;
   readonly checkpoints: readonly Readonly<M4aSamplePrefixCheckpoint>[];
+  readonly pages: readonly Readonly<SampleSizePageEvidence>[];
+}
+
+interface SampleSizePageEvidence {
+  readonly firstSampleOrdinal: number;
+  readonly sampleCount: number;
+  readonly sha256: string;
 }
 
 const sampleToChunkAuthorities = new WeakMap<object, IsoBmffBoxReader>();
@@ -69,6 +80,9 @@ export class M4aSampleSizeError extends EncodedSourceIntegrityError {
     }
   }
 }
+
+const createSampleSizeError = (message: string, cause?: unknown): M4aSampleSizeError =>
+  new M4aSampleSizeError(message, cause);
 
 function requireReaderAndSignal(
   reader: unknown,
@@ -302,6 +316,7 @@ export async function readM4aSampleSizeIndex(
         totalEncodedBytes,
         checkpointStride: 0,
         checkpoints,
+        pages: Object.freeze([]),
       }),
     );
     return result;
@@ -317,6 +332,7 @@ export async function readM4aSampleSizeIndex(
 
   const checkpointStride = Math.ceil(sampleCount / (M4A_SAMPLE_SIZE_MAX_CHECKPOINTS - 1));
   const checkpoints: Readonly<M4aSamplePrefixCheckpoint>[] = [checkpoint(0, 0)];
+  const pages: Readonly<SampleSizePageEvidence>[] = [];
   let totalEncodedBytes = 0;
   let parsedSamples = 0;
   while (parsedSamples < sampleCount) {
@@ -325,6 +341,20 @@ export async function readM4aSampleSizeIndex(
       entryTableStart + parsedSamples * STSZ_ENTRY_BYTES,
       pageSamples * STSZ_ENTRY_BYTES,
       signal,
+    );
+    const pageDigest = await digestM4aMetadataPage(
+      reader,
+      page,
+      signal,
+      'M4A stsz page',
+      createSampleSizeError,
+    );
+    pages.push(
+      Object.freeze({
+        firstSampleOrdinal: parsedSamples,
+        sampleCount: pageSamples,
+        sha256: pageDigest,
+      }),
     );
     for (let offset = 0; offset < page.byteLength; offset += STSZ_ENTRY_BYTES) {
       const ordinal = parsedSamples + offset / STSZ_ENTRY_BYTES;
@@ -341,9 +371,13 @@ export async function readM4aSampleSizeIndex(
   if (checkpoints.length > M4A_SAMPLE_SIZE_MAX_CHECKPOINTS) {
     throw new M4aSampleSizeError('M4A stsz checkpoint count exceeded its proven bound');
   }
+  if (pages.length > M4A_SAMPLE_SIZE_MAX_PAGES) {
+    throw new M4aSampleSizeError('M4A stsz authenticated page count exceeded its proven bound');
+  }
 
   reader.assertReadable(signal);
   const frozenCheckpoints = Object.freeze(checkpoints);
+  const frozenPages = Object.freeze(pages);
   const result = Object.freeze({
     sampleCount,
     fixedSampleSizeBytes: 0,
@@ -362,9 +396,34 @@ export async function readM4aSampleSizeIndex(
       totalEncodedBytes,
       checkpointStride,
       checkpoints: frozenCheckpoints,
+      pages: frozenPages,
     }),
   );
   return result;
+}
+
+async function readAuthenticatedSampleSizePage(
+  reader: IsoBmffBoxReader,
+  authority: SampleSizeAuthority,
+  pageIndex: number,
+  signal: AbortSignal,
+): Promise<Uint8Array> {
+  const evidence = authority.pages[pageIndex];
+  if (evidence === undefined) {
+    throw new M4aSampleSizeError('M4A stsz authenticated page geometry is inconsistent');
+  }
+  const page = await reader.readBytes(
+    authority.entryTableStart + evidence.firstSampleOrdinal * STSZ_ENTRY_BYTES,
+    evidence.sampleCount * STSZ_ENTRY_BYTES,
+    signal,
+  );
+  if (
+    (await digestM4aMetadataPage(reader, page, signal, 'M4A stsz page', createSampleSizeError)) !==
+    evidence.sha256
+  ) {
+    throw new M4aSampleSizeError('M4A stsz entries changed after the index was built');
+  }
+  return page;
 }
 
 function requireSampleSizeAuthority(
@@ -423,20 +482,18 @@ async function readAuthenticatedVariableSegment(
   let scanned = start.ordinal;
 
   while (scanned < end.ordinal) {
-    const pageSamples = Math.min(SAMPLE_SIZE_ENTRIES_PER_PAGE, end.ordinal - scanned);
-    const page = await reader.readBytes(
-      authority.entryTableStart + scanned * STSZ_ENTRY_BYTES,
-      pageSamples * STSZ_ENTRY_BYTES,
-      signal,
-    );
-    for (let offset = 0; offset < page.byteLength; offset += STSZ_ENTRY_BYTES) {
-      const currentOrdinal = scanned + offset / STSZ_ENTRY_BYTES;
+    const pageIndex = Math.floor(scanned / SAMPLE_SIZE_ENTRIES_PER_PAGE);
+    const evidence = authority.pages[pageIndex]!;
+    const page = await readAuthenticatedSampleSizePage(reader, authority, pageIndex, signal);
+    const consumeEnd = Math.min(end.ordinal, evidence.firstSampleOrdinal + evidence.sampleCount);
+    for (let currentOrdinal = scanned; currentOrdinal < consumeEnd; currentOrdinal += 1) {
+      const offset = (currentOrdinal - evidence.firstSampleOrdinal) * STSZ_ENTRY_BYTES;
       const size = requireSampleSize(readUint32(page, offset), currentOrdinal);
       if (captureSample && currentOrdinal === ordinal) sampleSizeBytes = size;
       runningPrefix = safeAdd(runningPrefix, size, 'M4A sample prefix');
       if (currentOrdinal + 1 === ordinal) prefixBytes = runningPrefix;
     }
-    scanned += pageSamples;
+    scanned = consumeEnd;
   }
 
   if (runningPrefix !== end.prefixBytes) {
@@ -612,13 +669,11 @@ class SourceBoundM4aSampleSizeSequence implements M4aSampleSizeSequence {
       const pageStart =
         Math.floor(scanOrdinal / SAMPLE_SIZE_ENTRIES_PER_PAGE) * SAMPLE_SIZE_ENTRIES_PER_PAGE;
       if (this.#cachedPageStart !== pageStart) {
-        const pageSamples = Math.min(
-          SAMPLE_SIZE_ENTRIES_PER_PAGE,
-          this.authority.sampleCount - pageStart,
-        );
-        this.#cachedPage = await this.reader.readBytes(
-          this.authority.entryTableStart + pageStart * STSZ_ENTRY_BYTES,
-          pageSamples * STSZ_ENTRY_BYTES,
+        const pageIndex = Math.floor(scanOrdinal / SAMPLE_SIZE_ENTRIES_PER_PAGE);
+        this.#cachedPage = await readAuthenticatedSampleSizePage(
+          this.reader,
+          this.authority,
+          pageIndex,
           signal,
         );
         this.#cachedPageStart = pageStart;

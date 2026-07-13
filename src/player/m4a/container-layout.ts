@@ -23,6 +23,8 @@ export interface M4aContainerLayout {
   readonly ignoredTopLevelBoxCount: number;
 }
 
+const containerLayoutAuthorities = new WeakMap<object, IsoBmffBoxReader>();
+
 export class M4aContainerLayoutError extends EncodedSourceIntegrityError {
   constructor(message: string, cause?: unknown) {
     super(message);
@@ -179,7 +181,8 @@ export async function readM4aContainerLayout(
     throw new M4aContainerLayoutError('M4A has no non-empty media-data payload');
   }
 
-  return Object.freeze({
+  reader.assertReadable(signal);
+  const result = Object.freeze({
     majorBrand: fileType.majorBrand,
     minorVersion: fileType.minorVersion,
     compatibleBrands: fileType.compatibleBrands,
@@ -187,4 +190,35 @@ export async function readM4aContainerLayout(
     mediaDataRanges: Object.freeze(mediaDataRanges),
     ignoredTopLevelBoxCount,
   });
+  containerLayoutAuthorities.set(result, reader);
+  return result;
+}
+
+/**
+ * Recover only the exact immutable layout issued for this source reader.
+ * Callers cannot manufacture trusted `mdat` ranges by cloning public fields.
+ */
+export function assertM4aContainerLayoutProvenance(
+  reader: IsoBmffBoxReader,
+  layout: Readonly<M4aContainerLayout>,
+  signal: AbortSignal,
+): Readonly<M4aContainerLayout> {
+  if (!(reader instanceof IsoBmffBoxReader)) {
+    throw new TypeError('M4A container-layout provenance requires an ISO BMFF box reader');
+  }
+  if (!(signal instanceof AbortSignal)) {
+    throw new TypeError('M4A container-layout provenance requires an AbortSignal');
+  }
+  reader.assertReadable(signal);
+  const authority =
+    layout !== null && (typeof layout === 'object' || typeof layout === 'function')
+      ? containerLayoutAuthorities.get(layout)
+      : undefined;
+  if (authority === undefined) {
+    throw new M4aContainerLayoutError('M4A container layout lacks module provenance');
+  }
+  if (authority !== reader) {
+    throw new M4aContainerLayoutError('M4A container layout belongs to a different source reader');
+  }
+  return layout;
 }

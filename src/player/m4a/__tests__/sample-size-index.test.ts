@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { IsoBmffBoxReader } from '../../mp4/box-reader.ts';
 import {
@@ -9,6 +9,7 @@ import {
 import {
   assertM4aSampleToChunkRunTableProvenance,
   createM4aSampleSizeSequence,
+  M4A_SAMPLE_SIZE_MAX_PAGES,
   readM4aSamplePrefixBytes,
   readM4aSampleSizeAt,
   readM4aSampleSizeIndex,
@@ -264,6 +265,7 @@ describe('bounded M4A stsz indexes', () => {
     expect(index.checkpoints.every(Object.isFrozen)).toBe(true);
     expect(source.reads.some((read) => read.length === 64 * 1_024)).toBe(true);
     expect(source.reads.every((read) => read.length <= 64 * 1_024)).toBe(true);
+    expect(M4A_SAMPLE_SIZE_MAX_PAGES).toBe(1_024);
   });
 
   it('proves the checkpoint cap at and immediately above the dense boundary', async () => {
@@ -304,7 +306,7 @@ describe('bounded M4A stsz indexes', () => {
     expect(await readM4aSamplePrefixBytes(reader, index, sizes.length, signal())).toBe(
       index.totalEncodedBytes,
     );
-    expect(source.reads.every((read) => read.length <= index.checkpointStride * 4)).toBe(true);
+    expect(source.reads.every((read) => read.length <= 64 * 1_024)).toBe(true);
   });
 
   it('rejects cloned, inherited, foreign-reader, and out-of-range lookup inputs', async () => {
@@ -334,6 +336,66 @@ describe('bounded M4A stsz indexes', () => {
     await expect(readM4aSampleSizeAt(reader, index, 0, signal())).rejects.toThrow(
       /changed after the index/,
     );
+  });
+
+  it('detects a sum-preserving sample-boundary mutation in random and sequential reads', async () => {
+    const { source, reader, index } = await indexedVariable([3, 5]);
+    const entries = new DataView(source.bytes.buffer, source.bytes.byteOffset + 8 + 12, 8);
+    entries.setUint32(0, 5, false);
+    entries.setUint32(4, 3, false);
+
+    await expect(readM4aSampleSizeAt(reader, index, 0, signal())).rejects.toThrow(
+      /changed after the index/,
+    );
+    const sequence = createM4aSampleSizeSequence(reader, index);
+    await expect(sequence.sumNext(1, signal())).rejects.toThrow(/changed after the index/);
+    expect(sequence.ordinal).toBe(0);
+  });
+
+  it('fails closed when page hashing fails and preserves abort during WebCrypto', async () => {
+    const cryptoFailure = Object.freeze(new Error('fixture digest failure'));
+    const failureSpy = vi
+      .spyOn(globalThis.crypto.subtle, 'digest')
+      .mockRejectedValueOnce(cryptoFailure);
+    try {
+      const source = new MemorySource(box('stsz', stszBody(0, [3, 5])));
+      const reader = new IsoBmffBoxReader(source);
+      await expect(
+        readM4aSampleSizeIndex(reader, await rootRef(reader), 2, signal()),
+      ).rejects.toMatchObject({
+        message: expect.stringMatching(/page could not be authenticated/),
+        cause: cryptoFailure,
+      });
+    } finally {
+      failureSpy.mockRestore();
+    }
+
+    const originalDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    let releaseDigest!: () => void;
+    const digestGate = new Promise<void>((resolve) => {
+      releaseDigest = resolve;
+    });
+    const abortSpy = vi
+      .spyOn(globalThis.crypto.subtle, 'digest')
+      .mockImplementationOnce(async (algorithm, data) => {
+        await digestGate;
+        return originalDigest(algorithm, data);
+      });
+    try {
+      const source = new MemorySource(box('stsz', stszBody(0, [3, 5])));
+      const reader = new IsoBmffBoxReader(source);
+      const ref = await rootRef(reader);
+      const controller = new AbortController();
+      const reason = Object.freeze({ phase: 'stsz-page-digest' });
+      const pending = readM4aSampleSizeIndex(reader, ref, 2, controller.signal);
+      await vi.waitFor(() => expect(abortSpy).toHaveBeenCalledOnce());
+      controller.abort(reason);
+      releaseDigest();
+      await expect(pending).rejects.toBe(reason);
+    } finally {
+      releaseDigest();
+      abortSpy.mockRestore();
+    }
   });
 
   it('detects source identity mutation without taking source ownership', async () => {
@@ -390,7 +452,7 @@ describe('sequential M4A sample-size summation', () => {
       sizes.slice(1, 6).reduce((sum, size) => sum + size, 0),
     );
     expect(sequence.ordinal).toBe(6);
-    expect(source.reads[0]).toMatchObject({ length: index.checkpointStride * 4 });
+    expect(source.reads[0]).toMatchObject({ length: sizes.length * 4 });
     expect(source.reads.every((read) => read.length <= 64 * 1_024)).toBe(true);
   });
 
@@ -448,10 +510,8 @@ describe('sequential M4A sample-size summation', () => {
     source.bytes[8 + 12 + 3] = 4;
     const sequence = createM4aSampleSizeSequence(reader, index);
 
-    // The second sample reaches the first sparse prefix checkpoint.
-    await expect(sequence.sumNext(1, signal())).resolves.toBe(4);
-    await expect(sequence.sumNext(1, signal())).rejects.toThrow(/sequential index/);
-    expect(sequence.ordinal).toBe(1);
+    await expect(sequence.sumNext(1, signal())).rejects.toThrow(/changed after the index/);
+    expect(sequence.ordinal).toBe(0);
   });
 
   it('requires an authentic same-reader index and preserves abort at EOF', async () => {

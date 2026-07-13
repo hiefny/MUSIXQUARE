@@ -5,7 +5,6 @@ import {
 } from './backends/audio-buffer-playback-source.ts';
 import {
   StreamingFlacPlaybackSource,
-  type StreamingFlacPlaybackRuntime,
   type StreamingFlacPlaybackSourceOptions,
 } from './backends/streaming-flac-playback-source.ts';
 import type { FilePlaybackSource } from './file-playback-source.ts';
@@ -19,6 +18,7 @@ import {
   throwIfAborted,
   validateExactRead,
 } from './sources/encoded-audio-source.ts';
+import type { BoundedStreamingCodecRuntime } from './streaming/bounded-codec-runtime.ts';
 
 const NATIVE_FLAC_MARKER = new Uint8Array([0x66, 0x4c, 0x61, 0x43]);
 const OGG_MARKER = new Uint8Array([0x4f, 0x67, 0x67, 0x53]);
@@ -69,7 +69,7 @@ interface FilePlaybackSourceFactoryCommonOptions {
   readonly localPerformanceMsToContextTime: (localPerformanceTimeMs: number) => number;
   readonly signal: AbortSignal;
   /** Runtime seam is forwarded only to the streaming backend; it is not started here. */
-  readonly streamingRuntime?: Partial<StreamingFlacPlaybackRuntime>;
+  readonly streamingRuntime?: Partial<BoundedStreamingCodecRuntime>;
 }
 
 export interface CreateBlobFilePlaybackSourceOptions extends FilePlaybackSourceFactoryCommonOptions {

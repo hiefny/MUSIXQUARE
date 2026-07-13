@@ -33,6 +33,8 @@ import {
   FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+  FILE_PLAYBACK_TIMELINE_UPDATE_V2_MAX_RAW_FRAME_BYTES,
+  FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE,
 } from '../file-playback-transport-contract.ts';
 import {
   createPeerRangeChunkFrames,
@@ -229,6 +231,7 @@ const AUXILIARY_TYPES = Object.freeze([
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
   FILE_MEDIA_SOURCE_OFFER_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+  FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE,
 ] as const);
 
 function auxiliaryFrame(type: (typeof AUXILIARY_TYPES)[number], sequence = 1) {
@@ -715,6 +718,31 @@ describe('FilePlaybackApplicationSessionManager', () => {
     expect(adopted).not.toHaveBeenCalled();
     expect(oversized.host.phase(oversized.hostConn)).toBe('none');
     expect(oversized.hostConn.close).toHaveBeenCalled();
+  });
+
+  it('admits a flat timeline update only within its primitive auxiliary byte budget', () => {
+    const adopted = vi.fn((_event, acknowledge: () => void) => acknowledge());
+    const accepted = fixture({ guestManagerOptions: { adoptAuxiliaryMessage: adopted } });
+    expect(accepted.startGuest()).toBe(true);
+    accepted.pump();
+
+    const frame = auxiliaryFrame(FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE, 19);
+    expect(accepted.guest.receive(frame, accepted.guestConn)).toMatchObject({ handled: true });
+    expect(adopted).toHaveBeenCalledOnce();
+    expect(adopted.mock.calls[0]![0].frame).toEqual(frame);
+    expect(accepted.guest.phase(accepted.guestConn)).toBe('established');
+
+    expect(
+      accepted.guest.receive(
+        {
+          type: FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE,
+          padding: 'x'.repeat(FILE_PLAYBACK_TIMELINE_UPDATE_V2_MAX_RAW_FRAME_BYTES),
+        },
+        accepted.guestConn,
+      ),
+    ).toMatchObject({ handled: true });
+    expect(accepted.guest.phase(accepted.guestConn)).toBe('none');
+    expect(accepted.guestConn.close).toHaveBeenCalled();
   });
 
   it('claims recognized auxiliary traffic before APPLIED without invoking the sink', () => {

@@ -17,6 +17,7 @@ import {
   FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+  FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE,
 } from '../../network/file-playback-transport-contract.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { createStoppedPlaybackTimeline } from '../playback-timeline.ts';
@@ -347,7 +348,7 @@ describe('FilePlaybackProductSessionRouter', () => {
     expect(JSON.stringify(snapshot)).not.toContain('connectionToken');
   });
 
-  it('routes BASELINE/READY to the controller and OFFER/RUN_BINDING to the guest owner', () => {
+  it('routes BASELINE/TIMELINE_UPDATE/READY to the controller and OFFER/RUN_BINDING to the guest owner', () => {
     const harness = makeHarness();
     const pair = channelPair();
     establish(harness, pair, 'host');
@@ -356,6 +357,7 @@ describe('FilePlaybackProductSessionRouter', () => {
 
     const cases = [
       auxiliary(pair, 'guest', FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE),
+      auxiliary(pair, 'guest', FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE),
       auxiliary(pair, 'host', FILE_PLAYBACK_PRODUCT_READY_V2_TYPE),
       auxiliary(pair, 'guest', FILE_MEDIA_SOURCE_OFFER_V2_TYPE),
       auxiliary(pair, 'guest', FILE_PLAYBACK_RUN_BINDING_V2_TYPE),
@@ -372,7 +374,7 @@ describe('FilePlaybackProductSessionRouter', () => {
     const acknowledgements = cases.map(() => vi.fn());
     cases.forEach((event, index) => hooks.adoptAuxiliaryMessage(event, acknowledgements[index]!));
 
-    expect(harness.controllerAuxiliary).toHaveBeenCalledTimes(2);
+    expect(harness.controllerAuxiliary).toHaveBeenCalledTimes(3);
     expect(harness.guestOwners[0]!.auxiliary).toHaveBeenCalledTimes(2);
     acknowledgements.forEach((acknowledge) => expect(acknowledge).toHaveBeenCalledOnce());
     received.forEach((event, index) => {
@@ -654,6 +656,92 @@ describe('FilePlaybackProductSessionRouter', () => {
       expect(harness.router.snapshot().activeConnectionCount).toBe(0);
     }
   });
+
+  it('fails the exact host record closed when a host receives a timeline update', () => {
+    const pair = channelPair();
+    const events: string[] = [];
+    const revoke = vi.fn(() => events.push('owner:revoke'));
+    const harness = makeHarness({
+      controller: Object.freeze({
+        onLifecycleEvent: (event: FilePlaybackApplicationLifecycleEvent) =>
+          events.push(`controller:${event.kind}`),
+        adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
+      }),
+      createHostMediaOwner: () =>
+        Object.freeze({
+          adoptWireMessage: (_event, acknowledge) => acknowledge(),
+          adoptPeerRangeControl: (_event, acknowledge) => acknowledge(),
+          revoke,
+        }),
+    });
+    establish(harness, pair, 'host');
+    const acknowledge = vi.fn();
+
+    expect(() =>
+      harness.router
+        .applicationSessionHooks()
+        .adoptAuxiliaryMessage(
+          auxiliary(pair, 'host', FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE),
+          acknowledge,
+        ),
+    ).toThrow(/direction|cleanup/u);
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(events.slice(-2)).toEqual(['owner:revoke', 'controller:revoked']);
+    expect(harness.router.snapshot().activeConnectionCount).toBe(0);
+  });
+
+  it.each(['missing', 'double', 'throw', 'reenter'] as const)(
+    'fails the timeline-update controller route closed on %s ACK behavior',
+    (mode) => {
+      const pair = channelPair();
+      const revoke = vi.fn();
+      let router!: FilePlaybackProductSessionRouter;
+      router = new FilePlaybackProductSessionRouter({
+        controller: Object.freeze({
+          onLifecycleEvent: vi.fn(),
+          adoptAuxiliaryMessage: (_event, acknowledge) => {
+            if (mode === 'double') {
+              acknowledge();
+              acknowledge();
+              return;
+            }
+            if (mode === 'throw') throw new Error('timeline adoption failed');
+            if (mode === 'reenter') router.close();
+          },
+        }),
+        createHostMediaOwner: () =>
+          Object.freeze({
+            adoptWireMessage: (_event, acknowledge) => acknowledge(),
+            adoptPeerRangeControl: (_event, acknowledge) => acknowledge(),
+            revoke: vi.fn(),
+          }),
+        createGuestMediaOwner: () =>
+          Object.freeze({
+            adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
+            adoptWireMessage: (_event, acknowledge) => acknowledge(),
+            adoptPeerRangeBulk: (_event, acknowledge) => acknowledge(),
+            revoke,
+          }),
+      });
+      router
+        .applicationSessionHooks()
+        .onLifecycleEvent(lifecycle('established', 'guest', pair.guestConnection, pair.guest));
+      const acknowledge = vi.fn();
+
+      expect(() =>
+        router
+          .applicationSessionHooks()
+          .adoptAuxiliaryMessage(
+            auxiliary(pair, 'guest', FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE),
+            acknowledge,
+          ),
+      ).toThrow(/acknowledge|timeline adoption failed|close superseded|cleanup/u);
+      expect(acknowledge).toHaveBeenCalledTimes(mode === 'double' ? 1 : 0);
+      expect(revoke).toHaveBeenCalledOnce();
+      expect(router.snapshot().activeConnectionCount).toBe(0);
+    },
+  );
 
   it('requires exactly one synchronous ACK and makes a late ACK inert', () => {
     for (const mode of ['missing', 'double', 'late'] as const) {

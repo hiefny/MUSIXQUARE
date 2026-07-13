@@ -16,6 +16,7 @@ import {
   FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE,
   FILE_PLAYBACK_PRODUCT_READY_V2_TYPE,
   FILE_PLAYBACK_RUN_BINDING_V2_TYPE,
+  FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE,
 } from '../network/file-playback-transport-contract.ts';
 import type { DataConnection } from '../types/index.ts';
 
@@ -642,7 +643,9 @@ export class FilePlaybackProductSessionRouter {
           connectionToken: event.connectionToken as object,
         });
         if (
-          (type === FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE && record.role === 'guest') ||
+          ((type === FILE_PLAYBACK_PRODUCT_BASELINE_V2_TYPE ||
+            type === FILE_PLAYBACK_TIMELINE_UPDATE_V2_TYPE) &&
+            record.role === 'guest') ||
           (type === FILE_PLAYBACK_PRODUCT_READY_V2_TYPE && record.role === 'host')
         ) {
           this.#controller.adoptAuxiliaryMessage(canonicalEvent, guardedAcknowledge);

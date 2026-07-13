@@ -7,6 +7,7 @@ import {
   parseFilePlaybackAssetBinding,
   type FilePlaybackAssetBinding,
   type FilePlaybackAssetLease,
+  type FilePlaybackProvisionalAssetLease,
 } from '../file-playback-asset-registry.ts';
 import type { EncodedAudioAsset } from '../sources/encoded-audio-asset.ts';
 import {
@@ -17,6 +18,7 @@ import {
 
 const TOKEN = Object.freeze({ room: 'asset-registry' });
 const FOREIGN_TOKEN = Object.freeze({ room: 'foreign' });
+const TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS = 2_000;
 const QIDS = [
   '40000000-0000-4000-8000-000000000001',
   '40000000-0000-4000-8000-000000000002',
@@ -117,7 +119,22 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+async function settlePromptly<T>(promise: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('Promise settlement timed out')), 250);
+      }),
+    ]);
+  } finally {
+    if (timeout !== null) clearTimeout(timeout);
+  }
+}
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -235,6 +252,483 @@ describe('FilePlaybackAssetRegistry', () => {
     expect(Object.keys(genericLease)).toEqual([]);
     expect(acquire).not.toHaveBeenCalled();
     expect(close).not.toHaveBeenCalled();
+  });
+
+  it('keeps a provisional source readable but lookup-hidden and promotes the same lease identity', async () => {
+    const setup = registry();
+    const assetBinding = binding(0);
+    const read = vi.fn(async (_offset: number, length: number) => new Uint8Array(length).fill(4));
+    const sourceClose = vi.fn(async () => undefined);
+    const assetClose = vi.fn(async () => undefined);
+    const provisional: FilePlaybackProvisionalAssetLease =
+      setup.registry.admitProvisionalEncodedAsset(
+        TOKEN,
+        assetBinding,
+        new TestAsset(assetBinding, {
+          acquire: () => source(assetBinding, { readAt: read, close: sourceClose }),
+          close: assetClose,
+        }),
+      );
+    const assignableLease: FilePlaybackAssetLease = provisional;
+
+    expect(assignableLease).toBe(provisional);
+    expect(setup.registry.snapshotForLease(TOKEN, provisional)).toEqual({
+      ...assetBinding,
+      kind: 'peer-range',
+      size: 8,
+      ...metadata(),
+    });
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(0);
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBeNull();
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, assetBinding.sourceIdentity)).toBeNull();
+
+    const reader = setup.registry.acquireSource(TOKEN, provisional);
+    await expect(reader.readAt(1, 3, new AbortController().signal)).resolves.toEqual(
+      new Uint8Array([4, 4, 4]),
+    );
+    expect(() => setup.registry.retire(TOKEN, provisional)).toThrow();
+
+    const promoted = setup.registry.promoteProvisionalAsset(TOKEN, provisional);
+    expect(promoted).toBe(provisional);
+    expect(setup.registry.promoteProvisionalAsset(TOKEN, provisional)).toBe(provisional);
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBe(provisional);
+    expect(setup.registry.leaseForSourceIdentity(TOKEN, assetBinding.sourceIdentity)).toBe(
+      provisional,
+    );
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(1);
+    expect(assetClose).not.toHaveBeenCalled();
+
+    await reader.close();
+    await setup.registry.retire(TOKEN, promoted);
+    expect(sourceClose).toHaveBeenCalledOnce();
+    expect(assetClose).toHaveBeenCalledOnce();
+  });
+
+  it('reuses a provisional queue occurrence only after exact cleanup settles', async () => {
+    const setup = registry({ maxLiveAssets: 1 });
+    const firstBinding = binding(0);
+    const nextBinding = { ...binding(1), queueItemId: firstBinding.queueItemId };
+    const firstClose = vi.fn(async () => undefined);
+    const first = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      firstBinding,
+      new TestAsset(firstBinding, { close: firstClose }),
+    );
+    const rejectedClose = vi.fn(async () => undefined);
+    expect(() =>
+      setup.registry.admitProvisionalEncodedAsset(
+        TOKEN,
+        nextBinding,
+        new TestAsset(nextBinding, { close: rejectedClose }),
+      ),
+    ).toThrow();
+    expect(setup.registry.snapshotForLease(TOKEN, first)).toMatchObject(firstBinding);
+
+    await expect(setup.registry.discardProvisionalAsset(TOKEN, first)).resolves.toBe(true);
+    expect(firstClose).toHaveBeenCalledOnce();
+    expect(rejectedClose).toHaveBeenCalledOnce();
+    const nextClose = vi.fn(async () => undefined);
+    const next = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      nextBinding,
+      new TestAsset(nextBinding, { close: nextClose }),
+    );
+
+    expect(setup.registry.snapshotForLease(TOKEN, first)).toBeNull();
+    expect(setup.registry.snapshotForLease(TOKEN, next)).toMatchObject(nextBinding);
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(0);
+    expect(() => setup.registry.promoteProvisionalAsset(TOKEN, first)).toThrow();
+
+    const promoted = setup.registry.promoteProvisionalAsset(TOKEN, next);
+    expect(promoted).toBe(next);
+    expect(setup.registry.leaseForBinding(TOKEN, nextBinding)).toBe(next);
+    expect(nextClose).not.toHaveBeenCalled();
+    await setup.registry.retire(TOKEN, promoted);
+    expect(nextClose).toHaveBeenCalledOnce();
+  });
+
+  it('quarantines provisional identifiers and capacity until discard settles without tombstones', async () => {
+    const setup = registry({ maxLiveAssets: 1 });
+    const assetBinding = binding(0);
+    const closed = deferred<void>();
+    const close = vi.fn(() => closed.promise);
+    const provisional = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding, { close }),
+    );
+
+    const discarding = setup.registry.discardProvisionalAsset(TOKEN, provisional);
+    expect(setup.registry.discardProvisionalAsset(TOKEN, provisional)).toBe(discarding);
+    expect(setup.registry.snapshotForLease(TOKEN, provisional)).toBeNull();
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(0);
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+
+    expect(() =>
+      setup.registry.admitProvisionalEncodedAsset(TOKEN, assetBinding, new TestAsset(assetBinding)),
+    ).toThrow();
+    expect(() =>
+      setup.registry.admitProvisionalEncodedAsset(TOKEN, binding(1), new TestAsset(binding(1))),
+    ).toThrow();
+    expect(setup.registry.isClosed()).toBe(false);
+
+    closed.resolve();
+    await expect(discarding).resolves.toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+
+    const replacementClose = vi.fn(async () => undefined);
+    const replacement = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding, { close: replacementClose }),
+    );
+    expect(setup.registry.snapshotForLease(TOKEN, replacement)?.queueItemId).toBe(
+      assetBinding.queueItemId,
+    );
+    await expect(setup.registry.discardProvisionalAsset(TOKEN, replacement)).resolves.toBe(true);
+    expect(replacementClose).toHaveBeenCalledOnce();
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+  });
+
+  it('keeps physical quarantine after bounded logical cleanup times out', async () => {
+    vi.useFakeTimers();
+    const setup = registry({ maxLiveAssets: 1 });
+    const assetBinding = binding(0);
+    const physicalClose = deferred<void>();
+    const provisional = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding, { close: () => physicalClose.promise }),
+    );
+
+    const discarding = setup.registry.discardProvisionalAsset(TOKEN, provisional);
+    const timedOut = expect(discarding).rejects.toThrow(/cleanup did not settle/u);
+    await flushCleanup();
+    await vi.advanceTimersByTimeAsync(TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS);
+    await timedOut;
+    expect(() =>
+      setup.registry.admitProvisionalEncodedAsset(TOKEN, assetBinding, new TestAsset(assetBinding)),
+    ).toThrow('cleanup is pending');
+
+    physicalClose.resolve();
+    await flushCleanup();
+    const replacement = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding),
+    );
+    await expect(setup.registry.discardProvisionalAsset(TOKEN, replacement)).resolves.toBe(true);
+  });
+
+  it('lets exactly one of provisional promotion and discard win', async () => {
+    const promotedSetup = registry();
+    const promotedBinding = binding(0);
+    const promotedClose = vi.fn(async () => undefined);
+    const promotedCandidate = promotedSetup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      promotedBinding,
+      new TestAsset(promotedBinding, { close: promotedClose }),
+    );
+    const promoted = promotedSetup.registry.promoteProvisionalAsset(TOKEN, promotedCandidate);
+
+    expect(promoted).toBe(promotedCandidate);
+    await expect(
+      promotedSetup.registry.discardProvisionalAsset(TOKEN, promotedCandidate),
+    ).resolves.toBe(false);
+    expect(promotedClose).not.toHaveBeenCalled();
+    await promotedSetup.registry.retire(TOKEN, promoted);
+    expect(promotedClose).toHaveBeenCalledOnce();
+
+    const discardedSetup = registry();
+    const discardedBinding = binding(1);
+    const discarded = deferred<void>();
+    const discardedClose = vi.fn(() => discarded.promise);
+    const discardedCandidate = discardedSetup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      discardedBinding,
+      new TestAsset(discardedBinding, { close: discardedClose }),
+    );
+    const discarding = discardedSetup.registry.discardProvisionalAsset(TOKEN, discardedCandidate);
+
+    expect(discardedSetup.registry.discardProvisionalAsset(TOKEN, discardedCandidate)).toBe(
+      discarding,
+    );
+    expect(() =>
+      discardedSetup.registry.promoteProvisionalAsset(TOKEN, discardedCandidate),
+    ).toThrow();
+    discarded.resolve();
+    await expect(discarding).resolves.toBe(true);
+    expect(discardedClose).toHaveBeenCalledOnce();
+    expect(() =>
+      discardedSetup.registry.promoteProvisionalAsset(TOKEN, discardedCandidate),
+    ).toThrow();
+  });
+
+  it('counts provisional ownership against capacity and closes it through terminal cleanup', async () => {
+    const exhausted = registry({ maxLiveAssets: 1 });
+    const provisionalClose = vi.fn(async () => undefined);
+    exhausted.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(0),
+      new TestAsset(binding(0), { close: provisionalClose }),
+    );
+    const rejectedClose = vi.fn(async () => undefined);
+
+    expect(() =>
+      exhausted.registry.admitEncodedAsset(
+        TOKEN,
+        binding(1),
+        new TestAsset(binding(1), { close: rejectedClose }),
+      ),
+    ).toThrow(FilePlaybackAssetRegistryFatalError);
+    await exhausted.registry.close(TOKEN);
+    expect(provisionalClose).toHaveBeenCalledOnce();
+    expect(rejectedClose).toHaveBeenCalledOnce();
+    expect(exhausted.fatal).toHaveBeenCalledOnce();
+    expect(exhausted.registry.isClosed()).toBe(true);
+
+    const ordinaryClose = registry({ maxLiveAssets: 2 });
+    const liveClose = vi.fn(async () => undefined);
+    const pendingClose = vi.fn(async () => undefined);
+    ordinaryClose.registry.admitEncodedAsset(
+      TOKEN,
+      binding(0),
+      new TestAsset(binding(0), { close: liveClose }),
+    );
+    ordinaryClose.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(1),
+      new TestAsset(binding(1), { close: pendingClose }),
+    );
+
+    const closing = ordinaryClose.registry.close(TOKEN);
+    expect(ordinaryClose.registry.close(TOKEN)).toBe(closing);
+    await closing;
+    expect(liveClose).toHaveBeenCalledOnce();
+    expect(pendingClose).toHaveBeenCalledOnce();
+  });
+
+  it('joins provisional discard and terminal close in either order', async () => {
+    const discardFirst = registry();
+    const firstClosed = deferred<void>();
+    const firstClose = vi.fn(() => firstClosed.promise);
+    const first = discardFirst.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(0),
+      new TestAsset(binding(0), { close: firstClose }),
+    );
+    const firstDiscard = discardFirst.registry.discardProvisionalAsset(TOKEN, first);
+    const firstRoomClose = discardFirst.registry.close(TOKEN);
+    expect(firstClose).toHaveBeenCalledOnce();
+    let firstSettled = false;
+    void Promise.all([firstDiscard, firstRoomClose]).then(() => {
+      firstSettled = true;
+    });
+    await Promise.resolve();
+    expect(firstSettled).toBe(false);
+    firstClosed.resolve();
+    await expect(firstDiscard).resolves.toBe(true);
+    await expect(firstRoomClose).resolves.toBeUndefined();
+    expect(firstClose).toHaveBeenCalledOnce();
+
+    const closeFirst = registry();
+    const secondClosed = deferred<void>();
+    const secondClose = vi.fn(() => secondClosed.promise);
+    const second = closeFirst.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(1),
+      new TestAsset(binding(1), { close: secondClose }),
+    );
+    const secondRoomClose = closeFirst.registry.close(TOKEN);
+    const secondDiscard = closeFirst.registry.discardProvisionalAsset(TOKEN, second);
+    expect(closeFirst.registry.discardProvisionalAsset(TOKEN, second)).toBe(secondDiscard);
+    expect(secondClose).toHaveBeenCalledOnce();
+    secondClosed.resolve();
+    await expect(secondDiscard).resolves.toBe(true);
+    await expect(secondRoomClose).resolves.toBeUndefined();
+    expect(secondClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps delayed external discard replay joined to physical cleanup', async () => {
+    const setup = registry();
+    const physicalClose = deferred<void>();
+    const provisional = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(0),
+      new TestAsset(binding(0), { close: () => physicalClose.promise }),
+    );
+    const firstDiscard = setup.registry.discardProvisionalAsset(TOKEN, provisional);
+    await flushCleanup();
+    const replay = setup.registry.discardProvisionalAsset(TOKEN, provisional);
+    expect(replay).toBe(firstDiscard);
+    let settled = false;
+    void firstDiscard.then(() => {
+      settled = true;
+    });
+    await flushCleanup();
+    expect(settled).toBe(false);
+
+    physicalClose.resolve();
+    await expect(firstDiscard).resolves.toBe(true);
+  });
+
+  it('keeps delayed external room-close replay joined to physical cleanup', async () => {
+    const setup = registry();
+    const physicalClose = deferred<void>();
+    setup.registry.admitEncodedAsset(
+      TOKEN,
+      binding(0),
+      new TestAsset(binding(0), { close: () => physicalClose.promise }),
+    );
+    const firstClose = setup.registry.close(TOKEN);
+    await flushCleanup();
+    const replay = setup.registry.close(TOKEN);
+    expect(replay).toBe(firstClose);
+    let settled = false;
+    void firstClose.then(() => {
+      settled = true;
+    });
+    await flushCleanup();
+    expect(settled).toBe(false);
+
+    physicalClose.resolve();
+    await expect(firstClose).resolves.toBeUndefined();
+  });
+
+  it('bounds terminal room cleanup without treating it as physical asset completion', async () => {
+    vi.useFakeTimers();
+    const setup = registry();
+    const physicalClose = deferred<void>();
+    const close = vi.fn(() => physicalClose.promise);
+    setup.registry.admitEncodedAsset(TOKEN, binding(0), new TestAsset(binding(0), { close }));
+
+    const closing = setup.registry.close(TOKEN);
+    let settled = false;
+    void closing.then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(closing).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledOnce();
+
+    physicalClose.resolve();
+    await flushCleanup();
+    expect(setup.registry.close(TOKEN)).toBe(closing);
+  });
+
+  it('breaks self-referential discard promises returned by physical close reentry', async () => {
+    const discardFirst = registry();
+    let first!: FilePlaybackProvisionalAssetLease;
+    const firstClose = vi.fn(() =>
+      discardFirst.registry.discardProvisionalAsset(TOKEN, first).then(() => undefined),
+    );
+    first = discardFirst.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(0),
+      new TestAsset(binding(0), { close: firstClose }),
+    );
+
+    await expect(
+      settlePromptly(discardFirst.registry.discardProvisionalAsset(TOKEN, first)),
+    ).resolves.toBe(true);
+    expect(firstClose).toHaveBeenCalledOnce();
+
+    const closeFirst = registry();
+    let second!: FilePlaybackProvisionalAssetLease;
+    const secondClose = vi.fn(() =>
+      closeFirst.registry.discardProvisionalAsset(TOKEN, second).then(() => undefined),
+    );
+    second = closeFirst.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(1),
+      new TestAsset(binding(1), { close: secondClose }),
+    );
+
+    await expect(settlePromptly(closeFirst.registry.close(TOKEN))).resolves.toBeUndefined();
+    await expect(closeFirst.registry.discardProvisionalAsset(TOKEN, second)).resolves.toBe(true);
+    expect(secondClose).toHaveBeenCalledOnce();
+  });
+
+  it('breaks asynchronous discard reentry after the physical close callback yields', async () => {
+    vi.useFakeTimers();
+    const discardFirst = registry();
+    let first!: FilePlaybackProvisionalAssetLease;
+    const firstClose = vi.fn(async () => {
+      await Promise.resolve();
+      await discardFirst.registry.discardProvisionalAsset(TOKEN, first);
+    });
+    first = discardFirst.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(0),
+      new TestAsset(binding(0), { close: firstClose }),
+    );
+
+    const firstDiscard = discardFirst.registry.discardProvisionalAsset(TOKEN, first);
+    const firstTimedOut = expect(firstDiscard).rejects.toThrow(/cleanup did not settle/u);
+    await flushCleanup();
+    await vi.advanceTimersByTimeAsync(TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS);
+    await firstTimedOut;
+    expect(firstClose).toHaveBeenCalledOnce();
+
+    const closeFirst = registry();
+    let second!: FilePlaybackProvisionalAssetLease;
+    const secondClose = vi.fn(async () => {
+      await Promise.resolve();
+      await closeFirst.registry.discardProvisionalAsset(TOKEN, second);
+    });
+    second = closeFirst.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      binding(1),
+      new TestAsset(binding(1), { close: secondClose }),
+    );
+
+    const secondRoomClose = closeFirst.registry.close(TOKEN);
+    await flushCleanup();
+    const secondDiscard = closeFirst.registry.discardProvisionalAsset(TOKEN, second);
+    const secondTimedOut = expect(secondDiscard).rejects.toThrow(/cleanup did not settle/u);
+    await vi.advanceTimersByTimeAsync(TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS);
+    await expect(secondRoomClose).resolves.toBeUndefined();
+    await secondTimedOut;
+    expect(secondClose).toHaveBeenCalledOnce();
+  });
+
+  it('breaks the terminal room-close promise returned by physical close reentry', async () => {
+    const setup = registry();
+    let reentered: Promise<void> | null = null;
+    const close = vi.fn(() => {
+      reentered = setup.registry.close(TOKEN);
+      return reentered;
+    });
+    setup.registry.admitEncodedAsset(TOKEN, binding(0), new TestAsset(binding(0), { close }));
+
+    const closing = setup.registry.close(TOKEN);
+    await expect(settlePromptly(closing)).resolves.toBeUndefined();
+    await expect(reentered).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledOnce();
+    expect(setup.registry.isClosed()).toBe(true);
+  });
+
+  it('breaks asynchronous terminal close reentry after the physical callback yields', async () => {
+    vi.useFakeTimers();
+    const setup = registry();
+    let reentered: Promise<void> | null = null;
+    const close = vi.fn(async () => {
+      await Promise.resolve();
+      reentered = setup.registry.close(TOKEN);
+      await reentered;
+    });
+    setup.registry.admitEncodedAsset(TOKEN, binding(0), new TestAsset(binding(0), { close }));
+
+    const closing = setup.registry.close(TOKEN);
+    await flushCleanup();
+    await vi.advanceTimersByTimeAsync(TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS);
+    await expect(closing).resolves.toBeUndefined();
+    await expect(reentered).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledOnce();
+    expect(setup.registry.isClosed()).toBe(true);
   });
 
   it('rejects malformed, forged, foreign, and mismatched binding lookups without accessors', () => {
@@ -679,6 +1173,38 @@ describe('FilePlaybackAssetRegistry', () => {
     expect(sourceClose).toHaveBeenCalledOnce();
   });
 
+  it('breaks asynchronous terminal close reentry from invalid-source cleanup', async () => {
+    vi.useFakeTimers();
+    const setup = registry();
+    const assetBinding = binding(0);
+    let reentered: Promise<void> | null = null;
+    const sourceClose = vi.fn(async () => {
+      await Promise.resolve();
+      reentered = setup.registry.close(TOKEN);
+      await reentered;
+    });
+    const invalid = source(assetBinding, {
+      identity: 'distributed-source:mismatch',
+      close: sourceClose,
+    });
+    const lease = setup.registry.admitEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding, { acquire: () => invalid }),
+    );
+
+    expect(() => setup.registry.acquireSource(TOKEN, lease)).toThrow(
+      FilePlaybackAssetRegistryFatalError,
+    );
+    const closing = setup.registry.close(TOKEN);
+    await flushCleanup();
+    await vi.advanceTimersByTimeAsync(TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS);
+    await expect(closing).resolves.toBeUndefined();
+    await expect(reentered).resolves.toBeUndefined();
+    expect(sourceClose).toHaveBeenCalledOnce();
+    expect(setup.registry.isClosed()).toBe(true);
+  });
+
   it('publishes a frozen source wrapper over captured methods and immutable metadata', async () => {
     const setup = registry();
     const assetBinding = binding(0);
@@ -825,6 +1351,34 @@ describe('FilePlaybackAssetRegistry', () => {
     expect(setup.registry.activeAssetCount(TOKEN)).toBeNull();
   });
 
+  it('returns only settled sentinels to close-descriptor traps before cleanup publication', async () => {
+    const setup = registry();
+    let captured: Promise<void> | null = null;
+    const close = vi.fn(() => captured ?? Promise.resolve());
+    const target = new TestAsset(binding(0), { close });
+    let entered = false;
+    const hostile = new Proxy(target, {
+      getOwnPropertyDescriptor(object, property) {
+        if (property === 'close' && !entered) {
+          entered = true;
+          void setup.registry.close(TOKEN);
+          captured = setup.registry.close(TOKEN);
+        }
+        return Reflect.getOwnPropertyDescriptor(object, property);
+      },
+    });
+
+    expect(() => setup.registry.admitEncodedAsset(TOKEN, binding(1), hostile)).toThrow(
+      FilePlaybackAssetRegistryFatalError,
+    );
+    const closing = setup.registry.close(TOKEN);
+    expect(captured).not.toBe(closing);
+    await expect(settlePromptly(closing)).resolves.toBeUndefined();
+    await expect(captured).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledOnce();
+    expect(setup.registry.isClosed()).toBe(true);
+  });
+
   it('bounds hostile cyclic prototype walks and still cleans a discoverable close method', async () => {
     const setup = registry();
     const assetBinding = binding(0);
@@ -878,6 +1432,29 @@ describe('FilePlaybackAssetRegistry', () => {
     expect(setup.registry.isClosed()).toBe(true);
   });
 
+  it('breaks asynchronous terminal close reentry from rejected-asset cleanup', async () => {
+    vi.useFakeTimers();
+    const setup = registry();
+    let reentered: Promise<void> | null = null;
+    const rejectedClose = vi.fn(async () => {
+      await Promise.resolve();
+      reentered = setup.registry.close(TOKEN);
+      await reentered;
+    });
+    const rejected = new TestAsset(binding(0), { close: rejectedClose });
+
+    expect(() => setup.registry.admitEncodedAsset(TOKEN, binding(1), rejected)).toThrow(
+      /identity does not match/u,
+    );
+    const closing = setup.registry.close(TOKEN);
+    await flushCleanup();
+    await vi.advanceTimersByTimeAsync(TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS);
+    await expect(closing).resolves.toBeUndefined();
+    await expect(reentered).resolves.toBeUndefined();
+    expect(rejectedClose).toHaveBeenCalledOnce();
+    expect(setup.registry.isClosed()).toBe(true);
+  });
+
   it('fail-closes live capacity and cleans both owned and rejected assets exactly once', async () => {
     const setup = registry({ maxLiveAssets: 1 });
     const firstClose = vi.fn(async () => undefined);
@@ -902,7 +1479,8 @@ describe('FilePlaybackAssetRegistry', () => {
     expect(setup.registry.isClosed()).toBe(true);
   });
 
-  it('bounds unresolved rejected cleanup claims before taking ownership of another asset', () => {
+  it('bounds unresolved rejected cleanup claims before taking ownership of another asset', async () => {
+    vi.useFakeTimers();
     const setup = registry({ maxLiveAssets: 1 });
     const never = new Promise<void>(() => undefined);
     const claimedCloses: Array<ReturnType<typeof vi.fn>> = [];
@@ -925,6 +1503,7 @@ describe('FilePlaybackAssetRegistry', () => {
     expect(unclaimedClose).not.toHaveBeenCalled();
     expect(setup.fatal).toHaveBeenCalledOnce();
     expect(setup.registry.isClosed()).toBe(true);
+    await vi.advanceTimersByTimeAsync(TRACKED_CLEANUP_LOGICAL_WAIT_MS_FOR_TESTS);
   });
 
   it('fail-closes tombstone capacity without double-closing retired assets', async () => {

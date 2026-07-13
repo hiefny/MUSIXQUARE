@@ -1,4 +1,5 @@
 import type { QueueItemId } from '../types/index.ts';
+import { delay } from '../core/timers.ts';
 import { isQueueItemId } from './queue-model.ts';
 import { BlobEncodedAudioAsset } from './sources/blob-encoded-audio-asset.ts';
 import type { EncodedAudioAsset } from './sources/encoded-audio-asset.ts';
@@ -19,6 +20,7 @@ const DEFAULT_MAX_LIVE_ASSETS = 128;
 const MAX_LIVE_ASSETS = 1_024;
 const DEFAULT_MAX_RETIRED_ASSETS = 4_096;
 const MAX_RETIRED_ASSETS = 65_536;
+const TRACKED_CLEANUP_LOGICAL_WAIT_MS = 2_000;
 const BINDING_KEYS = Object.freeze(['queueItemId', 'sourceIdentity', 'transferSessionId'] as const);
 const METADATA_KEYS = Object.freeze(['mime', 'name'] as const);
 const OPTION_KEYS = Object.freeze([
@@ -31,6 +33,7 @@ const transferredAssetOwners = new WeakMap<object, object>();
 const retiredTransferredAssets = new WeakSet<object>();
 
 declare const assetLeaseBrand: unique symbol;
+declare const provisionalAssetLeaseBrand: unique symbol;
 
 export interface FilePlaybackAssetBinding {
   readonly queueItemId: QueueItemId;
@@ -46,6 +49,14 @@ export interface FilePlaybackAssetMetadata {
 /** Opaque authority for one exact live room-local asset. */
 export interface FilePlaybackAssetLease {
   readonly [assetLeaseBrand]: never;
+}
+
+/**
+ * Opaque lease for a readable but lookup-hidden encoded asset. Promotion keeps
+ * this exact object identity and only changes the registry-owned state.
+ */
+export interface FilePlaybackProvisionalAssetLease extends FilePlaybackAssetLease {
+  readonly [provisionalAssetLeaseBrand]: never;
 }
 
 export interface FilePlaybackAssetSnapshot extends FilePlaybackAssetBinding {
@@ -89,14 +100,24 @@ interface SourceAdapter {
   readonly close: EncodedAudioSource['close'];
 }
 
+interface TrackedCleanup {
+  readonly logicalPromise: Promise<void>;
+  readonly physicalPromise: Promise<void>;
+  readonly joinPromise: Promise<void>;
+  readonly detach: () => void;
+}
+
 interface AssetEntry {
   readonly lease: FilePlaybackAssetLease;
   readonly binding: Readonly<FilePlaybackAssetBinding>;
   readonly adapter: AssetAdapter;
   readonly blob: Blob | null;
   readonly transferredGeneric: boolean;
-  status: 'live' | 'retired';
-  closePromise: Promise<void> | null;
+  readonly provisionalOrigin: boolean;
+  status: 'provisional' | 'live' | 'discarding' | 'retired';
+  promoted: boolean;
+  closeCleanup: TrackedCleanup | null;
+  discardPromise: Promise<boolean> | null;
 }
 
 type OptionsSnapshot = Readonly<Record<(typeof OPTION_KEYS)[number], unknown>>;
@@ -403,6 +424,10 @@ function createAssetLease(): FilePlaybackAssetLease {
   return Object.freeze(Object.create(null)) as FilePlaybackAssetLease;
 }
 
+function createProvisionalAssetLease(): FilePlaybackProvisionalAssetLease {
+  return Object.freeze(Object.create(null)) as FilePlaybackProvisionalAssetLease;
+}
+
 function snapshotEntry(entry: AssetEntry): Readonly<FilePlaybackAssetSnapshot> {
   return freezeCanonical({
     ...entry.binding,
@@ -420,6 +445,13 @@ export class FilePlaybackAssetRegistryFatalError extends Error {
   }
 }
 
+class FilePlaybackAssetCleanupTimeoutError extends Error {
+  constructor() {
+    super(`File playback asset cleanup did not settle within ${TRACKED_CLEANUP_LOGICAL_WAIT_MS}ms`);
+    this.name = 'FilePlaybackAssetCleanupTimeoutError';
+  }
+}
+
 /**
  * Room-local ownership registry. Queue order is deliberately absent: an
  * immutable QueueItemId remains the only occurrence key across reorder.
@@ -434,10 +466,12 @@ export class FilePlaybackAssetRegistry {
   readonly #entriesBySource = new Map<string, AssetEntry>();
   readonly #entriesByTransfer = new Map<string, AssetEntry>();
   readonly #leases = new WeakMap<FilePlaybackAssetLease, AssetEntry>();
+  readonly #provisionalLeases = new WeakMap<FilePlaybackProvisionalAssetLease, AssetEntry>();
   readonly #ownedAssets = new WeakMap<object, AssetEntry>();
   readonly #blobEntries = new WeakMap<Blob, AssetEntry>();
   readonly #rejectedClosePromises = new WeakMap<object, Promise<void>>();
   readonly #discardedSourceClosePromises = new WeakMap<object, Promise<void>>();
+  readonly #activeCleanupCallbacks = new Set<TrackedCleanup>();
   readonly #retiredQueueItems = new Set<QueueItemId>();
   readonly #retiredSourceIdentities = new Set<string>();
   readonly #retiredTransferSessions = new Set<string>();
@@ -449,6 +483,7 @@ export class FilePlaybackAssetRegistry {
   #fatalError: FilePlaybackAssetRegistryFatalError | null = null;
   #closePromise: Promise<void> | null = null;
   #bindingLookupActive = false;
+  #liveAssetCount = 0;
 
   constructor(options: FilePlaybackAssetRegistryOptions) {
     const snapshot = snapshotOptions(options);
@@ -481,7 +516,7 @@ export class FilePlaybackAssetRegistry {
   }
 
   activeAssetCount(token: object): number | null {
-    return token === this.#token && !this.#closed ? this.#entriesByQueue.size : null;
+    return token === this.#token && !this.#closed ? this.#liveAssetCount : null;
   }
 
   retiredAssetCount(token: object): number | null {
@@ -562,6 +597,28 @@ export class FilePlaybackAssetRegistry {
     value: unknown,
     asset: EncodedAudioAsset,
   ): FilePlaybackAssetLease {
+    return this.#admitTransferredEncodedAsset(token, value, asset, 'live').lease;
+  }
+
+  /**
+   * Transfers an encoded asset into a readable, capacity-counted slot which
+   * remains invisible to canonical binding lookup until explicit promotion.
+   */
+  admitProvisionalEncodedAsset(
+    token: object,
+    value: unknown,
+    asset: EncodedAudioAsset,
+  ): FilePlaybackProvisionalAssetLease {
+    return this.#admitTransferredEncodedAsset(token, value, asset, 'provisional')
+      .lease as FilePlaybackProvisionalAssetLease;
+  }
+
+  #admitTransferredEncodedAsset(
+    token: object,
+    value: unknown,
+    asset: EncodedAudioAsset,
+    mode: 'live' | 'provisional',
+  ): AssetEntry {
     // Foreign and already-terminal registries reject before ownership. While
     // open, the process-wide weak claim is installed before any asset-owned
     // descriptor callback, preventing another room registry from closing or
@@ -598,8 +655,8 @@ export class FilePlaybackAssetRegistry {
         this.#assertStillOpen();
         if (!binding) throw new TypeError('File playback asset binding is invalid');
         if (existing) {
-          if (existing.status === 'live' && sameBinding(existing.binding, binding)) {
-            return existing.lease;
+          if (existing.status === mode && sameBinding(existing.binding, binding)) {
+            return existing;
           }
           throw new Error('Encoded asset object is already owned by another live binding');
         }
@@ -614,9 +671,9 @@ export class FilePlaybackAssetRegistry {
           throw new Error('Encoded asset identity does not match its distributed binding');
         }
         this.#assertAdmissionAvailable(binding);
-        const entry = this.#admitEntry(binding, adapter, null);
+        const entry = this.#admitEntry(binding, adapter, null, mode);
         admitted = true;
-        return entry.lease;
+        return entry;
       });
     } finally {
       if (transferred && !admitted) {
@@ -633,13 +690,78 @@ export class FilePlaybackAssetRegistry {
     }
   }
 
+  /** Atomically publishes one exact provisional binding without changing its lease identity. */
+  promoteProvisionalAsset(
+    token: object,
+    lease: FilePlaybackProvisionalAssetLease,
+  ): FilePlaybackAssetLease {
+    return this.#mutate(token, () => {
+      const entry = this.#requireProvisionalEntry(lease);
+      if (entry.promoted && entry.status === 'live') return entry.lease;
+      if (entry.status !== 'provisional') {
+        throw new Error('File playback provisional asset lease is stale');
+      }
+      if (
+        this.#retiredQueueItems.has(entry.binding.queueItemId) ||
+        this.#retiredSourceIdentities.has(entry.binding.sourceIdentity) ||
+        this.#retiredTransferSessions.has(entry.binding.transferSessionId) ||
+        this.#entriesByQueue.get(entry.binding.queueItemId) !== entry ||
+        this.#entriesBySource.get(entry.binding.sourceIdentity) !== entry ||
+        this.#entriesByTransfer.get(entry.binding.transferSessionId) !== entry
+      ) {
+        throw this.#fatal('File playback provisional promotion authority is inconsistent');
+      }
+      entry.status = 'live';
+      entry.promoted = true;
+      this.#liveAssetCount += 1;
+      return entry.lease;
+    });
+  }
+
+  /**
+   * Revokes one provisional lease immediately, but quarantines its identifiers
+   * until physical asset cleanup settles. The returned join rejects at the
+   * bounded cleanup deadline without releasing that quarantine. No permanent
+   * ABA tombstone is made.
+   */
+  discardProvisionalAsset(
+    token: object,
+    lease: FilePlaybackProvisionalAssetLease,
+  ): Promise<boolean> {
+    if (token !== this.#token) throw new Error('File playback room token is invalid');
+    const entry =
+      lease && typeof lease === 'object' ? this.#provisionalLeases.get(lease) : undefined;
+    if (!entry || !entry.provisionalOrigin) {
+      throw new Error('File playback provisional asset lease is forged');
+    }
+    if (entry.promoted) return Promise.resolve(false);
+    const closeCleanup = entry.closeCleanup;
+    if (closeCleanup && this.#activeCleanupCallbacks.has(closeCleanup)) {
+      return Promise.resolve(true);
+    }
+    if (entry.discardPromise) return entry.discardPromise;
+    if (this.#closed || entry.status === 'retired') {
+      return this.#joinClosedProvisionalDiscard(entry);
+    }
+    return this.#mutate(token, () => {
+      if (entry.discardPromise) return entry.discardPromise;
+      if (entry.promoted) return Promise.resolve(false);
+      if (entry.status !== 'provisional') {
+        throw new Error('File playback provisional asset lease is stale');
+      }
+      return this.#beginProvisionalDiscard(entry);
+    });
+  }
+
   snapshotForLease(
     token: object,
     lease: FilePlaybackAssetLease,
   ): Readonly<FilePlaybackAssetSnapshot> | null {
     if (token !== this.#token || this.#closed) return null;
     const entry = lease && typeof lease === 'object' ? this.#leases.get(lease) : undefined;
-    return entry?.status === 'live' ? snapshotEntry(entry) : null;
+    return entry?.status === 'live' || entry?.status === 'provisional'
+      ? snapshotEntry(entry)
+      : null;
   }
 
   resolveBlobAsset(
@@ -659,7 +781,7 @@ export class FilePlaybackAssetRegistry {
 
   acquireSource(token: object, lease: FilePlaybackAssetLease): EncodedAudioSource {
     return this.#mutate(token, () => {
-      const entry = this.#requireEntry(lease);
+      const entry = this.#requireReadableEntry(lease);
       let source: unknown = null;
       try {
         source = entry.adapter.acquire.call(entry.adapter.asset);
@@ -684,6 +806,7 @@ export class FilePlaybackAssetRegistry {
     });
   }
 
+  /** Physically retires one live asset, rejecting if its bounded join times out. */
   retire(token: object, lease: FilePlaybackAssetLease): Promise<void> {
     return this.#mutate(token, () => {
       const entry = this.#requireEntry(lease);
@@ -693,14 +816,18 @@ export class FilePlaybackAssetRegistry {
     });
   }
 
+  /** Terminal room close is logically bounded; physical cleanup remains best-effort. */
   close(token: object): Promise<void> {
     if (token !== this.#token)
       return Promise.reject(new Error('File playback room token is invalid'));
-    if (this.#closePromise) return this.#closePromise;
+    this.#detachActiveCleanupWaiters();
     if (this.#mutating || this.#cleanupCallbackDepth > 0) {
-      this.#fatal('File playback asset registry close re-entered a mutation');
-      return this.#closePromise!;
+      if (!this.#closePromise) {
+        this.#fatal('File playback asset registry close re-entered a mutation');
+      }
+      return Promise.resolve();
     }
+    if (this.#closePromise) return this.#closePromise;
     return this.#revokeAll();
   }
 
@@ -733,9 +860,20 @@ export class FilePlaybackAssetRegistry {
       this.#entriesBySource.has(binding.sourceIdentity) ||
       this.#entriesByTransfer.has(binding.transferSessionId)
     ) {
-      throw new Error('File playback asset binding conflicts with a live asset');
+      const conflicting =
+        this.#entriesByQueue.get(binding.queueItemId) ??
+        this.#entriesBySource.get(binding.sourceIdentity) ??
+        this.#entriesByTransfer.get(binding.transferSessionId);
+      throw new Error(
+        conflicting?.status === 'discarding'
+          ? 'File playback provisional asset cleanup is pending'
+          : 'File playback asset binding conflicts with a live asset',
+      );
     }
     if (this.#entriesByQueue.size >= this.#maxLiveAssets) {
+      if ([...this.#entriesByQueue.values()].some((entry) => entry.status === 'discarding')) {
+        throw new Error('File playback provisional asset cleanup is pending');
+      }
       throw this.#fatal('File playback live asset capacity is exhausted');
     }
   }
@@ -744,21 +882,30 @@ export class FilePlaybackAssetRegistry {
     binding: Readonly<FilePlaybackAssetBinding>,
     adapter: AssetAdapter,
     blob: Blob | null,
+    status: 'live' | 'provisional' = 'live',
   ): AssetEntry {
-    const lease = createAssetLease();
+    const lease = status === 'provisional' ? createProvisionalAssetLease() : createAssetLease();
     const entry: AssetEntry = {
       lease,
       binding,
       adapter,
       blob,
       transferredGeneric: blob === null,
-      status: 'live',
-      closePromise: null,
+      provisionalOrigin: status === 'provisional',
+      status,
+      promoted: false,
+      closeCleanup: null,
+      discardPromise: null,
     };
     this.#entriesByQueue.set(binding.queueItemId, entry);
     this.#entriesBySource.set(binding.sourceIdentity, entry);
     this.#entriesByTransfer.set(binding.transferSessionId, entry);
     this.#leases.set(lease, entry);
+    if (status === 'provisional') {
+      this.#provisionalLeases.set(lease as FilePlaybackProvisionalAssetLease, entry);
+    } else {
+      this.#liveAssetCount += 1;
+    }
     this.#ownedAssets.set(adapter.asset, entry);
     if (blob) this.#blobEntries.set(blob, entry);
     return entry;
@@ -772,6 +919,23 @@ export class FilePlaybackAssetRegistry {
     return entry;
   }
 
+  #requireReadableEntry(lease: FilePlaybackAssetLease): AssetEntry {
+    const entry = lease && typeof lease === 'object' ? this.#leases.get(lease) : undefined;
+    if (!entry || (entry.status !== 'live' && entry.status !== 'provisional')) {
+      throw new Error('File playback asset lease is forged or retired');
+    }
+    return entry;
+  }
+
+  #requireProvisionalEntry(lease: FilePlaybackProvisionalAssetLease): AssetEntry {
+    const entry =
+      lease && typeof lease === 'object' ? this.#provisionalLeases.get(lease) : undefined;
+    if (!entry || !entry.provisionalOrigin) {
+      throw new Error('File playback provisional asset lease is forged');
+    }
+    return entry;
+  }
+
   #ensureRetirementCapacity(entry: AssetEntry): void {
     if (this.#retiredQueueItems.has(entry.binding.queueItemId)) return;
     if (this.#retiredQueueItems.size >= this.#maxRetiredAssets) {
@@ -780,8 +944,10 @@ export class FilePlaybackAssetRegistry {
   }
 
   #revokeEntry(entry: AssetEntry, tombstone: boolean): void {
-    if (entry.status !== 'live') return;
+    if (entry.status === 'retired') return;
+    const wasLive = entry.status === 'live';
     entry.status = 'retired';
+    if (wasLive) this.#liveAssetCount -= 1;
     if (this.#entriesByQueue.get(entry.binding.queueItemId) === entry) {
       this.#entriesByQueue.delete(entry.binding.queueItemId);
     }
@@ -808,50 +974,91 @@ export class FilePlaybackAssetRegistry {
     }
   }
 
-  #beginEntryClose(entry: AssetEntry): Promise<void> {
-    if (entry.closePromise) return entry.closePromise;
-    let resolveClose!: () => void;
-    const promise = new Promise<void>((resolve) => {
-      resolveClose = resolve;
+  #beginProvisionalDiscard(entry: AssetEntry): Promise<boolean> {
+    if (entry.discardPromise) return entry.discardPromise;
+    let resolveDiscard!: (discarded: boolean) => void;
+    let rejectDiscard!: (error: unknown) => void;
+    const discardPromise = new Promise<boolean>((resolve, reject) => {
+      resolveDiscard = resolve;
+      rejectDiscard = reject;
     });
-    entry.closePromise = promise;
-    this.#trackCleanup(promise);
-    this.#cleanupCallbackDepth += 1;
-    try {
-      Promise.resolve(entry.adapter.close.call(entry.adapter.asset)).then(
-        resolveClose,
-        resolveClose,
-      );
-    } catch {
-      resolveClose();
-    } finally {
-      this.#cleanupCallbackDepth -= 1;
+    entry.discardPromise = discardPromise;
+    entry.status = 'discarding';
+    this.#leases.delete(entry.lease);
+    this.#ownedAssets.delete(entry.adapter.asset);
+    if (
+      entry.transferredGeneric &&
+      transferredAssetOwners.get(entry.adapter.asset) === this.#ownerIdentity
+    ) {
+      transferredAssetOwners.delete(entry.adapter.asset);
+      retiredTransferredAssets.add(entry.adapter.asset);
     }
-    return promise;
+    if (entry.blob) this.#blobEntries.delete(entry.blob);
+
+    const closePromise = this.#beginEntryClose(entry);
+    const physicalClosePromise = entry.closeCleanup?.physicalPromise ?? closePromise;
+    void physicalClosePromise.then(() => this.#finishProvisionalDiscard(entry));
+    void closePromise.then(() => resolveDiscard(true), rejectDiscard);
+    return discardPromise;
+  }
+
+  #joinClosedProvisionalDiscard(entry: AssetEntry): Promise<boolean> {
+    if (entry.discardPromise) return entry.discardPromise;
+    let resolveDiscard!: (discarded: boolean) => void;
+    let rejectDiscard!: (error: unknown) => void;
+    const discardPromise = new Promise<boolean>((resolve, reject) => {
+      resolveDiscard = resolve;
+      rejectDiscard = reject;
+    });
+    entry.discardPromise = discardPromise;
+    const closePromise = entry.closeCleanup?.joinPromise ?? Promise.resolve();
+    const physicalClosePromise = entry.closeCleanup?.physicalPromise ?? closePromise;
+    void physicalClosePromise.then(() => this.#finishProvisionalDiscard(entry));
+    void closePromise.then(() => resolveDiscard(true), rejectDiscard);
+    return discardPromise;
+  }
+
+  #finishProvisionalDiscard(entry: AssetEntry): void {
+    if (this.#entriesByQueue.get(entry.binding.queueItemId) === entry) {
+      this.#entriesByQueue.delete(entry.binding.queueItemId);
+    }
+    if (this.#entriesBySource.get(entry.binding.sourceIdentity) === entry) {
+      this.#entriesBySource.delete(entry.binding.sourceIdentity);
+    }
+    if (this.#entriesByTransfer.get(entry.binding.transferSessionId) === entry) {
+      this.#entriesByTransfer.delete(entry.binding.transferSessionId);
+    }
+    this.#leases.delete(entry.lease);
+    this.#ownedAssets.delete(entry.adapter.asset);
+    if (entry.status !== 'live') entry.status = 'retired';
+  }
+
+  #beginEntryClose(entry: AssetEntry): Promise<void> {
+    if (entry.closeCleanup) return entry.closeCleanup.joinPromise;
+    return this.#beginTrackedCleanup(
+      () => entry.adapter.close.call(entry.adapter.asset),
+      (cleanup) => {
+        entry.closeCleanup = cleanup;
+      },
+    ).joinPromise;
+  }
+
+  #detachActiveCleanupWaiters(): void {
+    for (const cleanup of this.#activeCleanupCallbacks) cleanup.detach();
   }
 
   #beginRejectedClose(asset: object, close: AssetAdapter['close'] | null): Promise<void> {
     const existing = this.#rejectedClosePromises.get(asset);
     if (existing) return existing;
-    let resolveClose!: () => void;
-    const promise = new Promise<void>((resolve) => {
-      resolveClose = resolve;
-    });
-    this.#rejectedClosePromises.set(asset, promise);
-    this.#trackCleanup(promise);
     if (!close) {
-      resolveClose();
+      const promise = Promise.resolve();
+      this.#rejectedClosePromises.set(asset, promise);
       return promise;
     }
-    this.#cleanupCallbackDepth += 1;
-    try {
-      Promise.resolve(close.call(asset as EncodedAudioAsset)).then(resolveClose, resolveClose);
-    } catch {
-      resolveClose();
-    } finally {
-      this.#cleanupCallbackDepth -= 1;
-    }
-    return promise;
+    return this.#beginTrackedCleanup(
+      () => close.call(asset as EncodedAudioAsset),
+      (cleanup) => this.#rejectedClosePromises.set(asset, cleanup.logicalPromise),
+    ).logicalPromise;
   }
 
   #trackCleanup(promise: Promise<void>): void {
@@ -863,23 +1070,87 @@ export class FilePlaybackAssetRegistry {
     if (!source || typeof source !== 'object') return Promise.resolve();
     const existing = this.#discardedSourceClosePromises.get(source);
     if (existing) return existing;
-    let resolveClose!: () => void;
-    const promise = new Promise<void>((resolve) => {
-      resolveClose = resolve;
+    return this.#beginTrackedCleanup(
+      () => {
+        const close = findDataMethod(source, 'close');
+        return close?.call(source);
+      },
+      (cleanup) => this.#discardedSourceClosePromises.set(source, cleanup.logicalPromise),
+    ).logicalPromise;
+  }
+
+  #beginTrackedCleanup(
+    invokePhysicalClose: () => unknown,
+    publish?: (cleanup: TrackedCleanup) => void,
+  ): TrackedCleanup {
+    let resolveLogical!: () => void;
+    let resolvePhysical!: () => void;
+    let resolveJoin!: () => void;
+    let rejectJoin!: (error: unknown) => void;
+    let logicalSettled = false;
+    let physicalSettled = false;
+    let joinSettled = false;
+    let logicalDeadlineActive = true;
+    const logicalPromise = new Promise<void>((resolve) => {
+      resolveLogical = resolve;
     });
-    this.#discardedSourceClosePromises.set(source, promise);
-    this.#trackCleanup(promise);
+    const physicalPromise = new Promise<void>((resolve) => {
+      resolvePhysical = resolve;
+    });
+    const joinPromise = new Promise<void>((resolve, reject) => {
+      resolveJoin = resolve;
+      rejectJoin = reject;
+    });
+    void joinPromise.catch(() => undefined);
+    const settleLogical = () => {
+      if (logicalSettled) return;
+      logicalSettled = true;
+      resolveLogical();
+    };
+    const finishPhysical = () => {
+      if (physicalSettled) return;
+      physicalSettled = true;
+      logicalDeadlineActive = false;
+      resolvePhysical();
+      settleLogical();
+      if (!joinSettled) {
+        joinSettled = true;
+        resolveJoin();
+      }
+    };
+    const expireLogicalWait = () => {
+      logicalDeadlineActive = false;
+      settleLogical();
+      if (!joinSettled) {
+        joinSettled = true;
+        rejectJoin(new FilePlaybackAssetCleanupTimeoutError());
+      }
+    };
+    const cleanup: TrackedCleanup = {
+      logicalPromise,
+      physicalPromise,
+      joinPromise,
+      detach: settleLogical,
+    };
+    this.#trackCleanup(logicalPromise);
+    publish?.(cleanup);
+    // Built-in assets close local ownership without waiting on a remote peer.
+    // Bound only the registry's logical wait so a hostile or broken callback
+    // cannot hold the room forever; physicalPromise still owns quarantine.
+    void delay(TRACKED_CLEANUP_LOGICAL_WAIT_MS).then(() => {
+      if (logicalDeadlineActive) expireLogicalWait();
+    });
+    this.#activeCleanupCallbacks.add(cleanup);
     this.#cleanupCallbackDepth += 1;
     try {
-      const close = findDataMethod(source, 'close');
-      if (close) Promise.resolve(close.call(source)).then(resolveClose, resolveClose);
-      else resolveClose();
+      Promise.resolve(invokePhysicalClose()).then(finishPhysical, finishPhysical);
     } catch {
-      resolveClose();
+      finishPhysical();
     } finally {
       this.#cleanupCallbackDepth -= 1;
+      this.#activeCleanupCallbacks.delete(cleanup);
     }
-    return promise;
+    return cleanup;
   }
 
   #revokeAll(): Promise<void> {

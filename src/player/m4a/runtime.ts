@@ -15,9 +15,14 @@ import {
   type M4aIndexSourceBinding,
   type M4aSampleSizeIndex,
 } from './sample-size-index.ts';
+import {
+  M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS,
+  createM4aAacStartPlan,
+  type M4aAacStartPlan,
+} from './start-plan.ts';
 import { M4A_AAC_CORE_FRAMES_PER_ACCESS_UNIT, type M4aAacTimeline } from './timeline.ts';
 
-export const M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS = 1 as const;
+export { M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS } from './start-plan.ts';
 
 export interface M4aAacRuntimeInfo {
   readonly format: 'm4a-aac-lc';
@@ -36,18 +41,8 @@ export interface M4aAacRuntimeInfo {
   readonly transformPrerollPolicyAccessUnits: 1;
 }
 
-export interface M4aAacGenerationStartPlan {
-  readonly mediaFrame: number;
-  /** Raw decoder coordinate after applying the admitted manifest leading trim. */
-  readonly rawTargetCoreFrame: number;
-  readonly targetAccessUnitOrdinal: number;
-  readonly coreFrameWithinTargetAccessUnit: number;
-  readonly decodeStartAccessUnitOrdinal: number;
-  /** May be zero only when the target is already in access unit zero. */
-  readonly actualPrerollAccessUnits: 0 | 1;
-  /** Raw decoder frames to discard before publishing the selected media frame. */
-  readonly discardCoreFrames: number;
-}
+/** Backward-compatible runtime name for the common logical start plan. */
+export type M4aAacGenerationStartPlan = M4aAacStartPlan;
 
 export interface M4aAacRuntime {
   readonly info: Readonly<M4aAacRuntimeInfo>;
@@ -148,26 +143,6 @@ function requireRuntimeAuthority(value: unknown): RuntimeAuthority {
     throw new TypeError('M4A AAC runtime lacks module provenance');
   }
   return authority;
-}
-
-function requireNonNegativeSafeInteger(value: unknown, label: string): number {
-  if (
-    typeof value !== 'number' ||
-    !Number.isSafeInteger(value) ||
-    Object.is(value, -0) ||
-    value < 0
-  ) {
-    throw new RangeError(`${label} must be a non-negative safe integer`);
-  }
-  return value;
-}
-
-function safeAdd(left: number, right: number, label: string): number {
-  const result = left + right;
-  if (!Number.isSafeInteger(result) || result < 0) {
-    throw runtimeError(`${label} exceeds the browser safe-integer range`);
-  }
-  return result;
 }
 
 function createRuntimeInfo(manifest: Readonly<M4aAacLcManifest>): Readonly<M4aAacRuntimeInfo> {
@@ -311,43 +286,7 @@ export function createM4aAacGenerationStartPlan(
   mediaFrameValue: unknown,
 ): Readonly<M4aAacGenerationStartPlan> {
   const authority = requireRuntimeAuthority(runtimeValue);
-  const mediaFrame = requireNonNegativeSafeInteger(mediaFrameValue, 'M4A mediaFrame');
-  const timeline = authority.info.timeline;
-  if (mediaFrame === timeline.totalMediaFrames) {
-    throw new RangeError('M4A exclusive media EOF cannot start a decode generation');
-  }
-  if (mediaFrame > timeline.totalMediaFrames) {
-    throw new RangeError('M4A mediaFrame is outside the audible timeline');
-  }
-
-  const rawTargetCoreFrame = safeAdd(
-    timeline.headTrimCoreFrames,
-    mediaFrame,
-    'M4A raw target core frame',
-  );
-  const targetAccessUnitOrdinal = Math.floor(
-    rawTargetCoreFrame / M4A_AAC_CORE_FRAMES_PER_ACCESS_UNIT,
-  );
-  if (targetAccessUnitOrdinal >= authority.info.accessUnitCount) {
-    throw runtimeError('M4A target access unit exceeds the authenticated timeline');
-  }
-  const coreFrameWithinTargetAccessUnit = rawTargetCoreFrame % M4A_AAC_CORE_FRAMES_PER_ACCESS_UNIT;
-  const decodeStartAccessUnitOrdinal = Math.max(
-    targetAccessUnitOrdinal - authority.info.transformPrerollPolicyAccessUnits,
-    0,
-  );
-  const actualPrerollAccessUnits = targetAccessUnitOrdinal - decodeStartAccessUnitOrdinal;
-  const discardCoreFrames =
-    rawTargetCoreFrame - decodeStartAccessUnitOrdinal * M4A_AAC_CORE_FRAMES_PER_ACCESS_UNIT;
-  const plan: Readonly<M4aAacGenerationStartPlan> = Object.freeze({
-    mediaFrame,
-    rawTargetCoreFrame,
-    targetAccessUnitOrdinal,
-    coreFrameWithinTargetAccessUnit,
-    decodeStartAccessUnitOrdinal,
-    actualPrerollAccessUnits: actualPrerollAccessUnits as 0 | 1,
-    discardCoreFrames,
-  });
+  const plan = createM4aAacStartPlan(authority.info.timeline, mediaFrameValue);
   startPlanAuthorities.set(plan, {
     runtime: runtimeValue as M4aAacRuntime,
     plan,

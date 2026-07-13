@@ -93,9 +93,11 @@ describe('M4A AAC decoder descriptor helpers', () => {
 
   it('preserves one coherent manifest snapshot under later mutation', () => {
     const backing = structuredClone(MANIFEST) as unknown as Record<string, unknown>;
+    let rootSnapshotPasses = 0;
     const options = {
       manifest: new Proxy(backing, {
         ownKeys(target) {
+          rootSnapshotPasses += 1;
           target.sourceIdentity = 'm4a-aac-reentrant-snapshot';
           return Reflect.ownKeys(target);
         },
@@ -104,6 +106,7 @@ describe('M4A AAC decoder descriptor helpers', () => {
       mediaFrame: 0,
     };
     const descriptor = createM4aAacDecoderDescriptor(options);
+    expect(rootSnapshotPasses).toBe(1);
     expect(descriptor.sourceIdentity).toBe('m4a-aac-reentrant-snapshot');
     backing.sourceIdentity = 'm4a-aac-mutated-later';
     expect(descriptor.sourceIdentity).toBe('m4a-aac-reentrant-snapshot');

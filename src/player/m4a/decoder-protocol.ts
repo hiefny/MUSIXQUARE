@@ -6,33 +6,26 @@ import {
 } from '../streaming/pcm-stream-protocol.ts';
 import { expectedLanczosOutputFrames } from '../streaming/resampler-plan.ts';
 import { validateM4aAacLcManifest, type M4aAacLcManifest } from './metadata.ts';
-import { M4A_AAC_CORE_FRAMES_PER_ACCESS_UNIT } from './timeline.ts';
+import {
+  M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS,
+  createM4aAacStartPlan,
+  type M4aAacStartPlan,
+} from './start-plan.ts';
 
 /** Worker-control version; PCM supply keeps its independent common version. */
 export const M4A_AAC_DECODER_PROTOCOL_VERSION = 1 as const;
 export const M4A_AAC_DECODER_MAX_OUTPUT_SAMPLE_RATE_HZ = 1_000_000;
 export const M4A_AAC_DECODER_MAX_ERROR_CODE_LENGTH = 256;
 export const M4A_AAC_DECODER_MAX_ERROR_MESSAGE_LENGTH = 1_024;
-export const M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS = 1 as const;
+export { M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS } from './start-plan.ts';
 
 export type M4aAacSourceLifetimeGeneration = number;
 /** One fresh Worker realm and one decoder incarnation. */
 export type M4aAacDecoderGeneration = PcmStreamGeneration;
 export type M4aAacDecoderBackendId = 'webcodecs' | 'symphonia-wasm';
 
-/** Structured-clone generation target, expressed only in logical AAC coordinates. */
-export interface M4aAacDecoderStartPlan {
-  readonly mediaFrame: number;
-  /** Raw decoder coordinate after applying the admitted manifest leading trim. */
-  readonly rawTargetCoreFrame: number;
-  readonly targetAccessUnitOrdinal: number;
-  readonly coreFrameWithinTargetAccessUnit: number;
-  readonly decodeStartAccessUnitOrdinal: number;
-  /** May be zero only when the target is already in access unit zero. */
-  readonly actualPrerollAccessUnits: 0 | 1;
-  /** Raw decoder frames to discard before publishing the selected media frame. */
-  readonly discardCoreFrames: number;
-}
+/** Backward-compatible wire name for the common logical start plan. */
+export type M4aAacDecoderStartPlan = M4aAacStartPlan;
 
 /**
  * Complete same-app Worker handoff. The manifest is structurally canonical but
@@ -197,64 +190,13 @@ function requireSafeInteger(
   }
 }
 
-function safeAdd(left: number, right: number, label: string): number {
-  const result = BigInt(left) + BigInt(right);
-  if (result < 0n || result > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new RangeError(`${label} exceeds the browser safe-integer range`);
-  }
-  return Number(result);
-}
-
-function createStartPlanFromManifest(
-  manifest: Readonly<M4aAacLcManifest>,
-  mediaFrame: number,
-): Readonly<M4aAacDecoderStartPlan> {
-  requireSafeInteger(mediaFrame, 'M4A AAC target mediaFrame', 0);
-  if (mediaFrame === manifest.timeline.totalMediaFrames) {
-    throw new RangeError('M4A AAC exclusive media EOF cannot open a decoder Worker');
-  }
-  if (mediaFrame > manifest.timeline.totalMediaFrames) {
-    throw new RangeError('M4A AAC target mediaFrame is outside the admitted timeline');
-  }
-
-  const rawTargetCoreFrame = safeAdd(
-    manifest.timeline.headTrimCoreFrames,
-    mediaFrame,
-    'M4A AAC raw target core frame',
-  );
-  const targetAccessUnitOrdinal = Math.floor(
-    rawTargetCoreFrame / M4A_AAC_CORE_FRAMES_PER_ACCESS_UNIT,
-  );
-  if (targetAccessUnitOrdinal >= manifest.timeline.accessUnitCount) {
-    throw new RangeError('M4A AAC target access unit exceeds the admitted timeline');
-  }
-  const coreFrameWithinTargetAccessUnit = rawTargetCoreFrame % M4A_AAC_CORE_FRAMES_PER_ACCESS_UNIT;
-  const decodeStartAccessUnitOrdinal = Math.max(
-    targetAccessUnitOrdinal - M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS,
-    0,
-  );
-  const actualPrerollAccessUnits = targetAccessUnitOrdinal - decodeStartAccessUnitOrdinal;
-  const discardCoreFrames =
-    rawTargetCoreFrame - decodeStartAccessUnitOrdinal * M4A_AAC_CORE_FRAMES_PER_ACCESS_UNIT;
-
-  return Object.freeze({
-    mediaFrame,
-    rawTargetCoreFrame,
-    targetAccessUnitOrdinal,
-    coreFrameWithinTargetAccessUnit,
-    decodeStartAccessUnitOrdinal,
-    actualPrerollAccessUnits: actualPrerollAccessUnits as 0 | 1,
-    discardCoreFrames,
-  });
-}
-
 /** Build the fixed one-AU product-preroll plan from a canonicalized manifest. */
 export function createM4aAacDecoderStartPlan(
   manifestValue: unknown,
   mediaFrame: number,
 ): Readonly<M4aAacDecoderStartPlan> {
   const manifest = validateM4aAacLcManifest(manifestValue);
-  return createStartPlanFromManifest(manifest, mediaFrame);
+  return createM4aAacStartPlan(manifest.timeline, mediaFrame);
 }
 
 function requireStartPlan(value: unknown): Readonly<M4aAacDecoderStartPlan> {
@@ -307,7 +249,7 @@ function requireDescriptor(value: unknown): Readonly<M4aAacDecoderDescriptor> {
   }
 
   const startPlan = requireStartPlan(record.startPlan);
-  const recomputedPlan = createStartPlanFromManifest(manifest, startPlan.mediaFrame);
+  const recomputedPlan = createM4aAacStartPlan(manifest.timeline, startPlan.mediaFrame);
   if (!sameStartPlan(startPlan, recomputedPlan)) {
     throw new RangeError('M4A AAC decoder start plan contradicts its canonical manifest');
   }

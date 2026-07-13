@@ -1,13 +1,15 @@
 import { expectedLanczosOutputFrames } from '../streaming/resampler-plan.ts';
 import {
   M4A_AAC_DECODER_MAX_OUTPUT_SAMPLE_RATE_HZ,
-  M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS,
-  createM4aAacDecoderStartPlan,
   snapshotM4aAacDecoderDescriptor,
   type M4aAacDecoderDescriptor,
   type M4aAacDecoderLogicalProgress,
 } from './decoder-protocol.ts';
 import { validateM4aAacLcManifest, type M4aAacLcManifest } from './metadata.ts';
+import {
+  M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS,
+  createM4aAacStartPlan,
+} from './start-plan.ts';
 
 const CREATE_DESCRIPTOR_KEYS = Object.freeze([
   'manifest',
@@ -22,13 +24,6 @@ export interface CreateM4aAacDecoderDescriptorOptions {
   readonly outputSampleRateHz: number;
   /** Exact audible media coordinate. Exclusive EOF cannot open a generation. */
   readonly mediaFrame: number;
-}
-
-export class M4aAacDecoderHelperError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'M4aAacDecoderHelperError';
-  }
 }
 
 function snapshotRecord(value: unknown): DataRecord | null {
@@ -106,8 +101,14 @@ export function createM4aAacDecoderDescriptor(
 ): Readonly<M4aAacDecoderDescriptor> {
   const options = snapshotOptions(optionsValue);
   const manifest = validateM4aAacLcManifest(options.manifest);
-  const startPlan = createM4aAacDecoderStartPlan(manifest, options.mediaFrame);
-  const descriptor = snapshotM4aAacDecoderDescriptor({
+  const startPlan = createM4aAacStartPlan(manifest.timeline, options.mediaFrame);
+  expectedLanczosOutputFrames({
+    inputSampleRate: manifest.codec.sampleRateHz,
+    outputSampleRate: options.outputSampleRateHz,
+    totalSourceFrames: manifest.timeline.totalMediaFrames,
+    startSourceFrame: startPlan.mediaFrame,
+  });
+  return Object.freeze({
     format: 'm4a-aac-lc',
     sourceSize: manifest.sourceSize,
     sourceIdentity: manifest.sourceIdentity,
@@ -116,10 +117,6 @@ export function createM4aAacDecoderDescriptor(
     transformPrerollPolicyAccessUnits: M4A_AAC_TRANSFORM_PREROLL_POLICY_ACCESS_UNITS,
     startPlan,
   });
-  if (!descriptor) {
-    throw new M4aAacDecoderHelperError('M4A AAC decoder descriptor failed validation');
-  }
-  return descriptor;
 }
 
 function requireDescriptor(value: unknown): Readonly<M4aAacDecoderDescriptor> {

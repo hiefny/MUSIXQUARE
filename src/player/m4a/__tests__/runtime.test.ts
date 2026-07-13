@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { IsoBmffBoxReader } from '../../mp4/box-reader.ts';
+import {
+  EncodedSourceBusyError,
+  type EncodedRandomAccessSource,
+  throwIfAborted,
+  validateExactRead,
+} from '../../sources/encoded-audio-source.ts';
 import { readM4aAacLcMetadata, snapshotM4aAacLcManifest } from '../metadata.ts';
 import {
   closeM4aAacRuntime,
@@ -12,6 +18,59 @@ import { buildM4aAacFixture, M4aAacFixtureMemorySource } from './m4a-aac-fixture
 
 function signal(): AbortSignal {
   return new AbortController().signal;
+}
+
+interface RuntimeReadRecord {
+  readonly offset: number;
+  readonly length: number;
+}
+
+class ControlledRuntimeSource implements EncodedRandomAccessSource {
+  readonly reads: RuntimeReadRecord[] = [];
+  closeCalls = 0;
+  onRead:
+    | ((read: Readonly<RuntimeReadRecord>, signal: AbortSignal) => void | Promise<void>)
+    | null = null;
+  nextFailure: unknown = undefined;
+  hasNextFailure = false;
+
+  constructor(
+    readonly bytes: Uint8Array,
+    readonly identity: string,
+  ) {}
+
+  get size(): number {
+    return this.bytes.byteLength;
+  }
+
+  async readAt(offset: number, length: number, abortSignal: AbortSignal): Promise<Uint8Array> {
+    const end = validateExactRead(this.size, offset, length);
+    throwIfAborted(abortSignal);
+    const read = Object.freeze({ offset, length });
+    this.reads.push(read);
+    if (this.hasNextFailure) {
+      this.hasNextFailure = false;
+      throw this.nextFailure;
+    }
+    await this.onRead?.(read, abortSignal);
+    throwIfAborted(abortSignal);
+    return this.bytes.slice(offset, end);
+  }
+
+  async close(): Promise<void> {
+    this.closeCalls += 1;
+  }
+}
+
+class ObservableReadableBoxReader extends IsoBmffBoxReader {
+  readableCalls = 0;
+  afterReadable: ((call: number) => void) | null = null;
+
+  override assertReadable(abortSignal: AbortSignal): void {
+    super.assertReadable(abortSignal);
+    this.readableCalls += 1;
+    this.afterReadable?.(this.readableCalls);
+  }
 }
 
 function findBoxType(bytes: Uint8Array, type: string): number {
@@ -33,6 +92,23 @@ function writeBoxBodyUint32(bytes: Uint8Array, type: string, bodyOffset: number,
 async function transferableManifest(fixture: ReturnType<typeof buildM4aAacFixture>) {
   const manifest = await readM4aAacLcMetadata(fixture.source, signal());
   return structuredClone(snapshotM4aAacLcManifest(manifest));
+}
+
+async function openControlledRuntime(
+  identity: string,
+  createReader: (source: ControlledRuntimeSource) => IsoBmffBoxReader = (source) =>
+    new IsoBmffBoxReader(source),
+) {
+  const built = buildM4aAacFixture();
+  const source = new ControlledRuntimeSource(built.bytes.slice(), identity);
+  const manifest = structuredClone(
+    snapshotM4aAacLcManifest(await readM4aAacLcMetadata(source, signal())),
+  );
+  const reader = createReader(source);
+  const runtime = await openM4aAacRuntime(reader, manifest, signal());
+  source.reads.length = 0;
+  if (reader instanceof ObservableReadableBoxReader) reader.readableCalls = 0;
+  return { built, source, reader, runtime };
 }
 
 describe('source-bound M4A AAC runtime opening', () => {
@@ -193,6 +269,367 @@ describe('source-bound M4A AAC runtime opening', () => {
       openM4aAacRuntime(new IsoBmffBoxReader(fixture.source), hostile, controller.signal),
     ).rejects.toBe(reason);
     expect(fixture.source.reads).toHaveLength(0);
+  });
+});
+
+describe('M4A AAC runtime access-unit reader authority', () => {
+  it('opens at the exact issued plan ordinal and logical byte prefix', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-plan');
+    const plan = fixture.runtime.createGenerationStartPlan(2_049);
+    const expectedPrefix = fixture.built.expected.accessUnitSizes
+      .slice(0, plan.decodeStartAccessUnitOrdinal)
+      .reduce((total, size) => total + size, 0);
+
+    const cursor = await fixture.runtime.openAccessUnitReader(plan, signal());
+
+    expect(cursor.nextAccessUnitOrdinal).toBe(plan.decodeStartAccessUnitOrdinal);
+    expect(cursor.consumedEncodedBytes).toBe(expectedPrefix);
+    await expect(cursor.readNext(signal())).resolves.toEqual({
+      bytes: fixture.built.expected.accessUnitPayloads[plan.decodeStartAccessUnitOrdinal],
+      descriptor: {
+        ordinal: plan.decodeStartAccessUnitOrdinal,
+        sourceOffset: fixture.built.expected.accessUnitOffsets[plan.decodeStartAccessUnitOrdinal],
+        byteLength: fixture.built.expected.accessUnitSizes[plan.decodeStartAccessUnitOrdinal],
+        chunkOrdinal: 1,
+        encodedBytePrefix: expectedPrefix,
+      },
+    });
+    fixture.runtime.close();
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('rejects cloned and foreign plans before source reads without consuming cursor authority', async () => {
+    const local = await openControlledRuntime('runtime-cursor-local-plan');
+    const foreign = await openControlledRuntime('runtime-cursor-foreign-plan');
+    const localPlan = local.runtime.createGenerationStartPlan(0);
+    const foreignPlan = foreign.runtime.createGenerationStartPlan(0);
+
+    await expect(
+      local.runtime.openAccessUnitReader(structuredClone(localPlan), signal()),
+    ).rejects.toThrow(/not issued/i);
+    await expect(local.runtime.openAccessUnitReader(foreignPlan, signal())).rejects.toThrow(
+      /different runtime/i,
+    );
+    expect(local.source.reads).toHaveLength(0);
+
+    await expect(local.runtime.openAccessUnitReader(localPlan, signal())).resolves.toMatchObject({
+      nextAccessUnitOrdinal: 0,
+      consumedEncodedBytes: 0,
+    });
+    local.runtime.close();
+    foreign.runtime.close();
+    expect(local.source.closeCalls).toBe(0);
+    expect(foreign.source.closeCalls).toBe(0);
+  });
+
+  it('issues exactly one cursor even after the returned cursor is closed', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-once');
+    const plan = fixture.runtime.createGenerationStartPlan(0);
+    const cursor = await fixture.runtime.openAccessUnitReader(plan, signal());
+    cursor.close();
+    const reads = fixture.source.reads.length;
+
+    await expect(fixture.runtime.openAccessUnitReader(plan, signal())).rejects.toThrow(
+      /already issued/i,
+    );
+    expect(fixture.source.reads).toHaveLength(reads);
+    fixture.runtime.close();
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('rejects concurrent and source-reentrant opens without stealing the first operation', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-concurrent');
+    const plan = fixture.runtime.createGenerationStartPlan(0);
+    let enteredResolve: (() => void) | null = null;
+    let release: (() => void) | null = null;
+    let reentrant: Promise<unknown> | null = null;
+    const entered = new Promise<void>((resolve) => {
+      enteredResolve = resolve;
+    });
+    fixture.source.onRead = () => {
+      fixture.source.onRead = null;
+      reentrant = fixture.runtime.openAccessUnitReader(plan, signal());
+      void reentrant.catch(() => undefined);
+      enteredResolve?.();
+      return new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    };
+
+    const opening = fixture.runtime.openAccessUnitReader(plan, signal());
+    await entered;
+    await expect(fixture.runtime.openAccessUnitReader(plan, signal())).rejects.toThrow(
+      /concurrent or reentrant/i,
+    );
+    if (reentrant === null) throw new Error('source did not attempt runtime cursor reentry');
+    await expect(reentrant).rejects.toThrow(/concurrent or reentrant/i);
+    if (release === null) throw new Error('runtime cursor open did not block');
+    release();
+    await expect(opening).resolves.toMatchObject({ nextAccessUnitOrdinal: 0 });
+    fixture.runtime.close();
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('allows exact-abort and transient Busy opens to retry', async () => {
+    let abortReader: ObservableReadableBoxReader | null = null;
+    const aborted = await openControlledRuntime(
+      'runtime-cursor-abort-retry',
+      (source) => (abortReader = new ObservableReadableBoxReader(source)),
+    );
+    const abortedPlan = aborted.runtime.createGenerationStartPlan(0);
+    const controller = new AbortController();
+    const reason = Object.freeze({ phase: 'runtime-cursor-sync-abort' });
+    if (abortReader === null) throw new Error('observable runtime reader was not constructed');
+    const activeAbortReader: ObservableReadableBoxReader = abortReader;
+    activeAbortReader.afterReadable = () => {
+      activeAbortReader.afterReadable = null;
+      controller.abort(reason);
+      throw new Error('secondary synchronous source validation error');
+    };
+
+    await expect(aborted.runtime.openAccessUnitReader(abortedPlan, controller.signal)).rejects.toBe(
+      reason,
+    );
+    await expect(
+      aborted.runtime.openAccessUnitReader(abortedPlan, signal()),
+    ).resolves.toMatchObject({
+      nextAccessUnitOrdinal: 0,
+    });
+    aborted.runtime.close();
+
+    const busyFixture = await openControlledRuntime('runtime-cursor-busy-retry');
+    const busyPlan = busyFixture.runtime.createGenerationStartPlan(0);
+    const busy = new EncodedSourceBusyError('runtime cursor temporarily busy');
+    busyFixture.source.nextFailure = busy;
+    busyFixture.source.hasNextFailure = true;
+    await expect(busyFixture.runtime.openAccessUnitReader(busyPlan, signal())).rejects.toBe(busy);
+    await expect(
+      busyFixture.runtime.openAccessUnitReader(busyPlan, signal()),
+    ).resolves.toMatchObject({ nextAccessUnitOrdinal: 0 });
+    busyFixture.runtime.close();
+    expect(aborted.source.closeCalls).toBe(0);
+    expect(busyFixture.source.closeCalls).toBe(0);
+  });
+
+  it('sticks the exact first structural cursor-open failure without later source I/O', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-structural-poison');
+    const plan = fixture.runtime.createGenerationStartPlan(0);
+    const firstStszEntry = findBoxType(fixture.source.bytes, 'stsz') + 4 + 12;
+    fixture.source.bytes[firstStszEntry]! ^= 1;
+
+    const failure = await fixture.runtime
+      .openAccessUnitReader(plan, signal())
+      .catch((error: unknown) => error);
+    fixture.source.bytes[firstStszEntry]! ^= 1;
+    const readsAfterFailure = fixture.source.reads.length;
+
+    await expect(fixture.runtime.openAccessUnitReader(plan, signal())).rejects.toBe(failure);
+    expect(fixture.source.reads).toHaveLength(readsAfterFailure);
+    fixture.runtime.close();
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('uses intrinsic AbortSignal state and EventTarget methods before claiming its sole cursor', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-hostile-caller-signal');
+    const plan = fixture.runtime.createGenerationStartPlan(0);
+    const callerSignal = new AbortController().signal;
+    let abortedGetterCalls = 0;
+    let reasonGetterCalls = 0;
+    let addCalls = 0;
+    let removeCalls = 0;
+    let nested: Promise<unknown> | null = null;
+    Object.defineProperties(callerSignal, {
+      aborted: {
+        configurable: true,
+        get() {
+          abortedGetterCalls += 1;
+          nested ??= fixture.runtime.openAccessUnitReader(plan, signal());
+          void nested.catch(() => undefined);
+          return false;
+        },
+      },
+      reason: {
+        configurable: true,
+        get() {
+          reasonGetterCalls += 1;
+          return undefined;
+        },
+      },
+      addEventListener: {
+        configurable: true,
+        value() {
+          addCalls += 1;
+          throw new Error('caller-owned addEventListener must not run');
+        },
+      },
+      removeEventListener: {
+        configurable: true,
+        value() {
+          removeCalls += 1;
+          fixture.runtime.close();
+          throw new Error('caller-owned removeEventListener must not run');
+        },
+      },
+    });
+
+    const cursor = await fixture.runtime.openAccessUnitReader(plan, callerSignal);
+
+    expect(cursor.nextAccessUnitOrdinal).toBe(0);
+    expect(nested).toBeNull();
+    expect(abortedGetterCalls).toBe(0);
+    expect(reasonGetterCalls).toBe(0);
+    expect(addCalls).toBe(0);
+    expect(removeCalls).toBe(0);
+    fixture.runtime.close();
+    await expect(cursor.readNext(signal())).rejects.toThrow(/closed/i);
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('preserves caller abort during blocked open and permits an exact retry', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-blocked-caller-abort');
+    const plan = fixture.runtime.createGenerationStartPlan(0);
+    const controller = new AbortController();
+    const reason = Object.freeze({ phase: 'runtime-cursor-blocked-caller-abort' });
+    let enteredResolve: (() => void) | null = null;
+    const entered = new Promise<void>((resolve) => {
+      enteredResolve = resolve;
+    });
+    fixture.source.onRead = (_read, activeSignal) => {
+      fixture.source.onRead = null;
+      enteredResolve?.();
+      return new Promise<void>((_resolve, reject) => {
+        activeSignal.addEventListener('abort', () => reject(activeSignal.reason), { once: true });
+      });
+    };
+
+    const opening = fixture.runtime.openAccessUnitReader(plan, controller.signal);
+    await entered;
+    controller.abort(reason);
+
+    await expect(opening).rejects.toBe(reason);
+    await expect(fixture.runtime.openAccessUnitReader(plan, signal())).resolves.toMatchObject({
+      nextAccessUnitOrdinal: 0,
+    });
+    fixture.runtime.close();
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('closes its active cursor while retaining borrowed source ownership', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-active-close');
+    const plan = fixture.runtime.createGenerationStartPlan(0);
+    const cursor = await fixture.runtime.openAccessUnitReader(plan, signal());
+    let shadowCloseCalls = 0;
+    Object.defineProperty(cursor, 'close', {
+      configurable: true,
+      value: () => {
+        shadowCloseCalls += 1;
+        throw new Error('runtime must not trust the public cursor close property');
+      },
+    });
+
+    fixture.runtime.close();
+
+    expect(shadowCloseCalls).toBe(0);
+    await expect(cursor.readNext(signal())).rejects.toThrow(/closed/i);
+    await expect(fixture.runtime.openAccessUnitReader(plan, signal())).rejects.toThrow(
+      /runtime is closed/i,
+    );
+    expect(fixture.runtime.info.sourceIdentity).toBe(fixture.source.identity);
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('actively aborts a cooperative source read when its owning runtime closes', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-active-read-close');
+    const plan = fixture.runtime.createGenerationStartPlan(0);
+    const cursor = await fixture.runtime.openAccessUnitReader(plan, signal());
+    fixture.source.reads.length = 0;
+    let enteredResolve: (() => void) | null = null;
+    let observedReadSignal: AbortSignal | null = null;
+    const entered = new Promise<void>((resolve) => {
+      enteredResolve = resolve;
+    });
+    fixture.source.onRead = (_read, activeSignal) => {
+      fixture.source.onRead = null;
+      observedReadSignal = activeSignal;
+      enteredResolve?.();
+      return new Promise<void>((_resolve, reject) => {
+        activeSignal.addEventListener('abort', () => reject(activeSignal.reason), { once: true });
+      });
+    };
+
+    const activeRead = cursor.readNext(signal());
+    await entered;
+    const readsAtClose = fixture.source.reads.length;
+    fixture.runtime.close();
+
+    await expect(activeRead).rejects.toThrow(/closed/i);
+    expect(observedReadSignal?.aborted).toBe(true);
+    expect(fixture.source.reads).toHaveLength(readsAtClose);
+    expect(cursor.nextAccessUnitOrdinal).toBe(0);
+    expect(cursor.consumedEncodedBytes).toBe(0);
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('aborts a blocked open on runtime close without starting later source I/O', async () => {
+    const fixture = await openControlledRuntime('runtime-cursor-blocked-close');
+    const plan = fixture.runtime.createGenerationStartPlan(0);
+    let enteredResolve: (() => void) | null = null;
+    let release: (() => void) | null = null;
+    const entered = new Promise<void>((resolve) => {
+      enteredResolve = resolve;
+    });
+    fixture.source.onRead = () => {
+      fixture.source.onRead = null;
+      enteredResolve?.();
+      return new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    };
+
+    const opening = fixture.runtime.openAccessUnitReader(plan, signal());
+    await entered;
+    fixture.runtime.close();
+    const readsAtClose = fixture.source.reads.length;
+    if (release === null) throw new Error('runtime cursor source read did not block');
+    release();
+
+    await expect(opening).rejects.toThrow(/runtime is closed/i);
+    expect(fixture.source.reads).toHaveLength(readsAtClose);
+    expect(fixture.source.closeCalls).toBe(0);
+  });
+
+  it('closes a cursor completed during a reentrant final runtime close', async () => {
+    let baselineReader: ObservableReadableBoxReader | null = null;
+    const baseline = await openControlledRuntime(
+      'runtime-cursor-late-baseline',
+      (source) => (baselineReader = new ObservableReadableBoxReader(source)),
+    );
+    const baselinePlan = baseline.runtime.createGenerationStartPlan(0);
+    await baseline.runtime.openAccessUnitReader(baselinePlan, signal());
+    if (baselineReader === null) throw new Error('baseline reader was not constructed');
+    const finalReadableCall = baselineReader.readableCalls;
+    expect(finalReadableCall).toBeGreaterThan(0);
+    baseline.runtime.close();
+
+    let closingReader: ObservableReadableBoxReader | null = null;
+    const closing = await openControlledRuntime(
+      'runtime-cursor-late-close',
+      (source) => (closingReader = new ObservableReadableBoxReader(source)),
+    );
+    const closingPlan = closing.runtime.createGenerationStartPlan(0);
+    if (closingReader === null) throw new Error('closing reader was not constructed');
+    const activeClosingReader: ObservableReadableBoxReader = closingReader;
+    activeClosingReader.afterReadable = (call) => {
+      if (call !== finalReadableCall) return;
+      activeClosingReader.afterReadable = null;
+      closing.runtime.close();
+    };
+
+    await expect(closing.runtime.openAccessUnitReader(closingPlan, signal())).rejects.toThrow(
+      /runtime is closed/i,
+    );
+    expect(activeClosingReader.readableCalls).toBe(finalReadableCall);
+    expect(closing.source.closeCalls).toBe(0);
   });
 });
 

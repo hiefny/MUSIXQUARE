@@ -1,7 +1,15 @@
 import { IsoBmffBoxReader } from '../mp4/box-reader.ts';
-import { EncodedSourceIntegrityError, throwIfAborted } from '../sources/encoded-audio-source.ts';
+import {
+  EncodedSourceBusyError,
+  EncodedSourceIntegrityError,
+} from '../sources/encoded-audio-source.ts';
 import { rehydrateM4aChunkIndex, type M4aChunkIndex } from './chunk-index.ts';
 import { validateM4aAacLcManifest, type M4aAacLcManifest } from './metadata.ts';
+import {
+  closeM4aRawAacAccessUnitReader,
+  openSourceBoundM4aRawAacAccessUnitReader,
+  type M4aRawAacAccessUnitReader,
+} from './raw-aac-access-unit-reader.ts';
 import {
   rehydrateM4aSampleSizeIndex,
   type M4aIndexSourceBinding,
@@ -46,15 +54,29 @@ export interface M4aAacRuntime {
   createGenerationStartPlan(mediaFrame: number): Readonly<M4aAacGenerationStartPlan>;
   /** Accept only an unchanged plan issued by this exact live runtime. */
   requireGenerationStartPlan(value: unknown): Readonly<M4aAacGenerationStartPlan>;
+  /** Issue the runtime's sole bounded raw-AAC cursor at an exact generation plan. */
+  openAccessUnitReader(plan: unknown, signal: AbortSignal): Promise<M4aRawAacAccessUnitReader>;
   /** Release runtime authority without closing the caller-owned encoded source. */
   close(): void;
 }
 
 interface RuntimeAuthority {
-  readonly reader: IsoBmffBoxReader;
-  readonly sampleSizes: Readonly<M4aSampleSizeIndex>;
-  readonly chunks: Readonly<M4aChunkIndex>;
+  reader: IsoBmffBoxReader | null;
+  sampleSizes: Readonly<M4aSampleSizeIndex> | null;
+  chunks: Readonly<M4aChunkIndex> | null;
   readonly info: Readonly<M4aAacRuntimeInfo>;
+  readonly closedError: M4aAacRuntimeClosedError;
+  closed: boolean;
+  cursorIssued: boolean;
+  cursorOpenFailure: unknown;
+  hasCursorOpenFailure: boolean;
+  openingCursor: RuntimeCursorOpenOperation | null;
+  activeCursor: M4aRawAacAccessUnitReader | null;
+}
+
+interface RuntimeCursorOpenOperation {
+  readonly controller: AbortController;
+  readonly detachCallerAbort: () => void;
 }
 
 interface StartPlanAuthority {
@@ -65,6 +87,37 @@ interface StartPlanAuthority {
 const runtimeAuthorities = new WeakMap<object, RuntimeAuthority>();
 const closedRuntimes = new WeakSet<object>();
 const startPlanAuthorities = new WeakMap<object, StartPlanAuthority>();
+const trustedAbortThrowIfAborted = AbortSignal.prototype.throwIfAborted;
+const trustedAbortAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted')?.get;
+const trustedAbortReason = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason')?.get;
+const trustedEventTargetAdd = EventTarget.prototype.addEventListener;
+const trustedEventTargetRemove = EventTarget.prototype.removeEventListener;
+
+function readAbortReason(signal: AbortSignal): unknown {
+  try {
+    return trustedAbortReason ? Reflect.apply(trustedAbortReason, signal, []) : signal.reason;
+  } catch (error) {
+    return error;
+  }
+}
+
+function isAborted(signal: AbortSignal): boolean {
+  return trustedAbortAborted
+    ? Reflect.apply(trustedAbortAborted, signal, []) === true
+    : signal.aborted;
+}
+
+function throwIfRuntimeAborted(signal: AbortSignal): void {
+  if (typeof trustedAbortThrowIfAborted === 'function') {
+    Reflect.apply(trustedAbortThrowIfAborted, signal, []);
+    return;
+  }
+  if (!isAborted(signal)) return;
+  const reason = readAbortReason(signal);
+  throw reason === undefined
+    ? new DOMException('The M4A AAC runtime operation was aborted', 'AbortError')
+    : reason;
+}
 
 export class M4aAacRuntimeError extends EncodedSourceIntegrityError {
   constructor(message: string, cause?: unknown) {
@@ -177,7 +230,7 @@ export async function openM4aAacRuntime(
   if (!(signal instanceof AbortSignal)) {
     throw new TypeError('M4A AAC runtime requires an AbortSignal');
   }
-  throwIfAborted(signal);
+  throwIfRuntimeAborted(signal);
   if (!(reader instanceof IsoBmffBoxReader)) {
     throw new TypeError('M4A AAC runtime requires an IsoBmffBoxReader');
   }
@@ -188,10 +241,10 @@ export async function openM4aAacRuntime(
   } catch (error) {
     // A hostile synchronous inspection can reenter and abort. Preserve the
     // operation's exact cancellation authority instead of its secondary error.
-    throwIfAborted(signal);
+    throwIfRuntimeAborted(signal);
     throw error;
   }
-  throwIfAborted(signal);
+  throwIfRuntimeAborted(signal);
   const expectedSource: Readonly<M4aIndexSourceBinding> = Object.freeze({
     sourceSize: manifest.sourceSize,
     sourceIdentity: manifest.sourceIdentity,
@@ -229,6 +282,9 @@ export async function openM4aAacRuntime(
     requireGenerationStartPlan(this: M4aAacRuntime, value: unknown) {
       return requireM4aAacGenerationStartPlan(this, value);
     },
+    openAccessUnitReader(this: M4aAacRuntime, plan: unknown, signal: AbortSignal) {
+      return openM4aAacRuntimeAccessUnitReader(this, plan, signal);
+    },
     close(this: M4aAacRuntime) {
       closeM4aAacRuntime(this);
     },
@@ -238,6 +294,13 @@ export async function openM4aAacRuntime(
     sampleSizes,
     chunks,
     info,
+    closedError: new M4aAacRuntimeClosedError(),
+    closed: false,
+    cursorIssued: false,
+    cursorOpenFailure: undefined,
+    hasCursorOpenFailure: false,
+    openingCursor: null,
+    activeCursor: null,
   });
   return runtime;
 }
@@ -311,13 +374,125 @@ export function requireM4aAacGenerationStartPlan(
   return authority.plan;
 }
 
+function closeRawAccessUnitReader(cursor: M4aRawAacAccessUnitReader | null): void {
+  if (cursor === null) return;
+  try {
+    closeM4aRawAacAccessUnitReader(cursor);
+  } catch {
+    // Cursor authority is module-issued and close is specified as idempotent.
+    // A secondary close failure must never replace cancellation or runtime close.
+  }
+}
+
+async function openM4aAacRuntimeAccessUnitReader(
+  runtimeValue: unknown,
+  planValue: unknown,
+  signal: AbortSignal,
+): Promise<M4aRawAacAccessUnitReader> {
+  if (!(signal instanceof AbortSignal)) {
+    throw new TypeError('M4A AAC runtime access-unit reader requires an AbortSignal');
+  }
+  throwIfRuntimeAborted(signal);
+  const authority = requireRuntimeAuthority(runtimeValue);
+  const plan = requireM4aAacGenerationStartPlan(runtimeValue, planValue);
+  throwIfRuntimeAborted(signal);
+
+  if (authority.closed) throw authority.closedError;
+  if (authority.openingCursor !== null) {
+    throw runtimeError('Concurrent or reentrant M4A AAC runtime cursor opens are not supported');
+  }
+  if (authority.cursorIssued) {
+    throw runtimeError('M4A AAC runtime has already issued its access-unit reader');
+  }
+  if (authority.hasCursorOpenFailure) throw authority.cursorOpenFailure;
+  const reader = authority.reader;
+  const sampleSizes = authority.sampleSizes;
+  const chunks = authority.chunks;
+  if (reader === null || sampleSizes === null || chunks === null) {
+    throw authority.closedError;
+  }
+
+  const controller = new AbortController();
+  const operationSignal = controller.signal;
+  if (!Reflect.preventExtensions(operationSignal)) {
+    throw runtimeError('M4A AAC runtime could not seal its cursor-open cancellation signal');
+  }
+  const forwardCallerAbort = (): void => {
+    controller.abort(readAbortReason(signal));
+  };
+  let listenerInstalled = false;
+  const detachCallerAbort = (): void => {
+    if (!listenerInstalled) return;
+    listenerInstalled = false;
+    try {
+      Reflect.apply(trustedEventTargetRemove, signal, ['abort', forwardCallerAbort]);
+    } catch {
+      // The exact native AbortSignal was already validated. Detachment is
+      // best-effort and must never break cursor publication or runtime cleanup.
+    }
+  };
+  const operation: RuntimeCursorOpenOperation = Object.freeze({
+    controller,
+    detachCallerAbort,
+  });
+  authority.openingCursor = operation;
+
+  let candidate: M4aRawAacAccessUnitReader | null = null;
+  try {
+    Reflect.apply(trustedEventTargetAdd, signal, ['abort', forwardCallerAbort, { once: true }]);
+    listenerInstalled = true;
+    // Cover an abort that happened after the initial check but before listener install.
+    if (isAborted(signal)) forwardCallerAbort();
+    candidate = await openSourceBoundM4aRawAacAccessUnitReader(
+      reader,
+      sampleSizes,
+      chunks,
+      plan.decodeStartAccessUnitOrdinal,
+      operationSignal,
+    );
+    throwIfRuntimeAborted(operationSignal);
+    if (authority.closed || authority.openingCursor !== operation) {
+      throw authority.closedError;
+    }
+
+    authority.activeCursor = candidate;
+    authority.cursorIssued = true;
+    return candidate;
+  } catch (error) {
+    closeRawAccessUnitReader(candidate);
+    if (isAborted(operationSignal)) throwIfRuntimeAborted(operationSignal);
+    if (authority.closed) throw authority.closedError;
+    if (!(error instanceof EncodedSourceBusyError)) {
+      authority.cursorOpenFailure = error;
+      authority.hasCursorOpenFailure = true;
+    }
+    throw error;
+  } finally {
+    detachCallerAbort();
+    if (authority.openingCursor === operation) authority.openingCursor = null;
+  }
+}
+
 /** Idempotently revoke one issued runtime without touching its borrowed source. */
 export function closeM4aAacRuntime(runtimeValue: unknown): void {
   const isObject =
     runtimeValue !== null &&
     (typeof runtimeValue === 'object' || typeof runtimeValue === 'function');
   if (isObject && closedRuntimes.has(runtimeValue)) return;
-  requireRuntimeAuthority(runtimeValue);
+  const authority = requireRuntimeAuthority(runtimeValue);
+  if (authority.closed) return;
+  authority.closed = true;
+  if (authority.openingCursor !== null) {
+    authority.openingCursor.controller.abort(authority.closedError);
+    authority.openingCursor.detachCallerAbort();
+  }
+  closeRawAccessUnitReader(authority.activeCursor);
+  authority.activeCursor = null;
+  authority.reader = null;
+  authority.sampleSizes = null;
+  authority.chunks = null;
+  authority.cursorOpenFailure = undefined;
+  authority.hasCursorOpenFailure = false;
   runtimeAuthorities.delete(runtimeValue as object);
   closedRuntimes.add(runtimeValue as object);
 }

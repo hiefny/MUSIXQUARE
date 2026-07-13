@@ -83,6 +83,8 @@ function inertHostRoom(): FilePlaybackProductRuntimeHostRoomPort {
     throw new Error('peer lifecycle fixture does not exercise media');
   });
   return {
+    warmLocalTrack: unsupported,
+    clearWarmLocalTrack: unsupported,
     startFirstLocalFile: unsupported,
     startLocalTrack: unsupported,
     startLocalTrackWithCohort: unsupported,

@@ -19,6 +19,8 @@ const v2 = vi.hoisted(() => {
     state,
     runtime: {
       enabled: vi.fn(() => true),
+      warmNextLocalTrack: vi.fn(async () => false),
+      clearNextLocalTrackWarm: vi.fn(async () => false),
       hostRoomSnapshot: vi.fn(() => state.room),
       seekPlaying: vi.fn(),
       seekPaused: vi.fn(),

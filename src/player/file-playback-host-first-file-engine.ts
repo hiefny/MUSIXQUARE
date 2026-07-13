@@ -79,9 +79,14 @@ const OPTION_KEYS = Object.freeze([
   'roomClock',
   'hostParticipantId',
   'onFatalRoom',
+  'onTransitionScheduled',
+  'onTimelineCommitted',
   'runtimeForTests',
 ] as const);
-const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter((key) => key !== 'runtimeForTests');
+const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
+  (key) =>
+    key !== 'onTransitionScheduled' && key !== 'onTimelineCommitted' && key !== 'runtimeForTests',
+);
 const START_KEYS = Object.freeze([
   'queueItemId',
   'blob',
@@ -170,6 +175,12 @@ export interface FilePlaybackHostFirstFileEngineOptions {
   readonly roomClock: FilePlaybackRoomClock;
   readonly hostParticipantId: string;
   readonly onFatalRoom: (error: Error) => void;
+  readonly onTransitionScheduled?: (
+    event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
+  ) => void;
+  readonly onTimelineCommitted?: (
+    event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
+  ) => void;
   readonly runtimeForTests?: FilePlaybackHostFirstFileEngineRuntimeForTests;
 }
 
@@ -226,6 +237,26 @@ export interface HostCurrentPlaybackTransitionCommit {
   readonly kind: 'pause' | 'seek' | 'stop' | 'ended';
   readonly roomGeneration: number;
   readonly evidence: Readonly<HostCurrentPlaybackTransitionEvidence>;
+  readonly timeline: PlaybackTimelineSnapshot;
+}
+
+/** Body-free exact-next transition after the native renderer accepted scheduling. */
+export interface HostCurrentPlaybackTransitionScheduledEvent {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly kind: 'pause' | 'seek' | 'stop';
+  readonly from: Readonly<PlaybackStateIdentity>;
+  readonly to: Readonly<PlaybackStateIdentity>;
+  readonly atRoomTimeMs: number;
+  readonly positionSeconds: number | null;
+}
+
+/** Canonical room truth published only after physical transition evidence. */
+export interface HostCurrentPlaybackTimelineCommittedEvent {
+  readonly schemaVersion: 1;
+  readonly roomGeneration: number;
+  readonly kind: HostCurrentPlaybackTransitionCommit['kind'];
+  readonly previous: PlaybackTimelineSnapshot;
   readonly timeline: PlaybackTimelineSnapshot;
 }
 
@@ -865,6 +896,12 @@ export class FilePlaybackHostFirstFileEngine {
   readonly #rendezvousCoordinator: HostRendezvousCoordinator;
   readonly #hostParticipantId: string;
   readonly #onFatalRoom: (error: Error) => void;
+  readonly #onTransitionScheduled:
+    | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
+    | null;
+  readonly #onTimelineCommitted:
+    | ((event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) => void)
+    | null;
   readonly #runtime: RuntimeSnapshot;
   readonly #registry: FilePlaybackAssetRegistry;
   readonly #initialTimeline: PlaybackTimelineSnapshot;
@@ -915,7 +952,12 @@ export class FilePlaybackHostFirstFileEngine {
     if (!isBoundedIdentifier(input.hostParticipantId, MAX_PARTICIPANT_ID_LENGTH)) {
       throw new TypeError('Host first-file engine participant ID is invalid');
     }
-    if (typeof input.onFatalRoom !== 'function') {
+    if (
+      typeof input.onFatalRoom !== 'function' ||
+      (input.onTransitionScheduled !== undefined &&
+        typeof input.onTransitionScheduled !== 'function') ||
+      (input.onTimelineCommitted !== undefined && typeof input.onTimelineCommitted !== 'function')
+    ) {
       throw new TypeError('Host first-file engine callbacks are invalid');
     }
 
@@ -969,6 +1011,14 @@ export class FilePlaybackHostFirstFileEngine {
     });
     this.#hostParticipantId = input.hostParticipantId as string;
     this.#onFatalRoom = input.onFatalRoom as (error: Error) => void;
+    this.#onTransitionScheduled =
+      (input.onTransitionScheduled as
+        | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
+        | undefined) ?? null;
+    this.#onTimelineCommitted =
+      (input.onTimelineCommitted as
+        | ((event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) => void)
+        | undefined) ?? null;
     this.#runtime = runtime;
     this.#initialTimeline = baselineTimeline;
     this.#registry = new FilePlaybackAssetRegistry({
@@ -1851,6 +1901,7 @@ export class FilePlaybackHostFirstFileEngine {
       throw new Error(`Host pause was rejected before scheduling: ${result.reason}`);
     }
     operation.physicalBoundaryClaimed = true;
+    this.#notifyTransitionScheduled('pause', intent, null);
     const evidence = (await result.applied) as Readonly<FilePlaybackPauseTransitionEvidence>;
     this.#assertTransitionCommitFence(operation, intent, true);
     this.#runtime.beforeTransitionControllerCommit?.();
@@ -1865,6 +1916,7 @@ export class FilePlaybackHostFirstFileEngine {
       },
     ]) as Readonly<FilePlaybackHostTransitionCommit>;
     this.#assertTransitionControllerCommit(operation, intent, committed, 'paused', null);
+    this.#notifyTimelineCommitted('pause', operation.previousTimeline, committed.timeline);
     return this.#transitionResult('pause', evidence, committed.timeline);
   }
 
@@ -1894,6 +1946,7 @@ export class FilePlaybackHostFirstFileEngine {
       throw new Error(`Host paused seek was rejected before scheduling: ${result.reason}`);
     }
     operation.physicalBoundaryClaimed = true;
+    this.#notifyTransitionScheduled('seek', intent, positionSeconds);
     const evidence = (await result.applied) as Readonly<FilePlaybackSeekTransitionEvidence>;
     this.#assertTransitionCommitFence(operation, intent, true);
     this.#runtime.beforeTransitionControllerCommit?.();
@@ -1908,6 +1961,7 @@ export class FilePlaybackHostFirstFileEngine {
       },
     ]) as Readonly<FilePlaybackHostTransitionCommit>;
     this.#assertTransitionControllerCommit(operation, intent, committed, 'paused', positionSeconds);
+    this.#notifyTimelineCommitted('seek', operation.previousTimeline, committed.timeline);
     return this.#transitionResult('seek', evidence, committed.timeline);
   }
 
@@ -1947,6 +2001,7 @@ export class FilePlaybackHostFirstFileEngine {
     operation.commitDominant = true;
     const result = await pending;
     operation.physicalBoundaryClaimed = true;
+    this.#notifyTransitionScheduled('stop', intent, null);
     const evidence = await result.applied;
     this.#assertTransitionCommitFence(operation, intent, false);
     this.#runtime.beforeTransitionControllerCommit?.();
@@ -1962,6 +2017,7 @@ export class FilePlaybackHostFirstFileEngine {
     ]) as Readonly<FilePlaybackHostTransitionCommit>;
     this.#assertTransitionControllerCommit(operation, intent, committed, 'stopped', null);
     this.#committedPort = null;
+    this.#notifyTimelineCommitted('stop', operation.previousTimeline, committed.timeline);
     return this.#transitionResult('stop', evidence, committed.timeline);
   }
 
@@ -2003,7 +2059,57 @@ export class FilePlaybackHostFirstFileEngine {
       throw new Error('Host ended timeline commit did not match manager evidence');
     }
     this.#committedPort = null;
+    this.#notifyTimelineCommitted('ended', operation.previousTimeline, committed.timeline);
     return this.#transitionResult('ended', evidence, committed.timeline);
+  }
+
+  #notifyTransitionScheduled(
+    kind: HostCurrentPlaybackTransitionScheduledEvent['kind'],
+    intent:
+      | Readonly<FilePlaybackPauseTransitionIntent>
+      | Readonly<FilePlaybackSeekTransitionIntent>
+      | Readonly<FilePlaybackStopTransitionIntent>,
+    positionSeconds: number | null,
+  ): void {
+    const notify = this.#onTransitionScheduled;
+    if (!notify) return;
+    const event = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: this.#roomGeneration,
+      kind,
+      from: intent.from,
+      to: intent.to,
+      atRoomTimeMs: intent.atRoomTimeMs,
+      positionSeconds,
+    });
+    try {
+      notify(event);
+    } catch {
+      // A failed per-connection observer must never roll back a native frame
+      // schedule which the local renderer has already accepted.
+    }
+  }
+
+  #notifyTimelineCommitted(
+    kind: HostCurrentPlaybackTimelineCommittedEvent['kind'],
+    previous: PlaybackTimelineSnapshot,
+    timeline: PlaybackTimelineSnapshot,
+  ): void {
+    const notify = this.#onTimelineCommitted;
+    if (!notify) return;
+    const event = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: this.#roomGeneration,
+      kind,
+      previous,
+      timeline,
+    });
+    try {
+      notify(event);
+    } catch {
+      // Canonical truth and physical evidence are already committed. Product
+      // fanout isolates a broken connection instead of destabilizing the room.
+    }
   }
 
   #assertTransitionControllerCommit(

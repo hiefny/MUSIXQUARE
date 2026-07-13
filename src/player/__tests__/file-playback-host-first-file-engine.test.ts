@@ -12,6 +12,8 @@ import { FilePlaybackClock } from '../file-playback-clock.ts';
 import {
   FilePlaybackHostFirstFileEngine,
   type FilePlaybackHostFirstFileEngineRuntimeForTests,
+  type HostCurrentPlaybackTimelineCommittedEvent,
+  type HostCurrentPlaybackTransitionScheduledEvent,
   type HostPeerPlaybackPublication,
   type HostPreparedLocalTrack,
   type StartHostFirstLocalFileOptions,
@@ -509,6 +511,12 @@ function makeHarness(
     readonly beforeControllerCommit?: () => void;
     readonly beforeManagerTransition?: () => void;
     readonly beforeTransitionControllerCommit?: () => void;
+    readonly onTransitionScheduled?: (
+      event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
+    ) => void;
+    readonly onTimelineCommitted?: (
+      event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
+    ) => void;
     readonly fatal?: (error: Error) => void;
     readonly roomTimeMs?: number;
     readonly fatalAfterAdmission?: boolean;
@@ -639,6 +647,10 @@ function makeHarness(
     roomClock,
     hostParticipantId: 'host-first-participant',
     onFatalRoom: fatal,
+    ...(options.onTransitionScheduled
+      ? { onTransitionScheduled: options.onTransitionScheduled }
+      : {}),
+    ...(options.onTimelineCommitted ? { onTimelineCommitted: options.onTimelineCommitted } : {}),
     runtimeForTests,
   });
   return {
@@ -884,6 +896,60 @@ function remoteRecoveryHarness(
 }
 
 describe('FilePlaybackHostFirstFileEngine', () => {
+  it('publishes transition schedule before evidence and canonical truth after commit', async () => {
+    const order: string[] = [];
+    const scheduledEvents: Readonly<HostCurrentPlaybackTransitionScheduledEvent>[] = [];
+    const committedEvents: Readonly<HostCurrentPlaybackTimelineCommittedEvent>[] = [];
+    const harness = makeHarness([{ backend: 'audio-buffer' }], {
+      onTransitionScheduled: (event) => {
+        scheduledEvents.push(event);
+        order.push('scheduled');
+        throw new Error('one connection fanout failed');
+      },
+      onTimelineCommitted: (event) => {
+        committedEvents.push(event);
+        order.push('committed');
+        throw new Error('one timeline observer failed');
+      },
+    });
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([1, 2])], { type: 'audio/mpeg' })),
+    );
+    const previous = harness.controller.timelineSnapshot();
+    harness.setRoomTime(2_000);
+
+    const pending = harness.engine.pauseCurrent({ signal: new AbortController().signal });
+    await drainMicrotasks();
+
+    expect(order).toEqual(['scheduled']);
+    expect(harness.controller.timelineSnapshot()).toBe(previous);
+    expect(scheduledEvents[0]).toMatchObject({
+      schemaVersion: 1,
+      roomGeneration: 1,
+      kind: 'pause',
+      from: { revision: previous.revision },
+      to: { revision: previous.revision + 1 },
+      positionSeconds: null,
+    });
+    expect(Object.isFrozen(scheduledEvents[0])).toBe(true);
+
+    harness.sources[0]?.resolvePause();
+    const commit = await pending;
+    expect(order).toEqual(['scheduled', 'committed']);
+    expect(commit.timeline).toBe(harness.controller.timelineSnapshot());
+    expect(committedEvents[0]).toMatchObject({
+      schemaVersion: 1,
+      roomGeneration: 1,
+      kind: 'pause',
+      previous,
+      timeline: { phase: 'paused', revision: previous.revision + 1 },
+    });
+    expect(Object.isFrozen(committedEvents[0])).toBe(true);
+    expect(harness.fatal).not.toHaveBeenCalled();
+    await harness.engine.close();
+  });
+
   it('prepares an exact body-free silent candidate and resolves only its private source lease', async () => {
     const harness = makeHarness([{ backend: 'audio-buffer' }]);
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' });

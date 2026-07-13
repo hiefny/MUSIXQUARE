@@ -7,6 +7,8 @@ import {
   FilePlaybackHostFirstFileEngine,
   type FilePlaybackHostFirstFileEngineOptions,
   type HostCurrentPlaybackOperationOptions,
+  type HostCurrentPlaybackTimelineCommittedEvent,
+  type HostCurrentPlaybackTransitionScheduledEvent,
   type HostCurrentPlaybackTransitionCommit,
   type HostFirstLocalFilePlaybackCommit,
   type HostPeerPlaybackPublication,
@@ -33,11 +35,17 @@ const OPTION_KEYS = Object.freeze([
   'controller',
   'hostRoomSnapshot',
   'onFatalRoom',
+  'onTimelineCommitted',
+  'onTransitionScheduled',
   'roomClock',
   'runtimeForTests',
 ] as const);
 const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
-  (key) => key !== 'roomClock' && key !== 'runtimeForTests',
+  (key) =>
+    key !== 'onTimelineCommitted' &&
+    key !== 'onTransitionScheduled' &&
+    key !== 'roomClock' &&
+    key !== 'runtimeForTests',
 );
 const FIRST_FILE_KEYS = Object.freeze(['file', 'queueItemId', 'signal'] as const);
 const TRACK_KEYS = Object.freeze(['file', 'positionSeconds', 'queueItemId', 'signal'] as const);
@@ -158,6 +166,12 @@ export interface FilePlaybackProductHostRoomOptions {
   /** Product code omits this and consumes the one process room clock. */
   readonly roomClock?: FilePlaybackRoomClock;
   readonly onFatalRoom: (error: Error) => void;
+  readonly onTransitionScheduled?: (
+    event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
+  ) => void;
+  readonly onTimelineCommitted?: (
+    event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
+  ) => void;
   readonly runtimeForTests?: FilePlaybackProductHostRoomRuntimeForTests;
 }
 
@@ -666,6 +680,12 @@ export class FilePlaybackProductHostRoom {
   readonly #roomClock: FilePlaybackRoomClock;
   readonly #roomToken: object;
   readonly #onFatalRoom: (error: Error) => void;
+  readonly #onTransitionScheduled:
+    | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
+    | null;
+  readonly #onTimelineCommitted:
+    | ((event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) => void)
+    | null;
   readonly #runtime: RuntimeSnapshot;
   readonly #operations = new Set<RoomOperation>();
   #engineRecord: EngineRecord | null = null;
@@ -690,7 +710,12 @@ export class FilePlaybackProductHostRoom {
     if (!isExactController(input.controller)) {
       throw new TypeError('File playback product host room requires the exact controller');
     }
-    if (typeof input.onFatalRoom !== 'function') {
+    if (
+      typeof input.onFatalRoom !== 'function' ||
+      (input.onTransitionScheduled !== undefined &&
+        typeof input.onTransitionScheduled !== 'function') ||
+      (input.onTimelineCommitted !== undefined && typeof input.onTimelineCommitted !== 'function')
+    ) {
       throw new TypeError('File playback product host room callback is invalid');
     }
     const roomClock = input.roomClock ?? getFilePlaybackRoomClock();
@@ -708,6 +733,14 @@ export class FilePlaybackProductHostRoom {
     this.#roomClock = roomClock;
     this.#roomToken = roomToken;
     this.#onFatalRoom = input.onFatalRoom as (error: Error) => void;
+    this.#onTransitionScheduled =
+      (input.onTransitionScheduled as
+        | ((event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>) => void)
+        | undefined) ?? null;
+    this.#onTimelineCommitted =
+      (input.onTimelineCommitted as
+        | ((event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) => void)
+        | undefined) ?? null;
     this.#runtime = runtime;
     this.#assertRoomAuthority();
     const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
@@ -1353,6 +1386,10 @@ export class FilePlaybackProductHostRoom {
         if (this.#engineRecord?.token === token) this.#handleEngineFatal(token, error);
         else pendingFatal = asError(error, 'File playback product host engine failed');
       },
+      ...(this.#onTransitionScheduled
+        ? { onTransitionScheduled: this.#onTransitionScheduled }
+        : {}),
+      ...(this.#onTimelineCommitted ? { onTimelineCommitted: this.#onTimelineCommitted } : {}),
     });
     if (!isEnginePort(engine, this.#runtime.allowStructuralEngine)) {
       throw new TypeError('File playback product host engine factory returned an invalid engine');

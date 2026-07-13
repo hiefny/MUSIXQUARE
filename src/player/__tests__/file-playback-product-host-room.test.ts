@@ -14,6 +14,8 @@ import type {
   HostCurrentPlaybackOperationOptions,
   HostCurrentPlaybackTransitionCommit,
   HostFirstLocalFilePlaybackCommit,
+  HostCurrentPlaybackTimelineCommittedEvent,
+  HostCurrentPlaybackTransitionScheduledEvent,
   HostPeerPlaybackPublication,
   HostPeerRangeSource,
   HostPreparedLocalTrack,
@@ -620,6 +622,12 @@ interface HarnessOptions {
   readonly onGetAudioContext?: () => void;
   readonly onGetDestination?: () => void;
   readonly onReferencesReleased?: (snapshot: Readonly<Record<string, false>>) => void;
+  readonly onTransitionScheduled?: (
+    event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
+  ) => void;
+  readonly onTimelineCommitted?: (
+    event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>,
+  ) => void;
 }
 
 interface Harness {
@@ -700,6 +708,10 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     }),
     roomClock,
     onFatalRoom: fatal,
+    ...(options.onTransitionScheduled
+      ? { onTransitionScheduled: options.onTransitionScheduled }
+      : {}),
+    ...(options.onTimelineCommitted ? { onTimelineCommitted: options.onTimelineCommitted } : {}),
     runtimeForTests: {
       initAudioForTests: initAudio,
       ensureRunningForTests: ensureRunning,
@@ -792,6 +804,18 @@ function containsBody(value: unknown, seen = new Set<object>()): boolean {
 }
 
 describe('FilePlaybackProductHostRoom stable facade', () => {
+  it('forwards exact transition observers to its single engine lifetime', async () => {
+    const onTransitionScheduled = vi.fn();
+    const onTimelineCommitted = vi.fn();
+    const setup = makeHarness({ onTransitionScheduled, onTimelineCommitted });
+
+    await track(setup.room, Q1, file('observer.mp3'));
+
+    expect(setup.engines).toHaveLength(1);
+    expect(setup.engines[0]?.options.onTransitionScheduled).toBe(onTransitionScheduled);
+    expect(setup.engines[0]?.options.onTimelineCommitted).toBe(onTimelineCommitted);
+  });
+
   it('forwards peer publication, range source, and recovery without reinitializing audio', async () => {
     const setup = makeHarness();
     const media = file('peer-forward.mp3');

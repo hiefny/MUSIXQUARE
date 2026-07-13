@@ -11,10 +11,11 @@ const ID3V1_BYTES = 128;
 const ID3V1_MARKER_BYTES = 3;
 
 export const MP3_MAX_LEADING_ID3V2_TAGS = 8;
+export const MP3_MAX_TRAILING_ID3V2_TAGS = MP3_MAX_LEADING_ID3V2_TAGS;
 
 export type Id3v2MajorVersion = 2 | 3 | 4;
 
-/** A half-open boundary for one consecutive ID3v2 tag at the start of a file. */
+/** A half-open boundary for one leading or appended ID3v2 tag. */
 export interface Id3v2TagBoundary {
   readonly headerOffset: number;
   readonly bodyOffset: number;
@@ -32,7 +33,7 @@ export interface Mp3Id3Boundaries {
   readonly sourceBytes: number;
   /** First byte after all consecutive leading ID3v2 tags. */
   readonly dataStart: number;
-  /** Exclusive audio end, before an optional trailing 128-byte ID3v1 tag. */
+  /** Exclusive audio end, before appended ID3v2.4 tags and optional ID3v1. */
   readonly audioEnd: number;
   readonly leadingTagCount: number;
   readonly leadingTags: readonly Id3v2TagBoundary[];
@@ -40,19 +41,19 @@ export interface Mp3Id3Boundaries {
   readonly trailingId3v1Offset: number | null;
 }
 
+/** Complete result returned by the ID3 boundary reader. */
+export interface ParsedMp3Id3Boundaries extends Mp3Id3Boundaries {
+  /** Number of consecutive appended ID3v2.4 tags before an optional ID3v1 tag. */
+  readonly trailingTagCount: number;
+  /** Appended ID3v2.4 tags in ascending file order, separate from leading tags. */
+  readonly trailingTags: readonly Id3v2TagBoundary[];
+}
+
 /** A claimed leading ID3 tag uses a major version this indexer cannot skip safely. */
 export class UnsupportedId3v2VersionError extends EncodedSourceIntegrityError {
   constructor(message: string) {
     super(message);
     this.name = 'UnsupportedId3v2VersionError';
-  }
-}
-
-/** ID3v2.2 whole-tag compression has no bounded skip contract. */
-export class UnsupportedId3v22CompressionError extends EncodedSourceIntegrityError {
-  constructor() {
-    super('ID3v2.2 compressed tags are not supported by bounded MP3 playback');
-    this.name = 'UnsupportedId3v22CompressionError';
   }
 }
 
@@ -118,7 +119,6 @@ function validateHeaderFlags(majorVersion: Id3v2MajorVersion, flags: number): vo
     if ((flags & 0x3f) !== 0) {
       throw new EncodedSourceIntegrityError('ID3v2.2 header uses reserved flag bits');
     }
-    if ((flags & 0x40) !== 0) throw new UnsupportedId3v22CompressionError();
     return;
   }
 
@@ -126,6 +126,78 @@ function validateHeaderFlags(majorVersion: Id3v2MajorVersion, flags: number): vo
   if ((flags & reservedMask) !== 0) {
     throw new EncodedSourceIntegrityError(`ID3v2.${majorVersion} header uses reserved flag bits`);
   }
+}
+
+async function readTrailingTagBoundary(
+  source: EncodedAudioSource,
+  sourceBytes: number,
+  endOffset: number,
+  signal: AbortSignal,
+): Promise<Id3v2TagBoundary | null> {
+  if (endOffset < ID3V2_FOOTER_BYTES) return null;
+
+  const footerOffset = endOffset - ID3V2_FOOTER_BYTES;
+  const footer = await readExact(source, sourceBytes, footerOffset, ID3V2_FOOTER_BYTES, signal);
+  if (!matchesMarker(footer, '3DI')) return null;
+
+  const majorVersion = footer[3] ?? 0;
+  if (majorVersion !== 4) {
+    throw new EncodedSourceIntegrityError(
+      `Appended ID3v2 footer uses major version ${majorVersion}; only ID3v2.4 defines footers`,
+    );
+  }
+  const revision = footer[4] ?? 0;
+  if (revision === 0xff) {
+    throw new EncodedSourceIntegrityError('ID3v2 revision must not be 255');
+  }
+  const flags = footer[5] ?? 0;
+  validateHeaderFlags(majorVersion, flags);
+  if ((flags & 0x10) === 0) {
+    throw new EncodedSourceIntegrityError(
+      'Appended ID3v2.4 footer must declare the footer-present flag',
+    );
+  }
+
+  const bodyBytes = readSyncsafeSize(footer);
+  const tagBytes = safeAdd(
+    safeAdd(ID3V2_HEADER_BYTES, bodyBytes, 'Appended ID3v2 tag size'),
+    ID3V2_FOOTER_BYTES,
+    'Appended ID3v2 tag size',
+  );
+  const headerOffset = endOffset - tagBytes;
+  if (!Number.isSafeInteger(headerOffset) || headerOffset < 0) {
+    throw new EncodedSourceIntegrityError('Appended ID3v2.4 tag boundary exceeds the audio region');
+  }
+
+  const header = await readExact(source, sourceBytes, headerOffset, ID3V2_HEADER_BYTES, signal);
+  if (!matchesMarker(header, 'ID3')) {
+    throw new EncodedSourceIntegrityError(
+      'Appended ID3v2.4 footer does not point to an exact preceding ID3 header',
+    );
+  }
+  for (let index = 3; index < ID3V2_HEADER_BYTES; index += 1) {
+    if (header[index] !== footer[index]) {
+      throw new EncodedSourceIntegrityError(
+        'Appended ID3v2.4 footer version, flags, and size must mirror its header',
+      );
+    }
+  }
+
+  const bodyOffset = safeAdd(headerOffset, ID3V2_HEADER_BYTES, 'Appended ID3v2 body offset');
+  if (safeAdd(bodyOffset, bodyBytes, 'Appended ID3v2 body end') !== footerOffset) {
+    throw new EncodedSourceIntegrityError('Appended ID3v2.4 tag has inconsistent boundaries');
+  }
+
+  return Object.freeze({
+    headerOffset,
+    bodyOffset,
+    bodyBytes,
+    footerOffset,
+    endOffset,
+    majorVersion,
+    revision,
+    flags,
+  });
 }
 
 async function readLeadingHeader(
@@ -170,7 +242,7 @@ async function readLeadingTagBoundary(
   const endOffset = safeAdd(bodyEnd, hasFooter ? ID3V2_FOOTER_BYTES : 0, 'ID3v2 tag end');
   if (endOffset > audioEnd) {
     throw new EncodedSourceIntegrityError(
-      'ID3v2 tag boundary exceeds the source audio region or overlaps trailing ID3v1',
+      'ID3v2 tag boundary exceeds the source audio region or overlaps trailing metadata',
     );
   }
 
@@ -209,13 +281,15 @@ async function readLeadingTagBoundary(
  * Consecutive leading ID3v2.2, v2.3, and v2.4 tags are skipped, up to a hard
  * limit of eight. A v2.4 size excludes both its 10-byte header and optional
  * 10-byte footer; a present footer is read exactly and must begin with `3DI`
- * while mirroring the header's version, flags, and syncsafe size. A trailing
- * ID3v1 tag is recognized only at its canonical 128-byte-from-end boundary.
+ * while mirroring the header's version, flags, and syncsafe size. Consecutive
+ * appended ID3v2.4 tags are discovered backward by their required footers and
+ * kept separate from leading tags. A trailing ID3v1 tag is recognized only at
+ * its canonical 128-byte-from-end boundary.
  */
 export async function readMp3Id3Boundaries(
   source: EncodedAudioSource,
   signal: AbortSignal,
-): Promise<Mp3Id3Boundaries> {
+): Promise<ParsedMp3Id3Boundaries> {
   const sourceBytes = source.size;
   validateExactRead(sourceBytes, 0, 0);
   throwIfAborted(signal);
@@ -232,7 +306,21 @@ export async function readMp3Id3Boundaries(
     );
     if (matchesMarker(marker, 'TAG')) trailingId3v1Offset = candidateOffset;
   }
-  const audioEnd = trailingId3v1Offset ?? sourceBytes;
+  let audioEnd = trailingId3v1Offset ?? sourceBytes;
+
+  const reverseTrailingTags: Id3v2TagBoundary[] = [];
+  while (audioEnd > 0) {
+    throwIfAborted(signal);
+    const boundary = await readTrailingTagBoundary(source, sourceBytes, audioEnd, signal);
+    if (!boundary) break;
+    if (reverseTrailingTags.length >= MP3_MAX_TRAILING_ID3V2_TAGS) {
+      throw new EncodedSourceIntegrityError(
+        `MP3 has more than ${MP3_MAX_TRAILING_ID3V2_TAGS} consecutive appended ID3v2.4 tags`,
+      );
+    }
+    reverseTrailingTags.push(boundary);
+    audioEnd = boundary.headerOffset;
+  }
 
   const leadingTags: Id3v2TagBoundary[] = [];
   let dataStart = 0;
@@ -259,12 +347,15 @@ export async function readMp3Id3Boundaries(
 
   throwIfAborted(signal);
   const frozenTags = Object.freeze(leadingTags.slice());
+  const frozenTrailingTags = Object.freeze(reverseTrailingTags.slice().reverse());
   return Object.freeze({
     sourceBytes,
     dataStart,
     audioEnd,
     leadingTagCount: frozenTags.length,
     leadingTags: frozenTags,
+    trailingTagCount: frozenTrailingTags.length,
+    trailingTags: frozenTrailingTags,
     hasTrailingId3v1: trailingId3v1Offset !== null,
     trailingId3v1Offset,
   });

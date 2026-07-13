@@ -1,4 +1,4 @@
-import type { LinearPcmEncoding } from '../linear-pcm/sample-format.js';
+import type { LinearPcmEncoding, LinearPcmMetadata } from '../linear-pcm/sample-format.js';
 import {
   EncodedSourceIntegrityError,
   type EncodedAudioSource,
@@ -45,7 +45,7 @@ export type CafLinearPcmEncoding = Extract<
   | 'float64be'
 >;
 
-export interface CafLinearPcmMetadata {
+export interface CafLinearPcmMetadata extends LinearPcmMetadata {
   readonly format: 'caf';
   readonly encoding: CafLinearPcmEncoding;
   readonly sourceSampleRate: number;
@@ -82,6 +82,14 @@ export class UnsupportedCafPacketTableError extends EncodedSourceIntegrityError 
   constructor(message: string) {
     super(message);
     this.name = 'UnsupportedCafPacketTableError';
+  }
+}
+
+/** The CAF rate is valid, but lies outside the bounded linear-PCM lane. */
+export class UnsupportedCafSampleRateError extends EncodedSourceIntegrityError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnsupportedCafSampleRateError';
   }
 }
 
@@ -185,13 +193,12 @@ function parseDescription(bytes: Uint8Array): ParsedDescription {
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const sourceSampleRate = view.getFloat64(0, false);
-  if (
-    !Number.isSafeInteger(sourceSampleRate) ||
-    sourceSampleRate < 1 ||
-    sourceSampleRate > CAF_MAX_SAMPLE_RATE_HZ
-  ) {
-    throw new EncodedSourceIntegrityError(
-      `CAF sample rate must be a whole number from 1 through ${CAF_MAX_SAMPLE_RATE_HZ} Hz`,
+  if (!Number.isFinite(sourceSampleRate) || sourceSampleRate <= 0) {
+    throw new EncodedSourceIntegrityError('CAF sample rate must be a positive finite number');
+  }
+  if (!Number.isSafeInteger(sourceSampleRate) || sourceSampleRate > CAF_MAX_SAMPLE_RATE_HZ) {
+    throw new UnsupportedCafSampleRateError(
+      `CAF sample rate is outside the bounded PCM capability of whole-number rates from 1 through ${CAF_MAX_SAMPLE_RATE_HZ} Hz`,
     );
   }
   const formatId = fourCc(bytes, 8);
@@ -308,9 +315,8 @@ export async function readCafLinearPcmMetadata(
   if (fileView.getUint16(4, false) !== CAF_VERSION) {
     throw new EncodedSourceIntegrityError('CAF source must use file version 1');
   }
-  if (fileView.getUint16(6, false) !== 0) {
-    throw new EncodedSourceIntegrityError('CAF file header uses reserved flags');
-  }
+  // CAF v1 writers set file flags to zero. Readers must ignore unknown values
+  // so that otherwise-valid files remain forward compatible.
 
   let cursor = CAF_FILE_HEADER_BYTES;
   const firstHeaderEnd = safeAdd(cursor, CAF_CHUNK_HEADER_BYTES, 'CAF desc header end');

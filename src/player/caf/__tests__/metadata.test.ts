@@ -14,6 +14,7 @@ import {
   CAF_MAX_METADATA_READ_BYTES,
   UnsupportedCafCodecError,
   UnsupportedCafPacketTableError,
+  UnsupportedCafSampleRateError,
   readCafLinearPcmMetadata,
   type CafLinearPcmEncoding,
 } from '../metadata.ts';
@@ -394,6 +395,12 @@ describe('readCafLinearPcmMetadata', () => {
     await expect(task).rejects.toThrow('requires LPCM');
   });
 
+  it('ignores unknown CAF v1 file flags for forward-compatible reading', async () => {
+    const bytes = cafFile(descriptionBody(), [dataChunk(8)], { flags: 0xffff });
+
+    await expect(parse(bytes)).resolves.toMatchObject({ dataBytes: 8 });
+  });
+
   it.each<readonly [string, Uint8Array, string]>([
     [
       'wrong file marker',
@@ -404,11 +411,6 @@ describe('readCafLinearPcmMetadata', () => {
       'unsupported file version',
       cafFile(descriptionBody(), [dataChunk(8)], { version: 2 }),
       'version 1',
-    ],
-    [
-      'reserved file flags',
-      cafFile(descriptionBody(), [dataChunk(8)], { flags: 1 }),
-      'reserved flags',
     ],
     [
       'first chunk is not desc',
@@ -476,8 +478,6 @@ describe('readCafLinearPcmMetadata', () => {
     ['NaN sample rate', { sampleRate: Number.NaN }, 'sample rate'],
     ['infinite sample rate', { sampleRate: Number.POSITIVE_INFINITY }, 'sample rate'],
     ['zero sample rate', { sampleRate: 0 }, 'sample rate'],
-    ['fractional sample rate', { sampleRate: 44_100.5 }, 'sample rate'],
-    ['oversized sample rate', { sampleRate: 1_000_001 }, 'sample rate'],
     ['reserved LPCM flag', { formatFlags: 4 }, 'reserved format flags'],
     ['zero frames per packet', { framesPerPacket: 0 }, 'one frame per packet'],
     ['two frames per packet', { framesPerPacket: 2 }, 'one frame per packet'],
@@ -514,6 +514,16 @@ describe('readCafLinearPcmMetadata', () => {
     ],
   ])('rejects malformed LPCM description: %s', async (_label, options, message) => {
     await expect(parse(cafFile(descriptionBody(options), [dataChunk(8)]))).rejects.toThrow(message);
+  });
+
+  it.each([
+    ['fractional sample rate', 44_100.5],
+    ['sample rate above the bounded PCM maximum', 1_000_001],
+  ] as const)('classifies %s as an unsupported bounded-engine capability', async (_label, rate) => {
+    const task = parse(cafFile(descriptionBody({ sampleRate: rate }), [dataChunk(8)]));
+
+    await expect(task).rejects.toBeInstanceOf(UnsupportedCafSampleRateError);
+    await expect(task).rejects.toThrow('bounded PCM capability');
   });
 
   it('caps hostile chunk-count amplification at 1,024 total chunks including desc', async () => {

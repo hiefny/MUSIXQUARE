@@ -16,6 +16,10 @@ import {
 } from './file-playback-product-baseline-session.ts';
 import type { FilePlaybackProductBaselineV2 } from './file-playback-product-baseline.ts';
 import {
+  parseFilePlaybackTimelineUpdateV2,
+  timelineFromFilePlaybackTimelineUpdateV2,
+} from './file-playback-timeline-update.ts';
+import {
   readFilePlaybackEndedTransitionEvidence,
   readFilePlaybackEndedTransitionIntent,
   type FilePlaybackEndedTransitionEvidence,
@@ -63,6 +67,7 @@ const OPTION_KEYS = Object.freeze([
   'initialTimeline',
   'onHostReady',
   'onTimelineAdopted',
+  'onTimelineUpdated',
   'sendRequired',
 ] as const);
 const TIMELINE_KEYS = Object.freeze([
@@ -157,6 +162,7 @@ export interface FilePlaybackApplicationControllerOptions {
   readonly closeConnection: (connection: DataConnection) => void;
   readonly onHostReady?: (snapshot: FilePlaybackApplicationControllerConnectionSnapshot) => void;
   readonly onTimelineAdopted?: (event: FilePlaybackApplicationTimelineAdoptedEvent) => void;
+  readonly onTimelineUpdated?: (event: FilePlaybackApplicationTimelineUpdatedEvent) => void;
 }
 
 export interface FilePlaybackApplicationTimelineAdoptedEvent {
@@ -165,6 +171,16 @@ export interface FilePlaybackApplicationTimelineAdoptedEvent {
   readonly sessionId: string;
   readonly connectionId: string;
   readonly status: Extract<PlaybackTimelineBaselineAdoptionResult, { accepted: true }>['status'];
+  readonly timeline: PlaybackTimelineSnapshot;
+}
+
+/** Exact host-authoritative successor adopted by one APPLIED guest connection. */
+export interface FilePlaybackApplicationTimelineUpdatedEvent {
+  readonly schemaVersion: 1;
+  /** The remote host room generation pinned to this connection, not the local controller epoch. */
+  readonly roomGeneration: number;
+  readonly sessionId: string;
+  readonly connectionId: string;
   readonly timeline: PlaybackTimelineSnapshot;
 }
 
@@ -277,6 +293,7 @@ interface ControllerRecord {
   readonly connectionId: string;
   readonly roomGeneration: number;
   readonly abortController: AbortController;
+  remoteHostRoomGeneration: number | null;
   epoch: number;
   retired: boolean;
 }
@@ -711,6 +728,87 @@ function timelineFromBaseline(
   return candidate;
 }
 
+function sameTimeline(
+  left: Readonly<PlaybackTimelineSnapshot>,
+  right: Readonly<PlaybackTimelineSnapshot>,
+): boolean {
+  return (
+    left.revision === right.revision &&
+    left.phase === right.phase &&
+    ((left.run === null && right.run === null) ||
+      (left.run !== null &&
+        right.run !== null &&
+        left.run.queueItemId === right.run.queueItemId &&
+        left.run.runId === right.run.runId)) &&
+    left.positionSeconds === right.positionSeconds &&
+    left.anchorMonotonicMs === right.anchorMonotonicMs &&
+    left.rate === right.rate
+  );
+}
+
+/** Reconstructs only a transition the host controller itself could have committed. */
+function isCanonicalTimelineSuccessor(
+  current: Readonly<PlaybackTimelineSnapshot>,
+  candidate: Readonly<PlaybackTimelineSnapshot>,
+): boolean {
+  if (
+    current.revision === Number.MAX_SAFE_INTEGER ||
+    candidate.revision !== current.revision + 1 ||
+    candidate.anchorMonotonicMs < current.anchorMonotonicMs
+  ) {
+    return false;
+  }
+
+  let intent: PlaybackTimelineIntent;
+  if (candidate.phase === 'playing') {
+    if (candidate.run === null) return false;
+    intent = freezeCanonical({
+      type: 'play' as const,
+      revision: candidate.revision,
+      run: candidate.run,
+      positionSeconds: candidate.positionSeconds,
+      rate: candidate.rate,
+    });
+  } else if (candidate.phase === 'paused') {
+    if (
+      current.phase === 'stopped' ||
+      current.run === null ||
+      candidate.run === null ||
+      current.run.queueItemId !== candidate.run.queueItemId ||
+      current.run.runId !== candidate.run.runId
+    ) {
+      return false;
+    }
+    intent =
+      current.phase === 'playing'
+        ? freezeCanonical({
+            type: 'pause' as const,
+            revision: candidate.revision,
+            run: candidate.run,
+          })
+        : freezeCanonical({
+            type: 'seek' as const,
+            revision: candidate.revision,
+            run: candidate.run,
+            positionSeconds: candidate.positionSeconds,
+          });
+  } else {
+    if (current.phase === 'stopped' || current.run === null) return false;
+    intent = freezeCanonical({
+      type: 'stop' as const,
+      revision: candidate.revision,
+      run: current.run,
+    });
+  }
+
+  try {
+    const applied = applyPlaybackTimelineIntent(current, intent, candidate.anchorMonotonicMs);
+    return applied.applied && sameTimeline(applied.snapshot, candidate);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Phase-1 application controller. It owns only room timeline and connection
  * control authority; media bodies and renderer/source authority arrive in
@@ -724,6 +822,9 @@ export class FilePlaybackApplicationController {
     | null;
   readonly #onTimelineAdopted:
     | ((event: FilePlaybackApplicationTimelineAdoptedEvent) => void)
+    | null;
+  readonly #onTimelineUpdated:
+    | ((event: FilePlaybackApplicationTimelineUpdatedEvent) => void)
     | null;
   readonly #records = new Map<DataConnection, ControllerRecord>();
   readonly #epochs = new WeakMap<object, number>();
@@ -749,7 +850,9 @@ export class FilePlaybackApplicationController {
       typeof snapshot.sendRequired !== 'function' ||
       typeof snapshot.closeConnection !== 'function' ||
       (snapshot.onHostReady !== undefined && typeof snapshot.onHostReady !== 'function') ||
-      (snapshot.onTimelineAdopted !== undefined && typeof snapshot.onTimelineAdopted !== 'function')
+      (snapshot.onTimelineAdopted !== undefined &&
+        typeof snapshot.onTimelineAdopted !== 'function') ||
+      (snapshot.onTimelineUpdated !== undefined && typeof snapshot.onTimelineUpdated !== 'function')
     ) {
       throw new TypeError('File playback application controller options are invalid');
     }
@@ -766,6 +869,10 @@ export class FilePlaybackApplicationController {
     this.#onTimelineAdopted =
       (snapshot.onTimelineAdopted as
         | ((event: FilePlaybackApplicationTimelineAdoptedEvent) => void)
+        | undefined) ?? null;
+    this.#onTimelineUpdated =
+      (snapshot.onTimelineUpdated as
+        | ((event: FilePlaybackApplicationTimelineUpdatedEvent) => void)
         | undefined) ?? null;
     this.#baselineSession = new FilePlaybackProductBaselineSession({
       idIssuer: snapshot.idIssuer,
@@ -1183,6 +1290,7 @@ export class FilePlaybackApplicationController {
       connectionId: channelAuthority.connectionId,
       roomGeneration: this.#roomGeneration,
       abortController: new AbortController(),
+      remoteHostRoomGeneration: null,
       epoch,
       retired: false,
     };
@@ -1229,6 +1337,11 @@ export class FilePlaybackApplicationController {
           authority,
           event.connectionToken,
         );
+        const timelineUpdate = parseFilePlaybackTimelineUpdateV2(event.frame);
+        if (timelineUpdate) {
+          this.#adoptTimelineUpdate(record, timelineUpdate, acknowledge, authority);
+          return;
+        }
         const handled = this.#baselineSession.adoptAuxiliary(
           event as FilePlaybackAuxiliaryAdoptionEvent,
         );
@@ -1245,6 +1358,53 @@ export class FilePlaybackApplicationController {
     } finally {
       this.#flushDeferredEffects();
     }
+  }
+
+  #adoptTimelineUpdate(
+    record: ControllerRecord,
+    update: NonNullable<ReturnType<typeof parseFilePlaybackTimelineUpdateV2>>,
+    acknowledge: () => void,
+    authority: MutationAuthority,
+  ): void {
+    if (record.role !== 'guest' || this.#roomRole !== 'guest') {
+      throw new Error('Only an exact guest connection can adopt a host timeline update');
+    }
+    const baseline = this.#baselineSession.snapshot(record.connection);
+    if (!baseline || baseline.status !== 'ready') {
+      throw new Error('Host timeline update requires an APPLIED guest baseline');
+    }
+    if (update.sessionId !== record.sessionId || update.connectionId !== record.connectionId) {
+      throw new Error('Host timeline update does not match the exact guest connection');
+    }
+    if (
+      record.remoteHostRoomGeneration !== null &&
+      record.remoteHostRoomGeneration !== update.roomGeneration
+    ) {
+      throw new Error('Host timeline update conflicts with the pinned remote room generation');
+    }
+
+    const candidate = timelineFromFilePlaybackTimelineUpdateV2(update);
+    if (!candidate) throw new Error('Host timeline update could not form a canonical timeline');
+    const replayed = sameTimeline(this.#timeline, candidate);
+    if (!replayed && !isCanonicalTimelineSuccessor(this.#timeline, candidate)) {
+      throw new Error('Host timeline update is not an exact replay or canonical successor');
+    }
+
+    this.#assertRecordLive(record, authority);
+    if (!replayed) this.#timeline = candidate;
+    record.remoteHostRoomGeneration = update.roomGeneration;
+    const notification = freezeCanonical({
+      schemaVersion: 1 as const,
+      roomGeneration: update.roomGeneration,
+      sessionId: record.sessionId,
+      connectionId: record.connectionId,
+      timeline: this.#timeline,
+    });
+    this.#assertRecordLive(record, authority);
+    acknowledge();
+    this.#assertRecordLive(record, authority);
+    this.#onTimelineUpdated?.(notification);
+    this.#assertRecordLive(record, authority);
   }
 
   #adoptUnsupportedWire(value: FilePlaybackWireAdoptionEvent, acknowledge: () => void): void {

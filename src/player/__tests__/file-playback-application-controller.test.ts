@@ -36,6 +36,7 @@ import {
   type FilePlaybackProductReadyV2,
 } from '../file-playback-product-baseline.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
+import { createFilePlaybackTimelineUpdateV2 } from '../file-playback-timeline-update.ts';
 import {
   createAudioBufferPlaybackStartEvidence,
   createFilePlaybackCutoverTarget,
@@ -222,6 +223,36 @@ function baselineForGuest(
   });
 }
 
+function timelineUpdateForGuest(
+  pair: ChannelPair,
+  roomGeneration: number,
+  timeline: Readonly<PlaybackTimelineSnapshot>,
+) {
+  const binding = pair.guest.establishedBinding();
+  if (!binding) throw new Error('Guest binding is missing');
+  return createFilePlaybackTimelineUpdateV2({
+    sessionId: binding.sessionId,
+    connectionId: binding.connectionId,
+    roomGeneration,
+    timeline,
+  });
+}
+
+function establishReadyGuest(
+  room: FilePlaybackApplicationController,
+  pair: ChannelPair,
+  baselineRevision = 9,
+): void {
+  const hooks = room.applicationSessionHooks();
+  hooks.onLifecycleEvent(lifecycle('established', 'guest', pair.guestConnection, pair.guest));
+  calibrate(pair);
+  hooks.onLifecycleEvent(lifecycle('clock-ready', 'guest', pair.guestConnection, pair.guest));
+  hooks.adoptAuxiliaryMessage(
+    auxiliary(baselineForGuest(pair, baselineRevision), pair.guestConnection, pair.guest),
+    vi.fn(),
+  );
+}
+
 function controller(
   options: Partial<FilePlaybackApplicationControllerOptions> & {
     readonly initialTimeline?: PlaybackTimelineSnapshot;
@@ -239,6 +270,7 @@ function controller(
     closeConnection: options.closeConnection ?? (() => undefined),
     ...(options.onHostReady ? { onHostReady: options.onHostReady } : {}),
     ...(options.onTimelineAdopted ? { onTimelineAdopted: options.onTimelineAdopted } : {}),
+    ...(options.onTimelineUpdated ? { onTimelineUpdated: options.onTimelineUpdated } : {}),
   });
 }
 
@@ -464,6 +496,281 @@ describe('FilePlaybackApplicationController', () => {
     });
     expect(JSON.parse(JSON.stringify(host.snapshot()))).toEqual(host.snapshot());
     expect(JSON.parse(JSON.stringify(guest.snapshot()))).toEqual(guest.snapshot());
+  });
+
+  it('adopts exact replay and canonical next host timelines after ACK under a pinned remote generation', () => {
+    const pair = channelPair();
+    const order: string[] = [];
+    const timelineAdopted = vi.fn();
+    const timelineUpdated = vi.fn((event) => {
+      order.push(`callback-${event.timeline.revision}`);
+    });
+    const guest = controller({
+      onTimelineAdopted: timelineAdopted,
+      onTimelineUpdated: timelineUpdated,
+    });
+    establishReadyGuest(guest, pair, 9);
+    const hooks = guest.applicationSessionHooks();
+    const remoteRoomGeneration = 77;
+
+    const replayAck = vi.fn(() => order.push('ack-9'));
+    hooks.adoptAuxiliaryMessage(
+      auxiliary(
+        timelineUpdateForGuest(pair, remoteRoomGeneration, guest.timelineSnapshot()),
+        pair.guestConnection,
+        pair.guest,
+      ),
+      replayAck,
+    );
+
+    const run = guest.timelineSnapshot().run;
+    if (!run) throw new Error('Ready guest run is missing');
+    const pause = Object.freeze({
+      schemaVersion: 1 as const,
+      revision: 10,
+      phase: 'paused' as const,
+      run,
+      positionSeconds: 13,
+      anchorMonotonicMs: 2_000,
+      rate: 1,
+    });
+    const seek = Object.freeze({
+      ...pause,
+      revision: 11,
+      positionSeconds: 42,
+      anchorMonotonicMs: 2_100,
+    });
+    const resume = Object.freeze({
+      ...seek,
+      revision: 12,
+      phase: 'playing' as const,
+      anchorMonotonicMs: 2_200,
+    });
+    const stopped = createStoppedPlaybackTimeline(2_300, 13);
+
+    for (const timeline of [pause, seek, resume, stopped]) {
+      const acknowledge = vi.fn(() => order.push(`ack-${timeline.revision}`));
+      hooks.adoptAuxiliaryMessage(
+        auxiliary(
+          timelineUpdateForGuest(pair, remoteRoomGeneration, timeline),
+          pair.guestConnection,
+          pair.guest,
+        ),
+        acknowledge,
+      );
+      expect(acknowledge).toHaveBeenCalledOnce();
+      expect(guest.timelineSnapshot()).toEqual(timeline);
+    }
+
+    expect(replayAck).toHaveBeenCalledOnce();
+    expect(timelineAdopted).toHaveBeenCalledOnce();
+    expect(timelineUpdated).toHaveBeenCalledTimes(5);
+    expect(order).toEqual([
+      'ack-9',
+      'callback-9',
+      'ack-10',
+      'callback-10',
+      'ack-11',
+      'callback-11',
+      'ack-12',
+      'callback-12',
+      'ack-13',
+      'callback-13',
+    ]);
+    expect(timelineUpdated.mock.calls[0]?.[0]).toMatchObject({
+      schemaVersion: 1,
+      roomGeneration: remoteRoomGeneration,
+      sessionId: pair.guest.establishedBinding()?.sessionId,
+      connectionId: pair.guest.establishedBinding()?.connectionId,
+      timeline: { revision: 9 },
+    });
+    expect(Object.isFrozen(timelineUpdated.mock.calls[0]?.[0])).toBe(true);
+    expect(guest.snapshot().roomGeneration).toBe(1);
+  });
+
+  it('fails closed on timeline updates before guest baseline READY or from the host role', () => {
+    const beforeReadyPair = channelPair();
+    const beforeReadyClose = vi.fn();
+    const beforeReady = controller({ closeConnection: beforeReadyClose });
+    const beforeReadyHooks = beforeReady.applicationSessionHooks();
+    beforeReadyHooks.onLifecycleEvent(
+      lifecycle('established', 'guest', beforeReadyPair.guestConnection, beforeReadyPair.guest),
+    );
+    const beforeReadyAck = vi.fn();
+    expect(() =>
+      beforeReadyHooks.adoptAuxiliaryMessage(
+        auxiliary(
+          timelineUpdateForGuest(beforeReadyPair, 31, playingTimeline(1)),
+          beforeReadyPair.guestConnection,
+          beforeReadyPair.guest,
+        ),
+        beforeReadyAck,
+      ),
+    ).toThrow(/APPLIED guest baseline/u);
+    expect(beforeReadyAck).not.toHaveBeenCalled();
+    expect(beforeReadyClose).toHaveBeenCalledOnce();
+
+    const hostPair = channelPair();
+    const hostClose = vi.fn();
+    const host = controller({ closeConnection: hostClose });
+    const hostHooks = host.applicationSessionHooks();
+    hostHooks.onLifecycleEvent(
+      lifecycle('established', 'host', hostPair.hostConnection, hostPair.host),
+    );
+    const hostAck = vi.fn();
+    expect(() =>
+      hostHooks.adoptAuxiliaryMessage(
+        auxiliary(
+          timelineUpdateForGuest(hostPair, 31, playingTimeline(1)),
+          hostPair.hostConnection,
+          hostPair.host,
+        ),
+        hostAck,
+      ),
+    ).toThrow(/exact guest connection/u);
+    expect(hostAck).not.toHaveBeenCalled();
+    expect(hostClose).toHaveBeenCalledOnce();
+  });
+
+  it('rejects timeline gaps, conflicts, noncanonical transitions, and wrong exact scope before ACK', () => {
+    const cases: readonly Readonly<PlaybackTimelineSnapshot>[] = [
+      playingTimeline(11),
+      Object.freeze({ ...playingTimeline(9), positionSeconds: 99 }),
+      Object.freeze({
+        ...playingTimeline(10),
+        phase: 'paused' as const,
+        positionSeconds: 99,
+        anchorMonotonicMs: 2_000,
+      }),
+      Object.freeze({ ...playingTimeline(10), anchorMonotonicMs: 999 }),
+    ];
+
+    for (const candidate of cases) {
+      const pair = channelPair();
+      const closeConnection = vi.fn();
+      const guest = controller({ closeConnection });
+      establishReadyGuest(guest, pair, 9);
+      const before = guest.timelineSnapshot();
+      const acknowledge = vi.fn();
+      expect(() =>
+        guest
+          .applicationSessionHooks()
+          .adoptAuxiliaryMessage(
+            auxiliary(
+              timelineUpdateForGuest(pair, 41, candidate),
+              pair.guestConnection,
+              pair.guest,
+            ),
+            acknowledge,
+          ),
+      ).toThrow(/exact replay or canonical successor/u);
+      expect(acknowledge).not.toHaveBeenCalled();
+      expect(closeConnection).toHaveBeenCalledOnce();
+      expect(guest.timelineSnapshot()).toBe(before);
+    }
+
+    const scopePair = channelPair();
+    const scopeClose = vi.fn();
+    const scopedGuest = controller({ closeConnection: scopeClose });
+    establishReadyGuest(scopedGuest, scopePair, 9);
+    const binding = scopePair.guest.establishedBinding();
+    if (!binding) throw new Error('Guest binding is missing');
+    const wrongScope = createFilePlaybackTimelineUpdateV2({
+      sessionId: binding.sessionId,
+      connectionId: 'controller-wrong-connection',
+      roomGeneration: 41,
+      timeline: scopedGuest.timelineSnapshot(),
+    });
+    const scopeAck = vi.fn();
+    expect(() =>
+      scopedGuest
+        .applicationSessionHooks()
+        .adoptAuxiliaryMessage(
+          auxiliary(wrongScope, scopePair.guestConnection, scopePair.guest),
+          scopeAck,
+        ),
+    ).toThrow(/exact guest connection/u);
+    expect(scopeAck).not.toHaveBeenCalled();
+    expect(scopeClose).toHaveBeenCalledOnce();
+  });
+
+  it('pins the first positive remote host generation and keeps a committed update on callback failure', () => {
+    const generationPair = channelPair();
+    const generationClose = vi.fn();
+    const generationCallback = vi.fn();
+    const generationGuest = controller({
+      closeConnection: generationClose,
+      onTimelineUpdated: generationCallback,
+    });
+    establishReadyGuest(generationGuest, generationPair, 9);
+    const firstAck = vi.fn();
+    generationGuest
+      .applicationSessionHooks()
+      .adoptAuxiliaryMessage(
+        auxiliary(
+          timelineUpdateForGuest(generationPair, 73, generationGuest.timelineSnapshot()),
+          generationPair.guestConnection,
+          generationPair.guest,
+        ),
+        firstAck,
+      );
+    const conflictingAck = vi.fn();
+    expect(() =>
+      generationGuest
+        .applicationSessionHooks()
+        .adoptAuxiliaryMessage(
+          auxiliary(
+            timelineUpdateForGuest(generationPair, 74, generationGuest.timelineSnapshot()),
+            generationPair.guestConnection,
+            generationPair.guest,
+          ),
+          conflictingAck,
+        ),
+    ).toThrow(/pinned remote room generation/u);
+    expect(firstAck).toHaveBeenCalledOnce();
+    expect(conflictingAck).not.toHaveBeenCalled();
+    expect(generationCallback).toHaveBeenCalledOnce();
+    expect(generationClose).toHaveBeenCalledOnce();
+
+    const callbackPair = channelPair();
+    const callbackClose = vi.fn();
+    const order: string[] = [];
+    const callbackGuest = controller({
+      closeConnection: callbackClose,
+      onTimelineUpdated: () => {
+        order.push('callback');
+        throw new Error('timeline update callback failed');
+      },
+    });
+    establishReadyGuest(callbackGuest, callbackPair, 9);
+    const run = callbackGuest.timelineSnapshot().run;
+    if (!run) throw new Error('Ready guest run is missing');
+    const pause = Object.freeze({
+      schemaVersion: 1 as const,
+      revision: 10,
+      phase: 'paused' as const,
+      run,
+      positionSeconds: 13,
+      anchorMonotonicMs: 2_000,
+      rate: 1,
+    });
+    const callbackAck = vi.fn(() => order.push('ack'));
+    expect(() =>
+      callbackGuest
+        .applicationSessionHooks()
+        .adoptAuxiliaryMessage(
+          auxiliary(
+            timelineUpdateForGuest(callbackPair, 91, pause),
+            callbackPair.guestConnection,
+            callbackPair.guest,
+          ),
+          callbackAck,
+        ),
+    ).toThrow(/timeline update callback failed/u);
+    expect(order).toEqual(['ack', 'callback']);
+    expect(callbackAck).toHaveBeenCalledOnce();
+    expect(callbackGuest.timelineSnapshot()).toEqual(pause);
+    expect(callbackClose).toHaveBeenCalledOnce();
   });
 
   it('relays baseline/READY through real application-session managers without ACK teardown', () => {

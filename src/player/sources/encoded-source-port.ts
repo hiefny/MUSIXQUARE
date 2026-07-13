@@ -1,4 +1,5 @@
 import {
+  EncodedSourceBusyError,
   EncodedSourceClosedError,
   EncodedSourceIntegrityError,
   EncodedSourceRangeError,
@@ -240,6 +241,7 @@ function unrefTimer(timer: ReturnType<typeof globalThis.setTimeout>): void {
 
 function classifyReadError(error: unknown, signal: AbortSignal): EncodedSourcePortReadErrorCode {
   if (signal.aborted) return 'aborted';
+  if (error instanceof EncodedSourceBusyError) return 'busy';
   if (error instanceof EncodedSourceClosedError) return 'closed';
   if (error instanceof EncodedSourceIntegrityError) return 'integrity';
   if (error instanceof EncodedSourceRangeError || error instanceof RangeError) return 'range';

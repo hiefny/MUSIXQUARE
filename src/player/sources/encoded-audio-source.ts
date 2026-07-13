@@ -59,6 +59,14 @@ export class EncodedSourceIntegrityError extends Error {
   }
 }
 
+/** A transient source-level capacity limit; callers may retry later. */
+export class EncodedSourceBusyError extends Error {
+  constructor(message = 'Encoded audio source read capacity is exhausted') {
+    super(message);
+    this.name = 'EncodedSourceBusyError';
+  }
+}
+
 export function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
   if (signal.reason !== undefined) throw signal.reason;

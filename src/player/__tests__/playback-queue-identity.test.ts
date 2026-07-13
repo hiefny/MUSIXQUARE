@@ -181,6 +181,47 @@ describe('PLAY/PAUSE queue identity guards', () => {
   });
 });
 
+describe('V2 guest renderer projection', () => {
+  it('projects only an exact queue occurrence after physical timeline commit', () => {
+    const visualizer = vi.fn();
+    bus.on('visualizer:start', visualizer);
+    setState('playlist.items', [item(QID_A, 'a.flac'), item(QID_B, 'b.flac')]);
+    initPlayback();
+
+    bus.emit('player:v2-guest-timeline-rendered', QID_B, 'playing', 12.5);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
+    expect(getState('player.currentTrackMeta')).toMatchObject({ queueItemId: QID_B });
+    expect(getState('player.pausedAt')).toBe(12.5);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PLAYING);
+    expect(getState('playback.mode')).toBe('file');
+    expect(visualizer).toHaveBeenCalledOnce();
+
+    bus.emit('player:v2-guest-timeline-rendered', QID_B, 'paused', 18);
+    expect(getState('player.pausedAt')).toBe(18);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PAUSED);
+
+    bus.emit('player:v2-guest-timeline-rendered', null, 'stopped', 0);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('player.pausedAt')).toBe(0);
+    // Selection is playlist navigation state, not renderer ownership.
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
+  });
+
+  it('ignores unknown queue IDs and malformed positions', () => {
+    setState('playlist.items', [item(QID_A, 'a.flac')]);
+    setState('playlist.currentQueueItemId', QID_A);
+    initPlayback();
+
+    bus.emit('player:v2-guest-timeline-rendered', QID_B, 'playing', 4);
+    bus.emit('player:v2-guest-timeline-rendered', QID_A, 'playing', Number.NaN);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_A);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+  });
+});
+
 describe('operator request queue identity guards', () => {
   it('drops delayed play, pause, seek, and skip requests for a previous occurrence', async () => {
     const opConn = { open: true, peer: 'op-1' } as DataConnection;

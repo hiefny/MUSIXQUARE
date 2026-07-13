@@ -822,6 +822,12 @@ interface BaseEventMap {
   'playback:refresh-current-position': [];
   'player:check-ended': [];
   'player:buffer-changed': [];
+  /** Exact V2 guest renderer state after physical evidence and metadata commit. */
+  'player:v2-guest-timeline-rendered': [
+    queueItemId: QueueItemId | null,
+    phase: 'playing' | 'paused' | 'stopped',
+    positionSeconds: number,
+  ];
 
   // ── Playlist ──────────────────────────────────────────────────────
   'playlist:prev-track': [];

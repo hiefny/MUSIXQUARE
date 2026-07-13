@@ -62,6 +62,8 @@ import {
   isPlaybackPlayingSystemAudio,
   isSystemAudioOwner,
   isYouTubeOwner,
+  setPlaybackIdle,
+  setPlaybackLifecycleState,
   setPlaybackTrackMeta,
   setPlaybackTransferState,
 } from './ownership.ts';
@@ -683,6 +685,41 @@ export function initPlayback(): void {
   // Stop all media (called from youtube player before loading)
   bus.on('player:stop-all-media', (options) => {
     stopAllMedia(options);
+  });
+
+  // V2 media owners emit this only after exact native renderer evidence and
+  // connection-media authority have committed. It is a UI projection, never a
+  // second playback command or clock.
+  bus.on('player:v2-guest-timeline-rendered', (queueItemId, phase, positionSeconds) => {
+    if (
+      !Number.isFinite(positionSeconds) ||
+      positionSeconds < 0 ||
+      (phase !== 'playing' && phase !== 'paused' && phase !== 'stopped')
+    ) {
+      return;
+    }
+    if (phase === 'stopped') {
+      if (queueItemId !== null) return;
+      setPlaybackIdle();
+      setState('player.pausedAt', 0);
+      bus.emit('ui:seek-reset');
+      bus.emit('visualizer:fade-out');
+      return;
+    }
+    if (!queueItemId || !isQueueItemId(queueItemId)) return;
+    const item = getQueueItemById(queueItemId);
+    if (!item || !selectQueueItemById(queueItemId)) return;
+    setPlaybackTrackMeta(item);
+    setState('player.pausedAt', positionSeconds);
+    if (phase === 'playing') {
+      setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+      bus.emit('visualizer:start');
+      bus.emit('ui:loop-start');
+    } else {
+      setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+      bus.emit('visualizer:hold-frame');
+    }
+    bus.emit('ui:switch-tab', 'play');
   });
 
   // Replay current track from start (repeat-one: guest already has file).

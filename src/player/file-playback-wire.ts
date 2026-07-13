@@ -945,7 +945,14 @@ function hasValidTemporalBindings(
     case 'file-playback-pause':
     case 'file-playback-seek':
     case 'file-playback-stop':
-      return message.atRoomTimeMs <= receivedAt + skew;
+      // Current-renderer transitions use the same bounded future room-clock
+      // window as ARM/FINALIZE. The product lead floor is 450 ms, so limiting
+      // these frames to clock skew alone would reject every healthy scheduled
+      // pause/seek/stop before the renderer can reach its exact target frame.
+      return (
+        message.atRoomTimeMs >= receivedAt - skew &&
+        message.atRoomTimeMs <= receivedAt + MAX_RENDEZVOUS_SCHEDULE_AHEAD_MS + skew
+      );
     default:
       return true;
   }

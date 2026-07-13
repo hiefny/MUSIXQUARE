@@ -735,10 +735,32 @@ describe('file playback V2 control wire', () => {
           atRoomTimeMs: now + 1_000,
         }),
       ),
+    ).toMatchObject({ accepted: true, status: 'message', message: { revision: 8 } });
+
+    const later = new FilePlaybackWireReceiver({
+      sessionId: 'app-session-1',
+      connectionId: 'connection-1',
+      senderParticipantId: 'participant-guest-1',
+      recipientParticipantId: 'participant-host',
+      nowRoomTimeMs: () => now,
+    });
+    later.bootstrapCurrentMedia({
+      run: { queueItemId: 'queue-item-1', runId: 'run-7', revision: 7 },
+      sourceIdentity: 'sha256:source-1',
+      transferSessionId: 'transfer-session-9',
+    });
+    expect(
+      later.receive(
+        replace(messages[6], {
+          revision: 8,
+          controlSequence: 42,
+          atRoomTimeMs: now + 3_000,
+        }),
+      ),
     ).toMatchObject({ accepted: false, reason: 'temporal-invalid' });
     now += 1;
     expect(
-      receiver.receive(
+      later.receive(
         replace(messages[6], {
           revision: 8,
           controlSequence: 43,

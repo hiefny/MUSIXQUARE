@@ -52,6 +52,7 @@ import {
   createFilePlaybackRunBindingV2,
   type FilePlaybackRunBindingV2,
 } from '../file-playback-run-binding.ts';
+import type { FilePlaybackWireStateLease } from '../file-playback-wire-binding.ts';
 import type { PlaybackStateIdentity } from '../playback-identity.ts';
 
 const HOST_ID = 'host-participant:connection-media';
@@ -123,6 +124,8 @@ function establishedHandshakes() {
 interface Harness {
   readonly channel: FilePlaybackConnectionChannel;
   readonly token: object;
+  readonly hostChannel: FilePlaybackConnectionChannel;
+  readonly hostToken: object;
   readonly fatal: ReturnType<typeof vi.fn>;
   readonly session: FilePlaybackConnectionMediaSession;
   readonly binding: NonNullable<ReturnType<FilePlaybackConnectionChannel['establishedBinding']>>;
@@ -137,12 +140,12 @@ function harness(calibrated = false): Harness {
     now: () => guestNow,
     guestAppliedSendConfirmed: true,
   });
+  let hostNow = 100;
+  const hostToken = Object.freeze({ hostConnection: pairSequence });
+  const hostChannel = new FilePlaybackConnectionChannel(handshakes.host, hostToken, {
+    now: () => hostNow,
+  });
   if (calibrated) {
-    let hostNow = 100;
-    const hostToken = Object.freeze({ hostConnection: pairSequence });
-    const hostChannel = new FilePlaybackConnectionChannel(handshakes.host, hostToken, {
-      now: () => hostNow,
-    });
     for (let index = 0; index < 5; index += 1) {
       const startedAt = 1_000 + index * 100;
       guestNow = startedAt;
@@ -170,7 +173,7 @@ function harness(calibrated = false): Harness {
     nowRoomTimeMs: () => state.now,
     onFatalConnection: fatal,
   });
-  Object.assign(state, { channel, token, fatal, session, binding });
+  Object.assign(state, { channel, token, hostChannel, hostToken, fatal, session, binding });
   return state;
 }
 
@@ -243,6 +246,46 @@ function commitBaseline(h: Harness, revision = 1) {
   const staged = stageBaseline(h, revision);
   h.session.commitStarted(staged.operation, expectedFor(staged.binding), () => true);
   return staged;
+}
+
+function admitRemoteSuccessor(
+  h: Harness,
+  binding: Readonly<FilePlaybackRunBindingV2>,
+  expected: Readonly<PlaybackStateIdentity>,
+  successor: Readonly<PlaybackStateIdentity>,
+  kind: 'file-playback-pause' | 'file-playback-seek' | 'file-playback-stop',
+): FilePlaybackWireStateLease {
+  h.hostChannel.bootstrapCurrentMedia({
+    run: expected,
+    sourceIdentity: binding.sourceIdentity,
+    transferSessionId: binding.transferSessionId,
+  });
+  const lease = h.hostChannel.stageMedia({
+    run: successor,
+    sourceIdentity: binding.sourceIdentity,
+    transferSessionId: binding.transferSessionId,
+  });
+  const common = {
+    expectedQueueItemId: expected.queueItemId,
+    expectedRunId: expected.runId,
+    expectedRevision: expected.revision,
+    atRoomTimeMs: 100,
+  };
+  const message =
+    kind === 'file-playback-seek'
+      ? h.hostChannel.createWire(lease, {
+          kind,
+          ...common,
+          positionSeconds: 12,
+        })
+      : h.hostChannel.createWire(lease, { kind, ...common });
+  const received = h.channel.receive(message, h.token);
+  if (!received.accepted || received.frame !== 'wire') {
+    throw new Error('Guest did not admit remote successor');
+  }
+  if (kind === 'file-playback-stop') h.hostChannel.commitStop(lease, expected);
+  else h.hostChannel.commitMedia(lease);
+  return received.stateLease;
 }
 
 describe('FilePlaybackConnectionMediaSession', () => {
@@ -851,6 +894,44 @@ describe('FilePlaybackConnectionMediaSession', () => {
     );
   });
 
+  it('creates SOURCE_READY from an exact candidate without promoting its run authority', () => {
+    const h = harness(true);
+    const { operation, binding } = stageBaseline(h, 40);
+    const payload = {
+      kind: 'source-ready' as const,
+      observedAtRoomTimeMs: 1_000,
+      readyLeaseUntilRoomTimeMs: 11_000,
+      backend: 'streaming-flac' as const,
+      durationSeconds: 120,
+      bufferedAheadSeconds: 8,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+    };
+
+    expect(h.session.createCandidateSourceReadyWire(operation, payload)).toMatchObject({
+      kind: 'source-ready',
+      queueItemId: binding.queueItemId,
+      runId: binding.runId,
+      revision: binding.playbackRevision,
+    });
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'candidate',
+      committedRevisionWatermark: 39,
+      admittedRevisionWatermark: 40,
+      current: null,
+      currentState: null,
+    });
+
+    const forged = Object.freeze({ ...operation }) as FilePlaybackConnectionMediaOperation;
+    expect(() => h.session.createCandidateSourceReadyWire(forged, payload)).toThrow(/forged/u);
+    h.session.commitPreparedPausedBaseline(operation, expectedFor(binding), () => true);
+    expect(() => h.session.createCandidateSourceReadyWire(operation, payload)).toThrow(
+      /exact staged|committed/u,
+    );
+    h.session.revoke();
+    expect(() => h.session.createCandidateSourceReadyWire(operation, payload)).toThrow(/revoked/u);
+  });
+
   it('revalidates paused-baseline authority twice and preserves its exact watermark', () => {
     const h = harness();
     const { operation, binding } = stageBaseline(h, 400);
@@ -940,6 +1021,173 @@ describe('FilePlaybackConnectionMediaSession', () => {
     expect(state.fence.isCurrent()).toBe(true);
     expect(prepared.operation.fence.isCurrent()).toBe(true);
     expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it.each(['file-playback-pause', 'file-playback-seek'] as const)(
+    'commits an exact remotely admitted %s successor while preserving its prepared source',
+    (kind) => {
+      const h = harness(true);
+      const prepared = commitBaseline(h);
+      const current = expectedFor(prepared.binding);
+      const successor = { ...current, revision: 2 };
+      const lease = admitRemoteSuccessor(h, prepared.binding, current, successor, kind);
+      let authorityReads = 0;
+
+      expect(
+        h.session.commitAdmittedStateSuccessor(
+          prepared.operation,
+          current,
+          successor,
+          lease,
+          () => {
+            authorityReads += 1;
+            expect(prepared.operation.fence.isCurrent()).toBe(true);
+            return true;
+          },
+        ),
+      ).toMatchObject({
+        status: 'active',
+        current: { binding: { playbackRevision: 1 } },
+        currentState: successor,
+        candidateState: null,
+        committedRevisionWatermark: 2,
+        admittedRevisionWatermark: 2,
+      });
+      expect(authorityReads).toBe(2);
+      expect(prepared.operation.fence.isCurrent()).toBe(true);
+      expect(h.fatal).not.toHaveBeenCalled();
+
+      expect(() =>
+        h.session.commitAdmittedStateSuccessor(
+          prepared.operation,
+          current,
+          successor,
+          lease,
+          () => true,
+        ),
+      ).toThrow(/exact current successor/u);
+      expect(h.fatal).not.toHaveBeenCalled();
+    },
+  );
+
+  it('retires a stale admitted successor, consumes its revision, and rejects its replay', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const lease = admitRemoteSuccessor(
+      h,
+      prepared.binding,
+      current,
+      successor,
+      'file-playback-pause',
+    );
+
+    expect(() =>
+      h.session.commitAdmittedStateSuccessor(
+        prepared.operation,
+        current,
+        successor,
+        lease,
+        () => false,
+      ),
+    ).toThrow(/no longer controller-current/u);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      currentState: current,
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(() =>
+      h.session.commitAdmittedStateSuccessor(
+        prepared.operation,
+        current,
+        successor,
+        lease,
+        () => true,
+      ),
+    ).toThrow(/exact current successor/u);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('fail-closes forged admitted state authority without invoking its owner callback mid-mutation', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    admitRemoteSuccessor(h, prepared.binding, current, successor, 'file-playback-seek');
+    const forged = Object.freeze(Object.create(null)) as FilePlaybackWireStateLease;
+    let fatalCallsInsideAuthority = -1;
+
+    expect(() =>
+      h.session.commitAdmittedStateSuccessor(prepared.operation, current, successor, forged, () => {
+        fatalCallsInsideAuthority = h.fatal.mock.calls.length;
+        return true;
+      }),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(fatalCallsInsideAuthority).toBe(0);
+    expect(h.fatal).toHaveBeenCalledOnce();
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'revoked',
+      current: null,
+      currentState: null,
+    });
+    expect(prepared.operation.fence.signal.aborted).toBe(true);
+  });
+
+  it('makes admitted successor authority fail closed across ABA reentry and revoke', () => {
+    const reentrant = harness(true);
+    const prepared = commitBaseline(reentrant);
+    const current = expectedFor(prepared.binding);
+    const successor = { ...current, revision: 2 };
+    const lease = admitRemoteSuccessor(
+      reentrant,
+      prepared.binding,
+      current,
+      successor,
+      'file-playback-pause',
+    );
+
+    expect(() =>
+      reentrant.session.commitAdmittedStateSuccessor(
+        prepared.operation,
+        current,
+        successor,
+        lease,
+        () => {
+          expect(() => reentrant.session.snapshot()).toThrow(
+            FilePlaybackConnectionMediaSessionFatalError,
+          );
+          return true;
+        },
+      ),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(reentrant.fatal).toHaveBeenCalledOnce();
+    expect(prepared.operation.fence.isCurrent()).toBe(false);
+
+    const revoked = harness(true);
+    const revokedPrepared = commitBaseline(revoked);
+    const revokedCurrent = expectedFor(revokedPrepared.binding);
+    const revokedNext = { ...revokedCurrent, revision: 2 };
+    const revokedLease = admitRemoteSuccessor(
+      revoked,
+      revokedPrepared.binding,
+      revokedCurrent,
+      revokedNext,
+      'file-playback-pause',
+    );
+    revoked.session.revoke();
+    expect(() =>
+      revoked.session.commitAdmittedStateSuccessor(
+        revokedPrepared.operation,
+        revokedCurrent,
+        revokedNext,
+        revokedLease,
+        () => true,
+      ),
+    ).toThrow(/revoked/u);
+    expect(revokedPrepared.operation.fence.isCurrent()).toBe(false);
   });
 
   it('makes exact state staging replay idempotent and rejects conflicts without consuming revision', () => {
@@ -1109,6 +1357,119 @@ describe('FilePlaybackConnectionMediaSession', () => {
     expect(first.fence.isCurrent()).toBe(false);
     expect(second.fence.isCurrent()).toBe(true);
     expect(prepared.operation.fence.isCurrent()).toBe(true);
+  });
+
+  it('commits an exact remotely admitted STOP and remembers only its exact lease for retry', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const stopped = { ...current, revision: 2 };
+    const lease = admitRemoteSuccessor(h, prepared.binding, current, stopped, 'file-playback-stop');
+    let authorityReads = 0;
+
+    expect(
+      h.session.commitAdmittedStop(prepared.operation, current, stopped, lease, () => {
+        authorityReads += 1;
+        expect(prepared.operation.fence.isCurrent()).toBe(true);
+        return true;
+      }),
+    ).toMatchObject({
+      status: 'stopped',
+      current: null,
+      currentState: null,
+      committedRevisionWatermark: 2,
+      admittedRevisionWatermark: 2,
+    });
+    expect(authorityReads).toBe(2);
+    expect(prepared.operation.fence.isCurrent()).toBe(false);
+    expect(
+      h.session.commitAdmittedStop(prepared.operation, current, stopped, lease, () => true),
+    ).toMatchObject({ status: 'stopped', committedRevisionWatermark: 2 });
+
+    const forged = Object.freeze(Object.create(null)) as FilePlaybackWireStateLease;
+    expect(() =>
+      h.session.commitAdmittedStop(prepared.operation, current, stopped, forged, () => true),
+    ).toThrow(/forged|retired/u);
+    expect(() => h.session.commitStop(prepared.operation, current, stopped, () => true)).toThrow(
+      /forged|retired/u,
+    );
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('retires an admitted STOP which lost controller authority and rejects its replay', () => {
+    const h = harness(true);
+    const prepared = commitBaseline(h);
+    const current = expectedFor(prepared.binding);
+    const stopped = { ...current, revision: 2 };
+    const lease = admitRemoteSuccessor(h, prepared.binding, current, stopped, 'file-playback-stop');
+
+    expect(() =>
+      h.session.commitAdmittedStop(prepared.operation, current, stopped, lease, () => false),
+    ).toThrow(/no longer controller-current/u);
+    expect(h.session.snapshot()).toMatchObject({
+      status: 'active',
+      currentState: current,
+      committedRevisionWatermark: 1,
+      admittedRevisionWatermark: 2,
+    });
+    expect(prepared.operation.fence.isCurrent()).toBe(true);
+    expect(() =>
+      h.session.commitAdmittedStop(prepared.operation, current, stopped, lease, () => true),
+    ).toThrow(/exact current successor/u);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
+  it('fail-closes forged and ABA-invalid admitted STOP authority', () => {
+    const forgedHarness = harness(true);
+    const forgedPrepared = commitBaseline(forgedHarness);
+    const forgedCurrent = expectedFor(forgedPrepared.binding);
+    const forgedStopped = { ...forgedCurrent, revision: 2 };
+    admitRemoteSuccessor(
+      forgedHarness,
+      forgedPrepared.binding,
+      forgedCurrent,
+      forgedStopped,
+      'file-playback-stop',
+    );
+    const forged = Object.freeze(Object.create(null)) as FilePlaybackWireStateLease;
+    expect(() =>
+      forgedHarness.session.commitAdmittedStop(
+        forgedPrepared.operation,
+        forgedCurrent,
+        forgedStopped,
+        forged,
+        () => true,
+      ),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(forgedHarness.fatal).toHaveBeenCalledOnce();
+    expect(forgedPrepared.operation.fence.isCurrent()).toBe(false);
+
+    const reentrant = harness(true);
+    const prepared = commitBaseline(reentrant);
+    const current = expectedFor(prepared.binding);
+    const stopped = { ...current, revision: 2 };
+    const lease = admitRemoteSuccessor(
+      reentrant,
+      prepared.binding,
+      current,
+      stopped,
+      'file-playback-stop',
+    );
+    let fatalCallsInsideAuthority = -1;
+    expect(() =>
+      reentrant.session.commitAdmittedStop(prepared.operation, current, stopped, lease, () => {
+        try {
+          reentrant.session.snapshot();
+        } catch {
+          // The exact connection is poisoned before the outer commit resumes.
+        }
+        fatalCallsInsideAuthority = reentrant.fatal.mock.calls.length;
+        return true;
+      }),
+    ).toThrow(FilePlaybackConnectionMediaSessionFatalError);
+    expect(fatalCallsInsideAuthority).toBe(0);
+    expect(reentrant.fatal).toHaveBeenCalledOnce();
+    expect(prepared.operation.fence.isCurrent()).toBe(false);
   });
 
   it('commits exact stop/run retirement, supports exact retry, and admits a fresh run afterward', () => {

@@ -187,6 +187,8 @@ interface StateOperationRecord {
 interface CommittedStopTombstone {
   readonly expected: Readonly<PlaybackStateIdentity>;
   readonly stopped: Readonly<PlaybackStateIdentity>;
+  /** Exact inbound STOP lease, or null for a locally staged stop. */
+  readonly admittedStopLease: FilePlaybackWireStateLease | null;
 }
 
 const channelRole = FilePlaybackConnectionChannel.prototype.role;
@@ -195,6 +197,7 @@ const channelLiveConnectionToken = FilePlaybackConnectionChannel.prototype.liveC
 const channelBootstrapStopped = FilePlaybackConnectionChannel.prototype.bootstrapStopped;
 const channelStageMedia = FilePlaybackConnectionChannel.prototype.stageMedia;
 const channelCommitMedia = FilePlaybackConnectionChannel.prototype.commitMedia;
+const channelCommitStop = FilePlaybackConnectionChannel.prototype.commitStop;
 const channelRetireMedia = FilePlaybackConnectionChannel.prototype.retireMedia;
 const channelStageAttempt = FilePlaybackConnectionChannel.prototype.stageAttempt;
 const channelCommitAttempt = FilePlaybackConnectionChannel.prototype.commitAttempt;
@@ -709,6 +712,25 @@ export class FilePlaybackConnectionMediaSession {
   }
 
   /**
+   * Creates SOURCE_READY while the exact run/source is still a candidate.
+   * This deliberately does not promote either the run authority or its shared
+   * channel state: the owner may publish readiness before renderer evidence is
+   * sufficient to commit the baseline.
+   */
+  createCandidateSourceReadyWire(
+    operation: FilePlaybackConnectionMediaOperation,
+    payload: FileSourceReadyWirePayload,
+  ): FilePlaybackWireMessageForKind<'source-ready'> {
+    return this.#mutate(() => {
+      const record = this.#requireCandidate(operation);
+      return Reflect.apply(channelCreateWire, this.#channel, [
+        record.channelStateLease,
+        payload,
+      ]) as FilePlaybackWireMessageForKind<'source-ready'>;
+    });
+  }
+
+  /**
    * Creates SOURCE_READY from the exact committed prepared-run lease without
    * exposing the shared channel's mutable binding registry to its owner.
    */
@@ -873,6 +895,64 @@ export class FilePlaybackConnectionMediaSession {
     });
   }
 
+  /**
+   * Commits a pause or paused-seek successor already admitted by the shared
+   * inbound wire receiver. The exact receiver-issued lease is the only object
+   * which can cross the channel commit boundary. The prepared source/run stays
+   * current while its state revision advances.
+   */
+  commitAdmittedStateSuccessor(
+    preparedOperation: FilePlaybackConnectionMediaOperation,
+    expectedCurrent: PlaybackStateIdentity,
+    successor: PlaybackStateIdentity,
+    stateLease: FilePlaybackWireStateLease,
+    isStillCurrent: () => boolean,
+  ): FilePlaybackConnectionMediaSessionSnapshot {
+    return this.#mutate(() => {
+      const prepared = this.#requireCurrent(preparedOperation);
+      const expected = readPlaybackStateIdentity(expectedCurrent);
+      const next = readPlaybackStateIdentity(successor);
+      if (!expected || !next || typeof isStillCurrent !== 'function') {
+        throw new TypeError('File playback admitted state successor authority is invalid');
+      }
+      if (
+        this.#candidateState ||
+        !this.#currentState ||
+        !sameStateIdentity(this.#currentState, expected) ||
+        expected.queueItemId !== prepared.binding.queueItemId ||
+        expected.runId !== prepared.binding.runId ||
+        next.queueItemId !== expected.queueItemId ||
+        next.runId !== expected.runId ||
+        next.revision !== this.#admittedRevisionWatermark + 1
+      ) {
+        throw new Error('File playback admitted state is not the exact current successor');
+      }
+      if (!this.#readPreparedCommitAuthority(prepared, isStillCurrent)) {
+        this.#retireAdmittedSuccessorLease(stateLease, next.revision);
+        throw new Error('File playback admitted state is no longer controller-current');
+      }
+      if (!this.#readPreparedCommitAuthority(prepared, isStillCurrent)) {
+        this.#retireAdmittedSuccessorLease(stateLease, next.revision);
+        throw new Error('File playback admitted state is no longer controller-current');
+      }
+
+      try {
+        Reflect.apply(channelCommitMedia, this.#channel, [stateLease]);
+      } catch {
+        throw this.#fatal('The shared channel rejected the exact admitted state successor');
+      }
+
+      if (this.#currentStateOperation) {
+        this.#retireStateRecordLocally(this.#currentStateOperation);
+      }
+      prepared.channelStateLease = stateLease;
+      this.#currentState = next;
+      this.#committedRevisionWatermark = next.revision;
+      this.#admittedRevisionWatermark = next.revision;
+      return this.#snapshotUnchecked();
+    });
+  }
+
   retireStateSuccessor(operation: FilePlaybackConnectionMediaStateOperation): void {
     this.#mutate(() => this.#retireStateRecord(this.#requireStateOperation(operation)));
   }
@@ -948,6 +1028,79 @@ export class FilePlaybackConnectionMediaSession {
       const stopTombstone = freezeCanonical({
         expected,
         stopped: next,
+        admittedStopLease: null,
+      });
+      if (this.#currentStateOperation) {
+        this.#retireStateRecordLocally(this.#currentStateOperation);
+      }
+      this.#retireRecordLocally(prepared);
+      this.#currentState = null;
+      this.#bootstrapKind = 'stopped';
+      this.#committedRevisionWatermark = next.revision;
+      this.#admittedRevisionWatermark = next.revision;
+      this.#committedStops.set(prepared.operation, stopTombstone);
+      return this.#snapshotUnchecked();
+    });
+  }
+
+  /**
+   * Commits an exact STOP successor already admitted by the inbound receiver.
+   * A successful retry is accepted only with the same opaque stop lease; an
+   * equal-looking replacement cannot recover the retired run authority.
+   */
+  commitAdmittedStop(
+    preparedOperation: FilePlaybackConnectionMediaOperation,
+    expectedCurrent: PlaybackStateIdentity,
+    stopped: PlaybackStateIdentity,
+    stopLease: FilePlaybackWireStateLease,
+    isStillCurrent: () => boolean,
+  ): FilePlaybackConnectionMediaSessionSnapshot {
+    return this.#mutate(() => {
+      const expected = readPlaybackStateIdentity(expectedCurrent);
+      const next = readPlaybackStateIdentity(stopped);
+      if (!expected || !next || typeof isStillCurrent !== 'function') {
+        throw new TypeError('File playback admitted stop authority is invalid');
+      }
+      if (this.#isExactAdmittedStopReplay(preparedOperation, expected, next, stopLease)) {
+        return this.#snapshotUnchecked();
+      }
+      const prepared = this.#requireCurrent(preparedOperation);
+      if (
+        this.#candidateState ||
+        !this.#currentState ||
+        !sameStateIdentity(this.#currentState, expected) ||
+        expected.queueItemId !== prepared.binding.queueItemId ||
+        expected.runId !== prepared.binding.runId ||
+        next.queueItemId !== expected.queueItemId ||
+        next.runId !== expected.runId ||
+        next.revision !== this.#admittedRevisionWatermark + 1
+      ) {
+        throw new Error('File playback admitted stop is not the exact current successor');
+      }
+      if (!this.#readPreparedCommitAuthority(prepared, isStillCurrent)) {
+        this.#retireAdmittedSuccessorLease(stopLease, next.revision);
+        throw new Error('File playback admitted stop is no longer controller-current');
+      }
+      if (!this.#readPreparedCommitAuthority(prepared, isStillCurrent)) {
+        this.#retireAdmittedSuccessorLease(stopLease, next.revision);
+        throw new Error('File playback admitted stop is no longer controller-current');
+      }
+
+      try {
+        Reflect.apply(channelCommitStop, this.#channel, [stopLease, expected]);
+      } catch {
+        throw this.#fatal('The shared channel rejected the exact admitted stop successor');
+      }
+      try {
+        this.#runAuthority.retireCurrent(this.#connectionToken, prepared.runLease);
+      } catch {
+        throw this.#fatal('Run authority failed after the shared channel committed admitted stop');
+      }
+
+      const stopTombstone = freezeCanonical({
+        expected,
+        stopped: next,
+        admittedStopLease: stopLease,
       });
       if (this.#currentStateOperation) {
         this.#retireStateRecordLocally(this.#currentStateOperation);
@@ -1138,6 +1291,18 @@ export class FilePlaybackConnectionMediaSession {
     return accepted;
   }
 
+  #retireAdmittedSuccessorLease(
+    lease: FilePlaybackWireStateLease,
+    admittedRevision: PlaybackRevisionWatermark,
+  ): void {
+    try {
+      Reflect.apply(channelRetireMedia, this.#channel, [lease]);
+    } catch {
+      throw this.#fatal('The shared channel rejected admitted successor retirement');
+    }
+    this.#admittedRevisionWatermark = admittedRevision;
+  }
+
   #isExactStopReplay(
     operation: FilePlaybackConnectionMediaOperation,
     expected: Readonly<PlaybackStateIdentity>,
@@ -1149,6 +1314,32 @@ export class FilePlaybackConnectionMediaSession {
         : undefined;
     return (
       committed !== undefined &&
+      committed.admittedStopLease === null &&
+      this.#bootstrapKind === 'stopped' &&
+      this.#candidate === null &&
+      this.#current === null &&
+      this.#candidateState === null &&
+      this.#currentState === null &&
+      this.#committedRevisionWatermark === committed.stopped.revision &&
+      this.#admittedRevisionWatermark === committed.stopped.revision &&
+      sameStateIdentity(committed.expected, expected) &&
+      sameStateIdentity(committed.stopped, stopped)
+    );
+  }
+
+  #isExactAdmittedStopReplay(
+    operation: FilePlaybackConnectionMediaOperation,
+    expected: Readonly<PlaybackStateIdentity>,
+    stopped: Readonly<PlaybackStateIdentity>,
+    stopLease: FilePlaybackWireStateLease,
+  ): boolean {
+    const committed =
+      operation !== null && typeof operation === 'object'
+        ? this.#committedStops.get(operation)
+        : undefined;
+    return (
+      committed !== undefined &&
+      committed.admittedStopLease === stopLease &&
       this.#bootstrapKind === 'stopped' &&
       this.#candidate === null &&
       this.#current === null &&

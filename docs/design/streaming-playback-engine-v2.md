@@ -6,6 +6,11 @@
   participant recovery, and playback-related system messages
 - **Rollback baseline:** `9a9db6fd8e26d7e96a33ce8212263f023b8ced5d`
 
+> **Scope update (2026-07-13):** The FLAC-only rollout and ordinary-codec
+> AudioBuffer fallback described below are superseded by
+> `universal-bounded-streaming-engine.md`. The synchronization, ownership,
+> rendezvous, recovery, and rollback decisions in this document remain active.
+
 ## Product goal
 
 MUSIXQUARE must keep millisecond-class synchronized playback while accepting

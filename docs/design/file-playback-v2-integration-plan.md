@@ -1,10 +1,15 @@
 # File Playback V2 Product Integration Plan
 
 - **Status:** Accepted implementation plan
-- **Parent decision:** `streaming-playback-engine-v2.md`
+- **Parent decisions:** `streaming-playback-engine-v2.md` and
+  `universal-bounded-streaming-engine.md`
 - **Rollback baseline:** `9a9db6fd8e26d7e96a33ce8212263f023b8ced5d`
 - **Deployment rule:** local commits only until the owner approves the final
   `main` push
+
+> **Scope update (2026-07-13):** Whole-Blob ordinary-codec decode remains only
+> a gated legacy/bootstrap behavior while the universal bounded adapters are
+> implemented. It is not the target architecture for long-form media.
 
 ## Purpose
 

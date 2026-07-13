@@ -1,6 +1,10 @@
 import type { IsoBmffBoxRef } from '../mp4/box.ts';
 import { ISO_BMFF_MAX_BOUNDED_READ_BYTES, IsoBmffBoxReader } from '../mp4/box-reader.ts';
-import { EncodedSourceIntegrityError } from '../sources/encoded-audio-source.ts';
+import {
+  EncodedSourceBusyError,
+  EncodedSourceIntegrityError,
+  throwIfAborted,
+} from '../sources/encoded-audio-source.ts';
 import {
   assertM4aContainerLayoutProvenance,
   M4A_MAX_MDAT_BOXES,
@@ -66,6 +70,14 @@ export interface M4aChunkOffsetPageEvidence {
   readonly firstChunkOrdinal: number;
   readonly entryCount: number;
   readonly sha256: string;
+}
+
+/** Source-bound, forward-only access to authenticated chunk offsets. */
+export interface M4aChunkOffsetSequence {
+  /** Zero-based ordinal that the next successful read will consume. */
+  readonly chunkOrdinal: number;
+  /** Returns `null` after every authenticated chunk offset has been consumed. */
+  readNext(signal: AbortSignal): Promise<number | null>;
 }
 
 export interface M4aChunkIndexSnapshot {
@@ -968,6 +980,126 @@ export async function readM4aChunkOffsetAt(
     (ordinal - evidence.firstChunkOrdinal) * authority.chunkOffsetWidthBytes,
     authority.chunkOffsetWidthBytes,
   );
+}
+
+/** Create a source-bound cursor with one authenticated bounded offset-page cache. */
+export function createM4aChunkOffsetSequence(
+  reader: IsoBmffBoxReader,
+  index: Readonly<M4aChunkIndex>,
+  startChunkOrdinal = 0,
+): M4aChunkOffsetSequence {
+  if (!(reader instanceof IsoBmffBoxReader)) {
+    throw new TypeError('M4A chunk-offset sequence requires an IsoBmffBoxReader');
+  }
+  const inspectionSignal = new AbortController().signal;
+  const authority = requireChunkIndexAuthority(reader, index, inspectionSignal);
+  const ordinal = requireInteger(
+    startChunkOrdinal,
+    0,
+    authority.chunkCount,
+    'M4A chunk-offset sequence start ordinal',
+  );
+  return new SourceBoundM4aChunkOffsetSequence(reader, authority, ordinal);
+}
+
+class SourceBoundM4aChunkOffsetSequence implements M4aChunkOffsetSequence {
+  #chunkOrdinal: number;
+  #reading = false;
+  #cachedPageIndex = -1;
+  #cachedPage: Uint8Array = new Uint8Array(0);
+  #hasFatalError = false;
+  #fatalError: unknown = null;
+
+  constructor(
+    private readonly reader: IsoBmffBoxReader,
+    private readonly authority: ChunkIndexAuthority,
+    chunkOrdinal: number,
+  ) {
+    this.#chunkOrdinal = chunkOrdinal;
+  }
+
+  get chunkOrdinal(): number {
+    return this.#chunkOrdinal;
+  }
+
+  readNext(signal: AbortSignal): Promise<number | null> {
+    if (!(signal instanceof AbortSignal)) {
+      return Promise.reject(new TypeError('M4A chunk-offset sequence requires an AbortSignal'));
+    }
+    // Integrity and structural failures are terminal for this exact sequence.
+    // Caller aborts and transient source-capacity failures leave it retryable.
+    if (this.#hasFatalError) return Promise.reject(this.#fatalError);
+    try {
+      throwIfAborted(signal);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    if (this.#reading) {
+      return Promise.reject(
+        new M4aChunkIndexError(
+          'Concurrent or reentrant M4A chunk-offset sequence reads are not supported',
+        ),
+      );
+    }
+
+    this.#reading = true;
+    return this.#readNext(signal)
+      .catch((error: unknown) => {
+        if (!signal.aborted && !(error instanceof EncodedSourceBusyError)) {
+          this.#hasFatalError = true;
+          this.#fatalError = error;
+        }
+        throw error;
+      })
+      .finally(() => {
+        this.#reading = false;
+      });
+  }
+
+  async #readNext(signal: AbortSignal): Promise<number | null> {
+    this.reader.assertReadable(signal);
+    if (this.#chunkOrdinal === this.authority.chunkCount) return null;
+
+    const ordinal = this.#chunkOrdinal;
+    const pageIndex = Math.floor(ordinal / this.authority.entriesPerPage);
+    const evidence = this.authority.pages[pageIndex]!;
+    let page = this.#cachedPage;
+    let installPage = false;
+    if (pageIndex !== this.#cachedPageIndex) {
+      page = await this.reader.readBytes(
+        this.authority.chunkOffsetTableStart +
+          evidence.firstChunkOrdinal * this.authority.chunkOffsetWidthBytes,
+        evidence.entryCount * this.authority.chunkOffsetWidthBytes,
+        signal,
+      );
+      const digest = await digestM4aMetadataPage(
+        this.reader,
+        page,
+        signal,
+        'M4A sequential chunk-offset page',
+        createChunkIndexError,
+      );
+      if (digest !== evidence.sha256) {
+        throw new M4aChunkIndexError('M4A chunk-offset entries changed after the index was built');
+      }
+      installPage = true;
+    }
+
+    const offset = readChunkOffset(
+      page,
+      (ordinal - evidence.firstChunkOrdinal) * this.authority.chunkOffsetWidthBytes,
+      this.authority.chunkOffsetWidthBytes,
+    );
+    this.reader.assertReadable(signal);
+
+    // Publish the page and cursor advance together only after all validation succeeds.
+    if (installPage) {
+      this.#cachedPageIndex = pageIndex;
+      this.#cachedPage = page;
+    }
+    this.#chunkOrdinal = ordinal + 1;
+    return offset;
+  }
 }
 
 function findRunForSample(

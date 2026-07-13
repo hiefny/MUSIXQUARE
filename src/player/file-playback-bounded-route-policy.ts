@@ -10,9 +10,23 @@ export interface UniversalV1FilePlaybackBoundedRoutePolicy {
   readonly m4aBackendId: 'webcodecs';
 }
 
+/**
+ * Independently gated codecs layered on top of the always-bounded native
+ * FLAC and linear-PCM routes. A `current` gate preserves the pre-universal
+ * behavior for that exact format: ordinary Blob decode locally and no
+ * generic encoded-source route.
+ */
+export interface FormatGatedV1FilePlaybackBoundedRoutePolicy {
+  readonly mode: 'format-gated-v1';
+  readonly mp3: 'current' | 'bounded-stream';
+  readonly m4aAacLc: 'current' | 'webcodecs';
+  readonly rawAdtsAac: 'current' | 'webcodecs';
+}
+
 export type FilePlaybackBoundedRoutePolicy =
   | Readonly<CurrentFilePlaybackBoundedRoutePolicy>
-  | Readonly<UniversalV1FilePlaybackBoundedRoutePolicy>;
+  | Readonly<UniversalV1FilePlaybackBoundedRoutePolicy>
+  | Readonly<FormatGatedV1FilePlaybackBoundedRoutePolicy>;
 
 export const FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY: Readonly<CurrentFilePlaybackBoundedRoutePolicy> =
   Object.freeze({ mode: 'current' });
@@ -23,6 +37,48 @@ export const FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY: Readonly<Universal
     aacBackendId: 'webcodecs',
     m4aBackendId: 'webcodecs',
   });
+
+const FORMAT_GATED_V1_KEYS = Object.freeze(['mode', 'mp3', 'm4aAacLc', 'rawAdtsAac'] as const);
+
+const MP3_GATES = Object.freeze(['current', 'bounded-stream'] as const);
+const M4A_AAC_LC_GATES = Object.freeze(['current', 'webcodecs'] as const);
+const RAW_ADTS_AAC_GATES = Object.freeze(['current', 'webcodecs'] as const);
+
+const FORMAT_GATED_V1_POLICIES: readonly Readonly<FormatGatedV1FilePlaybackBoundedRoutePolicy>[] =
+  Object.freeze(
+    MP3_GATES.flatMap((mp3) =>
+      M4A_AAC_LC_GATES.flatMap((m4aAacLc) =>
+        RAW_ADTS_AAC_GATES.map((rawAdtsAac) =>
+          Object.freeze({ mode: 'format-gated-v1' as const, mp3, m4aAacLc, rawAdtsAac }),
+        ),
+      ),
+    ),
+  );
+
+function canonicalFormatGatedV1Policy(
+  mp3: FormatGatedV1FilePlaybackBoundedRoutePolicy['mp3'],
+  m4aAacLc: FormatGatedV1FilePlaybackBoundedRoutePolicy['m4aAacLc'],
+  rawAdtsAac: FormatGatedV1FilePlaybackBoundedRoutePolicy['rawAdtsAac'],
+): Readonly<FormatGatedV1FilePlaybackBoundedRoutePolicy> {
+  const policy = FORMAT_GATED_V1_POLICIES.find(
+    (candidate) =>
+      candidate.mp3 === mp3 &&
+      candidate.m4aAacLc === m4aAacLc &&
+      candidate.rawAdtsAac === rawAdtsAac,
+  );
+  if (!policy) throw new TypeError('Format-gated-v1 policy combination is not supported');
+  return policy;
+}
+
+/**
+ * Candidate release cohort: bounded MP3 and M4A AAC-LC, with raw ADTS AAC
+ * deliberately left on today's route until the long-remote-file manifest
+ * sidecar can remove its mandatory full-file admission scan.
+ *
+ * This constant is intentionally not installed in the product singleton.
+ */
+export const FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY: Readonly<FormatGatedV1FilePlaybackBoundedRoutePolicy> =
+  canonicalFormatGatedV1Policy('bounded-stream', 'webcodecs', 'current');
 
 const CURRENT_KEYS = Object.freeze(['mode'] as const);
 const UNIVERSAL_V1_KEYS = Object.freeze(['mode', 'aacBackendId', 'm4aBackendId'] as const);
@@ -69,7 +125,7 @@ function hasExactKeys(record: PolicyRecord, expected: readonly string[]): boolea
 }
 
 /**
- * Normalize the optional product routing policy to one of two canonical values.
+ * Normalize the optional product routing policy to a canonical frozen value.
  * Undefined deliberately preserves today's routing; every explicit value must
  * be an exact data-only record before its discriminant is interpreted.
  */
@@ -96,6 +152,21 @@ export function snapshotFilePlaybackBoundedRoutePolicy(
       throw new TypeError('Universal-v1 M4A backend must be exactly webcodecs');
     }
     return FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY;
+  }
+  if (record.mode === 'format-gated-v1') {
+    if (!hasExactKeys(record, FORMAT_GATED_V1_KEYS)) {
+      throw new TypeError('Format-gated-v1 file playback bounded route policy has invalid fields');
+    }
+    if (record.mp3 !== 'current' && record.mp3 !== 'bounded-stream') {
+      throw new TypeError('Format-gated-v1 MP3 route is not supported');
+    }
+    if (record.m4aAacLc !== 'current' && record.m4aAacLc !== 'webcodecs') {
+      throw new TypeError('Format-gated-v1 M4A AAC-LC route is not supported');
+    }
+    if (record.rawAdtsAac !== 'current' && record.rawAdtsAac !== 'webcodecs') {
+      throw new TypeError('Format-gated-v1 raw ADTS AAC route is not supported');
+    }
+    return canonicalFormatGatedV1Policy(record.mp3, record.m4aAacLc, record.rawAdtsAac);
   }
   throw new TypeError('File playback bounded route policy mode is not supported');
 }

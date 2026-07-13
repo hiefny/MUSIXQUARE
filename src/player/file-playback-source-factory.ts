@@ -959,20 +959,40 @@ async function createOwnedEncodedFilePlaybackSource(
     }
 
     const universalRoute = boundedRoutePolicy.mode === 'universal-v1';
-    const aacContentCandidate = universalRoute && isRawAdtsFrameStart(marker);
-    const m4aContentCandidate = universalRoute && isIsoBmffFileType(marker);
-    const aacClaim =
-      universalRoute && claimsRawAac(encodedSource.metadata.name, encodedSource.metadata.mime);
-    const m4aClaim =
-      universalRoute && claimsM4a(encodedSource.metadata.name, encodedSource.metadata.mime);
-    const mp3Claim =
-      universalRoute && claimsMp3(encodedSource.metadata.name, encodedSource.metadata.mime);
+    const formatGatedRoute = boundedRoutePolicy.mode === 'format-gated-v1';
+    const mp3RouteEnabled =
+      universalRoute || (formatGatedRoute && boundedRoutePolicy.mp3 === 'bounded-stream');
+    const m4aBackendId = universalRoute
+      ? boundedRoutePolicy.m4aBackendId
+      : formatGatedRoute && boundedRoutePolicy.m4aAacLc === 'webcodecs'
+        ? boundedRoutePolicy.m4aAacLc
+        : null;
+    const rawAdtsAacBackendId = universalRoute
+      ? boundedRoutePolicy.aacBackendId
+      : formatGatedRoute && boundedRoutePolicy.rawAdtsAac === 'webcodecs'
+        ? boundedRoutePolicy.rawAdtsAac
+        : null;
+    const anyOptionalBoundedRoute =
+      mp3RouteEnabled || m4aBackendId !== null || rawAdtsAacBackendId !== null;
+
+    // Content authority remains independent from activation. For example, an
+    // ADTS stream cannot enter an enabled MP3 route merely because raw AAC is
+    // disabled and its filename claims MP3.
+    const aacContentCandidate = isRawAdtsFrameStart(marker);
+    const m4aContentCandidate = isIsoBmffFileType(marker);
     const mp3ContentCandidate =
-      universalRoute &&
+      anyOptionalBoundedRoute &&
       (await isVerifiedMp3ContentCandidate(encodedSource, marker, options.signal));
+    const aacClaim =
+      rawAdtsAacBackendId !== null &&
+      claimsRawAac(encodedSource.metadata.name, encodedSource.metadata.mime);
+    const m4aClaim =
+      m4aBackendId !== null && claimsM4a(encodedSource.metadata.name, encodedSource.metadata.mime);
+    const mp3Claim =
+      mp3RouteEnabled && claimsMp3(encodedSource.metadata.name, encodedSource.metadata.mime);
 
     if (
-      universalRoute &&
+      rawAdtsAacBackendId !== null &&
       (aacContentCandidate ||
         (!m4aContentCandidate &&
           !mp3ContentCandidate &&
@@ -999,7 +1019,7 @@ async function createOwnedEncodedFilePlaybackSource(
         queueItemId: options.queueItemId,
         encodedSource,
         scan,
-        backendId: boundedRoutePolicy.aacBackendId,
+        backendId: rawAdtsAacBackendId,
         audioContext: options.audioContext,
         nowRoomTimeMs: options.nowRoomTimeMs,
         roomTimeMsToContextTime: options.roomTimeMsToContextTime,
@@ -1022,7 +1042,7 @@ async function createOwnedEncodedFilePlaybackSource(
     }
 
     if (
-      universalRoute &&
+      m4aBackendId !== null &&
       (m4aContentCandidate || (!aacContentCandidate && !mp3ContentCandidate && m4aClaim))
     ) {
       const manifest = await readM4aAacLcMetadata(encodedSource, options.signal);
@@ -1031,7 +1051,7 @@ async function createOwnedEncodedFilePlaybackSource(
         queueItemId: options.queueItemId,
         encodedSource,
         manifest,
-        backendId: boundedRoutePolicy.m4aBackendId,
+        backendId: m4aBackendId,
         audioContext: options.audioContext,
         nowRoomTimeMs: options.nowRoomTimeMs,
         roomTimeMsToContextTime: options.roomTimeMsToContextTime,
@@ -1054,7 +1074,7 @@ async function createOwnedEncodedFilePlaybackSource(
     }
 
     if (
-      universalRoute &&
+      mp3RouteEnabled &&
       (mp3ContentCandidate || (!aacContentCandidate && !m4aContentCandidate && mp3Claim))
     ) {
       const metadata = await readMp3Metadata(encodedSource, options.signal);

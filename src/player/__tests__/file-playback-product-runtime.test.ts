@@ -9,7 +9,7 @@ import type { DataConnection, QueueItemId } from '../../types/index.ts';
 import { FilePlaybackApplicationController } from '../file-playback-application-controller.ts';
 import { FilePlaybackAssetRegistry } from '../file-playback-asset-registry.ts';
 import {
-  FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+  FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
   type FilePlaybackBoundedRoutePolicy,
 } from '../file-playback-bounded-route-policy.ts';
 import {
@@ -1125,7 +1125,7 @@ describe('FilePlaybackProductRuntime', () => {
       revoke: vi.fn(),
     });
     const setup = harness({
-      boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      boundedRoutePolicy: FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
       mediaFactoriesForTests: {
         createSessionRouter: (options) => {
           const candidate = productRouterHarness(options);
@@ -1142,7 +1142,7 @@ describe('FilePlaybackProductRuntime', () => {
 
     setup.runtime.beginHostRoom('bounded-policy-host');
     expect(setup.hostRooms[0]?.options.boundedRoutePolicy).toBe(
-      FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
     );
     setup.runtime.endRoom();
 
@@ -1153,7 +1153,7 @@ describe('FilePlaybackProductRuntime', () => {
     });
     routers[0]!.options.createGuestMediaOwner(context);
     expect(guestOwnerOptions?.boundedRoutePolicy).toBe(
-      FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+      FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
     );
     setup.runtime.endRoom();
   });
@@ -1166,7 +1166,7 @@ describe('FilePlaybackProductRuntime', () => {
           enabled: false,
           get boundedRoutePolicy() {
             reads += 1;
-            return FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY;
+            return FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY;
           },
         }),
     ).toThrow(/own enumerable data/i);
@@ -1177,12 +1177,13 @@ describe('FilePlaybackProductRuntime', () => {
         new FilePlaybackProductRuntime({
           enabled: false,
           boundedRoutePolicy: {
-            mode: 'universal-v1',
-            aacBackendId: 'webcodecs',
-            m4aBackendId: 'symphonia-wasm',
+            mode: 'format-gated-v1',
+            mp3: 'bounded-stream',
+            m4aAacLc: 'webcodecs',
+            rawAdtsAac: 'automatic',
           } as unknown as FilePlaybackBoundedRoutePolicy,
         }),
-    ).toThrow(/webcodecs/i);
+    ).toThrow(/raw ADTS AAC route is not supported/i);
   });
 
   it.each([

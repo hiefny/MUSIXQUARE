@@ -2,21 +2,32 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY,
+  FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
   FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
   snapshotFilePlaybackBoundedRoutePolicy,
 } from '../file-playback-bounded-route-policy.ts';
 
 describe('file playback bounded route policy', () => {
-  it('exports exactly two stable frozen canonical policies', () => {
+  it('exports stable frozen current, full-universal, and raw-AAC-off release policies', () => {
     expect(FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY).toEqual({ mode: 'current' });
     expect(FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY).toEqual({
       mode: 'universal-v1',
       aacBackendId: 'webcodecs',
       m4aBackendId: 'webcodecs',
     });
+    expect(FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY).toEqual({
+      mode: 'format-gated-v1',
+      mp3: 'bounded-stream',
+      m4aAacLc: 'webcodecs',
+      rawAdtsAac: 'current',
+    });
     expect(Object.isFrozen(FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY)).toBe(true);
     expect(Object.isFrozen(FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY)).toBe(true);
+    expect(Object.isFrozen(FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY)).toBe(true);
     expect(FILE_PLAYBACK_CURRENT_BOUNDED_ROUTE_POLICY).not.toBe(
+      FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
+    );
+    expect(FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY).not.toBe(
       FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
     );
   });
@@ -47,7 +58,38 @@ describe('file playback bounded route policy', () => {
     expect(snapshotFilePlaybackBoundedRoutePolicy(nullPrototype)).toBe(
       FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
     );
+    expect(
+      snapshotFilePlaybackBoundedRoutePolicy({
+        mode: 'format-gated-v1',
+        mp3: 'bounded-stream',
+        m4aAacLc: 'webcodecs',
+        rawAdtsAac: 'current',
+      }),
+    ).toBe(FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY);
   });
+
+  it.each([
+    ['current', 'current', 'current'],
+    ['current', 'current', 'webcodecs'],
+    ['current', 'webcodecs', 'current'],
+    ['current', 'webcodecs', 'webcodecs'],
+    ['bounded-stream', 'current', 'current'],
+    ['bounded-stream', 'current', 'webcodecs'],
+    ['bounded-stream', 'webcodecs', 'current'],
+    ['bounded-stream', 'webcodecs', 'webcodecs'],
+  ] as const)(
+    'canonicalizes and freezes independent gates: MP3=%s M4A=%s raw-AAC=%s',
+    (mp3, m4aAacLc, rawAdtsAac) => {
+      const input = { mode: 'format-gated-v1' as const, mp3, m4aAacLc, rawAdtsAac };
+      const first = snapshotFilePlaybackBoundedRoutePolicy(input);
+      const second = snapshotFilePlaybackBoundedRoutePolicy({ ...input });
+
+      expect(first).toBe(second);
+      expect(first).not.toBe(input);
+      expect(first).toEqual(input);
+      expect(Object.isFrozen(first)).toBe(true);
+    },
+  );
 
   it.each([
     null,
@@ -78,6 +120,32 @@ describe('file playback bounded route policy', () => {
       m4aBackendId: 'webcodecs',
       extra: true,
     },
+    { mode: 'format-gated-v1' },
+    {
+      mode: 'format-gated-v1',
+      mp3: true,
+      m4aAacLc: 'webcodecs',
+      rawAdtsAac: 'current',
+    },
+    {
+      mode: 'format-gated-v1',
+      mp3: 'bounded-stream',
+      m4aAacLc: 'symphonia-wasm',
+      rawAdtsAac: 'current',
+    },
+    {
+      mode: 'format-gated-v1',
+      mp3: 'bounded-stream',
+      m4aAacLc: 'webcodecs',
+      rawAdtsAac: undefined,
+    },
+    {
+      mode: 'format-gated-v1',
+      mp3: 'bounded-stream',
+      m4aAacLc: 'webcodecs',
+      rawAdtsAac: 'current',
+      extra: true,
+    },
   ])('rejects a noncanonical policy record %#', (value) => {
     expect(() => snapshotFilePlaybackBoundedRoutePolicy(value)).toThrow(TypeError);
   });
@@ -90,6 +158,19 @@ describe('file playback bounded route policy', () => {
     });
     expect(() => snapshotFilePlaybackBoundedRoutePolicy(accessor)).toThrow(TypeError);
     expect(modeGetter).not.toHaveBeenCalled();
+
+    const mp3Getter = vi.fn(() => 'bounded-stream');
+    const formatAccessor = Object.defineProperties(
+      {},
+      {
+        mode: { enumerable: true, value: 'format-gated-v1' },
+        mp3: { enumerable: true, get: mp3Getter },
+        m4aAacLc: { enumerable: true, value: 'webcodecs' },
+        rawAdtsAac: { enumerable: true, value: 'current' },
+      },
+    );
+    expect(() => snapshotFilePlaybackBoundedRoutePolicy(formatAccessor)).toThrow(TypeError);
+    expect(mp3Getter).not.toHaveBeenCalled();
 
     const hidden = Object.defineProperty({}, 'mode', {
       enumerable: false,

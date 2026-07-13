@@ -5,6 +5,7 @@ import type { StreamingAacPlaybackSourceOptions } from '../backends/streaming-aa
 import type { StreamingM4aAacPlaybackSourceOptions } from '../backends/streaming-m4a-aac-playback-source.ts';
 import type { StreamingMp3PlaybackSourceOptions } from '../backends/streaming-mp3-playback-source.ts';
 import {
+  FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
   FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
   type FilePlaybackBoundedRoutePolicy,
 } from '../file-playback-bounded-route-policy.ts';
@@ -236,6 +237,142 @@ describe('default-off universal bounded audio routes', () => {
     expect(decodeOrdinaryAudio).toHaveBeenCalledOnce();
     expect(aacCapabilityProbe).not.toHaveBeenCalled();
   });
+
+  it('activates MP3 and M4A independently while release policy leaves raw ADTS AAC ordinary', async () => {
+    const createStreamingMp3Source = vi.fn((options: StreamingMp3PlaybackSourceOptions) =>
+      boundedSource(options.queueItemId),
+    );
+    const createStreamingM4aAacSource = vi.fn((options: StreamingM4aAacPlaybackSourceOptions) =>
+      boundedSource(options.queueItemId),
+    );
+    const createStreamingAacSource = vi.fn((options: StreamingAacPlaybackSourceOptions) =>
+      boundedSource(options.queueItemId),
+    );
+    const aacCapabilityProbe = vi.fn(acceptAacCapability);
+    const factories = {
+      createStreamingMp3Source,
+      createStreamingM4aAacSource,
+      createStreamingAacSource,
+    };
+
+    const mp3 = await createBlobFilePlaybackSource(
+      blobOptions(mp3File(), {
+        boundedRoutePolicy: FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
+        backendFactories: factories,
+      }),
+    );
+    const m4a = await createBlobFilePlaybackSource(
+      blobOptions(m4aFile(), {
+        boundedRoutePolicy: FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
+        backendFactories: factories,
+      }),
+    );
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const rawAac = await createBlobFilePlaybackSource(
+      blobOptions(aacFile(), {
+        boundedRoutePolicy: FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
+        aacCapabilityProbe,
+        decodeOrdinaryAudio,
+        backendFactories: factories,
+      }),
+    );
+
+    expect(mp3.backend).toBe('bounded-stream');
+    expect(m4a.backend).toBe('bounded-stream');
+    expect(rawAac.backend).toBe('audio-buffer');
+    expect(createStreamingMp3Source).toHaveBeenCalledOnce();
+    expect(createStreamingM4aAacSource).toHaveBeenCalledOnce();
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+    expect(aacCapabilityProbe).not.toHaveBeenCalled();
+    expect(decodeOrdinaryAudio).toHaveBeenCalledOnce();
+  });
+
+  it('does not reinterpret disabled raw AAC content through an enabled contradictory MP3 claim', async () => {
+    const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());
+    const createStreamingMp3Source = vi.fn();
+    const createStreamingAacSource = vi.fn();
+    const result = await createBlobFilePlaybackSource(
+      blobOptions(aacFile('misnamed.mp3', 'audio/mpeg'), {
+        boundedRoutePolicy: FILE_PLAYBACK_MP3_M4A_V1_BOUNDED_ROUTE_POLICY,
+        decodeOrdinaryAudio,
+        backendFactories: {
+          createStreamingMp3Source:
+            createStreamingMp3Source as BlobFilePlaybackBackendFactories['createStreamingMp3Source'],
+          createStreamingAacSource:
+            createStreamingAacSource as BlobFilePlaybackBackendFactories['createStreamingAacSource'],
+        },
+      }),
+    );
+
+    expect(result.backend).toBe('audio-buffer');
+    expect(decodeOrdinaryAudio).toHaveBeenCalledOnce();
+    expect(createStreamingMp3Source).not.toHaveBeenCalled();
+    expect(createStreamingAacSource).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'MP3',
+      {
+        mode: 'format-gated-v1',
+        mp3: 'bounded-stream',
+        m4aAacLc: 'current',
+        rawAdtsAac: 'current',
+      },
+      () => mp3File(),
+      'mp3',
+    ],
+    [
+      'M4A AAC-LC',
+      {
+        mode: 'format-gated-v1',
+        mp3: 'current',
+        m4aAacLc: 'webcodecs',
+        rawAdtsAac: 'current',
+      },
+      () => m4aFile(),
+      'm4a',
+    ],
+    [
+      'raw ADTS AAC',
+      {
+        mode: 'format-gated-v1',
+        mp3: 'current',
+        m4aAacLc: 'current',
+        rawAdtsAac: 'webcodecs',
+      },
+      () => aacFile(),
+      'aac',
+    ],
+  ] as const)(
+    'admits %s when it is the only optional bounded format enabled',
+    async (_label, boundedRoutePolicy, file, expectedBackend) => {
+      const createStreamingMp3Source = vi.fn((options: StreamingMp3PlaybackSourceOptions) =>
+        boundedSource(options.queueItemId),
+      );
+      const createStreamingM4aAacSource = vi.fn((options: StreamingM4aAacPlaybackSourceOptions) =>
+        boundedSource(options.queueItemId),
+      );
+      const createStreamingAacSource = vi.fn((options: StreamingAacPlaybackSourceOptions) =>
+        boundedSource(options.queueItemId),
+      );
+      const result = await createBlobFilePlaybackSource(
+        blobOptions(file(), {
+          boundedRoutePolicy,
+          backendFactories: {
+            createStreamingMp3Source,
+            createStreamingM4aAacSource,
+            createStreamingAacSource,
+          },
+        }),
+      );
+
+      expect(result.backend).toBe('bounded-stream');
+      expect(createStreamingMp3Source).toHaveBeenCalledTimes(expectedBackend === 'mp3' ? 1 : 0);
+      expect(createStreamingM4aAacSource).toHaveBeenCalledTimes(expectedBackend === 'm4a' ? 1 : 0);
+      expect(createStreamingAacSource).toHaveBeenCalledTimes(expectedBackend === 'aac' ? 1 : 0);
+    },
+  );
 
   it('routes a verified MP3 Blob only under universal-v1 and forwards its exact runtime', async () => {
     const decodeOrdinaryAudio = vi.fn(async () => decodedOrdinaryAudio());

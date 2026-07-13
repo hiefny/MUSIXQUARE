@@ -100,6 +100,37 @@ const PRE_AUTHORITY_MEDIA_TYPES: ReadonlySet<string> = new Set([
   MSG.YOUTUBE_SUB_TITLE_UPDATE,
 ]);
 
+/**
+ * V2 guests receive file bytes, renderer commands, and canonical timeline
+ * truth only through the authenticated product media session. These legacy
+ * frames must never reach RAM-store, preload, recovery, or playback handlers
+ * after the exact host-connection and application-session boundaries above.
+ *
+ * Operator requests are intentionally absent: the host still accepts the
+ * existing bounded REQUEST_PLAY/PAUSE/SEEK/SKIP_TIME application controls.
+ */
+const V2_GUEST_LEGACY_FILE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  MSG.PLAY,
+  MSG.PAUSE,
+  MSG.PLAY_PRELOADED,
+  MSG.FILE_PREPARE,
+  MSG.FILE_START,
+  MSG.FILE_RESUME,
+  MSG.FILE_CHUNK,
+  MSG.FILE_END,
+  MSG.FILE_WAIT,
+  MSG.PRELOAD_START,
+  MSG.PRELOAD_CHUNK,
+  MSG.PRELOAD_END,
+  MSG.PRELOAD_ABORT,
+  MSG.PRELOAD_ACK,
+  MSG.REMOTE_FILE_SHARE,
+  MSG.REMOTE_FILE_UNAVAILABLE,
+  MSG.REQUEST_CURRENT_FILE,
+  MSG.REQUEST_DATA_RECOVERY,
+  MSG.GUEST_DECODE_FAILED,
+]);
+
 function requiresQueueAuthority(msgType: MsgType, msg: Record<string, unknown>): boolean {
   return (
     Object.prototype.hasOwnProperty.call(msg, 'queueItemId') ||
@@ -599,6 +630,16 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
         return;
       }
     }
+  }
+
+  // The V2 application session owns all guest file-media truth. Drop old
+  // transfer/playback frames before queue gates, rate limits, validation, or
+  // generic handlers can mutate legacy state. A stale/non-host connection was
+  // already rejected above, and a known handshaking connection was handled by
+  // the application-session gate immediately before this boundary.
+  if (FILE_PLAYBACK_ENGINE_V2_ENABLED && isGuest && V2_GUEST_LEGACY_FILE_MEDIA_TYPES.has(msgType)) {
+    log.debug(`[Protocol] Ignored legacy file-media frame in V2 guest room: ${msgType}`);
+    return;
   }
 
   // Ordered channels are not enough across reconnects: a new host may restart

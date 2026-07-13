@@ -11,11 +11,15 @@ import {
   type HostFirstLocalFilePlaybackCommit,
   type HostPeerPlaybackPublication,
   type HostPeerRangeSource,
+  type HostPreparedLocalTrack,
+  type HostPreparedRemoteParticipant,
   type HostRemoteRecoveryCommit,
   type RecoverHostRemoteParticipantOptions,
+  type ResolvePreparedHostPeerRangeSourceOptions,
   type ResolveHostPeerRangeSourceOptions,
   type SeekHostPausedOptions,
   type SeekHostPlayingOptions,
+  type StartPreparedHostLocalTrackOptions,
   type StartHostFirstLocalFileOptions,
   type StartHostLocalTrackOptions,
 } from './file-playback-host-first-file-engine.ts';
@@ -37,6 +41,7 @@ const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
 );
 const FIRST_FILE_KEYS = Object.freeze(['file', 'queueItemId', 'signal'] as const);
 const TRACK_KEYS = Object.freeze(['file', 'positionSeconds', 'queueItemId', 'signal'] as const);
+const COHORT_TRACK_KEYS = Object.freeze([...TRACK_KEYS, 'prepareRemoteParticipants'] as const);
 const CURRENT_KEYS = Object.freeze(['signal'] as const);
 const SEEK_KEYS = Object.freeze(['positionSeconds', 'signal'] as const);
 const RESOLVE_PEER_SOURCE_KEYS = Object.freeze([
@@ -77,6 +82,13 @@ export interface FilePlaybackProductHostFirstEnginePort {
   startLocalTrack(
     options: StartHostLocalTrackOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
+  prepareLocalTrack(options: StartHostLocalTrackOptions): Promise<Readonly<HostPreparedLocalTrack>>;
+  startPreparedLocalTrack(
+    options: StartPreparedHostLocalTrackOptions,
+  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
+  resolvePreparedPeerRangeSource(
+    options: ResolvePreparedHostPeerRangeSourceOptions,
+  ): Promise<HostPeerRangeSource>;
   pauseCurrent(
     options: HostCurrentPlaybackOperationOptions,
   ): Promise<Readonly<HostCurrentPlaybackTransitionCommit>>;
@@ -165,6 +177,27 @@ export interface StartFilePlaybackProductHostFirstLocalFileOptions {
 
 export interface StartFilePlaybackProductHostLocalTrackOptions extends StartFilePlaybackProductHostFirstLocalFileOptions {
   readonly positionSeconds: number;
+}
+
+export interface FilePlaybackProductHostPreparedCohortContext {
+  /** Body-free exact capability for this one silent engine candidate. */
+  readonly prepared: Readonly<HostPreparedLocalTrack>;
+  /** The room-owned signal for the complete prepare/publish/start operation. */
+  readonly signal: AbortSignal;
+  /** Resolves only the encoded source bound to `prepared`, under the same room fence. */
+  readonly resolveSource: (sourceIdentity: string) => Promise<HostPeerRangeSource>;
+}
+
+export type PrepareFilePlaybackProductHostRemoteParticipants = (
+  context: Readonly<FilePlaybackProductHostPreparedCohortContext>,
+) => Promise<readonly Readonly<HostPreparedRemoteParticipant>[]>;
+
+/**
+ * One non-dangling room operation: prepare the local candidate, establish the
+ * exact ready remote cohort, then start their shared rendezvous.
+ */
+export interface StartFilePlaybackProductHostLocalTrackWithCohortOptions extends StartFilePlaybackProductHostLocalTrackOptions {
+  readonly prepareRemoteParticipants: PrepareFilePlaybackProductHostRemoteParticipants;
 }
 
 export interface FilePlaybackProductHostCurrentOptions {
@@ -455,6 +488,28 @@ function removeAbortListener(signal: AbortSignal, listener: EventListener): void
   Reflect.apply(trustedEventTargetRemove, signal, ['abort', listener]);
 }
 
+async function awaitAbortableNativeTask<T>(task: Promise<T>, signal: AbortSignal): Promise<T> {
+  let rejectAbort!: (reason: unknown) => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  const abort: EventListener = () => {
+    try {
+      rejectAbort(readAbortReason(signal));
+    } catch (error) {
+      rejectAbort(error);
+    }
+  };
+  addAbortListener(signal, abort);
+  const raced = Promise.race([task, aborted]);
+  try {
+    throwIfAborted(signal);
+    return await raced;
+  } finally {
+    removeAbortListener(signal, abort);
+  }
+}
+
 function asError(value: unknown, message: string): Error {
   return value instanceof Error ? value : new Error(message, { cause: value });
 }
@@ -480,6 +535,9 @@ function isEnginePort(
   return (
     typeof candidate.startFirstLocalFile === 'function' &&
     typeof candidate.startLocalTrack === 'function' &&
+    typeof candidate.prepareLocalTrack === 'function' &&
+    typeof candidate.startPreparedLocalTrack === 'function' &&
+    typeof candidate.resolvePreparedPeerRangeSource === 'function' &&
     typeof candidate.pauseCurrent === 'function' &&
     typeof candidate.seekPlaying === 'function' &&
     typeof candidate.seekPaused === 'function' &&
@@ -668,7 +726,7 @@ export class FilePlaybackProductHostRoom {
       return Promise.reject(error);
     }
     return this.#enqueueCandidate(intent.signal, async (operation) =>
-      this.#startTrack(operation, intent),
+      this.#startTrackWithCohort(operation, intent, async () => []),
     );
   }
 
@@ -682,7 +740,27 @@ export class FilePlaybackProductHostRoom {
       return Promise.reject(error);
     }
     return this.#enqueueCandidate(intent.signal, async (operation) =>
-      this.#startTrack(operation, intent),
+      this.#startTrackWithCohort(operation, intent, async () => []),
+    );
+  }
+
+  startLocalTrackWithCohort(
+    options: StartFilePlaybackProductHostLocalTrackWithCohortOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    const input = snapshotExactRecord(options, COHORT_TRACK_KEYS);
+    let intent: FileIntent;
+    if (!input || typeof input.prepareRemoteParticipants !== 'function') {
+      return Promise.reject(new TypeError('Product local track cohort options are invalid'));
+    }
+    try {
+      intent = readFileIntent(options, COHORT_TRACK_KEYS);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const prepareRemoteParticipants =
+      input.prepareRemoteParticipants as PrepareFilePlaybackProductHostRemoteParticipants;
+    return this.#enqueueCandidate(intent.signal, async (operation) =>
+      this.#startTrackWithCohort(operation, intent, prepareRemoteParticipants),
     );
   }
 
@@ -1118,27 +1196,90 @@ export class FilePlaybackProductHostRoom {
     return task;
   }
 
-  async #startTrack(
+  async #startTrackWithCohort(
     operation: RoomOperation,
     intent: FileIntent,
+    prepareRemoteParticipants: PrepareFilePlaybackProductHostRemoteParticipants,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
     const audioRuntime = await this.#prepareGraph(operation);
     this.#assertOperationReady(operation);
     const record = await this.#getOrCreateEngine(operation);
     this.#assertOperationReady(operation);
-    return this.#invokeCandidate(operation, intent.queueItemId, () =>
-      record.engine.startLocalTrack({
-        queueItemId: intent.queueItemId,
-        blob: intent.file,
-        name: intent.name,
-        mime: intent.mime,
-        positionSeconds: intent.positionSeconds,
-        audioContext: audioRuntime.audioContext,
-        destination: audioRuntime.destination,
-        decodeOrdinaryAudio: this.#runtime.decodeOrdinaryAudio,
+    const prepared = await record.engine.prepareLocalTrack({
+      queueItemId: intent.queueItemId,
+      blob: intent.file,
+      name: intent.name,
+      mime: intent.mime,
+      positionSeconds: intent.positionSeconds,
+      audioContext: audioRuntime.audioContext,
+      destination: audioRuntime.destination,
+      decodeOrdinaryAudio: this.#runtime.decodeOrdinaryAudio,
+      signal: operation.controller.signal,
+    });
+    this.#assertOperationReady(operation);
+    assertBodyFree(prepared);
+    try {
+      const resolveSource = async (sourceIdentity: string): Promise<HostPeerRangeSource> => {
+        this.#assertOperationReady(operation);
+        if (typeof sourceIdentity !== 'string') {
+          throw new TypeError('Product prepared peer-range source identity is invalid');
+        }
+        const source = await record.engine.resolvePreparedPeerRangeSource({
+          prepared,
+          sourceIdentity,
+          signal: operation.controller.signal,
+        });
+        try {
+          this.#assertOperationReady(operation);
+          return source;
+        } catch (error) {
+          if (!(source instanceof Blob)) {
+            try {
+              await source.close();
+            } catch {
+              // The stale room operation remains the primary rejection.
+            }
+          }
+          throw error;
+        }
+      };
+      const context = freezeCanonical({
+        prepared,
         signal: operation.controller.signal,
-      }),
-    );
+        resolveSource,
+      });
+      this.#assertOperationReady(operation);
+      const cohortTask = Reflect.apply(prepareRemoteParticipants, undefined, [context]) as unknown;
+      if (!(cohortTask instanceof Promise)) {
+        throw new TypeError('Product remote cohort preparation must return a native Promise');
+      }
+      const remoteParticipants = await awaitAbortableNativeTask(
+        cohortTask,
+        operation.controller.signal,
+      );
+      this.#assertOperationReady(operation);
+      if (!Array.isArray(remoteParticipants)) {
+        throw new TypeError('Product remote cohort preparation returned an invalid cohort');
+      }
+      return await this.#invokeCandidate(operation, intent.queueItemId, () =>
+        record.engine.startPreparedLocalTrack({
+          prepared,
+          remoteParticipants,
+        }),
+      );
+    } catch (cause) {
+      try {
+        abortController(operation.controller, cause);
+      } catch (cleanupFailure) {
+        const error = new ProductHostRoomCleanupError(
+          'Prepared product host candidate cleanup failed',
+          new AggregateError([cause, cleanupFailure], 'Prepared candidate cleanup failed'),
+        );
+        this.#quarantine(error);
+        throw error;
+      }
+      throw cause;
+    }
   }
 
   async #prepareGraph(operation: RoomOperation): Promise<AudioRuntime> {

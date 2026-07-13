@@ -16,17 +16,22 @@ import type {
   HostFirstLocalFilePlaybackCommit,
   HostPeerPlaybackPublication,
   HostPeerRangeSource,
+  HostPreparedLocalTrack,
+  HostPreparedRemoteParticipant,
   HostRemoteRecoveryCommit,
   RecoverHostRemoteParticipantOptions,
+  ResolvePreparedHostPeerRangeSourceOptions,
   ResolveHostPeerRangeSourceOptions,
   SeekHostPausedOptions,
   SeekHostPlayingOptions,
+  StartPreparedHostLocalTrackOptions,
   StartHostFirstLocalFileOptions,
   StartHostLocalTrackOptions,
 } from '../file-playback-host-first-file-engine.ts';
 import { FilePlaybackProductBaselineIdIssuer } from '../file-playback-product-baseline-session.ts';
 import {
   FilePlaybackProductHostRoom,
+  type FilePlaybackProductHostPreparedCohortContext,
   type FilePlaybackProductHostFirstEnginePort,
 } from '../file-playback-product-host-room.ts';
 import { FilePlaybackRoomClock } from '../file-playback-room-clock.ts';
@@ -180,6 +185,57 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
     (input: StartHostLocalTrackOptions): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> =>
       this.#commitFileCandidate(input, input.positionSeconds),
   );
+  readonly prepareLocalTrack = vi.fn(
+    async (input: StartHostLocalTrackOptions): Promise<Readonly<HostPreparedLocalTrack>> => {
+      input.signal.throwIfAborted();
+      const backend: FilePlaybackBackend =
+        input.mime === 'audio/flac' || input.name.toLowerCase().endsWith('.flac')
+          ? 'streaming-flac'
+          : 'audio-buffer';
+      const sourceSequence = ++this.sequence;
+      const previous = this.options.controller.timelineSnapshot();
+      const prepared = freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: this.options.roomGeneration,
+        backend,
+        state: freezeCanonical({
+          queueItemId: input.queueItemId,
+          runId: `fixture-prepared-run-${sourceSequence}`,
+          revision: previous.revision + 1,
+        }),
+        positionSeconds: input.positionSeconds,
+        playbackRate: 1,
+        asset: freezeCanonical({
+          kind: 'blob' as const,
+          binding: freezeCanonical({
+            queueItemId: input.queueItemId,
+            sourceIdentity: `fixture-prepared-source-${sourceSequence}`,
+            transferSessionId: `fixture-prepared-transfer-${sourceSequence}`,
+          }),
+          metadata: freezeCanonical({
+            name: input.name,
+            mime: input.mime || 'application/octet-stream',
+          }),
+          encodedSize: input.blob.size,
+        }),
+      });
+      this.preparedInputs.set(prepared, input);
+      return prepared;
+    },
+  );
+  readonly startPreparedLocalTrack = vi.fn(
+    (
+      input: StartPreparedHostLocalTrackOptions,
+    ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> => {
+      const preparedInput = this.preparedInputs.get(input.prepared);
+      if (!preparedInput) return Promise.reject(new Error('Fixture prepared track is stale'));
+      return this.#commitFileCandidate(preparedInput, preparedInput.positionSeconds);
+    },
+  );
+  readonly resolvePreparedPeerRangeSource = vi.fn(
+    (_input: ResolvePreparedHostPeerRangeSourceOptions): Promise<HostPeerRangeSource> =>
+      Promise.reject(new Error('Fixture prepared peer source is unavailable')),
+  );
   readonly pauseCurrent = vi.fn((input: HostCurrentPlaybackOperationOptions) =>
     this.#commitTransition('pause', input.signal),
   );
@@ -269,6 +325,7 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   private asset: FixtureAsset | null = null;
   private audioContext: AudioContext | null = null;
   private sequence = 0;
+  private readonly preparedInputs = new WeakMap<object, StartHostLocalTrackOptions>();
 
   constructor(
     readonly options: Readonly<FilePlaybackHostFirstFileEngineOptions>,
@@ -699,6 +756,25 @@ function track(
   return room.startLocalTrack({ queueItemId, file: value, positionSeconds, signal });
 }
 
+function trackWithCohort(
+  room: FilePlaybackProductHostRoom,
+  queueItemId: QueueItemId,
+  value: File,
+  prepareRemoteParticipants: (
+    context: Readonly<FilePlaybackProductHostPreparedCohortContext>,
+  ) => Promise<readonly Readonly<HostPreparedRemoteParticipant>[]>,
+  positionSeconds = 0,
+  signal = new AbortController().signal,
+) {
+  return room.startLocalTrackWithCohort({
+    queueItemId,
+    file: value,
+    positionSeconds,
+    signal,
+    prepareRemoteParticipants,
+  });
+}
+
 function signalOptions() {
   return { signal: new AbortController().signal };
 }
@@ -836,13 +912,212 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
         schedule: { positionSeconds: 3.5 },
       });
       expect(setup.engines).toHaveLength(1);
-      expect(setup.engines[0]?.startLocalTrack).toHaveBeenCalledTimes(2);
+      expect(setup.engines[0]?.prepareLocalTrack).toHaveBeenCalledTimes(2);
+      expect(setup.engines[0]?.startPreparedLocalTrack).toHaveBeenCalledTimes(2);
+      expect(setup.engines[0]?.startLocalTrack).not.toHaveBeenCalled();
+      for (const [start] of setup.engines[0]?.startPreparedLocalTrack.mock.calls ?? []) {
+        expect(start.remoteParticipants).toEqual([]);
+      }
       expect(setup.engines[0]?.close).not.toHaveBeenCalled();
       expect(setup.room.currentRendererSnapshot()).toMatchObject({ queueItemId: Q2, backend });
       expect(setup.room.positionAt(2_000)?.queueItemId).toBe(Q2);
       expect(containsBody(result)).toBe(false);
     },
   );
+
+  it('prepares one exact body-free remote cohort and starts it inside the candidate fence', async () => {
+    const setup = makeHarness();
+    const media = file('cohort.flac', 'audio/flac');
+    const engine = setup.engines[0];
+    const prepareRemoteParticipants = vi.fn(
+      async (context: Readonly<FilePlaybackProductHostPreparedCohortContext>) => {
+        expect(Object.isFrozen(context)).toBe(true);
+        expect(Object.isFrozen(context.prepared)).toBe(true);
+        expect(containsBody(context.prepared)).toBe(false);
+        expect(context.prepared).toMatchObject({
+          backend: 'streaming-flac',
+          state: { queueItemId: Q1 },
+          positionSeconds: 7.25,
+          asset: { encodedSize: media.size },
+        });
+        const createdEngine = setup.engines[0]!;
+        createdEngine.resolvePreparedPeerRangeSource.mockResolvedValueOnce(media);
+        await expect(
+          context.resolveSource(context.prepared.asset.binding.sourceIdentity),
+        ).resolves.toBe(media);
+        const participant = new RemoteRendezvousParticipant({
+          participantId: 'product-cohort-peer',
+          rendererEvidenceScope: Object.freeze({
+            sessionId: 'product-cohort-session',
+            connectionId: 'product-cohort-connection',
+            recipientParticipantId: 'product-cohort-host',
+            sourceIdentity: context.prepared.asset.binding.sourceIdentity,
+            transferSessionId: context.prepared.asset.binding.transferSessionId,
+          }),
+          rttP95Ms: 10,
+          armP95Ms: 10,
+          nowRoomTimeMs: () => 1_000,
+          dispatchArm: vi.fn(),
+          dispatchFinalize: vi.fn(),
+          dispatchCancel: vi.fn(),
+        });
+        return [freezeCanonical({ participant, bindAttempt: vi.fn(async () => undefined) })];
+      },
+    );
+
+    const result = await trackWithCohort(setup.room, Q1, media, prepareRemoteParticipants, 7.25);
+    const createdEngine = setup.engines[0]!;
+    const prepared = createdEngine.prepareLocalTrack.mock.results[0]?.value;
+    const context = prepareRemoteParticipants.mock.calls[0]?.[0];
+
+    expect(engine).toBeUndefined();
+    expect(prepareRemoteParticipants).toHaveBeenCalledOnce();
+    expect(context?.signal).toBe(createdEngine.prepareLocalTrack.mock.calls[0]?.[0].signal);
+    expect(createdEngine.resolvePreparedPeerRangeSource).toHaveBeenCalledWith({
+      prepared: await prepared,
+      sourceIdentity: context?.prepared.asset.binding.sourceIdentity,
+      signal: context?.signal,
+    });
+    expect(createdEngine.startPreparedLocalTrack).toHaveBeenCalledOnce();
+    expect(createdEngine.startPreparedLocalTrack.mock.calls[0]?.[0].prepared).toBe(
+      context?.prepared,
+    );
+    expect(createdEngine.startPreparedLocalTrack.mock.calls[0]?.[0].remoteParticipants).toBe(
+      await prepareRemoteParticipants.mock.results[0]?.value,
+    );
+    expect(result).toMatchObject({
+      status: 'committed',
+      backend: 'streaming-flac',
+      attempt: { queueItemId: Q1 },
+      schedule: { positionSeconds: 7.25 },
+    });
+    expect(containsBody(result)).toBe(false);
+  });
+
+  it('aborts a slow remote cohort callback without starting a dangling candidate', async () => {
+    const setup = makeHarness();
+    const external = new AbortController();
+    const callbackGate = deferred<readonly Readonly<HostPreparedRemoteParticipant>[]>();
+    let callbackSignal: AbortSignal | null = null;
+    const pending = trackWithCohort(
+      setup.room,
+      Q1,
+      file('slow-cohort.mp3'),
+      async (context) => {
+        callbackSignal = context.signal;
+        return callbackGate.promise;
+      },
+      0,
+      external.signal,
+    );
+    await drainMicrotasks();
+
+    external.abort(new Error('cohort cancelled'));
+
+    await expect(pending).rejects.toThrow('cohort cancelled');
+    expect(callbackSignal?.aborted).toBe(true);
+    expect(setup.engines[0]?.startPreparedLocalTrack).not.toHaveBeenCalled();
+    callbackGate.resolve([]);
+    await drainMicrotasks();
+    expect(setup.engines[0]?.startPreparedLocalTrack).not.toHaveBeenCalled();
+  });
+
+  it('closes a prepared source which resolves after its cohort operation became stale', async () => {
+    const setup = makeHarness();
+    const external = new AbortController();
+    const sourceGate = deferred<HostPeerRangeSource>();
+    const closeSource = vi.fn(async () => undefined);
+    const pending = trackWithCohort(
+      setup.room,
+      Q1,
+      file('late-source.flac', 'audio/flac'),
+      async (context) => {
+        setup.engines[0]?.resolvePreparedPeerRangeSource.mockImplementationOnce(
+          async () => sourceGate.promise,
+        );
+        await context.resolveSource(context.prepared.asset.binding.sourceIdentity);
+        return [];
+      },
+      0,
+      external.signal,
+    );
+    await drainMicrotasks();
+    external.abort(new Error('source operation superseded'));
+
+    await expect(pending).rejects.toThrow('source operation superseded');
+    sourceGate.resolve({ close: closeSource } as unknown as HostPeerRangeSource);
+    await drainMicrotasks();
+
+    expect(closeSource).toHaveBeenCalledOnce();
+    expect(setup.engines[0]?.startPreparedLocalTrack).not.toHaveBeenCalled();
+  });
+
+  it('fences synchronous cohort callback reentry and lets only the successor start', async () => {
+    const setup = makeHarness();
+    let successor: Promise<Readonly<HostFirstLocalFilePlaybackCommit>> | null = null;
+    let staleSignal: AbortSignal | null = null;
+    const stale = trackWithCohort(setup.room, Q1, file('stale-reentry.mp3'), async (context) => {
+      staleSignal = context.signal;
+      successor = track(setup.room, Q2, file('successor.mp3'));
+      return [];
+    });
+
+    await expect(stale).rejects.toBeTruthy();
+    expect(staleSignal?.aborted).toBe(true);
+    await expect(successor).resolves.toMatchObject({ attempt: { queueItemId: Q2 } });
+    expect(setup.engines[0]?.startPreparedLocalTrack).toHaveBeenCalledOnce();
+    expect(setup.controller.timelineSnapshot().run?.queueItemId).toBe(Q2);
+  });
+
+  it('fences close reentry from remote cohort preparation without starting the candidate', async () => {
+    const setup = makeHarness();
+    let terminal: Promise<void> | null = null;
+    const pending = trackWithCohort(setup.room, Q1, file('close-reentry.mp3'), async (context) => {
+      terminal = setup.room.close();
+      expect(context.signal.aborted).toBe(true);
+      return [];
+    });
+
+    await expect(pending).rejects.toBeTruthy();
+    await expect(terminal).resolves.toBeUndefined();
+    expect(setup.engines[0]?.startPreparedLocalTrack).not.toHaveBeenCalled();
+    expect(setup.engines[0]?.close).toHaveBeenCalledOnce();
+  });
+
+  it('rejects stale room authority before a prepared cohort can start', async () => {
+    const setup = makeHarness();
+    const callbackGate = deferred<readonly Readonly<HostPreparedRemoteParticipant>[]>();
+    const pending = trackWithCohort(
+      setup.room,
+      Q1,
+      file('stale-room.mp3'),
+      async () => callbackGate.promise,
+    );
+    await drainMicrotasks();
+    setup.controller.beginRoom(createStoppedPlaybackTimeline(2_000, 0));
+    setup.controller.claimRoomRole('host');
+    callbackGate.resolve([]);
+
+    await expect(pending).rejects.toThrow(/authority|stale/u);
+    expect(setup.engines[0]?.startPreparedLocalTrack).not.toHaveBeenCalled();
+    expect(setup.engines[0]?.prepareLocalTrack.mock.calls[0]?.[0].signal.aborted).toBe(true);
+  });
+
+  it('rejects a non-native remote cohort task before engine start', async () => {
+    const setup = makeHarness();
+
+    await expect(
+      setup.room.startLocalTrackWithCohort({
+        queueItemId: Q1,
+        file: file('thenable.mp3'),
+        positionSeconds: 0,
+        signal: new AbortController().signal,
+        prepareRemoteParticipants: (() => ({ then: vi.fn() })) as never,
+      }),
+    ).rejects.toThrow(/native Promise/u);
+    expect(setup.engines[0]?.startPreparedLocalTrack).not.toHaveBeenCalled();
+    expect(setup.engines[0]?.prepareLocalTrack.mock.calls[0]?.[0].signal.aborted).toBe(true);
+  });
 
   it('aborts a prephysical candidate and lets its same-engine successor commit', async () => {
     const beforePhysical = deferred<void>();
